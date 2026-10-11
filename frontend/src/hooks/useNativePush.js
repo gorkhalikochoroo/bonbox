@@ -1,5 +1,5 @@
 /**
- * useNativePush — APNs registration for the native BonBox Scheduler shell.
+ * useNativePush — APNs registration for the native BonBox Vagtplan shell (dk.bonbox.scheduler).
  *
  * Web push is dead inside WKWebView, so when the portal runs in the native
  * app we register a real APNs device token with the backend instead

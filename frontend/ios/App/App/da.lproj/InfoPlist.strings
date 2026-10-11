@@ -1,0 +1,16 @@
+/*
+  BonBox (owner app) - permission prompts in Danish.
+  Same meaning as en.lproj/InfoPlist.strings and Info.plist. Keep them in step.
+*/
+
+/* Camera: scan receipts and Z reports */
+"NSCameraUsageDescription" = "BonBox skal bruge kameraet til at scanne kvitteringer og Z-boner.";
+
+/* Photo library: attach a receipt image */
+"NSPhotoLibraryUsageDescription" = "BonBox skal have adgang til dine billeder for at vedhæfte billeder af kvitteringer.";
+
+/* Photo library, add only: save a scanned receipt */
+"NSPhotoLibraryAddUsageDescription" = "BonBox skal kunne gemme scannede kvitteringer i dit fotobibliotek.";
+
+/* Face ID: unlock the app */
+"NSFaceIDUsageDescription" = "Brug Face ID til at låse BonBox sikkert op.";

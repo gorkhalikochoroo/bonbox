@@ -6,6 +6,7 @@ import { CookieSettingsButton } from "../components/CookieConsent";
 // pages can never show different dates. If the policy ever changes on its
 // own, give it its own constant there.
 import { TERMS_VERSION, termsDate } from "../legal/terms";
+import BonBoxMark from "../components/BonBoxMark";
 
 function Section({ title, children }) {
   return (
@@ -73,6 +74,16 @@ function PrivacyEn() {
             For the data a business puts into BonBox about its guests, customers and staff (for example
             reservations, khata customers and staff details), that business is the data controller, and
             we process the data on its behalf as its data processor.
+          </p>
+          {/* Clock-in location (brand release, 11 Oct 2026). True to the code:
+              StaffPortalPage useClock reads the position only on clock-IN and
+              only when geofence_on (enabled + a venue location set); the server
+              (staff_portal.portal_clock_in) only computes the distance and
+              stores no coordinates — HoursLogged.notes gets "Location
+              unverified" when there is no usable fix, which the owner sees as
+              the "Location not verified" chip. Keep in step with the Danish. */}
+          <p className="mt-2" data-testid="privacy-clock-in-location">
+            Location at clock-in: the BonBox Vagtplan app (and the staff page in a browser) reads the phone&rsquo;s location only when a staff member clocks in at a workplace that has turned on the location check; BonBox uses the coordinates only to check the distance to the workplace and does not save them, and the business sees only a &ldquo;Location not verified&rdquo; mark on a clock-in made without a usable location.
           </p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
             <li><strong>Registered name:</strong> DukaanAI v/Manoz Chaudhary</li>
@@ -348,6 +359,9 @@ function PrivacyDa() {
             (fx reservationer, khata-kunder og medarbejderoplysninger), er det den virksomhed, der er
             dataansvarlig, og vi behandler oplysningerne på dens vegne som dens databehandler.
           </p>
+          <p className="mt-2" data-testid="privacy-clock-in-location">
+            Placering ved indstempling: Appen BonBox Vagtplan (og personalesiden i en browser) læser kun telefonens placering, når en medarbejder stempler ind på en arbejdsplads, der har slået placeringstjek til; BonBox bruger kun koordinaterne til at tjekke afstanden til arbejdspladsen og gemmer dem ikke, og virksomheden ser kun mærket »Placering ikke verificeret« ved en indstempling uden en brugbar placering.
+          </p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
             <li><strong>Registreret navn:</strong> DukaanAI v/Manoz Chaudhary</li>
             <li><strong>CVR:</strong> <a href="https://datacvr.virk.dk/enhed/virksomhed/46417321" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">46417321</a> — du kan slå os op i det offentlige register</li>
@@ -613,12 +627,8 @@ export default function PrivacyPolicyPage() {
       <nav className="bg-slate-950 border-b border-white/5">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3">
-            <div className="inline-flex items-center justify-center w-10 h-10 bg-white/10 rounded-xl">
-              <svg width="24" height="24" viewBox="0 0 28 28" fill="none">
-                <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2" />
-                <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-                <path d="M4 20h20" stroke="#FCD34D" strokeWidth="2" />
-              </svg>
+            <div className="inline-flex items-center justify-center w-10 h-10 bg-bb-forest text-bb-paper rounded-xl">
+              <BonBoxMark size={32} />
             </div>
             <span className="text-xl font-bold text-white tracking-tight">BonBox</span>
           </Link>

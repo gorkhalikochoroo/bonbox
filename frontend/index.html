@@ -54,12 +54,16 @@
          it could fall back from — which is why search results kept showing the
          old icon. Static files in public/ are matched before rewrites, so the
          file's existence is the fix. Raster PNGs are listed too because an
-         SVG-only favicon is the least well-supported option across crawlers. -->
-    <link rel="icon" href="/favicon.ico" sizes="any" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=2" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=2" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
-    <link rel="apple-touch-icon" href="/icon-192.png?v=2" />
+         SVG-only favicon is the least well-supported option across crawlers.
+         These four links are the logo kit's snippet (docs/brand/README.md).
+         The b is drawn separately for 16 and 32 px, so there is deliberately
+         no SVG link: browsers that prefer an SVG would scale the 32 px
+         drawing down to a soft 16 px tab icon. /favicon.svg stays in public/
+         because other pages link it by absolute URL. -->
+    <link rel="icon" href="/favicon.ico?v=3" sizes="16x16 32x32" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3" />
     <!-- viewport-fit=cover exposes env(safe-area-inset-*) so layouts can
          dodge the notch / punch-hole camera. We dropped maximum-scale +
          user-scalable=no so kitchen owners can pinch-zoom into a small
@@ -162,6 +166,22 @@
           }
 
           if (token) {
+            // The staff schedule is its own app — Vagtplan — so it wears the
+            // Vagtplan icon (docs/brand: paper tile, forest b, emerald strip),
+            // not the owner app's. Swapped HERE, during the parse, for the same
+            // reason the manifest is chosen here: iOS Add to Home Screen takes
+            // this document's apple-touch-icon, and a swap after React mounts
+            // is a bet on timing. Own try: an icon must never cost the manifest.
+            try {
+              var icons = document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]');
+              for (var i = 0; i < icons.length; i++) {
+                var href = icons[i].getAttribute("href") || "";
+                icons[i].setAttribute("href",
+                  icons[i].getAttribute("rel") === "apple-touch-icon"
+                    ? "/vagtplan-apple-touch-icon.png?v=3"
+                    : href.replace("/favicon", "/vagtplan-favicon"));
+              }
+            } catch (eIcons) { /* keep the BonBox icons */ }
             if (isIOS) {
               // iOS staff route → NO manifest. Icon bookmarks /s/<token>.
               setManifest(null);
@@ -223,7 +243,7 @@
     <meta property="og:description" content="Dagens lukning, bordbestilling, vagtplan, timer &amp; løn, lager og MOMS. Til restauranter, barer, bistroer, butikker og alle andre, der lukker en kasse i Danmark. Ét login til ejeren, én app til personalet, én regning." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://bonbox.dk" />
-    <meta property="og:image" content="https://www.bonbox.dk/og-image-v2.png" />
+    <meta property="og:image" content="https://www.bonbox.dk/og-image-v2.png?v=3" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="BonBox" />
@@ -232,7 +252,7 @@
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://www.bonbox.dk/og-image-v2.png" />
+    <meta name="twitter:image" content="https://www.bonbox.dk/og-image-v2.png?v=3" />
     <meta name="twitter:title" content="BonBox — Bagkontoret din virksomhed faktisk kører på" />
     <meta name="twitter:description" content="Dagens lukning, bordbestilling, vagtplan, timer &amp; løn, lager og MOMS. Til restauranter, barer, bistroer, butikker og alle andre, der lukker en kasse i Danmark. Ét login til ejeren, én app til personalet, én regning." />
 

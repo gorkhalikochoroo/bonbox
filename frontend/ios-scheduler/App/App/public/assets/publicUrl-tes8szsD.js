@@ -1,1 +1,0 @@
-import{n as e}from"./platform-DM3b7mqo.js";var t=`https://www.bonbox.dk`;function n(){if(typeof window>`u`)return t;let n=window.location.origin||``;return e()||!/^https?:\/\//.test(n)?t:n}function r(e=``){return`${n()}${e}`}export{r as t};

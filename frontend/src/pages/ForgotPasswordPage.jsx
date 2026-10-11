@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
+import BonBoxMark from "../components/BonBoxMark";
 
 const inputCls = "w-full pl-11 pr-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent text-base text-gray-800 dark:text-gray-200 placeholder:text-gray-400 transition";
 
@@ -136,12 +137,8 @@ export default function ForgotPasswordPage() {
             {/* Logo + heading */}
             <div className="mb-8">
               <div className="flex items-center gap-3 mb-6">
-                <div className="w-11 h-11 bg-gray-900 rounded-xl flex items-center justify-center shadow-sm">
-                  <svg width="22" height="22" viewBox="0 0 28 28" fill="none">
-                    <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.5"/>
-                    <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-                    <path d="M4 20h20" stroke="#FCD34D" strokeWidth="2"/>
-                  </svg>
+                <div className="w-11 h-11 bg-bb-forest text-bb-paper rounded-xl flex items-center justify-center shadow-sm">
+                  <BonBoxMark size={36} />
                 </div>
                 <span className="text-xl font-bold text-gray-800 dark:text-white">BonBox</span>
               </div>

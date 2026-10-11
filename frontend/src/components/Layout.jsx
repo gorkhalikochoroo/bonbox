@@ -31,6 +31,7 @@ import VerifyEmailReminder from "./VerifyEmailReminder";
 import TermsUpdateNotice from "./TermsUpdateNotice";
 import RevisorInviteHeldNotice from "./RevisorInviteHeldNotice";
 import { Icon } from "./ui";
+import BonBoxMark from "./BonBoxMark";
 // Lazy-load the search modal — only fetched when the user actually
 // opens it (⌘K or button), keeping main bundle lean.
 const GlobalSearchModal = lazy(() => import("./GlobalSearchModal"));
@@ -685,19 +686,15 @@ export default function Layout() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        {/* Mobile top-bar wordmark + the brand mark. The tile is the saturated
-            brand-green moment per the BRAND GREEN token block in index.css —
-            on the token now, not a raw `bg-emerald-600` class, so the mark and
-            the sidebar's mark cannot drift apart. Deliberately the SAME green
-            in light and dark: a logo that changes hue is a different logo.
-            Tile holds an inverted version of the favicon shape (notepad lines)
-            so it reads as the BonBox logo even at 24px. */}
+        {/* Mobile top-bar wordmark + the brand mark: the kit's forest tile
+            with the paper b (docs/brand/README.md), the same tile as the
+            sidebar's below so the two cannot drift apart. Deliberately the
+            SAME colours in light and dark: a logo that changes hue is a
+            different logo. The b is drawn at 20px, the kit's interface
+            minimum, so it reads as the BonBox logo at this 24px tile. */}
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-[rgb(var(--brand-green))] text-[rgb(var(--brand-green-on))] rounded-md flex items-center justify-center shrink-0" aria-hidden="true">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="4" y="3" width="16" height="18" rx="2" />
-              <path d="M8 8h8M8 12h8M8 16h5" />
-            </svg>
+          <div className="w-6 h-6 bg-bb-forest text-bb-paper rounded-md flex items-center justify-center shrink-0" aria-hidden="true">
+            <BonBoxMark size={20} />
           </div>
           {/* Wordmark, NOT a heading. This and the sidebar's wordmark were both
               <h1>, so every page shipped two document headings on top of the
@@ -832,16 +829,13 @@ export default function Layout() {
         {/* Header */}
         <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between gap-2">
           <div className="min-w-0">
-            {/* Wordmark — brand-green tile + gray-900 wordmark. The tile is
-                the saturated brand-green moment for the sidebar (paired with
-                the active-nav left-rail on --brand-green-accent). Same token
-                as the mobile top bar above, so there is one mark, not two. */}
+            {/* Wordmark — the kit's forest tile with the paper b, plus the
+                gray-900 word. Same tile as the mobile top bar above, so there
+                is one mark, not two. (The active-nav rail stays on
+                --brand-green-accent; the logo no longer shares its green.) */}
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 bg-[rgb(var(--brand-green))] text-[rgb(var(--brand-green-on))] rounded-md flex items-center justify-center shrink-0" aria-hidden="true">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="4" y="3" width="16" height="18" rx="2" />
-                  <path d="M8 8h8M8 12h8M8 16h5" />
-                </svg>
+              <div className="w-7 h-7 bg-bb-forest text-bb-paper rounded-md flex items-center justify-center shrink-0" aria-hidden="true">
+                <BonBoxMark size={22} />
               </div>
               <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100 truncate">BonBox</h1>
             </div>

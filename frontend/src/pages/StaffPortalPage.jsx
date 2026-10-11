@@ -1403,7 +1403,7 @@ function useClock(token) {
         // all, location is almost always switched off for the app / site.
         const fix = noFix
           ? (isNativeApp()
-            ? t("portalClockNoLocationFixNative", "To fix it: Settings → BonBox Scheduler → Location → While Using the App.")
+            ? t("portalClockNoLocationFixNative", "To fix it: Settings → Vagtplan → Location → While Using the App.")
             : t("portalClockNoLocationFixWeb", "To fix it: allow location for this site in your browser — your next punch is then confirmed."))
           : "";
         setResult([
@@ -5145,7 +5145,7 @@ function LoadingSkeleton() {
 // written for them in their own language and showing FastAPI's English.
 function PortalError({ message, expected = false }) {
   const { t } = useLanguage();
-  useStaffDocTitle(t("portalAppDocTitle", "BonBox Scheduler"));
+  useStaffDocTitle(t("portalAppDocTitle", "BonBox Vagtplan"));
   return (
     <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center p-6">
       <div className="text-center max-w-xs">
@@ -5196,7 +5196,7 @@ function useStaffDocTitle(title) {
     it says what it is doing. (Offline fails at once — see portalApi.) */
 function PortalOpening() {
   const { t } = useLanguage();
-  useStaffDocTitle(t("portalAppDocTitle", "BonBox Scheduler"));
+  useStaffDocTitle(t("portalAppDocTitle", "BonBox Vagtplan"));
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     const id = setTimeout(() => setSlow(true), 4000);
@@ -5221,7 +5221,7 @@ function PortalOpening() {
     "Network Error". */
 function PortalOffline({ onRetry, busy = false, kind = "offline" }) {
   const { t } = useLanguage();
-  useStaffDocTitle(t("portalAppDocTitle", "BonBox Scheduler"));
+  useStaffDocTitle(t("portalAppDocTitle", "BonBox Vagtplan"));
   const server = kind === "server";
   const Icon = server ? ServerCrash : CloudOff;
   return (
@@ -6445,7 +6445,7 @@ function InstallNotifyCard({ token }) {
             </button>
           )}
 
-          {/* iOS — the native BonBox Scheduler app is the best path now that
+          {/* iOS — the native BonBox Vagtplan app is the best path now that
               it's on the App Store (push, offline, proper app). The old
               Share → Add to Home Screen route stays as a lightweight fallback. */}
           {!installed && !installPrompt && isIOS && (
@@ -6457,7 +6457,7 @@ function InstallNotifyCard({ token }) {
                 className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-[12px] font-text text-[12px] font-bold bg-gray-900 text-white hover:bg-gray-700 transition"
               >
                 <Apple className="w-4 h-4" strokeWidth={2} aria-hidden />
-                {t("staffGetSchedulerApp", "Get the BonBox Scheduler app")}
+                {t("staffGetSchedulerApp", "Get the BonBox Vagtplan app")}
               </a>
               <div className="flex items-center gap-1.5 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[12px] text-gray-500">
                 <span>{t("staffInstallIosOr", "Or add to home screen:")}</span>

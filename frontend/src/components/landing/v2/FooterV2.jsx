@@ -36,6 +36,7 @@ import { Link } from "react-router-dom";
 import BonBoxMark from "../../BonBoxMark";
 import { useLanguage } from "../../../hooks/useLanguage";
 import { CookieSettingsButton } from "../../CookieConsent";
+import { CHROME_CHILDREN, WIDE } from "./fluid";
 
 // Registry values, not copy. Deliberately outside t().
 //
@@ -82,14 +83,16 @@ export default function FooterV2() {
 
   return (
     <footer className="border-t border-slate-200 bg-slate-50">
-      <div className="mx-auto flex w-full max-w-[1800px] flex-wrap justify-between gap-9 px-[clamp(24px,4vw,80px)] pt-11 pb-9">
+      {/* Same gutters as the bands above (./fluid.js); above 1440px the
+          contents and spacing grow at the slower chrome scale (--lc). */}
+      <div className={`mx-auto flex w-full max-w-[1180px] flex-wrap justify-between gap-9 px-[clamp(24px,4vw,64px)] pt-11 pb-9 ${WIDE} min-[1441px]:gap-[calc(36px*var(--lc))] min-[1441px]:pt-[calc(44px*var(--lc))] min-[1441px]:pb-[calc(36px*var(--lc))] ${CHROME_CHILDREN}`}>
         <div>
           <div className="mb-3 flex items-center gap-2.5">
             <span
               aria-hidden="true"
-              className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-bb-green"
+              className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-bb-forest"
             >
-              <BonBoxMark size={15} strokeWidth={2} className="text-white" />
+              <BonBoxMark size={22} className="text-bb-paper" />
             </span>
             <span className="font-display text-[18px] font-bold tracking-[-0.025em] text-slate-900">
               BonBox
@@ -136,7 +139,7 @@ export default function FooterV2() {
       </div>
 
       <div className="border-t border-slate-200">
-        <div className="mx-auto w-full max-w-[1800px] px-[clamp(24px,4vw,80px)] py-4 text-[12.5px] text-slate-400">
+        <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-4 text-[12.5px] text-slate-400 ${WIDE} min-[1441px]:py-[calc(16px*var(--lc))] min-[1441px]:text-[calc(12.5px*var(--lc))]`}>
           {t("landingV2.footer.copyright", "© 2026 BonBox · Made in Copenhagen")}
         </div>
       </div>

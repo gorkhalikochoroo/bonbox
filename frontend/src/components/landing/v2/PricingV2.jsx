@@ -1,6 +1,7 @@
 import { Check } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../../../hooks/useLanguage";
+import { TEXT_CHILDREN, WIDE, WIDE_PY } from "./fluid";
 
 /**
  * Landing v2 — "Pricing" section.
@@ -56,20 +57,26 @@ export default function PricingV2() {
       aria-labelledby="pricing-heading"
       className="border-t border-slate-200 bg-white"
     >
-      <div className="mx-auto w-full max-w-[1800px] px-[clamp(24px,4vw,80px)] py-[clamp(52px,6vw,88px)]">
-        <div className="mb-10 max-w-[54ch]">
-          <div className={`${eyebrow} mb-4`}>
-            {t("landingV2.pricing.eyebrow", "Pricing")}
+      <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] ${WIDE} ${WIDE_PY} ${TEXT_CHILDREN}`}>
+        {/* From 1041px: headline over the first two plan columns, the
+            subhead over the third, so the header spans the band like the
+            plans below it (it stopped at 54ch with the rest of the row
+            empty). Below 1041px it is the same stacked 54ch block. */}
+        <div className="mb-10 max-w-[54ch] min-[1041px]:grid min-[1041px]:max-w-none min-[1041px]:grid-cols-3 min-[1041px]:items-end min-[1041px]:gap-x-5">
+          <div className="min-[1041px]:col-span-2">
+            <div className={`${eyebrow} mb-4`}>
+              {t("landingV2.pricing.eyebrow", "Pricing")}
+            </div>
+            <h2
+              id="pricing-heading"
+              className="mb-[14px] font-display text-[clamp(28px,3.1vw,40px)] font-bold leading-[1.06] tracking-[-0.028em] text-slate-900 min-[1041px]:mb-0"
+            >
+              {t(
+                "landingV2.pricing.headline",
+                "129 kr/month — for the first 100 businesses."
+              )}
+            </h2>
           </div>
-          <h2
-            id="pricing-heading"
-            className="mb-[14px] font-display text-[clamp(28px,3.1vw,40px)] font-bold leading-[1.06] tracking-[-0.028em] text-slate-900"
-          >
-            {t(
-              "landingV2.pricing.headline",
-              "129 kr/month — for the first 100 businesses."
-            )}
-          </h2>
           <p className="text-[17px] text-slate-600">
             {t(
               "landingV2.pricing.subhead",

@@ -15,6 +15,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
 from app.utils import login_guard
+from app.services.brand_mark import BRAND_FOREST, BRAND_MARK_SVG
 
 from app.database import get_db
 from app.models.user import User
@@ -218,8 +219,8 @@ def _admin_signup_email_html(email: str, business_name: str, business_type: str)
     return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
   <div style="text-align:center;margin-bottom:20px">
-    <div style="display:inline-block;background:#16a34a;border-radius:14px;padding:12px 14px">
-      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="3" stroke="white" stroke-width="2"/><path d="M9 8h10M9 12h10M9 16h6" stroke="white" stroke-width="1.5" stroke-linecap="round"/><path d="M4 20h20" stroke="#FCD34D" stroke-width="2"/></svg>
+    <div style="display:inline-block;background:{BRAND_FOREST};border-radius:14px;padding:12px 14px">
+      {BRAND_MARK_SVG}
     </div>
     <h1 style="font-size:20px;color:#1e293b;margin:12px 0 4px">New Signup!</h1>
   </div>
@@ -1582,8 +1583,8 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
         f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff">
   <div style="text-align:center;margin-bottom:24px">
-    <div style="display:inline-block;background:#2563eb;border-radius:14px;padding:12px 14px">
-      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="3" stroke="white" stroke-width="2"/><path d="M9 8h10M9 12h10M9 16h6" stroke="white" stroke-width="1.5" stroke-linecap="round"/><path d="M4 20h20" stroke="#FCD34D" stroke-width="2"/></svg>
+    <div style="display:inline-block;background:{BRAND_FOREST};border-radius:14px;padding:12px 14px">
+      {BRAND_MARK_SVG}
     </div>
     <h1 style="font-size:20px;color:#1e293b;margin:12px 0 4px">Password Reset</h1>
   </div>

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import ClaimQuestion from "../components/ClaimQuestion";
+import BonBoxMark from "../components/BonBoxMark";
 
 /**
  * /login/claim?token=<ticket>&answer=keep|secure — where the two links in the
@@ -96,11 +97,8 @@ export default function ClaimDecisionPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4 py-12">
       <div className="w-full max-w-md bg-white border border-gray-200 rounded-xl shadow-sm p-7 text-center">
         <div className="flex justify-center mb-5">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[#22c55e]">
-            <svg width="22" height="22" viewBox="0 0 28 28" fill="none">
-              <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.2"/>
-              <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-bb-forest text-bb-paper">
+            <BonBoxMark size={32} />
           </div>
         </div>
 

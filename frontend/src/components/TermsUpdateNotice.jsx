@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import { verifyWallExempt } from "../utils/verifySkip";
+import { isNativeApp } from "../utils/platform";
 import {
   TERMS_EXISTING_FROM,
   TERMS_VERSION,
@@ -40,6 +41,20 @@ import {
  * border-b), the "what changed" list behind a disclosure. The row also says
  * the privacy policy is updated, with a link (Push 3: /privacy promises
  * notice of significant changes by e-mail or a notice in BonBox).
+ *
+ * The iPhone app (App Store 3.1.1, Manoj 11 Oct 2026) has no purchase path
+ * and names no price, so in the native build the "what changed" list leaves
+ * out the four subscription bullets (businesses only, automatic renewal,
+ * founding price, price changes) and says in one neutral line that § 8 has
+ * changed. The browser keeps all six bullets.
+ *
+ * The iPhone § 8 in TermsPage, which the "Read the terms" link opens, does
+ * NOT follow the same rule yet: it names no amounts, but it still says a
+ * subscription renews every month, talks about buying one and the purchase
+ * at checkout, the founding price, price changes, and cancelling in Stripe's
+ * customer portal outside the app. That text predates this release. Whether
+ * it changes before App Store submission is Manoj's decision; until then
+ * nothing here may claim the two match.
  */
 const LOCAL_KEY = "bonbox_terms_notice_closed";
 
@@ -80,6 +95,7 @@ export default function TermsUpdateNotice() {
   if (closedOnThisDevice(user.id)) return null;
 
   const date = termsDate(TERMS_EXISTING_FROM, lang === "da" ? "da" : "en");
+  const native = isNativeApp();
 
   const close = () => {
     setClosed(true);
@@ -155,10 +171,16 @@ export default function TermsUpdateNotice() {
                 its data at once. Every owner can delete, so it sits with the
                 caps bullet, ahead of the paid-plan ones. */}
             <li>{t("termsNoticeChangeRecords", "You, not BonBox, must keep your business's accounting records. BonBox is not an archive. When you delete your account, we delete the account and the data in it straight away (§ 4 lists what we keep), so download your data and the PDFs you need first.")}</li>
-            <li>{t("termsNoticeChangeBusiness", "Paid subscriptions are for businesses only.")}</li>
-            <li>{t("termsNoticeChangeRenewal", "Starter and Pro renew automatically every month. A cancellation takes effect at the end of the period you have paid for, and we do not refund part of a period.")}</li>
-            <li>{t("termsNoticeChangeFounding", "You keep the founding price as long as your subscription stays active without a break.")}</li>
-            <li>{t("termsNoticeChangePrice", "We give at least 30 days' notice by e-mail before a price change applies to your running subscription.")}</li>
+            {native ? (
+              <li data-testid="terms-notice-native-subscriptions">{t("termsNoticeChangeSubscriptionsNative", "§ 8 about subscriptions has changed too. You can read it in the terms.")}</li>
+            ) : (
+              <>
+                <li>{t("termsNoticeChangeBusiness", "Paid subscriptions are for businesses only.")}</li>
+                <li>{t("termsNoticeChangeRenewal", "Starter and Pro renew automatically every month. A cancellation takes effect at the end of the period you have paid for, and we do not refund part of a period.")}</li>
+                <li>{t("termsNoticeChangeFounding", "You keep the founding price as long as your subscription stays active without a break.")}</li>
+                <li>{t("termsNoticeChangePrice", "We give at least 30 days' notice by e-mail before a price change applies to your running subscription.")}</li>
+              </>
+            )}
           </ul>
           <p className="mt-1">
             {t("termsNoticeObject", "If you do not want to continue on the new terms, you can cancel your subscription or delete your account before {date}.", { date })}

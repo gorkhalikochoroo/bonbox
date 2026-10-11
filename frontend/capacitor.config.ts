@@ -4,7 +4,9 @@ import type { CapacitorConfig } from "@capacitor/cli";
  * TWO app targets share this repo:
  *
  *   • BonBox (owner app)        — default          → ios/          webDir dist/
- *   • BonBox Scheduler (staff)  — BONBOX_TARGET=scheduler → ios-scheduler/ webDir dist-scheduler/
+ *   • BonBox Vagtplan (staff)   — BONBOX_TARGET=scheduler → ios-scheduler/ webDir dist-scheduler/
+ *     (App Store name "BonBox Vagtplan", home-screen name "Vagtplan"; the
+ *     bundle id stays dk.bonbox.scheduler — an App Store app id never changes)
  *
  * The scheduler shell is the same web bundle built with VITE_APP_MODE=scheduler
  * (npm run build:scheduler): it boots straight into the staff portal / join-code
@@ -32,7 +34,7 @@ const shellBg = isScheduler ? "#f9fafb" : "#f8fafc";
 
 const config: CapacitorConfig = {
   appId: isScheduler ? "dk.bonbox.scheduler" : "dk.bonbox.app",
-  appName: isScheduler ? "BonBox Scheduler" : "BonBox",
+  appName: isScheduler ? "Vagtplan" : "BonBox",
   webDir: isScheduler ? "dist-scheduler" : "dist",
 
   ios: {

@@ -1,0 +1,17 @@
+/*
+  Vagtplan (staff app) - permission prompts in English.
+  Same text as Info.plist, which stays the fallback for every other language.
+  Keep the two in step, and keep da.lproj/InfoPlist.strings in step too.
+*/
+
+/* Camera: a photo to send in a message (Beskeder) */
+"NSCameraUsageDescription" = "Vagtplan uses the camera so you can take a photo to send in a message to your workplace.";
+
+/* Photo library: attach a photo to a message */
+"NSPhotoLibraryUsageDescription" = "Vagtplan needs access to your photos so you can attach one to a message.";
+
+/* Photo library, add only: save a photo */
+"NSPhotoLibraryAddUsageDescription" = "Vagtplan needs permission to save a photo to your library.";
+
+/* Location: read only at clock-in, when the workplace has turned on the location check */
+"NSLocationWhenInUseUsageDescription" = "Vagtplan uses your location only when you clock in, to confirm you are at your workplace. It is never tracked in the background and your location is never stored.";

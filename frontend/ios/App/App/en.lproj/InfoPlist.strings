@@ -1,0 +1,17 @@
+/*
+  BonBox (owner app) - permission prompts in English.
+  Same text as Info.plist, which stays the fallback for every other language.
+  Keep the two in step, and keep da.lproj/InfoPlist.strings in step too.
+*/
+
+/* Camera: scan receipts and Z reports */
+"NSCameraUsageDescription" = "BonBox needs camera access to scan receipts and Z-reports";
+
+/* Photo library: attach a receipt image */
+"NSPhotoLibraryUsageDescription" = "BonBox needs photo library access to attach receipt images";
+
+/* Photo library, add only: save a scanned receipt */
+"NSPhotoLibraryAddUsageDescription" = "BonBox needs to save scanned receipts to your photo library";
+
+/* Face ID: unlock the app */
+"NSFaceIDUsageDescription" = "Use Face ID to securely unlock BonBox";

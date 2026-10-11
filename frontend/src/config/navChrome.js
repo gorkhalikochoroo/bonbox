@@ -129,10 +129,16 @@ export const NAV_SURFACE_HEX = { light: "#ffffff", dark: "#1f2937" };     // whi
  *  non-text floor on both grounds (emerald-500 measured 2.30:1 in light). */
 export const BRAND_ACCENT_HEX = { light: "#059669", dark: "#34d399" };   // emerald-600 / emerald-400
 
-/** --brand-green: the logo tile. Deliberately the SAME in both themes. */
+/** --brand-green: the filled AI-avatar tile (the logo tile until the
+ *  11-Oct-2026 kit; the logo now draws on bb-forest / bb-paper, see
+ *  BRAND_LOGO_HEX below). Deliberately the SAME in both themes. */
 export const BRAND_MARK_HEX = "#059669";                                  // emerald-600
 /** --brand-green-on: the glyph drawn on the mark. */
 export const BRAND_MARK_INK_HEX = "#ffffff";
+
+/** The logo (docs/brand/README.md): forest tile, paper b, both themes.
+ *  Mirrors --color-bb-forest / --color-bb-paper in index.css's @theme. */
+export const BRAND_LOGO_HEX = { tile: "#093A26", ink: "#F6F4EC" };
 
 /** The active nav row's own background — the ground the 2px rail is drawn
  *  against, so it is what the rail's contrast must be measured on. Dark is the

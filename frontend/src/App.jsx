@@ -630,7 +630,7 @@ export function VerifyEmailRoute() {
 
 function PublicOrDashboard() {
   const { user, loading } = useAuth();
-  // BonBox Scheduler — the staff App Store app shell. It boots straight into
+  // BonBox Vagtplan (dk.bonbox.scheduler) — the staff App Store app shell. It boots straight into
   // the staff surface: the saved portal if this phone has connected before,
   // else the join-code screen. Owner auth/marketing never render in this
   // shell. (A dead saved token is cleared by StaffPortalPage's validation

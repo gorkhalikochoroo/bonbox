@@ -23,11 +23,15 @@ if _SENTRY_DSN:
         import sentry_sdk
         from sentry_sdk.integrations.fastapi import FastApiIntegration
         from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+        # No request body, no frame locals, no link token in a report: a
+        # 500 at clock-in would otherwise send the staffer's lat/lng, which
+        # /privacy says BonBox does not save (app/utils/sentry_scrub.py).
+        from app.utils.sentry_scrub import SENTRY_PRIVACY_OPTIONS
         sentry_sdk.init(
             dsn=_SENTRY_DSN,
             traces_sample_rate=0.05,   # 5% transaction sampling — keeps quota cheap
             profiles_sample_rate=0.0,  # disabled by default
-            send_default_pii=False,    # never include user IPs / cookies
+            **SENTRY_PRIVACY_OPTIONS,
             integrations=[FastApiIntegration(), SqlalchemyIntegration()],
             environment=os.environ.get("ENVIRONMENT", "development"),
         )

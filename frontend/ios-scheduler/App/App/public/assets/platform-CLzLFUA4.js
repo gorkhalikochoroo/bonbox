@@ -1,0 +1,1 @@
+import{t as e}from"./dist-CcRLd9QP.js";var t={isNative:e.isNativePlatform(),isIOS:e.getPlatform()===`ios`,isAndroid:e.getPlatform()===`android`,isWeb:e.getPlatform()===`web`};function n(){return t.isNative}function r(){return!t.isNative}export{n,t as r,r as t};

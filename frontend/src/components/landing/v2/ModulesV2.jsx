@@ -8,6 +8,7 @@ import {
   CreditCard,
 } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
+import { TEXT_CHILDREN, WIDE, WIDE_PY } from "./fluid";
 
 /**
  * Landing v2 — "Six jobs. One system." module grid.
@@ -41,7 +42,7 @@ export default function ModulesV2() {
       title: t("landingV2.modules.schedule.title", "Schedule"),
       body: t(
         "landingV2.modules.schedule.body",
-        "Build the week as drafts, check it against forecast and demand, publish once. Staff see it in the Scheduler app."
+        "Build the week as drafts, check it against forecast and demand, publish once. Staff see it in the Vagtplan app."
       ),
     },
     {
@@ -78,21 +79,30 @@ export default function ModulesV2() {
       id="modules"
       className="border-t border-slate-200 bg-white text-slate-900"
     >
-      <div className="mx-auto w-full max-w-[1800px] px-[clamp(24px,4vw,80px)] py-[clamp(52px,6vw,88px)]">
-        <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-          {t("landingV2.modules.eyebrow", "What's inside")}
+      <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] ${WIDE} ${WIDE_PY} ${TEXT_CHILDREN}`}>
+        {/* From 1041px the heading and the intro sit side by side on the
+            card grid's three columns (heading over the first two, intro
+            over the third) instead of the intro stopping at 58ch with the
+            rest of the row empty. Below 1041px this is a plain block and
+            renders exactly as the stacked version did. */}
+        <div className="min-[1041px]:mb-11 min-[1041px]:grid min-[1041px]:grid-cols-3 min-[1041px]:items-end min-[1041px]:gap-x-5">
+          <div className="min-[1041px]:col-span-2">
+            <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+              {t("landingV2.modules.eyebrow", "What's inside")}
+            </div>
+
+            <h2 className="mb-3 font-display text-[clamp(28px,3.1vw,40px)] font-bold leading-[1.06] tracking-[-0.028em] min-[1041px]:mb-0">
+              {t("landingV2.modules.heading", "Six jobs. One system.")}
+            </h2>
+          </div>
+
+          <p className="mb-11 max-w-[58ch] text-[17px] text-slate-600 min-[1041px]:mb-0 min-[1041px]:max-w-none">
+            {t(
+              "landingV2.modules.intro",
+              "Most places run a POS, a booking site, a spreadsheet for the rota and a shoebox for receipts. BonBox is the layer that ties the evening together."
+            )}
+          </p>
         </div>
-
-        <h2 className="mb-3 font-display text-[clamp(28px,3.1vw,40px)] font-bold leading-[1.06] tracking-[-0.028em]">
-          {t("landingV2.modules.heading", "Six jobs. One system.")}
-        </h2>
-
-        <p className="mb-11 max-w-[58ch] text-[17px] text-slate-600">
-          {t(
-            "landingV2.modules.intro",
-            "Most places run a POS, a booking site, a spreadsheet for the rota and a shoebox for receipts. BonBox is the layer that ties the evening together."
-          )}
-        </p>
 
         <div className="grid grid-cols-1 gap-5 min-[621px]:grid-cols-2 min-[1041px]:grid-cols-3">
           {modules.map((mod) => (

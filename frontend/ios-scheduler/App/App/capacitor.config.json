@@ -1,6 +1,6 @@
 {
 	"appId": "dk.bonbox.scheduler",
-	"appName": "BonBox Scheduler",
+	"appName": "Vagtplan",
 	"webDir": "dist-scheduler",
 	"ios": {
 		"path": "ios-scheduler",

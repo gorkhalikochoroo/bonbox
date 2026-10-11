@@ -54,12 +54,16 @@
          it could fall back from — which is why search results kept showing the
          old icon. Static files in public/ are matched before rewrites, so the
          file's existence is the fix. Raster PNGs are listed too because an
-         SVG-only favicon is the least well-supported option across crawlers. -->
-    <link rel="icon" href="/favicon.ico" sizes="any" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=2" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=2" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
-    <link rel="apple-touch-icon" href="/icon-192.png?v=2" />
+         SVG-only favicon is the least well-supported option across crawlers.
+         These four links are the logo kit's snippet (docs/brand/README.md).
+         The b is drawn separately for 16 and 32 px, so there is deliberately
+         no SVG link: browsers that prefer an SVG would scale the 32 px
+         drawing down to a soft 16 px tab icon. /favicon.svg stays in public/
+         because other pages link it by absolute URL. -->
+    <link rel="icon" href="/favicon.ico?v=3" sizes="16x16 32x32" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3" />
     <!-- viewport-fit=cover exposes env(safe-area-inset-*) so layouts can
          dodge the notch / punch-hole camera. We dropped maximum-scale +
          user-scalable=no so kitchen owners can pinch-zoom into a small
@@ -162,6 +166,22 @@
           }
 
           if (token) {
+            // The staff schedule is its own app — Vagtplan — so it wears the
+            // Vagtplan icon (docs/brand: paper tile, forest b, emerald strip),
+            // not the owner app's. Swapped HERE, during the parse, for the same
+            // reason the manifest is chosen here: iOS Add to Home Screen takes
+            // this document's apple-touch-icon, and a swap after React mounts
+            // is a bet on timing. Own try: an icon must never cost the manifest.
+            try {
+              var icons = document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]');
+              for (var i = 0; i < icons.length; i++) {
+                var href = icons[i].getAttribute("href") || "";
+                icons[i].setAttribute("href",
+                  icons[i].getAttribute("rel") === "apple-touch-icon"
+                    ? "/vagtplan-apple-touch-icon.png?v=3"
+                    : href.replace("/favicon", "/vagtplan-favicon"));
+              }
+            } catch (eIcons) { /* keep the BonBox icons */ }
             if (isIOS) {
               // iOS staff route → NO manifest. Icon bookmarks /s/<token>.
               setManifest(null);
@@ -223,7 +243,7 @@
     <meta property="og:description" content="Dagens lukning, bordbestilling, vagtplan, timer &amp; løn, lager og MOMS. Til restauranter, barer, bistroer, butikker og alle andre, der lukker en kasse i Danmark. Ét login til ejeren, én app til personalet, én regning." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://bonbox.dk" />
-    <meta property="og:image" content="https://www.bonbox.dk/og-image-v2.png" />
+    <meta property="og:image" content="https://www.bonbox.dk/og-image-v2.png?v=3" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="BonBox" />
@@ -232,7 +252,7 @@
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://www.bonbox.dk/og-image-v2.png" />
+    <meta name="twitter:image" content="https://www.bonbox.dk/og-image-v2.png?v=3" />
     <meta name="twitter:title" content="BonBox — Bagkontoret din virksomhed faktisk kører på" />
     <meta name="twitter:description" content="Dagens lukning, bordbestilling, vagtplan, timer &amp; løn, lager og MOMS. Til restauranter, barer, bistroer, butikker og alle andre, der lukker en kasse i Danmark. Ét login til ejeren, én app til personalet, én regning." />
 
@@ -261,62 +281,64 @@
     </script>
 
     <title>BonBox — Bagkontoret din virksomhed faktisk kører på</title>
-    <script type="module" crossorigin src="/assets/index-ezy97gm5.js"></script>
+    <script type="module" crossorigin src="/assets/index-DTN3W71U.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-COnpUsM8.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-EbBInoOE.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-DRhjLKE7.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-react-D6ywWmil.js">
+    <link rel="modulepreload" crossorigin href="/assets/CookieConsent-DUO8yPox.js">
+    <link rel="modulepreload" crossorigin href="/assets/currency-B12gmBOQ.js">
+    <link rel="modulepreload" crossorigin href="/assets/Amount-mdP5USKj.js">
+    <link rel="modulepreload" crossorigin href="/assets/Button-BQXg5WY_.js">
+    <link rel="modulepreload" crossorigin href="/assets/createLucideIcon-X7kGMttb.js">
+    <link rel="modulepreload" crossorigin href="/assets/Card-f8nBGSns.js">
+    <link rel="modulepreload" crossorigin href="/assets/wrench-BT3U5SL8.js">
+    <link rel="modulepreload" crossorigin href="/assets/thermometer-CipmEOlh.js">
+    <link rel="modulepreload" crossorigin href="/assets/calendar-check-DiadHjgn.js">
+    <link rel="modulepreload" crossorigin href="/assets/utensils-BWVE59Ck.js">
+    <link rel="modulepreload" crossorigin href="/assets/calendar-DvUV7rsA.js">
+    <link rel="modulepreload" crossorigin href="/assets/timer-Cb6Dt7dJ.js">
+    <link rel="modulepreload" crossorigin href="/assets/chart-column-Ctw7OP2B.js">
+    <link rel="modulepreload" crossorigin href="/assets/check-CZk7YzR7.js">
+    <link rel="modulepreload" crossorigin href="/assets/chevron-down-DR1qrArn.js">
+    <link rel="modulepreload" crossorigin href="/assets/chevron-left-hl2Ke8dq.js">
+    <link rel="modulepreload" crossorigin href="/assets/chevron-right-DnaozSU3.js">
+    <link rel="modulepreload" crossorigin href="/assets/circle-alert-BN_Tpjc6.js">
+    <link rel="modulepreload" crossorigin href="/assets/circle-check-C6iPPTuH.js">
+    <link rel="modulepreload" crossorigin href="/assets/circle-question-mark-BcA7lqgy.js">
+    <link rel="modulepreload" crossorigin href="/assets/clock-wb5l0lbq.js">
+    <link rel="modulepreload" crossorigin href="/assets/rotate-ccw-BNHHj-VQ.js">
+    <link rel="modulepreload" crossorigin href="/assets/file-text-BGZqXVfH.js">
+    <link rel="modulepreload" crossorigin href="/assets/gift-H7CDll75.js">
+    <link rel="modulepreload" crossorigin href="/assets/info-Bccm8asw.js">
+    <link rel="modulepreload" crossorigin href="/assets/key-round-BUsrx1Su.js">
+    <link rel="modulepreload" crossorigin href="/assets/mail-_8F2N5cV.js">
+    <link rel="modulepreload" crossorigin href="/assets/minus-Cl1bXn4f.js">
+    <link rel="modulepreload" crossorigin href="/assets/users-round-DNhl8JXM.js">
+    <link rel="modulepreload" crossorigin href="/assets/plus-FV_l70qh.js">
+    <link rel="modulepreload" crossorigin href="/assets/shield-check-CzYcfkd-.js">
+    <link rel="modulepreload" crossorigin href="/assets/thumbs-up-aG7lh7Hv.js">
+    <link rel="modulepreload" crossorigin href="/assets/trash-2-i1zal2Dm.js">
+    <link rel="modulepreload" crossorigin href="/assets/triangle-alert-dbQqIO74.js">
+    <link rel="modulepreload" crossorigin href="/assets/users-C__e5MkD.js">
+    <link rel="modulepreload" crossorigin href="/assets/wallet-BMP6G0ZB.js">
+    <link rel="modulepreload" crossorigin href="/assets/x-D8CTFCOG.js">
+    <link rel="modulepreload" crossorigin href="/assets/Icon-CMvMdtOf.js">
+    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-B2RVFfbQ.js">
+    <link rel="modulepreload" crossorigin href="/assets/navManifest-rdHrJbpr.js">
     <link rel="modulepreload" crossorigin href="/assets/dist-CcRLd9QP.js">
-    <link rel="modulepreload" crossorigin href="/assets/platform-DM3b7mqo.js">
-    <link rel="modulepreload" crossorigin href="/assets/createLucideIcon-DQ02Za24.js">
-    <link rel="modulepreload" crossorigin href="/assets/wrench-29xVEvPj.js">
-    <link rel="modulepreload" crossorigin href="/assets/thermometer-B5lU7s6q.js">
-    <link rel="modulepreload" crossorigin href="/assets/calendar-check-CGs4Ex3t.js">
-    <link rel="modulepreload" crossorigin href="/assets/utensils-DAtfBCkU.js">
-    <link rel="modulepreload" crossorigin href="/assets/calendar-CI0i8A4G.js">
-    <link rel="modulepreload" crossorigin href="/assets/timer-BdNwra9F.js">
-    <link rel="modulepreload" crossorigin href="/assets/chart-column-BfRaWBN9.js">
-    <link rel="modulepreload" crossorigin href="/assets/check-DQ6K9TKi.js">
-    <link rel="modulepreload" crossorigin href="/assets/chevron-down-DS3rDZMI.js">
-    <link rel="modulepreload" crossorigin href="/assets/chevron-left-DR8ZxtzT.js">
-    <link rel="modulepreload" crossorigin href="/assets/chevron-right-aE023auU.js">
-    <link rel="modulepreload" crossorigin href="/assets/circle-alert-iSnYFur-.js">
-    <link rel="modulepreload" crossorigin href="/assets/circle-check-DlZhJkgY.js">
-    <link rel="modulepreload" crossorigin href="/assets/circle-question-mark-fx_2dj_x.js">
-    <link rel="modulepreload" crossorigin href="/assets/clock-BNNnXo_o.js">
-    <link rel="modulepreload" crossorigin href="/assets/rotate-ccw-Dxq3VcLg.js">
-    <link rel="modulepreload" crossorigin href="/assets/file-text-DEbhaspQ.js">
-    <link rel="modulepreload" crossorigin href="/assets/gift-MJoGCMJ2.js">
-    <link rel="modulepreload" crossorigin href="/assets/info-Djr_syLK.js">
-    <link rel="modulepreload" crossorigin href="/assets/key-round-Bh2jZrJ-.js">
-    <link rel="modulepreload" crossorigin href="/assets/mail-Lt9YW93V.js">
-    <link rel="modulepreload" crossorigin href="/assets/minus-BjDjPs-S.js">
-    <link rel="modulepreload" crossorigin href="/assets/users-round-DzM2vbtH.js">
-    <link rel="modulepreload" crossorigin href="/assets/plus-DpmiQnGv.js">
-    <link rel="modulepreload" crossorigin href="/assets/shield-check-CqtR9NVi.js">
-    <link rel="modulepreload" crossorigin href="/assets/thumbs-up-B7XCMvid.js">
-    <link rel="modulepreload" crossorigin href="/assets/trash-2-B0s5hkrM.js">
-    <link rel="modulepreload" crossorigin href="/assets/triangle-alert-Bvo-AZhb.js">
-    <link rel="modulepreload" crossorigin href="/assets/users-x06NWXpe.js">
-    <link rel="modulepreload" crossorigin href="/assets/wallet-D-c3TGjm.js">
-    <link rel="modulepreload" crossorigin href="/assets/x-C0vIh-qN.js">
-    <link rel="modulepreload" crossorigin href="/assets/Icon-BseLwCX8.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-react-Bq_uNn_i.js">
-    <link rel="modulepreload" crossorigin href="/assets/Card-D0fxYpiz.js">
-    <link rel="modulepreload" crossorigin href="/assets/CookieConsent-DDbV7B-i.js">
-    <link rel="modulepreload" crossorigin href="/assets/currency-DVY5NgVI.js">
-    <link rel="modulepreload" crossorigin href="/assets/Amount-Ca6yg_He.js">
-    <link rel="modulepreload" crossorigin href="/assets/Button-CJprTmnE.js">
-    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-rsvLjhzc.js">
-    <link rel="modulepreload" crossorigin href="/assets/navManifest-kJduUO47.js">
-    <link rel="modulepreload" crossorigin href="/assets/api-76xNPfmV.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEventLog-B0Lmxl7E.js">
-    <link rel="modulepreload" crossorigin href="/assets/useAuth-DJ6vAXvD.js">
-    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-BDYlFiHD.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-Biq6Jwpk.js">
-    <link rel="modulepreload" crossorigin href="/assets/guestSurface-PtfrNyAQ.js">
-    <link rel="modulepreload" crossorigin href="/assets/liveAlertKinds-DCwGJnJo.js">
-    <link rel="modulepreload" crossorigin href="/assets/errText-DgkJavl6.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-BEBzA-mZ.css">
-  <script>(function(){try{var f={"da":"/assets/da-ss25xZqS.js","en":"/assets/en-BMZuB0XV.js"};var l=null;try{l=localStorage.getItem("lang")}catch(e){}if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}var h=l==="da"?f.da:f.en;var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)}catch(e){}})()</script></head>
+    <link rel="modulepreload" crossorigin href="/assets/platform-CLzLFUA4.js">
+    <link rel="modulepreload" crossorigin href="/assets/axios-C_qdlyAI.js">
+    <link rel="modulepreload" crossorigin href="/assets/api-D5638qCg.js">
+    <link rel="modulepreload" crossorigin href="/assets/useEventLog-ub5sNh4A.js">
+    <link rel="modulepreload" crossorigin href="/assets/terms-BXnM5l6l.js">
+    <link rel="modulepreload" crossorigin href="/assets/errText-C5jZSAqT.js">
+    <link rel="modulepreload" crossorigin href="/assets/useAuth-Df1dllFz.js">
+    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-CfVhmmb2.js">
+    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-4oQL3waF.js">
+    <link rel="modulepreload" crossorigin href="/assets/guestSurface-DRD3eJCT.js">
+    <link rel="modulepreload" crossorigin href="/assets/liveAlertKinds-DtxWYMWo.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-CIJ03e31.css">
+  <script>(function(){try{var f={"da":"/assets/da-BpX1xyfT.js","en":"/assets/en-mIZ6aEkW.js"};var l=null;try{l=localStorage.getItem("lang")}catch(e){}if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}var h=l==="da"?f.da:f.en;var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)}catch(e){}})()</script></head>
   <body>
     <script>
       // Force light mode by default — only honor "dark" if the user explicitly

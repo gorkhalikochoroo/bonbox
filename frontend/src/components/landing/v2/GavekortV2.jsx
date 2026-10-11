@@ -1,5 +1,6 @@
 import { Check } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
+import { ART_GAVEKORT, CELL, TEXT, WIDE, WIDE_PY } from "./fluid";
 
 /**
  * Landing v2 — "Gavekort" section.
@@ -63,10 +64,10 @@ export default function GavekortV2() {
       aria-labelledby="gavekort-heading"
       className="border-t border-slate-200 bg-charcoal text-[#F5F1E8]"
     >
-      <div className="mx-auto w-full max-w-[1800px] px-[clamp(24px,4vw,80px)] py-[clamp(52px,6vw,88px)]">
-        <div className="grid grid-cols-1 items-center gap-10 min-[1041px]:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] min-[1041px]:gap-[clamp(36px,5vw,64px)]">
+      <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] ${WIDE} ${WIDE_PY}`}>
+        <div className="grid grid-cols-1 items-center gap-10 min-[1041px]:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] min-[1041px]:gap-[clamp(36px,5vw,64px)] min-[1441px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] min-[1441px]:gap-[calc(64px*var(--lx))]">
           {/* ── Left: copy + spec table ─────────────────────────── */}
-          <div>
+          <div className={TEXT}>
             <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-gold">
               {t("landingV2.gavekort.eyebrow", "Gavekort")}
             </div>
@@ -99,8 +100,15 @@ export default function GavekortV2() {
           </div>
 
           {/* ── Right: the two 3D cards ──────────────────────────── */}
-          <div className="flex items-center justify-center py-4">
-            <div className="relative h-[300px] w-[430px] origin-center [perspective:1600px] max-[620px]:origin-top max-[620px]:scale-[0.72] max-[620px]:-mb-[84px]">
+          {/* From 1041px the two cards are drawn at the column's width
+              (a 430px drawing, ./fluid.js) instead of a fixed 430px box
+              centred in a column twice that wide, up to 1.3x the type
+              scale; 1.1fr / 1fr (was 0.92 / 1.08) keeps them about 1.3x at
+              1440px. Above that the cards grow slower than the column, so
+              the copy takes more of the row (1.5fr / 1fr) and the cards
+              still fill theirs. */}
+          <div className={`flex items-center justify-center py-4 ${CELL}`}>
+            <div className={`relative h-[300px] w-[430px] origin-center [perspective:1600px] max-[620px]:origin-top max-[620px]:scale-[0.72] max-[620px]:-mb-[84px] ${ART_GAVEKORT}`}>
               {/* Behind: the sale that produced the gavekort */}
               <div
                 aria-hidden="true"

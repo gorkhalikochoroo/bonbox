@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>BonBox Scheduler</string>
+	<string>Vagtplan</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -29,11 +29,11 @@
 	     owner app's proven set; Face ID is intentionally absent — nothing in
 	     this app references LocalAuthentication. -->
 	<key>NSCameraUsageDescription</key>
-	<string>BonBox Scheduler uses the camera so you can take a photo to send in a message to your workplace.</string>
+	<string>Vagtplan uses the camera so you can take a photo to send in a message to your workplace.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>BonBox Scheduler needs access to your photos so you can attach one to a message.</string>
+	<string>Vagtplan needs access to your photos so you can attach one to a message.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>BonBox Scheduler needs permission to save a photo to your library.</string>
+	<string>Vagtplan needs permission to save a photo to your library.</string>
 	<!-- Location is used ONLY at the moment you clock in, to confirm you're at
 	     the workplace when your manager has turned on the location check. It is
 	     never tracked in the background and your coordinates are never stored.
@@ -41,7 +41,7 @@
 	     request, so clock-in can never get a fix and every punch is flagged
 	     "unverified" — this key is what lets the permission prompt appear. -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>BonBox Scheduler uses your location only when you clock in, to confirm you are at your workplace. It is never tracked in the background and your location is never stored.</string>
+	<string>Vagtplan uses your location only when you clock in, to confirm you are at your workplace. It is never tracked in the background and your location is never stored.</string>
 	<!-- BonBox uses only standard HTTPS/TLS (export-exempt); declaring this
 	     skips the export-compliance prompt on every TestFlight upload,
 	     matching the owner app (ios/App/App/Info.plist). -->
