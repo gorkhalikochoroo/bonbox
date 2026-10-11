@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import BonBoxMark from "../../BonBoxMark";
+import BonBoxWordmark from "../../BonBoxWordmark";
 import { useLanguage } from "../../../hooks/useLanguage";
 import { CHROME_CHILDREN, WIDE } from "./fluid";
 
@@ -60,9 +61,7 @@ export default function NavV2() {
           >
             <BonBoxMark size={24} className="text-bb-paper" />
           </span>
-          <span className="font-display text-[19px] font-bold tracking-[-0.025em] text-slate-900">
-            BonBox
-          </span>
+          <BonBoxWordmark height={18} className="text-bb-forest" />
         </a>
 
         <nav

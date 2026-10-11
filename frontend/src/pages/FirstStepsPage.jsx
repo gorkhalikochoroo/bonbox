@@ -29,6 +29,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { Button, Icon } from "../components/ui";
 import BonBoxMark from "../components/BonBoxMark";
+import BonBoxWordmark from "../components/BonBoxWordmark";
 import { publicUrl } from "../utils/publicUrl";
 import RevisorInviteHeldNotice from "../components/RevisorInviteHeldNotice";
 
@@ -142,7 +143,7 @@ export default function FirstStepsPage() {
             <div className="w-7 h-7 rounded-lg bg-bb-forest text-bb-paper grid place-items-center" aria-hidden="true">
               <BonBoxMark size={22} />
             </div>
-            <span className="text-sm font-semibold tracking-tight">BonBox</span>
+            <BonBoxWordmark height={17} className="text-bb-forest dark:text-bb-paper" />
           </div>
           <Link
             to="/dashboard"

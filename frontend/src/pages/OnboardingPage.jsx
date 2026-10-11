@@ -63,6 +63,7 @@ import { errText } from "../utils/errText";
 import { completedOnboardingRedirect, finishTargetReached, setFinishTarget } from "../utils/onboardingFinish";
 import { Button, Icon, UpgradeNudge } from "../components/ui";
 import BonBoxMark from "../components/BonBoxMark";
+import BonBoxWordmark from "../components/BonBoxWordmark";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { archetypeFor } from "../config/archetypes";
 import { PILLAR_DISPLAY, USAGE_GATED_PILLARS } from "../config/navManifest";
@@ -987,7 +988,7 @@ export default function OnboardingPage() {
             <div className="w-7 h-7 rounded-lg bg-bb-forest text-bb-paper grid place-items-center" aria-hidden="true">
               <BonBoxMark size={22} />
             </div>
-            <span className="text-sm font-semibold tracking-tight">BonBox</span>
+            <BonBoxWordmark height={17} className="text-bb-forest dark:text-bb-paper" />
           </div>
           <div className="flex items-center gap-3 sm:gap-4">
             <span className="text-[11px] font-medium tabular-nums text-gray-600 dark:text-gray-400 hidden sm:inline">
