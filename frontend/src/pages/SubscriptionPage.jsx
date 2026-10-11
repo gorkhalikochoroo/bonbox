@@ -130,7 +130,7 @@ const buildTiers = (t) => [
       // The killers are accountant read-only login (the stickiness
       // moat) + bank reconciliation auto-match + recurring expenses.
       // These ship today; before they shipped, Starter was thin.
-      { text: t("featStarterAccountantLogin", "Your revisor logs in for free — read-only, audit-logged, GDPR-safe") || "Your revisor logs in for free — read-only, audit-logged, GDPR-safe" },
+      { text: t("featStarterAccountantLogin", "Your revisor gets their own read-only login — at no extra cost") || "Your revisor gets their own read-only login — at no extra cost" },
       { text: t("featStarterBankRec", "Bank reconciliation — upload netbank CSV, auto-match payments to fakturaer") || "Bank reconciliation — upload netbank CSV, auto-match payments to fakturaer" },
       { text: t("featStarterRecurring", "Recurring expenses — rent, internet, subscriptions auto-post on schedule") || "Recurring expenses — rent, internet, subscriptions auto-post on schedule" },
       { text: t("featStarterReceipt200", "Receipt OCR — 300 / month, AI vision-grade accuracy") || "Receipt OCR — 300 / month, AI vision-grade accuracy" },
@@ -160,7 +160,7 @@ const buildTiers = (t) => [
       // Every functional feature now ships on Starter; Pro differs ONLY by
       // size (branches/seats), volume caps, white-label + priority support.
       // (Keys keep their featPro* names — only their tier placement moved.)
-      { text: t("featProScheduleAutopilot", "Staff schedule autopilot — weather + revenue forecast + DK labor law, in one tap") || "Staff schedule autopilot — weather + revenue forecast + DK labor law, in one tap" },
+      { text: t("featProScheduleAutopilot", "Staff schedule autopilot in one tap — weather + revenue forecast, suggested breaks and warnings on the 11-hour rest rule and the 48-hour limit") || "Staff schedule autopilot in one tap — weather + revenue forecast, suggested breaks and warnings on the 11-hour rest rule and the 48-hour limit" },
       { text: t("featProStaffEmail", "Email schedule to every staff member at once") || "Email schedule to every staff member at once" },
       { text: t("featProTaxFilingPdf", "MOMS filing-ready PDF — a pre-filled MOMS-angivelse with the figures for SKAT.dk or your revisor") },
       { text: t("featProClosePush", "Push notification to owner when staff locks the close — peace of mind from anywhere") || "Push notification to owner when staff locks the close — peace of mind from anywhere" },
@@ -736,7 +736,7 @@ export default function SubscriptionPage() {
                 {!businessOnlyBlocked && (
                   <span className="block">{t("pricingTrialStep3BodyLocked") || "If locked in: founding rate charged to your card"}</span>
                 )}
-                <span className={businessOnlyBlocked ? "block" : "block mt-1"}>{t("pricingTrialStep3BodyDropped") || "If not: dropped to Free (caps return, data stays, no charge ever)"}</span>
+                <span className={businessOnlyBlocked ? "block" : "block mt-1"}>{t("pricingTrialStep3BodyDropped") || "If not: dropped to Free (some features lock, caps return, data stays, no charge ever)"}</span>
               </div>
             </div>
           </div>
@@ -1129,7 +1129,7 @@ export default function SubscriptionPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-10">
         <Reassure title={t("pricingReassureNoCard") || "No card for trial"} sub={t("pricingReassureNoCardSub") || "14 days of Pro, no payment info needed."} />
         <Reassure title={t("pricingReassureDenmark") || "Built in Denmark"} sub={t("pricingReassureDenmarkSub") || "Database in Ireland · DKK and MOMS built in"} />
-        <Reassure title={t("pricingReassureCancel") || "Cancel anytime"} sub={t("pricingReassureCancelSub") || "No contracts. Export your data on the way out."} />
+        <Reassure title={t("pricingReassureCancel") || "Cancel anytime"} sub={t("pricingReassureCancelSub") || "No lock-in. Export your data on the way out."} />
         {/*
           Count and list are DERIVED from the picker, never typed. This tile
           used to read a hardcoded "6" while the picker offered 7 and only 3
