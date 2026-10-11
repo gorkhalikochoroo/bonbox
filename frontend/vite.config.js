@@ -143,23 +143,29 @@ export default defineConfig({
     },
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/') || id.includes('node_modules/react-router')) return 'vendor-react';
-          if (id.includes('node_modules/recharts') || id.includes('node_modules/d3-')) return 'vendor-charts';
-          if (id.includes('node_modules/framer-motion')) return 'vendor-motion';
-          // useLanguage.jsx contains the EN + DA dicts inline plus the
-          // LanguageProvider. The /i18n/*.js locale files are loaded
-          // dynamically via LAZY_LOADERS — vite turns each into its
-          // own chunk automatically when the dynamic import() runs,
-          // so we deliberately exclude them from the manualChunks
-          // rule. Bundling them here would re-merge them into
-          // vendor-i18n and erase the ~600 KB savings on initial
-          // paint (the lazy-loading change in this commit).
-          //
-          // Result:
-          //   vendor-i18n  — useLanguage.jsx + EN + DA (~150 KB)
-          //   de.js / fr.js / etc. — separate chunks loaded on demand
-          if (id.includes('/hooks/useLanguage')) return 'vendor-i18n';
+        // Push 6 (B4) — React out of vendor-charts. With manualChunks under
+        // Vite 8 (rolldown), part of React (its shared client internals)
+        // landed in the vendor-charts chunk, which the entry, vendor-react
+        // and vendor-i18n then imported statically — so every first page,
+        // /register and /login included, fetched and compiled recharts + d3
+        // (411 KB raw) just to start React, and the modulePreload filter
+        // below only delayed it.
+        // codeSplitting groups with priorities keep each vendor in its own
+        // chunk: React first, then the i18n provider, motion, and charts
+        // only for the lazy pages that chart. Measured on a local A/B
+        // (3 runs, cold cache): the entry's static closure 285.8 → 175.1 KB
+        // gz; form usable on /register at 400 kbps / 400 ms / 4x CPU
+        // 13.26 → 10.91 s, at 1.6 Mbps / 150 ms 3.57 → 3.00 s.
+        //
+        // The /i18n/*.js dictionaries stay out of every group: each is its
+        // own chunk, loaded on demand (lib/localeStore.js).
+        codeSplitting: {
+          groups: [
+            { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/, priority: 40 },
+            { name: 'vendor-i18n', test: /[\\/]hooks[\\/]useLanguage/, priority: 30 },
+            { name: 'vendor-motion', test: /node_modules[\\/]framer-motion[\\/]/, priority: 20 },
+            { name: 'vendor-charts', test: /node_modules[\\/](recharts|d3-[^\\/]+)[\\/]/, priority: 10 },
+          ],
         },
       },
     },
