@@ -62,7 +62,12 @@ const FOUNDING_LIMIT = 100;
  * these are bookkeeping + tax terms that lose meaning when translated.
  *
  * Tier object shape preserved exactly: { id, name, cta, cta_unauth, badge,
- * highlight, founding_price, price_monthly, price_annual, features }.
+ * highlight, founding_price, price_monthly, features }.
+ * Monthly only (Push 3, Manoj 11 Oct 2026, B3): there is no annual plan —
+ * checkout sends {plan} and charges the monthly Stripe price, and Terms § 8
+ * says "betales forud for én måned ad gangen". So no billing-period toggle,
+ * no discount pill and no yearly price here until a yearly Stripe price
+ * exists and § 8 describes it.
  * The Stripe checkout flow keys off `id` ("starter" / "pro") so renaming
  * is forbidden — handleCta and the backend price-ID router must agree.
  */
@@ -78,7 +83,6 @@ const buildTiers = (t) => [
       t("pricingTaglineFree") ||
       "Daily close in 90 seconds. Every day, free.",
     price_monthly: 0,
-    price_annual: 0,
     cta: t("pricingStartFree") || "Start free",
     cta_unauth: t("pricingSignUpFree") || "Sign up free",
     highlight: false,
@@ -111,7 +115,6 @@ const buildTiers = (t) => [
       t("pricingTaglineStarter") ||
       "For the café or shop that closes every night.",
     price_monthly: 199,
-    price_annual: 159,
     founding_price: 129,
     founding_limit: FOUNDING_LIMIT,
     cta: t("pricingUpgradeStarter") || "Upgrade to Starter",
@@ -186,7 +189,6 @@ const buildTiers = (t) => [
       t("pricingTaglinePro") ||
       "For 2-3 locations — more branches, more seats, higher limits, white-label, priority support.",
     price_monthly: 349,
-    price_annual: 279,
     founding_price: 249,
     founding_limit: FOUNDING_LIMIT,
     cta: t("pricingUpgradePro") || "Upgrade to Pro",
@@ -278,7 +280,6 @@ export default function SubscriptionPage() {
   const { user, refreshUser } = useAuth();
   const { t } = useLanguage();
   const { refresh: refreshEntitlements } = useEntitlements();
-  const [annual, setAnnual] = useState(false);
   const [billing, setBilling] = useState(null);
   const [joined, setJoined] = useState(new Set());
   const [pending, setPending] = useState(null);
@@ -779,39 +780,12 @@ export default function SubscriptionPage() {
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5">
             {t("pricingComparePlansSubtitle") ||
-              "What you get on each tier. Annual saves 20%."}
+              "What you get on each tier."}
           </p>
         </div>
       )}
 
-      {/* Annual / monthly toggle */}
-      <div className="text-center mb-10">
-        <div className="inline-flex items-center bg-gray-100 dark:bg-gray-800 rounded-full p-1 mt-2">
-          <button
-            onClick={() => setAnnual(false)}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${
-              !annual
-                ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm"
-                : "text-gray-500 dark:text-gray-400"
-            }`}
-          >
-            {t("pricingMonthly") || "Monthly"}
-          </button>
-          <button
-            onClick={() => setAnnual(true)}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition relative ${
-              annual
-                ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm"
-                : "text-gray-500 dark:text-gray-400"
-            }`}
-          >
-            {t("pricingAnnual") || "Annual"}
-            <span className="ml-2 inline-block bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-emerald-400 text-[10px] px-1.5 py-0.5 rounded font-semibold">
-              -20%
-            </span>
-          </button>
-        </div>
-      </div>
+      {/* Monthly only — no billing-period toggle here (see the TIERS note). */}
 
       {/* Release R-e — businesses only: a personal account sees why the paid
           tiers can't be bought, and where to change the account type. */}
@@ -862,7 +836,7 @@ export default function SubscriptionPage() {
           // a not-ready tier honestly reads "Join the list", not "Lock in".
           const stripeReady =
             billing?.checkout_ready?.[tier.id] ?? !!billing?.stripe_configured;
-          const price = annual ? tier.price_annual : tier.price_monthly;
+          const price = tier.price_monthly;
           const isFounding = !!tier.founding_price;
           const cta = user ? tier.cta : tier.cta_unauth;
 
@@ -1016,11 +990,6 @@ export default function SubscriptionPage() {
                     <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
                       {t("pricingDkkPerMonth", "DKK / mo") || "DKK / mo"}
                     </span>
-                  </div>
-                )}
-                {annual && price > 0 && !isFounding && (
-                  <div className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">
-                    {t("pricingBilledAnnually") || "billed annually"}
                   </div>
                 )}
               </div>

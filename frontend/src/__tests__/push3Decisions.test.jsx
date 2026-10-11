@@ -316,3 +316,63 @@ describe("(B/C) the iPhone app's plan page shows none of it", () => {
     }
   });
 });
+
+// ─────────────── B3 (Manoj, 11 Oct round 2): monthly only ───────────────
+
+describe("B3: the buying page is monthly only — no Annual toggle, no '-20%', no 'Årlig sparer 20%'", () => {
+  const trial = {
+    plan: "trial", trial_active: true, is_paid: false, subscription_status: null,
+    stripe_configured: true, checkout_ready: { starter: true, pro: true, any: true },
+  };
+  const renderSub = (lang) => {
+    langCode = lang;
+    authState = { user: { id: "u3", email: "cafe@cafe.dk", business_type: "cafe" }, refreshUser: vi.fn() };
+    get.mockReset();
+    get.mockImplementation((url) =>
+      Promise.resolve({ data: url === "/billing/me" ? trial : url === "/waitlist/status" ? [] : {} }));
+    return render(<MemoryRouter initialEntries={["/subscription"]}><SubscriptionPage /></MemoryRouter>);
+  };
+
+  for (const lang of ["da", "en"]) {
+    it(`${lang}: no billing-period toggle and no annual offer; the regular prices are the monthly 199 / 349`, async () => {
+      const { container } = renderSub(lang);
+      await screen.findAllByTestId("checkout-terms-line");
+      const text = container.textContent;
+      for (const gone of ["-20%", "20%", "Årlig", "Annual", "faktureres årligt", "billed annually", "Månedlig", "Monthly"]) {
+        expect(text).not.toContain(gone);
+      }
+      expect(screen.queryByRole("button", { name: /Årlig|Annual|Månedlig|Monthly/ })).toBeNull();
+      // The struck-through regular price is the monthly one (never 159 / 279).
+      const struck = [...container.querySelectorAll(".line-through")].map((n) => n.textContent);
+      expect(struck.some((s) => s.startsWith("199"))).toBe(true);
+      expect(struck.some((s) => s.startsWith("349"))).toBe(true);
+      expect(text).not.toMatch(/\b(159|279)\b/);
+      expect(screen.getByText(lang === "da" ? "Hvad du får på hver plan." : "What you get on each tier.")).toBeTruthy();
+    });
+  }
+
+  it("the source and every language pack: no annual price, no toggle keys, no '20%' in the subtitle", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "pages", "SubscriptionPage.jsx"), "utf8");
+    for (const gone of ["price_annual", "setAnnual", "pricingAnnual", "pricingBilledAnnually", "Annual saves"]) {
+      expect(src).not.toContain(gone);
+    }
+    // The pill was a JSX text node of its own: "-20%" on a line.
+    expect(src).not.toMatch(/^\s*-20%\s*$/m);
+    const packs = {
+      da, en,
+      tr: (await import("../i18n/tr")).tr,
+      np: (await import("../i18n/np")).np,
+      th: (await import("../i18n/th")).th,
+      vi: (await import("../i18n/vi")).vi,
+    };
+    for (const [lang, d] of Object.entries(packs)) {
+      for (const k of ["pricingMonthly", "pricingAnnual", "pricingBilledAnnually"]) expect(d[k], `${lang}.${k}`).toBeUndefined();
+      if (d.pricingComparePlansSubtitle) expect(d.pricingComparePlansSubtitle, lang).not.toMatch(/20|२०/);
+    }
+    expect(da.pricingComparePlansSubtitle).toBe("Hvad du får på hver plan.");
+    expect(en.pricingComparePlansSubtitle).toBe("What you get on each tier.");
+  });
+});

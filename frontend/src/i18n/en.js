@@ -2772,9 +2772,6 @@ export const en = {
     termsNoticeChangePrice: "We give at least 30 days' notice by e-mail before a price change applies to your running subscription.",
     termsNoticeChangeBusiness: "Paid subscriptions are for businesses only.",
     termsNoticeObject: "If you do not want to continue on the new terms, you can cancel your subscription or delete your account before {date}.",
-    pricingMonthly: "Monthly",
-    pricingAnnual: "Annual",
-    pricingBilledAnnually: "billed annually",
     pricingKrPerMonth: "kr/mo",
     pricingRegular: "regular",
     pricingCustom: "Custom",
@@ -7379,7 +7376,7 @@ export const en = {
     trialChipUpgradeLink: "see plans",
     // Quieter pricing-page heading for users already on a plan
     pricingComparePlansTitle: "Compare plans",
-    pricingComparePlansSubtitle: "What you get on each tier. Annual saves 20%.",
+    pricingComparePlansSubtitle: "What you get on each tier.",
     // ───────────────────────────────────────────────────────────
     // First-run welcome modal + onboarding checklist
     // (Vertical-specific bullets stay in source language — they're

@@ -111,9 +111,6 @@ export const np = {
   pricingHeroTitle1: "९० सेकेन्डमा दैनिक क्लोज।",
   pricingHeroTitle2: "स्टाफ समयमै घर जान्छन्।",
   pricingHeroSubtitle: "kasserapport खिच्नुहोस्। AI ले ६ सेकेन्डमा पढ्छ। एक ट्यापमा मालिक वा revisor लाई सफा PDF पठाउनुहोस्। १४ दिन Pro निःशुल्क। कार्ड चाहिँदैन। आश्चर्य छैन। बहीखाता होइन। POS होइन — बीचमा रहेका ९० सेकेन्ड।",
-  pricingMonthly: "मासिक",
-  pricingAnnual: "वार्षिक",
-  pricingBilledAnnually: "वार्षिक रूपमा बिल हुन्छ",
   pricingKrPerMonth: "kr/महिना",
   pricingRegular: "नियमित",
   pricingCustom: "अनुकूलित",
@@ -1876,7 +1873,7 @@ export const np = {
   planStarter: "स्टार्टर",
   planTrial: "परीक्षण",
   plus: "",
-  pricingComparePlansSubtitle: "प्रत्येक टियरमा के पाउनुहुन्छ। वार्षिकले २०% बचत गराउँछ।",
+  pricingComparePlansSubtitle: "प्रत्येक टियरमा के पाउनुहुन्छ।",
   pricingComparePlansTitle: "प्लानहरू तुलना गर्नुहोस्",
   // Date-range presets
   rangePreset14d: "अन्तिम १४ दिन",

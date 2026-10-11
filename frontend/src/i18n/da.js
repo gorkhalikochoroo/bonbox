@@ -2674,9 +2674,6 @@ export const da = {
     termsNoticeChangePrice: "En prisændring på dit løbende abonnement varsler vi pr. e-mail mindst 30 dage, før den får virkning.",
     termsNoticeChangeBusiness: "Betalte abonnementer er kun for virksomheder.",
     termsNoticeObject: "Vil du ikke fortsætte på de nye betingelser, kan du opsige dit abonnement eller slette din konto før {date}.",
-    pricingMonthly: "Månedlig",
-    pricingAnnual: "Årlig",
-    pricingBilledAnnually: "faktureres årligt",
     pricingKrPerMonth: "kr/md",
     pricingRegular: "normal",
     pricingCustom: "Tilpasset",
@@ -7150,7 +7147,7 @@ export const da = {
     trialChipUrgentTooltip: "Prøveperiode slutter snart — se priser",
     trialChipUpgradeLink: "se planer",
     pricingComparePlansTitle: "Sammenlign planer",
-    pricingComparePlansSubtitle: "Hvad du får på hver plan. Årlig sparer 20%.",
+    pricingComparePlansSubtitle: "Hvad du får på hver plan.",
     // First-run welcome modal + onboarding checklist
     welcomeIntroLine: "Velkommen til BonBox{name}. Tre ting giver dig mest værdi til at starte med:",
     welcomeTipsHeading: "Værd at vide",
