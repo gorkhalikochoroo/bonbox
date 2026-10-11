@@ -6256,6 +6256,25 @@ def _ready_db_probe() -> bool:
         return False
 
 
+@app.api_route("/api/health/storage", methods=["GET", "HEAD"])
+async def health_storage():
+    """Is file storage durable? 200 {"storage": "durable"} or 503
+    {"storage": "not_durable"} (INFRA-07, R-i) — for the external uptime
+    monitor and the release gate.
+
+    Config only: no network call (SupabaseStorageBackend.__init__ only builds
+    an httpx client), and the body names no bucket, key or backend class.
+    Deliberately NOT part of /api/health/ready: a 503 there takes the whole
+    app out of rotation and Render restarts it, which cannot fix a missing
+    env var — a restart loop and a full outage for a defect that only affects
+    uploads. Fail-closed storage keeps the data safe; this probe, the ops
+    triage standing check and the release gate make it visible."""
+    from app.services.storage import get_storage
+    if get_storage().is_durable:
+        return {"storage": "durable"}
+    return JSONResponse(status_code=503, content={"storage": "not_durable"})
+
+
 @app.api_route("/api/health/ready", methods=["GET", "HEAD"])
 async def health_ready():
     """Readiness probe — this is what render.yaml's healthCheckPath points at.

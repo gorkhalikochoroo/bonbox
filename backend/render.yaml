@@ -1,3 +1,10 @@
+# Render Blueprint for the API. Every key below is listed by NAME only.
+# Secrets are always sync:false: never value:/generateValue (a Blueprint
+# rebuild would mint a new SECRET_KEY and orphan sessions and encrypted rows).
+# sync:false never overwrites a value already set in the Render dashboard; it
+# only makes the key visible here, so a rebuilt service is not silently
+# missing one (INFRA-07, R-i). Only ENVIRONMENT and USE_CLAUDE_API carry a
+# value: they are not secrets and must survive a rebuild.
 services:
   - type: web
     name: bonbox-api
@@ -11,8 +18,10 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
+      # JWT signing key. sync:false, NOT generateValue: a regenerated value
+      # signs everyone out. Rotate only together with SECRET_KEY_PREVIOUS.
       - key: SECRET_KEY
-        generateValue: true
+        sync: false
       # Cloudflare origin lock — the app 403s any request missing this secret,
       # so a direct hit to the *.onrender.com origin (bypassing Cloudflare) is
       # rejected. ENABLE ORDER to avoid a self-inflicted outage: (1) add a
@@ -55,4 +64,159 @@ services:
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
       - key: STRIPE_PRICE_ID_PRO
+        sync: false
+      # ── Secrets (signing / encryption). Rotate APP_SECRET_KEY only together with
+      # APP_SECRET_KEY_PREVIOUS, SECRET_KEY only with SECRET_KEY_PREVIOUS —
+      # otherwise encrypted rows / sessions become unreadable. ──
+      - key: APP_SECRET_KEY
+        sync: false
+      - key: APP_SECRET_KEY_PREVIOUS
+        sync: false
+      - key: SECRET_KEY_PREVIOUS
+        sync: false
+      - key: GAVEKORT_SIGNING_KEY
+        sync: false
+      - key: TICKET_SIGNING_KEY
+        sync: false
+      - key: BOOKING_TOKEN_KEY
+        sync: false
+      - key: BONBOX_CRON_SECRET
+        sync: false
+      # ── Durable file storage (Supabase). Without URL + service key, production
+      # refuses uploads (fail-closed) and /api/health/storage answers 503. ──
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_RECEIPTS_BUCKET
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      # ── Mail and ops alerts (recipients = ADMIN_EMAIL + SUPER_ADMIN_EMAILS) ──
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: SUPPORT_NOTIFY_EMAIL
+        sync: false
+      - key: SUPPORT_REPLY_TO
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: OPS_ALERTS_ENABLED
+        sync: false
+      - key: OPS_ALERT_DAILY_CAP
+        sync: false
+      - key: OPS_ALERT_COOLDOWN_MINUTES
+        sync: false
+      # ── Stripe (continued) ──
+      - key: STRIPE_WEBHOOK_SECRET_TEST
+        sync: false
+      - key: STRIPE_PRICE_ID_STARTER
+        sync: false
+      - key: STRIPE_PRICE_ID_STARTER_FOUNDING
+        sync: false
+      - key: STRIPE_PRICE_ID_PRO_FOUNDING
+        sync: false
+      - key: STRIPE_TOS_CONSENT
+        sync: false
+      - key: STRIPE_AUTOMATIC_TAX
+        sync: false
+      # ── Push (web push VAPID + native APNs) ──
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+      - key: APNS_AUTH_KEY
+        sync: false
+      - key: APNS_KEY_ID
+        sync: false
+      - key: APNS_TEAM_ID
+        sync: false
+      - key: APNS_TOPIC
+        sync: false
+      - key: APNS_USE_SANDBOX
+        sync: false
+      # ── Sign in with Apple ──
+      - key: APPLE_CLIENT_ID
+        sync: false
+      - key: APPLE_TEAM_ID
+        sync: false
+      # ── Public URLs used in links the server sends ──
+      - key: PUBLIC_API_URL
+        sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
+      # ── SMS ──
+      - key: SMS_PROVIDER
+        sync: false
+      - key: GATEWAYAPI_TOKEN
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_WHATSAPP_NUMBER
+        sync: false
+      # ── Receipt OCR ──
+      - key: MINDEE_API_KEY
+        sync: false
+      - key: GOOGLE_VISION_API_KEY
+        sync: false
+      - key: OCRSPACE_API_KEY
+        sync: false
+      # ── Inbound mail inbox (Postmark) ──
+      - key: POSTMARK_INBOUND_USER
+        sync: false
+      - key: POSTMARK_INBOUND_PASS
+        sync: false
+      - key: INBOX_ENABLED
+        sync: false
+      # ── Feature flags ──
+      - key: PORTAL_PIN_ENFORCE
+        sync: false
+      - key: DEBUG_BILLING_ENABLED
+        sync: false
+      - key: ENABLE_BANK_CONNECT
+        sync: false
+      - key: BANK_PROVIDER
+        sync: false
+      # ── Bank connect, MobilePay, WhatsApp ──
+      - key: GOCARDLESS_SECRET_ID
+        sync: false
+      - key: GOCARDLESS_SECRET_KEY
+        sync: false
+      - key: GOCARDLESS_BAD_SECRET_ID
+        sync: false
+      - key: GOCARDLESS_BAD_SECRET_KEY
+        sync: false
+      - key: GOCARDLESS_BAD_REDIRECT_URI
+        sync: false
+      - key: AIIA_CLIENT_ID
+        sync: false
+      - key: AIIA_CLIENT_SECRET
+        sync: false
+      - key: AIIA_ENV
+        sync: false
+      - key: AIIA_REDIRECT_URI
+        sync: false
+      - key: SALTEDGE_APP_ID
+        sync: false
+      - key: SALTEDGE_SECRET
+        sync: false
+      - key: YAPILY_APPLICATION_ID
+        sync: false
+      - key: YAPILY_APPLICATION_SECRET
+        sync: false
+      - key: MOBILEPAY_CLIENT_ID
+        sync: false
+      - key: MOBILEPAY_CLIENT_SECRET
+        sync: false
+      - key: MOBILEPAY_ENV
+        sync: false
+      - key: WHATSAPP_ENABLED
+        sync: false
+      - key: WHATSAPP_WEBHOOK_URL
         sync: false
