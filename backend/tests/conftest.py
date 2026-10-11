@@ -30,6 +30,19 @@ import sys
 import pytest
 
 
+def _pause_abuse_monitor(main) -> None:
+    """Importing app.main starts the background scheduler. Its 2-minute abuse
+    monitor drains the in-process abuse counters that tests read, so in a
+    test run it is taken off the scheduler (tests/test_abuse_monitor.py
+    drives the job directly)."""
+    sched = getattr(main, "_scheduler", None)
+    try:
+        if sched is not None and sched.get_job("abuse_monitor") is not None:
+            sched.remove_job("abuse_monitor")
+    except Exception:  # noqa: BLE001 — isolation helper, never fails a test
+        pass
+
+
 def _reset_app_rate_limits() -> None:
     signals = sys.modules.get("app.utils.abuse_signals")
     if signals is not None:  # in-process abuse counters (the abuse monitor drains them)
@@ -37,6 +50,7 @@ def _reset_app_rate_limits() -> None:
     main = sys.modules.get("app.main")
     if main is None:  # nothing in this run has loaded the app yet
         return
+    _pause_abuse_monitor(main)
     main.limiter.reset()
     main._coarse_hits.clear()
     main._admin_ip_strikes.clear()

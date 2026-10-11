@@ -869,6 +869,22 @@ def guest_emails_sent_by_owner_last_24h(db: Session, owner_id) -> int:
     )
 
 
+def guest_emails_sent_fleet_last_24h(db: Session) -> int:
+    """Guest emails DELIVERED in the last 24 hours across every venue (no
+    owner filter; failed / capped rows and mail to owners do not count)."""
+    since = utc_now() - timedelta(days=1)
+    return int(
+        db.query(func.count(NotificationLog.id))
+        .filter(
+            NotificationLog.channel == "email",
+            NotificationLog.status == "sent",
+            NotificationLog.event_type.in_(GUEST_EVENTS),
+            NotificationLog.created_at >= since,
+        )
+        .scalar() or 0
+    )
+
+
 def guest_email_owner_cap(db: Session, owner_id) -> int:
     """This owner's rolling-24h guest-mail ceiling: the lower one until the
     owner's own e-mail address is confirmed — and while a "did you create

@@ -384,6 +384,30 @@ class Settings(BaseSettings):
     # False is the kill switch: back to the old behaviour (leftmost XFF via
     # uvicorn), a Render env change and a restart, no deploy.
     CLIENT_IP_FAIL_CLOSED: bool = True
+    # Ceilings that hold when an attacker rotates addresses. Every one is
+    # read at call time; 0 (or less) switches that check off. Measured prod
+    # peaks on 11 Oct 2026 are in the comments — the defaults sit far above.
+    # Sign-in link mails to addresses WITHOUT an account (existing accounts
+    # always get theirs; routers/auth_magic_link.py, services/abuse_caps.py).
+    MAGIC_LINK_FLEET_MAX_PER_HOUR: int = 60     # peak 1
+    MAGIC_LINK_FLEET_MAX_PER_DAY: int = 300     # peak 2
+    MAGIC_LINK_DOMAIN_MAX_PER_HOUR: int = 30    # peak 1
+    MAGIC_LINK_DOMAIN_MAX_PER_DAY: int = 100    # peak 1
+    # Guest e-mails delivered across ALL venues in a rolling 24 h
+    # (services/reservation_emails.py deliver()). Peak ~3/day.
+    GUEST_EMAILS_FLEET_PER_DAY: int = 2000
+    # Wrong staff join / stand pairing codes from all addresses together:
+    # JOIN_FAIL_GLOBAL_MAX within JOIN_FAIL_WINDOW_SEC pauses that door for
+    # everyone for JOIN_COOLOFF_SEC (main.join_failure_brake).
+    JOIN_FAIL_GLOBAL_MAX: int = 300
+    JOIN_FAIL_WINDOW_SEC: int = 600
+    JOIN_COOLOFF_SEC: int = 60                  # matches the "vent et minut" copy
+    # Alert only (jobs/abuse_monitor_job.py): new accounts per hour / 24 h.
+    SIGNUP_ALERT_PER_HOUR: int = 20             # peak 3
+    SIGNUP_ALERT_PER_DAY: int = 60              # peak 9
+    # Alert when this many non-health requests in one 2-minute monitor tick
+    # arrive without a valid edge header (expected 0).
+    NO_EDGE_ALERT_PER_TICK: int = 20
 
 
 settings = Settings()

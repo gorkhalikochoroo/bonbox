@@ -5925,6 +5925,7 @@ try:
     from app.jobs.daily_brief_push_job import send_daily_brief_pushes
     from app.jobs.expiry_scanner_job import run_expiry_scan
     from app.jobs.frontend_monitor_job import run_frontend_monitor_tick
+    from app.jobs.abuse_monitor_job import run_abuse_monitor_tick
     from app.jobs.subscription_reconcile_job import run_subscription_reconcile
     from app.jobs.public_surface_monitor_job import run_public_surface_monitor_tick
     from app.jobs.reservation_jobs import (
@@ -6152,6 +6153,17 @@ try:
         name="Prod frontend synthetic monitor (Vercel deploy integrity)",
         replace_existing=True,
     )
+    # Abuse ceilings monitor (R-sec) — drains the in-process abuse counters
+    # (magic-link / guest-mail ceilings, join cool-offs, missing edge header)
+    # and counts new accounts; one alert per incident, at most one per kind
+    # per 6 h, counts only. See jobs/abuse_monitor_job.py.
+    _scheduler.add_job(
+        run_abuse_monitor_tick,
+        trigger=IntervalTrigger(minutes=2),
+        id="abuse_monitor",
+        name="Abuse ceilings monitor",
+        replace_existing=True,
+    )
     # Public-surface quality monitor — flags SILENT booking-page defects (a page
     # dead for 14 days, an app-default title) the crash monitor can't see. Every
     # 15 min (higher per-slug cost than the frontend monitor). Fail-soft,
@@ -6195,7 +6207,7 @@ try:
           "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30), "
           "recurring expenses (04:00), daily brief push (06:00), daily brief email (06:30), "
           "aiia sync (03:30), mobilepay sync (03:45), frontend monitor (5m), "
-          "nightly backup (04:20 UTC, off unless BACKUP_* set)")
+          "nightly backup (04:20 UTC, off unless BACKUP_* set), abuse monitor (2m)")
 
     # Scheduler shutdown migrated to the `lifespan` context manager
     # near the FastAPI() constructor. It checks globals() for the
