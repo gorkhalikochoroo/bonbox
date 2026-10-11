@@ -13,7 +13,14 @@
 //   L4   — Wrong-event QR rejected client-side before server hit.
 //   L7   — Server is the source of truth for sig verification.
 //   L8   — Every server response (200/409/410/4xx) drives a flash card.
-//   L10  — Honest copy: "Allerede scannet kl. {time}" / "Refunderet".
+//          A 200 is NOT automatically a welcome: the endpoint is idempotent
+//          and answers a re-scan with 200 {status:"already"}. Only
+//          status "ok" (a FIRST scan) gets the success card, chime and
+//          haptic; "already" gets its own amber warning (different sound,
+//          warning haptic) so a reused/shared ticket can't pass as new.
+//   L10  — Honest copy: "Allerede scannet kl. {time}" / "Refunderet" /
+//          "Billetten er ikke bekræftet" (the 409 is booking_not_confirmed,
+//          never "already scanned").
 //
 // Camera strategy (per spec):
 //   Capacitor native (iOS/Android) → still use the WebView's getUserMedia
@@ -80,24 +87,34 @@ function makeAudioFeedback() {
       return ctx;
     } catch { return null; }
   };
-  const beep = (freq, duration, type = "sine", volume = 0.08) => {
+  // `delay` (seconds) schedules the tone later on the context clock, so a
+  // two-note pattern needs no timers.
+  const beep = (freq, duration, type = "sine", volume = 0.08, delay = 0) => {
     const c = ctx;
     if (!c) return;
     try {
       const osc = c.createOscillator();
       const gain = c.createGain();
+      const t0 = c.currentTime + delay;
       osc.type = type;
       osc.frequency.value = freq;
       gain.gain.value = volume;
+      if (gain.gain.setValueAtTime) gain.gain.setValueAtTime(volume, t0);
       osc.connect(gain).connect(c.destination);
-      osc.start();
-      gain.gain.exponentialRampToValueAtTime(0.00001, c.currentTime + duration);
-      osc.stop(c.currentTime + duration + 0.02);
+      osc.start(t0);
+      gain.gain.exponentialRampToValueAtTime(0.00001, t0 + duration);
+      osc.stop(t0 + duration + 0.02);
     } catch { /* audio errors should never break the scan loop */ }
   };
   return {
     init,
     success: () => beep(880, 0.12, "sine", 0.06),
+    // Already scanned: two short mid tones. Must never sound like the
+    // single high success chime — the host may not be looking at the screen.
+    warning: () => {
+      beep(523, 0.09, "triangle", 0.07);
+      beep(523, 0.09, "triangle", 0.07, 0.16);
+    },
     failure: () => beep(220, 0.22, "square", 0.05),
   };
 }
@@ -122,11 +139,28 @@ function decodeQrPayload(qrText) {
   }
 }
 
-// Format a timestamp into HH:mm for the "Already scanned kl. 19:48" copy.
+// Server timestamps (e.g. a ticket's scanned_at) are NAIVE UTC: the backend
+// stores utc_now() in a bare DateTime column and serialises it without an
+// offset ("2026-10-11T18:48:00.123456"). `new Date()` reads an offset-less
+// date-time as LOCAL time, which put "Allerede scannet kl." two hours early
+// in Denmark in summer. Treat no-offset as UTC; keep an explicit Z/±HH:MM.
+// Fractional seconds are cut to milliseconds (Safari rejects microseconds).
+function parseServerUtc(value) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  let s = String(value).trim().replace(" ", "T");
+  s = s.replace(/(\.\d{3})\d+/, "$1");
+  if (/T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s)) s += "Z";
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+// Format a timestamp into HH:mm (device-local) for the
+// "Allerede scannet kl. 19.48" copy and the flash-card clock.
 function formatTimeShort(iso) {
-  if (!iso) return "";
+  const d = parseServerUtc(iso);
+  if (!d) return "";
   try {
-    const d = new Date(iso);
     return d.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" });
   } catch {
     return "";
@@ -253,22 +287,37 @@ function UpcomingEventsList({ events, loading, onPick, t }) {
 // is the only colored pixel per the doctrine "color is signal" rule.
 function ScanFlashCard({ entry }) {
   const ok = entry.kind === "success";
+  // "warning" = ticket already scanned. Not a welcome and not a broken QR:
+  // the host has to look at the guest. The one entry kind that tints its
+  // border + icon amber, so it can't be mistaken for either neighbour.
+  const warn = entry.kind === "warning";
   // gray-50/gray-200 neutral surface — same recipe as Card primitive.
   // Doctrine line: "context callouts neutral block + colored icon prefix".
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3">
+    <div
+      data-scan-kind={entry.kind}
+      className={`rounded-xl border bg-white dark:bg-gray-900 p-3 ${
+        warn
+          ? "border-amber-400 dark:border-amber-500/70"
+          : "border-gray-200 dark:border-gray-800"
+      }`}
+    >
       <div className="flex items-start gap-2.5">
         <div className="mt-0.5 shrink-0" aria-hidden="true">
           {ok ? (
             <Check size={18} strokeWidth={2.25} className="text-gray-700 dark:text-gray-200" />
+          ) : warn ? (
+            <AlertTriangle size={18} strokeWidth={2.25} className="text-amber-600 dark:text-amber-400" />
           ) : (
             <AlertTriangle size={18} strokeWidth={2.25} className="text-gray-700 dark:text-gray-200" />
           )}
         </div>
-        {/* Status dot is the only colored pixel — green for success, red
+        {/* Status dot — green for success, amber for already-scanned, red
             for error. Tracks the doctrine "● Paid" status-pill pattern. */}
         <span
-          className={`mt-2 w-1.5 h-1.5 rounded-full shrink-0 ${ok ? "bg-emerald-500" : "bg-red-500"}`}
+          className={`mt-2 w-1.5 h-1.5 rounded-full shrink-0 ${
+            ok ? "bg-emerald-500" : warn ? "bg-amber-500" : "bg-red-500"
+          }`}
           aria-hidden="true"
         />
         <div className="min-w-0 flex-1">
@@ -616,9 +665,48 @@ export default function DoorScanPage() {
       haptic.error();
       return;
     }
+    // Already scanned → amber warning: own sound, warning haptic, and the
+    // scanned count does NOT move (the guest was counted the first time).
+    const flagAlreadyScanned = (scannedAt, data) => {
+      const when = formatTimeShort(scannedAt);
+      const who = [
+        data?.customer_name,
+        data?.tier_label,
+        data?.booking_id ? `#${String(data.booking_id).slice(0, 8)}` : null,
+      ].filter(Boolean).join(" · ");
+      pushHistory({
+        kind: "warning",
+        title: when
+          ? t("scanAlreadyScannedAt", "Allerede scannet kl. {time}", { time: when })
+          : t("scanAlreadyScanned", "Allerede scannet"),
+        subtitle: who || t("scanAlreadyScannedBody", "Billetten er brugt før — tjek gæsten"),
+        at: new Date().toISOString(),
+      });
+      if (audioRef.current) audioRef.current.warning();
+      haptic.warning();
+    };
+    const flagError = (title, subtitle = null) => {
+      pushHistory({ kind: "error", title, subtitle, at: new Date().toISOString() });
+      if (audioRef.current) audioRef.current.failure();
+      haptic.error();
+    };
+
     try {
       const res = await api.post(`/tickets/${tid}/scan`, { qr: qrText });
-      const data = res.data || {};
+      const data = res?.data || {};
+      // The endpoint is idempotent: a re-scan is a 200 too, with
+      // status "already". Only "ok" — a first scan — is a welcome.
+      if (data.status === "already") {
+        flagAlreadyScanned(data.scanned_at, data);
+        return;
+      }
+      if (data.status !== "ok") {
+        // Fail closed: an outcome this page doesn't know is never a welcome.
+        if (data.status === "void") flagError(t("scanRefunded", "Billet ugyldig — refunderet"));
+        else if (data.status === "wrong_event") flagError(t("scanWrongEvent", "Forkert arrangement"));
+        else flagError(t("scanGenericError", "Scan mislykkedes — prøv igen"));
+        return;
+      }
       pushHistory({
         kind: "success",
         title: data.customer_name || t("scanSuccess", "Velkommen"),
@@ -631,14 +719,26 @@ export default function DoorScanPage() {
       haptic.success();
     } catch (err) {
       const status = err?.response?.status;
-      const detail = err?.response?.data?.detail || err?.response?.data?.message;
+      const body = err?.response?.data;
+      const rawDetail = body?.detail;
+      const detail = rawDetail || body?.message;
       let title;
       let subtitle = null;
-      if (status === 409) {
-        const when = formatTimeShort(err?.response?.data?.scanned_at);
-        title = when
-          ? t("scanAlreadyScannedAt", "Allerede scannet kl. {time}", { time: when })
-          : t("scanAlreadyScanned", "Allerede scannet");
+      if (!err?.response && (err?.isAxiosError || err?.request)) {
+        // No HTTP answer at all (offline, timeout, DNS). We can't know if the
+        // scan landed, so say what to do — not what happened.
+        title = t("scanNetworkError", "Ingen forbindelse — scan billetten igen");
+      } else if (status === 409 && rawDetail?.error === "booking_not_confirmed") {
+        // The 409 this endpoint sends is an unconfirmed BOOKING (pending /
+        // cancelled / expired), not a repeat scan.
+        title = t("scanNotConfirmed", "Billetten er ikke bekræftet");
+        subtitle = rawDetail?.current_status === "pending"
+          ? t("scanNotConfirmedPending", "Betalingen er ikke registreret endnu")
+          : null;
+      } else if (status === 409 && (body?.scanned_at || rawDetail?.scanned_at)) {
+        // Tolerated shape: a 409 that does carry a prior stamp IS a re-scan.
+        flagAlreadyScanned(body?.scanned_at || rawDetail?.scanned_at, rawDetail || body);
+        return;
       } else if (status === 410) {
         title = t("scanRefunded", "Billet ugyldig — refunderet");
       } else if (status === 404) {
@@ -651,14 +751,7 @@ export default function DoorScanPage() {
         title = t("scanGenericError", "Scan mislykkedes — prøv igen");
         subtitle = status ? `HTTP ${status}` : null;
       }
-      pushHistory({
-        kind: "error",
-        title,
-        subtitle,
-        at: new Date().toISOString(),
-      });
-      if (audioRef.current) audioRef.current.failure();
-      haptic.error();
+      flagError(title, subtitle);
     }
   }, [pushHistory, t]);
 
