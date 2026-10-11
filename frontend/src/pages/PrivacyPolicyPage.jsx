@@ -37,6 +37,14 @@ function Table({ headers, rows }) {
 // same links. If you change one, change the other in the same commit.
 // cookieSettings reopens the consent banner's drawer (CookieSettingsButton) —
 // the footer link the drawer itself points to.
+//
+// Push 3 (11 Oct 2026): retention and deletion say what the code does and
+// what Terms of Service § 4 says (immediate deletion; change log, security
+// and error logs and the accounting-document images kept; no retention
+// setting; the owner, not BonBox, keeps the accounting records). A processor
+// location is named only where it is confirmed (Supabase: Ireland, project
+// in eu-west-1; Render: Frankfurt; Companies House: UK); every other row
+// says "Not confirmed" / "Ikke bekræftet".
 const CHROME = {
   en: { terms: "Terms", cookies: "Cookies", cookieSettings: "Cookie settings", back: "Back to BonBox" },
   da: { terms: "Vilkår", cookies: "Cookies", cookieSettings: "Cookieindstillinger", back: "Tilbage til BonBox" },
@@ -46,7 +54,7 @@ function PrivacyEn() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privacy Policy</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 8 October 2026</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 14 October 2026</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -107,7 +115,7 @@ function PrivacyEn() {
             <li>Parse the file to extract transaction date, description, and amount</li>
             <li>Auto-categorize transactions based on keywords</li>
             <li>Store the parsed transactions in your BonBox account</li>
-            <li>Delete the original CSV file from our servers within 30 days of import</li>
+            <li>Do not save the original CSV file: it is read in memory during the import and then discarded</li>
           </ul>
           <p className="mt-1">We do not have access to your bank login credentials.</p>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Legal basis:</strong> Consent (GDPR Article 6(1)(a)).</p>
@@ -115,7 +123,7 @@ function PrivacyEn() {
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Technical data</h3>
           <p>When you use bonbox.dk, we automatically collect:</p>
           <ul className="list-disc pl-6 space-y-1 mt-1">
-            <li>IP address (anonymized after 30 days)</li>
+            <li>IP address — kept in our error log for 30 days, and in the change log and the security log with no end date (see &ldquo;How long we keep your data&rdquo;)</li>
             <li>Browser type and version</li>
             <li>Device type (desktop, mobile, tablet)</li>
           </ul>
@@ -165,7 +173,7 @@ function PrivacyEn() {
           <p>BonBox includes an AI assistant ("BonBox AI Copilot") powered by Anthropic's Claude API. When you chat with the Copilot:</p>
           <ul className="list-disc pl-6 space-y-1 mt-1">
             <li>Your message and a summary of your business context (revenue totals, top features used, recent insights — never raw customer data) are sent to Anthropic's API to generate a reply.</li>
-            <li>Anthropic processes the data on EU/US servers and does not retain it beyond their operational logs (typically 30 days). Per Anthropic's commercial terms, they do <strong>not</strong> train their models on data sent through their API.</li>
+            <li>Anthropic processes the data on its servers (we have not confirmed where; see the table below) and keeps it only as long as Anthropic's commercial terms and privacy policy allow (link below). Per Anthropic's commercial terms, they do <strong>not</strong> train their models on data sent through their API.</li>
             <li>We log the question (first 200 chars) and token usage in your account so you can review what was sent.</li>
             <li>You can disable AI Copilot interactions by simply not using it — the rest of BonBox works without it.</li>
           </ul>
@@ -178,32 +186,39 @@ function PrivacyEn() {
           <Table
             headers={["Service", "Purpose", "Location", "Data processed"]}
             rows={[
-              ["Supabase", "Database hosting (PostgreSQL)", "EU (Ireland)", "All account and business data"],
+              ["Supabase", "Database (PostgreSQL) and file storage", "EU (Ireland)", "All account and business data, and the files you upload"],
               ["Vercel", "Frontend hosting", "Global CDN", "No personal data stored"],
-              ["Render", "Backend API hosting", "US/EU", "API requests, no persistent storage"],
-              ["Resend", "Email delivery", "US", "Email address, email content"],
-              ["Anthropic (Claude API)", "Reading receipts and documents, AI Copilot replies", "EU/US", "Photos of receipts, kasserapporter and other documents you upload, plus your chat messages and a summary of your business context; not retained beyond Anthropic's operational logs; not used for training"],
-              ["Google Cloud Vision", "Reading text from receipt photos (when enabled)", "US", "Photos of receipts you upload"],
-              ["Stripe", "Subscription payments", "US/EU", "Billing email, subscription status; card details go straight to Stripe and never reach our servers"],
-              ["cvrapi.dk", "Business registration lookup", "Denmark", "CVR numbers (public data)"],
-              ["Mindee", "Reading receipts and invoices (when enabled)", "EU", "Photos of receipts and invoices you upload"],
+              ["Render", "Backend API hosting", "EU (Frankfurt, Germany)", "API requests, no persistent storage"],
+              ["Resend", "Email delivery", "Not confirmed", "Email address, email content"],
+              ["Postmark", "Receiving the e-mails you forward to your BonBox receipt address (when switched on)", "Not confirmed", "The forwarded e-mail and its attachments"],
+              ["Anthropic (Claude API)", "Reading receipts and documents, AI Copilot replies", "Not confirmed", "Photos of receipts, kasserapporter and other documents you upload, plus your chat messages and a summary of your business context; not used for training; kept only as long as Anthropic's terms allow"],
+              ["Google Cloud Vision", "Reading text from receipt photos (when enabled)", "Not confirmed", "Photos of receipts you upload"],
+              ["OCR.space", "Reading text from receipt photos (when enabled)", "Not confirmed", "Photos of receipts you upload"],
+              ["Stripe", "Subscription payments", "Not confirmed", "Billing email and business name, your BonBox account id, plan, business type and the Terms version you accepted, subscription status; card details go straight to Stripe and never reach our servers"],
+              ["cvrapi.dk", "Business registration lookup", "Not confirmed", "CVR numbers (public data)"],
+              ["Companies House", "Business registration lookup for UK companies (when used)", "United Kingdom", "The company name or number you search (public data)"],
+              ["Mindee", "Reading receipts and invoices (when enabled)", "Not confirmed", "Photos of receipts and invoices you upload"],
               ["Cloudflare", "Network security and routing in front of our servers", "Global", "IP address and request data, in transit only"],
-              ["GatewayAPI", "SMS reminders to guests (when a venue turns them on)", "EU (Denmark)", "Guest phone number, message text"],
-              ["Twilio", "SMS/WhatsApp messages (when enabled)", "US/EU", "Phone number, message text"],
-              ["Apple Push Notification service", "Notifications to the BonBox iPhone apps", "US", "A device token and the notification text"],
-              ["Web push (Google, Apple, Mozilla)", "Browser notifications you switch on", "US/EU", "A push subscription and the notification text"],
-              ["Google / Apple sign-in", "Signing in with your Google or Apple account (if you choose to)", "US", "Your email address and name from that account"],
-              ["Google Places", "Looking up nearby businesses in the competitor view (when used)", "US", "The area and business type you search for"],
-              ["Sentry", "Error reports from our servers (when enabled)", "EU/US", "Technical error details; personal data is stripped"],
-              ["Slack", "Alerting us to urgent support requests", "US", "The request's subject and your account email"],
+              ["GatewayAPI", "SMS reminders to guests (when a venue turns them on)", "Not confirmed", "Guest phone number, message text"],
+              ["Twilio", "SMS/WhatsApp messages (when enabled)", "Not confirmed", "Phone number, message text"],
+              ["Apple Push Notification service", "Notifications to the BonBox iPhone apps", "Not confirmed", "A device token and the notification text"],
+              ["Web push (Google, Apple, Mozilla)", "Browser notifications you switch on", "Not confirmed", "A push subscription and the notification text"],
+              ["Google / Apple sign-in", "Signing in with your Google or Apple account (if you choose to)", "Not confirmed", "Your email address and name from that account"],
+              ["Google Places", "Looking up nearby businesses in the competitor view (when used)", "Not confirmed", "The area and business type you search for"],
+              ["Sentry", "Error reports from our servers (when enabled)", "Not confirmed", "Technical error details, sent without IP addresses or cookies"],
+              ["Slack", "Alerting us to urgent support requests", "Not confirmed", "The request's subject and your account email"],
+              ["Simply.com", "Our e-mail inbox for contact@bonbox.dk", "Not confirmed", "The e-mails you send us"],
             ]}
           />
+          <p className="text-sm text-gray-500 dark:text-gray-400" data-testid="privacy-location-note">
+            &ldquo;Not confirmed&rdquo; means we have not yet confirmed where that provider processes the data. It may be outside the EU/EEA (see &ldquo;International data transfers&rdquo;).
+          </p>
           <p>
             We do not sell your data, and we do not share it for advertising. Your books stay in our
             database and only you can see them. The one exception is the list above: to read a receipt
             we have to send the photo to an OCR provider, and that photo is financial data. Those
-            providers process it on our instructions, do not train on it, and do not keep it beyond
-            their operational logs.
+            providers process it on our instructions to read it for us. Anthropic does not train its
+            models on it (Anthropic&rsquo;s commercial terms).
           </p>
 
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Law enforcement</h3>
@@ -218,31 +233,33 @@ function PrivacyEn() {
               ["Campaign code from a printed flyer (on the account)", "Deleted 12 months after you create your account, or earlier if you delete your account"],
               ["Business profile (incl. logo)", "Until you delete your account"],
               ["Financial data (sales, expenses, inventory)", "Until you delete your account"],
-              ["Fakturaer + customer records", "6 years (Bogføringsloven §12 minimum) — adjustable 5–10 years"],
-              ["Mileage / kørselsgodtgørelse log", "Per your faktura retention setting (5–10 years)"],
-              ["Audit log (every mark-paid / void / brand change)", "10 years (Skatteforvaltningsloven §31 maximum)"],
+              ["Images of accounting documents you upload (kasserapport photos, receipt and sales photos, stock import files)", "Until you delete your account, then about 6 years after the deletion; then deleted"],
+              ["Fakturaer + customer records", "Until you delete your account. Draft invoices that were never sent are deleted about 6 years after their date"],
+              ["Mileage / kørselsgodtgørelse log", "Deleted about 6 years after the trip date (entries linked to an invoice: until you delete your account), and at the latest when you delete your account"],
+              ["Change log (every mark-paid / void / brand change), incl. your IP address", "No end date: it cannot be edited or deleted through BonBox, and it is kept when you delete your account"],
               ["Payment-match suggestions (pending)", "Until accepted/rejected by you"],
               ["Payment-match suggestions (resolved)", "1 year after resolution"],
-              ["Bank CSV files (raw)", "Deleted within 30 days of import"],
-              ["Parsed bank transactions", "Per your faktura retention setting"],
+              ["Bank CSV files (raw)", "Not saved: read in memory during the import"],
+              ["Parsed bank transactions", "Until you delete your account (they are saved as sales and expenses)"],
               ["Product analytics events", "180 days (auto-purged daily)"],
               ["AI insights derived from events", "Auto-expire 1–30 days; can be dismissed any time"],
               ["AI Copilot question logs (first 200 chars)", "180 days"],
-              ["Technical/access logs", "30 days"],
-              ["Security audit log (admin access attempts)", "365 days"],
-              ["Email communication logs", "90 days"],
+              ["Error log (technical errors, incl. IP address)", "30 days, also after you delete your account"],
+              ["Security log (sign-ups, e-mail sign-in links, admin access attempts; incl. IP address)", "No end date; kept when you delete your account"],
+              ["Email communication logs", "Until you delete your account"],
+              ["Backups of our database", "Copies disappear when those backups expire"],
             ]}
           />
-          <p className="mt-3"><strong>Why fakturaer and audit logs stay so long:</strong> Danish law (Bogføringsloven §12) requires us to retain accounting records for at least 5 years from the end of the financial year. Skattestyrelsen disputes can reach back 10 years (Skatteforvaltningsloven §31). We default to 6 years (5-year legal minimum + 1-year buffer) and let you extend up to 10 years from your Profile. We will not let you go below 5 years — that would expose you to penalties under Bogføringsloven §16.</p>
-          <p className="mt-3"><strong>Audit log immutability:</strong> Every time you mark an invoice paid, void it, upload a logo, or change brand settings, we write a row to an append-only audit log capturing the action, your IP, and before/after state. These rows cannot be edited or deleted — by you, by us, or by anyone except after the 10-year window expires. This is required by Bogføringsloven §9 (every accounting entry must be traceable to source).</p>
-          <p className="mt-3">When you delete your account, all your personal and financial data is permanently deleted within 30 days <em>except</em> records the law requires us to retain — those remain in cold storage for the legal window, no longer linked to your identity once you delete. Backups are purged within 90 days.</p>
+          <p className="mt-3"><strong>Your accounting records:</strong> Under the Danish Bookkeeping Act it is you — not BonBox — who must keep your business&rsquo;s accounting records, as a rule for 5 years from the end of the financial year they relate to. BonBox is not a registered bookkeeping system and is not an archive you can rely on for that duty (see <Link to="/terms" className="text-blue-600 dark:text-blue-400 hover:underline">Terms of Service</Link> &sect;4). Download your data and the PDFs you need before you delete your account. There is no setting in BonBox that changes how long we keep data.</p>
+          <p className="mt-3"><strong>Change log:</strong> Every time you mark an invoice paid, void it, upload a logo, or change brand settings, we write a row to a change log capturing the action, the time, your IP address and the state before and after. The log cannot be edited or deleted through BonBox — neither by you nor by us — and we have set no end date for it.</p>
+          <p className="mt-3" data-testid="privacy-deletion">When you delete your account, we delete the account and the data in it straight away. We keep the change log, the security and error logs, and the images of accounting documents you uploaded (kasserapport photos, receipt and sales photos, and stock import files); we keep those images for about 6 years after the deletion and then delete them. Copies in our backups disappear when those backups expire.</p>
         </Section>
 
         <Section title="Your rights under GDPR">
           <ul className="list-disc pl-6 space-y-2">
             <li><strong>Right of access (Article 15):</strong> Request a copy of all data we hold about you.</li>
             <li><strong>Right to rectification (Article 16):</strong> Correct inaccurate data at any time in your settings.</li>
-            <li><strong>Right to erasure (Article 17):</strong> Delete your account from your settings. Your personal data — including uploaded photos, staff images and your logo — is erased within 30 days; legally-required accounting records (see Data retention) are kept for the 5-year window, then deleted.</li>
+            <li><strong>Right to erasure (Article 17):</strong> Delete your account under Profile. We delete the account and the data in it straight away, including staff photos and documents, chat photos and your logo. We keep the change log, the security and error logs, and the images of accounting documents you uploaded (about 6 years) — see &ldquo;How long we keep your data&rdquo;.</li>
             <li><strong>Right to data portability (Article 20):</strong> Export all your data as CSV files from BonBox.</li>
             <li><strong>Right to restrict processing (Article 18):</strong> Request we stop processing while a complaint is resolved.</li>
             <li><strong>Right to object (Article 21):</strong> Object to processing based on legitimate interest.</li>
@@ -257,7 +274,7 @@ function PrivacyEn() {
             <li>Passwords are hashed using bcrypt (never stored in plain text)</li>
             <li>Every request is limited to your own business in our server code, and the database cannot be reached directly from outside (row-level security denies it)</li>
             <li>API endpoints require JWT authentication</li>
-            <li>Bank CSV files are processed in memory and deleted after import</li>
+            <li>Bank CSV files are read in memory during the import and are not saved</li>
             <li>We do not store bank login credentials under any circumstances</li>
           </ul>
         </Section>
@@ -303,7 +320,7 @@ function PrivacyDa() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privatlivspolitik</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Senest opdateret: 8. oktober 2026</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Senest opdateret: 14. oktober 2026</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -364,7 +381,7 @@ function PrivacyDa() {
             <li>Læse filen og udtrække transaktionsdato, beskrivelse og beløb</li>
             <li>Kategorisere transaktionerne automatisk ud fra nøgleord</li>
             <li>Gemme de indlæste transaktioner på din BonBox-konto</li>
-            <li>Slette den oprindelige CSV-fil fra vores servere inden for 30 dage efter importen</li>
+            <li>Ikke gemme den oprindelige CSV-fil: den læses i hukommelsen under importen og kasseres derefter</li>
           </ul>
           <p className="mt-1">Vi har ikke adgang til dine loginoplysninger til banken.</p>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Retsgrundlag:</strong> Samtykke (databeskyttelsesforordningens artikel 6, stk. 1, litra a).</p>
@@ -372,7 +389,7 @@ function PrivacyDa() {
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Tekniske data</h3>
           <p>Når du bruger bonbox.dk, indsamler vi automatisk:</p>
           <ul className="list-disc pl-6 space-y-1 mt-1">
-            <li>IP-adresse (anonymiseres efter 30 dage)</li>
+            <li>IP-adresse — den gemmes i vores fejllog i 30 dage og i ændringsloggen og sikkerhedsloggen uden en slutdato (se »Hvor længe vi opbevarer dine data«)</li>
             <li>Browsertype og -version</li>
             <li>Enhedstype (computer, mobil, tablet)</li>
           </ul>
@@ -422,7 +439,7 @@ function PrivacyDa() {
           <p>BonBox indeholder en AI-assistent (»BonBox AI Copilot«), som drives af Anthropics Claude API. Når du chatter med Copilot:</p>
           <ul className="list-disc pl-6 space-y-1 mt-1">
             <li>Din besked og et resumé af din virksomheds kontekst (samlet omsætning, de mest brugte funktioner, seneste indsigter — aldrig rå kundedata) sendes til Anthropics API for at generere et svar.</li>
-            <li>Anthropic behandler dataene på servere i EU/USA og opbevarer dem ikke ud over deres driftslogge (typisk 30 dage). Ifølge Anthropics kommercielle vilkår træner de <strong>ikke</strong> deres modeller på data, der sendes via deres API.</li>
+            <li>Anthropic behandler dataene på sine servere (vi har ikke bekræftet hvor; se tabellen nedenfor) og opbevarer dem kun så længe, som Anthropics kommercielle vilkår og privatlivspolitik tillader (link nedenfor). Ifølge Anthropics kommercielle vilkår træner de <strong>ikke</strong> deres modeller på data, der sendes via deres API.</li>
             <li>Vi logger spørgsmålet (de første 200 tegn) og tokenforbruget på din konto, så du kan se, hvad der blev sendt.</li>
             <li>Du kan fravælge AI Copilot ved simpelthen ikke at bruge den — resten af BonBox fungerer uden den.</li>
           </ul>
@@ -435,32 +452,39 @@ function PrivacyDa() {
           <Table
             headers={["Tjeneste", "Formål", "Placering", "Behandlede data"]}
             rows={[
-              ["Supabase", "Hosting af database (PostgreSQL)", "EU (Irland)", "Alle konto- og virksomhedsdata"],
+              ["Supabase", "Database (PostgreSQL) og fillagring", "EU (Irland)", "Alle konto- og virksomhedsdata og de filer, du uploader"],
               ["Vercel", "Hosting af frontend", "Globalt CDN", "Ingen personoplysninger gemmes"],
-              ["Render", "Hosting af backend-API", "USA/EU", "API-forespørgsler, ingen varig lagring"],
-              ["Resend", "Afsendelse af e-mails", "USA", "E-mailadresse, e-mailens indhold"],
-              ["Anthropic (Claude API)", "Aflæsning af kvitteringer og dokumenter, svar fra AI Copilot", "EU/USA", "Billeder af kvitteringer, kasserapporter og andre dokumenter, du uploader, samt dine chatbeskeder og et resumé af din virksomheds kontekst; opbevares ikke ud over Anthropics driftslogge; bruges ikke til træning"],
-              ["Google Cloud Vision", "Aflæsning af tekst fra kvitteringsbilleder (når funktionen er slået til)", "USA", "Billeder af kvitteringer, du uploader"],
-              ["Stripe", "Betaling af abonnementer", "USA/EU", "E-mail til fakturering, abonnementsstatus; kortoplysninger går direkte til Stripe og når aldrig vores servere"],
-              ["cvrapi.dk", "Opslag i virksomhedsregistret", "Danmark", "CVR-numre (offentlige data)"],
-              ["Mindee", "Aflæsning af kvitteringer og fakturaer (når slået til)", "EU", "Billeder af kvitteringer og fakturaer, du uploader"],
+              ["Render", "Hosting af backend-API", "EU (Frankfurt, Tyskland)", "API-forespørgsler, ingen varig lagring"],
+              ["Resend", "Afsendelse af e-mails", "Ikke bekræftet", "E-mailadresse, e-mailens indhold"],
+              ["Postmark", "Modtagelse af de e-mails, du videresender til din BonBox-kvitteringsadresse (når den er slået til)", "Ikke bekræftet", "Den videresendte e-mail og dens vedhæftede filer"],
+              ["Anthropic (Claude API)", "Aflæsning af kvitteringer og dokumenter, svar fra AI Copilot", "Ikke bekræftet", "Billeder af kvitteringer, kasserapporter og andre dokumenter, du uploader, samt dine chatbeskeder og et resumé af din virksomheds kontekst; bruges ikke til træning; opbevares kun så længe, som Anthropics vilkår tillader"],
+              ["Google Cloud Vision", "Aflæsning af tekst fra kvitteringsbilleder (når funktionen er slået til)", "Ikke bekræftet", "Billeder af kvitteringer, du uploader"],
+              ["OCR.space", "Aflæsning af tekst fra kvitteringsbilleder (når funktionen er slået til)", "Ikke bekræftet", "Billeder af kvitteringer, du uploader"],
+              ["Stripe", "Betaling af abonnementer", "Ikke bekræftet", "E-mail og virksomhedsnavn til fakturering, dit BonBox-konto-id, plan, virksomhedstype og den version af Handelsbetingelserne, du har accepteret, abonnementsstatus; kortoplysninger går direkte til Stripe og når aldrig vores servere"],
+              ["cvrapi.dk", "Opslag i virksomhedsregistret", "Ikke bekræftet", "CVR-numre (offentlige data)"],
+              ["Companies House", "Opslag af britiske virksomheder (når det bruges)", "Storbritannien", "Det virksomhedsnavn eller -nummer, du søger på (offentlige data)"],
+              ["Mindee", "Aflæsning af kvitteringer og fakturaer (når slået til)", "Ikke bekræftet", "Billeder af kvitteringer og fakturaer, du uploader"],
               ["Cloudflare", "Netværkssikkerhed og routing foran vores servere", "Globalt", "IP-adresse og forespørgselsdata, kun under overførsel"],
-              ["GatewayAPI", "SMS-påmindelser til gæster (når et spisested slår dem til)", "EU (Danmark)", "Gæstens telefonnummer, beskedens tekst"],
-              ["Twilio", "SMS/WhatsApp-beskeder (når slået til)", "USA/EU", "Telefonnummer, beskedens tekst"],
-              ["Apple Push Notification service", "Notifikationer til BonBox-apps på iPhone", "USA", "Et enheds-token og notifikationens tekst"],
-              ["Web push (Google, Apple, Mozilla)", "Browser-notifikationer, du slår til", "USA/EU", "Et push-abonnement og notifikationens tekst"],
-              ["Google / Apple-login", "Log ind med din Google- eller Apple-konto (hvis du vælger det)", "USA", "Din e-mail og dit navn fra den konto"],
-              ["Google Places", "Opslag af virksomheder i nærheden i konkurrentvisningen (når den bruges)", "USA", "Området og den virksomhedstype, du søger på"],
-              ["Sentry", "Fejlrapporter fra vores servere (når slået til)", "EU/USA", "Tekniske fejldetaljer; personoplysninger fjernes"],
-              ["Slack", "Besked til os om hastende supporthenvendelser", "USA", "Henvendelsens emne og din kontos e-mail"],
+              ["GatewayAPI", "SMS-påmindelser til gæster (når et spisested slår dem til)", "Ikke bekræftet", "Gæstens telefonnummer, beskedens tekst"],
+              ["Twilio", "SMS/WhatsApp-beskeder (når slået til)", "Ikke bekræftet", "Telefonnummer, beskedens tekst"],
+              ["Apple Push Notification service", "Notifikationer til BonBox-apps på iPhone", "Ikke bekræftet", "Et enheds-token og notifikationens tekst"],
+              ["Web push (Google, Apple, Mozilla)", "Browser-notifikationer, du slår til", "Ikke bekræftet", "Et push-abonnement og notifikationens tekst"],
+              ["Google / Apple-login", "Log ind med din Google- eller Apple-konto (hvis du vælger det)", "Ikke bekræftet", "Din e-mail og dit navn fra den konto"],
+              ["Google Places", "Opslag af virksomheder i nærheden i konkurrentvisningen (når den bruges)", "Ikke bekræftet", "Området og den virksomhedstype, du søger på"],
+              ["Sentry", "Fejlrapporter fra vores servere (når slået til)", "Ikke bekræftet", "Tekniske fejldetaljer, sendt uden IP-adresser og cookies"],
+              ["Slack", "Besked til os om hastende supporthenvendelser", "Ikke bekræftet", "Henvendelsens emne og din kontos e-mail"],
+              ["Simply.com", "Vores e-mailindbakke for contact@bonbox.dk", "Ikke bekræftet", "De e-mails, du sender os"],
             ]}
           />
+          <p className="text-sm text-gray-500 dark:text-gray-400" data-testid="privacy-location-note">
+            »Ikke bekræftet« betyder, at vi endnu ikke har bekræftet, hvor udbyderen behandler dataene. Det kan være uden for EU/EØS (se »Internationale dataoverførsler«).
+          </p>
           <p>
             Vi sælger ikke dine data, og vi deler dem ikke til annoncering. Dit regnskab bliver i vores
             database, og kun du kan se det. Den eneste undtagelse er listen ovenfor: For at kunne læse en
             kvittering skal vi sende billedet til en OCR-udbyder, og det billede er økonomiske data. Disse
-            udbydere behandler det efter vores instruks, træner ikke på det og opbevarer det ikke ud over
-            deres driftslogge.
+            udbydere behandler det efter vores instruks for at læse det for os. Anthropic træner ikke sine
+            modeller på det (Anthropics kommercielle vilkår).
           </p>
 
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Retshåndhævelse</h3>
@@ -475,31 +499,33 @@ function PrivacyDa() {
               ["Kampagnekode fra en trykt folder (på kontoen)", "Slettes 12 måneder efter, at du har oprettet din konto, eller tidligere, hvis du sletter kontoen"],
               ["Virksomhedsprofil (inkl. logo)", "Indtil du sletter din konto"],
               ["Økonomiske data (salg, udgifter, lager)", "Indtil du sletter din konto"],
-              ["Fakturaer + kundeoplysninger", "6 år (minimum efter bogføringslovens § 12) — kan justeres til 5–10 år"],
-              ["Kørselslog / kørselsgodtgørelse", "Følger din opbevaringsindstilling for fakturaer (5–10 år)"],
-              ["Revisionslog (hver markering som betalt / annullering / ændring af branding)", "10 år (maksimum efter skatteforvaltningslovens § 31)"],
+              ["Billeder af regnskabsbilag, du uploader (fotos af kasserapporter, kvitteringer og salg samt filer fra lagerimport)", "Indtil du sletter din konto, derefter ca. 6 år efter sletningen; så slettes de"],
+              ["Fakturaer + kundeoplysninger", "Indtil du sletter din konto. Fakturakladder, der aldrig er sendt, slettes ca. 6 år efter deres dato"],
+              ["Kørselslog / kørselsgodtgørelse", "Slettes ca. 6 år efter kørselsdatoen (kørsler, der er knyttet til en faktura: indtil du sletter din konto), og senest når du sletter din konto"],
+              ["Ændringslog (hver markering som betalt / annullering / ændring af branding), inkl. din IP-adresse", "Ingen slutdato: den kan ikke redigeres eller slettes gennem BonBox, og den beholdes, når du sletter din konto"],
               ["Forslag til betalingsmatch (afventende)", "Indtil du accepterer eller afviser dem"],
               ["Forslag til betalingsmatch (afklarede)", "1 år efter afklaring"],
-              ["Bank-CSV-filer (rå)", "Slettes inden for 30 dage efter import"],
-              ["Indlæste banktransaktioner", "Følger din opbevaringsindstilling for fakturaer"],
+              ["Bank-CSV-filer (rå)", "Gemmes ikke: de læses i hukommelsen under importen"],
+              ["Indlæste banktransaktioner", "Indtil du sletter din konto (de gemmes som salg og udgifter)"],
               ["Hændelser til produktanalyse", "180 dage (slettes automatisk hver dag)"],
               ["AI-indsigter afledt af hændelser", "Udløber automatisk efter 1–30 dage; kan til enhver tid fjernes"],
               ["Log over spørgsmål til AI Copilot (første 200 tegn)", "180 dage"],
-              ["Tekniske logge og adgangslogge", "30 dage"],
-              ["Sikkerhedslog (forsøg på administratoradgang)", "365 dage"],
-              ["Log over e-mailkommunikation", "90 dage"],
+              ["Fejllog (tekniske fejl, inkl. IP-adresse)", "30 dage, også efter at du har slettet din konto"],
+              ["Sikkerhedslog (tilmeldinger, login-links pr. e-mail, forsøg på administratoradgang; inkl. IP-adresse)", "Ingen slutdato; beholdes, når du sletter din konto"],
+              ["Log over e-mailkommunikation", "Indtil du sletter din konto"],
+              ["Sikkerhedskopier af vores database", "Kopierne forsvinder, når sikkerhedskopierne udløber"],
             ]}
           />
-          <p className="mt-3"><strong>Hvorfor fakturaer og revisionslogge opbevares så længe:</strong> Dansk lov (bogføringslovens § 12) kræver, at vi opbevarer regnskabsmateriale i mindst 5 år fra udgangen af regnskabsåret. Sager med Skattestyrelsen kan række 10 år tilbage (skatteforvaltningslovens § 31). Som standard opbevarer vi i 6 år (lovens minimum på 5 år + 1 års buffer), og du kan selv forlænge op til 10 år under din Profil. Vi lader dig ikke gå under 5 år — det ville udsætte dig for straf efter bogføringslovens § 16.</p>
-          <p className="mt-3"><strong>Revisionsloggen kan ikke ændres:</strong> Hver gang du markerer en faktura som betalt, annullerer den, uploader et logo eller ændrer indstillinger for branding, skriver vi en række i en revisionslog, der kun kan tilføjes til. Rækken registrerer handlingen, din IP-adresse og tilstanden før og efter. Rækkerne kan ikke redigeres eller slettes — hverken af dig, af os eller af nogen anden, før 10-årsperioden er udløbet. Det kræves af bogføringslovens § 9 (enhver bogføringspost skal kunne spores tilbage til kilden).</p>
-          <p className="mt-3">Når du sletter din konto, slettes alle dine personoplysninger og økonomiske data permanent inden for 30 dage — <em>undtagen</em> materiale, som loven kræver, at vi opbevarer. Det forbliver i arkivlager i den lovpligtige periode og er ikke længere knyttet til din identitet, når du har slettet kontoen. Sikkerhedskopier slettes inden for 90 dage.</p>
+          <p className="mt-3"><strong>Dit regnskabsmateriale:</strong> Efter bogføringsloven er det dig — ikke BonBox — der skal opbevare din virksomheds regnskabsmateriale, som hovedregel i 5 år fra udgangen af det regnskabsår, materialet vedrører. BonBox er ikke et registreret bogføringssystem og er ikke et arkiv, du kan regne med til den pligt (se <Link to="/terms" className="text-blue-600 dark:text-blue-400 hover:underline">Handelsbetingelserne</Link> § 4). Hent dine data og de PDF'er, du har brug for, før du sletter din konto. Der er ingen indstilling i BonBox, der ændrer, hvor længe vi opbevarer data.</p>
+          <p className="mt-3"><strong>Ændringslog:</strong> Hver gang du markerer en faktura som betalt, annullerer den, uploader et logo eller ændrer indstillinger for branding, skriver vi en række i en ændringslog med handlingen, tidspunktet, din IP-adresse og tilstanden før og efter. Loggen kan ikke redigeres eller slettes gennem BonBox — hverken af dig eller af os — og vi har ikke sat en slutdato for den.</p>
+          <p className="mt-3" data-testid="privacy-deletion">Når du sletter din konto, sletter vi kontoen og dataene i den med det samme. Vi beholder ændringsloggen, sikkerheds- og fejlloggene og billederne af de regnskabsbilag, du har uploadet (fotos af kasserapporter, kvitteringer og salg samt filer fra lagerimport); billederne gemmer vi i ca. 6 år efter sletningen og sletter dem derefter. Kopier i vores sikkerhedskopier forsvinder, når sikkerhedskopierne udløber.</p>
         </Section>
 
         <Section title="Dine rettigheder efter databeskyttelsesforordningen">
           <ul className="list-disc pl-6 space-y-2">
             <li><strong>Ret til indsigt (artikel 15):</strong> Du kan anmode om en kopi af alle de data, vi har om dig.</li>
             <li><strong>Ret til berigtigelse (artikel 16):</strong> Du kan til enhver tid rette forkerte oplysninger i dine indstillinger.</li>
-            <li><strong>Ret til sletning (artikel 17):</strong> Du kan slette din konto i dine indstillinger. Dine personoplysninger — herunder uploadede billeder, billeder af medarbejdere og dit logo — slettes inden for 30 dage; lovpligtigt regnskabsmateriale (se »Hvor længe vi opbevarer dine data«) opbevares i 5-årsperioden og slettes derefter.</li>
+            <li><strong>Ret til sletning (artikel 17):</strong> Du kan slette din konto under Profil. Vi sletter kontoen og dataene i den med det samme, herunder billeder og dokumenter af medarbejdere, billeder fra chatten og dit logo. Vi beholder ændringsloggen, sikkerheds- og fejlloggene og billederne af de regnskabsbilag, du har uploadet (ca. 6 år) — se »Hvor længe vi opbevarer dine data«.</li>
             <li><strong>Ret til dataportabilitet (artikel 20):</strong> Du kan eksportere alle dine data som CSV-filer fra BonBox.</li>
             <li><strong>Ret til begrænsning af behandling (artikel 18):</strong> Du kan anmode om, at vi stopper behandlingen, mens en klage bliver afklaret.</li>
             <li><strong>Ret til indsigelse (artikel 21):</strong> Du kan gøre indsigelse mod behandling, der er baseret på legitim interesse.</li>
@@ -514,7 +540,7 @@ function PrivacyDa() {
             <li>Adgangskoder hashes med bcrypt (gemmes aldrig i klartekst)</li>
             <li>Hver forespørgsel er begrænset til din egen virksomhed i vores serverkode, og databasen kan ikke nås direkte udefra (row-level security afviser det)</li>
             <li>API-endepunkter kræver JWT-autentificering</li>
-            <li>Bank-CSV-filer behandles i hukommelsen og slettes efter import</li>
+            <li>Bank-CSV-filer læses i hukommelsen under importen og gemmes ikke</li>
             <li>Vi gemmer under ingen omstændigheder loginoplysninger til banken</li>
           </ul>
         </Section>
