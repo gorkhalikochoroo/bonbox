@@ -54,9 +54,11 @@ describe("da + en: the exact new sentences", () => {
     expect(en.faqA11.startsWith("Starter and Pro feature. ")).toBe(true);
   });
 
-  it("featFreeClose: no number of seconds", () => {
+  it("featFreeClose and pricingAfterTrialCapClose: no number of seconds", () => {
     expect(da.featFreeClose).toBe("Daglig kasserapport");
     expect(en.featFreeClose).toBe("Daily close");
+    expect(da.pricingAfterTrialCapClose).toBe("Daglig kasserapport");
+    expect(en.pricingAfterTrialCapClose).toBe("Daily close");
   });
 
   it("faqQ2/faqA2 and trialClosingDetail: Free has the Copilot with a cap, and fewer features", () => {
@@ -79,6 +81,7 @@ describe("every pack that has the keys: none of the old claims", () => {
     faqA8: /i USA|in the US|gemmes ikke|not kept|EU-barındırılan|EU-होस्ट|โฮสต์ใน EU|Lưu trữ tại EU|GDPR/,
     faqA11: /%|^Pro-funktion\.|^Pro feature|^Pro özelliği/,
     featFreeClose: /\d/,
+    pricingAfterTrialCapClose: /\d/,
     trialClosingDetail: /Alle funktioner|Every feature|Tüm özellikler|सबै सुविधा|ทุกฟีเจอร์|Mọi tính năng/,
   };
   for (const [lang, d] of Object.entries(ALL)) {

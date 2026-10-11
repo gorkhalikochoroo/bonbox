@@ -9348,7 +9348,7 @@ export const da = {
     pricingFirst100Chip: 'Første 100',
     pricingForever: 'uden kort',
     pricingAfterTrialBodyNew: 'Intet dramatisk. Dine data bliver, og alle funktioner er stadig synlige. Det er disse grænser, der vender tilbage, når prøveperioden slutter:',
-    pricingAfterTrialCapClose: '30-sekunders daglig kasserapport',
+    pricingAfterTrialCapClose: "Daglig kasserapport",
     pricingAfterTrialCapHistory: '7 dages historik',
     pricingAfterTrialCapOCR: '10 kvitteringsscanninger / måned',
     pricingAfterTrialCapChat: '10 AI-chatbeskeder / dag',

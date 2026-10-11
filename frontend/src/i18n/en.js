@@ -9675,7 +9675,7 @@ export const en = {
     pricingFirst100Chip: 'First 100',
     pricingForever: 'no card',
     pricingAfterTrialBodyNew: 'Nothing dramatic. Your data stays, every feature stays visible. These are the caps that come back when the trial ends:',
-    pricingAfterTrialCapClose: '30-second daily close',
+    pricingAfterTrialCapClose: "Daily close",
     pricingAfterTrialCapHistory: '7 days of history',
     pricingAfterTrialCapOCR: '10 receipt scans / month',
     pricingAfterTrialCapChat: '10 AI chat messages / day',

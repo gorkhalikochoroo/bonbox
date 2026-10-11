@@ -1130,7 +1130,7 @@ export default function SubscriptionPage() {
             </p>
             <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 mt-4 text-[13px] text-gray-700 dark:text-gray-300">
               {[
-                t("pricingAfterTrialCapClose", "30-second daily close") || "30-second daily close",
+                t("pricingAfterTrialCapClose", "Daily close") || "Daily close",
                 t("pricingAfterTrialCapHistory", "7 days of history") || "7 days of history",
                 t("pricingAfterTrialCapOCR", "10 receipt scans / month") || "10 receipt scans / month",
                 t("pricingAfterTrialCapChat", "10 AI chat messages / day") || "10 AI chat messages / day",
