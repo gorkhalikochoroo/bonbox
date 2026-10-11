@@ -1118,6 +1118,37 @@ def _latest_invoice_settled(sub_obj) -> Optional[bool]:
         return None
 
 
+# Statuses that _apply_subscription_state maps to plan="free": a subscription
+# in one of these is over (or its billing is paused).
+_SUB_ENDED_STATUSES = ("canceled", "unpaid", "incomplete_expired", "paused")
+
+
+def _late_event_for_old_subscription(
+    held_sub_id: Optional[str], event_sub_id: Optional[str], live_status: Optional[str],
+    event_type: str = "",
+) -> bool:
+    """Is this webhook about a subscription the customer has since replaced?
+
+    Recency guard (OPS-05): a failed event is retried by Stripe for up to 3
+    days, so an event about an OLD subscription can arrive after the customer
+    re-subscribed. Re-fetching does not help: the old subscription's live
+    state is 'canceled', which would downgrade a paying customer and point
+    the record back at the dead subscription. True (= change nothing) when
+    the user holds a DIFFERENT subscription id and the event's subscription
+    has ended. A move to a new subscription that is not over (active,
+    trialing, past_due, incomplete) is still applied. Every webhook path that
+    writes subscription state calls this first."""
+    if not held_sub_id or not event_sub_id or held_sub_id == event_sub_id:
+        return False
+    if (live_status or "").lower() not in _SUB_ENDED_STATUSES:
+        return False
+    log.info(
+        "%s for old subscription %s (status=%s) ignored; current subscription %s",
+        event_type or "webhook", event_sub_id, live_status, held_sub_id,
+    )
+    return True
+
+
 def _apply_subscription_state(
     user: User, sub_obj, db: Session, *, event_id: str = "", event_type: str = "",
     raise_on_commit_failure: bool = False,
@@ -1667,6 +1698,18 @@ def _handle_checkout_completed(event: dict, db: Session) -> None:
     sub_id = obj.get("subscription")
     if not sub_id:
         return
+    s = _stripe()
+    sub = None
+    held = user.stripe_subscription_id
+    if held and held != sub_id:
+        # Another subscription is on record: ask Stripe whether this one is
+        # still alive BEFORE relinking, so a late checkout for an OLD
+        # subscription (OPS-05 retries) can neither relink nor downgrade. A
+        # failed lookup raises: 500, Stripe retries, nothing was written.
+        sub = s.Subscription.retrieve(sub_id)
+        if _late_event_for_old_subscription(held, sub_id, _g(sub, "status"),
+                                            event.get("type", "")):
+            return
     user.stripe_subscription_id = sub_id
     if obj.get("customer") and not user.stripe_customer_id:
         user.stripe_customer_id = obj["customer"]
@@ -1704,9 +1747,9 @@ def _handle_checkout_completed(event: dict, db: Session) -> None:
         return
 
     # Pull the subscription detail to get current status and apply it.
-    s = _stripe()
     try:
-        sub = s.Subscription.retrieve(sub_id)
+        if sub is None:
+            sub = s.Subscription.retrieve(sub_id)
         _apply_subscription_state(
             user, sub, db,  # raw v15 object — dict(sub) raises KeyError; _g() reads it via getattr
             event_id=event.get("id", ""), event_type=event.get("type", ""),
@@ -1773,6 +1816,9 @@ def _handle_invoice_paid(event: dict, db: Session) -> None:
     s = _stripe()
     try:
         sub = s.Subscription.retrieve(sub_id)
+        if _late_event_for_old_subscription(user.stripe_subscription_id, sub_id,
+                                            _g(sub, "status"), event.get("type", "")):
+            return
         _apply_subscription_state(
             user, sub, db,  # raw v15 object — dict(sub) raises KeyError; _g() reads it via getattr
             event_id=event.get("id", ""), event_type=event.get("type", ""),
@@ -1806,16 +1852,30 @@ def _handle_subscription_changed(event: dict, db: Session) -> None:
         return
     sub_obj = obj
     sub_id = obj.get("id")
+    held = user.stripe_subscription_id
     s = _stripe()
     if s and sub_id:
         try:
             sub_obj = s.Subscription.retrieve(sub_id)  # raw v15 object; _g() reads it, dict() would KeyError
         except Exception as e:  # noqa: BLE001
+            if held and held != sub_id:
+                # The event names another subscription than the one on record
+                # and Stripe cannot say whether it is still live: a stale
+                # snapshot must not repoint or downgrade the customer. Raise →
+                # 500 → Stripe retries (OPS-05).
+                log.warning(
+                    "subscription.%s: retrieve %s failed and %s is on record; retrying",
+                    event.get("type", "?"), sub_id, held,
+                )
+                raise
             log.warning(
                 "subscription.%s: retrieve %s failed, using event snapshot: %s",
                 event.get("type", "?"), sub_id, e,
             )
             sub_obj = obj
+    if _late_event_for_old_subscription(held, sub_id, _g(sub_obj, "status"),
+                                        event.get("type", "")):
+        return
     _apply_subscription_state(
         user, sub_obj, db,
         event_id=event.get("id", ""), event_type=event.get("type", ""),
@@ -1836,11 +1896,8 @@ def _handle_subscription_deleted(event: dict, db: Session) -> None:
     if not user:
         return
     sub_id = obj.get("id")
-    if user.stripe_subscription_id and sub_id and user.stripe_subscription_id != sub_id:
-        log.info(
-            "subscription.deleted for old sub %s ignored (current %s)",
-            sub_id, user.stripe_subscription_id,
-        )
+    if _late_event_for_old_subscription(user.stripe_subscription_id, sub_id, "canceled",
+                                        event.get("type", "")):
         return
     # Audit BEFORE mutation (no-op suppressed if already free+canceled).
     _audit_webhook_mutation(
@@ -1856,6 +1913,41 @@ def _handle_subscription_deleted(event: dict, db: Session) -> None:
     db.commit()
 
 
+def _stale_payment_failure(user: User, invoice: dict, event_type: str) -> bool:
+    """Should a (possibly late) invoice.payment_failed leave the user alone?
+
+    • The invoice belongs to another subscription than the one on record: a
+      failure there says nothing about the current subscription. (If that
+      other subscription is in fact the live one, its own
+      customer.subscription.updated carries past_due through the guarded path.)
+    • The invoice has been paid since (a retried failure arriving after
+      invoice.paid): re-checked live. A failed lookup keeps the old behaviour
+      (past_due — a banner, never a downgrade)."""
+    sub_id = invoice.get("subscription")
+    if not sub_id:
+        parent = invoice.get("parent") or {}
+        sub_id = (parent.get("subscription_details") or {}).get("subscription")
+    held = user.stripe_subscription_id
+    if held and sub_id and held != sub_id:
+        log.info("%s for old subscription %s ignored; current subscription %s",
+                 event_type or "invoice.payment_failed", sub_id, held)
+        return True
+    inv_id = invoice.get("id")
+    s = _stripe()
+    if not inv_id or not s:
+        return False
+    try:
+        live = s.Invoice.retrieve(inv_id)
+        status = _g(live, "status")
+    except Exception as e:  # noqa: BLE001
+        log.warning("%s: could not re-check invoice %s: %s", event_type, inv_id, type(e).__name__)
+        return False
+    if isinstance(status, str) and status.lower() == "paid":
+        log.info("%s for invoice %s ignored: the invoice is paid now", event_type, inv_id)
+        return True
+    return False
+
+
 def _handle_payment_failed(event: dict, db: Session) -> None:
     """Invoice payment failed — note the status but don't auto-downgrade.
 
@@ -1868,6 +1960,8 @@ def _handle_payment_failed(event: dict, db: Session) -> None:
     if not customer_id:
         return
     user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+    if user and _stale_payment_failure(user, obj, event.get("type", "")):
+        return
     if user:
         # Audit BEFORE mutation (no-op suppressed if already past_due — plan
         # is unchanged here, so the helper keys off the status transition).

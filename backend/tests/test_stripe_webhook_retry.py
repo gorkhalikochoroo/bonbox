@@ -14,7 +14,10 @@ pin the new contract:
   5. a late customer.subscription.deleted for an OLD subscription never
      downgrades a customer who holds a newer one;
   6. _apply_subscription_state re-raises a commit failure on the webhook
-     path only.
+     path only;
+  7. no late event for an OLD, ended subscription (updated / created,
+     invoice.paid, checkout, payment_failed) changes a customer who holds a
+     newer one, while a move to a new live subscription still applies.
 
 All Stripe calls are mocked — no live API is ever hit.
 """
@@ -343,3 +346,176 @@ def test_release_helper_never_raises_and_reports_failure(db_session):
     broken.execute.side_effect = RuntimeError("db gone")
     assert sb._release_webhook_event(broken, "evt_x") is False
     assert sb._release_webhook_event(broken, "") is True     # no claim to release
+
+
+# ─── 7. Late events for an OLD subscription (fix round) ───────────────────
+#
+# OPS-05 makes late deliveries normal: a failed event is retried for up to
+# 3 days, so an event about a subscription the customer has since replaced
+# can arrive after the new one is live. Re-fetching the old subscription
+# does not help (its live state is 'canceled'), so every webhook path that
+# applies subscription state checks it is still the customer's current one.
+
+def _live(sub_id, status="active", price="price_pro"):
+    ts = int(time.time()) + 30 * 86400
+    return {"id": sub_id, "status": status, "current_period_end": ts,
+            "items": {"data": [{"price": {"id": price}, "current_period_end": ts}]},
+            "latest_invoice": {"status": "paid", "paid": True}}
+
+
+def _resubscribed(db, email):
+    return _user(db, email=email, plan="pro", stripe_customer_id="cus_re",
+                 stripe_subscription_id="sub_new", subscription_status="active",
+                 subscription_period_end=utc_now() + timedelta(days=20))
+
+
+def _retrieve_map(**subs):
+    mock = MagicMock()
+    mock.Subscription.retrieve.side_effect = lambda sid: subs[sid]
+    return mock
+
+
+def _assert_untouched(db, u):
+    db.refresh(u)
+    assert u.plan == "pro"
+    assert u.subscription_status == "active"
+    assert u.stripe_subscription_id == "sub_new"
+    assert u.subscription_period_end is not None
+    assert _audit_rows(db, u) == 0
+
+
+@pytest.mark.parametrize("etype", ["customer.subscription.updated",
+                                   "customer.subscription.created"])
+def test_late_subscription_event_for_old_canceled_sub_is_ignored(db_session, etype):
+    u = _resubscribed(db_session, "late-upd@retry.dk")
+    evt = {"id": f"evt_late_{etype}", "type": etype,
+           "data": {"object": {"id": "sub_old", "customer": "cus_re", "status": "active"}}}
+    with patch.object(settings, "STRIPE_PRICE_ID_PRO", "price_pro"):
+        r = _deliver(evt, _retrieve_map(sub_old=_live("sub_old", "canceled")), db_session)
+    assert r["status"] == "ok"
+    _assert_untouched(db_session, u)
+
+
+@pytest.mark.parametrize("etype", ["invoice.paid", "invoice.payment_succeeded"])
+def test_late_invoice_paid_for_old_canceled_sub_is_ignored(db_session, etype):
+    u = _resubscribed(db_session, "late-inv@retry.dk")
+    evt = {"id": f"evt_late_{etype}", "type": etype,
+           "data": {"object": {"customer": "cus_re", "subscription": "sub_old"}}}
+    with patch.object(settings, "STRIPE_PRICE_ID_PRO", "price_pro"):
+        r = _deliver(evt, _retrieve_map(sub_old=_live("sub_old", "canceled")), db_session)
+    assert r["status"] == "ok"
+    _assert_untouched(db_session, u)
+
+
+@pytest.mark.parametrize("payment_status", ["paid", "unpaid"])
+def test_late_checkout_for_old_canceled_sub_does_not_relink_or_downgrade(db_session, payment_status):
+    u = _resubscribed(db_session, f"late-co-{payment_status}@retry.dk")
+    evt = {"id": f"evt_late_co_{payment_status}", "type": "checkout.session.completed",
+           "data": {"object": {"id": "cs_old", "customer": "cus_re", "subscription": "sub_old",
+                               "payment_status": payment_status}}}
+    with patch.object(settings, "STRIPE_PRICE_ID_PRO", "price_pro"):
+        r = _deliver(evt, _retrieve_map(sub_old=_live("sub_old", "incomplete_expired")), db_session)
+    assert r["status"] == "ok"
+    _assert_untouched(db_session, u)
+
+
+@pytest.mark.parametrize("etype", ["customer.subscription.updated", "invoice.paid",
+                                   "checkout.session.completed"])
+def test_move_to_a_new_live_subscription_is_still_applied(db_session, etype):
+    """The guard only stops a dead OLD subscription: a customer whose record
+    still names a canceled sub_old and who now pays sub_new gets Pro."""
+    u = _user(db_session, email=f"move-{etype}@retry.dk", plan="free", stripe_customer_id="cus_mv",
+              stripe_subscription_id="sub_old", subscription_status="canceled")
+    obj = {"customer": "cus_mv"}
+    if etype == "customer.subscription.updated":
+        obj["id"] = "sub_new"
+    elif etype == "invoice.paid":
+        obj["subscription"] = "sub_new"
+    else:
+        obj.update({"id": "cs_new", "subscription": "sub_new", "payment_status": "paid"})
+    evt = {"id": f"evt_move_{etype}", "type": etype, "data": {"object": obj}}
+    with patch.object(settings, "STRIPE_PRICE_ID_PRO", "price_pro"):
+        r = _deliver(evt, _retrieve_map(sub_new=_live("sub_new", "active")), db_session)
+    assert r["status"] == "ok"
+    db_session.refresh(u)
+    assert u.plan == "pro" and u.subscription_status == "active"
+    assert u.stripe_subscription_id == "sub_new"
+
+
+def test_new_async_checkout_still_links_while_an_old_sub_is_on_record(db_session):
+    """SEPA/MobilePay: the new subscription is 'incomplete' until the debit
+    settles. It is not dead, so the unpaid checkout still links it."""
+    u = _user(db_session, email="sepa-move@retry.dk", plan="free", stripe_customer_id="cus_sp",
+              stripe_subscription_id="sub_old", subscription_status="canceled")
+    evt = {"id": "evt_sepa_move", "type": "checkout.session.completed",
+           "data": {"object": {"id": "cs_sp", "customer": "cus_sp", "subscription": "sub_new",
+                               "payment_status": "unpaid"}}}
+    r = _deliver(evt, _retrieve_map(sub_new=_live("sub_new", "incomplete")), db_session)
+    assert r["status"] == "ok"
+    db_session.refresh(u)
+    assert u.stripe_subscription_id == "sub_new"
+    assert u.plan == "free"                                    # not activated on unpaid
+
+
+def test_late_subscription_event_for_other_sub_with_stripe_down_is_retried(db_session):
+    """If the event names another subscription and Stripe cannot be asked
+    which one is live, the stale snapshot is not trusted: 500, Stripe retries."""
+    u = _resubscribed(db_session, "late-down@retry.dk")
+    evt = {"id": "evt_late_down", "type": "customer.subscription.updated",
+           "data": {"object": {"id": "sub_old", "customer": "cus_re", "status": "active"}}}
+    mock = MagicMock()
+    mock.Subscription.retrieve.side_effect = RuntimeError("stripe down")
+    r = _deliver(evt, mock, db_session)
+    assert r["_http"] == 500
+    assert _ledger(db_session, "evt_late_down") == 0
+    _assert_untouched(db_session, u)
+
+
+def test_snapshot_fallback_for_the_current_sub_is_unchanged(db_session):
+    u = _user(db_session, email="snap@retry.dk", plan="free", stripe_customer_id="cus_sn",
+              stripe_subscription_id="sub_1", subscription_status="incomplete")
+    evt = {"id": "evt_snap", "type": "customer.subscription.updated",
+           "data": {"object": _live("sub_1", "active") | {"customer": "cus_sn"}}}
+    mock = MagicMock()
+    mock.Subscription.retrieve.side_effect = RuntimeError("stripe down")
+    with patch.object(settings, "STRIPE_PRICE_ID_PRO", "price_pro"):
+        r = _deliver(evt, mock, db_session)
+    assert r["status"] == "ok"
+    db_session.refresh(u)
+    assert u.plan == "pro"
+
+
+def _failed_evt(eid, sub_id, inv_id="in_1"):
+    return {"id": eid, "type": "invoice.payment_failed",
+            "data": {"object": {"id": inv_id, "customer": "cus_re", "subscription": sub_id}}}
+
+
+def test_late_payment_failed_for_old_sub_does_not_mark_past_due(db_session):
+    u = _resubscribed(db_session, "pf-old@retry.dk")
+    r = _deliver(_failed_evt("evt_pf_old", "sub_old"), MagicMock(), db_session)
+    assert r["status"] == "ok"
+    _assert_untouched(db_session, u)
+
+
+def test_late_payment_failed_for_an_invoice_paid_since_does_not_mark_past_due(db_session):
+    u = _resubscribed(db_session, "pf-paid@retry.dk")
+    mock = MagicMock()
+    mock.Invoice.retrieve.return_value = {"id": "in_1", "status": "paid"}
+    r = _deliver(_failed_evt("evt_pf_paid", "sub_new"), mock, db_session)
+    assert r["status"] == "ok"
+    _assert_untouched(db_session, u)
+
+
+@pytest.mark.parametrize("invoice", ["open", "lookup_fails"])
+def test_payment_failed_for_the_current_sub_marks_past_due(db_session, invoice):
+    u = _resubscribed(db_session, f"pf-{invoice}@retry.dk")
+    mock = MagicMock()
+    if invoice == "open":
+        mock.Invoice.retrieve.return_value = {"id": "in_1", "status": "open"}
+    else:
+        mock.Invoice.retrieve.side_effect = RuntimeError("stripe down")
+    r = _deliver(_failed_evt(f"evt_pf_{invoice}", "sub_new"), mock, db_session)
+    assert r["status"] == "ok"
+    db_session.refresh(u)
+    assert u.subscription_status == "past_due"
+    assert u.plan == "pro"                                     # never a downgrade
