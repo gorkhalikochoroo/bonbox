@@ -11,8 +11,13 @@ Pins (services/ai_model_guard.py, config.py, every reader that uses them):
   • any other error (429, 500, a 400 about tool_choice, a plain exception)
     is NOT retried on the legacy model and writes no row;
   • Sonnet 5.5 refuses forced tool_choice: the guard sends "auto" + a
-    system line naming the tool (+ thinking between_tools), while the legacy
-    retry keeps the forced call Sonnet 5 accepts;
+    system line naming the tool, while the legacy retry keeps the forced
+    call Sonnet 5 accepts; an answer without the tool call is asked once
+    more; a 4xx on any adapted request writes ONE "AI:RequestRejected" row
+    per model per day;
+  • EVERY Sonnet 5.5 request (forced tool or not, SDK or the raw wine
+    scan) goes out with thinking between_tools unless the caller set one —
+    Opus 4.8 / Sonnet 5 requests are sent unchanged;
   • the kasserapport / receipt / doctype readers send the model from
     Settings (a mocked client records the model name);
   • the wine label scan (raw HTTP) gets the same net and no `temperature`.
@@ -396,6 +401,82 @@ def test_a_caller_thinking_or_high_effort_is_respected(monkeypatch):
     assert calls[0]["system"].startswith("Answer by calling one of the provided tools")
 
 
+# ─── 3a. "auto" doesn't guarantee the call; a refused adaptation alerts ─
+
+_FORCED = dict(max_tokens=200, system=_SYS, tools=[_TOOL],
+               tool_choice={"type": "tool", "name": "extract_x"},
+               messages=[{"role": "user", "content": SECRET_PROMPT}])
+
+
+def _rejected_rows(Session) -> list[ErrorLog]:
+    db = Session()
+    try:
+        return db.query(ErrorLog).filter(ErrorLog.error_type == guard.REJECTED_ERROR_TYPE).all()
+    finally:
+        db.close()
+
+
+def test_no_tool_call_after_the_auto_rewrite_is_asked_once_more(monkeypatch):
+    answers = iter([_ok(NEW, text="Here is the receipt..."), _ok(NEW, tool="extract_x")])
+    calls = _install(monkeypatch, lambda kw: next(answers))
+    resp = anthropic_client("k").messages.create(model=NEW, **_FORCED)
+    assert [c["model"] for c in calls] == [NEW, NEW]
+    assert calls[0] == calls[1]  # the same adapted request
+    assert resp.content[0].type == "tool_use"
+
+
+def test_still_no_tool_call_is_returned_after_one_retry(monkeypatch):
+    calls = _install(monkeypatch, lambda kw: _ok(NEW, text="no"))
+    resp = anthropic_client("k").messages.create(model=NEW, **_FORCED)
+    assert len(calls) == 2  # once more, never a loop
+    assert resp.content[0].text == "no"  # the caller's no-tool_use path decides
+
+
+def test_a_refusal_or_an_honoured_forced_call_is_not_asked_again(monkeypatch):
+    refusal = types.SimpleNamespace(model=NEW, content=[], stop_reason="refusal",
+                                    usage=types.SimpleNamespace(input_tokens=1, output_tokens=0))
+    calls = _install(monkeypatch, lambda kw: refusal if kw["model"] == NEW else _ok(kw["model"], text="x"))
+    client = anthropic_client("k")
+    for m in (NEW, OPUS, LEGACY):  # Opus 4.8 / Sonnet 5 got the forced call as asked
+        client.messages.create(**{**_FORCED, "model": m})
+    assert [c["model"] for c in calls] == [NEW, OPUS, LEGACY]
+
+
+def test_a_4xx_on_an_adapted_request_writes_one_rejected_row_a_day(monkeypatch, mem):
+    err = _status_error(_real_anthropic.BadRequestError, 400, "invalid_request_error",
+                        '"thinking.type.between_tools" is not supported for this model.')
+    calls = _install(monkeypatch, lambda kw: err)
+    client = anthropic_client("k")
+    for _ in range(2):
+        with pytest.raises(_real_anthropic.BadRequestError):  # re-raised as before
+            client.messages.create(model=NEW, **_FORCED)
+    assert [c["model"] for c in calls] == [NEW, NEW]  # not retried on another model
+    rows = _rejected_rows(mem)
+    assert len(rows) == 1
+    r = rows[0]
+    assert (r.method, r.path, r.status_code) == ("AI", f"ai:request:{NEW}", None)
+    assert "400" in r.message and "between_tools" in r.message
+    assert "system, thinking, tool_choice" in r.message
+    assert SECRET_PROMPT not in r.message and not r.traceback
+    guard._alerted.clear()  # a restart: the DB check still dedupes today
+    with pytest.raises(_real_anthropic.BadRequestError):
+        client.messages.create(model=NEW, max_tokens=10, messages=[])
+    assert len(_rejected_rows(mem)) == 1
+
+
+@pytest.mark.parametrize("model,make_error", [
+    (NEW, lambda: _status_error(_real_anthropic.RateLimitError, 429, "rate_limit_error", "slow")),
+    (NEW, lambda: _status_error(_real_anthropic.InternalServerError, 500, "api_error", "boom")),
+    (OPUS, lambda: _status_error(_real_anthropic.BadRequestError, 400, "invalid_request_error", "x")),
+], ids=["429-transient", "500", "400-unadapted-opus"])
+def test_no_rejected_row_for_transient_errors_or_requests_sent_as_built(monkeypatch, mem, model, make_error):
+    err = make_error()
+    _install(monkeypatch, lambda kw: err)
+    with pytest.raises(type(err)):
+        anthropic_client("k").messages.create(model=model, max_tokens=10, messages=[])
+    assert _rejected_rows(mem) == []
+
+
 # ─── 3b. thinking off on every Sonnet 5.5 read (no forced tool needed) ──
 
 _OFF = {"type": "between_tools"}
@@ -461,10 +542,13 @@ def test_the_real_sdk_puts_between_tools_on_the_wire(monkeypatch):
     bodies: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        bodies.append(json.loads(request.content))
+        body = json.loads(request.content)
+        bodies.append(body)
+        content = ([{"type": "tool_use", "id": "toolu_1", "name": "extract_x", "input": {}}]
+                   if body.get("tools") else [{"type": "text", "text": "receipt"}])
         return httpx.Response(200, json={
-            "id": "msg_1", "type": "message", "role": "assistant", "model": NEW,
-            "content": [{"type": "text", "text": "receipt"}], "stop_reason": "end_turn",
+            "id": "msg_1", "type": "message", "role": "assistant", "model": body["model"],
+            "content": content, "stop_reason": "tool_use" if body.get("tools") else "end_turn",
             "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1},
         })
 
@@ -526,7 +610,9 @@ def test_receipt_and_doctype_reads_use_the_settings_models(monkeypatch, tmp_path
 
     monkeypatch.delenv("AI_MODEL_DOCTYPE_CLASSIFIER", raising=False)
     calls = _install(monkeypatch, lambda kw: (
-        RuntimeError("opus down") if kw["model"] == OPUS else _ok(kw["model"], text="receipt")))
+        RuntimeError("opus down") if kw["model"] == OPUS else _ok(
+            kw["model"], text="receipt",
+            tool=kw["tools"][0]["name"] if kw.get("tools") else None)))
     img = str(_jpeg(tmp_path))
     claude_vision_ocr.extract_receipt_data(img)
     claude_vision_ocr._CLASSIFIER_CACHE.clear()
@@ -555,7 +641,9 @@ class _HttpResp:
         return self._body
 
 
-def test_wine_scan_gets_the_net_and_sends_no_temperature(monkeypatch, mem):
+def _scan_wine(monkeypatch, mem, answer):
+    """POST a label photo to /api/wines/scan with Anthropic faked by
+    ``answer(body) -> _HttpResp``; returns (response, the bodies sent)."""
     from fastapi.testclient import TestClient
     from app.main import app
     from app.models.user import User
@@ -564,18 +652,10 @@ def test_wine_scan_gets_the_net_and_sends_no_temperature(monkeypatch, mem):
     from tests.test_wine_scan_limits import JPEG
 
     sent: list[dict] = []
-    label = json.dumps({"name": "Barolo", "producer": "Vietti", "vintage": 2019, "type": "red"})
 
     async def _post(self, url, *a, json=None, **k):  # noqa: A002 — httpx's own name
         sent.append(json)
-        if json["model"] == NEW:
-            return _HttpResp(404, {"type": "error",
-                                   "error": {"type": "not_found_error", "message": f"model: {NEW}"}})
-        # A thinking block first: the scan must read the first TEXT block.
-        return _HttpResp(200, {"model": LEGACY, "content": [
-            {"type": "thinking", "thinking": "", "signature": "x"},
-            {"type": "text", "text": label},
-        ]})
+        return answer(json)
 
     monkeypatch.setattr(httpx.AsyncClient, "post", _post)
 
@@ -596,6 +676,23 @@ def test_wine_scan_gets_the_net_and_sends_no_temperature(monkeypatch, mem):
     finally:
         app.dependency_overrides.clear()
         db.close()
+    return r, sent
+
+
+def test_wine_scan_gets_the_net_and_sends_no_temperature(monkeypatch, mem):
+    label = json.dumps({"name": "Barolo", "producer": "Vietti", "vintage": 2019, "type": "red"})
+
+    def answer(body):
+        if body["model"] == NEW:
+            return _HttpResp(404, {"type": "error",
+                                   "error": {"type": "not_found_error", "message": f"model: {NEW}"}})
+        # A thinking block first: the scan must read the first TEXT block.
+        return _HttpResp(200, {"model": LEGACY, "content": [
+            {"type": "thinking", "thinking": "", "signature": "x"},
+            {"type": "text", "text": label},
+        ]})
+
+    r, sent = _scan_wine(monkeypatch, mem, answer)
     assert r.status_code == 200, r.text
     assert r.json()["success"] is True and r.json()["data"]["name"] == "Barolo"
     assert [b["model"] for b in sent] == [NEW, LEGACY]
@@ -612,3 +709,17 @@ def test_first_text_skips_a_leading_thinking_block():
                types.SimpleNamespace(type="text", text="[1]")]
     assert guard.first_text(content) == "[1]"
     assert guard.first_text([{"type": "thinking", "thinking": ""}]) is None
+
+
+def test_wine_scan_a_4xx_on_the_adapted_body_reaches_ops(monkeypatch, mem):
+    def answer(body):
+        return _HttpResp(400, {"type": "error", "error": {
+            "type": "invalid_request_error",
+            "message": '"thinking.type.between_tools" is not supported for this model.'}})
+
+    r, sent = _scan_wine(monkeypatch, mem, answer)
+    assert r.status_code == 200 and r.json()["success"] is False  # "busy, try again"
+    assert [b["model"] for b in sent] == [NEW]
+    rows = _rejected_rows(mem)
+    assert len(rows) == 1 and rows[0].path == f"ai:request:{NEW}"
+    assert "changed: thinking" in rows[0].message

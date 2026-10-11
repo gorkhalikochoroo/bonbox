@@ -31,9 +31,18 @@ tool schemas are never changed or logged here:
    plus one system line naming the required tool (job 0 adds
    between_tools on Sonnet 5.5). The legacy retry is built from the
    caller's ORIGINAL arguments, so Sonnet 5 still gets the forced call it
-   accepts. A response that comes back without the required tool call is
-   logged (model, tool name, stop_reason — never content); the caller's
-   existing "no tool_use block" path handles it.
+   accepts. (Keeping the forced call with thinking off is not an option:
+   Anthropic documents the 400 as a model restriction, not a thinking one.)
+   ``auto`` does not guarantee the call, so an answer without the required
+   tool call is asked ONCE more with the same request (not after a
+   refusal); still none -> logged (model, tool name, stop_reason — never
+   content) and the caller's existing "no tool_use block" path handles it.
+
+The adapted shapes (jobs 0 and 2) were not tried live from this machine.
+A 4xx on an adapted request (not model-not-found, not 408/409/429) is
+re-raised as before, after ONE error_logs row ``AI:RequestRejected`` (path
+``ai:request:<id>``, status_code NULL) per model per UTC day naming the
+changed fields and the API's error text — so the ops triage digest says it.
 
 ``anthropic_client()`` (ai_limits.py) wraps every client it builds with
 ``guard_client``; ``call_with_fallback`` wraps the client it is handed, so
@@ -53,8 +62,10 @@ from app.utils.time import utc_now
 logger = logging.getLogger("bonbox.ai_model_guard")
 
 ALERT_ERROR_TYPE = "AI:ModelNotFound"
+REJECTED_ERROR_TYPE = "AI:RequestRejected"
 _ALERT_METHOD = "AI"
 _ALERT_PATH_PREFIX = "ai:model:"
+_REJECTED_PATH_PREFIX = "ai:request:"
 
 # Models that reject tool_choice {"type": "tool"} / {"type": "any"} with a
 # 400 ("tool_choice: type "tool" and "any" are not supported for this
@@ -163,16 +174,18 @@ def is_model_not_found(exc: BaseException) -> bool:
 # ── the one ops alert per model per day ──────────────────────────────────
 
 _alert_lock = threading.Lock()
-_alerted: set[tuple[str, str]] = set()  # (model, UTC date) already recorded
+# (error_type, model, UTC date) already recorded
+_alerted: set[tuple[str, str, str]] = set()
 
 
-def record_model_not_found(model: str, retried_on: str | None) -> bool:
-    """Write the error_logs row the ops triage reads — at most one per model
-    per UTC day (in-process memo + a DB check that survives restarts).
-    Returns True when a row was written. Never raises; carries model ids
-    only, never prompt or image content."""
+def _record_daily_row(error_type: str, path_prefix: str, model: str, message: str) -> bool:
+    """Write one error_logs row the ops triage reads — at most one per
+    (error_type, model) per UTC day (in-process memo + a DB check that
+    survives restarts). Returns True when a row was written. Never raises;
+    carries model ids and API error text only, never prompt or image
+    content."""
     day = utc_now().date()
-    key = (str(model), day.isoformat())
+    key = (error_type, str(model), day.isoformat())
     with _alert_lock:
         if key in _alerted:
             return False
@@ -180,18 +193,18 @@ def record_model_not_found(model: str, retried_on: str | None) -> bool:
             from app.utils.off_loop import pool_exhausted
 
             if pool_exhausted():
-                logger.warning("model-not-found row skipped for %s: DB pool exhausted", model)
+                logger.warning("%s row skipped for %s: DB pool exhausted", error_type, model)
                 return False
             import app.database as _database
             from app.models.error_log import ErrorLog
 
-            path = f"{_ALERT_PATH_PREFIX}{model}"[:500]
+            path = f"{path_prefix}{model}"[:500]
             db = _database.SessionLocal()
             try:
                 earlier = (
                     db.query(ErrorLog.id)
                     .filter(
-                        ErrorLog.error_type == ALERT_ERROR_TYPE,
+                        ErrorLog.error_type == error_type,
                         ErrorLog.path == path,
                         ErrorLog.created_at >= datetime.combine(day, dtime.min),
                     )
@@ -199,32 +212,70 @@ def record_model_not_found(model: str, retried_on: str | None) -> bool:
                 )
                 wrote = False
                 if earlier is None:
-                    then = (
-                        f"retried once on {retried_on!r} (BONBOX_SAFE_MODEL)"
-                        if retried_on else "not retried"
-                    )
                     db.add(ErrorLog(
                         method=_ALERT_METHOD,
                         path=path,
                         status_code=None,  # the ops triage reads NULL rows
-                        error_type=ALERT_ERROR_TYPE,
-                        message=(
-                            f"Anthropic answered model-not-found for {model!r}; {then}. "
-                            "Set BONBOX_DEFAULT_MODEL / BONBOX_PREMIUM_MODEL to a working "
-                            "model id in Render."
-                        )[:1000],
+                        error_type=error_type,
+                        message=message[:1000],
                     ))
                     db.commit()
                     wrote = True
             finally:
                 db.close()
-            for k in [k for k in _alerted if k[1] != key[1]]:
+            for k in [k for k in _alerted if k[2] != key[2]]:
                 _alerted.discard(k)
             _alerted.add(key)
             return wrote
         except Exception as e:  # noqa: BLE001 — an alert must never cost the read
-            logger.warning("model-not-found row not written: %s", type(e).__name__)
+            logger.warning("%s row not written: %s", error_type, type(e).__name__)
             return False
+
+
+def record_model_not_found(model: str, retried_on: str | None) -> bool:
+    """The AI:ModelNotFound row (job 1) — one per model per UTC day."""
+    then = (
+        f"retried once on {retried_on!r} (BONBOX_SAFE_MODEL)"
+        if retried_on else "not retried"
+    )
+    return _record_daily_row(
+        ALERT_ERROR_TYPE, _ALERT_PATH_PREFIX, model,
+        f"Anthropic answered model-not-found for {model!r}; {then}. "
+        "Set BONBOX_DEFAULT_MODEL / BONBOX_PREMIUM_MODEL to a working "
+        "model id in Render.",
+    )
+
+
+def is_request_rejected_response(status: Any, body: Any) -> bool:
+    """A 4xx that rejects the request itself. Not model-not-found (job 1
+    has its own row) and not 408 / 409 / 429 (transient; the SDK retries)."""
+    return (
+        isinstance(status, int) and 400 <= status < 500
+        and status not in (408, 409, 429)
+        and not is_model_not_found_response(status, body)
+    )
+
+
+def note_rejected(sent: dict, original: dict, status: Any, body: Any) -> bool:
+    """When ``sent`` is a request this guard ADAPTED (``adapt_request``
+    changed it) and Anthropic rejected it with a 4xx, write one
+    AI:RequestRejected row per model per UTC day — the adapted shape was
+    never tried live, so the operator must hear if it is refused. Names the
+    changed fields and the API's error text, never prompt content. Returns
+    True when a row was written; never raises."""
+    if sent is original or not is_request_rejected_response(status, body):
+        return False
+    model = str(original.get("model") or "?")
+    changed = sorted(k for k in {*sent, *original} if sent.get(k) != original.get(k))
+    err = _error_dict(body)
+    return _record_daily_row(
+        REJECTED_ERROR_TYPE, _REJECTED_PATH_PREFIX, model,
+        f"Anthropic answered {status} {err.get('type') or ''} to a {model!r} request "
+        f"BonBox adapted (changed: {', '.join(changed) or '-'}): "
+        f"{str(err.get('message') or '')[:300]} — that read failed (not retried). "
+        "If every read on this model fails, set BONBOX_DEFAULT_MODEL / "
+        "BONBOX_PREMIUM_MODEL to BONBOX_SAFE_MODEL (claude-sonnet-5) in Render.",
+    )
 
 
 # ── request adaptation ───────────────────────────────────────────────────
@@ -293,46 +344,63 @@ def _required_tool(kwargs: dict) -> str | None:
     return None
 
 
-def _note_missing_tool_call(sent: dict, original: dict, resp: Any) -> None:
-    if sent is original:
-        return
-    want = _required_tool(original)
-    if want is None:
-        return
-    for b in getattr(resp, "content", None) or []:
-        if getattr(b, "type", None) == "tool_use" and (want == "*" or getattr(b, "name", None) == want):
-            return
-    logger.warning(
-        "[ai_model_guard] %s answered without the required %s tool call (stop_reason=%s)",
-        sent.get("model"), want, getattr(resp, "stop_reason", None),
+def _has_tool_call(resp: Any, want: str) -> bool:
+    return any(
+        getattr(b, "type", None) == "tool_use" and (want == "*" or getattr(b, "name", None) == want)
+        for b in getattr(resp, "content", None) or []
     )
+
+
+def _create_requiring_tool(create: Callable[..., Any], sent: dict, original: dict) -> Any:
+    """``create(**sent)``. When the guard turned the caller's FORCED tool
+    call into ``auto`` (a model that refuses forced tool use) and the answer
+    has no call to the required tool, ask ONCE more with the same request —
+    ``auto`` does not guarantee the call. Not after a refusal (it would
+    refuse again). Still no call: logged (model, tool, stop_reason — never
+    content) and returned; the caller's "no tool_use block" path handles it."""
+    resp = create(**sent)
+    want = _required_tool(original)
+    if want is None or sent.get("tool_choice") == original.get("tool_choice"):
+        return resp  # nothing forced, or sent forced as the caller asked
+    for attempt in (1, 2):
+        if _has_tool_call(resp, want):
+            return resp
+        stop = getattr(resp, "stop_reason", None)
+        retry = attempt == 1 and stop != "refusal"
+        logger.warning(
+            "[ai_model_guard] %s answered without the required %s tool call "
+            "(stop_reason=%s)%s",
+            sent.get("model"), want, stop, " — asking once more" if retry else "",
+        )
+        if not retry:
+            return resp
+        resp = create(**sent)
+    return resp
 
 
 # ── the guarded call ─────────────────────────────────────────────────────
 
 def guarded_create(create: Callable[..., Any], kwargs: dict) -> Any:
-    """``create(**kwargs)`` with the two jobs above. Raises whatever the
-    call raises, except a model-not-found answer for DEFAULT/PREMIUM, which
-    is retried ONCE on LEGACY_SAFE_MODEL (that retry's errors propagate)."""
+    """``create(**kwargs)`` with the jobs above. Raises whatever the call
+    raises, except a model-not-found answer for DEFAULT/PREMIUM, which is
+    retried ONCE on LEGACY_SAFE_MODEL (that retry's errors propagate). A
+    4xx on a request the guard adapted is re-raised after one ops row
+    (``note_rejected``)."""
     model = kwargs.get("model")
     sent = adapt_request(kwargs)
     try:
-        resp = create(**sent)
+        return _create_requiring_tool(create, sent, kwargs)
     except Exception as exc:
         legacy = legacy_model_for(model)
         if legacy is None or not is_model_not_found(exc):
+            note_rejected(sent, kwargs, getattr(exc, "status_code", None), getattr(exc, "body", None))
             raise
         record_model_not_found(model, legacy)
         logger.warning(
             "[ai_model_guard] model %r not found — retrying once on %r", model, legacy,
         )
         original = {**kwargs, "model": legacy}
-        sent = adapt_request(original)
-        resp = create(**sent)
-        _note_missing_tool_call(sent, original, resp)
-        return resp
-    _note_missing_tool_call(sent, kwargs, resp)
-    return resp
+        return _create_requiring_tool(create, adapt_request(original), original)
 
 
 class _GuardedMessages:

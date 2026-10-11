@@ -885,6 +885,7 @@ async def scan_bottle_label(
                 first_text,
                 is_model_not_found_response,
                 legacy_model_for,
+                note_rejected,
                 record_model_not_found,
             )
 
@@ -926,17 +927,22 @@ async def scan_bottle_label(
                 resp = await _post(model)
                 # Model-not-found net (same rule as ai_model_guard): one
                 # retry on LEGACY_SAFE_MODEL + one ops row per model per day.
+                # Any other 4xx on the adapted body: one AI:RequestRejected row.
                 legacy = legacy_model_for(model)
-                if resp.status_code != 200 and legacy:
+                if resp.status_code != 200:
                     try:
                         err_body = resp.json()
                     except Exception:  # noqa: BLE001
                         err_body = None
-                    if is_model_not_found_response(resp.status_code, err_body):
+                    if legacy and is_model_not_found_response(resp.status_code, err_body):
                         await run_in_threadpool(record_model_not_found, model, legacy)
                         logger.warning("wine scan: model %r not found — retrying once on %r",
                                        model, legacy)
                         resp = await _post(legacy)
+                    else:
+                        original = {"model": model, **request_body}
+                        await run_in_threadpool(note_rejected, adapt_request(original),
+                                                original, resp.status_code, err_body)
 
             if resp.status_code != 200:
                 logger.warning("Anthropic API non-200: %d %s", resp.status_code, resp.text[:200])
