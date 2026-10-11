@@ -457,3 +457,78 @@ def test_local_path_streams_the_whole_payment_split_and_names_mobilepay(db, as_u
     assert {m: v["total"] for m, v in streamed["data"]["payment_split"].items()} == amounts
     text = "".join(d["delta"] for e, d in events if e == "text")
     assert "mobilepay: 500" in text, text
+
+
+# ─── round 3 (G2): substring matching again, two narrow exemptions ──
+#
+# The whole-word rule kept joined-up and numbered contact keys that the old
+# substring rule stripped (contactphone, guestemail, phone2, smartphone, ...)
+# and every MobilePay-number key — a MobilePay number IS a phone number.
+# Contact keys are matched by substring again (phone, email, e-mail, e_mail,
+# telefon, tlf, mobil not followed by "pay", and mobil...number). The only
+# exemptions: the keys of the data-keyed maps payment_split and
+# role_breakdown (their values are still checked), and a key that is exactly
+# a payment-method name (mobilepay, mobile_pay, mobilepayment(s)).
+
+STRIPPED_BY_SUBSTRING = (
+    "contactphone", "contactemail", "customerphone", "guestemail", "ownerphone", "phone2", "email2",
+    "phone1", "mobile2", "smartphone", "mobilepay_number", "mobilePayNumber", "mobile_pay_number",
+    "MobilePayNumber", "mobilepay_nummer", "mobilepaynumber", "e.mail", "kunde_tlf", "telefonnr",
+    "mobilnr", "Mobil",
+)
+
+
+def test_joined_up_and_numbered_contact_keys_are_stripped_again():
+    raw = {k: "+4512345678" for k in STRIPPED_BY_SUBSTRING}
+    raw["name"] = "A"
+    out = agent_router.strip_contact_fields(raw)
+    assert out == {"name": "A"}, sorted(set(out) - {"name"})
+
+
+def test_contact_keys_are_stripped_at_any_depth_by_substring():
+    for key in STRIPPED_BY_SUBSTRING:
+        raw = {"data": {"rows": [{"name": "A", key: "x"}], "nested": {key: {"v": 1}, "total": 2}}}
+        assert agent_router.strip_contact_fields(raw) == {
+            "data": {"rows": [{"name": "A"}], "nested": {"total": 2}}}, key
+
+
+def test_a_payment_method_name_is_kept_and_its_totals_too():
+    keep = ("mobilepay", "mobile_pay", "MobilePay", "mobilePay", "Mobile-Pay", "mobilepayment",
+            "mobile_payments", "mobilepay_total", "mobile_pay_count")
+    raw = {k: 1 for k in keep}
+    assert agent_router.strip_contact_fields(raw) == raw
+
+
+def test_role_breakdown_keys_are_kept_and_their_values_still_checked():
+    # query_staff's role_breakdown is keyed by role NAMES (user data): a
+    # role called "Telefon" or "Phone orders" is a role, not a phone number.
+    raw = {"data": {
+        "role_breakdown": {"Telefon": 2, "Phone orders": 1, "waiter": 3,
+                           "mobil": {"count": 1, "phone": "+4512345678"}},
+        "payment_split": {"phone": {"total": 50.0, "count": 1, "guestemail": "x@y.dk"}},
+    }}
+    assert agent_router.strip_contact_fields(raw) == {"data": {
+        "role_breakdown": {"Telefon": 2, "Phone orders": 1, "waiter": 3, "mobil": {"count": 1}},
+        "payment_split": {"phone": {"total": 50.0, "count": 1}},
+    }}
+
+
+def test_a_data_keyed_map_never_carries_a_contact_string():
+    # Keys of payment_split / role_breakdown are kept because their values are
+    # figures. A contact-looking key whose value is a plain string is a
+    # contact detail, not a figure, and is stripped.
+    raw = {"payment_split": {"email": "a@b.dk", "card": {"total": 1.0}},
+           "role_breakdown": {"phone": "+4512345678", "chef": 2}}
+    assert agent_router.strip_contact_fields(raw) == {
+        "payment_split": {"card": {"total": 1.0}}, "role_breakdown": {"chef": 2}}
+
+
+def test_real_query_staff_keeps_a_role_named_like_a_contact_field(db):
+    u = _seed(db)
+    for i, role in enumerate(("Telefon", "Phone orders")):
+        db.add(StaffMember(user_id=u.id, name=f"Extra {i}", role=role, contract_type="part", active=True))
+    db.commit()
+    result = agent_router.strip_contact_fields(agent_tools.query_staff(db, u.id))
+    breakdown = result["data"]["role_breakdown"]
+    assert breakdown == {"server": 1, "Telefon": 1, "Phone orders": 1}
+    assert sum(breakdown.values()) == result["data"]["total_staff"] == 3

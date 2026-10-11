@@ -82,55 +82,59 @@ NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 # is streamed to the page or sent back to the model as a tool_result, so a
 # future tool that adds a contact field cannot leak it.
 #
-# Keys are matched by whole word, never by substring (push-3 review F1): a
-# substring rule on "mobile" dropped "mobilepay" from query_revenue's
-# payment_split, so MobilePay revenue vanished from the "By payment" line, the
-# RevenueCard and the tool_result while total_revenue still counted it.
-# A key is split into words (snake_case, kebab-case, camelCase); it is a
-# contact field when one of its words is in _CONTACT_WORDS, or it spells
-# "e mail", or it has "mobile"/"mobil" not followed by "pay"/"payment"
-# ("mobile_number" goes, "mobile_pay" stays; "mobilepay" is one word and stays).
-_CONTACT_WORDS = frozenset({
-    "phone", "phones", "phonenumber", "phonenumbers", "telephone", "telephones",
-    "telefon", "telefonnummer", "tlf", "cellphone", "mobilenumber", "mobilephone",
-    "mobilnummer", "email", "emails", "emailaddress", "emailaddresses",
-})
-_MOBILE_WORDS = frozenset({"mobile", "mobil"})
-_PAYMENT_WORDS = frozenset({"pay", "payment", "payments"})
+# Keys are matched by SUBSTRING (push-3 review round 3, G2) on the key with
+# case and separators removed ("e-mail", "e_mail", "eMail" all read "email"),
+# so a joined-up or numbered key is caught too: contactphone, guestemail,
+# phone2, smartphone. A key is a contact field when it contains
+#   phone · email · telefon · tlf · "mobil" not followed by "pay"/"epay"
+#   (mobile, mobil, mobilnummer, contact_mobile, mobile2) · "mobil" followed
+#   later by "number"/"nummer"/"nr" (mobilepay_number: a MobilePay number IS
+#   a phone number).
+# Exactly two exemptions (push-3 review F1: a substring rule on "mobile"
+# dropped "mobilepay" from query_revenue's payment_split, so MobilePay revenue
+# vanished from the "By payment" line, the RevenueCard and the tool_result
+# while total_revenue still counted it):
+#   (i)  the keys of a data-keyed map (_DATA_KEYED_MAPS) — they are user data,
+#        not field names. Their values are still checked, and a contact-looking
+#        key whose value is a plain string (a contact detail, not a figure)
+#        is still stripped;
+#   (ii) a key that is exactly a payment-method name: mobilepay, mobile_pay,
+#        MobilePay, mobilepayment(s).
+_CONTACT_SUBSTRINGS = ("phone", "email", "telefon", "tlf")
+_MOBIL_CONTACT = re.compile(r"mobil(?!e?pay)|mobil[a-z0-9]*?(?:number|nummer|nr)")
+_PAYMENT_METHOD_KEYS = frozenset({"mobilepay", "mobilepayment", "mobilepayments"})
 # Dicts whose KEYS are data values, not field names: payment_split is keyed by
-# Sale.payment_method (a free string — "phone" can be a phone-order method).
-# Their keys are kept; their values are still checked.
-_DATA_KEYED_MAPS = frozenset({"payment_split"})
+# Sale.payment_method (a free string — "phone" can be a phone-order method),
+# role_breakdown (query_staff) by the owner's role names ("Telefon").
+_DATA_KEYED_MAPS = frozenset({"payment_split", "role_breakdown"})
 
 
-def _key_words(key: str) -> list[str]:
-    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", key)
-    return [w for w in re.split(r"[^a-z0-9]+", spaced.lower()) if w]
+def _normalized_key(key: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", key.lower())
 
 
 def _is_contact_key(key) -> bool:
     if not isinstance(key, str):
         return False
-    words = _key_words(key)
-    for i, w in enumerate(words):
-        nxt = words[i + 1] if i + 1 < len(words) else None
-        if w in _CONTACT_WORDS:
-            return True
-        if w == "e" and nxt == "mail":
-            return True
-        if w in _MOBILE_WORDS and nxt not in _PAYMENT_WORDS:
-            return True
-    return False
+    c = _normalized_key(key)
+    if c in _PAYMENT_METHOD_KEYS:
+        return False
+    return any(p in c for p in _CONTACT_SUBSTRINGS) or bool(_MOBIL_CONTACT.search(c))
 
 
 def strip_contact_fields(value, _keep_keys: bool = False):
     """A copy of `value` without any dict key that names a phone number or an
-    e-mail address (phone / email / e-mail / mobile as a whole word in the
-    key, any case), at any depth. Names, figures, shifts and payment methods
-    (mobilepay, mobile_pay) are kept."""
+    e-mail address (phone / email / e-mail / telefon / tlf / mobil... in the
+    key, any case, any separators), at any depth. Names, figures, shifts and
+    payment methods (mobilepay, mobile_pay) are kept, and so are the keys of
+    payment_split and role_breakdown when their value is a figure."""
     if isinstance(value, dict):
         if _keep_keys:
-            return {k: strip_contact_fields(v) for k, v in value.items()}
+            return {
+                k: strip_contact_fields(v)
+                for k, v in value.items()
+                if not (isinstance(v, str) and _is_contact_key(k))
+            }
         return {
             k: strip_contact_fields(v, _keep_keys=k in _DATA_KEYED_MAPS)
             for k, v in value.items()
