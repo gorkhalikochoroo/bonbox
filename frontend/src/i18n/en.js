@@ -3777,7 +3777,7 @@ export const en = {
     // Cookie consent banner
     cookieBannerAria: "Cookie consent",
     cookieBannerTitle: "We use cookies",
-    cookieBannerBody: "BonBox uses essential cookies to keep you signed in. Settings you choose yourself, like light/dark theme and dismissed tips, are kept on your device because BonBox needs them to do what you asked — they are used for nothing else. Two categories are optional: Analytics (usage statistics: which features are used and where the app breaks — recorded only after you turn it on) and Marketing (only if you turn it on: the code from the QR on one of our printed flyers is kept on your device for up to 30 days, so we can measure which flyer led to a signup). “Accept all” turns both on.",
+    cookieBannerBody: "BonBox uses essential cookies to keep you signed in. Settings you choose yourself, like light/dark theme and dismissed tips, are kept on your device because BonBox needs them to do what you asked — they are used for nothing else. Two categories are optional: Analytics (usage statistics: which features are used — the events your browser sends are recorded only after you turn it on) and Marketing (only if you turn it on: the code from the QR on one of our printed flyers is kept on your device for up to 30 days, so we can measure which flyer led to a signup). “Accept all” turns both on.",
     cookieAcceptAll: "Accept all",
     cookieDeclineNonEssential: "Decline non-essential",
     cookieCustomize: "Customize",
@@ -3789,7 +3789,7 @@ export const en = {
     cookieCatNecessary: "Strictly necessary",
     cookieCatNecessaryDesc: "Required for the app to work — sign-in session, CSRF protection, and the settings you choose yourself (light/dark theme, dismissed tips), which stay on your device and are used for nothing else. Always on.",
     cookieCatAnalytics: "Analytics",
-    cookieCatAnalyticsDesc: "Helps us understand which features are useful and where the app breaks. Recorded per account in BonBox's own database, never shared with an analytics company, deleted after 180 days.",
+    cookieCatAnalyticsDesc: "Helps us understand which features are useful. Recorded per account in BonBox's own database, never shared with an analytics company, deleted after 180 days.",
     cookieCatMarketing: "Marketing",
     cookieCatMarketingDesc: "Lets us measure which channels send us BonBox-curious people. Today that covers one thing only: the campaign code from the QR on one of our printed flyers is kept on this device for up to 30 days, so a new account can be linked to that visit. Off by default.",
     cookieSettings: "Cookie settings",

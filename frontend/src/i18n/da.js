@@ -3642,7 +3642,7 @@ export const da = {
     // Cookie consent banner
     cookieBannerAria: "Cookiesamtykke",
     cookieBannerTitle: "Vi bruger cookies",
-    cookieBannerBody: "BonBox bruger nødvendige cookies for at holde dig logget ind. Indstillinger, du selv vælger, fx lyst/mørkt tema og tip, du har lukket, gemmes på din enhed, fordi BonBox skal bruge dem til det, du har bedt om — de bruges ikke til andet. To kategorier er valgfrie: Analyse (brugsstatistik: hvilke funktioner der bruges, og hvor appen fejler — registreres først, når du slår den til) og Markedsføring (kun hvis du slår den til: koden fra QR-koden på en af vores trykte foldere gemmes på din enhed i op til 30 dage, så vi kan måle, hvilken folder der førte til en tilmelding). “Accepter alle” slår begge til.",
+    cookieBannerBody: "BonBox bruger nødvendige cookies for at holde dig logget ind. Indstillinger, du selv vælger, fx lyst/mørkt tema og tip, du har lukket, gemmes på din enhed, fordi BonBox skal bruge dem til det, du har bedt om — de bruges ikke til andet. To kategorier er valgfrie: Analyse (brugsstatistik: hvilke funktioner der bruges — hændelser fra din browser registreres først, når du slår den til) og Markedsføring (kun hvis du slår den til: koden fra QR-koden på en af vores trykte foldere gemmes på din enhed i op til 30 dage, så vi kan måle, hvilken folder der førte til en tilmelding). “Accepter alle” slår begge til.",
     cookieAcceptAll: "Accepter alle",
     cookieDeclineNonEssential: "Afvis ikke-nødvendige",
     cookieCustomize: "Tilpas",
@@ -3654,7 +3654,7 @@ export const da = {
     cookieCatNecessary: "Strengt nødvendige",
     cookieCatNecessaryDesc: "Krævet for at appen virker — login-session, CSRF-beskyttelse og de indstillinger, du selv vælger (lyst/mørkt tema, lukkede tip). De bliver på din enhed og bruges ikke til andet. Altid aktive.",
     cookieCatAnalytics: "Analyse",
-    cookieCatAnalyticsDesc: "Hjælper os med at forstå, hvilke funktioner der er nyttige, og hvor appen fejler. Registreres pr. konto i BonBox' egen database, deles aldrig med et analysefirma og slettes efter 180 dage.",
+    cookieCatAnalyticsDesc: "Hjælper os med at forstå, hvilke funktioner der er nyttige. Registreres pr. konto i BonBox' egen database, deles aldrig med et analysefirma og slettes efter 180 dage.",
     cookieCatMarketing: "Markedsføring",
     cookieCatMarketingDesc: "Hjælper os med at måle, hvilke kanaler der sender BonBox-interesserede besøgende til os. I dag gælder det kun én ting: Kampagnekoden fra QR-koden på en af vores trykte foldere gemmes på denne enhed i op til 30 dage, så en ny konto kan knyttes til det besøg. Slået fra som standard.",
     cookieSettings: "Cookieindstillinger",

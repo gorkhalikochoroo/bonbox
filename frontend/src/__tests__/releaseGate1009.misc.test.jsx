@@ -190,6 +190,32 @@ describe.each(Object.keys(DICT))("cookie banner first layer in %s — true to th
     expect(body).toContain(ONLY_IF_ON[lang]);
   });
 });
+// R-h fix round: the clause is scoped to what the gate controls — the events
+// this browser sends. Crash reports (index.html beacon, App.jsx,
+// SelfHealBoundary) and the rows the server writes itself are not behind the
+// banner, so "where the app breaks" is no longer part of Analytics: crash
+// reports are the error log, which /privacy lists as its own 30-day item.
+const BROWSER_EVENTS_AFTER_ON = {
+  en: "which features are used — the events your browser sends are recorded only after you turn it on",
+  da: "hvilke funktioner der bruges — hændelser fra din browser registreres først, når du slår den til",
+  np: "कुन सुविधा प्रयोग हुन्छ — तपाईंको ब्राउजरले पठाउने घटनाहरू तपाईंले सक्रिय गरेपछि मात्र रेकर्ड हुन्छन्",
+  vi: "tính năng nào được dùng — các sự kiện do trình duyệt của bạn gửi chỉ được ghi lại sau khi bạn bật",
+  th: "ฟีเจอร์ใดถูกใช้ — เหตุการณ์ที่เบราว์เซอร์ของคุณส่งจะถูกบันทึกเฉพาะหลังจากที่คุณเปิดใช้",
+  tr: "hangi özelliklerin kullanıldığı — tarayıcınızın gönderdiği olaylar yalnızca siz açtıktan sonra kaydedilir",
+};
+const WHERE_APP_BREAKS = {
+  en: "where the app breaks", da: "hvor appen fejler", np: "एप कहाँ बिग्रन्छ",
+  vi: "ứng dụng lỗi ở đâu", th: "แอปพังที่ใด", tr: "uygulamanın nerede sorun çıkardığı",
+};
+describe.each(Object.keys(DICT))("Analytics in %s covers browser-sent usage events only (R-h fix round)", (lang) => {
+  it("the banner says the events your browser sends are recorded only after you turn it on", () => {
+    expect(DICT[lang].cookieBannerBody).toContain(BROWSER_EVENTS_AFTER_ON[lang]);
+  });
+  it("neither the banner nor the Analytics description claims crash reports", () => {
+    expect(DICT[lang].cookieBannerBody).not.toContain(WHERE_APP_BREAKS[lang]);
+    expect(DICT[lang].cookieCatAnalyticsDesc).not.toContain(WHERE_APP_BREAKS[lang]);
+  });
+});
 describe("the code the banner describes (review)", () => {
   const answer = (analytics) => localStorage.setItem("bonbox_cookie_consent", JSON.stringify({
     version: 1, timestamp: new Date().toISOString(),
@@ -214,6 +240,8 @@ describe("the code the banner describes (review)", () => {
     expect(src).toContain(AFTER_TURN_ON.en);
     expect(src).not.toContain(UNTIL_DECLINE.en);
     expect(src).toContain(ONLY_IF_ON.en);
+    expect(src).toContain(BROWSER_EVENTS_AFTER_ON.en);
+    expect(src).not.toContain(WHERE_APP_BREAKS.en);
   });
 });
 describe.each(Object.keys(DICT))("cookie banner first layer in %s (item 6)", (lang) => {

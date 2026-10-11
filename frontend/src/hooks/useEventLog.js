@@ -4,7 +4,8 @@ import api from "../services/api";
 import { getCookieConsent } from "../components/CookieConsent";
 
 // The cookie banner's "Analytics" choice says it "helps us understand which
-// features are useful and where the app breaks" — which is exactly this log.
+// features are useful" — which is exactly this log. (Crash reports are not
+// part of it: they go to the error log, which /privacy lists separately.)
 // R-h (LEG-10): usage events leave this browser only after an explicit "yes"
 // to Analytics in the cookie banner (or "Accept all"). No answer yet, or a
 // "no", means nothing is queued, and anything queued before the answer is

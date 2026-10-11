@@ -760,7 +760,7 @@ export const vi = {
   // Cookie consent banner
   cookieBannerAria: "Đồng ý cookie",
   cookieBannerTitle: "Chúng tôi sử dụng cookie",
-  cookieBannerBody: "BonBox dùng cookie thiết yếu để giữ bạn đăng nhập. Các cài đặt do bạn tự chọn, như giao diện sáng/tối và các mẹo đã đóng, được lưu trên thiết bị của bạn vì BonBox cần chúng để làm điều bạn yêu cầu — chúng không được dùng vào việc gì khác. Hai danh mục là tuỳ chọn: Phân tích (thống kê sử dụng: tính năng nào được dùng và ứng dụng lỗi ở đâu — chỉ được ghi lại sau khi bạn bật) và Tiếp thị (chỉ khi bạn bật: mã từ mã QR trên một tờ rơi in của chúng tôi được lưu trên thiết bị của bạn tối đa 30 ngày, để chúng tôi đo được tờ rơi nào dẫn đến một lượt đăng ký). “Chấp nhận tất cả” bật cả hai.",
+  cookieBannerBody: "BonBox dùng cookie thiết yếu để giữ bạn đăng nhập. Các cài đặt do bạn tự chọn, như giao diện sáng/tối và các mẹo đã đóng, được lưu trên thiết bị của bạn vì BonBox cần chúng để làm điều bạn yêu cầu — chúng không được dùng vào việc gì khác. Hai danh mục là tuỳ chọn: Phân tích (thống kê sử dụng: tính năng nào được dùng — các sự kiện do trình duyệt của bạn gửi chỉ được ghi lại sau khi bạn bật) và Tiếp thị (chỉ khi bạn bật: mã từ mã QR trên một tờ rơi in của chúng tôi được lưu trên thiết bị của bạn tối đa 30 ngày, để chúng tôi đo được tờ rơi nào dẫn đến một lượt đăng ký). “Chấp nhận tất cả” bật cả hai.",
   cookieAcceptAll: "Chấp nhận tất cả",
   cookieDeclineNonEssential: "Từ chối loại không thiết yếu",
   cookieCustomize: "Tuỳ chỉnh",
@@ -772,7 +772,7 @@ export const vi = {
   cookieCatNecessary: "Thiết yếu",
   cookieCatNecessaryDesc: "Bắt buộc để ứng dụng hoạt động — phiên đăng nhập, bảo vệ CSRF và các cài đặt do bạn tự chọn (giao diện sáng/tối, mẹo đã đóng), được giữ trên thiết bị của bạn và không dùng vào việc gì khác. Luôn bật.",
   cookieCatAnalytics: "Phân tích",
-  cookieCatAnalyticsDesc: "Giúp chúng tôi hiểu tính năng nào hữu ích và ứng dụng lỗi ở đâu. Được ghi lại theo từng tài khoản trong cơ sở dữ liệu riêng của BonBox, không bao giờ chia sẻ với công ty phân tích nào và bị xoá sau 180 ngày.",
+  cookieCatAnalyticsDesc: "Giúp chúng tôi hiểu tính năng nào hữu ích. Được ghi lại theo từng tài khoản trong cơ sở dữ liệu riêng của BonBox, không bao giờ chia sẻ với công ty phân tích nào và bị xoá sau 180 ngày.",
   cookieCatMarketing: "Tiếp thị",
   cookieCatMarketingDesc: "Cho phép chúng tôi đo kênh nào dẫn người quan tâm tới BonBox. Hiện tại việc này chỉ gồm một điều: mã chiến dịch từ mã QR trên một tờ rơi in của chúng tôi được lưu trên thiết bị này tối đa 30 ngày, để tài khoản mới có thể được gắn với lần ghé thăm đó. Tắt theo mặc định.",
   close: "Đóng",

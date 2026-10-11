@@ -1,6 +1,6 @@
 /**
  * The cookie banner's Analytics choice covers this log ("which features are
- * useful and where the app breaks"). An owner who declined it was still logged
+ * useful"). An owner who declined it was still logged
  * on every page. A decline now stops it.
  *
  * R-h (LEG-10): and so does no answer at all — usage events leave the browser
