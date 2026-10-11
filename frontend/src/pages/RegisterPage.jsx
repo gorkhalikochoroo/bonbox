@@ -1,10 +1,14 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useLocation, Navigate } from "react-router-dom";
+import { Check } from "lucide-react";
 import api from "../services/api";
 import { oauthErrText } from "../utils/errText";
+import { authErrorKey } from "../utils/authErrors";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { GoogleLogin } from "@react-oauth/google";
+import usePageTitle from "../hooks/usePageTitle";
+// Push 6 — Google's button drawn in the page's language (GoogleButton.jsx).
+import GoogleButton from "../components/GoogleButton";
 // Task #65 — Apple Sign-In button (web). Self-renders nothing when
 // VITE_APPLE_CLIENT_ID is unset, so dev builds stay quiet.
 import AppleSignInButton from "../components/AppleSignInButton";
@@ -12,8 +16,13 @@ import AppleSignInButton from "../components/AppleSignInButton";
 // Handelsbetingelser. Læs om, hvordan vi behandler dine data, i vores
 // Privatlivspolitik." (LEG-11 / PQ-03).
 import SignupTermsLine from "../components/SignupTermsLine";
-import { rememberVerifySkip } from "../utils/verifySkip";
-import BonBoxMark from "../components/BonBoxMark";
+import { rememberVerifySkip, postLoginPath } from "../utils/verifySkip";
+import { homeFor } from "../lib/appMode";
+import { emailProblem, passwordState } from "../utils/signupValidation";
+import AuthShell, {
+  AuthAlert, AuthDivider, AuthHeading, FieldError, FieldLabel, PasswordInput, PrimaryButton,
+} from "../components/auth/AuthUI";
+import { PRIMARY, inputClass, linkClass } from "../components/auth/authStyles";
 
 /* Inline SVG — growth / rocket scene for registration */
 function RegisterIllustration() {
@@ -61,17 +70,19 @@ function RegisterIllustration() {
   );
 }
 
-const inputCls = "w-full pl-11 pr-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent text-base text-gray-800 dark:text-gray-200 placeholder:text-gray-400 transition";
-const selectCls = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent text-base text-gray-800 dark:text-gray-200 transition appearance-none";
-
 export default function RegisterPage() {
-  const { register, googleLogin, googleOauthLogin, appleOauthLogin } = useAuth();
+  const { register, googleLogin, googleOauthLogin, appleOauthLogin, user, loading: authLoading } = useAuth();
+  // True from the moment THIS page starts making the account (e-mail form,
+  // Google, Apple): the signed-in guard below is for owners who ARRIVE here
+  // signed in, never for the account this page has just made — that one
+  // goes on to /verify-email (or /dashboard) by the page's own navigate.
+  const [signingUpHere, setSigningUpHere] = useState(false);
   // Sign-in surface differs per platform:
-  //   • Web:    Google (via @react-oauth/google JS SDK) + Apple JS SDK
+  //   • Web:    Google (Google's own button, drawn by GoogleButton) + Apple JS SDK
   //   • iOS:    Apple via our in-project Capacitor plugin (Task #90 —
   //             ios/App/App/AppleSignInPlugin.swift). Google on iOS still
   //             needs a separate native Capacitor plugin since the web
-  //             @react-oauth/google flow doesn't work inside WKWebView;
+  //             Google flow doesn't work inside WKWebView;
   //             that's a follow-up.
   const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
   const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID && !isNative;
@@ -94,30 +105,32 @@ export default function RegisterPage() {
    */
   const handleAppleNativeSignUp = async () => {
     if (appleNativeBusy) return;
-    setError("");
+    setError(null);
     setAppleNativeBusy(true);
     try {
       const plugin = window.Capacitor?.Plugins?.AppleSignIn;
       if (!plugin?.signIn) {
-        setError(t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed");
+        setError({ text: t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed" });
         return;
       }
       const res = await plugin.signIn();
       const idToken = res?.identityToken;
       if (!idToken) {
-        setError(t("appleSignupFailed") || "Apple sign-up failed");
+        setError({ text: t("appleSignupFailed") || "Apple sign-up failed" });
         return;
       }
       const name =
         [res.givenName, res.familyName].filter(Boolean).join(" ").trim() || null;
+      setSigningUpHere(true);
       await appleOauthLogin(idToken, name);
       navigate("/dashboard");
     } catch (err) {
+      setSigningUpHere(false);
       const code = err?.code || err?.errorMessage || "";
       if (code === "user_cancelled" || String(err?.message || "").includes("user_cancelled")) {
         return;
       }
-      setError(oauthErrText(err, t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed", t));
+      setError({ text: oauthErrText(err, t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed", t) });
     } finally {
       setAppleNativeBusy(false);
     }
@@ -135,8 +148,10 @@ export default function RegisterPage() {
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
   }, [hasGoogle]);
-  const { t, lang, setLang, LANGUAGES } = useLanguage();
+  const { t, lang } = useLanguage();
+  usePageTitle("suTitleRegister");
   const navigate = useNavigate();
+  const location = useLocation();
   // Apple Guideline 3.1.1 — the iOS app must NOT offer account registration
   // (sign-up is the on-ramp to an off-platform subscription). Native is
   // sign-in only; new businesses register on the web. Bounce any direct hit
@@ -144,8 +159,20 @@ export default function RegisterPage() {
   useEffect(() => {
     if (isNative) navigate("/login", { replace: true });
   }, [isNative, navigate]);
+
+  // Push 6 — an address typed on /login ("Opret konto") comes along as router
+  // state, never in the URL.
+  const handedEmail = typeof location.state?.email === "string" ? location.state.email.trim() : "";
+  // ?plan=starter|pro from the landing's price table — not personal data.
+  const plan = new URLSearchParams(location.search).get("plan");
+  const planNoteKey = isNative ? null : plan === "starter" ? "suPlanStarterNote" : plan === "pro" ? "suPlanProNote" : null;
+
+  // Three typed inputs (push 6, B1). Business type and currency are no
+  // longer asked here: the wizard asks the type (OnboardingPage, step 2) and
+  // DKK is the default. The CVR suggestion below still fills both when it
+  // knows them (type from the branchekode, NOK/GBP from the country).
   const [form, setForm] = useState({
-    email: "",
+    email: handedEmail,
     password: "",
     business_name: "",
     business_type: "",
@@ -155,9 +182,43 @@ export default function RegisterPage() {
     // visible-looking input and trigger a server-side rejection.
     website: "",
   });
-  const [error, setError] = useState("");
-  const [alreadyExists, setAlreadyExists] = useState(false);
+  // { key, vars } for a line from the dictionary, { text } for one already
+  // in the owner's language (the Google/Apple helpers).
+  const [error, setError] = useState(null);
+  // The "this e-mail already has an account" panel: the key to show.
+  const [existsKey, setExistsKey] = useState(null);
   const [loading, setLoading] = useState(false);
+  // "Langsom forbindelse — arbejder stadig på det…" — only once a request
+  // has really been on its way for 8 s, and only while it still is.
+  const [slow, setSlow] = useState(false);
+  // An earlier attempt in this page session got no answer: a 409 now most
+  // likely means that attempt DID create the account.
+  const noAnswerBefore = useRef(false);
+  // The answer to "Opret konto" that is not about one field (the "already
+  // has an account" panel, offline, too many tries, a server error) renders
+  // ABOVE the form. On a phone the owner has scrolled down to the button, so
+  // it would land off screen and only the spinner would come and go: bring
+  // it into view and give it the focus (tabIndex -1). A field's own message
+  // already moves the focus to that field.
+  const answerRef = useRef(null);
+  const [answerSeq, setAnswerSeq] = useState(0);
+  useEffect(() => {
+    if (!answerSeq) return;
+    const el = answerRef.current;
+    if (!el) return;
+    try { el.scrollIntoView?.({ block: "center" }); } catch { /* old engines: the focus below still scrolls it into view */ }
+    try { el.focus({ preventScroll: true }); } catch { el.focus?.(); }
+  }, [answerSeq]);
+
+  // Inline validation: on blur first, then live once a field was touched.
+  const [touched, setTouched] = useState({});
+  const [submitted, setSubmitted] = useState(false);
+  const [pwFocused, setPwFocused] = useState(false);
+  // What the server said about one field ({ email: "suErrDomain" }, …).
+  const [serverField, setServerField] = useState({});
+  const emailRef = useRef(null);
+  const passwordRef = useRef(null);
+  const nameRef = useRef(null);
 
   // ── Email-domain CVR autofill ──────────────────────────────────────
   // Watches the email field. When the domain looks like a real
@@ -247,19 +308,51 @@ export default function RegisterPage() {
     setCvrDismissed(true);
   };
 
-  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm((f) => ({ ...f, [name]: value }));
+    if (serverField[name]) setServerField((s) => ({ ...s, [name]: null }));
+    if (name === "email" && existsKey) setExistsKey(null);
+  };
+  // Leaving a field the owner has typed in checks it; tabbing past an empty
+  // one says nothing yet (that waits for "Opret konto").
+  const touch = (name) => {
+    if (!String(form[name] || "").trim()) return;
+    setTouched((s) => (s[name] ? s : { ...s, [name]: true }));
+  };
+
+  // The three fields' messages, from what is typed now.
+  const emailKey = serverField.email || ((touched.email || submitted) ? emailProblem(form.email) : null);
+  const nameKey = serverField.business_name ||
+    ((touched.business_name || submitted) && !form.business_name.trim() ? "suErrBusinessNameEmpty" : null);
+  const pw = passwordState(form.password);
+  // Red only once the owner has left the field (or pressed Opret konto) —
+  // never while they are still typing in it.
+  const pwInvalid = !!serverField.password || ((touched.password || submitted) && !pw.ok);
+  const pwRed = !!serverField.password || (pwInvalid && !pwFocused);
+  const pwLine = serverField.password ? { key: serverField.password } : pw;
+  const pwTone = pwRed
+    ? "text-red-700 dark:text-red-400"
+    : pw.ok
+      ? "text-emerald-700 dark:text-emerald-400"
+      : "text-gray-600 dark:text-gray-400";
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
-    setAlreadyExists(false);
-    // Client-side password validation (backend requires letters + digits)
-    if (form.password.length < 8) {
-      setError(t("pwMinLength"));
-      return;
-    }
-    if (!/[a-zA-Z]/.test(form.password) || !/[0-9]/.test(form.password)) {
-      setError(t("pwLetterNumber"));
+    setError(null);
+    setExistsKey(null);
+    setSubmitted(true);
+    // The first field that is not right yet gets the focus; its message is
+    // under it (no wall of errors at the top).
+    const firstBad = emailProblem(form.email)
+      ? emailRef
+      : !pw.ok
+        ? passwordRef
+        : !form.business_name.trim()
+          ? nameRef
+          : null;
+    if (firstBad) {
+      firstBad.current?.focus();
       return;
     }
     // On native iOS, default business fields (Apple 3.1.1 compliance)
@@ -269,13 +362,29 @@ export default function RegisterPage() {
     // accept_terms — this page shows the Terms acceptance line
     // (SignupTermsLine) wherever its sign-up buttons are, so the server records
     // the Terms version on the new account (backend services/terms.py).
+    //
+    // business_type is LEFT OUT when the owner was not asked (push 6): the
+    // server's default "restaurant" is the food-service archetype with the
+    // 06:00 business-day cutoff. Sending "" would stamp the generic archetype
+    // with a midnight cutoff on the new profile, and the wizard's re-apply
+    // does not overwrite a non-default value.
+    const { business_type: chosenType, ...rest } = form;
+    const base = { ...rest, email: form.email.trim(), business_name: form.business_name.trim() };
     const submitData = isNative
       ? { ...form, business_type: form.business_type || "personal", business_name: form.business_name || "My Dashboard", ui_language: lang, accept_terms: true }
-      : { ...form, ui_language: lang, accept_terms: true };
-    if (!isNative && !form.business_type) { setError(t("pleaseSelectType")); return; }
+      : { ...base, ...(chosenType ? { business_type: chosenType } : {}), ui_language: lang, accept_terms: true };
     setLoading(true);
+    setSlow(false);
+    const slowTimer = setTimeout(() => setSlow(true), 8000);
+    setSigningUpHere(true);
     try {
       const res = await register(submitData);
+
+      // Not asked for a type, and the CVR suggestion did not know one: the
+      // wizard asks (OnboardingPage reads this flag for this account only).
+      if (!isNative && !submitData.business_type && res?.user?.id != null) {
+        try { localStorage.setItem("bonbox_type_unasked", String(res.user.id)); } catch { /* storage blocked: the wizard keeps restaurant preselected */ }
+      }
 
       // If the user accepted a CVR auto-fill suggestion, persist it
       // to BusinessProfile NOW (the auth session is active immediately
@@ -310,24 +419,25 @@ export default function RegisterPage() {
         navigate("/verify-email");
       }
     } catch (err) {
-      const status = err.response?.status;
-      const detail = err.response?.data?.detail;
-      if (status === 429) {
-        setError(t("tooManyAttempts"));
-      } else if (status === 409 || detail === "Email already registered") {
-        setAlreadyExists(true);
-      } else if (status === 422 && Array.isArray(detail)) {
-        // Pydantic validation errors — extract first readable message
-        const first = detail[0] || {};
-        const field = Array.isArray(first.loc) ? first.loc[first.loc.length - 1] : "";
-        const msg = (first.msg || "Validation error").replace(/^Value error,\s*/, "");
-        setError(field ? `${field}: ${msg}` : msg);
-      } else if (typeof detail === "string") {
-        setError(detail);
+      setSigningUpHere(false);
+      // Every answer becomes a Danish (or English) line with a next step —
+      // never the server's English (utils/authErrors.js).
+      const r = authErrorKey(err, "register", { timedOut: noAnswerBefore.current });
+      if (r.network) noAnswerBefore.current = true;
+      if (r.action === "login") {
+        setExistsKey(r.key);
+        setAnswerSeq((n) => n + 1);
+      } else if (r.field === "email" || r.field === "password" || r.field === "business_name") {
+        setServerField({ [r.field]: r.key });
+        const ref = r.field === "email" ? emailRef : r.field === "password" ? passwordRef : nameRef;
+        ref.current?.focus();
       } else {
-        setError(err.code === "ECONNABORTED" || !err.response ? t("slowConnection") : t("registrationFailed"));
+        setError({ key: r.key, vars: r.vars });
+        setAnswerSeq((n) => n + 1);
       }
     } finally {
+      clearTimeout(slowTimer);
+      setSlow(false);
       setLoading(false);
     }
   };
@@ -336,413 +446,382 @@ export default function RegisterPage() {
   // redirect above moves them to /login; this guard stops a one-frame flash.
   if (isNative) return null;
 
+  // Already signed in (web): the back button from /verify-email — the natural
+  // "wrong e-mail" gesture — used to show a blank sign-up form, and sending it
+  // made a SECOND account while the first (typo) one was left behind, its
+  // address already mailed a code. An owner who still has to confirm goes to
+  // /verify-email (where "Forkert e-mail? Ret den" fixes the address on the
+  // same account); everyone else goes to their app, exactly where the app's
+  // own guards would send them. Replace, so back does not loop. Checked once
+  // the session probe is done; until then the form shows as before.
+  if (!authLoading && user && !signingUpHere) {
+    // postLoginPath: the wall's own rule (grace date, revisor, 7-day skip).
+    const dest = postLoginPath(user);
+    return <Navigate to={dest === "/verify-email" ? dest : homeFor(user)} replace />;
+  }
+
   // Release R-c placed the documents ONCE, where every sign-up path passes
   // them; release R-e turns that line into the Terms acceptance line
   // (SignupTermsLine): beside the Google / Apple row (those create the
   // account without the form), or under "Opret konto" when there is no
   // such row. Every request this page sends carries accept_terms=true.
   const hasOAuthRow = hasAppleWeb || hasAppleNative || hasGoogle;
+  const typedEmail = form.email.trim();
+
+  // Desktop only: what the trial is, in three true lines (push 6). The
+  // founding-price line is hidden on native (Apple 3.1.1 — no subscription
+  // pricing in-app); native never reaches this page anyway.
+  const aside = (
+    <aside className="hidden lg:flex lg:w-[46%] items-center justify-center px-16 py-16 border-r border-bb-line/30 dark:border-gray-800">
+      <div className="max-w-sm">
+        <h2 className="text-[30px] font-semibold tracking-tight leading-[1.15] text-balance text-gray-900 dark:text-white">
+          {t("suPanelHeading")}
+        </h2>
+        <p className="mt-4 text-[15px] leading-relaxed text-gray-600 dark:text-gray-400">
+          {t("suPanelBody")}
+        </p>
+        <ul className="mt-8 space-y-3.5 text-[15px] leading-relaxed text-gray-800 dark:text-gray-200">
+          {[
+            t("suPanelBenefit1"),
+            t("suPanelBenefit2"),
+            ...(isNative ? [] : [t("trialBenefit3")]),
+          ].map((item) => (
+            <li key={item} className="flex items-start gap-3">
+              <span aria-hidden="true" className="mt-[9px] w-1.5 h-1.5 rounded-full bg-bb-forest dark:bg-emerald-400 shrink-0" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </aside>
+  );
 
   return (
-    <>
-      <style>{`
-        @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
-        @keyframes twinkle { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.3; transform: scale(0.6); } }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-      `}</style>
+    <AuthShell aside={aside} language>
+      <AuthHeading
+        title={t("createYourAccount")}
+        // Web: the door question first ("koster det noget, skal jeg give kort?") —
+        // shown on phones too, where the trial panel is hidden. Native
+        // keeps a price-free line (Apple 3.1.1).
+        sub={t(isNative ? "registerSubheading" : "registerSubheadingWeb")}
+      >
+        {planNoteKey && (
+          <p data-testid="register-plan-note" className="mt-2 text-[14px] leading-relaxed text-gray-600 dark:text-gray-400">
+            {t(planNoteKey)}
+          </p>
+        )}
+      </AuthHeading>
 
-      <div className="min-h-screen flex bg-[#fafaf7] dark:bg-gray-950">
-        {/* Left panel — minimalist Copenhagen-style copy, no illustration overload */}
-        <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-16 border-r border-gray-200/60 dark:border-gray-800">
-          <div className="max-w-sm" style={{ animation: "fadeIn 0.8s ease-out" }}>
-            <h2 className="text-[34px] font-semibold tracking-tight leading-[1.1] text-gray-900 dark:text-white">
-              {t("startFreeTrial")}
-            </h2>
-            <p className="text-[15px] text-gray-600 dark:text-gray-400 mt-4 leading-relaxed">
-              {t("trialDescription")}
-            </p>
-            <ul className="mt-8 space-y-3 text-[14px] text-gray-700 dark:text-gray-300">
-              {[
-                t("trialBenefit1"),
-                t("trialBenefit2"),
-                // trialBenefit3 names the founding subscription price; hidden
-                // on native (Apple 3.1.1 — no subscription pricing in-app).
-                ...(isNative ? [] : [t("trialBenefit3")]),
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-2.5">
-                  <span className="mt-[7px] w-1 h-1 rounded-full bg-gray-400 dark:bg-gray-500 shrink-0" />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
+      {existsKey && (
+        <div
+          ref={answerRef}
+          tabIndex={-1}
+          role="alert"
+          data-testid="register-exists"
+          className="mt-6 rounded-lg border border-bb-line/70 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 focus:outline-none"
+        >
+          <p className="text-[15px] leading-relaxed text-gray-900 dark:text-gray-100">{t(existsKey)}</p>
+          <Link to="/login" state={{ email: typedEmail }} className={`${PRIMARY.forest} mt-3`}>
+            {t("signInInstead")}
+          </Link>
+          <p className="mt-3 text-center text-[14px]">
+            <Link to="/forgot-password" state={{ prefillEmail: typedEmail }} className={linkClass}>
+              {t("suForgotQ")}
+            </Link>
+          </p>
+        </div>
+      )}
+      {error && (
+        <AuthAlert ref={existsKey ? undefined : answerRef} tabIndex={-1} className="mt-6">
+          {error.key ? t(error.key, error.vars) : error.text}
+        </AuthAlert>
+      )}
+
+      {/* ── Task #65 — OAuth row (Apple + Google) ─────────────
+          Placed above the form so third-party sign-up is the
+          dominant choice (mirrors the LoginPage layout). Each
+          button no-ops cleanly when its env var is unset. */}
+      {hasOAuthRow && (
+        <div className="mt-6 space-y-2.5">
+          {hasAppleNative && (
+            // Task #90 — native iOS SIWA. Same visual treatment as
+            // the web button so the OAuth row reads consistently.
+            <button
+              type="button"
+              onClick={handleAppleNativeSignUp}
+              disabled={appleNativeBusy}
+              aria-label={t("signUpWithApple") || "Sign up with Apple"}
+              className="w-full flex items-center justify-center gap-2 bg-black text-white rounded-lg
+                h-[44px] px-4 text-[15px] font-medium hover:bg-gray-900 transition
+                disabled:opacity-60 disabled:cursor-not-allowed
+                focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black"
+            >
+              <svg width="16" height="18" viewBox="0 0 16 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path
+                  d="M13.2 13.7c-.3.7-.7 1.4-1.2 2-.7.9-1.5 1.5-2.4 1.5-.4 0-.9-.1-1.5-.4-.6-.3-1.1-.4-1.6-.4-.5 0-1 .1-1.7.4-.6.2-1.1.4-1.5.4-.9 0-1.7-.7-2.5-1.6C.4 14.1 0 12.4 0 10.5c0-1.7.4-3.1 1.3-4.2.7-.9 1.6-1.4 2.7-1.4.4 0 1 .1 1.7.4.7.3 1.2.4 1.4.4.2 0 .7-.1 1.6-.4.8-.3 1.5-.4 2.1-.3 1.5.1 2.7.7 3.4 1.8-1.3.8-2 1.9-2 3.3 0 1.1.4 2 1.2 2.7.4.3.7.6 1.2.7-.1.3-.2.6-.3 1zM11.5 0c.1.7-.2 1.5-.7 2.2-.6.8-1.4 1.3-2.3 1.2-.1-.7.2-1.5.7-2.1.3-.4.7-.7 1.1-.9.4-.2.9-.3 1.2-.4z"
+                  fill="currentColor"
+                />
+              </svg>
+              <span>{appleNativeBusy ? "…" : (t("signUpWithApple") || "Sign up with Apple")}</span>
+            </button>
+          )}
+          {hasAppleWeb && (
+            <AppleSignInButton
+              clientId={APPLE_CLIENT_ID_WEB}
+              label={t("signUpWithApple") || "Sign up with Apple"}
+              mode="signup"
+              onSuccess={async ({ idToken, name }) => {
+                setError(null);
+                setSigningUpHere(true);
+                try {
+                  await appleOauthLogin(idToken, name, { acceptTerms: true });
+                  navigate("/dashboard");
+                } catch (err) {
+                  setSigningUpHere(false);
+                  setError({ text: oauthErrText(err, t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed", t) });
+                }
+              }}
+              onError={(msg) =>
+                setError({ text: msg || t("appleSignupFailed") || "Apple sign-up failed" })
+              }
+            />
+          )}
+          {hasGoogle && (
+            <div ref={googleWrap} className="flex justify-center [&>div]:w-full overflow-hidden">
+              <GoogleButton
+                onSuccess={(res) => {
+                  setError(null);
+                  setSigningUpHere(true);
+                  const fn = googleOauthLogin || googleLogin;
+                  fn(res.credential, { acceptTerms: true })
+                    .then(() => navigate("/dashboard"))
+                    .catch((err) => {
+                      setSigningUpHere(false);
+                      setError({ text: oauthErrText(err, t("googleSignupFailed"), t) });
+                    });
+                }}
+                onError={() => setError({ text: t("googleSignupFailed") })}
+                width={googleWidth}
+                text="signup_with"
+                theme={typeof window !== "undefined" && document.documentElement.classList.contains("dark") ? "filled_black" : "outline"}
+              />
+            </div>
+          )}
+          {/* Release R-e — the Terms acceptance line, beside the
+              Google/Apple row: those buttons create the account
+              without the form, so the line must be seen here. It also
+              covers the e-mail form below — it renders once. (It
+              replaces R-c's informational "Læs vores …" line.) The auth
+              shell gives its two links a taller hit area and the line
+              gray-600 for contrast; words and place unchanged. */}
+          <SignupTermsLine isNative={isNative} className="pt-1" />
+          <div className="pt-3">
+            <AuthDivider label={t("orUseEmail") || "or use email"} />
           </div>
         </div>
+      )}
 
-        {/* Right panel — form */}
-        <div className="flex-1 flex items-center justify-center px-6 py-10 overflow-y-auto">
-          <div className="w-full max-w-md" style={{ animation: "slideUp 0.5s ease-out" }}>
-            {/* Logo + heading */}
-            <div className="mb-6">
-              {/* Brand mark — the kit's forest tile with the paper b
-                  (docs/brand/README.md). Same tile as the sidebar + landing
-                  logo so the user sees one brand mark on every entry surface. */}
-              <div className="flex items-center gap-3 mb-5">
-                <div className="w-10 h-10 bg-bb-forest text-bb-paper rounded-lg flex items-center justify-center">
-                  <BonBoxMark size={32} />
-                </div>
-                <span className="text-xl font-bold text-gray-800 dark:text-white">BonBox</span>
-              </div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t("createYourAccount")}</h1>
-              {/* Web: the door question first ("koster det noget, skal jeg give kort?") —
-                  shown on phones too, where the trial panel is hidden. Native
-                  keeps a price-free line (Apple 3.1.1). */}
-              <p className="text-gray-500 dark:text-gray-400 mt-1.5">{t(isNative ? "registerSubheading" : "registerSubheadingWeb")}</p>
-            </div>
+      <form onSubmit={handleSubmit} noValidate className={`${hasOAuthRow ? "mt-5" : "mt-6"} space-y-4`}>
+        {/* Honeypot — visually hidden + aria-hidden + tabindex=-1.
+            Real users never see, focus, or fill this. Bots that
+            scrape the DOM and fill every input populate this and
+            get rejected server-side with a generic 422. */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            left: "-9999px",
+            width: "1px",
+            height: "1px",
+            overflow: "hidden",
+            opacity: 0,
+            pointerEvents: "none",
+          }}
+        >
+          <label htmlFor="website-confirm">
+            Your website (leave blank — anti-spam)
+          </label>
+          <input
+            type="text"
+            id="website-confirm"
+            name="website"
+            value={form.website}
+            onChange={handleChange}
+            tabIndex={-1}
+            autoComplete="off"
+          />
+        </div>
+        <div>
+          <FieldLabel htmlFor="su-email">{t("email")}</FieldLabel>
+          <input
+            ref={emailRef}
+            id="su-email"
+            type="email"
+            name="email"
+            inputMode="email"
+            autoComplete="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            required
+            value={form.email}
+            onChange={handleChange}
+            onBlur={() => touch("email")}
+            placeholder={t("emailPlaceholder", "you@company.com")}
+            aria-invalid={emailKey ? true : undefined}
+            aria-describedby={emailKey ? "su-email-error" : undefined}
+            className={inputClass(!!emailKey)}
+          />
+          <FieldError id="su-email-error">{emailKey ? t(emailKey) : null}</FieldError>
 
-            {alreadyExists && (
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 p-4 rounded-xl mb-5 text-center" style={{ animation: "slideUp 0.3s ease-out" }}>
-                <p className="text-sm text-blue-800 dark:text-blue-300 font-medium mb-2">{t("emailAlreadyRegistered")}</p>
-                <Link to="/login" className="inline-block bg-gray-900 dark:bg-white text-white dark:text-gray-900 px-4 py-2 rounded-lg text-[13px] font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition">
-                  {t("signInInstead")}
-                </Link>
-              </div>
-            )}
-            {error && (
-              <div className="flex items-start gap-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3.5 rounded-xl mb-5 text-sm" style={{ animation: "slideUp 0.3s ease-out" }}>
-                <svg className="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                </svg>
-                <span>{error}</span>
-              </div>
-            )}
+          {/* CVR auto-detect suggestion — only on web (skip in
+              native iOS for App Store compliance / friction). */}
+          {!isNative && (cvrSearching || cvrSuggestions.length > 0 || cvrSelected) && (
+            <div className="mt-2">
+              {cvrSearching && (
+                <p className="text-[13px] text-gray-600 dark:text-gray-400 px-0.5" role="status">
+                  {t("cvrSignupSearching") || "Looking up your company in CVR…"}
+                </p>
+              )}
 
-            {/* ── Task #65 — OAuth row (Apple + Google) ─────────────
-                Placed above the form so third-party sign-up is the
-                dominant choice (mirrors the LoginPage layout). Each
-                button no-ops cleanly when its env var is unset. */}
-            {hasOAuthRow && (
-              <div className="mb-5 space-y-2.5">
-                {hasAppleNative && (
-                  // Task #90 — native iOS SIWA. Same visual treatment as
-                  // the web button so the OAuth row reads consistently.
+              {/* Selected — show a confirmation chip */}
+              {cvrSelected && (
+                <div className="px-3 py-2 rounded-lg bg-white dark:bg-gray-900 border border-bb-line/70 dark:border-gray-700 text-[13px] flex items-center gap-2">
+                  <Check aria-hidden="true" className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" strokeWidth={2} />
+                  <span className="text-gray-800 dark:text-gray-200 flex-1 min-w-0">
+                    {t("cvrSignupApplied") || "Auto-filled from"}{" "}
+                    <strong className="font-semibold">{cvrSelected.name}</strong>
+                    {cvrSelected.org_number && (
+                      <span className="ml-1 text-gray-600 dark:text-gray-400">· CVR {cvrSelected.org_number}</span>
+                    )}
+                  </span>
                   <button
                     type="button"
-                    onClick={handleAppleNativeSignUp}
-                    disabled={appleNativeBusy}
-                    aria-label={t("signUpWithApple") || "Sign up with Apple"}
-                    className="w-full flex items-center justify-center gap-2 bg-black text-white rounded-lg
-                      h-[44px] px-4 text-[15px] font-medium hover:bg-gray-900 transition
-                      disabled:opacity-60 disabled:cursor-not-allowed
-                      focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black"
+                    onClick={() => { setCvrSelected(null); setCvrDismissed(true); }}
+                    className="text-[13px] text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 hover:text-gray-900"
                   >
-                    <svg width="16" height="18" viewBox="0 0 16 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                      <path
-                        d="M13.2 13.7c-.3.7-.7 1.4-1.2 2-.7.9-1.5 1.5-2.4 1.5-.4 0-.9-.1-1.5-.4-.6-.3-1.1-.4-1.6-.4-.5 0-1 .1-1.7.4-.6.2-1.1.4-1.5.4-.9 0-1.7-.7-2.5-1.6C.4 14.1 0 12.4 0 10.5c0-1.7.4-3.1 1.3-4.2.7-.9 1.6-1.4 2.7-1.4.4 0 1 .1 1.7.4.7.3 1.2.4 1.4.4.2 0 .7-.1 1.6-.4.8-.3 1.5-.4 2.1-.3 1.5.1 2.7.7 3.4 1.8-1.3.8-2 1.9-2 3.3 0 1.1.4 2 1.2 2.7.4.3.7.6 1.2.7-.1.3-.2.6-.3 1zM11.5 0c.1.7-.2 1.5-.7 2.2-.6.8-1.4 1.3-2.3 1.2-.1-.7.2-1.5.7-2.1.3-.4.7-.7 1.1-.9.4-.2.9-.3 1.2-.4z"
-                        fill="currentColor"
-                      />
-                    </svg>
-                    <span>{appleNativeBusy ? "…" : (t("signUpWithApple") || "Sign up with Apple")}</span>
+                    {t("cvrSignupClear") || "Clear"}
                   </button>
-                )}
-                {hasAppleWeb && (
-                  <AppleSignInButton
-                    clientId={APPLE_CLIENT_ID_WEB}
-                    label={t("signUpWithApple") || "Sign up with Apple"}
-                    mode="signup"
-                    onSuccess={async ({ idToken, name }) => {
-                      setError("");
-                      try {
-                        await appleOauthLogin(idToken, name, { acceptTerms: true });
-                        navigate("/dashboard");
-                      } catch (err) {
-                        setError(oauthErrText(err, t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed", t));
-                      }
-                    }}
-                    onError={(msg) =>
-                      setError(msg || t("appleSignupFailed") || "Apple sign-up failed")
-                    }
-                  />
-                )}
-                {hasGoogle && (
-                  <div ref={googleWrap} className="flex justify-center [&>div]:w-full overflow-hidden">
-                    <GoogleLogin
-                      onSuccess={(res) => {
-                        setError("");
-                        const fn = googleOauthLogin || googleLogin;
-                        fn(res.credential, { acceptTerms: true })
-                          .then(() => navigate("/dashboard"))
-                          .catch((err) => setError(oauthErrText(err, t("googleSignupFailed"), t)));
-                      }}
-                      onError={() => setError(t("googleSignupFailed"))}
-                      shape="rectangular"
-                      size="large"
-                      width={String(googleWidth)}
-                      text="signup_with"
-                      theme={typeof window !== "undefined" && document.documentElement.classList.contains("dark") ? "filled_black" : "outline"}
-                    />
-                  </div>
-                )}
-                {/* Release R-e — the Terms acceptance line, beside the
-                    Google/Apple row: those buttons create the account
-                    without the form, so the line must be seen here. It also
-                    covers the e-mail form below — it renders once. (It
-                    replaces R-c's informational "Læs vores …" line.) */}
-                <SignupTermsLine isNative={isNative} className="pt-1" />
-                <div className="flex items-center gap-3 pt-2">
-                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-                  <span className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                    {t("orUseEmail") || "or use email"}
-                  </span>
-                  <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
                 </div>
-              </div>
-            )}
+              )}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Honeypot — visually hidden + aria-hidden + tabindex=-1.
-                  Real users never see, focus, or fill this. Bots that
-                  scrape the DOM and fill every input populate this and
-                  get rejected server-side with a generic 422. */}
-              <div
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  left: "-9999px",
-                  width: "1px",
-                  height: "1px",
-                  overflow: "hidden",
-                  opacity: 0,
-                  pointerEvents: "none",
-                }}
-              >
-                <label htmlFor="website-confirm">
-                  Your website (leave blank — anti-spam)
-                </label>
-                <input
-                  type="text"
-                  id="website-confirm"
-                  name="website"
-                  value={form.website}
-                  onChange={handleChange}
-                  tabIndex={-1}
-                  autoComplete="off"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("email")}</label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                  </span>
-                  <input type="email" name="email" value={form.email} onChange={handleChange}
-                    placeholder={t("emailPlaceholder", "you@company.com")} className={inputCls} required />
-                </div>
-
-                {/* CVR auto-detect suggestion — only on web (skip in
-                    native iOS for App Store compliance / friction). */}
-                {!isNative && (cvrSearching || cvrSuggestions.length > 0 || cvrSelected) && (
-                  <div className="mt-2">
-                    {cvrSearching && (
-                      <p className="text-[11px] text-gray-400 dark:text-gray-500 px-2">
-                        🎯 {t("cvrSignupSearching") || "Looking up your company in CVR…"}
-                      </p>
-                    )}
-
-                    {/* Selected — show a confirmation chip */}
-                    {cvrSelected && (
-                      <div className="px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 text-xs flex items-center gap-2">
-                        <span className="text-emerald-600">✓</span>
-                        <span className="text-gray-700 dark:text-gray-300 flex-1">
-                          {t("cvrSignupApplied") || "Auto-filled from"}{" "}
-                          <strong>{cvrSelected.name}</strong>
-                          {cvrSelected.org_number && (
-                            <span className="ml-1 opacity-70">· CVR {cvrSelected.org_number}</span>
+              {/* Active suggestions strip */}
+              {!cvrSelected && cvrSuggestions.length > 0 && (
+                <div className="p-3 rounded-lg bg-white dark:bg-gray-900 border border-bb-line/70 dark:border-gray-700 text-[13px] space-y-2">
+                  <p className="font-semibold text-gray-900 dark:text-gray-100">
+                    {t("cvrSignupTitle") || "Found a match in the company register"}
+                  </p>
+                  <div className="space-y-1.5">
+                    {cvrSuggestions.map((s, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => applyCvrSuggestion(s)}
+                        className="block w-full text-left px-3 py-2 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 hover:border-bb-forest dark:hover:border-gray-300 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bb-forest"
+                      >
+                        <p className="font-semibold text-gray-900 dark:text-gray-100">
+                          {s.name}
+                          {s.org_number && (
+                            <span className="ml-2 text-[12px] font-normal text-gray-600 dark:text-gray-400">CVR {s.org_number}</span>
                           )}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => { setCvrSelected(null); setCvrDismissed(true); }}
-                          className="text-[11px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline"
-                        >
-                          {t("cvrSignupClear") || "Clear"}
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Active suggestions strip */}
-                    {!cvrSelected && cvrSuggestions.length > 0 && (
-                      <div className="px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-xs space-y-2">
-                        <p className="text-blue-700 dark:text-blue-300 font-semibold">
-                          🎯 {t("cvrSignupTitle") || "Found a match in the company register"}
                         </p>
-                        <div className="space-y-1.5">
-                          {cvrSuggestions.map((s, i) => (
-                            <button
-                              key={i}
-                              type="button"
-                              onClick={() => applyCvrSuggestion(s)}
-                              className="block w-full text-left px-2.5 py-1.5 rounded bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-700 hover:border-blue-500 transition"
-                            >
-                              <p className="font-semibold text-gray-800 dark:text-gray-200">
-                                {s.name}
-                                {s.org_number && (
-                                  <span className="ml-2 text-[10px] font-normal text-gray-500">CVR {s.org_number}</span>
-                                )}
-                              </p>
-                              {s.address && (
-                                <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">{s.address}</p>
-                              )}
-                              {s.industry && (
-                                <p className="text-[10px] text-blue-500 dark:text-blue-400 mt-0.5">{s.industry}</p>
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={dismissCvrSuggestion}
-                          className="text-[11px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline"
-                        >
-                          {t("cvrSignupNotMine") || "None of these — I'll type manually"}
-                        </button>
-                      </div>
-                    )}
+                        {s.address && (
+                          <p className="text-[12px] text-gray-600 dark:text-gray-400 truncate">{s.address}</p>
+                        )}
+                        {s.industry && (
+                          <p className="text-[12px] text-gray-600 dark:text-gray-400 mt-0.5">{s.industry}</p>
+                        )}
+                      </button>
+                    ))}
                   </div>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("password")}</label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                  </span>
-                  <input type="password" name="password" value={form.password} onChange={handleChange}
-                    placeholder={t("regPasswordPlaceholder", "8+ characters with letters and numbers")} className={inputCls} required
-                    minLength={8} />
+                  <button
+                    type="button"
+                    onClick={dismissCvrSuggestion}
+                    className="text-[13px] text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 hover:text-gray-900"
+                  >
+                    {t("cvrSignupNotMine") || "None of these — I'll type manually"}
+                  </button>
                 </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{isNative ? t("displayName") : (form.business_type === "personal" ? t("displayName") : t("businessName"))}</label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
-                  </span>
-                  <input type="text" name="business_name" value={form.business_name} onChange={handleChange}
-                    placeholder={t("businessNamePlaceholder")} className={inputCls} required />
-                </div>
-              </div>
-              {/* Hide business type/currency on native iOS (Apple 3.1.1 compliance) */}
-              {!isNative && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("businessType")}</label>
-                  <select name="business_type" value={form.business_type} onChange={handleChange}
-                    className={selectCls} required>
-                    <option value="" disabled>{t("selectType")}</option>
-                    <optgroup label={t("foodAndDrink")}>
-                      <option value="restaurant">{t("btRestaurant")}</option>
-                      <option value="cafe">{t("btCafe")}</option>
-                      <option value="bar">{t("btBar")}</option>
-                      <option value="bakery">{t("btBakery")}</option>
-                      <option value="takeaway">{t("btTakeaway")}</option>
-                      <option value="food_truck">{t("btFoodTruck")}</option>
-                      <option value="tea_shop">{t("btTeaShop")}</option>
-                    </optgroup>
-                    <optgroup label={t("retail")}>
-                      <option value="clothing">{t("btClothing")}</option>
-                      <option value="online_clothing">{t("btOnlineClothing")}</option>
-                      <option value="grocery">{t("btGrocery")}</option>
-                      <option value="veggie_shop">{t("btVeggieShop")}</option>
-                      <option value="kiosk">{t("btKiosk")}</option>
-                      <option value="electronics">{t("btElectronics")}</option>
-                      <option value="pharmacy">{t("btPharmacy")}</option>
-                      <option value="cosmetics">{t("btCosmetics")}</option>
-                      <option value="stationery">{t("btStationery")}</option>
-                      <option value="hardware">{t("btHardware")}</option>
-                      <option value="flower_shop">{t("btFlowerShop")}</option>
-                      <option value="jewelry">{t("btJewelry")}</option>
-                      <option value="thrift">{t("btThrift")}</option>
-                    </optgroup>
-                    <optgroup label={t("services")}>
-                      <option value="salon">{t("btSalon")}</option>
-                      <option value="mobile_repair">{t("btMobileRepair")}</option>
-                      <option value="laundry">{t("btLaundry")}</option>
-                    </optgroup>
-                    <optgroup label={t("other")}>
-                      <option value="retail">{t("btGeneralRetail")}</option>
-                      <option value="wholesale">{t("btWholesale")}</option>
-                      <option value="personal">{t("personalFinance")}</option>
-                      <option value="other">{t("other")}</option>
-                    </optgroup>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("currency")}</label>
-                  <select name="currency" value={form.currency} onChange={handleChange} className={selectCls}>
-                    <option value="DKK">{t("currDKK")}</option>
-                    <option value="EUR">{t("currEUR")}</option>
-                    <option value="SEK">{t("currSEK")}</option>
-                    <option value="NOK">{t("currNOK")}</option>
-                    <option value="USD">{t("currUSD")}</option>
-                    <option value="GBP">{t("currGBP")}</option>
-                  </select>
-                </div>
-              </div>
               )}
-
-              {/* Create-account primary CTA — emerald-600 (brand-green).
-                  Marketing surface, so it earns the saturated brand mark
-                  (mirror of /register on landing's hero CTA). */}
-              <button type="submit" disabled={loading}
-                className="w-full bg-emerald-600 text-white py-2.5 rounded-lg
-                  text-[14px] font-medium hover:bg-emerald-700
-                  disabled:opacity-60 disabled:cursor-not-allowed
-                  flex items-center justify-center gap-2 mt-2 transition">
-                {loading ? (
-                  <>
-                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                    {t("creatingAccount")}
-                  </>
-                ) : t("createAccount")}
-              </button>
-              {/* Release R-e — with no Google/Apple row, the Terms acceptance
-                  line sits under "Opret konto" instead (it renders once). */}
-              {!(hasAppleWeb || hasAppleNative || hasGoogle) && (
-                <SignupTermsLine isNative={isNative} className="-mt-2" />
-              )}
-            </form>
-
-            {/* OAuth providers (Apple + Google) live ABOVE the form
-                now — see the OAuth row injected before <form> above.
-                The legacy /auth/apple iOS Capacitor button is still
-                wired through `appleLogin()` in useAuth for when the
-                plugin ships a Cap-8 release. */}
-
-            <p className="mt-5 text-center text-sm text-gray-500 dark:text-gray-400">
-              {t("alreadyHaveAccount")}{" "}
-              <Link to="/login" className="text-gray-900 dark:text-white font-medium underline-offset-2 hover:underline">{t("signIn")}</Link>
-            </p>
-
-            <div className="mt-6 flex justify-center">
-              <select
-                value={lang}
-                onChange={(e) => setLang(e.target.value)}
-                aria-label={t("regLanguageLabel", "Language")}
-                className="text-[12px] bg-transparent border border-gray-200 dark:border-gray-700 rounded-md px-2.5 py-1
-                  text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500
-                  focus:outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer"
-              >
-                {LANGUAGES.map((l) => (
-                  <option key={l.code} value={l.code} className="bg-white dark:bg-gray-900">
-                    {l.label}
-                  </option>
-                ))}
-              </select>
             </div>
-          </div>
+          )}
         </div>
-      </div>
-    </>
+        <div>
+          <FieldLabel htmlFor="su-password">{t("password")}</FieldLabel>
+          <PasswordInput
+            ref={passwordRef}
+            id="su-password"
+            name="password"
+            autoComplete="new-password"
+            required
+            value={form.password}
+            onChange={handleChange}
+            onFocus={() => setPwFocused(true)}
+            onBlur={() => { setPwFocused(false); touch("password"); }}
+            aria-invalid={pwInvalid ? true : undefined}
+            aria-describedby="su-password-hint"
+            invalid={pwRed}
+          />
+          {/* Always there, so the form never jumps: the rule while it is
+              not met, then "Klar" — red only after leaving the field. */}
+          <p
+            id="su-password-hint"
+            className={`mt-1.5 min-h-[18px] text-[13px] leading-snug ${pwTone}`}
+            {...(pwRed ? { role: "alert" } : {})}
+          >
+            {t(pwLine.key, pwLine.vars)}
+          </p>
+        </div>
+        <div>
+          <FieldLabel htmlFor="su-business-name">{t("businessName")}</FieldLabel>
+          <input
+            ref={nameRef}
+            id="su-business-name"
+            type="text"
+            name="business_name"
+            autoComplete="organization"
+            autoCapitalize="words"
+            required
+            value={form.business_name}
+            onChange={handleChange}
+            onBlur={() => touch("business_name")}
+            placeholder={t("suBusinessNamePlaceholder")}
+            aria-invalid={nameKey ? true : undefined}
+            aria-describedby={nameKey ? "su-business-name-error" : undefined}
+            className={inputClass(!!nameKey)}
+          />
+          <FieldError id="su-business-name-error">{nameKey ? t(nameKey) : null}</FieldError>
+        </div>
+
+        <PrimaryButton loading={loading} loadingLabel={t("suCreating")} className="mt-2">
+          {t("suCreateAccount")}
+        </PrimaryButton>
+        {/* Release R-e — with no Google/Apple row, the Terms acceptance
+            line sits under "Opret konto" instead (it renders once). */}
+        {!(hasAppleWeb || hasAppleNative || hasGoogle) && (
+          <SignupTermsLine isNative={isNative} className="-mt-1" />
+        )}
+        {/* While the request is out: after 8 s, say the connection is slow
+            (true at that moment — it is still on its way). */}
+        {loading && slow && (
+          <p role="status" className="text-center text-[13px] text-gray-600 dark:text-gray-400">
+            {t("slowConnection")}
+          </p>
+        )}
+      </form>
+
+      {/* OAuth providers (Apple + Google) live ABOVE the form
+          now — see the OAuth row injected before <form> above.
+          The legacy /auth/apple iOS Capacitor button is still
+          wired through `appleLogin()` in useAuth for when the
+          plugin ships a Cap-8 release. */}
+
+      <p className="mt-6 text-center text-[14px] text-gray-600 dark:text-gray-400">
+        {t("alreadyHaveAccount")}{" "}
+        <Link to="/login" state={{ email: typedEmail }} className={`${linkClass} font-medium`}>
+          {t("suSignInLink")}
+        </Link>
+      </p>
+    </AuthShell>
   );
 }

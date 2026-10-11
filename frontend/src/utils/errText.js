@@ -53,14 +53,17 @@ export function errText(err, fallback = "Something went wrong. Try again.") {
 export default errText;
 
 /**
- * oauthErrText — errText for the Google / Apple sign-in buttons. The server
+ * oauthErrText — the message for a failed Google / Apple sign-in. The server
  * refuses two cases with a code (an e-mail the provider has not verified,
  * and an existing password account it will not link silently); say those in
- * the owner's language instead of the server's English.
+ * the owner's language. Anything else gets the caller's own localised line
+ * ("Google-tilmelding mislykkedes" and the like) — never the server's English
+ * (push 6, PQ-04: it used to fall through to errText and show e.g. "Invalid or
+ * expired sign-in token." on a Danish page).
  */
 export function oauthErrText(err, fallback, t) {
   const code = err?.response?.data?.detail?.code;
   if (code === "email_not_verified") return t("oauthEmailNotVerified");
   if (code === "account_exists_login_first") return t("oauthAccountExistsLoginFirst");
-  return errText(err, fallback);
+  return fallback;
 }

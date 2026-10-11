@@ -17,11 +17,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { da } from "../i18n/da";
 import { en } from "../i18n/en";
 
-const h = vi.hoisted(() => ({ post: vi.fn(), lang: "da" }));
+const h = vi.hoisted(() => ({ post: vi.fn(), lang: "da", user: { id: "u1", business_name: "Café Solsikken", role: "owner" } }));
 
 vi.mock("../services/api", () => ({ default: { post: h.post, get: vi.fn(() => Promise.resolve({ data: {} })) } }));
 vi.mock("../hooks/useAuth", () => ({
-  useAuth: () => ({ user: { id: "u1", business_name: "Café Solsikken", role: "owner" }, register: vi.fn() }),
+  useAuth: () => ({ user: h.user, register: vi.fn() }),
 }));
 vi.mock("../hooks/useLanguage", async () => {
   const { da: DA } = await import("../i18n/da");
@@ -51,6 +51,7 @@ const RegisterPage = (await import("../pages/RegisterPage")).default;
 
 beforeEach(() => {
   h.lang = "da";
+  h.user = { id: "u1", business_name: "Café Solsikken", role: "owner" };
   h.post.mockReset();
 });
 
@@ -104,6 +105,8 @@ describe("'Du er klar' invite card — errors in the owner's language", () => {
 });
 
 describe("register form — the e-mail placeholder", () => {
+  // The form is what a logged-out visitor sees (a signed-in owner is sent on).
+  beforeEach(() => { h.user = null; });
   it("Danish: 'dig@firma.dk', as on /login", () => {
     render(<MemoryRouter><RegisterPage /></MemoryRouter>);
     expect(document.querySelector('input[name="email"]').getAttribute("placeholder")).toBe("dig@firma.dk");

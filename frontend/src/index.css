@@ -53,6 +53,11 @@
      plan's floor, a different warm white. */
   --color-bb-forest: #093A26;
   --color-bb-paper: #F6F4EC;
+  /* Input border on the sign-up pages (push 6). A field edge must reach
+     3:1 against what it sits on (WCAG 1.4.11): this measures 3.59:1 on
+     white and 3.26:1 on paper, where gray-300 is ~1.5:1. Additive — only
+     the auth pages use it. */
+  --color-bb-line: #8A877D;
 
   --font-display: "Hanken Grotesk", system-ui, sans-serif;
   /* Inter, not the handoff's Inter Tight (dropped 8 Oct 2026 — see main.jsx):
@@ -183,6 +188,13 @@ body.portal-shell {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* bbFade — opacity only, for the sign-up pages (push 6): a 150-200 ms
+   cross-fade with no movement. Used as motion-safe:animate-[bbFade_180ms_ease-out]. */
+@keyframes bbFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* bbRise — the booking receipt settling into place (public booking page). */

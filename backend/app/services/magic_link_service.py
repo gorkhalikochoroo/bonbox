@@ -236,7 +236,10 @@ def verify_token(
     # Find or create the user. Same self-signup behaviour as Google:
     # a verified magic-link click is proof the email is real, so we
     # land the user as an owner with email_verified=True.
-    user = db.query(User).filter(User.email == row.email).first()
+    # Case-insensitive (push 6): the link for "ole@…" signs in to an account
+    # stored as "Ole@…" instead of quietly making a second, empty one.
+    from app.utils.login_email import user_by_email
+    user = user_by_email(db, row.email)
     if user is None:
         user = User(
             email=row.email,

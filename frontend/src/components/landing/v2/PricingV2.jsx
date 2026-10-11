@@ -208,9 +208,11 @@ export default function PricingV2() {
                 intent moment on the only acquisition page there is, and they
                 dropped a first-time visitor onto a sign-in form for an account
                 they do not have. The hero CTA was already corrected to
-                /register (see HeroV2.jsx); the pricing table was missed. */}
+                /register (see HeroV2.jsx); the pricing table was missed.
+                ?plan= (push 6, PQ-17): /register says which plan was picked
+                and what happens after the trial. Not personal data. */}
             <Link
-              to="/register"
+              to="/register?plan=starter"
               className={`${ctaBase} bg-bb-green py-[14px] text-white hover:bg-bb-green-dark`}
             >
               {t("landingV2.pricing.starter.cta", "Start on Starter")}
@@ -327,7 +329,7 @@ export default function PricingV2() {
                 they do not have. The hero CTA was already corrected to
                 /register (see HeroV2.jsx); the pricing table was missed. */}
             <Link
-              to="/register"
+              to="/register?plan=pro"
               className={`${ctaBase} bg-bb-green py-[13px] text-white hover:bg-bb-green-dark`}
             >
               {t("landingV2.pricing.pro.cta", "Start on Pro")}

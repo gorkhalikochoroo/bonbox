@@ -142,7 +142,8 @@ describe("VerifyEmailPage sendOnArrival", () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText("couldNotResendCode")).toBeTruthy();
-    const resend = screen.getByText("resendCode").closest("button");
+    // Push 6: the resend button reads "Send en ny kode" (suResend).
+    const resend = screen.getByText("suResend").closest("button");
     expect(resend.disabled).toBe(false);
   });
 });

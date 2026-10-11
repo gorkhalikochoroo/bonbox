@@ -13,9 +13,13 @@ describe("oauthErrText", () => {
     expect(oauthErrText(err({ code: "account_exists_login_first", message: "English" }), "fb", t))
       .toBe("T:oauthAccountExistsLoginFirst");
   });
-  it("falls back to errText for everything else", () => {
-    expect(oauthErrText(err("Invalid or expired sign-in token."), "fb", t))
-      .toBe("Invalid or expired sign-in token.");
+  // Push 6 (PQ-04): the caller's localised line for everything else — the
+  // server's English never reaches a Danish page (it used to fall through to
+  // errText and return "Invalid or expired sign-in token.").
+  it("returns the caller's localised fallback for everything else, never the server's English", () => {
+    expect(oauthErrText(err("Invalid or expired sign-in token."), "fb", t)).toBe("fb");
+    expect(oauthErrText(err([{ loc: ["body", "id_token"], msg: "Field required" }]), "fb", t)).toBe("fb");
+    expect(oauthErrText({ message: "Network Error" }, "fb", t)).toBe("fb");
     expect(oauthErrText({}, "fb", t)).toBe("fb");
   });
 });

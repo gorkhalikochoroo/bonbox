@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { LANGUAGES } from "../i18n/languageCatalog";
 import { loadLocale, loadedLocales, localesFor } from "../lib/localeStore";
+import { SHELL_TITLE_VALUES, browserListsDanish, shellTitle } from "../lib/shellTitles";
 
 const LanguageContext = createContext(null);
 
@@ -30,22 +31,10 @@ const LanguageContext = createContext(null);
 // instantly.  `label` is the native-language full name, used inside
 // expanded dropdowns + accessibility (aria-label) so screen-reader
 // users still hear "Dansk" not "DK".
-/**
- * The two titles index.html can ship. The shell is Danish (Denmark is the
- * market and the static HTML is what crawlers read); the English one is
- * swapped in at runtime for an English reader. Kept beside LANGUAGES so the
- * pair cannot drift from index.html unnoticed — if you change the <title>
- * there, change it here.
- */
-const SHELL_TITLES = {
-  da: "BonBox \u2014 Bagkontoret din virksomhed faktisk k\u00f8rer p\u00e5",
-  en: "BonBox \u2014 The back office your business actually runs on",
-  // Only languages at full coverage get a localised shell title. A translated
-  // tab on a mostly-English page reads as broken, so partial locales keep the
-  // English one until they are filled.
-  tr: "BonBox \u2014 \u0130\u015fletmenin ger\u00e7ekten \u00fczerinde d\u00f6nd\u00fc\u011f\u00fc arka ofis",
-};
-const SHELL_TITLE_VALUES = Object.values(SHELL_TITLES);
+// The shell's tab titles (index.html ships the Danish one) live in
+// lib/shellTitles.js with the language rule the shell shares. Re-exported here
+// so callers can keep importing them from the language module.
+export { shellTitle };
 
 // The catalog of locales, and which are complete enough to offer, now lives in
 // i18n/languageCatalog.js — see the note there for why four locales were taken
@@ -110,13 +99,24 @@ const BROWSER_LANG_MAP = {
   "tr": "tr", "tr-tr": "tr",
 };
 
+function browserCandidates() {
+  if (typeof navigator === "undefined") return [];
+  return []
+    .concat(Array.isArray(navigator.languages) ? navigator.languages : [])
+    .concat(navigator.language ? [navigator.language] : []);
+}
+
 function detectLanguageFromBrowser() {
   if (typeof navigator === "undefined") return null;
   // navigator.languages is the prioritised list; navigator.language is
-  // the primary. Try every entry until one maps to a supported lang.
-  const candidates = []
-    .concat(Array.isArray(navigator.languages) ? navigator.languages : [])
-    .concat(navigator.language ? [navigator.language] : []);
+  // the primary.
+  const candidates = browserCandidates();
+  // PQ-05 (push 6): Danish (or Faroese) ANYWHERE in the list wins. An
+  // English-first phone in Denmark (["en-US", "da"]) used to get English on
+  // the sign-up pages while the dictionary preload fetched Danish as well.
+  // Same rule as index.html and the preload (lib/shellTitles.js).
+  if (browserListsDanish(candidates)) return "da";
+  // Otherwise: try every entry until one maps to a supported lang.
   for (const raw of candidates) {
     if (!raw) continue;
     const lower = String(raw).toLowerCase();
@@ -142,7 +142,20 @@ function detectLanguageFromCurrencyHint() {
 export function detectInitialLanguage() {
   if (typeof localStorage !== "undefined") {
     const stored = localStorage.getItem("lang");
-    if (stored && SUPPORTED.has(stored)) return { lang: stored, source: "stored" };
+    if (stored && SUPPORTED.has(stored)) {
+      // One-time move (push 6, PQ-05): a language the BROWSER picked under
+      // the old first-entry rule (English on an ["en-US", "da"] phone) moves
+      // to Danish once. Only an auto pick: choosing a language in the picker
+      // clears bonbox_lang_auto_picked (setLang below), so an owner who chose
+      // English keeps English. The stored value becomes "da", so this runs
+      // once; SmartLanguageToast then offers "Switch to English".
+      if (stored !== "da" && browserListsDanish(browserCandidates())) {
+        let auto = null;
+        try { auto = localStorage.getItem("bonbox_lang_auto_picked"); } catch { auto = null; }
+        if (auto === "browser") return { lang: "da", source: "migrated" };
+      }
+      return { lang: stored, source: "stored" };
+    }
   }
   const fromBrowser = detectLanguageFromBrowser();
   if (fromBrowser) return { lang: fromBrowser, source: "browser" };
@@ -303,7 +316,7 @@ export function LanguageProvider({ children }) {
   useEffect(() => {
     if (typeof document === "undefined") return;
     document.documentElement.lang = lang;
-    const wanted = SHELL_TITLES[lang] || SHELL_TITLES.en;
+    const wanted = shellTitle(lang);
     if (SHELL_TITLE_VALUES.includes(document.title)) document.title = wanted;
   }, [lang]);
 
