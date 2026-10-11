@@ -508,3 +508,51 @@ def test_watermark_stops_at_an_unnoted_billing_row(mem, prod, alerts, clock, mon
     clock["t"] = T0 + timedelta(minutes=15)
     otj.run_ops_triage_tick()
     assert _billing_notes(mem) == 2
+
+
+# Digest: critical first, and the subject says so (review, 12 Oct) ───────────
+def test_digest_puts_critical_first_and_marks_the_subject(mem, prod, alerts, clock):
+    """11 older low groups and one newer billing alarm (critical): oldest-first
+    lines cut at 10 used to push the alarm into "+N more"."""
+    for i in range(11):
+        _seed(mem, method="GET", path=f"/api/old{i}", status_code=500,
+              error_type=f"OldError{i}", traceback=_TB,
+              created_at=T0 - timedelta(minutes=20) + timedelta(seconds=i))
+    _seed(mem, method="WEBHOOK", path="/api/billing/stripe/webhook", status_code=None,
+          error_type=_BILLING, message="second live subscription: sub_A -> sub_B",
+          created_at=T0 - timedelta(minutes=5))
+    otj.run_ops_triage_tick()
+    d = [c for c in alerts if c["key"].startswith("triage:")][0]
+    assert d["lines"][1].startswith(f"CRITICAL | {_BILLING} |"), d["lines"]
+    assert d["lines"][-1] == "+2 more in /admin"
+    assert d["subject"] == "[CRITICAL] 12 new error group(s) on prod"
+
+
+def test_digest_subject_has_no_marker_without_a_critical_note(mem, prod, alerts, clock):
+    _seed_standard(mem)
+    otj.run_ops_triage_tick()
+    d = [c for c in alerts if c["key"].startswith("triage:")][0]
+    assert "CRITICAL" not in d["subject"]
+
+
+def test_digest_orders_by_severity_then_age():
+    def n(sev, fp):
+        return SimpleNamespace(severity=sev, error_type="E", path_template="job:x",
+                               occurrence_count=1, fingerprint=fp)
+    notes = [n("low", "a"), n("high", "b"), n("medium", "c"), n("critical", "d"), n("high", "e")]
+    lines = otj._digest_lines(SimpleNamespace(error_count=5), notes)
+    assert [ln.split(" | ")[0] for ln in lines[1:]] == ["CRITICAL", "HIGH", "HIGH", "MEDIUM", "LOW"]
+    assert [ln.rsplit("fp ", 1)[1] for ln in lines[1:3]] == ["d", "b"]
+
+
+def test_the_digest_note_bound_keeps_the_critical_group(mem, monkeypatch):
+    monkeypatch.setattr(otj, "_MAX_DIGEST_NOTES", 2)
+    db = mem()
+    try:
+        for i, sev in enumerate(["low", "low", "medium", "critical"]):   # critical is newest
+            db.add(TriageNote(fingerprint=f"fp{i}", severity=sev, error_type="E",
+                              email_sent=False, created_at=T0 - timedelta(minutes=10 - i)))
+        db.commit()
+        assert [n.severity for n in otj._undelivered_notes(db, T0)] == ["critical", "medium"]
+    finally:
+        db.close()

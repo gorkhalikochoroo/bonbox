@@ -30,6 +30,8 @@ A failing tick alerts directly ("job_error:ops_triage") and does NOT advance
 the watermark, so the next tick re-scans (the note cooldown prevents duplicate
 notes). Never raises. Digest lines carry severity, error type, route template,
 count and fingerprint only — never messages, tracebacks, IPs or user data.
+Lines run worst severity first; a digest with a critical group says
+"[CRITICAL]" in its subject.
 """
 from __future__ import annotations
 
@@ -51,6 +53,9 @@ _MAX_DIGEST_LINES = 10
 _RETRY_WINDOW = timedelta(hours=24)
 # Bound on the notes one digest carries (run_triage writes at most 20 a tick).
 _MAX_DIGEST_NOTES = 200
+# Digest order: worst first, so neither bound above cuts a critical group.
+_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+_CRITICAL_SUBJECT_MARK = "[CRITICAL] "
 
 
 def run_ops_triage_tick() -> dict:
@@ -77,9 +82,10 @@ def run_ops_triage_tick() -> dict:
         notes = _undelivered_notes(db, upper)
         digest = None
         if notes:
+            mark = _CRITICAL_SUBJECT_MARK if any(n.severity == "critical" for n in notes) else ""
             digest = ops_alert.send_ops_alert(
                 "triage:" + ",".join(sorted({n.fingerprint for n in notes})),
-                f"{len(notes)} new error group(s) on prod",
+                f"{mark}{len(notes)} new error group(s) on prod",
                 _digest_lines(res, notes),
             )
             if digest is ops_alert.AlertOutcome.SENT:
@@ -128,18 +134,21 @@ def run_ops_triage_tick() -> dict:
 
 
 def _undelivered_notes(db, now) -> list:
-    """Notes of the last 24 h that no digest has delivered yet, oldest first.
-    Includes notes written by a manual /admin/run-triage whose own e-mail
-    did not go out."""
+    """Notes of the last 24 h that no digest has delivered yet, worst
+    severity first, then oldest first. Includes notes written by a manual
+    /admin/run-triage whose own e-mail did not go out."""
+    from sqlalchemy import case
+
     from app.models.triage_note import TriageNote
 
+    rank = case(_SEVERITY_RANK, value=TriageNote.severity, else_=len(_SEVERITY_RANK))
     return (
         db.query(TriageNote)
         .filter(
             TriageNote.email_sent.is_(False),
             TriageNote.created_at >= now - _RETRY_WINDOW,
         )
-        .order_by(TriageNote.created_at.asc(), TriageNote.fingerprint.asc())
+        .order_by(rank, TriageNote.created_at.asc(), TriageNote.fingerprint.asc())
         .limit(_MAX_DIGEST_NOTES)
         .all()
     )
@@ -184,6 +193,8 @@ def _route_template(path: str | None) -> str:
 
 
 def _digest_lines(res, notes) -> list[str]:
+    """Worst severity first (stable, so oldest first within one), then cut."""
+    notes = sorted(notes, key=lambda n: _SEVERITY_RANK.get(n.severity, len(_SEVERITY_RANK)))
     lines = [f"error rows in window: {res.error_count}"]
     for n in notes[:_MAX_DIGEST_LINES]:
         sev = (n.severity or "low").upper()
