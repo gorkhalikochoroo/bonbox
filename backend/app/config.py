@@ -376,6 +376,15 @@ class Settings(BaseSettings):
     # foresight verdict is part of the core honest value, available to all.
     FORESIGHT_ENABLED: bool = True
 
+    # ── Abuse caps (R-sec) ─────────────────────────────────────────────
+    # Client address for rate limits (app/utils/client_ip.py). True: a
+    # request without a valid CF-Connecting-IP / True-Client-IP (set by the
+    # Cloudflare edge in front of api.bonbox.dk) shares ONE "no-edge" bucket,
+    # and a client-sent X-Forwarded-For is never trusted as the address.
+    # False is the kill switch: back to the old behaviour (leftmost XFF via
+    # uvicorn), a Render env change and a restart, no deploy.
+    CLIENT_IP_FAIL_CLOSED: bool = True
+
 
 settings = Settings()
 

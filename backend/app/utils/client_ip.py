@@ -1,43 +1,122 @@
-"""Trusted client-IP derivation for rate-limiting + audit forensics.
+"""The client's address: a rate-limit key, and an address for audit rows.
 
-WHY THIS EXISTS
----------------
-The API runs behind Cloudflare (verified: responses carry `cf-ray`), and
-uvicorn is launched with ``--proxy-headers --forwarded-allow-ips='*'``. With
-``trusted_hosts='*'`` uvicorn's ProxyHeadersMiddleware trusts the *leftmost*
-``X-Forwarded-For`` hop — which is the value the ORIGINAL CLIENT put there.
-So ``request.client.host`` (what slowapi's ``get_remote_address`` returns) is
-fully attacker-controlled: a caller can send ``X-Forwarded-For: <anything>``
-and rotate it every request to defeat every per-IP rate limit (login
-brute-force throttle, OCR/AI cost caps, the admin IP-ban) and to poison every
-audit/SecurityEvent IP field.
+WHERE THE ADDRESS COMES FROM
+----------------------------
+api.bonbox.dk is a CNAME to bonbox-api.onrender.com. Every public request
+passes Render's Cloudflare edge, which sets ``CF-Connecting-IP`` (and on some
+plans ``True-Client-IP``) to the address it saw and replaces any value the
+client sent. BonBox does not own that Cloudflare: it cannot add headers or
+rules there, but it can rely on those two.
 
-THE FIX
--------
-Cloudflare sets ``CF-Connecting-IP`` to the true client IP and OVERWRITES any
-client-supplied value, so a client cannot forge it past the Cloudflare edge.
-Prefer it. Fall back to ``get_remote_address`` for local/dev (no Cloudflare)
-and any non-proxied path.
+uvicorn runs with ``--proxy-headers --forwarded-allow-ips='*'`` (still needed
+for X-Forwarded-Proto). With ``'*'`` it copies the LEFTMOST
+``X-Forwarded-For`` value into ``request.client`` — the value the client
+itself wrote. Before R-sec that was the fallback whenever CF-Connecting-IP
+was absent, so a caller could rotate X-Forwarded-For per request.
 
-RESIDUAL HARDENING (ops, not code): the Render origin should only accept
-traffic from Cloudflare (Authenticated Origin Pulls / IP allowlist) so an
-attacker can't bypass Cloudflare and hit the origin directly with a forged
-``CF-Connecting-IP``. Until then, the per-account login lockout
-(``login_guard``) is the spoof-proof backstop.
+WHAT THIS MODULE DOES
+---------------------
+* ``valid_ip`` accepts only a single, well-formed address (max 45 chars, no
+  IPv6 zone id; an IPv4-mapped IPv6 becomes the IPv4).
+* ``edge_ip`` reads CF-Connecting-IP, then True-Client-IP. Never
+  X-Forwarded-For.
+* ``client_ip`` is the rate-limit KEY used by every Limiter, the coarse
+  ceiling, the admin scan-blocker and the waitlist: the edge address (IPv6
+  keyed on its /64, which one subscriber usually holds whole), or ONE shared
+  ``"no-edge"`` bucket when the edge header is missing. It is not an address:
+  do not store it as one.
+* ``request_ip`` is the AUDIT address: ``request.client.host`` validated, or
+  None. ``EdgeClientIPMiddleware`` (outermost user middleware) has already set
+  ``request.client`` from the edge header, or cleared it when only a
+  client-written X-Forwarded-For was there.
+* ``CLIENT_IP_FAIL_CLOSED=false`` in Render restores the old behaviour for
+  requests without the edge header (kill switch, restart only).
+
+RESIDUAL: a service in the same Render private network could reach the port
+directly and send its own CF-Connecting-IP. BonBox runs no such service.
 """
+from __future__ import annotations
+
+import ipaddress
+
 from slowapi.util import get_remote_address
+
+from app.config import settings
+
+NO_EDGE = "no-edge"
+
+# Render's health probe and the keep-alive pinger reach the origin without the
+# edge header; they are not counted as "no-edge" traffic.
+HEALTH_PATHS = frozenset(
+    {"/", "/api/health", "/api/health/ready", "/api/health/db", "/api/keepalive"}
+)
+
+_MAX_IP_LEN = 45  # longest textual IPv6 (IPv4-mapped form); the column width
+
+
+def valid_ip(raw) -> str | None:
+    """One well-formed IP address in canonical form, or None."""
+    if raw is None:
+        return None
+    if isinstance(raw, (bytes, bytearray)):
+        raw = bytes(raw).decode("latin-1")
+    s = str(raw).strip()
+    if not s or len(s) > _MAX_IP_LEN:
+        return None
+    try:
+        ip = ipaddress.ip_address(s)
+    except ValueError:
+        return None
+    if ip.version == 6:
+        if ip.scope_id is not None:
+            return None
+        if ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
+    return str(ip)
+
+
+def edge_ip(headers) -> str | None:
+    """The address the edge vouches for: CF-Connecting-IP, then
+    True-Client-IP. Never X-Forwarded-For (the client writes that)."""
+    if headers is None:
+        return None
+    try:
+        return valid_ip(headers.get("cf-connecting-ip")) or valid_ip(headers.get("true-client-ip"))
+    except Exception:  # noqa: BLE001 — a key function must never raise
+        return None
+
+
+def rate_key(ip: str) -> str:
+    """IPv4 unchanged; IPv6 keyed on its /64 (at most 24 characters)."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if addr.version == 4:
+        return ip
+    return str(ipaddress.ip_network(f"{addr}/64", strict=False))
 
 
 def client_ip(request) -> str:
-    """Best-trusted client IP for rate-limit keys and audit rows.
-
-    Prefers the Cloudflare-set ``CF-Connecting-IP`` (unforgeable past the CF
-    edge); falls back to the connection/XFF address for non-proxied requests.
-    """
+    """Rate-limit key: the edge address (IPv6 → /64), else one shared
+    ``"no-edge"`` bucket. With CLIENT_IP_FAIL_CLOSED off, the legacy
+    ``get_remote_address`` instead."""
     try:
-        cf = request.headers.get("cf-connecting-ip")
-    except Exception:
-        cf = None
-    if cf:
-        return cf.strip()
+        headers = request.headers
+    except Exception:  # noqa: BLE001
+        headers = None
+    ip = edge_ip(headers)
+    if ip:
+        return rate_key(ip)
+    if settings.CLIENT_IP_FAIL_CLOSED:
+        return NO_EDGE
     return get_remote_address(request)
+
+
+def request_ip(request) -> str | None:
+    """Audit address: ``request.client.host`` if it is a valid IP, else None."""
+    try:
+        client = request.client if request is not None else None
+        return valid_ip(client.host) if client else None
+    except Exception:  # noqa: BLE001
+        return None
