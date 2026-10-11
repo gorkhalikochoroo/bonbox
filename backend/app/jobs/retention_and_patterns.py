@@ -210,6 +210,15 @@ def daily_maintenance() -> dict:
     except Exception as e:  # noqa: BLE001
         summary["signup_ref_retention_error"] = str(e)
 
+    # R-h privacy purges (Venteliste guests, WhatsApp messages, expired
+    # sign-in links, anonymous paid-plan waitlist). Each flag defaults OFF:
+    # then this only counts what is due and logs the counts.
+    try:
+        from app.jobs.privacy_purges import run_privacy_purges
+        summary["privacy_purges"] = run_privacy_purges()
+    except Exception as e:  # noqa: BLE001
+        summary["privacy_purges_error"] = type(e).__name__
+
     # Accounting retention sweep — Bogføringsloven §12 (5y min) +
     # Skatteforvaltningsloven §31 (10y max) compliance. Soft-archive
     # only; permanent deletes only for orphan drafts + ancient audit

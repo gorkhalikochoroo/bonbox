@@ -316,6 +316,21 @@ class Settings(BaseSettings):
     # endpoint is configured + DNS for `in.bonbox.dk` MX → Postmark is
     # live. Same sandbox-honesty pattern as MobilePay / Aiia.
     INBOX_ENABLED: bool = False
+
+    # ── R-h privacy purges — every irreversible step ships OFF ─────────
+    # OFF = the nightly job only counts what is due (dry run) and writes
+    # nothing. GET /api/admin/privacy-purges shows the counts; Manoj turns a
+    # flag on separately after reading them.
+    # R-h LEG-05. OFF = nightly dry-run count only. Manoj turns it on after
+    # GET /api/admin/privacy-purges shows the count.
+    PRIVACY_PURGE_WAITLIST_ENABLED: bool = False
+    # R-h LEG-18: whatsapp_messages > 90 d, magic-link tokens 30 d past
+    # expiry, anonymous paid-plan waitlist e-mails > 12 months. Same
+    # OFF = dry-run shape.
+    PRIVACY_PURGE_ORPHANS_ENABLED: bool = False
+    # R-h LEG-06 one-off. Turn on only after /privacy says the change log had this
+    # one edit (R-j text).
+    AUDIT_EMAIL_CLEANUP_ENABLED: bool = False
     # Postmark Basic-Auth secret. Configured on the Inbound Stream
     # under "Webhook URL" as `https://USER:PASS@api.bonbox.dk/api/inbox/
     # postmark-webhook`. Constant-time compared in the router so an
