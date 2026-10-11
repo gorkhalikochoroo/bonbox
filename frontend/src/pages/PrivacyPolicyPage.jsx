@@ -153,13 +153,14 @@ function PrivacyEn() {
             <li>For the BonBox AI Copilot: that you asked a question — not the question itself</li>
             <li>Token usage of AI Copilot conversations (metadata only — used for cost monitoring, not content)</li>
           </ul>
+          <p className="mt-1" data-testid="privacy-analytics-consent">The events your browser sends (pages you visit and actions you take) are recorded only after you turn on Analytics in the cookie banner.</p>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
             <strong>You can pause analytics at any time</strong> in <Link to="/profile" className="text-blue-600 dark:text-blue-400 hover:underline">Profile → Privacy & Data</Link>. When paused, no new events are recorded for your account, except the record of each AI chat turn, Smart Sale Entry and upgrade checkout that BonBox needs to enforce your plan's limits.
           </p>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             <strong>Retention:</strong> Product analytics events are automatically deleted after 180 days. Aggregated counts may be retained longer in anonymised form for product improvement.
           </p>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400"><strong>Legal basis:</strong> Legitimate interest (GDPR Article 6(1)(f)) — improving BonBox and detecting business anomalies for your benefit.</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400" data-testid="privacy-analytics-basis"><strong>Legal basis:</strong> For the events your browser sends: consent (GDPR Article 6(1)(a)), which you give by turning on Analytics in the cookie banner and can withdraw at any time under &ldquo;Cookie settings&rdquo;. For the records our server writes itself (AI token usage, the business-type guess during setup, and the record of each AI chat turn, Smart Sale Entry and upgrade checkout described above): legitimate interest (GDPR Article 6(1)(f)) — improving BonBox and detecting business anomalies for your benefit.</p>
 
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Derived insights (AI patterns)</h3>
           <p>BonBox computes pattern-recognition insights about your business from your data. Examples:</p>
@@ -428,13 +429,14 @@ function PrivacyDa() {
             <li>For BonBox AI Copilot: at du har stillet et spørgsmål — ikke selve spørgsmålet</li>
             <li>Tokenforbrug i samtaler med AI Copilot (kun metadata — bruges til at overvåge omkostninger, ikke indhold)</li>
           </ul>
+          <p className="mt-1" data-testid="privacy-analytics-consent">De hændelser, din browser sender (hvilke sider du besøger, og hvilke handlinger du foretager), registreres først, når du har slået Analyse til i cookiebanneret.</p>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
             <strong>Du kan til enhver tid sætte analysen på pause</strong> under <Link to="/profile" className="text-blue-600 dark:text-blue-400 hover:underline">Profil → Privatliv & data</Link>. Mens den er sat på pause, registreres der ingen nye hændelser for din konto, bortset fra registreringen af hver AI-chatbesked, hver Smart salgsindtastning og hver påbegyndt betaling for en opgradering, som BonBox skal bruge for at håndhæve grænserne i din plan.
           </p>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             <strong>Opbevaring:</strong> Hændelser til produktanalyse slettes automatisk efter 180 dage. Samlede optællinger kan opbevares længere i anonymiseret form med henblik på at forbedre produktet.
           </p>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400"><strong>Retsgrundlag:</strong> Legitim interesse (databeskyttelsesforordningens artikel 6, stk. 1, litra f) — at forbedre BonBox og opdage uregelmæssigheder i din virksomhed til din fordel.</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400" data-testid="privacy-analytics-basis"><strong>Retsgrundlag:</strong> For de hændelser, din browser sender: samtykke (databeskyttelsesforordningens artikel 6, stk. 1, litra a), som du giver ved at slå Analyse til i cookiebanneret, og som du til enhver tid kan trække tilbage under &bdquo;Cookieindstillinger&ldquo;. For det, vores server selv registrerer (tokenforbrug i AI, gættet på virksomhedstype under opsætningen og registreringen af hver AI-chatbesked, hver Smart salgsindtastning og hver påbegyndt betaling for en opgradering, som nævnt ovenfor): legitim interesse (databeskyttelsesforordningens artikel 6, stk. 1, litra f) — at forbedre BonBox og opdage uregelmæssigheder i din virksomhed til din fordel.</p>
 
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Afledte indsigter (AI-mønstre)</h3>
           <p>BonBox beregner indsigter om din virksomhed ud fra dine data ved hjælp af mønstergenkendelse. Eksempler:</p>
