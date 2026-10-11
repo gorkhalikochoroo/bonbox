@@ -18,10 +18,13 @@
 //          status "ok" (a FIRST scan) gets the success card, chime and
 //          haptic; "already" gets its own amber warning (different sound,
 //          warning haptic) so a reused/shared ticket can't pass as new.
-//          Exception: when THIS device let the ticket in a moment ago (its
-//          own "ok" < 2 min old, or a POST whose answer was lost < 60 s
-//          ago), "already" is the same guest re-presenting — a neutral
-//          "Allerede tjekket ind her" card, no tone, no alarm.
+//          Exception, and only with the server's stamp as proof: when THIS
+//          device let the ticket in a moment ago — the "already" repeats the
+//          exact stamp of its own "ok" (< 30 s old), or the stamp falls in
+//          the time a POST whose answer was lost was in flight — it is the
+//          same guest re-presenting: a neutral "Tjekket ind her kl. {time}"
+//          card, no tone, no alarm. Another door, or this door earlier, is
+//          always the amber alarm.
 //   L10  — Honest copy: "Allerede scannet kl. {time}" / "Refunderet" /
 //          "Billetten er ikke bekræftet" (the 409 is booking_not_confirmed,
 //          never "already scanned").
@@ -65,18 +68,28 @@ import SectionBanner from "../components/ui/SectionBanner";
 import MoneyField from "../components/ui/MoneyField";
 
 // ── Constants ────────────────────────────────────────────────────────
-// Scan debounce — SLIDING. Every repeat read of the same QR pushes the
-// window out again, so a guest holding the phone up for 20 s is posted once;
-// the QR has to be out of view for this long before it is submitted again.
+// Scan debounce — SLIDING and PER QR. Every repeat read of a QR pushes its
+// own window out again, so a guest holding the phone up for 20 s is posted
+// once, and two tickets alternating in frame are each posted once; a QR has
+// to be out of view for this long before it is submitted again.
 const SCAN_DEBOUNCE_MS = 3000;
-// This device's own recent check-ins (ticket id → time of its "ok"). An
-// "already" for one of these is the same guest showing the ticket again,
-// not a reused ticket, so it gets the neutral card instead of the alarm.
-const OWN_CHECKIN_WINDOW_MS = 2 * 60 * 1000;
-// A scan POST that died with no response may still have landed. If the
-// next answer for that ticket within this window is "already", it was
-// most likely ours.
+// This device's own recent check-ins. An "already" whose stamp IS the one
+// this device's own "ok" got, within this window, is the same guest showing
+// the ticket again — the neutral card. Anything else (another door, or this
+// door longer ago: a pass-back) stays the amber alarm. Kept short on purpose:
+// a re-present happens in seconds, a passed-back ticket takes longer.
+const OWN_CHECKIN_WINDOW_MS = 30 * 1000;
+// A scan POST that died with no response may still have landed. The marker
+// lives this long, and the next "already" only counts as ours if its stamp
+// falls inside the time that POST was in flight (± SERVER_CLOCK_SLACK_MS).
 const LOST_RESPONSE_WINDOW_MS = 60 * 1000;
+// How far a server stamp may sit outside this device's own timeline and
+// still be matched to it: phone-vs-server clock skew plus server latency.
+// Phones keep network time, so this is seconds in practice. Deliberately
+// tight — every millisecond of slack is time in which ANOTHER door's scan
+// would be mistaken for ours, and that mistake hides a reused ticket. A
+// phone with a badly wrong clock just gets the amber card (fails safe).
+const SERVER_CLOCK_SLACK_MS = 10 * 1000;
 // Last-N visible scan history — keeps the flash log readable at the door.
 const MAX_HISTORY = 5;
 // Camera scan frame interval — using rAF gives us ~60 FPS which is more
@@ -152,15 +165,15 @@ function decodeQrPayload(qrText) {
   }
 }
 
-// Small time-boxed memory: key → timestamp. Expired keys are pruned on
+// Small time-boxed memory: key → { at, ... }. Expired entries are pruned on
 // every write so a long door shift can't grow it without bound.
-function rememberAt(map, key, at, windowMs) {
-  for (const [k, v] of map) if (at - v >= windowMs) map.delete(k);
-  map.set(key, at);
+function rememberAt(map, key, entry, windowMs) {
+  for (const [k, v] of map) if (entry.at - v.at >= windowMs) map.delete(k);
+  map.set(key, entry);
 }
-function seenWithin(map, key, now, windowMs) {
-  const at = map.get(key);
-  return at != null && now - at < windowMs;
+function recentEntry(map, key, now, windowMs) {
+  const e = map.get(key);
+  return e != null && now - e.at < windowMs ? e : null;
 }
 
 // Server timestamps (e.g. a ticket's scanned_at) are NAIVE UTC: the backend
@@ -177,6 +190,12 @@ function parseServerUtc(value) {
   if (/T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s)) s += "Z";
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+// A server stamp as epoch ms, or null when it is missing / unreadable (a
+// stamp we can't read is never matched to this device — fail closed).
+function stampMs(value) {
+  const d = parseServerUtc(value);
+  return d ? d.getTime() : null;
 }
 
 // Format a timestamp into HH:mm (device-local) for the
@@ -349,7 +368,10 @@ function ScanFlashCard({ entry }) {
           aria-hidden="true"
         />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+          {/* Two lines, not one: at 375 px a one-line title cut its own
+              instruction off ("Ingen forbindelse — scan billette…",
+              "Siden er udløbet — genindlæs si…"). */}
+          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 line-clamp-2 break-words">
             {entry.title}
           </p>
           {entry.subtitle && (
@@ -586,12 +608,18 @@ export default function DoorScanPage() {
   const streamRef = useRef(null);
   const rafRef = useRef(null);
   const frameCountRef = useRef(0);
-  // Debounce: { text, until, slide } — repeated reads of the same QR are
-  // ignored and (while slide) push `until` out; see SCAN_DEBOUNCE_MS.
-  const lastScanRef = useRef({ text: null, until: 0, slide: true });
-  // ticket id → when THIS device got "ok" for it (OWN_CHECKIN_WINDOW_MS).
+  // Debounce: QR text → { until, slide }. Repeated reads of a QR are ignored
+  // and (while slide) push its `until` out; see SCAN_DEBOUNCE_MS.
+  const recentReadsRef = useRef(new Map());
+  // Ticket ids with a scan POST still waiting for its answer. A second read
+  // of the same ticket is dropped until that answer is in.
+  const inFlightRef = useRef(new Set());
+  // ticket id → { at, stamp }: when THIS device got "ok" for it, and the
+  // server's scanned_at in that "ok" (ms, or null if it carried none).
   const ownCheckinsRef = useRef(new Map());
-  // ticket id → when a scan POST for it got no response (LOST_RESPONSE_WINDOW_MS).
+  // ticket id → { at, spans: [{ sentAt, failAt }] }: scan POSTs for it that
+  // got no response, and when each was in flight (at = last failAt;
+  // LOST_RESPONSE_WINDOW_MS).
   const lostScansRef = useRef(new Map());
   const audioRef = useRef(null);
 
@@ -720,11 +748,16 @@ export default function DoorScanPage() {
       haptic.warning();
     };
     // Already checked in BY THIS DEVICE → neutral card, no tone, a light
-    // tap. The host let this guest in a moment ago; nothing to check.
-    const flagCheckedInHere = (data) => {
+    // tap. The host let this guest in a moment ago; nothing to check. The
+    // title carries the check-in time so the host can see it is the one
+    // they just did.
+    const flagCheckedInHere = (scannedAt, data) => {
+      const when = formatTimeShort(scannedAt);
       pushHistory({
         kind: "info",
-        title: t("scanCheckedInHere", "Allerede tjekket ind her"),
+        title: when
+          ? t("scanCheckedInHereAt", "Tjekket ind her kl. {time}", { time: when })
+          : t("scanCheckedInHere", "Allerede tjekket ind her"),
         subtitle: whoLine(data) || t("scanCheckedInHereBody", "Du behøver ikke scanne igen"),
         at: new Date().toISOString(),
       });
@@ -732,25 +765,47 @@ export default function DoorScanPage() {
     };
     // The server answered for this ticket: that consumes any "no response"
     // marker a previous POST for it left behind.
-    const takeLostAt = () => {
-      const at = lostScansRef.current.get(tid);
+    const takeLost = () => {
+      const lost = lostScansRef.current.get(tid);
       lostScansRef.current.delete(tid);
-      return at;
+      return lost;
     };
+    // Is this "already" the guest THIS device just let in, showing the
+    // ticket again? Only with proof from the server's own stamp: it must be
+    // the stamp this device's "ok" got (to the second), or — for a POST
+    // whose answer was lost — a stamp from the time that POST was in flight.
+    // Everything else is someone else's check-in (another door, or this door
+    // earlier) and gets the amber alarm. A missing stamp is never ours.
+    const isOwnCheckin = (stamp, own) => {
+      if (stamp == null || !own) return false;
+      if (own.stamp != null) return Math.floor(stamp / 1000) === Math.floor(own.stamp / 1000);
+      // The "ok" carried no stamp: match it against when that "ok" arrived.
+      return Math.abs(stamp - own.at) <= SERVER_CLOCK_SLACK_MS;
+    };
+    const isLostScanOurs = (stamp, lost, now) =>
+      stamp != null &&
+      lost != null &&
+      now - lost.at < LOST_RESPONSE_WINDOW_MS &&
+      lost.spans.some(
+        ({ sentAt: from, failAt: to }) =>
+          stamp >= from - SERVER_CLOCK_SLACK_MS && stamp <= to + SERVER_CLOCK_SLACK_MS,
+      );
     // "already" is only an alarm when someone ELSE let this ticket in.
-    const onAlready = (scannedAt, data, lostAt) => {
+    const onAlready = (scannedAt, data, lost) => {
       const now = Date.now();
-      if (seenWithin(ownCheckinsRef.current, tid, now, OWN_CHECKIN_WINDOW_MS)) {
-        flagCheckedInHere(data);
+      const stamp = stampMs(scannedAt);
+      const own = recentEntry(ownCheckinsRef.current, tid, now, OWN_CHECKIN_WINDOW_MS);
+      if (isOwnCheckin(stamp, own)) {
+        flagCheckedInHere(scannedAt, data);
         return;
       }
-      if (lostAt != null && now - lostAt < LOST_RESPONSE_WINDOW_MS) {
-        // Our earlier POST most likely landed and only its answer was lost,
-        // so that check-in was ours: remember it, and count the guest (the
-        // lost "ok" never reached the counter).
-        rememberAt(ownCheckinsRef.current, tid, lostAt, OWN_CHECKIN_WINDOW_MS);
+      if (isLostScanOurs(stamp, lost, now)) {
+        // Our earlier POST landed and only its answer was lost, so that
+        // check-in was ours: remember it (with the server's stamp), and
+        // count the guest (the lost "ok" never reached the counter).
+        rememberAt(ownCheckinsRef.current, tid, { at: now, stamp }, OWN_CHECKIN_WINDOW_MS);
         setStats((s) => ({ ...s, scanned: (s.scanned || 0) + 1 }));
-        flagCheckedInHere(data);
+        flagCheckedInHere(scannedAt, data);
         return;
       }
       flagAlreadyScanned(scannedAt, data);
@@ -760,15 +815,28 @@ export default function DoorScanPage() {
       if (audioRef.current) audioRef.current.failure();
       haptic.error();
     };
+    // The error card asks for another try. If the guest keeps holding the
+    // QR up, let that retry fire once the debounce window runs out instead
+    // of waiting for the QR to leave the frame (the sliding window would
+    // otherwise hold it for as long as it stays in view).
+    const allowRetryWhileHeld = () => {
+      const read = recentReadsRef.current.get(qrText);
+      if (read) read.slide = false;
+    };
 
+    // One POST per ticket at a time: while this ticket's answer is pending,
+    // another read of it (the QR left the frame and came back) sends nothing.
+    if (inFlightRef.current.has(tid)) return;
+    inFlightRef.current.add(tid);
+    const sentAt = Date.now();
     try {
       const res = await api.post(`/tickets/${tid}/scan`, { qr: qrText });
       const data = res?.data || {};
-      const lostAt = takeLostAt();
+      const lost = takeLost();
       // The endpoint is idempotent: a re-scan is a 200 too, with
       // status "already". Only "ok" — a first scan — is a welcome.
       if (data.status === "already") {
-        onAlready(data.scanned_at, data, lostAt);
+        onAlready(data.scanned_at, data, lost);
         return;
       }
       if (data.status !== "ok") {
@@ -785,7 +853,14 @@ export default function DoorScanPage() {
           .filter(Boolean).join(" · ") || t("scanAccepted", "Billet bekræftet"),
         at: new Date().toISOString(),
       });
-      rememberAt(ownCheckinsRef.current, tid, Date.now(), OWN_CHECKIN_WINDOW_MS);
+      // Remember the stamp this "ok" carries: a later "already" is only this
+      // device's own check-in if it repeats exactly this stamp.
+      rememberAt(
+        ownCheckinsRef.current,
+        tid,
+        { at: Date.now(), stamp: stampMs(data.scanned_at) },
+        OWN_CHECKIN_WINDOW_MS,
+      );
       setStats((s) => ({ ...s, scanned: (s.scanned || 0) + 1 }));
       if (audioRef.current) audioRef.current.success();
       haptic.success();
@@ -794,19 +869,27 @@ export default function DoorScanPage() {
       const body = err?.response?.data;
       const rawDetail = body?.detail;
       const detail = rawDetail || body?.message;
-      const lostAt = err?.response ? takeLostAt() : undefined;
+      const lost = err?.response ? takeLost() : undefined;
       let title;
       let subtitle = null;
       if (!err?.response && (err?.isAxiosError || err?.request)) {
         // No HTTP answer at all (offline, timeout, DNS). We can't know if the
         // scan landed, so say what to do — not what happened — and remember
-        // the ticket: an "already" for it next means this POST got through.
+        // when this POST was in flight: an "already" stamped inside that span
+        // means it got through; one stamped outside it is someone else's.
         title = t("scanNetworkError", "Ingen forbindelse — scan billetten igen");
-        rememberAt(lostScansRef.current, tid, Date.now(), LOST_RESPONSE_WINDOW_MS);
-        // The card says "scan again": if the QR is still held up, let the
-        // retry fire once the window runs out instead of waiting for it to
-        // leave the frame (the sliding debounce would otherwise hold it).
-        if (lastScanRef.current.text === qrText) lastScanRef.current.slide = false;
+        // Two lost POSTs in a row keep BOTH in-flight spans (either may be the
+        // one that landed) — never the gap between them, when another door
+        // could have scanned it.
+        const failAt = Date.now();
+        const prev = recentEntry(lostScansRef.current, tid, failAt, LOST_RESPONSE_WINDOW_MS);
+        rememberAt(
+          lostScansRef.current,
+          tid,
+          { at: failAt, spans: [...(prev?.spans || []), { sentAt, failAt }] },
+          LOST_RESPONSE_WINDOW_MS,
+        );
+        allowRetryWhileHeld();
       } else if (status === 409 && rawDetail?.error === "booking_not_confirmed") {
         // The 409 this endpoint sends is an unconfirmed BOOKING (pending /
         // cancelled / expired), not a repeat scan.
@@ -816,7 +899,7 @@ export default function DoorScanPage() {
           : null;
       } else if (status === 409 && (body?.scanned_at || rawDetail?.scanned_at)) {
         // Tolerated shape: a 409 that does carry a prior stamp IS a re-scan.
-        onAlready(body?.scanned_at || rawDetail?.scanned_at, rawDetail || body, lostAt);
+        onAlready(body?.scanned_at || rawDetail?.scanned_at, rawDetail || body, lost);
         return;
       } else if (status === 410) {
         title = t("scanRefunded", "Billet ugyldig — refunderet");
@@ -825,16 +908,29 @@ export default function DoorScanPage() {
       } else if (status === 403) {
         // Not "wrong event": this endpoint answers another tenant's ticket
         // with 404 and the wrong-event check happens on the device before
-        // any POST. A 403 comes from the session (a login without scan
-        // rights), so say that.
-        title = t("scanNoAccess", "Du har ikke adgang til at scanne billetter");
+        // any POST. A 403 comes from the session. Only the write guard's
+        // code "read_only" (an accountant / team-member login: main.py
+        // accountant_write_guard) means "this login can't scan". Every other
+        // 403 here — the CSRF check's "Session expired", the origin guard —
+        // is fixed by reloading, so say that instead of blaming the login.
+        title = rawDetail?.code === "read_only"
+          ? t("scanNoAccess", "Ingen adgang til scanning")
+          : t("scanSessionExpired", "Siden er udløbet — genindlæs siden");
       } else if (typeof detail === "string" && detail.trim()) {
         title = detail;
       } else {
         title = t("scanGenericError", "Scan mislykkedes — prøv igen");
         subtitle = status ? `HTTP ${status}` : null;
       }
+      // 429 / 5xx (a 503 has already been retried by api.js) are passing
+      // trouble, and the card asks for another try — same as a network
+      // error, the held QR retries by itself. A 4xx is the server's final
+      // answer for this ticket: re-posting it while held would only repeat
+      // the error tone every 3 s.
+      if (status === 429 || status >= 500) allowRetryWhileHeld();
       flagError(title, subtitle);
+    } finally {
+      inFlightRef.current.delete(tid);
     }
   }, [pushHistory, t]);
 
@@ -882,14 +978,18 @@ export default function DoorScanPage() {
       if (gkOpenRef.current) return;
 
       const now = Date.now();
-      const last = lastScanRef.current;
-      if (last.text === code.data && now < last.until) {
-        // Same QR still in view: drop it, and slide the window so it only
+      const reads = recentReadsRef.current;
+      const seen = reads.get(code.data);
+      if (seen && now < seen.until) {
+        // This QR is still in view: drop it, and slide its window so it only
         // reopens once the QR has been out of view for SCAN_DEBOUNCE_MS.
-        if (last.slide) last.until = now + SCAN_DEBOUNCE_MS;
+        if (seen.slide) seen.until = now + SCAN_DEBOUNCE_MS;
         return;
       }
-      lastScanRef.current = { text: code.data, until: now + SCAN_DEBOUNCE_MS, slide: true };
+      // Per-QR, so two tickets alternating in frame don't keep evicting each
+      // other. Expired entries go now; the map holds only what's in view.
+      for (const [text, r] of reads) if (now >= r.until) reads.delete(text);
+      reads.set(code.data, { until: now + SCAN_DEBOUNCE_MS, slide: true });
 
       // Gavekort mode: only gavekort QRs are valid here. Reject anything else
       // (e.g. an event ticket) instead of falling through to the ticket path —
@@ -988,7 +1088,7 @@ export default function DoorScanPage() {
     }
     setScanning(false);
     unlockPortrait();
-    lastScanRef.current = { text: null, until: 0, slide: true };
+    recentReadsRef.current.clear();
     frameCountRef.current = 0;
   }, []);
 
