@@ -159,7 +159,11 @@ def test_daily_cap_holds_and_resets_next_utc_day(mem, spy, prod, monkeypatch):
     assert send_ops_alert("cap:c", "c", ["3"]) is AlertOutcome.CAPPED
     assert len(spy.sent) == 4                                  # 2 messages × 2 recipients
     assert "alerts today 2/2" in spy.sent[-1]["html"]
-    assert "daily cap reached: further alerts held until 00:00 UTC" in spy.sent[-1]["html"]
+    # The footer promises only what happens: alerts resume at 00:00 UTC, and the
+    # triage digest re-offers undelivered groups for 24 h (it no longer claims
+    # alerts are "held", which nothing did).
+    assert "daily cap reached: no more alerts until 00:00 UTC" in spy.sent[-1]["html"]
+    assert "retried for 24 h" in spy.sent[-1]["html"]
     assert "daily cap reached" not in spy.sent[0]["html"]
     assert _row(mem, ops_alert.alert_service("cap:c")).fail_streak == 1   # counted as held
 
@@ -188,7 +192,8 @@ def test_cap_config_is_clamped(prod, monkeypatch):
 def test_real_producer_without_resend_key_is_failed_not_sent(mem, prod, monkeypatch):
     """Real email_service.send_email (no stub) with no Resend key → False for
     every recipient → FAILED. No cooldown is set (the next tick retries) and
-    the reserved cap slot stays consumed."""
+    the reserved cap slot stays consumed. Push is the backup channel: tried
+    once for the failure streak, not on every retry."""
     monkeypatch.setattr(email_service.resend, "api_key", None)
     pushed = []
     monkeypatch.setattr(fmj, "_push_operators", lambda *a: pushed.append(a))
@@ -196,10 +201,11 @@ def test_real_producer_without_resend_key_is_failed_not_sent(mem, prod, monkeypa
     row = _row(mem, ops_alert.alert_service("real:1"))
     assert row.last_alert_at is None
     assert _row(mem, "alert:day").fail_streak == 1
-    assert pushed == []
+    assert len(pushed) == 1
     # Not COOLDOWN: the next call tries again (bounded by the daily cap).
     assert send_ops_alert("real:1", "real", ["kind: test"]) is AlertOutcome.FAILED
     assert _row(mem, "alert:day").fail_streak == 2
+    assert len(pushed) == 1                                    # no second push
 
 
 # 6 ─────────────────────────────────────────────────────────────────────
@@ -267,3 +273,83 @@ def test_admin_test_endpoint_in_production_sends_once_then_cools_down(mem, spy, 
     assert admin_router.ops_alert_test(admin=me) == {"outcome": "cooldown"}
     assert len(spy.sent) == 2                                  # one message, two recipients
     assert me.id not in spy.sent[0]["html"]                    # the UUID is stripped
+
+
+# Push outside the lock; push as the backup channel (fix round) ─────────────
+def test_push_runs_after_the_lock_is_released(mem, prod, monkeypatch):
+    seen = []
+    monkeypatch.setattr(email_service, "send_email", lambda to, s, h, **kw: True)
+    monkeypatch.setattr(fmj, "_push_operators",
+                        lambda db, title, body: seen.append(ops_alert._LOCK.locked()))
+    assert send_ops_alert("lock:1", "x", ["y"]) is AlertOutcome.SENT
+    assert seen == [False]
+
+
+def test_a_hanging_push_does_not_block_other_alerts(mem, prod, monkeypatch):
+    import threading
+
+    monkeypatch.setattr(email_service, "send_email", lambda to, s, h, **kw: True)
+    entered, release = threading.Event(), threading.Event()
+
+    def _hang(db, title, body):
+        if "first" in title:
+            entered.set()
+            release.wait(10)
+
+    monkeypatch.setattr(fmj, "_push_operators", _hang)
+    out = {}
+    t = threading.Thread(target=lambda: out.setdefault("a", send_ops_alert("hang:a", "first", ["1"])))
+    t.start()
+    try:
+        assert entered.wait(5), "the first push never started"
+        done = threading.Event()
+        t2 = threading.Thread(target=lambda: (out.setdefault("b", send_ops_alert("hang:b", "second", ["2"])),
+                                              done.set()))
+        t2.start()
+        assert done.wait(5), "a second alert waited on the first alert's push"
+        assert out["b"] is AlertOutcome.SENT
+    finally:
+        release.set()
+        t.join(10)
+    assert out["a"] is AlertOutcome.SENT
+
+
+def test_failed_email_pushes_once_per_failure_streak(mem, prod, monkeypatch):
+    """E-mail down: push is the backup channel, once per key until an e-mail
+    gets through again (no push every tick)."""
+    mail_ok = {"v": False}
+    monkeypatch.setattr(email_service, "send_email", lambda to, s, h, **kw: mail_ok["v"])
+    pushed = []
+    monkeypatch.setattr(fmj, "_push_operators", lambda db, title, body: pushed.append(title))
+    assert send_ops_alert("streak:1", "streak", ["kind: test"]) is AlertOutcome.FAILED
+    assert send_ops_alert("streak:1", "streak", ["kind: test"]) is AlertOutcome.FAILED
+    assert len(pushed) == 1
+    assert _row(mem, ops_alert.alert_service("streak:1")).last_alert_at is None   # no cooldown
+
+    mail_ok["v"] = True
+    assert send_ops_alert("streak:1", "streak", ["kind: test"]) is AlertOutcome.SENT
+    assert len(pushed) == 2
+    # After the cooldown, a new mail outage pushes once again.
+    db = mem()
+    try:
+        r = db.query(MonitorState).filter(
+            MonitorState.service == ops_alert.alert_service("streak:1")).first()
+        r.last_alert_at = r.last_alert_at - timedelta(minutes=361)
+        db.commit()
+    finally:
+        db.close()
+    mail_ok["v"] = False
+    assert send_ops_alert("streak:1", "streak", ["kind: test"]) is AlertOutcome.FAILED
+    assert send_ops_alert("streak:1", "streak", ["kind: test"]) is AlertOutcome.FAILED
+    assert len(pushed) == 3
+
+
+def test_a_raising_push_never_changes_the_outcome(mem, prod, monkeypatch):
+    monkeypatch.setattr(email_service, "send_email", lambda to, s, h, **kw: True)
+
+    def _boom(db, title, body):
+        raise RuntimeError("push down")
+
+    monkeypatch.setattr(fmj, "_push_operators", _boom)
+    assert send_ops_alert("pushboom:1", "x", ["y"]) is AlertOutcome.SENT
+    assert _row(mem, ops_alert.alert_service("pushboom:1")).last_alert_at is not None

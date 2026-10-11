@@ -30,7 +30,16 @@ This sender owns every anti-spam rule, so no caller can bypass them:
 
 Outcomes are three-way-plus (AlertOutcome), never a bool: "couldn't send" must
 not read as "nothing to send". FAILED keeps the cap slot consumed but sets no
-cooldown, so the next tick retries; the daily cap bounds those retries.
+cooldown, so the next call with the same key retries; the daily cap bounds
+those retries. (The triage digest re-offers undelivered groups itself, see
+jobs/ops_triage_job.py.)
+
+Push is the second channel. It goes out after a SENT e-mail, and — as the
+backup when every e-mail failed — once per key per failure streak (row state
+EMAIL_FAILED), so a mail outage never turns into a push every tick. Push runs
+AFTER the state is committed and the process lock is released, in its own
+session: a push endpoint that never answers can hold only its own caller,
+never every other alert (push_sender also passes a timeout to webpush).
 
 Existing monitors (frontend_monitor_job, public_surface_monitor_job) keep
 their own once-per-incident alerts and do not count towards this cap.
@@ -66,6 +75,9 @@ _LOCK = threading.Lock()
 _WARNED: set[str] = set()
 
 _DAY_SERVICE = "alert:day"
+# Row state while every e-mail for this key has failed and the backup push
+# for this streak has been tried. A SENT e-mail sets "ALERT".
+_EMAIL_FAILED = "EMAIL_FAILED"
 _SUBJECT_PREFIX = "[BonBox ops] "
 _FACT_MAX = 160
 
@@ -194,7 +206,10 @@ def _footer(suppressed: int, used: int, cap: int) -> list[str]:
         f"alerts today {used}/{cap}",
     ]
     if used >= cap:
-        out.append("daily cap reached: further alerts held until 00:00 UTC, see /admin")
+        out.append(
+            "daily cap reached: no more alerts until 00:00 UTC; error groups not yet "
+            "sent are retried for 24 h after they first appear, see /admin"
+        )
     out += [
         f"{(settings.FRONTEND_URL or '').rstrip('/')}/admin",
         "Ops alerts never contain customer data; details in /admin (super-admin)",
@@ -226,21 +241,43 @@ def send_ops_alert(
             _warn_once("no_recipient", "ops alert not sent: set ADMIN_EMAIL or SUPER_ADMIN_EMAILS")
             return AlertOutcome.NO_RECIPIENT
 
-        with _LOCK:
-            import app.database as _database
+        import app.database as _database
 
+        with _LOCK:
             db = _database.SessionLocal()
             try:
-                return _send_locked(db, dedupe_key, subject, list(lines or []),
-                                    recipients, _cooldown(cooldown_minutes))
+                outcome, push = _send_locked(db, dedupe_key, subject, list(lines or []),
+                                             recipients, _cooldown(cooldown_minutes))
             finally:
                 db.close()
+        # The outcome is committed and the lock released: a push that hangs
+        # can no longer stop every other alert.
+        if push is not None:
+            _push_best_effort(_database, *push)
+        return outcome
     except Exception as e:  # noqa: BLE001 — an alert must never break its caller
         log.warning("ops alert failed internally: %s", type(e).__name__)
         return AlertOutcome.FAILED
 
 
-def _send_locked(db, dedupe_key, subject, lines, recipients, cooldown) -> AlertOutcome:
+def _push_best_effort(database_module, title: str, body: str) -> None:
+    db = None
+    try:
+        db = database_module.SessionLocal()
+        _push(db, title, body)
+    except Exception:  # noqa: BLE001 — push is best effort; e-mail is the channel
+        pass
+    finally:
+        if db is not None:
+            try:
+                db.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def _send_locked(db, dedupe_key, subject, lines, recipients, cooldown):
+    """Returns (outcome, push) where push is (title, body) to send after the
+    lock is released, or None."""
     now = utc_now()
     row = _load_or_create(db, alert_service(dedupe_key))
 
@@ -248,7 +285,7 @@ def _send_locked(db, dedupe_key, subject, lines, recipients, cooldown) -> AlertO
         row.fail_streak = (row.fail_streak or 0) + 1
         row.last_check_at = now
         db.commit()
-        return AlertOutcome.COOLDOWN
+        return AlertOutcome.COOLDOWN, None
 
     day = _load_or_create(db, _DAY_SERVICE)
     today = now.strftime("%Y-%m-%d")
@@ -260,8 +297,8 @@ def _send_locked(db, dedupe_key, subject, lines, recipients, cooldown) -> AlertO
         row.fail_streak = (row.fail_streak or 0) + 1
         row.last_check_at = now
         db.commit()
-        _warn_once(f"capped:{today}", f"ops alert daily cap ({cap}) reached for {today}; alerts held")
-        return AlertOutcome.CAPPED
+        _warn_once(f"capped:{today}", f"ops alert daily cap ({cap}) reached for {today}; no more alerts until 00:00 UTC")
+        return AlertOutcome.CAPPED, None
 
     # Reserve the slot BEFORE sending: a crash mid-send cannot exceed the cap.
     day.fail_streak = (day.fail_streak or 0) + 1
@@ -285,19 +322,21 @@ def _send_locked(db, dedupe_key, subject, lines, recipients, cooldown) -> AlertO
         except Exception:  # noqa: BLE001 — one bad address never blocks the rest
             pass
 
+    push = (subj[:60], (safe_fact(lines[0]) if lines else "")[:120])
     if ok:
         row.last_alert_at = now
         row.fail_streak = 0
         row.state = "ALERT"
         row.last_summary = safe_fact(subject)[:200]
+        row.last_check_at = now
+        # Recorded first, so a push hiccup can never undo the cooldown.
+        db.commit()
+        return AlertOutcome.SENT, push
+
+    # Every e-mail failed: push is the backup channel, once per failure streak.
+    first_failure = row.state != _EMAIL_FAILED
+    row.state = _EMAIL_FAILED
     row.last_check_at = now
     db.commit()
-    if ok:
-        # Recorded first, so a push hiccup can never undo the cooldown.
-        try:
-            _push(db, subj[:60], (safe_fact(lines[0]) if lines else "")[:120])
-        except Exception:  # noqa: BLE001 — push is best effort; e-mail is the channel
-            pass
-        return AlertOutcome.SENT
     _warn_once("send_false", "ops alert: send_email returned False — check RESEND_API_KEY")
-    return AlertOutcome.FAILED
+    return AlertOutcome.FAILED, (push if first_failure else None)

@@ -384,6 +384,32 @@ def test_successful_send_resets_fail_count(db, monkeypatch):
     assert sub.last_used_at is not None
 
 
+def test_webpush_is_called_with_a_timeout(db, monkeypatch):
+    """pywebpush defaults to no timeout; a push service that never answers
+    would hold the caller (and, before the fix round, the ops alert lock)."""
+    user = _make_user(db)
+    sub = _make_sub(db, user)
+    seen: dict = {}
+    monkeypatch.setattr("pywebpush.webpush", lambda *a, **kw: seen.update(kw))
+    assert ps.send_to_subscription(sub, {"title": "x", "body": "y"})["ok"] is True
+    assert seen["timeout"] == ps.PUSH_TIMEOUT_SECONDS == 10
+
+
+def test_webpush_timeout_counts_as_a_failure(db, monkeypatch):
+    import requests
+
+    user = _make_user(db)
+    sub = _make_sub(db, user)
+
+    def _slow(*a, **kw):
+        raise requests.exceptions.ReadTimeout("push service did not answer")
+
+    monkeypatch.setattr("pywebpush.webpush", _slow)
+    out = ps.send_to_subscription(sub, {"title": "x", "body": "y"})
+    assert out["ok"] is False and out["removed"] is False
+    assert sub.fail_count == 1
+
+
 # ─── 5. send_brief_push — fan-out + privacy posture ───────────────────
 
 

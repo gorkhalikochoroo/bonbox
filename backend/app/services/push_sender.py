@@ -139,6 +139,9 @@ def _redact_endpoint(endpoint: str) -> str:
 
 # ─── Core send path ───────────────────────────────────────────────────
 
+# Seconds pywebpush waits for a push service (passed through to requests).
+PUSH_TIMEOUT_SECONDS = 10
+
 
 def send_to_subscription(
     sub: PushSubscription,
@@ -200,6 +203,10 @@ def send_to_subscription(
             vapid_private_key=settings.VAPID_PRIVATE_KEY,
             vapid_claims=_vapid_claims(),
             ttl=ttl,
+            # pywebpush's default is no timeout: an endpoint that accepts the
+            # connection and never answers would hold the caller forever
+            # (APNs already uses 10 s). A timeout lands in the catch-all below.
+            timeout=PUSH_TIMEOUT_SECONDS,
         )
         # Success — reset the fail counter, stamp last_used_at.
         sub.fail_count = 0
