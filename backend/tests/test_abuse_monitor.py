@@ -261,3 +261,94 @@ def test_service_names_fit_the_column():
     assert all(len(s) <= 50 for s in amj.SERVICES)
     assert len(set(amj.SERVICES)) == 6
     assert "frontend_prod" not in amj.SERVICES
+
+
+# ─── Persist before notifying (R-sec fix round) ───────────────────────────
+#
+# The alert went out inside the loop, before db.commit(). When the commit
+# failed (Supabase read-only after disk-full, or a transaction left aborted),
+# the rollback lost state=BROKEN and last_alert_at, the drained counts were
+# put back, and the next tick alerted again: one e-mail + push every 2
+# minutes, without end. Now the state is committed first and only then are
+# the operators told.
+
+class _CommitSwitch:
+    on = False
+
+
+@pytest.fixture
+def failing_commit(h, monkeypatch):
+    from sqlalchemy.orm import Session as _Session
+
+    class _S(_Session):
+        def commit(self):
+            if _CommitSwitch.on:
+                raise RuntimeError("read-only transaction")
+            return super().commit()
+
+    engine = h.Session.kw["bind"]
+    Session = sessionmaker(bind=engine, class_=_S)
+    monkeypatch.setattr(amj, "SessionLocal", Session)
+    _CommitSwitch.on = False
+    yield _CommitSwitch
+    _CommitSwitch.on = False
+
+
+def test_a_failing_commit_sends_nothing_and_never_repeats(h, failing_commit):
+    h.tick()                                                  # rows exist, all healthy
+    failing_commit.on = True
+    out = h.tick(magic_link_fleet=1)                          # ONE held-back request
+    assert out == {"error": "RuntimeError"}
+    for _ in range(3):
+        assert h.tick() == {"error": "RuntimeError"}         # no new signals
+    assert h.mails == [] and h.pushes == []                   # nothing told before it is saved
+
+    failing_commit.on = False
+    h.tick()                                                  # the kept counts trip it once
+    assert h.row("abuse_magic_link").state == "BROKEN"
+    assert len(h.mails) == len(OPS) and len(h.pushes) == 1
+    h.quiet(3)
+    assert len(h.mails) == len(OPS) and len(h.pushes) == 1   # once per incident
+
+
+def test_a_signup_burst_with_a_failing_commit_mails_nobody(h, failing_commit):
+    h.tick()
+    _add_users(h.Session, 20)
+    failing_commit.on = True
+    for _ in range(4):
+        h.tick()
+    assert h.mails == [] and h.pushes == []
+    failing_commit.on = False
+    h.tick()
+    h.tick()
+    assert [s for _, s, _ in h.mails] == ["BonBox: unusual number of new accounts"] * len(OPS)
+
+
+def test_a_failing_send_after_the_commit_keeps_the_state(h, monkeypatch):
+    def _boom(to, subject, html, **k):
+        raise RuntimeError("resend down")
+
+    monkeypatch.setattr(amj, "send_email", _boom)
+    out = h.tick(magic_link_fleet=1)
+    assert out["abuse_magic_link"] == "BROKEN"                # the tick still reports
+    r = h.row("abuse_magic_link")
+    assert r.state == "BROKEN" and r.last_alert_at is not None
+    assert abuse_signals.drain() == {}                        # nothing put back to resend
+    assert h.pushes == [("BonBox: sign-in links held back",
+                         "Sign-in mail ceiling reached. Existing owners still get links. Details by e-mail.")]
+
+
+def test_recovery_mail_is_sent_after_the_commit(h, failing_commit):
+    h.tick(magic_link_fleet=1)
+    h.mails.clear(), h.pushes.clear()
+    h.quiet(14)
+    failing_commit.on = True
+    for _ in range(3):
+        h.tick()                                              # would recover, but cannot save
+    assert h.mails == []
+    failing_commit.on = False
+    h.tick()
+    assert h.row("abuse_magic_link").state == "HEALTHY"
+    assert [s for _, s, _ in h.mails] == ["BonBox: sign-in link ceiling back to normal"] * len(OPS)
+    h.quiet(3)
+    assert len(h.mails) == len(OPS)

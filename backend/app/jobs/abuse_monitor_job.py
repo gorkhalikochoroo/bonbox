@@ -26,6 +26,12 @@ into a summary, log row, e-mail or push.
 
 Reuses the frontend monitor's operator e-mail list and push fan-out, as the
 public-surface monitor does. Fail-soft: never raises, one commit per tick.
+
+Persist, then notify: the state changes (BROKEN, last_alert_at, HEALTHY) are
+committed first, and only then do the alert and "back to normal" mails and
+pushes go out. If the commit fails nothing is sent and the drained counts
+are put back, so the next tick tries again with the same facts. A failure
+while sending, after the commit, never re-sends: the incident is saved.
 """
 from __future__ import annotations
 
@@ -71,47 +77,72 @@ def run_abuse_monitor_tick() -> dict:
     sig = abuse_signals.drain()
     db = SessionLocal()
     try:
-        now = utc_now()
-        checks = _evaluate(db, sig, now)
-        out = {}
-        for service in SERVICES:
-            tripped, summary, ctx = checks[service]
-            st = _load_or_create(db, service)
-            st.last_check_at = now
-            st.last_summary = summary[:2000]
-            if tripped:
-                st.consecutive_ok = 0
-                st.fail_streak = (st.fail_streak or 0) + 1
-                if st.state != "BROKEN":
-                    st.state = "BROKEN"
-                    st.broken_since = now
-                    _write_incident(db, service, summary)
-                    if st.last_alert_at is None or now - st.last_alert_at >= ALERT_GAP:
-                        _send_alert(db, service, ctx, now)
-                        st.last_alert_at = now
-            else:
-                st.fail_streak = 0
-                st.consecutive_ok = (st.consecutive_ok or 0) + 1
-                if st.state == "BROKEN" and st.consecutive_ok >= N_OK_TO_RECOVER:
-                    if _incident_alerted(st):
-                        _send_recovered(service, st, now)
-                    st.state = "HEALTHY"
-                    st.broken_since = None
-            out[service] = st.state
-        db.commit()
-        return out
-    except Exception as e:  # noqa: BLE001 — a monitor never takes the app down
         try:
-            db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
-        # Put the drained counts back so the next tick still sees them.
-        for kind, n in sig.items():
-            abuse_signals.bump(kind, n)
-        print(f"abuse_monitor warning: {type(e).__name__}")
-        return {"error": type(e).__name__}
+            now = utc_now()
+            checks = _evaluate(db, sig, now)
+            out = {}
+            alerts: list[tuple[str, dict]] = []          # sent after the commit
+            recovered: list[tuple[str, object, int]] = []
+            for service in SERVICES:
+                tripped, summary, ctx = checks[service]
+                st = _load_or_create(db, service)
+                st.last_check_at = now
+                st.last_summary = summary[:2000]
+                if tripped:
+                    st.consecutive_ok = 0
+                    st.fail_streak = (st.fail_streak or 0) + 1
+                    if st.state != "BROKEN":
+                        st.state = "BROKEN"
+                        st.broken_since = now
+                        _write_incident(db, service, summary)
+                        if st.last_alert_at is None or now - st.last_alert_at >= ALERT_GAP:
+                            st.last_alert_at = now
+                            alerts.append((service, ctx))
+                else:
+                    st.fail_streak = 0
+                    st.consecutive_ok = (st.consecutive_ok or 0) + 1
+                    if st.state == "BROKEN" and st.consecutive_ok >= N_OK_TO_RECOVER:
+                        if _incident_alerted(st):
+                            recovered.append((service, st.broken_since, st.consecutive_ok))
+                        st.state = "HEALTHY"
+                        st.broken_since = None
+                out[service] = st.state
+            db.commit()
+        except Exception as e:  # noqa: BLE001 — a monitor never takes the app down
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            # Nothing was sent (that happens only after a commit), so put the
+            # drained counts back for the next tick to see.
+            for kind, n in sig.items():
+                abuse_signals.bump(kind, n)
+            print(f"abuse_monitor warning: {type(e).__name__}")
+            return {"error": type(e).__name__}
+
+        # Saved: now tell the operators. Each send is fail-soft and never
+        # undoes the saved state, so an incident is told at most once.
+        for service, ctx in alerts:
+            _notify(db, _send_alert, db, service, ctx, now)
+        for service, broken_since, consecutive_ok in recovered:
+            _notify(db, _send_recovered, service, broken_since, consecutive_ok, now)
+        return out
     finally:
         db.close()
+
+
+def _notify(db, fn, *args) -> None:
+    """Run one alert send after the commit. Never raises; resets the session
+    afterwards (the push fan-out reads operators and devices, and a failed
+    read must not leave an aborted transaction for the next send)."""
+    try:
+        fn(*args)
+    except Exception as e:  # noqa: BLE001
+        print(f"abuse_monitor alert failed: {type(e).__name__}")
+    try:
+        db.rollback()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ── checks ───────────────────────────────────────────────────────────
@@ -327,8 +358,10 @@ def _send_alert(db, service: str, ctx: dict, now) -> None:
     _push_operators(db, push_title, push_body[:180])
 
 
-def _send_recovered(service: str, st: MonitorState, now) -> None:
-    since = now - timedelta(minutes=TICK_MINUTES * (st.consecutive_ok or 0))
-    start = st.broken_since.strftime("%Y-%m-%d %H:%M") if st.broken_since else "?"
+def _send_recovered(service: str, broken_since, consecutive_ok: int, now) -> None:
+    """broken_since and consecutive_ok are the incident's values, taken
+    before the row was marked HEALTHY and saved."""
+    since = now - timedelta(minutes=TICK_MINUTES * (consecutive_ok or 0))
+    start = broken_since.strftime("%Y-%m-%d %H:%M") if broken_since else "?"
     subject, lines = recovered_copy(service, since.strftime("%Y-%m-%d %H:%M"), start)
     _mail(subject, lines)
