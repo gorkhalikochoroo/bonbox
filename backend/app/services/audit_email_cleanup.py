@@ -57,9 +57,17 @@ OWNER_EMAIL_KEYS = {
     "auth.oauth_signin": ("email",),
     "auth.oauth_link_refused": ("email",),
     "auth.magic_link.verified": ("email", "ip"),  # the ip_address column is untouched
-    "daily_close.unlock": ("unlocked_by_email",),
+    "daily_close.unlock": ("unlocked_by_email",),  # + "unlocked_by" when it is an address
     "daily_close.send_to_accountant": ("cc_to",),
 }
+
+# From 10 Apr to 8 Oct 2026 (ca440183 .. 31f09bab) the unlock writer stored
+# the owner's sign-in address in "unlocked_by" itself. That key is not
+# removed — close_history reads it for the kasserapport / Excel / CSV
+# history — it is replaced by the role the fixed writer stores. An unlock is
+# owner-only, and actor_display() already prints any address as
+# "ejeren" / "the owner", so every printed history line stays the same.
+ADDRESS_TO_ROLE = {"daily_close.unlock": ("unlocked_by", "owner")}
 
 MARKER_ACTION = "audit.owner_email_removed"
 PAGE = 1000
@@ -98,6 +106,11 @@ def _clean_state(action: str, state):
         if k in out and out[k] is not None:
             del out[k]
             removed.add(k)
+    if action in ADDRESS_TO_ROLE:
+        key, role = ADDRESS_TO_ROLE[action]
+        if isinstance(out.get(key), str) and "@" in out[key]:
+            out[key] = role
+            removed.add(key)
     if action == "daily_brief.email_failed" and isinstance(out.get("msg"), str):
         red = redact_emails(out["msg"])
         if red != out["msg"]:

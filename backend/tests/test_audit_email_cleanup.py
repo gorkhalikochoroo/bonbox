@@ -256,6 +256,65 @@ def test_each_batch_is_one_update_statement_not_one_per_row(Session, monkeypatch
     assert seen == [False]  # one batch of 8 rows = one plain statement
 
 
+def test_old_unlock_rows_with_the_address_in_unlocked_by_are_cleaned_and_history_reads_the_same(Session, monkeypatch):
+    """R-h fix round: from 10 Apr to 8 Oct 2026 (ca440183 .. 31f09bab) the
+    unlock writer put the owner's sign-in address in "unlocked_by" itself, with
+    no "unlocked_by_email" key. Those rows were never due, so count_due said 0
+    while an address remained. Now the address becomes "owner" (the role the
+    fixed writer stores); the key stays, because close_history reads it, and
+    the kasserapport / Excel history line is byte-identical."""
+    from types import SimpleNamespace
+    from app.services.close_history import close_history_events, format_history
+
+    monkeypatch.setattr(settings, "AUDIT_EMAIL_CLEANUP_ENABLED", True)
+    s = Session()
+    close_id = uuid.uuid4()
+    unlock = AuditLog(user_id=A_ID, actor_id=A_ID, actor_type="user", action="daily_close.unlock",
+                      entity_type="daily_close", entity_id=close_id, ip_address="10.0.0.1",
+                      before_state=json.dumps({"status": "confirmed", "date": "2026-06-02"}),
+                      after_state=json.dumps({"status": "draft", "unlock_reason": "Forkert kortbeløb",
+                                              "unlocked_by": A_MAIL,
+                                              "unlocked_at": "2026-06-03T08:00:00"}),
+                      created_at=utc_now() - timedelta(days=100))
+    relock = AuditLog(user_id=A_ID, actor_id=A_ID, actor_type="user", action="daily_close.lock",
+                      entity_type="daily_close", entity_id=close_id, ip_address="10.0.0.1",
+                      after_state=json.dumps({"status": "confirmed", "closed_by": "owner"}),
+                      created_at=utc_now() - timedelta(days=99))
+    s.add_all([unlock, relock])
+    s.commit()
+    owner, closes = SimpleNamespace(id=A_ID), [SimpleNamespace(id=close_id)]
+
+    def _lines():
+        s.expire_all()
+        evs = close_history_events(s, owner, closes)[str(close_id)]
+        return format_history(evs, danish=True), format_history(evs, danish=False)
+
+    lines_before = _lines()
+    assert "ejeren" in lines_before[0] and "the owner" in lines_before[1]
+    assert aec.count_due(s) == 1
+
+    res = aec.run_cleanup()
+    assert res["changed"] == 1 and "error" not in res
+    assert aec.count_due(s) == 0
+    s.expire_all()
+    after = json.loads(s.get(AuditLog, unlock.id).after_state)
+    assert after == {"status": "draft", "unlock_reason": "Forkert kortbeløb",
+                     "unlocked_by": "owner", "unlocked_at": "2026-06-03T08:00:00"}
+    assert A_MAIL not in s.get(AuditLog, unlock.id).after_state
+    assert _lines() == lines_before  # the printed history does not move
+    marks = _markers(s)
+    assert len(marks) == 1
+    assert json.loads(marks[0].after_state)["fields"] == ["unlocked_by"]
+
+
+def test_a_role_or_name_in_unlocked_by_is_not_an_address(Session):
+    """Only an address is replaced: "owner", "manager" or a person's name stay."""
+    for who in ("owner", "manager", "Anna Jensen"):
+        nb, na, removed = aec.clean_row("daily_close.unlock", None,
+                                        json.dumps({"status": "draft", "unlocked_by": who}))
+        assert removed == set() and json.loads(na)["unlocked_by"] == who
+
+
 # ── The flag's precondition: every "never edited" promise names the edit ──
 # AUDIT_EMAIL_CLEANUP_ENABLED edits the change log once. Six places (three
 # per language) say BonBox never edits it. The R-j paragraph for /privacy is
