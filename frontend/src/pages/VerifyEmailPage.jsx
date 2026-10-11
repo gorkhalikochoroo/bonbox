@@ -1,15 +1,27 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { CheckCircle2 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import usePageTitle from "../hooks/usePageTitle";
 import api from "../services/api";
-import { errText } from "../utils/errText";
+import { authErrorKey } from "../utils/authErrors";
+import { emailProblem } from "../utils/signupValidation";
 import { clearVerifySkip, rememberVerifySkip } from "../utils/verifySkip";
-import BonBoxMark from "../components/BonBoxMark";
+import AuthShell, {
+  AuthAlert, AuthHeading, AuthNote, FieldError, FieldLabel, PasswordInput, PrimaryButton,
+} from "../components/auth/AuthUI";
+import { SECONDARY, inputClass, linkClass } from "../components/auth/authStyles";
 
+/**
+ * /verify-email — the 6-digit code (push 6: the light shell, the full address,
+ * "Forkert e-mail? Ret den", every error in the owner's language, and a calm
+ * success moment).
+ */
 export default function VerifyEmailPage({ sendOnArrival = false }) {
-  const { user, setEmailVerified } = useAuth();
+  const { user, setEmailVerified, refreshUser, logout } = useAuth();
   const { t } = useLanguage();
+  usePageTitle("suTitleVerify");
   const navigate = useNavigate();
   const location = useLocation();
   // Opened on purpose later (the "Bekræft din e-mail" reminder / Profile's
@@ -17,11 +29,26 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
   // resend button is ready at once instead of a 60-second wait.
   const openedLater = new URLSearchParams(location.search).get("now") === "1";
   const [code, setCode] = useState(["", "", "", "", "", ""]);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  // { key, vars, action } — a dictionary line, never the server's English.
+  const [error, setError] = useState(null);
+  // { key, vars } — "Ny kode sendt", "Ny kode sendt til …".
+  const [notice, setNotice] = useState(null);
+  const [verified, setVerified] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const inputRefs = useRef([]);
+
+  // "Forkert e-mail? Ret den" — change the address in place (PATCH
+  // /auth/profile {email, current_password}: the server marks it
+  // unconfirmed, mails a fresh 30-minute code to the NEW address, and keeps
+  // its own daily cap and the open-claim guard).
+  const [fixOpen, setFixOpen] = useState(false);
+  const [fixEmail, setFixEmail] = useState("");
+  const [fixPassword, setFixPassword] = useState("");
+  const [fixEmailErr, setFixEmailErr] = useState(null);
+  const [fixError, setFixError] = useState(null);
+  const [fixSaving, setFixSaving] = useState(false);
+  const fixEmailRef = useRef(null);
 
   // A fresh signup was mailed a code at registration: start the 60-second
   // resend cooldown. An owner who came here on purpose (created before the
@@ -42,7 +69,8 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
       .post("/auth/resend-verification")
       .then(() => setResendCooldown(60))
       .catch((err) => {
-        setError(err?.response?.status === 429 ? t("tooManyResendAttempts") : t("couldNotResendCode"));
+        const r = authErrorKey(err, "resend");
+        setError({ key: r.key, vars: r.vars });
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -67,7 +95,7 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
     const newCode = [...code];
     newCode[index] = digit;
     setCode(newCode);
-    setError("");
+    setError(null);
 
     // Auto-focus next input
     if (digit && index < 5) {
@@ -100,7 +128,7 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
       newCode[i] = pasted[i] || "";
     }
     setCode(newCode);
-    setError("");
+    setError(null);
     // Focus last filled input
     const lastIndex = Math.min(pasted.length - 1, 5);
     inputRefs.current[lastIndex]?.focus();
@@ -113,31 +141,25 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
   const handleVerify = async (codeStr) => {
     const fullCode = codeStr || code.join("");
     if (fullCode.length !== 6) {
-      setError(t("enter6Digits"));
+      setError({ key: "enter6Digits" });
       return;
     }
-    setError("");
+    setError(null);
     setLoading(true);
     try {
       await api.post("/auth/verify-email", { code: fullCode });
-      setSuccess(t("emailVerifiedOk"));
+      // The success moment: the panel gives way to a calm confirmation,
+      // then the existing 1.2 s hand-over to the app.
+      setVerified(true);
       clearVerifySkip(user?.id);
       setEmailVerified();
       setTimeout(() => navigate("/dashboard"), 1200);
     } catch (err) {
-      const detail = errText(err, t("verificationFailed"));
-      // Per-account limits on wrong codes (backend verify_email): said in
-      // the owner's language, with what to do next.
-      const errCode = err.response?.data?.detail?.code;
-      if (errCode === "verification_paused") {
-        setError(t("verifyEmailPaused"));
-      } else if (errCode === "verification_code_burned") {
-        setError(t("verifyCodeBurned"));
-      } else if (err.response?.status === 429) {
-        setError(t("tooManyAttempts"));
-      } else {
-        setError(detail);
-      }
+      // Per-account limits on wrong codes (backend verify_email) and the
+      // three plain answers (wrong / expired / no code) — said in the
+      // owner's language, with what to do next (utils/authErrors).
+      const r = authErrorKey(err, "verify");
+      setError({ key: r.key, vars: r.vars, action: r.action });
       // Clear code on failure
       setCode(["", "", "", "", "", ""]);
       inputRefs.current[0]?.focus();
@@ -148,213 +170,259 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
 
   const handleResend = async () => {
     if (resendCooldown > 0) return;
-    setError("");
+    setError(null);
     try {
       await api.post("/auth/resend-verification");
       setResendCooldown(60);
-      setSuccess(t("newCodeSent"));
-      setTimeout(() => setSuccess(""), 3000);
+      setNotice({ key: "newCodeSent" });
+      setTimeout(() => setNotice(null), 3000);
     } catch (err) {
-      if (err.response?.data?.detail?.code === "verification_paused") {
-        setError(t("verifyEmailPaused"));
-      } else if (err.response?.status === 429) {
-        setError(t("tooManyResendAttempts"));
-      } else {
-        setError(t("couldNotResendCode"));
-      }
+      const r = authErrorKey(err, "resend");
+      setError({ key: r.key, vars: r.vars });
     }
   };
 
-  const maskedEmail = user?.email
-    ? (() => {
-        const [local, domain] = user.email.split("@");
-        if (local.length <= 2) return user.email;
-        return `${local[0]}${"*".repeat(Math.min(local.length - 2, 6))}${local[local.length - 1]}@${domain}`;
-      })()
-    : "";
+  const openFix = () => {
+    setFixOpen(true);
+    setFixEmail("");
+    setFixPassword("");
+    setFixEmailErr(null);
+    setFixError(null);
+    setTimeout(() => fixEmailRef.current?.focus(), 0);
+  };
+
+  const submitFix = async (e) => {
+    e.preventDefault();
+    setFixError(null);
+    const problem = emailProblem(fixEmail);
+    if (problem) {
+      setFixEmailErr(problem);
+      fixEmailRef.current?.focus();
+      return;
+    }
+    setFixEmailErr(null);
+    const newEmail = fixEmail.trim();
+    setFixSaving(true);
+    try {
+      await api.patch("/auth/profile", { email: newEmail, current_password: fixPassword });
+      await refreshUser?.();
+      // The new code went to the new address just now.
+      setResendCooldown(60);
+      setCode(["", "", "", "", "", ""]);
+      setError(null);
+      setNotice({ key: "suChangeEmailDone", vars: { email: newEmail } });
+      setFixOpen(false);
+      inputRefs.current[0]?.focus();
+    } catch (err) {
+      const r = authErrorKey(err, "changeEmail");
+      if (r.field === "email") {
+        setFixEmailErr(r.key);
+        fixEmailRef.current?.focus();
+      } else {
+        setFixError({ key: r.key, vars: r.vars, action: r.action, email: newEmail });
+      }
+    } finally {
+      setFixSaving(false);
+    }
+  };
+
+  // "Log ud, og log ind med den i stedet" — the address already has an account.
+  const signOutTo = async (address) => {
+    try { await logout?.(); } catch { /* signed out locally either way */ }
+    navigate("/login", { state: { email: address } });
+  };
+
+  const email = user?.email || "";
+  // "Vi har sendt en kode med 6 cifre til {email}." — the full address, in
+  // bold, so a typo is visible (B2); the mask hid exactly that.
+  const [sentPre, sentPost = ""] = String(t("suVerifySentTo")).split("{email}");
 
   return (
-    <>
-      <style>{`
-        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-      `}</style>
-
-      <div className="min-h-screen flex bg-slate-950">
-        {/* Left panel — branding */}
-        <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-12 relative overflow-hidden">
-          <div className="absolute top-20 left-1/4 w-80 h-80 bg-gray-900/10 rounded-full blur-[100px]" />
-          <div className="absolute bottom-20 right-1/4 w-60 h-60 bg-gray-900/8 rounded-full blur-[100px]" />
-
-          <div className="relative z-10 text-center max-w-md" style={{ animation: "fadeIn 0.8s ease-out" }}>
-            <div className="flex items-center justify-center gap-4 mb-10">
-              <div className="w-14 h-14 bg-bb-forest text-bb-paper rounded-xl flex items-center justify-center border border-white/10">
-                <BonBoxMark size={44} />
-              </div>
-              <span className="text-3xl font-bold text-white tracking-tight">
-                Bon<span className="text-gray-300">Box</span>
-              </span>
-            </div>
-
-            {/* Email verification illustration */}
-            <svg viewBox="0 0 300 260" fill="none" className="w-64 mx-auto mb-8" style={{ filter: "drop-shadow(0 8px 24px rgba(0,0,0,0.3))" }}>
-              <ellipse cx="150" cy="140" rx="130" ry="110" fill="rgba(34,197,94,0.06)" />
-              {/* Envelope body */}
-              <g style={{ animation: "pulse 3s ease-in-out infinite" }}>
-                <rect x="60" y="90" width="180" height="120" rx="12" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.15)" strokeWidth="2" />
-                {/* Envelope flap */}
-                <path d="M60 102 L150 160 L240 102" stroke="#22c55e" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                {/* Checkmark in circle */}
-                <circle cx="150" cy="145" r="28" fill="rgba(34,197,94,0.15)" stroke="#22c55e" strokeWidth="2" />
-                <path d="M138 145 L146 153 L163 136" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-              </g>
-              {/* Sparkles */}
-              <circle cx="80" cy="70" r="4" fill="#22c55e" opacity="0.6" />
-              <circle cx="220" cy="75" r="3" fill="#22c55e" opacity="0.4" />
-              <circle cx="240" cy="200" r="3.5" fill="#22c55e" opacity="0.5" />
-            </svg>
-
-            <h2 className="text-2xl font-bold text-white mb-3">
-              {t("verifyAlmostThere", "Almost there!")}
-            </h2>
-            <p className="text-gray-400 leading-relaxed">
-              {t("verifyHeroSubtitle", "We just need to verify your email address to keep your account secure.")}
-            </p>
-          </div>
+    <AuthShell logoLink={false}>
+      {verified ? (
+        // The success moment: one emerald tick, two calm lines, then the app.
+        <div className="text-center motion-safe:animate-[bbFade_180ms_ease-out]" role="status" aria-live="polite">
+          <CheckCircle2 aria-hidden="true" className="w-10 h-10 mx-auto text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
+          <h1 className="mt-4 text-[28px] leading-[1.15] font-semibold tracking-tight text-gray-900 dark:text-white">
+            {t("suVerifiedTitle")}
+          </h1>
+          <p className="mt-1.5 text-[15px] leading-relaxed text-gray-600 dark:text-gray-400">{t("suVerifiedBody")}</p>
         </div>
-
-        {/* Right panel — verification form */}
-        <div className="flex-1 flex items-center justify-center px-6 py-10">
-          <div className="w-full max-w-md" style={{ animation: "slideUp 0.5s ease-out" }}>
-            {/* Logo (mobile) */}
-            <div className="mb-8">
-              <div className="flex items-center gap-3 mb-6 lg:hidden">
-                <div className="w-11 h-11 bg-bb-forest text-bb-paper rounded-xl flex items-center justify-center border border-white/10">
-                  <BonBoxMark size={36} />
-                </div>
-                <span className="text-xl font-bold text-white">Bon<span className="text-gray-300">Box</span></span>
-              </div>
-
-              <h1 className="text-3xl font-bold text-white">{t("verifyEmailHeading", "Verify your email")}</h1>
-              <p className="text-gray-400 mt-2">
-                {t("verifyCodeSentTo", "We sent a 6-digit code to")}{" "}
-                <span className="text-white font-medium">{maskedEmail}</span>
+      ) : (
+        <>
+          <AuthHeading title={t("verifyEmailHeading", "Verify your email")}>
+            <p className="mt-1.5 text-[15px] leading-relaxed text-gray-600 dark:text-gray-400">
+              {sentPre}
+              <strong className="font-semibold text-gray-900 dark:text-white break-all">{email}</strong>
+              {sentPost}
+            </p>
+            {!fixOpen && (
+              <p className="mt-2 text-[14px]">
+                <button type="button" onClick={openFix} className={`${linkClass} font-medium`}>
+                  {t("suWrongEmail")}
+                </button>
               </p>
-            </div>
-
-            {/* Success message */}
-            {success && (
-              <div className="flex items-center gap-2 bg-emerald-500/15 border border-gray-300/20 text-gray-300 p-3.5 rounded-xl mb-5 text-sm" style={{ animation: "slideUp 0.3s ease-out" }}>
-                <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span>{success}</span>
-              </div>
             )}
+          </AuthHeading>
 
-            {/* Error message */}
-            {error && (
-              <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 text-red-400 p-3.5 rounded-xl mb-5 text-sm" style={{ animation: "slideUp 0.3s ease-out" }}>
-                <svg className="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                </svg>
-                <span>{error}</span>
+          {fixOpen && (
+            <form onSubmit={submitFix} noValidate className="mt-5 rounded-lg border border-bb-line/70 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 space-y-4">
+              <div>
+                <FieldLabel htmlFor="ve-new-email">{t("suChangeEmailLabel")}</FieldLabel>
+                <input
+                  ref={fixEmailRef}
+                  id="ve-new-email"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  required
+                  value={fixEmail}
+                  onChange={(e) => { setFixEmail(e.target.value); if (fixEmailErr) setFixEmailErr(null); }}
+                  placeholder={t("emailPlaceholder")}
+                  aria-invalid={fixEmailErr ? true : undefined}
+                  aria-describedby={fixEmailErr ? "ve-new-email-error" : undefined}
+                  className={inputClass(!!fixEmailErr)}
+                />
+                <FieldError id="ve-new-email-error">{fixEmailErr ? t(fixEmailErr) : null}</FieldError>
               </div>
-            )}
-
-            {/* OTP input boxes */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-300 mb-3">{t("verifyCodeLabel", "Verification code")}</label>
-              {/* Six boxes that share the row: 52 px each on a wide screen,
-                  narrower (gap 8 px) on a 360–390 px phone — the fixed
-                  3.25rem + gap-3 row was 372 px and cut the 6th box off
-                  (release gate, 9 Oct). */}
-              <div className="flex gap-2 sm:gap-3 justify-center w-full" onPaste={handlePaste} data-testid="verify-code-row">
-                {code.map((digit, index) => (
-                  <input
-                    key={index}
-                    ref={(el) => (inputRefs.current[index] = el)}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={digit}
-                    onChange={(e) => handleChange(index, e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(index, e)}
-                    className={`flex-1 min-w-0 max-w-[3.25rem] h-14 text-center text-2xl font-bold rounded-xl border-2 transition-all duration-200 bg-white/[0.05] text-white focus:outline-none ${
-                      digit
-                        ? "border-gray-300/50 bg-emerald-500/15"
-                        : "border-white/10 focus:border-gray-300 focus:ring-2 focus:ring-gray-400/20"
-                    }`}
-                    disabled={loading}
-                    autoComplete="one-time-code"
-                  />
-                ))}
+              <div>
+                <FieldLabel htmlFor="ve-password">{t("suChangeEmailPwLabel")}</FieldLabel>
+                <PasswordInput
+                  id="ve-password"
+                  autoComplete="current-password"
+                  required
+                  value={fixPassword}
+                  onChange={(e) => setFixPassword(e.target.value)}
+                  aria-describedby="ve-password-help"
+                />
+                <p id="ve-password-help" className="mt-1.5 text-[13px] text-gray-600 dark:text-gray-400">{t("suChangeEmailPwHelp")}</p>
               </div>
-            </div>
-
-            {/* Verify button */}
-            <button
-              onClick={() => handleVerify()}
-              disabled={loading || code.join("").length !== 6}
-              className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 active:scale-[0.98] transition-all font-semibold text-base disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
-            >
-              {loading ? (
-                <>
-                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                  </svg>
-                  {t("verifying", "Verifying...")}
-                </>
-              ) : (
-                t("verifyEmailBtn")
+              {fixError && (
+                <AuthAlert>
+                  {t(fixError.key, fixError.vars)}
+                  {fixError.action === "logout" && (
+                    <>
+                      {" "}
+                      <button type="button" onClick={() => signOutTo(fixError.email)} className={`${linkClass} font-medium text-red-800 dark:text-red-200 decoration-red-400`}>
+                        {t("logout")}
+                      </button>
+                    </>
+                  )}
+                </AuthAlert>
               )}
-            </button>
+              <div className="grid grid-cols-2 gap-3">
+                <button type="button" onClick={() => setFixOpen(false)} className={SECONDARY}>
+                  {t("cancel")}
+                </button>
+                <PrimaryButton tone="ink" loading={fixSaving} loadingLabel={t("sending")}>
+                  {t("suChangeEmailBtn")}
+                </PrimaryButton>
+              </div>
+            </form>
+          )}
 
-            {/* Resend code */}
-            <div className="mt-5 text-center">
-              <p className="text-sm text-gray-500 mb-2">{t("verifyDidntReceive", "Didn't receive the code?")}</p>
-              <button
-                onClick={handleResend}
-                disabled={resendCooldown > 0}
-                className={`text-sm font-semibold transition ${
-                  resendCooldown > 0
-                    ? "text-gray-600 cursor-not-allowed"
-                    : "text-gray-300 hover:text-gray-300 hover:underline"
-                }`}
-              >
-                {resendCooldown > 0
-                  ? `${t("resendCode")} (${resendCooldown}s)`
-                  : t("resendCode")}
-              </button>
-            </div>
+          {notice && <AuthNote className="mt-5">{t(notice.key, notice.vars)}</AuthNote>}
+          {error && (
+            <AuthAlert className="mt-5">
+              {t(error.key, error.vars)}
+            </AuthAlert>
+          )}
 
-            {/* Skip for now */}
-            <button
-              onClick={() => {
-                // Remembered for 7 days on this account, not just this
-                // session; a quiet reminder stays in the app meanwhile.
-                rememberVerifySkip(user?.id);
-                navigate("/dashboard");
-              }}
-              className="w-full mt-5 text-sm text-gray-500 hover:text-gray-300 transition py-2"
-            >
-              {t("verifySkipForNow", "Skip for now")}
-            </button>
-            <p className="-mt-1 text-center text-[11px] text-gray-500">
-              {t("verifySkipRemembered", "Skip, and for the next 7 days you'll see a small reminder instead of this page.")}
+          {/* OTP input boxes */}
+          <div className="mt-6">
+            <p id="ve-code-label" className="block text-[14px] font-medium text-gray-800 dark:text-gray-200 mb-2">
+              {t("suCodeGroupLabel")}
             </p>
-
-            {/* Help text */}
-            <div className="mt-4 p-4 bg-white/[0.03] border border-white/10 rounded-xl">
-              <p className="text-xs text-gray-500 leading-relaxed">
-                {t("verifyHelpText", "Check your inbox and spam folder. The code expires in 30 minutes. If you continue to have issues, try requesting a new code.")}
-              </p>
+            {/* Six boxes that share the row: 52 px each on a wide screen,
+                narrower (gap 8 px) on a 360–390 px phone — the fixed
+                3.25rem + gap-3 row was 372 px and cut the 6th box off
+                (release gate, 9 Oct). */}
+            <div
+              className="flex gap-2 sm:gap-3 justify-center w-full"
+              onPaste={handlePaste}
+              data-testid="verify-code-row"
+              role="group"
+              aria-labelledby="ve-code-label"
+            >
+              {code.map((digit, index) => (
+                <input
+                  key={index}
+                  ref={(el) => (inputRefs.current[index] = el)}
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={1}
+                  value={digit}
+                  onChange={(e) => handleChange(index, e.target.value)}
+                  onKeyDown={(e) => handleKeyDown(index, e)}
+                  aria-label={t("suCodeDigit", { n: index + 1 })}
+                  className={`flex-1 min-w-0 max-w-[3.25rem] h-14 text-center text-2xl font-semibold tabular-nums rounded-lg border bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors duration-150 focus:outline-none focus:border-bb-forest focus:ring-[3px] focus:ring-bb-forest/20 dark:focus:border-gray-200 dark:focus:ring-white/20 ${
+                    digit ? "border-gray-900 dark:border-gray-300" : "border-bb-line dark:border-gray-600"
+                  }`}
+                  disabled={loading}
+                  autoComplete="one-time-code"
+                />
+              ))}
             </div>
           </div>
-        </div>
-      </div>
-    </>
+
+          {/* Verify button — named like the heading ("Bekræft e-mail") */}
+          <PrimaryButton
+            type="button"
+            tone="ink"
+            onClick={() => handleVerify()}
+            disabled={code.join("").length !== 6}
+            loading={loading}
+            loadingLabel={t("verifying", "Verifying...")}
+            className="mt-6"
+          >
+            {t("suVerifyBtn")}
+          </PrimaryButton>
+
+          {/* Resend code */}
+          <div className="mt-6 text-center">
+            <p className="text-[14px] text-gray-600 dark:text-gray-400">{t("verifyDidntReceive", "Didn't receive the code?")}</p>
+            <button
+              type="button"
+              onClick={handleResend}
+              disabled={resendCooldown > 0}
+              className={`mt-1 min-h-11 px-3 text-[14px] font-medium rounded-md transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bb-forest ${
+                resendCooldown > 0
+                  ? "text-gray-600 dark:text-gray-400 cursor-not-allowed tabular-nums"
+                  : "text-gray-900 dark:text-white underline underline-offset-4 decoration-gray-400 hover:decoration-gray-900"
+              }`}
+            >
+              {resendCooldown > 0
+                ? t("suResendIn", { s: resendCooldown })
+                : t("suResend")}
+            </button>
+          </div>
+
+          {/* Skip for now */}
+          <button
+            type="button"
+            onClick={() => {
+              // Remembered for 7 days on this account, not just this
+              // session; a quiet reminder stays in the app meanwhile.
+              rememberVerifySkip(user?.id);
+              navigate("/dashboard");
+            }}
+            className="w-full mt-4 min-h-11 text-[14px] text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white underline underline-offset-4 decoration-gray-400 rounded-md transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bb-forest"
+          >
+            {t("verifySkipForNow", "Skip for now")}
+          </button>
+          <p className="mt-1 text-center text-[13px] text-gray-600 dark:text-gray-400">
+            {t("verifySkipRemembered", "Skip, and for the next 7 days you'll see a small reminder instead of this page.")}
+          </p>
+
+          {/* Help text */}
+          <p className="mt-6 pt-4 border-t border-bb-line/30 dark:border-gray-800 text-[13px] text-gray-600 dark:text-gray-400 leading-relaxed">
+            {t("verifyHelpText", "Check your inbox and spam folder. The code expires in 30 minutes. If you continue to have issues, try requesting a new code.")}
+          </p>
+        </>
+      )}
+    </AuthShell>
   );
 }
