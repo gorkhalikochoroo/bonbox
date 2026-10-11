@@ -3848,10 +3848,60 @@ async def _ai_busy_handler(request: Request, exc: AIBusyError):
 from starlette.exceptions import HTTPException as _StarletteHTTPException  # noqa: E402
 
 
+async def _persist_http_5xx(request: Request, exc: _StarletteHTTPException) -> None:
+    """Write one error_logs row for a RAISED HTTPException >= 500 (OPS-04).
+
+    The global Exception handler never sees a raised HTTPException, so these
+    5xx answers (e.g. `raise HTTPException(500, ...)` in a router) left no
+    trace and never reached the operator. Mirrors the global handler's
+    persistence block: built here (the traceback lives on this thread),
+    written in a worker thread, skipped when the DB pool has nothing to
+    give. Runs in every environment. Never raises."""
+    try:
+        from app.models.error_log import ErrorLog as _ErrorLog
+        from app.utils.log_redact import redact_path as _redact_path
+        from app.utils.off_loop import pool_exhausted as _pool_exhausted
+        from app.utils.off_loop import run_blocking as _run_blocking
+
+        if _pool_exhausted():
+            _error_logger.warning(
+                "ErrorLog row skipped for HTTPException %s on %s %s: DB pool exhausted",
+                exc.status_code, request.method, _redact_path(routed_path(request)),
+            )
+            return
+        _row = _ErrorLog(
+            method=request.method,
+            path=(_redact_path(routed_path(request)) or "")[:500] or None,
+            status_code=exc.status_code,
+            user_id=None,
+            ip_address=client_ip(request),
+            user_agent=(request.headers.get("user-agent") or "")[:500],
+            error_type=f"HTTPException{exc.status_code}",
+            message=str(exc.detail)[:1000],
+            traceback="".join(_tb.format_exception(type(exc), exc, exc.__traceback__))[:16000],
+        )
+
+        def _persist():
+            from app.database import SessionLocal as _SessionLocal
+            _db = _SessionLocal()
+            try:
+                _db.add(_row)
+                _db.commit()
+            finally:
+                _db.close()
+
+        await _run_blocking(_persist)
+    except Exception:  # noqa: BLE001 — observability MUST never raise
+        pass
+
+
 @app.exception_handler(_StarletteHTTPException)
 async def _http_exception_sanitizer(request: Request, exc: _StarletteHTTPException):
     status_code = exc.status_code
     headers = getattr(exc, "headers", None)
+    if status_code >= 500:
+        # Record it (all environments) so the ops triage can alert (OPS-04).
+        await _persist_http_5xx(request, exc)
     if status_code >= 500 and is_prod:
         _error_logger.error(
             "HTTPException %s on %s %s: %s",
@@ -6069,6 +6119,21 @@ try:
         register_backup_job(_scheduler)
     except Exception as _backup_job_err:  # noqa: BLE001
         print(f"Scheduler warning: nightly backup job not registered: {_backup_job_err}")
+    # Ops triage + operator alerts (R-i, OPS-04) — every 15 min: groups new
+    # error_logs rows (500s, raised 5xx, JOB, WEBHOOK) and sends ONE capped,
+    # deduplicated, customer-data-free digest (services/ops_alert.py).
+    # Production only; no LLM. Own try so it can never cost the other jobs.
+    try:
+        from app.jobs.ops_triage_job import run_ops_triage_tick
+        _scheduler.add_job(
+            run_ops_triage_tick,
+            trigger=IntervalTrigger(minutes=15),
+            id="ops_triage",
+            name="Ops triage + operator alerts (R-i)",
+            replace_existing=True,
+        )
+    except Exception as e:
+        print(f"Scheduler ops_triage warning: {e}")
     _scheduler.start()
     print("Schedulers started: payment auto-sync (6h), nightly maintenance (02:30), "
           "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30), "

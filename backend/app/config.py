@@ -89,6 +89,15 @@ class Settings(BaseSettings):
     APPLE_TEAM_ID: str = ""
     GOOGLE_PLACES_API_KEY: str = ""  # Google Places API (nearby competitor discovery)
     ADMIN_EMAIL: str = ""  # Get notified on new signups
+    # Operator ops alerts (R-i, services/ops_alert.py): one capped,
+    # deduplicated, customer-data-free alert path. Sent only when
+    # ENVIRONMENT == "production" and OPS_ALERTS_ENABLED. Recipients =
+    # ADMIN_EMAIL + SUPER_ADMIN_EMAILS (no address lives in code).
+    # Cooldown is per dedupe key (clamped 15–10080 min); the daily cap
+    # counts messages per UTC day (clamped 1–50).
+    OPS_ALERTS_ENABLED: bool = True
+    OPS_ALERT_DAILY_CAP: int = 10
+    OPS_ALERT_COOLDOWN_MINUTES: int = 360
     # SUPER_ADMIN_EMAILS — comma-separated allowlist of emails that may access /admin/*.
     # MUST also have users.role='super_admin' set in the database (defense in depth).
     # There is intentionally NO API path to grant this role.

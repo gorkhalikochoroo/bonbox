@@ -8,6 +8,7 @@ to power the /admin dashboard and to feed the AI pattern-recognition engine.
 Almost read-only. The only mutations exposed here:
   - /users/{id}/lock and /unlock — incident-response account control
   - /run-triage and /training/run-* — internal ML pipeline triggers
+  - /ops-alert/test — one capped, deduplicated test alert to the operator
   - /cleanup-spam — anti-spam sweep
 Role elevation must still be done in the DB directly.
 Data deletions go through the regular user-scoped endpoints.
@@ -760,6 +761,22 @@ def run_triage_endpoint(
         "new_triage_notes": [serialize_note(n) for n in result.new_notes],
         "fingerprints_skipped_cooldown": result.skipped_count,
     }
+
+
+@router.post("/ops-alert/test")
+def ops_alert_test(admin: User = Depends(require_super_admin)):
+    """Release-gate proof that an ops alert reaches a person (R-i).
+
+    Goes through the one alert path with dedupe key "test:manual" and its
+    6 h cooldown, so it sends at most one message per 6 h however often it
+    is called. Outside production it answers "disabled" and sends nothing."""
+    from app.services.ops_alert import send_ops_alert
+    out = send_ops_alert(
+        "test:manual", "Test alert (manual)",
+        ["kind: test", f"requested_by_user_id: {admin.id}"],
+        cooldown_minutes=360,
+    )
+    return {"outcome": out.value}
 
 
 @router.get("/triage-notes")
