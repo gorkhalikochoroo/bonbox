@@ -57,7 +57,11 @@ fi
 # Apple's CI environment numbers can collide with manually-uploaded
 # builds. To be safe, bump to a value that's strictly higher than the
 # last manually-uploaded build (244 as of May 2026).
-LAST_MANUAL=244
+# 300 since 11 Oct 2026: build 1049 (= 244 + CI 805, version 2.1) was the
+# last Xcode Cloud upload and owner 2.2 is archived by hand as 1050. With
+# 300 the next CI run lands at ~1106, so CI numbers stay well clear of the
+# hand-archived ones and never repeat each other.
+LAST_MANUAL=300
 NEW_BUILD=$((LAST_MANUAL + CI_BUILD_NUMBER))
 
 # Hard floor — the highest build number Apple has EVER seen for this app.
@@ -78,9 +82,9 @@ NEW_BUILD=$((LAST_MANUAL + CI_BUILD_NUMBER))
 # 2026-09-09 under 1.9.2 and rejected for the closed version train, not for
 # its build number).
 #
-# 978 (11 Oct 2026): owner app 2.2 is archived by hand as build 977, so
-# Xcode Cloud must land above it.
-MIN_BUILD=978
+# 1051 (11 Oct 2026): Apple has seen 1049 (Xcode Cloud, 2.1, failed) and
+# owner 2.2 is archived by hand as 1050, so Xcode Cloud must land above it.
+MIN_BUILD=1051
 if [ "$NEW_BUILD" -lt "$MIN_BUILD" ]; then
     echo "   (NEW_BUILD $NEW_BUILD below floor — clamping up to $MIN_BUILD)"
     NEW_BUILD=$MIN_BUILD
