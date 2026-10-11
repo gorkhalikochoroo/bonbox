@@ -544,6 +544,17 @@ describe("account deletion refused when the subscription cannot be stopped (sour
     expect(da.deleteSubscriptionStopFailed).toContain("din konto er ikke slettet");
     expect(en.deleteSubscriptionStopFailed).toContain("your account was not deleted");
   });
+
+  it("…and the refusal when Stripe can't settle the customer record (Manoj, 11 Oct)", () => {
+    const src = read("pages/ProfilePage.jsx");
+    expect(src).toContain('err?.response?.data?.detail?.code === "stripe_customer_failed"');
+    expect(src).toContain('t("deleteStripeCustomerFailed"');
+    expect(da.deleteStripeCustomerFailed).toContain("din konto er ikke slettet");
+    expect(en.deleteStripeCustomerFailed).toContain("your account was not deleted");
+    // No "nothing was changed": the subscription may already be stopped.
+    expect(da.deleteStripeCustomerFailed).not.toContain("intet er ændret");
+    expect(en.deleteStripeCustomerFailed).not.toContain("nothing was changed");
+  });
 });
 
 // ─────────────────────────── decision 3 guard ───────────────────────────
