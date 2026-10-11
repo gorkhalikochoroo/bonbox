@@ -2,6 +2,9 @@
  * The cookie banner's Analytics choice covers this log ("which features are
  * useful and where the app breaks"). An owner who declined it was still logged
  * on every page. A decline now stops it.
+ *
+ * R-h (LEG-10): and so does no answer at all — usage events leave the browser
+ * only after an explicit "yes" (or "Accept all").
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -26,6 +29,16 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("event log and the analytics choice", () => {
+  it("sends nothing before any answer", async () => {
+    // No bonbox_cookie_consent at all: the banner has not been answered.
+    const { trackEvent, analyticsAllowed } = await import("../hooks/useEventLog");
+    expect(analyticsAllowed()).toBe(false);
+    trackEvent("page_view", "dashboard");
+    trackEvent("signup_completed", "register");
+    vi.advanceTimersByTime(6000);
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it("sends nothing after the owner declined analytics", async () => {
     consent(false);
     const { trackEvent } = await import("../hooks/useEventLog");
@@ -47,6 +60,13 @@ describe("event log and the analytics choice", () => {
 // banner". The Smart-card telemetry posted straight to /event-log and ignored
 // that decline. It now uses the same check as the page-view log.
 describe("smart-card telemetry and the analytics choice", () => {
+  it("sends nothing before any answer", async () => {
+    const { useSmartTelemetry } = await import("../hooks/useSmartTelemetry");
+    useSmartTelemetry().track("smart_proposal_accepted", "smart_staffing", { confidence: "high" });
+    vi.advanceTimersByTime(6000);
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it("sends nothing after the owner declined analytics", async () => {
     consent(false);
     const { useSmartTelemetry } = await import("../hooks/useSmartTelemetry");

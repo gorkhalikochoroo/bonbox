@@ -40,11 +40,10 @@ import { GUEST_SURFACE_EVENT, isGuestSurface } from "../lib/guestSurface";
  */
 
 const STORAGE_KEY = "bonbox_cookie_consent";
-// Bump if the categories/wording change materially — but a bump makes
-// getCookieConsent() return null for everyone, and the usage log
-// (useEventLog.js) only stops on an explicit analytics:false, so earlier
-// "no" answers would be logged again until re-answered. The 8 Oct 2026 flyer
-// sentence in Marketing is handled by MARKETING_TEXT below instead.
+// Bump if the categories/wording change materially. A bump makes
+// getCookieConsent() return null for everyone, and the usage log then sends
+// nothing until each person answers again. The 8 Oct 2026 flyer sentence in
+// Marketing is handled by MARKETING_TEXT below instead.
 const VERSION = 1;
 // Which Marketing text the answer was given to, stamped on every answer this
 // banner saves (beside VERSION, so it forgets nobody's answer):

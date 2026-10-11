@@ -5,12 +5,22 @@ import { getCookieConsent } from "../components/CookieConsent";
 
 // The cookie banner's "Analytics" choice says it "helps us understand which
 // features are useful and where the app breaks" — which is exactly this log.
-// An owner who DECLINED it was still being logged on every page. A decline now
-// stops it: nothing is queued, and anything queued before the choice is
-// dropped rather than sent. (Before any choice, this first-party log — no
-// cookie, nothing stored on the device — runs as before.)
-// Exported so every client-side usage event (useSmartTelemetry too) obeys the
-// same "no".
+// R-h (LEG-10): usage events leave this browser only after an explicit "yes"
+// to Analytics in the cookie banner (or "Accept all"). No answer yet, or a
+// "no", means nothing is queued, and anything queued before the answer is
+// dropped rather than sent. The server side (Profile → pause, plan-limit
+// rows the server writes itself) is unchanged.
+// Exported so every client-side usage event (useSmartTelemetry too) obeys
+// the same rule.
+
+// Usage events leave this browser only after an explicit "yes" to Analytics
+// in the cookie banner (or "Accept all"). No answer = nothing is queued or sent.
+export function analyticsAllowed() {
+  const c = getCookieConsent();
+  return !!c && c.analytics === true;
+}
+
+// An explicit "no" to Analytics (unchanged meaning; kept for its callers).
 export function analyticsDeclined() {
   const c = getCookieConsent();
   return !!c && c.analytics === false;
@@ -22,7 +32,7 @@ let flushTimer = null;
 
 function flushEvents() {
   if (eventQueue.length === 0) return;
-  if (analyticsDeclined()) {
+  if (!analyticsAllowed()) {
     eventQueue = [];
     return;
   }
@@ -52,7 +62,7 @@ function scheduleFlush() {
 }
 
 export function trackEvent(event, page = null, detail = null) {
-  if (analyticsDeclined()) return;
+  if (!analyticsAllowed()) return;
   eventQueue.push({ event, page, detail });
   scheduleFlush();
 }
