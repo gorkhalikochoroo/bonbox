@@ -2730,6 +2730,7 @@ export const en = {
     checkoutStartFailed: "Could not start checkout. Please try again.",
     checkoutSubscriberPortalFailed: "We couldn't open your subscription at Stripe just now. You already have a subscription, so we did not start a new payment. Please try again in a few minutes, or write to contact@bonbox.dk.",
     checkoutSubscriptionCheckFailed: "We couldn't check your subscription at Stripe just now, so we did not start a payment. Please try again in a few minutes, or write to contact@bonbox.dk.",
+    checkoutRateLimited: "You've started a lot of new checkouts in a short time, so we're pausing for a moment. Please try again a little later, or write to contact@bonbox.dk.",
     alreadyOnWaitlist: "You're already on the list — we'll be in touch when payment is ready.",
     waitlistJoinedPro: "🎉 You're on the founding-member list — when payment opens, you'll lock in 249 kr/mo for as long as you stay subscribed.",
     waitlistJoinedTier: "🎉 You're on the {tier} list — we'll email you when it opens.",

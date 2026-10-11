@@ -13,8 +13,8 @@ are mocked — no live API is ever hit.
                   runs exactly once), 2nd delivery returns "duplicate".
   FIX 4        — webhook audit: a SecurityEvent row is written BEFORE the
                   plan/status mutation on the live money path.
-  FIX 5        — per-user checkout rate limit: 2nd checkout within the hour
-                  is 429.
+  FIX 5        — per-user checkout rate limit: the 6th NEW checkout within
+                  the hour is 429 (5/hour, 10/day since 11 Oct 2026).
 
 Patterns mirror tests/test_stripe_plan_routing.py (unit-style SimpleNamespace
 stubs + mocked _stripe) and tests/test_account_lockdown.py (in-memory SQLite
@@ -432,14 +432,19 @@ def test_d_noop_transition_writes_no_audit(db_session):
 
 
 # ═════════════════════════════════════════════════════════════════════
-# (f) Per-user checkout rate limit — 2nd checkout within the hour → 429
+# (f) Per-user checkout rate limit — 6th new checkout within the hour → 429
 # ═════════════════════════════════════════════════════════════════════
 
 def _auth_as(user):
     app.dependency_overrides[get_current_user] = lambda: user
 
 
-def test_f_second_checkout_within_hour_is_429(db_session, client):
+def test_f_sixth_new_checkout_within_hour_is_429(db_session, client):
+    """Manoj, 11 Oct 2026: the cap was 1 new session an hour, and an owner
+    who came back from Stripe's page and pressed Upgrade again was refused.
+    A press that gets the session already open at Stripe costs nothing now
+    (tests/test_checkout_reuse.py); here every press makes a NEW session, and
+    the 6th within the hour is refused."""
     user = _make_user(db_session, plan="free")
     _auth_as(user)
 
@@ -448,6 +453,8 @@ def test_f_second_checkout_within_hour_is_429(db_session, client):
     # checkout_ready must report the tier as purchasable, else the money-path
     # hardening (per-tier gate) returns 409 before the rate-limit path — that
     # gate is exercised in test_checkout_ready.py; here we want it to pass.
+    # No open session to hand back: every press is a new session.
+    sessions = iter(range(1, 100))
     with patch("app.services.stripe_billing.is_configured", return_value=True), \
          patch(
              "app.services.stripe_billing.checkout_ready",
@@ -455,29 +462,34 @@ def test_f_second_checkout_within_hour_is_429(db_session, client):
          ), \
          patch(
              "app.services.stripe_billing.create_checkout_session",
-             return_value={"url": "https://stripe.test/s", "session_id": "cs_1"},
+             side_effect=lambda *a, **k: (lambda n: {
+                 "url": f"https://stripe.test/s{n}", "session_id": f"cs_{n}"})(next(sessions)),
          ), \
+         patch("app.services.stripe_billing.find_open_checkout_session", return_value=None), \
          patch(
              # push-3 round 4: Stripe is asked before every checkout; it has
              # no live subscription for this account.
              "app.services.stripe_billing.confirm_live_subscription",
              return_value="none",
          ):
-        r1 = client.post("/api/billing/stripe/checkout-session", json={"plan": "pro"})
-        r2 = client.post("/api/billing/stripe/checkout-session", json={"plan": "pro"})
+        first_five = [client.post("/api/billing/stripe/checkout-session", json={"plan": "pro"})
+                      for _ in range(5)]
+        r6 = client.post("/api/billing/stripe/checkout-session", json={"plan": "pro"})
 
-    assert r1.status_code == 200, r1.text
-    assert r2.status_code == 429, r2.text
-    body = r2.json()
+    assert [r.status_code for r in first_five] == [200] * 5, [r.text for r in first_five]
+    assert r6.status_code == 429, r6.text
+    body = r6.json()
     assert body["detail"]["code"] == "checkout_rate_limited"
-    assert "Retry-After" in r2.headers
+    assert "Retry-After" in r6.headers
+    assert "Try again in about" in body["detail"]["message"]
+    assert "Prøv igen om ca." in body["detail"]["message_da"]
 
-    # Exactly ONE counter row was written (the successful first create).
+    # Exactly FIVE counter rows were written (the successful creates).
     n = db_session.query(sa_func.count(EventLog.id)).filter(
         EventLog.user_id == user.id,
         EventLog.event == "billing_checkout_session",
     ).scalar()
-    assert n == 1
+    assert n == 5
 
 
 def test_f_plans_endpoint_is_public_and_matches_config(client):

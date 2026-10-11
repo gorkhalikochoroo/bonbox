@@ -276,9 +276,25 @@ function renderStarterAcctTagline(t, acctSavings) {
   );
 }
 
+/**
+ * The words for a 429 checkout_rate_limited from /billing/stripe/checkout-session:
+ * the server's own sentence with the wait in it ("Prøv igen om ca. 10
+ * minutter" / "Try again in about 10 minutes") — message_da for Danish,
+ * message otherwise (the server writes only those two). An older server
+ * without the sentence gets checkoutRateLimited, which names no wait.
+ */
+function checkoutRateLimitedMessage(detail, lang, t) {
+  const server = lang === "da" ? detail?.message_da : detail?.message;
+  if (typeof server === "string" && server.trim()) return server;
+  return t(
+    "checkoutRateLimited",
+    "You've started a lot of new checkouts in a short time, so we're pausing for a moment. Please try again a little later, or write to contact@bonbox.dk.",
+  );
+}
+
 export default function SubscriptionPage() {
   const { user, refreshUser } = useAuth();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const { refresh: refreshEntitlements } = useEntitlements();
   const [billing, setBilling] = useState(null);
   const [joined, setJoined] = useState(new Set());
@@ -512,6 +528,12 @@ export default function SubscriptionPage() {
         } else if (e?.response?.status === 409 && e.response.data?.payment_unavailable) {
           // Backend says this tier can't check out yet — degrade to waitlist.
           fallbackToWaitlist = true;
+        } else if (e?.response?.status === 429 && e.response.data?.detail?.code === "checkout_rate_limited") {
+          // The per-account cap on NEW checkout sessions (pressing Upgrade
+          // again hands back the session already open at Stripe and never
+          // meets it). The server says how long to wait — in Danish and
+          // English — so the page shows its words, not "in a minute".
+          setMsg(checkoutRateLimitedMessage(e.response.data.detail, lang, t));
         } else if (e?.response?.status === 429) {
           setMsg(t("tooManyRequests") || "Too many requests — please try again in a minute.");
         } else {

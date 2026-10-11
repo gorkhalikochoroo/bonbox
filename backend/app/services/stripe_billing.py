@@ -30,6 +30,7 @@ Test mode:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -406,6 +407,64 @@ def get_or_create_customer(user: User, db: Session) -> Optional[str]:
 # ─────────────────────────── Checkout session ──────────────────────────────
 
 
+def _checkout_price(
+    user: User,
+    db: Session,
+    plan: str = "pro",
+    price_id: Optional[str] = None,
+    *,
+    quiet: bool = False,
+) -> tuple[Optional[str], bool, str]:
+    """(price id, founding?, normalized plan) a new checkout for this account
+    would use right now; the price is None when there is none to use (the
+    checkout is then refused). Shared by create_checkout_session and
+    checkout_fingerprint, so a reused session is always held against the
+    price a new one would get. quiet: no log lines (the fingerprint asks
+    before every checkout; create_checkout_session logs the same problems).
+    """
+    is_founding = _is_founding_member_slot_open(user, db)
+
+    # Plan-specific price routing. Default to Pro for unknown plan
+    # values (back-compat with existing checkout calls that didn't pass
+    # an explicit plan).
+    plan_normalized = (plan or "pro").lower().strip()
+    if price_id:
+        # Caller passed an explicit price_id (e.g. webhook back-fill) —
+        # respect it without further logic.
+        price = price_id
+    elif plan_normalized == "starter":
+        if is_founding:
+            # Founding-eligible: the landing PROMISES the founding price. If the
+            # founding price ID isn't configured, we must NOT silently fall
+            # through to the full price — that's a bait-and-switch / chargeback.
+            # Fail closed: refuse the checkout until the env is set (honest —
+            # "can't take your money at the wrong price" beats overcharging).
+            if not settings.STRIPE_PRICE_ID_STARTER_FOUNDING:
+                if not quiet:
+                    log.error("Founding slot open but STRIPE_PRICE_ID_STARTER_FOUNDING unset "
+                              "— refusing checkout rather than charge a founding user full price")
+                return None, is_founding, plan_normalized
+            price = settings.STRIPE_PRICE_ID_STARTER_FOUNDING
+        else:
+            price = settings.STRIPE_PRICE_ID_STARTER
+    else:  # "pro" or unknown → Pro
+        if is_founding:
+            if not settings.STRIPE_PRICE_ID_PRO_FOUNDING:
+                if not quiet:
+                    log.error("Founding slot open but STRIPE_PRICE_ID_PRO_FOUNDING unset "
+                              "— refusing checkout rather than charge a founding user full price")
+                return None, is_founding, plan_normalized
+            price = settings.STRIPE_PRICE_ID_PRO_FOUNDING
+        else:
+            price = settings.STRIPE_PRICE_ID_PRO
+
+    if not price:
+        if not quiet:
+            log.warning("No price ID configured for plan=%s (founding=%s)", plan_normalized, is_founding)
+        return None, is_founding, plan_normalized
+    return price, is_founding, plan_normalized
+
+
 def create_checkout_session(
     user: User,
     db: Session,
@@ -459,42 +518,8 @@ def create_checkout_session(
     from app.services.owner_language import owner_lang
     lang = owner_lang(user)
 
-    is_founding = _is_founding_member_slot_open(user, db)
-
-    # Plan-specific price routing. Default to Pro for unknown plan
-    # values (back-compat with existing checkout calls that didn't pass
-    # an explicit plan).
-    plan_normalized = (plan or "pro").lower().strip()
-    if price_id:
-        # Caller passed an explicit price_id (e.g. webhook back-fill) —
-        # respect it without further logic.
-        price = price_id
-    elif plan_normalized == "starter":
-        if is_founding:
-            # Founding-eligible: the landing PROMISES the founding price. If the
-            # founding price ID isn't configured, we must NOT silently fall
-            # through to the full price — that's a bait-and-switch / chargeback.
-            # Fail closed: refuse the checkout until the env is set (honest —
-            # "can't take your money at the wrong price" beats overcharging).
-            if not settings.STRIPE_PRICE_ID_STARTER_FOUNDING:
-                log.error("Founding slot open but STRIPE_PRICE_ID_STARTER_FOUNDING unset "
-                          "— refusing checkout rather than charge a founding user full price")
-                return None
-            price = settings.STRIPE_PRICE_ID_STARTER_FOUNDING
-        else:
-            price = settings.STRIPE_PRICE_ID_STARTER
-    else:  # "pro" or unknown → Pro
-        if is_founding:
-            if not settings.STRIPE_PRICE_ID_PRO_FOUNDING:
-                log.error("Founding slot open but STRIPE_PRICE_ID_PRO_FOUNDING unset "
-                          "— refusing checkout rather than charge a founding user full price")
-                return None
-            price = settings.STRIPE_PRICE_ID_PRO_FOUNDING
-        else:
-            price = settings.STRIPE_PRICE_ID_PRO
-
+    price, is_founding, plan_normalized = _checkout_price(user, db, plan, price_id)
     if not price:
-        log.warning("No price ID configured for plan=%s (founding=%s)", plan_normalized, is_founding)
         return None
     log.info(
         "Checkout for user=%s: plan=%s founding=%s price=%s",
@@ -664,6 +689,166 @@ def create_checkout_session(
             return None
         log.exception("create_checkout_session failed for user=%s: %s", user.id, e)
         return None
+
+
+# ─────────────────────── Checkout session reuse ────────────────────────────
+#
+# Manoj, 11 Oct 2026: an owner who opens Stripe's checkout, comes back and
+# presses Upgrade again was told "Too many requests" on the second or third
+# press — every press made a NEW Checkout Session and the per-user cap was
+# 1 an hour. A press now hands back the session the account already has
+# open at Stripe when it is the same purchase, so going back and forth costs
+# nothing: no new session, no row against the cap.
+#
+# "The same purchase" is decided twice:
+#   • our record (the router's EventLog row for the session it created) holds
+#     a fingerprint of everything that shapes the session — price (founding
+#     or regular), plan, trial days and the first-charge date on the pay
+#     button, the owner's language, the Terms version and business type on
+#     the subscription's metadata, the Terms/tax switches. The fingerprint
+#     of a new session RIGHT NOW must equal it;
+#   • Stripe must still say the session is open, for this customer and this
+#     account, in subscription mode, with exactly that price, and with at
+#     least CHECKOUT_REUSE_MIN_LIFE left before it expires (24 h after it
+#     was made), so the owner has time to pay.
+# Anything else — a different plan, the founding window closed, a day later
+# with a new first-charge date, Stripe unreachable — is a new session.
+
+CHECKOUT_REUSE_MIN_LIFE = timedelta(minutes=30)
+_CHECKOUT_REUSE_LIST_LIMIT = 10
+
+
+def checkout_fingerprint(
+    user: User,
+    db: Session,
+    plan: str = "pro",
+    terms_version: Optional[str] = None,
+    now: Optional[datetime] = None,
+) -> Optional[dict]:
+    """{"key": <hex>, "price": <price id>} for the Checkout Session
+    create_checkout_session would make for this account right now, or None
+    when it would make none (no price to use). Read-only: no Stripe call, no
+    write. The inputs mirror create_checkout_session's — keep them in step.
+    """
+    price, is_founding, plan_normalized = _checkout_price(user, db, plan, quiet=True)
+    if not price:
+        return None
+    from app.services.billing import trial_days_remaining
+    from app.services.owner_language import owner_lang
+    lang = owner_lang(user)
+    now = now or utc_now()
+    trial_days = int(max(0, trial_days_remaining(user) or 0))
+    parts = {
+        "price": price,
+        "founding": bool(is_founding),
+        "plan": plan_normalized,
+        "plan_metadata": str(plan),
+        "lang": lang,
+        "trial_days": trial_days,
+        "first_charge": (
+            _charge_date(now + timedelta(days=trial_days), lang) if trial_days > 0 else ""
+        ),
+        "terms_version": str(
+            terms_version if terms_version is not None
+            else (getattr(user, "terms_version", None) or "")
+        )[:16],
+        "business_type": str(getattr(user, "business_type", None) or "")[:64],
+        "tos_consent": bool(settings.STRIPE_TOS_CONSENT),
+        "automatic_tax": bool(settings.STRIPE_AUTOMATIC_TAX),
+    }
+    key = hashlib.sha256(json.dumps(parts, sort_keys=True).encode("utf-8")).hexdigest()[:32]
+    return {"key": key, "price": price}
+
+
+def _epoch(dt: datetime) -> int:
+    """Seconds since 1970 for our naive-UTC datetimes (utils.time)."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())
+
+
+def _line_item_prices(session) -> Optional[list]:
+    """[(price id, quantity), ...] of an expanded checkout session, or None
+    when Stripe's answer does not say."""
+    items = _g(_g(session, "line_items"), "data")
+    if not isinstance(items, (list, tuple)):
+        return None
+    out = []
+    for item in items:
+        price = _g(item, "price")
+        pid = price if isinstance(price, str) else _g(price, "id")
+        out.append((pid, _g(item, "quantity")))
+    return out
+
+
+def find_open_checkout_session(
+    user: User,
+    session_ids: list,
+    price: str,
+    now: Optional[datetime] = None,
+) -> Optional[dict]:
+    """The Checkout Session this account already has OPEN at Stripe for the
+    same purchase, as {"url", "session_id"} — or None, and then the caller
+    makes a new one. Never raises; never writes.
+
+    session_ids — the sessions our own record says the billing router made
+    for this account with the same fingerprint (checkout_fingerprint), newest
+    first. Only those are candidates. Stripe is asked once, by the stored
+    customer (Session.list, status="open", line items expanded), and a
+    candidate must still be: open, subscription mode, this customer, this
+    account (client_reference_id), exactly one line item of `price` x1, a URL,
+    and at least CHECKOUT_REUSE_MIN_LIFE before it expires.
+
+    No stored customer → None without asking Stripe. The router asks this
+    only after confirm_live_subscription, which links any customer Stripe
+    has for this account (searched by bonbox_user_id) and forgets one
+    Stripe no longer has — so an account still without one has no customer
+    at Stripe, and a session recorded for an old customer could not be paid.
+    """
+    s = _stripe()
+    customer_id = getattr(user, "stripe_customer_id", None)
+    if not s or not customer_id or not session_ids or not price:
+        return None
+    try:
+        listing = s.checkout.Session.list(
+            customer=customer_id, status="open",
+            limit=_CHECKOUT_REUSE_LIST_LIMIT, expand=["data.line_items"],
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("checkout reuse: Session.list failed for user=%s (a new session follows): %s",
+                    user.id, e)
+        return None
+    data = _g(listing, "data")
+    if not isinstance(data, (list, tuple)):
+        log.warning("checkout reuse: Session.list gave no data list for user=%s", user.id)
+        return None
+
+    wanted = [str(x) for x in session_ids if x]
+    earliest_expiry = _epoch(now or utc_now()) + int(CHECKOUT_REUSE_MIN_LIFE.total_seconds())
+    usable = {}
+    for sess in data:
+        sid = _g(sess, "id")
+        if not isinstance(sid, str) or sid not in wanted:
+            continue
+        cust = _g(sess, "customer")
+        cust_id = cust if isinstance(cust, str) else _g(cust, "id")
+        expires_at = _g(sess, "expires_at")
+        url = _g(sess, "url")
+        if (
+            _g(sess, "status") != "open"
+            or _g(sess, "mode") != "subscription"
+            or cust_id != customer_id
+            or str(_g(sess, "client_reference_id") or "") != str(user.id)
+            or not isinstance(expires_at, int) or expires_at < earliest_expiry
+            or not isinstance(url, str) or not url
+            or _line_item_prices(sess) != [(price, 1)]
+        ):
+            continue
+        usable[sid] = url
+    for sid in wanted:  # newest first, as our record lists them
+        if sid in usable:
+            return {"url": usable[sid], "session_id": sid}
+    return None
 
 
 # ─────────────────────────── Self-healing sync ─────────────────────────────

@@ -15,7 +15,9 @@ Multi-layer defense:
     L5 — Tenant filter via authenticated user — can't escalate via foreign customer ID
 """
 
+import json
 import logging
+import math
 from datetime import timedelta
 from typing import Optional
 
@@ -107,32 +109,100 @@ def _has_live_subscription(user) -> bool:
 # "count rows in a window" idiom ai.py / kasserapport.py use for per-user
 # daily caps — no new schema, survives restarts, multi-worker safe).
 #
-#   • max 1 per HOUR   — a legitimate owner clicks "Lock in" once, maybe
-#     retries once if they fat-fingered; 1/hour is plenty and blunts spam.
-#   • max 3 per DAY    — an upper backstop for the rare genuine retry day.
+# It counts NEW sessions only (Manoj, 11 Oct 2026). It was 1 an hour and 3 a
+# day, and an owner who opened Stripe's page, came back and pressed Upgrade
+# again was told "Too many requests" on the second or third press. A press
+# now gets the session already open at Stripe for the same purchase
+# (stripe_billing.find_open_checkout_session) — no new session, no row — so
+# the cap only meets someone making new sessions over and over:
+#   • max 5 per HOUR   — room for switching plan, or a session that expired;
+#   • max 10 per DAY   — the backstop.
 _CHECKOUT_EVENT = "billing_checkout_session"
-_CHECKOUT_MAX_PER_HOUR = 1
-_CHECKOUT_MAX_PER_DAY = 3
+_CHECKOUT_MAX_PER_HOUR = 5
+_CHECKOUT_MAX_PER_DAY = 10
+
+# The 429 — the same wording as checkoutRateLimited in
+# frontend/src/i18n/{da,en}.js, plus how long to wait ({wait}).
+CHECKOUT_RATE_LIMITED_DA = (
+    "Du har startet mange nye betalinger på kort tid, så vi holder en pause. "
+    "Prøv igen om ca. {wait}, eller skriv til contact@bonbox.dk."
+)
+CHECKOUT_RATE_LIMITED_EN = (
+    "You've started a lot of new checkouts in a short time, so we're pausing "
+    "for a moment. Try again in about {wait}, or write to contact@bonbox.dk."
+)
 
 
-def _checkout_counts(db: Session, user_id) -> tuple[int, int]:
-    """(in last hour, in last 24h) count of checkout-session creates for this
-    user. Counts our own EventLog audit rows — written on each successful
-    create below."""
-    from sqlalchemy import func as _sa_func
+def _checkout_wait_seconds(db: Session, user_id) -> int:
+    """Seconds until this account may make a new checkout session again; 0
+    when it may now. Read off the counted rows themselves: in each window
+    that is full, the wait ends when enough of the oldest rows have aged out
+    of it to leave room for one more."""
     from app.models.event_log import EventLog
 
     now = utc_now()
-    hour_ago = now - timedelta(hours=1)
-    day_ago = now - timedelta(hours=24)
+    rows = [
+        t for (t,) in db.query(EventLog.created_at).filter(
+            EventLog.user_id == user_id,
+            EventLog.event == _CHECKOUT_EVENT,
+            EventLog.created_at >= now - timedelta(hours=24),
+        ).order_by(EventLog.created_at.asc()).all()
+        if t is not None
+    ]
+    wait = 0.0
+    for window, cap in ((timedelta(hours=1), _CHECKOUT_MAX_PER_HOUR),
+                        (timedelta(hours=24), _CHECKOUT_MAX_PER_DAY)):
+        inside = [t for t in rows if t >= now - window]
+        if len(inside) >= cap:
+            frees_at = inside[len(inside) - cap] + window
+            wait = max(wait, (frees_at - now).total_seconds())
+    return max(1, int(math.ceil(wait))) if wait > 0 else 0
 
-    base = db.query(_sa_func.count(EventLog.id)).filter(
+
+def _wait_words(seconds: int) -> tuple[str, str]:
+    """("ca. N minutter" wording, "about N minutes" wording) — whole minutes
+    up to 90, whole hours above; always rounded UP, never "0"."""
+    minutes = max(1, int(math.ceil(seconds / 60)))
+    if minutes <= 90:
+        return (f"{minutes} minut" if minutes == 1 else f"{minutes} minutter",
+                f"{minutes} minute" if minutes == 1 else f"{minutes} minutes")
+    hours = int(math.ceil(minutes / 60))
+    return f"{hours} timer", f"{hours} hours"
+
+
+def _recorded_checkout_sessions(db: Session, user_id, key: str) -> list[str]:
+    """Session ids our EventLog rows of the last 24 h (a Stripe Checkout
+    Session lives 24 h) record for this account with fingerprint `key`,
+    newest first. Rows from before the fingerprint was recorded have none."""
+    from app.models.event_log import EventLog
+
+    rows = db.query(EventLog.detail).filter(
         EventLog.user_id == user_id,
         EventLog.event == _CHECKOUT_EVENT,
-    )
-    in_hour = int(base.filter(EventLog.created_at >= hour_ago).scalar() or 0)
-    in_day = int(base.filter(EventLog.created_at >= day_ago).scalar() or 0)
-    return in_hour, in_day
+        EventLog.created_at >= utc_now() - timedelta(hours=24),
+    ).order_by(EventLog.created_at.desc()).limit(50).all()
+    ids: list[str] = []
+    for (detail,) in rows:
+        try:
+            d = json.loads(detail or "")
+        except (TypeError, ValueError):
+            continue
+        if isinstance(d, dict) and d.get("key") == key and isinstance(d.get("session_id"), str):
+            ids.append(d["session_id"])
+    return ids
+
+
+def _stamp_checkout_terms(user, db: Session, accepted_terms: bool) -> None:
+    """The acceptance record — for an account that has none or an older one
+    (everyone from before R-e, the /login sign-ups before the line was added
+    there). Its own commit, so a telemetry failure later can never roll it
+    back; a failure here never costs the checkout either."""
+    if apply_checkout_terms_acceptance(user, accepted_terms):
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            log.warning("checkout: terms acceptance stamp failed for user=%s", user.id, exc_info=True)
 
 
 @router.get("/me")
@@ -334,6 +404,10 @@ def create_checkout(
       • Plan validated against the {starter, pro} allowlist (unknown
         plans default to "pro" silently — fail-safe for legacy callers)
       • Businesses only: a personal account gets 403 checkout_business_only
+      • Pressing again for the same purchase gets the session already open
+        at Stripe (same response shape); only NEW sessions count against the
+        per-account cap (5/hour, 10/day → 429 checkout_rate_limited, da + en,
+        with the wait and Retry-After)
     """
     if not stripe_billing.is_configured():
         return JSONResponse(
@@ -453,25 +527,6 @@ def create_checkout(
             },
         )
 
-    # FIX 5 — per-user checkout-session cap (1/hour AND 3/day). The 10/min
-    # @limiter.limit above is per-IP; this per-user-id backstop blunts
-    # session-spam from one account across IPs even after the trial-farm fix.
-    in_hour, in_day = _checkout_counts(db, user.id)
-    if in_hour >= _CHECKOUT_MAX_PER_HOUR or in_day >= _CHECKOUT_MAX_PER_DAY:
-        retry_after = 3600 if in_hour >= _CHECKOUT_MAX_PER_HOUR else 86400
-        raise HTTPException(
-            status_code=429,
-            detail={
-                "code": "checkout_rate_limited",
-                "message": (
-                    "You've started checkout a few times already. Please wait a "
-                    "little before trying again, or contact support if you're stuck."
-                ),
-                "retry_after_seconds": retry_after,
-            },
-            headers={"Retry-After": str(retry_after)},
-        )
-
     # Validate plan against allowlist; unknown values fall back to "pro"
     requested_plan = (body.plan if body else "pro") or "pro"
     requested_plan = requested_plan.strip().lower()
@@ -496,9 +551,51 @@ def create_checkout(
     # the subscription's metadata names that version, and the account's
     # acceptance record is stamped once the session exists (below).
     accepted_terms = bool(body is not None and body.accept_terms is True)
+    terms_version = TERMS_VERSION if accepted_terms else None
+
+    # The same purchase already open at Stripe? Hand that session back (Manoj,
+    # 11 Oct 2026 — pressing Upgrade again after visiting Stripe's page said
+    # "Too many requests"). Only here, after every gate above: the live-
+    # subscription question, business-only, the plan's price. It is not a new
+    # session, so it writes no row and is not held against the cap; the Terms
+    # accepted beside the button are stamped as on a new one. Any doubt —
+    # Stripe can't be listed, the purchase differs — falls through to a new
+    # session below.
+    fingerprint = stripe_billing.checkout_fingerprint(
+        user, db, plan=requested_plan, terms_version=terms_version,
+    )
+    if fingerprint:
+        recorded = _recorded_checkout_sessions(db, user.id, fingerprint["key"])
+        reused = (
+            stripe_billing.find_open_checkout_session(user, recorded, fingerprint["price"])
+            if recorded else None
+        )
+        if reused:
+            _stamp_checkout_terms(user, db, accepted_terms)
+            log.info("checkout: user=%s gets their open session %s again (plan=%s)",
+                     user.id, reused["session_id"], requested_plan)
+            return {"url": reused["url"], "session_id": reused["session_id"]}
+
+    # FIX 5 — per-user cap on NEW checkout sessions (5/hour AND 10/day). The
+    # 10/min @limiter.limit above is per-IP; this per-user-id backstop blunts
+    # session-spam from one account across IPs even after the trial-farm fix.
+    # The answer says how long to wait, in both languages.
+    wait = _checkout_wait_seconds(db, user.id)
+    if wait > 0:
+        wait_da, wait_en = _wait_words(wait)
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "checkout_rate_limited",
+                "message": CHECKOUT_RATE_LIMITED_EN.format(wait=wait_en),
+                "message_da": CHECKOUT_RATE_LIMITED_DA.format(wait=wait_da),
+                "retry_after_seconds": wait,
+            },
+            headers={"Retry-After": str(wait)},
+        )
+
     result = stripe_billing.create_checkout_session(
-        user, db, plan=requested_plan,
-        terms_version=TERMS_VERSION if accepted_terms else None,
+        user, db, plan=requested_plan, terms_version=terms_version,
     )
     if not result:
         return JSONResponse(
@@ -510,27 +607,24 @@ def create_checkout(
             },
         )
 
-    # The acceptance record — for an account that has none or an older one
-    # (everyone from before R-e, the /login sign-ups before the line was
-    # added there). Its own commit, so a telemetry failure below can never
-    # roll it back; a failure here never costs the checkout either.
-    if apply_checkout_terms_acceptance(user, accepted_terms):
-        try:
-            db.commit()
-        except Exception:  # noqa: BLE001
-            db.rollback()
-            log.warning("checkout: terms acceptance stamp failed for user=%s", user.id, exc_info=True)
+    _stamp_checkout_terms(user, db, accepted_terms)
 
     # Record a counter row AFTER a successful create so the per-user cap above
     # only counts real sessions (a failed create — Stripe down, no price —
-    # shouldn't burn the user's quota). Telemetry must never break the response.
+    # shouldn't burn the user's quota). It also records which session this
+    # was and its fingerprint, so the next press can find it again (above).
+    # Telemetry must never break the response.
     try:
         from app.models.event_log import EventLog
         db.add(EventLog(
             user_id=user.id,
             event=_CHECKOUT_EVENT,
             page="subscription",
-            detail=f'{{"plan":"{requested_plan}"}}',
+            detail=json.dumps({
+                "plan": requested_plan,
+                "session_id": result.get("session_id") if isinstance(result, dict) else None,
+                "key": fingerprint["key"] if fingerprint else None,
+            }),
         ))
         db.commit()
     except Exception:  # noqa: BLE001
