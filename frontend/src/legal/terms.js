@@ -15,9 +15,10 @@
    stale bundle), move both dates to that day and push again (backend first)
    the same day.
 
-   The values below (14 Oct / 29 Oct 2026) are a GUESS at the ship day — R-e
-   ships after R-c, R-d/R-f and Manoj's Stripe settings. They are only true
-   if the R-e frontend is verified live on www.bonbox.dk on 14 Oct 2026.
+   The values below (11 Oct / 26 Oct 2026) are set for a deploy on Sunday
+   11 Oct 2026 (moved up from 14 Oct on Manoj's request, 11 Oct: no paying
+   customers yet). They are only true if the R-e frontend is verified live on
+   www.bonbox.dk on 11 Oct 2026 (Copenhagen time).
 
    These two lines and the two in backend/app/services/terms.py are the ONLY
    places the dates live; the Terms page, the in-app notice and the tests
@@ -35,13 +36,13 @@
    "Last updated"; the backend stamps the same value on an account that
    accepts the Terms. Change it — and the Terms text — in one commit. It is
    also the date the Terms apply to NEW accounts from. */
-export const TERMS_VERSION = "2026-10-14";
+export const TERMS_VERSION = "2026-10-11";
 
 /* The date these Terms apply to EXISTING accounts from (Manoj, 10 Oct 2026):
    every account without an acceptance of TERMS_VERSION. The Terms page
    prints both dates; the in-app notice (components/TermsUpdateNotice) runs
    until 00:00 Copenhagen on this one. */
-export const TERMS_EXISTING_FROM = "2026-10-29";
+export const TERMS_EXISTING_FROM = "2026-10-26";
 
 /** Add accept_terms: true to a sign-up request body — only when the caller
     says the page showed the acceptance line (opts.acceptTerms === true).

@@ -72,9 +72,10 @@ from app.utils.time import utc_now
 #  bundle), move both dates to that day and push again (backend first) the
 #  same day.
 #
-#  The values below (14 Oct / 29 Oct 2026) are a GUESS at the ship day — R-e
-#  ships after R-c, R-d/R-f and Manoj's Stripe settings. They are only true
-#  if the R-e frontend is verified live on www.bonbox.dk on 14 Oct 2026.
+#  The values below (11 Oct / 26 Oct 2026) are set for a deploy on Sunday
+#  11 Oct 2026 (moved up from 14 Oct on Manoj's request, 11 Oct: no paying
+#  customers yet). They are only true if the R-e frontend is verified live on
+#  www.bonbox.dk on 11 Oct 2026 (Copenhagen time).
 #
 #  These two lines and the two in frontend/src/legal/terms.js are the ONLY
 #  places the dates live; the Terms page, the in-app notice and every test
@@ -93,12 +94,12 @@ from app.utils.time import utc_now
 # "Sidst opdateret" date on /terms and the version stamped on an acceptance.
 # It is also the date the Terms apply to NEW accounts from (an account that
 # accepts them at sign-up is bound at once).
-TERMS_VERSION = "2026-10-14"
+TERMS_VERSION = "2026-10-11"
 
 # The date the Terms apply to EXISTING accounts from (Manoj, 10 Oct 2026,
 # decision a): every account without an acceptance of TERMS_VERSION. The
 # in-app notice (terms_notice_due below) runs until 00:00 Copenhagen on it.
-TERMS_EXISTING_FROM = "2026-10-29"
+TERMS_EXISTING_FROM = "2026-10-26"
 
 # The live Terms' promise (§14) ...
 TERMS_NOTICE_MIN_DAYS = 14
