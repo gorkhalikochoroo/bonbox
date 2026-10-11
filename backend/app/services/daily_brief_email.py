@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 from app.models.user import User
 from app.services import audit_service
 from app.services.billing import has_feature
+from app.services.brand_mark import BRAND_FOREST, BRAND_MARK_SRC, mail_mark_img
 from app.services.daily_brief import get_or_create_brief
 from app.services.email_service import send_email
 from app.utils.log_redact import redact_emails
@@ -61,6 +62,11 @@ def _app_base_url() -> str:
 # Palette — warm-stone + emerald, matches the app's brand
 # ─────────────────────────────────────────────────────────────────
 # Inline-styled hex codes. No CSS variables (clients strip them).
+# The header's logo: the kit's app icon (hosted <img> — Gmail and Outlook
+# strip inline SVG) at 28 px, then the word in the kit's forest. alt="" because
+# the word sits right next to it; with images off the word alone remains.
+_HEADER_MARK = mail_mark_img(BRAND_MARK_SRC, 28, alt="", centered=False)
+
 _PALETTE = {
     "bg": "#fafaf9",            # stone-50
     "card_bg": "#ffffff",
@@ -326,7 +332,14 @@ def build_brief_html(brief_payload: dict, user: User) -> str:
       <tr><td style="padding:24px 24px 20px 24px;">
         <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
           <tr>
-            <td valign="middle" style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;font-size:13px;font-weight:600;color:{_PALETTE["brand_dark"]};letter-spacing:0.06em;text-transform:uppercase;">BonBox</td>
+            <td valign="middle">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td valign="middle" style="padding-right:8px;">{_HEADER_MARK}</td>
+                  <td valign="middle" style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;font-size:16px;font-weight:700;color:{BRAND_FOREST};letter-spacing:-0.01em;">BonBox</td>
+                </tr>
+              </table>
+            </td>
             <td align="right" valign="middle" style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;font-size:12px;color:{_PALETTE["muted"]};">{date_label}</td>
           </tr>
         </table>

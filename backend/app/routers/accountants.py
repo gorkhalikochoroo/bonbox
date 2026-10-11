@@ -181,12 +181,14 @@ def _invite_email_html(owner_name: str, accept_url: str, is_danish: bool) -> str
     sender — escaped, like every other revisor template. The revisor footer
     (why they get this, the opt-out) is added by _send_invite_mail.
     """
+    from app.services.brand_mark import BRAND_MARK_IMG
     from app.services.revisor_mail import esc
     owner_name = esc(owner_name)
     accept_url = esc(accept_url)
     if is_danish:
         return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
+  <div style="text-align:center;margin-bottom:20px">{BRAND_MARK_IMG}</div>
   <h1 style="font-size:22px;color:#1e293b;margin:0 0 12px">Du er inviteret som revisor</h1>
   <p style="font-size:15px;color:#334155;line-height:1.6">
     <strong>{owner_name}</strong> har inviteret dig som revisor på BonBox med skrivebeskyttet adgang til deres bogføring.
@@ -203,6 +205,7 @@ def _invite_email_html(owner_name: str, accept_url: str, is_danish: bool) -> str
 </div>"""
     return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
+  <div style="text-align:center;margin-bottom:20px">{BRAND_MARK_IMG}</div>
   <h1 style="font-size:22px;color:#1e293b;margin:0 0 12px">You're invited as a revisor</h1>
   <p style="font-size:15px;color:#334155;line-height:1.6">
     <strong>{owner_name}</strong> has invited you to be their accountant on BonBox with read-only access to their books.

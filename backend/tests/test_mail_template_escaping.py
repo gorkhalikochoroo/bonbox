@@ -18,6 +18,14 @@ import pytest
 
 EVIL = '<img src=x onerror="alert(1)">'
 
+
+def _typed(html: str) -> str:
+    """The mail minus its logo. The header's mark is an <img> of the kit's
+    hosted icon (app.services.brand_mark — inline SVG is stripped by Gmail
+    and Outlook), so "no <img" means: none besides that one, exact tag."""
+    from app.services.brand_mark import BRAND_MARK_IMG, VAGTPLAN_MARK_IMG
+    return html.replace(BRAND_MARK_IMG, "").replace(VAGTPLAN_MARK_IMG, "")
+
 APP = pathlib.Path(__file__).resolve().parents[1] / "app"
 
 # Parameters that are never typed by a person: values the server makes.
@@ -110,13 +118,13 @@ def test_guard_catches_a_raw_interpolation():
 def test_welcome_mail_escapes_the_business_name():
     from app.routers.auth import _welcome_email_html
     html = _welcome_email_html(EVIL)
-    assert "<img" not in html and "&lt;img" in html
+    assert "<img" not in _typed(html) and "&lt;img" in html
 
 
 def test_admin_signup_mail_escapes_every_field():
     from app.routers.auth import _admin_signup_email_html
     html = _admin_signup_email_html(f"a{EVIL}@x.dk", EVIL, EVIL)
-    assert "<img" not in html and html.count("&lt;img") == 3
+    assert "<img" not in _typed(html) and html.count("&lt;img") == 3
 
 
 @pytest.mark.parametrize("lang", ["en", "da"])
@@ -130,7 +138,7 @@ def test_shift_mail_escapes_names_and_times(lang):
         staff_name=f"{EVIL} Hansen", changes=[change], portal_url='https://x.dk/s/"><b>',
         restaurant_name=EVIL, week_label="Uge 41", lang=lang,
     )
-    assert "<img" not in html
+    assert "<img" not in _typed(html)
     assert '"><b>' not in html
     assert "&lt;img" in html
 
@@ -157,7 +165,7 @@ def _digest_data(**over):
 def test_digest_mail_escapes_owner_text():
     from app.services.digest_service import build_digest_html
     html = build_digest_html(_digest_data())
-    assert "<img" not in html
+    assert "<img" not in _typed(html)
     assert html.count("&lt;img") == 4
 
 
@@ -168,6 +176,6 @@ def test_alert_mail_escapes_business_name_and_messages():
         {"type": "large_transaction", "message": f"Large expense: {EVIL} (900 DKK)"},
     ]
     html = build_alert_html(alerts, EVIL)
-    assert "<img" not in html
+    assert "<img" not in _typed(html)
     assert html.count("&lt;img") == 3
     assert "2 alert(s)" in html

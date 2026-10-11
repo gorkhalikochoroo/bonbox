@@ -185,7 +185,9 @@ def test_business_name_is_escaped(db_session, client, sent):
     _register(client, "escape.me@gmail.com", ui_language="da",
               business_name='<img src=x onerror="alert(1)">')
     welcome = sent[1]
-    assert "<img" not in welcome["html"]
+    # The one <img> is the header's logo (app.services.brand_mark).
+    from app.services.brand_mark import BRAND_MARK_IMG
+    assert "<img" not in welcome["html"].replace(BRAND_MARK_IMG, "", 1)
     assert "&lt;img" in welcome["html"]
 
 
