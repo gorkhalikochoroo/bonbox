@@ -697,6 +697,61 @@ def test_no_stripe_customer_means_no_stripe_customer_call(db_session, client, mo
     assert calls == ["purge"]
 
 
+def test_erasure_helpers_read_real_stripe_sdk_objects_and_errors(monkeypatch):
+    """The fakes above return dicts. The real SDK returns StripeObjects (v15
+    is not a dict) and raises its own errors, so the helpers must read those
+    shapes too: an empty ListObject → "delete", one invoice → "keep", a
+    Customer with deleted=True → "deleted", InvalidRequestError
+    resource_missing → nothing to delete, APIConnectionError → "failed"."""
+    stripe = pytest.importorskip("stripe")
+    from app.services import stripe_billing as sb
+
+    def _list(items):
+        return stripe.ListObject.construct_from({"object": "list", "data": items}, "sk_test_x")
+
+    replies = []
+
+    class _Invoice:
+        @staticmethod
+        def list(**kw):
+            r = replies.pop(0)
+            if isinstance(r, Exception):
+                raise r
+            return r
+
+    deletes = []
+
+    class _Customer:
+        @staticmethod
+        def delete(cid):
+            r = deletes.pop(0)
+            if isinstance(r, Exception):
+                raise r
+            return r
+
+    class _S:
+        Invoice = _Invoice
+        Customer = _Customer
+
+    monkeypatch.setattr(sb, "_stripe", lambda: _S)
+    missing = stripe.InvalidRequestError("No such customer: 'cus_1'", "customer",
+                                         code="resource_missing", http_status=400)
+    down = stripe.APIConnectionError("Could not connect to Stripe")
+    replies[:] = [_list([]), _list([{"id": "in_1", "object": "invoice"}]), missing, down]
+    assert sb.customer_fate_for_erasure("cus_1") == "delete"
+    assert sb.customer_fate_for_erasure("cus_1") == "keep"
+    assert sb.customer_fate_for_erasure("cus_1") == "gone"
+    assert sb.customer_fate_for_erasure("cus_1") == "failed"
+    deletes[:] = [
+        stripe.Customer.construct_from({"id": "cus_1", "object": "customer", "deleted": True}, "sk_test_x"),
+        stripe.InvalidRequestError("No such customer: 'cus_1'", "id", code="resource_missing", http_status=404),
+        stripe.APIConnectionError("Could not connect to Stripe"),
+    ]
+    assert sb.delete_customer_for_erasure("cus_1") == "deleted"
+    assert sb.delete_customer_for_erasure("cus_1") == "deleted"
+    assert sb.delete_customer_for_erasure("cus_1") == "failed"
+
+
 def test_customer_refusal_matches_the_profile_page_text():
     from pathlib import Path
     root = Path(__file__).resolve().parents[2] / "frontend" / "src" / "i18n"
