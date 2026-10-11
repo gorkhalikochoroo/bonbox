@@ -25,17 +25,43 @@
         // fallback and left the shell mislabelled, which is the exact bug this
         // guard exists to prevent.
         try { l = localStorage.getItem("lang"); } catch (e) { l = null; }
+        // The browser's languages, in order (navigator.languages, then
+        // navigator.language) — the list detectLanguageFromBrowser reads.
+        var list = [];
+        try {
+          list = [].concat(navigator.languages || []).concat(navigator.language ? [navigator.language] : []);
+        } catch (e) { list = []; }
+        // PQ-05: Danish or Faroese ANYWHERE in that list means Danish (same
+        // rule as the app and the dictionary preload; lib/shellTitles.js).
+        var danish = false;
+        for (var i = 0; i < list.length; i++) {
+          if (/^(da|fo)(-|$)/i.test(String(list[i] || ""))) { danish = true; break; }
+        }
+        if (l && l !== "da" && danish) {
+          // The app's one-time move: a language the browser picked under the
+          // old first-entry rule becomes Danish (detectInitialLanguage). A
+          // language the owner chose in the picker has no auto flag and stays.
+          var auto = null;
+          try { auto = localStorage.getItem("bonbox_lang_auto_picked"); } catch (e) { auto = null; }
+          if (auto === "browser") l = "da";
+        }
         if (!l) {
           // FIRST VISIT (or no storage): the app is about to auto-pick from
-          // navigator.language — see detectInitialLanguage. Mirror only that
-          // step. The currency hint and the final "en" fallback are NOT
+          // the browser's languages — see detectInitialLanguage. Mirror only
+          // that step. The currency hint and the final "en" fallback are NOT
           // mirrored: they need app state, and guessing wrong is worse here.
-          try {
-            var n = (navigator.language || "").toLowerCase();
-            var map = { da: "da", fo: "da", en: "en", ne: "np", np: "np",
-                        vi: "vi", th: "th", tr: "tr" };
-            l = map[n] || map[n.split("-")[0]] || null;
-          } catch (e) { l = null; }
+          if (danish) {
+            l = "da";
+          } else {
+            try {
+              var map = { da: "da", fo: "da", en: "en", ne: "np", np: "np",
+                          vi: "vi", th: "th", tr: "tr" };
+              for (var j = 0; j < list.length && !l; j++) {
+                var n = String(list[j] || "").toLowerCase();
+                l = map[n] || map[n.split("-")[0]] || null;
+              }
+            } catch (e) { l = null; }
+          }
         }
         // Never override the shell default with Danish-or-unknown: lang="da"
         // is already right for crawlers and the Danish market. This guard
