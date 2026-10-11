@@ -5,6 +5,7 @@ import { useEntitlements } from "../hooks/useEntitlements";
 import { useAuth } from "../hooks/useAuth";
 import { canUsePersonalMode } from "../lib/appMode";
 import { isNativeApp } from "../utils/platform";
+import { parseServerTime } from "../utils/serverTime";
 
 /**
  * Dashboard countdown banner — shown when user has an active trial OR
@@ -89,7 +90,7 @@ export default function TrialBanner() {
 
   // Trial just expired (within 7 days) — gentle nudge
   if (!ent.inTrial && ent.plan === "free" && ent.trialEndsAt) {
-    const endTime = new Date(ent.trialEndsAt).getTime();
+    const endTime = parseServerTime(ent.trialEndsAt)?.getTime() ?? NaN; // naive UTC
     const daysSince = Math.floor((Date.now() - endTime) / 86400000);
     if (daysSince < 0 || daysSince > 7) return null;
     return (

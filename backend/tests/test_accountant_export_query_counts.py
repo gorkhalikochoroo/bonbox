@@ -329,6 +329,12 @@ def test_period_exports_endpoint_query_count_is_flat_across_7_30_120_days(env, c
     owner = _owner(db)
     _seed_period(db, owner)
     hdr = _auth(owner)  # before counting: it reads owner.id from the test session
+    # An account in use carries a fresh last-seen stamp, so get_current_user's
+    # write (at most once per 5 min, services/last_seen.py) lands on no export
+    # request in production. Without this it lands on the FIRST counted
+    # request only, and that is not the export's cost.
+    owner.last_seen_at = utc_now()
+    db.commit()
     from app.routers import daily_close as _dc
     counts = {}
     for fmt in ("pdf", "xlsx", "csv"):

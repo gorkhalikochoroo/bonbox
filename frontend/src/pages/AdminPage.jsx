@@ -5,6 +5,7 @@ import { useConfirm } from "../hooks/useConfirm";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import { errText } from "../utils/errText";
+import { parseServerTime } from "../utils/serverTime";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, PieChart, Pie, Cell,
@@ -142,7 +143,7 @@ export default function AdminPage() {
           </Link>
           {overview && (
             <div className="text-xs text-gray-500 dark:text-gray-400">
-              {new Date(overview.as_of).toLocaleString()}
+              {parseServerTime(overview.as_of)?.toLocaleString()}
             </div>
           )}
         </div>
@@ -272,8 +273,8 @@ export default function AdminPage() {
             </thead>
             <tbody>
               {users.map((u) => {
-                // Online status from last_active timestamp
-                const lastActive = u.last_active ? new Date(u.last_active) : null;
+                // Online status from last_active timestamp — UTC, see utils/serverTime.js
+                const lastActive = parseServerTime(u.last_active);
                 const minsSince = lastActive ? (Date.now() - lastActive.getTime()) / 60000 : Infinity;
                 let dotClass = "bg-gray-300 dark:bg-gray-600";  // offline / never
                 let dotTitle = "Offline";
@@ -585,8 +586,8 @@ function TierChip({ user }) {
   // the admin can scan "trial expires soon" risk at a glance.
   let trialSub = null;
   if (tier === "trial" && user.trial_ends_at) {
-    const endsAt = new Date(user.trial_ends_at);
-    const days = Math.ceil((endsAt.getTime() - Date.now()) / 86400000);
+    const endsAt = parseServerTime(user.trial_ends_at);
+    const days = endsAt ? Math.ceil((endsAt.getTime() - Date.now()) / 86400000) : NaN;
     if (Number.isFinite(days)) trialSub = `${days}d`;
   }
   return (
@@ -720,10 +721,12 @@ function pct(part, whole) {
 // catalogue (justNow / minutesAgo / hoursAgo / daysAgo — en + da + tr).
 // Under a minute collapses to "just now": the catalogue has no seconds key,
 // and a hardcoded "{n}s ago" is the same hardcoded-English defect.
+// The server's stamps are UTC; parseServerTime reads an offset-less one as UTC
+// (new Date read it as local: "2h ago" in CEST for a sign-in a minute ago).
 function relativeTime(iso, t) {
   if (!iso) return "—";
-  const then = new Date(iso);
-  if (isNaN(then)) return iso;
+  const then = parseServerTime(iso);
+  if (!then) return iso;
   const sec = Math.floor((Date.now() - then.getTime()) / 1000);
   if (sec < 60) return t("justNow", "just now");
   if (sec < 3600) return t("minutesAgo", "{n}m ago", { n: Math.floor(sec / 60) });

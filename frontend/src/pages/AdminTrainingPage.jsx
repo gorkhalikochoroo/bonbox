@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import { FadeIn } from "../components/AnimationKit";
 import { errText } from "../utils/errText";
+import { parseServerTime } from "../utils/serverTime";
 
 /**
  * Admin Training dashboard — founder visibility into the kasserapport
@@ -176,7 +177,7 @@ export default function AdminTrainingPage() {
           )}
 
           <div className="mt-3 text-[11px] text-gray-400 dark:text-gray-500">
-            Last checked: {drift?.checked_at ? new Date(drift.checked_at).toLocaleString() : "—"}
+            Last checked: {parseServerTime(drift?.checked_at)?.toLocaleString() || "—"}
           </div>
         </section>
       </FadeIn>

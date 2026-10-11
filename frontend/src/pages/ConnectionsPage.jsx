@@ -38,6 +38,7 @@ import { errText } from "../utils/errText";
 // + i18n + a11y unchanged.
 import { Button, Card, Icon, PageHeader } from "../components/ui";
 import { revisorAddress } from "../utils/closeEmail";
+import { parseServerTime } from "../utils/serverTime";
 
 /**
  * Single connection card primitive. Shared layout so the page reads as
@@ -824,9 +825,8 @@ export default function ConnectionsPage() {
           </div>
           <div className="space-y-2">
             {activeBankConnections.map((conn) => {
-              const lastSyncedHuman = conn.last_synced_at
-                ? new Date(conn.last_synced_at).toLocaleString()
-                : "Never synced";
+              const lastSyncedHuman =
+                parseServerTime(conn.last_synced_at)?.toLocaleString() || "Never synced";
               const bankLabel = bankConnLabel(conn);
               return (
                 <div
@@ -1077,9 +1077,8 @@ export default function ConnectionsPage() {
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                 {(t("mpLastSynced") || "Last sync") + ": "}
-                {mpConnection?.last_synced_at
-                  ? new Date(mpConnection.last_synced_at).toLocaleString()
-                  : (t("mpNeverSynced") || "Never synced")}
+                {parseServerTime(mpConnection?.last_synced_at)?.toLocaleString()
+                  || (t("mpNeverSynced") || "Never synced")}
               </div>
             </div>
             <button

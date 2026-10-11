@@ -223,6 +223,17 @@ class User(Base):
     # NOT an acceptance (terms_version / terms_accepted_at stay as they are).
     # NULL = never closed. services/terms.py terms_notice_due().
     terms_notice_dismissed_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # When this account was last signed in to BonBox — naive UTC, stamped at
+    # login and by get_current_user at most once per 5 minutes
+    # (services/last_seen.py). The super-admin "Last seen" column reads it, so
+    # it does not depend on the browser's analytics consent the way
+    # event_logs does. NULL = not seen since the column was added. Kept for
+    # the account's lifetime and deleted with it. Disclosed on /privacy under
+    # Technical data (data-testid "privacy-last-seen"); change the two
+    # together. It is written WITHOUT analytics consent, so it is not an
+    # engagement signal: keep it out of thesis/engagement datasets for owners
+    # who declined or paused Analytics.
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # ── Migration 016 — receipt-forwarding email inbox (v0.1) ──
     # `inbox_alias` is the user-facing unique address (`nepali-7k4q` in
     # `nepali-7k4q@in.bonbox.dk`) that owners forward receipts to. We

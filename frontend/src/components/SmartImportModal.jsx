@@ -7,6 +7,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { formatOwnerMoney } from "../utils/currency";
 import { dateLocale } from "../utils/dateFormat";
+import { parseServerTime } from "../utils/serverTime";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
 /**
@@ -559,13 +560,12 @@ function HistoryList({ history, t }) {
   return (
     <div className="space-y-2 max-h-[480px] overflow-y-auto">
       {history.map((h) => {
+        // created_at is a naive UTC stamp (utils/serverTime.js).
         const fmt = (iso) =>
-          iso
-            ? new Date(iso).toLocaleString(dateLocale(), {
-                weekday: "short", day: "numeric", month: "short",
-                hour: "2-digit", minute: "2-digit",
-              })
-            : "—";
+          parseServerTime(iso)?.toLocaleString(dateLocale(), {
+            weekday: "short", day: "numeric", month: "short",
+            hour: "2-digit", minute: "2-digit",
+          }) || "—";
         const statusStyle = {
           committed: "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300",
           created:   "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",

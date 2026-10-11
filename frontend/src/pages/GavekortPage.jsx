@@ -74,6 +74,7 @@ import GavekortPrintModal from "../components/GavekortPrintModal";
 import { publicUrl as shareableUrl } from "../utils/publicUrl";
 import { formatKr, isMoneyRejected, moneyExample, parseMoneyInput } from "../utils/currency";
 import { errText } from "../utils/errText";
+import { parseServerTime } from "../utils/serverTime";
 
 // ─── money helpers (integer øre is the wire format) ───────────────────
 // formatKr expects KRONER (display units), so divide øre by 100. We never
@@ -171,9 +172,11 @@ function gkErrText(e, t) {
 
 // dd/mm/yyyy HH:MM for a ledger row / issued-at, da-DK style.
 function fmtDateTime(iso) {
-  if (!iso) return "—";
+  // issued_at / ledger created_at are naive UTC stamps (utils/serverTime.js).
+  const d = parseServerTime(iso);
+  if (!d) return "—";
   try {
-    return new Date(iso).toLocaleString("da-DK", {
+    return d.toLocaleString("da-DK", {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",

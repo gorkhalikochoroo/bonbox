@@ -63,6 +63,7 @@ from app.schemas.magic_link import (
 from app.services import abuse_caps, audit_service
 from app.services.auth import create_access_token, get_current_user
 from app.services.brand_mark import BRAND_FOREST, BRAND_MARK_SVG
+from app.services.last_seen import touch_last_seen
 from app.services.email_service import send_email
 from app.services.magic_link_service import create_token, verify_token
 
@@ -410,6 +411,7 @@ def verify_magic_link(
     # imports from this module's siblings).
     from app.routers.auth import _set_auth_cookie
 
+    touch_last_seen(db, user, force=True)  # signed in now (services/last_seen.py)
     jwt_token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, jwt_token, request)
     return MagicLinkSessionToken(

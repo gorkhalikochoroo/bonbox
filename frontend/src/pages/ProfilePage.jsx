@@ -52,6 +52,7 @@ import DeviceShareSettingsCard from "../components/DeviceShareSettingsCard";
 import { resetAllTips } from "../components/DismissibleTip";
 import { CookieSettingsButton } from "../components/CookieConsent";
 import { localIso } from "../utils/dateFormat";
+import { parseServerTime } from "../utils/serverTime";
 import { Button, Card, Icon, PageHeader } from "../components/ui";
 import { useAuth } from "../hooks/useAuth";
 import { useEntitlements } from "../hooks/useEntitlements";
@@ -2698,7 +2699,9 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
   const { t } = useLanguage();
   if (!profile) return null;
 
-  const verifiedAt = profile.cvr_verified_at ? new Date(profile.cvr_verified_at) : null;
+  // Naive UTC from the server: read as local it sat 2 h in the FUTURE in CEST,
+  // so a check made a minute ago read "-1 days ago" (utils/serverTime.js).
+  const verifiedAt = parseServerTime(profile.cvr_verified_at);
   const ageMs = verifiedAt ? (Date.now() - verifiedAt.getTime()) : null;
   const ageDays = ageMs !== null ? Math.floor(ageMs / 86400000) : null;
   const isStale = ageDays !== null && ageDays > 90;
