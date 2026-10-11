@@ -18,6 +18,7 @@ import { withSignupRef } from "../utils/signupRef";
 import SignupTermsLine from "../components/SignupTermsLine";
 import { withTermsAcceptance } from "../legal/terms";
 import { postLoginPath } from "../utils/verifySkip";
+import BonBoxMark from "../components/BonBoxMark";
 
 /* Inline SVG illustration — a fun receipt-and-boxes scene */
 function HeroIllustration() {
@@ -335,18 +336,12 @@ export default function LoginPage() {
             .glass-static, not .glass: a transform on a sticky element causes
             the documented iOS scroll wobble (see index.css). */}
         <header className="sticky top-0 z-40 glass-static px-6 sm:px-10 py-5 flex items-center justify-between border-b border-gray-200/60">
-          {/* Brand mark — emerald-600 per the "BRAND GREEN" token block.
-              Migrated from `bg-[#22c55e]` (green-500) to the canonical
-              emerald-600 (#059669) so the login logo matches the sidebar,
-              landing top-bar, and Button.accent primitive. */}
+          {/* Brand mark — the kit's forest tile with the paper b
+              (docs/brand/README.md), the same tile as the sidebar and the
+              landing nav, so the login logo is the one logo. */}
           <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-600">
-              <svg width="18" height="18" viewBox="0 0 28 28" fill="none">
-                <rect x="4" y="2" width="20" height="24" rx="3" stroke="currentColor"
-                      className="text-white" strokeWidth="2.2"/>
-                <path d="M9 8h10M9 12h10M9 16h6" stroke="currentColor"
-                      className="text-white" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-bb-forest text-bb-paper">
+              <BonBoxMark size={26} />
             </div>
             <span className="text-[15px] font-semibold tracking-tight">BonBox</span>
           </Link>

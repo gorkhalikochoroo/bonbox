@@ -5,6 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import { errText } from "../utils/errText";
 import { clearVerifySkip, rememberVerifySkip } from "../utils/verifySkip";
+import BonBoxMark from "../components/BonBoxMark";
 
 export default function VerifyEmailPage({ sendOnArrival = false }) {
   const { user, setEmailVerified } = useAuth();
@@ -188,12 +189,8 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
 
           <div className="relative z-10 text-center max-w-md" style={{ animation: "fadeIn 0.8s ease-out" }}>
             <div className="flex items-center justify-center gap-4 mb-10">
-              <div className="w-14 h-14 bg-white/10 rounded-xl flex items-center justify-center backdrop-blur-sm border border-white/10">
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                  <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.5"/>
-                  <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-                  <path d="M4 20h20" stroke="#22c55e" strokeWidth="2"/>
-                </svg>
+              <div className="w-14 h-14 bg-bb-forest text-bb-paper rounded-xl flex items-center justify-center border border-white/10">
+                <BonBoxMark size={44} />
               </div>
               <span className="text-3xl font-bold text-white tracking-tight">
                 Bon<span className="text-gray-300">Box</span>
@@ -233,12 +230,8 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
             {/* Logo (mobile) */}
             <div className="mb-8">
               <div className="flex items-center gap-3 mb-6 lg:hidden">
-                <div className="w-11 h-11 bg-white/10 rounded-xl flex items-center justify-center border border-white/10">
-                  <svg width="22" height="22" viewBox="0 0 28 28" fill="none">
-                    <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2.5"/>
-                    <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-                    <path d="M4 20h20" stroke="#22c55e" strokeWidth="2"/>
-                  </svg>
+                <div className="w-11 h-11 bg-bb-forest text-bb-paper rounded-xl flex items-center justify-center border border-white/10">
+                  <BonBoxMark size={36} />
                 </div>
                 <span className="text-xl font-bold text-white">Bon<span className="text-gray-300">Box</span></span>
               </div>

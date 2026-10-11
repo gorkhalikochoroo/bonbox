@@ -52,9 +52,9 @@ export default function NavV2() {
         <a href="#top" className="flex items-center gap-2.5" onClick={close}>
           <span
             aria-hidden="true"
-            className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[9px] bg-bb-green"
+            className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[9px] bg-bb-forest"
           >
-            <BonBoxMark size={16} strokeWidth={2} className="text-white" />
+            <BonBoxMark size={24} className="text-bb-paper" />
           </span>
           <span className="font-display text-[19px] font-bold tracking-[-0.025em] text-slate-900">
             BonBox

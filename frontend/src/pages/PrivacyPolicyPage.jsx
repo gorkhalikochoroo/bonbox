@@ -6,6 +6,7 @@ import { CookieSettingsButton } from "../components/CookieConsent";
 // pages can never show different dates. If the policy ever changes on its
 // own, give it its own constant there.
 import { TERMS_VERSION, termsDate } from "../legal/terms";
+import BonBoxMark from "../components/BonBoxMark";
 
 function Section({ title, children }) {
   return (
@@ -613,12 +614,8 @@ export default function PrivacyPolicyPage() {
       <nav className="bg-slate-950 border-b border-white/5">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3">
-            <div className="inline-flex items-center justify-center w-10 h-10 bg-white/10 rounded-xl">
-              <svg width="24" height="24" viewBox="0 0 28 28" fill="none">
-                <rect x="4" y="2" width="20" height="24" rx="3" stroke="white" strokeWidth="2" />
-                <path d="M9 8h10M9 12h10M9 16h6" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-                <path d="M4 20h20" stroke="#FCD34D" strokeWidth="2" />
-              </svg>
+            <div className="inline-flex items-center justify-center w-10 h-10 bg-bb-forest text-bb-paper rounded-xl">
+              <BonBoxMark size={32} />
             </div>
             <span className="text-xl font-bold text-white tracking-tight">BonBox</span>
           </Link>

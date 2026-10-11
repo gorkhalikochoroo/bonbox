@@ -74,6 +74,7 @@ import {
   // Proof-tile + trust glyphs.
   Users, FileCheck, Globe, Server, BookCheck,
 } from "lucide-react";
+import BonBoxMark from "../components/BonBoxMark";
 
 // tx(t, key, fallback) — wrapper around the i18n t() helper that falls
 // back to the supplied default when the key isn't present in any locale.
@@ -1043,11 +1044,8 @@ export default function LandingPage() {
       >
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="4" y="3" width="16" height="18" rx="2" />
-                <path d="M8 8h8M8 12h8M8 16h5" />
-              </svg>
+            <div className="w-8 h-8 bg-bb-forest text-bb-paper rounded-lg flex items-center justify-center">
+              <BonBoxMark size={26} />
             </div>
             <span className="text-[16px] font-semibold tracking-tight text-gray-900">BonBox</span>
           </Link>
@@ -1704,11 +1702,8 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-5">
             <Link to="/" className="flex items-center gap-2.5">
-              <div className="w-7 h-7 bg-emerald-600 rounded-lg flex items-center justify-center">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="4" y="3" width="16" height="18" rx="2" />
-                  <path d="M8 8h8M8 12h8M8 16h5" />
-                </svg>
+              <div className="w-7 h-7 bg-bb-forest text-bb-paper rounded-lg flex items-center justify-center">
+                <BonBoxMark size={22} />
               </div>
               <span className="text-[15px] font-semibold tracking-tight text-gray-900">BonBox</span>
             </Link>

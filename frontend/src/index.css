@@ -47,6 +47,13 @@
   --color-bb-green-edge: #86EFAC;
   --color-bb-green-icon: #F0FDF4;
 
+  /* The logo, and only the logo (kit: docs/brand/README.md). Forest tile,
+     paper b, in every theme — a logo that changes hue is a different logo.
+     Paper on forest measures 11.6:1. Not "paper" above: that is the floor
+     plan's floor, a different warm white. */
+  --color-bb-forest: #093A26;
+  --color-bb-paper: #F6F4EC;
+
   --font-display: "Hanken Grotesk", system-ui, sans-serif;
   /* Inter, not the handoff's Inter Tight (dropped 8 Oct 2026 — see main.jsx):
      one text face from the landing through /register, /join, the staff
@@ -967,11 +974,14 @@ body.modal-open {
    THE STOPS THE CHROME NEEDS — four, each with a live consumer. Two of them
    FLIP in dark, because one fixed green cannot pass AA on both grounds:
 
-     --brand-green         emerald-600.  The mark. Same in both themes on
-                           purpose: a logo that changes hue is a different
-                           logo. White glyph on it measures 3.77:1 (AA
-                           non-text floor is 3:1).
-     --brand-green-on      white. The ink on the mark.
+     --brand-green         emerald-600.  The filled AI-avatar tile (it was
+                           the logo tile until the 11-Oct-2026 logo kit; the
+                           logo now draws on --color-bb-forest/-paper in the
+                           @theme block). Same in both themes on purpose.
+                           White glyph on it measures 3.77:1 (AA non-text
+                           floor is 3:1).
+     --brand-green-on      white. The ink on that tile (kept for the tile
+                           contract; the logo no longer reads it).
      --brand-green-accent  rail · dot · focus ring · AI glyph. emerald-600 in
                            light, emerald-400 in dark. The old fixed
                            emerald-500 FAILED the 3:1 non-text floor in light:
@@ -987,7 +997,8 @@ body.modal-open {
    The favicon historically shipped #22c55e (green-500) — slightly lighter and
    warmer. We standardize on emerald-600 because every existing primitive
    (Button.accent, StatCard.success, Check icon, UpgradeNudge) is already on
-   the emerald scale. Migrating the favicon is a separate cosmetic pass.
+   the emerald scale. The logo itself (favicon, app icons, logo tiles) left the
+   green scale on 11 Oct 2026: forest tile, paper b — docs/brand/README.md.
 
    Reference: docs/architecture/design-system-doctrine.md (#164)
    ═══════════════════════════════════════════════════════════════════════ */

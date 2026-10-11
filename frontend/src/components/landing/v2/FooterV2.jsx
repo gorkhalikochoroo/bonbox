@@ -87,9 +87,9 @@ export default function FooterV2() {
           <div className="mb-3 flex items-center gap-2.5">
             <span
               aria-hidden="true"
-              className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-bb-green"
+              className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-bb-forest"
             >
-              <BonBoxMark size={15} strokeWidth={2} className="text-white" />
+              <BonBoxMark size={22} className="text-bb-paper" />
             </span>
             <span className="font-display text-[18px] font-bold tracking-[-0.025em] text-slate-900">
               BonBox

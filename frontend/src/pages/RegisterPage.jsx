@@ -13,6 +13,7 @@ import AppleSignInButton from "../components/AppleSignInButton";
 // Privatlivspolitik." (LEG-11 / PQ-03).
 import SignupTermsLine from "../components/SignupTermsLine";
 import { rememberVerifySkip } from "../utils/verifySkip";
+import BonBoxMark from "../components/BonBoxMark";
 
 /* Inline SVG — growth / rocket scene for registration */
 function RegisterIllustration() {
@@ -383,17 +384,12 @@ export default function RegisterPage() {
           <div className="w-full max-w-md" style={{ animation: "slideUp 0.5s ease-out" }}>
             {/* Logo + heading */}
             <div className="mb-6">
-              {/* Brand mark — emerald-600 tile per the "BRAND GREEN" token
-                  contract. Same shape as the sidebar + landing logo so the
-                  user sees the same brand mark across every entry surface. */}
+              {/* Brand mark — the kit's forest tile with the paper b
+                  (docs/brand/README.md). Same tile as the sidebar + landing
+                  logo so the user sees one brand mark on every entry surface. */}
               <div className="flex items-center gap-3 mb-5">
-                <div className="w-10 h-10 bg-emerald-600 rounded-lg flex items-center justify-center">
-                  <svg width="20" height="20" viewBox="0 0 28 28" fill="none">
-                    <rect x="4" y="2" width="20" height="24" rx="3" stroke="currentColor"
-                          className="text-white" strokeWidth="2.2"/>
-                    <path d="M9 8h10M9 12h10M9 16h6" stroke="currentColor"
-                          className="text-white" strokeWidth="1.5" strokeLinecap="round"/>
-                  </svg>
+                <div className="w-10 h-10 bg-bb-forest text-bb-paper rounded-lg flex items-center justify-center">
+                  <BonBoxMark size={32} />
                 </div>
                 <span className="text-xl font-bold text-gray-800 dark:text-white">BonBox</span>
               </div>
