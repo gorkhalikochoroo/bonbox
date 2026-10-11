@@ -282,6 +282,15 @@ def _try_llm_triage(group_summary: dict) -> Optional[_TriageOutput]:
 # Layer 5 — fallback
 # ─────────────────────────────────────────────────────────────────
 
+def _money_floor(error_type: str | None, severity: str) -> str:
+    """A Billing:* row is a money incident (e.g. a customer billed twice):
+    one occurrence is already the worst case, so it is graded critical
+    whatever the count, and whatever an LLM said."""
+    if (error_type or "").startswith(_PER_INCIDENT_ERROR_PREFIXES):
+        return "critical"
+    return severity
+
+
 def _fallback_triage(group_summary: dict) -> _TriageOutput:
     """Deterministic note when the LLM is unreachable or rejected."""
     err_type = group_summary.get("error_type") or "Unknown error"
@@ -289,6 +298,7 @@ def _fallback_triage(group_summary: dict) -> _TriageOutput:
     count = int(group_summary.get("occurrence_count") or 1)
     affected = int(group_summary.get("affected_users") or 0)
     sev = "high" if count >= 50 else "medium" if count >= 5 else "low"
+    sev = _money_floor(group_summary.get("error_type"), sev)
     return _TriageOutput(
         probable_cause=f"{err_type} firing on {path}. Specific cause not analyzed (AI offline).",
         blast_radius=f"{count} occurrence(s), {affected} affected user(s) within the scan window.",
@@ -426,6 +436,7 @@ def run_triage(
         llm_out = _try_llm_triage(summary) if use_llm else None
         if llm_out is None:
             llm_out = _fallback_triage(summary)
+        llm_out.severity = _money_floor(summary["error_type"], llm_out.severity)
 
         note = TriageNote(
             fingerprint=fp,
