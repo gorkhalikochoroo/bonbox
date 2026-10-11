@@ -140,6 +140,12 @@ def test_a_failing_fleet_count_refuses_to_send(db, outbox, fleet_cap, monkeypatc
     assert "guest_mail_fleet" not in abuse_signals.drain()
 
 
-def test_the_default_sits_far_above_the_per_venue_ceiling():
-    assert settings.GUEST_EMAILS_FLEET_PER_DAY == 2000
-    assert settings.GUEST_EMAILS_FLEET_PER_DAY > mail.GUEST_EMAILS_PER_OWNER_PER_DAY
+def test_the_defaults_fit_the_resend_free_quota():
+    # Resend Free = 100 mails/day. The two fleet ceilings an attacker can
+    # drive (guest mails + sign-in links to unknown addresses) must leave
+    # room for verification, reset, staff and alert mail. On Free the fleet
+    # ceiling is the binding one, below the per-venue cap; raise both via
+    # env after an upgrade.
+    assert settings.GUEST_EMAILS_FLEET_PER_DAY == 40
+    assert settings.GUEST_EMAILS_FLEET_PER_DAY + settings.MAGIC_LINK_FLEET_MAX_PER_DAY <= 70
+    assert settings.GUEST_EMAILS_FLEET_PER_DAY > 3  # measured peak ~3/day stays untouched
