@@ -1507,3 +1507,32 @@ def test_photos_only_restore_reads_the_db_targets_tombstones_read_only(fernet, k
     with eng.connect() as c:                       # read only: the account row is untouched
         assert c.execute(text("SELECT count(*) FROM users")).scalar() == 1
     eng.dispose()
+
+
+def test_a_run_that_cannot_be_recorded_still_alerts_once(fernet, db_env, buckets, alerts, monkeypatch):
+    """Database unreachable when the run is saved: no incident row to say
+    "already alerted", so the job mails once per process until a run is
+    saved again — never every night."""
+    engine, Session = db_env
+    monkeypatch.setattr(bs, "_unrecorded_alerted", False)
+
+    class _NoCommit:
+        def __init__(self):
+            self.s = Session()
+
+        def commit(self):
+            raise RuntimeError("database unreachable")
+
+        def __getattr__(self, name):
+            return getattr(self.s, name)
+
+    for day in range(2):
+        bs._record(_NoCommit, {"status": "failed", "error_kinds": {"db:OperationalError": 1},
+                               "errors": [f"db: {UID_A}"]}, ok=False, error_type="backup:failed",
+                   run_now=NOW + timedelta(days=day))
+    assert len(alerts) == 1 and alerts[0]["subject"] == "BonBox: nightly backup could not be recorded"
+    assert "  - db:OperationalError: 1" in alerts[0]["lines"] and UID_A not in _alert_text(alerts[0])
+    # saved again → armed again
+    assert _run(fernet, db_env, buckets)["status"] == "ok"
+    bs._record(_NoCommit, {"status": "failed"}, ok=False, error_type="backup:failed")
+    assert len(alerts) == 2

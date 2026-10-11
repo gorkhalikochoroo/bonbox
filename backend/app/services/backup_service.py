@@ -827,6 +827,9 @@ def _summary_json(summary: dict, limit: int = 8000) -> str:
                                   "bucket_private")}, default=str)[:limit]
 
 
+_unrecorded_alerted = False      # see _record: once per process while runs can't be saved
+
+
 def _record(session_factory, summary: dict, ok: bool, error_type: str,
             run_now: Optional[datetime] = None) -> None:
     """MonitorState row (service="nightly_backup") + an ErrorLog row on failure,
@@ -834,6 +837,7 @@ def _record(session_factory, summary: dict, ok: bool, error_type: str,
     holds counts and already-redacted error strings only. The state is
     committed BEFORE an alert is sent, so a crash or a slow mail server can
     never make the next run alert the same incident again."""
+    global _unrecorded_alerted
     from app.models.error_log import ErrorLog
     from app.models.monitor_state import MonitorState
     try:
@@ -901,6 +905,21 @@ def _record(session_factory, summary: dict, ok: bool, error_type: str,
             db.rollback()
         except Exception:  # noqa: BLE001
             pass
+        # Without the row there is no incident state to say "already
+        # alerted", and the stale watch reads the same database. Mail once
+        # per process until a run is recorded again (email needs no DB).
+        if not _unrecorded_alerted:
+            _unrecorded_alerted = True
+            alert = ("BonBox: nightly backup could not be recorded",
+                     [f"The nightly off-project backup ended with status '{summary.get('status')}' at "
+                      f"{(run_now or utc_now()).strftime('%Y-%m-%d %H:%M')} UTC, but its result could "
+                      "not be saved (database unreachable?).",
+                      "What failed (kinds and counts only):"]
+                     + (_kind_lines(summary.get("error_kinds")) or ["  - (none)"])
+                     + [f"Status: {HEALTH_URL}", "You get this once until a run is saved again."],
+                     "BonBox: backup result not saved", "The nightly backup could not record its result.")
+    else:
+        _unrecorded_alerted = False
     try:
         if alert:
             _notify(db, *alert)
