@@ -253,7 +253,7 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
           </p>
         </div>
       </div>
-      <div className="text-gray-700 dark:text-gray-300 [--tt-bg:#ffffff] dark:[--tt-bg:#111827] [--tt-border:#E5E7EB] dark:[--tt-border:#374151] [--tt-ink:#111827] dark:[--tt-ink:#F3F4F6]">
+      <div className="text-gray-700 dark:text-gray-300 [--tt-bg:#ffffff] dark:[--tt-bg:rgb(var(--surface-raised))] [--tt-border:#E5E7EB] dark:[--tt-border:rgb(var(--surface-line-strong))] [--tt-ink:#111827] dark:[--tt-ink:#F3F4F6] [--tt-label:#6B7280] dark:[--tt-label:#9CA3AF] dark:[--tt-shadow:0_4px_12px_rgb(0_0_0/0.4)]">
       <ResponsiveContainer width="100%" height={220}>
         <AreaChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(156,163,175,0.15)" />
@@ -283,10 +283,10 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
               background: "var(--tt-bg)",
               border: "1px solid var(--tt-border)",
               borderRadius: 8,
-              boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+              boxShadow: "var(--tt-shadow, 0 1px 2px rgba(0,0,0,0.04))",
               padding: "8px 12px",
             }}
-            labelStyle={{ color: "#6B7280", fontSize: 11, fontWeight: 500, marginBottom: 2, textTransform: "none" }}
+            labelStyle={{ color: "var(--tt-label)", fontSize: 11, fontWeight: 500, marginBottom: 2, textTransform: "none" }}
             itemStyle={{ color: "var(--tt-ink)", fontSize: 13, fontWeight: 600, padding: 0 }}
             formatter={(v) => [formatKr(v, { decimals: 0 }), t("revenue", "Revenue")]}
             labelFormatter={(label) => fmtTrendDate(label, lang)}

@@ -62,7 +62,7 @@ export default function ProfitAnswerCard({ ctx = {} }) {
   })();
 
   const eyebrow = (
-    <div className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2.5">
+    <div className="text-[11px] uppercase tracking-wider text-gray-400 mb-2.5">
       {t("profitEyebrow", "How it's going")} · {monthName}
     </div>
   );
@@ -174,18 +174,18 @@ export default function ProfitAnswerCard({ ctx = {} }) {
         </div>
         <div className="flex h-7 rounded-lg overflow-hidden bg-gray-100 dark:bg-[rgb(var(--surface-subtle))]">
           <div
-            className="bg-red-500 dark:bg-red-600"
+            className="bg-red-500 dark:bg-red-500/80"
             style={{ width: `${expensePct}%`, minWidth: expenses > 0 ? 4 : 0 }}
           />
           {/* Amber, the same colour the MOMS footnote already uses — this is
               money the owner is holding, not money they earned. */}
           {momsPct > 0 && (
             <div
-              className="bg-amber-500 dark:bg-amber-600"
+              className="bg-amber-500 dark:bg-amber-500/80"
               style={{ width: `${momsPct}%`, minWidth: 4 }}
             />
           )}
-          <div className="bg-emerald-500 dark:bg-emerald-600" style={{ width: `${profitPct}%` }} />
+          <div className="bg-emerald-500 dark:bg-emerald-500/80" style={{ width: `${profitPct}%` }} />
         </div>
         <div className="flex justify-between text-xs mt-1.5 tabular-nums gap-3">
           <span className="text-red-600 dark:text-red-400">
