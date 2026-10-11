@@ -25,7 +25,7 @@ Secrets come from the environment only — never type them on a command line
     venv/bin/python scripts/restore_from_backup.py --dry-run          # latest export + all photos
     venv/bin/python scripts/restore_from_backup.py --dry-run --export 2026-10-12T042000Z
     read -rs RESTORE_DB_TARGET_URL && export RESTORE_DB_TARGET_URL    # postgresql://…
-    venv/bin/python scripts/restore_from_backup.py --skip-photos --reapply-erasures \
+    venv/bin/python scripts/restore_from_backup.py --skip-photos --reapply-erasures \\
           --confirm-target 127.0.0.1/restore_drill
 
 The DB target is RESTORE_DB_TARGET_URL (or --db-target, which puts the
