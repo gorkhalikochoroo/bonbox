@@ -1536,3 +1536,66 @@ def test_a_run_that_cannot_be_recorded_still_alerts_once(fernet, db_env, buckets
     assert _run(fernet, db_env, buckets)["status"] == "ok"
     bs._record(_NoCommit, {"status": "failed"}, ok=False, error_type="backup:failed")
     assert len(alerts) == 2
+
+
+# ── second review round (Oct 11) ─────────────────────────────────────────
+
+_URL_PASSWORDS = ["Sup3rS3cret@Frag2Zq9", "Ab%ZZsecretTail9", "Xq/fixSecret77pw", "Hash#secretPart42"]
+
+
+@pytest.mark.parametrize("password", _URL_PASSWORDS)
+def test_restore_never_prints_a_db_password_from_a_malformed_url(fernet, key, db_env, buckets,
+                                                                 capsys, password):
+    """libpq and SQLAlchemy quote the part of a URL they cannot parse, so a
+    password with an unencoded @ % / # used to be printed (and the runbook
+    says to paste failures to Claude). The script refuses such a URL by
+    name, says to URL-encode the password, and scrubs every line it prints."""
+    import re as _re
+    _, dst = buckets
+    _run(fernet, db_env, buckets)
+    url = f"postgresql://postgres:{password}@127.0.0.1:1/restore_drill"
+    pieces = [password] + [p for p in _re.split(r"[@%/#?:]", password) if len(p) >= 4]
+    runs = (
+        (["--dry-run", "--skip-photos"], {"RESTORE_DB_TARGET_URL": url}),
+        (["--dry-run", "--skip-photos", "--reapply-erasures"], {"RESTORE_DB_TARGET_URL": url}),
+        (["--skip-db", "--skip-photos", "--reapply-erasures", "--confirm-target",
+          "127.0.0.1/restore_drill"], {"RESTORE_DB_TARGET_URL": url}),
+        (["--dry-run", "--skip-db", "--skip-photos", "--reapply-erasures"],
+         {"ERASURE_SOURCE_DATABASE_URL": url}),
+        (["--dry-run", "--skip-photos", "--db-target", url], {}),
+    )
+    for argv, extra in runs:
+        rc = restore.main(argv + ["--source-dir", str(dst.root)],
+                          env={"BACKUP_ENCRYPTION_KEY": key, **extra})
+        cap = capsys.readouterr()
+        assert rc == 1, argv
+        for p in pieces:
+            assert p not in cap.out + cap.err, (argv, p)
+        assert "URL-encode" in cap.out, (argv, cap.out)
+
+
+def test_restore_scrubs_a_password_from_any_connection_error(fernet, key, db_env, buckets, capsys,
+                                                             monkeypatch):
+    """A well-formed URL whose connection fails: the error names the host and
+    a plain reason, never the password — even if a driver quoted it."""
+    import psycopg2
+    _, dst = buckets
+    _run(fernet, db_env, buckets)
+    pw = "WellFormedButSecret123"
+    url = f"postgresql://postgres:{pw}@db.example.test:5432/restore_drill"
+
+    def leaky_connect(*a, **k):
+        raise psycopg2.OperationalError(f'connection to "{url}" failed: password authentication '
+                                        f'failed for user "postgres" ({pw})')
+
+    monkeypatch.setattr(psycopg2, "connect", leaky_connect)
+    rc = restore.main(["--dry-run", "--skip-photos", "--source-dir", str(dst.root)],
+                      env={"BACKUP_ENCRYPTION_KEY": key, "RESTORE_DB_TARGET_URL": url})
+    out = capsys.readouterr().out
+    assert rc == 1 and pw not in out
+    assert "db.example.test" in out and "wrong user name or password" in out
+    # any other printed line is scrubbed too (defence in depth)
+    restore._set_scrub_terms({"RESTORE_DB_TARGET_URL": url}, restore.build_parser().parse_args([]))
+    restore._say(f"boom: {url} / {pw}")
+    out = capsys.readouterr().out
+    assert pw not in out and "***" in out

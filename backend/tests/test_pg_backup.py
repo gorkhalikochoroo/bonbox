@@ -499,3 +499,52 @@ def test_pg_restore_reapplies_erasures_on_the_real_schema(tmp_path, monkeypatch,
             for n in names.values():
                 c.execute(sa.text(f'DROP DATABASE IF EXISTS "{n}" WITH (FORCE)'))
         admin.dispose()
+
+
+def test_pg_restore_takes_a_url_encoded_password_and_never_prints_one(pg, backup, capsys):
+    """A password with @ / % # ? : and a space (second review round, Oct 11):
+    URL-encoded, both drivers connect (psycopg2 for the DB target,
+    SQLAlchemy for ERASURE_SOURCE_DATABASE_URL); unencoded, the script
+    refuses it by name and says to URL-encode it; a wrong one gives a plain
+    reason. No run prints any piece of the password."""
+    import re
+    from urllib.parse import quote
+    tag = uuid.uuid4().hex[:8]
+    role, pw = f"bk_pw_{tag}", f"Ab@cd/ef%gh#ij?kl:mn op{tag}"
+    dbname = pg["names"]["dst"]
+    admin = sa.create_engine(PG_URL, isolation_level="AUTOCOMMIT")
+    with admin.connect() as c:
+        c.execute(sa.text(f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{pw}'"))
+    with pg["engines"]["dst"].begin() as c:
+        c.execute(sa.text(f'GRANT SELECT ON erasure_tombstones TO "{role}"'))
+    try:
+        base = make_url(pg["urls"]["dst"])
+        at = f"@{base.host}:{base.port or 5432}/{dbname}"
+        good = f"postgresql://{role}:{quote(pw, safe='')}{at}"
+        raw = f"postgresql://{role}:{pw}{at}"
+        wrong = f"postgresql://{role}:{quote(pw + 'x', safe='')}{at}"
+        args = ["--dry-run", "--skip-photos", "--reapply-erasures",
+                "--source-dir", str(backup["dst"].root)]
+        pieces = [pw, quote(pw, safe="")] + [p for p in re.split(r"[@/%#?:\s]", pw) if len(p) >= 3]
+
+        def run(url):
+            rc = restore.main(args, env={**backup["env"], "RESTORE_DB_TARGET_URL": url,
+                                         "ERASURE_SOURCE_DATABASE_URL": url})
+            out = capsys.readouterr().out
+            for p in pieces:
+                assert p not in out, p
+            return rc, out
+
+        rc, out = run(good)
+        assert rc == 0, out[-1500:]
+        assert '"ERASURE_SOURCE_DATABASE_URL (read-only)": 0' in out and '"target": 0' in out
+        rc, out = run(raw)
+        assert rc == 1 and "URL-encode" in out
+        rc, out = run(wrong)
+        assert rc == 1 and "wrong user name or password" in out
+    finally:
+        with pg["engines"]["dst"].begin() as c:
+            c.execute(sa.text(f'REVOKE ALL ON erasure_tombstones FROM "{role}"'))
+        with admin.connect() as c:
+            c.execute(sa.text(f'DROP ROLE IF EXISTS "{role}"'))
+        admin.dispose()

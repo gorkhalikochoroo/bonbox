@@ -29,7 +29,11 @@ Secrets come from the environment only — never type them on a command line
           --confirm-target 127.0.0.1/restore_drill
 
 The DB target is RESTORE_DB_TARGET_URL (or --db-target, which puts the
-password in your shell history — avoid it).
+password in your shell history — avoid it). A password with @ / ? # % or a
+space must be URL-encoded in the URL (@ → %40, / → %2F, ? → %3F, # → %23,
+% → %25, space → %20); the script refuses such a URL by name. Nothing it
+prints carries a password or key: every line is scrubbed of the URLs' user
+info and passwords and of the keys in the environment.
 
 Safety:
   • A write needs --confirm-target equal to "<host>/<dbname>" (DB) or
@@ -60,9 +64,11 @@ import hashlib
 import json
 import mimetypes
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -114,8 +120,110 @@ def content_type_for(path: str) -> str:
             or "application/octet-stream")
 
 
+# ── secrets never printed ─────────────────────────────────────────────────
+# libpq and SQLAlchemy quote the part of a URL they cannot parse ('could not
+# translate host name "<end of password>@host"', 'invalid percent-encoded
+# token: "<password>"'), and the runbook says to paste failures to Claude.
+# So a URL whose user info needs URL-encoding is refused before any driver
+# sees it (_url_problem), a failed connect reports host + a plain reason only
+# (_connect_reason), and every printed line goes through _scrub.
+
+_URL_ENV = ("RESTORE_DB_TARGET_URL", "ERASURE_SOURCE_DATABASE_URL", "DATABASE_URL")
+_KEY_ENV = ("BACKUP_SUPABASE_SERVICE_KEY", "BACKUP_ENCRYPTION_KEY",
+            "BACKUP_ENCRYPTION_KEY_PREVIOUS", "RESTORE_TARGET_SUPABASE_SERVICE_KEY")
+_NEEDS_ENCODING = re.compile(r"[@/?#\s]|%(?![0-9A-Fa-f]{2})")
+_scrub_terms: list[str] = []
+
+
+def _userinfo(url: str) -> str:
+    """The raw 'user:password' of a URL: from '://' to the LAST '@' (a
+    password with an unencoded '@' or '/' still lands in it). '' when the
+    URL has no authority part (sqlite:///path, postgresql:///db)."""
+    rest = url.split("://", 1)[1] if "://" in url else ""
+    return "" if rest.startswith("/") else rest.rpartition("@")[0]
+
+
+def _url_secret_terms(url: str) -> list[str]:
+    info = _userinfo(url or "")
+    if not info:
+        return []
+    password = info.partition(":")[2]
+    # Drivers quote pieces of a password they split at @ / ? # % or :.
+    pieces = [p for pw in (password, unquote(password))
+              for p in re.split(r"[@/?#%:\s]", pw) if p]
+    return [url, info, password, unquote(password), *pieces]
+
+
+def _set_scrub_terms(env: dict, args) -> None:
+    terms = []
+    for url in (getattr(args, "db_target", None), *(env.get(n) for n in _URL_ENV)):
+        terms += _url_secret_terms((url or "").strip())
+    terms += [(env.get(n) or "").strip() for n in _KEY_ENV]
+    # Longest first; 3+ characters (shorter would blank ordinary words).
+    _scrub_terms[:] = sorted({t for t in terms if len(t) >= 3}, key=len, reverse=True)
+
+
+def _scrub(text) -> str:
+    text = str(text)
+    for t in _scrub_terms:
+        text = text.replace(t, "***")
+    return text
+
+
+def _scrub_obj(obj):
+    """_scrub every string in a JSON-able structure (before json.dumps, which
+    would escape a quote or a non-ASCII character in a password)."""
+    if isinstance(obj, dict):
+        return {k: _scrub_obj(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_scrub_obj(v) for v in obj]
+    return _scrub(obj) if isinstance(obj, str) else obj
+
+
+def _url_problem(url: str) -> str | None:
+    if _NEEDS_ENCODING.search(_userinfo(url or "")):
+        return ("the user name or password has a character that must be URL-encoded "
+                "(@ / ? # % or a space). URL-encode the password in the URL (@ -> %40, "
+                "/ -> %2F, ? -> %3F, # -> %23, % -> %25, space -> %20; runbook section 4) "
+                "and try again")
+    return None
+
+
+def _host_db(url: str) -> str:
+    """'<host>/<dbname>' of a URL, for messages (never the user info)."""
+    try:
+        u = urlsplit(_pg_url(url))
+        return f"{u.hostname or 'localhost'}/{u.path.lstrip('/') or '?'}"
+    except ValueError:
+        return "the database"
+
+
+_CONNECT_REASONS = (
+    ("password authentication failed", "wrong user name or password"),
+    ("could not translate host name", "host name not found"),
+    ("nodename nor servname", "host name not found"),
+    ("name or service not known", "host name not found"),
+    ("timeout expired", "timed out"),
+    ("connection refused", "connection refused (nothing listens on that host and port)"),
+    ("no pg_hba.conf entry", "the server does not accept this login from here"),
+    ("does not exist", "the database or user does not exist"),
+    ("ssl", "SSL problem"),
+    ("tenant or user not found", "wrong user name for this pooler (postgres.<project ref>)"),
+)
+
+
+def _connect_reason(e: BaseException) -> str:
+    """A plain reason from a fixed list — never the driver's own text, which
+    may quote part of the URL."""
+    msg = str(e).lower()
+    for needle, reason in _CONNECT_REASONS:
+        if needle in msg:
+            return reason
+    return "see the error type"
+
+
 def _say(msg: str) -> None:
-    print(msg, flush=True)
+    print(_scrub(msg), flush=True)
 
 
 def _pg_url(url: str) -> str:
@@ -166,7 +274,13 @@ def run_db(bucket, fernet, args, env, ctx: dict | None = None) -> dict:
         if why:
             return {**out, "error": f"refused: {why}"}
         import psycopg2
-        target_conn = psycopg2.connect(_pg_url(target), connect_timeout=10)
+        try:
+            target_conn = psycopg2.connect(_pg_url(target), connect_timeout=10)
+        except Exception as e:  # noqa: BLE001 — host + a plain reason, never the URL
+            error = (f"could not connect to the DB target {_host_db(target)}: "
+                     f"{type(e).__name__} ({_connect_reason(e)})")
+            _say(f"  {error}")
+            return {**out, "error": error}
         where = f"{target_conn.info.host}/{target_conn.info.dbname}"
         if MAIN_PROJECT_REF in (target_conn.info.host or "") or MAIN_PROJECT_REF in (target_conn.info.user or ""):
             target_conn.close()
@@ -280,11 +394,16 @@ def run_erasures(bucket, fernet, args, env, ctx: dict | None = None) -> dict:
 
     live = (env.get("ERASURE_SOURCE_DATABASE_URL") or "").strip()
     if live:
-        eng = _engine_for(live)
         try:
-            t = tombstones_from_engine(eng)
-        finally:
-            eng.dispose()
+            eng = _engine_for(live)
+            try:
+                t = tombstones_from_engine(eng)
+            finally:
+                eng.dispose()
+        except Exception as e:  # noqa: BLE001 — host + a plain reason, never the URL
+            return {**out, "error": "could not read erasure_tombstones from "
+                                    f"ERASURE_SOURCE_DATABASE_URL ({_host_db(live)}): "
+                                    f"{type(e).__name__} ({_connect_reason(e)})"}
         out["sources"]["ERASURE_SOURCE_DATABASE_URL (read-only)"] = len(t)
         found.append(t)
 
@@ -473,6 +592,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None, *, env=None, backup_bucket=None) -> int:
     env = dict(os.environ if env is None else env)
     args = build_parser().parse_args(argv)
+    _set_scrub_terms(env, args)
+    urls = [("--db-target" if args.db_target else "RESTORE_DB_TARGET_URL", _db_target(args, env))]
+    if args.reapply_erasures:
+        urls.append(("ERASURE_SOURCE_DATABASE_URL",
+                     (env.get("ERASURE_SOURCE_DATABASE_URL") or "").strip()))
+    for name, url in urls:
+        problem = _url_problem(url)
+        if problem:
+            _say(f"error: {name}: {problem}")
+            return 1
     try:
         fernet = load_backup_fernet(env.get("BACKUP_ENCRYPTION_KEY", ""),
                                     env.get("BACKUP_ENCRYPTION_KEY_PREVIOUS", ""))
@@ -521,7 +650,7 @@ def main(argv=None, *, env=None, backup_bucket=None) -> int:
             _say(f"{part}: FAILED: {summary[part]['error']}")
     ok = all(v.get("ok") for k, v in summary.items() if isinstance(v, dict))
     summary["ok"] = ok
-    _say(json.dumps(summary, indent=1, default=str))
+    _say(json.dumps(_scrub_obj(summary), indent=1, default=str))
     return 0 if ok else 1
 
 
