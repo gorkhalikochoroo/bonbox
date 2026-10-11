@@ -136,6 +136,7 @@ function PrivacyEn() {
             <li>IP address — kept in our error log for 30 days, and in the change log and the security log with no end date (see &ldquo;How long we keep your data&rdquo;)</li>
             <li>Browser type and version</li>
             <li>Device type (desktop, mobile, tablet)</li>
+            <li data-testid="privacy-last-seen">When your account was last used — one timestamp. Our server records it when you sign in and updates it at most once every 5 minutes while you use BonBox, also when Analytics is off or paused. Each new value replaces the old one. It is used for support and to see which accounts are in use; only the founder sees it, in BonBox&rsquo;s admin view. It is kept until you delete your account and is included in your data export.</li>
           </ul>
           <p className="mt-1">We do not use third-party tracking cookies. We do not use Google Analytics, Meta Pixel, or similar advertising trackers.</p>
           <p className="mt-1" data-testid="privacy-own-settings">Settings you choose yourself in BonBox (for example light/dark theme and dismissed tips) are stored on your device because they are necessary for what you asked BonBox to do. They are not used for anything else (see the <Link to="/cookies" className="text-blue-600 dark:text-blue-400 hover:underline">Cookie Policy</Link>).</p>
@@ -242,6 +243,7 @@ function PrivacyEn() {
             headers={["Data type", "Retention period"]}
             rows={[
               ["Account data", "Until you delete your account"],
+              ["When your account was last used (one timestamp, replaced each time)", "Until you delete your account"],
               ["Campaign code from a printed flyer (on the account)", "Deleted 12 months after you create your account, or earlier if you delete your account"],
               ["Business profile (incl. logo)", "Until you delete your account"],
               ["Financial data (sales, expenses, inventory)", "Until you delete your account"],
@@ -410,6 +412,7 @@ function PrivacyDa() {
             <li>IP-adresse — den gemmes i vores fejllog i 30 dage og i ændringsloggen og sikkerhedsloggen uden en slutdato (se »Hvor længe vi opbevarer dine data«)</li>
             <li>Browsertype og -version</li>
             <li>Enhedstype (computer, mobil, tablet)</li>
+            <li data-testid="privacy-last-seen">Hvornår din konto sidst blev brugt — ét tidspunkt. Vores server registrerer det, når du logger ind, og opdaterer det højst én gang hvert 5. minut, mens du bruger BonBox, også når Analyse er slået fra eller sat på pause. Hver ny værdi erstatter den gamle. Det bruges til support og til at se, hvilke konti der er i brug; kun stifteren ser det, i BonBox&rsquo; administrationsvisning. Det opbevares, indtil du sletter din konto, og er med i din dataeksport.</li>
           </ul>
           <p className="mt-1">Vi bruger ikke sporingscookies fra tredjeparter. Vi bruger ikke Google Analytics, Meta Pixel eller lignende sporingsværktøjer til annoncering.</p>
           <p className="mt-1" data-testid="privacy-own-settings">Indstillinger, du selv vælger i BonBox (fx lyst/mørkt tema og tip, du har lukket), gemmes på din enhed, fordi de er nødvendige for det, du har bedt BonBox om. De bruges ikke til andet (se <Link to="/cookies" className="text-blue-600 dark:text-blue-400 hover:underline">cookiepolitikken</Link>).</p>
@@ -516,6 +519,7 @@ function PrivacyDa() {
             headers={["Datatype", "Opbevaringsperiode"]}
             rows={[
               ["Kontooplysninger", "Indtil du sletter din konto"],
+              ["Hvornår din konto sidst blev brugt (ét tidspunkt, der erstattes hver gang)", "Indtil du sletter din konto"],
               ["Kampagnekode fra en trykt folder (på kontoen)", "Slettes 12 måneder efter, at du har oprettet din konto, eller tidligere, hvis du sletter kontoen"],
               ["Virksomhedsprofil (inkl. logo)", "Indtil du sletter din konto"],
               ["Økonomiske data (salg, udgifter, lager)", "Indtil du sletter din konto"],

@@ -228,7 +228,11 @@ class User(Base):
     # (services/last_seen.py). The super-admin "Last seen" column reads it, so
     # it does not depend on the browser's analytics consent the way
     # event_logs does. NULL = not seen since the column was added. Kept for
-    # the account's lifetime and deleted with it.
+    # the account's lifetime and deleted with it. Disclosed on /privacy under
+    # Technical data (data-testid "privacy-last-seen"); change the two
+    # together. It is written WITHOUT analytics consent, so it is not an
+    # engagement signal: keep it out of thesis/engagement datasets for owners
+    # who declined or paused Analytics.
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # ── Migration 016 — receipt-forwarding email inbox (v0.1) ──
     # `inbox_alias` is the user-facing unique address (`nepali-7k4q` in
