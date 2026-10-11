@@ -1,0 +1,16 @@
+/*
+  Vagtplan (staff app) - permission prompts in Danish.
+  Same meaning as en.lproj/InfoPlist.strings and Info.plist. Keep them in step.
+*/
+
+/* Camera: a photo to send in a message (Beskeder) */
+"NSCameraUsageDescription" = "Vagtplan bruger kameraet, så du kan tage et billede og sende det i en besked til din arbejdsplads.";
+
+/* Photo library: attach a photo to a message */
+"NSPhotoLibraryUsageDescription" = "Vagtplan skal have adgang til dine billeder, så du kan vedhæfte et billede til en besked.";
+
+/* Photo library, add only: save a photo */
+"NSPhotoLibraryAddUsageDescription" = "Vagtplan skal have lov til at gemme et billede i dit fotobibliotek.";
+
+/* Location: read only at clock-in, when the workplace has turned on the location check */
+"NSLocationWhenInUseUsageDescription" = "Vagtplan bruger kun din placering, når du stempler ind, til at bekræfte, at du er på din arbejdsplads. Appen følger aldrig din placering i baggrunden, og din placering bliver aldrig gemt.";
