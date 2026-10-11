@@ -75,6 +75,29 @@ TOOL_MAP = {
 
 NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 
+# Push 3 (Manoj, 11 Oct 2026): the Copilot sends names, figures and shifts
+# to Anthropic, never a phone number or an e-mail address (/privacy says so).
+# The tools return none (services/agent_tools.py). This is the second
+# barrier: every tool result passes through strip_contact_fields() before it
+# is streamed to the page or sent back to the model as a tool_result, so a
+# future tool that adds a contact field cannot leak it.
+_CONTACT_KEY_PARTS = ("phone", "email", "e_mail", "mobile")
+
+
+def strip_contact_fields(value):
+    """A copy of `value` without any dict key that names a phone number or an
+    e-mail address (any key containing phone / email / e_mail / mobile, any
+    case), at any depth. Names, figures and shifts are kept."""
+    if isinstance(value, dict):
+        return {
+            k: strip_contact_fields(v)
+            for k, v in value.items()
+            if not (isinstance(k, str) and any(p in k.lower() for p in _CONTACT_KEY_PARTS))
+        }
+    if isinstance(value, (list, tuple)):
+        return [strip_contact_fields(v) for v in value]
+    return value
+
 # Copilot tool loop cap (OPS-02). The loop was `while True`: a model that
 # kept asking for tools kept the request (and a paid call per round) going
 # with no bound. After this many rounds of tool results, a further tool
@@ -676,6 +699,7 @@ def agent_chat(
                 result = await run_in_threadpool(tool_fn, db, user.id)
             else:
                 result = await run_in_threadpool(tool_fn, db, user.id, **kwargs)
+            result = strip_contact_fields(result)
 
             # Send tool result (for data cards)
             yield (
@@ -1053,6 +1077,8 @@ def _claude_chat(req: ChatRequest, db, user):
                                 result = await run_in_threadpool(tool_fn, db, user.id)
                             else:
                                 result = await run_in_threadpool(tool_fn, db, user.id, **tool_input)
+                            # Never a phone number or e-mail to Anthropic.
+                            result = strip_contact_fields(result)
                             yield f"event: tool_result\ndata: {json.dumps({'tool': tool_name, 'result': result})}\n\n"
                             tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": json.dumps(result)})
                         except Exception as e:

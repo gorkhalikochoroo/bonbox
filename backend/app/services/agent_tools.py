@@ -8,6 +8,12 @@ returns a dict with two keys:
 
 All queries filter by user_id and exclude soft-deleted rows
 (is_deleted.isnot(True)) where the model supports it.
+
+Every result is sent to Anthropic's API as a tool_result (routers/agent.py).
+So no tool returns a phone number or an e-mail address (Push 3, Manoj,
+11 Oct 2026: names, figures and shifts only — /privacy says so). The router
+also strips CONTACT_FIELDS from every result before it leaves the server,
+in case a future tool adds one.
 """
 
 from datetime import date, timedelta
@@ -613,7 +619,9 @@ def query_khata(
         customer_list.append({
             "id": str(cust.id),
             "name": cust.name,
-            "phone": cust.phone,
+            # No "phone": every tool result goes to Anthropic as a tool_result
+            # (routers/agent.py). Push 3 (Manoj, 11 Oct 2026): the Copilot
+            # sends names and figures, never phone numbers or e-mail addresses.
             "total_purchased": purchased,
             "total_paid": paid,
             "outstanding": outstanding,
@@ -874,8 +882,8 @@ def query_staff(db: Session, user_id: UUID) -> dict:
             "name": m.name,
             "role": m.role,
             "contract_type": m.contract_type,
-            "phone": m.phone,
-            "email": m.email,
+            # No "phone" / "email": this result is sent to Anthropic (see
+            # query_khata). Names, roles and shifts are what the answers need.
         })
         staff_ids.append(m.id)
 
