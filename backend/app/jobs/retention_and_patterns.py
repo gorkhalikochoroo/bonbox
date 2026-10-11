@@ -124,13 +124,19 @@ ERROR_LOG_RETENTION_DAYS = 30
 
 def purge_old_error_logs(days: int = ERROR_LOG_RETENTION_DAYS) -> int:
     """Delete error_logs older than `days` — technical logs, kept 30 days
-    per the privacy policy. Returns the number of rows deleted."""
+    per the privacy policy. Returns the number of error_logs rows deleted.
+
+    Triage notes go with them: a note copies text out of an error_logs row
+    (sample_message; LLM text on the manual path), and the 15-minute ops
+    triage writes notes continuously, so they keep the same 30 days."""
     from app.models.error_log import ErrorLog
+    from app.models.triage_note import TriageNote
 
     db: Session = SessionLocal()
     try:
         cutoff = utc_now() - timedelta(days=days)
         n = db.query(ErrorLog).filter(ErrorLog.created_at < cutoff).delete(synchronize_session=False)
+        db.query(TriageNote).filter(TriageNote.created_at < cutoff).delete(synchronize_session=False)
         # Rows written before paths were redacted can still hold a working
         # link token (/s/<token>, a stand link). Redact what remains.
         from app.utils.log_redact import redact_path

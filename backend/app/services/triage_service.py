@@ -312,6 +312,7 @@ def run_triage(
     since: datetime | None = None,
     until: datetime | None = None,
     use_llm: bool = True,
+    keep_sample_message: bool = True,
 ) -> TriageRunResult:
     """Scan the last `window_minutes` of error_logs, fingerprint, triage
     new groups, email admin. Returns counts and the new notes.
@@ -320,7 +321,11 @@ def run_triage(
     explicit watermark window instead: rows with since <= created_at < until
     (since clamped to at most 7 days back), and use_llm=False — the automatic
     path never sends error text to an LLM and never puts LLM text in an alert.
-    The manual /admin/run-triage default is unchanged."""
+    It also passes keep_sample_message=False: error_logs.message can echo guest
+    row values (names, phones, allergy notes) that sanitize() does not strip,
+    and error_logs are purged after 30 days, so the automatic path stores no
+    copy of it on the note (retention_and_patterns also purges notes at 30
+    days). The manual /admin/run-triage default is unchanged."""
     if since is not None:
         cutoff = max(since, utc_now() - timedelta(days=7))
         window_minutes = max(0, int((utc_now() - cutoff).total_seconds() // 60))
@@ -410,7 +415,7 @@ def run_triage(
             severity=llm_out.severity,
             error_type=summary["error_type"][:100],
             path_template=summary["path_template"][:500] if summary["path_template"] else None,
-            sample_message=summary["sample_message"][:1000],
+            sample_message=summary["sample_message"][:1000] if keep_sample_message else None,
             probable_cause=llm_out.probable_cause,
             blast_radius=llm_out.blast_radius,
             suggested_actions=llm_out.suggested_actions,

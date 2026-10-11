@@ -9,11 +9,19 @@ One tick:
   2. watermark = monitor_state row "ops_triage": the window is
      [last_check_at, now - 30 s), at most 24 h back (the 30 s lag absorbs
      in-flight commits; the first tick looks back 24 h);
-  3. run_triage(..., send_emails=False, use_llm=False) — deterministic notes,
-     no LLM call, no error text leaves the server;
-  4. new notes -> ONE digest through ops_alert.send_ops_alert (which owns
-     dedupe, cooldown, the daily cap and the PII guard). TriageNote's own 24 h
-     cooldown means a fingerprint appears in at most one digest per 24 h;
+  3. run_triage(..., send_emails=False, use_llm=False, keep_sample_message=False)
+     — deterministic notes, no LLM call, no error text leaves the server, and
+     no copy of the error message is stored on the note;
+  4. every note of the last 24 h that has not reached the operator yet
+     (email_sent False: this tick's new notes, plus any whose digest was
+     FAILED or CAPPED, or whose tick failed after the notes were written)
+     -> ONE digest through ops_alert.send_ops_alert (which owns dedupe,
+     cooldown, the daily cap and the PII guard). Only a SENT digest marks its
+     notes email_sent=True; anything else leaves them for the next tick, so a
+     Resend outage or a capped day delays a group instead of losing it. The
+     daily cap bounds the retries; after 24 h a note is no longer re-offered
+     (TriageNote's own 24 h cooldown then lets a recurring group open a new
+     note);
   5. standing check: storage durability (alert at most once per 24 h);
   6. advance the watermark.
 
@@ -38,6 +46,10 @@ _SERVICE = "ops_triage"
 _LAG = timedelta(seconds=30)
 _LOOKBACK = timedelta(hours=24)
 _MAX_DIGEST_LINES = 10
+# A note not yet delivered is re-offered for this long after it was written.
+_RETRY_WINDOW = timedelta(hours=24)
+# Bound on the notes one digest carries (run_triage writes at most 20 a tick).
+_MAX_DIGEST_NOTES = 200
 
 
 def run_ops_triage_tick() -> dict:
@@ -58,25 +70,37 @@ def run_ops_triage_tick() -> dict:
 
         from app.services.triage_service import run_triage
 
-        res = run_triage(db, since=since, until=upper, send_emails=False, use_llm=False)
-        notes = list(res.new_notes or [])
+        res = run_triage(db, since=since, until=upper, send_emails=False, use_llm=False,
+                         keep_sample_message=False)
+        new_count = len(res.new_notes or [])
+        notes = _undelivered_notes(db, upper)
         digest = None
         if notes:
             digest = ops_alert.send_ops_alert(
-                "triage:" + ",".join(sorted(n.fingerprint for n in notes)),
+                "triage:" + ",".join(sorted({n.fingerprint for n in notes})),
                 f"{len(notes)} new error group(s) on prod",
                 _digest_lines(res, notes),
             )
+            if digest is ops_alert.AlertOutcome.SENT:
+                # Only a delivered digest closes its groups. FAILED, CAPPED,
+                # COOLDOWN, DISABLED and NO_RECIPIENT leave them for the next tick.
+                for n in notes:
+                    n.email_sent = True
+                db.commit()
 
         storage = _storage_standing_check()
 
         st.last_check_at = upper
-        st.last_summary = f"rows={res.error_count} new={len(notes)} skipped={res.skipped_count}"
+        st.last_summary = (
+            f"rows={res.error_count} new={new_count} skipped={res.skipped_count} "
+            f"digest={digest.value if digest is not None else '-'}"
+        )
         db.commit()
         return {
             "rows": res.error_count,
-            "new_notes": len(notes),
+            "new_notes": new_count,
             "skipped": res.skipped_count,
+            "digest_groups": len(notes),
             "digest": digest.value if digest is not None else None,
             "storage": storage,
         }
@@ -98,6 +122,24 @@ def run_ops_triage_tick() -> dict:
                 db.close()
             except Exception:  # noqa: BLE001
                 pass
+
+
+def _undelivered_notes(db, now) -> list:
+    """Notes of the last 24 h that no digest has delivered yet, oldest first.
+    Includes notes written by a manual /admin/run-triage whose own e-mail
+    did not go out."""
+    from app.models.triage_note import TriageNote
+
+    return (
+        db.query(TriageNote)
+        .filter(
+            TriageNote.email_sent.is_(False),
+            TriageNote.created_at >= now - _RETRY_WINDOW,
+        )
+        .order_by(TriageNote.created_at.asc(), TriageNote.fingerprint.asc())
+        .limit(_MAX_DIGEST_NOTES)
+        .all()
+    )
 
 
 def _load_or_create(db):

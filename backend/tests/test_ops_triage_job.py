@@ -4,7 +4,10 @@ Pins: production-only; one digest per tick with group lines only (no error
 messages, so no guest names or allergy notes); CLIENT beacon rows excluded;
 a watermark that never double-counts; no LLM on the automatic path; the
 storage standing check; a failing tick alerts directly and does not advance
-the watermark; and the manual run_triage's honest email_sent flag.
+the watermark; and the manual run_triage's honest email_sent flag. Fix round:
+a digest that is not SENT (FAILED, CAPPED, or a tick that failed after the
+notes were written) is re-offered on later ticks for 24 h, and the automatic
+path stores no copy of the error message.
 """
 from __future__ import annotations
 
@@ -297,3 +300,145 @@ def test_digest_names_route_templates_not_path_values():
     assert otj._route_template("/api/billing/stripe/webhook") == "/api/billing/stripe/webhook"
     assert otj._route_template("job:daily_maintenance") == "job:daily_maintenance"
     assert otj._route_template(None) == "-"
+
+
+# Undelivered digests are re-offered (fix round) ─────────────────────────────
+@pytest.fixture
+def scripted(monkeypatch):
+    """send_ops_alert stub that answers from a script (then SENT)."""
+    calls: list[dict] = []
+    script: list[AlertOutcome] = []
+
+    def _rec(dedupe_key, subject, lines, *, cooldown_minutes=None):
+        calls.append({"key": dedupe_key, "subject": subject, "lines": list(lines)})
+        return script.pop(0) if script else AlertOutcome.SENT
+
+    monkeypatch.setattr(ops_alert, "send_ops_alert", _rec)
+    return SimpleNamespace(calls=calls, script=script)
+
+
+def _notes(Session):
+    db = Session()
+    try:
+        return [(n.fingerprint, bool(n.email_sent)) for n in db.query(TriageNote).all()]
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize("first", [AlertOutcome.FAILED, AlertOutcome.CAPPED])
+def test_undelivered_digest_is_sent_on_a_later_tick(mem, prod, clock, scripted, first):
+    """Tick 1's digest is FAILED (Resend down) or CAPPED; its notes are not
+    marked delivered. Tick 2 — the same bug recurs, no new note — re-offers
+    the same groups under the same key; SENT marks them, so tick 3 is quiet."""
+    scripted.script.append(first)
+    _seed_standard(mem)
+    out1 = otj.run_ops_triage_tick()
+    assert out1["digest"] == first.value
+    assert out1["new_notes"] == 2
+    assert all(sent is False for _, sent in _notes(mem))
+
+    _seed(mem, method="POST", path="/api/daily-close", status_code=500,
+          error_type="RuntimeError", message="again", traceback=_TB,
+          created_at=T0 + timedelta(minutes=3))
+    clock["t"] = T0 + timedelta(minutes=15)
+    out2 = otj.run_ops_triage_tick()
+    assert out2["new_notes"] == 0 and out2["skipped"] == 1
+    assert out2["digest"] == "sent"
+    digests = [c for c in scripted.calls if c["key"].startswith("triage:")]
+    assert len(digests) == 2
+    assert digests[1]["key"] == digests[0]["key"]               # the same groups
+    assert any("RuntimeError | /api/daily-close" in ln for ln in digests[1]["lines"])
+    assert all(sent is True for _, sent in _notes(mem))
+
+    clock["t"] = T0 + timedelta(minutes=30)
+    out3 = otj.run_ops_triage_tick()
+    assert out3["digest"] is None
+    assert len([c for c in scripted.calls if c["key"].startswith("triage:")]) == 2
+
+
+def test_capped_digest_goes_out_after_the_utc_day_rolls(mem, prod, clock, monkeypatch):
+    """Through the real sender: the cap is used up, the digest is CAPPED, and
+    the first tick of the next UTC day delivers the held group."""
+    sent = []
+    monkeypatch.setattr(settings, "OPS_ALERT_DAILY_CAP", 1)
+    monkeypatch.setattr(email_service, "send_email",
+                        lambda to, s, h, **kw: sent.append((s, h)) or True)
+    monkeypatch.setattr(fmj, "_push_operators", lambda *a: None)
+    assert ops_alert.send_ops_alert("other:x", "x", ["y"]) is AlertOutcome.SENT
+    _seed_standard(mem)
+    assert otj.run_ops_triage_tick()["digest"] == "capped"
+    assert len(sent) == 1
+    assert "retried for 24 h" in sent[0][1]                      # the footer is true
+
+    db = mem()
+    try:
+        day = db.query(MonitorState).filter(MonitorState.service == "alert:day").one()
+        day.incident_entry = "2000-01-01"                        # a new UTC day
+        db.commit()
+    finally:
+        db.close()
+    clock["t"] = T0 + timedelta(minutes=15)
+    out = otj.run_ops_triage_tick()
+    assert out["digest"] == "sent"
+    assert len(sent) == 2
+    assert "2 new error group(s) on prod" in sent[1][0]
+    assert all(s is True for _, s in _notes(mem))
+
+
+def test_notes_older_than_24h_are_not_re_offered(mem, prod, clock, scripted):
+    scripted.script.append(AlertOutcome.FAILED)
+    _seed_standard(mem)
+    otj.run_ops_triage_tick()
+    clock["t"] = T0 + timedelta(hours=25)
+    out = otj.run_ops_triage_tick()
+    assert out["digest"] is None
+    assert len([c for c in scripted.calls if c["key"].startswith("triage:")]) == 1
+
+
+def test_tick_that_fails_after_notes_were_written_does_not_lose_them(mem, prod, clock, scripted, monkeypatch):
+    real = otj._digest_lines
+
+    def _boom(*a, **k):
+        raise RuntimeError("digest build failed")
+
+    monkeypatch.setattr(otj, "_digest_lines", _boom)
+    _seed_standard(mem)
+    assert otj.run_ops_triage_tick() == {"ops_triage_failed": True}
+    assert len(_notes(mem)) == 2
+
+    monkeypatch.setattr(otj, "_digest_lines", real)
+    clock["t"] = T0 + timedelta(minutes=15)
+    out = otj.run_ops_triage_tick()
+    assert out["digest"] == "sent"
+    assert all(s is True for _, s in _notes(mem))
+
+
+# The automatic path stores no message text (fix round, retention) ─────────────
+def test_automatic_path_stores_no_message_text(mem, prod, alerts, clock):
+    _seed(mem, method="POST", path="/api/reservations", status_code=500,
+          error_type="IntegrityError", message="Anna Jensen +4512345678 allergy: nuts",
+          traceback=_TB, created_at=T0 - timedelta(minutes=5))
+    otj.run_ops_triage_tick()
+    db = mem()
+    try:
+        note = db.query(TriageNote).one()
+        assert not note.sample_message
+        for col in ("probable_cause", "blast_radius", "suggested_actions"):
+            text = getattr(note, col) or ""
+            for word in ("Anna", "4512345678", "allergy", "nuts"):
+                assert word not in text
+    finally:
+        db.close()
+
+
+def test_manual_run_triage_still_keeps_its_sanitized_sample(mem, monkeypatch):
+    monkeypatch.setattr(triage_service, "_try_llm_triage", lambda s: None)
+    _seed(mem, method="GET", path="/api/x", status_code=500, error_type="KeyError",
+          message="lookup failed for key x", traceback="x",
+          created_at=utc_now() - timedelta(minutes=5))
+    db = mem()
+    try:
+        res = triage_service.run_triage(db, window_minutes=60, send_emails=False)
+        assert res.new_notes[0].sample_message == "lookup failed for key x"
+    finally:
+        db.close()
