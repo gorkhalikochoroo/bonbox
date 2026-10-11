@@ -37,3 +37,24 @@ def redact_path(path: str | None) -> str | None:
     if sep:
         out += "?" + _SECRET_PARAM.sub(r"\1:redacted", "?" + query)[1:]
     return out
+
+
+# A link token inside free text (a log message, a header value, a full URL):
+# a run of 20+ URL-safe characters right after a "/". A run followed by "."
+# is a file name (retention_and_patterns.py), not a token.
+_SECRET_IN_TEXT = re.compile(r"(?<=/)[A-Za-z0-9_-]{20,}(?![.A-Za-z0-9_-])")
+_SECRET_PARAM_IN_TEXT = re.compile(
+    r"(?i)([?&](?:token|t|code|key|secret|signature|sig)=)[^&#\s'\"]*"
+)
+
+
+def redact_text(text: str | None) -> str | None:
+    """The same text with every path token and credential query value replaced
+    by ":redacted" — for strings that are not a bare path (log lines, a
+    Referer header, a full URL). UUIDs stay, as in redact_path."""
+    if not text or not isinstance(text, str):
+        return text
+    out = _SECRET_IN_TEXT.sub(
+        lambda m: m.group(0) if _UUID.match(m.group(0)) else ":redacted", text
+    )
+    return _SECRET_PARAM_IN_TEXT.sub(r"\1:redacted", out)
