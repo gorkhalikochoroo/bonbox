@@ -1,11 +1,11 @@
 """Scheduler ops safety (R-i, OPS-10).
 
 Pins: every job runs with misfire_grace_time=3600 + coalesce (the nightly
-backup run keeps its own longer 3 h); the 21 jobs (18 + ops_triage every
-15 min + the nightly backup and its hourly watch) are registered; the
-job-event listener is
-attached; and job errors, misses, max-instance skips and daily_maintenance's
-swallowed "*_error" steps become error_logs rows (method=JOB) — including a
+backup run keeps its own longer 3 h); the 22 jobs (18 + ops_triage every
+15 min + the nightly backup and its hourly watch + R-sec's abuse monitor
+every 2 min) are registered; the job-event listener is attached; and job
+errors, misses, max-instance skips and daily_maintenance's swallowed
+"*_error" steps become error_logs rows (method=JOB) — including a
 real-producer test on a live BackgroundScheduler, so the stub events cannot
 assert a fiction about what APScheduler actually emits.
 """
@@ -99,9 +99,9 @@ def app_scheduler():
     return json.loads(line[len("RESULT="):])
 
 
-def test_importing_the_app_starts_the_scheduler_with_21_jobs(app_scheduler):
+def test_importing_the_app_starts_the_scheduler_with_22_jobs(app_scheduler):
     assert app_scheduler["running"] is True
-    assert app_scheduler["jobs"] == 21
+    assert app_scheduler["jobs"] == 22
 
 
 def test_every_job_has_misfire_grace_and_coalesce(app_scheduler):
