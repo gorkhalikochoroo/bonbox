@@ -2664,6 +2664,7 @@ export const da = {
     // e-mail (Manoj, 10. okt.). {date} = TERMS_EXISTING_FROM. At lukke den er
     // ikke en accept.
     termsNoticeText: "Vi har opdateret vores Handelsbetingelser. De gælder for din konto fra {date}.",
+    termsNoticePrivacy: "Vi har også opdateret vores {privacy}.",
     termsNoticeRead: "Læs betingelserne",
     termsNoticeWhatChanged: "Hvad er ændret?",
     termsNoticeHide: "Skjul",

@@ -2762,6 +2762,7 @@ export const en = {
     // Terms (components/TermsUpdateNotice). In-app only, no e-mail (Manoj,
     // 10 Oct). {date} = TERMS_EXISTING_FROM. Closing it is not acceptance.
     termsNoticeText: "We have updated our Terms of Service. They apply to your account from {date}.",
+    termsNoticePrivacy: "We have also updated our {privacy}.",
     termsNoticeRead: "Read the terms",
     termsNoticeWhatChanged: "What changed?",
     termsNoticeHide: "Hide",

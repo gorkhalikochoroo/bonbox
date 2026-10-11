@@ -37,7 +37,9 @@ import {
  * the server writes only terms_notice_dismissed_version.
  *
  * Calm and neutral: the same quiet row as VerifyEmailReminder (gray, 12px,
- * border-b), the "what changed" list behind a disclosure.
+ * border-b), the "what changed" list behind a disclosure. The row also says
+ * the privacy policy is updated, with a link (Push 3: /privacy promises
+ * notice of significant changes by e-mail or a notice in BonBox).
  */
 const LOCAL_KEY = "bonbox_terms_notice_closed";
 
@@ -98,6 +100,18 @@ export default function TermsUpdateNotice() {
       <div className="flex items-start justify-between gap-3">
         <p className="min-w-0 text-gray-600 dark:text-gray-400 py-1">
           {t("termsNoticeText", "We have updated our Terms of Service. They apply to your account from {date}.", { date })}{" "}
+          {/* /privacy changed in the same release (Push 3) and promises notice
+              of significant changes "through a notice in BonBox" — this is it.
+              Same {privacy}-link pattern as SignupTermsLine. */}
+          <span data-testid="terms-notice-privacy">
+            {t("termsNoticePrivacy", "We have also updated our {privacy}.").split(/(\{privacy\})/).map((part, i) =>
+              part === "{privacy}" ? (
+                <Link key={i} to="/privacy" className="font-medium text-gray-900 dark:text-gray-100 hover:underline">
+                  {t("signupAcceptPrivacyLink", "Privacy Policy")}
+                </Link>
+              ) : part,
+            )}
+          </span>{" "}
           <Link
             to="/terms"
             className="font-medium text-gray-900 dark:text-gray-100 hover:underline whitespace-nowrap"

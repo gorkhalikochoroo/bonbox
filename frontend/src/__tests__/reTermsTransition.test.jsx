@@ -20,7 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { da } from "../i18n/da";
@@ -190,6 +190,19 @@ describe("TermsUpdateNotice (decision a: in-app only)", () => {
     expect(text).toContain(`Vil du ikke fortsætte på de nye betingelser, kan du opsige dit abonnement eller slette din konto før ${termsDate(TERMS_EXISTING_FROM, "da")}.`);
   });
 
+  it("Push 3: the row also says the privacy policy is updated, with a /privacy link (da + en)", () => {
+    renderNotice();
+    let line = screen.getByTestId("terms-notice-privacy");
+    expect(line.textContent).toBe("Vi har også opdateret vores Privatlivspolitik.");
+    expect(within(line).getByRole("link", { name: "Privatlivspolitik" }).getAttribute("href")).toBe("/privacy");
+    cleanup();
+    langCode = "en";
+    renderNotice();
+    line = screen.getByTestId("terms-notice-privacy");
+    expect(line.textContent).toBe("We have also updated our Privacy Policy.");
+    expect(within(line).getByRole("link", { name: "Privacy Policy" }).getAttribute("href")).toBe("/privacy");
+  });
+
   it("en", () => {
     langCode = "en";
     renderNotice();
@@ -302,7 +315,7 @@ describe("TermsUpdateNotice (decision a: in-app only)", () => {
   it("every notice key has real Danish and English", () => {
     const keys = ["termsNoticeText", "termsNoticeRead", "termsNoticeWhatChanged", "termsNoticeHide",
       "termsNoticeChangeCaps", "termsNoticeChangeRecords", "termsNoticeChangeRenewal", "termsNoticeChangeFounding",
-      "termsNoticeChangePrice", "termsNoticeChangeBusiness", "termsNoticeObject"];
+      "termsNoticeChangePrice", "termsNoticeChangeBusiness", "termsNoticeObject", "termsNoticePrivacy"];
     for (const k of keys) {
       expect(typeof da[k]).toBe("string");
       expect(typeof en[k]).toBe("string");
