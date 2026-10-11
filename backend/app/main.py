@@ -4250,17 +4250,40 @@ async def admin_scan_blocker(request: Request, call_next):
 # --- Global cool-off for staff join / stand pairing codes (R-sec) ---
 # The per-IP limit (8/minute) on POST /api/portal/join and /api/stand/join
 # scales with the attacker's address pool. This counts WRONG codes (404s) from
-# all addresses together: JOIN_FAIL_GLOBAL_MAX of them within
-# JOIN_FAIL_WINDOW_SEC pauses that door for everyone for JOIN_COOLOFF_SEC
-# (429, same shape as the coarse ceiling; the staff JoinPage already says
-# "vent et minut"). Separate counters per door. Successes and the per-IP 429s
-# are not counted. Global, not per IP: at most JOIN_FAIL_GLOBAL_MAX floats per
-# door. Runs on the event loop (no lock); a restart resets it. 0 = off.
+# all addresses together, per door, and bounds them to JOIN_FAIL_GLOBAL_MAX
+# per JOIN_FAIL_WINDOW_SEC — a true sliding window:
+#   - a request reaches the handler only while recent failures (younger than
+#     the window) PLUS requests already in flight stay below the max. The slot
+#     is reserved before the handler runs and released when it returns, so a
+#     flood from many addresses cannot overshoot the max while the first 404s
+#     are still on their way back;
+#   - the 404 that fills the last slot pauses the door for everyone for at
+#     least JOIN_COOLOFF_SEC (one abuse signal per trip). Failures are kept
+#     until they age out of the window, so after the cool-off a full window
+#     still answers 429 until its oldest failure is older than the window.
+# 429 {"detail": "Too many requests"} with Retry-After (same shape as the
+# coarse ceiling; the staff JoinPage already says "vent et minut").
+# Successes and the per-IP 429s release their slot and are not counted.
+# Global, not per IP: at most JOIN_FAIL_GLOBAL_MAX floats per door. Runs on
+# the event loop (the check and the reservation have no await between them,
+# so no lock); a restart resets it. 0 = off.
 # Kept out of the handlers on purpose: tests/test_join_code_hardening.py
 # inspects portal_join's source.
 _JOIN_BRAKE = {"/api/portal/join": "staff_join", "/api/stand/join": "stand_join"}
 _join_fail_times: dict[str, deque] = {}
 _join_cooloff_until: dict[str, float] = {}
+_join_in_flight: dict[str, int] = {}
+
+
+def _join_recent_failures(kind: str, limit: int, now: float) -> deque:
+    """This door's failure times younger than the window (older ones dropped)."""
+    dq = _join_fail_times.get(kind)
+    if dq is None or dq.maxlen != limit:
+        dq = _join_fail_times[kind] = deque(dq or (), maxlen=limit)
+    window = settings.JOIN_FAIL_WINDOW_SEC
+    while dq and now - dq[0] > window:
+        dq.popleft()
+    return dq
 
 
 @app.middleware("http")
@@ -4268,24 +4291,33 @@ async def join_failure_brake(request: Request, call_next):
     kind = _JOIN_BRAKE.get(routed_path(request))
     if kind is None or request.method != "POST":
         return await call_next(request)
+    limit = settings.JOIN_FAIL_GLOBAL_MAX
+    if limit <= 0:
+        return await call_next(request)
     now = _time.time()
     until = _join_cooloff_until.get(kind, 0.0)
-    if now < until:
+    dq = _join_recent_failures(kind, limit, now)
+    in_flight = _join_in_flight.get(kind, 0)
+    if now < until or len(dq) + in_flight >= limit:
+        wait = until - now
+        if len(dq) >= limit:  # full window: until its oldest failure ages out
+            wait = max(wait, dq[0] + settings.JOIN_FAIL_WINDOW_SEC - now)
         return JSONResponse(
             status_code=429,
             content={"detail": "Too many requests"},
-            headers={"Retry-After": str(int(until - now) + 1)},
+            headers={"Retry-After": str(int(max(wait, 0.0)) + 1)},
         )
-    response = await call_next(request)
-    limit = settings.JOIN_FAIL_GLOBAL_MAX
-    if response.status_code == 404 and limit > 0:
-        dq = _join_fail_times.get(kind)
-        if dq is None or dq.maxlen != limit:
-            dq = _join_fail_times[kind] = deque(dq or (), maxlen=limit)
-        dq.append(now)
-        if len(dq) >= limit and now - dq[0] <= settings.JOIN_FAIL_WINDOW_SEC:
-            _join_cooloff_until[kind] = now + settings.JOIN_COOLOFF_SEC
-            dq.clear()
+    _join_in_flight[kind] = in_flight + 1
+    try:
+        response = await call_next(request)
+    finally:
+        _join_in_flight[kind] = max(0, _join_in_flight.get(kind, 1) - 1)
+    if response.status_code == 404:
+        done = _time.time()
+        dq = _join_recent_failures(kind, limit, done)
+        dq.append(done)
+        if len(dq) >= limit:
+            _join_cooloff_until[kind] = done + settings.JOIN_COOLOFF_SEC
             abuse_signals.bump(f"{kind}_cooloff")
     return response
 

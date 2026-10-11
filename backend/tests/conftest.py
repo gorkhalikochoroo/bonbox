@@ -11,7 +11,7 @@ file owns it:
   20 4xx answers within 60 s ban the IP for 10 minutes, after which every
   /api/admin request gets 404. No test owns it either.
 - the global join / stand-pairing cool-off (`_join_fail_times`,
-  `_join_cooloff_until`) and the in-process abuse counters
+  `_join_cooloff_until`, `_join_in_flight`) and the in-process abuse counters
   (app/utils/abuse_signals.py).
 
 Every TestClient request comes from the same client ("testclient"; it sends
@@ -60,6 +60,9 @@ def _reset_app_rate_limits() -> None:
     main._admin_ip_banned.clear()
     main._join_fail_times.clear()
     main._join_cooloff_until.clear()
+    in_flight = getattr(main, "_join_in_flight", None)
+    if in_flight is not None:  # join slots reserved but not yet released
+        in_flight.clear()
 
 
 @pytest.fixture(autouse=True)

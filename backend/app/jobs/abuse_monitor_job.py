@@ -257,8 +257,9 @@ def alert_copy(service: str, c: dict) -> tuple[str, list[str], str, str]:
         first = (
             f"More than {c['max']} wrong {what} arrived within {c['window']} minutes from all "
             f"addresses together, at {c['when']} UTC. BonBox paused "
-            f"{'staff joining' if staff else 'host-stand pairing'} for everyone for {c['cool']} "
-            f"seconds ({c['n']} pauses in the last 2 minutes)."
+            f"{'staff joining' if staff else 'host-stand pairing'} for everyone for at least "
+            f"{c['cool']} seconds, and until fewer than {c['max']} wrong codes remain in the last "
+            f"{c['window']} minutes ({c['n']} pauses in the last 2 minutes)."
         )
         second = (
             "Staff who try to join during a pause see 'Too many tries — wait a minute and try "
