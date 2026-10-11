@@ -109,10 +109,10 @@ export default function ConnectionsProgressCard() {
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-5 sm:p-6">
+    <div className="bg-white dark:bg-[rgb(var(--surface-card))] rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] shadow-sm p-5 sm:p-6">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 mt-0.5 text-gray-700 dark:text-gray-300">
+          <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] flex items-center justify-center shrink-0 mt-0.5 text-gray-700 dark:text-gray-300">
             <Icon name="Link2" size={16} strokeWidth={1.75} />
           </div>
           <div className="min-w-0">

@@ -20,11 +20,11 @@ export default function FinancialCurtain() {
       <button
         type="button"
         onClick={() => setPad(true)}
-        className="w-full text-left rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
+        className="w-full text-left rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] transition"
         data-component="FinancialCurtain"
       >
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0">
+          <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] flex items-center justify-center shrink-0">
             <Lock className="w-4 h-4 text-gray-500 dark:text-gray-400" />
           </div>
           <div>
