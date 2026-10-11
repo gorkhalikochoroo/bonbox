@@ -2375,8 +2375,10 @@ DELETE_STRIPE_CUSTOMER_FAILED_DA = (
 # nothing more: the change log, the security and error logs, and the images
 # of the four accounting kinds (storage.ACCOUNTING_RETENTION_KINDS), deleted
 # by the nightly sweep (5 + 1) × 366 days after the erasure; and the Stripe
-# customer and its invoices (delete_account never deletes the Stripe
-# customer — Manoj, 11 Oct, B6: they are BonBox's OWN accounting records).
+# customer: deleted by delete_account when Stripe lists no invoices for it,
+# kept with its invoices when it has some — BonBox's OWN accounting records,
+# 5 years from the end of the financial year, then deleted by the yearly
+# runbook step (Manoj, 11 Oct).
 # No legal claim that BonBox must keep the owner's records — § 4 says the
 # owner keeps them.
 DELETE_DONE_EN = (
@@ -2384,18 +2386,22 @@ DELETE_DONE_EN = (
     "we keep the change log, the security and error logs, and the images of "
     "accounting documents you uploaded (kasserapport photos, receipt and sales "
     "photos, and stock import files); we keep those images for about 6 years "
-    "and then delete them. We keep the payment records at Stripe (the customer "
-    "and the invoices), because we must keep our own accounting records for 5 "
-    "years. We're sorry to see you go."
+    "and then delete them. If there are no invoices for you at Stripe, we also "
+    "delete your customer record at Stripe. If there are, we keep the customer "
+    "record and the invoices at Stripe, because we must keep our own accounting "
+    "records for 5 years from the end of the financial year; then we delete "
+    "them. We're sorry to see you go."
 )
 DELETE_DONE_DA = (
     "Din konto og dataene i den er slettet. Som § 4 i Handelsbetingelserne "
     "siger, beholder vi ændringsloggen, sikkerheds- og fejlloggene og billederne "
     "af de regnskabsbilag, du har uploadet (fotos af kasserapporter, kvitteringer "
     "og salg samt filer fra lagerimport); billederne gemmer vi i ca. 6 år og "
-    "sletter dem derefter. Betalingsoplysningerne hos Stripe (kunde og "
-    "fakturaer) beholder vi, fordi vi skal opbevare vores egne regnskabsbilag "
-    "i 5 år. Vi er kede af at se dig gå."
+    "sletter dem derefter. Er der ingen fakturaer til dig hos Stripe, sletter "
+    "vi også dine kundeoplysninger hos Stripe. Er der fakturaer, beholder vi "
+    "kundeoplysningerne og fakturaerne hos Stripe, fordi vi skal opbevare vores "
+    "egne regnskabsbilag i 5 år fra udgangen af regnskabsåret; derefter sletter "
+    "vi dem. Vi er kede af at se dig gå."
 )
 
 

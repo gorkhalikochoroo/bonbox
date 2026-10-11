@@ -237,32 +237,41 @@ describe("B2: /privacy records only THAT a Copilot question was asked (true sinc
   });
 });
 
-describe("B6 (Manoj, 11 Oct): Terms § 4 and /privacy say the Stripe customer and invoices are kept", () => {
-  const KEPT = {
-    da: "Betalingsoplysningerne hos Stripe (kunde og fakturaer) beholder vi, fordi vi skal opbevare vores egne regnskabsbilag i 5 år.",
-    en: "We keep the payment records at Stripe (the customer and the invoices), because we must keep our own accounting records for 5 years.",
+describe("Stripe customer (Manoj, 11 Oct): deleted with no invoices, kept 5 years from the end of the financial year with them", () => {
+  const SAYS = {
+    da: "Er der ingen fakturaer til dig hos Stripe, sletter vi også dine kundeoplysninger hos Stripe. Er der fakturaer, beholder vi kundeoplysningerne og fakturaerne hos Stripe, fordi vi skal opbevare vores egne regnskabsbilag i 5 år fra udgangen af regnskabsåret; derefter sletter vi dem.",
+    en: "If there are no invoices for you at Stripe, we also delete your customer record at Stripe. If there are, we keep the customer record and the invoices at Stripe, because we must keep our own accounting records for 5 years from the end of the financial year; then we delete them.",
+  };
+  // The round-2 sentence said the customer is always kept, with no end date.
+  const OLD = {
+    da: ["Betalingsoplysningerne hos Stripe (kunde og fakturaer) beholder vi, fordi vi skal opbevare vores egne regnskabsbilag i 5 år.",
+      "Kunden og fakturaerne hos Stripe beholder vi, når du sletter din konto", "Beholdes, når du sletter din konto, fordi"],
+    en: ["We keep the payment records at Stripe (the customer and the invoices), because we must keep our own accounting records for 5 years.",
+      "We keep the customer and the invoices at Stripe when you delete your account", "Kept when you delete your account, because"],
   };
   for (const lang of ["da", "en"]) {
-    it(`${lang}: Manoj's sentence is in § 4 and in /privacy's deletion paragraph, Stripe row, retention table and erasure right`, () => {
+    it(`${lang}: § 4 and /privacy's deletion paragraph, Stripe row, retention table and erasure right say the same`, () => {
       renderPage(PrivacyPolicyPage, lang);
-      expect(screen.getByTestId("privacy-deletion").textContent).toContain(KEPT[lang]);
+      expect(screen.getByTestId("privacy-deletion").textContent).toContain(SAYS[lang]);
       const container = document.body;
       const stripe = tableRows(container, lang === "da" ? "Tjeneste" : "Service").find((r) => r[0] === "Stripe");
       expect(stripe[3]).toContain(lang === "da"
-        ? "Kunden og fakturaerne hos Stripe beholder vi, når du sletter din konto, fordi vi skal opbevare vores egne regnskabsbilag i 5 år"
-        : "We keep the customer and the invoices at Stripe when you delete your account, because we must keep our own accounting records for 5 years");
+        ? "Når du sletter din konto: Er der ingen fakturaer til dig hos Stripe, sletter vi også dine kundeoplysninger hos Stripe; er der fakturaer, beholder vi kundeoplysningerne og fakturaerne hos Stripe i 5 år fra udgangen af regnskabsåret, fordi vi skal opbevare vores egne regnskabsbilag, og sletter dem derefter"
+        : "When you delete your account: if there are no invoices for you at Stripe, we also delete your customer record at Stripe; if there are, we keep the customer record and the invoices at Stripe for 5 years from the end of the financial year, because we must keep our own accounting records, and then delete them");
       const rows = Object.fromEntries(tableRows(container, lang === "da" ? "Datatype" : "Data type"));
       expect(lang === "da"
-        ? rows["Betalingsoplysninger hos Stripe (kunde og fakturaer)"]
-        : rows["Payment records at Stripe (the customer and the invoices)"]).toBe(lang === "da"
-        ? "Beholdes, når du sletter din konto, fordi vi skal opbevare vores egne regnskabsbilag i 5 år"
-        : "Kept when you delete your account, because we must keep our own accounting records for 5 years");
+        ? rows["Betalingsoplysninger hos Stripe (kundeoplysninger og fakturaer)"]
+        : rows["Payment records at Stripe (the customer record and the invoices)"]).toBe(lang === "da"
+        ? "Ingen fakturaer til dig hos Stripe: slettes, når du sletter din konto. Fakturaer: beholdes i 5 år fra udgangen af regnskabsåret, fordi vi skal opbevare vores egne regnskabsbilag; derefter slettes de"
+        : "No invoices for you at Stripe: deleted when you delete your account. Invoices: kept for 5 years from the end of the financial year, because we must keep our own accounting records; then deleted");
       expect(container.textContent).toContain(lang === "da"
-        ? "og betalingsoplysningerne hos Stripe (kunde og fakturaer) — se »Hvor længe vi opbevarer dine data«."
-        : "and the payment records at Stripe (the customer and the invoices) — see “How long we keep your data”.");
+        ? "og, hvis der er fakturaer til dig, kundeoplysningerne og fakturaerne hos Stripe — se »Hvor længe vi opbevarer dine data«."
+        : "and, if there are invoices for you, the customer record and the invoices at Stripe — see “How long we keep your data”.");
+      for (const gone of OLD[lang]) expect(container.textContent).not.toContain(gone);
       cleanup();
       const terms = renderPage(TermsPage, lang).container.textContent;
-      expect(terms).toContain(KEPT[lang]);
+      expect(terms).toContain(SAYS[lang]);
+      for (const gone of OLD[lang]) expect(terms).not.toContain(gone);
     });
   }
 });
@@ -318,10 +327,10 @@ describe("(E) Profile → Delete account says what Terms § 4 says", () => {
     expect(packs.da.deleteAccountDesc).toBe("Slet din konto og dataene i den. Det kan ikke fortrydes. § 4 i Handelsbetingelserne nævner, hvad vi beholder.");
     expect(packs.en.deleteAccountDesc).toBe("Delete your account and the data in it. This cannot be undone. § 4 of the Terms of Service lists what we keep.");
     expect(packs.da.deleteConfirmWarning).toBe(
-      "Dette sletter din konto og dataene i den med det samme: salg, udgifter, lager, rapporter. Vi beholder ændringsloggen, sikkerheds- og fejlloggene og billederne af dine regnskabsbilag (i ca. 6 år) — se § 4 i Handelsbetingelserne. Et aktivt abonnement stopper samtidig. Hent dine data og PDF'er først. Indtast din adgangskode for at bekræfte.",
+      "Dette sletter din konto og dataene i den med det samme: salg, udgifter, lager, rapporter. Vi beholder ændringsloggen, sikkerheds- og fejlloggene, billederne af dine regnskabsbilag (i ca. 6 år) og, hvis der er fakturaer til dig, kundeoplysningerne og fakturaerne hos Stripe (i 5 år fra udgangen af regnskabsåret) — se § 4 i Handelsbetingelserne. Et aktivt abonnement stopper samtidig. Hent dine data og PDF'er først. Indtast din adgangskode for at bekræfte.",
     );
     expect(packs.en.deleteConfirmWarning).toBe(
-      "This deletes your account and the data in it straight away: sales, expenses, inventory, reports. We keep the change log, the security and error logs, and the images of your accounting documents (for about 6 years) — see § 4 of the Terms of Service. An active subscription stops at the same moment. Download your data and PDFs first. Enter your password to confirm.",
+      "This deletes your account and the data in it straight away: sales, expenses, inventory, reports. We keep the change log, the security and error logs, the images of your accounting documents (for about 6 years) and, if there are invoices for you, the customer record and the invoices at Stripe (for 5 years from the end of the financial year) — see § 4 of the Terms of Service. An active subscription stops at the same moment. Download your data and PDFs first. Enter your password to confirm.",
     );
   });
 
@@ -334,6 +343,9 @@ describe("(E) Profile → Delete account says what Terms § 4 says", () => {
       }
       expect(d.deleteAccountDesc, lang).toMatch(/§ ?4|ข้อ 4|mục 4/);
       expect(d.deleteConfirmWarning, lang).toMatch(/6|६/); // np writes ६
+      // SF1: the warning the owner reads before deleting names Stripe, as § 4 does.
+      expect(d.deleteConfirmWarning, lang).toContain("Stripe");
+      expect(d.deleteConfirmWarning, lang).toMatch(/5|५/);
     }
   });
 

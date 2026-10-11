@@ -2093,7 +2093,7 @@ export default function ProfilePage() {
                 <div className="pt-4 mt-2 border-t border-red-200/70 dark:border-red-900/50 space-y-3">
                   <p className="text-sm text-red-700 dark:text-red-300 font-medium">
                     {t("deleteConfirmWarning") ||
-                      "This deletes your account and the data in it straight away: sales, expenses, inventory, reports. We keep the change log, the security and error logs, and the images of your accounting documents (for about 6 years) — see § 4 of the Terms of Service. An active subscription stops at the same moment. Download your data and PDFs first. Enter your password to confirm."}
+                      "This deletes your account and the data in it straight away: sales, expenses, inventory, reports. We keep the change log, the security and error logs, the images of your accounting documents (for about 6 years) and, if there are invoices for you, the customer record and the invoices at Stripe (for 5 years from the end of the financial year) — see § 4 of the Terms of Service. An active subscription stops at the same moment. Download your data and PDFs first. Enter your password to confirm."}
                   </p>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <input

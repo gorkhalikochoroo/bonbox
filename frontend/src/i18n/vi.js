@@ -152,7 +152,7 @@ export const vi = {
   exportAllData: "Xuất tất cả dữ liệu", exportAllDataDesc: "Tải xuống mọi thứ BonBox lưu trữ về bạn dưới dạng tệp CSV",
   downloadCsv: "Tải CSV", exporting: "Đang xuất...",
   deleteAccount: "Xóa tài khoản", deleteAccountDesc: "Xóa tài khoản và dữ liệu trong đó. Hành động không thể hoàn tác. Những gì chúng tôi giữ lại được nêu tại mục 4 của Điều khoản dịch vụ (Terms of Service).",
-  deleteMyAccount: "Xóa tài khoản của tôi", deleteConfirmWarning: "Hành động này xóa ngay tài khoản và dữ liệu trong đó: doanh số, chi phí, kho, báo cáo. Chúng tôi giữ lại nhật ký thay đổi, nhật ký bảo mật và nhật ký lỗi, cùng hình ảnh chứng từ kế toán của bạn (khoảng 6 năm) — xem mục 4 của Điều khoản dịch vụ. Gói đăng ký đang hoạt động cũng dừng cùng lúc. Hãy tải dữ liệu và PDF của bạn trước. Nhập mật khẩu để xác nhận.",
+  deleteMyAccount: "Xóa tài khoản của tôi", deleteConfirmWarning: "Hành động này xóa ngay tài khoản và dữ liệu trong đó: doanh số, chi phí, kho, báo cáo. Chúng tôi giữ lại nhật ký thay đổi, nhật ký bảo mật và nhật ký lỗi, hình ảnh chứng từ kế toán của bạn (khoảng 6 năm) và, nếu có hóa đơn của bạn tại Stripe, hồ sơ khách hàng và các hóa đơn tại Stripe (5 năm kể từ cuối năm tài chính) — xem mục 4 của Điều khoản dịch vụ. Gói đăng ký đang hoạt động cũng dừng cùng lúc. Hãy tải dữ liệu và PDF của bạn trước. Nhập mật khẩu để xác nhận.",
   enterPassword: "Nhập mật khẩu", confirmDelete: "Xác nhận xóa", deleting: "Đang xóa...",
   deleteFailed: "Không thể xóa tài khoản",
   paymentImports: "Nhập thanh toán", paymentImportsDesc: "Kết nối nhà cung cấp thanh toán để tự động nhập giao dịch",

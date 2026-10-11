@@ -447,8 +447,9 @@ def test_deletion_reply_says_what_terms_section_4_says(db_session, client):
     body = r.json()
     assert body["message"] == auth_router.DELETE_DONE_EN
     assert body["message_da"] == auth_router.DELETE_DONE_DA
-    # B6 (Manoj, 11 Oct): the Stripe customer and its invoices are kept —
-    # BonBox's OWN accounting records, Manoj's sentence word for word. It is
+    # Manoj, 11 Oct: the Stripe customer is deleted when there are no
+    # invoices, and kept with them (BonBox's OWN accounting records, 5 years
+    # from the end of the financial year) when there are. These sentences are
     # the only place the reply may say "5 years" / "fakturaer".
     for msg, stripe_kept in ((body["message"], STRIPE_KEPT_EN), (body["message_da"], STRIPE_KEPT_DA)):
         assert msg.count(stripe_kept) == 1, msg
@@ -466,10 +467,14 @@ def test_deletion_reply_says_what_terms_section_4_says(db_session, client):
         assert STRIPE_KEPT_EN in doc and STRIPE_KEPT_DA in doc
 
 
-STRIPE_KEPT_DA = ("Betalingsoplysningerne hos Stripe (kunde og fakturaer) beholder vi, fordi vi skal "
-                  "opbevare vores egne regnskabsbilag i 5 år.")
-STRIPE_KEPT_EN = ("We keep the payment records at Stripe (the customer and the invoices), because we must "
-                  "keep our own accounting records for 5 years.")
+STRIPE_KEPT_DA = ("Er der ingen fakturaer til dig hos Stripe, sletter vi også dine kundeoplysninger hos "
+                  "Stripe. Er der fakturaer, beholder vi kundeoplysningerne og fakturaerne hos Stripe, fordi "
+                  "vi skal opbevare vores egne regnskabsbilag i 5 år fra udgangen af regnskabsåret; derefter "
+                  "sletter vi dem.")
+STRIPE_KEPT_EN = ("If there are no invoices for you at Stripe, we also delete your customer record at Stripe. "
+                  "If there are, we keep the customer record and the invoices at Stripe, because we must keep "
+                  "our own accounting records for 5 years from the end of the financial year; then we delete "
+                  "them.")
 
 
 def test_only_the_erasure_helper_deletes_a_stripe_customer():
