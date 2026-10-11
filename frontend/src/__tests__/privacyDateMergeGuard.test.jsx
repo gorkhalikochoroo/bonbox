@@ -93,3 +93,23 @@ describe("/cookies prints the same date, PRIVACY_UPDATED", () => {
     expect(screen.getByTestId("cookies-updated").textContent).toBe("Last updated: 2 January 2099");
   });
 });
+
+describe("the PRIVACY_UPDATED comment says what the constant dates and when to set it", () => {
+  it("names both pages, says both print it, and says to set it to the deploy day", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const src = (...p) => fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", ...p), "utf8");
+    const terms = src("legal", "terms.js");
+    const end = terms.indexOf("export const PRIVACY_UPDATED");
+    const comment = terms.slice(terms.lastIndexOf("/*", end), end);
+    expect(comment).toContain("BOTH /privacy AND /cookies");
+    expect(comment).toContain("SET IT TO THE DEPLOY DAY");
+    expect(comment).toMatch(/it dates\s+both pages at once/);
+    // …and the fact the comment states: both pages print the constant.
+    for (const page of ["PrivacyPolicyPage.jsx", "CookiePolicyPage.jsx"]) {
+      expect(src("pages", page)).toMatch(/termsDate\(PRIVACY_UPDATED, "da"\)/);
+      expect(src("pages", page)).toMatch(/termsDate\(PRIVACY_UPDATED, "en"\)/);
+    }
+  });
+});

@@ -44,23 +44,28 @@ export const TERMS_VERSION = "2026-10-11";
    until 00:00 Copenhagen on this one. */
 export const TERMS_EXISTING_FROM = "2026-10-26";
 
-/* /privacy's own "Last updated" date. Push 3 changed /privacy together with
-   the Terms (the page then showed TERMS_VERSION). The ops/privacy bundle
-   (backup + R-i + R-h + R-sec) changes /privacy on its own — a new processor
-   row (the encrypted backup copy in Frankfurt) and the R-h sentences that
-   browser usage events need a yes to Analytics — so the page carries its own
-   date and the Terms date and notice stay untouched. Any other /privacy change
-   that ships in the same push (release-brand's clock-in location sentence)
-   goes live under this date too.
+/* The "Last updated" date of BOTH /privacy AND /cookies — PrivacyPolicyPage
+   and CookiePolicyPage each print this one constant, so the two pages never
+   disagree on when. Push 3 changed /privacy together with the Terms (the
+   page then showed TERMS_VERSION). The ops/privacy bundle (backup + R-i + R-h
+   + R-sec) changes /privacy on its own — a new processor row (the encrypted
+   backup copy in Frankfurt) and the R-h sentences that browser usage events
+   need a yes to Analytics — and /cookies' analytics text in the same release,
+   so the two pages carry their own date and the Terms date and notice stay
+   untouched. Any other /privacy or /cookies change that ships in the same
+   push (release-brand's clock-in location sentence, the last-seen and
+   analytics-pause wording) goes live under this date too.
 
-   !!! RELEASE-TIME, PROVISIONAL: the Copenhagen day on which the FRONTEND
-   bundle that carries these /privacy changes is verified live on
-   www.bonbox.dk. "2026-10-11" is only a placeholder: the push that ships
-   this bundle (combined with release-brand and the sign-up redesign, per the
-   11 Oct release order) has no deploy day yet. Set it to that day on the
-   integrated tip, in the same push. Never earlier than TERMS_VERSION
-   (src/__tests__/push3Privacy.test.jsx checks), and the page must print this
-   constant, not TERMS_VERSION (src/__tests__/privacyDateMergeGuard.test.jsx). */
+   !!! RELEASE-TIME, PROVISIONAL — SET IT TO THE DEPLOY DAY: the Copenhagen
+   day on which the FRONTEND bundle that carries these /privacy and /cookies
+   changes is verified live on www.bonbox.dk. "2026-10-11" is only a
+   placeholder: the push that ships this bundle (combined with release-brand
+   and the sign-up redesign, per the 11 Oct release order) has no deploy day
+   yet. Set it to that day on the integrated tip, in the same push — it dates
+   both pages at once. Never earlier than TERMS_VERSION
+   (src/__tests__/push3Privacy.test.jsx checks), and both pages must print
+   this constant, not TERMS_VERSION or a hard-coded date
+   (src/__tests__/privacyDateMergeGuard.test.jsx). */
 export const PRIVACY_UPDATED = "2026-10-11";
 
 /** Add accept_terms: true to a sign-up request body — only when the caller
