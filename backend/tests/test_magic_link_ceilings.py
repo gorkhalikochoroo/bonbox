@@ -344,3 +344,114 @@ def test_has_account_counts_only_confirmed_addresses(db):
     assert abuse_caps.has_account(db, "pending@bonbox.dk") is False
     assert abuse_caps.has_account(db, "nobody@bonbox.dk") is False
 
+
+# ─── While tripped, the answer TIME does not tell accounts apart ──────────
+#
+# Over a ceiling, an unknown address returns at once; a confirmed account goes
+# on to a token row, an audit row, a commit and a Resend call. The attacker
+# controls when a domain trips (30 made-up addresses an hour), so without a
+# fixed answer time the latency would list which addresses have accounts.
+# Measured as a real client sees it: the moment the final response body is
+# sent (the mail goes out after that, as a background task).
+
+def _time_to_answer(email: str, ip: str) -> tuple[float, int, bytes]:
+    import asyncio
+    import json
+    import time
+
+    from app.main import app as _app
+
+    payload = json.dumps({"email": email}).encode()
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+        "method": "POST", "scheme": "http",
+        "path": "/api/auth/magic-link/request", "raw_path": b"/api/auth/magic-link/request",
+        "query_string": b"", "root_path": "",
+        "headers": [(b"host", b"testserver"), (b"content-type", b"application/json"),
+                    (b"content-length", str(len(payload)).encode()),
+                    (b"cf-connecting-ip", ip.encode())],
+        "client": ("testclient", 50000), "server": ("testserver", 80),
+    }
+
+    async def go():
+        done = asyncio.Event()
+        state = {"sent_body": False, "status": None, "body": b"", "t": None}
+
+        async def receive():
+            if not state["sent_body"]:
+                state["sent_body"] = True
+                return {"type": "http.request", "body": payload, "more_body": False}
+            await done.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(msg):
+            if msg["type"] == "http.response.start":
+                state["status"] = msg["status"]
+            elif msg["type"] == "http.response.body":
+                state["body"] += msg.get("body", b"")
+                if not msg.get("more_body", False) and state["t"] is None:
+                    state["t"] = time.perf_counter()
+                    done.set()
+
+        t0 = time.perf_counter()
+        await _app(scope, receive, send)        # returns after any background task
+        return state["t"] - t0, state["status"], state["body"]
+
+    return asyncio.run(go())
+
+
+def test_while_tripped_known_and_unknown_answer_in_the_same_time(client, db, outbox, caps, monkeypatch):
+    import statistics
+    import time
+
+    def _slow_send(to, subject, html, **kwargs):
+        time.sleep(0.15)                                    # a realistic Resend round trip
+        outbox.append({"to": to, "subject": subject})
+        return True
+
+    monkeypatch.setattr("app.routers.auth_magic_link.send_email", _slow_send, raising=True)
+    monkeypatch.setattr(settings, "MAGIC_LINK_MIN_RESPONSE_MS", 120)
+    caps(domain_hour=1)
+    _seed(db, "made-up@victim.dk")                          # the attacker tripped victim.dk
+    for i in range(5):
+        _user(db, f"known{i}@victim.dk")
+
+    known, unknown, answers = [], [], set()
+    for i in range(5):
+        dt, status_code, body = _time_to_answer(f"known{i}@victim.dk", f"203.0.113.{10 + i}")
+        known.append(dt)
+        answers.add((status_code, body))
+        dt, status_code, body = _time_to_answer(f"nobody{i}@victim.dk", f"203.0.113.{40 + i}")
+        unknown.append(dt)
+        answers.add((status_code, body))
+
+    assert len(answers) == 1 and next(iter(answers))[0] == 200   # identical answers
+    assert sorted(m["to"] for m in outbox) == [f"known{i}@victim.dk" for i in range(5)]
+    k, u = statistics.median(known), statistics.median(unknown)
+    assert k >= 0.115 and u >= 0.115, (k, u)                # both held to the floor
+    assert abs(k - u) < 0.03, (k, u)                        # the send is not in the answer time
+
+
+def test_the_floor_holds_every_answer_and_zero_switches_it_off(client, db, outbox, caps, monkeypatch):
+    import time
+
+    monkeypatch.setattr(settings, "MAGIC_LINK_MIN_RESPONSE_MS", 150)
+    t0 = time.perf_counter()
+    assert _ask(client, "a@example.org").status_code == 200        # normal path
+    assert time.perf_counter() - t0 >= 0.145
+    caps(fleet_hour=1)
+    t0 = time.perf_counter()
+    assert _ask(client, "b@example.org").status_code == 200        # held back
+    assert time.perf_counter() - t0 >= 0.145
+    assert [m["to"] for m in outbox] == ["a@example.org"]
+
+    monkeypatch.setattr(settings, "MAGIC_LINK_MIN_RESPONSE_MS", 0)
+    caps()
+    t0 = time.perf_counter()
+    assert _ask(client, "c@example.org").status_code == 200
+    assert time.perf_counter() - t0 < 0.145
+
+
+def test_the_default_floor():
+    from app.config import Settings
+    assert Settings().MAGIC_LINK_MIN_RESPONSE_MS == 300

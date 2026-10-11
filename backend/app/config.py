@@ -387,12 +387,18 @@ class Settings(BaseSettings):
     # Ceilings that hold when an attacker rotates addresses. Every one is
     # read at call time; 0 (or less) switches that check off. Measured prod
     # peaks on 11 Oct 2026 are in the comments — the defaults sit far above.
-    # Sign-in link mails to addresses WITHOUT an account (existing accounts
-    # always get theirs; routers/auth_magic_link.py, services/abuse_caps.py).
+    # Sign-in link mails to addresses WITHOUT a confirmed account (confirmed
+    # accounts always get theirs; routers/auth_magic_link.py,
+    # services/abuse_caps.py).
     MAGIC_LINK_FLEET_MAX_PER_HOUR: int = 60     # peak 1
     MAGIC_LINK_FLEET_MAX_PER_DAY: int = 300     # peak 2
     MAGIC_LINK_DOMAIN_MAX_PER_HOUR: int = 30    # peak 1
     MAGIC_LINK_DOMAIN_MAX_PER_DAY: int = 100    # peak 1
+    # Every POST /auth/magic-link/request answer waits until this many ms
+    # after the request arrived (the mail goes out after the answer). While a
+    # ceiling holds unknown addresses back, the answer time then does not tell
+    # a confirmed account from an unknown one. 0 = off.
+    MAGIC_LINK_MIN_RESPONSE_MS: int = 300
     # Guest e-mails delivered across ALL venues in a rolling 24 h
     # (services/reservation_emails.py deliver()). Peak ~3/day.
     GUEST_EMAILS_FLEET_PER_DAY: int = 2000

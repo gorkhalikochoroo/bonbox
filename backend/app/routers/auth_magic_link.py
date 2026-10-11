@@ -26,7 +26,9 @@ Multi-layer defense:
                         .expired / .invalid all written to audit_logs
   L8 enumeration safe — request endpoint returns identical 200 for
                         every input including "unknown email" + "rate
-                        limit hit"
+                        limit hit", after the same minimum time
+                        (MAGIC_LINK_MIN_RESPONSE_MS); the mail goes out
+                        after the answer, as a background task
 
 The verify endpoint is intentionally the only place where the user
 can be RESOLVED for a magic-link token. Until verify, the row is just
@@ -37,10 +39,13 @@ can be RESOLVED for a magic-link token. Until verify, the row is just
 # Pydantic body model vs query parameters. Stays out of this module on
 # purpose; matches how routers/auth.py + routers/accountants.py do it.
 
+import asyncio
 import logging
+import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from slowapi import Limiter
+from starlette.concurrency import run_in_threadpool
 from slowapi.util import get_remote_address
 from app.utils import abuse_signals
 from app.utils.client_ip import client_ip
@@ -70,6 +75,9 @@ limiter = Limiter(key_func=client_ip)
 
 _SUBJECT_EN = "Sign in to BonBox · single-use link"
 _SUBJECT_DA = "Log ind på BonBox · engangslink"
+_GENERIC_MESSAGE = (
+    "If that email is registered, we've sent a sign-in link. Check your inbox in a moment."
+)
 
 
 def _client_ip(request: Request | None) -> str | None:
@@ -160,9 +168,10 @@ def _magic_link_email_html(magic_url: str, is_danish: bool) -> str:
     response_model=MagicLinkResponse,
 )
 @limiter.limit("10/hour")
-def request_magic_link(
+async def request_magic_link(
     request: Request,
     data: MagicLinkRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     """Kick off the magic-link flow.
@@ -171,16 +180,49 @@ def request_magic_link(
     whether the email is registered or the rate limit was hit. This
     is the linchpin of the enumeration-safe contract. Internally we
     still audit the real outcome so abuse is visible to operators.
+
+    The answer also takes the same time on every path (R-sec): the mail is
+    sent after the answer (a background task), and the answer waits until
+    MAGIC_LINK_MIN_RESPONSE_MS after the request arrived. Without that, while
+    a ceiling holds unknown addresses back, the time to answer would tell a
+    confirmed account (token row, audit row, commit, Resend call) from an
+    unknown one (nothing). The wait is an asyncio sleep, so it holds no
+    worker thread; the database work runs in the thread pool as before.
     """
+    started = time.monotonic()
+    try:
+        await run_in_threadpool(_request_magic_link, request, data, db, background_tasks)
+    finally:
+        await _hold_answer_until_floor(started)
+    return MagicLinkResponse(ok=True, message=_GENERIC_MESSAGE)
+
+
+async def _hold_answer_until_floor(started: float) -> None:
+    """Sleep until MAGIC_LINK_MIN_RESPONSE_MS after `started` (read at call
+    time; 0 or less = no wait)."""
+    floor_s = max(0, int(settings.MAGIC_LINK_MIN_RESPONSE_MS or 0)) / 1000.0
+    left = floor_s - (time.monotonic() - started)
+    if left > 0:
+        await asyncio.sleep(left)
+
+
+def _request_magic_link(
+    request: Request,
+    data: MagicLinkRequest,
+    db: Session,
+    background_tasks: BackgroundTasks,
+) -> None:
+    """The work behind POST /magic-link/request. Returns nothing: every
+    outcome gets the same answer from the endpoint above."""
     email = data.email  # already normalized by the schema
     ip = _client_ip(request)
-    generic_message = "If that email is registered, we've sent a sign-in link. Check your inbox in a moment."
 
     # Fleet-wide and per-domain ceilings (R-sec): they hold when the caller
     # rotates IP addresses, which the per-IP limit above does not. Over a
-    # ceiling, an address WITHOUT an account gets nothing — no token row, no
-    # audit row, no log line, no mail — and the identical 200. An existing
-    # account carries on (its own 3-per-10-minutes limit still applies).
+    # ceiling, an address without a CONFIRMED account gets nothing — no token
+    # row, no audit row, no log line, no mail — and the identical 200. A
+    # confirmed account carries on (its own 3-per-10-minutes limit still
+    # applies). An unconfirmed one does not: anyone can register any address.
     try:
         over = abuse_caps.magic_link_ceiling(db, email)
     except Exception:  # noqa: BLE001 — couldn't check → don't send (same as deliver()'s cap_check_error)
@@ -189,7 +231,7 @@ def request_magic_link(
     if over is not None and not abuse_caps.has_account(db, email):
         if over in ("fleet", "domain"):
             abuse_signals.bump(f"magic_link_{over}")
-        return MagicLinkResponse(ok=True, message=generic_message)
+        return
 
     # Service-layer email rate limit. If it trips, we DON'T propagate the
     # 429 — that would let an attacker count tokens per email and
@@ -216,7 +258,7 @@ def request_magic_link(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("magic_link.request: audit write failed: %s", exc)
                 db.rollback()
-            return MagicLinkResponse(ok=True, message=generic_message)
+            return
         raise
 
     # Audit the request. user_id is NULL — we don't resolve until verify,
@@ -258,22 +300,27 @@ def request_magic_link(
     if data.accept_terms is True:
         magic_url += "&terms=1"
 
-    # Best-effort email send. Failure is non-fatal — we already
-    # committed the row, and if Resend is down for 30s the user can
+    # Best-effort email send, AFTER the answer (a background task), so the
+    # Resend round trip is not in the answer time. Failure is non-fatal — we
+    # already committed the row, and if Resend is down for 30s the user can
     # request another link. We DO NOT change the response in any case.
     is_da = _is_danish_request(request)
-    try:
-        sent = send_email(
-            email,
-            _SUBJECT_DA if is_da else _SUBJECT_EN,
-            _magic_link_email_html(magic_url, is_danish=is_da),
-        )
-        if not sent:
-            logger.warning("magic_link.request: send_email returned False for %s", email)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("magic_link.request: send_email raised: %s", e)
+    background_tasks.add_task(
+        _send_magic_link_mail,
+        email,
+        _SUBJECT_DA if is_da else _SUBJECT_EN,
+        _magic_link_email_html(magic_url, is_danish=is_da),
+    )
 
-    return MagicLinkResponse(ok=True, message=generic_message)
+
+def _send_magic_link_mail(email: str, subject: str, html: str) -> None:
+    """Background task: one sign-in mail. Never raises. The log lines carry
+    no address (the SecurityEvent row already ties the request to it)."""
+    try:
+        if not send_email(email, subject, html):
+            logger.warning("magic_link.request: send_email returned False")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("magic_link.request: send_email raised: %s", type(e).__name__)
 
 
 @router.post(
