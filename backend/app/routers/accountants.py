@@ -385,7 +385,9 @@ def invite_accountant(
     # Look up the accountant user by email if one exists — they may
     # already have a BonBox account (different owner's revisor or a
     # legacy user). We'll back-patch accountant_user_id either way.
-    existing_acct = db.query(User).filter(User.email == email).first()
+    # Case-insensitive (push 6), as at login: one mailbox, one account.
+    from app.utils.login_email import user_by_email
+    existing_acct = user_by_email(db, email)
     if existing_acct and (existing_acct.role or "").lower() not in ("accountant", "owner"):
         # If the email belongs to a regular team member of any business,
         # bail — we won't silently repurpose their account.
@@ -721,7 +723,8 @@ def accountant_signup(
     if grant.accountant_user_id:
         user = db.query(User).filter(User.id == grant.accountant_user_id).first()
     if user is None:
-        user = db.query(User).filter(User.email == grant.accountant_email).first()
+        from app.utils.login_email import user_by_email
+        user = user_by_email(db, grant.accountant_email)
 
     if user is None:
         user = User(

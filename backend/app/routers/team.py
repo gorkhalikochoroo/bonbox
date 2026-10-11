@@ -504,7 +504,10 @@ def invite_member(
         )
 
     # ── 2. Existing-row resolution (no enumeration leak) ───────────
-    existing = db.query(User).filter(User.email == email).first()
+    # Case-insensitive (push 6): logins ignore case now, so an invite must
+    # never make a second account for a mailbox stored as "Ole@…".
+    from app.utils.login_email import user_by_email
+    existing = user_by_email(db, email)
     if existing:
         if existing.owner_id == user.id and existing.password_hash:
             # Active member of THIS team — clear duplicate, not enumeration.

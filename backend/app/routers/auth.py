@@ -19,6 +19,7 @@ from app.services.brand_mark import BRAND_FOREST, BRAND_MARK_SVG
 
 from app.database import get_db
 from app.models.user import User
+from app.utils.login_email import normalize_login_email, user_by_email
 from app.models.sale import Sale
 from app.models.expense import Expense, ExpenseCategory
 from app.models.inventory import InventoryItem, InventoryLog
@@ -459,7 +460,9 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
             detail="That email domain doesn't appear to exist. Please check the spelling.",
         )
 
-    existing = db.query(User).filter(User.email == data.email).first()
+    # Case-insensitive (push 6): "Ole@cafe.dk" and "ole@cafe.dk" are one
+    # mailbox, so one account (utils/login_email.py).
+    existing = user_by_email(db, data.email)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -470,7 +473,9 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     verification_code = _generate_verification_code()
 
     user = User(
-        email=data.email,
+        # Stored lower-cased; older rows keep their capitals and are found by
+        # the case-insensitive lookups.
+        email=normalize_login_email(data.email),
         password_hash=hash_password(data.password),
         business_name=data.business_name,
         business_type=data.business_type,
@@ -761,7 +766,7 @@ def apple_auth(
     if not user and email and not claim_is_true(claims.get("email_verified")):
         raise refuse_unverified_email("Apple")
     if not user and email and not is_relay_email:
-        user = db.query(User).filter(User.email == email).first()
+        user = user_by_email(db, email)
         if user:
             # Existing email-based user signing in with Apple for the
             # first time — link the apple_user_id so future sign-ins
@@ -824,7 +829,7 @@ def apple_auth(
             )
         full_name = (data.full_name or "").strip()
         user = User(
-            email=email,
+            email=normalize_login_email(email),
             password_hash=hash_password(secrets.token_urlsafe(32)),  # random — won't be used
             business_name=full_name,
             business_type="",
@@ -881,7 +886,7 @@ def login(request: Request, response: Response, data: UserLogin, db: Session = D
             detail="Invalid email or password",
         )
 
-    user = db.query(User).filter(User.email == data.email).first()
+    user = user_by_email(db, data.email)
     if not user or not verify_password(data.password, user.password_hash):
         login_guard.record_failure(data.email)
         raise HTTPException(
@@ -1179,7 +1184,10 @@ def update_profile(
         current_user.business_type = data.business_type
     if data.currency is not None:
         current_user.currency = data.currency
-    if data.email is not None and data.email != current_user.email:
+    # A change of letter case only is no change (push 6): the lookups ignore
+    # case, so it would only re-open confirmation for the same mailbox.
+    _new_email = normalize_login_email(data.email) if data.email is not None else None
+    if _new_email is not None and _new_email != normalize_login_email(current_user.email):
         # The login email is where a password reset goes, so changing it is a
         # takeover in two steps: whoever holds a session — the shared iPad
         # passed to staff, a stolen phone — sets their own address, then resets
@@ -1207,8 +1215,8 @@ def update_profile(
                                "Svar via linket i den mail, vi har sendt, eller log ind med et login-link. "
                                "Så kan du ændre e-mailen bagefter."),
             })
-        existing = db.query(User).filter(User.email == data.email).first()
-        if existing:
+        existing = user_by_email(db, _new_email)
+        if existing and existing.id != current_user.id:
             raise HTTPException(status_code=400, detail="Email already in use")
         # Each change mails a code to the new (unproven) address: a few a
         # day per account, counted from audit rows; fail-open on a counting
@@ -1221,7 +1229,7 @@ def update_profile(
                 "message_da": "Login-e-mailen kan ændres et par gange om dagen. Prøv igen i morgen.",
                 "cap": _EMAIL_CHANGES_PER_DAY,
             })
-        current_user.email = data.email
+        current_user.email = _new_email
         # The new address is NOT confirmed (review, 8 Oct). Keeping
         # email_verified=True let an owner who confirmed once switch to any
         # address and still pass the verified-sender rule (faktura mail,
@@ -1507,7 +1515,7 @@ def _reset_cap_email_html(lang: str) -> tuple[str, str]:
 @router.post("/forgot-password")
 @limiter.limit("5/minute")
 def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == data.email).first()
+    user = user_by_email(db, data.email)
     if not user:
         # Don't reveal if email exists — return same message as success
         return {"message": "If an account exists with that email, we've sent a reset code."}
@@ -1629,10 +1637,7 @@ def reset_password(
     # the 24h ceiling seeded from it would not hold. FOR UPDATE serialises
     # the requests for this account until each one commits or rolls back.
     # (SQLite has no row locks and ignores it; it serialises writers anyway.)
-    user = (
-        db.query(User).filter(User.email == data.email)
-        .with_for_update().first()
-    )
+    user = user_by_email(db, data.email, for_update=True)
     # Use a single generic error so we don't leak whether the email exists,
     # whether a token was issued, or whether it matched.
     invalid = HTTPException(status_code=400, detail="Invalid or expired reset code")

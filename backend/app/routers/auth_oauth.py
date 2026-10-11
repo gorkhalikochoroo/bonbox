@@ -58,6 +58,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
+from app.utils.login_email import user_by_email
 from app.schemas.auth import SignupRefMixin, TermsAcceptMixin, Token, UserResponse
 from app.services import audit_service
 from app.services.auth import create_access_token, hash_password
@@ -247,7 +248,9 @@ def oauth_apple(
 
     # ── Step 2: lookup by email + link ───────────────────────────────
     if not user and email and not is_relay_email:
-        user = db.query(User).filter(User.email == email).first()
+        # Case-insensitive (push 6) — an account stored as "Ole@…" is the
+        # same mailbox, never a reason to make a second one.
+        user = user_by_email(db, email)
         if user:
             # Audit P1 (Task #75): refuse to silently link Apple to a
             # password-or-magic-link account.  The OAuth provider proves
@@ -450,7 +453,8 @@ def google_signin(
 
     # ── Step 2: lookup by email + link ───────────────────────────────
     if not user:
-        user = db.query(User).filter(User.email == email).first()
+        # Case-insensitive (push 6), as for Apple above.
+        user = user_by_email(db, email)
         if user:
             # Audit P1 (Task #75): refuse to silently link Google to a
             # password-or-magic-link account.  See the matching block in
