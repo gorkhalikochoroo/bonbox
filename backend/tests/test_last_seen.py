@@ -30,7 +30,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, text, update
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from starlette.requests import Request
@@ -190,6 +190,35 @@ def test_sign_in_forces_the_stamp(db, user_updates):
     u = _user(db, last_seen_at=utc_now() - timedelta(seconds=30))
     assert ls.touch_last_seen(db, u, force=True) is True
     assert len(user_updates) == 1
+
+
+@pytest.mark.parametrize("force", [False, True], ids=["request", "sign-in"])
+def test_a_stamp_leaves_users_updated_at_alone(db, SessionLocal, user_updates, force):
+    """users.updated_at has onupdate=utc_now, which SQLAlchemy also applies to
+    a Core update(). Without the explicit pin every stamp would rewrite it, and
+    "last profile change" would silently become "last request within 5 min"
+    (fix round, 11 Oct)."""
+    u = _user(db, last_seen_at=utc_now() - timedelta(hours=1))
+    old = utc_now().replace(microsecond=0) - timedelta(days=30)
+    # An explicit value in SET overrides onupdate, so this pins it as written.
+    db.execute(update(User).where(User.id == u.id).values(updated_at=old))
+    db.commit()
+    s = SessionLocal()
+    try:
+        assert s.query(User.updated_at).filter(User.id == u.id).scalar() == old
+    finally:
+        s.close()
+
+    assert ls.touch_last_seen(db, u, force=force) is True
+    assert len(user_updates) == 1
+
+    s = SessionLocal()
+    try:
+        row = s.query(User.updated_at, User.last_seen_at).filter(User.id == u.id).one()
+    finally:
+        s.close()
+    assert row.updated_at == old
+    assert abs((utc_now() - row.last_seen_at).total_seconds()) < 5
 
 
 def test_a_future_stamp_is_rewritten_not_trusted(db):

@@ -82,8 +82,12 @@ def touch_last_seen(db: Session, user: User, *, force: bool = False) -> bool:
                     User.last_seen_at > now,
                 )
             )
+        # updated_at=User.updated_at: users.updated_at has onupdate=utc_now,
+        # which SQLAlchemy applies to this Core UPDATE too. Setting it to
+        # itself keeps it meaning "last profile change", not "last request".
         result = db.execute(
-            stmt.values(last_seen_at=now).execution_options(synchronize_session=False)
+            stmt.values(last_seen_at=now, updated_at=User.updated_at)
+            .execution_options(synchronize_session=False)
         )
         db.commit()
     except Exception:  # noqa: BLE001 — telemetry never fails the request
