@@ -1285,7 +1285,8 @@ def classify_document_type(image_path: str) -> str:
     # across the OCR pipeline. The classifier routes the rest of the
     # extraction, so a wrong call here cascades into a wrong extractor
     # invocation — capability floor matters more than speed.
-    model = os.environ.get("AI_MODEL_DOCTYPE_CLASSIFIER", "").strip() or "claude-sonnet-5"
+    from app.config import settings as _settings
+    model = os.environ.get("AI_MODEL_DOCTYPE_CLASSIFIER", "").strip() or _settings.DEFAULT_MODEL
     try:
         client = anthropic_client(api_key, timeout=20.0)  # 1 SDK retry (OPS-02)
         resp = client.messages.create(

@@ -599,9 +599,9 @@ def extract_inventory_data(
     model
         Legacy per-call model override (env: ``AI_MODEL_INVENTORY_OCR``).
         Retained for back-compat but SUPERSEDED by the central accuracy
-        tier: this call now runs ``ACCURACY_MODEL`` (claude-opus-4-8)
-        first and auto-falls-back to ``DEFAULT_MODEL`` (claude-sonnet-5)
-        on any Anthropic exception. See ``services/model_fallback``.
+        tier: this call now runs ``settings.ACCURACY_MODEL`` first and
+        auto-falls-back to ``settings.DEFAULT_MODEL`` on any Anthropic
+        exception. See ``services/model_fallback``.
     timeout
         SDK call timeout in seconds.
     max_tokens
@@ -611,8 +611,9 @@ def extract_inventory_data(
     -------
     Dict with the documented shape (``doc_type``, ``supplier``,
     ``line_items``, ``invoice_totals``, ``confidence``, ``notes``,
-    ``_provider``) — or ``None`` on ANY failure (no API key, network,
-    rate limit, parse, refusal, oversized input).
+    ``_provider``, ``_model`` — the model that answered) — or ``None`` on
+    ANY failure (no API key, network, rate limit, parse, refusal,
+    oversized input).
 
     Never raises — the caller's fallback chain runs on ``None``.
     """
@@ -671,7 +672,7 @@ def extract_inventory_data(
     _ = (
         (model or "").strip()
         or os.environ.get("AI_MODEL_INVENTORY_OCR", "").strip()
-        or "claude-sonnet-5"
+        or settings.DEFAULT_MODEL
     )  # legacy override — superseded by ACCURACY_MODEL tier below
 
     # ── Call Claude — tool-use forces structured output ──
@@ -750,6 +751,10 @@ def extract_inventory_data(
         n_items, elapsed_ms, in_tok, out_tok,
     )
 
+    # The model that answered (ACCURACY_MODEL, or DEFAULT/legacy after a
+    # fallback) — the smart-import draft records it as model_used.
+    from app.services.ai_model_guard import served_model
+    validated["_model"] = served_model(resp, None)
     return validated
 
 

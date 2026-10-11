@@ -127,18 +127,27 @@ class Settings(BaseSettings):
     #     /v1/messages (HTTP 200). STAYS on the money-critical OCR: Opus 4.8
     #     out-reasons Sonnet on hard kasserapport/receipt vision, and that
     #     feeds MOMS — accuracy > a cheaper tier.
-    #   • claude-sonnet-5 — premium + default + fallback tier (Sonnet 5, the
-    #     current published Sonnet; bare alias, resolves against /v1/messages).
-    #     Bumped from claude-sonnet-4-6 on 2026-07-01. NOTE: taken from the
-    #     published model list, NOT re-probed against this account like the
-    #     entries above — confirm one live call after deploy.
+    #   • claude-sonnet-5-5 — premium + default + fallback tier (Sonnet 5.5).
+    #     Bumped from claude-sonnet-5 on 2026-10-12. The id comes from
+    #     Anthropic's current model list (Sonnet 5.5 = claude-sonnet-5-5, bare
+    #     id, no date suffix); it was NOT probed live from this machine (no
+    #     key here) — confirm one live read after deploy.
+    #   • claude-sonnet-5 — LEGACY_SAFE_MODEL: the last Sonnet known to work
+    #     on this account. Used ONLY by the runtime net below.
+    # RUNTIME NET (services/ai_model_guard.py): if Anthropic ever answers
+    # model-not-found for DEFAULT_MODEL / PREMIUM_MODEL, that call is retried
+    # ONCE on LEGACY_SAFE_MODEL — so photo/text reading keeps working — and
+    # one error_logs row "AI:ModelNotFound" per model per day reaches the
+    # 15-min ops triage digest. Sonnet 5.5 also refuses forced tool_choice;
+    # the same guard sends those reads as tool_choice "auto" + a system line
+    # naming the tool (the legacy retry keeps the forced call Sonnet 5 takes).
     # SAFETY NET: the BONBOX_*_MODEL env vars hot-swap any tier WITHOUT a
-    # redeploy. If claude-sonnet-5 ever 404s on this account, set
-    # BONBOX_DEFAULT_MODEL / BONBOX_PREMIUM_MODEL = claude-sonnet-4-6 in Render
-    # to roll back instantly (no code change / no deploy).
+    # redeploy. To roll back for good, set BONBOX_DEFAULT_MODEL /
+    # BONBOX_PREMIUM_MODEL = claude-sonnet-5 in Render (no code change).
     ACCURACY_MODEL: str = os.environ.get("BONBOX_ACCURACY_MODEL", "claude-opus-4-8")
-    PREMIUM_MODEL: str = os.environ.get("BONBOX_PREMIUM_MODEL", "claude-sonnet-5")
-    DEFAULT_MODEL: str = os.environ.get("BONBOX_DEFAULT_MODEL", "claude-sonnet-5")
+    PREMIUM_MODEL: str = os.environ.get("BONBOX_PREMIUM_MODEL", "claude-sonnet-5-5")
+    DEFAULT_MODEL: str = os.environ.get("BONBOX_DEFAULT_MODEL", "claude-sonnet-5-5")
+    LEGACY_SAFE_MODEL: str = os.environ.get("BONBOX_SAFE_MODEL", "claude-sonnet-5")
     # ── Stripe subscription billing ──
     # Live keys go in Render env vars (sync: false). Test keys can go in .env
     # for local dev. The webhook secret is per-endpoint (Stripe gives a unique

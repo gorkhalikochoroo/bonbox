@@ -880,32 +880,60 @@ async def scan_bottle_label(
         try:
             import httpx
 
+            from app.services.ai_model_guard import (
+                first_text,
+                is_model_not_found_response,
+                legacy_model_for,
+                record_model_not_found,
+            )
+
             api_key = settings.ANTHROPIC_API_KEY
+            model = settings.DEFAULT_MODEL
+
+            def _body(m: str) -> dict:
+                # No `temperature`: Sonnet 5 / 5.5 answer 400 to any
+                # non-default sampling value (it was 0.1 here).
+                return {
+                    "model": m,
+                    "max_tokens": 1200,  # bumped from 800 — long labels were truncating mid-JSON
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {"type": "base64", "media_type": media_type, "data": b64},
+                            },
+                            {"type": "text", "text": _WINE_SCAN_PROMPT},
+                        ],
+                    }],
+                }
+
             async with httpx.AsyncClient(timeout=30.0) as _client:
-                resp = await _client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "model": "claude-sonnet-5",
-                        "max_tokens": 1200,  # bumped from 800 — long labels were truncating mid-JSON
-                        # Lower temp for deterministic, factual extraction (no creative guesses)
-                        "temperature": 0.1,
-                        "messages": [{
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "image",
-                                    "source": {"type": "base64", "media_type": media_type, "data": b64},
-                                },
-                                {"type": "text", "text": _WINE_SCAN_PROMPT},
-                            ],
-                        }],
-                    },
-                )
+                async def _post(m: str):
+                    return await _client.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={
+                            "x-api-key": api_key,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json",
+                        },
+                        json=_body(m),
+                    )
+
+                resp = await _post(model)
+                # Model-not-found net (same rule as ai_model_guard): one
+                # retry on LEGACY_SAFE_MODEL + one ops row per model per day.
+                legacy = legacy_model_for(model)
+                if resp.status_code != 200 and legacy:
+                    try:
+                        err_body = resp.json()
+                    except Exception:  # noqa: BLE001
+                        err_body = None
+                    if is_model_not_found_response(resp.status_code, err_body):
+                        await run_in_threadpool(record_model_not_found, model, legacy)
+                        logger.warning("wine scan: model %r not found — retrying once on %r",
+                                       model, legacy)
+                        resp = await _post(legacy)
 
             if resp.status_code != 200:
                 logger.warning("Anthropic API non-200: %d %s", resp.status_code, resp.text[:200])
@@ -916,8 +944,13 @@ async def scan_bottle_label(
                 }
 
             try:
-                raw_text = resp.json()["content"][0]["text"].strip()
-            except (KeyError, IndexError, ValueError) as e:
+                # First TEXT block: with adaptive thinking a response can
+                # begin with a thinking block.
+                raw_text = first_text(resp.json()["content"])
+                if raw_text is None:
+                    raise KeyError("text")
+                raw_text = raw_text.strip()
+            except (KeyError, IndexError, ValueError, TypeError) as e:
                 logger.warning("Anthropic response shape unexpected: %s", e)
                 return {
                     "success": False,
@@ -1155,7 +1188,7 @@ def ai_sommelier(
             )
 
             resp = client.messages.create(
-                model="claude-sonnet-5",
+                model=settings.DEFAULT_MODEL,
                 max_tokens=600,
                 messages=[{
                     "role": "user",
@@ -1170,7 +1203,9 @@ def ai_sommelier(
                 }],
             )
 
-            raw = resp.content[0].text.strip()
+            # First TEXT block (a response can begin with a thinking block).
+            from app.services.ai_model_guard import first_text
+            raw = (first_text(resp.content) or "").strip()
             if raw.startswith("```"):
                 raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             matches = json.loads(raw)

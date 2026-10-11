@@ -34,11 +34,9 @@ logger = logging.getLogger("bonbox.menu_extractor")
 # limit. Matches the inventory pipeline's bound.
 _MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 
-# Default model + token budget — keep the same family as inventory so
-# we benefit from one model upgrade across all vision flows.
-# claude-sonnet-5 (bumped from claude-sonnet-4-6 on 2026-07-01).
-# WARNING: never use claude-opus-4-7 — that identifier 404s (task #239).
-_DEFAULT_MODEL = "claude-sonnet-5"
+# Model: settings.DEFAULT_MODEL (resolved per call) — the same tier as the
+# inventory reads, so one model upgrade lifts every vision flow.
+# WARNING: never hand-type a model id here — claude-opus-4-7 404'd (task #239).
 _DEFAULT_MAX_TOKENS = 2000
 
 
@@ -136,7 +134,7 @@ def extract_menu_from_image(
     data: bytes,
     *,
     media_type: str = "image/jpeg",
-    model: str = _DEFAULT_MODEL,
+    model: str | None = None,
     max_tokens: int = _DEFAULT_MAX_TOKENS,
     timeout: float = 45.0,
 ) -> tuple[list[dict], dict]:
@@ -149,7 +147,9 @@ def extract_menu_from_image(
 
     Errors are returned in meta['error'] rather than raised, so the caller
     can show a friendly message and let the user retry with a better photo.
+    `model` defaults to settings.DEFAULT_MODEL.
     """
+    model = model or settings.DEFAULT_MODEL
     meta: dict[str, Any] = {
         "confidence": None,
         "note": None,
@@ -225,6 +225,9 @@ def extract_menu_from_image(
     meta["timing_ms"] = int((time.monotonic() - t0) * 1000)
     meta["input_tokens"] = getattr(resp.usage, "input_tokens", 0)
     meta["output_tokens"] = getattr(resp.usage, "output_tokens", 0)
+    # The model that answered (differs from `model` after a legacy retry).
+    from app.services.ai_model_guard import served_model
+    meta["model_used"] = served_model(resp, model)
 
     # Find the tool_use block — strict schema means it MUST be there
     tool_block = next(

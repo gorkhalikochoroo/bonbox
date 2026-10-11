@@ -1537,6 +1537,9 @@ def _try_llm_polish(
 
     in_toks = int(getattr(resp.usage, "input_tokens", 0) or 0)
     out_toks = int(getattr(resp.usage, "output_tokens", 0) or 0)
+    # The model that answered (differs from `model` after a legacy retry).
+    from app.services.ai_model_guard import served_model
+    model = served_model(resp, model)
 
     # Find the tool_use block. Anthropic returns content as a list of blocks.
     tool_block = next(
