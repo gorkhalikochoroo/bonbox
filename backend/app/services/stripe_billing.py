@@ -272,9 +272,10 @@ def stop_subscription_for_erasure(sub_id: str, local_status: Optional[str]) -> s
 # Manoj, 11 Oct 2026: when an account is deleted, its Stripe customer is
 # DELETED if Stripe lists no invoices for it. A customer WITH invoices is
 # kept — BonBox's own accounting records, 5 years from the end of the
-# financial year; a yearly runbook step deletes them after that
-# (bonbox-lab-state/releases.md). Terms § 4, /privacy and DELETE_DONE_* say
-# exactly this.
+# financial year; a yearly runbook step deletes the customer after that
+# (bonbox-lab-state/releases.md). The issued invoices stay at Stripe: Stripe
+# does not allow deleting an issued (finalized) invoice. Terms § 4, /privacy
+# and DELETE_DONE_* say exactly this.
 
 
 def _stripe_says_missing(e: Exception) -> bool:

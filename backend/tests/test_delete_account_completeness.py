@@ -467,14 +467,18 @@ def test_deletion_reply_says_what_terms_section_4_says(db_session, client):
         assert STRIPE_KEPT_EN in doc and STRIPE_KEPT_DA in doc
 
 
+# The customer record is kept 5 years, then deleted; the issued invoices stay
+# at Stripe (Stripe does not allow deleting an issued invoice), so no surface
+# may promise that the invoices are deleted.
 STRIPE_KEPT_DA = ("Er der ingen fakturaer til dig hos Stripe, sletter vi også dine kundeoplysninger hos "
-                  "Stripe. Er der fakturaer, beholder vi kundeoplysningerne og fakturaerne hos Stripe, fordi "
-                  "vi skal opbevare vores egne regnskabsbilag i 5 år fra udgangen af regnskabsåret; derefter "
-                  "sletter vi dem.")
+                  "Stripe. Er der fakturaer, beholder vi kundeoplysningerne hos Stripe i 5 år fra udgangen af "
+                  "regnskabsåret, fordi vi skal opbevare vores egne regnskabsbilag; derefter sletter vi "
+                  "kundeoplysningerne. De udstedte fakturaer bliver hos Stripe, som ikke tillader, at en "
+                  "udstedt faktura slettes.")
 STRIPE_KEPT_EN = ("If there are no invoices for you at Stripe, we also delete your customer record at Stripe. "
-                  "If there are, we keep the customer record and the invoices at Stripe, because we must keep "
-                  "our own accounting records for 5 years from the end of the financial year; then we delete "
-                  "them.")
+                  "If there are, we keep the customer record at Stripe for 5 years from the end of the "
+                  "financial year, because we must keep our own accounting records; then we delete it. The "
+                  "issued invoices stay at Stripe, which does not allow an issued invoice to be deleted.")
 
 
 def test_only_the_erasure_helper_deletes_a_stripe_customer():

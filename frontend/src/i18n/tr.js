@@ -149,7 +149,7 @@ export const tr = {
   calendarAddFailed: "Takvim dosyasını kaydedemedik. Tekrar dene ya da saati bir yere not et.",
   downloadCsv: "CSV İndir", exporting: "Dışa aktarılıyor...",
   deleteAccount: "Hesabı Sil", deleteAccountDesc: "Hesabını ve içindeki verileri sil. Bu geri alınamaz. Neleri sakladığımız Hizmet Şartları'nın § 4'ünde yazar.",
-  deleteMyAccount: "Hesabımı Sil", deleteConfirmWarning: "Bu işlem hesabını ve içindeki verileri hemen siler: satışlar, giderler, stok, raporlar. Değişiklik kaydını, güvenlik ve hata kayıtlarını, muhasebe belgelerinin görüntülerini (yaklaşık 6 yıl) ve, Stripe'ta sana ait faturalar varsa, Stripe'taki müşteri kaydını ve faturaları (mali yılın sonundan itibaren 5 yıl) saklarız — Hizmet Şartları § 4'e bak. Aktif bir abonelik de aynı anda durur. Önce verilerini ve PDF'lerini indir. Onaylamak için şifreni gir.",
+  deleteMyAccount: "Hesabımı Sil", deleteConfirmWarning: "Bu işlem hesabını ve içindeki verileri hemen siler: satışlar, giderler, stok, raporlar. Değişiklik kaydını, güvenlik ve hata kayıtlarını, muhasebe belgelerinin görüntülerini (yaklaşık 6 yıl) ve, Stripe'ta sana ait faturalar varsa, Stripe'taki müşteri kaydını (mali yılın sonundan itibaren 5 yıl) ve Stripe'ta kalan faturaları saklarız — Hizmet Şartları § 4'e bak. Aktif bir abonelik de aynı anda durur. Önce verilerini ve PDF'lerini indir. Onaylamak için şifreni gir.",
   enterPassword: "Şifreni gir", confirmDelete: "Silmeyi Onayla", deleting: "Siliniyor...",
   deleteFailed: "Hesap silinemedi",
   paymentImports: "Ödeme İçe Aktarımları", paymentImportsDesc: "İşlemleri otomatik içe aktarmak için ödeme sağlayıcılarını bağla",
