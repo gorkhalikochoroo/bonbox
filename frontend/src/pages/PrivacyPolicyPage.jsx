@@ -2,8 +2,8 @@ import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { CookieSettingsButton } from "../components/CookieConsent";
 // The "Last updated" date is PRIVACY_UPDATED (src/legal/terms.js). Push 3
-// changed /privacy with the Terms (then it was TERMS_VERSION); push 4 changes
-// it on its own (the backup processor row + R-h's Analytics-consent
+// changed /privacy with the Terms (then it was TERMS_VERSION); a later push
+// changes it on its own (the backup processor row + R-h's Analytics-consent
 // sentences), so it has its own release-time date there, never earlier than
 // TERMS_VERSION.
 import { PRIVACY_UPDATED, termsDate } from "../legal/terms";
