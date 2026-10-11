@@ -596,14 +596,19 @@ def test_export_retention_keeps_30_nightly_and_12_monthly():
     assert bs.select_exports_to_keep(["not-an-id"]) == set()
 
 
-def test_export_retention_honours_the_90_day_privacy_promise():
-    """/privacy: "Backups are purged within 90 days" of an account deletion. A
-    DB export cannot be edited to drop one account, so no export may outlive
-    DB_MAX_AGE (< 90 days) — whatever the nightly/monthly counts say."""
+def test_export_retention_makes_backups_expire_as_privacy_says():
+    """/privacy (push 3, EN + DA): "Copies in our backups disappear when those
+    backups expire" — and no number of days. A DB export cannot be edited to
+    drop one account, so every export must expire: none may outlive
+    DB_MAX_AGE (kept below the 90 days the old text named), whatever the
+    nightly/monthly counts say."""
     root = Path(__file__).resolve().parents[2]
     page = (root / "frontend/src/pages/PrivacyPolicyPage.jsx").read_text(encoding="utf-8")
-    assert "Backups are purged within 90 days" in page
-    assert "Sikkerhedskopier slettes inden for 90 dage" in page
+    assert "Copies in our backups disappear when those backups expire." in page
+    assert "Kopier i vores sikkerhedskopier forsvinder, når sikkerhedskopierne udløber." in page
+    # push 3 took the number out; the backup must not bring one back
+    assert "Backups are purged within 90 days" not in page
+    assert "Sikkerhedskopier slettes inden for 90 dage" not in page
     assert bs.DB_MAX_AGE < timedelta(days=90)
 
     start = datetime(2025, 6, 1, 4, 20)
