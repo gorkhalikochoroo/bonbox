@@ -118,7 +118,7 @@ function TermsEn({ native = false }) {
           <p className="mt-1">Changes to financial records (for example marking an invoice paid or voiding it) are written to a change log with the action, the time, your IP address and the state before and after. The log cannot be edited or deleted through BonBox &mdash; neither by you nor by us.</p>
 
           <p className="font-semibold mt-4">Deleting your account</p>
-          <p className="mt-1">When you delete your account, we delete the account and the data in it straight away. We keep the change log, the security and error logs, and the images of accounting documents you uploaded (kasserapport photos, receipt and sales photos, and stock import files); we keep those images for about 6 years after the deletion and then delete them. Copies in our backups disappear when those backups expire. An active subscription stops at the same moment (see &sect;8).</p>
+          <p className="mt-1">When you delete your account, we delete the account and the data in it straight away. We keep the change log, the security and error logs, and the images of accounting documents you uploaded (kasserapport photos, receipt and sales photos, and stock import files); we keep those images for about 6 years after the deletion and then delete them. We keep the payment records at Stripe (the customer and the invoices), because we must keep our own accounting records for 5 years. Copies in our backups disappear when those backups expire. An active subscription stops at the same moment (see &sect;8).</p>
         </Section>
 
         <Section num={5} title="Financial reports and disclaimers">
@@ -334,7 +334,7 @@ function TermsDa({ native = false }) {
           <p className="mt-1">Ændringer af økonomiske poster (f.eks. når en faktura markeres som betalt eller annulleres) skrives i en ændringslog med handlingen, tidspunktet, din IP-adresse og tilstanden før og efter. Loggen kan ikke redigeres eller slettes gennem BonBox — hverken af dig eller af os.</p>
 
           <p className="font-semibold mt-4">Sletning af din konto</p>
-          <p className="mt-1">Når du sletter din konto, sletter vi kontoen og dataene i den med det samme. Vi beholder ændringsloggen, sikkerheds- og fejlloggene og billederne af de regnskabsbilag, du har uploadet (fotos af kasserapporter, kvitteringer og salg samt filer fra lagerimport); billederne gemmer vi i ca. 6 år efter sletningen og sletter dem derefter. Kopier i vores sikkerhedskopier forsvinder, når sikkerhedskopierne udløber. Et aktivt abonnement stopper samtidig (se § 8).</p>
+          <p className="mt-1">Når du sletter din konto, sletter vi kontoen og dataene i den med det samme. Vi beholder ændringsloggen, sikkerheds- og fejlloggene og billederne af de regnskabsbilag, du har uploadet (fotos af kasserapporter, kvitteringer og salg samt filer fra lagerimport); billederne gemmer vi i ca. 6 år efter sletningen og sletter dem derefter. Betalingsoplysningerne hos Stripe (kunde og fakturaer) beholder vi, fordi vi skal opbevare vores egne regnskabsbilag i 5 år. Kopier i vores sikkerhedskopier forsvinder, når sikkerhedskopierne udløber. Et aktivt abonnement stopper samtidig (se § 8).</p>
         </Section>
 
         <Section num={5} title="Økonomiske rapporter og forbehold">

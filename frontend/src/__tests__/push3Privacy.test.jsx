@@ -237,6 +237,36 @@ describe("B2: /privacy records only THAT a Copilot question was asked (true sinc
   });
 });
 
+describe("B6 (Manoj, 11 Oct): Terms § 4 and /privacy say the Stripe customer and invoices are kept", () => {
+  const KEPT = {
+    da: "Betalingsoplysningerne hos Stripe (kunde og fakturaer) beholder vi, fordi vi skal opbevare vores egne regnskabsbilag i 5 år.",
+    en: "We keep the payment records at Stripe (the customer and the invoices), because we must keep our own accounting records for 5 years.",
+  };
+  for (const lang of ["da", "en"]) {
+    it(`${lang}: Manoj's sentence is in § 4 and in /privacy's deletion paragraph, Stripe row, retention table and erasure right`, () => {
+      renderPage(PrivacyPolicyPage, lang);
+      expect(screen.getByTestId("privacy-deletion").textContent).toContain(KEPT[lang]);
+      const container = document.body;
+      const stripe = tableRows(container, lang === "da" ? "Tjeneste" : "Service").find((r) => r[0] === "Stripe");
+      expect(stripe[3]).toContain(lang === "da"
+        ? "Kunden og fakturaerne hos Stripe beholder vi, når du sletter din konto, fordi vi skal opbevare vores egne regnskabsbilag i 5 år"
+        : "We keep the customer and the invoices at Stripe when you delete your account, because we must keep our own accounting records for 5 years");
+      const rows = Object.fromEntries(tableRows(container, lang === "da" ? "Datatype" : "Data type"));
+      expect(lang === "da"
+        ? rows["Betalingsoplysninger hos Stripe (kunde og fakturaer)"]
+        : rows["Payment records at Stripe (the customer and the invoices)"]).toBe(lang === "da"
+        ? "Beholdes, når du sletter din konto, fordi vi skal opbevare vores egne regnskabsbilag i 5 år"
+        : "Kept when you delete your account, because we must keep our own accounting records for 5 years");
+      expect(container.textContent).toContain(lang === "da"
+        ? "og betalingsoplysningerne hos Stripe (kunde og fakturaer) — se »Hvor længe vi opbevarer dine data«."
+        : "and the payment records at Stripe (the customer and the invoices) — see “How long we keep your data”.");
+      cleanup();
+      const terms = renderPage(TermsPage, lang).container.textContent;
+      expect(terms).toContain(KEPT[lang]);
+    });
+  }
+});
+
 describe("should-fixes: who is controller, the date, the insights row", () => {
   it("da + en: controller for the owner's account data; processor for what a business puts in about guests, customers and staff", () => {
     let text = renderPage(PrivacyPolicyPage, "da").container.textContent.replace(/\s+/g, " ");

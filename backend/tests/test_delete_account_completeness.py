@@ -447,12 +447,36 @@ def test_deletion_reply_says_what_terms_section_4_says(db_session, client):
     body = r.json()
     assert body["message"] == auth_router.DELETE_DONE_EN
     assert body["message_da"] == auth_router.DELETE_DONE_DA
-    for msg in (body["message"], body["message_da"]):
-        assert "6" in msg and "5 year" not in msg and "5 år" not in msg
-        assert "faktura" not in msg.lower() and "Bogføringsloven" not in msg
+    # B6 (Manoj, 11 Oct): the Stripe customer and its invoices are kept —
+    # BonBox's OWN accounting records, Manoj's sentence word for word. It is
+    # the only place the reply may say "5 years" / "fakturaer".
+    for msg, stripe_kept in ((body["message"], STRIPE_KEPT_EN), (body["message_da"], STRIPE_KEPT_DA)):
+        assert msg.count(stripe_kept) == 1, msg
+        rest = msg.replace(stripe_kept, "")
+        assert "6" in rest and "5 year" not in rest and "5 år" not in rest
+        assert "faktura" not in rest.lower() and "Bogføringsloven" not in rest
     # The same facts as the Terms page and /privacy.
     from pathlib import Path
     root = Path(__file__).resolve().parents[2] / "frontend" / "src" / "pages"
     terms = (root / "TermsPage.jsx").read_text()
+    privacy = (root / "PrivacyPolicyPage.jsx").read_text()
     assert "we keep those images for about 6 years after the deletion and then delete them" in terms
     assert "billederne gemmer vi i ca. 6 år efter sletningen og sletter dem derefter" in terms
+    for doc in (terms, privacy):
+        assert STRIPE_KEPT_EN in doc and STRIPE_KEPT_DA in doc
+
+
+STRIPE_KEPT_DA = ("Betalingsoplysningerne hos Stripe (kunde og fakturaer) beholder vi, fordi vi skal "
+                  "opbevare vores egne regnskabsbilag i 5 år.")
+STRIPE_KEPT_EN = ("We keep the payment records at Stripe (the customer and the invoices), because we must "
+                  "keep our own accounting records for 5 years.")
+
+
+def test_deletion_never_deletes_the_stripe_customer_so_the_texts_are_true():
+    """B6: § 4, /privacy and the reply say the Stripe customer and invoices are
+    kept. That is only true while the code never deletes the customer."""
+    from pathlib import Path
+    app_dir = Path(__file__).resolve().parents[2] / "backend" / "app"
+    hits = [str(p) for p in app_dir.rglob("*.py")
+            if re.search(r"Customer\.delete\(|customers\.delete\(", p.read_text())]  # Stripe SDK calls
+    assert hits == [], hits

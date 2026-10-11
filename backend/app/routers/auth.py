@@ -2359,21 +2359,28 @@ DELETE_SUB_STOP_FAILED_DA = (
 # The reply to a completed deletion (push 3) — what Terms § 4 says we keep,
 # nothing more: the change log, the security and error logs, and the images
 # of the four accounting kinds (storage.ACCOUNTING_RETENTION_KINDS), deleted
-# by the nightly sweep (5 + 1) × 366 days after the erasure. No legal claim
-# that BonBox must keep records — § 4 says the owner keeps them.
+# by the nightly sweep (5 + 1) × 366 days after the erasure; and the Stripe
+# customer and its invoices (delete_account never deletes the Stripe
+# customer — Manoj, 11 Oct, B6: they are BonBox's OWN accounting records).
+# No legal claim that BonBox must keep the owner's records — § 4 says the
+# owner keeps them.
 DELETE_DONE_EN = (
     "Your account and the data in it are deleted. As Terms of Service § 4 says, "
     "we keep the change log, the security and error logs, and the images of "
     "accounting documents you uploaded (kasserapport photos, receipt and sales "
     "photos, and stock import files); we keep those images for about 6 years "
-    "and then delete them. We're sorry to see you go."
+    "and then delete them. We keep the payment records at Stripe (the customer "
+    "and the invoices), because we must keep our own accounting records for 5 "
+    "years. We're sorry to see you go."
 )
 DELETE_DONE_DA = (
     "Din konto og dataene i den er slettet. Som § 4 i Handelsbetingelserne "
     "siger, beholder vi ændringsloggen, sikkerheds- og fejlloggene og billederne "
     "af de regnskabsbilag, du har uploadet (fotos af kasserapporter, kvitteringer "
     "og salg samt filer fra lagerimport); billederne gemmer vi i ca. 6 år og "
-    "sletter dem derefter. Vi er kede af at se dig gå."
+    "sletter dem derefter. Betalingsoplysningerne hos Stripe (kunde og "
+    "fakturaer) beholder vi, fordi vi skal opbevare vores egne regnskabsbilag "
+    "i 5 år. Vi er kede af at se dig gå."
 )
 
 
