@@ -59,7 +59,12 @@ export default function AccessV2() {
       className="border-t border-slate-200 bg-slate-50"
     >
       <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] ${WIDE} ${WIDE_PY}`}>
-        <div className="grid grid-cols-1 gap-10 min-[1041px]:grid-cols-[minmax(0,0.66fr)_minmax(0,1.34fr)] min-[1041px]:gap-[clamp(32px,5vw,64px)] min-[1441px]:gap-[calc(64px*var(--lx))]">
+        {/* Column gap 48px (x --lx above 1440), not the 64 the other bands
+            use: this column is one short paragraph, and as the screen
+            widens faster than its type grows (./fluid.js) its longest line
+            ends up to a word short of the column. At 64 that pushed the
+            empty space before the rows past 7% of the screen near 2000px. */}
+        <div className="grid grid-cols-1 gap-10 min-[1041px]:grid-cols-[minmax(0,0.66fr)_minmax(0,1.34fr)] min-[1041px]:gap-[clamp(32px,3.34vw,48px)] min-[1441px]:gap-[calc(48px*var(--lx))]">
           <div className={TEXT}>
             <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
               {t("landingV2.access.eyebrow", "Access")}

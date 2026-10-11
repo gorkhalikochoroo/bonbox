@@ -22,8 +22,12 @@ export default function StaffCopyV2() {
     t("landingV2.staff.row4", "Danish or English, per person"),
   ];
 
+  // 58ch on a phone. From 1041px the grid column sets the width: the copy
+  // grows slower than its column on wide screens (./fluid.js), so a 58ch
+  // box would leave the check rows short of the phones. The paragraph keeps
+  // its own 46ch.
   return (
-    <div className={`max-w-[58ch] ${TEXT}`}>
+    <div className={`max-w-[58ch] min-[1041px]:max-w-none ${TEXT}`}>
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
           {t("landingV2.staff.eyebrow", "BonBox Vagtplan · iPhone")}

@@ -38,7 +38,16 @@ import AiPanelV2 from "../components/landing/v2/AiPanelV2";
 import GavekortV2 from "../components/landing/v2/GavekortV2";
 import PricingV2 from "../components/landing/v2/PricingV2";
 import FooterV2 from "../components/landing/v2/FooterV2";
-import { CELL, ROOT, TEXT, WIDE, WIDE_PY } from "../components/landing/v2/fluid";
+import {
+  ART_BOOKING,
+  ART_FAN,
+  ART_FLOOR,
+  CELL,
+  ROOT,
+  TEXT,
+  WIDE,
+  WIDE_PY,
+} from "../components/landing/v2/fluid";
 
 /**
  * Wrapper for the fragment sections only. Matches the geometry the
@@ -78,14 +87,16 @@ export default function LandingV2Page() {
           0.82fr / 1.18fr per the handoff, one column under 1041px. From
           1041px both are drawn at the width of their column (the booking
           card as a 440px drawing, the floor plan as a 600px one) instead of
-          sitting at their own size with empty space beside them; see
-          components/landing/v2/fluid.js. */}
+          sitting at their own size with empty space beside them, up to
+          1.1x (card) and 1.3x (plan) the type scale; past that they lay out
+          wider and still fill the column (the plan drops its 600px cap,
+          it is drawn in percentages). See components/landing/v2/fluid.js. */}
       <Band id="reservations" tone="slate">
         <div className="grid items-center gap-[clamp(36px,5vw,56px)] min-[1041px]:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] min-[1441px]:gap-[calc(56px*var(--lx))]">
-          <div className={`${CELL} min-[1041px]:[&>*]:[zoom:clamp(1,tan(atan2(100cqw,440px)),2.5)]`}>
+          <div className={`${CELL} ${ART_BOOKING}`}>
             <BookingCardV2 />
           </div>
-          <div className={`flex justify-center ${CELL} min-[1041px]:[&>*]:[zoom:clamp(1,tan(atan2(100cqw,600px)),2.5)]`}>
+          <div className={`flex justify-center ${CELL} ${ART_FLOOR} min-[1041px]:[&>*]:max-w-none`}>
             <FloorPlan />
           </div>
         </div>
@@ -107,9 +118,9 @@ export default function LandingV2Page() {
               right (which is why scrollWidth looked clean). It used to be
               shrunk by fixed steps (scale 0.58 / 0.66), which left it 526px
               wide in a column that kept growing. Now it is zoomed to its
-              column: ~0.6 at 1041px, ~0.9 at 1440px, larger above (fluid.js).
+              column: ~0.6 at 1041px, ~0.9 at 1440px, ~1.5 at 2560 (fluid.js).
               Zoom rather than scale so the band's height follows the fan. */}
-          <div className={`flex justify-center ${CELL} min-[1041px]:[&>*]:[zoom:clamp(0.5,tan(atan2(100cqw,800px)),2.5)]`}>
+          <div className={`flex justify-center ${CELL} ${ART_FAN}`}>
             <PhoneFanV2 />
           </div>
         </div>

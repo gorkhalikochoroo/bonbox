@@ -1,12 +1,13 @@
 import { Send, Sparkles, TrendingUp, X } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
-import { CELL, TEXT, WIDE, WIDE_PY } from "./fluid";
+import { ART_CHAT, CELL, TEXT, WIDE, WIDE_PY } from "./fluid";
 
 /**
  * Landing v2 — "BonBox AI" section.
  * Left: eyebrow + h2 + body + four example-prompt chips (mixed DA/EN by design).
  * Right: a static mock of the copilot chat panel, a 400px drawing that is
- * drawn at its column's width from 1041px (./fluid.js).
+ * drawn at its column's width from 1041px, up to 1.1x the type scale
+ * (./fluid.js).
  *
  * Every question on this panel is one the copilot can actually answer with
  * its tools (revenue, expenses, inventory, waste, credit, cash book, overview,
@@ -33,11 +34,16 @@ export default function AiPanelV2() {
     >
       <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] ${WIDE} ${WIDE_PY}`}>
         {/* From 1041px the chat is drawn at its column's width (./fluid.js),
-            so the column is sized for the chat at ~1.2x its 400px: at the
-            handoff's 1fr / 0.86fr its text came out larger than the copy
-            beside it. The paragraph drops its 46ch cap there so the copy
-            reaches the chat. */}
-        <div className="grid grid-cols-1 items-center gap-9 min-[1041px]:grid-cols-[minmax(0,1fr)_minmax(0,0.64fr)] min-[1041px]:gap-[clamp(36px,5vw,64px)] min-[1441px]:gap-[calc(64px*var(--lx))]">
+            but never above 1.1x the type scale, so its 14px bubbles stay
+            smaller than the 17px copy beside it (at 1fr / 0.86fr, and with
+            no cap, they came out larger). Where the column is wider than
+            the chat at that zoom the panel lays out wider (max-w-none)
+            rather than leaving empty space beside it. Above 1440px the
+            column is 1 / 0.75: the copy grows at half the screen's rate,
+            so at 1 / 0.64 it ran ~110 characters a line at 1920. The
+            paragraph drops its 46ch cap from 1041px so the copy reaches
+            the chat. */}
+        <div className="grid grid-cols-1 items-center gap-9 min-[1041px]:grid-cols-[minmax(0,1fr)_minmax(0,0.64fr)] min-[1041px]:gap-[clamp(36px,5vw,64px)] min-[1441px]:grid-cols-[minmax(0,1fr)_minmax(0,0.75fr)] min-[1441px]:gap-[calc(64px*var(--lx))]">
           {/* Left column */}
           <div className={TEXT}>
             <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
@@ -80,7 +86,7 @@ export default function AiPanelV2() {
                 "landingV2.ai.panelLabel",
                 "Example conversation with the BonBox copilot"
               )}
-              className="w-full max-w-[400px] overflow-hidden rounded-[20px] bg-chat-bg shadow-[0_30px_60px_-28px_rgba(15,23,42,0.55)] min-[1041px]:[zoom:clamp(1,tan(atan2(100cqw,400px)),2.5)]"
+              className={`w-full max-w-[400px] min-[1041px]:max-w-none overflow-hidden rounded-[20px] bg-chat-bg shadow-[0_30px_60px_-28px_rgba(15,23,42,0.55)] ${ART_CHAT}`}
             >
               {/* Header */}
               <div className="flex items-center gap-3 border-b border-chat-border px-[18px] py-4">

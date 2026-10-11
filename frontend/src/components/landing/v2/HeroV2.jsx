@@ -1,6 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import AppStoreLink from "./AppStoreLink";
-import { CELL, TEXT, WIDE } from "./fluid";
+import { ART_HERO_CARD, CELL, TEXT, WIDE } from "./fluid";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../../../hooks/useLanguage";
 import { dateLocale } from "../../../utils/dateFormat";
@@ -80,9 +80,8 @@ export default function HeroV2() {
   return (
     <section id="top" className="bg-slate-50">
       {/* Wide screens (./fluid.js): 5% gutters; above 1440px the padding,
-          the gap and the copy grow with the screen. 3vw is 43.2px at 1440.
-          Equal columns: the card fills its half, so the hero ends inside a
-          1920x1080 screen; at 0.9 / 1.1 it was a quarter taller. */}
+          the gap and the copy grow with the type scale. 3vw is 43.2px at
+          1440. Equal columns: the card fills its half. */}
       <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] pt-[clamp(24px,3vw,52px)] pb-[clamp(40px,5vw,64px)] ${WIDE} min-[1441px]:pt-[calc(43.2px*var(--lx))] min-[1441px]:pb-[calc(64px*var(--lx))]`}>
       <div className="grid grid-cols-1 items-center gap-10 min-[1041px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] min-[1041px]:gap-[clamp(40px,5vw,68px)] min-[1441px]:gap-[calc(68px*var(--lx))]">
         {/* ── Left column ───────────────────────────────────────────── */}
@@ -152,9 +151,12 @@ export default function HeroV2() {
         {/* ── Right column: dashboard demo card ─────────────────────── */}
         {/* The wrapper is the size container the card measures: from
             1041px the card is drawn at the column's width / 600px, never
-            below 1 (narrower columns reflow it as before). ./fluid.js */}
+            below 1 (narrower columns reflow it as before), never above 1.1x
+            the type scale, and never so large that its profit bar falls
+            below the fold (ART_HERO_CARD in ./fluid.js). Capped, it lays out
+            wider and still fills the column. */}
         <div className={CELL}>
-        <figure className="m-0 overflow-hidden rounded-[18px] bg-white shadow-[0_18px_44px_-24px_rgba(15,23,42,0.30)] min-[1041px]:[zoom:clamp(1,tan(atan2(100cqw,600px)),2.5)]">
+        <figure className={`m-0 overflow-hidden rounded-[18px] bg-white shadow-[0_18px_44px_-24px_rgba(15,23,42,0.30)] ${ART_HERO_CARD}`}>
           <figcaption className="sr-only">
             {t(
               "landingV2HeroCardCaption",
