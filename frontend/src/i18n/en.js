@@ -2774,6 +2774,7 @@ export const en = {
     termsNoticeChangeFounding: "You keep the founding price as long as your subscription stays active without a break.",
     termsNoticeChangePrice: "We give at least 30 days' notice by e-mail before a price change applies to your running subscription.",
     termsNoticeChangeBusiness: "Paid subscriptions are for businesses only.",
+    termsNoticeChangeSubscriptionsNative: "§ 8 about subscriptions has changed too. You can read it in the terms.",
     termsNoticeObject: "If you do not want to continue on the new terms, you can cancel your subscription or delete your account before {date}.",
     pricingKrPerMonth: "kr/mo",
     pricingRegular: "regular",

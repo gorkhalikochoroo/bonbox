@@ -2676,6 +2676,7 @@ export const da = {
     termsNoticeChangeFounding: "Du beholder stifterprisen, så længe dit abonnement er aktivt uden afbrydelse.",
     termsNoticeChangePrice: "En prisændring på dit løbende abonnement varsler vi pr. e-mail mindst 30 dage, før den får virkning.",
     termsNoticeChangeBusiness: "Betalte abonnementer er kun for virksomheder.",
+    termsNoticeChangeSubscriptionsNative: "§ 8 om abonnementer er også ændret. Du kan læse den i betingelserne.",
     termsNoticeObject: "Vil du ikke fortsætte på de nye betingelser, kan du opsige dit abonnement eller slette din konto før {date}.",
     pricingKrPerMonth: "kr/md",
     pricingRegular: "normal",
