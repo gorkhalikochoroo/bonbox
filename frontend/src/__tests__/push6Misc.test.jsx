@@ -3,7 +3,7 @@
  * Profile → Slet konto says how to get a password (LEG-14 hint), and the
  * three existing keys edited in place say what is true.
  */
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
@@ -34,13 +34,17 @@ describe("the price table carries the plan (PQ-17, B6)", () => {
 
 describe("Profile → Slet konto: no password yet (LEG-14 hint)", () => {
   const src = fs.readFileSync(path.join(SRC, "pages/ProfilePage.jsx"), "utf8");
-  it("the hint and the link sit under the password field, the link to /forgot-password with the account's address", () => {
+  it("the hint and the link sit under the password field, the link to /forgot-password FILLING IN the account's address", () => {
     const pw = src.indexOf("value={deletePassword}");
     const hint = src.indexOf('t("suDeleteNoPwHint")');
     expect(pw).toBeGreaterThan(-1);
     expect(hint).toBeGreaterThan(pw);
     expect(src.slice(hint, hint + 400)).toContain('to="/forgot-password"');
-    expect(src.slice(hint, hint + 400)).toContain("state={{ email: user?.email }}");
+    // prefillEmail, never state.email: state.email is LoginMagicPage's
+    // hand-over and mails a code the moment the page opens — one tap in
+    // "Slet konto" must not send a mail.
+    expect(src.slice(hint, hint + 400)).toContain("state={{ prefillEmail: user?.email }}");
+    expect(src.slice(hint, hint + 400)).not.toContain("state={{ email:");
     expect(src.slice(hint, hint + 600)).toContain('t("suDeleteNoPwLink")');
   });
   it("Danish and English text", () => {

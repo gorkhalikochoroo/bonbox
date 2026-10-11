@@ -2160,13 +2160,16 @@ export default function ProfilePage() {
                     </div>
                   </div>
                   {/* LEG-14 hint (push 6): an account made with Google, Apple or a
-                      login link has no password it knows yet — say how to get one,
-                      one tap away (the code goes to this account's own address). */}
+                      login link has no password it knows yet — say how to get one.
+                      The link only FILLS IN this account's address on
+                      /forgot-password (prefillEmail); nothing is mailed until the
+                      owner presses "Send kode" there. (state.email is
+                      LoginMagicPage's hand-over, which sends at once — not this.) */}
                   <p className="text-[13px] leading-relaxed text-gray-600 dark:text-gray-400">
                     {t("suDeleteNoPwHint")}{" "}
                     <Link
                       to="/forgot-password"
-                      state={{ email: user?.email }}
+                      state={{ prefillEmail: user?.email }}
                       className="font-medium text-gray-800 dark:text-gray-200 underline underline-offset-4 decoration-gray-400 hover:text-gray-900 dark:hover:text-white"
                     >
                       {t("suDeleteNoPwLink")}

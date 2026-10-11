@@ -183,6 +183,17 @@ describe("/forgot-password", () => {
     expect(document.body.textContent).not.toContain("Password reset successfully");
   });
 
+  it("a filled-in address (prefillEmail — Glemt?, Profile's delete hint) mails nothing until the button", async () => {
+    api.post.mockResolvedValue({ data: {} });
+    at({ pathname: "/forgot-password", state: { prefillEmail: "ole@cafe.dk" } });
+    await act(async () => {});
+    expect(screen.getByLabelText(da.fpEmailAddress).value).toBe("ole@cafe.dk");
+    expect(api.post).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: da.sendResetCode })); });
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(api.post).toHaveBeenCalledWith("/auth/forgot-password", { email: "ole@cafe.dk" });
+  });
+
   it("LoginMagicPage's hand-over (state.email) still sends the code at once", async () => {
     api.post.mockResolvedValueOnce({ data: {} });
     at({ pathname: "/forgot-password", state: { email: "ole@cafe.dk" } });
