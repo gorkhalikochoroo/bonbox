@@ -493,6 +493,14 @@ export default function SubscriptionPage() {
           // The server's B2B gate (e.g. the account type changed in another
           // tab) — the same sentences, in the app's language.
           setMsg(businessOnlyMessage);
+        } else if (e?.response?.data?.detail?.code === "subscriber_portal_failed") {
+          // Push-3 review F4: the account already has a subscription and the
+          // server could not open its portal — it refused to start a second
+          // one. Say so in the app's language.
+          setMsg(t(
+            "checkoutSubscriberPortalFailed",
+            "We couldn't open your subscription at Stripe just now. You already have a subscription, so we did not start a new payment. Please try again in a few minutes, or write to contact@bonbox.dk.",
+          ));
         } else if (e?.response?.status === 409 && e.response.data?.payment_unavailable) {
           // Backend says this tier can't check out yet — degrade to waitlist.
           fallbackToWaitlist = true;

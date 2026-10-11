@@ -57,6 +57,19 @@ CHECKOUT_BUSINESS_ONLY_EN = (
     "BonBox for free. If you use BonBox in a business, change the business "
     "type under Profile."
 )
+# The refusal a live subscriber gets when the portal hand-off fails (push-3
+# review F4) — the same sentences as checkoutSubscriberPortalFailed in
+# frontend/src/i18n/{da,en}.js.
+CHECKOUT_PORTAL_FAILED_DA = (
+    "Vi kunne ikke åbne dit abonnement hos Stripe lige nu. Du har allerede et "
+    "abonnement, så vi har ikke startet en ny betaling. Prøv igen om et par "
+    "minutter, eller skriv til contact@bonbox.dk."
+)
+CHECKOUT_PORTAL_FAILED_EN = (
+    "We couldn't open your subscription at Stripe just now. You already have a "
+    "subscription, so we did not start a new payment. Please try again in a few "
+    "minutes, or write to contact@bonbox.dk."
+)
 limiter = Limiter(key_func=client_ip)
 
 
@@ -334,11 +347,43 @@ def create_checkout(
     # Already have a live subscription? Send them to the portal to MANAGE it
     # instead of creating a SECOND concurrent subscription (which would
     # double-bill once both cycles renew). A canceled/dead sub is NOT blocked
-    # here so the user can genuinely re-subscribe. Includes legacy "business".
-    if user.plan in ("starter", "pro", "business") and _has_live_subscription(user):
-        portal = stripe_billing.create_billing_portal_session(user, db)
+    # here so the user can genuinely re-subscribe.
+    #
+    # Push-3 review F4: a live subscription NEVER reaches a checkout.
+    #   • On any plan: a SEPA / MobilePay subscription is "active" at Stripe
+    #     while the debit settles, but the plan is raised only on invoice.paid
+    #     (stripe_billing), so the old `user.plan in (starter, pro, business)`
+    #     condition let that account buy a second subscription.
+    #   • When the portal session can't be created (Stripe error, no customer
+    #     id), the code used to fall through and open a NEW checkout. It now
+    #     refuses with 502 subscriber_portal_failed (da + en) and logs it;
+    #     the page says it in the app's language. 502, not 503: the api
+    #     interceptor replays a 503 POST, and this answer is final.
+    if _has_live_subscription(user):
+        try:
+            portal = stripe_billing.create_billing_portal_session(user, db)
+        except Exception:  # noqa: BLE001
+            log.exception("checkout: portal session raised for live subscriber user=%s", user.id)
+            portal = None
         if portal:
             return {"url": portal["url"], "already_subscribed": True}
+        log.error(
+            "checkout: refused for live subscriber user=%s status=%s plan=%s — "
+            "the portal session failed; no new checkout created",
+            user.id, user.subscription_status, user.plan,
+        )
+        return JSONResponse(
+            status_code=502,
+            content={
+                "detail": {
+                    "code": "subscriber_portal_failed",
+                    "message": CHECKOUT_PORTAL_FAILED_EN,
+                    "message_da": CHECKOUT_PORTAL_FAILED_DA,
+                },
+                "_error": True,
+                "_recoverable": True,
+            },
+        )
 
     # Paid plans are for businesses only (Manoj, 10 Oct 2026, decision 1):
     # the Terms are B2B and carry no consumer withdrawal section, so a

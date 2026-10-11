@@ -488,3 +488,46 @@ describe("F3: no '14 days free' badge for a paying subscriber", () => {
     });
   }
 });
+
+// Push-3 review F4 (money): the server refuses a checkout for an account that
+// already has a live subscription when it cannot open the portal (502
+// subscriber_portal_failed). The page says so in the app's language — the
+// case where the button is there: a subscription whose debit is still
+// settling (Stripe "active", plan not raised yet).
+describe("F4: a live subscriber's refused checkout is explained in the app's language", () => {
+  for (const lang of ["da", "en"]) {
+    it(lang, async () => {
+      langCode = lang;
+      authState = { user: { id: "u1", email: "cafe@cafe.dk", business_type: "cafe" }, refreshUser: vi.fn() };
+      get.mockReset();
+      get.mockImplementation((url) => Promise.resolve({
+        data: url === "/billing/me"
+          ? { plan: "trial", trial_active: true, is_paid: false, subscription_status: "active",
+            stripe_configured: true, checkout_ready: { starter: true, pro: true, any: true } }
+          : url === "/waitlist/status" ? [] : {},
+      }));
+      post.mockReset();
+      post.mockImplementation((url) => (url === "/billing/stripe/checkout-session"
+        ? Promise.reject({ response: { status: 502, data: { detail: {
+          code: "subscriber_portal_failed", message: en.checkoutSubscriberPortalFailed,
+          message_da: da.checkoutSubscriberPortalFailed } } } })
+        : Promise.resolve({ data: {} })));
+      render(<MemoryRouter initialEntries={["/subscription"]}><SubscriptionPage /></MemoryRouter>);
+      const [, proLine] = await screen.findAllByTestId("checkout-terms-line");
+      const card = proLine.closest(".relative");
+      within(card).getByRole("button").click();
+      const d = lang === "da" ? da : en;
+      expect(await screen.findByText(d.checkoutSubscriberPortalFailed)).toBeTruthy();
+      expect(post).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  it("da and en say the same thing, and the Danish is Danish", () => {
+    expect(da.checkoutSubscriberPortalFailed).toBe(
+      "Vi kunne ikke åbne dit abonnement hos Stripe lige nu. Du har allerede et abonnement, så vi har ikke startet en ny betaling. Prøv igen om et par minutter, eller skriv til contact@bonbox.dk.",
+    );
+    expect(en.checkoutSubscriberPortalFailed).toBe(
+      "We couldn't open your subscription at Stripe just now. You already have a subscription, so we did not start a new payment. Please try again in a few minutes, or write to contact@bonbox.dk.",
+    );
+  });
+});
