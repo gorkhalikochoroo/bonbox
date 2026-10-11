@@ -2095,9 +2095,11 @@ _migrations = [
     # (SQLite) and the per-event handler is SKIPPED — no double mutation of
     # plan/status, no double audit row. Mirrors app/models/webhook_event.py +
     # alembic 021 (documentation-only). create_all() builds it on SQLite; this
-    # block is the canonical Postgres path + emergency-restore. Append-only —
-    # no UPDATE/DELETE surface. REQUIRED by the schema-drift self-test: the
-    # model declares this table, so on Postgres it MUST exist.
+    # block is the canonical Postgres path + emergency-restore. Rows are
+    # deleted only by stripe_billing._release_webhook_event when a handler
+    # failed (OPS-05), so Stripe's retry is processed. REQUIRED by the
+    # schema-drift self-test: the model declares this table, so on Postgres
+    # it MUST exist.
     """CREATE TABLE IF NOT EXISTS webhook_events (
         event_id VARCHAR(255) PRIMARY KEY,
         event_type VARCHAR(120),

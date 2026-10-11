@@ -585,14 +585,16 @@ async def stripe_webhook(
     handle_webhook(). Any forged request without a valid signature is rejected
     with 400.
 
-    Returns 200 on internal errors so Stripe doesn't retry-flood. Bad signature
-    is the only thing that returns 400.
+    Returns 500 on internal errors so Stripe retries; replays are deduped by
+    the webhook_events ledger. Bad signature returns 400.
     """
     payload = await request.body()
     # Outer try/except so an unhandled exception inside handle_webhook (e.g.
-    # DB error, type mismatch, new Stripe API field shape) doesn't bubble up
-    # to the global 500 handler — that hides the real error from Stripe's
-    # webhook attempts view and triggers retry-storms.
+    # DB error, type mismatch, new Stripe API field shape) is answered with a
+    # 500 Stripe retries, plus an error_logs row the ops triage alerts on.
+    # No ledger row exists for such a crash (the claim and dispatch live in
+    # handle_webhook, whose handler failures are caught there), so the retry
+    # is processed.
     try:
         # handle_webhook makes blocking Stripe API calls (Subscription /
         # Invoice retrieve) — run it in the threadpool so a slow Stripe
@@ -604,16 +606,31 @@ async def stripe_webhook(
         import logging, traceback
         log = logging.getLogger("bonbox.stripe")
         log.exception("Webhook router-level crash: %s", e)
-        # Return 200 with a diagnostic body so Stripe shows the actual error
-        # in dashboard webhook attempts and stops retrying. Body is only
-        # visible to whoever has Stripe dashboard access.
+        # 500 so Stripe retries (OPS-05). The body carries the exception TYPE
+        # only — str(e) can echo SQL row values into the Stripe dashboard; the
+        # detail goes to error_logs (admin-only).
+        crash = e
+
+        def _record_crash():
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            stripe_billing.record_webhook_failure(
+                db, None, None, crash, released=None,
+                error_type=f"WebhookRouterCrash:{type(crash).__name__}",
+            )
+
+        try:
+            await run_in_threadpool(_record_crash)
+        except Exception:  # noqa: BLE001 — never let the record cost the answer
+            pass
         return JSONResponse(
-            status_code=200,
+            status_code=500,
             content={
                 "status": "error",
                 "code": "router_crash",
                 "exception_type": type(e).__name__,
-                "exception_msg": str(e)[:500],
             },
         )
     # If the handler signaled a specific HTTP code (e.g. 400 for bad signature)
