@@ -49,11 +49,11 @@ function Band({ id, tone = "white", children }) {
   return (
     <section id={id} className={`${bg} border-t border-slate-200`}>
       <div
-        className="mx-auto w-full max-w-[1800px]"
+        className="mx-auto w-full max-w-[1180px]"
         style={{
-          maxWidth: 1800,
-          paddingLeft: "clamp(24px,4vw,80px)",
-          paddingRight: "clamp(24px,4vw,80px)",
+          maxWidth: 1180,
+          paddingLeft: "clamp(24px,4vw,64px)",
+          paddingRight: "clamp(24px,4vw,64px)",
           paddingTop: "clamp(52px,6vw,88px)",
           paddingBottom: "clamp(52px,6vw,88px)",
         }}
@@ -103,8 +103,12 @@ export default function LandingV2Page() {
               cell, overlapping the copy on the left and getting cut off by
               html's overflow-x:clip on the right (which is why scrollWidth
               looked clean). Scale keeps the layout box put and shrinks only
-              what is painted. Numbers are the measured cell width / 852. */}
-          <div className="flex justify-center min-[1041px]:scale-[0.58] min-[1240px]:scale-[0.70] min-[1440px]:scale-[0.84] min-[1680px]:scale-100">
+              what is painted. Numbers are the measured cell width / 852.
+              Since 11 Oct the bands are capped at the handoff's 1180px
+              container (they had drifted to 1800px, which left wide empty
+              gaps on big screens), so the right cell never grows past
+              ~570px and the fan stays at 0.66 from 1180px up. */}
+          <div className="flex justify-center min-[1041px]:scale-[0.58] min-[1180px]:scale-[0.66]">
             <PhoneFanV2 />
           </div>
         </div>
