@@ -1885,9 +1885,10 @@ export default function ProfilePage() {
                     so Analytics/Marketing consent can be changed or withdrawn
                     here, not only by clearing site data. */}
                 <CookieSettingsButton className="text-[13px] font-medium text-blue-600 dark:text-blue-400 hover:underline" />
-                <p className="text-[11px] text-gray-500 dark:text-gray-400 pt-3 border-t border-gray-200 dark:border-gray-800">
-                  GDPR: BonBox processes analytics under legitimate-interest basis. Your right to opt
-                  out is respected here. To delete all your data, see the Danger Zone below.
+                {/* Says what /privacy says (R-h): browser events need the
+                    Analytics consent; the pause is here. */}
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 pt-3 border-t border-gray-200 dark:border-gray-800" data-testid="profile-analytics-note">
+                  {t("profAnalyticsConsentNote")}
                 </p>
               </div>
             </Card>

@@ -334,6 +334,7 @@ export const da = {
     profLogoCurrentAlt: "Nuværende logo",
     profBrandColorDefaultTitle: "Standard (ingen farve)",
     profPauseAnalyticsDesc: "Når slået til, holder BonBox op med at registrere dine klik, sidevisninger og AI-spørgsmål. Dine forretningsdata (salg, udgifter, lager) påvirkes ikke. Du kan genoptage når som helst. Eksisterende analysedata ældre end 180 dage slettes automatisk.",
+    profAnalyticsConsentNote: "De hændelser, din browser sender (hvilke sider du besøger, og hvilke handlinger du foretager), registreres først, når du har slået Analyse til i Cookieindstillinger. Du kan til enhver tid sætte analysen på pause her. Vil du slette alle dine data, finder du det under Farezone nedenfor.",
     profEmailVerifiedTitle: "E-mail bekræftet",
     profEmailVerifyCtaTitle: "Klik for at bekræfte din e-mail",
     profLaborTargetSliderAria: "Lønmål i procent",

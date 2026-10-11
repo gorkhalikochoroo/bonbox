@@ -335,6 +335,7 @@ export const en = {
     profLogoCurrentAlt: "Current logo",
     profBrandColorDefaultTitle: "Default (no color)",
     profPauseAnalyticsDesc: "When ON, BonBox stops recording your clicks, page views and AI questions. Your business data (sales, expenses, inventory) is unaffected. You can resume any time. Existing analytics older than 180 days are auto-deleted.",
+    profAnalyticsConsentNote: "The events your browser sends (pages you visit and actions you take) are recorded only after you turn on Analytics in Cookie settings. You can pause analytics here at any time. To delete all your data, see Danger zone below.",
     profEmailVerifiedTitle: "Email verified",
     profEmailVerifyCtaTitle: "Click to verify your email",
     profLaborTargetSliderAria: "Labor target percentage",
