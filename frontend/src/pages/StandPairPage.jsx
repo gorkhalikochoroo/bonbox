@@ -13,9 +13,10 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, CalendarCheck } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 import api from "../services/api";
+import BonBoxMark from "../components/BonBoxMark";
 import { setStandToken } from "../services/standAuth";
 import { useLanguage } from "../hooks/useLanguage";
 
@@ -94,14 +95,14 @@ export default function StandPairPage() {
             "inset 0 1px 0 #fff, 0 1px 2px rgba(15,23,42,.05), 0 18px 44px -24px rgba(15,23,42,.35)",
         }}
       >
+        {/* The owner app's tile (docs/brand: forest tile, paper b) — this
+            page installs with the owner/stand icon, so it wears that mark,
+            not a green calendar. */}
         <div
-          className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-5"
-          style={{
-            background: "linear-gradient(180deg,#22c55e,#16a34a)",
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,.35), 0 10px 22px -12px rgba(22,163,74,.85)",
-          }}
+          className="w-12 h-12 rounded-xl bg-bb-forest text-bb-paper flex items-center justify-center mb-5"
+          aria-hidden="true"
         >
-          <CalendarCheck className="w-6 h-6" aria-hidden />
+          <BonBoxMark size={38} />
         </div>
 
         <h1 className="text-[22px] font-bold tracking-[-0.025em] text-slate-900">

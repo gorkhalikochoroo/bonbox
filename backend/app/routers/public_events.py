@@ -277,6 +277,7 @@ def _ssr_html(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{safe_title}</title>
+  <link rel="icon" href="https://www.bonbox.dk/favicon.ico?v=3" sizes="16x16 32x32">
   <meta name="description" content="{safe_desc}">
   <link rel="canonical" href="{safe_canonical}">
   <meta property="og:title" content="{safe_title}">

@@ -15,7 +15,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
 from app.utils import login_guard
-from app.services.brand_mark import BRAND_FOREST, BRAND_MARK_SVG
+from app.services.brand_mark import BRAND_MARK_IMG
 from app.services.last_seen import touch_last_seen
 
 from app.database import get_db
@@ -221,9 +221,7 @@ def _admin_signup_email_html(email: str, business_name: str, business_type: str)
     return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
   <div style="text-align:center;margin-bottom:20px">
-    <div style="display:inline-block;background:{BRAND_FOREST};border-radius:14px;padding:12px 14px">
-      {BRAND_MARK_SVG}
-    </div>
+    {BRAND_MARK_IMG}
     <h1 style="font-size:20px;color:#1e293b;margin:12px 0 4px">New Signup!</h1>
   </div>
   <table style="width:100%;font-size:14px;color:#334155;border-collapse:collapse">
@@ -1618,9 +1616,7 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
         f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff">
   <div style="text-align:center;margin-bottom:24px">
-    <div style="display:inline-block;background:{BRAND_FOREST};border-radius:14px;padding:12px 14px">
-      {BRAND_MARK_SVG}
-    </div>
+    {BRAND_MARK_IMG}
     <h1 style="font-size:20px;color:#1e293b;margin:12px 0 4px">Password Reset</h1>
   </div>
   <p style="font-size:15px;color:#334155;text-align:center">Your reset code is:</p>

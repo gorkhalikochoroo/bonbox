@@ -4,6 +4,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { AUTH_DETAIL } from "../utils/authErrors";
+import BonBoxMark from "../components/BonBoxMark";
 
 /**
  * Magic-link landing page for a TEAM MEMBER accepting an invite.
@@ -150,6 +151,9 @@ export default function TeamAcceptInvitePage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-900 px-4 py-12">
       <div className="w-full max-w-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-7">
+        <div className="w-10 h-10 rounded-lg bg-bb-forest text-bb-paper flex items-center justify-center mb-5" aria-hidden="true">
+          <BonBoxMark size={32} />
+        </div>
         {resolving ? (
           <div className="text-center py-8">
             <div className="inline-block w-6 h-6 border-2 border-gray-300 border-t-gray-700 rounded-full animate-spin" />

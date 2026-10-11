@@ -62,7 +62,7 @@ from app.schemas.magic_link import (
 )
 from app.services import abuse_caps, audit_service
 from app.services.auth import create_access_token, get_current_user
-from app.services.brand_mark import BRAND_FOREST, BRAND_MARK_SVG
+from app.services.brand_mark import BRAND_MARK_IMG
 from app.services.last_seen import touch_last_seen
 from app.services.email_service import send_email
 from app.services.magic_link_service import create_token, verify_token
@@ -135,9 +135,7 @@ def _magic_link_email_html(magic_url: str, is_danish: bool) -> str:
     return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
   <div style="text-align:center;margin-bottom:24px">
-    <div style="display:inline-block;background:{BRAND_FOREST};border-radius:14px;padding:12px 14px">
-      {BRAND_MARK_SVG}
-    </div>
+    {BRAND_MARK_IMG}
     <h1 style="font-size:22px;color:#1e293b;margin:14px 0 4px;font-weight:600;letter-spacing:-0.01em">{headline}</h1>
     <p style="color:#64748b;font-size:14px;margin:0;line-height:1.5">{sub}</p>
   </div>
@@ -156,7 +154,7 @@ def _magic_link_email_html(magic_url: str, is_danish: bool) -> str:
   </p>
   <div style="border-top:1px solid #e2e8f0;margin-top:28px;padding-top:14px;text-align:center">
     <p style="font-size:11px;color:#94a3b8;margin:0">
-      <span style="color:#64748b">Bon</span><span style="color:#16a34a">Box</span> &middot; Made in Copenhagen &middot; GDPR &middot; EU-hosted
+      <span style="color:#64748b">BonBox</span> &middot; Made in Copenhagen &middot; GDPR &middot; EU-hosted
     </p>
   </div>
 </div>"""

@@ -19,6 +19,7 @@ from app.models.staff import StaffMember, StaffLink, NotificationLog
 from app.models.business_profile import BusinessProfile
 from app.models.push_subscription import PushSubscription
 from app.models.user import User
+from app.services.brand_mark import VAGTPLAN_MARK_IMG
 from app.services.email_service import send_email
 from app.services.owner_language import owner_lang
 from app.utils.text import portal_path
@@ -469,9 +470,7 @@ def build_shift_email_html(
   <div style="max-width:600px;margin:0 auto;padding:20px">
     <!-- Header -->
     <div style="text-align:center;padding:24px 0">
-      <div style="display:inline-block;width:48px;height:48px;background:#22c55e;border-radius:14px;line-height:48px;text-align:center">
-        <span style="color:white;font-size:20px;font-weight:bold">B</span>
-      </div>
+      {VAGTPLAN_MARK_IMG}
       <h1 style="margin:12px 0 4px;font-size:20px;color:#f1f5f9">{restaurant_name}</h1>
       <p style="margin:0;font-size:13px;color:#64748b">{C["subject_line"]} - {week_label}</p>
     </div>

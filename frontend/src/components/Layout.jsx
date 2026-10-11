@@ -32,6 +32,7 @@ import TermsUpdateNotice from "./TermsUpdateNotice";
 import RevisorInviteHeldNotice from "./RevisorInviteHeldNotice";
 import { Icon } from "./ui";
 import BonBoxMark from "./BonBoxMark";
+import BonBoxWordmark from "./BonBoxWordmark";
 // Lazy-load the search modal — only fetched when the user actually
 // opens it (⌘K or button), keeping main bundle lean.
 const GlobalSearchModal = lazy(() => import("./GlobalSearchModal"));
@@ -701,7 +702,11 @@ export default function Layout() {
               page's own — and the sidebar one is the copy that survives at
               every breakpoint (this bar is md:hidden), so that is the one that
               stays an <h1>. Same size and weight; only the tag changed. */}
-          <p className="text-base font-bold text-gray-900 dark:text-gray-100">BonBox</p>
+          {/* The kit's wordmark (BonBoxWordmark), ~0.6 x the 24 px tile, in
+              the same h-6 box the typed 16 px word sat in — nothing moves. */}
+          <p className="flex items-center h-6 text-bb-forest dark:text-bb-paper">
+            <BonBoxWordmark height={14} />
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {/* Shared-device ("Delt enhed") reveal/hide chip — only shows when the
@@ -837,7 +842,12 @@ export default function Layout() {
               <div className="w-7 h-7 bg-bb-forest text-bb-paper rounded-md flex items-center justify-center shrink-0" aria-hidden="true">
                 <BonBoxMark size={22} />
               </div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100 truncate">BonBox</h1>
+              {/* The kit's wordmark at ~0.6 x the 28 px tile, in the h-7 box
+                  the typed text-lg word had. Still the page's one <h1>; its
+                  name is the wordmark's aria-label, "BonBox". */}
+              <h1 className="flex items-center h-7 text-bb-forest dark:text-bb-paper">
+                <BonBoxWordmark height={17} />
+              </h1>
             </div>
             {/* The venue's own name — the one line that tells the owner WHICH
                 account this window is. Structural, so it sits on the AA-passing

@@ -6,6 +6,7 @@ import { useAuth } from "../hooks/useAuth";
 import { canUsePersonalMode } from "../lib/appMode";
 import { isNativeApp } from "../utils/platform";
 import { parseServerTime } from "../utils/serverTime";
+import BonBoxMark from "./BonBoxMark";
 
 /**
  * Dashboard countdown banner — shown when user has an active trial OR
@@ -95,7 +96,10 @@ export default function TrialBanner() {
     if (daysSince < 0 || daysSince > 7) return null;
     return (
       <div className="flex items-start gap-3 rounded-xl border bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700 px-4 py-3">
-        <span className="text-lg shrink-0">📦</span>
+        {/* The kit's forest tile (docs/brand), not a parcel emoji. */}
+        <span className="w-7 h-7 rounded-md bg-bb-forest text-bb-paper flex items-center justify-center shrink-0" aria-hidden="true">
+          <BonBoxMark size={22} />
+        </span>
         <div className="flex-1 text-sm">
           <span className="font-semibold text-gray-800 dark:text-gray-200">
             {daysSince === 0

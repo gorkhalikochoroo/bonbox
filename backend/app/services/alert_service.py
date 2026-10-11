@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models.expense import Expense, ExpenseCategory
 from app.models.user import User
+from app.services.brand_mark import BRAND_MARK_IMG
 
 
 def get_display_currency(currency: str) -> str:
@@ -152,10 +153,8 @@ def build_alert_html(alerts: list[dict], business_name: str) -> str:
 <body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
   <div style="max-width:600px;margin:0 auto;padding:20px">
     <div style="text-align:center;padding:24px 0">
-      <div style="display:inline-block;width:48px;height:48px;background:#dc2626;border-radius:14px;line-height:48px;text-align:center">
-        <span style="color:white;font-size:24px">⚠️</span>
-      </div>
-      <h1 style="margin:12px 0 4px;font-size:20px;color:#1e293b">Expense Alert - {business_name}</h1>
+      {BRAND_MARK_IMG}
+      <h1 style="margin:12px 0 4px;font-size:20px;color:#1e293b">⚠️ Expense Alert - {business_name}</h1>
       <p style="margin:0;font-size:14px;color:#94a3b8">{n_alerts} alert(s) need your attention</p>
     </div>
 

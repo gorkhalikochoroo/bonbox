@@ -1,4 +1,9 @@
-const CACHE_NAME = "bonbox-v9";
+const CACHE_NAME = "bonbox-v10";
+// 2026-10-11 — v10: the logo kit (docs/brand). The precached icons are the
+// URLs the pages really request — index.html and the manifests link every
+// icon with ?v=3, and the cache-first branch below matches the query, so the
+// bare "/favicon.ico" v9 precached was never hit. Bumping the key drops v9's
+// copies of the pre-kit icons on activation.
 // 2026-09-27 — v9: the dev-server guard below. Bumping the key clears the
 // source modules v8 had cached cache-first on developer/test devices.
 // 2026-05-25 — API cache key bumped (was bonbox-api-v1). The previous
@@ -11,7 +16,15 @@ const CACHE_NAME = "bonbox-v9";
 // previously-installed SW to nuke its stale dashboard cache on the
 // next activation. See companion React-side fixes in 78e2d6e / ee80e93.
 const API_CACHE_NAME = "bonbox-api-v2";
-const STATIC_ASSETS = ["/manifest.json", "/icon-192.png", "/icon-512.png", "/favicon.svg", "/favicon.ico", "/favicon-32.png", "/favicon-16.png", "/og-image.png", "/og-image-v2.png"];
+const STATIC_ASSETS = ["/manifest.json", "/icon-192.png?v=3", "/icon-512.png?v=3", "/favicon.svg", "/favicon.ico?v=3", "/favicon-32.png?v=3", "/favicon-16.png?v=3", "/badge-96.png?v=3", "/og-image.png", "/og-image-v2.png"];
+// The notification icons. ICON: the owner app's tile; a staff device's push
+// names the Vagtplan icon itself (push_sender.STAFF_PUSH_ICON). BADGE: the
+// small monochrome glyph Android draws in the status bar — only its alpha is
+// used, so it is the kit's b in white on transparent (docs/brand/symbol/
+// bonbox-symbol-white.svg at 96 px). The full-colour app icon there rendered
+// as a solid white square.
+const PUSH_ICON = "/icon-192.png?v=3";
+const PUSH_BADGE = "/badge-96.png?v=3";
 
 // --- API cache helpers ---
 
@@ -101,8 +114,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
-      icon: data.icon || "/icon-192.png",
-      badge: "/icon-192.png",
+      icon: data.icon || PUSH_ICON,
+      badge: PUSH_BADGE,
       data: clickData,
       tag: data.tag || undefined,            // dedupe same-brief pushes
       // renotify only if a tag was passed — without it the spec says

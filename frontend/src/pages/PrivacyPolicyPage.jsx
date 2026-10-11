@@ -8,6 +8,7 @@ import { CookieSettingsButton } from "../components/CookieConsent";
 // TERMS_VERSION.
 import { PRIVACY_UPDATED, termsDate } from "../legal/terms";
 import BonBoxMark from "../components/BonBoxMark";
+import BonBoxWordmark from "../components/BonBoxWordmark";
 
 function Section({ title, children }) {
   return (
@@ -643,7 +644,7 @@ export default function PrivacyPolicyPage() {
             <div className="inline-flex items-center justify-center w-10 h-10 bg-bb-forest text-bb-paper rounded-xl">
               <BonBoxMark size={32} />
             </div>
-            <span className="text-xl font-bold text-white tracking-tight">BonBox</span>
+            <BonBoxWordmark height={24} className="text-bb-paper" />
           </Link>
           <div className="flex gap-4 text-sm">
             <Link to="/terms" className="text-gray-400 hover:text-white transition">{c.terms}</Link>

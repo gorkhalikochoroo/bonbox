@@ -7,6 +7,7 @@ from app.models.sale import Sale
 from app.models.expense import Expense, ExpenseCategory
 from app.models.inventory import InventoryItem
 from app.models.user import User
+from app.services.brand_mark import BRAND_MARK_IMG
 from app.services.expense_status import not_pending
 
 
@@ -149,9 +150,7 @@ def build_digest_html(data: dict) -> str:
   <div style="max-width:600px;margin:0 auto;padding:20px">
     <!-- Header -->
     <div style="text-align:center;padding:24px 0">
-      <div style="display:inline-block;width:48px;height:48px;background:#3b82f6;border-radius:14px;line-height:48px;text-align:center">
-        <span style="color:white;font-size:20px;font-weight:bold">B</span>
-      </div>
+      {BRAND_MARK_IMG}
       <h1 style="margin:12px 0 4px;font-size:22px;color:#1e293b">{business_name}</h1>
       <p style="margin:0;font-size:14px;color:#94a3b8">{date_label}</p>
     </div>

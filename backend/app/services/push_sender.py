@@ -50,6 +50,13 @@ from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
+# A staff device's notification wears the Vagtplan icon (docs/brand: paper
+# tile, forest b) — the icon of the app the staff member installed from
+# /s/<token> — not the owner app's forest tile, which sw.js shows when a
+# payload names no icon. Path on the frontend origin the service worker runs
+# on; ?v=3 is the icon cache key index.html and the manifests use.
+STAFF_PUSH_ICON = "/vagtplan-icon-192.png?v=3"
+
 # ── Keeping the SKAT liability figure off the lock screen ──────────────
 # See _compose_brief_payload for the reasoning. Two stages, because the
 # brief body can arrive in two forms:
@@ -181,6 +188,11 @@ def send_to_subscription(
             "auth": sub.auth,
         },
     }
+
+    # Staff subscriptions (staff_id set) get the Vagtplan icon unless the
+    # payload chose one. A copy: callers reuse one payload dict per fan-out.
+    if getattr(sub, "staff_id", None) is not None and "icon" not in payload:
+        payload = {**payload, "icon": STAFF_PUSH_ICON}
 
     # Stable JSON serialization — keys sorted, no whitespace. Keeps
     # the encrypted payload size predictable so we know we fit under

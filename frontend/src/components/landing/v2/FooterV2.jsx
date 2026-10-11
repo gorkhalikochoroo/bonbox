@@ -34,6 +34,7 @@
 
 import { Link } from "react-router-dom";
 import BonBoxMark from "../../BonBoxMark";
+import BonBoxWordmark from "../../BonBoxWordmark";
 import { useLanguage } from "../../../hooks/useLanguage";
 import { CookieSettingsButton } from "../../CookieConsent";
 import { CHROME_CHILDREN, WIDE } from "./fluid";
@@ -94,9 +95,7 @@ export default function FooterV2() {
             >
               <BonBoxMark size={22} className="text-bb-paper" />
             </span>
-            <span className="font-display text-[18px] font-bold tracking-[-0.025em] text-slate-900">
-              BonBox
-            </span>
+            <BonBoxWordmark height={17} className="text-bb-forest" />
           </div>
           <address className="text-[13.5px] leading-[1.7] text-slate-600 not-italic">
             <span className="block">

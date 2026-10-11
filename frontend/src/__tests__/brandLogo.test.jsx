@@ -158,7 +158,8 @@ describe("the icon files the HTML and the manifests point at", () => {
     expect(html).toMatch(/<link rel="icon" href="\/favicon\.ico\?v=3" sizes="16x16 32x32" \/>/);
     expect(pngSize(join(PUBLIC, "apple-touch-icon.png"))).toEqual([180, 180]);
     expect(pngSize(join(PUBLIC, "vagtplan-apple-touch-icon.png"))).toEqual([180, 180]);
-    // Kept as a file: email_unsubscribe.py links it by absolute URL.
+    // Kept as a file: sw.js precaches it, and pages served before the kit
+    // (the e-mail opt-out page linked it until 11 Oct) may still ask for it.
     expect(existsSync(join(PUBLIC, "favicon.svg"))).toBe(true);
   });
 

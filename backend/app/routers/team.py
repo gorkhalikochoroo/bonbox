@@ -210,6 +210,7 @@ def _invite_email_html(owner_name: str, role: str, accept_url: str, is_danish: b
     escape): owner_name is the business name the owner typed, and it goes
     to someone who never chose BonBox.
     """
+    from app.services.brand_mark import BRAND_MARK_IMG
     from app.services.revisor_mail import esc
     role_label_en = esc({"manager": "manager", "cashier": "cashier", "viewer": "viewer"}.get(role, role))
     role_label_da = esc({"manager": "manager", "cashier": "kasserer", "viewer": "viewer"}.get(role, role))
@@ -218,6 +219,7 @@ def _invite_email_html(owner_name: str, role: str, accept_url: str, is_danish: b
     if is_danish:
         return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
+  <div style="text-align:center;margin-bottom:20px">{BRAND_MARK_IMG}</div>
   <h1 style="font-size:22px;color:#1e293b;margin:0 0 12px">Du er inviteret som medarbejder</h1>
   <p style="font-size:15px;color:#334155;line-height:1.6">
     <strong>{owner_name}</strong> har inviteret dig som <strong>{role_label_da}</strong> på BonBox.
@@ -234,6 +236,7 @@ def _invite_email_html(owner_name: str, role: str, accept_url: str, is_danish: b
 </div>"""
     return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
+  <div style="text-align:center;margin-bottom:20px">{BRAND_MARK_IMG}</div>
   <h1 style="font-size:22px;color:#1e293b;margin:0 0 12px">You've been invited to the team</h1>
   <p style="font-size:15px;color:#334155;line-height:1.6">
     <strong>{owner_name}</strong> has invited you as a <strong>{role_label_en}</strong> on BonBox.

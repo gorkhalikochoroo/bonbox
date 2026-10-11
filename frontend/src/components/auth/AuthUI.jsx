@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react";
 import BonBoxMark from "../BonBoxMark";
+import BonBoxWordmark from "../BonBoxWordmark";
 import { useLanguage } from "../../hooks/useLanguage";
 import { PRIMARY, inputClass } from "./authStyles";
 
@@ -52,7 +53,7 @@ export function AuthLogo({ link = true }) {
       <span className="w-10 h-10 rounded-lg bg-bb-forest text-bb-paper flex items-center justify-center" aria-hidden="true">
         <BonBoxMark size={32} />
       </span>
-      <span className="text-[18px] font-semibold tracking-tight text-gray-900 dark:text-white">BonBox</span>
+      <BonBoxWordmark height={24} className="text-bb-forest dark:text-bb-paper" />
     </>
   );
   if (!link) return <div className="flex items-center gap-2.5 mb-6">{inner}</div>;

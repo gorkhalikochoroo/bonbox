@@ -171,8 +171,10 @@ export default function usePushNotifications() {
       navigator.serviceWorker.ready.then((reg) => {
         reg.showNotification(title, {
           body: options.body || "",
-          icon: options.icon || "/icon-192.png",
-          badge: "/icon-192.png",
+          icon: options.icon || "/icon-192.png?v=3",
+          // The status-bar glyph: alpha only, so the kit's b in white on
+          // transparent (public/badge-96.png — same as sw.js).
+          badge: "/badge-96.png?v=3",
           data: options.url ? { url: options.url } : { url: "/" },
           vibrate: [100, 50, 100],
           ...options,
@@ -181,7 +183,7 @@ export default function usePushNotifications() {
     } else {
       new Notification(title, {
         body: options.body || "",
-        icon: options.icon || "/icon-192.png",
+        icon: options.icon || "/icon-192.png?v=3",
         ...options,
       });
     }

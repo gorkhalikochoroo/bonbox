@@ -28,7 +28,7 @@
  */
 import { useEffect, useState } from "react";
 import { useLanguage } from "../hooks/useLanguage";
-import { Icon } from "./ui";
+import BonBoxMark from "./BonBoxMark";
 
 const _DISMISS_KEY = "bonbox_pwa_install_dismissed_until";
 const _DISMISS_DAYS = 14;
@@ -198,8 +198,8 @@ export default function InstallAppPrompt() {
       >
         <div className="flex items-start justify-between gap-3 mb-2">
           <div className="flex items-start gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 text-gray-700 dark:text-gray-300">
-              <Icon name="Sparkles" size={16} strokeWidth={1.75} />
+            <div className="w-9 h-9 rounded-lg bg-bb-forest text-bb-paper flex items-center justify-center shrink-0" aria-hidden="true">
+              <BonBoxMark size={28} />
             </div>
             <div className="min-w-0">
               <h3 id="install-app-prompt-title" className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">
@@ -261,8 +261,8 @@ export default function InstallAppPrompt() {
     >
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-start gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 text-gray-700 dark:text-gray-300">
-            <Icon name="Sparkles" size={16} strokeWidth={1.75} />
+          <div className="w-9 h-9 rounded-lg bg-bb-forest text-bb-paper flex items-center justify-center shrink-0" aria-hidden="true">
+            <BonBoxMark size={28} />
           </div>
           <div className="min-w-0">
             <h3 id="install-app-prompt-title-2" className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">
