@@ -142,7 +142,7 @@ export function useToast() {
             transition-all duration-300 ease-out
             ${toast.exiting ? "opacity-0 translate-x-8" : "opacity-100 translate-x-0 animate-slideIn"}
             ${toast.type === "success"
-              ? "bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-700 text-gray-800 dark:text-gray-100"
+              ? "bg-gray-50 dark:bg-[rgb(var(--surface-raised))] border border-gray-100 dark:border-[rgb(var(--surface-line-strong))] text-gray-800 dark:text-gray-100"
               : toast.type === "warning"
               ? "bg-amber-50 dark:bg-amber-900/90 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-100"
               : toast.type === "error"

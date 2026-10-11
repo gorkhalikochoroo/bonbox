@@ -97,7 +97,7 @@ export default function StatCard({
   // so a row of tiles still reads as a single block.
   const labelClass = selected
     ? "text-[11px] font-semibold uppercase tracking-wider text-gray-900 dark:text-gray-100"
-    : "text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500";
+    : "text-[11px] font-semibold uppercase tracking-wider text-gray-400";
 
   // Surface chrome — base for both static + clickable variants. The
   // selected state pulls in a 1px gray-900 ring + the quieter rung,

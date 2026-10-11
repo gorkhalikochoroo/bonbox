@@ -41,7 +41,7 @@ export default function VerifyEmailReminder() {
 
   return (
     <div
-      className="flex items-center justify-between gap-3 px-4 sm:px-6 py-1.5 border-b border-gray-100 dark:border-gray-700/50 bg-gray-50/40 dark:bg-gray-800/20 text-[12px]"
+      className="flex items-center justify-between gap-3 px-4 sm:px-6 py-1.5 border-b border-gray-100 dark:border-[rgb(var(--surface-line))] bg-gray-50/40 dark:bg-gray-800/20 text-[12px]"
       role="status"
       data-testid="verify-email-reminder"
     >
