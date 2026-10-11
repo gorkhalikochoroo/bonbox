@@ -40,11 +40,10 @@ import { GUEST_SURFACE_EVENT, isGuestSurface } from "../lib/guestSurface";
  */
 
 const STORAGE_KEY = "bonbox_cookie_consent";
-// Bump if the categories/wording change materially — but a bump makes
-// getCookieConsent() return null for everyone, and the usage log
-// (useEventLog.js) only stops on an explicit analytics:false, so earlier
-// "no" answers would be logged again until re-answered. The 8 Oct 2026 flyer
-// sentence in Marketing is handled by MARKETING_TEXT below instead.
+// Bump if the categories/wording change materially. A bump makes
+// getCookieConsent() return null for everyone, and the usage log then sends
+// nothing until each person answers again. The 8 Oct 2026 flyer sentence in
+// Marketing is handled by MARKETING_TEXT below instead.
 const VERSION = 1;
 // Which Marketing text the answer was given to, stamped on every answer this
 // banner saves (beside VERSION, so it forgets nobody's answer):
@@ -362,7 +361,7 @@ export default function CookieConsent() {
                   </p>
                   <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
                     {t("cookieBannerBody") ||
-                      "BonBox uses essential cookies to keep you signed in. Settings you choose yourself, like light/dark theme and dismissed tips, are kept on your device because BonBox needs them to do what you asked — they are used for nothing else. Two categories are optional: Analytics (usage statistics: which features are used and where the app breaks — recorded for signed-in accounts until you decline) and Marketing (only if you turn it on: the code from the QR on one of our printed flyers is kept on your device for up to 30 days, so we can measure which flyer led to a signup). “Accept all” turns both on."}
+                      "BonBox uses essential cookies to keep you signed in. Settings you choose yourself, like light/dark theme and dismissed tips, are kept on your device because BonBox needs them to do what you asked — they are used for nothing else. Two categories are optional: Analytics (usage statistics: which features are used — the events your browser sends are recorded only after you turn it on) and Marketing (only if you turn it on: the code from the QR on one of our printed flyers is kept on your device for up to 30 days, so we can measure which flyer led to a signup). “Accept all” turns both on."}
                   </p>
                 </div>
               </div>

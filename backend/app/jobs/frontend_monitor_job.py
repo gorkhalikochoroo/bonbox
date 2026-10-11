@@ -168,6 +168,23 @@ def _send_alert(db, st: MonitorState, result) -> None:
                     (result.summary or "Stale Vercel deploy detected")[:180])
 
 
+def notify_operators(db, subject: str, lines: list[str], push_title: str, push_body: str) -> int:
+    """The same operator email + push this monitor's _send_alert sends, for
+    other background jobs (services/backup_service). The CALLER decides when
+    (once per incident) and must pass text without personal data. Fail-soft:
+    never raises; returns how many emails were handed to the sender."""
+    html = "<br>".join(_esc(x) for x in lines)
+    sent = 0
+    for to in _operator_emails():
+        try:
+            send_email(to, subject, html)
+            sent += 1
+        except Exception as e:
+            print(f"operator alert email failed: {type(e).__name__}")
+    _push_operators(db, push_title, (push_body or "")[:180])
+    return sent
+
+
 def _send_recovered(db, st: MonitorState) -> None:
     dur = ""
     if st.broken_since:

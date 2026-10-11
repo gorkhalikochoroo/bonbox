@@ -23,6 +23,9 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
+import pytest
+
+from app.config import settings
 from app.models.staff import NotificationLog
 from app.services import reservation_emails as mail
 from app.utils.time import utc_now
@@ -40,6 +43,16 @@ from tests.test_reservation_emails import (  # noqa: F401 — fixtures + builder
     outbox,
     sleeps,
 )
+
+
+@pytest.fixture(autouse=True)
+def _per_venue_ceiling_only(monkeypatch):
+    """This file pins the PER-VENUE ceiling (300 / 100 a day). R-sec's
+    fleet-wide ceiling (GUEST_EMAILS_FLEET_PER_DAY, 40 a day for Resend Free)
+    sits below it and would refuse the "one below the ceiling" mails first, so
+    it is switched off here (0 = off); test_reservation_guest_mail_fleet_cap.py
+    pins the fleet ceiling and its live value."""
+    monkeypatch.setattr(settings, "GUEST_EMAILS_FLEET_PER_DAY", 0)
 
 
 def _sent_rows(db, owner, n, *, event=mail.GUEST_CONFIRMATION, hours_ago=1, status="sent"):

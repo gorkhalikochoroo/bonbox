@@ -71,6 +71,7 @@ from app.services.booking_to_sale import (
     write_sale_from_booking,
 )
 from app.utils.time import utc_now
+from app.utils.client_ip import request_ip
 
 router = APIRouter()
 
@@ -81,17 +82,10 @@ router = APIRouter()
 def _client_ip(request: Request | None) -> str | None:
     """Best-effort client IP for the audit row. Falls back to None when
     we're called without a request object (shouldn't happen on FastAPI
-    routes but kept defensive for service-level reuse)."""
-    if request is None:
-        return None
-    try:
-        # X-Forwarded-For from the load balancer when present
-        fwd = request.headers.get("x-forwarded-for")
-        if fwd:
-            return fwd.split(",")[0].strip()
-        return request.client.host if request.client else None
-    except Exception:
-        return None
+    routes but kept defensive for service-level reuse). The validated
+    request.client, set from the edge header by EdgeClientIPMiddleware —
+    never the XFF header, which the client writes."""
+    return request_ip(request)
 
 
 def _get_owned_event(

@@ -21,7 +21,9 @@ Multi-layer defense:
     L2 — Idempotent event handling (Stripe replays events; we tolerate duplicates)
     L3 — Tenant filter (every customer/subscription lookup includes user_id)
     L4 — Stripe customer metadata embeds bonbox user_id so we never trust client claim
-    L5 — All exceptions logged + return 200 to Stripe (don't leak signature failures)
+    L5 — A failed handler is logged, recorded in error_logs, releases its
+         webhook_events ledger row and answers 500, so Stripe retries it
+         (OPS-05). Replays after a success stay 'duplicate'.
 
 Test mode:
     If STRIPE_SECRET_KEY starts with "sk_test_", we're in test mode.
@@ -34,6 +36,7 @@ import json
 import logging
 import re
 import threading
+import traceback
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -1115,8 +1118,40 @@ def _latest_invoice_settled(sub_obj) -> Optional[bool]:
         return None
 
 
+# Statuses that _apply_subscription_state maps to plan="free": a subscription
+# in one of these is over (or its billing is paused).
+_SUB_ENDED_STATUSES = ("canceled", "unpaid", "incomplete_expired", "paused")
+
+
+def _late_event_for_old_subscription(
+    held_sub_id: Optional[str], event_sub_id: Optional[str], live_status: Optional[str],
+    event_type: str = "",
+) -> bool:
+    """Is this webhook about a subscription the customer has since replaced?
+
+    Recency guard (OPS-05): a failed event is retried by Stripe for up to 3
+    days, so an event about an OLD subscription can arrive after the customer
+    re-subscribed. Re-fetching does not help: the old subscription's live
+    state is 'canceled', which would downgrade a paying customer and point
+    the record back at the dead subscription. True (= change nothing) when
+    the user holds a DIFFERENT subscription id and the event's subscription
+    has ended. A move to a new subscription that is not over (active,
+    trialing, past_due, incomplete) is still applied. Every webhook path that
+    writes subscription state calls this first."""
+    if not held_sub_id or not event_sub_id or held_sub_id == event_sub_id:
+        return False
+    if (live_status or "").lower() not in _SUB_ENDED_STATUSES:
+        return False
+    log.info(
+        "%s for old subscription %s (status=%s) ignored; current subscription %s",
+        event_type or "webhook", event_sub_id, live_status, held_sub_id,
+    )
+    return True
+
+
 def _apply_subscription_state(
     user: User, sub_obj, db: Session, *, event_id: str = "", event_type: str = "",
+    raise_on_commit_failure: bool = False,
 ) -> None:
     """Update user.plan/status/period_end from a Stripe subscription object.
 
@@ -1134,8 +1169,10 @@ def _apply_subscription_state(
         parsing failed.
       • API-version tolerant: current_period_end moved from the subscription
         level to subscription_item in 2025+ Stripe APIs. We check both spots.
-      • Final commit is wrapped — DB errors are logged but the function never
-        re-raises, so webhook 500s don't happen here.
+      • Final commit is wrapped — DB errors are logged and rolled back. The
+        sync caller keeps the default (never re-raises). The webhook callers
+        pass raise_on_commit_failure=True so a lost write answers Stripe with
+        500 and Stripe retries the event (OPS-05).
     """
     status = _g(sub_obj, "status")  # active | trialing | past_due | canceled | etc.
 
@@ -1251,8 +1288,10 @@ def _apply_subscription_state(
         except (TypeError, ValueError):
             pass
 
-    # Wrap commit — DB errors should be logged, not re-raised. The webhook will
-    # be retried by Stripe automatically on next state change anyway.
+    # Wrap commit — a DB error is logged and rolled back. On the webhook path
+    # (raise_on_commit_failure=True) it is then re-raised, so handle_webhook
+    # releases the ledger row and answers 500 and Stripe retries the event;
+    # the sync path keeps swallowing it (it verifies the write itself).
     try:
         db.commit()
     except Exception as e:
@@ -1261,6 +1300,8 @@ def _apply_subscription_state(
             db.rollback()
         except Exception:
             pass
+        if raise_on_commit_failure:
+            raise
 
 
 def _audit_webhook_mutation(
@@ -1363,6 +1404,82 @@ def _record_webhook_event(db: Session, event_id: str, event_type: str) -> bool:
     return inserted
 
 
+def _release_webhook_event(db: Session, event_id: str) -> bool:
+    """Undo the ledger claim of an event whose handler FAILED (OPS-05).
+
+    Without this, the claim made before dispatch stayed in webhook_events, so
+    Stripe's retry of the failed event was answered "duplicate" and never
+    processed. Rolls back the handler's half-done work first, then deletes
+    the row in its own commit. Returns True when the row is gone (or there
+    was no claim: an empty event_id). Never raises: on a DB error it logs
+    loudly and returns False — the retry will then be skipped as duplicate
+    and the row must be deleted by hand.
+    """
+    try:
+        db.rollback()
+    except Exception:  # noqa: BLE001
+        pass
+    if not event_id:
+        return True
+    try:
+        from sqlalchemy import text as _text
+        db.execute(_text("DELETE FROM webhook_events WHERE event_id = :eid"), {"eid": event_id})
+        db.commit()
+        return True
+    except Exception:  # noqa: BLE001
+        log.error(
+            "webhook ledger release failed for %s: Stripe retry will be skipped "
+            "as duplicate; delete the row by hand", event_id,
+        )
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
+
+def record_webhook_failure(
+    db: Session,
+    event_id: Optional[str],
+    event_type: Optional[str],
+    exc: BaseException,
+    *,
+    released: Optional[bool],
+    status_code: int = 500,
+    error_type: Optional[str] = None,
+) -> None:
+    """Write one error_logs row (method=WEBHOOK) for a failed Stripe webhook.
+
+    The 15-minute ops triage turns these rows into one operator alert per
+    fingerprint per 24 h. The message carries the event type + id and whether
+    the ledger row was released — never str(exc), which can echo SQL row
+    values. The traceback goes to the admin-only table, as the global 500
+    handler already does. Written on the request's own session (the caller
+    has rolled it back). Never raises.
+    """
+    try:
+        from app.models.error_log import ErrorLog
+        try:
+            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        except Exception:  # noqa: BLE001
+            tb = ""
+        db.add(ErrorLog(
+            method="WEBHOOK",
+            path="/api/billing/stripe/webhook",
+            status_code=status_code,
+            error_type=(error_type or f"Webhook:{event_type or '?'}:{type(exc).__name__}")[:100],
+            message=f"{event_type} {event_id} ledger_released={released}"[:1000],
+            traceback=tb[:16000],
+        ))
+        db.commit()
+    except Exception as e:  # noqa: BLE001 — observability must never raise
+        log.warning("webhook failure row not written: %s", type(e).__name__)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def handle_webhook(
     payload_body: bytes,
     signature_header: str,
@@ -1370,10 +1487,13 @@ def handle_webhook(
 ) -> dict:
     """Verify + dispatch a Stripe webhook event.
 
-    Returns a dict suitable for the HTTP response. Always returns 200 to
-    Stripe — even on internal errors — to prevent Stripe from retry-flooding.
-    Internal errors are logged. Signature failures DO return 400 because that's
-    how Stripe's docs say to signal "ignore this and fix the secret".
+    Returns a dict suitable for the HTTP response. A handler that fails
+    answers 500 (``_http``) after releasing its ledger row, so Stripe retries
+    it (live: up to 3 days with backoff) and the retry is processed; replays
+    after a success stay "duplicate". In production a missing Stripe config
+    answers 503 so Stripe keeps the event while the config is fixed.
+    Signature failures return 400 because that's how Stripe's docs say to
+    signal "ignore this and fix the secret".
 
     Multi-layer defense:
       1. Signature verification — proves payload came from Stripe
@@ -1384,7 +1504,16 @@ def handle_webhook(
     s = _stripe()
     if not s:
         log.warning("Webhook received but Stripe SDK/key not configured — ignoring")
-        return {"status": "ignored", "reason": "stripe_not_configured"}
+        out = {"status": "ignored", "reason": "stripe_not_configured"}
+        if settings.ENVIRONMENT == "production":
+            # Production must never drop a real event on a config gap: 503 so
+            # Stripe retries once the key is back, and a row so triage alerts.
+            out["_http"] = 503
+            record_webhook_failure(
+                db, None, None, RuntimeError("not_configured"), released=None,
+                status_code=503, error_type="WebhookNotConfigured",
+            )
+        return out
 
     # Build the list of candidate secrets — Task #117.  Stripe sends
     # events from BOTH test mode and live mode (each with a different
@@ -1401,7 +1530,14 @@ def handle_webhook(
             "Neither STRIPE_WEBHOOK_SECRET nor STRIPE_WEBHOOK_SECRET_TEST "
             "is set — refusing to process webhook",
         )
-        return {"status": "ignored", "reason": "no_webhook_secret"}
+        out = {"status": "ignored", "reason": "no_webhook_secret"}
+        if settings.ENVIRONMENT == "production":
+            out["_http"] = 503
+            record_webhook_failure(
+                db, None, None, RuntimeError("not_configured"), released=None,
+                status_code=503, error_type="WebhookNotConfigured",
+            )
+        return out
 
     # L1 — Verify signature against each candidate secret.  We surface
     # diagnostic info (signature prefix, which secrets we tried) in the
@@ -1520,16 +1656,20 @@ def handle_webhook(
         handler(event, db)
         return {"status": "ok", "type": event_type, "id": event_id}
     except Exception as e:
-        # Internal error — log but still return 200 so Stripe doesn't retry-storm.
-        # Include exception type+message so the cause is visible in Stripe
-        # dashboard's webhook attempts view (only auth'd dashboard users see it).
+        # 500 so Stripe retries (live: up to 3 days with backoff); the ledger
+        # row is released so the retry is processed; replays after success
+        # stay 'duplicate'. The body Stripe stores carries the exception TYPE
+        # only — str(e) can echo SQL row values; the detail is in error_logs.
         log.exception("Handler for %s failed: %s", event_type, e)
+        released = _release_webhook_event(db, event_id)
+        record_webhook_failure(db, event_id, event_type, e, released=released)
         return {
             "status": "error",
             "code": "handler_failed",
             "type": event_type,
+            "id": event_id,
             "exception_type": type(e).__name__,
-            "exception_msg": str(e)[:500],
+            "_http": 500,
         }
 
 
@@ -1558,6 +1698,18 @@ def _handle_checkout_completed(event: dict, db: Session) -> None:
     sub_id = obj.get("subscription")
     if not sub_id:
         return
+    s = _stripe()
+    sub = None
+    held = user.stripe_subscription_id
+    if held and held != sub_id:
+        # Another subscription is on record: ask Stripe whether this one is
+        # still alive BEFORE relinking, so a late checkout for an OLD
+        # subscription (OPS-05 retries) can neither relink nor downgrade. A
+        # failed lookup raises: 500, Stripe retries, nothing was written.
+        sub = s.Subscription.retrieve(sub_id)
+        if _late_event_for_old_subscription(held, sub_id, _g(sub, "status"),
+                                            event.get("type", "")):
+            return
     user.stripe_subscription_id = sub_id
     if obj.get("customer") and not user.stripe_customer_id:
         user.stripe_customer_id = obj["customer"]
@@ -1589,16 +1741,19 @@ def _handle_checkout_completed(event: dict, db: Session) -> None:
         try:
             db.commit()
         except Exception:  # noqa: BLE001
+            # The linkage did not persist: raise so Stripe retries (OPS-05).
             db.rollback()
+            raise
         return
 
     # Pull the subscription detail to get current status and apply it.
-    s = _stripe()
     try:
-        sub = s.Subscription.retrieve(sub_id)
+        if sub is None:
+            sub = s.Subscription.retrieve(sub_id)
         _apply_subscription_state(
             user, sub, db,  # raw v15 object — dict(sub) raises KeyError; _g() reads it via getattr
             event_id=event.get("id", ""), event_type=event.get("type", ""),
+            raise_on_commit_failure=True,
         )
     except Exception as e:
         log.warning("Could not retrieve subscription %s: %s", sub_id, e)
@@ -1607,6 +1762,9 @@ def _handle_checkout_completed(event: dict, db: Session) -> None:
             db.commit()
         except Exception:  # noqa: BLE001
             db.rollback()
+        # Then raise: the plan was NOT applied, so Stripe must retry (OPS-05).
+        # The re-run rewrites the same linkage; the terms stamp is idempotent.
+        raise
 
 
 def _handle_async_payment_failed(event: dict, db: Session) -> None:
@@ -1658,12 +1816,19 @@ def _handle_invoice_paid(event: dict, db: Session) -> None:
     s = _stripe()
     try:
         sub = s.Subscription.retrieve(sub_id)
+        if _late_event_for_old_subscription(user.stripe_subscription_id, sub_id,
+                                            _g(sub, "status"), event.get("type", "")):
+            return
         _apply_subscription_state(
             user, sub, db,  # raw v15 object — dict(sub) raises KeyError; _g() reads it via getattr
             event_id=event.get("id", ""), event_type=event.get("type", ""),
+            raise_on_commit_failure=True,
         )
     except Exception as e:  # noqa: BLE001
         log.warning("invoice.paid: could not retrieve/apply subscription %s: %s", sub_id, e)
+        # A paid renewal that did not advance period_end must be retried —
+        # re-raise so Stripe gets 500 and redelivers (OPS-05).
+        raise
 
 
 def _handle_subscription_changed(event: dict, db: Session) -> None:
@@ -1687,27 +1852,52 @@ def _handle_subscription_changed(event: dict, db: Session) -> None:
         return
     sub_obj = obj
     sub_id = obj.get("id")
+    held = user.stripe_subscription_id
     s = _stripe()
     if s and sub_id:
         try:
             sub_obj = s.Subscription.retrieve(sub_id)  # raw v15 object; _g() reads it, dict() would KeyError
         except Exception as e:  # noqa: BLE001
+            if held and held != sub_id:
+                # The event names another subscription than the one on record
+                # and Stripe cannot say whether it is still live: a stale
+                # snapshot must not repoint or downgrade the customer. Raise →
+                # 500 → Stripe retries (OPS-05).
+                log.warning(
+                    "subscription.%s: retrieve %s failed and %s is on record; retrying",
+                    event.get("type", "?"), sub_id, held,
+                )
+                raise
             log.warning(
                 "subscription.%s: retrieve %s failed, using event snapshot: %s",
                 event.get("type", "?"), sub_id, e,
             )
             sub_obj = obj
+    if _late_event_for_old_subscription(held, sub_id, _g(sub_obj, "status"),
+                                        event.get("type", "")):
+        return
     _apply_subscription_state(
         user, sub_obj, db,
         event_id=event.get("id", ""), event_type=event.get("type", ""),
+        raise_on_commit_failure=True,
     )
 
 
 def _handle_subscription_deleted(event: dict, db: Session) -> None:
-    """Subscription canceled/ended — flip user back to free."""
+    """Subscription canceled/ended — flip user back to free.
+
+    Recency guard (OPS-05): failed webhooks are now retried by Stripe for up
+    to 3 days, so a late 'deleted' for an OLD subscription can arrive after
+    the customer re-subscribed. If the user holds a different subscription
+    id, the event is about the old one and must not downgrade them.
+    """
     obj = (event.get("data") or {}).get("object") or {}
     user = _find_user_for_event(db, {"object": obj})
     if not user:
+        return
+    sub_id = obj.get("id")
+    if _late_event_for_old_subscription(user.stripe_subscription_id, sub_id, "canceled",
+                                        event.get("type", "")):
         return
     # Audit BEFORE mutation (no-op suppressed if already free+canceled).
     _audit_webhook_mutation(
@@ -1723,6 +1913,41 @@ def _handle_subscription_deleted(event: dict, db: Session) -> None:
     db.commit()
 
 
+def _stale_payment_failure(user: User, invoice: dict, event_type: str) -> bool:
+    """Should a (possibly late) invoice.payment_failed leave the user alone?
+
+    • The invoice belongs to another subscription than the one on record: a
+      failure there says nothing about the current subscription. (If that
+      other subscription is in fact the live one, its own
+      customer.subscription.updated carries past_due through the guarded path.)
+    • The invoice has been paid since (a retried failure arriving after
+      invoice.paid): re-checked live. A failed lookup keeps the old behaviour
+      (past_due — a banner, never a downgrade)."""
+    sub_id = invoice.get("subscription")
+    if not sub_id:
+        parent = invoice.get("parent") or {}
+        sub_id = (parent.get("subscription_details") or {}).get("subscription")
+    held = user.stripe_subscription_id
+    if held and sub_id and held != sub_id:
+        log.info("%s for old subscription %s ignored; current subscription %s",
+                 event_type or "invoice.payment_failed", sub_id, held)
+        return True
+    inv_id = invoice.get("id")
+    s = _stripe()
+    if not inv_id or not s:
+        return False
+    try:
+        live = s.Invoice.retrieve(inv_id)
+        status = _g(live, "status")
+    except Exception as e:  # noqa: BLE001
+        log.warning("%s: could not re-check invoice %s: %s", event_type, inv_id, type(e).__name__)
+        return False
+    if isinstance(status, str) and status.lower() == "paid":
+        log.info("%s for invoice %s ignored: the invoice is paid now", event_type, inv_id)
+        return True
+    return False
+
+
 def _handle_payment_failed(event: dict, db: Session) -> None:
     """Invoice payment failed — note the status but don't auto-downgrade.
 
@@ -1735,6 +1960,8 @@ def _handle_payment_failed(event: dict, db: Session) -> None:
     if not customer_id:
         return
     user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+    if user and _stale_payment_failure(user, obj, event.get("type", "")):
+        return
     if user:
         # Audit BEFORE mutation (no-op suppressed if already past_due — plan
         # is unchanged here, so the helper keys off the status transition).

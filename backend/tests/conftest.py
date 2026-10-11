@@ -10,8 +10,12 @@ file owns it:
 - the /api/admin scan blocker (`_admin_ip_strikes`, `_admin_ip_banned`):
   20 4xx answers within 60 s ban the IP for 10 minutes, after which every
   /api/admin request gets 404. No test owns it either.
+- the global join / stand-pairing cool-off (`_join_fail_times`,
+  `_join_cooloff_until`, `_join_in_flight`) and the in-process abuse counters
+  (app/utils/abuse_signals.py).
 
-Every TestClient request comes from the same client ("testclient"). CI runs
+Every TestClient request comes from the same client ("testclient"; it sends
+no edge header, so the rate-limit key is the shared "no-edge" bucket). CI runs
 the whole suite in ONE serial process (.github/workflows/tests.yml), so these
 buckets fill across tests and files. A test that runs within a minute of
 enough earlier traffic then gets a 429 it did nothing to cause. On 9 Oct
@@ -29,14 +33,36 @@ import sys
 import pytest
 
 
+def _pause_abuse_monitor(main) -> None:
+    """Importing app.main starts the background scheduler. Its 2-minute abuse
+    monitor drains the in-process abuse counters that tests read, so in a
+    test run it is taken off the scheduler (tests/test_abuse_monitor.py
+    drives the job directly)."""
+    sched = getattr(main, "_scheduler", None)
+    try:
+        if sched is not None and sched.get_job("abuse_monitor") is not None:
+            sched.remove_job("abuse_monitor")
+    except Exception:  # noqa: BLE001 — isolation helper, never fails a test
+        pass
+
+
 def _reset_app_rate_limits() -> None:
+    signals = sys.modules.get("app.utils.abuse_signals")
+    if signals is not None:  # in-process abuse counters (the abuse monitor drains them)
+        signals.reset()
     main = sys.modules.get("app.main")
     if main is None:  # nothing in this run has loaded the app yet
         return
+    _pause_abuse_monitor(main)
     main.limiter.reset()
     main._coarse_hits.clear()
     main._admin_ip_strikes.clear()
     main._admin_ip_banned.clear()
+    main._join_fail_times.clear()
+    main._join_cooloff_until.clear()
+    in_flight = getattr(main, "_join_in_flight", None)
+    if in_flight is not None:  # join slots reserved but not yet released
+        in_flight.clear()
 
 
 @pytest.fixture(autouse=True)

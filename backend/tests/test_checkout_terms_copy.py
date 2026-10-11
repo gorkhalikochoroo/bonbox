@@ -483,7 +483,10 @@ def test_stripe_terms_consent_is_recorded_from_the_webhook(db_session, consent, 
     user = _make_user(db_session, email=f"wh-{stamped}-{consent is None}@cafe.dk", business_type="cafe")
     broken = MagicMock()
     broken.Subscription.retrieve.side_effect = RuntimeError("stripe down")
-    with patch("app.services.stripe_billing._stripe", return_value=broken):
+    # The Subscription fetch fails, so the handler now raises (OPS-05: Stripe
+    # gets 500 and retries) — but only AFTER committing linkage + stamp.
+    with patch("app.services.stripe_billing._stripe", return_value=broken), \
+         pytest.raises(RuntimeError):
         _handle_checkout_completed(_completed_event(user.id, consent), db_session)
     db_session.refresh(user)
     assert user.stripe_subscription_id == "sub_done"

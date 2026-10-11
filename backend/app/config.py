@@ -53,6 +53,18 @@ class Settings(BaseSettings):
     # Bucket names. Must already exist in Supabase project as PRIVATE
     # buckets (RLS off; access mediated entirely by our backend's auth).
     SUPABASE_RECEIPTS_BUCKET: str = "receipts"
+    # Nightly off-project backup (services/backup_service). OFF unless the
+    # first three are ALL set; some-but-not-all is reported as misconfigured.
+    # BACKUP_SUPABASE_URL / _SERVICE_KEY belong to a SEPARATE Supabase project
+    # ("bonbox-backup"), never the main one. BACKUP_ENCRYPTION_KEY is a Fernet
+    # key (Fernet.generate_key()); everything is encrypted with it before
+    # upload, so keep an offline copy — without it the backup cannot be read.
+    # _PREVIOUS is only for reading older backups after a key rotation.
+    BACKUP_SUPABASE_URL: str = ""
+    BACKUP_SUPABASE_SERVICE_KEY: str = ""
+    BACKUP_ENCRYPTION_KEY: str = ""
+    BACKUP_ENCRYPTION_KEY_PREVIOUS: str = ""
+    BACKUP_BUCKET: str = "bonbox-backup"
     ANTHROPIC_API_KEY: str = ""
     # Mindee Receipt API — primary OCR provider (2026-05). Free tier
     # gives 250 pages/month; Standard plan beyond that is ~$0.04/page.
@@ -77,6 +89,15 @@ class Settings(BaseSettings):
     APPLE_TEAM_ID: str = ""
     GOOGLE_PLACES_API_KEY: str = ""  # Google Places API (nearby competitor discovery)
     ADMIN_EMAIL: str = ""  # Get notified on new signups
+    # Operator ops alerts (R-i, services/ops_alert.py): one capped,
+    # deduplicated, customer-data-free alert path. Sent only when
+    # ENVIRONMENT == "production" and OPS_ALERTS_ENABLED. Recipients =
+    # ADMIN_EMAIL + SUPER_ADMIN_EMAILS (no address lives in code).
+    # Cooldown is per dedupe key (clamped 15–10080 min); the daily cap
+    # counts messages per UTC day (clamped 1–50).
+    OPS_ALERTS_ENABLED: bool = True
+    OPS_ALERT_DAILY_CAP: int = 10
+    OPS_ALERT_COOLDOWN_MINUTES: int = 360
     # SUPER_ADMIN_EMAILS — comma-separated allowlist of emails that may access /admin/*.
     # MUST also have users.role='super_admin' set in the database (defense in depth).
     # There is intentionally NO API path to grant this role.
@@ -295,6 +316,28 @@ class Settings(BaseSettings):
     # endpoint is configured + DNS for `in.bonbox.dk` MX → Postmark is
     # live. Same sandbox-honesty pattern as MobilePay / Aiia.
     INBOX_ENABLED: bool = False
+
+    # ── R-h privacy purges — every irreversible step ships OFF ─────────
+    # OFF = the nightly job only counts what is due (dry run) and writes
+    # nothing. GET /api/admin/privacy-purges shows the counts; Manoj turns a
+    # flag on separately after reading them.
+    # R-h LEG-05. OFF = nightly dry-run count only. Manoj turns it on after
+    # GET /api/admin/privacy-purges shows the count.
+    PRIVACY_PURGE_WAITLIST_ENABLED: bool = False
+    # R-h LEG-18: whatsapp_messages > 90 d, magic-link tokens 30 d past
+    # expiry, anonymous paid-plan waitlist e-mails > 12 months. Same
+    # OFF = dry-run shape.
+    PRIVACY_PURGE_ORPHANS_ENABLED: bool = False
+    # R-h LEG-06 one-off. Turn on only after the R-j text names this one edit
+    # in EVERY place that says the change log is never edited, EN and DA:
+    #   1. /privacy "Change log" / "Ændringslog" paragraph,
+    #   2. the /privacy retention-table row ("No end date: it cannot be edited
+    #      or deleted through BonBox" / "Ingen slutdato: den kan ikke redigeres
+    #      eller slettes gennem BonBox"),
+    #   3. Terms § 4 ("neither by you nor by us" / "hverken af dig eller af os").
+    # tests/test_audit_email_cleanup.py fails if the R-j paragraph lands in
+    # /privacy while any of the other places still promises no edit.
+    AUDIT_EMAIL_CLEANUP_ENABLED: bool = False
     # Postmark Basic-Auth secret. Configured on the Inbound Stream
     # under "Webhook URL" as `https://USER:PASS@api.bonbox.dk/api/inbox/
     # postmark-webhook`. Constant-time compared in the router so an
@@ -332,6 +375,49 @@ class Settings(BaseSettings):
     # Not tier-gated: like the FREE MOMS countdown it upgrades (#42), the
     # foresight verdict is part of the core honest value, available to all.
     FORESIGHT_ENABLED: bool = True
+
+    # ── Abuse caps (R-sec) ─────────────────────────────────────────────
+    # Client address for rate limits (app/utils/client_ip.py). True: a
+    # request without a valid CF-Connecting-IP / True-Client-IP (set by the
+    # Cloudflare edge in front of api.bonbox.dk) shares ONE "no-edge" bucket,
+    # and a client-sent X-Forwarded-For is never trusted as the address.
+    # False is the kill switch: back to the old behaviour (leftmost XFF via
+    # uvicorn), a Render env change and a restart, no deploy.
+    CLIENT_IP_FAIL_CLOSED: bool = True
+    # Ceilings that hold when an attacker rotates addresses. Every one is
+    # read at call time; 0 (or less) switches that check off. Measured prod
+    # peaks on 11 Oct 2026 are in the comments. Sized for Resend FREE (100
+    # mails/day, 3,000/month; 11 Oct usage 4/day, 71/month): the magic-link
+    # and guest-mail fleet ceilings together (20 + 40 = 60/day) leave room
+    # for verification, reset, staff and alert mail. Raise them (Render env)
+    # when Resend is upgraded, e.g. 60/300/30/100 and 2000.
+    # Sign-in link mails to addresses WITHOUT a confirmed account (confirmed
+    # accounts always get theirs; routers/auth_magic_link.py,
+    # services/abuse_caps.py).
+    MAGIC_LINK_FLEET_MAX_PER_HOUR: int = 10     # peak 1
+    MAGIC_LINK_FLEET_MAX_PER_DAY: int = 20      # peak 2
+    MAGIC_LINK_DOMAIN_MAX_PER_HOUR: int = 5     # peak 1
+    MAGIC_LINK_DOMAIN_MAX_PER_DAY: int = 10     # peak 1
+    # Every POST /auth/magic-link/request answer waits until this many ms
+    # after the request arrived (the mail goes out after the answer). While a
+    # ceiling holds unknown addresses back, the answer time then does not tell
+    # a confirmed account from an unknown one. 0 = off.
+    MAGIC_LINK_MIN_RESPONSE_MS: int = 300
+    # Guest e-mails delivered across ALL venues in a rolling 24 h
+    # (services/reservation_emails.py deliver()). Peak ~3/day.
+    GUEST_EMAILS_FLEET_PER_DAY: int = 40
+    # Wrong staff join / stand pairing codes from all addresses together:
+    # JOIN_FAIL_GLOBAL_MAX within JOIN_FAIL_WINDOW_SEC pauses that door for
+    # everyone for JOIN_COOLOFF_SEC (main.join_failure_brake).
+    JOIN_FAIL_GLOBAL_MAX: int = 300
+    JOIN_FAIL_WINDOW_SEC: int = 600
+    JOIN_COOLOFF_SEC: int = 60                  # matches the "vent et minut" copy
+    # Alert only (jobs/abuse_monitor_job.py): new accounts per hour / 24 h.
+    SIGNUP_ALERT_PER_HOUR: int = 20             # peak 3
+    SIGNUP_ALERT_PER_DAY: int = 60              # peak 9
+    # Alert when this many non-health requests in one 2-minute monitor tick
+    # arrive without a valid edge header (expected 0).
+    NO_EDGE_ALERT_PER_TICK: int = 20
 
 
 settings = Settings()

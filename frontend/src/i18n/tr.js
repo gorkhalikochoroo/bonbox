@@ -763,7 +763,7 @@ export const tr = {
   // Cookie consent banner
   cookieBannerAria: "Çerez izni",
   cookieBannerTitle: "Çerez kullanıyoruz",
-  cookieBannerBody: "BonBox, oturumunuzu açık tutmak için zorunlu çerezler kullanır. Kendi seçtiğiniz ayarlar — örneğin açık/koyu tema ve kapattığınız ipuçları — istediğiniz şeyi yapabilmesi için BonBox'a gerekli olduğundan cihazınızda saklanır; başka hiçbir amaçla kullanılmaz. İki kategori isteğe bağlıdır: Analitik (kullanım istatistikleri: hangi özelliklerin kullanıldığı ve uygulamanın nerede sorun çıkardığı — oturum açmış hesaplar için siz reddedene kadar kaydedilir) ve Pazarlama (yalnızca siz açarsanız: basılı broşürlerimizden birindeki QR koddan gelen kod, hangi broşürün bir kayda yol açtığını ölçebilmemiz için cihazınızda en fazla 30 gün saklanır). “Tümünü kabul et” ikisini de açar.",
+  cookieBannerBody: "BonBox, oturumunuzu açık tutmak için zorunlu çerezler kullanır. Kendi seçtiğiniz ayarlar — örneğin açık/koyu tema ve kapattığınız ipuçları — istediğiniz şeyi yapabilmesi için BonBox'a gerekli olduğundan cihazınızda saklanır; başka hiçbir amaçla kullanılmaz. İki kategori isteğe bağlıdır: Analitik (kullanım istatistikleri: hangi özelliklerin kullanıldığı — tarayıcınızın gönderdiği olaylar yalnızca siz açtıktan sonra kaydedilir) ve Pazarlama (yalnızca siz açarsanız: basılı broşürlerimizden birindeki QR koddan gelen kod, hangi broşürün bir kayda yol açtığını ölçebilmemiz için cihazınızda en fazla 30 gün saklanır). “Tümünü kabul et” ikisini de açar.",
   cookieAcceptAll: "Tümünü kabul et",
   cookieDeclineNonEssential: "Zorunlu olmayanları reddet",
   cookieCustomize: "Özelleştir",
@@ -775,7 +775,7 @@ export const tr = {
   cookieCatNecessary: "Zorunlu",
   cookieCatNecessaryDesc: "Uygulamanın çalışması için gerekli — oturum, CSRF koruması ve kendi seçtiğiniz ayarlar (açık/koyu tema, kapatılmış ipuçları); bunlar cihazınızda kalır ve başka hiçbir amaçla kullanılmaz. Her zaman açık.",
   cookieCatAnalytics: "Analitik",
-  cookieCatAnalyticsDesc: "Hangi özelliklerin yararlı olduğunu ve uygulamanın nerede sorun çıkardığını anlamamıza yardım eder. Hesap bazında BonBox'un kendi veritabanına kaydedilir, hiçbir analiz şirketiyle paylaşılmaz ve 180 gün sonra silinir.",
+  cookieCatAnalyticsDesc: "Hangi özelliklerin yararlı olduğunu anlamamıza yardım eder. Hesap bazında BonBox'un kendi veritabanına kaydedilir, hiçbir analiz şirketiyle paylaşılmaz ve 180 gün sonra silinir.",
   cookieCatMarketing: "Pazarlama",
   cookieCatMarketingDesc: "Hangi kanalların BonBox'la ilgilenenleri getirdiğini ölçmemizi sağlar. Bugün bu yalnızca tek bir şeyi kapsar: basılı broşürlerimizden birindeki QR koddan gelen kampanya kodu bu cihazda en fazla 30 gün saklanır, böylece yeni bir hesap o ziyaretle ilişkilendirilebilir. Varsayılan olarak kapalı.",
   close: "Kapat",

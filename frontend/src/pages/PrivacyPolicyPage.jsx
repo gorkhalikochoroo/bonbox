@@ -1,11 +1,12 @@
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { CookieSettingsButton } from "../components/CookieConsent";
-// The "Last updated" date is the Terms' TERMS_VERSION (src/legal/terms.js):
-// /privacy changes in the same release as the Terms (Push 3), so the two
-// pages can never show different dates. If the policy ever changes on its
-// own, give it its own constant there.
-import { TERMS_VERSION, termsDate } from "../legal/terms";
+// The "Last updated" date is PRIVACY_UPDATED (src/legal/terms.js). Push 3
+// changed /privacy with the Terms (then it was TERMS_VERSION); a later push
+// changes it on its own (the backup processor row + R-h's Analytics-consent
+// sentences), so it has its own release-time date there, never earlier than
+// TERMS_VERSION.
+import { PRIVACY_UPDATED, termsDate } from "../legal/terms";
 import BonBoxMark from "../components/BonBoxMark";
 
 function Section({ title, children }) {
@@ -51,6 +52,10 @@ function Table({ headers, rows }) {
 // location is named only where it is confirmed (Supabase: Ireland, project
 // in eu-west-1; Render: Frankfurt; Companies House: UK); every other row
 // says "Not confirmed" / "Ikke bekræftet".
+// Nightly backup (Manoj, 11 Oct 2026): the second Supabase row is the
+// separate backup project (eu-central-1, Frankfurt) that the nightly job
+// (backend services/backup_service) copies the database and the uploaded
+// files to, encrypted on our server before upload.
 const CHROME = {
   en: { terms: "Terms", cookies: "Cookies", cookieSettings: "Cookie settings", back: "Back to BonBox" },
   da: { terms: "Vilkår", cookies: "Cookies", cookieSettings: "Cookieindstillinger", back: "Tilbage til BonBox" },
@@ -60,7 +65,7 @@ function PrivacyEn() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privacy Policy</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="privacy-updated">Last updated: {termsDate(TERMS_VERSION, "en")}</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="privacy-updated">Last updated: {termsDate(PRIVACY_UPDATED, "en")}</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -160,13 +165,14 @@ function PrivacyEn() {
             <li>For the BonBox AI Copilot: that you asked a question — not the question itself</li>
             <li>Token usage of AI Copilot conversations (metadata only — used for cost monitoring, not content)</li>
           </ul>
+          <p className="mt-1" data-testid="privacy-analytics-consent">The events your browser sends (pages you visit and actions you take) are recorded only after you turn on Analytics in the cookie banner.</p>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
             <strong>You can pause analytics at any time</strong> in <Link to="/profile" className="text-blue-600 dark:text-blue-400 hover:underline">Profile → Privacy & Data</Link>. When paused, no new events are recorded for your account, except the record of each AI chat turn, Smart Sale Entry and upgrade checkout that BonBox needs to enforce your plan's limits.
           </p>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             <strong>Retention:</strong> Product analytics events are automatically deleted after 180 days. Aggregated counts may be retained longer in anonymised form for product improvement.
           </p>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400"><strong>Legal basis:</strong> Legitimate interest (GDPR Article 6(1)(f)) — improving BonBox and detecting business anomalies for your benefit.</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400" data-testid="privacy-analytics-basis"><strong>Legal basis:</strong> For the events your browser sends: consent (GDPR Article 6(1)(a)), which you give by turning on Analytics in the cookie banner and can withdraw at any time under &ldquo;Cookie settings&rdquo;. For the records our server writes itself (AI token usage, the business-type guess during setup, and the record of each AI chat turn, Smart Sale Entry and upgrade checkout described above): legitimate interest (GDPR Article 6(1)(f)) — improving BonBox and detecting business anomalies for your benefit.</p>
 
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Derived insights (AI patterns)</h3>
           <p>BonBox computes pattern-recognition insights about your business from your data. Examples:</p>
@@ -208,6 +214,7 @@ function PrivacyEn() {
             headers={["Service", "Purpose", "Location", "Data processed"]}
             rows={[
               ["Supabase", "Database (PostgreSQL) and file storage", "EU (Ireland)", "All account and business data, and the files you upload"],
+              ["Supabase", "Encrypted backup copy (database + the files you upload)", "EU (Germany, Frankfurt)", "All account and business data and the files you upload, encrypted before they leave BonBox"],
               ["Vercel", "Frontend hosting", "Global CDN", "No personal data stored"],
               ["Render", "Backend API hosting", "EU (Frankfurt, Germany)", "API requests, no persistent storage"],
               ["Resend", "Email delivery", "Not confirmed", "Email address, email content"],
@@ -344,7 +351,7 @@ function PrivacyDa() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privatlivspolitik</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="privacy-updated">Senest opdateret: {termsDate(TERMS_VERSION, "da")}</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="privacy-updated">Senest opdateret: {termsDate(PRIVACY_UPDATED, "da")}</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -437,13 +444,14 @@ function PrivacyDa() {
             <li>For BonBox AI Copilot: at du har stillet et spørgsmål — ikke selve spørgsmålet</li>
             <li>Tokenforbrug i samtaler med AI Copilot (kun metadata — bruges til at overvåge omkostninger, ikke indhold)</li>
           </ul>
+          <p className="mt-1" data-testid="privacy-analytics-consent">De hændelser, din browser sender (hvilke sider du besøger, og hvilke handlinger du foretager), registreres først, når du har slået Analyse til i cookiebanneret.</p>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
             <strong>Du kan til enhver tid sætte analysen på pause</strong> under <Link to="/profile" className="text-blue-600 dark:text-blue-400 hover:underline">Profil → Privatliv & data</Link>. Mens den er sat på pause, registreres der ingen nye hændelser for din konto, bortset fra registreringen af hver AI-chatbesked, hver Smart salgsindtastning og hver påbegyndt betaling for en opgradering, som BonBox skal bruge for at håndhæve grænserne i din plan.
           </p>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             <strong>Opbevaring:</strong> Hændelser til produktanalyse slettes automatisk efter 180 dage. Samlede optællinger kan opbevares længere i anonymiseret form med henblik på at forbedre produktet.
           </p>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400"><strong>Retsgrundlag:</strong> Legitim interesse (databeskyttelsesforordningens artikel 6, stk. 1, litra f) — at forbedre BonBox og opdage uregelmæssigheder i din virksomhed til din fordel.</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400" data-testid="privacy-analytics-basis"><strong>Retsgrundlag:</strong> For de hændelser, din browser sender: samtykke (databeskyttelsesforordningens artikel 6, stk. 1, litra a), som du giver ved at slå Analyse til i cookiebanneret, og som du til enhver tid kan trække tilbage under &bdquo;Cookieindstillinger&ldquo;. For det, vores server selv registrerer (tokenforbrug i AI, gættet på virksomhedstype under opsætningen og registreringen af hver AI-chatbesked, hver Smart salgsindtastning og hver påbegyndt betaling for en opgradering, som nævnt ovenfor): legitim interesse (databeskyttelsesforordningens artikel 6, stk. 1, litra f) — at forbedre BonBox og opdage uregelmæssigheder i din virksomhed til din fordel.</p>
 
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Afledte indsigter (AI-mønstre)</h3>
           <p>BonBox beregner indsigter om din virksomhed ud fra dine data ved hjælp af mønstergenkendelse. Eksempler:</p>
@@ -485,6 +493,7 @@ function PrivacyDa() {
             headers={["Tjeneste", "Formål", "Placering", "Behandlede data"]}
             rows={[
               ["Supabase", "Database (PostgreSQL) og fillagring", "EU (Irland)", "Alle konto- og virksomhedsdata og de filer, du uploader"],
+              ["Supabase", "Krypteret sikkerhedskopi (database + de filer, du uploader)", "EU (Tyskland, Frankfurt)", "Alle konto- og virksomhedsdata og de filer, du uploader, krypteret før de forlader BonBox"],
               ["Vercel", "Hosting af frontend", "Globalt CDN", "Ingen personoplysninger gemmes"],
               ["Render", "Hosting af backend-API", "EU (Frankfurt, Tyskland)", "API-forespørgsler, ingen varig lagring"],
               ["Resend", "Afsendelse af e-mails", "Ikke bekræftet", "E-mailadresse, e-mailens indhold"],

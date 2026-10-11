@@ -48,7 +48,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
-from app.utils.client_ip import client_ip
+from app.utils.client_ip import client_ip, EdgeClientIPMiddleware
+from app.utils import abuse_signals
+from collections import deque
 from app.utils.request_path import routed_path
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -2099,9 +2101,11 @@ _migrations = [
     # (SQLite) and the per-event handler is SKIPPED — no double mutation of
     # plan/status, no double audit row. Mirrors app/models/webhook_event.py +
     # alembic 021 (documentation-only). create_all() builds it on SQLite; this
-    # block is the canonical Postgres path + emergency-restore. Append-only —
-    # no UPDATE/DELETE surface. REQUIRED by the schema-drift self-test: the
-    # model declares this table, so on Postgres it MUST exist.
+    # block is the canonical Postgres path + emergency-restore. Rows are
+    # deleted only by stripe_billing._release_webhook_event when a handler
+    # failed (OPS-05), so Stripe's retry is processed. REQUIRED by the
+    # schema-drift self-test: the model declares this table, so on Postgres
+    # it MUST exist.
     """CREATE TABLE IF NOT EXISTS webhook_events (
         event_id VARCHAR(255) PRIMARY KEY,
         event_type VARCHAR(120),
@@ -3850,10 +3854,60 @@ async def _ai_busy_handler(request: Request, exc: AIBusyError):
 from starlette.exceptions import HTTPException as _StarletteHTTPException  # noqa: E402
 
 
+async def _persist_http_5xx(request: Request, exc: _StarletteHTTPException) -> None:
+    """Write one error_logs row for a RAISED HTTPException >= 500 (OPS-04).
+
+    The global Exception handler never sees a raised HTTPException, so these
+    5xx answers (e.g. `raise HTTPException(500, ...)` in a router) left no
+    trace and never reached the operator. Mirrors the global handler's
+    persistence block: built here (the traceback lives on this thread),
+    written in a worker thread, skipped when the DB pool has nothing to
+    give. Runs in every environment. Never raises."""
+    try:
+        from app.models.error_log import ErrorLog as _ErrorLog
+        from app.utils.log_redact import redact_path as _redact_path
+        from app.utils.off_loop import pool_exhausted as _pool_exhausted
+        from app.utils.off_loop import run_blocking as _run_blocking
+
+        if _pool_exhausted():
+            _error_logger.warning(
+                "ErrorLog row skipped for HTTPException %s on %s %s: DB pool exhausted",
+                exc.status_code, request.method, _redact_path(routed_path(request)),
+            )
+            return
+        _row = _ErrorLog(
+            method=request.method,
+            path=(_redact_path(routed_path(request)) or "")[:500] or None,
+            status_code=exc.status_code,
+            user_id=None,
+            ip_address=client_ip(request),
+            user_agent=(request.headers.get("user-agent") or "")[:500],
+            error_type=f"HTTPException{exc.status_code}",
+            message=str(exc.detail)[:1000],
+            traceback="".join(_tb.format_exception(type(exc), exc, exc.__traceback__))[:16000],
+        )
+
+        def _persist():
+            from app.database import SessionLocal as _SessionLocal
+            _db = _SessionLocal()
+            try:
+                _db.add(_row)
+                _db.commit()
+            finally:
+                _db.close()
+
+        await _run_blocking(_persist)
+    except Exception:  # noqa: BLE001 — observability MUST never raise
+        pass
+
+
 @app.exception_handler(_StarletteHTTPException)
 async def _http_exception_sanitizer(request: Request, exc: _StarletteHTTPException):
     status_code = exc.status_code
     headers = getattr(exc, "headers", None)
+    if status_code >= 500:
+        # Record it (all environments) so the ops triage can alert (OPS-04).
+        await _persist_http_5xx(request, exc)
     if status_code >= 500 and is_prod:
         _error_logger.error(
             "HTTPException %s on %s %s: %s",
@@ -4056,29 +4110,45 @@ _ORIGIN_GUARD_EXEMPT = frozenset(
 )
 
 
+# The origin guard below may only ARM when this is True. Deliberately a code
+# constant, not an env var: arming it needs a Cloudflare zone of our own with
+# a Transform Rule adding X-Bonbox-Origin, and BonBox has none (see docstring).
+_ORIGIN_GUARD_ARMABLE = False
+_origin_guard_warned = False
+_ORIGIN_GUARD_REFUSAL = (
+    "ORIGIN_SHARED_SECRET is set, but the origin guard will not arm: BonBox has no "
+    "Cloudflare zone of its own (DNS at Simply.com; the Cloudflare in front of "
+    "api.bonbox.dk is Render's edge), so no request can carry X-Bonbox-Origin and "
+    "arming would refuse every request. The guard stays OFF. Remove "
+    "ORIGIN_SHARED_SECRET in Render."
+)
+
+
 # --- Cloudflare origin lock: reject traffic that didn't come through Cloudflare ---
 @app.middleware("http")
 async def cloudflare_origin_guard(request: Request, call_next):
-    """Close the residual where an attacker bypasses Cloudflare (hits the
-    *.onrender.com origin directly) to defeat the CF-Connecting-IP rate limits
-    (OCR/AI cost caps, admin scan-ban). Cloudflare is configured to add a secret
-    header to every request it forwards; a direct origin hit won't have it.
+    """Origin lock, written for a Cloudflare zone BonBox would own: a Transform
+    Rule adds X-Bonbox-Origin and the app refuses requests without it. BonBox
+    has no such zone. DNS is at Simply.com, and api.bonbox.dk is a plain CNAME
+    to bonbox-api.onrender.com, whose Cloudflare edge belongs to Render and
+    cannot add our header. Arming it here would answer 403 to every request.
+    So with ORIGIN_SHARED_SECRET set and _ORIGIN_GUARD_ARMABLE False, it logs
+    CRITICAL once and stays off. Arm it only after BonBox runs its own zone
+    with that Transform Rule, by changing the constant in code. What it aimed
+    at already holds: every public request passes Render's edge, which sets
+    CF-Connecting-IP and rejects a client-sent one. client_ip() keys on that
+    and fails closed to one 'no-edge' bucket.
 
-    FAIL-SAFE: enforcement is OFF unless ORIGIN_SHARED_SECRET is set, so merely
-    deploying this code changes nothing. Turn it on in THIS ORDER to avoid a
-    self-inflicted outage:
-      1. Add the Cloudflare Transform Rule that sets `X-Bonbox-Origin: <secret>`
-         on all requests (harmless until step 2 — the app ignores it).
-      2. THEN set ORIGIN_SHARED_SECRET (same value) in Render. Setting it FIRST
-         would 403 all legit traffic, which lacks the header until step 1 lands.
-
-    Exempt: Render's health probe hits the origin directly (/api/health*,
-    /api/keepalive, /) and CORS preflight (OPTIONS). Every EXTERNAL caller
-    (Stripe webhook, OAuth/bank callbacks, the public booking widget) must use
-    the Cloudflare-fronted domain (api.bonbox.dk / bonbox.dk) so it carries the
-    header — which they already do; point the Stripe webhook at api.bonbox.dk.
+    Exempt (when armed): Render's health probe hits the origin directly
+    (/api/health*, /api/keepalive, /) and CORS preflight (OPTIONS).
     """
+    global _origin_guard_warned
     secret = (os.getenv("ORIGIN_SHARED_SECRET") or "").strip()
+    if secret and not _ORIGIN_GUARD_ARMABLE:
+        if not _origin_guard_warned:
+            _origin_guard_warned = True
+            logging.getLogger("bonbox.origin_guard").critical(_ORIGIN_GUARD_REFUSAL)
+        return await call_next(request)
     if (
         secret
         and request.method != "OPTIONS"
@@ -4181,6 +4251,81 @@ async def admin_scan_blocker(request: Request, call_next):
     return response
 
 
+# --- Global cool-off for staff join / stand pairing codes (R-sec) ---
+# The per-IP limit (8/minute) on POST /api/portal/join and /api/stand/join
+# scales with the attacker's address pool. This counts WRONG codes (404s) from
+# all addresses together, per door, and bounds them to JOIN_FAIL_GLOBAL_MAX
+# per JOIN_FAIL_WINDOW_SEC — a true sliding window:
+#   - a request reaches the handler only while recent failures (younger than
+#     the window) PLUS requests already in flight stay below the max. The slot
+#     is reserved before the handler runs and released when it returns, so a
+#     flood from many addresses cannot overshoot the max while the first 404s
+#     are still on their way back;
+#   - the 404 that fills the last slot pauses the door for everyone for at
+#     least JOIN_COOLOFF_SEC (one abuse signal per trip). Failures are kept
+#     until they age out of the window, so after the cool-off a full window
+#     still answers 429 until its oldest failure is older than the window.
+# 429 {"detail": "Too many requests"} with Retry-After (same shape as the
+# coarse ceiling; the staff JoinPage already says "vent et minut").
+# Successes and the per-IP 429s release their slot and are not counted.
+# Global, not per IP: at most JOIN_FAIL_GLOBAL_MAX floats per door. Runs on
+# the event loop (the check and the reservation have no await between them,
+# so no lock); a restart resets it. 0 = off.
+# Kept out of the handlers on purpose: tests/test_join_code_hardening.py
+# inspects portal_join's source.
+_JOIN_BRAKE = {"/api/portal/join": "staff_join", "/api/stand/join": "stand_join"}
+_join_fail_times: dict[str, deque] = {}
+_join_cooloff_until: dict[str, float] = {}
+_join_in_flight: dict[str, int] = {}
+
+
+def _join_recent_failures(kind: str, limit: int, now: float) -> deque:
+    """This door's failure times younger than the window (older ones dropped)."""
+    dq = _join_fail_times.get(kind)
+    if dq is None or dq.maxlen != limit:
+        dq = _join_fail_times[kind] = deque(dq or (), maxlen=limit)
+    window = settings.JOIN_FAIL_WINDOW_SEC
+    while dq and now - dq[0] > window:
+        dq.popleft()
+    return dq
+
+
+@app.middleware("http")
+async def join_failure_brake(request: Request, call_next):
+    kind = _JOIN_BRAKE.get(routed_path(request))
+    if kind is None or request.method != "POST":
+        return await call_next(request)
+    limit = settings.JOIN_FAIL_GLOBAL_MAX
+    if limit <= 0:
+        return await call_next(request)
+    now = _time.time()
+    until = _join_cooloff_until.get(kind, 0.0)
+    dq = _join_recent_failures(kind, limit, now)
+    in_flight = _join_in_flight.get(kind, 0)
+    if now < until or len(dq) + in_flight >= limit:
+        wait = until - now
+        if len(dq) >= limit:  # full window: until its oldest failure ages out
+            wait = max(wait, dq[0] + settings.JOIN_FAIL_WINDOW_SEC - now)
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests"},
+            headers={"Retry-After": str(int(max(wait, 0.0)) + 1)},
+        )
+    _join_in_flight[kind] = in_flight + 1
+    try:
+        response = await call_next(request)
+    finally:
+        _join_in_flight[kind] = max(0, _join_in_flight.get(kind, 1) - 1)
+    if response.status_code == 404:
+        done = _time.time()
+        dq = _join_recent_failures(kind, limit, done)
+        dq.append(done)
+        if len(dq) >= limit:
+            _join_cooloff_until[kind] = done + settings.JOIN_COOLOFF_SEC
+            abuse_signals.bump(f"{kind}_cooloff")
+    return response
+
+
 # --- Coarse per-IP ceiling, across every path ---
 #
 # The 120/minute default above is per ROUTE. An attacker hitting fifty
@@ -4196,8 +4341,8 @@ async def admin_scan_blocker(request: Request, call_next):
 #
 # In-memory, like the admin scan-blocker above: process-local and reset on
 # deploy. Honest about what that means — it is a brake on a single noisy
-# source, not DDoS protection. That belongs at Cloudflare, and the origin lock
-# (ORIGIN_SHARED_SECRET) is what forces traffic through it.
+# source, not DDoS protection. That belongs at the edge; every public request
+# already passes Render's Cloudflare edge, which BonBox does not control.
 _COARSE_LIMIT = 600           # requests
 _COARSE_WINDOW_SEC = 60.0
 _coarse_hits: dict[str, list[float]] = {}
@@ -5327,6 +5472,9 @@ app.add_middleware(
 # Origin list + allow_credentials + allow_headers were already defined
 # above next to the `_PROD_ORIGINS` block — we just defer the actual
 # registration to the bottom of the file.
+# Since R-sec exactly one layer is registered after it: EdgeClientIPMiddleware,
+# a pass-through that only sets scope["client"] and never answers, so CORS is
+# still the outermost layer that can produce a response.
 #
 # expose_headers — by default only "simple" headers (Cache-Control,
 # Content-*, Expires, Last-Modified, Pragma) are surfaced to JS in a
@@ -5352,6 +5500,17 @@ app.add_middleware(
 )
 
 
+# --- Edge client address — outermost user middleware (R-sec) ---
+# Sets request.client from CF-Connecting-IP / True-Client-IP (set by the
+# Cloudflare edge in front of api.bonbox.dk), or clears it when the only
+# address is a client-written X-Forwarded-For (uvicorn's --forwarded-allow-ips
+# '*' copied that in). Registered AFTER CORS so it is the outermost user
+# middleware: every middleware, handler and audit row below sees the fixed
+# address. Pure ASGI; mutates the scope in place, so the global exception
+# handler (ServerErrorMiddleware, outside this stack) sees it too.
+app.add_middleware(EdgeClientIPMiddleware)
+
+
 # --- Regression guard: rate-limit middleware MUST be in the stack ---
 # The default_limits cap is only enforced while SlowAPIMiddleware is
 # registered (see the add_middleware call above). A future refactor that
@@ -5361,6 +5520,9 @@ app.add_middleware(
 assert any(
     m.cls is SlowAPIMiddleware for m in app.user_middleware
 ), "SlowAPIMiddleware missing from the stack — app-wide rate-limit would be inert"
+assert app.user_middleware[0].cls is EdgeClientIPMiddleware, (
+    "EdgeClientIPMiddleware must be outermost or audit rows record a forged IP"
+)
 
 
 # --- JWT secret strength check on startup ---
@@ -5847,6 +6009,7 @@ try:
     from app.jobs.daily_brief_push_job import send_daily_brief_pushes
     from app.jobs.expiry_scanner_job import run_expiry_scan
     from app.jobs.frontend_monitor_job import run_frontend_monitor_tick
+    from app.jobs.abuse_monitor_job import run_abuse_monitor_tick
     from app.jobs.subscription_reconcile_job import run_subscription_reconcile
     from app.jobs.public_surface_monitor_job import run_public_surface_monitor_tick
     from app.jobs.reservation_jobs import (
@@ -5854,7 +6017,23 @@ try:
     )
     from app.jobs.shift_reminder_jobs import run_shift_reminder_tick
 
-    _scheduler = BackgroundScheduler()
+    # job_defaults (R-i, OPS-10): misfire_grace_time 1 s → 3600 s, so a run
+    # delayed by a busy executor or a long event-loop stall still runs instead
+    # of being silently skipped; coalesce (already the 3.11 default) runs a
+    # backlog once; max_instances 1 never lets two runs of one job race.
+    # Explicit on every job (tests/test_scheduler_ops.py). It cannot recover a
+    # cron run lost to a restart (MemoryJobStore) — out of scope for R-i.
+    _scheduler = BackgroundScheduler(
+        job_defaults={"misfire_grace_time": 3600, "coalesce": True, "max_instances": 1}
+    )
+    # Job errors, misses and daily_maintenance's swallowed "*_error" steps
+    # become error_logs rows (method=JOB) the ops triage alerts on. Own try:
+    # a listener problem must never cost the jobs below.
+    try:
+        from app.jobs.job_events import on_job_event, JOB_EVENT_MASK
+        _scheduler.add_listener(on_job_event, JOB_EVENT_MASK)
+    except Exception as e:
+        print(f"Scheduler listener warning: {e}")
     _scheduler.add_job(
         run_auto_sync,
         trigger=IntervalTrigger(hours=6),
@@ -5905,6 +6084,12 @@ try:
         id="daily_maintenance",
         name="GDPR retention + pattern detection",
         replace_existing=True,
+        # APScheduler's default grace is 1 s: on the 1-CPU box a busy pool
+        # could silently skip a night of purges. Every purge selects
+        # "everything past due", so a late or merged run catches up.
+        misfire_grace_time=3600,
+        coalesce=True,
+        max_instances=1,
     )
     # Kasserapport learning loop — daily drift sweep (03:00 UTC) +
     # weekly correction-pattern sweep (Sunday 03:30 UTC). These run
@@ -5978,6 +6163,10 @@ try:
         id="reservation_gdpr_purge",
         name="Reservation GDPR purge (PII + allergy)",
         replace_existing=True,
+        # Same grace as daily_maintenance: a busy pool must not skip a night.
+        misfire_grace_time=3600,
+        coalesce=True,
+        max_instances=1,
     )
     # Task #54 — Daily Brief email at 06:30 UTC ≈ 07:30 (CET winter) /
     # 08:30 (CEST summer) Copenhagen. Same brief as the in-app card,
@@ -6048,6 +6237,17 @@ try:
         name="Prod frontend synthetic monitor (Vercel deploy integrity)",
         replace_existing=True,
     )
+    # Abuse ceilings monitor (R-sec) — drains the in-process abuse counters
+    # (magic-link / guest-mail ceilings, join cool-offs, missing edge header)
+    # and counts new accounts; one alert per incident, at most one per kind
+    # per 6 h, counts only. See jobs/abuse_monitor_job.py.
+    _scheduler.add_job(
+        run_abuse_monitor_tick,
+        trigger=IntervalTrigger(minutes=2),
+        id="abuse_monitor",
+        name="Abuse ceilings monitor",
+        replace_existing=True,
+    )
     # Public-surface quality monitor — flags SILENT booking-page defects (a page
     # dead for 14 days, an app-default title) the crash monitor can't see. Every
     # 15 min (higher per-slug cost than the frontend monitor). Fail-soft,
@@ -6060,11 +6260,38 @@ try:
         name="Public booking-page quality monitor",
         replace_existing=True,
     )
+    # Nightly off-project backup — receipt photos + a logical DB export,
+    # encrypted client-side, copied to a SEPARATE Supabase project (Supabase's
+    # own backups stay in the project and skip Storage). A no-op until the
+    # BACKUP_* env vars are set; 04:20 UTC (see register_backup_job). In its
+    # own try: a fault here must never stop _scheduler.start() and with it
+    # every other nightly job.
+    try:
+        from app.services.backup_service import register_backup_job
+        register_backup_job(_scheduler)
+    except Exception as _backup_job_err:  # noqa: BLE001
+        print(f"Scheduler warning: nightly backup job not registered: {_backup_job_err}")
+    # Ops triage + operator alerts (R-i, OPS-04) — every 15 min: groups new
+    # error_logs rows (500s, raised 5xx, JOB, WEBHOOK) and sends ONE capped,
+    # deduplicated, customer-data-free digest (services/ops_alert.py).
+    # Production only; no LLM. Own try so it can never cost the other jobs.
+    try:
+        from app.jobs.ops_triage_job import run_ops_triage_tick
+        _scheduler.add_job(
+            run_ops_triage_tick,
+            trigger=IntervalTrigger(minutes=15),
+            id="ops_triage",
+            name="Ops triage + operator alerts (R-i)",
+            replace_existing=True,
+        )
+    except Exception as e:
+        print(f"Scheduler ops_triage warning: {e}")
     _scheduler.start()
     print("Schedulers started: payment auto-sync (6h), nightly maintenance (02:30), "
           "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30), "
           "recurring expenses (04:00), daily brief push (06:00), daily brief email (06:30), "
-          "aiia sync (03:30), mobilepay sync (03:45), frontend monitor (5m)")
+          "aiia sync (03:30), mobilepay sync (03:45), frontend monitor (5m), "
+          "nightly backup (04:20 UTC, off unless BACKUP_* set), abuse monitor (2m)")
 
     # Scheduler shutdown migrated to the `lifespan` context manager
     # near the FastAPI() constructor. It checks globals() for the
@@ -6163,6 +6390,25 @@ def _ready_db_probe() -> bool:
         return True
     except Exception:
         return False
+
+
+@app.api_route("/api/health/storage", methods=["GET", "HEAD"])
+async def health_storage():
+    """Is file storage durable? 200 {"storage": "durable"} or 503
+    {"storage": "not_durable"} (INFRA-07, R-i) — for the external uptime
+    monitor and the release gate.
+
+    Config only: no network call (SupabaseStorageBackend.__init__ only builds
+    an httpx client), and the body names no bucket, key or backend class.
+    Deliberately NOT part of /api/health/ready: a 503 there takes the whole
+    app out of rotation and Render restarts it, which cannot fix a missing
+    env var — a restart loop and a full outage for a defect that only affects
+    uploads. Fail-closed storage keeps the data safe; this probe, the ops
+    triage standing check and the release gate make it visible."""
+    from app.services.storage import get_storage
+    if get_storage().is_durable:
+        return {"storage": "durable"}
+    return JSONResponse(status_code=503, content={"storage": "not_durable"})
 
 
 @app.api_route("/api/health/ready", methods=["GET", "HEAD"])

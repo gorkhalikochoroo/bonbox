@@ -157,10 +157,11 @@ describe("verify-email code boxes fit a 360–390 px phone (item 10)", () => {
 
 const DICT = { en, da, np, vi: viDict, th, tr };
 // Review (9 Oct): the first layer must not read as if Analytics were off
-// until "Accept all" — BonBox's own usage events for signed-in accounts are
-// recorded until the owner declines (hooks/useEventLog.analyticsDeclined,
-// and the approved Cookie Policy: "recorded until you decline"). Marketing
-// is the one that stays off until turned on.
+// until "Accept all" while usage events were recorded until a decline.
+// R-h (LEG-10) changed the code instead: usage events are now sent only after
+// an explicit "yes" (hooks/useEventLog.analyticsAllowed), so the banner says
+// "recorded only after you turn it on" — and the old "until you decline"
+// clause must never come back. Marketing stays off until turned on.
 const UNTIL_DECLINE = {
   en: "recorded for signed-in accounts until you decline",
   da: "registreres for loggede ind konti, indtil du afviser",
@@ -169,34 +170,78 @@ const UNTIL_DECLINE = {
   th: "บันทึกสำหรับบัญชีที่เข้าสู่ระบบอยู่ จนกว่าคุณจะปฏิเสธ",
   tr: "oturum açmış hesaplar için siz reddedene kadar kaydedilir",
 };
+const AFTER_TURN_ON = {
+  en: "recorded only after you turn it on",
+  da: "registreres først, når du slår den til",
+  np: "तपाईंले सक्रिय गरेपछि मात्र रेकर्ड हुन्छ",
+  vi: "chỉ được ghi lại sau khi bạn bật",
+  th: "บันทึกเฉพาะหลังจากที่คุณเปิดใช้",
+  tr: "yalnızca siz açtıktan sonra kaydedilir",
+};
 const ONLY_IF_ON = {
   en: "only if you turn it on", da: "kun hvis du slår den til", np: "तपाईंले सक्रिय गर्नुभयो भने मात्र",
   vi: "chỉ khi bạn bật", th: "เฉพาะเมื่อคุณเปิดใช้", tr: "yalnızca siz açarsanız",
 };
 describe.each(Object.keys(DICT))("cookie banner first layer in %s — true to the code (review)", (lang) => {
-  it("says usage statistics are recorded until you decline, and Marketing only if turned on", () => {
+  it("says usage statistics are recorded only after you turn Analytics on, and Marketing only if turned on", () => {
     const body = DICT[lang].cookieBannerBody;
-    expect(body).toContain(UNTIL_DECLINE[lang]);
+    expect(body).toContain(AFTER_TURN_ON[lang]);
+    expect(body).not.toContain(UNTIL_DECLINE[lang]);
     expect(body).toContain(ONLY_IF_ON[lang]);
   });
 });
+// R-h fix round: the clause is scoped to what the gate controls — the events
+// this browser sends. Crash reports (index.html beacon, App.jsx,
+// SelfHealBoundary) and the rows the server writes itself are not behind the
+// banner, so "where the app breaks" is no longer part of Analytics: crash
+// reports are the error log, which /privacy lists as its own 30-day item.
+const BROWSER_EVENTS_AFTER_ON = {
+  en: "which features are used — the events your browser sends are recorded only after you turn it on",
+  da: "hvilke funktioner der bruges — hændelser fra din browser registreres først, når du slår den til",
+  np: "कुन सुविधा प्रयोग हुन्छ — तपाईंको ब्राउजरले पठाउने घटनाहरू तपाईंले सक्रिय गरेपछि मात्र रेकर्ड हुन्छन्",
+  vi: "tính năng nào được dùng — các sự kiện do trình duyệt của bạn gửi chỉ được ghi lại sau khi bạn bật",
+  th: "ฟีเจอร์ใดถูกใช้ — เหตุการณ์ที่เบราว์เซอร์ของคุณส่งจะถูกบันทึกเฉพาะหลังจากที่คุณเปิดใช้",
+  tr: "hangi özelliklerin kullanıldığı — tarayıcınızın gönderdiği olaylar yalnızca siz açtıktan sonra kaydedilir",
+};
+const WHERE_APP_BREAKS = {
+  en: "where the app breaks", da: "hvor appen fejler", np: "एप कहाँ बिग्रन्छ",
+  vi: "ứng dụng lỗi ở đâu", th: "แอปพังที่ใด", tr: "uygulamanın nerede sorun çıkardığı",
+};
+describe.each(Object.keys(DICT))("Analytics in %s covers browser-sent usage events only (R-h fix round)", (lang) => {
+  it("the banner says the events your browser sends are recorded only after you turn it on", () => {
+    expect(DICT[lang].cookieBannerBody).toContain(BROWSER_EVENTS_AFTER_ON[lang]);
+  });
+  it("neither the banner nor the Analytics description claims crash reports", () => {
+    expect(DICT[lang].cookieBannerBody).not.toContain(WHERE_APP_BREAKS[lang]);
+    expect(DICT[lang].cookieCatAnalyticsDesc).not.toContain(WHERE_APP_BREAKS[lang]);
+  });
+});
 describe("the code the banner describes (review)", () => {
-  it("before any answer the usage log is NOT declined; an explicit 'no' declines it", async () => {
-    const { analyticsDeclined } = await import("../hooks/useEventLog");
+  const answer = (analytics) => localStorage.setItem("bonbox_cookie_consent", JSON.stringify({
+    version: 1, timestamp: new Date().toISOString(),
+    choices: { necessary: true, analytics, marketing: false },
+  }));
+  it("before any answer nothing is allowed; an explicit 'no' is declined; only a 'yes' allows", async () => {
+    const { analyticsAllowed, analyticsDeclined } = await import("../hooks/useEventLog");
     localStorage.removeItem("bonbox_cookie_consent");
+    expect(analyticsAllowed()).toBe(false);
     expect(analyticsDeclined()).toBe(false);
-    localStorage.setItem("bonbox_cookie_consent", JSON.stringify({
-      version: 1, timestamp: new Date().toISOString(),
-      choices: { necessary: true, analytics: false, marketing: false },
-    }));
+    answer(false);
+    expect(analyticsAllowed()).toBe(false);
     expect(analyticsDeclined()).toBe(true);
+    answer(true);
+    expect(analyticsAllowed()).toBe(true);
+    expect(analyticsDeclined()).toBe(false);
     localStorage.removeItem("bonbox_cookie_consent");
   });
   it("the component's own fallback sentence says the same", async () => {
     // CookieConsent.jsx shows this when no dictionary string is found.
     const src = (await import("../components/CookieConsent.jsx?raw")).default;
-    expect(src).toContain(UNTIL_DECLINE.en);
+    expect(src).toContain(AFTER_TURN_ON.en);
+    expect(src).not.toContain(UNTIL_DECLINE.en);
     expect(src).toContain(ONLY_IF_ON.en);
+    expect(src).toContain(BROWSER_EVENTS_AFTER_ON.en);
+    expect(src).not.toContain(WHERE_APP_BREAKS.en);
   });
 });
 describe.each(Object.keys(DICT))("cookie banner first layer in %s (item 6)", (lang) => {

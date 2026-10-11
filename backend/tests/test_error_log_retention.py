@@ -43,3 +43,25 @@ def test_remaining_rows_have_link_tokens_redacted(monkeypatch):
     rp.purge_old_error_logs()
     assert [r.path for r in Session().query(ErrorLog).all()] == ["/s/:redacted"]
 
+
+
+def test_triage_notes_older_than_30_days_are_purged_with_the_logs(monkeypatch):
+    """A triage note copies text from an error_logs row (sample_message, and
+    LLM text on the manual path). The 15-minute job now writes notes all the
+    time, so they follow the same 30-day rule as the logs they summarize."""
+    from app.models.triage_note import TriageNote
+
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    monkeypatch.setattr(rp, "SessionLocal", Session)
+
+    s = Session()
+    s.add(TriageNote(fingerprint="old", sample_message="Anna Jensen allergy: nuts",
+                     created_at=utc_now() - timedelta(days=31)))
+    s.add(TriageNote(fingerprint="recent", created_at=utc_now() - timedelta(days=2)))
+    s.add(ErrorLog(method="GET", path="/old", status_code=500, created_at=utc_now() - timedelta(days=31)))
+    s.commit()
+
+    assert rp.purge_old_error_logs() == 1                     # still counts error_logs rows
+    assert [n.fingerprint for n in Session().query(TriageNote).all()] == ["recent"]

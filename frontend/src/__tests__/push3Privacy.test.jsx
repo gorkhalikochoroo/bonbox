@@ -9,8 +9,9 @@
  *     keep the IP), no "adjustable 5–10 years" setting, no "the law requires
  *     US to keep your records" — the owner keeps them.
  *   • Processors: a location only where confirmed (Supabase: Ireland,
- *     Render: Frankfurt, Companies House: UK); the rest say "Not confirmed".
- *     The list names every service the code can send data to.
+ *     Render: Frankfurt, Companies House: UK; the Supabase backup project:
+ *     Frankfurt); the rest say "Not confirmed". The list names every service
+ *     the code can send data to.
  *
  * The backend sibling (backend/tests/test_privacy_matches_code.py) holds the
  * same sentences against the code's own constants.
@@ -134,8 +135,8 @@ describe("deletion: /privacy says what Terms § 4 says", () => {
 
 describe("processors: complete, and a location only where confirmed", () => {
   const ALLOWED = {
-    en: ["EU (Ireland)", "EU (Frankfurt, Germany)", "Global CDN", "Global", "United Kingdom", "Not confirmed"],
-    da: ["EU (Irland)", "EU (Frankfurt, Tyskland)", "Globalt CDN", "Globalt", "Storbritannien", "Ikke bekræftet"],
+    en: ["EU (Ireland)", "EU (Frankfurt, Germany)", "EU (Germany, Frankfurt)", "Global CDN", "Global", "United Kingdom", "Not confirmed"],
+    da: ["EU (Irland)", "EU (Frankfurt, Tyskland)", "EU (Tyskland, Frankfurt)", "Globalt CDN", "Globalt", "Storbritannien", "Ikke bekræftet"],
   };
   for (const lang of ["en", "da"]) {
     it(`${lang}: every service the code calls is listed, with a confirmed location or 'not confirmed'`, () => {
@@ -149,7 +150,11 @@ describe("processors: complete, and a location only where confirmed", () => {
       }
       for (const r of rows) expect(ALLOWED[lang]).toContain(r[2]);
       const loc = Object.fromEntries(rows.map((r) => [r[0], r[2]]));
-      expect(loc.Supabase).toBe(lang === "da" ? "EU (Irland)" : "EU (Ireland)");
+      // Supabase has two rows: the main project (Ireland) first, then the
+      // separate backup project (Frankfurt) of the nightly backup.
+      expect(rows.filter((r) => r[0] === "Supabase").map((r) => r[2])).toEqual(lang === "da"
+        ? ["EU (Irland)", "EU (Tyskland, Frankfurt)"]
+        : ["EU (Ireland)", "EU (Germany, Frankfurt)"]);
       expect(loc.Render).toBe(lang === "da" ? "EU (Frankfurt, Tyskland)" : "EU (Frankfurt, Germany)");
       expect(screen.getByTestId("privacy-location-note")).toBeTruthy();
     });
@@ -314,13 +319,20 @@ describe("should-fixes: who is controller, the date, the insights row", () => {
     );
   });
 
-  it("the 'Last updated' date is the Terms' date (TERMS_VERSION), in both languages", async () => {
-    const { TERMS_VERSION, termsDate } = await import("../legal/terms");
+  // Nightly backup (second review round, 11 Oct): /privacy changes again on
+  // its own (the backup processor row) in a later release than push 3, so it
+  // shows its own date, PRIVACY_UPDATED — never earlier than the Terms'
+  // TERMS_VERSION (push 3 changed this page too). The Terms page keeps
+  // TERMS_VERSION (reHonestTerms.test.jsx).
+  it("the 'Last updated' date is PRIVACY_UPDATED, not before the Terms' date, in both languages", async () => {
+    const { PRIVACY_UPDATED, TERMS_VERSION, termsDate } = await import("../legal/terms");
+    expect(PRIVACY_UPDATED).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(PRIVACY_UPDATED >= TERMS_VERSION).toBe(true);
     renderPage(PrivacyPolicyPage, "da");
-    expect(screen.getByTestId("privacy-updated").textContent).toBe(`Senest opdateret: ${termsDate(TERMS_VERSION, "da")}`);
+    expect(screen.getByTestId("privacy-updated").textContent).toBe(`Senest opdateret: ${termsDate(PRIVACY_UPDATED, "da")}`);
     cleanup();
     renderPage(PrivacyPolicyPage, "en");
-    expect(screen.getByTestId("privacy-updated").textContent).toBe(`Last updated: ${termsDate(TERMS_VERSION, "en")}`);
+    expect(screen.getByTestId("privacy-updated").textContent).toBe(`Last updated: ${termsDate(PRIVACY_UPDATED, "en")}`);
   });
 
   it("insights: kept until the account is deleted (expired ones stay in the archive) — no 'auto-expire 1–30 days'", () => {

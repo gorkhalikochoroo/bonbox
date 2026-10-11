@@ -16,7 +16,9 @@ Write contract:
     SELECT-then-INSERT guard). If the insert affected 0 rows, the event was
     already seen → the handler is skipped and we return 200 {"status":
     "duplicate"}.
-  • Append-only in practice — there is no UPDATE/DELETE surface.
+  • Rows are deleted only by stripe_billing._release_webhook_event when a
+    handler failed (OPS-05), so Stripe's retry is processed. There is no
+    UPDATE surface.
 
 Schema parity:
   • Canonical creation lives in app/main.py::_run_migrations() `_migrations`

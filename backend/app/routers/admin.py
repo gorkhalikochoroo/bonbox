@@ -8,6 +8,7 @@ to power the /admin dashboard and to feed the AI pattern-recognition engine.
 Almost read-only. The only mutations exposed here:
   - /users/{id}/lock and /unlock — incident-response account control
   - /run-triage and /training/run-* — internal ML pipeline triggers
+  - /ops-alert/test — one capped, deduplicated test alert to the operator
   - /cleanup-spam — anti-spam sweep
 Role elevation must still be done in the DB directly.
 Data deletions go through the regular user-scoped endpoints.
@@ -525,6 +526,52 @@ def admin_prod_health(
     }
 
 
+@router.get("/backup-health")
+def admin_backup_health(
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Status of the nightly off-project backup (services/backup_service).
+
+    `config` says whether the BACKUP_* env vars are complete (variable NAMES
+    only, never values). `bucket` is a live check that the backup bucket is
+    private (`private`: true / false / null = could not check). The rest is
+    the last run's MonitorState row: outcome, counts, bytes, duration and
+    errors. `stale` is true when the last run is older than 26 h (a night was
+    skipped — e.g. a deploy at 04:20 UTC). `alarms` lists the mass deletions
+    of the last 30 days. `alerted_at` is when the open incident was mailed.
+    Read-only. Failures also appear in /recent-errors as method=JOB rows.
+    """
+    import json as _json
+    from app.models.monitor_state import MonitorState
+    from app.services.backup_service import SERVICE, STALE_AFTER, bucket_privacy, config_status
+    cfg = config_status()
+    bucket = bucket_privacy() if cfg["status"] == "enabled" else {"private": None, "error": None}
+    st = db.query(MonitorState).filter(MonitorState.service == SERVICE).first()
+    if not st:
+        return {"config": cfg, "bucket": bucket, "state": "NEVER_RUN", "healthy": None,
+                "stale": None, "last_run_at": None, "fail_streak": 0, "broken_since": None,
+                "alerted_at": None, "alarms": [], "last_run": None}
+    try:
+        last_run = _json.loads(st.last_summary) if st.last_summary else None
+    except ValueError:
+        last_run = {"unparsed": (st.last_summary or "")[:500]}
+    stale = bool(st.last_check_at and utc_now() - st.last_check_at > STALE_AFTER)
+    return {
+        "config": cfg,
+        "bucket": bucket,
+        "state": st.state,
+        "healthy": st.state == "HEALTHY" and not stale,
+        "stale": stale,
+        "last_run_at": st.last_check_at.isoformat() if st.last_check_at else None,
+        "fail_streak": st.fail_streak,
+        "broken_since": st.broken_since.isoformat() if st.broken_since else None,
+        "alerted_at": st.last_alert_at.isoformat() if st.last_alert_at else None,
+        "alarms": (last_run.get("alarms") or []) if isinstance(last_run, dict) else [],
+        "last_run": last_run,
+    }
+
+
 @router.get("/public-surface-health")
 def admin_public_surface_health(
     admin: User = Depends(require_super_admin),
@@ -714,6 +761,22 @@ def run_triage_endpoint(
         "new_triage_notes": [serialize_note(n) for n in result.new_notes],
         "fingerprints_skipped_cooldown": result.skipped_count,
     }
+
+
+@router.post("/ops-alert/test")
+def ops_alert_test(admin: User = Depends(require_super_admin)):
+    """Release-gate proof that an ops alert reaches a person (R-i).
+
+    Goes through the one alert path with dedupe key "test:manual" and its
+    6 h cooldown, so it sends at most one message per 6 h however often it
+    is called. Outside production it answers "disabled" and sends nothing."""
+    from app.services.ops_alert import send_ops_alert
+    out = send_ops_alert(
+        "test:manual", "Test alert (manual)",
+        ["kind: test", f"requested_by_user_id: {admin.id}"],
+        cooldown_minutes=360,
+    )
+    return {"outcome": out.value}
 
 
 @router.get("/triage-notes")
@@ -1187,6 +1250,33 @@ _SIGNUP_REF_STEPS = (
     "staff_link_opened",    # >=1 staff link a staffer actually opened (last_accessed)
     "active_7d",            # >=1 human action in the last 7 days (HUMAN_ACTIONS)
 )
+
+
+@router.get("/privacy-purges")
+def admin_privacy_purges(
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """R-h: what each privacy purge would touch right now, and whether its
+    flag is on. Counts only — no id, name, phone or address. Read-only.
+
+    Every irreversible purge ships OFF; this is the dry run Manoj reads
+    before turning a flag on, and the same page measures the result after
+    (each `due` should drop to 0)."""
+    from app.config import settings
+    from app.jobs.privacy_purges import dry_run_counts
+    from app.services.audit_email_cleanup import count_due
+
+    due = dry_run_counts(db)
+    due["audit_rows_with_owner_email"] = count_due(db)
+    return {
+        "flags": {
+            "PRIVACY_PURGE_WAITLIST_ENABLED": bool(settings.PRIVACY_PURGE_WAITLIST_ENABLED),
+            "PRIVACY_PURGE_ORPHANS_ENABLED": bool(settings.PRIVACY_PURGE_ORPHANS_ENABLED),
+            "AUDIT_EMAIL_CLEANUP_ENABLED": bool(settings.AUDIT_EMAIL_CLEANUP_ENABLED),
+        },
+        "due": due,
+    }
 
 
 @router.get("/signup-refs")

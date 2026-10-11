@@ -37,6 +37,7 @@ from app.services import audit_service
 from app.services.billing import has_feature
 from app.services.daily_brief import get_or_create_brief
 from app.services.email_service import send_email
+from app.utils.log_redact import redact_emails
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -464,7 +465,8 @@ def send_brief_to_user(
                 action="daily_brief.email_failed",
                 entity_type="user",
                 entity_id=user.id,
-                after={"reason": "resend_returned_false", "to": user.email},
+                # No address: user_id already says whose brief it was (R-h LEG-06).
+                after={"reason": "resend_returned_false"},
                 actor_type="system.daily_brief_email",
             )
             db.commit()
@@ -479,8 +481,8 @@ def send_brief_to_user(
             action="daily_brief.email_sent",
             entity_type="user",
             entity_id=user.id,
+            # No address: user_id already says whose brief it was (R-h LEG-06).
             after={
-                "to": user.email,
                 "subject": subject,
                 "insight_count": len(brief.get("insights") or []),
                 "ai_polished": bool(brief.get("ai_polished")),
@@ -511,7 +513,8 @@ def send_brief_to_user(
                 action="daily_brief.email_failed",
                 entity_type="user",
                 entity_id=user.id,
-                after={"error": type(e).__name__, "msg": str(e)[:200]},
+                # A provider error can quote the address; it never reaches the log.
+                after={"error": type(e).__name__, "msg": redact_emails(str(e))[:200]},
                 actor_type="system.daily_brief_email",
             )
             db.commit()

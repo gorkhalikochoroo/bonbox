@@ -124,13 +124,19 @@ ERROR_LOG_RETENTION_DAYS = 30
 
 def purge_old_error_logs(days: int = ERROR_LOG_RETENTION_DAYS) -> int:
     """Delete error_logs older than `days` — technical logs, kept 30 days
-    per the privacy policy. Returns the number of rows deleted."""
+    per the privacy policy. Returns the number of error_logs rows deleted.
+
+    Triage notes go with them: a note copies text out of an error_logs row
+    (sample_message; LLM text on the manual path), and the 15-minute ops
+    triage writes notes continuously, so they keep the same 30 days."""
     from app.models.error_log import ErrorLog
+    from app.models.triage_note import TriageNote
 
     db: Session = SessionLocal()
     try:
         cutoff = utc_now() - timedelta(days=days)
         n = db.query(ErrorLog).filter(ErrorLog.created_at < cutoff).delete(synchronize_session=False)
+        db.query(TriageNote).filter(TriageNote.created_at < cutoff).delete(synchronize_session=False)
         # Rows written before paths were redacted can still hold a working
         # link token (/s/<token>, a stand link). Redact what remains.
         from app.utils.log_redact import redact_path
@@ -165,6 +171,18 @@ def purge_expired_signup_refs() -> int:
         return 0
     finally:
         db.close()
+
+
+def _nested_errors(results) -> str:
+    """"key:ErrorName, …" for each step of a per-step result dict that
+    failed ({"error": <name>}); "" when none did. Error names only."""
+    if not isinstance(results, dict):
+        return ""
+    return ", ".join(
+        f"{key}:{val['error']}"
+        for key, val in results.items()
+        if isinstance(val, dict) and val.get("error")
+    )
 
 
 def daily_maintenance() -> dict:
@@ -203,6 +221,33 @@ def daily_maintenance() -> dict:
         summary["signup_refs_deleted"] = purge_expired_signup_refs()
     except Exception as e:  # noqa: BLE001
         summary["signup_ref_retention_error"] = str(e)
+
+    # R-h privacy purges (Venteliste guests, WhatsApp messages, expired
+    # sign-in links, anonymous paid-plan waitlist). Each flag defaults OFF:
+    # then this only counts what is due and logs the counts.
+    # A purge that failed inside run_privacy_purges (one try/except each) is
+    # also named in privacy_purges_error: R-i's job listener reads only
+    # top-level keys ending in "_error", never the nested {"error": ...}.
+    try:
+        from app.jobs.privacy_purges import run_privacy_purges
+        summary["privacy_purges"] = run_privacy_purges()
+        failed = _nested_errors(summary["privacy_purges"])
+        if failed:
+            summary["privacy_purges_error"] = failed
+    except Exception as e:  # noqa: BLE001
+        summary["privacy_purges_error"] = type(e).__name__
+
+    # R-h LEG-06 one-off: the owner's address in old change-log rows.
+    # AUDIT_EMAIL_CLEANUP_ENABLED defaults OFF: then this only counts.
+    # A run that stopped part-way returns its counts plus "error"; that is
+    # lifted to audit_email_cleanup_error for the same listener.
+    try:
+        from app.services.audit_email_cleanup import run_cleanup
+        summary["audit_email_cleanup"] = cleanup = run_cleanup()
+        if isinstance(cleanup, dict) and cleanup.get("error"):
+            summary["audit_email_cleanup_error"] = str(cleanup["error"])[:200]
+    except Exception as e:  # noqa: BLE001
+        summary["audit_email_cleanup_error"] = type(e).__name__
 
     # Accounting retention sweep — Bogføringsloven §12 (5y min) +
     # Skatteforvaltningsloven §31 (10y max) compliance. Soft-archive

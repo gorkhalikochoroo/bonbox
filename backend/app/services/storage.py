@@ -1,11 +1,17 @@
 """Storage abstraction — durable receipt/image persistence.
 
-Two backends, selected by env at boot:
-  • SupabaseStorageBackend — when SUPABASE_SERVICE_KEY is set. Uploads
-    to a private Supabase Storage bucket. Survives Render redeploys
-    (Render's local disk is ephemeral on free/starter tiers).
-  • LocalStorageBackend — fallback for local dev. Same interface,
-    files written to ./uploads/<bucket>/<key>.
+Backends, selected by env at boot:
+  • SupabaseStorageBackend — when SUPABASE_URL + SUPABASE_SERVICE_KEY are
+    set. Uploads to a private Supabase Storage bucket. Survives Render
+    redeploys (Render's local disk is ephemeral on free/starter tiers).
+  • LocalStorageBackend — fallback for local dev, CI and tests. Same
+    interface, files written to ./uploads/<bucket>/<key>.
+  • UnavailableStorageBackend — production WITHOUT the Supabase keys
+    (INFRA-07, R-i). Fails closed: every read/write/delete raises
+    StorageError, so nothing is ever written to the ephemeral disk (where
+    it was silently lost at the next deploy). The upload answers 500, the
+    error_logs row reaches the operator through the ops triage, and
+    /api/health/storage answers 503 for the uptime monitor.
 
 Why this matters:
   • Bogføringsloven §10 requires retaining accounting source documents
@@ -30,7 +36,7 @@ Public surface:
   StorageBackend.put(key, data, content_type) -> str
   StorageBackend.get(key) -> bytes | None
   StorageBackend.delete(key) -> bool
-  StorageBackend.is_durable -> bool                # Supabase=True, Local=False
+  StorageBackend.is_durable -> bool                # Supabase=True, Local/Unavailable=False
 """
 from __future__ import annotations
 
@@ -322,6 +328,29 @@ class StorageError(Exception):
     """Raised by storage backends on operational failure."""
 
 
+class UnavailableStorageBackend(StorageBackend):
+    """Production without durable storage config — refuse everything.
+
+    delete / delete_prefix RAISE rather than return False / 0 on purpose:
+    accounting_retention._purge_erased_account_blobs keeps its tombstone only
+    when delete_prefix raises (so the blobs are retried next night, never
+    orphaned), and purge_user_blobs already catches per kind."""
+
+    is_durable = False
+
+    def put(self, key: str, data: bytes, content_type: str = "image/jpeg") -> str:
+        raise StorageError("durable storage not configured")
+
+    def get(self, key: str) -> bytes | None:
+        raise StorageError("durable storage not configured")
+
+    def delete(self, key: str) -> bool:
+        raise StorageError("durable storage not configured")
+
+    def delete_prefix(self, prefix: str) -> int:
+        raise StorageError("durable storage not configured")
+
+
 # ─── Singleton selector ────────────────────────────────────────────────
 
 _backend: StorageBackend | None = None
@@ -340,6 +369,13 @@ def get_storage() -> StorageBackend:
     if url and service_key:
         logger.info("Storage: SupabaseStorageBackend bucket=%s", bucket)
         _backend = SupabaseStorageBackend(url, service_key, bucket)
+    elif settings.ENVIRONMENT == "production":
+        # Fail closed (INFRA-07): never write to Render's ephemeral disk.
+        logger.error(
+            "Storage: SUPABASE_URL/SUPABASE_SERVICE_KEY missing in production: "
+            "uploads refused (fail-closed), not written to ephemeral disk"
+        )
+        _backend = UnavailableStorageBackend()
     else:
         root = Path(os.getenv("LOCAL_UPLOADS_ROOT", "uploads"))
         logger.info(

@@ -18,8 +18,8 @@ path-blind per-IP ceiling bounds the total, which no per-route limit can.
 
 WHAT THIS IS NOT. In-memory and process-local, so it resets on deploy and does
 not survive a second worker. It is a brake on one noisy source, not DDoS
-protection — that belongs at Cloudflare, and the origin lock is what forces
-traffic through it.
+protection — that belongs at the edge; every public request already passes
+Render's Cloudflare edge, which BonBox does not control.
 """
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ from app.main import (
     _COARSE_EXEMPT,
     limiter,
 )
+from app.utils.client_ip import NO_EDGE
 
 _db_ready.set()
 
@@ -47,7 +48,7 @@ def client():
     _coarse_hits.clear()
 
 
-def _fill(ip="testclient", n=None):
+def _fill(ip=NO_EDGE, n=None):
     _coarse_hits[ip] = [time.time()] * (n if n is not None else _COARSE_LIMIT)
 
 

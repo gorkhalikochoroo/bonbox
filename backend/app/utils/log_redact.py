@@ -58,3 +58,14 @@ def redact_text(text: str | None) -> str | None:
         lambda m: m.group(0) if _UUID.match(m.group(0)) else ":redacted", text
     )
     return _SECRET_PARAM_IN_TEXT.sub(r"\1:redacted", out)
+
+
+# An e-mail address inside free text (a provider's error message, say). The
+# local part and domain stop at whitespace, brackets, quotes and separators,
+# so "<owner@x.dk>" and "owner@x.dk," are both caught without their wrapping.
+_EMAIL = re.compile(r"[^\s@<>()\[\]\"',;:]+@[^\s@<>()\[\]\"',;:]+\.[A-Za-z]{2,}")
+
+
+def redact_emails(text: str | None) -> str | None:
+    """The same text with every e-mail address replaced by "[e-mail]"."""
+    return _EMAIL.sub("[e-mail]", text) if text else text
