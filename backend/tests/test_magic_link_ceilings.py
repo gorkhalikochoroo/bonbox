@@ -6,7 +6,8 @@ made-up addresses gets BonBox to mail without bound, from our sending domain.
 
 NOW. Over a fleet-wide (all addresses) or per-domain ceiling, an address
 WITHOUT an account gets nothing — no token row, no audit row, no log line, no
-mail — and the byte-identical 200. Existing accounts still get their link.
+mail — and the byte-identical 200. Confirmed accounts still get their link
+(an unconfirmed one does not: anyone can register any address).
 Settings are read at call time; 0 switches a check off.
 
 Run: cd backend && python -m pytest tests/test_magic_link_ceilings.py -q
@@ -296,3 +297,50 @@ def test_the_cf_address_is_stored_when_present(client, db, outbox):
               headers={"X-Forwarded-For": "6.6.6.6", "CF-Connecting-IP": "203.0.113.9"})
     db.expire_all()
     assert db.query(MagicLinkToken).one().request_ip == "203.0.113.9"
+
+
+# ─── Only a VERIFIED account walks past a ceiling (R-sec fix round) ───────
+
+def test_an_unverified_signup_does_not_unlock_mail_while_tripped(client, db, outbox, caps, monkeypatch):
+    # POST /auth/register makes an UNVERIFIED account for any address, 5/min
+    # per IP. If that counted as "has an account", an IP-rotating caller could
+    # pre-register victims and then mail each one 3 per 10 minutes past the
+    # fleet ceiling. Over a ceiling only a confirmed address gets its link.
+    monkeypatch.setattr("app.routers.auth.send_email", lambda *a, **k: True, raising=False)
+    _seed(db, "seed@example.net", n=2)
+    caps(fleet_hour=2, fleet_day=2)
+    _ask(client, "victim@gmail.com")
+    assert outbox == []                                     # held back, as designed
+    r = client.post("/api/auth/register", headers={"CF-Connecting-IP": "203.0.113.50"},
+                    json={"email": "victim@gmail.com", "password": "whatever-123",
+                          "business_name": "x"})
+    assert r.status_code == 201, r.text
+    db.expire_all()
+    assert db.query(User).filter(User.email == "victim@gmail.com").one().email_verified is False
+    rows = _rows(db)
+    for _ in range(3):
+        assert _ask(client, "victim@gmail.com").status_code == 200
+    assert outbox == []                                     # no mail
+    assert _rows(db) == rows                                # no token row
+    assert abuse_signals.drain().get("magic_link_fleet") == 4
+
+
+def test_a_verified_account_still_gets_its_link_while_tripped(client, db, outbox, caps):
+    _user(db, "owner@bonbox.dk")                            # email_verified=True
+    _seed(db, "seed@example.net", n=2)
+    caps(fleet_hour=2)
+    _ask(client, "owner@bonbox.dk")
+    assert [m["to"] for m in outbox] == ["owner@bonbox.dk"]
+
+
+def test_has_account_counts_only_confirmed_addresses(db):
+    _user(db, "Owner@BonBox.dk")
+    u = User(email="pending@bonbox.dk", password_hash=hash_password("owner-password-1"),
+             business_name="Cafe", business_type="cafe", currency="DKK", role="owner",
+             email_verified=False)
+    db.add(u)
+    db.commit()
+    assert abuse_caps.has_account(db, "owner@bonbox.dk") is True
+    assert abuse_caps.has_account(db, "pending@bonbox.dk") is False
+    assert abuse_caps.has_account(db, "nobody@bonbox.dk") is False
+

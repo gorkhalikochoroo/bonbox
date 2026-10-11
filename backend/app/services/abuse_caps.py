@@ -61,11 +61,21 @@ def magic_link_ceiling(db, email: str) -> str | None:
 
 
 def has_account(db, email: str) -> bool:
-    """Does a BonBox account use this (lower-cased) e-mail? A failed lookup
-    answers False: over a ceiling, "couldn't check" means "send nothing"."""
+    """Does a CONFIRMED BonBox account use this (lower-cased) e-mail?
+
+    Only email_verified counts. POST /auth/register makes an unconfirmed
+    account for any address (5/min per IP), so counting those would let an
+    IP-rotating caller pre-register victims and then mail each one past every
+    ceiling. Magic-link, Google and Apple accounts are confirmed when they are
+    created; an unconfirmed password account still signs in with its
+    password. A failed lookup answers False: over a ceiling, "couldn't check"
+    means "send nothing"."""
     try:
         return (
-            db.query(User.id).filter(func.lower(User.email) == (email or "").strip().lower()).first()
+            db.query(User.id)
+            .filter(func.lower(User.email) == (email or "").strip().lower(),
+                    User.email_verified.is_(True))
+            .first()
             is not None
         )
     except Exception:  # noqa: BLE001

@@ -226,7 +226,7 @@ def alert_copy(service: str, c: dict) -> tuple[str, list[str], str, str]:
                 f"{c['n_domain']} over the per-domain ceiling.",
                 f"Links created in the last hour: {c['h']} (ceiling {c['H']}); "
                 f"last 24 hours: {c['d']} (ceiling {c['D']}).",
-                "Owners who already have a BonBox account still get their link. New sign-ups by "
+                "Owners whose BonBox account e-mail is confirmed still get their link. New sign-ups by "
                 "e-mail link get no mail until the count drops. Password, Google and Apple sign-in "
                 "are not affected.",
                 "If this is real traffic, raise MAGIC_LINK_FLEET_MAX_PER_HOUR / "
