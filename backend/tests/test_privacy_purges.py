@@ -393,6 +393,8 @@ def test_one_failing_purge_never_stops_the_others_or_accounting_retention(Sessio
     monkeypatch.setattr(rp, "smart_drift_scan_for_all", lambda: {})
     import app.jobs.reservation_request_expiry as rre
     monkeypatch.setattr(rre, "expire_stale_requests", lambda: {})
+    from app.services import audit_email_cleanup as aec
+    monkeypatch.setattr(aec, "run_cleanup", lambda: {"stub": True})
     ran = []
     monkeypatch.setattr(accounting_retention, "run_retention_sweep",
                         lambda: ran.append(1) or {"ok": True})

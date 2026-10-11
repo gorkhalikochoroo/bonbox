@@ -219,6 +219,14 @@ def daily_maintenance() -> dict:
     except Exception as e:  # noqa: BLE001
         summary["privacy_purges_error"] = type(e).__name__
 
+    # R-h LEG-06 one-off: the owner's address in old change-log rows.
+    # AUDIT_EMAIL_CLEANUP_ENABLED defaults OFF: then this only counts.
+    try:
+        from app.services.audit_email_cleanup import run_cleanup
+        summary["audit_email_cleanup"] = run_cleanup()
+    except Exception as e:  # noqa: BLE001
+        summary["audit_email_cleanup_error"] = type(e).__name__
+
     # Accounting retention sweep — Bogføringsloven §12 (5y min) +
     # Skatteforvaltningsloven §31 (10y max) compliance. Soft-archive
     # only; permanent deletes only for orphan drafts + ancient audit
