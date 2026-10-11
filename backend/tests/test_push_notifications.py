@@ -395,6 +395,38 @@ def test_webpush_is_called_with_a_timeout(db, monkeypatch):
     assert seen["timeout"] == ps.PUSH_TIMEOUT_SECONDS == 10
 
 
+def _unsaved_sub(staff_id=None) -> PushSubscription:
+    return PushSubscription(
+        user_id=uuid.uuid4(), staff_id=staff_id,
+        endpoint=f"https://fcm.googleapis.com/fcm/send/{uuid.uuid4().hex}",
+        p256dh="BJxXr-fake-p256dh-key-base64url-encoded-32-bytes==",
+        auth="fake-auth-secret-16b", fail_count=0,
+    )
+
+
+def test_a_staff_device_gets_the_vagtplan_icon(monkeypatch):
+    """docs/brand: the staff app is Vagtplan (paper tile). sw.js shows the
+    owner app's icon when a payload names none, so the sender names the
+    Vagtplan one for every staff subscription — and leaves the caller's
+    shared payload dict alone."""
+    import json
+    seen: list = []
+    monkeypatch.setattr("pywebpush.webpush", lambda *a, **kw: seen.append(json.loads(kw["data"])))
+    payload = {"title": "Ny vagtplan", "body": "Uge 42"}
+    assert ps.send_to_subscription(_unsaved_sub(staff_id=uuid.uuid4()), payload)["ok"] is True
+    assert seen[-1]["icon"] == ps.STAFF_PUSH_ICON == "/vagtplan-icon-192.png?v=3"
+    assert "icon" not in payload
+    # The owner's device: no icon in the payload, so sw.js uses the owner's.
+    assert ps.send_to_subscription(_unsaved_sub(), payload)["ok"] is True
+    assert "icon" not in seen[-1]
+    # A payload that picked an icon keeps it.
+    ps.send_to_subscription(_unsaved_sub(staff_id=uuid.uuid4()), {**payload, "icon": "/x.png"})
+    assert seen[-1]["icon"] == "/x.png"
+    from pathlib import Path
+    public = Path(__file__).resolve().parents[2] / "frontend" / "public"
+    assert (public / ps.STAFF_PUSH_ICON.split("?")[0].lstrip("/")).is_file()
+
+
 def test_webpush_timeout_counts_as_a_failure(db, monkeypatch):
     import requests
 
