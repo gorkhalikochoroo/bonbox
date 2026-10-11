@@ -32,7 +32,9 @@ class TriageNote(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     # 16-char hex hash of (error_type | path_template | top_traceback_line).
     # The dedupe key — same shape error reuses the same fingerprint regardless
-    # of which user / ID / timestamp triggered it.
+    # of which user / ID / timestamp triggered it. Exception: Billing:* rows
+    # are one incident each and also hash the user + message head
+    # (triage_service._PER_INCIDENT_ERROR_PREFIXES).
     fingerprint: Mapped[str] = mapped_column(String(32), index=True)
 
     # Severity: "low" | "medium" | "high" | "critical"

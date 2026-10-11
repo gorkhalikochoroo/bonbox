@@ -148,13 +148,30 @@ def _top_traceback_line(traceback: str | None) -> str:
     return candidate[:200]
 
 
+# error_type prefixes whose rows are each ONE incident, not one class of bug.
+# A billing alarm (e.g. Billing:SecondLiveSubscription) names one customer and
+# one pair of subscriptions; folding a second customer's row into the first
+# one's group would turn it into a counter bump on an already-delivered note
+# (the 24 h cooldown below) — no new note, no digest line, no mail. So these
+# rows are grouped per (user, message head) instead: each incident is its own
+# group, and the writer's own dedupe keeps a recurring incident to one row.
+_PER_INCIDENT_ERROR_PREFIXES = ("Billing:",)
+
+
 def fingerprint(err: ErrorLog) -> str:
-    """16-char hex hash that's stable across user_id / timestamp / IDs."""
-    raw = "|".join([
+    """16-char hex hash that's stable across user_id / timestamp / IDs —
+    except for per-incident rows (_PER_INCIDENT_ERROR_PREFIXES), where the
+    user and the message head (the text before the first " | ") are part of
+    the key, so each incident is its own group."""
+    parts = [
         (err.error_type or ""),
         _normalize_path(err.path),
         _top_traceback_line(err.traceback),
-    ])
+    ]
+    if (err.error_type or "").startswith(_PER_INCIDENT_ERROR_PREFIXES):
+        parts.append(str(err.user_id or ""))
+        parts.append((err.message or "").split(" | ", 1)[0][:300])
+    raw = "|".join(parts)
     return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()[:16]
 
 

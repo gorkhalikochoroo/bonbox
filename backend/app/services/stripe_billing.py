@@ -1452,7 +1452,9 @@ def _late_event_for_old_subscription(
 
 # Statuses in which a subscription is still billing the customer.
 _SUB_LIVE_STATUSES = ("active", "trialing", "past_due")
-# error_logs.error_type of the second-live-subscription alarm (one triage group).
+# error_logs.error_type of the second-live-subscription alarm. A Billing:*
+# type makes triage group each (user, old_sub, new_sub) row on its own
+# (triage_service._PER_INCIDENT_ERROR_PREFIXES), so every alarm is a new note.
 _SECOND_SUB_ERROR_TYPE = "Billing:SecondLiveSubscription"
 
 
