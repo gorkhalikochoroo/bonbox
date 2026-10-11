@@ -320,9 +320,15 @@
           if (t === "dark") {
             document.documentElement.classList.add("dark");
             // The browser bar follows the theme (surface-card, see
-            // src/utils/themeColor.js). Not on the staff portal /s/, which
-            // has no dark rules. Light leaves the static #ffffff alone.
-            if (location.pathname.indexOf("/s/") !== 0) {
+            // src/utils/themeColor.js). Not on pages that never render dark:
+            // the staff portal /s/ and LIGHT_ONLY_PATHS (landing, /join,
+            // /stand, magic-link/claim). Keep this list equal to
+            // themeColor.js — dashboardDarkMode.test.js runs both on the same
+            // paths. Light leaves the static #ffffff alone.
+            var p = location.pathname.replace(/\/+$/, "") || "/";
+            var lightOnly = location.pathname.indexOf("/s/") === 0 ||
+              ["/", "/v2", "/join", "/stand", "/login/magic", "/login/claim"].indexOf(p) !== -1;
+            if (!lightOnly) {
               var tc = document.querySelector('meta[name="theme-color"]');
               if (tc) tc.setAttribute("content", "#1f2937");
             }

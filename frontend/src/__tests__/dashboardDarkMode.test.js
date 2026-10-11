@@ -29,7 +29,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { SURFACE_LADDER_HEX } from "../config/navChrome";
-import { THEME_COLOR, themeColorFor, syncThemeColor } from "../utils/themeColor";
+import { createElement as h } from "react";
+import { render, act, cleanup } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { THEME_COLOR, LIGHT_ONLY_PATHS, themeColorFor, syncThemeColor } from "../utils/themeColor";
+import { useThemeColorSync } from "../hooks/useThemeColorSync";
 
 // ── WCAG 2.1 contrast, written out (see chromeTokens.test.js for why) ──
 const channel = (c) => {
@@ -253,6 +257,34 @@ describe("the browser bar follows the theme", () => {
     expect(themeColorFor(true, "/sales")).toBe("#1f2937"); // "/s" prefix alone is not the portal
   });
 
+  // Pages with no dark styling at all keep the white bar in dark: an owner who
+  // signs out in dark mode must not get a #1f2937 bar on the white landing page.
+  const LIGHT_ONLY_PAGE = {
+    "/": "pages/LandingV2Page.jsx", // PublicOrDashboard renders LandingV2Page for a guest
+    "/v2": "pages/LandingV2Page.jsx",
+    "/join": "pages/JoinPage.jsx",
+    "/stand": "pages/StandPairPage.jsx",
+    "/login/magic": "pages/LoginMagicPage.jsx",
+    "/login/claim": "pages/ClaimDecisionPage.jsx",
+  };
+
+  it("light-only routes keep the white bar in dark; their neighbours do not", () => {
+    for (const p of ["/", "/v2", "/join", "/join/", "/stand", "/login/magic", "/login/claim", "/s/tok"]) {
+      expect(themeColorFor(true, p), p).toBe("#ffffff");
+    }
+    // dark-aware neighbours: the paired reservation book, sign-in, guest booking
+    for (const p of ["/stand/abc123", "/login", "/register", "/r/cafe", "/cafe-nordlys", "/reservations/stand"]) {
+      expect(themeColorFor(true, p), p).toBe("#1f2937");
+    }
+  });
+
+  it("every LIGHT_ONLY_PATHS page really has no dark styling (the list says what the files say)", () => {
+    expect(Object.keys(LIGHT_ONLY_PAGE).sort()).toEqual([...LIGHT_ONLY_PATHS].sort());
+    for (const [path, rel] of Object.entries(LIGHT_ONLY_PAGE)) {
+      expect(code(rel).match(/\bdark:/g) ?? [], `${path} → ${rel}`).toEqual([]);
+    }
+  });
+
   describe("at runtime (jsdom)", () => {
     let meta;
     beforeEach(() => {
@@ -289,6 +321,43 @@ describe("the browser bar follows the theme", () => {
       runPrePaint();
       expect(document.documentElement.classList.contains("dark")).toBe(true);
       expect(meta.getAttribute("content")).toBe("#1f2937");
+    });
+
+    it.each([
+      "/", "/v2", "/join", "/stand", "/login/magic", "/login/claim", "/s/tok",
+      "/dashboard", "/sales", "/stand/abc123", "/login", "/cafe-nordlys", "/join/",
+    ])("the pre-paint script agrees with themeColor.js on %s (dark)", (path) => {
+      localStorage.setItem("theme", "dark");
+      window.history.pushState({}, "", path);
+      runPrePaint();
+      expect(meta.getAttribute("content")).toBe(themeColorFor(true, path));
+    });
+
+    it("a cold load of the landing page in dark keeps the white bar", () => {
+      localStorage.setItem("theme", "dark");
+      window.history.pushState({}, "", "/");
+      runPrePaint();
+      expect(document.documentElement.classList.contains("dark")).toBe(true);
+      expect(meta.getAttribute("content")).toBe("#ffffff");
+    });
+
+    it("an in-app hop follows the route: /dashboard dark, / white, back to dark", async () => {
+      document.documentElement.classList.add("dark");
+      const Probe = () => {
+        useThemeColorSync();
+        return null;
+      };
+      const router = createMemoryRouter([{ path: "*", element: h(Probe) }], { initialEntries: ["/dashboard"] });
+      render(h(RouterProvider, { router }));
+      expect(meta.getAttribute("content")).toBe("#1f2937");
+      await act(() => router.navigate("/"));
+      expect(meta.getAttribute("content")).toBe("#ffffff");
+      await act(() => router.navigate("/sales"));
+      expect(meta.getAttribute("content")).toBe("#1f2937");
+      document.documentElement.classList.remove("dark");
+      await act(() => router.navigate("/dashboard"));
+      expect(meta.getAttribute("content")).toBe("#ffffff"); // light: always the static white
+      cleanup();
     });
 
     it("…but not on the staff portal, and never in light", () => {
