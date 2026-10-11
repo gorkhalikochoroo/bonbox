@@ -54,6 +54,7 @@ import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import usePageTitle from "../hooks/usePageTitle";
 import { isNativeApp } from "../utils/platform";
 import { errText } from "../utils/errText";
 import { completedOnboardingRedirect, finishTargetReached, setFinishTarget } from "../utils/onboardingFinish";
@@ -328,6 +329,7 @@ export default function OnboardingPage() {
   // fix that key is sourced from useLanguage.jsx, so `lang` is no longer
   // referenced here.
   const { t } = useLanguage();
+  usePageTitle("suTitleOnboarding");
   const { plan: currentPlan, isReady: entReady, hasFeature: hasPlanFeature } = useEntitlements();
   // The revisor's lock mail (auto-send) is a plan feature (close_auto_email);
   // the tick below is offered only where it can actually work.
@@ -340,6 +342,22 @@ export default function OnboardingPage() {
 
   // Step 2 — Business profile state. Pre-fill from User.business_name
   // and business_type so the user only has to tweak, not retype.
+  //
+  // Push 6 (PQ-17): /register no longer asks the type. When nobody chose
+  // one — an account made with Google, Apple or a login link ("" on the
+  // user), or a /register sign-up whose type is only the server's default
+  // (RegisterPage leaves bonbox_type_unasked = this account's id) — no tile
+  // starts selected, and Next asks for one (suOnbPickType). A type the owner
+  // or the CVR lookup did choose is preselected as before.
+  const [typeUnasked] = useState(() => {
+    if (!user) return false;
+    const bt = user.business_type;
+    if (bt === "") return true;
+    let flag = null;
+    try { flag = localStorage.getItem("bonbox_type_unasked"); } catch { flag = null; }
+    return flag != null && flag === String(user.id) && String(bt || "").toLowerCase() === "restaurant";
+  });
+  const [typeError, setTypeError] = useState("");
   const [biz, setBiz] = useState({
     company_name: user?.business_name || "",
     org_number: "",
@@ -348,7 +366,7 @@ export default function OnboardingPage() {
     zipcode: "",
     industry: "",
     industry_code: "",
-    branch_type: (user?.business_type || "restaurant").toLowerCase(),
+    branch_type: typeUnasked ? "" : (user?.business_type || "restaurant").toLowerCase(),
   });
   const [cvrSearching, setCvrSearching] = useState(false);
   const [cvrError, setCvrError] = useState("");
@@ -414,6 +432,8 @@ export default function OnboardingPage() {
     pillarTouched.current = false;
     setPillarReady(false);
     const seq = ++presetSeq.current;
+    // No type picked yet (push 6): nothing to suggest until there is one.
+    if (!bt) return;
     api
       .get("/pillars/preset", { params: { business_type: bt }, _noRetry: true })
       .then((res) => {
@@ -641,6 +661,7 @@ export default function OnboardingPage() {
         // one of the 6 cards; the card grid highlights by archetype.
         const localArch = archetypeFor(bt);
         setBiz((b) => ({ ...b, branch_type: bt.toLowerCase() }));
+        setTypeError("");
         // Confirmation line: resolve the labelKey from the LOCAL archetype
         // config (guaranteed to be in i18n) rather than trusting the
         // backend's summary.labelKey — so the line can never leak a raw key.
@@ -682,6 +703,13 @@ export default function OnboardingPage() {
 
   /** Save business profile + advance to step 3. */
   const saveBusinessAndNext = async () => {
+    // Push 6: a type the owner was never asked must be picked here — it
+    // decides the tools, the business day's cutoff and the starter lists.
+    if (!(biz.branch_type || "").trim()) {
+      setTypeError(t("suOnbPickType"));
+      document.querySelector('[data-onb-type-grid] [role="radio"]')?.focus?.();
+      return;
+    }
     const name = (biz.company_name || "").trim();
     if (!name) {
       setStepError(t("onbBusinessNameRequired"));
@@ -869,6 +897,9 @@ export default function OnboardingPage() {
    *  `dest` is validated against our known routes by the caller. */
   const finishOnboarding = async (dest = "/dashboard", navState) => {
     setFinishing(true);
+    // The wizard asked (or the owner skipped it): the sign-up's "type not
+    // asked" note has done its job.
+    try { localStorage.removeItem("bonbox_type_unasked"); } catch { /* storage blocked */ }
     const safeDest = typeof dest === "string" && dest.startsWith("/") ? dest : "/dashboard";
     // Recorded BEFORE refreshUser: the completed user renders before this
     // navigation commits, and the /onboarding guards then send the owner
@@ -964,7 +995,7 @@ export default function OnboardingPage() {
               type="button"
               onClick={skipWizard}
               disabled={finishing}
-              className="text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 underline-offset-2 hover:underline disabled:opacity-50 transition-colors"
+              className="min-h-11 -my-1 inline-flex items-center px-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 underline-offset-2 hover:underline disabled:opacity-50 transition-colors"
             >
               {t("onbSkipExplore")}
             </button>
@@ -1156,16 +1187,21 @@ export default function OnboardingPage() {
                   className="grid grid-cols-3 gap-2"
                   role="radiogroup"
                   aria-label={t("onbStep2BranchLabel")}
+                  aria-describedby={typeError ? "onb-type-error" : undefined}
+                  data-onb-type-grid=""
                 >
                   {BRANCH_TYPES.map((b) => {
                     // Highlight by exact id, OR by archetype when a precise
                     // detected business_type (e.g. "bakery") maps to this
                     // card's archetype (Restaurant). Exact-id match always
                     // wins so a manual tap is unambiguous.
+                    // No type yet (push 6): no tile lights up — not even
+                    // the generic one "" would otherwise resolve to.
                     const active =
-                      biz.branch_type === b.id ||
-                      (!BRANCH_TYPES.some((x) => x.id === biz.branch_type) &&
-                        archetypeFor(biz.branch_type).id === archetypeFor(b.id).id);
+                      biz.branch_type !== "" &&
+                      (biz.branch_type === b.id ||
+                        (!BRANCH_TYPES.some((x) => x.id === biz.branch_type) &&
+                          archetypeFor(biz.branch_type).id === archetypeFor(b.id).id));
                     return (
                       <button
                         key={b.id}
@@ -1177,6 +1213,7 @@ export default function OnboardingPage() {
                           // confirmation so the UI reflects the owner's pick.
                           setBiz({ ...biz, branch_type: b.id });
                           setDetected(null);
+                          setTypeError("");
                         }}
                         className={
                           "group flex flex-col items-center justify-center gap-1.5 rounded-xl border p-3 min-h-[76px] text-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-50 dark:focus-visible:ring-offset-gray-950 " +
@@ -1195,6 +1232,11 @@ export default function OnboardingPage() {
                     );
                   })}
                 </div>
+                {typeError && (
+                  <p id="onb-type-error" role="alert" className="mt-2 text-[13px] text-red-700 dark:text-red-400">
+                    {typeError}
+                  </p>
+                )}
               </fieldset>
 
               {/* C12 — preset pillars as VISIBLE pre-checked chips. The one
@@ -1203,7 +1245,7 @@ export default function OnboardingPage() {
                   hide) and the preset-OFF pillars as easy adds (e.g. a café
                   sees Reservations with a "do you take bookings?" nudge).
                   One glance, one tap, skippable. */}
-              <PresetPillarChips
+              {(biz.branch_type || "").trim() !== "" && <PresetPillarChips
                 typeLabel={t(resolvedArchetype.labelKey)}
                 ready={pillarReady}
                 onPillars={presetOnPillars}
@@ -1211,7 +1253,7 @@ export default function OnboardingPage() {
                 pillarOff={pillarOff}
                 onToggle={togglePillar}
                 t={t}
-              />
+              />}
 
               {/* Identity fields — name (required) is primary; CVR is the
                   optional accelerator below it. Putting name first keeps the
@@ -1951,7 +1993,7 @@ function StepFooter({
 }) {
   return (
     <div className="mt-8 pt-5 border-t border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3 sm:flex-nowrap">
-      <Button variant="ghost" onClick={onBack} disabled={backDisabled}>
+      <Button variant="ghost" onClick={onBack} disabled={backDisabled} className="min-h-11">
         {backLabel}
       </Button>
       <div className="flex items-center gap-2">
@@ -1960,6 +2002,7 @@ function StepFooter({
             variant="secondary"
             onClick={onSecondary}
             disabled={secondaryDisabled}
+            className="min-h-11"
           >
             {secondaryLabel}
           </Button>
@@ -1968,6 +2011,7 @@ function StepFooter({
           variant="accent"
           onClick={onPrimary}
           busy={primaryBusy}
+          className="min-h-11"
         >
           {primaryLabel}
         </Button>

@@ -2159,6 +2159,19 @@ export default function ProfilePage() {
                       </Button>
                     </div>
                   </div>
+                  {/* LEG-14 hint (push 6): an account made with Google, Apple or a
+                      login link has no password it knows yet — say how to get one,
+                      one tap away (the code goes to this account's own address). */}
+                  <p className="text-[13px] leading-relaxed text-gray-600 dark:text-gray-400">
+                    {t("suDeleteNoPwHint")}{" "}
+                    <Link
+                      to="/forgot-password"
+                      state={{ email: user?.email }}
+                      className="font-medium text-gray-800 dark:text-gray-200 underline underline-offset-4 decoration-gray-400 hover:text-gray-900 dark:hover:text-white"
+                    >
+                      {t("suDeleteNoPwLink")}
+                    </Link>
+                  </p>
                   {deleteError && <Message tone="error">{deleteError}</Message>}
                 </div>
               )}
