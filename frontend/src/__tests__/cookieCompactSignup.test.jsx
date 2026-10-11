@@ -1,10 +1,11 @@
 /**
- * Push 6 (B3) — on /register and /login the cookie banner is compact: the
+ * Push 6 (B3) — on /register and /login, and on the two auth pages that come
+ * next (/verify-email, /forgot-password), the cookie banner is compact: the
  * same words, the body clamped behind "Læs mere", Accept and Decline side by
  * side with equal weight, "Tilpas" as a text link, no bottom-nav offset and
  * no aria-live; and the page pads its bottom by the banner's height
- * (--bb-consent-h) so the banner never sits on the form. Everywhere else the
- * banner is as it was.
+ * (--bb-consent-h) so the form can always be scrolled clear of it.
+ * Everywhere else the banner is as it was.
  */
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -35,7 +36,7 @@ async function openAt(pathname) {
 beforeEach(() => { localStorage.clear(); document.documentElement.style.removeProperty("--bb-consent-h"); });
 afterEach(() => { cleanup(); localStorage.clear(); });
 
-describe.each(["/register", "/login"])("compact banner on %s", (route) => {
+describe.each(["/register", "/login", "/verify-email", "/forgot-password"])("compact banner on %s", (route) => {
   it("same words, no 🍪, no aria-live, clamped body behind Læs mere / Vis mindre", async () => {
     const banner = await openAt(route);
     expect(banner.getAttribute("data-cookie-compact")).toBe("1");
@@ -92,5 +93,11 @@ describe("the auth shell pads for it", () => {
   it("AuthShell's frame reads --bb-consent-h", () => {
     const src = fs.readFileSync(path.join(SRC, "components/auth/AuthUI.jsx"), "utf8");
     expect(src).toContain('paddingBottom: "var(--bb-consent-h, 0px)"');
+  });
+  it("every page with the compact banner is drawn in AuthShell (so it pads)", () => {
+    for (const page of ["RegisterPage", "LoginPage", "VerifyEmailPage", "ForgotPasswordPage"]) {
+      const src = fs.readFileSync(path.join(SRC, `pages/${page}.jsx`), "utf8");
+      expect(src, page).toMatch(/<AuthShell[\s>]/);
+    }
   });
 });

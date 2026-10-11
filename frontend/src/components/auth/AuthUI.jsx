@@ -204,7 +204,9 @@ export function AuthLanguageSelect({ labelKey = "regLanguageLabel" }) {
  * under the clock in the iOS app (the webview overlays the status bar and
  * the body pads by env(safe-area-inset-top)); on the web it is 0 px tall.
  * The page pads its bottom by the compact cookie banner's height
- * (--bb-consent-h, CookieConsent.jsx) so the banner never sits on the form.
+ * (--bb-consent-h, CookieConsent.jsx), so the form can always be scrolled
+ * clear of the banner (at rest it may sit over the lower fields on a small
+ * phone; the Terms line and Google's button, above the form, stay clear).
  */
 export default function AuthShell({ children, aside = null, footer = null, logoLink = true, language = false }) {
   return (

@@ -188,8 +188,16 @@ function saveConsent(choices) {
 // the Google button above them stayed tappable: an account could be made
 // without the acceptance line ever being visible. There the banner is
 // compact (same words, the body clamped to two lines behind "Læs mere"), and
-// the page pads its bottom by the banner's height (--bb-consent-h).
-const COMPACT_ROUTES = new Set(["/register", "/login"]);
+// the page pads its bottom by the banner's height (--bb-consent-h), so the
+// form can always be scrolled clear of it.
+//
+// The two auth pages that come next are compact too: an owner who scrolled
+// past the banner on /register without answering met the FULL banner on
+// /verify-email (569 px on a 390 px phone), over the code boxes, "Bekræft
+// e-mail" and "Spring over for nu" — the calm code screen became a cookie
+// wall at the moment that matters most. /forgot-password is the same shell.
+// Both pages use AuthShell, which pads by --bb-consent-h.
+const COMPACT_ROUTES = new Set(["/register", "/login", "/verify-email", "/forgot-password"]);
 
 export default function CookieConsent() {
   const { t } = useLanguage();
