@@ -1876,7 +1876,7 @@ export default function ProfilePage() {
               <div className="space-y-4">
                 <ToggleRow
                   label={t("pauseAnalytics")}
-                  desc={t("profPauseAnalyticsDesc", "When ON, BonBox stops recording your clicks, page views and AI questions. Your business data (sales, expenses, inventory) is unaffected. You can resume any time. Existing analytics older than 180 days are auto-deleted.")}
+                  desc={t("profPauseAnalyticsDesc")}
                   checked={analyticsOptOut}
                   onChange={toggleAnalyticsOptOut}
                 />

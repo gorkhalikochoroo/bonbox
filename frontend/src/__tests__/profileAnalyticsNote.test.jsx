@@ -51,3 +51,31 @@ describe("Profile → Privacy & data analytics note", () => {
     expect(daText).not.toMatch(/legitim/i);
   });
 });
+
+describe("Profile → Privacy & data: the pause toggle says what pausing does", () => {
+  // /privacy: "When paused, no new events are recorded for your account,
+  // except the record of each AI chat turn, …" — routers/agent.py records
+  // every agent.chat turn (the plan-limit counter) before it reads
+  // analytics_opt_out. The toggle used to say pausing stops "AI questions".
+  const EN_EXCEPT = "except the record of each AI chat turn, Smart Sale Entry and upgrade checkout that BonBox needs to enforce your plan's limits";
+  const DA_EXCEPT = "bortset fra registreringen af hver AI-chatbesked, hver Smart salgsindtastning og hver påbegyndt betaling for en opgradering, som BonBox skal bruge for at håndhæve grænserne i din plan";
+
+  it("names the same exception as /privacy, in both languages", () => {
+    const privacy = read("pages", "PrivacyPolicyPage.jsx");
+    expect(privacy).toContain(EN_EXCEPT);
+    expect(privacy).toContain(DA_EXCEPT);
+    expect(en.profPauseAnalyticsDesc).toContain(EN_EXCEPT);
+    expect(da.profPauseAnalyticsDesc).toContain(DA_EXCEPT);
+  });
+
+  it("no longer says pausing stops recording AI questions", () => {
+    expect(en.profPauseAnalyticsDesc).not.toMatch(/AI questions/i);
+    expect(da.profPauseAnalyticsDesc).not.toMatch(/AI-spørgsmål/i);
+  });
+
+  it("comes from i18n only — no inline English fallback in the t() call", () => {
+    const section = privacySection();
+    expect(section).toContain('desc={t("profPauseAnalyticsDesc")}');
+    expect(section).not.toContain("When ON, BonBox stops recording");
+  });
+});
