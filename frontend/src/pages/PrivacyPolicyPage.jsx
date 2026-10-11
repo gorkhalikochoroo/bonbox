@@ -75,6 +75,16 @@ function PrivacyEn() {
             reservations, khata customers and staff details), that business is the data controller, and
             we process the data on its behalf as its data processor.
           </p>
+          {/* Clock-in location (brand release, 11 Oct 2026). True to the code:
+              StaffPortalPage useClock reads the position only on clock-IN and
+              only when geofence_on (enabled + a venue location set); the server
+              (staff_portal.portal_clock_in) only computes the distance and
+              stores no coordinates — HoursLogged.notes gets "Location
+              unverified" when there is no usable fix, which the owner sees as
+              the "Location not verified" chip. Keep in step with the Danish. */}
+          <p className="mt-2" data-testid="privacy-clock-in-location">
+            Location at clock-in: the BonBox Vagtplan app (and the staff page in a browser) reads the phone&rsquo;s location only when a staff member clocks in at a workplace that has turned on the location check; BonBox uses the coordinates only to check the distance to the workplace and does not save them, and the business sees only a &ldquo;Location not verified&rdquo; mark on a clock-in made without a usable location.
+          </p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
             <li><strong>Registered name:</strong> DukaanAI v/Manoz Chaudhary</li>
             <li><strong>CVR:</strong> <a href="https://datacvr.virk.dk/enhed/virksomhed/46417321" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">46417321</a> — you can check us in the public register</li>
@@ -348,6 +358,9 @@ function PrivacyDa() {
             For de oplysninger, en virksomhed lægger ind i BonBox om sine gæster, kunder og medarbejdere
             (fx reservationer, khata-kunder og medarbejderoplysninger), er det den virksomhed, der er
             dataansvarlig, og vi behandler oplysningerne på dens vegne som dens databehandler.
+          </p>
+          <p className="mt-2" data-testid="privacy-clock-in-location">
+            Placering ved indstempling: Appen BonBox Vagtplan (og personalesiden i en browser) læser kun telefonens placering, når en medarbejder stempler ind på en arbejdsplads, der har slået placeringstjek til; BonBox bruger kun koordinaterne til at tjekke afstanden til arbejdspladsen og gemmer dem ikke, og virksomheden ser kun mærket »Placering ikke verificeret« ved en indstempling uden en brugbar placering.
           </p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
             <li><strong>Registreret navn:</strong> DukaanAI v/Manoz Chaudhary</li>
