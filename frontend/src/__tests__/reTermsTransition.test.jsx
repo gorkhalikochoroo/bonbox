@@ -319,10 +319,14 @@ describe("TermsUpdateNotice (decision a: in-app only)", () => {
     expect(da.termsNoticeChangeCaps).toContain("Alle planer, også Free, har forbrugslofter");
     expect(da.termsNoticeChangeCaps).toContain("ændre, begrænse eller fjerne funktioner og forbrugslofter med rimeligt varsel");
     expect(da.termsNoticeChangeCaps).toContain("den eksisterende gratis funktionalitet forbliver tilgængelig");
-    expect(da.termsNoticeChangeCaps).toContain("med tilbagevirkende kraft");
     expect(en.termsNoticeChangeCaps).toContain("Every plan, Free included, has usage caps");
     expect(en.termsNoticeChangeCaps).toContain("change, limit or remove features and usage caps with reasonable notice");
-    expect(en.termsNoticeChangeCaps).toContain("charge retroactively");
+    expect(en.termsNoticeChangeCaps).toContain("existing free functionality stays available");
+    // Manoj, 11 Oct (decision 1): the no-retroactive-charge promise is KEPT
+    // in § 8, so the notice must not tell anyone it is replaced.
+    expect(da.termsNoticeChangeCaps).not.toContain("tilbagevirkende");
+    expect(en.termsNoticeChangeCaps).not.toMatch(/retroactiv/i);
+    expect(read("components/TermsUpdateNotice.jsx")).not.toMatch(/retroactiv/i);
     // The § 4 change, true to the new § 4 on the Terms page (the live 13 May
     // § 4 had BonBox retain records and purge within 30 days).
     expect(da.termsNoticeChangeRecords).toContain("Det er dig, ikke BonBox, der skal opbevare din virksomheds regnskabsmateriale");

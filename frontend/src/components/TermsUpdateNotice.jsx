@@ -134,7 +134,7 @@ export default function TermsUpdateNotice() {
       {open && (
         <div id="terms-update-notice-changes" className="pb-1.5 text-gray-600 dark:text-gray-400">
           <ul className="list-disc pl-5 space-y-0.5">
-            <li>{t("termsNoticeChangeCaps", "Every plan, Free included, has usage caps, and we may change, limit or remove features and usage caps with reasonable notice. This replaces the promise in the earlier terms that existing free functionality stays available and that we do not charge retroactively for features you already use for free.")}</li>
+            <li>{t("termsNoticeChangeCaps", "Every plan, Free included, has usage caps, and we may change, limit or remove features and usage caps with reasonable notice. This replaces the promise in the earlier terms that existing free functionality stays available.")}</li>
             {/* § 4: the live 13 May text had BonBox retain accounting records
                 (6 years by default) and purge within 30 days; the new § 4 makes
                 the owner keep them ("ikke et arkiv") and deletes the account and

@@ -2761,7 +2761,7 @@ export const en = {
     termsNoticeRead: "Read the terms",
     termsNoticeWhatChanged: "What changed?",
     termsNoticeHide: "Hide",
-    termsNoticeChangeCaps: "Every plan, Free included, has usage caps, and we may change, limit or remove features and usage caps with reasonable notice. This replaces the promise in the earlier terms that existing free functionality stays available and that we do not charge retroactively for features you already use for free.",
+    termsNoticeChangeCaps: "Every plan, Free included, has usage caps, and we may change, limit or remove features and usage caps with reasonable notice. This replaces the promise in the earlier terms that existing free functionality stays available.",
     termsNoticeChangeRecords: "You, not BonBox, must keep your business's accounting records. BonBox is not an archive. When you delete your account, we delete the account and the data in it straight away (§ 4 lists what we keep), so download your data and the PDFs you need first.",
     termsNoticeChangeRenewal: "Starter and Pro renew automatically every month. A cancellation takes effect at the end of the period you have paid for, and we do not refund part of a period.",
     termsNoticeChangeFounding: "You keep the founding price as long as your subscription stays active without a break.",
