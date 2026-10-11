@@ -693,7 +693,7 @@ def _stamp_sync(user_id: str) -> None:
         )
 
 
-def _find_customer_by_user_metadata(s, user: User) -> Optional[str]:
+def _find_customer_by_user_metadata(s, user: User, *, strict: bool = False) -> Optional[str]:
     """Find a Stripe customer that has this user's bonbox_user_id in metadata.
 
     Used to recover orphaned customers — cases where Stripe successfully
@@ -701,6 +701,10 @@ def _find_customer_by_user_metadata(s, user: User) -> Optional[str]:
     failed, so user.stripe_customer_id is null even though the Stripe-side
     record exists. Searches by metadata, never by email — metadata is set by
     us and is tenant-safe.
+
+    strict=True (the checkout gate, confirm_live_subscription): a failed
+    search or an odd reply RAISES instead of returning None, so "couldn't
+    check" is never read as "no customer at Stripe".
     """
     try:
         # Stripe's search API supports metadata filters. Query syntax requires
@@ -710,15 +714,47 @@ def _find_customer_by_user_metadata(s, user: User) -> Optional[str]:
             query=f"metadata['bonbox_user_id']:'{user.id}'",
             limit=5,
         )
-        items = list(getattr(result, "data", []) or [])
+        if strict:
+            data = _g(result, "data")
+            if not isinstance(data, (list, tuple)):
+                raise ValueError("Customer.search gave no data list")
+            items = list(data)
+        else:
+            items = list(getattr(result, "data", []) or [])
         if not items:
             return None
         # Prefer the most recently created customer
         items.sort(key=lambda c: -int(getattr(c, "created", 0) or 0))
         return items[0].id
     except Exception as e:
+        if strict:
+            raise
         log.warning("Customer search failed for user=%s: %s", user.id, e)
         return None
+
+
+def _forget_dead_subscription(user: User, *, customer_gone: bool) -> None:
+    """Stripe says this account has no live subscription: drop the
+    subscription fields our row still carries. The self-heal's correction
+    (sync_user_subscription_from_stripe, used by /billing/me and the
+    reconcile job) and the checkout gate's (confirm_live_subscription) —
+    one path. Does not commit.
+
+    customer_gone: Stripe has no such customer either (a test→live switch, a
+    delete in the dashboard) — the stored id goes too, so the next checkout
+    creates a fresh customer. Otherwise the customer is kept and reused.
+    """
+    if customer_gone:
+        user.stripe_customer_id = None
+    user.stripe_subscription_id = None
+    user.subscription_status = None
+    user.subscription_period_end = None
+    # Drop any Stripe-derived paid plan too — with no live subscription, and
+    # once we null the subscription id the read-time guard would otherwise
+    # treat the stale paid plan as a (honored) non-Stripe grant. Trials keep
+    # their trial_ends_at; effective_plan re-derives 'trial'/'free'.
+    if (user.plan or "free") in ("starter", "pro", "business"):
+        user.plan = "free"
 
 
 def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = False) -> Optional[dict]:
@@ -774,17 +810,7 @@ def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = Fa
             # the next checkout creates a fresh customer.
             log.warning("Stripe customer %s missing during sync; clearing", user.stripe_customer_id)
             try:
-                user.stripe_customer_id = None
-                user.stripe_subscription_id = None
-                user.subscription_status = None
-                user.subscription_period_end = None
-                # Drop any Stripe-derived paid plan too — with the customer gone
-                # there is no live subscription, and once we null the
-                # subscription id the read-time guard would otherwise treat the
-                # stale paid plan as a (honored) non-Stripe grant. Trials keep
-                # their trial_ends_at; effective_plan re-derives 'trial'/'free'.
-                if (user.plan or "free") in ("starter", "pro", "business"):
-                    user.plan = "free"
+                _forget_dead_subscription(user, customer_gone=True)
                 db.commit()
             except Exception:
                 db.rollback()
@@ -839,6 +865,111 @@ def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = Fa
         "persisted_status": persisted_status,
         "persisted_plan": persisted_plan,
     }
+
+
+# ─────────────────── Checkout gate: ask Stripe, not our row ─────────────────
+
+# Statuses under which a customer can still be charged on an EXISTING
+# subscription, so a second checkout would bill twice. Wider than the local
+# routers/billing._has_live_subscription (active / trialing / past_due): an
+# `unpaid` subscription keeps its open invoices, and an `incomplete` one can
+# still be paid (3-D Secure) until Stripe expires it.
+STRIPE_LIVE_SUBSCRIPTION_STATUSES = ("active", "trialing", "past_due", "unpaid", "incomplete")
+
+
+def _stripe_says_no_such_customer(e: Exception) -> bool:
+    msg = str(e).lower()
+    return _stripe_says_missing(e) or "no such customer" in msg
+
+
+def confirm_live_subscription(user: User, db: Session) -> str:
+    """Ask STRIPE whether this account still has a live subscription. The
+    checkout gate (routers/billing.create_checkout) calls this when our row
+    says "live" but that is not enough to decide: the portal could not be
+    opened, or the plan was never raised (a SEPA / MobilePay debit still
+    settling — or a stale row).
+
+    Returns "live", "none" or "unknown" — never a bare boolean, and
+    "couldn't check" is "unknown"; the caller then refuses (the safe side).
+
+      • Stripe lists a subscription whose status is in
+        STRIPE_LIVE_SUBSCRIPTION_STATUSES                          → "live"
+      • Stripe lists the customer's subscriptions, none is live,
+        and there are no more pages                                 → "none"
+      • Stripe says there is no such customer                      → "none"
+      • no stored customer id, and Stripe's search by this
+        account's bonbox_user_id (never by e-mail) finds none       → "none"
+      • anything else (not configured, down, timeout, odd reply,
+        more subscriptions than one page, a failed DB write)       → "unknown"
+
+    On "none" our stale fields are corrected through the self-heal's own
+    path (_forget_dead_subscription — the customer id goes only when Stripe
+    has no such customer), with an audit row, BEFORE the checkout that
+    follows: a stale live status would otherwise count as a founding seat and
+    hand this account the founding price. An orphaned customer found by the
+    search is linked again (as sync_user_subscription_from_stripe does).
+    """
+    s = _stripe()
+    if not s:
+        return "unknown"
+
+    customer_id = user.stripe_customer_id
+    if not customer_id:
+        try:
+            customer_id = _find_customer_by_user_metadata(s, user, strict=True)
+        except Exception as e:  # noqa: BLE001
+            log.warning("checkout gate: customer search failed for user=%s: %s", user.id, e)
+            return "unknown"
+        if customer_id:
+            try:
+                user.stripe_customer_id = customer_id
+                db.commit()
+            except Exception as e:  # noqa: BLE001
+                log.exception("checkout gate: could not link customer %s for user=%s: %s",
+                              customer_id, user.id, e)
+                db.rollback()
+                return "unknown"
+
+    customer_gone = False
+    if customer_id:
+        try:
+            subs = s.Subscription.list(customer=customer_id, status="all", limit=100)
+        except Exception as e:  # noqa: BLE001
+            if not _stripe_says_no_such_customer(e):
+                log.warning("checkout gate: Subscription.list failed for user=%s: %s", user.id, e)
+                return "unknown"
+            customer_gone = True
+        else:
+            data = _g(subs, "data")
+            if not isinstance(data, (list, tuple)):
+                log.warning("checkout gate: Subscription.list gave no data list for user=%s", user.id)
+                return "unknown"
+            statuses = [str(_g(sub, "status") or "").lower() for sub in data]
+            if any(st in STRIPE_LIVE_SUBSCRIPTION_STATUSES for st in statuses):
+                return "live"
+            if _g(subs, "has_more") is True:
+                return "unknown"
+
+    # Stripe confirms: no live subscription. Correct the stale row.
+    old_status, old_plan = user.subscription_status, user.plan
+    new_plan = "free" if (old_plan or "free") in ("starter", "pro", "business") else old_plan
+    try:
+        _audit_webhook_mutation(
+            db, user, event_type="checkout.stripe_confirms_no_live_subscription",
+            old_status=old_status, new_status=None, old_plan=old_plan, new_plan=new_plan,
+        )
+        _forget_dead_subscription(user, customer_gone=customer_gone)
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        log.exception("checkout gate: could not correct the stale row for user=%s: %s", user.id, e)
+        db.rollback()
+        return "unknown"
+    log.warning(
+        "checkout gate: user=%s had status=%r plan=%r but Stripe has no live subscription%s; "
+        "row corrected", user.id, old_status, old_plan,
+        " (no such customer)" if customer_gone else "",
+    )
+    return "none"
 
 
 # ─────────────────────────── Customer portal ───────────────────────────────

@@ -359,31 +359,59 @@ def create_checkout(
     #     refuses with 502 subscriber_portal_failed (da + en) and logs it;
     #     the page says it in the app's language. 502, not 503: the api
     #     interceptor replays a 503 POST, and this answer is final.
+    #
+    # Round 3 (G1): our row's live status alone is not proof. The stored
+    # customer can be gone from Stripe (a test→live switch, a delete in the
+    # dashboard), and a free account can carry a stale 'past_due' (the
+    # payment_failed webhook writes it for any invoice; webhooks arrive out
+    # of order). So the gate ASKS STRIPE (stripe_billing.confirm_live_subscription):
+    #   • a paid plan (starter/pro/business) → the portal first, as before;
+    #     only if it can't be opened is Stripe asked;
+    #   • an unraised plan with a live status (a SEPA / MobilePay debit still
+    #     settling — the old plan condition's blind spot — or a stale row) →
+    #     Stripe is asked FIRST, and the portal is opened only when Stripe
+    #     confirms a subscription (an empty portal is a dead end);
+    #   • Stripe confirms a live subscription → portal, or 502 when it fails;
+    #   • Stripe can't be reached / answers oddly → 502 (the safe side);
+    #   • Stripe has no live subscription (or no such customer) → the stale
+    #     row was corrected by the self-heal's own path, and the normal
+    #     checkout below goes ahead.
     if _has_live_subscription(user):
-        try:
-            portal = stripe_billing.create_billing_portal_session(user, db)
-        except Exception:  # noqa: BLE001
-            log.exception("checkout: portal session raised for live subscriber user=%s", user.id)
-            portal = None
+        def _portal():
+            try:
+                return stripe_billing.create_billing_portal_session(user, db)
+            except Exception:  # noqa: BLE001
+                log.exception("checkout: portal session raised for live subscriber user=%s", user.id)
+                return None
+
+        portal = None
+        if (user.plan or "free") in ("starter", "pro", "business"):
+            portal = _portal()
+            at_stripe = None if portal else stripe_billing.confirm_live_subscription(user, db)
+        else:
+            at_stripe = stripe_billing.confirm_live_subscription(user, db)
+            if at_stripe == "live":
+                portal = _portal()
         if portal:
             return {"url": portal["url"], "already_subscribed": True}
-        log.error(
-            "checkout: refused for live subscriber user=%s status=%s plan=%s — "
-            "the portal session failed; no new checkout created",
-            user.id, user.subscription_status, user.plan,
-        )
-        return JSONResponse(
-            status_code=502,
-            content={
-                "detail": {
-                    "code": "subscriber_portal_failed",
-                    "message": CHECKOUT_PORTAL_FAILED_EN,
-                    "message_da": CHECKOUT_PORTAL_FAILED_DA,
+        if at_stripe != "none":
+            log.error(
+                "checkout: refused for live subscriber user=%s status=%s plan=%s stripe=%s — "
+                "no portal session; no new checkout created",
+                user.id, user.subscription_status, user.plan, at_stripe,
+            )
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "detail": {
+                        "code": "subscriber_portal_failed",
+                        "message": CHECKOUT_PORTAL_FAILED_EN,
+                        "message_da": CHECKOUT_PORTAL_FAILED_DA,
+                    },
+                    "_error": True,
+                    "_recoverable": True,
                 },
-                "_error": True,
-                "_recoverable": True,
-            },
-        )
+            )
 
     # Paid plans are for businesses only (Manoj, 10 Oct 2026, decision 1):
     # the Terms are B2B and carry no consumer withdrawal section, so a
