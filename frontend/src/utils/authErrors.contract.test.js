@@ -24,6 +24,12 @@ describe("authErrors ↔ backend (the strings are the contract)", () => {
     expect(AUTH).toContain(`detail="${sentence}"`);
   });
 
+  it("the locked-account sentence is services/auth.py's LOCKED_ACCOUNT_DETAIL (reset, team invite)", () => {
+    expect(read("services/auth.py")).toContain(`LOCKED_ACCOUNT_DETAIL = "${AUTH_DETAIL.accountLocked}"`);
+    expect(AUTH).toContain("refuse_locked_account(user)");
+    expect(read("routers/team.py")).toContain("refuse_locked_account(invitee)");
+  });
+
   it("every structured code the map knows is sent by an auth router", () => {
     for (const code of Object.keys(AUTH_CODES)) {
       const sent = AUTH.includes(`"code": "${code}"`) || OAUTH.includes(`"${code}"`);

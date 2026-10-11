@@ -101,6 +101,26 @@ def secure_account(db: Session, user: User) -> tuple[int, int]:
     return _close_access_handed_out(db, user)
 
 
+# What every sign-in path answers a locked account (users.is_locked, set by
+# /admin/users/{id}/lock): get_current_user below, /auth/oauth/google and
+# /auth/oauth/apple, the legacy /auth/apple, the e-mail link (with a code),
+# and — once the code or link has proved the inbox — reset-password and the
+# team invite. /auth/login alone answers its generic "Invalid email or
+# password", so a password guess cannot tell a locked account apart.
+LOCKED_ACCOUNT_DETAIL = "Account is locked. Contact support."
+
+
+def refuse_locked_account(user) -> None:
+    """401 LOCKED_ACCOUNT_DETAIL when ``user`` is locked. Call it before
+    anything is written, mailed, stamped or minted, so a locked row stays
+    byte-identical and gets no session."""
+    if user is not None and getattr(user, "is_locked", False):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=LOCKED_ACCOUNT_DETAIL,
+        )
+
+
 def create_access_token(
     user_id: str,
     token_version: int | None = None,

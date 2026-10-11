@@ -41,6 +41,10 @@ export const AUTH_DETAIL = {
   codeNone: "No verification code found. Please request a new one.",
   resetInvalid: "Invalid or expired reset code",
   emailInUse: "Email already in use",
+  // An admin-locked account (services/auth.LOCKED_ACCOUNT_DETAIL): what
+  // reset-password, the team invite and the OAuth routes answer it, once
+  // the code / link / provider has proved who is asking.
+  accountLocked: "Account is locked. Contact support.",
 };
 
 /** Structured `detail.code` values the auth endpoints send. */
@@ -129,6 +133,9 @@ export function authErrorKey(err, ctx, opts = {}) {
   // 5. The exact English strings.
   if (typeof detail === "string") {
     const d = detail.trim();
+    // Any page: a locked account is told so — not "wrong code" — so the
+    // owner contacts support instead of asking for code after code.
+    if (d === AUTH_DETAIL.accountLocked) return { key: "magicLinkLocked" };
     if (ctx === "register") {
       if (d === AUTH_DETAIL.emailRegistered) {
         return { key: opts.timedOut ? "suEmailExistsAfterTimeout" : "suEmailExists", action: "login" };

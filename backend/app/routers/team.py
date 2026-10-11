@@ -849,6 +849,11 @@ def accept_invite(
             status_code=410,
             detail={"code": "invite_expired", "message": "This invitation has expired. Ask the business owner to send a new one."},
         )
+    # A locked account is refused before anything is written: no password,
+    # no burnt invite, no audit row, no stamp, no session — the same 401 the
+    # OAuth routes and get_current_user answer.
+    from app.services.auth import refuse_locked_account
+    refuse_locked_account(invitee)
 
     # Materialise password + name.
     invitee.password_hash = hash_password(body.password)

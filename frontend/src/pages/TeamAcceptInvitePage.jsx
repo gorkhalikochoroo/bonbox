@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { AUTH_DETAIL } from "../utils/authErrors";
 
 /**
  * Magic-link landing page for a TEAM MEMBER accepting an invite.
@@ -133,6 +134,9 @@ export default function TeamAcceptInvitePage() {
         setError(t("taiErrAlreadyUsed", "This invitation has already been used. Sign in with the password you chose."));
       } else if (err?.response?.status === 404) {
         setError(t("taiErrRevoked", "This invitation could not be found. It may have been revoked."));
+      } else if (err?.response?.status === 401 && detail === AUTH_DETAIL.accountLocked) {
+        // A locked account: nothing was set; the server's English is not shown.
+        setError(t("magicLinkLocked"));
       } else {
         setError(msg || t("taiErrGeneric", "Something went wrong. Try again or contact the business owner."));
       }

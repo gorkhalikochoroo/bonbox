@@ -353,7 +353,9 @@ export function on401(path, reqUrl = "") {
   // says "Dette link er ugyldigt" + "Få et nyt link" — the redirect to
   // /login said nothing (release gate, 9 Oct). Never redirected; a
   // stale token is still wiped as before.
-  const isLinkLanding = path.startsWith("/login/");
+  // /accept-invite/… (a team or revisor invite from a mail) is the same: a
+  // locked invitee's 401 is said on the page ("Denne konto er låst …").
+  const isLinkLanding = path.startsWith("/login/") || path.startsWith("/accept-invite/");
   // Don't redirect on auth-probe endpoints — those are silent
   // "are we logged in?" checks (called by AuthProvider on every
   // public page load too). Without this, an expired-token visitor

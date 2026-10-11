@@ -1706,6 +1706,14 @@ def reset_password(
                 logger.warning("reset lock notice failed for user %s", user.id)
         raise invalid
 
+    # A locked account (admin lock) is refused here: after the code proved
+    # the inbox — so a wrong guess still gets the generic answer above and
+    # cannot tell a locked account apart — and before anything changes. No
+    # new password, no session revocation, no claim question, no stamp, no
+    # session: the same 401 the OAuth routes and get_current_user answer.
+    from app.services.auth import refuse_locked_account
+    refuse_locked_account(user)
+
     user.password_hash = hash_password(data.new_password)
     user.reset_token = None
     user.reset_token_expires = None
