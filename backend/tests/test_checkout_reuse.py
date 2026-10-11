@@ -34,7 +34,7 @@ from contextlib import ExitStack
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -750,6 +750,22 @@ def test_the_page_shows_the_servers_wait_and_has_real_da_en_keys():
 
 # ─── the webhook's backstop ──────────────────────────────────────────
 
+
+def _live_sdk(*sub_ids):
+    """A Stripe stand-in whose Subscription.retrieve answers a live Pro
+    subscription for each id: with R-i's recency guard the webhook asks
+    Stripe about a subscription it doesn't hold before relinking, and
+    always fetches it to apply the plan (a missing SDK is a retry, OPS-05)."""
+    import time as _t
+    ts = int(_t.time()) + 30 * 86400
+    sdk = MagicMock()
+    sdk.Subscription.retrieve.side_effect = lambda sid: {
+        "id": sid, "status": "active", "current_period_end": ts,
+        "items": {"data": [{"price": {"id": settings.STRIPE_PRICE_ID_PRO or "price_pro"},
+                            "current_period_end": ts}]},
+        "latest_invoice": {"status": "paid", "paid": True}}
+    return sdk
+
 def test_a_second_live_subscription_on_checkout_completed_is_logged_loudly(db_session, caplog):
     """Belt and braces for the expiry above: if a second subscription is
     paid anyway, the webhook that re-points the account at it says so,
@@ -762,7 +778,7 @@ def test_a_second_live_subscription_on_checkout_completed_is_logged_loudly(db_se
         "id": "cs_test_2", "object": "checkout.session", "customer": "cus_live_1",
         "client_reference_id": str(user.id), "subscription": "sub_second",
         "payment_status": "paid"}}}
-    with patch.object(stripe_billing, "_stripe", return_value=None), \
+    with patch.object(stripe_billing, "_stripe", return_value=_live_sdk()), \
          caplog.at_level("ERROR", logger="bonbox.stripe"):
         stripe_billing._handle_checkout_completed(evt, db_session)
     msgs = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
@@ -778,7 +794,7 @@ def test_the_same_subscription_again_on_checkout_completed_is_not_an_alarm(db_se
         "id": "cs_test_1", "object": "checkout.session", "customer": "cus_live_1",
         "client_reference_id": str(user.id), "subscription": "sub_first",
         "payment_status": "paid"}}}
-    with patch.object(stripe_billing, "_stripe", return_value=None), \
+    with patch.object(stripe_billing, "_stripe", return_value=_live_sdk()), \
          caplog.at_level("ERROR", logger="bonbox.stripe"):
         stripe_billing._handle_checkout_completed(evt, db_session)
     assert not [r for r in caplog.records if r.levelname == "ERROR"]

@@ -593,10 +593,10 @@ def admin_backup_health(
         "state": st.state,
         "healthy": st.state == "HEALTHY" and not stale,
         "stale": stale,
-        "last_run_at": st.last_check_at.isoformat() if st.last_check_at else None,
+        "last_run_at": _utc_iso(st.last_check_at),
         "fail_streak": st.fail_streak,
-        "broken_since": st.broken_since.isoformat() if st.broken_since else None,
-        "alerted_at": st.last_alert_at.isoformat() if st.last_alert_at else None,
+        "broken_since": _utc_iso(st.broken_since),
+        "alerted_at": _utc_iso(st.last_alert_at),
         "alarms": (last_run.get("alarms") or []) if isinstance(last_run, dict) else [],
         "last_run": last_run,
     }
