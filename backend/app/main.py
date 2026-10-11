@@ -2669,6 +2669,17 @@ _migrations = [
     # once at creation (services/signup_ref.py). Nullable, no default, no
     # backfill — every existing account is simply "no ref".
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_ref VARCHAR(24)",
+    # ── Migration (2026-10-10): users.terms_version / terms_accepted_at ──
+    # Mirrors app/models/user.py. Which Terms version a NEW account accepted
+    # and when (services/terms.py). Nullable, no default, no backfill — every
+    # existing account reads "no acceptance recorded", which is the truth.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_version VARCHAR(16)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMP",
+    # ── Migration (2026-10-10): users.terms_notice_dismissed_version ──
+    # Mirrors app/models/user.py. Which Terms version's in-app notice the
+    # owner closed (services/terms.py). A record of a closed notice, never an
+    # acceptance. Nullable, no default, no backfill.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_notice_dismissed_version VARCHAR(16)",
     # ── Migration (2026-10-08): accountant_grants — was the invite link mailed ─
     # Mirrors app/models/accountant_grant.py. invite_mailed_at: when the
     # CURRENT invite link was handed to the mail server; invite_mail_held: why
@@ -3392,6 +3403,11 @@ def _run_migrations():
             ok += _add("business_profiles", "demo_snapshot_json", "TEXT")
             # Mirror of users.signup_ref — the door-visit code.
             ok += _add("users", "signup_ref", "VARCHAR(24)")
+            # Mirror of users.terms_version / terms_accepted_at (2026-10-10).
+            ok += _add("users", "terms_version", "VARCHAR(16)")
+            ok += _add("users", "terms_accepted_at", "TIMESTAMP")
+            # Mirror of users.terms_notice_dismissed_version (2026-10-10).
+            ok += _add("users", "terms_notice_dismissed_version", "VARCHAR(16)")
             # Mirror of the accountant_grants invite-mail columns (2026-10-08).
             ok += _add("accountant_grants", "invite_mailed_at", "TIMESTAMP")
             ok += _add("accountant_grants", "invite_mail_held", "VARCHAR(32)")

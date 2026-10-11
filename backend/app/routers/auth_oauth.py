@@ -58,12 +58,13 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.schemas.auth import SignupRefMixin, Token, UserResponse
+from app.schemas.auth import SignupRefMixin, TermsAcceptMixin, Token, UserResponse
 from app.services import audit_service
 from app.services.auth import create_access_token, hash_password
 from app.services.oauth_apple import verify_apple_token
 from app.services.oauth_google import verify_google_token
 from app.services.signup_ref import apply_signup_ref
+from app.services.terms import apply_terms_acceptance
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -83,7 +84,7 @@ _oauth_signin_limit = limiter.shared_limit(
 # ── Request schemas ──────────────────────────────────────────────────
 
 
-class AppleOAuthRequest(SignupRefMixin):
+class AppleOAuthRequest(SignupRefMixin, TermsAcceptMixin):
     """POST /auth/oauth/apple body.
 
     `name` is optional and only sent by the iOS / web Apple SDK on the
@@ -94,7 +95,7 @@ class AppleOAuthRequest(SignupRefMixin):
     name: Optional[str] = Field(default=None, max_length=200)
 
 
-class GoogleOAuthRequest(SignupRefMixin):
+class GoogleOAuthRequest(SignupRefMixin, TermsAcceptMixin):
     """POST /auth/oauth/google body."""
     id_token: str = Field(..., min_length=1, max_length=4096)
 
@@ -312,6 +313,9 @@ def oauth_apple(
         # New account only — a sign-in or a link never gains or replaces a
         # ref (services/signup_ref.py).
         apply_signup_ref(user, data.signup_ref)
+        # Terms acceptance — new account only, and only when the page showed
+        # the acceptance line (services/terms.py).
+        apply_terms_acceptance(user, data.accept_terms)
         try:
             from app.services.billing import start_trial
 
@@ -378,12 +382,16 @@ def oauth_google(
       • No privacy-relay branch (Google doesn't have an equivalent).
       • Email is ALWAYS present from Google (refuse the token if not).
     """
-    return google_signin(request, response, data.id_token, db, signup_ref=data.signup_ref)
+    return google_signin(
+        request, response, data.id_token, db,
+        signup_ref=data.signup_ref, accept_terms=data.accept_terms,
+    )
 
 
 def google_signin(
     request: Request, response: Response, id_token: str, db: Session,
     *, legacy: bool = False, signup_ref: Optional[str] = None,
+    accept_terms: Optional[bool] = None,
 ) -> Token:
     """The Google sign-in itself — shared by /oauth/google and the legacy
     /auth/google route, so both apply the same rules (verified e-mail, no
@@ -397,6 +405,10 @@ def google_signin(
     signup_ref — the printed door-visit code either route's body carried
     (SignupRefMixin, already cleaned). Stamped on a NEW account only; a
     sign-in or a link never gains or replaces one.
+
+    accept_terms — True only when the sign-up page showed the Terms
+    acceptance line (TermsAcceptMixin, already cleaned). Same rule: a NEW
+    account only (services/terms.py).
     """
     ip = _client_ip(request)
 
@@ -496,6 +508,7 @@ def google_signin(
         # New account only — a sign-in or a link never gains or replaces a
         # ref (services/signup_ref.py).
         apply_signup_ref(user, signup_ref)
+        apply_terms_acceptance(user, accept_terms)
         try:
             from app.services.billing import start_trial
 

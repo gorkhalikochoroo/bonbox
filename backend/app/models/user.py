@@ -209,6 +209,20 @@ class User(Base):
     # never return it next to an account outside the user's own export.
     # services/signup_ref.py.
     signup_ref: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    # Which Terms of Service version the account holder accepted (an ISO day,
+    # services/terms.py TERMS_VERSION), and when. Written at creation when the sign-up page showed the
+    # acceptance line and the client said so (accept_terms=true), and at
+    # checkout when the buyer accepted the Terms beside the buy button (or on
+    # Stripe's page) and the record was missing or older. NULL = no acceptance
+    # recorded (every account from before that has not bought since, an older
+    # app build). services/terms.py.
+    terms_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # The Terms version whose in-app notice ("Handelsbetingelser er
+    # opdateret …") the owner closed. A record that the notice was closed —
+    # NOT an acceptance (terms_version / terms_accepted_at stay as they are).
+    # NULL = never closed. services/terms.py terms_notice_due().
+    terms_notice_dismissed_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # ── Migration 016 — receipt-forwarding email inbox (v0.1) ──
     # `inbox_alias` is the user-facing unique address (`nepali-7k4q` in
     # `nepali-7k4q@in.bonbox.dk`) that owners forward receipts to. We
@@ -231,6 +245,14 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now
     )
+
+    @property
+    def terms_notice_due(self) -> bool:
+        """For display only (UserResponse): show the owner the in-app notice
+        that the Handelsbetingelser are updated and apply to the account from
+        TERMS_EXISTING_FROM. Pure — no DB, never raises (services/terms.py)."""
+        from app.services.terms import terms_notice_due
+        return terms_notice_due(self)
 
     @property
     def claim_question_open(self) -> bool:

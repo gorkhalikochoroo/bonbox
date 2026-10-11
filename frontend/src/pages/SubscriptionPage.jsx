@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { CheckoutTermsLine } from "../components/SignupTermsLine";
+import { canUsePersonalMode } from "../lib/appMode";
 import { useLanguage } from "../hooks/useLanguage";
 import { COMPLETE_LANGUAGE_COUNT, COMPLETE_LANGUAGE_NAMES } from "../i18n/languageCatalog";
 import { useConfirm } from "../hooks/useConfirm";
@@ -36,7 +39,7 @@ const isNative =
  * the value moments speak for themselves.
  *
  * Three tiers only — no "Coming soon" placeholders. Cleaner choice.
- *   Free:    forever, real but limited           — ~10 min/day saved
+ *   Free:    no card, real but limited           — ~10 min/day saved
  *   Starter: 129 kr/mo founding (regular 199)    — ~3 hrs/month saved
  *   Pro:     249 kr/mo founding (regular 349)    — ~12 hrs/month saved
  */
@@ -292,6 +295,20 @@ export default function SubscriptionPage() {
   // Tiers re-build on every render so language changes pick up immediately.
   const TIERS = buildTiers(t);
 
+  // Release R-e — paid plans are for businesses only (Manoj, 10 Oct 2026).
+  // A personal (Privatøkonomi) account cannot START a paid checkout; the
+  // backend refuses it too (403 checkout_business_only). Someone who already
+  // pays keeps "Manage subscription" — nothing they have is taken away.
+  const hasLiveSub = ["active", "trialing", "past_due"].includes(billing?.subscription_status);
+  const businessOnlyBlocked = canUsePersonalMode(user) && !hasLiveSub;
+  // Pro can open a real Stripe checkout (not the waitlist) — same rule as
+  // handleCta's tierReady below.
+  const proCheckoutReady = billing?.checkout_ready?.pro ?? Boolean(billing?.stripe_configured);
+  const businessOnlyMessage = `${t("pricingBusinessOnlyTitle", "Paid plans are for businesses only")}. ${t(
+    "pricingBusinessOnlyBody",
+    "This account is set up for personal finance, so Starter and Pro can't be bought on it. You can keep using BonBox for free. If you use BonBox in a business, change the business type under Profile.",
+  )}`;
+
   // Live accountant-hours-saved snapshot for the Starter pricing card
   // tagline. When the user has Starter+ entitlements this returns real
   // numbers from THIS calendar month; for Free / unauthenticated users
@@ -384,6 +401,12 @@ export default function SubscriptionPage() {
       window.location.href = "/register";
       return;
     }
+    // Businesses only — say why instead of opening a checkout the server
+    // would refuse anyway.
+    if (businessOnlyBlocked && (tierId === "starter" || tierId === "pro")) {
+      setMsg(businessOnlyMessage);
+      return;
+    }
     // ── Paid-tier upgrade (Starter or Pro) — WEB ONLY ──
     // App Store compliance (Apple 3.1.1): the native app carries NO purchase
     // path and NO steering to an external (web/Stripe) checkout. On native the
@@ -444,7 +467,12 @@ export default function SubscriptionPage() {
       setMsg("");
       let fallbackToWaitlist = false;
       try {
-        const res = await api.post("/billing/stripe/checkout-session", { plan: tierId });
+        // accept_terms — every button that reaches this line shows
+        // CheckoutTermsLine beside it ("Når du går videre til betaling,
+        // accepterer du vores Handelsbetingelser og bekræfter, at du køber
+        // abonnementet til din virksomhed."); the server stamps the Terms
+        // version on an account with none or an older one (R-e fix-up, P0-1).
+        const res = await api.post("/billing/stripe/checkout-session", { plan: tierId, accept_terms: true });
         const safeStripeUrl = safeExternalUrl(res.data?.url);
         if (safeStripeUrl) {
           // Already paid → portal URL was returned; otherwise checkout URL
@@ -460,6 +488,10 @@ export default function SubscriptionPage() {
       } catch (e) {
         if (e?.response?.status === 403 && e.response.data?.redirect_to_web) {
           window.open("https://bonbox.dk/subscription", "_blank");
+        } else if (e?.response?.status === 403 && e.response.data?.detail?.code === "checkout_business_only") {
+          // The server's B2B gate (e.g. the account type changed in another
+          // tab) — the same sentences, in the app's language.
+          setMsg(businessOnlyMessage);
         } else if (e?.response?.status === 409 && e.response.data?.payment_unavailable) {
           // Backend says this tier can't check out yet — degrade to waitlist.
           fallbackToWaitlist = true;
@@ -592,7 +624,7 @@ export default function SubscriptionPage() {
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                 {billing?.subscription_status === "trialing"
-                  ? (t("pricingLockedTrialing") || "Locked in at founding rate — first charge {when}").replace(
+                  ? (t("pricingLockedTrialing") || "Subscription started — first charge {when}").replace(
                       "{when}",
                       trialDaysLeft != null && trialDaysLeft > 0
                         ? trialDaysLeft === 1
@@ -602,14 +634,14 @@ export default function SubscriptionPage() {
                     )
                   : billing?.subscription_status === "active"
                     ? (["starter", "pro"].includes(billing?.plan)
-                        ? (t("pricingLockedActive") || "Subscription active — billed monthly at your founding rate")
+                        ? (t("pricingLockedActive") || "Subscription active — billed monthly")
                         : (t("pricingLockedProcessing") || "Payment processing — your plan unlocks as soon as it clears"))
                     : billing?.subscription_status === "past_due"
                       ? (t("pricingLockedPastDue") || "Payment failed — please update your card to keep your plan")
                       : (t("pricingLockedGeneric") || "Subscription active")}
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {t("pricingLockedSubtitle") || "All Pro features unlocked. Founding-member rate is locked for life as long as you stay subscribed."}
+                {t("pricingLockedSubtitle", "Your plan's features are unlocked. A founding price is kept as long as your subscription stays active.")}
               </div>
             </div>
             <Button
@@ -637,14 +669,23 @@ export default function SubscriptionPage() {
                 {t("pricingTrialUsing") || "You're using all Pro features right now — AI insights, 200 Copilot messages a day, full history, vertical modules. After the trial you can stay on Free (limited) or upgrade."}
               </div>
             </div>
-            <Button
-              variant="accent"
-              size="md"
-              onClick={() => handleCta("pro")}
-              className="whitespace-nowrap"
-            >
-              {t("pricingLockInRate") || "Lock in founding rate"}
-            </Button>
+            {!businessOnlyBlocked && (
+              <div className="flex flex-col items-start sm:items-end gap-1.5 sm:max-w-[16rem]">
+                <Button
+                  variant="accent"
+                  size="md"
+                  onClick={() => handleCta("pro")}
+                  className="whitespace-nowrap"
+                >
+                  {t("pricingLockInRate") || "Lock in founding rate"}
+                </Button>
+                {/* R-e fix-up (P0-1): this button opens Stripe Checkout when
+                    Pro can check out — the Terms line sits beside it. */}
+                {proCheckoutReady && (
+                  <CheckoutTermsLine className="sm:text-right" testId="checkout-terms-line-trial" />
+                )}
+              </div>
+            )}
           </div>
         </Card>
       ) : null}
@@ -675,8 +716,12 @@ export default function SubscriptionPage() {
                 {t("pricingTrialStep2Title") || "Pick your path"}
               </div>
               <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                <span className="block">→ {t("pricingTrialStep2BodyLock") || "Lock in founding rate: add card now, your founding price (Starter 129 / Pro 249) is locked for life"}</span>
-                <span className="block mt-1">→ {t("pricingTrialStep2BodyDoNothing") || "Do nothing: trial runs out, you drop to Free"}</span>
+                {/* R-e: a personal account cannot buy a plan, so it is not
+                    offered the lock-in path here either (no dead-end step). */}
+                {!businessOnlyBlocked && (
+                  <span className="block">→ {t("pricingTrialStep2BodyLock", "Lock in founding rate: add a card now — your founding price (Starter 129 / Pro 249) is kept as long as your subscription stays active")}</span>
+                )}
+                <span className={businessOnlyBlocked ? "block" : "block mt-1"}>→ {t("pricingTrialStep2BodyDoNothing") || "Do nothing: trial runs out, you drop to Free"}</span>
               </div>
             </div>
             <div className="sm:border-l sm:border-gray-200 sm:dark:border-gray-800 sm:pl-5">
@@ -687,8 +732,10 @@ export default function SubscriptionPage() {
                 {t("pricingTrialStep3Title") || "What actually happens"}
               </div>
               <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                <span className="block">{t("pricingTrialStep3BodyLocked") || "If locked in: founding rate charged to your card"}</span>
-                <span className="block mt-1">{t("pricingTrialStep3BodyDropped") || "If not: dropped to Free (caps return, data stays, no charge ever)"}</span>
+                {!businessOnlyBlocked && (
+                  <span className="block">{t("pricingTrialStep3BodyLocked") || "If locked in: founding rate charged to your card"}</span>
+                )}
+                <span className={businessOnlyBlocked ? "block" : "block mt-1"}>{t("pricingTrialStep3BodyDropped") || "If not: dropped to Free (caps return, data stays, no charge ever)"}</span>
               </div>
             </div>
           </div>
@@ -715,8 +762,8 @@ export default function SubscriptionPage() {
               sold-out state. */}
           {foundingRemaining != null && (
             <div className="mt-5 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-[11px] font-medium text-gray-700 dark:text-gray-300">
-              {(t("pricingFoundingChipNew", "First {limit} customers — founding price locked for life · {remaining} spots left") ||
-                "First {limit} customers — founding price locked for life · {remaining} spots left")
+              {(t("pricingFoundingChipNew", "First {limit} customers — founding price kept as long as your subscription stays active · {remaining} spots left") ||
+                "First {limit} customers — founding price kept as long as your subscription stays active · {remaining} spots left")
                 .replace("{remaining}", foundingRemaining)
                 .replace("{limit}", foundingLimit)}
             </div>
@@ -766,6 +813,28 @@ export default function SubscriptionPage() {
         </div>
       </div>
 
+      {/* Release R-e — businesses only: a personal account sees why the paid
+          tiers can't be bought, and where to change the account type. */}
+      {businessOnlyBlocked && (
+        <Card variant="default" className="mb-6" data-testid="business-only-notice">
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            {t("pricingBusinessOnlyTitle", "Paid plans are for businesses only")}
+          </div>
+          <p className="text-[13px] text-gray-600 dark:text-gray-400 mt-1 leading-relaxed">
+            {t(
+              "pricingBusinessOnlyBody",
+              "This account is set up for personal finance, so Starter and Pro can't be bought on it. You can keep using BonBox for free. If you use BonBox in a business, change the business type under Profile.",
+            )}
+          </p>
+          <Link
+            to="/profile"
+            className="inline-block mt-2 text-[13px] font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2"
+          >
+            {t("pricingBusinessOnlyProfileLink", "Go to Profile")}
+          </Link>
+        </Card>
+      )}
+
       {/* Status confirmation banner */}
       {msg && (
         <div className="mb-6 text-center text-sm bg-gray-50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-300 rounded-xl px-4 py-3 border border-gray-100/60 dark:border-gray-800/60">
@@ -809,13 +878,28 @@ export default function SubscriptionPage() {
             ctaVariant = !user ? "accent" : "primary";
           }
 
+          // Businesses only (R-e): a personal account's Starter/Pro buttons
+          // are disabled and say so; the notice above explains why.
+          const blockedForPersonal =
+            businessOnlyBlocked && (tier.id === "starter" || tier.id === "pro");
           const ctaDisabled =
+            blockedForPersonal ||
             isCurrent ||
             pending === tier.id ||
             (!stripeReady && joined.has(tier.id));
 
+          // This button opens Stripe Checkout (not the waitlist, not /register).
+          const opensCheckout =
+            !!user?.email &&
+            !blockedForPersonal &&
+            !isCurrent &&
+            stripeReady &&
+            (tier.id === "starter" || tier.id === "pro");
+
           let ctaLabel;
-          if (isCurrent) {
+          if (blockedForPersonal) {
+            ctaLabel = t("pricingBusinessOnlyCta", "Businesses only");
+          } else if (isCurrent) {
             ctaLabel = `✓ ${t("currentPlan") || "Current plan"}`;
           } else if (pending === tier.id) {
             ctaLabel = t("pricingJoining") || "Joining…";
@@ -908,7 +992,7 @@ export default function SubscriptionPage() {
                       {t("pricingFree", "Free") || "Free"}
                     </span>
                     <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                      {t("pricingForever", "forever") || "forever"}
+                      {t("pricingForever", "no card") || "no card"}
                     </span>
                   </div>
                 ) : (
@@ -947,6 +1031,11 @@ export default function SubscriptionPage() {
                 >
                   {ctaLabel}
                 </Button>
+                {/* R-e fix-up (P0-1): the Terms acceptance + business
+                    confirmation, beside every button that opens a real
+                    Stripe checkout (signed in, a business account, this
+                    tier ready, not already on it). */}
+                {opensCheckout && <CheckoutTermsLine className="mt-2 text-center" />}
               </div>
 
               {/* Manage / Cancel — only when user has a real Stripe sub */}

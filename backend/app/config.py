@@ -154,6 +154,11 @@ class Settings(BaseSettings):
     # tax-inclusive), flip this env to "true" — no code change. A MOMS-certainty
     # product should show MOMS on its own invoice, but only when it's real.
     STRIPE_AUTOMATIC_TAX: bool = False
+    # Ask for Terms acceptance on Stripe Checkout (consent_collection
+    # terms_of_service=required). OFF by default: Stripe rejects the session
+    # until a Terms URL (https://www.bonbox.dk/terms) is saved under Settings →
+    # Public details in the Stripe dashboard. Set to 1/true after that.
+    STRIPE_TOS_CONSENT: bool = False
     # Public, human-readable monthly price table in whole DKK (ex MOMS).
     # This is a DISPLAY mirror of the Stripe Price `unit_amount` on the four
     # STRIPE_PRICE_ID_* products above — it is NOT the charge authority. The

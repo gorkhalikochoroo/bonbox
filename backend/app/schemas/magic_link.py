@@ -21,15 +21,22 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.schemas.auth import ClaimQuestion, SignupRefMixin, UserResponse
+from app.schemas.auth import ClaimQuestion, SignupRefMixin, TermsAcceptMixin, UserResponse
 
 
-class MagicLinkRequest(SignupRefMixin):
+class MagicLinkRequest(SignupRefMixin, TermsAcceptMixin):
     """POST /auth/magic-link/request — kick off the flow.
 
     `signup_ref` (optional, the door-visit code the browser kept) is only
     carried into the mailed link as &ref=, so the tab that opens the link
     can send it back on verify. Nothing is stored at request time.
+
+    `accept_terms` (optional, only a real JSON true): the login page showed
+    "Ved at fortsætte accepterer du vores Handelsbetingelser." beside the
+    "send me a link" button. It rides in the mailed link as &terms=1, so the
+    tab that opens it sends accept_terms=true on verify — which stamps the
+    Terms version only if that verify CREATES the account. Nothing is stored
+    at request time.
     """
 
     email: EmailStr
@@ -42,12 +49,14 @@ class MagicLinkRequest(SignupRefMixin):
         return v
 
 
-class MagicLinkVerify(SignupRefMixin):
+class MagicLinkVerify(SignupRefMixin, TermsAcceptMixin):
     """POST /auth/magic-link/verify — exchange a raw token for a session.
 
     `signup_ref` is stamped only when this verify CREATES the account
     (services/magic_link_service.verify_token); an existing one never gains
-    or loses a ref.
+    or loses a ref. `accept_terms` follows the same rule (services/terms.py);
+    the login page sends it when the mailed link carries &terms=1 (the
+    request came from a page that showed the acceptance line).
 
     Length bounds:
       • 43 = exact length of base64url(secrets.token_urlsafe(32))

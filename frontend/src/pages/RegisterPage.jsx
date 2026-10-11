@@ -8,6 +8,10 @@ import { GoogleLogin } from "@react-oauth/google";
 // Task #65 — Apple Sign-In button (web). Self-renders nothing when
 // VITE_APPLE_CLIENT_ID is unset, so dev builds stay quiet.
 import AppleSignInButton from "../components/AppleSignInButton";
+// Release R-e — "Ved at oprette en konto accepterer du vores
+// Handelsbetingelser. Læs om, hvordan vi behandler dine data, i vores
+// Privatlivspolitik." (LEG-11 / PQ-03).
+import SignupTermsLine from "../components/SignupTermsLine";
 import { rememberVerifySkip } from "../utils/verifySkip";
 
 /* Inline SVG — growth / rocket scene for registration */
@@ -261,9 +265,12 @@ export default function RegisterPage() {
     // `ui_language` — the language this form is shown in. The server writes
     // the verification code and welcome mails in it (a Danish signup used to
     // get both in English) and saves it as the account's app language.
+    // accept_terms — this page shows the Terms acceptance line
+    // (SignupTermsLine) wherever its sign-up buttons are, so the server records
+    // the Terms version on the new account (backend services/terms.py).
     const submitData = isNative
-      ? { ...form, business_type: form.business_type || "personal", business_name: form.business_name || "My Dashboard", ui_language: lang }
-      : { ...form, ui_language: lang };
+      ? { ...form, business_type: form.business_type || "personal", business_name: form.business_name || "My Dashboard", ui_language: lang, accept_terms: true }
+      : { ...form, ui_language: lang, accept_terms: true };
     if (!isNative && !form.business_type) { setError(t("pleaseSelectType")); return; }
     setLoading(true);
     try {
@@ -328,33 +335,12 @@ export default function RegisterPage() {
   // redirect above moves them to /login; this guard stops a one-frame flash.
   if (isNative) return null;
 
-  // Release R-c (trust) — the service terms and the privacy policy, one tap
-  // away (a new tab on the web, so the form stays as typed). Rendered ONCE,
-  // where every sign-up path passes it: beside the Google / Apple row (those
-  // create the account without the form), or under "Opret konto" when there
-  // is no such row. Informational only — R-c review: an "accepterer du"
-  // line would make owners accept Terms whose price (§8) and retention (§4)
-  // text do not match the code; that wording waits for Manoj + the DK
-  // attorney.
+  // Release R-c placed the documents ONCE, where every sign-up path passes
+  // them; release R-e turns that line into the Terms acceptance line
+  // (SignupTermsLine): beside the Google / Apple row (those create the
+  // account without the form), or under "Opret konto" when there is no
+  // such row. Every request this page sends carries accept_terms=true.
   const hasOAuthRow = hasAppleWeb || hasAppleNative || hasGoogle;
-  const legalLine = (
-    <p data-testid="register-legal-line"
-      className={`${hasOAuthRow ? "" : "-mt-2 "}text-center text-[12px] leading-relaxed text-gray-500 dark:text-gray-400 text-pretty`}>
-      {t("registerLegalRead", "Read our {terms} and {privacy}.")
-        .split(/(\{terms\}|\{privacy\})/)
-        .map((part, i) => {
-          if (part !== "{terms}" && part !== "{privacy}") return part;
-          const terms = part === "{terms}";
-          return (
-            <Link key={i} to={terms ? "/terms" : "/privacy"}
-              {...(isNative ? {} : { target: "_blank", rel: "noopener noreferrer" })}
-              className="underline underline-offset-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
-              {terms ? t("registerLegalTerms", "Terms of Service") : t("registerLegalPrivacy", "Privacy Policy")}
-            </Link>
-          );
-        })}
-    </p>
-  );
 
   return (
     <>
@@ -471,7 +457,7 @@ export default function RegisterPage() {
                     onSuccess={async ({ idToken, name }) => {
                       setError("");
                       try {
-                        await appleOauthLogin(idToken, name);
+                        await appleOauthLogin(idToken, name, { acceptTerms: true });
                         navigate("/dashboard");
                       } catch (err) {
                         setError(oauthErrText(err, t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed", t));
@@ -488,7 +474,7 @@ export default function RegisterPage() {
                       onSuccess={(res) => {
                         setError("");
                         const fn = googleOauthLogin || googleLogin;
-                        fn(res.credential)
+                        fn(res.credential, { acceptTerms: true })
                           .then(() => navigate("/dashboard"))
                           .catch((err) => setError(oauthErrText(err, t("googleSignupFailed"), t)));
                       }}
@@ -501,10 +487,12 @@ export default function RegisterPage() {
                     />
                   </div>
                 )}
-                {/* Beside the one-tap buttons: they create the account
-                    without the form, so the documents sit here, above
-                    both paths (R-c review). */}
-                {legalLine}
+                {/* Release R-e — the Terms acceptance line, beside the
+                    Google/Apple row: those buttons create the account
+                    without the form, so the line must be seen here. It also
+                    covers the e-mail form below — it renders once. (It
+                    replaces R-c's informational "Læs vores …" line.) */}
+                <SignupTermsLine isNative={isNative} className="pt-1" />
                 <div className="flex items-center gap-3 pt-2">
                   <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
                   <span className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
@@ -722,9 +710,11 @@ export default function RegisterPage() {
                   </>
                 ) : t("createAccount")}
               </button>
-              {/* The documents, for the e-mail path when there is no
-                  Google / Apple row above (it carries them otherwise). */}
-              {!hasOAuthRow && legalLine}
+              {/* Release R-e — with no Google/Apple row, the Terms acceptance
+                  line sits under "Opret konto" instead (it renders once). */}
+              {!(hasAppleWeb || hasAppleNative || hasGoogle) && (
+                <SignupTermsLine isNative={isNative} className="-mt-2" />
+              )}
             </form>
 
             {/* OAuth providers (Apple + Google) live ABOVE the form

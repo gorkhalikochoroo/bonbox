@@ -3,13 +3,16 @@
  * register) are true (RELEASE_GATE rule 5: no unmeasured numbers; legal text
  * needs Manoj's OK — the sentences below are the ones put to him).
  *
- *   (e) /register: Servicevilkår (/terms) and Privatlivspolitik (/privacy)
- *       one tap away (a new tab on the web: the form stays as typed) —
- *       "Læs vores …", informational (R-c review: an "accepterer du" line
- *       made owners accept Terms whose §8 price and §4 retention text do not
- *       match the code — that wording waits for Manoj + the DK attorney).
+ *   (e) /register: the Terms (/terms) and the privacy policy (/privacy)
+ *       one tap away (a new tab on the web: the form stays as typed).
  *       Rendered once, where every sign-up path passes it: beside the
  *       Google / Apple row when there is one, else under "Opret konto".
+ *       R-c shipped it as an informational "Læs vores …" line because the
+ *       live Terms (§4, §8) did not match the code; release R-e replaces the
+ *       Terms and turns this line into the acceptance line (SignupTermsLine,
+ *       "Ved at oprette en konto accepterer du vores Handelsbetingelser. Læs
+ *       om, hvordan vi behandler dine data, i vores Privatlivspolitik.") —
+ *       the Terms are accepted, the privacy policy stays information.
  *   (f) landing: "Daglig lukning på 30 sekunder" (never measured) → "Daglig
  *       lukning: tag et billede af Z-bonen, BonBox fylder tallene ud" (a Z-bon
  *       scan is on every plan — Free: 3 a day); "Arkiv bygget til
@@ -68,12 +71,17 @@ const RegisterPage = (await import("../pages/RegisterPage")).default;
 
 beforeEach(() => { h.lang = "da"; vi.unstubAllEnvs(); });
 
-describe("(e) /register — the service terms and privacy policy, one tap away", () => {
+// R-e contract (merged after R-c): the R-c line became the acceptance line.
+const ACCEPT_DA = "Ved at oprette en konto accepterer du vores Handelsbetingelser. Læs om, hvordan vi behandler dine data, i vores Privatlivspolitik.";
+const ACCEPT_EN = "By creating an account you accept our Terms of Service. Read how we handle your data in our Privacy Policy.";
+
+describe("(e) /register — the Terms and privacy policy, one tap away (R-e: the Terms acceptance line)", () => {
   it("Danish: the sentence, with both documents linked (new tab), under the button (no Google / Apple row)", () => {
     render(<MemoryRouter><RegisterPage /></MemoryRouter>);
-    const line = screen.getByTestId("register-legal-line");
-    expect(line.textContent).toBe("Læs vores Servicevilkår og Privatlivspolitik.");
-    const terms = within(line).getByRole("link", { name: "Servicevilkår" });
+    expect(screen.queryByTestId("register-legal-line")).toBeNull();
+    const line = screen.getByTestId("signup-terms-line");
+    expect(line.textContent).toBe(ACCEPT_DA);
+    const terms = within(line).getByRole("link", { name: "Handelsbetingelser" });
     const privacy = within(line).getByRole("link", { name: "Privatlivspolitik" });
     expect(terms.getAttribute("href")).toBe("/terms");
     expect(privacy.getAttribute("href")).toBe("/privacy");
@@ -90,28 +98,29 @@ describe("(e) /register — the service terms and privacy policy, one tap away",
   it("English: the same sentence in English", () => {
     h.lang = "en";
     render(<MemoryRouter><RegisterPage /></MemoryRouter>);
-    const line = screen.getByTestId("register-legal-line");
-    expect(line.textContent).toBe("Read our Terms of Service and Privacy Policy.");
+    const line = screen.getByTestId("signup-terms-line");
+    expect(line.textContent).toBe(ACCEPT_EN);
     expect(within(line).getByRole("link", { name: "Terms of Service" }).getAttribute("href")).toBe("/terms");
     expect(within(line).getByRole("link", { name: "Privacy Policy" }).getAttribute("href")).toBe("/privacy");
   });
 
   it("tapping a link never submits the form", () => {
     render(<MemoryRouter><RegisterPage /></MemoryRouter>);
-    const line = screen.getByTestId("register-legal-line");
+    const line = screen.getByTestId("signup-terms-line");
     const submit = vi.fn((e) => e.preventDefault());
     line.closest("form").addEventListener("submit", submit);
-    fireEvent.click(within(line).getByRole("link", { name: "Servicevilkår" }));
+    fireEvent.click(within(line).getByRole("link", { name: "Handelsbetingelser" }));
     expect(submit).not.toHaveBeenCalled();
   });
 
   it("with the Google / Apple row: once, beside those buttons, above both paths — never only under the e-mail form", () => {
     vi.stubEnv("VITE_GOOGLE_CLIENT_ID", "test-client");
     render(<MemoryRouter><RegisterPage /></MemoryRouter>);
-    const lines = screen.getAllByTestId("register-legal-line");
+    expect(screen.queryByTestId("register-legal-line")).toBeNull();
+    const lines = screen.getAllByTestId("signup-terms-line");
     expect(lines).toHaveLength(1);
     const [line] = lines;
-    expect(line.textContent).toBe("Læs vores Servicevilkår og Privatlivspolitik.");
+    expect(line.textContent).toBe(ACCEPT_DA);
     expect(line.closest("form")).toBeNull();
     // In the OAuth row, right before its "eller brug e-mail" divider, and
     // before the form in the page.
@@ -121,13 +130,17 @@ describe("(e) /register — the service terms and privacy policy, one tap away",
     expect(line.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("says no acceptance (no pack): informational until Manoj + the DK attorney approve accept-wording and the Terms", () => {
+  it("R-e: accepts the Terms only — the privacy policy stays information (every offered pack); the R-c informational keys are gone", () => {
     const ACCEPT = /accept|accepter|kabul|agree|godkend/i;
     for (const [code, dict] of [["da", da], ["en", en], ["tr", tr]]) {
-      expect(typeof dict.registerLegalRead, code).toBe("string");
-      expect(ACCEPT.test(dict.registerLegalRead), `${code}: ${dict.registerLegalRead}`).toBe(false);
-      expect(dict.registerLegalRead).toContain("{terms}");
-      expect(dict.registerLegalRead).toContain("{privacy}");
+      expect(typeof dict.signupAcceptTerms, code).toBe("string");
+      const [accept, info] = dict.signupAcceptTerms.split(/\.\s/);
+      expect(accept, code).toContain("{terms}");
+      expect(ACCEPT.test(accept), `${code}: ${accept}`).toBe(true);
+      expect(accept, code).not.toContain("{privacy}");
+      expect(info, code).toContain("{privacy}");
+      expect(ACCEPT.test(info), `${code}: ${info}`).toBe(false);
+      expect(dict.registerLegalRead, code).toBeUndefined();
     }
     expect(da.registerLegalAccept).toBeUndefined();
     expect(en.registerLegalAccept).toBeUndefined();
@@ -145,10 +158,11 @@ describe("(f) landing and (g) login — the new sentences", () => {
     // (R-c round 2: only what the client knows — no answer, and it retries.)
     expect(da.loginWarmingUp).toBe("Kan ikke nå BonBox lige nu — prøver igen.");
     expect(en.loginWarmingUp).toBe("Can't reach BonBox right now — retrying.");
-    expect(da.registerLegalRead).toBe("Læs vores {terms} og {privacy}.");
-    expect(en.registerLegalRead).toBe("Read our {terms} and {privacy}.");
-    expect(da.registerLegalTerms).toBe("Servicevilkår");
-    expect(en.registerLegalTerms).toBe("Terms of Service");
+    // R-e: the register line is the Terms acceptance line.
+    expect(da.signupAcceptTerms).toBe("Ved at oprette en konto accepterer du vores {terms}. Læs om, hvordan vi behandler dine data, i vores {privacy}.");
+    expect(en.signupAcceptTerms).toBe("By creating an account you accept our {terms}. Read how we handle your data in our {privacy}.");
+    expect(da.signupAcceptTermsLink).toBe("Handelsbetingelser");
+    expect(en.signupAcceptTermsLink).toBe("Terms of Service");
   });
 
   it("the iOS hint names the link above the password as it reads (forgotShort) — da, en, tr, and the inline fallback", () => {
@@ -168,16 +182,18 @@ describe("(f) landing and (g) login — the new sentences", () => {
     expect(tr["landingV2.pricing.free.f1"]).toBe("Günlük kapanış: Z-raporunun fotoğrafını çek, BonBox rakamları doldurur");
     expect(tr.loginWarmingUp).toBe("BonBox'a şu anda ulaşılamıyor — yeniden deneniyor.");
     expect(tr.loginGoogleHintNative).toBe("Web'de Google ile mi kaydoldun? Uygulama şifresi belirlemek için yukarıda şifrenin yanındaki “Unuttun mu?”ya dokun.");
-    expect(tr.registerLegalRead).toBe("{terms} ve {privacy} belgelerimizi okuyabilirsin.");
-    expect(tr.registerLegalTerms).toBe("Hizmet Şartları");
-    expect(tr.registerLegalPrivacy).toBe("Gizlilik Politikası");
+    // R-e: the acceptance lines on register (signup) and login (continue).
+    expect(tr.signupAcceptTerms).toBe("Hesap oluşturarak {terms} belgemizi kabul etmiş olursun. Verilerini nasıl işlediğimizi {privacy} belgemizde okuyabilirsin.");
+    expect(tr.continueAcceptTerms).toBe("Devam ederek {terms} belgemizi kabul etmiş olursun. Verilerini nasıl işlediğimizi {privacy} belgemizde okuyabilirsin.");
+    expect(tr.signupAcceptTermsLink).toBe("Hizmet Şartları");
+    expect(tr.signupAcceptPrivacyLink).toBe("Gizlilik Politikası");
     expect(tr.registerSubheading).toBe("Bugün başla.");
     // Every key the R-c trust change touched is in every OFFERED pack.
     for (const l of ALL_LANGUAGES.filter((x) => x.offered)) {
       const dict = { da, en, tr }[l.code];
       expect(dict, l.code).toBeTruthy();
       for (const k of ["landingV2HeroTrustArchive", "landingV2.pricing.free.f1", "loginWarmingUp", "loginGoogleHintNative",
-        "registerLegalRead", "registerLegalTerms", "registerLegalPrivacy", "registerSubheading"]) {
+        "signupAcceptTerms", "continueAcceptTerms", "signupAcceptTermsLink", "signupAcceptPrivacyLink", "registerSubheading"]) {
         expect(typeof dict[k], `${l.code} ${k}`).toBe("string");
       }
     }

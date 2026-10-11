@@ -61,9 +61,12 @@ from app.models.daily_close import DailyClose
 from app.schemas.auth import (
     UserRegister, UserLogin, Token, UserResponse, UserUpdate, PasswordChange,
     ForgotPasswordRequest, ResetPasswordRequest, VerifyEmailRequest,
-    SignupRefMixin,
+    SignupRefMixin, TermsAcceptMixin,
 )
 from app.services.signup_ref import apply_signup_ref
+from app.services.terms import (
+    TERMS_VERSION, apply_terms_acceptance, dismiss_terms_notice, is_account_owner,
+)
 from app.services.auth import hash_password, verify_password, create_access_token, get_current_user, AUTH_COOKIE_NAME, CSRF_COOKIE_NAME
 from app.services.email_service import send_email
 from app.services.revisor_mail import header_safe as _header_safe
@@ -482,6 +485,9 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     # The printed door-visit code, if the signup came from one (already
     # validated by the schema; services/signup_ref.py).
     apply_signup_ref(user, data.signup_ref)
+    # Terms acceptance — only when the register page sent accept_terms=true
+    # (it shows the acceptance line); an older client leaves it NULL.
+    apply_terms_acceptance(user, data.accept_terms)
     # Start the 14-day Pro trial — full features, no card required
     from app.services.billing import start_trial
     start_trial(user)
@@ -549,7 +555,7 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
 
-class GoogleAuthRequest(SignupRefMixin):
+class GoogleAuthRequest(SignupRefMixin, TermsAcceptMixin):
     credential: str  # Google ID token
 
 
@@ -572,7 +578,7 @@ def google_auth(request: Request, response: Response, data: GoogleAuthRequest, d
     from app.routers.auth_oauth import google_signin
     return google_signin(
         request, response, data.credential, db,
-        legacy=True, signup_ref=data.signup_ref,
+        legacy=True, signup_ref=data.signup_ref, accept_terms=data.accept_terms,
     )
 
 
@@ -699,7 +705,7 @@ def _verify_apple_identity_token(token: str) -> dict:
     return claims
 
 
-class AppleAuthRequest(SignupRefMixin):
+class AppleAuthRequest(SignupRefMixin, TermsAcceptMixin):
     identity_token: str  # Apple's signed JWT
     full_name: Optional[str] = None  # Only present on first sign-in
 
@@ -830,6 +836,7 @@ def apple_auth(
         )
         # New account only — a sign-in to an existing one never gains a ref.
         apply_signup_ref(user, data.signup_ref)
+        apply_terms_acceptance(user, data.accept_terms)
         from app.services.billing import start_trial
         start_trial(user)
         db.add(user)
@@ -1129,6 +1136,31 @@ def get_me(request: Request, response: Response, current_user: User = Depends(ge
             domain=cookie_domain,
         )
     return current_user
+
+
+@router.post("/terms-notice/dismiss")
+@limiter.limit("20/minute")
+def dismiss_terms_update_notice(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The owner closed the in-app notice "Handelsbetingelser er opdateret".
+
+    Records ONLY that the notice was closed for the current TERMS_VERSION
+    (users.terms_notice_dismissed_version), so it stays closed on every
+    device. It is notice, not acceptance: terms_version / terms_accepted_at
+    are never written here (services/terms.py). Owners only — staff never
+    see the notice. Idempotent.
+    """
+    if not is_account_owner(current_user):
+        raise HTTPException(status_code=403, detail={"code": "owner_only"})
+    db_user = db.query(User).filter(User.id == current_user.id).first()
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User no longer exists")
+    if dismiss_terms_notice(db_user):
+        db.commit()
+    return {"ok": True, "dismissed_version": TERMS_VERSION, "terms_notice_due": False}
 
 
 @router.patch("/profile", response_model=UserResponse)
@@ -2100,15 +2132,23 @@ def export_all_data(
     w.writerow([f"Exported: {utc_now().isoformat()}"])
     # signup_ref — the printed door-visit code the account came from, if any.
     # Stored about the user, so it is in their copy (Art. 15/20).
+    # terms_version / terms_accepted_at — which Terms the account holder
+    # accepted at sign-up and when (services/terms.py); "" = none recorded.
+    # terms_notice_dismissed_version — the Terms version whose in-app notice
+    # the owner closed (a closed notice, not an acceptance); "" = never.
     _write_csv_section(w, "Profile", [
         "id", "email", "business_name", "business_type", "currency",
         "daily_goal", "monthly_goal", "role", "created_at", "signup_ref",
+        "terms_version", "terms_accepted_at", "terms_notice_dismissed_version",
     ], [[
         str(current_user.id), current_user.email, current_user.business_name,
         current_user.business_type, current_user.currency,
         current_user.daily_goal, current_user.monthly_goal,
         current_user.role, str(current_user.created_at),
         current_user.signup_ref or "",
+        current_user.terms_version or "",
+        current_user.terms_accepted_at.isoformat() if current_user.terms_accepted_at else "",
+        getattr(current_user, "terms_notice_dismissed_version", None) or "",
     ]])
 
     # --- Business Profile ---
@@ -2302,6 +2342,21 @@ class DeleteAccountRequest(BaseModel):
     password: str
 
 
+# The refusal when the subscription cannot be stopped at Stripe (R-e
+# fix-up) — the same sentences the profile page shows
+# (deleteSubscriptionStopFailed in frontend/src/i18n/{da,en}.js).
+DELETE_SUB_STOP_FAILED_EN = (
+    "We couldn't stop your subscription at Stripe just now, so your account "
+    "was not deleted and nothing was changed. Please try again in a few "
+    "minutes, or write to contact@bonbox.dk."
+)
+DELETE_SUB_STOP_FAILED_DA = (
+    "Vi kunne ikke stoppe dit abonnement hos Stripe lige nu, så din konto er "
+    "ikke slettet, og intet er ændret. Prøv igen om et par minutter, eller "
+    "skriv til contact@bonbox.dk."
+)
+
+
 @router.delete("/delete-account")
 def delete_account(
     data: DeleteAccountRequest,
@@ -2431,19 +2486,35 @@ def delete_account(
         )
 
     # ── The irreversible, outside-the-database steps — only now. ──
+    # Billing FIRST: a deleted customer must never go on being charged, and
+    # the Terms (§ 4, § 8) say deleting the account stops an active
+    # subscription at once. If Stripe cannot confirm the subscription is
+    # stopped, NOTHING is deleted (rolled back before any other outside step)
+    # and the owner is told to try again — it used to log a warning and
+    # delete anyway, leaving Stripe charging an account that no longer
+    # existed. The webhook that follows a cancel finds no user and is a no-op.
+    if _stripe_sub_id:
+        from app.services.stripe_billing import stop_subscription_for_erasure
+        _stop = stop_subscription_for_erasure(
+            _stripe_sub_id, getattr(current_user, "subscription_status", None),
+        )
+        if _stop != "stopped":
+            db.rollback()
+            logger.error(
+                "delete_account: subscription %s could not be stopped — account NOT deleted",
+                _stripe_sub_id,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "subscription_cancel_failed",
+                    "message": DELETE_SUB_STOP_FAILED_EN,
+                    "message_da": DELETE_SUB_STOP_FAILED_DA,
+                },
+            )
     # PSD2: consent stays live at the bank for up to 90 days unless revoked.
     for _bc in _bank_conns:
         best_effort_revoke(_bc)
-    # Billing: a deleted customer must not go on being charged. Best-effort;
-    # the webhook that follows finds no user and is a no-op.
-    if _stripe_sub_id:
-        try:
-            from app.services.stripe_billing import _stripe
-            _s = _stripe()
-            if _s is not None:
-                _s.Subscription.cancel(_stripe_sub_id)
-        except Exception:  # noqa: BLE001
-            logger.warning("delete_account: Stripe subscription cancel failed (non-fatal)", exc_info=True)
     # GDPR Art.17: purge storage blobs with no retention basis. The row sweep
     # above deletes the POINTERS; the BLOBS in Supabase Storage must go too or
     # staff-chat photos, staff avatars and the business logo orphan forever.

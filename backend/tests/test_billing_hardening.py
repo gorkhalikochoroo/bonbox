@@ -51,9 +51,11 @@ _db_ready.set()
 # Shared stubs (unit-style — no DB) for the create_checkout_session tests
 # ─────────────────────────────────────────────────────────────────────
 
-def _stub_user(plan: str = "free", subscription_status=None, trial_ends_at="EXPIRED"):
+def _stub_user(plan: str = "free", subscription_status=None, trial_ends_at="EXPIRED",
+               ui_language=None):
     """SimpleNamespace user. Default: free user whose trial EXPIRED 5 days ago
-    (the BUG A farm target)."""
+    (the BUG A farm target). ui_language picks the checkout wording's language
+    (services/owner_language.owner_lang; unset + no currency → Danish)."""
     if trial_ends_at == "EXPIRED":
         trial_ends_at = utc_now() - timedelta(days=5)
     return SimpleNamespace(
@@ -65,6 +67,7 @@ def _stub_user(plan: str = "free", subscription_status=None, trial_ends_at="EXPI
         trial_ends_at=trial_ends_at,
         stripe_customer_id=None,
         stripe_subscription_id=None,
+        ui_language=ui_language,
     )
 
 
@@ -210,7 +213,8 @@ def test_e_price_retrieve_softfails_without_inventing_a_number():
 
     cm_settings, cm_patches, mock_stripe = _patched_checkout(founding=True)
     mock_stripe.Price.retrieve.side_effect = RuntimeError("stripe down")
-    user = _stub_user()
+    # English owner — the wording follows the owner's language since R-e.
+    user = _stub_user(ui_language="en")
     db = _SpyDB()
 
     with cm_settings[0], cm_settings[1], cm_settings[2], cm_settings[3], \
@@ -221,6 +225,26 @@ def test_e_price_retrieve_softfails_without_inventing_a_number():
     msg = mock_stripe.checkout.Session.create.call_args.kwargs["custom_text"]["submit"]["message"]
     assert "129" not in msg and "99" not in msg and "199" not in msg
     assert "founding-member rate" in msg  # generic, price-less wording kept
+
+
+def test_e_price_retrieve_softfails_danish_owner_too():
+    """Same soft-fail for a Danish owner: no price number, the generic
+    Danish founding wording, checkout still created."""
+    from app.services.stripe_billing import create_checkout_session
+
+    cm_settings, cm_patches, mock_stripe = _patched_checkout(founding=True)
+    mock_stripe.Price.retrieve.side_effect = RuntimeError("stripe down")
+    user = _stub_user(ui_language="da")
+    db = _SpyDB()
+
+    with cm_settings[0], cm_settings[1], cm_settings[2], cm_settings[3], \
+         cm_patches[0], cm_patches[1], cm_patches[2]:
+        result = create_checkout_session(user, db=db, plan="starter")
+
+    assert result is not None
+    msg = mock_stripe.checkout.Session.create.call_args.kwargs["custom_text"]["submit"]["message"]
+    assert "129" not in msg and "99" not in msg and "199" not in msg
+    assert "stifterprisen" in msg
 
 
 # ═════════════════════════════════════════════════════════════════════

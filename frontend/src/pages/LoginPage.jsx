@@ -10,6 +10,13 @@ import api from "../services/api";
 import AppleSignInButton from "../components/AppleSignInButton";
 import { oauthErrText } from "../utils/errText";
 import { withSignupRef } from "../utils/signupRef";
+// R-e fix-up — Google, Apple and the e-mail link create an account here too
+// when the address is new, so this page shows the Terms acceptance line
+// ("Ved at fortsætte accepterer du vores Handelsbetingelser.") beside those
+// buttons and tells the server so (accept_terms). The server stamps the
+// Terms version only on a NEW account; a sign-in never changes the record.
+import SignupTermsLine from "../components/SignupTermsLine";
+import { withTermsAcceptance } from "../legal/terms";
 import { postLoginPath } from "../utils/verifySkip";
 
 /* Inline SVG illustration — a fun receipt-and-boxes scene */
@@ -236,7 +243,7 @@ export default function LoginPage() {
       // string for the backend's business_name first-touch logic.
       const name =
         [res.givenName, res.familyName].filter(Boolean).join(" ").trim() || null;
-      const data = await appleOauthLogin(idToken, name);
+      const data = await appleOauthLogin(idToken, name, { acceptTerms: true });
       navigate(postLoginPath(data.user));
     } catch (err) {
       // The plugin rejects user-cancellation with code "user_cancelled" —
@@ -270,7 +277,12 @@ export default function LoginPage() {
     try {
       // withSignupRef: a kept door-visit code rides along so the mailed link
       // carries it (&ref=) to whichever tab or browser opens it.
-      await api.post("/auth/magic-link/request", withSignupRef({ email: email.trim().toLowerCase() }));
+      // accept_terms — the Terms line sits under the "send link" button in
+      // this mode; the mailed link then carries &terms=1 (backend).
+      await api.post(
+        "/auth/magic-link/request",
+        withSignupRef(withTermsAcceptance({ email: email.trim().toLowerCase() }, { acceptTerms: true })),
+      );
       setMagicSent(true);
     } catch (err) {
       let msg;
@@ -487,7 +499,7 @@ export default function LoginPage() {
                     onSuccess={async ({ idToken, name }) => {
                       setError("");
                       try {
-                        const data = await appleOauthLogin(idToken, name);
+                        const data = await appleOauthLogin(idToken, name, { acceptTerms: true });
                         navigate(postLoginPath(data.user));
                       } catch (err) {
                         setError(oauthErrText(err, t("appleSigninFailed") || "Apple sign-in failed", t));
@@ -508,7 +520,7 @@ export default function LoginPage() {
                         // anything goes wrong (e.g. brand-new install
                         // hitting an old backend during a deploy).
                         const fn = googleOauthLogin || googleLogin;
-                        fn(res.credential)
+                        fn(res.credential, { acceptTerms: true })
                           .then((data) => {
                             navigate(postLoginPath(data.user));
                           })
@@ -530,6 +542,10 @@ export default function LoginPage() {
                     />
                   </div>
                 )}
+                {/* R-e fix-up — the Terms acceptance line beside the
+                    Google/Apple row (those buttons create an account when
+                    the address is new). Once, before the e-mail divider. */}
+                <SignupTermsLine variant="continue" isNative={isNative} className="pt-1" />
                 <div className="flex items-center gap-3 pt-3">
                   <div className="flex-1 h-px bg-gray-200" />
                   <span className="text-[11px] uppercase tracking-wider text-gray-400">
@@ -660,6 +676,9 @@ export default function LoginPage() {
                     </>
                   ) : magicMode ? (t("magicLinkSend") || "Email me a sign-in link") : t("signIn")}
                 </button>
+                {/* R-e fix-up — the e-mail link creates an account when the
+                    address is new: the Terms line sits under its button. */}
+                {magicMode && <SignupTermsLine variant="continue" isNative={isNative} />}
 
                 {/* Mode-toggle link — sits under the primary CTA so it
                     never competes for the eye. In password mode this

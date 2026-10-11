@@ -28,6 +28,7 @@ import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
 import TrialChip from "./TrialChip";
 import VerifyEmailReminder from "./VerifyEmailReminder";
+import TermsUpdateNotice from "./TermsUpdateNotice";
 import RevisorInviteHeldNotice from "./RevisorInviteHeldNotice";
 import { Icon } from "./ui";
 // Lazy-load the search modal — only fetched when the user actually
@@ -1277,6 +1278,13 @@ export default function Layout() {
         {/* "Bekræft din e-mail" — quiet, only while the owner has skipped the
             verification wall (7 days); never on the day's close. */}
         <VerifyEmailReminder />
+        {/* "Vi har opdateret vores Handelsbetingelser" — every owner without
+            an acceptance of the current version (whenever the account was
+            created), until the date the Terms apply to existing accounts
+            (server decides who: user.terms_notice_due, services/terms.py
+            terms_notice_due). Quiet, closable, never on the day's close.
+            Closing it is notice, never acceptance. */}
+        <TermsUpdateNotice />
         {/* The onboarding wizard's revisor invite was saved, not e-mailed —
             shown on the page the wizard landed on (router state only). */}
         <RevisorInviteHeldNotice />

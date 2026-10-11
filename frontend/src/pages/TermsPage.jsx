@@ -1,5 +1,11 @@
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
+// The date shown is the TERMS_VERSION the server stamps on an account that
+// accepts these terms (src/legal/terms.js ↔ backend/app/services/terms.py).
+// TERMS_EXISTING_FROM is the date they apply to existing accounts (every
+// account without an acceptance of TERMS_VERSION) — the deploy day + 15 days;
+// the in-app notice runs until then. Both are release-time constants.
+import { TERMS_EXISTING_FROM, TERMS_VERSION, termsDate } from "../legal/terms";
 
 function Section({ num, title, children }) {
   return (
@@ -24,14 +30,19 @@ function TermsEn() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Terms of Service</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 13 May 2026</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm">Last updated: {termsDate(TERMS_VERSION, "en")}</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="terms-effective-dates">Applies to new accounts from {termsDate(TERMS_VERSION, "en")} and to existing accounts from {termsDate(TERMS_EXISTING_FROM, "en")}.</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
         <Section num={1} title="About BonBox">
           <p>
-            BonBox is a multi-terminal close consolidation tool for small hospitality businesses (restaurants, bars, cafés, takeaways). It helps front-of-house staff complete the end-of-shift cash reconciliation in roughly 90 seconds and delivers the consolidated daily-close PDF to owners and revisors. BonBox is operated by Manoj Kumar Chaudhary, based in Copenhagen, Denmark.
+            BonBox is a multi-terminal close consolidation tool for small hospitality businesses (restaurants, bars, cafés, takeaways). It helps front-of-house staff complete the end-of-shift cash reconciliation and delivers the consolidated daily-close PDF to owners and revisors.
           </p>
+          <p className="mt-2">
+            BonBox is provided by <strong>DukaanAI v/Manoz Chaudhary</strong>, CVR 46417321 (&ldquo;we&rdquo;, &ldquo;us&rdquo;). You can reach us at <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a>.
+          </p>
+          <p className="mt-2">BonBox is a service for businesses. These terms apply between us and the business that creates the account.</p>
           <p className="mt-2">By creating an account or using BonBox, you agree to these terms.</p>
         </Section>
 
@@ -41,9 +52,9 @@ function TermsEn() {
             <li>A multi-terminal end-of-shift close consolidation tool</li>
             <li>An OCR-and-aggregation system for printed kasserapport receipts</li>
             <li>An invoicing (faktura) and mileage (k&oslash;rselsgodtg&oslash;relse) data-capture tool</li>
-            <li>A generator of daily-close PDFs (compatible with Bogf&oslash;ringsloven &sect;10 retention)</li>
+            <li>A generator of daily-close (kasserapport) PDFs</li>
             <li>A reporting layer that exports to Dinero / Billy / e-conomic</li>
-            <li>An optional personal finance tracker (in Personal Mode)</li>
+            <li>An optional personal finance tracker (Personal Mode &mdash; free of charge; paid plans cannot be bought for it, see &sect;8)</li>
           </ul>
           <p className="font-semibold mt-4 mb-2">BonBox is NOT:</p>
           <ul className="list-disc pl-6 space-y-1">
@@ -86,19 +97,19 @@ function TermsEn() {
         <Section num={4} title="Your data">
           <p>All financial data you enter into BonBox belongs to you. We do not claim ownership of your data.</p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
-            <li>You can export your data at any time as CSV files</li>
-            <li>You can delete your account and all data at any time</li>
+            <li>You can download a copy of your data at any time as a CSV file (Profile)</li>
+            <li>You can delete your account at any time under Profile. Deleting asks for your password: if you created the account with Google, Apple or an e-mail link, first choose a password with &ldquo;Forgot?&rdquo; on the login page, or write to <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a>. If the account has team members with their own login, remove them first.</li>
             <li>See our <Link to="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline">Privacy Policy</Link> for full details on data handling</li>
           </ul>
 
-          <p className="font-semibold mt-4">Mandatory retention of accounting records</p>
-          <p className="mt-1">Danish law (Bogf&oslash;ringsloven &sect;12) requires us to retain accounting records — including fakturaer, kreditnotaer, mileage logs, and the related audit trail — for at least 5 years from the end of the financial year they relate to. BonBox defaults to 6 years (5-year legal minimum plus a 1-year buffer) and you can extend up to 10 years (the maximum applicable Skatteforvaltningsloven &sect;31 window) from your Profile settings. You cannot set retention below 5 years; doing so would expose you to penalties under Bogf&oslash;ringsloven &sect;16.</p>
+          <p className="font-semibold mt-4">Your accounting records</p>
+          <p className="mt-1">Under the Danish Bookkeeping Act it is you — not BonBox — who must keep your business&rsquo;s accounting records, as a rule for 5 years from the end of the financial year they relate to. BonBox is not a registered bookkeeping system (see &sect;2) and is not an archive you can rely on for that duty. Download your data and the PDFs you need (for example kasserapporter and invoices) before you delete your account.</p>
 
-          <p className="font-semibold mt-4">Immutable audit log</p>
-          <p className="mt-1">Every financial mutation (marking an invoice paid, voiding, brand changes, etc.) is recorded in an append-only audit log capturing the action, your IP address, and before/after state. These rows cannot be edited or deleted — by you or by us — for 10 years from creation, as required by Bogf&oslash;ringsloven &sect;9. This protects you in the event of a Skattestyrelsen dispute.</p>
+          <p className="font-semibold mt-4">Change log</p>
+          <p className="mt-1">Changes to financial records (for example marking an invoice paid or voiding it) are written to a change log with the action, the time, your IP address and the state before and after. The log cannot be edited or deleted through BonBox &mdash; neither by you nor by us.</p>
 
-          <p className="font-semibold mt-4">Account deletion and the legal-retention exception</p>
-          <p className="mt-1">When you delete your account, all personal and financial data is purged within 30 days <em>except</em> records the law requires us to retain. Those rows remain in cold storage for the legal window, no longer linked to your identity. Backups are purged within 90 days.</p>
+          <p className="font-semibold mt-4">Deleting your account</p>
+          <p className="mt-1">When you delete your account, we delete the account and the data in it straight away. We keep the change log, the security and error logs, and the images of accounting documents you uploaded (kasserapport photos, receipt and sales photos, and stock import files); we keep those images for about 6 years after the deletion and then delete them. Copies in our backups disappear when those backups expire. An active subscription stops at the same moment (see &sect;8).</p>
         </Section>
 
         <Section num={5} title="Financial reports and disclaimers">
@@ -112,12 +123,12 @@ function TermsEn() {
         </Section>
 
         <Section num={6} title="Bank data import">
-          <p>When you upload a bank CSV file or connect your bank via Open Banking:</p>
+          <p>When you upload a bank CSV file:</p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
             <li>You confirm that you are authorized to access and share the bank account data</li>
             <li>BonBox reads transaction data in read-only mode — we cannot initiate payments or transfers</li>
             <li>Auto-categorization of transactions is a suggestion that may not always be accurate — always review imported transactions</li>
-            <li>You can delete all imported bank data at any time</li>
+            <li>You can delete the entries an import created (sales and expenses)</li>
           </ul>
         </Section>
 
@@ -131,14 +142,16 @@ function TermsEn() {
           </ul>
         </Section>
 
-        <Section num={8} title="Free service">
-          <p>BonBox is currently provided free of charge. We reserve the right to:</p>
-          <ul className="list-disc pl-6 space-y-1 mt-2">
-            <li>Introduce paid plans or premium features in the future</li>
-            <li>Change, limit, or discontinue features with reasonable notice</li>
-            <li>Set usage limits if necessary to maintain service quality</li>
-          </ul>
-          <p className="mt-2">If we introduce paid features, existing free functionality will remain available. We will not retroactively charge for features you already use for free.</p>
+        <Section num={8} title="Subscription and payment">
+          <p><strong>Plans and prices.</strong> BonBox has a free plan (Free) and two paid subscriptions (Starter and Pro). The prices are shown on <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Pricing</a> and on the Plan &amp; Billing page in the app. Prices are per business, in Danish kroner and per month. The amount you pay is shown at checkout before you confirm the purchase. Every plan has usage caps (for example how many receipts you can scan per month). We may change, limit or remove features and usage caps with reasonable notice.</p>
+          <p className="mt-3"><strong>Businesses only.</strong> Paid subscriptions are for businesses only. By buying a subscription you confirm that you buy it for your business and not as a consumer. An account set up for personal finance (Personal Mode) can use BonBox for free but cannot buy a paid subscription. As subscriptions are sold business to business, the consumer right of withdrawal (fortrydelsesret) under the Danish Consumer Contracts Act does not apply.</p>
+          <p className="mt-3"><strong>Trial.</strong> A new account gets 14 days with the Pro features, free of charge and without a payment card. If you do not buy a subscription, the account moves to the Free plan when the trial ends, and you are not charged. If you buy a subscription during the trial, you enter a payment card at checkout, and the first charge is made when the trial ends.</p>
+          <p className="mt-3"><strong>Payment and renewal.</strong> Payment is handled by Stripe. A subscription is paid one month in advance at a time, by payment card or another payment method Stripe offers at checkout, and it renews automatically every month until it is cancelled.</p>
+          <p className="mt-3"><strong>Founding price.</strong> While fewer than 100 businesses have a paid subscription with us, new subscriptions get the founding price: Starter 129 kr. and Pro 249 kr. per month (regular price: Starter 199 kr. and Pro 349 kr.). You keep the founding price as long as your subscription stays active without a break. If you cancel the subscription, or it ends because a payment does not go through, the founding price is lost, and a new subscription later costs the price that applies at that time.</p>
+          <p className="mt-3"><strong>Cancellation.</strong> You can cancel at any time on the Plan &amp; Billing page in the app (Manage subscription), which opens Stripe&rsquo;s customer portal. The cancellation takes effect at the end of the period you have paid for. Until then you keep the plan&rsquo;s features; after that the account moves to the Free plan, and your data stays in the account. We do not refund part of a period.</p>
+          <p className="mt-3"><strong>Deleting the account.</strong> If you delete your account, an active subscription stops at once, and the rest of the period is not refunded.</p>
+          <p className="mt-3"><strong>Failed payment.</strong> If a payment fails, Stripe tries to charge it again. Meanwhile the Plan &amp; Billing page shows that the payment failed, and you can update your card there. If the payment still does not go through, the subscription ends and the account moves to the Free plan; your data stays in the account.</p>
+          <p className="mt-3"><strong>Price changes.</strong> We may change our prices. We give at least 30 days&rsquo; notice by e-mail before a price change applies to your running subscription, and you may cancel the subscription before the change takes effect. We do not raise the founding price while your subscription stays active without a break.</p>
         </Section>
 
         <Section num={9} title="Acceptable use">
@@ -212,16 +225,18 @@ function TermsEn() {
 
         <Section num={14} title="Changes to these terms">
           <p>
-            We may update these terms from time to time. When we make significant changes, we will notify you via email or through a notice in BonBox at least 14 days before the changes take effect. Continued use after the effective date constitutes acceptance.
+            We may update these terms from time to time. When we make significant changes, we will notify you via email or through a notice in BonBox at least 14 days before the changes take effect. Price changes follow &sect;8 (at least 30 days&rsquo; notice by e-mail). Continued use after the effective date constitutes acceptance. If you do not accept the changes, you can cancel your subscription or delete your account before they take effect.
           </p>
         </Section>
 
-        <Section num={15} title="Contact">
+        <Section num={15} title="Contact and language">
           <p>For questions about these terms:</p>
           <p className="mt-2">
+            <strong>DukaanAI v/Manoz Chaudhary</strong>, CVR 46417321<br />
             <strong>Email:</strong> <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a><br />
             <strong>Website:</strong> <a href="https://bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk</a>
           </p>
+          <p className="mt-4">These terms exist in Danish and English. If they differ, the Danish version applies.</p>
         </Section>
       </div>
     </>
@@ -231,15 +246,20 @@ function TermsEn() {
 function TermsDa() {
   return (
     <>
-      <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Servicevilkår</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Senest opdateret: 13. maj 2026</p>
+      <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Handelsbetingelser</h1>
+      <p className="text-gray-500 dark:text-gray-400 text-sm">Sidst opdateret: {termsDate(TERMS_VERSION, "da")}</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="terms-effective-dates">Gælder for nye konti fra {termsDate(TERMS_VERSION, "da")} og for eksisterende konti fra {termsDate(TERMS_EXISTING_FROM, "da")}.</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
         <Section num={1} title="Om BonBox">
           <p>
-            BonBox er et værktøj til små virksomheder i restaurationsbranchen (restauranter, barer, caféer, takeaway-steder), som samler kasserapporter fra flere terminaler. Det hjælper front-of-house-personalet med at gennemføre kasseafstemningen ved vagtens afslutning på cirka 90 sekunder og leverer den samlede kasserapport som PDF til ejere og revisorer. BonBox drives af Manoj Kumar Chaudhary, der har base i København, Danmark.
+            BonBox er et værktøj til små virksomheder i restaurationsbranchen (restauranter, barer, caféer, takeaway-steder), som samler kasserapporter fra flere terminaler. Det hjælper front-of-house-personalet med at gennemføre kasseafstemningen ved vagtens afslutning og leverer den samlede kasserapport som PDF til ejere og revisorer.
           </p>
+          <p className="mt-2">
+            BonBox leveres af <strong>DukaanAI v/Manoz Chaudhary</strong>, CVR 46417321 (»vi«, »os«). Du kan kontakte os på <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a>.
+          </p>
+          <p className="mt-2">BonBox er en tjeneste til virksomheder. Disse vilkår gælder mellem os og den virksomhed, der opretter kontoen.</p>
           <p className="mt-2">Ved at oprette en konto eller bruge BonBox accepterer du disse vilkår.</p>
         </Section>
 
@@ -249,9 +269,9 @@ function TermsDa() {
             <li>Et værktøj, der ved vagtens afslutning samler kasserapporterne fra flere terminaler</li>
             <li>Et system til OCR-aflæsning og sammentælling af udskrevne kasserapporter</li>
             <li>Et værktøj til registrering af data til fakturaer og kørselsgodtgørelse</li>
-            <li>Et værktøj, der danner kasserapporter som PDF (forenelige med opbevaring efter bogføringslovens § 10)</li>
+            <li>Et værktøj, der danner kasserapporter som PDF</li>
             <li>Et rapporteringslag, der eksporterer til Dinero / Billy / e-conomic</li>
-            <li>Et valgfrit værktøj til at følge din private økonomi (i personlig tilstand)</li>
+            <li>Et valgfrit værktøj til at følge din private økonomi (personlig tilstand — gratis; der kan ikke købes betalte abonnementer til den, se § 8)</li>
           </ul>
           <p className="font-semibold mt-4 mb-2">BonBox er IKKE:</p>
           <ul className="list-disc pl-6 space-y-1">
@@ -292,19 +312,19 @@ function TermsDa() {
         <Section num={4} title="Dine data">
           <p>Alle økonomiske data, du indtaster i BonBox, tilhører dig. Vi gør ikke krav på ejerskab over dine data.</p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
-            <li>Du kan til enhver tid eksportere dine data som CSV-filer</li>
-            <li>Du kan til enhver tid slette din konto og alle data</li>
+            <li>Du kan til enhver tid hente en kopi af dine data som en CSV-fil (Profil)</li>
+            <li>Du kan til enhver tid slette din konto under Profil. Sletningen beder om din adgangskode: har du oprettet kontoen med Google, Apple eller et e-maillink, så vælg først en adgangskode via »Glemt?« på login-siden, eller skriv til <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a>. Har kontoen teammedlemmer med eget login, skal de fjernes først.</li>
             <li>Se vores <Link to="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline">privatlivspolitik</Link> for alle detaljer om, hvordan vi behandler data</li>
           </ul>
 
-          <p className="font-semibold mt-4">Lovpligtig opbevaring af regnskabsmateriale</p>
-          <p className="mt-1">Dansk lov (bogføringslovens § 12) kræver, at vi opbevarer regnskabsmateriale — herunder fakturaer, kreditnotaer, kørselslogge og det tilhørende revisionsspor — i mindst 5 år fra udgangen af det regnskabsår, materialet vedrører. BonBox opbevarer som standard i 6 år (lovens minimum på 5 år plus 1 års buffer), og du kan forlænge op til 10 år (den maksimale periode, der gælder efter skatteforvaltningslovens § 31) under dine profilindstillinger. Du kan ikke sætte opbevaringen til under 5 år; det ville udsætte dig for straf efter bogføringslovens § 16.</p>
+          <p className="font-semibold mt-4">Dit regnskabsmateriale</p>
+          <p className="mt-1">Efter bogføringsloven er det dig — ikke BonBox — der skal opbevare din virksomheds regnskabsmateriale, som hovedregel i 5 år fra udgangen af det regnskabsår, materialet vedrører. BonBox er ikke et registreret bogføringssystem (se § 2) og er ikke et arkiv, du kan regne med til den pligt. Hent dine data og de PDF'er, du har brug for (f.eks. kasserapporter og fakturaer), før du sletter din konto.</p>
 
-          <p className="font-semibold mt-4">Revisionslog, der ikke kan ændres</p>
-          <p className="mt-1">Enhver økonomisk ændring (markering af en faktura som betalt, annullering, ændringer af branding osv.) registreres i en revisionslog, der kun kan tilføjes til, og som indeholder handlingen, din IP-adresse og tilstanden før og efter. Rækkerne kan ikke redigeres eller slettes — hverken af dig eller af os — i 10 år fra oprettelsen, som krævet af bogføringslovens § 9. Det beskytter dig, hvis der opstår en sag med Skattestyrelsen.</p>
+          <p className="font-semibold mt-4">Ændringslog</p>
+          <p className="mt-1">Ændringer af økonomiske poster (f.eks. når en faktura markeres som betalt eller annulleres) skrives i en ændringslog med handlingen, tidspunktet, din IP-adresse og tilstanden før og efter. Loggen kan ikke redigeres eller slettes gennem BonBox — hverken af dig eller af os.</p>
 
-          <p className="font-semibold mt-4">Sletning af konto og undtagelsen for lovpligtig opbevaring</p>
-          <p className="mt-1">Når du sletter din konto, slettes alle personoplysninger og økonomiske data inden for 30 dage — <em>undtagen</em> materiale, som loven kræver, at vi opbevarer. Disse rækker forbliver i arkivlager i den lovpligtige periode og er ikke længere knyttet til din identitet. Sikkerhedskopier slettes inden for 90 dage.</p>
+          <p className="font-semibold mt-4">Sletning af din konto</p>
+          <p className="mt-1">Når du sletter din konto, sletter vi kontoen og dataene i den med det samme. Vi beholder ændringsloggen, sikkerheds- og fejlloggene og billederne af de regnskabsbilag, du har uploadet (fotos af kasserapporter, kvitteringer og salg samt filer fra lagerimport); billederne gemmer vi i ca. 6 år efter sletningen og sletter dem derefter. Kopier i vores sikkerhedskopier forsvinder, når sikkerhedskopierne udløber. Et aktivt abonnement stopper samtidig (se § 8).</p>
         </Section>
 
         <Section num={5} title="Økonomiske rapporter og forbehold">
@@ -318,12 +338,12 @@ function TermsDa() {
         </Section>
 
         <Section num={6} title="Import af bankdata">
-          <p>Når du uploader en CSV-fil fra din bank eller forbinder din bank via Open Banking:</p>
+          <p>Når du uploader en CSV-fil fra din bank:</p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
             <li>Du bekræfter, at du har ret til at tilgå og dele dataene fra bankkontoen</li>
             <li>BonBox har kun læseadgang til transaktionsdata — vi kan ikke igangsætte betalinger eller overførsler</li>
             <li>Den automatiske kategorisering af transaktioner er et forslag, som ikke altid er korrekt — gennemgå altid importerede transaktioner</li>
-            <li>Du kan til enhver tid slette alle importerede bankdata</li>
+            <li>Du kan slette de posteringer, en import har oprettet (salg og udgifter)</li>
           </ul>
         </Section>
 
@@ -337,14 +357,16 @@ function TermsDa() {
           </ul>
         </Section>
 
-        <Section num={8} title="Gratis tjeneste">
-          <p>BonBox stilles i øjeblikket gratis til rådighed. Vi forbeholder os ret til at:</p>
-          <ul className="list-disc pl-6 space-y-1 mt-2">
-            <li>Indføre betalte abonnementer eller premiumfunktioner i fremtiden</li>
-            <li>Ændre, begrænse eller lukke funktioner med rimeligt varsel</li>
-            <li>Indføre forbrugsgrænser, hvis det er nødvendigt for at opretholde tjenestens kvalitet</li>
-          </ul>
-          <p className="mt-2">Hvis vi indfører betalte funktioner, forbliver den eksisterende gratis funktionalitet tilgængelig. Vi opkræver ikke med tilbagevirkende kraft betaling for funktioner, du allerede bruger gratis.</p>
+        <Section num={8} title="Abonnement og betaling">
+          <p><strong>Planer og priser.</strong> BonBox har en gratis plan (Free) og to betalte abonnementer (Starter og Pro). Priserne står på <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Priser</a> og på siden Abonnement &amp; betaling i appen. Priserne er pr. virksomhed, i danske kroner og pr. måned. Beløbet, du skal betale, vises ved betalingen, før du bekræfter købet. Alle planer har forbrugslofter (f.eks. hvor mange kvitteringer du kan scanne pr. måned). Vi kan ændre, begrænse eller fjerne funktioner og forbrugslofter med rimeligt varsel.</p>
+          <p className="mt-3"><strong>Kun for virksomheder.</strong> Betalte abonnementer er kun for virksomheder. Når du køber et abonnement, bekræfter du, at du køber det til din virksomhed og ikke som forbruger. En konto, der er oprettet til privatøkonomi (personlig tilstand), kan bruge BonBox gratis, men kan ikke købe et betalt abonnement. Da abonnementerne sælges mellem virksomheder, gælder forbrugeraftalelovens regler om fortrydelsesret ikke.</p>
+          <p className="mt-3"><strong>Prøveperiode.</strong> En ny konto får 14 dage med Pro-funktionerne gratis og uden betalingskort. Køber du ikke et abonnement, overgår kontoen til Free-planen, når prøveperioden slutter, og du bliver ikke opkrævet. Køber du et abonnement i prøveperioden, angiver du et betalingskort ved betalingen, og det første træk sker, når prøveperioden slutter.</p>
+          <p className="mt-3"><strong>Betaling og fornyelse.</strong> Betalingen håndteres af Stripe. Abonnementet betales forud for én måned ad gangen med betalingskort eller en anden betalingsmetode, som Stripe tilbyder ved betalingen, og det fornyes automatisk hver måned, indtil det bliver opsagt.</p>
+          <p className="mt-3"><strong>Stifterpris.</strong> Så længe færre end 100 virksomheder har et betalt abonnement hos os, får nye abonnementer stifterprisen: Starter 129 kr. og Pro 249 kr. pr. måned (normalpris: Starter 199 kr. og Pro 349 kr.). Du beholder stifterprisen, så længe dit abonnement er aktivt uden afbrydelse. Opsiger du abonnementet, eller ophører det, fordi en betaling ikke går igennem, mister du stifterprisen, og et nyt abonnement senere koster den pris, der gælder på det tidspunkt.</p>
+          <p className="mt-3"><strong>Opsigelse.</strong> Du kan opsige abonnementet når som helst på siden Abonnement &amp; betaling i appen (Administrer abonnement), som åbner Stripes kundeportal. Opsigelsen får virkning ved udgangen af den periode, du har betalt for. Indtil da beholder du planens funktioner; derefter overgår kontoen til Free-planen, og dine data bliver i kontoen. Vi refunderer ikke for en del af en periode.</p>
+          <p className="mt-3"><strong>Sletning af kontoen.</strong> Sletter du din konto, stopper et aktivt abonnement med det samme, og der refunderes ikke for resten af perioden.</p>
+          <p className="mt-3"><strong>Betaling, der mislykkes.</strong> Mislykkes en betaling, forsøger Stripe at trække beløbet igen. Imens står der på siden Abonnement &amp; betaling, at betalingen er fejlet, og du kan opdatere dit kort der. Går betalingen stadig ikke igennem, ophører abonnementet, og kontoen overgår til Free-planen; dine data bliver i kontoen.</p>
+          <p className="mt-3"><strong>Prisændringer.</strong> Vi kan ændre vores priser. En prisændring på dit løbende abonnement varsler vi pr. e-mail mindst 30 dage, før den får virkning, og du kan opsige abonnementet, før ændringen træder i kraft. Stifterprisen hæver vi ikke, så længe dit abonnement er aktivt uden afbrydelse.</p>
         </Section>
 
         <Section num={9} title="Acceptabel brug">
@@ -418,16 +440,18 @@ function TermsDa() {
 
         <Section num={14} title="Ændringer af disse vilkår">
           <p>
-            Vi kan opdatere disse vilkår fra tid til anden. Når vi foretager væsentlige ændringer, giver vi dig besked via e-mail eller gennem en meddelelse i BonBox mindst 14 dage, før ændringerne træder i kraft. Fortsat brug efter ikrafttrædelsesdatoen betragtes som accept.
+            Vi kan opdatere disse vilkår fra tid til anden. Når vi foretager væsentlige ændringer, giver vi dig besked via e-mail eller gennem en meddelelse i BonBox mindst 14 dage, før ændringerne træder i kraft. Prisændringer følger § 8 (mindst 30 dages varsel pr. e-mail). Fortsat brug efter ikrafttrædelsesdatoen betragtes som accept. Accepterer du ikke ændringerne, kan du opsige dit abonnement eller slette din konto, før de træder i kraft.
           </p>
         </Section>
 
-        <Section num={15} title="Kontakt">
+        <Section num={15} title="Kontakt og sprog">
           <p>Hvis du har spørgsmål til disse vilkår:</p>
           <p className="mt-2">
+            <strong>DukaanAI v/Manoz Chaudhary</strong>, CVR 46417321<br />
             <strong>E-mail:</strong> <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a><br />
             <strong>Hjemmeside:</strong> <a href="https://bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk</a>
           </p>
+          <p className="mt-4">Vilkårene findes på dansk og engelsk. Ved uoverensstemmelse gælder den danske version.</p>
         </Section>
       </div>
     </>

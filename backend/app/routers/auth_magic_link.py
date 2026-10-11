@@ -235,6 +235,12 @@ def request_magic_link(
     # brand-new account (services/signup_ref.py).
     if data.signup_ref:
         magic_url += f"&ref={data.signup_ref}"
+    # The login page showed the Terms acceptance line beside the button
+    # (accept_terms=true): the link says so, and the verify that opens it
+    # stamps the Terms version only if it creates the account
+    # (services/terms.py). A fixed flag, never a value from the client.
+    if data.accept_terms is True:
+        magic_url += "&terms=1"
 
     # Best-effort email send. Failure is non-fatal — we already
     # committed the row, and if Resend is down for 30s the user can
@@ -279,7 +285,10 @@ def verify_magic_link(
     ip = _client_ip(request)
 
     try:
-        user = verify_token(db, data.token, used_ip=ip, signup_ref=data.signup_ref)
+        user = verify_token(
+            db, data.token, used_ip=ip, signup_ref=data.signup_ref,
+            accept_terms=data.accept_terms,
+        )
     except HTTPException as e:
         # Map the service-layer codes to security_event rows so a
         # spike of "expired" or "invalid" verify attempts is visible

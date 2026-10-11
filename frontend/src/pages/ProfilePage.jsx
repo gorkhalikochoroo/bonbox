@@ -2124,7 +2124,14 @@ export default function ProfilePage() {
                             localStorage.clear();
                             window.location.href = "/login";
                           } catch (err) {
-                            setDeleteError(errText(err, t("deleteFailed") || "Failed to delete account"));
+                            // R-e fix-up: the server refuses the deletion when
+                            // the subscription cannot be stopped at Stripe —
+                            // say so in the app's language.
+                            setDeleteError(
+                              err?.response?.data?.detail?.code === "subscription_cancel_failed"
+                                ? t("deleteSubscriptionStopFailed", "We couldn't stop your subscription at Stripe just now, so your account was not deleted and nothing was changed. Please try again in a few minutes, or write to contact@bonbox.dk.")
+                                : errText(err, t("deleteFailed") || "Failed to delete account"),
+                            );
                           }
                           setDeleting(false);
                         }}

@@ -22,7 +22,6 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
@@ -34,10 +33,30 @@ from app.services.admin_security import _audit, require_super_admin
 from app.services.auth import get_current_user
 from app.services.billing import billing_summary, entitlements_payload, effective_plan
 from app.services import stripe_billing
+from app.schemas.auth import TermsAcceptMixin
+from app.services.terms import (
+    TERMS_VERSION, apply_checkout_terms_acceptance, is_personal_account,
+)
 from app.utils.time import utc_now
 
 router = APIRouter()
 log = logging.getLogger("bonbox.billing")
+
+# The refusal a personal account gets from /stripe/checkout-session — the
+# same sentences the subscription page shows (pricingBusinessOnlyTitle +
+# pricingBusinessOnlyBody in frontend/src/i18n/{da,en}.js).
+CHECKOUT_BUSINESS_ONLY_DA = (
+    "Betalte abonnementer er kun for virksomheder. Kontoen er oprettet til "
+    "privatøkonomi, så Starter og Pro kan ikke købes på den. Du kan fortsat "
+    "bruge BonBox gratis. Bruger du BonBox i en virksomhed, så skift "
+    "virksomhedstype under Profil."
+)
+CHECKOUT_BUSINESS_ONLY_EN = (
+    "Paid plans are for businesses only. This account is set up for personal "
+    "finance, so Starter and Pro can't be bought on it. You can keep using "
+    "BonBox for free. If you use BonBox in a business, change the business "
+    "type under Profile."
+)
 limiter = Limiter(key_func=client_ip)
 
 
@@ -194,7 +213,10 @@ def my_entitlements(
 @router.get("/plans")
 @limiter.limit("60/minute")
 def public_plans(request: Request):
-    """Public, cacheable monthly price table in whole DKK (ex MOMS).
+    """Public, cacheable monthly price table in whole DKK.
+
+    Says nothing about whether MOMS is added — the VAT status is not
+    confirmed (terms draft [TIL AFKLARING: momsstatus], 10 Oct 2026).
 
     Returns the PLAN_PRICES_DKK display mirror from config — the same numbers
     shown on the landing/pricing surfaces. This is NOT the charge authority:
@@ -212,7 +234,7 @@ def public_plans(request: Request):
     payload = {
         "currency": "DKK",
         "interval": "month",
-        "note": "Display prices ex MOMS; charge authority is the Stripe Price.",
+        "note": "Display prices; the charge authority is the Stripe Price.",
         "plans": _settings.PLAN_PRICES_DKK,
     }
     return JSONResponse(
@@ -246,9 +268,15 @@ def sync_subscription(
         return {"status": "error", "exception_type": type(e).__name__, "exception_msg": str(e)[:300]}
 
 
-class CheckoutSessionRequest(BaseModel):
+class CheckoutSessionRequest(TermsAcceptMixin):
     """Body for /stripe/checkout-session. plan defaults to 'pro' for
-    back-compat with older frontend builds that didn't send a plan."""
+    back-compat with older frontend builds that didn't send a plan.
+
+    accept_terms (TermsAcceptMixin — only a real JSON true counts): the
+    subscription page showed "Når du går videre til betaling, accepterer du
+    vores Handelsbetingelser og bekræfter, at du køber abonnementet til din
+    virksomhed." beside the button. An older page leaves it out; the
+    checkout still works and records nothing (services/terms.py)."""
     plan: str = "pro"
 
 
@@ -278,6 +306,7 @@ def create_checkout(
       • Stripe must be configured server-side
       • Plan validated against the {starter, pro} allowlist (unknown
         plans default to "pro" silently — fail-safe for legacy callers)
+      • Businesses only: a personal account gets 403 checkout_business_only
     """
     if not stripe_billing.is_configured():
         return JSONResponse(
@@ -310,6 +339,22 @@ def create_checkout(
         portal = stripe_billing.create_billing_portal_session(user, db)
         if portal:
             return {"url": portal["url"], "already_subscribed": True}
+
+    # Paid plans are for businesses only (Manoj, 10 Oct 2026, decision 1):
+    # the Terms are B2B and carry no consumer withdrawal section, so a
+    # personal (Privatøkonomi) account cannot START a paid checkout. Placed
+    # after the portal hand-off above on purpose: an existing subscriber is
+    # never locked out of managing or cancelling what they already have.
+    # Before the rate-limit counter, so a refusal never burns their quota.
+    if is_personal_account(user):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "checkout_business_only",
+                "message": CHECKOUT_BUSINESS_ONLY_EN,
+                "message_da": CHECKOUT_BUSINESS_ONLY_DA,
+            },
+        )
 
     # FIX 5 — per-user checkout-session cap (1/hour AND 3/day). The 10/min
     # @limiter.limit above is per-IP; this per-user-id backstop blunts
@@ -350,7 +395,14 @@ def create_checkout(
             },
         )
 
-    result = stripe_billing.create_checkout_session(user, db, plan=requested_plan)
+    # The buyer accepted the Terms beside the buy button (accept_terms=true):
+    # the subscription's metadata names that version, and the account's
+    # acceptance record is stamped once the session exists (below).
+    accepted_terms = bool(body is not None and body.accept_terms is True)
+    result = stripe_billing.create_checkout_session(
+        user, db, plan=requested_plan,
+        terms_version=TERMS_VERSION if accepted_terms else None,
+    )
     if not result:
         return JSONResponse(
             status_code=500,
@@ -360,6 +412,17 @@ def create_checkout(
                 "_recoverable": True,
             },
         )
+
+    # The acceptance record — for an account that has none or an older one
+    # (everyone from before R-e, the /login sign-ups before the line was
+    # added there). Its own commit, so a telemetry failure below can never
+    # roll it back; a failure here never costs the checkout either.
+    if apply_checkout_terms_acceptance(user, accepted_terms):
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            log.warning("checkout: terms acceptance stamp failed for user=%s", user.id, exc_info=True)
 
     # Record a counter row AFTER a successful create so the per-user cap above
     # only counts real sessions (a failed create — Stripe down, no price —

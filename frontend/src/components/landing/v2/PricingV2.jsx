@@ -13,9 +13,10 @@ import { useLanguage } from "../../../hooks/useLanguage";
  *  #6 — only Starter carries the "Most popular" badge; Pro's badge and its
  *       green highlight border/glow are removed so one card is the hero.
  *  #7 — tier caps left exactly as verified against backend billing.py.
- *  #8 — 0 / 129 (was 199) / 249 (was 349), per business. No MOMS is added:
- *       the operating entity is a PMV and is not VAT-registered, so "ex MOMS"
- *       wrongly implied VAT would be charged on top.
+ *  #8 — 0 / 129 (was 199) / 249 (was 349), per business. Say NOTHING about
+ *       whether MOMS is added: the VAT status is not confirmed (Manoj, 10 Oct
+ *       2026 — terms draft [TIL AFKLARING: momsstatus]). The footnote only
+ *       says the exact amount is shown at checkout, which is true either way.
  *  #9 — no "bookkeeping system" / "digital bogføring" wording anywhere.
  */
 
@@ -72,7 +73,7 @@ export default function PricingV2() {
           <p className="text-[17px] text-slate-600">
             {t(
               "landingV2.pricing.subhead",
-              "That price stays with you for as long as you're a customer. 199 kr after that."
+              "You keep that price as long as your subscription stays active. 199 kr after that."
             )}
           </p>
         </div>
@@ -94,7 +95,7 @@ export default function PricingV2() {
                 {t("landingV2.pricing.free.price", "Free")}
               </span>
               <span className="text-sm text-slate-500">
-                {t("landingV2.pricing.free.period", "forever")}
+                {t("landingV2.pricing.free.period", "no card")}
               </span>
             </div>
             {/* /register, not /login. These three buttons are the highest-
@@ -193,7 +194,7 @@ export default function PricingV2() {
             <div className={trialNote}>
               {t(
                 "landingV2.pricing.starter.trial",
-                "14 days free · no card required · that price stays as long as you do"
+                "14 days free · no card required · the price stays as long as your subscription stays active"
               )}
             </div>
             {/* /register, not /login. These three buttons are the highest-
@@ -365,7 +366,7 @@ export default function PricingV2() {
         <div className="mt-6 text-sm text-slate-500">
           {t(
             "landingV2.pricing.footnote",
-            "No card. Cancel the same day. Prices are per business and no MOMS is added. No lock-in, no setup fee, and never a percentage of what you take."
+            "No card. Cancel the same day. Prices are per business, and you see the exact amount at checkout before you confirm. No lock-in, no setup fee, and never a percentage of what you take."
           )}
         </div>
       </div>

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, EmailStr, field_validator, Field, model_validator
 
 from app.services.signup_ref import clean_signup_ref
+from app.services.terms import clean_accept_terms
 
 
 # The currencies the app can format and pick (frontend utils/currency.js and
@@ -58,7 +59,25 @@ class SignupRefMixin(BaseModel):
         return clean_signup_ref(v)
 
 
-class UserRegister(SignupRefMixin):
+class TermsAcceptMixin(BaseModel):
+    """`accept_terms` — the page showed the Terms acceptance line ("Ved at
+    oprette en konto accepterer du vores Handelsbetingelser." on /register,
+    "Ved at fortsætte accepterer du vores Handelsbetingelser." on /login)
+    next to the button the person used. Optional on every request that can
+    create an account (register, the Google/Apple completions, the
+    magic-link request and verify) and on the checkout request. Only a real
+    JSON true counts; anything else becomes None here,
+    so an odd value can never fail a signup — it just records no acceptance.
+    services/terms.py writes the record, on a NEW account only."""
+    accept_terms: bool | None = None
+
+    @field_validator("accept_terms", mode="before")
+    @classmethod
+    def _accept_terms_ok(cls, v):
+        return clean_accept_terms(v)
+
+
+class UserRegister(SignupRefMixin, TermsAcceptMixin):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
     business_name: str = Field(..., min_length=1, max_length=200)
@@ -125,6 +144,11 @@ class UserResponse(BaseModel):
     # third-party mail is held, and the app names that reason — with "Send
     # spørgsmålet igen" — instead of "confirm your e-mail".
     claim_question_open: bool = False
+    # Show the in-app "Handelsbetingelser er opdateret" notice (owner of an
+    # account from before the Terms' date, no acceptance of the current
+    # version, not closed, before the date they apply). models/user.py →
+    # services/terms.py terms_notice_due(). Notice only — never acceptance.
+    terms_notice_due: bool = False
     analytics_opt_out: bool = False
     timezone: str = "Europe/Copenhagen"
     plan: str = "free"

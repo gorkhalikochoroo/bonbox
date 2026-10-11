@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { useAuth } from "../hooks/useAuth";
+import { canUsePersonalMode } from "../lib/appMode";
 import { isNativeApp } from "../utils/platform";
 
 /**
@@ -17,6 +19,11 @@ const DISMISS_KEY = "bonbox_trial_banner_dismissed_until";
 export default function TrialBanner() {
   const { t } = useLanguage();
   const ent = useEntitlements();
+  const { user } = useAuth() || {};
+  // R-e fix-up: a personal (Privatøkonomi) account cannot buy a paid plan
+  // (businesses only), so it is never shown the founding-price offer — it
+  // gets the "you stay on Free" sentence instead (no dead-end offer).
+  const personal = canUsePersonalMode(user);
   const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
@@ -53,9 +60,9 @@ export default function TrialBanner() {
             {(days === 1 ? (t("trialDaysLeftSingular") || "{n} day left in your free Pro trial.") : (t("trialDaysLeftPlural") || "{n} days left in your free Pro trial.")).replace("{n}", days)}
           </span>
           <span className="ml-1 text-gray-600 dark:text-gray-400">
-            {closing
+            {closing || personal
               ? (t("trialClosingDetail") || "When it ends you stay on Free. Every feature still works — just with usage caps. No card, no surprises.")
-              : (t("trialOpenDetail") || "No card needed. If you decide to keep Pro, founding price 249 kr/mo is locked in for the first 100 customers.")}
+              : (t("trialOpenDetail") || "No card needed. If you decide to keep Pro, the founding price is 249 kr/mo while fewer than 100 businesses have a paid subscription — and you keep it as long as your subscription stays active.")}
           </span>
         </div>
         <Link

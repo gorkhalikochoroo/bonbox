@@ -3,6 +3,7 @@ import api from "../services/api";
 import { trackEvent } from "./useEventLog";
 import { clearStoredMode } from "../lib/appMode";
 import { withSignupRef, clearSignupRef } from "../utils/signupRef";
+import { withTermsAcceptance } from "../legal/terms";
 import { verifyWallSkipsRole } from "../utils/verifyWallRole";
 import { forgetSessionVerifySkip } from "../utils/verifySkip";
 import { setQueueAccount } from "../utils/dailyCloseQueue";
@@ -114,8 +115,12 @@ export function AuthProvider({ children }) {
     return res.data;
   };
 
-  const googleLogin = async (credential) => {
-    const res = await api.post("/auth/google", withSignupRef({ credential }));
+  // `opts.acceptTerms` — true ONLY from a page that showed the Terms
+  // acceptance line next to the button (RegisterPage, SignupTermsLine). The
+  // server then records the Terms version on a NEW account. Everywhere else
+  // (the login page) it is left out, and no acceptance is recorded.
+  const googleLogin = async (credential, opts = {}) => {
+    const res = await api.post("/auth/google", withSignupRef(withTermsAcceptance({ credential }, opts)));
     clearSignupRef();
     persistTokenIfNeeded(res.data.access_token);
     setUser(res.data.user);
@@ -132,11 +137,11 @@ export function AuthProvider({ children }) {
    * Backend verifies the JWT against Apple's public keys and either
    * find-or-creates the user.
    */
-  const appleLogin = async (identityToken, fullName) => {
-    const res = await api.post("/auth/apple", withSignupRef({
+  const appleLogin = async (identityToken, fullName, opts = {}) => {
+    const res = await api.post("/auth/apple", withSignupRef(withTermsAcceptance({
       identity_token: identityToken,
       full_name: fullName || null,
-    }));
+    }, opts)));
     clearSignupRef();
     persistTokenIfNeeded(res.data.access_token);
     setUser(res.data.user);
@@ -154,8 +159,8 @@ export function AuthProvider({ children }) {
    * the iOS Capacitor flow (which targets /auth/apple specifically) and
    * any in-the-wild magic links keep working during the cut-over.
    */
-  const googleOauthLogin = async (idToken) => {
-    const res = await api.post("/auth/oauth/google", withSignupRef({ id_token: idToken }));
+  const googleOauthLogin = async (idToken, opts = {}) => {
+    const res = await api.post("/auth/oauth/google", withSignupRef(withTermsAcceptance({ id_token: idToken }, opts)));
     clearSignupRef();
     persistTokenIfNeeded(res.data.access_token);
     setUser(res.data.user);
@@ -164,11 +169,11 @@ export function AuthProvider({ children }) {
     return res.data;
   };
 
-  const appleOauthLogin = async (idToken, name) => {
-    const res = await api.post("/auth/oauth/apple", withSignupRef({
+  const appleOauthLogin = async (idToken, name, opts = {}) => {
+    const res = await api.post("/auth/oauth/apple", withSignupRef(withTermsAcceptance({
       id_token: idToken,
       name: name || null,
-    }));
+    }, opts)));
     clearSignupRef();
     persistTokenIfNeeded(res.data.access_token);
     setUser(res.data.user);
