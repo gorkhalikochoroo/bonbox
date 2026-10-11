@@ -108,6 +108,24 @@ def test_the_first_cf_value_wins():
     assert scope["client"] == ("203.0.113.5", 0)
 
 
+def test_it_never_answers_on_its_own():
+    """It sits OUTSIDE CORS (tests/test_cors_outermost.py), which is only safe
+    because every message sent comes from the app inside it."""
+    sent = []
+
+    async def inner(scope, receive, send):
+        pass
+
+    async def send(message):
+        sent.append(message)
+
+    for headers in ([], [(b"x-forwarded-for", b"a" * 80)], [(b"cf-connecting-ip", b"bad")]):
+        asyncio.run(EdgeClientIPMiddleware(inner)(
+            {"type": "http", "path": "/api/x", "headers": headers, "client": ("1.1.1.1", 1)},
+            None, send))
+    assert sent == []
+
+
 def test_lifespan_passes_through_untouched():
     abuse_signals.reset()
     seen = {}

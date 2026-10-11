@@ -23,23 +23,35 @@ import pytest
 
 
 def test_cors_middleware_is_outermost():
-    """CORSMiddleware MUST sit at position 0 of user_middleware so it
+    """CORSMiddleware MUST be the outermost layer that can answer, so it
     wraps every response. If you move it, the bank-connect Connect Bank
     button (and every other inner-middleware-returned error response)
     will silently break in the browser.
+
+    Since R-sec (11 Oct 2026) exactly ONE layer sits outside it:
+    EdgeClientIPMiddleware, a pure pass-through that only sets
+    scope["client"] and never sends a response of its own (main.py asserts
+    it is at position 0). So CORS is at position 1 and still sees every
+    response leaving the app.
     """
     from fastapi.middleware.cors import CORSMiddleware
     from app.main import app  # noqa: F401 — triggers middleware registration
+    from app.utils.client_ip import EdgeClientIPMiddleware
 
-    assert len(app.user_middleware) > 0, "no middlewares registered"
-    outermost = app.user_middleware[0]
-    cls = getattr(outermost, "cls", None)
+    assert len(app.user_middleware) > 1, "no middlewares registered"
+    outside = [getattr(m, "cls", None) for m in app.user_middleware[:1]]
+    assert outside == [EdgeClientIPMiddleware], (
+        f"Only the pass-through EdgeClientIPMiddleware may sit outside CORS. "
+        f"Currently outside it: {outside!r}."
+    )
+    cls = getattr(app.user_middleware[1], "cls", None)
     assert cls is CORSMiddleware, (
-        f"CORSMiddleware must be the OUTERMOST middleware (position 0 of "
-        f"user_middleware). Currently at position 0: {cls!r}. "
+        f"CORSMiddleware must be the OUTERMOST answering middleware (position 1 "
+        f"of user_middleware, just inside EdgeClientIPMiddleware). Currently at "
+        f"position 1: {cls!r}. "
         f"See backend/app/main.py — the `app.add_middleware(CORSMiddleware, ...)` "
-        f"call MUST be the LAST `add_middleware` in the file so it wraps "
-        f"every response including 4xx/5xx from inner middlewares."
+        f"call MUST be the last `add_middleware` before EdgeClientIPMiddleware so "
+        f"it wraps every response including 4xx/5xx from inner middlewares."
     )
 
 

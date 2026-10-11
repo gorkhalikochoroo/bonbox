@@ -5436,6 +5436,9 @@ app.add_middleware(
 # Origin list + allow_credentials + allow_headers were already defined
 # above next to the `_PROD_ORIGINS` block — we just defer the actual
 # registration to the bottom of the file.
+# Since R-sec exactly one layer is registered after it: EdgeClientIPMiddleware,
+# a pass-through that only sets scope["client"] and never answers, so CORS is
+# still the outermost layer that can produce a response.
 #
 # expose_headers — by default only "simple" headers (Cache-Control,
 # Content-*, Expires, Last-Modified, Pragma) are surfaced to JS in a

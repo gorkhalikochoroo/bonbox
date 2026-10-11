@@ -176,9 +176,11 @@ def test_a_normal_photo_upload_is_not_capped(db, as_user, monkeypatch):
 
 def test_the_body_cap_wraps_every_layer_inside_cors():
     names = [m.cls for m in app.user_middleware]
-    # user_middleware[0] is the outermost layer.
-    assert names[0].__name__ == "CORSMiddleware"
-    assert names[1] is BodySizeLimitMiddleware
+    # user_middleware[0] is the outermost layer: since R-sec the pass-through
+    # EdgeClientIPMiddleware (it never reads the body or answers), then CORS.
+    assert names[0].__name__ == "EdgeClientIPMiddleware"
+    assert names[1].__name__ == "CORSMiddleware"
+    assert names[2] is BodySizeLimitMiddleware
     assert names.count(BodySizeLimitMiddleware) == 1
 
 
