@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import BonBoxMark from "../components/BonBoxMark";
 
 /**
  * Magic-link landing page for an accountant accepting an invite.
@@ -103,6 +104,9 @@ export default function AcceptInvitePage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-900 px-4 py-12">
       <div className="w-full max-w-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-7">
+        <div className="w-10 h-10 rounded-lg bg-bb-forest text-bb-paper flex items-center justify-center mb-5" aria-hidden="true">
+          <BonBoxMark size={32} />
+        </div>
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
           {t("aiInvitedAsRevisor", "You're invited as a revisor")}
         </h1>
