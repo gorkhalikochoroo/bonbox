@@ -1,7 +1,9 @@
 """Scheduler ops safety (R-i, OPS-10).
 
-Pins: every job runs with misfire_grace_time=3600 + coalesce; the 19 jobs
-(18 + ops_triage every 15 min) are registered; the job-event listener is
+Pins: every job runs with misfire_grace_time=3600 + coalesce (the nightly
+backup run keeps its own longer 3 h); the 21 jobs (18 + ops_triage every
+15 min + the nightly backup and its hourly watch) are registered; the
+job-event listener is
 attached; and job errors, misses, max-instance skips and daily_maintenance's
 swallowed "*_error" steps become error_logs rows (method=JOB) — including a
 real-producer test on a live BackgroundScheduler, so the stub events cannot
@@ -70,7 +72,10 @@ t = s.get_job("ops_triage")
 print("RESULT=" + json.dumps({
     "running": s.running,
     "jobs": len(jobs),
-    "defaults": sorted({(j.misfire_grace_time, j.coalesce, j.max_instances) for j in jobs}),
+    "defaults": sorted({(j.misfire_grace_time, j.coalesce, j.max_instances)
+                        for j in jobs if j.id != "nightly_backup"}),
+    "backup": [[j.misfire_grace_time, j.coalesce, j.max_instances]
+               for j in jobs if j.id == "nightly_backup"],
     "triage_trigger": type(t.trigger).__name__ if t else None,
     "triage_seconds": t.trigger.interval.total_seconds() if t else None,
     "listener": (on_job_event, JOB_EVENT_MASK) in s._listeners,
@@ -94,14 +99,17 @@ def app_scheduler():
     return json.loads(line[len("RESULT="):])
 
 
-def test_importing_the_app_starts_the_scheduler_with_19_jobs(app_scheduler):
+def test_importing_the_app_starts_the_scheduler_with_21_jobs(app_scheduler):
     assert app_scheduler["running"] is True
-    assert app_scheduler["jobs"] == 19
+    assert app_scheduler["jobs"] == 21
 
 
 def test_every_job_has_misfire_grace_and_coalesce(app_scheduler):
-    # One distinct (misfire_grace_time, coalesce, max_instances) across all 19.
+    # One distinct (misfire_grace_time, coalesce, max_instances) across every
+    # job but the nightly backup, which sets a longer 3 h grace of its own
+    # (services/backup_service.register_backup_job): never below one hour.
     assert app_scheduler["defaults"] == [[3600, True, 1]]
+    assert app_scheduler["backup"] == [[3 * 3600, True, 1]]
 
 
 def test_ops_triage_runs_every_15_minutes(app_scheduler):

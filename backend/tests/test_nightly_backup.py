@@ -771,6 +771,7 @@ def test_scheduler_registers_nightly_backup():
     watch = sched.get_job("nightly_backup_watch")
     assert watch is not None and watch.func is bs.check_backup_staleness
     assert watch.max_instances == 1 and watch.coalesce is True
+    assert watch.misfire_grace_time >= 3600          # R-i floor: no job below 1 h
     wf = {f.name: str(f) for f in watch.trigger.fields}
     assert (wf["hour"], wf["minute"]) == ("*", "50")          # hourly
     # …and the app registers it before it starts the scheduler. (Not via

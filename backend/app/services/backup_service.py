@@ -1213,5 +1213,7 @@ def register_backup_job(scheduler) -> None:
         replace_existing=True,
         max_instances=1,
         coalesce=True,
-        misfire_grace_time=1800,
+        # The scheduler-wide floor (R-i, OPS-10: no job below one hour). An
+        # hourly tick that runs late is merged with the next by coalesce.
+        misfire_grace_time=3600,
     )
