@@ -92,7 +92,7 @@ export default function ProfitLossCard({ ctx = {} }) {
             e.stopPropagation();
             navigate("/expenses");
           }}
-          className="block w-full text-left -mx-1 px-1 py-0.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
+          className="block w-full text-left -mx-1 px-1 py-0.5 rounded-lg hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-subtle))] transition"
         >
           <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
             {t("plNoExpensesTitle", "No expenses logged this month")}

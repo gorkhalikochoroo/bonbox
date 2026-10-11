@@ -105,7 +105,7 @@ export default function GrowthLeverCard({
           <p
             className={
               "text-[11px] font-semibold uppercase tracking-wider " +
-              "text-gray-400 dark:text-gray-500 mb-1"
+              "text-gray-400 mb-1"
             }
           >
             {t("dashGrowthInsightTitle", "Growth insight")}

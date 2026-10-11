@@ -145,14 +145,14 @@ export default function TodayOnShiftCard() {
                 </span>
               )}
               {s.role && (
-                <span className="text-gray-300 dark:text-gray-600" aria-hidden="true">
+                <span className="text-gray-300 dark:text-gray-500" aria-hidden="true">
                   ·
                 </span>
               )}
               <span className="font-medium text-gray-900 dark:text-gray-100 truncate">
                 {s.name}
               </span>
-              <span className="text-gray-300 dark:text-gray-600" aria-hidden="true">
+              <span className="text-gray-300 dark:text-gray-500" aria-hidden="true">
                 ·
               </span>
               <span className="tabular-nums text-gray-600 dark:text-gray-300 shrink-0">
@@ -166,7 +166,7 @@ export default function TodayOnShiftCard() {
               {[...groups.entries()].map(([branch, rows]) => (
                 <div key={branch || "-"}>
                   {branch && (
-                    <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">
                       {branch}
                     </div>
                   )}
