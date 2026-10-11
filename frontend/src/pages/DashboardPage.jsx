@@ -796,7 +796,7 @@ export default function DashboardPage() {
   // Shown until the page is revealed; the real page is already mounted
   // (hidden) underneath it so its cards load in parallel.
   const loadingSkeleton = (
-      <PageShell width="wide">
+      <PageShell width="wide" className="dark:[color-scheme:dark]">
         <PageHeader
           eyebrow={t("home", "HOME").toUpperCase()}
           title={greetingTitle}
@@ -865,7 +865,7 @@ export default function DashboardPage() {
                 setOverflowOpen(false);
                 setSmartSaleOpen(true);
               }}
-              className="w-full text-left text-sm px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              className="w-full text-left text-sm px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] dark:focus-visible:bg-[rgb(var(--surface-raised))] transition-colors"
             >
               {t("smartEntry", "Smart entry")}
             </button>
@@ -888,7 +888,7 @@ export default function DashboardPage() {
                       window.dispatchEvent(new Event("bonbox-data-changed"));
                     } catch { /* ignore */ }
                   }}
-                  className="w-full text-left text-sm px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                  className="w-full text-left text-sm px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] dark:focus-visible:bg-[rgb(var(--surface-raised))] transition-colors"
                 >
                   {t("repeatYesterday", "Repeat yesterday")}
                 </button>
@@ -901,7 +901,7 @@ export default function DashboardPage() {
                 setOverflowOpen(false);
                 downloadPdf();
               }}
-              className="w-full text-left text-sm px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              className="w-full text-left text-sm px-3 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] dark:focus-visible:bg-[rgb(var(--surface-raised))] transition-colors"
             >
               {t("downloadPdf", "Download PDF")}
             </button>
@@ -916,7 +916,7 @@ export default function DashboardPage() {
   // summary object, regardless of what isFirstRun computed.
   if (summary && ctx.activations.isFirstRun) {
     return (
-      <PageShell width="wide">
+      <PageShell width="wide" className="dark:[color-scheme:dark]">
         <ToastContainer />
         <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
         <QuickSaleModal
@@ -947,7 +947,7 @@ export default function DashboardPage() {
     {!revealed && loadingSkeleton}
     <div hidden={!revealed}>
     <PullToRefresh onRefresh={async () => fetchAll()}>
-      <PageShell width="wide">
+      <PageShell width="wide" className="dark:[color-scheme:dark]">
         <ToastContainer />
         <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
         <QuickSaleModal
