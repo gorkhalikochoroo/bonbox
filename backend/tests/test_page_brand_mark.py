@@ -18,7 +18,8 @@ from tests.test_password_reset_revocation import (  # noqa: F401 — fixtures
 )
 
 FAVICON = '<link rel="icon" href="https://www.bonbox.dk/favicon.ico?v=3" sizes="16x16 32x32"'
-IMG_CSP = "default-src 'none'; img-src https://www.bonbox.dk; frame-ancestors 'none'"
+IMG_CSP = ("default-src 'none'; img-src https://www.bonbox.dk data:; "
+           "style-src 'unsafe-inline'; frame-ancestors 'none'")
 
 
 def test_opt_out_page_has_the_tile_the_forest_word_and_the_ico(client):
@@ -67,3 +68,22 @@ def test_event_share_page_links_the_ico(db_session, client):
 def test_json_routes_keep_the_strict_default(client):
     r = client.get("/api/health")
     assert r.headers["content-security-policy"] == "default-src 'none'; frame-ancestors 'none'"
+
+
+def test_ticket_page_policy_lets_the_qr_and_styles_render_but_no_script(db_session, client):
+    """The guest's QR is a data: PNG and the page uses <style> + style="".
+    Under the old img-src-only policy both were blocked, so a guest had no
+    scannable code at the door. Scripts stay blocked (no script-src, and
+    default-src stays 'none')."""
+    csp = client.get(f"/t/{uuid.uuid4()}").headers["content-security-policy"]
+    assert "img-src https://www.bonbox.dk data:;" in csp
+    assert "style-src 'unsafe-inline'" in csp
+    assert "default-src 'none'" in csp and "script-src" not in csp
+    from app.routers.tickets import _ticket_html
+    html = _ticket_html(
+        event_name="Jazz", event_venue="Café", starts_at="2026-10-20T19:00",
+        tier_label="Standard", tier_price_dkk=150, customer_name="Mette",
+        qr_payload="x", scanned_at=None,
+    )
+    assert "data:image/png;base64," in html or "<code" in html
+    assert "<style>" in html

@@ -5065,10 +5065,14 @@ async def add_security_headers(request: Request, call_next):
         csp = PAGE_CSP
     elif _is_html and routed_path(request).startswith(("/t/", "/e/")):
         # The visitor ticket page and the event share page link the
-        # frontend's favicon. Favicons load under img-src, which default-src
-        # 'none' blocks — so these two HTML routes may load images from the
-        # frontend host, and nothing else is loosened.
-        csp = "default-src 'none'; img-src https://www.bonbox.dk; frame-ancestors 'none'"
+        # frontend's favicon, the ticket's QR code is a data: PNG, and both
+        # pages are styled with a <style> block and style="" attributes.
+        # Under default-src 'none' the guest saw no QR at the door and an
+        # unstyled page (found 12 Oct 2026). Images from the frontend host
+        # and data:, and inline styles, are allowed; scripts, frames, fonts
+        # and connections stay blocked.
+        csp = ("default-src 'none'; img-src https://www.bonbox.dk data:; "
+               "style-src 'unsafe-inline'; frame-ancestors 'none'")
     response.headers["Content-Security-Policy"] = csp
     # Cache nothing for /api/admin/* — security telemetry should never be cached
     if routed_path(request).startswith("/api/admin"):
