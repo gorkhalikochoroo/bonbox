@@ -527,6 +527,87 @@ describe("F3: no '14 days free' badge for a paying subscriber", () => {
   }
 });
 
+// Push-3 round 4 (H3, claims): the in-app plan page also said, to every
+// signed-in account, "Intet kort til prøveperiode · 14 dages Pro, ingen
+// betalingsoplysninger nødvendige" (a reassurance tile) and "Alle starter med
+// 14 dages fuld Pro — uden kort, uden overraskelser" (the hero line). Both are
+// the SIGN-UP offer: on this page the checkout always collects a card and the
+// trial days are only what is left of the signup trial. Same rule as the G3
+// badge — not shown to a signed-in account (the page is behind
+// ProtectedRoute). True lines stay: the Free card's "uden kort", step 1 during
+// a trial, and the note that a card is entered only when you lock in.
+describe("H3: no sign-up 'no card' offer lines for a signed-in account on the plan page", () => {
+  const signedIn = { user: { id: "u1", email: "cafe@cafe.dk", business_type: "cafe" }, refreshUser: vi.fn() };
+  const base = { stripe_configured: true, checkout_ready: { starter: true, pro: true, any: true } };
+  const states = [
+    ["a trial account", { ...base, plan: "trial", trial_active: true, is_paid: false, subscription_status: null }],
+    ["a free account whose trial has ended", { ...base, plan: "free", trial_active: false, is_paid: false, subscription_status: null }],
+    ["a free account with a canceled subscription", { ...base, plan: "free", trial_active: false, is_paid: false, subscription_status: "canceled" }],
+    ["a free account with a stale past_due", { ...base, plan: "free", trial_active: false, is_paid: false, subscription_status: "past_due" }],
+    ["a Starter subscriber", { ...base, plan: "starter", trial_active: false, is_paid: true, subscription_status: "active" }],
+    ["a Pro subscriber", { ...base, plan: "pro", trial_active: false, is_paid: true, subscription_status: "active" }],
+  ];
+  const offerLines = (d) => [d.pricingReassureNoCard, d.pricingReassureNoCardSub, d.pricingHeroSubtitleNew];
+  const offerWords = (lang) => (lang === "da"
+    ? /Intet kort til prøveperiode|ingen betalingsoplysninger|Alle starter med 14 dages/
+    : /No card for trial|no payment info|Every signup starts with 14 days/);
+
+  for (const lang of ["da", "en"]) {
+    for (const [who, billing] of states) {
+      it(`${lang}: ${who} sees neither the 'no card for trial' tile nor the 'no card' hero line`, async () => {
+        langCode = lang;
+        authState = signedIn;
+        post.mockReset();
+        post.mockImplementation(() => Promise.resolve({ data: {} }));
+        get.mockReset();
+        get.mockImplementation((url) =>
+          Promise.resolve({ data: url === "/billing/me" ? billing : url === "/waitlist/status" ? [] : {} }));
+        const { container } = render(<MemoryRouter initialEntries={["/subscription"]}><SubscriptionPage /></MemoryRouter>);
+        await waitFor(() => expect(get).toHaveBeenCalledWith("/billing/me"));
+        await screen.findAllByText((lang === "da" ? da : en).pricingReassureCancel);
+        const d = lang === "da" ? da : en;
+        for (const line of offerLines(d)) expect(container.textContent).not.toContain(line);
+        expect(container.textContent).not.toMatch(offerWords(lang));
+        // The other reassurance tiles are still there.
+        expect(container.textContent).toContain(d.pricingReassureDenmark);
+      });
+    }
+
+    it(`${lang}: nor while /billing/me is loading or has failed`, async () => {
+      langCode = lang;
+      authState = signedIn;
+      get.mockReset();
+      get.mockImplementation((url) => (url === "/billing/me"
+        ? Promise.reject(new Error("cold start"))
+        : Promise.resolve({ data: url === "/waitlist/status" ? [] : {} })));
+      const { container } = render(<MemoryRouter initialEntries={["/subscription"]}><SubscriptionPage /></MemoryRouter>);
+      expect(container.textContent).not.toMatch(offerWords(lang));
+      await waitFor(() => expect(get).toHaveBeenCalledWith("/billing/me"));
+      await screen.findAllByText((lang === "da" ? da : en).pricingReassureCancel);
+      expect(container.textContent).not.toMatch(offerWords(lang));
+    });
+  }
+
+  for (const lang of ["da", "en"]) {
+    it(`${lang}: an anonymous render still carries the offer (hidden only when signed in, not removed)`, async () => {
+      langCode = lang;
+      authState = { user: null, refreshUser: vi.fn() };
+      get.mockReset();
+      get.mockImplementation(() => Promise.resolve({ data: {} }));
+      const { container } = render(<MemoryRouter initialEntries={["/subscription"]}><SubscriptionPage /></MemoryRouter>);
+      const d = lang === "da" ? da : en;
+      await screen.findAllByText(d.pricingReassureCancel);
+      expect(container.textContent).toContain(d.pricingReassureNoCard);
+      expect(container.textContent).toContain(d.pricingHeroSubtitleNew);
+    });
+  }
+
+  it("the copy itself is unchanged (no new copy) — only where it shows", () => {
+    expect(da.pricingReassureNoCard).toBe("Intet kort til prøveperiode");
+    expect(en.pricingReassureNoCard).toBe("No card for trial");
+  });
+});
+
 // Push-3 review F4 (money): the server refuses a checkout for an account that
 // already has a live subscription when it cannot open the portal (502
 // subscriber_portal_failed). The page says so in the app's language — the

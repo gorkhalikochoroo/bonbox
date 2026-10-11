@@ -765,13 +765,20 @@ export default function SubscriptionPage() {
           <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
             {t("pricingHeroTitleNew", "Plans built around time saved.") || "Plans built around time saved."}
           </h1>
-          <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-3 max-w-2xl mx-auto leading-relaxed">
-            {t(
-              "pricingHeroSubtitleNew",
-              "Pick the plan that matches how much manual work you want to skip. Every signup starts with 14 days of full Pro — no card, no surprises.",
-            ) ||
-              "Pick the plan that matches how much manual work you want to skip. Every signup starts with 14 days of full Pro — no card, no surprises."}
-          </p>
+          {/* Push-3 round 4 (H3): "Every signup starts with 14 days of full
+              Pro — no card" is the SIGN-UP offer. For a signed-in account
+              on this page it is false (the checkout always collects a card;
+              the trial days are only what is left of the signup trial), so —
+              the G3 badge's rule — it is not shown when signed in. */}
+          {!user && (
+            <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-3 max-w-2xl mx-auto leading-relaxed">
+              {t(
+                "pricingHeroSubtitleNew",
+                "Pick the plan that matches how much manual work you want to skip. Every signup starts with 14 days of full Pro — no card, no surprises.",
+              ) ||
+                "Pick the plan that matches how much manual work you want to skip. Every signup starts with 14 days of full Pro — no card, no surprises."}
+            </p>
+          )}
           {/* Hide the chip entirely on fetch failure so we never
               show a stale count. Defensive: if foundingRemaining
               somehow comes back as 0 the chip still renders ("0 spots
@@ -1160,8 +1167,12 @@ export default function SubscriptionPage() {
       </Card>
 
       {/* Reassurance row — warm stone, no random color blocks */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-10">
-        <Reassure title={t("pricingReassureNoCard") || "No card for trial"} sub={t("pricingReassureNoCardSub") || "14 days of Pro, no payment info needed."} />
+      <div className={`grid grid-cols-2 ${user ? "sm:grid-cols-3" : "sm:grid-cols-4"} gap-3 mt-10`}>
+        {/* Push-3 round 4 (H3): the sign-up offer (no card, 14 days of Pro)
+            — not shown to a signed-in account, same rule as the G3 badge. */}
+        {!user && (
+          <Reassure title={t("pricingReassureNoCard") || "No card for trial"} sub={t("pricingReassureNoCardSub") || "14 days of Pro, no payment info needed."} />
+        )}
         <Reassure title={t("pricingReassureDenmark") || "Built in Denmark"} sub={t("pricingReassureDenmarkSub") || "Database in Ireland · DKK and MOMS built in"} />
         <Reassure title={t("pricingReassureCancel") || "Cancel anytime"} sub={t("pricingReassureCancelSub") || "No lock-in. Export your data on the way out."} />
         {/*
