@@ -53,6 +53,18 @@ class Settings(BaseSettings):
     # Bucket names. Must already exist in Supabase project as PRIVATE
     # buckets (RLS off; access mediated entirely by our backend's auth).
     SUPABASE_RECEIPTS_BUCKET: str = "receipts"
+    # Nightly off-project backup (services/backup_service). OFF unless the
+    # first three are ALL set; some-but-not-all is reported as misconfigured.
+    # BACKUP_SUPABASE_URL / _SERVICE_KEY belong to a SEPARATE Supabase project
+    # ("bonbox-backup"), never the main one. BACKUP_ENCRYPTION_KEY is a Fernet
+    # key (Fernet.generate_key()); everything is encrypted with it before
+    # upload, so keep an offline copy — without it the backup cannot be read.
+    # _PREVIOUS is only for reading older backups after a key rotation.
+    BACKUP_SUPABASE_URL: str = ""
+    BACKUP_SUPABASE_SERVICE_KEY: str = ""
+    BACKUP_ENCRYPTION_KEY: str = ""
+    BACKUP_ENCRYPTION_KEY_PREVIOUS: str = ""
+    BACKUP_BUCKET: str = "bonbox-backup"
     ANTHROPIC_API_KEY: str = ""
     # Mindee Receipt API — primary OCR provider (2026-05). Free tier
     # gives 250 pages/month; Standard plan beyond that is ~$0.04/page.

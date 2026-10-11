@@ -74,6 +74,11 @@ either the Pydantic `Settings` class in `backend/app/config.py` or the
 | `SUPABASE_SERVICE_KEY` | `""` | `services/storage.py` | `sb_secret_…`. **Server-side only — never expose to the frontend.** |
 | `SUPABASE_RECEIPTS_BUCKET` | `receipts` | `services/storage.py` | Override only if you renamed the bucket. |
 | `SUPABASE_ANON_KEY` | `""` | `config.py` only | Currently unused server-side; safe to omit on Render. |
+| `BACKUP_SUPABASE_URL` | `""` | `services/backup_service.py` | Nightly off-project backup: URL of the SEPARATE `bonbox-backup` Supabase project (never the main one). The backup is OFF unless this, `BACKUP_SUPABASE_SERVICE_KEY` and `BACKUP_ENCRYPTION_KEY` are all set; a partial set is reported as misconfigured (`/api/admin/backup-health`, `/api/admin/recent-errors`). |
+| `BACKUP_SUPABASE_SERVICE_KEY` | `""` | `services/backup_service.py` | Service key of the backup project. Server-side only. |
+| `BACKUP_ENCRYPTION_KEY` | `""` | `services/backup_crypto.py` | Fernet key (`Fernet.generate_key()`); everything is encrypted with it before upload. Keep an offline copy — without it the backup cannot be read. |
+| `BACKUP_ENCRYPTION_KEY_PREVIOUS` | `""` | `services/backup_crypto.py` | Only after rotating `BACKUP_ENCRYPTION_KEY`: the old key, so older backups stay readable. |
+| `BACKUP_BUCKET` | `bonbox-backup` | `services/backup_service.py` | Private bucket in the backup project. |
 | `GOOGLE_VISION_API_KEY` | `""` | `services/receipt_ocr.py` | Primary OCR backend. If empty, falls back to OCR.space. |
 | `OCRSPACE_API_KEY` | `""` | `services/receipt_ocr.py` | Secondary OCR. If both empty, OCR features 503 cleanly. |
 | `GOOGLE_PLACES_API_KEY` | `""` | `services/competitor_service.py` | Powers "nearby competitor" discovery. Optional — feature degrades gracefully. |

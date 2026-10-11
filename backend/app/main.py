@@ -6056,11 +6056,38 @@ try:
         name="Public booking-page quality monitor",
         replace_existing=True,
     )
+    # Nightly off-project backup — receipt photos + a logical DB export,
+    # encrypted client-side, copied to a SEPARATE Supabase project (Supabase's
+    # own backups stay in the project and skip Storage). A no-op until the
+    # BACKUP_* env vars are set. 04:20 UTC: after the 02:30 maintenance and
+    # retention sweep and every 03:xx job, after 04:00 recurring expenses,
+    # before the 06:00 brief push. A pg advisory lock inside the job keeps it
+    # to one run even across a deploy overlap. See services/backup_service.py.
+    # Registered in its own try: a fault here must never stop _scheduler.start()
+    # and with it every other nightly job.
+    try:
+        from app.services.backup_service import run_nightly_backup
+        _scheduler.add_job(
+            run_nightly_backup,
+            trigger=CronTrigger(hour=4, minute=20, timezone="UTC"),
+            id="nightly_backup",
+            name="Nightly encrypted off-project backup (photos + DB export)",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,              # several missed ticks collapse into one run
+            # A start delayed by a busy pool still runs. (In-memory job store: a
+            # process that is down at 04:20 skips that night; the admin
+            # backup-health endpoint flags a run older than 26 h as stale.)
+            misfire_grace_time=3 * 3600,
+        )
+    except Exception as _backup_job_err:  # noqa: BLE001
+        print(f"Scheduler warning: nightly backup job not registered: {_backup_job_err}")
     _scheduler.start()
     print("Schedulers started: payment auto-sync (6h), nightly maintenance (02:30), "
           "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30), "
           "recurring expenses (04:00), daily brief push (06:00), daily brief email (06:30), "
-          "aiia sync (03:30), mobilepay sync (03:45), frontend monitor (5m)")
+          "aiia sync (03:30), mobilepay sync (03:45), frontend monitor (5m), "
+          "nightly backup (04:20 UTC, off unless BACKUP_* set)")
 
     # Scheduler shutdown migrated to the `lifespan` context manager
     # near the FastAPI() constructor. It checks globals() for the

@@ -525,6 +525,45 @@ def admin_prod_health(
     }
 
 
+@router.get("/backup-health")
+def admin_backup_health(
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Status of the nightly off-project backup (services/backup_service).
+
+    `config` says whether the BACKUP_* env vars are complete (variable NAMES
+    only, never values). The rest is the last run's MonitorState row: outcome,
+    counts, bytes, duration and errors. `stale` is true when the last run is
+    older than 26 h (a night was skipped — e.g. a deploy at 04:20 UTC).
+    Read-only. Failures also appear in /recent-errors as method=JOB rows.
+    """
+    import json as _json
+    from app.models.monitor_state import MonitorState
+    from app.services.backup_service import SERVICE, config_status
+    cfg = config_status()
+    st = db.query(MonitorState).filter(MonitorState.service == SERVICE).first()
+    if not st:
+        return {"config": cfg, "state": "NEVER_RUN", "healthy": None, "stale": None,
+                "last_run_at": None, "fail_streak": 0, "broken_since": None,
+                "last_run": None}
+    try:
+        last_run = _json.loads(st.last_summary) if st.last_summary else None
+    except ValueError:
+        last_run = {"unparsed": (st.last_summary or "")[:500]}
+    stale = bool(st.last_check_at and utc_now() - st.last_check_at > timedelta(hours=26))
+    return {
+        "config": cfg,
+        "state": st.state,
+        "healthy": st.state == "HEALTHY" and not stale,
+        "stale": stale,
+        "last_run_at": st.last_check_at.isoformat() if st.last_check_at else None,
+        "fail_streak": st.fail_streak,
+        "broken_since": st.broken_since.isoformat() if st.broken_since else None,
+        "last_run": last_run,
+    }
+
+
 @router.get("/public-surface-health")
 def admin_public_surface_health(
     admin: User = Depends(require_super_admin),
