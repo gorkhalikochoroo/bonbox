@@ -14,7 +14,7 @@
  *       it names the Plan & Billing page (the iPhone app's page has no
  *       prices, portal or card update).
  */
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { da } from "../i18n/da";
@@ -46,7 +46,30 @@ vi.mock("../utils/platform", () => ({
   platform: { isNative: false, isIOS: false, isAndroid: false, isWeb: true },
 }));
 
+const post = vi.fn();
+const get = vi.fn();
+vi.mock("../services/api", () => ({
+  default: {
+    post: (...a) => post(...a),
+    get: (...a) => get(...a),
+    put: vi.fn(() => Promise.resolve({ data: {} })),
+  },
+}));
+let authState = { user: null };
+vi.mock("../hooks/useAuth", () => ({
+  useAuth: () => authState,
+  AuthProvider: ({ children }) => children,
+}));
+vi.mock("../hooks/useEntitlements", () => ({
+  useEntitlements: () => ({ refresh: vi.fn(), isReady: true, hasFeature: () => false }),
+}));
+vi.mock("../hooks/useFounderRateStatus", () => ({
+  default: () => ({ status: { max_slots: 100, available: 100, claimed: 0 }, valid: true }),
+}));
+vi.mock("../hooks/useEventLog", () => ({ trackEvent: () => {} }));
+
 const TermsPage = (await import("../pages/TermsPage")).default;
+const SubscriptionPage = (await import("../pages/SubscriptionPage")).default;
 
 afterEach(() => {
   cleanup();
@@ -185,5 +208,111 @@ describe("(C) § 8 on the web names where the page works: in a browser", () => {
     expect(text).toContain("You can cancel at any time when you use BonBox in a browser: on the Plan & Billing page, choose Manage subscription, which opens Stripe’s customer portal.");
     expect(text).toContain("Meanwhile, when you use BonBox in a browser, the Plan & Billing page shows that the payment failed, and you can update your card there.");
     expect(text).not.toContain("in the app");
+  });
+});
+
+// ─────────────── (B) plan switching on the subscription page ───────────────
+
+describe("(B) a paying subscriber's other plan shows the e-mail line, never a checkout", () => {
+  const paying = (plan, status = "active") => ({
+    plan, trial_active: false, is_paid: true, subscription_status: status,
+    stripe_configured: true, checkout_ready: { starter: true, pro: true, any: true },
+  });
+  const renderSub = (billing, lang = "da") => {
+    langCode = lang;
+    authState = { user: { id: "u1", email: "cafe@cafe.dk", business_type: "cafe" }, refreshUser: vi.fn() };
+    post.mockReset();
+    post.mockImplementation(() => Promise.resolve({ data: {} }));
+    get.mockReset();
+    get.mockImplementation((url) =>
+      Promise.resolve({ data: url === "/billing/me" ? billing : url === "/waitlist/status" ? [] : {} }));
+    return render(<MemoryRouter initialEntries={["/subscription"]}><SubscriptionPage /></MemoryRouter>);
+  };
+
+  it("paying Starter: the Pro card says Manoj's sentence with a mailto, and no checkout line or button", async () => {
+    renderSub(paying("starter"));
+    const line = await screen.findByTestId("plan-switch-by-email");
+    expect(line.textContent).toBe(
+      "Vil du skifte mellem Starter og Pro, så skriv til contact@bonbox.dk — så skifter vi planen for dig.",
+    );
+    expect(within(line).getByRole("link").getAttribute("href")).toBe("mailto:contact@bonbox.dk");
+    expect(screen.getAllByTestId("plan-switch-by-email")).toHaveLength(1);
+    expect(screen.queryByTestId("checkout-terms-line")).toBeNull();
+    expect(screen.queryByTestId("checkout-terms-line-trial")).toBeNull();
+    // The line sits in the Pro card, where the Pro button used to be.
+    const card = line.closest(".relative");
+    expect(card.textContent).toContain("Pro");
+    expect(within(card).queryByRole("button")).toBeNull();
+    // Nothing on the page started a checkout.
+    expect(post).not.toHaveBeenCalledWith("/billing/stripe/checkout-session", expect.anything());
+  });
+
+  it("paying Pro: the Starter card gets the line", async () => {
+    renderSub(paying("pro"));
+    const line = await screen.findByTestId("plan-switch-by-email");
+    const card = line.closest(".relative");
+    expect(card.textContent).toContain("Starter");
+    expect(screen.queryByTestId("checkout-terms-line")).toBeNull();
+  });
+
+  for (const status of ["trialing", "past_due"]) {
+    it(`a ${status} subscription is a paying subscriber too`, async () => {
+      renderSub(paying("starter", status));
+      expect(await screen.findByTestId("plan-switch-by-email")).toBeTruthy();
+      expect(screen.queryByTestId("checkout-terms-line")).toBeNull();
+    });
+  }
+
+  it("English", async () => {
+    renderSub(paying("starter"), "en");
+    const line = await screen.findByTestId("plan-switch-by-email");
+    expect(line.textContent).toBe(
+      "If you want to switch between Starter and Pro, write to contact@bonbox.dk — we will switch the plan for you.",
+    );
+  });
+
+  it("no subscription yet (trial): no e-mail line; both paid cards open a checkout with the Terms line", async () => {
+    renderSub({ ...paying("trial", null), is_paid: false });
+    expect(await screen.findAllByTestId("checkout-terms-line")).toHaveLength(2);
+    expect(screen.queryByTestId("plan-switch-by-email")).toBeNull();
+  });
+
+  it("the Terms § 8 sentence and the app's line are the same sentence (da + en)", () => {
+    const fill = (s) => s.replace("{email}", "contact@bonbox.dk");
+    for (const lang of ["da", "en"]) {
+      const text = renderTerms(lang).container.textContent;
+      expect(text).toContain(fill(lang === "da" ? da.planSwitchByEmail : en.planSwitchByEmail));
+      cleanup();
+    }
+  });
+});
+
+describe("(B/C) the iPhone app's plan page shows none of it", () => {
+  it("native: read-only plan, no switch line, no checkout line, no mailto, no price", async () => {
+    window.Capacitor = { isNativePlatform: () => true };
+    try {
+      vi.resetModules();
+      const NativeSub = (await import("../pages/SubscriptionPage")).default;
+      langCode = "da";
+      authState = { user: { id: "u2", email: "cafe@cafe.dk", business_type: "cafe" }, refreshUser: vi.fn() };
+      get.mockReset();
+      get.mockImplementation((url) => Promise.resolve({
+        data: url === "/billing/me"
+          ? { plan: "starter", subscription_status: "active", is_paid: true, stripe_configured: true,
+            checkout_ready: { starter: true, pro: true, any: true } }
+          : url === "/waitlist/status" ? [] : {},
+      }));
+      const { container } = render(<MemoryRouter initialEntries={["/subscription"]}><NativeSub /></MemoryRouter>);
+      await waitFor(() => expect(get).toHaveBeenCalledWith("/billing/me"));
+      await screen.findByText("Starter");
+      expect(screen.getByText(da.planNativeStatusNote)).toBeTruthy();
+      expect(screen.queryByTestId("plan-switch-by-email")).toBeNull();
+      expect(screen.queryByTestId("checkout-terms-line")).toBeNull();
+      expect(container.querySelectorAll("a")).toHaveLength(0);
+      expect(container.textContent).not.toMatch(/kr|DKK|contact@bonbox\.dk|bonbox\.dk/);
+    } finally {
+      delete window.Capacitor;
+      vi.resetModules();
+    }
   });
 });

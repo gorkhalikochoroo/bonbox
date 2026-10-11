@@ -2653,6 +2653,10 @@ export const da = {
     continueAcceptTerms: "Ved at fortsætte accepterer du vores {terms}. Læs om, hvordan vi behandler dine data, i vores {privacy}.",
     // R-e fix-up — ved Starter/Pro-knapperne på Abonnement & betaling (P0-1).
     checkoutAcceptTerms: "Når du går videre til betaling, accepterer du vores {terms} og bekræfter, at du køber abonnementet til din virksomhed.",
+    // Push 3 (Manoj, 11. okt.) — Stripes kundeportal kan ikke skifte plan. En
+    // betalende kunde ser denne linje på kortet for den anden plan i stedet for
+    // en betalingsknap (samme sætning som § 8 i Handelsbetingelserne).
+    planSwitchByEmail: "Vil du skifte mellem Starter og Pro, så skriv til {email} — så skifter vi planen for dig.",
     signupAcceptTermsLink: "Handelsbetingelser",
     signupAcceptPrivacyLink: "Privatlivspolitik",
     // R-e opfølgning — meddelelsen i appen til EKSISTERENDE konti om de nye

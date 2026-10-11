@@ -2752,6 +2752,10 @@ export const en = {
     continueAcceptTerms: "By continuing you accept our {terms}. Read how we handle your data in our {privacy}.",
     // R-e fix-up — beside the Starter/Pro buttons on Plan & Billing (P0-1).
     checkoutAcceptTerms: "By continuing to payment you accept our {terms} and confirm that you are buying the subscription for your business.",
+    // Push 3 (Manoj, 11 Oct) — Stripe's customer portal cannot switch plans. A
+    // paying customer sees this line on the other plan's card instead of a
+    // payment button (the same sentence as § 8 of the Terms).
+    planSwitchByEmail: "If you want to switch between Starter and Pro, write to {email} — we will switch the plan for you.",
     signupAcceptTermsLink: "Terms of Service",
     signupAcceptPrivacyLink: "Privacy Policy",
     // R-e follow-up — the in-app notice to EXISTING accounts about the new

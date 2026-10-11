@@ -888,11 +888,24 @@ export default function SubscriptionPage() {
             pending === tier.id ||
             (!stripeReady && joined.has(tier.id));
 
+          // Push 3 (Manoj, 11 Oct): Stripe's customer portal has plan
+          // switching OFF, and the server answers a paying subscriber's
+          // checkout with that portal (already_subscribed). So on the OTHER
+          // paid plan's card a paying subscriber gets the Terms § 8 sentence
+          // — write to contact@bonbox.dk and we switch the plan — instead of
+          // a button that would promise a payment step that never comes.
+          const switchByEmail =
+            hasLiveSub &&
+            (currentPlan === "starter" || currentPlan === "pro") &&
+            (tier.id === "starter" || tier.id === "pro") &&
+            !isCurrent;
+
           // This button opens Stripe Checkout (not the waitlist, not /register).
           const opensCheckout =
             !!user?.email &&
             !blockedForPersonal &&
             !isCurrent &&
+            !switchByEmail &&
             stripeReady &&
             (tier.id === "starter" || tier.id === "pro");
 
@@ -1019,22 +1032,27 @@ export default function SubscriptionPage() {
                 </div>
               )}
 
-              {/* CTA button */}
+              {/* CTA button — or, for a paying subscriber on the other
+                  paid plan's card, the e-mail line (no checkout). */}
               <div className="mt-5">
-                <Button
-                  variant={ctaVariant}
-                  size="lg"
-                  className="w-full"
-                  disabled={ctaDisabled}
-                  busy={pending === tier.id}
-                  onClick={() => handleCta(tier.id)}
-                >
-                  {ctaLabel}
-                </Button>
+                {switchByEmail ? (
+                  <PlanSwitchByEmail />
+                ) : (
+                  <Button
+                    variant={ctaVariant}
+                    size="lg"
+                    className="w-full"
+                    disabled={ctaDisabled}
+                    busy={pending === tier.id}
+                    onClick={() => handleCta(tier.id)}
+                  >
+                    {ctaLabel}
+                  </Button>
+                )}
                 {/* R-e fix-up (P0-1): the Terms acceptance + business
                     confirmation, beside every button that opens a real
                     Stripe checkout (signed in, a business account, this
-                    tier ready, not already on it). */}
+                    tier ready, not already on it, not a plan switch). */}
                 {opensCheckout && <CheckoutTermsLine className="mt-2 text-center" />}
               </div>
 
@@ -1190,6 +1208,41 @@ export default function SubscriptionPage() {
 }
 
 /** Small inline check icon — stone palette, no decorative color. */
+/**
+ * PlanSwitchByEmail — Terms § 8 (Manoj, 11 Oct 2026): "Vil du skifte mellem
+ * Starter og Pro, så skriv til contact@bonbox.dk — så skifter vi planen for
+ * dig." Shown to a paying subscriber in place of the other paid plan's
+ * button. Web only: the native app returns its read-only plan view before
+ * any plan card renders, so this never appears in the iPhone app.
+ */
+function PlanSwitchByEmail() {
+  const { t } = useLanguage();
+  const template = t(
+    "planSwitchByEmail",
+    "If you want to switch between Starter and Pro, write to {email} — we will switch the plan for you.",
+  );
+  return (
+    <p
+      data-testid="plan-switch-by-email"
+      className="text-[13px] leading-snug text-center text-gray-600 dark:text-gray-400 text-pretty"
+    >
+      {template.split(/(\{email\})/).map((part, i) =>
+        part === "{email}" ? (
+          <a
+            key={i}
+            href="mailto:contact@bonbox.dk"
+            className="underline underline-offset-2 text-gray-800 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white"
+          >
+            contact@bonbox.dk
+          </a>
+        ) : (
+          part
+        ),
+      )}
+    </p>
+  );
+}
+
 function CheckIcon() {
   return (
     <svg
