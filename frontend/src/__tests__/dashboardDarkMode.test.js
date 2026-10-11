@@ -66,6 +66,7 @@ const TW = {
   amber300: "#ffd236",
   amber500: "#fe9a00",
   amber700: "#bb4d00",
+  emerald500: "#00bc7d",
   red500: "#fb2c36",
   red600: "#e7000b",
 };
@@ -191,6 +192,24 @@ describe("no near-white slab is a dark-mode fill", () => {
 
   it.each(SOLID_CONTROLS)("%s", (rel) => {
     expect(classStrings(rel).filter((s) => SLAB.test(s))).toEqual([]);
+  });
+});
+
+describe("the money bar's profit strip does not glare in dark", () => {
+  // At 1440 the emerald "dit" strip is ~780x28 — at /80 (luminance 0.26) the
+  // brightest area of a night screen. /60 keeps it >= 3:1 on the track.
+  const over = (fg, a, bg) => {
+    const c = (h, i) => parseInt(h.slice(1 + 2 * i, 3 + 2 * i), 16);
+    return "#" + [0, 1, 2].map((i) => Math.round(a * c(fg, i) + (1 - a) * c(bg, i)).toString(16).padStart(2, "0")).join("");
+  };
+  it("emerald-500/60 on the subtle track: dimmer than /80, still a 3:1 segment", () => {
+    const at60 = over(TW.emerald500, 0.6, L.subtle.dark);
+    const at80 = over(TW.emerald500, 0.8, L.subtle.dark);
+    expect(luminance(at60)).toBeLessThan(0.2);
+    expect(luminance(at80)).toBeGreaterThan(0.24);
+    expect(contrast(at60, L.subtle.dark)).toBeGreaterThanOrEqual(3);
+    const bar = classStrings("components/dashboard/ProfitAnswerCard.jsx");
+    expect(bar).toContain("bg-emerald-500 dark:bg-emerald-500/60");
   });
 });
 

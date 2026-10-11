@@ -185,7 +185,11 @@ export default function ProfitAnswerCard({ ctx = {} }) {
               style={{ width: `${momsPct}%`, minWidth: 4 }}
             />
           )}
-          <div className="bg-emerald-500 dark:bg-emerald-500/80" style={{ width: `${profitPct}%` }} />
+          {/* Dark /60, not /80: at 1440 this strip is ~780px wide, and at /80
+              (luminance 0.26) it was the brightest area of a night screen.
+              /60 is ~0.16, still >= 3:1 on the track, and keeps light's order
+              (amber > emerald > red). The hues are an open owner question. */}
+          <div className="bg-emerald-500 dark:bg-emerald-500/60" style={{ width: `${profitPct}%` }} />
         </div>
         <div className="flex justify-between text-xs mt-1.5 tabular-nums gap-3">
           <span className="text-red-600 dark:text-red-400">
