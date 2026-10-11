@@ -11,6 +11,8 @@ ticket got "Velkommen" + the success chime. The frontend now keys on
   • unconfirmed booking → 409 detail.error "booking_not_confirmed" (NOT a re-scan)
   • void ticket         → 410 detail.error "ticket_void"
   • other tenant        → 404
+  • two devices at once → exactly one "ok" + one audit row; the loser
+                          answers "already" with the winner's stamp
 
 Run:
   cd backend && pytest tests/test_ticket_scan_outcomes.py -v
@@ -237,3 +239,114 @@ def test_other_tenants_ticket_is_404(client, db):
     assert res.status_code == 404, res.text
     db.expire_all()
     assert db.query(Ticket).filter(Ticket.id == ticket.id).one().scanned_at is None
+
+
+# ─── Two door devices, one ticket, same moment ──────────────────────
+#
+# The endpoint reads ticket.scanned_at without a lock and then stamps it.
+# If the stamp were unconditional, a second device whose request lands
+# between the first one's read and its write would ALSO see NULL and ALSO
+# answer "ok": two welcomes, two audit rows, one ticket. The stamp is a
+# conditional UPDATE (… WHERE scanned_at IS NULL), so the loser gets the
+# re-scan answer. These tests force the interleaving deterministically by
+# running the rival scan from inside the first request, right after its
+# read (utc_now() is called between the read and the UPDATE).
+
+
+def _scan_count(db, owner) -> int:
+    return (
+        db.query(AuditLog)
+        .filter(AuditLog.user_id == owner.id, AuditLog.action == "booking.scanned")
+        .count()
+    )
+
+
+def test_concurrent_scan_on_another_device_gets_exactly_one_ok(client, db, monkeypatch):
+    from app.routers import tickets as tickets_router
+
+    owner = _owner(db)
+    ticket = _ticket(db, owner)
+    _as(owner)
+
+    real_now = tickets_router.utc_now
+    rival: dict = {}
+
+    def now_with_rival_scan():
+        # Device B's whole scan runs while device A sits between its read
+        # (saw scanned_at NULL) and its stamp.
+        # (Set the flag first: B's own request passes through here too.)
+        if not rival.get("started"):
+            rival["started"] = True
+            rival["res"] = _scan(client, ticket.id)
+        return real_now()
+
+    monkeypatch.setattr(tickets_router, "utc_now", now_with_rival_scan)
+
+    device_a = _scan(client, ticket.id)
+    device_b = rival["res"]
+
+    assert device_a.status_code == 200, device_a.text
+    assert device_b.status_code == 200, device_b.text
+    statuses = sorted([device_a.json()["status"], device_b.json()["status"]])
+    assert statuses == ["already", "ok"]
+    # B got in first, so A (the loser) must answer "already" with B's stamp.
+    assert device_b.json()["status"] == "ok"
+    assert device_a.json()["status"] == "already"
+    assert device_a.json()["scanned_at"] == device_b.json()["scanned_at"]
+    assert device_a.json()["customer_name"] == "Sita Sharma"
+
+    # One ticket, one audit row, one stamp, booking attended once.
+    assert _scan_count(db, owner) == 1
+    db.expire_all()
+    row = db.query(Ticket).filter(Ticket.id == ticket.id).one()
+    first_stamp = datetime.fromisoformat(device_b.json()["scanned_at"].replace("Z", "+00:00"))
+    assert row.scanned_at == first_stamp.replace(tzinfo=None)
+    assert row.scanner_user_id == owner.id
+    assert db.query(Booking).filter(Booking.id == ticket.booking_id).one().status == "attended"
+
+
+def test_stamp_written_between_read_and_update_is_not_overwritten(client, db, session_factory, monkeypatch):
+    """Same race, rival written straight to the row (another worker / a
+    direct DB write): the conditional UPDATE misses, so this request writes
+    nothing — no audit row, the rival's stamp survives, answer "already"."""
+    from app.routers import tickets as tickets_router
+
+    owner = _owner(db)
+    ticket = _ticket(db, owner)
+    _as(owner)
+
+    rival_stamp = datetime(2026, 10, 11, 18, 0, 0)
+    real_now = tickets_router.utc_now
+    fired: list = []
+
+    def now_after_rival_stamp():
+        if not fired:
+            fired.append(True)
+            other = session_factory()
+            try:
+                other.query(Ticket).filter(Ticket.id == ticket.id).update(
+                    {Ticket.scanned_at: rival_stamp}, synchronize_session=False
+                )
+                other.commit()
+            finally:
+                other.close()
+        return real_now()
+
+    monkeypatch.setattr(tickets_router, "utc_now", now_after_rival_stamp)
+
+    res = _scan(client, ticket.id)
+
+    assert fired, "the rival stamp never ran — the race was not exercised"
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["status"] == "already"
+    assert datetime.fromisoformat(body["scanned_at"].replace("Z", "+00:00")).replace(
+        tzinfo=None
+    ) == rival_stamp
+    assert _scan_count(db, owner) == 0
+    db.expire_all()
+    row = db.query(Ticket).filter(Ticket.id == ticket.id).one()
+    assert row.scanned_at == rival_stamp
+    assert row.scanner_user_id is None
+    # The loser must not advance the booking either.
+    assert db.query(Booking).filter(Booking.id == ticket.booking_id).one().status == "paid"
