@@ -8,7 +8,7 @@
 
 /** Text link: underlined, and a 44 px tall hit area that does not move the text. */
 export const linkClass =
-  "text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 hover:text-gray-900 dark:hover:text-white py-3 -my-3 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bb-forest dark:focus-visible:ring-gray-200";
+  "text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 hover:text-gray-900 dark:hover:text-white py-3.5 -my-3.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bb-forest dark:focus-visible:ring-gray-200";
 
 /** A field's input classes; `invalid` paints the edge red-700. */
 export function inputClass(invalid = false) {

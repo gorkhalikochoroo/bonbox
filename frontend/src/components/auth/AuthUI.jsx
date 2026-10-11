@@ -59,7 +59,7 @@ export function AuthLogo({ link = true }) {
   return (
     <Link
       to="/"
-      className="inline-flex items-center gap-2.5 mb-6 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bb-forest focus-visible:ring-offset-4 focus-visible:ring-offset-bb-paper"
+      className="inline-flex items-center gap-2.5 mb-6 min-h-11 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bb-forest focus-visible:ring-offset-4 focus-visible:ring-offset-bb-paper"
     >
       {inner}
     </Link>
@@ -203,7 +203,16 @@ export function AuthLanguageSelect({ labelKey = "regLanguageLabel" }) {
 export default function AuthShell({ children, aside = null, footer = null, logoLink = true, language = false }) {
   return (
     <div
-      className="min-h-[100dvh] flex flex-col bg-bb-paper dark:bg-gray-950 text-gray-900 dark:text-gray-100"
+      className={
+        "min-h-[100dvh] flex flex-col bg-bb-paper dark:bg-gray-950 text-gray-900 dark:text-gray-100 " +
+        // The Terms acceptance line (SignupTermsLine, frozen) is gray-500,
+        // 4.39:1 on paper: below 4.5. On these pages it reads gray-600
+        // (6.86:1; gray-400 in dark), and its two links get a taller hit
+        // area that does not move the text. Its words and places are
+        // untouched.
+        "[&_[data-testid=signup-terms-line]]:text-gray-600 dark:[&_[data-testid=signup-terms-line]]:text-gray-400 " +
+        "[&_[data-testid=signup-terms-line]_a]:py-[15px]"
+      }
       style={{ paddingBottom: "var(--bb-consent-h, 0px)" }}
     >
       <div aria-hidden="true" className="fixed inset-x-0 top-0 z-40 h-[env(safe-area-inset-top,0px)] bg-bb-paper dark:bg-gray-950" />

@@ -149,11 +149,15 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
     try {
       await api.post("/auth/verify-email", { code: fullCode });
       // The success moment: the panel gives way to a calm confirmation,
-      // then the existing 1.2 s hand-over to the app.
+      // then the existing 1.2 s hand-over to the app. The signed-in user is
+      // marked confirmed at the hand-over, not before: VerifyEmailRoute
+      // sends a confirmed user straight on, which would skip the moment.
       setVerified(true);
       clearVerifySkip(user?.id);
-      setEmailVerified();
-      setTimeout(() => navigate("/dashboard"), 1200);
+      setTimeout(() => {
+        setEmailVerified();
+        navigate("/dashboard");
+      }, 1200);
     } catch (err) {
       // Per-account limits on wrong codes (backend verify_email) and the
       // three plain answers (wrong / expired / no code) — said in the

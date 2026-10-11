@@ -342,8 +342,9 @@ export default function LoginPage() {
         <footer className="px-6 sm:px-10 py-5 text-[12px] text-gray-600 dark:text-gray-400 flex items-center justify-between border-t border-bb-line/30 dark:border-gray-800">
           <span>{t("madeInCph")}</span>
           <div className="flex items-center gap-4">
-            <Link to="/privacy" className="hover:text-gray-900 dark:hover:text-white">{t("privacyLink")}</Link>
-            <Link to="/terms" className="hover:text-gray-900 dark:hover:text-white">{t("termsLink")}</Link>
+            {/* 44 px tall and wide hit areas that do not move the line. */}
+            <Link to="/privacy" className="inline-flex items-center justify-center min-h-11 min-w-11 -my-3 px-1.5 -mx-1.5 hover:text-gray-900 dark:hover:text-white">{t("privacyLink")}</Link>
+            <Link to="/terms" className="inline-flex items-center justify-center min-h-11 min-w-11 -my-3 px-1.5 -mx-1.5 hover:text-gray-900 dark:hover:text-white">{t("termsLink")}</Link>
           </div>
         </footer>
       }
@@ -438,7 +439,7 @@ export default function LoginPage() {
           IDs are configured AND we're not inside Capacitor's
           WebView (which has its own native sign-in surface). */}
       {!magicMode && (hasAppleWeb || hasAppleNative || hasGoogle) && (
-        <div className="mt-6 space-y-2.5 [&>[data-testid=signup-terms-line]_a]:py-3">
+        <div className="mt-6 space-y-2.5">
           {hasAppleNative && (
             // Task #90 — native iOS SIWA button. Visual parity with
             // AppleSignInButton (web): black bg, Apple glyph, 44px tap

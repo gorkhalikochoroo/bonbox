@@ -183,8 +183,10 @@ describe("codes and resend, in Danish", () => {
       expect(screen.getByText(da.suVerifiedTitle)).toBeTruthy();
       expect(screen.getByText(da.suVerifiedBody)).toBeTruthy();
       expect(screen.queryByRole("group")).toBeNull();
-      expect(authState.setEmailVerified).toHaveBeenCalled();
+      // marked confirmed at the hand-over (the route would skip the moment)
+      expect(authState.setEmailVerified).not.toHaveBeenCalled();
       await act(async () => { vi.advanceTimersByTime(1300); });
+      expect(authState.setEmailVerified).toHaveBeenCalled();
       expect(h.navigate).toHaveBeenCalledWith("/dashboard");
     } finally {
       vi.useRealTimers();

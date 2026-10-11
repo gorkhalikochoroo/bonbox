@@ -488,7 +488,7 @@ export default function RegisterPage() {
           dominant choice (mirrors the LoginPage layout). Each
           button no-ops cleanly when its env var is unset. */}
       {hasOAuthRow && (
-        <div className="mt-6 space-y-2.5 [&>[data-testid=signup-terms-line]_a]:py-3">
+        <div className="mt-6 space-y-2.5">
           {hasAppleNative && (
             // Task #90 — native iOS SIWA. Same visual treatment as
             // the web button so the OAuth row reads consistently.
@@ -551,9 +551,9 @@ export default function RegisterPage() {
               Google/Apple row: those buttons create the account
               without the form, so the line must be seen here. It also
               covers the e-mail form below — it renders once. (It
-              replaces R-c's informational "Læs vores …" line.) The row's
-              [&>…_a]:py-3 gives its two links a taller hit area without
-              moving the text. */}
+              replaces R-c's informational "Læs vores …" line.) The auth
+              shell gives its two links a taller hit area and the line
+              gray-600 for contrast; words and place unchanged. */}
           <SignupTermsLine isNative={isNative} className="pt-1" />
           <div className="pt-3">
             <AuthDivider label={t("orUseEmail") || "or use email"} />
@@ -739,7 +739,7 @@ export default function RegisterPage() {
         {/* Release R-e — with no Google/Apple row, the Terms acceptance
             line sits under "Opret konto" instead (it renders once). */}
         {!(hasAppleWeb || hasAppleNative || hasGoogle) && (
-          <SignupTermsLine isNative={isNative} className="-mt-1 [&_a]:py-3" />
+          <SignupTermsLine isNative={isNative} className="-mt-1" />
         )}
         {/* While the request is out: after 8 s, say the connection is slow
             (true at that moment — it is still on its way). */}
