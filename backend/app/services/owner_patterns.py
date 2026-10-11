@@ -30,6 +30,7 @@ from typing import Iterable
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.models.daily_close import DailyClose
 from app.models.event_log import EventLog
 from app.models.expense import Expense
 from app.models.owner_pattern import OwnerPattern
@@ -256,6 +257,14 @@ def detect_dormant_feature(user: User, db: Session) -> list[DetectedPattern]:
         .group_by(EventLog.page)
         .all()
     }
+
+    # No page_view at all in the last 14 days: the client log is silent, and
+    # silence is not proof a page went unused. Since R-h (LEG-10) a browser
+    # sends usage events only after a "yes" to Analytics in the cookie
+    # banner, so an owner who uses BonBox daily but never answered sends
+    # none. "Can't tell" must not become "you haven't opened X".
+    if not recent:
+        return []
 
     out: list[DetectedPattern] = []
     for page, hist_count in historical_pages.items():
@@ -535,15 +544,29 @@ _MIN_DAYS_ACTIVE = 14
 
 
 def _has_enough_data(user: User, db: Session) -> bool:
-    """User must have at least _MIN_DAYS_ACTIVE distinct days of events."""
+    """User must have at least _MIN_DAYS_ACTIVE distinct days of activity in
+    the last 90 days.
+
+    An activity day is a day with a usage event OR a day on which the owner
+    entered a sale, an expense or a daily close (by created_at, so a bulk
+    import or a seeded history is one day, as it would have been in the
+    event log). Since R-h (LEG-10) usage events are sent only after a "yes"
+    to Analytics, so counting events alone would silently switch the
+    revenue, expense and wage% insights off for every owner who never
+    answered the cookie banner, although their records are all there."""
     cutoff = utc_now() - timedelta(days=90)
-    days = (
-        db.query(func.count(func.distinct(func.date(EventLog.created_at))))
-        .filter(EventLog.user_id == user.id, EventLog.created_at >= cutoff)
-        .scalar()
-        or 0
-    )
-    return days >= _MIN_DAYS_ACTIVE
+    days: set[str] = set()
+    for model in (EventLog, Sale, Expense, DailyClose):
+        rows = (
+            db.query(func.date(model.created_at))
+            .filter(model.user_id == user.id, model.created_at >= cutoff)
+            .distinct()
+            .all()
+        )
+        days.update(str(d) for (d,) in rows if d is not None)
+        if len(days) >= _MIN_DAYS_ACTIVE:
+            return True
+    return False
 
 
 def run_for_user(user: User, db: Session) -> int:
