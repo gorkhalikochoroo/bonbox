@@ -229,11 +229,18 @@ def bucket_privacy(cfg: Optional[BackupConfig] = None, *, client=None) -> dict:
     cfg = cfg or load_config()
     if cfg.status != "enabled":
         return {"private": None, "error": None}
+    import httpx
+    own = None
+    if client is None:
+        own = client = httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0))
     try:
-        b = SupabaseBucket(cfg.url, cfg.service_key, cfg.bucket, timeout=10.0, client=client)
+        b = SupabaseBucket(cfg.url, cfg.service_key, cfg.bucket, client=client)
         return {"private": not b.bucket_public(), "error": None}
     except Exception as e:  # noqa: BLE001 — report, never break the endpoint
         return {"private": None, "error": _redact(f"{type(e).__name__}: {e}", cfg.secrets)}
+    finally:
+        if own is not None:
+            own.close()
 
 
 def _redact(msg, secrets: tuple[str, ...] = ()) -> str:
