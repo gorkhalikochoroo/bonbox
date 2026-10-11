@@ -2,7 +2,7 @@
  * Push 6 — /register: three typed inputs, inline Danish validation, every
  * server answer in the owner's language, and the frozen Terms line untouched.
  */
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { da } from "../i18n/da";
@@ -343,5 +343,134 @@ describe("arrivals", () => {
     ]);
     expect(aside.textContent).not.toMatch(/København/);
     expect(document.querySelector("main")).toBeTruthy();
+  });
+});
+
+describe("the answer to Opret konto lands where the owner is looking (phone, scrolled to the button)", () => {
+  const filled = () => {
+    fill(da.email, "ole@cafe.dk");
+    fill(da.password, "Kaffe2026");
+    fill(da.businessName, "Café");
+  };
+  const submit = () => act(async () => { fireEvent.submit(document.querySelector("form")); });
+  let scrolled;
+  beforeEach(() => {
+    scrolled = [];
+    Element.prototype.scrollIntoView = vi.fn(function (opts) { scrolled.push({ el: this, opts }); });
+  });
+  afterEach(() => { delete Element.prototype.scrollIntoView; });
+
+  it("409: the 'already has an account' panel is scrolled to the centre and focused", async () => {
+    authState.register.mockRejectedValueOnce({ response: { status: 409, data: { detail: "Email already registered" } } });
+    renderRegister();
+    filled();
+    await submit();
+    const panel = screen.getByTestId("register-exists");
+    expect(panel.getAttribute("tabindex")).toBe("-1");
+    expect(document.activeElement).toBe(panel);
+    expect(scrolled.at(-1)).toEqual({ el: panel, opts: { block: "center" } });
+  });
+
+  it.each([
+    ["offline", { code: "ERR_NETWORK", message: "Network Error" }, "suErrOffline"],
+    ["429", { response: { status: 429, data: { detail: "Too many requests" } } }, null],
+    ["blocked", { response: { status: 422, data: { detail: "Registration could not be completed. Please try again or contact support." } } }, "suErrRegisterBlocked"],
+    ["5xx", { response: { status: 500, data: { detail: "Internal Server Error" } } }, null],
+  ])("%s: the error box is scrolled into view and focused", async (_name, err, key) => {
+    authState.register.mockRejectedValueOnce(err);
+    renderRegister();
+    filled();
+    await submit();
+    const box = screen.getByRole("alert");
+    if (key) expect(box.textContent).toBe(da[key]);
+    expect(document.activeElement).toBe(box);
+    expect(scrolled.at(-1)).toEqual({ el: box, opts: { block: "center" } });
+  });
+
+  it("the same answer twice (a second tap) is brought back into view again", async () => {
+    authState.register
+      .mockRejectedValueOnce({ code: "ERR_NETWORK" })
+      .mockRejectedValueOnce({ code: "ERR_NETWORK" });
+    renderRegister();
+    filled();
+    await submit();
+    const first = scrolled.length;
+    document.querySelector("#su-business-name").focus();
+    await submit();
+    expect(scrolled.length).toBe(first + 1);
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
+  });
+
+  it("a field's own message still focuses the field, and scrolls no box", async () => {
+    authState.register.mockRejectedValueOnce({ response: { status: 422, data: { detail: "That email domain doesn't appear to exist. Please check the spelling." } } });
+    renderRegister();
+    filled();
+    await submit();
+    expect(document.activeElement.id).toBe("su-email");
+    expect(scrolled).toHaveLength(0);
+  });
+});
+
+describe("an owner who is already signed in (the back button from /verify-email)", () => {
+  const NEW_UNCONFIRMED = { id: 7, role: "owner", email_verified: false, created_at: "2026-10-11T10:00:00", business_type: "restaurant" };
+  const tree = () => (
+    <MemoryRouter initialEntries={["/register"]}>
+      <Routes>
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="*" element={<Where />} />
+      </Routes>
+    </MemoryRouter>
+  );
+
+  it("still has to confirm → /verify-email (where 'Ret den' fixes the address on the SAME account)", () => {
+    authState = { ...authState, user: NEW_UNCONFIRMED, loading: false };
+    renderRegister();
+    expect(screen.getByTestId("where").textContent).toBe("/verify-email|null");
+    expect(authState.register).not.toHaveBeenCalled();
+  });
+
+  it("confirmed → the app, not a blank sign-up form", () => {
+    authState = { ...authState, user: { ...NEW_UNCONFIRMED, email_verified: true }, loading: false };
+    renderRegister();
+    expect(screen.getByTestId("where").textContent).toBe("/dashboard|null");
+  });
+
+  it("'Spring over for nu' within 7 days, or an account from before the grace date → the app (no fresh code mailed by a back tap)", async () => {
+    const { rememberVerifySkip } = await import("../utils/verifySkip");
+    rememberVerifySkip(7);
+    authState = { ...authState, user: NEW_UNCONFIRMED, loading: false };
+    renderRegister();
+    expect(screen.getByTestId("where").textContent).toBe("/dashboard|null");
+    cleanup();
+    localStorage.clear();
+    sessionStorage.clear();
+    authState = { ...authState, user: { ...NEW_UNCONFIRMED, created_at: "2026-01-02T10:00:00" }, loading: false };
+    renderRegister();
+    expect(screen.getByTestId("where").textContent).toBe("/dashboard|null");
+  });
+
+  it("while the session probe is still out, the form shows as before (no spinner in front of a logged-out visitor)", () => {
+    authState = { ...authState, user: null, loading: true };
+    renderRegister();
+    expect(screen.getByLabelText(da.email)).toBeTruthy();
+    expect(screen.queryByTestId("where")).toBeNull();
+  });
+
+  it("its OWN new account is not bounced: the page stays until it goes to /verify-email itself", async () => {
+    let resolve;
+    authState.register = vi.fn(() => new Promise((r) => { resolve = r; }));
+    const view = render(tree());
+    fill(da.email, "ole@cafe.dk");
+    fill(da.password, "Kaffe2026");
+    fill(da.businessName, "Café");
+    await act(async () => { fireEvent.submit(document.querySelector("form")); });
+    // useAuth sets the user before register() returns; a render can fall in
+    // between. A CONFIRMED user here would be sent to /dashboard by the guard.
+    authState = { ...authState, user: { ...NEW_UNCONFIRMED, email_verified: true }, loading: false };
+    view.rerender(tree());
+    expect(screen.queryByTestId("where")).toBeNull();
+    expect(screen.getByRole("button", { name: da.suCreating })).toBeTruthy();
+    await act(async () => { resolve({ user: { id: 7 } }); });
+    expect(screen.getByTestId("where").textContent).toBe("/verify-email|null");
   });
 });

@@ -18,9 +18,13 @@ vi.mock("../services/api", () => ({
     patch: vi.fn(() => Promise.resolve({ data: {} })),
   },
 }));
+// /register and /login are seen logged out (a signed-in owner is sent on from
+// /register); /verify-email and /onboarding need the signed-in owner.
+const authUser = vi.hoisted(() => ({ current: null }));
+const OWNER = { id: "u1", email: "ole@cafe.dk", email_verified: false, business_type: "cafe", business_name: "Café", role: "owner", onboarding_completed_at: null };
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({
-    user: { id: "u1", email: "ole@cafe.dk", email_verified: false, business_type: "cafe", business_name: "Café", role: "owner", onboarding_completed_at: null },
+    user: authUser.current,
     register: vi.fn(), login: vi.fn(), googleLogin: vi.fn(), googleOauthLogin: vi.fn(), appleOauthLogin: vi.fn(),
     setEmailVerified: vi.fn(), refreshUser: vi.fn(), logout: vi.fn(),
   }),
@@ -38,6 +42,7 @@ const pages = {
 
 function renderAt(path) {
   const [Page] = pages[path];
+  authUser.current = path === "/register" || path === "/login" ? null : OWNER;
   return render(
     <LanguageProvider>
       <MemoryRouter initialEntries={[path]}><Page /></MemoryRouter>

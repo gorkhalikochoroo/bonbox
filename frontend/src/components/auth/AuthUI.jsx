@@ -77,13 +77,19 @@ export function AuthHeading({ title, sub, children }) {
   );
 }
 
-/** The error box: red-700 on red-50, AlertCircle, announced at once. */
-export function AuthAlert({ children, className = "" }) {
+/**
+ * The error box: red-700 on red-50, AlertCircle, announced at once. `ref` and
+ * `tabIndex` pass through, so a page can bring the box into view and focus it
+ * (RegisterPage: the answer to "Opret konto" lands above the form).
+ */
+export function AuthAlert({ children, className = "", ref, tabIndex }) {
   return (
     <div
+      ref={ref}
+      tabIndex={tabIndex}
       role="alert"
       aria-live="assertive"
-      className={`flex items-start gap-2.5 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 px-3.5 py-3 text-[14px] leading-relaxed text-red-700 dark:text-red-300 ${className}`}
+      className={`flex items-start gap-2.5 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 px-3.5 py-3 text-[14px] leading-relaxed text-red-700 dark:text-red-300 focus:outline-none ${className}`}
     >
       <AlertCircle aria-hidden="true" className="w-4 h-4 mt-[3px] shrink-0" strokeWidth={2} />
       <div className="min-w-0">{children}</div>

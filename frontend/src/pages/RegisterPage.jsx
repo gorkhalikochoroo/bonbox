@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate, Link, useLocation } from "react-router-dom";
+import { useNavigate, Link, useLocation, Navigate } from "react-router-dom";
 import { Check } from "lucide-react";
 import api from "../services/api";
 import { oauthErrText } from "../utils/errText";
@@ -16,7 +16,8 @@ import AppleSignInButton from "../components/AppleSignInButton";
 // Handelsbetingelser. Læs om, hvordan vi behandler dine data, i vores
 // Privatlivspolitik." (LEG-11 / PQ-03).
 import SignupTermsLine from "../components/SignupTermsLine";
-import { rememberVerifySkip } from "../utils/verifySkip";
+import { rememberVerifySkip, postLoginPath } from "../utils/verifySkip";
+import { homeFor } from "../lib/appMode";
 import { emailProblem, passwordState } from "../utils/signupValidation";
 import AuthShell, {
   AuthAlert, AuthDivider, AuthHeading, FieldError, FieldLabel, PasswordInput, PrimaryButton,
@@ -70,7 +71,12 @@ function RegisterIllustration() {
 }
 
 export default function RegisterPage() {
-  const { register, googleLogin, googleOauthLogin, appleOauthLogin } = useAuth();
+  const { register, googleLogin, googleOauthLogin, appleOauthLogin, user, loading: authLoading } = useAuth();
+  // True from the moment THIS page starts making the account (e-mail form,
+  // Google, Apple): the signed-in guard below is for owners who ARRIVE here
+  // signed in, never for the account this page has just made — that one
+  // goes on to /verify-email (or /dashboard) by the page's own navigate.
+  const [signingUpHere, setSigningUpHere] = useState(false);
   // Sign-in surface differs per platform:
   //   • Web:    Google (Google's own button, drawn by GoogleButton) + Apple JS SDK
   //   • iOS:    Apple via our in-project Capacitor plugin (Task #90 —
@@ -115,9 +121,11 @@ export default function RegisterPage() {
       }
       const name =
         [res.givenName, res.familyName].filter(Boolean).join(" ").trim() || null;
+      setSigningUpHere(true);
       await appleOauthLogin(idToken, name);
       navigate("/dashboard");
     } catch (err) {
+      setSigningUpHere(false);
       const code = err?.code || err?.errorMessage || "";
       if (code === "user_cancelled" || String(err?.message || "").includes("user_cancelled")) {
         return;
@@ -186,6 +194,21 @@ export default function RegisterPage() {
   // An earlier attempt in this page session got no answer: a 409 now most
   // likely means that attempt DID create the account.
   const noAnswerBefore = useRef(false);
+  // The answer to "Opret konto" that is not about one field (the "already
+  // has an account" panel, offline, too many tries, a server error) renders
+  // ABOVE the form. On a phone the owner has scrolled down to the button, so
+  // it would land off screen and only the spinner would come and go: bring
+  // it into view and give it the focus (tabIndex -1). A field's own message
+  // already moves the focus to that field.
+  const answerRef = useRef(null);
+  const [answerSeq, setAnswerSeq] = useState(0);
+  useEffect(() => {
+    if (!answerSeq) return;
+    const el = answerRef.current;
+    if (!el) return;
+    try { el.scrollIntoView?.({ block: "center" }); } catch { /* old engines: the focus below still scrolls it into view */ }
+    try { el.focus({ preventScroll: true }); } catch { el.focus?.(); }
+  }, [answerSeq]);
 
   // Inline validation: on blur first, then live once a field was touched.
   const [touched, setTouched] = useState({});
@@ -353,6 +376,7 @@ export default function RegisterPage() {
     setLoading(true);
     setSlow(false);
     const slowTimer = setTimeout(() => setSlow(true), 8000);
+    setSigningUpHere(true);
     try {
       const res = await register(submitData);
 
@@ -395,18 +419,21 @@ export default function RegisterPage() {
         navigate("/verify-email");
       }
     } catch (err) {
+      setSigningUpHere(false);
       // Every answer becomes a Danish (or English) line with a next step —
       // never the server's English (utils/authErrors.js).
       const r = authErrorKey(err, "register", { timedOut: noAnswerBefore.current });
       if (r.network) noAnswerBefore.current = true;
       if (r.action === "login") {
         setExistsKey(r.key);
+        setAnswerSeq((n) => n + 1);
       } else if (r.field === "email" || r.field === "password" || r.field === "business_name") {
         setServerField({ [r.field]: r.key });
         const ref = r.field === "email" ? emailRef : r.field === "password" ? passwordRef : nameRef;
         ref.current?.focus();
       } else {
         setError({ key: r.key, vars: r.vars });
+        setAnswerSeq((n) => n + 1);
       }
     } finally {
       clearTimeout(slowTimer);
@@ -418,6 +445,20 @@ export default function RegisterPage() {
   // Native shell never renders the registration form — Apple 3.1.1. The
   // redirect above moves them to /login; this guard stops a one-frame flash.
   if (isNative) return null;
+
+  // Already signed in (web): the back button from /verify-email — the natural
+  // "wrong e-mail" gesture — used to show a blank sign-up form, and sending it
+  // made a SECOND account while the first (typo) one was left behind, its
+  // address already mailed a code. An owner who still has to confirm goes to
+  // /verify-email (where "Forkert e-mail? Ret den" fixes the address on the
+  // same account); everyone else goes to their app, exactly where the app's
+  // own guards would send them. Replace, so back does not loop. Checked once
+  // the session probe is done; until then the form shows as before.
+  if (!authLoading && user && !signingUpHere) {
+    // postLoginPath: the wall's own rule (grace date, revisor, 7-day skip).
+    const dest = postLoginPath(user);
+    return <Navigate to={dest === "/verify-email" ? dest : homeFor(user)} replace />;
+  }
 
   // Release R-c placed the documents ONCE, where every sign-up path passes
   // them; release R-e turns that line into the Terms acceptance line
@@ -472,7 +513,13 @@ export default function RegisterPage() {
       </AuthHeading>
 
       {existsKey && (
-        <div role="alert" className="mt-6 rounded-lg border border-bb-line/70 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+        <div
+          ref={answerRef}
+          tabIndex={-1}
+          role="alert"
+          data-testid="register-exists"
+          className="mt-6 rounded-lg border border-bb-line/70 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 focus:outline-none"
+        >
           <p className="text-[15px] leading-relaxed text-gray-900 dark:text-gray-100">{t(existsKey)}</p>
           <Link to="/login" state={{ email: typedEmail }} className={`${PRIMARY.forest} mt-3`}>
             {t("signInInstead")}
@@ -485,7 +532,9 @@ export default function RegisterPage() {
         </div>
       )}
       {error && (
-        <AuthAlert className="mt-6">{error.key ? t(error.key, error.vars) : error.text}</AuthAlert>
+        <AuthAlert ref={existsKey ? undefined : answerRef} tabIndex={-1} className="mt-6">
+          {error.key ? t(error.key, error.vars) : error.text}
+        </AuthAlert>
       )}
 
       {/* ── Task #65 — OAuth row (Apple + Google) ─────────────
@@ -523,10 +572,12 @@ export default function RegisterPage() {
               mode="signup"
               onSuccess={async ({ idToken, name }) => {
                 setError(null);
+                setSigningUpHere(true);
                 try {
                   await appleOauthLogin(idToken, name, { acceptTerms: true });
                   navigate("/dashboard");
                 } catch (err) {
+                  setSigningUpHere(false);
                   setError({ text: oauthErrText(err, t("appleSignupFailed") || t("appleSigninFailed") || "Apple sign-up failed", t) });
                 }
               }}
@@ -540,10 +591,14 @@ export default function RegisterPage() {
               <GoogleButton
                 onSuccess={(res) => {
                   setError(null);
+                  setSigningUpHere(true);
                   const fn = googleOauthLogin || googleLogin;
                   fn(res.credential, { acceptTerms: true })
                     .then(() => navigate("/dashboard"))
-                    .catch((err) => setError({ text: oauthErrText(err, t("googleSignupFailed"), t) }));
+                    .catch((err) => {
+                      setSigningUpHere(false);
+                      setError({ text: oauthErrText(err, t("googleSignupFailed"), t) });
+                    });
                 }}
                 onError={() => setError({ text: t("googleSignupFailed") })}
                 width={googleWidth}
