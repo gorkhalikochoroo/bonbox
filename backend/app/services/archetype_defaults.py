@@ -26,6 +26,15 @@ owner hasn't already chosen otherwise:
 NOT TOUCHED: VAT (currency-derived), billing/tier. By doctrine, archetype sets
 defaults + emphasis only; it never gates a paid feature or flips a plan.
 
+A TYPE NOBODY CHOSE (push 6): the e-mail sign-up no longer asks the business
+type — the wizard does — and the server stamps its schema default
+"restaurant" meanwhile. ``starter_set=False`` (register, when the request
+carried no business_type) does step 1 only: the profile row and its cutoff.
+Steps 2 and 3 wait for /auth/onboarding/complete, by when the owner has picked
+the type, so a salon or a shop does not keep the food modules and the food
+expense categories (Emballage, Vareforbrug) of a type it never chose — merge
+and seed are additive-only and would never take them back.
+
 SAFETY: the whole body is wrapped try/except → log + swallow. A defaults error
 must NEVER 500 a signup or onboarding-complete. Safe to call repeatedly.
 """
@@ -87,8 +96,12 @@ def _merge_enabled_modules(raw: str | None, suggested: list[str]) -> str | None:
     return ",".join(out) if out else None
 
 
-def apply_archetype_defaults(db: Session, user: User) -> dict[str, Any]:
+def apply_archetype_defaults(db: Session, user: User, *, starter_set: bool = True) -> dict[str, Any]:
     """Idempotently materialise archetype-derived signup defaults for ``user``.
+
+    ``starter_set=False`` sets only the profile row + cutoff (step 1) and
+    leaves the modules and the starter categories for a later call — used at
+    register when the owner was not asked the type (see the module doc).
 
     Returns a small dict describing what (if anything) changed — handy for the
     detection/onboarding telemetry and for tests. NEVER raises: any failure is
@@ -143,6 +156,9 @@ def apply_archetype_defaults(db: Session, user: User) -> dict[str, Any]:
                 "apply_archetype_defaults: cutoff step skipped for user=%s: %s",
                 getattr(user, "id", "?"), e,
             )
+
+        if not starter_set:
+            return result
 
         # ── 2. User.enabled_modules — additive merge ───────────────────────
         try:

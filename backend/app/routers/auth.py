@@ -519,9 +519,18 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     # exists + the trial is started. Failure-isolated: a defaults hiccup must
     # NEVER break registration (the function also swallows internally — this
     # is belt-and-braces).
+    #
+    # Push 6: the web form no longer sends business_type when nobody chose
+    # one (the wizard asks it). Then "restaurant" above is only the schema's
+    # placeholder, so only the profile row + cutoff are set now; the modules
+    # and starter categories follow the type picked in the wizard
+    # (/auth/onboarding/complete). A client that sends a type — a CVR
+    # suggestion, the iOS app, an older web build — gets everything now, as
+    # before.
+    type_chosen = "business_type" in data.model_fields_set
     try:
         from app.services.archetype_defaults import apply_archetype_defaults
-        apply_archetype_defaults(db, user)
+        apply_archetype_defaults(db, user, starter_set=type_chosen)
     except Exception as _e:  # noqa: BLE001
         logger.warning("auth.register: archetype defaults skipped: %s", _e)
 
@@ -1806,7 +1815,9 @@ def complete_onboarding(
     # Re-apply archetype defaults — onboarding may have changed business_type
     # since register. Idempotent (won't clobber owner-customised cutoff or
     # remove modules / re-seed categories). Failure-isolated so a defaults
-    # error never breaks onboarding-complete.
+    # error never breaks onboarding-complete. For an e-mail sign-up that was
+    # not asked the type (push 6) this is where the modules and the starter
+    # categories are first set — for the type picked in the wizard.
     try:
         from app.services.archetype_defaults import apply_archetype_defaults
         apply_archetype_defaults(db, db_user)
