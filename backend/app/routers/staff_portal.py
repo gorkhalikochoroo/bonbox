@@ -4092,11 +4092,14 @@ def portal_manifest(token: str, request: Request, lang: str = "da", db: Session 
         "theme_color": "#ffffff",
         "orientation": "portrait-primary",
         "lang": code,
+        # The Vagtplan icon (docs/brand: paper tile, forest b, emerald strip),
+        # not the owner app's. The files live in the frontend's public/, so
+        # the frontend that ships them must be live before this goes out.
         "icons": [
-            {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
-            {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
-            {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
-            {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+            {"src": "/vagtplan-icon-192.png?v=3", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/vagtplan-icon-512.png?v=3", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "/vagtplan-icon-maskable-192.png?v=3", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+            {"src": "/vagtplan-icon-maskable-512.png?v=3", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
         ],
         "shortcuts": [
             {"name": sched, "short_name": sched, "url": f"{start}?tab=schedule"},

@@ -160,6 +160,19 @@ describe("the icon files the HTML and the manifests point at", () => {
     expect(icons.some((i) => i.purpose === "any")).toBe(true);
   });
 
+  it("the staff portal's web manifest points at Vagtplan files the frontend ships", () => {
+    const py = read(join(REPO, "backend/app/routers/staff_portal.py"));
+    const srcs = [...py.matchAll(/\{"src": "([^"]+)", "sizes": "(\d+x\d+)"/g)];
+    expect(srcs.length).toBeGreaterThanOrEqual(4);
+    for (const [, src, sizes] of srcs) {
+      const path = src.split("?")[0];
+      expect(path.startsWith("/vagtplan-"), path).toBe(true);
+      expect(existsSync(join(PUBLIC, path)), path).toBe(true);
+      const [w, h] = pngSize(join(PUBLIC, path));
+      expect(`${w}x${h}`).toBe(sizes);
+    }
+  });
+
   it("the favicon SVG is the kit's forest tile, not the old green", () => {
     const svg = read(join(PUBLIC, "favicon.svg"));
     expect(svg).toContain('fill="#093A26"');
