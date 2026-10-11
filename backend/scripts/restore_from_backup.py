@@ -253,7 +253,12 @@ def _engine_for(url: str):
 def run_erasures(bucket, fernet, args, env, ctx: dict | None = None) -> dict:
     """--reapply-erasures: collect the erasure tombstones (newest export in
     the backup, ERASURE_SOURCE_DATABASE_URL read-only, the target's own) and
-    erase those accounts again in the DB target. Counts only in the output."""
+    erase those accounts again in the DB target. Counts only in the output.
+
+    The DB target is written only when this run is about the database (the
+    DB step runs, or --skip-db --skip-photos: the erasure step on its own).
+    A photos-only run (--skip-db) reads the target's tombstones read-only,
+    so it needs no DB --confirm-target next to the photo bucket's."""
     from sqlalchemy.engine import make_url
     ctx = ctx if ctx is not None else {}
     out = {"ok": False, "sources": {}}
@@ -284,6 +289,7 @@ def run_erasures(bucket, fernet, args, env, ctx: dict | None = None) -> dict:
         found.append(t)
 
     target = _db_target(args, env)
+    db_write = not args.dry_run and (not args.skip_db or args.skip_photos)
     engine = None
     try:
         if target:
@@ -292,7 +298,7 @@ def run_erasures(bucket, fernet, args, env, ctx: dict | None = None) -> dict:
                 return {**out, "error": f"refused: {why}"}
             url = make_url(_sa_url(target))
             where = f"{url.host}/{url.database}"
-            if not args.dry_run and args.confirm_target != where:
+            if db_write and args.confirm_target != where:
                 return {**out, "error": f"refused: pass --confirm-target {where} to write to it"}
             engine = _engine_for(target)
             try:
@@ -311,11 +317,11 @@ def run_erasures(bucket, fernet, args, env, ctx: dict | None = None) -> dict:
         _say(f"Erasures: {len(tombstones)} erased account(s) on record "
              f"({', '.join(f'{k}: {v}' for k, v in out['sources'].items())})")
         if engine is not None:
-            report = reapply_erasures(engine, tombstones, dry_run=args.dry_run)
+            report = reapply_erasures(engine, tombstones, dry_run=not db_write)
             out["report"] = report
-            if args.dry_run:
-                _say(f"  {report['accounts_in_target']} of them are in the target (dry run: "
-                     "nothing changed)")
+            if not db_write:
+                _say(f"  {report['accounts_in_target']} of them are in the DB target (read only: "
+                     "nothing changed there)")
             else:
                 _say(f"  erased again: {report['accounts_erased']} account(s), "
                      f"{report['rows_deleted']} row(s); team members unlinked: "

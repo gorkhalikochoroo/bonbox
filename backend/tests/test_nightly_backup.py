@@ -1475,3 +1475,35 @@ def test_privacy_names_the_encrypted_backup_copy(key):
     cfg = bs.load_config(_settings(BACKUP_SUPABASE_URL="https://backup.supabase.co",
                                    BACKUP_SUPABASE_SERVICE_KEY=SERVICE_KEY))
     assert cfg.status == "misconfigured" and "BACKUP_ENCRYPTION_KEY is not set" in cfg.problems
+
+
+def test_photos_only_restore_reads_the_db_targets_tombstones_read_only(fernet, key, db_env, buckets,
+                                                                       tmp_path):
+    """After a DB restore + re-apply, the target holds every tombstone. A
+    later photos-only run (--skip-db) with RESTORE_DB_TARGET_URL still set
+    uses them, read-only: no DB --confirm-target needed, nothing written."""
+    from app.models.user import User
+    src, dst = buckets
+    avatar = f"{UID_A}/staff_avatar/{'a' * 64}.jpg"
+    other = f"{UID_B}/sale/{'c' * 64}.jpg"
+    for i, p in enumerate((avatar, other)):
+        _put(src, p, _photo(i))
+    _run(fernet, db_env, buckets)
+    target_db = tmp_path / "target.db"
+    eng = create_engine(f"sqlite:///{target_db}")
+    Base.metadata.create_all(eng)
+    with eng.begin() as c:
+        c.execute(ErasureTombstone.__table__.insert().values(user_id=uuid.UUID(UID_A), erased_at=NOW))
+        c.execute(User.__table__.insert().values(id=uuid.UUID(UID_A), email="a@example.dk",
+                                                 password_hash="x", business_name="A",
+                                                 business_type="cafe", currency="DKK",
+                                                 plan="free", role="owner"))
+    env = {"BACKUP_ENCRYPTION_KEY": key, "RESTORE_DB_TARGET_URL": f"sqlite:///{target_db}"}
+    target = tmp_path / "restored"
+    assert restore.main(["--skip-db", "--reapply-erasures", "--source-dir", str(dst.root),
+                         "--photos-target-dir", str(target)], env=env) == 0
+    assert not (target / "receipts" / avatar).exists()
+    assert (target / "receipts" / other).exists()
+    with eng.connect() as c:                       # read only: the account row is untouched
+        assert c.execute(text("SELECT count(*) FROM users")).scalar() == 1
+    eng.dispose()
