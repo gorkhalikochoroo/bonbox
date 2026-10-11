@@ -228,3 +228,74 @@ def test_daily_maintenance_runs_the_step_and_it_counts_only_by_default(Session, 
     summary = rp.daily_maintenance()
     assert summary["audit_email_cleanup"] == {"due": 8, "changed": 0, "dry_run": True}
     assert summary["accounting_retention"] == {"ok": True}
+
+
+# ── The flag's precondition: every "never edited" promise names the edit ──
+# AUDIT_EMAIL_CLEANUP_ENABLED edits the change log once. Six places (three
+# per language) say BonBox never edits it. The R-j paragraph for /privacy is
+# drafted for only one of them, so turning the flag on after that paragraph
+# alone would leave Terms § 4 and the /privacy retention-table row untrue.
+# This trips the moment the R-j paragraph lands while another place still
+# promises no edit without the October 2026 exception.
+from pathlib import Path  # noqa: E402
+
+_FRONT = Path(__file__).resolve().parents[2] / "frontend" / "src" / "pages"
+_RJ_PARAGRAPH = ("we removed, once, the e-mail addresses", "fjernede vi én gang de e-mailadresser")
+_NO_EDIT = {
+    "terms_en": ("TermsPage.jsx", "cannot be edited or deleted through BonBox &mdash; neither by you nor by us"),
+    "terms_da": ("TermsPage.jsx", "kan ikke redigeres eller slettes gennem BonBox — hverken af dig eller af os"),
+    "privacy_row_en": ("PrivacyPolicyPage.jsx", "No end date: it cannot be edited or deleted through BonBox"),
+    "privacy_row_da": ("PrivacyPolicyPage.jsx", "Ingen slutdato: den kan ikke redigeres eller slettes gennem BonBox"),
+    "privacy_par_en": ("PrivacyPolicyPage.jsx", "The log cannot be edited or deleted through BonBox — neither by you nor by us"),
+    "privacy_par_da": ("PrivacyPolicyPage.jsx", "Loggen kan ikke redigeres eller slettes gennem BonBox — hverken af dig eller af os"),
+}
+_EXCEPTION = ("October 2026", "oktober 2026")
+
+
+def _places_without_the_exception(sources: dict) -> list:
+    """Every place that still says 'never edited' with no October 2026
+    exception within the same few sentences."""
+    gaps = []
+    for place, (page, phrase) in _NO_EDIT.items():
+        src = sources[page]
+        i = src.find(phrase)
+        if i < 0:
+            continue  # reworded: the R-j text took this sentence out
+        window = src[i:i + len(phrase) + 400]
+        if not any(e in window for e in _EXCEPTION):
+            gaps.append(place)
+    return gaps
+
+
+def _sources():
+    return {p: (_FRONT / p).read_text(encoding="utf-8")
+            for p in ("TermsPage.jsx", "PrivacyPolicyPage.jsx")}
+
+
+def test_cleanup_precondition_every_no_edit_promise_names_the_exception():
+    src = _sources()
+    if any(m in src["PrivacyPolicyPage.jsx"] for m in _RJ_PARAGRAPH):
+        assert _places_without_the_exception(src) == [], (
+            "The R-j change-log exception is on /privacy, but these places still say the "
+            "change log is never edited — add the exception there before "
+            "AUDIT_EMAIL_CLEANUP_ENABLED is turned on")
+    else:
+        # Today: no R-j text yet, all six places promise no edit, and the flag
+        # must stay off (see config.py).
+        assert len(_places_without_the_exception(src)) == 6
+        assert type(settings).model_fields["AUDIT_EMAIL_CLEANUP_ENABLED"].default is False
+
+
+def test_the_precondition_check_catches_the_r_j_paragraph_alone():
+    """Not vacuous: the drafted R-j (a) paragraph on /privacy alone leaves the
+    four other places flagged."""
+    src = _sources()
+    p = src["PrivacyPolicyPage.jsx"]
+    p = p.replace("and we have set no end date for it.",
+                  "and we have set no end date for it. One exception: in October 2026 "
+                  "we removed, once, the e-mail addresses that older entries held.")
+    p = p.replace("og vi har ikke sat en slutdato for den.",
+                  "og vi har ikke sat en slutdato for den. Én undtagelse: I oktober 2026 "
+                  "fjernede vi én gang de e-mailadresser, som ældre poster indeholdt.")
+    gaps = _places_without_the_exception({**src, "PrivacyPolicyPage.jsx": p})
+    assert sorted(gaps) == ["privacy_row_da", "privacy_row_en", "terms_da", "terms_en"]

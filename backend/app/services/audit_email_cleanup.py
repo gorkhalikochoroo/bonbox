@@ -10,7 +10,10 @@ an invoice customer, an invitee, a supplier) and every other action are
 left exactly as they are.
 
 It ships OFF (settings.AUDIT_EMAIL_CLEANUP_ENABLED). OFF = count only.
-Turn it on only after /privacy says the change log had this one edit (R-j).
+Turn it on only after the R-j text names this one edit in every place that
+says the change log is never edited, in EN and DA: the /privacy "Change
+log" paragraph, the /privacy retention-table row and Terms § 4 ("neither by
+you nor by us"). See the comment on the flag in config.py.
 
 On Postgres the change log is guarded by two rules, audit_logs_no_update and
 audit_logs_no_delete (main.py). An UPDATE under the update rule silently

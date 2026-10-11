@@ -328,8 +328,15 @@ class Settings(BaseSettings):
     # expiry, anonymous paid-plan waitlist e-mails > 12 months. Same
     # OFF = dry-run shape.
     PRIVACY_PURGE_ORPHANS_ENABLED: bool = False
-    # R-h LEG-06 one-off. Turn on only after /privacy says the change log had this
-    # one edit (R-j text).
+    # R-h LEG-06 one-off. Turn on only after the R-j text names this one edit
+    # in EVERY place that says the change log is never edited, EN and DA:
+    #   1. /privacy "Change log" / "Ændringslog" paragraph,
+    #   2. the /privacy retention-table row ("No end date: it cannot be edited
+    #      or deleted through BonBox" / "Ingen slutdato: den kan ikke redigeres
+    #      eller slettes gennem BonBox"),
+    #   3. Terms § 4 ("neither by you nor by us" / "hverken af dig eller af os").
+    # tests/test_audit_email_cleanup.py fails if the R-j paragraph lands in
+    # /privacy while any of the other places still promises no edit.
     AUDIT_EMAIL_CLEANUP_ENABLED: bool = False
     # Postmark Basic-Auth secret. Configured on the Inbound Stream
     # under "Webhook URL" as `https://USER:PASS@api.bonbox.dk/api/inbox/
