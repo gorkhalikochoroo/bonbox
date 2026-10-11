@@ -178,6 +178,16 @@ describe("inline validation — gentle, Danish, under the field", () => {
     expect(screen.queryByText(da.suErrEmailInvalid)).toBeNull();
   });
 
+  it("tabbing past an empty field says nothing yet — that waits for Opret konto", () => {
+    renderRegister();
+    for (const label of [da.email, da.password, da.businessName]) {
+      fireEvent.focus(screen.getByLabelText(label));
+      fireEvent.blur(screen.getByLabelText(label));
+    }
+    expect(screen.queryAllByRole("alert")).toHaveLength(0);
+    expect(document.getElementById("su-password-hint").className).not.toMatch(/red/);
+  });
+
   it("the password hint is always there, live, and never red while typing", () => {
     renderRegister();
     const pw = screen.getByLabelText(da.password);

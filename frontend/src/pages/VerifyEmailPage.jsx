@@ -265,7 +265,7 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
           <AuthHeading title={t("verifyEmailHeading", "Verify your email")}>
             <p className="mt-1.5 text-[15px] leading-relaxed text-gray-600 dark:text-gray-400">
               {sentPre}
-              <strong className="font-semibold text-gray-900 dark:text-white break-all">{email}</strong>
+              <strong className="font-semibold text-gray-900 dark:text-white break-words">{email}</strong>
               {sentPost}
             </p>
             {!fixOpen && (

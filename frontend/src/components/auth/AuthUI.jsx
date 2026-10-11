@@ -70,8 +70,8 @@ export function AuthLogo({ link = true }) {
 export function AuthHeading({ title, sub, children }) {
   return (
     <div>
-      <h1 className="text-[28px] leading-[1.15] font-semibold tracking-tight text-gray-900 dark:text-white">{title}</h1>
-      {sub && <p className="mt-1.5 text-[15px] leading-relaxed text-gray-600 dark:text-gray-400">{sub}</p>}
+      <h1 className="text-[28px] leading-[1.15] font-semibold tracking-tight text-balance text-gray-900 dark:text-white">{title}</h1>
+      {sub && <p className="mt-1.5 text-[15px] leading-relaxed text-pretty text-gray-600 dark:text-gray-400">{sub}</p>}
       {children}
     </div>
   );

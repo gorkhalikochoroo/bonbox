@@ -383,13 +383,13 @@ export default function LoginPage() {
       {error && (
         <AuthAlert className="mt-6">
           {error.key ? t(error.key, error.vars) : error.text}
+          {/* The next step, on its own line under the sentence. */}
           {error.action === "reset" && (
-            <>
-              {" "}
-              <Link to="/forgot-password" state={{ prefillEmail: typedEmail }} className={`${linkClass} font-medium text-red-800 dark:text-red-200 decoration-red-400`}>
+            <p className="mt-1.5">
+              <Link to="/forgot-password" state={{ prefillEmail: typedEmail }} className={`${linkClass} font-semibold text-red-800 dark:text-red-200 decoration-red-400`}>
                 {t("suResetLink")}
               </Link>
-            </>
+            </p>
           )}
         </AuthAlert>
       )}

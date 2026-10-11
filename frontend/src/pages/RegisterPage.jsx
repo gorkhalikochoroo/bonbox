@@ -291,7 +291,12 @@ export default function RegisterPage() {
     if (serverField[name]) setServerField((s) => ({ ...s, [name]: null }));
     if (name === "email" && existsKey) setExistsKey(null);
   };
-  const touch = (name) => setTouched((s) => (s[name] ? s : { ...s, [name]: true }));
+  // Leaving a field the owner has typed in checks it; tabbing past an empty
+  // one says nothing yet (that waits for "Opret konto").
+  const touch = (name) => {
+    if (!String(form[name] || "").trim()) return;
+    setTouched((s) => (s[name] ? s : { ...s, [name]: true }));
+  };
 
   // The three fields' messages, from what is typed now.
   const emailKey = serverField.email || ((touched.email || submitted) ? emailProblem(form.email) : null);
@@ -428,7 +433,7 @@ export default function RegisterPage() {
   const aside = (
     <aside className="hidden lg:flex lg:w-[46%] items-center justify-center px-16 py-16 border-r border-bb-line/30 dark:border-gray-800">
       <div className="max-w-sm">
-        <h2 className="text-[30px] font-semibold tracking-tight leading-[1.15] text-gray-900 dark:text-white">
+        <h2 className="text-[30px] font-semibold tracking-tight leading-[1.15] text-balance text-gray-900 dark:text-white">
           {t("suPanelHeading")}
         </h2>
         <p className="mt-4 text-[15px] leading-relaxed text-gray-600 dark:text-gray-400">

@@ -177,7 +177,7 @@ export default function ForgotPasswordPage() {
         <div className="mt-6">
           <AuthNote>
             <p>
-              {t("fpAccountExistsPre", "If an account exists with")} <strong className="font-semibold break-all">{email}</strong>{t("fpAccountExistsPost", ", we've sent a reset code.")}
+              {t("fpAccountExistsPre", "If an account exists with")} <strong className="font-semibold break-words">{email}</strong>{t("fpAccountExistsPost", ", we've sent a reset code.")}
             </p>
             <p className="text-[13px] text-gray-600 dark:text-gray-400 mt-1">{t("fpCheckInboxSpam", "Check inbox & spam")}</p>
           </AuthNote>
