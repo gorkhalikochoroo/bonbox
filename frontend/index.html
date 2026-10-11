@@ -319,6 +319,13 @@
           var t = localStorage.getItem("theme");
           if (t === "dark") {
             document.documentElement.classList.add("dark");
+            // The browser bar follows the theme (surface-card, see
+            // src/utils/themeColor.js). Not on the staff portal /s/, which
+            // has no dark rules. Light leaves the static #ffffff alone.
+            if (location.pathname.indexOf("/s/") !== 0) {
+              var tc = document.querySelector('meta[name="theme-color"]');
+              if (tc) tc.setAttribute("content", "#1f2937");
+            }
           } else {
             document.documentElement.classList.remove("dark");
             // Normalize the localStorage value so future reads are consistent
