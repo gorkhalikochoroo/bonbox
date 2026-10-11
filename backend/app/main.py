@@ -5969,6 +5969,12 @@ try:
         id="daily_maintenance",
         name="GDPR retention + pattern detection",
         replace_existing=True,
+        # APScheduler's default grace is 1 s: on the 1-CPU box a busy pool
+        # could silently skip a night of purges. Every purge selects
+        # "everything past due", so a late or merged run catches up.
+        misfire_grace_time=3600,
+        coalesce=True,
+        max_instances=1,
     )
     # Kasserapport learning loop — daily drift sweep (03:00 UTC) +
     # weekly correction-pattern sweep (Sunday 03:30 UTC). These run
@@ -6042,6 +6048,10 @@ try:
         id="reservation_gdpr_purge",
         name="Reservation GDPR purge (PII + allergy)",
         replace_existing=True,
+        # Same grace as daily_maintenance: a busy pool must not skip a night.
+        misfire_grace_time=3600,
+        coalesce=True,
+        max_instances=1,
     )
     # Task #54 — Daily Brief email at 06:30 UTC ≈ 07:30 (CET winter) /
     # 08:30 (CEST summer) Copenhagen. Same brief as the in-app card,
