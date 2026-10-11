@@ -99,3 +99,31 @@ def test_injected_and_local_names_are_not_listed():
     e = _env_entries()
     for k in NEVER_LISTED:
         assert k not in e, k
+
+
+def _service_attrs(name: str) -> dict[str, str]:
+    """Top-level attributes of one service block (4-space indented keys)."""
+    attrs: dict[str, str] = {}
+    inside = False
+    for raw in open(_RENDER_YAML, encoding="utf-8"):
+        line = raw.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        if re.match(r"^\s{2}-\s", line):                # a new service entry
+            inside = False
+        m = re.match(r"^\s{4}(\w+):\s*(.*)$", line)
+        if m and m.group(1) == "name":
+            inside = m.group(2).strip() == name
+        if inside and m:
+            attrs[m.group(1)] = m.group(2).strip().strip('"')
+    return attrs
+
+
+def test_service_pins_the_eu_region_and_the_live_size():
+    """Without region: a Blueprint rebuild lands in oregon (US) — the API that
+    processes Danish guest and allergy data must stay in Frankfurt (EU); and
+    without plan: it gets the default instance, not 1 CPU / 2 GB."""
+    attrs = _service_attrs("bonbox-api")
+    assert attrs.get("region") == "frankfurt"
+    assert attrs.get("plan") == "standard"
+    assert attrs.get("healthCheckPath") == "/api/health/ready"

@@ -9,6 +9,13 @@ services:
   - type: web
     name: bonbox-api
     runtime: python
+    # Pinned so a Blueprint rebuild matches production: without region: Render
+    # creates the service in oregon (US), which breaks the EU data-residency
+    # premise (guest and allergy data, Supabase eu-west-1) and adds US latency
+    # to every DB call; without plan: it gets the default size. frankfurt and
+    # standard (1 CPU / 2 GB) are the live service (verified 10 Oct 2026).
+    region: frankfurt
+    plan: standard
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
     # Points at /api/health/ready (NOT the static /api/health) so a schema-drift
@@ -22,11 +29,11 @@ services:
       # signs everyone out. Rotate only together with SECRET_KEY_PREVIOUS.
       - key: SECRET_KEY
         sync: false
-      # Cloudflare origin lock — the app 403s any request missing this secret,
-      # so a direct hit to the *.onrender.com origin (bypassing Cloudflare) is
-      # rejected. ENABLE ORDER to avoid a self-inflicted outage: (1) add a
-      # Cloudflare Transform Rule that sets header `X-Bonbox-Origin: <secret>`
-      # on all requests, THEN (2) set this to the SAME value. Unset = OFF (no-op).
+      # Cloudflare origin lock (main.py cloudflare_origin_guard): when set, the
+      # app 403s every request without header `X-Bonbox-Origin`. LEAVE UNSET:
+      # BonBox has no Cloudflare zone of its own (DNS is at Simply.com; the
+      # Cloudflare in front of api.bonbox.dk is Render's edge), so nothing can
+      # add the header and setting this would 403 the whole API. Unset = OFF.
       - key: ORIGIN_SHARED_SECRET
         sync: false
       - key: FRONTEND_URL

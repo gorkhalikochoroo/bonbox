@@ -9,6 +9,26 @@ chat, or in a ticket. Use categories, counts and internal ids only.
 
 ---
 
+## Where the data lives
+
+Datatilsynet's form and every venue owner will ask where the data is
+processed. `/privacy` gives the same answer under "Who has access to your data".
+
+| What | Where |
+|---|---|
+| API (`bonbox-api`, one worker) | Render, region **Frankfurt (EU)**. No persistent storage on the server. |
+| Database and uploaded files (primary) | Supabase, region **eu-west-1 (Ireland)**. Files are in Storage bucket `receipts`. |
+| Backup project | Supabase project `bonbox-backup`, region **eu-central-1 (Frankfurt)**. Empty until the nightly backup release is live; then it holds encrypted nightly copies of the database and the files. |
+| Frontend | Vercel, global CDN. Static files only, no customer data. |
+| Domain and DNS (`bonbox.dk`, every mail record: MX, SPF, DKIM, DMARC) | Simply.com (registrar and DNS). |
+| E-mail sending | Resend (region not confirmed, as `/privacy` says). |
+
+BonBox has **no Cloudflare account**. The `cf-ray` / `server: cloudflare`
+headers on `api.bonbox.dk` come from Render's own edge. Edge problems go to
+Render support.
+
+---
+
 ## (a) Roles
 
 | Role | Who |
@@ -26,9 +46,14 @@ The incident lead decides severity, contains, and owns the 72-hour clock.
    deduplicated digest every 15 minutes at most (backend
    `services/ops_alert.py`, `jobs/ops_triage_job.py`). It names error types,
    routes, counts and fingerprints only. Details live in `/admin`.
-2. **The uptime monitor** on `https://api.bonbox.dk/api/health/ready`
+2. **Uptime monitor: owner action, not set up yet.** Add both URLs to an
+   uptime monitor that alerts you: `https://api.bonbox.dk/api/health/ready`
    (the app is up and its database answers) and
    `https://api.bonbox.dk/api/health/storage` (file storage is durable).
+   Until then, open them by hand when something looks wrong. Render's own
+   health check on `/api/health/ready` only gates a deploy; it does not
+   alert you. Storage that is not durable is also alerted once a day by
+   source 1.
 3. **Stripe "webhook failing" e-mails.** Since R-i a failed webhook answers
    500, so Stripe retries for up to 3 days and e-mails when it keeps failing.
 4. **The support chip** in the app and **`/admin` recent errors**
@@ -56,12 +81,29 @@ level (section e).
    - Render: roll back to the previous deploy (Dashboard → bonbox-api →
      Deploys → previous successful deploy → Rollback).
    - Too many alerts: set `OPS_ALERTS_ENABLED=false` on Render. Errors are
-     still recorded in `error_logs` and triage notes; only the e-mails stop.
+     still recorded in `error_logs` and triage notes; only the e-mails and
+     pushes stop.
    - Disable the affected feature with its flag (see section f, "Flags").
+   - **Data lost or corrupted:** stop the writes first (roll back the deploy,
+     or switch off the feature), then restore:
+     - *Database:* Supabase dashboard → primary project (eu-west-1) →
+       Database → Backups. A restore replaces the whole database, so export
+       anything newer you must keep first. What is kept, and for how long,
+       depends on the Supabase plan: check that page now, not during an
+       incident. Supabase's database backups do **not** contain the files in
+       Storage.
+     - *Files, or the database from another night:* the backup project
+       `bonbox-backup` (eu-central-1), once the nightly backup release is
+       live. Restore with `backend/scripts/restore_from_backup.py` (it ships
+       with that release). It needs `BACKUP_ENCRYPTION_KEY` and the
+       `APP_SECRET_KEY` that was live when the copy was taken, both from the
+       password manager. Until that release is live, the backup project holds
+       nothing.
 2. **Preserve evidence.**
    - Do **not** purge `error_logs` or delete triage notes.
    - Export the `/admin` recent errors and triage notes for the incident
-     window and keep the export outside the app.
+     window and keep the export outside the app. Do it early: the nightly
+     maintenance deletes both after 30 days.
    - Note the deployed commit from `https://api.bonbox.dk/api/health`.
 3. **Open the breach-register entry** (`docs/runbooks/breach-register.md`)
    the moment personal data *may* be involved, even if it later turns out
@@ -129,7 +171,8 @@ encrypted rows become unreadable. The same applies to `SECRET_KEY` with
 
 | Group | Keys |
 |---|---|
-| Signing / encryption | `SECRET_KEY`, `SECRET_KEY_PREVIOUS`, `APP_SECRET_KEY`, `APP_SECRET_KEY_PREVIOUS`, `GAVEKORT_SIGNING_KEY`, `TICKET_SIGNING_KEY`, `BOOKING_TOKEN_KEY`, `BONBOX_CRON_SECRET`, `ORIGIN_SHARED_SECRET` |
+| Signing / encryption | `SECRET_KEY`, `SECRET_KEY_PREVIOUS`, `APP_SECRET_KEY`, `APP_SECRET_KEY_PREVIOUS`, `GAVEKORT_SIGNING_KEY`, `TICKET_SIGNING_KEY`, `BOOKING_TOKEN_KEY`, `BONBOX_CRON_SECRET` |
+| **Never set** | `ORIGIN_SHARED_SECRET`: setting it makes the API refuse every request without a header that only a Cloudflare zone of our own could add, and BonBox has none. Leave it unset, also during an incident. |
 | Database | `DATABASE_URL` |
 | Storage | `SUPABASE_SERVICE_KEY`, `SUPABASE_ANON_KEY` |
 | Stripe | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_WEBHOOK_SECRET_TEST` |
@@ -146,7 +189,7 @@ encrypted rows become unreadable. The same applies to `SECRET_KEY` with
 
 ## (g) Vendor status and security
 
-Security pages and the Vercel and Resend status pages were opened on 2026-10-11; the other status pages are the vendors' standard addresses.
+Security pages and the Vercel, Resend and Simply.com pages were opened on 2026-10-11; the other status pages are the vendors' standard addresses.
 
 | Vendor | Status page | Security / trust |
 |---|---|---|
@@ -156,9 +199,12 @@ Security pages and the Vercel and Resend status pages were opened on 2026-10-11;
 | Vercel | https://www.vercel-status.com | https://vercel.com/security |
 | Resend | https://resend-status.com | https://resend.com/security |
 | Anthropic | https://status.anthropic.com | https://trust.anthropic.com |
-| Cloudflare | https://www.cloudflarestatus.com | https://www.cloudflare.com/trust-hub/ |
+| Simply.com (domain, DNS, mail records) | https://www.simply.com/dk/serverstatus/ | Support: https://www.simply.com/dk/support/ · Compliance: https://www.simply.com/dk/compliance/ |
 
 No account ids in this file. Log in to each dashboard to open a support case.
+A DNS hijack, an expiring domain or mail that stops arriving (including the
+security contact in `security.txt`) starts at Simply.com: check the records
+and the domain status in its control panel first.
 
 ---
 
