@@ -19,7 +19,9 @@
  *   • Falls back to silent no-op on network failure (telemetry MUST
  *     never block UX).
  *   • Sent only after an explicit "yes" to Analytics in the cookie banner
- *     (same check as useEventLog): no answer or a "no" sends nothing.
+ *     (same check as useEventLog): no answer or a "no" sends nothing. The
+ *     request carries analytics_consent: true, without which the server
+ *     records nothing.
  *   • Server respects `analytics_opt_out` on the user model (Profile →
  *     pause) — the server drops the event if opted out.
  *   • Detail field is sanitised — only known keys get through, no
@@ -72,10 +74,13 @@ export function useSmartTelemetry() {
     if (!ALLOWED_EVENTS.has(event)) return;
     if (!ALLOWED_PAGES.has(page)) return;
     if (!analyticsAllowed()) return;
-    const body = { event, page, detail: _sanitiseDetail(detail) };
+    // analytics_consent: the server drops an event without it (builds made
+    // before R-h never send it); sent only after analyticsAllowed() above.
+    const body = { event, page, detail: _sanitiseDetail(detail), analytics_consent: true };
     // Migration 013 (kulturarrangør sprint): `/api/events` now serves
     // the cultural-event entity CRUD; analytics telemetry lives at
-    // `/api/event-log`. Wire shape ({event, page, detail}) unchanged.
+    // `/api/event-log`. Wire shape ({event, page, detail}, plus the
+    // analytics_consent flag since R-h).
     // Fire-and-forget — telemetry must not throw or block.
     api.post("/event-log", body).catch(() => { /* silently swallow */ });
   }

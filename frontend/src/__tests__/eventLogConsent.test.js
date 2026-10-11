@@ -54,6 +54,22 @@ describe("event log and the analytics choice", () => {
     vi.advanceTimersByTime(6000);
     expect(post).toHaveBeenCalledTimes(1);
   });
+
+  // The server records an event only when the request carries the yes
+  // (backend/app/routers/event_log.py), so builds made before R-h — which
+  // never send it — are no longer recorded. This client sends it, and only
+  // after the yes.
+  it("the batch tells the server the owner said yes", async () => {
+    consent(true);
+    const { trackEvent } = await import("../hooks/useEventLog");
+    trackEvent("page_view", "dashboard");
+    vi.advanceTimersByTime(6000);
+    expect(post).toHaveBeenCalledTimes(1);
+    const [url, body] = post.mock.calls[0];
+    expect(url).toBe("/event-log/batch");
+    expect(body.analytics_consent).toBe(true);
+    expect(body.events).toEqual([{ event: "page_view", page: "dashboard", detail: null }]);
+  });
 });
 
 // /cookies: usage events "are recorded until you decline Analytics in the
@@ -80,5 +96,7 @@ describe("smart-card telemetry and the analytics choice", () => {
     useSmartTelemetry().track("smart_proposal_accepted", "smart_staffing", { confidence: "high" });
     expect(post).toHaveBeenCalledTimes(1);
     expect(post.mock.calls[0][0]).toBe("/event-log");
+    // The server drops an event without the yes (old builds never send it).
+    expect(post.mock.calls[0][1].analytics_consent).toBe(true);
   });
 });

@@ -12,6 +12,7 @@ aliases (registered separately in main.py) for native-app builds that
 ship with the old URL baked in. New clients should call `/api/event-log`.
 """
 from datetime import date
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -26,14 +27,33 @@ from app.services.auth import get_current_user
 router = APIRouter()
 
 
+# R-h (LEG-10), server side: a usage event is recorded only when the request
+# says the owner said yes to Analytics in the cookie banner. The web client
+# (src/hooks/useEventLog.js, useSmartTelemetry.js) sends analytics_consent:
+# true only after analyticsAllowed(). Builds made before R-h — the owner
+# iPhone app 2.1 in the App Store, any older web bundle — never send it, so
+# their events are dropped here instead of being recorded until a "no".
+# /privacy and /cookies promise exactly this, and event_logs has no field that
+# would let the thesis export filter such rows out afterwards. Only a JSON
+# `true` counts (Any + `is True`: a string, a number or a missing field is no
+# yes, and never a 422). A dropped event still answers 201, like the Profile
+# pause below, so an old build sees no error.
+def _consented(value: Any) -> bool:
+    return value is True
+
+
 class EventCreate(BaseModel):
     event: str
     page: str | None = None
     detail: str | None = None
+    analytics_consent: Any = None
 
 
 class EventBatch(BaseModel):
     events: list[EventCreate]
+    # The yes covers the whole request; a flag inside one event of a batch
+    # does not count for the batch.
+    analytics_consent: Any = None
 
 
 @router.post("", status_code=201)
@@ -44,6 +64,9 @@ def log_event(
 ):
     # GDPR: respect user's analytics opt-out — silently drop, don't 4xx
     if getattr(user, "analytics_opt_out", False):
+        return {"ok": True, "skipped": True}
+    # No yes to Analytics from this client (or an old build): drop it.
+    if not _consented(data.analytics_consent):
         return {"ok": True, "skipped": True}
     log = EventLog(user_id=user.id, event=data.event, page=data.page, detail=data.detail)
     db.add(log)
@@ -59,6 +82,9 @@ def log_events_batch(
 ):
     # GDPR: respect user's analytics opt-out — silently drop the batch
     if getattr(user, "analytics_opt_out", False):
+        return {"ok": True, "skipped": True, "count": 0}
+    # No yes to Analytics from this client (or an old build): drop the batch.
+    if not _consented(data.analytics_consent):
         return {"ok": True, "skipped": True, "count": 0}
     for e in data.events:
         db.add(EventLog(user_id=user.id, event=e.event, page=e.page, detail=e.detail))
