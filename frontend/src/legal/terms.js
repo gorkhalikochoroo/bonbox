@@ -44,6 +44,20 @@ export const TERMS_VERSION = "2026-10-11";
    until 00:00 Copenhagen on this one. */
 export const TERMS_EXISTING_FROM = "2026-10-26";
 
+/* /privacy's own "Last updated" date. Push 3 changed /privacy together with
+   the Terms (the page then showed TERMS_VERSION). The nightly-backup release
+   changes /privacy on its own (a new processor row: the encrypted backup
+   copy in Frankfurt), so the page carries its own date and the Terms date
+   and notice stay untouched.
+
+   !!! RELEASE-TIME, PROVISIONAL: the Copenhagen day on which the FRONTEND
+   bundle with the backup row is verified live on www.bonbox.dk. "2026-10-15"
+   is the planned backup push (plan_to_90, Thu 15 Oct). If it goes live on
+   another day, move this date to that day in the same push. Never earlier
+   than TERMS_VERSION (src/__tests__/push3Privacy.test.jsx checks). If the
+   backup row ships in the same release as push 3, set it to TERMS_VERSION. */
+export const PRIVACY_UPDATED = "2026-10-15";
+
 /** Add accept_terms: true to a sign-up request body — only when the caller
     says the page showed the acceptance line (opts.acceptTerms === true).
     Anything else returns the body untouched, so the server records nothing. */

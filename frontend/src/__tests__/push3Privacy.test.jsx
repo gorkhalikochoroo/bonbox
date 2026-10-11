@@ -319,13 +319,20 @@ describe("should-fixes: who is controller, the date, the insights row", () => {
     );
   });
 
-  it("the 'Last updated' date is the Terms' date (TERMS_VERSION), in both languages", async () => {
-    const { TERMS_VERSION, termsDate } = await import("../legal/terms");
+  // Nightly backup (second review round, 11 Oct): /privacy changes again on
+  // its own (the backup processor row) in a later release than push 3, so it
+  // shows its own date, PRIVACY_UPDATED — never earlier than the Terms'
+  // TERMS_VERSION (push 3 changed this page too). The Terms page keeps
+  // TERMS_VERSION (reHonestTerms.test.jsx).
+  it("the 'Last updated' date is PRIVACY_UPDATED, not before the Terms' date, in both languages", async () => {
+    const { PRIVACY_UPDATED, TERMS_VERSION, termsDate } = await import("../legal/terms");
+    expect(PRIVACY_UPDATED).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(PRIVACY_UPDATED >= TERMS_VERSION).toBe(true);
     renderPage(PrivacyPolicyPage, "da");
-    expect(screen.getByTestId("privacy-updated").textContent).toBe(`Senest opdateret: ${termsDate(TERMS_VERSION, "da")}`);
+    expect(screen.getByTestId("privacy-updated").textContent).toBe(`Senest opdateret: ${termsDate(PRIVACY_UPDATED, "da")}`);
     cleanup();
     renderPage(PrivacyPolicyPage, "en");
-    expect(screen.getByTestId("privacy-updated").textContent).toBe(`Last updated: ${termsDate(TERMS_VERSION, "en")}`);
+    expect(screen.getByTestId("privacy-updated").textContent).toBe(`Last updated: ${termsDate(PRIVACY_UPDATED, "en")}`);
   });
 
   it("insights: kept until the account is deleted (expired ones stay in the archive) — no 'auto-expire 1–30 days'", () => {

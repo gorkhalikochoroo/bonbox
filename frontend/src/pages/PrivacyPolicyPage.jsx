@@ -1,11 +1,11 @@
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { CookieSettingsButton } from "../components/CookieConsent";
-// The "Last updated" date is the Terms' TERMS_VERSION (src/legal/terms.js):
-// /privacy changes in the same release as the Terms (Push 3), so the two
-// pages can never show different dates. If the policy ever changes on its
-// own, give it its own constant there.
-import { TERMS_VERSION, termsDate } from "../legal/terms";
+// The "Last updated" date is PRIVACY_UPDATED (src/legal/terms.js). Push 3
+// changed /privacy with the Terms (then it was TERMS_VERSION); the nightly
+// backup release changes it on its own (the backup processor row), so it has
+// its own release-time date there, never earlier than TERMS_VERSION.
+import { PRIVACY_UPDATED, termsDate } from "../legal/terms";
 
 function Section({ title, children }) {
   return (
@@ -63,7 +63,7 @@ function PrivacyEn() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privacy Policy</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="privacy-updated">Last updated: {termsDate(TERMS_VERSION, "en")}</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="privacy-updated">Last updated: {termsDate(PRIVACY_UPDATED, "en")}</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -338,7 +338,7 @@ function PrivacyDa() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privatlivspolitik</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="privacy-updated">Senest opdateret: {termsDate(TERMS_VERSION, "da")}</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="privacy-updated">Senest opdateret: {termsDate(PRIVACY_UPDATED, "da")}</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
