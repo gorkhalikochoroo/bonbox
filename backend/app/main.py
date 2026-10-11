@@ -5902,7 +5902,23 @@ try:
     )
     from app.jobs.shift_reminder_jobs import run_shift_reminder_tick
 
-    _scheduler = BackgroundScheduler()
+    # job_defaults (R-i, OPS-10): misfire_grace_time 1 s → 3600 s, so a run
+    # delayed by a busy executor or a long event-loop stall still runs instead
+    # of being silently skipped; coalesce (already the 3.11 default) runs a
+    # backlog once; max_instances 1 never lets two runs of one job race.
+    # Explicit on every job (tests/test_scheduler_ops.py). It cannot recover a
+    # cron run lost to a restart (MemoryJobStore) — out of scope for R-i.
+    _scheduler = BackgroundScheduler(
+        job_defaults={"misfire_grace_time": 3600, "coalesce": True, "max_instances": 1}
+    )
+    # Job errors, misses and daily_maintenance's swallowed "*_error" steps
+    # become error_logs rows (method=JOB) the ops triage alerts on. Own try:
+    # a listener problem must never cost the jobs below.
+    try:
+        from app.jobs.job_events import on_job_event, JOB_EVENT_MASK
+        _scheduler.add_listener(on_job_event, JOB_EVENT_MASK)
+    except Exception as e:
+        print(f"Scheduler listener warning: {e}")
     _scheduler.add_job(
         run_auto_sync,
         trigger=IntervalTrigger(hours=6),
