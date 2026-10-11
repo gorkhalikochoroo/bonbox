@@ -699,7 +699,7 @@ export default function ProfilePage() {
     try {
       await api.patch("/auth/profile", { analytics_opt_out: next });
       setPrivacyMsg(next
-        ? t("profAnalyticsPausedMsg", "Analytics paused — no new events will be recorded.")
+        ? t("profAnalyticsPausedMsg")
         : t("profAnalyticsResumedMsg", "Analytics resumed."));
       setTimeout(() => setPrivacyMsg(""), 4000);
     } catch {

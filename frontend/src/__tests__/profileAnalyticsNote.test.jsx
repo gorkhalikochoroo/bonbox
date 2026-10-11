@@ -79,3 +79,25 @@ describe("Profile → Privacy & data: the pause toggle says what pausing does", 
     expect(section).not.toContain("When ON, BonBox stops recording");
   });
 });
+
+describe("Profile → Privacy & data: the 'paused' message is true (review, 12 Oct)", () => {
+  // The toast after pausing said "no new events will be recorded" — but the
+  // toggle (and /privacy) say AI chat turns, Smart Sale Entry and upgrade
+  // checkouts are still recorded for the plan's limits.
+  it("no longer says no new events are recorded, and names what still is", () => {
+    expect(en.profAnalyticsPausedMsg).not.toMatch(/no new events/i);
+    expect(da.profAnalyticsPausedMsg).not.toMatch(/ingen nye hændelser/i);
+    for (const w of ["AI chat turn", "Smart Sale Entry", "upgrade checkout", "plan's limits"]) {
+      expect(en.profAnalyticsPausedMsg).toContain(w);
+    }
+    for (const w of ["AI-chatbesked", "Smart salgsindtastning", "betaling for en opgradering", "grænserne i din plan"]) {
+      expect(da.profAnalyticsPausedMsg).toContain(w);
+    }
+  });
+
+  it("comes from i18n only — no inline English fallback in the t() call", () => {
+    const src = read("pages", "ProfilePage.jsx");
+    expect(src).toContain('t("profAnalyticsPausedMsg")');
+    expect(src).not.toContain("no new events will be recorded");
+  });
+});

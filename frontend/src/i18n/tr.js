@@ -1311,7 +1311,7 @@ export const tr = {
   profReverifyUpdated: "Güncellendi",
   profReverifyCouldNotRefresh: "Yenilenemedi — tekrar dene",
   profReverifyFailed: "Yeniden doğrulama başarısız — tekrar dene",
-  profAnalyticsPausedMsg: "Analitik duraklatıldı — yeni olay kaydedilmeyecek.",
+  profAnalyticsPausedMsg: "Analitik duraklatıldı. BonBox, plan limitlerini uygulamak için her AI sohbet mesajını, Akıllı Satış Girişini ve yükseltme ödemesini kaydetmeye devam eder.",
   profAnalyticsResumedMsg: "Analitik devam ediyor.",
   profAnalyticsUpdateFailed: "Güncellenemedi — tekrar dene.",
   profLogoCurrentAlt: "Mevcut logo",

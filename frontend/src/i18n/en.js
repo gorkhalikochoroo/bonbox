@@ -329,7 +329,7 @@ export const en = {
     profReverifyUpdated: "Updated",
     profReverifyCouldNotRefresh: "Could not refresh — try again",
     profReverifyFailed: "Re-verify failed — try again",
-    profAnalyticsPausedMsg: "Analytics paused — no new events will be recorded.",
+    profAnalyticsPausedMsg: "Analytics paused. BonBox still records each AI chat turn, Smart Sale Entry and upgrade checkout to enforce your plan's limits.",
     profAnalyticsResumedMsg: "Analytics resumed.",
     profAnalyticsUpdateFailed: "Couldn't update — please try again.",
     profLogoCurrentAlt: "Current logo",

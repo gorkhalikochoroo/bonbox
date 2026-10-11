@@ -328,7 +328,7 @@ export const da = {
     profReverifyUpdated: "Opdateret",
     profReverifyCouldNotRefresh: "Kunne ikke opdatere — prøv igen",
     profReverifyFailed: "Genverificering mislykkedes — prøv igen",
-    profAnalyticsPausedMsg: "Analyse sat på pause — ingen nye hændelser registreres.",
+    profAnalyticsPausedMsg: "Analyse sat på pause. BonBox registrerer stadig hver AI-chatbesked, Smart salgsindtastning og påbegyndt betaling for en opgradering for at håndhæve grænserne i din plan.",
     profAnalyticsResumedMsg: "Analyse genoptaget.",
     profAnalyticsUpdateFailed: "Kunne ikke opdatere — prøv igen.",
     profLogoCurrentAlt: "Nuværende logo",
