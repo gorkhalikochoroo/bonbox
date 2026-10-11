@@ -220,10 +220,13 @@ describe("Register page acceptance line (LEG-11 / PQ-03)", () => {
     fireEvent.change(container.querySelector('input[name="email"]'), { target: { value: "ejer@cafe.dk" } });
     fireEvent.change(container.querySelector('input[name="password"]'), { target: { value: "Validpass1" } });
     fireEvent.change(container.querySelector('input[name="business_name"]'), { target: { value: "Café" } });
-    fireEvent.change(container.querySelector('select[name="business_type"]'), { target: { value: "cafe" } });
+    // Push 6 (B1): /register no longer asks the business type — the wizard
+    // does — so there is no select to fill and the payload leaves it out.
+    expect(container.querySelector('select[name="business_type"]')).toBeNull();
     fireEvent.submit(container.querySelector("form"));
     await waitFor(() => expect(register).toHaveBeenCalled());
     expect(register.mock.calls[0][0].accept_terms).toBe(true);
+    expect("business_type" in register.mock.calls[0][0]).toBe(false);
   });
 
   it("with a Google button the line sits beside the Google/Apple row, outside the form, once", async () => {

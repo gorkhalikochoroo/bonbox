@@ -15,7 +15,7 @@ import { PillarsProvider } from "./hooks/usePillars";
 import { ActivationProvider } from "./hooks/useActivation";
 import { LiveAlertsProvider } from "./hooks/useLiveAlerts";
 import { BranchProvider } from "./components/BranchSelector";
-import { LanguageProvider, detectInitialLanguage } from "./hooks/useLanguage";
+import { LanguageProvider, detectInitialLanguage, useLanguage } from "./hooks/useLanguage";
 import { ConfirmProvider } from "./hooks/useConfirm";
 import { ToastProvider } from "./hooks/useToast";
 import LandingV2Page from "./pages/LandingV2Page";
@@ -56,9 +56,12 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
  * a build error, so the compiler will not catch it for you.
  */
 function WithGoogleAuth({ children }) {
+  // The page's language, for Google's script (?hl= on its first load) — the
+  // button itself follows every later switch (components/GoogleButton.jsx).
+  const { lang } = useLanguage();
   if (!GOOGLE_CLIENT_ID) return children;
   return (
-    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID} locale={lang}>
       {children}
     </GoogleOAuthProvider>
   );
