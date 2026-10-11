@@ -163,3 +163,40 @@ describe("the wordmark is the kit's, not typed", () => {
     expect(s).toMatch(/<p className="flex items-center h-6 text-bb-forest dark:text-bb-paper">\s*<BonBoxWordmark height=\{14\} \/>/);
   });
 });
+
+describe("the share image and the public demo pages", () => {
+  const PUBLIC = join(SRC, "..", "public");
+  const pngSize = (p) => {
+    const b = readFileSync(p);
+    return [b.readUInt32BE(16), b.readUInt32BE(20)];
+  };
+
+  it("index.html shares og-image-v3.png (a new name, 1200 x 630) and v2 stays", () => {
+    const html = readFileSync(join(SRC, "..", "index.html"), "utf8");
+    expect(html).toContain('<meta property="og:image" content="https://www.bonbox.dk/og-image-v3.png" />');
+    expect(html).toContain('<meta name="twitter:image" content="https://www.bonbox.dk/og-image-v3.png" />');
+    expect(html).not.toMatch(/content="[^"]*og-image-v2\.png/);
+    expect(html).toContain('<meta property="og:image:width" content="1200" />');
+    expect(html).toContain('<meta property="og:image:height" content="630" />');
+    expect(pngSize(join(PUBLIC, "og-image-v3.png"))).toEqual([1200, 630]);
+    expect(pngSize(join(PUBLIC, "og-image-v2.png"))).toEqual([1200, 630]);
+  });
+
+  it("the demo reel opens on the kit's paper lock-up, inline", () => {
+    const reel = readFileSync(join(PUBLIC, "demo-reel.html"), "utf8");
+    const kit = readFileSync(join(REPO, "docs/brand/lockup/bonbox-lockup-paper.svg"), "utf8");
+    const kitPaths = [...kit.matchAll(/<path d="([^"]+)"/g)].map((m) => m[1]);
+    expect(kitPaths).toHaveLength(2);
+    for (const d of kitPaths) expect(reel).toContain(`<path d="${d}" fill="#F6F4EC"/>`);
+    expect(reel).not.toContain('<div class="logo">BonBox</div>');
+  });
+
+  it("the icon generator draws the kit's app icon, not the receipt", () => {
+    const gen = readFileSync(join(PUBLIC, "icon-generator.html"), "utf8");
+    const kit = readFileSync(join(REPO, "docs/brand/app-icon/bonbox-app-icon-1024.svg"), "utf8");
+    expect(gen).toContain(`const KIT_B = "${kit.match(/<path d="([^"]+)"/)[1]}";`);
+    expect(gen).toContain('const KIT_FOREST = "#093A26";');
+    expect(gen).toContain('const KIT_PAPER = "#F6F4EC";');
+    expect(gen).not.toMatch(/fillText\('B'|#16a34a'|#facc15/);
+  });
+});

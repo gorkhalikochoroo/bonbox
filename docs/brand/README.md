@@ -94,6 +94,8 @@ This folder is the kit's README and SVG sources, copied as delivered (the PNG an
 | `frontend/public/icon-maskable-192.png`, `icon-maskable-512.png` | the app icon with the b scaled to 0.85 about the centre, so its farthest point sits at 33.7 % from the centre (the maskable safe zone is 40 %) |
 | `frontend/public/vagtplan-*` | the `vagtplan-` files, same rules; used on staff routes (`/s/…`) and by the staff portal's web manifest |
 | `frontend/public/og-image.png`, `og-image-v2.png` | the old tile replaced in the same 180 px box by a forest tile (radius 6/32, as the favicon) with the app icon's b; the text is untouched |
+| `frontend/public/og-image-v3.png` (what index.html links) | 1200 × 630 on paper: `lockup/bonbox-lockup-forest.svg` at 580 px wide, centred, over the v2 tagline (its pixels lifted off the white ground and laid on paper, unchanged) |
+| `frontend/public/badge-96.png` (push status-bar badge) | `symbol/bonbox-symbol-white.svg` at 96 px, transparent |
 | `frontend/ios/…/AppIcon-512@2x.png` | `app-icon/bonbox-app-icon-1024.png` |
 | `frontend/ios-scheduler/…/AppIcon-512@2x.png` | `app-icon/vagtplan-app-icon-1024.png` |
 | iOS `Splash.imageset` (both apps) | the old 420 px tile replaced in place: forest tile (owner app), paper Vagtplan tile (scheduler) |
