@@ -396,6 +396,94 @@ def test_a_caller_thinking_or_high_effort_is_respected(monkeypatch):
     assert calls[0]["system"].startswith("Answer by calling one of the provided tools")
 
 
+# ─── 3b. thinking off on every Sonnet 5.5 read (no forced tool needed) ──
+
+_OFF = {"type": "between_tools"}
+
+
+def test_tiny_budget_reads_on_sonnet_5_5_go_out_with_thinking_off(monkeypatch, tmp_path):
+    """The doc-type classifier (max_tokens=10) and the onboarding archetype
+    detect (max_tokens=20) force no tool. Left to Sonnet 5.5's default
+    (adaptive thinking at effort high), thinking shares max_tokens with the
+    one-word answer and can leave no text block -> 'unknown' / 'other'."""
+    from app.routers import onboarding
+    from app.services import claude_vision_ocr
+
+    monkeypatch.delenv("AI_MODEL_DOCTYPE_CLASSIFIER", raising=False)
+    calls = _install(monkeypatch, lambda kw: _ok(kw["model"], text="cafe" if kw["max_tokens"] == 20 else "receipt"))
+    claude_vision_ocr._CLASSIFIER_CACHE.clear()
+    assert claude_vision_ocr.classify_document_type(str(_jpeg(tmp_path))) == "receipt"
+    assert onboarding._ai_detect("we sell coffee and buns") == "cafe"
+    assert [(c["model"], c["max_tokens"]) for c in calls] == [(NEW, 10), (NEW, 20)]
+    assert all(c["thinking"] == _OFF for c in calls)
+    assert all("tool_choice" not in c and "output_config" not in c for c in calls)
+
+
+def test_every_default_reader_on_sonnet_5_5_goes_out_with_thinking_off(monkeypatch, tmp_path):
+    """Large budgets too (receipt 2000, menu, inventory, triage 900): thinking
+    must not be able to eat the JSON answer. The Opus 4.8 accuracy call in
+    front of the receipt read is sent unchanged."""
+    from app.services import claude_vision_ocr, triage_service
+    from app.services.menu_extractor import extract_menu_from_image
+    from app.services.inventory_extractor import extract_image
+    from app.services.inventory_categorizer import categorize_with_ai
+
+    calls = _install(monkeypatch, lambda kw: (
+        RuntimeError("opus down") if kw["model"] == OPUS
+        else _ok(kw["model"], tool=(kw.get("tools") or [{"name": "x"}])[0]["name"])))
+    extract_menu_from_image(b"\xff\xd8\xff" + b"0" * 2000)
+    extract_image(_jpeg_bytes())
+    categorize_with_ai([{"name": "Mælk"}], "cafe")
+    monkeypatch.setattr(settings, "USE_CLAUDE_API", True)
+    triage_service._try_llm_triage({"error_type": "X"})
+    claude_vision_ocr.extract_receipt_data(str(_jpeg(tmp_path)))
+    sonnet = [c for c in calls if c["model"] == NEW]
+    assert len(sonnet) == 5 and all(c["thinking"] == _OFF for c in sonnet)
+    assert [c["model"] for c in calls if c["model"] != NEW] == [OPUS]
+    assert all("thinking" not in c for c in calls if c["model"] == OPUS)
+
+
+def test_opus_and_legacy_sonnet_requests_are_sent_unchanged(monkeypatch, mem):
+    calls = _install(monkeypatch, _missing_new_model(text="ok"))
+    client = anthropic_client("k")
+    for m in (OPUS, LEGACY):
+        client.messages.create(model=m, max_tokens=10, messages=[])
+    client.messages.create(model=NEW, max_tokens=10, messages=[])  # 404 -> legacy retry
+    assert [c["model"] for c in calls] == [OPUS, LEGACY, NEW, LEGACY]
+    assert calls[2]["thinking"] == _OFF
+    assert all("thinking" not in c for i, c in enumerate(calls) if i != 2)
+
+
+def test_the_real_sdk_puts_between_tools_on_the_wire(monkeypatch):
+    """The actual JSON body the installed anthropic SDK sends for a guarded
+    Sonnet 5.5 call (MockTransport: nothing leaves the machine)."""
+    monkeypatch.setitem(sys.modules, "anthropic", _real_anthropic)
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={
+            "id": "msg_1", "type": "message", "role": "assistant", "model": NEW,
+            "content": [{"type": "text", "text": "receipt"}], "stop_reason": "end_turn",
+            "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1},
+        })
+
+    raw = _real_anthropic.Anthropic(api_key="k", max_retries=0,
+                                    http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+    client = guard.guard_client(raw)
+    resp = client.messages.create(model=NEW, max_tokens=10, system="S",
+                                  messages=[{"role": "user", "content": "x"}])
+    assert guard.first_text(resp.content) == "receipt"
+    client.messages.create(model=NEW, max_tokens=200, tools=[_TOOL],
+                           tool_choice={"type": "tool", "name": "extract_x"},
+                           messages=[{"role": "user", "content": "x"}])
+    client.messages.create(model=OPUS, max_tokens=10, messages=[{"role": "user", "content": "x"}])
+    assert bodies[0] == {"model": NEW, "max_tokens": 10, "system": "S",
+                         "messages": [{"role": "user", "content": "x"}], "thinking": _OFF}
+    assert bodies[1]["thinking"] == _OFF and bodies[1]["tool_choice"] == {"type": "auto"}
+    assert "thinking" not in bodies[2] and "output_config" not in bodies[2]
+
+
 # ─── 4. the money readers use the setting ───────────────────────────────
 
 def _jpeg_bytes() -> bytes:

@@ -1,7 +1,15 @@
 """The safety net under every Anthropic Messages call (photo/text reading).
 
-Two jobs, both on the request BonBox already builds — prompts, images and
+Three jobs, all on the request BonBox already builds — prompts, images and
 tool schemas are never changed or logged here:
+
+0. Thinking off on Sonnet 5.5. Every Sonnet 5.5 request whose caller left
+   ``thinking`` unset goes out with ``thinking: {"type": "between_tools"}``
+   (Sonnet 5.5's lowest setting: no extended thinking; it rejects
+   ``{"type": "disabled"}``). Its default is adaptive thinking at effort
+   "high", and thinking counts toward ``max_tokens`` — the 10/20-token
+   classifiers and the JSON reads were sized for an answer only. Opus 4.8
+   and the legacy Sonnet 5 requests are sent unchanged.
 
 1. Model-not-found net. DEFAULT_MODEL / PREMIUM_MODEL are ids taken from
    Anthropic's published model list, not probed from this machine. If the
@@ -20,11 +28,8 @@ tool schemas are never changed or logged here:
    5.5 / Fable 5.1 / Mythos 5.1) answer 400 to ``tool_choice`` ``{"type":
    "tool"}`` / ``{"type": "any"}``, which every structured read here sends.
    For those models only, the request goes out with ``{"type": "auto"}``
-   plus one system line naming the required tool; on Sonnet 5.5 it also
-   sends ``thinking: {"type": "between_tools"}`` (its lowest thinking
-   setting) unless the caller set ``thinking`` — the forced call it replaces
-   went straight to the tool, and the small ``max_tokens`` budgets of the
-   classifiers were sized for that. The legacy retry is built from the
+   plus one system line naming the required tool (job 0 adds
+   between_tools on Sonnet 5.5). The legacy retry is built from the
    caller's ORIGINAL arguments, so Sonnet 5 still gets the forced call it
    accepts. A response that comes back without the required tool call is
    logged (model, tool name, stop_reason — never content); the caller's
@@ -60,9 +65,9 @@ _NO_FORCED_TOOL_CHOICE = (
     "claude-fable-5-1",
     "claude-mythos-5-1",
 )
-# The lowest thinking setting where one exists and the caller left
-# ``thinking`` unset. Sonnet 5.5 only: it rejects {"type": "disabled"} and
-# every other model rejects "between_tools".
+# The thinking setting sent on EVERY request to these models when the caller
+# left ``thinking`` unset (job 0). Sonnet 5.5 only: it rejects {"type":
+# "disabled"}, and every other model rejects "between_tools".
 _LOWEST_THINKING = {"claude-sonnet-5-5": {"type": "between_tools"}}
 # between_tools is accepted at effort "high" or below only.
 _EFFORT_ABOVE_HIGH = ("xhigh", "max")
@@ -241,16 +246,29 @@ def _effort(kwargs: dict) -> Any:
 
 
 def adapt_request(kwargs: dict) -> dict:
-    """The kwargs to send for ``kwargs["model"]``: unchanged unless that
-    model rejects forced tool use and the caller forced it."""
+    """The kwargs to send for ``kwargs["model"]``. Returns ``kwargs`` itself
+    (same object) when nothing changes. Two adaptations, each only where
+    the caller left the field unset:
+
+    * Sonnet 5.5, ANY request: ``thinking: {"type": "between_tools"}`` (no
+      extended thinking). Left alone, Sonnet 5.5 thinks adaptively at effort
+      "high", and thinking counts toward ``max_tokens`` — a 10-token
+      classifier or a 1200-token JSON read can end inside the thinking
+      block with no answer. Skipped when the caller set ``thinking`` or an
+      effort above "high" (between_tools would 400 there).
+    * A model that refuses forced tool use, when the caller forced it:
+      ``tool_choice`` auto + one system line naming the tool."""
     model = kwargs.get("model")
+    out = kwargs
+    lowest = _LOWEST_THINKING.get(_model_matches(model, _LOWEST_THINKING) or "")
+    if lowest is not None and "thinking" not in kwargs and _effort(kwargs) not in _EFFORT_ABOVE_HIGH:
+        out = {**kwargs, "thinking": dict(lowest)}
     tc = kwargs.get("tool_choice")
     if not (isinstance(tc, dict) and tc.get("type") in ("tool", "any")):
-        return kwargs
-    base = _model_matches(model, _NO_FORCED_TOOL_CHOICE)
-    if base is None:
-        return kwargs
-    out = dict(kwargs)
+        return out
+    if _model_matches(model, _NO_FORCED_TOOL_CHOICE) is None:
+        return out
+    out = dict(out)
     auto: dict[str, Any] = {"type": "auto"}
     if "disable_parallel_tool_use" in tc:
         auto["disable_parallel_tool_use"] = tc["disable_parallel_tool_use"]
@@ -263,9 +281,6 @@ def adapt_request(kwargs: dict) -> dict:
         line = ("Answer by calling one of the provided tools. A tool call is required "
                 "for this request; do not answer in plain text.")
     out["system"] = _with_system_line(kwargs.get("system"), line)
-    lowest = _LOWEST_THINKING.get(base)
-    if lowest is not None and "thinking" not in kwargs and _effort(kwargs) not in _EFFORT_ABOVE_HIGH:
-        out["thinking"] = dict(lowest)
     return out
 
 

@@ -140,7 +140,9 @@ class Settings(BaseSettings):
     # one error_logs row "AI:ModelNotFound" per model per day reaches the
     # 15-min ops triage digest. Sonnet 5.5 also refuses forced tool_choice;
     # the same guard sends those reads as tool_choice "auto" + a system line
-    # naming the tool (the legacy retry keeps the forced call Sonnet 5 takes).
+    # naming the tool (the legacy retry keeps the forced call Sonnet 5 takes),
+    # and sends every Sonnet 5.5 read with thinking off (between_tools) unless
+    # the caller set thinking — so thinking never eats a read's max_tokens.
     # SAFETY NET: the BONBOX_*_MODEL env vars hot-swap any tier WITHOUT a
     # redeploy. To roll back for good, set BONBOX_DEFAULT_MODEL /
     # BONBOX_PREMIUM_MODEL = claude-sonnet-5 in Render (no code change).
