@@ -254,8 +254,10 @@ class LocalDirBucket:
     """The same interface over a directory (tests, offline restore drills)."""
 
     def __init__(self, root: str | os.PathLike):
-        self.root = Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
+        Path(root).mkdir(parents=True, exist_ok=True)
+        # Resolved: keys are made relative to it from resolved paths, so a
+        # relative or symlinked root (macOS /tmp, /var) must be resolved too.
+        self.root = Path(root).resolve()
         self.bucket = self.root.name
 
     def _path(self, key: str) -> Path:

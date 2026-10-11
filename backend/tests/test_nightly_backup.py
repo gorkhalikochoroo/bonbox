@@ -1725,3 +1725,19 @@ def test_restore_scrubs_a_password_from_any_connection_error(fernet, key, db_env
     restore._say(f"boom: {url} / {pw}")
     out = capsys.readouterr().out
     assert pw not in out and "***" in out
+
+
+def test_restore_reads_a_backup_copy_from_a_relative_or_symlinked_dir(fernet, key, db_env, buckets,
+                                                                      tmp_path, monkeypatch, capsys):
+    """--source-dir for an offline drill: a relative path, or one through a
+    symlink (macOS /tmp and /var are symlinks to /private/…), must list and
+    verify like any other."""
+    _, dst = buckets
+    _run(fernet, db_env, buckets)
+    link = tmp_path / "linked-copy"
+    link.symlink_to(dst.root, target_is_directory=True)
+    monkeypatch.chdir(tmp_path)
+    for source in ("bonbox-backup", str(link), "linked-copy"):
+        rc = restore.main(["--dry-run", "--source-dir", source], env={"BACKUP_ENCRYPTION_KEY": key})
+        out = capsys.readouterr().out
+        assert rc == 0, (source, out[-600:])
