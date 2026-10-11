@@ -56,6 +56,7 @@ from app.schemas.magic_link import (
 )
 from app.services import audit_service
 from app.services.auth import create_access_token, get_current_user
+from app.services.brand_mark import BRAND_FOREST, BRAND_MARK_SVG
 from app.services.email_service import send_email
 from app.services.magic_link_service import create_token, verify_token
 
@@ -124,8 +125,8 @@ def _magic_link_email_html(magic_url: str, is_danish: bool) -> str:
     return f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
   <div style="text-align:center;margin-bottom:24px">
-    <div style="display:inline-block;background:#16a34a;border-radius:14px;padding:12px 14px">
-      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="3" stroke="white" stroke-width="2"/><path d="M9 8h10M9 12h10M9 16h6" stroke="white" stroke-width="1.5" stroke-linecap="round"/><path d="M4 20h20" stroke="#FCD34D" stroke-width="2"/></svg>
+    <div style="display:inline-block;background:{BRAND_FOREST};border-radius:14px;padding:12px 14px">
+      {BRAND_MARK_SVG}
     </div>
     <h1 style="font-size:22px;color:#1e293b;margin:14px 0 4px;font-weight:600;letter-spacing:-0.01em">{headline}</h1>
     <p style="color:#64748b;font-size:14px;margin:0;line-height:1.5">{sub}</p>

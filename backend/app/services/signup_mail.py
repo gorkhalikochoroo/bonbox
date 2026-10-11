@@ -22,13 +22,7 @@ from __future__ import annotations
 
 import html as _html
 
-_BRAND_ICON = (
-    '<svg width="28" height="28" viewBox="0 0 28 28" fill="none" '
-    'xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" '
-    'rx="3" stroke="white" stroke-width="2"/><path d="M9 8h10M9 12h10M9 16h6" '
-    'stroke="white" stroke-width="1.5" stroke-linecap="round"/>'
-    '<path d="M4 20h20" stroke="{accent}" stroke-width="2"/></svg>'
-)
+from app.services.brand_mark import BRAND_FOREST, BRAND_MARK_SVG
 
 DASHBOARD_URL = "https://bonbox.dk/dashboard"
 CONTACT_URL = "https://bonbox.dk/contact"
@@ -107,8 +101,8 @@ def verification_mail(code, lang: str = "en") -> tuple[str, str, str]:
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:0;background:#0f172a">
   <div style="padding:32px 24px">
     <div style="text-align:center;margin-bottom:24px">
-      <div style="display:inline-block;background:rgba(255,255,255,0.1);border-radius:14px;padding:12px 14px;border:1px solid rgba(255,255,255,0.1)">
-        {_BRAND_ICON.format(accent="#22c55e")}
+      <div style="display:inline-block;background:{BRAND_FOREST};border-radius:14px;padding:12px 14px;border:1px solid rgba(255,255,255,0.1)">
+        {BRAND_MARK_SVG}
       </div>
       <h1 style="font-size:22px;color:#ffffff;margin:12px 0 4px">{e(c["title"])}</h1>
       <p style="color:#94a3b8;font-size:14px;margin:0">{e(c["lede"])}</p>
@@ -194,8 +188,8 @@ def welcome_mail(name, lang: str = "en") -> tuple[str, str, str]:
     html = f"""\
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff">
   <div style="text-align:center;margin-bottom:24px">
-    <div style="display:inline-block;background:#16a34a;border-radius:14px;padding:12px 14px">
-      {_BRAND_ICON.format(accent="#FCD34D")}
+    <div style="display:inline-block;background:{BRAND_FOREST};border-radius:14px;padding:12px 14px">
+      {BRAND_MARK_SVG}
     </div>
     <h1 style="font-size:22px;color:#1e293b;margin:12px 0 4px">{e(c["title"])}</h1>
     <p style="color:#64748b;font-size:14px;margin:0">{e(c["sub"])}</p>
