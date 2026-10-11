@@ -124,7 +124,7 @@ describe("/join errors speak Danish and say what to do", () => {
 describe("/join chrome", () => {
   it("staff title, not the owner marketing title — restored on leave", async () => {
     mount();
-    await waitFor(() => expect(document.title).toBe("BonBox Scheduler — Tilslut"));
+    await waitFor(() => expect(document.title).toBe("BonBox Vagtplan — Tilslut"));
   });
 
   it("DA/EN switch before joining", async () => {

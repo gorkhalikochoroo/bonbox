@@ -93,7 +93,7 @@ export default function HeroV2() {
             <AppStoreLink
               size="md"
               href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960"
-              label={t("landingV2.appStore.dailyClose", "Daily Close on the App Store")}
+              label={t("landingV2.appStore.dailyClose", "BonBox on the App Store")}
             />
           </div>
 

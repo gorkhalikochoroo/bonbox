@@ -25,11 +25,11 @@ export default function StaffCopyV2() {
     <div className="max-w-[58ch]">
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-          {t("landingV2.staff.eyebrow", "BonBox Scheduler · iPhone")}
+          {t("landingV2.staff.eyebrow", "BonBox Vagtplan · iPhone")}
         </span>
         <AppStoreLink
           href="https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793"
-          label={t("landingV2.appStore.scheduler", "Scheduler on the App Store")}
+          label={t("landingV2.appStore.scheduler", "Vagtplan on the App Store")}
         />
       </div>
 
@@ -43,7 +43,7 @@ export default function StaffCopyV2() {
       <p className="mb-[30px] max-w-[46ch] text-[17px] text-slate-600">
         {t(
           "landingV2.staff.body",
-          "Staff open Scheduler and their week is right there — no login hassle, no clutter. They mark when they can’t work, request holiday, and get a notification the moment a shift moves."
+          "Staff open Vagtplan and their week is right there — no login hassle, no clutter. They mark when they can’t work, request holiday, and see in the app when one of their shifts changes."
         )}
       </p>
 

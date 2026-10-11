@@ -68,7 +68,7 @@ export default function JoinPage() {
   // The tab / app-switcher title is the staff app's, not the owner pitch.
   useEffect(() => {
     const prev = document.title;
-    document.title = t("joinDocTitle", "BonBox Scheduler — Connect");
+    document.title = t("joinDocTitle", "BonBox Vagtplan — Connect");
     return () => { document.title = prev; };
   }, [t]);
 

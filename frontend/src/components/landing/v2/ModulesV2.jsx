@@ -41,7 +41,7 @@ export default function ModulesV2() {
       title: t("landingV2.modules.schedule.title", "Schedule"),
       body: t(
         "landingV2.modules.schedule.body",
-        "Build the week as drafts, check it against forecast and demand, publish once. Staff see it in the Scheduler app."
+        "Build the week as drafts, check it against forecast and demand, publish once. Staff see it in the Vagtplan app."
       ),
     },
     {

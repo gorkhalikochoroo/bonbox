@@ -289,7 +289,7 @@ describe("Opening a link while the server is in trouble", () => {
       expect(await screen.findByText("Serveren svarer ikke")).toBeInTheDocument();
       expect(document.body.textContent).not.toContain("Ingen forbindelse");
       expect(document.body.textContent).not.toContain("starting up");
-      expect(document.title).toBe("BonBox Scheduler");
+      expect(document.title).toBe("BonBox Vagtplan");
 
       await act(async () => { vi.advanceTimersByTime(15000); });
       await waitFor(() => expect(screen.getByTitle("Rediger profil")).toBeInTheDocument());
@@ -369,7 +369,7 @@ describe("Dead link", () => {
       const cta = await screen.findByRole("link", { name: "Tilslut med kode" });
       expect(cta.getAttribute("href")).toBe("/join");
       expect(cta.className).toContain("min-h-[44px]");
-      expect(document.title).toBe("BonBox Scheduler");
+      expect(document.title).toBe("BonBox Vagtplan");
     } finally {
       get.mockImplementation(base);
     }
