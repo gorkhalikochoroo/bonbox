@@ -4379,8 +4379,8 @@ export const da = {
     gdprExportFailed: "Vi kunne ikke gemme filen på denne enhed. Tjek forbindelsen, og prøv igen.",
     calendarAddFailed: "Vi kunne ikke gemme kalenderfilen. Prøv igen, eller skriv tidspunktet ned.",
     downloadCsv: "Hent CSV", exporting: "Eksporterer...",
-    deleteAccount: "Slet konto", deleteAccountDesc: "Slet permanent din konto og alle data. Dette kan ikke fortrydes.",
-    deleteMyAccount: "Slet min konto", deleteConfirmWarning: "Dette vil permanent slette ALLE dine data: salg, udgifter, lager, rapporter, alt. Indtast din adgangskode for at bekræfte.",
+    deleteAccount: "Slet konto", deleteAccountDesc: "Slet din konto og dataene i den. Det kan ikke fortrydes. § 4 i Handelsbetingelserne nævner, hvad vi beholder.",
+    deleteMyAccount: "Slet min konto", deleteConfirmWarning: "Dette sletter din konto og dataene i den med det samme: salg, udgifter, lager, rapporter. Vi beholder ændringsloggen, sikkerheds- og fejlloggene og billederne af dine regnskabsbilag (i ca. 6 år) — se § 4 i Handelsbetingelserne. Et aktivt abonnement stopper samtidig. Hent dine data og PDF'er først. Indtast din adgangskode for at bekræfte.",
     enterPassword: "Indtast din adgangskode", confirmDelete: "Bekræft sletning", deleting: "Sletter...",
     deleteFailed: "Kunne ikke slette konto",
     // R-e fix-up — sletning afvist, fordi abonnementet ikke kunne stoppes hos Stripe (routers/auth.py DELETE_SUB_STOP_FAILED_DA).

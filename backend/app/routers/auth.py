@@ -2356,6 +2356,26 @@ DELETE_SUB_STOP_FAILED_DA = (
     "skriv til contact@bonbox.dk."
 )
 
+# The reply to a completed deletion (push 3) — what Terms § 4 says we keep,
+# nothing more: the change log, the security and error logs, and the images
+# of the four accounting kinds (storage.ACCOUNTING_RETENTION_KINDS), deleted
+# by the nightly sweep (5 + 1) × 366 days after the erasure. No legal claim
+# that BonBox must keep records — § 4 says the owner keeps them.
+DELETE_DONE_EN = (
+    "Your account and the data in it are deleted. As Terms of Service § 4 says, "
+    "we keep the change log, the security and error logs, and the images of "
+    "accounting documents you uploaded (kasserapport photos, receipt and sales "
+    "photos, and stock import files); we keep those images for about 6 years "
+    "and then delete them. We're sorry to see you go."
+)
+DELETE_DONE_DA = (
+    "Din konto og dataene i den er slettet. Som § 4 i Handelsbetingelserne "
+    "siger, beholder vi ændringsloggen, sikkerheds- og fejlloggene og billederne "
+    "af de regnskabsbilag, du har uploadet (fotos af kasserapporter, kvitteringer "
+    "og salg samt filer fra lagerimport); billederne gemmer vi i ca. 6 år og "
+    "sletter dem derefter. Vi er kede af at se dig gå."
+)
+
 
 @router.delete("/delete-account")
 def delete_account(
@@ -2468,8 +2488,8 @@ def delete_account(
     # Tombstone FIRST, same commit: it is the ONLY remaining pointer to the
     # legally-retained accounting blobs (kasserapport/expense/sale/
     # inventory_import) once the user row dies. The nightly retention sweep
-    # uses it to honour the "kept 5 years, then deleted" promise below, then
-    # drops it. merge() keeps a double-delete idempotent.
+    # uses it to honour the "about 6 years, then deleted" promise (Terms § 4,
+    # DELETE_DONE_*), then drops it. merge() keeps a double-delete idempotent.
     from app.models.erasure_tombstone import ErasureTombstone
     db.merge(ErasureTombstone(user_id=uid))
     db.delete(current_user)
@@ -2530,11 +2550,4 @@ def delete_account(
 
     db.commit()
 
-    return {
-        "message": (
-            "Account deleted and your personal data erased. As Danish law "
-            "requires (Bogføringsloven §10), accounting source documents "
-            "(kasserapport, faktura, receipts) are kept for 5 years, then "
-            "deleted. We're sorry to see you go."
-        )
-    }
+    return {"message": DELETE_DONE_EN, "message_da": DELETE_DONE_DA}

@@ -2079,7 +2079,7 @@ export default function ProfilePage() {
                   </div>
                   <p className="text-xs text-red-600/80 dark:text-red-400/80 mt-1">
                     {t("deleteAccountDesc") ||
-                      "Permanently delete your account and all data. This cannot be undone."}
+                      "Delete your account and the data in it. This cannot be undone. § 4 of the Terms of Service lists what we keep."}
                   </p>
                 </div>
                 {!deleteConfirm && (
@@ -2093,7 +2093,7 @@ export default function ProfilePage() {
                 <div className="pt-4 mt-2 border-t border-red-200/70 dark:border-red-900/50 space-y-3">
                   <p className="text-sm text-red-700 dark:text-red-300 font-medium">
                     {t("deleteConfirmWarning") ||
-                      "This will permanently delete ALL your data: sales, expenses, inventory, reports, everything. Enter your password to confirm."}
+                      "This deletes your account and the data in it straight away: sales, expenses, inventory, reports. We keep the change log, the security and error logs, and the images of your accounting documents (for about 6 years) — see § 4 of the Terms of Service. An active subscription stops at the same moment. Download your data and PDFs first. Enter your password to confirm."}
                   </p>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <input

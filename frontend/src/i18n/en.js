@@ -4519,8 +4519,8 @@ export const en = {
     gdprExportFailed: "We couldn't save the file to this device. Check your connection and try again.",
     calendarAddFailed: "We couldn't save the calendar file. Try again, or note the time down.",
     downloadCsv: "Download CSV", exporting: "Exporting...",
-    deleteAccount: "Delete Account", deleteAccountDesc: "Permanently delete your account and all data. This cannot be undone.",
-    deleteMyAccount: "Delete My Account", deleteConfirmWarning: "This will permanently delete ALL your data: sales, expenses, inventory, reports, everything. Enter your password to confirm.",
+    deleteAccount: "Delete Account", deleteAccountDesc: "Delete your account and the data in it. This cannot be undone. § 4 of the Terms of Service lists what we keep.",
+    deleteMyAccount: "Delete My Account", deleteConfirmWarning: "This deletes your account and the data in it straight away: sales, expenses, inventory, reports. We keep the change log, the security and error logs, and the images of your accounting documents (for about 6 years) — see § 4 of the Terms of Service. An active subscription stops at the same moment. Download your data and PDFs first. Enter your password to confirm.",
     enterPassword: "Enter your password", confirmDelete: "Confirm Delete", deleting: "Deleting...",
     deleteFailed: "Failed to delete account",
     // R-e fix-up — deletion refused because the subscription could not be stopped at Stripe (routers/auth.py DELETE_SUB_STOP_FAILED_EN).

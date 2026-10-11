@@ -434,3 +434,25 @@ def test_delete_refusal_matches_the_profile_page_text():
         src = (root / f"{lang}.js").read_text()
         m = re.search(r'deleteSubscriptionStopFailed:\s*"([^"]+)"', src)
         assert m and m.group(1) == expected, lang
+
+
+def test_deletion_reply_says_what_terms_section_4_says(db_session, client):
+    """Push 3: the reply to a completed deletion names what we keep (Terms
+    § 4) — no 'faktura', no '5 years', no claim that the law makes BonBox
+    keep the owner's records."""
+    user = _seed_user_with_data(db_session)
+    app.dependency_overrides[get_current_user] = lambda: user
+    r = client.request("DELETE", "/api/auth/delete-account", json={"password": "deleteMeNow1"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["message"] == auth_router.DELETE_DONE_EN
+    assert body["message_da"] == auth_router.DELETE_DONE_DA
+    for msg in (body["message"], body["message_da"]):
+        assert "6" in msg and "5 year" not in msg and "5 år" not in msg
+        assert "faktura" not in msg.lower() and "Bogføringsloven" not in msg
+    # The same facts as the Terms page and /privacy.
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2] / "frontend" / "src" / "pages"
+    terms = (root / "TermsPage.jsx").read_text()
+    assert "we keep those images for about 6 years after the deletion and then delete them" in terms
+    assert "billederne gemmer vi i ca. 6 år efter sletningen og sletter dem derefter" in terms

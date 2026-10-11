@@ -161,3 +161,49 @@ describe("processors: complete, and a location only where confirmed", () => {
     expect(stripe[3]).toContain("business type and the Terms version you accepted");
   });
 });
+
+// ─────────────── (E) the delete-account texts say what § 4 says ───────────────
+
+const packs = {
+  da: (await import("../i18n/da")).da,
+  en: (await import("../i18n/en")).en,
+  tr: (await import("../i18n/tr")).tr,
+  np: (await import("../i18n/np")).np,
+  th: (await import("../i18n/th")).th,
+  vi: (await import("../i18n/vi")).vi,
+};
+
+describe("(E) Profile → Delete account says what Terms § 4 says", () => {
+  it("da + en: not 'ALL your data … everything'; names what we keep and points to § 4", () => {
+    expect(packs.da.deleteAccountDesc).toBe("Slet din konto og dataene i den. Det kan ikke fortrydes. § 4 i Handelsbetingelserne nævner, hvad vi beholder.");
+    expect(packs.en.deleteAccountDesc).toBe("Delete your account and the data in it. This cannot be undone. § 4 of the Terms of Service lists what we keep.");
+    expect(packs.da.deleteConfirmWarning).toBe(
+      "Dette sletter din konto og dataene i den med det samme: salg, udgifter, lager, rapporter. Vi beholder ændringsloggen, sikkerheds- og fejlloggene og billederne af dine regnskabsbilag (i ca. 6 år) — se § 4 i Handelsbetingelserne. Et aktivt abonnement stopper samtidig. Hent dine data og PDF'er først. Indtast din adgangskode for at bekræfte.",
+    );
+    expect(packs.en.deleteConfirmWarning).toBe(
+      "This deletes your account and the data in it straight away: sales, expenses, inventory, reports. We keep the change log, the security and error logs, and the images of your accounting documents (for about 6 years) — see § 4 of the Terms of Service. An active subscription stops at the same moment. Download your data and PDFs first. Enter your password to confirm.",
+    );
+  });
+
+  it("every pack that has the keys: no 'all data, permanently, everything' left, and § 4 is named", () => {
+    const OLD = /ALLE|ALL your data|everything|alle data|tüm veri|TÜM|her şey|सबै डाटा|ทั้งหมด|ทุกอย่าง|mọi dữ liệu|TẤT CẢ|mọi thứ/;
+    for (const [lang, d] of Object.entries(packs)) {
+      for (const k of ["deleteAccountDesc", "deleteConfirmWarning"]) {
+        expect(typeof d[k], `${lang}.${k}`).toBe("string");
+        expect(d[k], `${lang}.${k}`).not.toMatch(OLD);
+      }
+      expect(d.deleteAccountDesc, lang).toMatch(/§ ?4|ข้อ 4|mục 4/);
+      expect(d.deleteConfirmWarning, lang).toMatch(/6|६/); // np writes ६
+    }
+  });
+
+  it("the page's inline English fallbacks match en (no stale 'ALL your data')", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "pages", "ProfilePage.jsx"), "utf8");
+    expect(src).toContain(JSON.stringify(packs.en.deleteAccountDesc));
+    expect(src).toContain(JSON.stringify(packs.en.deleteConfirmWarning));
+    expect(src).not.toContain("ALL your data");
+  });
+});
