@@ -46,8 +46,15 @@ import {
  * and names no price, so in the native build the "what changed" list leaves
  * out the four subscription bullets (businesses only, automatic renewal,
  * founding price, price changes) and says in one neutral line that § 8 has
- * changed. That matches the iPhone § 8 in TermsPage, which the "Read the
- * terms" link opens. The browser keeps all six bullets.
+ * changed. The browser keeps all six bullets.
+ *
+ * The iPhone § 8 in TermsPage, which the "Read the terms" link opens, does
+ * NOT follow the same rule yet: it names no amounts, but it still says a
+ * subscription renews every month, talks about buying one and the purchase
+ * at checkout, the founding price, price changes, and cancelling in Stripe's
+ * customer portal outside the app. That text predates this release. Whether
+ * it changes before App Store submission is Manoj's decision; until then
+ * nothing here may claim the two match.
  */
 const LOCAL_KEY = "bonbox_terms_notice_closed";
 
