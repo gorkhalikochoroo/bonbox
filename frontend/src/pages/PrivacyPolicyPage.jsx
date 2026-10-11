@@ -201,7 +201,7 @@ function PrivacyEn() {
             headers={["Service", "Purpose", "Location", "Data processed"]}
             rows={[
               ["Supabase", "Database (PostgreSQL) and file storage", "EU (Ireland)", "All account and business data, and the files you upload"],
-              ["Supabase", "Encrypted backup copy (database + receipt photos)", "EU (Germany, Frankfurt)", "All account and business data, encrypted before it leaves BonBox"],
+              ["Supabase", "Encrypted backup copy (database + the files you upload)", "EU (Germany, Frankfurt)", "All account and business data and the files you upload, encrypted before they leave BonBox"],
               ["Vercel", "Frontend hosting", "Global CDN", "No personal data stored"],
               ["Render", "Backend API hosting", "EU (Frankfurt, Germany)", "API requests, no persistent storage"],
               ["Resend", "Email delivery", "Not confirmed", "Email address, email content"],
@@ -476,7 +476,7 @@ function PrivacyDa() {
             headers={["Tjeneste", "Formål", "Placering", "Behandlede data"]}
             rows={[
               ["Supabase", "Database (PostgreSQL) og fillagring", "EU (Irland)", "Alle konto- og virksomhedsdata og de filer, du uploader"],
-              ["Supabase", "Krypteret sikkerhedskopi (database + kvitteringsbilleder)", "EU (Tyskland, Frankfurt)", "Alle konto- og virksomhedsdata, krypteret før de forlader BonBox"],
+              ["Supabase", "Krypteret sikkerhedskopi (database + de filer, du uploader)", "EU (Tyskland, Frankfurt)", "Alle konto- og virksomhedsdata og de filer, du uploader, krypteret før de forlader BonBox"],
               ["Vercel", "Hosting af frontend", "Globalt CDN", "Ingen personoplysninger gemmes"],
               ["Render", "Hosting af backend-API", "EU (Frankfurt, Tyskland)", "API-forespørgsler, ingen varig lagring"],
               ["Resend", "Afsendelse af e-mails", "Ikke bekræftet", "E-mailadresse, e-mailens indhold"],

@@ -1469,12 +1469,20 @@ def test_privacy_names_the_encrypted_backup_copy(key):
     The frontend sibling is frontend/src/__tests__/backupPrivacyRow.test.jsx."""
     root = Path(__file__).resolve().parents[2]
     page = (root / "frontend/src/pages/PrivacyPolicyPage.jsx").read_text(encoding="utf-8")
-    assert ('["Supabase", "Encrypted backup copy (database + receipt photos)", '
-            '"EU (Germany, Frankfurt)", "All account and business data, encrypted before it '
-            'leaves BonBox"]') in page
-    assert ('["Supabase", "Krypteret sikkerhedskopi (database + kvitteringsbilleder)", '
-            '"EU (Tyskland, Frankfurt)", "Alle konto- og virksomhedsdata, krypteret før de '
-            'forlader BonBox"]') in page
+    assert ('["Supabase", "Encrypted backup copy (database + the files you upload)", '
+            '"EU (Germany, Frankfurt)", "All account and business data and the files you '
+            'upload, encrypted before they leave BonBox"]') in page
+    assert ('["Supabase", "Krypteret sikkerhedskopi (database + de filer, du uploader)", '
+            '"EU (Tyskland, Frankfurt)", "Alle konto- og virksomhedsdata og de filer, du '
+            'uploader, krypteret før de forlader BonBox"]') in page
+    # The copy holds every uploaded file, not only receipt photos: the job
+    # mirrors the whole source bucket, where staff documents, avatars, chat
+    # images and logos live too. So the row must not name receipt photos only.
+    assert "receipt photos)" not in page and "kvitteringsbilleder)" not in page
+    assert bs.load_config(_settings(BACKUP_SUPABASE_URL="https://backup.supabase.co",
+                                    BACKUP_SUPABASE_SERVICE_KEY=SERVICE_KEY,
+                                    BACKUP_ENCRYPTION_KEY=key)).source_buckets == ("receipts",)
+    assert {"staff_document", "staff_avatar", "staff_chat", "business_logo"} <= set(bs.ALLOWED_KINDS)
     assert "BACKUP_ENCRYPTION_KEY" in bs.REQUIRED_ENV
     cfg = bs.load_config(_settings(BACKUP_SUPABASE_URL="https://backup.supabase.co",
                                    BACKUP_SUPABASE_SERVICE_KEY=SERVICE_KEY))

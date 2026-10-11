@@ -46,11 +46,11 @@ const processorRows = (lang) => {
 const ROWS = {
   en: {
     main: ["Supabase", "Database (PostgreSQL) and file storage", "EU (Ireland)", "All account and business data, and the files you upload"],
-    backup: ["Supabase", "Encrypted backup copy (database + receipt photos)", "EU (Germany, Frankfurt)", "All account and business data, encrypted before it leaves BonBox"],
+    backup: ["Supabase", "Encrypted backup copy (database + the files you upload)", "EU (Germany, Frankfurt)", "All account and business data and the files you upload, encrypted before they leave BonBox"],
   },
   da: {
     main: ["Supabase", "Database (PostgreSQL) og fillagring", "EU (Irland)", "Alle konto- og virksomhedsdata og de filer, du uploader"],
-    backup: ["Supabase", "Krypteret sikkerhedskopi (database + kvitteringsbilleder)", "EU (Tyskland, Frankfurt)", "Alle konto- og virksomhedsdata, krypteret før de forlader BonBox"],
+    backup: ["Supabase", "Krypteret sikkerhedskopi (database + de filer, du uploader)", "EU (Tyskland, Frankfurt)", "Alle konto- og virksomhedsdata og de filer, du uploader, krypteret før de forlader BonBox"],
   },
 };
 
