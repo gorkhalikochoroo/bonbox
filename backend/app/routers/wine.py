@@ -890,23 +890,22 @@ async def scan_bottle_label(
             api_key = settings.ANTHROPIC_API_KEY
             model = settings.DEFAULT_MODEL
 
-            def _body(m: str) -> dict:
-                # No `temperature`: Sonnet 5 / 5.5 answer 400 to any
-                # non-default sampling value (it was 0.1 here).
-                return {
-                    "model": m,
-                    "max_tokens": 1200,  # bumped from 800 — long labels were truncating mid-JSON
-                    "messages": [{
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {"type": "base64", "media_type": media_type, "data": b64},
-                            },
-                            {"type": "text", "text": _WINE_SCAN_PROMPT},
-                        ],
-                    }],
-                }
+            # Everything but the model. No `temperature`: Sonnet 5 / 5.5
+            # answer 400 to any non-default sampling value (it was 0.1 here).
+            # (A dict, not a nested sync helper: this route runs on the loop.)
+            request_body = {
+                "max_tokens": 1200,  # bumped from 800 — long labels were truncating mid-JSON
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": media_type, "data": b64},
+                        },
+                        {"type": "text", "text": _WINE_SCAN_PROMPT},
+                    ],
+                }],
+            }
 
             async with httpx.AsyncClient(timeout=30.0) as _client:
                 async def _post(m: str):
@@ -917,7 +916,7 @@ async def scan_bottle_label(
                             "anthropic-version": "2023-06-01",
                             "content-type": "application/json",
                         },
-                        json=_body(m),
+                        json={"model": m, **request_body},
                     )
 
                 resp = await _post(model)
