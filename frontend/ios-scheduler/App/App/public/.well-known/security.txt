@@ -1,0 +1,6 @@
+# BonBox security contact (RFC 9116). Renew Expires before 2027-09-01.
+Contact: mailto:contact@bonbox.dk
+Expires: 2027-10-01T00:00:00.000Z
+Preferred-Languages: da, en
+Canonical: https://bonbox.dk/.well-known/security.txt
+Canonical: https://www.bonbox.dk/.well-known/security.txt
