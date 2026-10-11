@@ -2,6 +2,10 @@ import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { CookieSettingsButton } from "../components/CookieConsent";
 import BonBoxMark from "../components/BonBoxMark";
+// The "Last updated" date is PRIVACY_UPDATED (src/legal/terms.js), the same
+// release-time day as /privacy: the analytics-consent text here changes in the
+// same release as /privacy's (R-h), so the two pages never disagree on when.
+import { PRIVACY_UPDATED, termsDate } from "../legal/terms";
 
 function CookieTable({ headers, rows }) {
   return (
@@ -45,7 +49,7 @@ function CookiesEn() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Cookie Policy</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 8 October 2026</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="cookies-updated">Last updated: {termsDate(PRIVACY_UPDATED, "en")}</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-6 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -194,7 +198,7 @@ function CookiesDa() {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Cookiepolitik</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Senest opdateret: 8. oktober 2026</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="cookies-updated">Senest opdateret: {termsDate(PRIVACY_UPDATED, "da")}</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-6 text-gray-700 dark:text-gray-300 leading-relaxed">
 

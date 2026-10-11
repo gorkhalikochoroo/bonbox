@@ -16,6 +16,10 @@
  *     pre-commit no-undef guard catch this one).
  * This file pins the first: with PRIVACY_UPDATED set to a day no other
  * constant holds, the page must print that day, in both languages.
+ *
+ * /cookies too (combined-release fix round): its analytics text changes in
+ * the same release as /privacy's, and its date was a hard-coded "8 October
+ * 2026" that no release step would ever move. It now prints PRIVACY_UPDATED.
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -44,6 +48,7 @@ vi.mock("../legal/terms", async (importOriginal) => ({
 }));
 
 const PrivacyPolicyPage = (await import("../pages/PrivacyPolicyPage")).default;
+const CookiePolicyPage = (await import("../pages/CookiePolicyPage")).default;
 
 afterEach(() => {
   cleanup();
@@ -69,5 +74,22 @@ describe("/privacy prints its own date, PRIVACY_UPDATED", () => {
   it("English", () => {
     renderPage("en");
     expect(screen.getByTestId("privacy-updated").textContent).toBe("Last updated: 2 January 2099");
+  });
+});
+
+describe("/cookies prints the same date, PRIVACY_UPDATED", () => {
+  const renderCookies = (lang) => {
+    langCode = lang;
+    return render(<MemoryRouter><CookiePolicyPage /></MemoryRouter>);
+  };
+
+  it("Danish", () => {
+    renderCookies("da");
+    expect(screen.getByTestId("cookies-updated").textContent).toBe("Senest opdateret: 2. januar 2099");
+  });
+
+  it("English", () => {
+    renderCookies("en");
+    expect(screen.getByTestId("cookies-updated").textContent).toBe("Last updated: 2 January 2099");
   });
 });
