@@ -1,5 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import AppStoreLink from "./AppStoreLink";
+import { CELL, TEXT, WIDE } from "./fluid";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../../../hooks/useLanguage";
 import { dateLocale } from "../../../utils/dateFormat";
@@ -13,7 +14,9 @@ import {
 /**
  * Landing v2 — hero section (#top).
  *
- * Two-column grid (0.9fr / 1.1fr) collapsing to a single column at 1040px.
+ * Two equal columns from 1041px, a single column below. Above that the
+ * card is drawn at its column's width and the page grows with the screen
+ * (see ./fluid.js).
  * Left: badge, headline, lead, two pill CTAs, trust row.
  * Right: a static demo of the owner dashboard. Every figure is a fixed
  * demo value — no data fetching — and the figures tie out:
@@ -76,10 +79,14 @@ export default function HeroV2() {
 
   return (
     <section id="top" className="bg-slate-50">
-      <div className="mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] pt-[clamp(24px,3vw,52px)] pb-[clamp(40px,5vw,64px)]">
-      <div className="grid grid-cols-1 items-center gap-10 min-[1041px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] min-[1041px]:gap-[clamp(40px,5vw,68px)]">
+      {/* Wide screens (./fluid.js): 5% gutters; above 1440px the padding,
+          the gap and the copy grow with the screen. 3vw is 43.2px at 1440.
+          Equal columns: the card fills its half, so the hero ends inside a
+          1920x1080 screen; at 0.9 / 1.1 it was a quarter taller. */}
+      <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] pt-[clamp(24px,3vw,52px)] pb-[clamp(40px,5vw,64px)] ${WIDE} min-[1441px]:pt-[calc(43.2px*var(--lx))] min-[1441px]:pb-[calc(64px*var(--lx))]`}>
+      <div className="grid grid-cols-1 items-center gap-10 min-[1041px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] min-[1041px]:gap-[clamp(40px,5vw,68px)] min-[1441px]:gap-[calc(68px*var(--lx))]">
         {/* ── Left column ───────────────────────────────────────────── */}
-        <div>
+        <div className={TEXT}>
           {/* Badge + the owner app, as peers. The App Store link wraps to its
               own line rather than squeezing the badge on a narrow screen. */}
           <div className="mb-6 flex flex-wrap items-center gap-2.5">
@@ -101,7 +108,9 @@ export default function HeroV2() {
             {t("landingV2HeroTitle", "The back office your business actually runs on.")}
           </h1>
 
-          <p className="m-0 mb-7 max-w-[47ch] text-[18.5px] leading-[1.5] text-slate-600 text-pretty">
+          {/* 47ch on a phone. From 1041px the column sets the measure, so
+              the lead runs up to the card instead of stopping short of it. */}
+          <p className="m-0 mb-7 max-w-[47ch] text-[18.5px] leading-[1.5] text-slate-600 text-pretty min-[1041px]:max-w-none">
             {t(
               "landingV2HeroLead",
               "Daily close, reservations, schedule, timer & løn, stock and MOMS. For restaurants, bars, bistros, shops and anyone else closing a till in Denmark. One login for the owner, one app for the staff, one bill.",
@@ -141,7 +150,11 @@ export default function HeroV2() {
         </div>
 
         {/* ── Right column: dashboard demo card ─────────────────────── */}
-        <figure className="m-0 overflow-hidden rounded-[18px] bg-white shadow-[0_18px_44px_-24px_rgba(15,23,42,0.30)]">
+        {/* The wrapper is the size container the card measures: from
+            1041px the card is drawn at the column's width / 600px, never
+            below 1 (narrower columns reflow it as before). ./fluid.js */}
+        <div className={CELL}>
+        <figure className="m-0 overflow-hidden rounded-[18px] bg-white shadow-[0_18px_44px_-24px_rgba(15,23,42,0.30)] min-[1041px]:[zoom:clamp(1,tan(atan2(100cqw,600px)),2.5)]">
           <figcaption className="sr-only">
             {t(
               "landingV2HeroCardCaption",
@@ -333,6 +346,7 @@ export default function HeroV2() {
             </div>
           </div>
         </figure>
+        </div>
       </div>
       </div>
     </section>

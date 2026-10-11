@@ -1,4 +1,5 @@
 import { useLanguage } from "../../../hooks/useLanguage";
+import { TEXT, WIDE, WIDE_PY } from "./fluid";
 
 /**
  * Landing v2 — "Access" section.
@@ -57,9 +58,9 @@ export default function AccessV2() {
       aria-labelledby="access-heading"
       className="border-t border-slate-200 bg-slate-50"
     >
-      <div className="mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)]">
-        <div className="grid grid-cols-1 gap-10 min-[1041px]:grid-cols-[minmax(0,0.74fr)_minmax(0,1.26fr)] min-[1041px]:gap-[clamp(32px,5vw,64px)]">
-          <div>
+      <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] ${WIDE} ${WIDE_PY}`}>
+        <div className="grid grid-cols-1 gap-10 min-[1041px]:grid-cols-[minmax(0,0.66fr)_minmax(0,1.34fr)] min-[1041px]:gap-[clamp(32px,5vw,64px)] min-[1441px]:gap-[calc(64px*var(--lx))]">
+          <div className={TEXT}>
             <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
               {t("landingV2.access.eyebrow", "Access")}
             </div>
@@ -69,7 +70,10 @@ export default function AccessV2() {
             >
               {t("landingV2.access.title", "Who sees what.")}
             </h2>
-            <p className="max-w-[34ch] text-[16.5px] text-slate-600">
+            {/* 34ch on a phone. From 1041px it runs to the rows beside it
+                (0.66fr / 1.34fr, was 0.74 / 1.26): capped at 34ch it left
+                ~250px empty before the rows at 1920px. */}
+            <p className="max-w-[34ch] text-[16.5px] text-slate-600 min-[1041px]:max-w-none">
               {t(
                 "landingV2.access.body",
                 "Revenue belongs to the owner. The person locking up doesn't need to see it to do their job."
@@ -77,7 +81,7 @@ export default function AccessV2() {
             </p>
           </div>
 
-          <div className="grid gap-0">
+          <div className={`grid gap-0 ${TEXT}`}>
             {rows.map((row, i) => (
               <div
                 key={row.key}

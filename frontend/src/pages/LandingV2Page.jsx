@@ -7,7 +7,7 @@
  *
  * DO NOT WRAP THE SELF-CONTAINED SECTIONS.
  * Six of these components return their own <section id="…"> carrying the
- * band background, the 1440px container and the clamp() padding: HeroV2
+ * band background, the content container and its padding: HeroV2
  * (#top), ModulesV2 (#modules), AccessV2 (#access), AiPanelV2 (#ai),
  * GavekortV2 (#gavekort), PricingV2 (#pricing). The first version of this
  * page put a <Band> around them as well, which nested a section inside a
@@ -38,25 +38,21 @@ import AiPanelV2 from "../components/landing/v2/AiPanelV2";
 import GavekortV2 from "../components/landing/v2/GavekortV2";
 import PricingV2 from "../components/landing/v2/PricingV2";
 import FooterV2 from "../components/landing/v2/FooterV2";
+import { CELL, ROOT, TEXT, WIDE, WIDE_PY } from "../components/landing/v2/fluid";
 
 /**
  * Wrapper for the fragment sections only. Matches the geometry the
  * self-contained ones already carry, so every band sits on the same
- * 1440px column with the same fluid gutters.
+ * column with the same fluid gutters (see ./fluid.js for the wide-screen
+ * rules). The geometry is in classes, not an inline style: an inline
+ * maxWidth beat every responsive class, so the band could not widen.
  */
 function Band({ id, tone = "white", children }) {
   const bg = tone === "slate" ? "bg-slate-50" : "bg-white";
   return (
     <section id={id} className={`${bg} border-t border-slate-200`}>
       <div
-        className="mx-auto w-full max-w-[1180px]"
-        style={{
-          maxWidth: 1180,
-          paddingLeft: "clamp(24px,4vw,64px)",
-          paddingRight: "clamp(24px,4vw,64px)",
-          paddingTop: "clamp(52px,6vw,88px)",
-          paddingBottom: "clamp(52px,6vw,88px)",
-        }}
+        className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] ${WIDE} ${WIDE_PY}`}
       >
         {children}
       </div>
@@ -68,7 +64,7 @@ export default function LandingV2Page() {
   return (
     <div
       data-page="landing"
-      className="min-h-screen bg-white font-text text-slate-900"
+      className={`min-h-screen bg-white font-text text-slate-900 ${ROOT}`}
     >
       <NavV2 />
 
@@ -79,11 +75,19 @@ export default function LandingV2Page() {
       <ModulesV2 />
 
       {/* Fragments — booking card + the architectural floor plan.
-          0.82fr / 1.18fr per the handoff, one column under 1041px. */}
+          0.82fr / 1.18fr per the handoff, one column under 1041px. From
+          1041px both are drawn at the width of their column (the booking
+          card as a 440px drawing, the floor plan as a 600px one) instead of
+          sitting at their own size with empty space beside them; see
+          components/landing/v2/fluid.js. */}
       <Band id="reservations" tone="slate">
-        <div className="grid items-center gap-[clamp(36px,5vw,56px)] min-[1041px]:grid-cols-[0.82fr_1.18fr]">
-          <div><BookingCardV2 /></div>
-          <div className="flex justify-center"><FloorPlan /></div>
+        <div className="grid items-center gap-[clamp(36px,5vw,56px)] min-[1041px]:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] min-[1441px]:gap-[calc(56px*var(--lx))]">
+          <div className={`${CELL} min-[1041px]:[&>*]:[zoom:clamp(1,tan(atan2(100cqw,440px)),2.5)]`}>
+            <BookingCardV2 />
+          </div>
+          <div className={`flex justify-center ${CELL} min-[1041px]:[&>*]:[zoom:clamp(1,tan(atan2(100cqw,600px)),2.5)]`}>
+            <FloorPlan />
+          </div>
         </div>
       </Band>
 
@@ -94,25 +98,22 @@ export default function LandingV2Page() {
           the reservations band above and closes that gap. Single column below
           1041px, where PhoneFanV2 also drops its two side phones (981px). */}
       <Band id="staff" tone="white">
-        <div className="grid items-center gap-6 min-[1041px]:gap-[clamp(36px,5vw,64px)] min-[1041px]:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+        <div className="grid items-center gap-6 min-[1041px]:gap-[clamp(36px,5vw,64px)] min-[1041px]:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] min-[1441px]:gap-[calc(64px*var(--lx))]">
           <StaffCopyV2 />
-          {/* PhoneFanV2 is fixed-width artwork — three 280px shells, ~852px
-              across. The right column only reaches that at ~1680px, so
-              between 1240 and 1680 the fan must scale or it spills both ways:
-              measured at 1200px the phones ran 453->1250 inside a 552->1152
-              cell, overlapping the copy on the left and getting cut off by
-              html's overflow-x:clip on the right (which is why scrollWidth
-              looked clean). Scale keeps the layout box put and shrinks only
-              what is painted. Numbers are the measured cell width / 852.
-              Since 11 Oct the bands are capped at the handoff's 1180px
-              container (they had drifted to 1800px, which left wide empty
-              gaps on big screens), so the right cell never grows past
-              ~570px and the fan stays at 0.66 from 1180px up. */}
-          <div className="flex justify-center min-[1041px]:scale-[0.58] min-[1180px]:scale-[0.66]">
+          {/* PhoneFanV2 is fixed-width artwork — three 280px shells that
+              paint ~800px across. Measured at 1200px before any scaling, the
+              phones ran 453->1250 inside a 552->1152 cell, overlapping the
+              copy on the left and cut off by html's overflow-x:clip on the
+              right (which is why scrollWidth looked clean). It used to be
+              shrunk by fixed steps (scale 0.58 / 0.66), which left it 526px
+              wide in a column that kept growing. Now it is zoomed to its
+              column: ~0.6 at 1041px, ~0.9 at 1440px, larger above (fluid.js).
+              Zoom rather than scale so the band's height follows the fan. */}
+          <div className={`flex justify-center ${CELL} min-[1041px]:[&>*]:[zoom:clamp(0.5,tan(atan2(100cqw,800px)),2.5)]`}>
             <PhoneFanV2 />
           </div>
         </div>
-        <div className="mt-14"><ScheduleGridV2 /></div>
+        <div className={`mt-14 ${TEXT}`}><ScheduleGridV2 /></div>
       </Band>
 
       {/* Self-contained: #access */}

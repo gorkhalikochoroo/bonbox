@@ -1,6 +1,7 @@
 import { Check } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
 import AppStoreLink from "./AppStoreLink";
+import { TEXT } from "./fluid";
 
 export default function StaffCopyV2() {
   const { t } = useLanguage();
@@ -22,7 +23,7 @@ export default function StaffCopyV2() {
   ];
 
   return (
-    <div className="max-w-[58ch]">
+    <div className={`max-w-[58ch] ${TEXT}`}>
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
           {t("landingV2.staff.eyebrow", "BonBox Vagtplan · iPhone")}

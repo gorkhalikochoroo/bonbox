@@ -36,6 +36,7 @@ import { Link } from "react-router-dom";
 import BonBoxMark from "../../BonBoxMark";
 import { useLanguage } from "../../../hooks/useLanguage";
 import { CookieSettingsButton } from "../../CookieConsent";
+import { WIDE } from "./fluid";
 
 // Registry values, not copy. Deliberately outside t().
 //
@@ -82,7 +83,9 @@ export default function FooterV2() {
 
   return (
     <footer className="border-t border-slate-200 bg-slate-50">
-      <div className="mx-auto flex w-full max-w-[1180px] flex-wrap justify-between gap-9 px-[clamp(24px,4vw,64px)] pt-11 pb-9">
+      {/* Same gutters as the bands above (./fluid.js); above 1440px the
+          contents and spacing grow with the page. */}
+      <div className={`mx-auto flex w-full max-w-[1180px] flex-wrap justify-between gap-9 px-[clamp(24px,4vw,64px)] pt-11 pb-9 ${WIDE} min-[1441px]:gap-[calc(36px*var(--lx))] min-[1441px]:pt-[calc(44px*var(--lx))] min-[1441px]:pb-[calc(36px*var(--lx))] min-[1441px]:[&>*]:[zoom:var(--lx)]`}>
         <div>
           <div className="mb-3 flex items-center gap-2.5">
             <span
@@ -136,7 +139,7 @@ export default function FooterV2() {
       </div>
 
       <div className="border-t border-slate-200">
-        <div className="mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-4 text-[12.5px] text-slate-400">
+        <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-4 text-[12.5px] text-slate-400 ${WIDE} min-[1441px]:py-[calc(16px*var(--lx))] min-[1441px]:text-[calc(12.5px*var(--lx))]`}>
           {t("landingV2.footer.copyright", "© 2026 BonBox · Made in Copenhagen")}
         </div>
       </div>

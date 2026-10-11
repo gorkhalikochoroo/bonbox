@@ -15,6 +15,7 @@ import { Link } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import BonBoxMark from "../../BonBoxMark";
 import { useLanguage } from "../../../hooks/useLanguage";
+import { WIDE } from "./fluid";
 
 /** Landing copy exists in these two only — see the switcher comment below. */
 const LANDING_LANGS = ["da", "en"];
@@ -48,7 +49,9 @@ export default function NavV2() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-slate-50/[0.88] backdrop-blur-[14px]">
-      <div className="mx-auto flex h-[66px] w-full max-w-[1180px] items-center gap-9 px-[clamp(24px,4vw,64px)]">
+      {/* Same gutters as the bands below (./fluid.js); above 1440px the
+          bar's contents, height and gaps grow with the page. */}
+      <div className={`mx-auto flex h-[66px] w-full max-w-[1180px] items-center gap-9 px-[clamp(24px,4vw,64px)] ${WIDE} min-[1441px]:h-[calc(66px*var(--lx))] min-[1441px]:gap-[calc(36px*var(--lx))] min-[1441px]:[&>*]:[zoom:var(--lx)]`}>
         <a href="#top" className="flex items-center gap-2.5" onClick={close}>
           <span
             aria-hidden="true"
