@@ -874,6 +874,14 @@ export default function SubscriptionPage() {
             (tier.id === "starter" || tier.id === "pro") &&
             !isCurrent;
 
+          // Push-3 review F3: the Pro card's "14 days free · No card
+          // required" badge is an offer for an account that has not paid
+          // yet. A subscriber (live Stripe subscription or a paid plan) who
+          // switches gets no trial — the switch is done by e-mail, and
+          // Stripe's trial days come from the signup trial only.
+          const showOfferBadge =
+            !!tier.badge && !hasLiveSub && currentPlan !== "starter" && currentPlan !== "pro";
+
           // A paying subscriber's Free card has no button: "Start free" did
           // nothing (handleCta returns on "free"), and going to Free means
           // cancelling, which "Manage subscription / cancel" on the current
@@ -1000,8 +1008,8 @@ export default function SubscriptionPage() {
                 )}
               </div>
 
-              {/* Trial badge — Pro only */}
-              {tier.badge && (
+              {/* Trial badge — Pro only, never to a paying subscriber */}
+              {showOfferBadge && (
                 <div className="text-[11px] font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-md px-2.5 py-1.5 mt-4 text-center">
                   {tier.badge}
                 </div>

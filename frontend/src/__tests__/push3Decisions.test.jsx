@@ -442,3 +442,49 @@ describe("the trial text quotes the button's real label; np has the § 8 switch 
     expect(np.planSwitchByEmail).not.toBe(en.planSwitchByEmail);
   });
 });
+
+// Push-3 review F3 (claims nit): a paying Starter subscriber's Pro card still
+// said "🎁 14 dage gratis · Intet kort krævet". A subscriber who switches
+// plan gets no trial (the switch is done by e-mail, and Stripe's trial days
+// come from the signup trial only), so the badge is not shown to an account
+// with a live subscription or a paid plan.
+describe("F3: no '14 days free' badge for a paying subscriber", () => {
+  const paying = (plan, status = "active") => ({
+    plan, trial_active: false, is_paid: true, subscription_status: status,
+    stripe_configured: true, checkout_ready: { starter: true, pro: true, any: true },
+  });
+  const renderSub = (billing, lang = "da") => {
+    langCode = lang;
+    authState = { user: { id: "u1", email: "cafe@cafe.dk", business_type: "cafe" }, refreshUser: vi.fn() };
+    post.mockReset();
+    post.mockImplementation(() => Promise.resolve({ data: {} }));
+    get.mockReset();
+    get.mockImplementation((url) =>
+      Promise.resolve({ data: url === "/billing/me" ? billing : url === "/waitlist/status" ? [] : {} }));
+    return render(<MemoryRouter initialEntries={["/subscription"]}><SubscriptionPage /></MemoryRouter>);
+  };
+  const badge = (lang) => (lang === "da" ? da : en).pricingBadgeFreeTrialPopular;
+
+  for (const lang of ["da", "en"]) {
+    for (const status of ["active", "trialing", "past_due"]) {
+      it(`${lang}: a ${status} Starter subscriber's Pro card has no trial badge`, async () => {
+        const { container } = renderSub(paying("starter", status), lang);
+        await screen.findByTestId("plan-switch-by-email");
+        expect(container.textContent).not.toContain(badge(lang));
+        expect(container.textContent).not.toMatch(lang === "da" ? /Intet kort krævet|dage gratis/ : /No card required|days free/);
+      });
+    }
+
+    it(`${lang}: a paying Pro subscriber's own card has no trial badge`, async () => {
+      const { container } = renderSub(paying("pro"), lang);
+      await screen.findByTestId("plan-switch-by-email");
+      expect(container.textContent).not.toContain(badge(lang));
+    });
+
+    it(`${lang}: a trial account (no subscription) still sees the badge on the Pro card`, async () => {
+      renderSub({ ...paying("trial", null), is_paid: false }, lang);
+      await screen.findAllByTestId("checkout-terms-line");
+      expect(screen.getAllByText(badge(lang))).toHaveLength(1);
+    });
+  }
+});
