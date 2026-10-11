@@ -211,6 +211,24 @@ describe("the bell badge", () => {
   });
 });
 
+describe("the language notice never hides a real toast in dark", () => {
+  // Both are fixed at the same top offset on a phone. Once the dark notice
+  // went opaque it covered the dashboard's own error toast ("Hent PDF
+  // failed") completely, because it renders later at the same z-50.
+  const zOf = (cls, prefix) => {
+    const m = cls.match(new RegExp(`(?:^|\\s)${prefix}z-(\\d+)(?=\\s|$)`));
+    return m ? Number(m[1]) : null;
+  };
+  it("SmartLanguageToast drops below the ToastContainer layer in dark only", () => {
+    const notice = classStrings("components/SmartLanguageToast.jsx").find((s) => /role|fixed left-1\/2/.test(s) && /\bfixed\b/.test(s));
+    expect(notice).toBeDefined();
+    const toasts = classStrings("components/BonBoxPolishKit.jsx").find((s) => /\bfixed right-4\b/.test(s));
+    expect(toasts).toBeDefined();
+    expect(zOf(notice, "")).toBe(50); // light: unchanged
+    expect(zOf(notice, "dark:")).toBeLessThan(zOf(toasts, ""));
+  });
+});
+
 describe("the browser bar follows the theme", () => {
   it("both the pre-paint script and the hook write theme-color", () => {
     const html = readFileSync(join(SRC, "..", "index.html"), "utf8");
