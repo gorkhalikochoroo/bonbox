@@ -733,7 +733,11 @@ export default function DoorScanPage() {
       const res = await api.post(
         `/tickets/${tid}/scan`,
         { qr: qrText },
-        { timeout: SCAN_POST_TIMEOUT_MS },
+        // _noRetry: api.js would otherwise re-send a timed-out or 5xx POST
+        // up to 4 times (~26 s+), holding this ticket's in-flight guard with
+        // no card on screen. The page retries by itself while the QR is
+        // still held (allowRetryWhileHeld), so one attempt is enough.
+        { timeout: SCAN_POST_TIMEOUT_MS, _noRetry: true },
       );
       const data = res?.data || {};
       // The endpoint is idempotent: a re-scan is a 200 too, with
@@ -756,7 +760,8 @@ export default function DoorScanPage() {
           .filter(Boolean).join(" · ") || t("scanAccepted", "Billet bekræftet"),
         at: new Date().toISOString(),
       });
-      // The ONLY place the scanned count goes up.
+      // The only place a TICKET scan raises the count (a gavekort redeemed
+      // at the door also adds one, in GavekortRedeemSheet's onRedeemed).
       setStats((s) => ({ ...s, scanned: (s.scanned || 0) + 1 }));
       if (audioRef.current) audioRef.current.success();
       haptic.success();

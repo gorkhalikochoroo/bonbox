@@ -245,7 +245,7 @@ const timeoutError = (ms) =>
     request: {},
   });
 // The scan POST's third argument: its own timeout (checked in detail below).
-const SCAN_CONFIG = expect.objectContaining({ timeout: expect.any(Number) });
+const SCAN_CONFIG = expect.objectContaining({ timeout: expect.any(Number), _noRetry: true });
 
 const isWarningTone = (tone) => tone.freq === 523 && tone.type === "triangle";
 
