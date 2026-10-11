@@ -170,8 +170,8 @@ export default function MobileBottomNav() {
                   navigate(isPersonal ? CENTER_FALLBACK.personal : CENTER_FALLBACK.business);
                 }}
                 className="relative -top-3 flex items-center justify-center
-                  w-12 h-12 bg-gray-900 dark:bg-gray-100 rounded-full
-                  text-white dark:text-gray-900 shadow-sm active:scale-95 transition-transform
+                  w-12 h-12 bg-gray-900 dark:bg-gray-600 rounded-full
+                  text-white dark:text-white shadow-sm active:scale-95 transition-transform
                   focus-visible:outline-none focus-visible:ring-2
                   focus-visible:ring-gray-400 focus-visible:ring-offset-2
                   focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800"
