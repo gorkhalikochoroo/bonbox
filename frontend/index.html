@@ -85,7 +85,7 @@
          The b is drawn separately for 16 and 32 px, so there is deliberately
          no SVG link: browsers that prefer an SVG would scale the 32 px
          drawing down to a soft 16 px tab icon. /favicon.svg stays in public/
-         because other pages link it by absolute URL. -->
+         (sw.js precaches it; older pages linked it by absolute URL). -->
     <link rel="icon" href="/favicon.ico?v=3" sizes="16x16 32x32" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3" />
