@@ -1540,6 +1540,101 @@ def test_a_run_that_cannot_be_recorded_still_alerts_once(fernet, db_env, buckets
 
 # ── second review round (Oct 11) ─────────────────────────────────────────
 
+def _old_and_young_exports(dst):
+    """A complete export 120 days old (must go: DB_MAX_AGE) and one 10 days
+    old (must stay)."""
+    old = bs.export_id_for(NOW - timedelta(days=120))
+    young = bs.export_id_for(NOW - timedelta(days=10))
+    for i in (old, young):
+        dst.upload(f"db/{i}/part-00000.enc", b"x", upsert=True)
+        dst.upload(f"db/{i}/manifest.json.enc", b"m", upsert=True)
+    return old, young
+
+
+def test_age_cut_runs_when_the_lock_connection_is_lost(fernet, db_env, buckets, monkeypatch):
+    """The pooler kills the idle lock connection (or a long COPY outlives
+    idle_in_transaction_session_timeout): the count-based thinning is
+    skipped, but the 88-day cut needs no lock — it deletes only exports
+    older than DB_MAX_AGE and incomplete ones older than 2 days, never a
+    concurrent run's fresh export — so it still runs."""
+    _, dst = buckets
+    old, young = _old_and_young_exports(dst)
+
+    def lost_at_retention(self, force=False):
+        if force:
+            raise bs.BackupAborted("lost the backup lock connection: OperationalError")
+
+    monkeypatch.setattr(bs.RunLock, "heartbeat", lost_at_retention)
+    out = _run(fernet, db_env, buckets)
+    assert out["status"] == "failed"
+    assert out["error_kinds"].get("retention:BackupAborted") == 1
+    assert out["db"]["ok"] is True
+    complete, _ = bs.list_db_exports(dst)
+    assert old not in complete and young in complete
+    assert out["db"]["export_id"] in complete                  # tonight's export stays
+    assert out["retention"]["exports_deleted"] == 1
+
+
+def test_age_cut_runs_when_the_lock_cannot_be_taken(fernet, db_env, buckets, monkeypatch):
+    """The database is unreachable, so the run lock cannot even be taken:
+    no export tonight, but the old ones still expire."""
+    from contextlib import contextmanager
+    _, dst = buckets
+    old, young = _old_and_young_exports(dst)
+
+    @contextmanager
+    def no_lock(engine):
+        raise RuntimeError("could not connect")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(bs, "backup_run_lock", no_lock)
+    out = _run(fernet, db_env, buckets)
+    assert out["status"] == "failed" and out["error_kinds"].get("run:RuntimeError") == 1
+    complete, _ = bs.list_db_exports(dst)
+    assert old not in complete and young in complete
+    assert out["retention"]["exports_deleted"] == 1
+
+
+@pytest.mark.parametrize("bad_key", ["", "not-a-fernet-key-but-long"])
+def test_age_cut_runs_on_a_night_misconfigured_only_in_the_encryption_key(
+        db_env, buckets, monkeypatch, alerts, bad_key):
+    """BACKUP_ENCRYPTION_KEY missing or invalid, URL and service key fine:
+    the age cut needs no key, so old exports still expire (and the one
+    misconfiguration mail goes out, names only)."""
+    engine, Session = db_env
+    _, dst = buckets
+    old, young = _old_and_young_exports(dst)
+    monkeypatch.setattr(bs, "settings", _settings(
+        BACKUP_SUPABASE_URL="https://backup.supabase.co", BACKUP_SUPABASE_SERVICE_KEY=SERVICE_KEY,
+        BACKUP_ENCRYPTION_KEY=bad_key))
+    out = bs.run_nightly_backup(engine=engine, session_factory=Session, dst=dst, now=NOW)
+    assert out["status"] == "failed"
+    complete, _ = bs.list_db_exports(dst)
+    assert old not in complete and young in complete
+    assert out["retention"]["exports_deleted"] == 1
+    assert len(alerts) == 1
+    text = _alert_text(alerts[0])
+    assert "BACKUP_ENCRYPTION_KEY" in text and SERVICE_KEY not in text
+    if bad_key:
+        assert bad_key not in text
+
+
+def test_misconfigured_storage_never_touches_a_bucket(db_env, monkeypatch, key, alerts):
+    """A wrong URL, the main project's key or a bad bucket name: no age cut
+    (it would go to the wrong place or fail), just the misconfiguration mail."""
+    engine, Session = db_env
+    for kw in (dict(BACKUP_SUPABASE_URL="http://backup.supabase.co"),
+               dict(BACKUP_SUPABASE_URL="https://main.supabase.co"),
+               dict(BACKUP_SUPABASE_SERVICE_KEY="mainkey"),
+               dict(BACKUP_BUCKET="Bad Bucket!")):
+        vals = dict(BACKUP_SUPABASE_URL="https://backup.supabase.co",
+                    BACKUP_SUPABASE_SERVICE_KEY=SERVICE_KEY, BACKUP_ENCRYPTION_KEY=key)
+        vals.update(kw)
+        monkeypatch.setattr(bs, "settings", _settings(**vals))
+        out = bs.run_nightly_backup(engine=engine, session_factory=Session, dst=_ExplodingBucket())
+        assert out["status"] == "failed" and out.get("retention") is None, kw
+
+
 _URL_PASSWORDS = ["Sup3rS3cret@Frag2Zq9", "Ab%ZZsecretTail9", "Xq/fixSecret77pw", "Hash#secretPart42"]
 
 

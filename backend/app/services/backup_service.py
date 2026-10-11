@@ -44,8 +44,12 @@ One run (scheduled nightly in app/main.py; at most one at a time):
      Today it leaves 30 nightly + 2-3 monthly; keeping more is Manoj's call.
      Incomplete exports older than 2 days are removed. The AGE cut runs
      every night whatever tonight's export did (a failing export must not
-     stop old ones expiring); the count-based thinning only runs after
-     tonight's export landed.
+     stop old ones expiring) — also when the run lock is lost or cannot be
+     taken, and on a night misconfigured only in the encryption key, because
+     it needs neither: it deletes only exports past DB_MAX_AGE and
+     incomplete ones past 2 days, never a concurrent run's fresh export.
+     The count-based thinning only runs after tonight's export landed, under
+     the lock.
 Every run that does work writes a MonitorState row (service="nightly_backup")
 with counts / bytes / duration / outcome, and on failure an ErrorLog row
 (method="JOB") that /api/admin/recent-errors shows. It never raises.
@@ -166,6 +170,9 @@ class BackupConfig:
     source_key: str = field(default="", repr=False)
     source_buckets: tuple[str, ...] = ()
     secrets: tuple[str, ...] = field(default=(), repr=False)
+    # "misconfigured" only in the encryption key: url / service_key / bucket
+    # are valid and set, so the nightly age cut (which needs no key) can run.
+    storage_ok: bool = False
 
 
 def _norm_url(u: str) -> str:
@@ -185,12 +192,14 @@ def load_config(s=None) -> BackupConfig:
     if not set_names:
         return BackupConfig(status="disabled")
     problems = [f"{n} is not set" for n, v in vals.items() if not v]
+    key_problems = 0 if vals["BACKUP_ENCRYPTION_KEY"] else 1
     fernet = None
     if vals["BACKUP_ENCRYPTION_KEY"]:
         try:
             fernet = load_backup_fernet(vals["BACKUP_ENCRYPTION_KEY"], previous)
         except BackupConfigError as e:
             problems.append(str(e))
+            key_problems += 1
     if not _BUCKET_RE.match(bucket):
         problems.append("BACKUP_BUCKET is not a valid bucket name")
     url = vals["BACKUP_SUPABASE_URL"]
@@ -205,6 +214,10 @@ def load_config(s=None) -> BackupConfig:
         problems.append("BACKUP_SUPABASE_SERVICE_KEY equals SUPABASE_SERVICE_KEY; use the "
                         "backup project's own secret key (one leaked key must not reach both)")
     if problems:
+        if len(problems) == key_problems:      # only the encryption key is wrong
+            return BackupConfig(status="misconfigured", problems=problems, secrets=secrets,
+                                url=url, service_key=vals["BACKUP_SUPABASE_SERVICE_KEY"],
+                                bucket=bucket, storage_ok=True)
         return BackupConfig(status="misconfigured", problems=problems, secrets=secrets)
     source_bucket = (getattr(s, "SUPABASE_RECEIPTS_BUCKET", "") or "receipts").strip()
     return BackupConfig(
@@ -752,6 +765,19 @@ def prune_db_exports(dst, *, now: datetime, protect: set[str], age_only: bool = 
             "exports_deleted": len(deleted_ids), "objects_deleted": len(doomed_keys)}
 
 
+def expire_old_exports(cfg: "BackupConfig", dst=None, *, now: datetime) -> dict:
+    """The DB_MAX_AGE cut alone (prune_db_exports age_only), for a night that
+    cannot run the backup: the run lock is lost or cannot be taken, or only
+    the encryption key is misconfigured. It needs neither the lock nor the
+    key: it deletes only complete exports older than DB_MAX_AGE and
+    incomplete ones older than DB_INCOMPLETE_MAX_AGE, so a concurrent run's
+    fresh export is never touched, and deleting an object another run just
+    deleted is a no-op (Supabase and LocalDirBucket)."""
+    if dst is None:
+        dst = SupabaseBucket(cfg.url, cfg.service_key, cfg.bucket)
+    return prune_db_exports(dst, now=now, protect=set(), age_only=True)
+
+
 # ── recording ────────────────────────────────────────────────────────────
 
 def _load_tombstones(session_factory) -> dict:
@@ -1003,6 +1029,14 @@ def run_nightly_backup(*, cfg: Optional[BackupConfig] = None, engine=None, sessi
                    # problems name variables only (load_config), never values
                    "error_kinds": {f"misconfigured: {p}": 1 for p in cfg.problems}}
         logger.error("backup: misconfigured: %s", "; ".join(cfg.problems))
+        if cfg.storage_ok:
+            # Only the encryption key is wrong: the age cut needs no key, and
+            # old exports must not outlive DB_MAX_AGE while it is being fixed.
+            try:
+                summary["retention"] = expire_old_exports(cfg, dst, now=now or utc_now())
+            except Exception as e:  # noqa: BLE001
+                summary["errors"].append(_redact(f"retention: {type(e).__name__}: {e}", cfg.secrets))
+                summary["error_kinds"][f"retention:{type(e).__name__}"] = 1
         _record(session_factory, summary, ok=False, error_type="backup:misconfigured")
         return summary
 
@@ -1023,6 +1057,7 @@ def run_nightly_backup(*, cfg: Optional[BackupConfig] = None, engine=None, sessi
         summary["errors"].append(_redact(f"{phase}: {type(e).__name__}: {e}", secrets))
         kind(f"{phase.split(':')[0]}:{type(e).__name__}")
 
+    retention_tried = False
     try:
         with backup_run_lock(engine) as lock:
             if not lock.acquired:
@@ -1096,22 +1131,35 @@ def run_nightly_backup(*, cfg: Optional[BackupConfig] = None, engine=None, sessi
             except Exception as e:  # noqa: BLE001
                 note("db", e)
 
-            # 3. export retention — EVERY night. Tonight's export failed or
-            #    the deadline passed: still the DB_MAX_AGE cut (no export may
-            #    outlive it because exports keep failing); the count-based
-            #    thinning only after tonight's export landed. No deadline
-            #    check here, only the lock heartbeat (never prune while
-            #    another run might hold the lock).
+            # 3. export retention — EVERY night. Tonight's export failed, the
+            #    deadline passed or the lock connection is gone: still the
+            #    DB_MAX_AGE cut (no export may outlive it because runs keep
+            #    failing; it needs no lock, see expire_old_exports). The
+            #    count-based thinning only after tonight's export landed and
+            #    while the lock still holds. No deadline check here.
+            retention_tried = True
             db_ok = bool(summary["db"] and summary["db"].get("ok"))
             try:
                 lock.heartbeat(force=True)
+                locked = True
+            except Exception as e:  # noqa: BLE001
+                note("retention", e)
+                locked = False
+            try:
                 summary["retention"] = prune_db_exports(
                     dst, now=now, protect={summary["db"]["export_id"]} if db_ok else set(),
-                    age_only=not db_ok)
+                    age_only=not (db_ok and locked))
             except Exception as e:  # noqa: BLE001
                 note("retention", e)
     except Exception as e:  # noqa: BLE001 — the lock itself, or anything unforeseen
         note("run", e)
+    if not retention_tried:
+        # The run lock could not be taken (database unreachable?) or the run
+        # broke before step 3: the age cut still runs, without the lock.
+        try:
+            summary["retention"] = expire_old_exports(cfg, dst, now=now)
+        except Exception as e:  # noqa: BLE001
+            note("retention", e)
 
     summary["duration_s"] = round(time.monotonic() - t0, 1)
     ok = not summary["errors"] and bool(summary["db"] and summary["db"].get("ok"))
