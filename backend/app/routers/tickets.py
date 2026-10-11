@@ -12,7 +12,8 @@ even if JS is disabled in the visitor's email client / browser.
 Multi-barrier on scan endpoint:
   L1 — get_current_user (organizer session).
   L2 — Tenant scope: ticket.event must belong to user.id.
-  L3 — Idempotent stamp; re-scanning is harmless.
+  L3 — Idempotent, atomic stamp; re-scanning is harmless and two devices
+       scanning at once get exactly one "ok".
   L4 — Rate limit 120/min/IP (door-rush defense per spec §7).
   L5 — Fail-soft DB hiccups → 503.
   L6 — Cross-tenant scan attempt → 404 (IDOR convention).
@@ -78,7 +79,11 @@ def scan_ticket(
          cross-tenant attempt.
       3. is_void → 410 Gone.
       4. scanned_at populated → "already" status, return prior stamp.
-      5. Else: stamp scanned_at + scanner_user_id, audit, return "ok".
+      5. Else: stamp scanned_at + scanner_user_id with a conditional
+         UPDATE (… WHERE scanned_at IS NULL). Only the request whose
+         UPDATE hits the row gets "ok", advances the booking and writes
+         the audit row; a request that loses a concurrent race answers
+         "already" with the winner's stamp.
     """
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if ticket is None:
@@ -130,8 +135,7 @@ def scan_ticket(
             },
         )
 
-    # Idempotent: already scanned → return prior stamp without altering.
-    if ticket.scanned_at is not None:
+    def _already(stamped_at):
         return TicketScanResponse(
             ticket_id=ticket.id,
             booking_id=ticket.booking_id,
@@ -139,12 +143,45 @@ def scan_ticket(
             tier_label=ticket.tier_label,
             customer_name=customer_name,
             status="already",
-            scanned_at=ticket.scanned_at,
+            scanned_at=stamped_at,
         )
 
+    # Idempotent: already scanned → return prior stamp without altering.
+    if ticket.scanned_at is not None:
+        return _already(ticket.scanned_at)
+
     now = utc_now()
-    ticket.scanned_at = now
-    ticket.scanner_user_id = user.id
+    # Atomic stamp. The read above takes no lock, so two door devices
+    # scanning the same ticket at the same moment would both see NULL and
+    # both answer "ok". The WHERE makes the database pick one winner: on
+    # Postgres a concurrent UPDATE waits for the first to commit and then
+    # re-checks the row; SQLite serialises writers. rowcount 0 = we lost.
+    won = (
+        db.query(Ticket)
+        .filter(Ticket.id == ticket.id, Ticket.scanned_at.is_(None))
+        .update(
+            {Ticket.scanned_at: now, Ticket.scanner_user_id: user.id},
+            synchronize_session=False,
+        )
+    )
+    if won == 0:
+        # Lost the race: nothing written, no audit row, no booking change.
+        # Answer exactly as a re-scan would, with the winner's stamp.
+        db.rollback()
+        fresh = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if fresh is None:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        if fresh.scanned_at is None:
+            # Nobody stamped it and our UPDATE still missed: don't guess.
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "scan_conflict",
+                    "message": "Scanningen kunne ikke gemmes. Scan billetten igen.",
+                },
+            )
+        return _already(fresh.scanned_at)
+
     # If the parent booking is still in 'paid', advance to 'attended'.
     # We don't roll back to 'paid' from 'attended' (terminal positive).
     if booking is not None and booking.status == "paid":
