@@ -160,6 +160,17 @@ body.portal-shell {
   padding-top: 0;
   padding-bottom: 0;
 }
+/* The cookie banner (CookieConsent.jsx) is a full-width sheet on a phone. While
+   it is up it publishes its height as --bb-consent-h, and the page pads its
+   bottom by it so the last content can be scrolled clear. Unset → 0 → the rule
+   above, unchanged. The staff portal (its own scroller) and AuthShell pages
+   (data-auth-shell) pad themselves; without :has() support the rule drops out
+   and nothing changes. */
+@media (max-width: 767.98px) {
+  body:not(.portal-shell):not(:has([data-auth-shell])) {
+    padding-bottom: calc(env(safe-area-inset-bottom) + var(--bb-consent-h, 0px));
+  }
+}
 
 /* Marketing display headlines (Task #109 / Task #110 update).
    We tried Fraunces serif first — Manoj's call was that it skewed

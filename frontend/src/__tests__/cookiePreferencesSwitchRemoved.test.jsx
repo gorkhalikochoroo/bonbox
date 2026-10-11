@@ -9,7 +9,9 @@
  *
  *   • every banner language (en, da, np, vi, th, tr): three switches —
  *     necessary (locked), Analytics, Marketing — and no Preferences title;
- *   • the banner text and the necessary category say it, in each language;
+ *   • the banner text and the necessary category say it, in each language
+ *     (since 12 Oct the full banner text sits in Customize — the banner
+ *     itself shows one short sentence that says it too);
  *   • an answer saved by the older banner (with a "functional" key) still
  *     loads: the banner stays closed and Analytics/Marketing keep their value;
  *     a new answer never writes "functional";
@@ -72,10 +74,14 @@ describe.each(Object.keys(OLD_TITLE))("banner in %s", (lang) => {
     const dialog = await screen.findByRole("dialog", {}, { timeout: 3000 });
     const body = lookup(DICT[lang], "cookieBannerBody");
     expect(body).toContain(THEME_WORD[lang]);
-    expect(dialog.textContent).toContain(body);
+    // The banner shows the short sentence; it names the self-chosen settings too.
+    const short = lookup(DICT[lang], "cookieBannerShort");
+    expect(dialog.textContent).toContain(short);
 
     fireEvent.click(within(dialog).getAllByRole("button").at(-1)); // Customize
     await waitFor(() => expect(screen.getAllByRole("switch")).toHaveLength(3));
+    // The full text, word for word, is in Customize.
+    expect(screen.getByRole("dialog").textContent).toContain(body);
     const switches = screen.getAllByRole("switch");
     expect(switches[0]).toBeDisabled(); // strictly necessary, locked on
     expect(screen.queryByText(OLD_TITLE[lang], { exact: true })).toBeNull();

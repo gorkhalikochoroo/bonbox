@@ -8,7 +8,9 @@ import { GUEST_SURFACE_EVENT, isGuestSurface } from "../lib/guestSurface";
  *
  * Design:
  *  • First-visit users see a banner with three actions: Accept all / Decline
- *    non-essential / Customize.
+ *    non-essential / Customize. One banner on every route: a slim sheet on a
+ *    phone, a small card bottom-left on desktop, one short sentence on it and
+ *    the full text in Customize (see the note above the component).
  *  • Customize opens an inline drawer with 3 categories. "Strictly necessary"
  *    is locked on (auth, CSRF, session — and the settings the owner chooses
  *    themselves). Analytics and Marketing default OFF — Datatilsynet's
@@ -182,30 +184,40 @@ function saveConsent(choices) {
   } catch { /* noop */ }
 }
 
-// Push 6 (B3) — on the two sign-up doors the full banner covered the e-mail
-// field, the Terms acceptance line and "Opret konto" on a 390 px phone, while
-// the Google button above them stayed tappable: an account could be made
-// without the acceptance line ever being visible. There the banner is
-// compact (same words, the body clamped to two lines behind "Læs mere"), and
-// the page pads its bottom by the banner's height (--bb-consent-h), so the
-// form can always be scrolled clear of it.
+// ONE banner on every route (12 Oct 2026, Manoj: "looks a bit outdated —
+// make it nice, modern, good size, not whole-screen catching"). It grew out of
+// the compact banner the sign-up doors had since push 6 (B3); the big card
+// with the cookie emoji and the whole policy as its body (557 px of a 390 x
+// 844 phone) is gone everywhere.
 //
-// The two auth pages that come next are compact too: an owner who scrolled
-// past the banner on /register without answering met the FULL banner on
-// /verify-email (569 px on a 390 px phone), over the code boxes, "Bekræft
-// e-mail" and "Spring over for nu" — the calm code screen became a cookie
-// wall at the moment that matters most. /forgot-password is the same shell.
-// Both pages use AuthShell, which pads by --bb-consent-h.
-const COMPACT_ROUTES = new Set(["/register", "/login", "/verify-email", "/forgot-password"]);
+//  • Phone (< 768 px): a slim sheet on the bottom edge. It sits ON any bar
+//    marked data-bb-consent-clear (the app's tab bar, the staff portal's tab
+//    bar) instead of covering it, and pads for the home indicator only when
+//    nothing is under it. The page pads its bottom by the sheet's height
+//    (--bb-consent-h: AuthShell, the staff portal's scroller, and body via
+//    index.css), so the last content can always be scrolled clear of it.
+//  • Desktop (>= 768 px): a floating card, bottom-left, max 420 px. The app's
+//    "+" (QuickAdd) lives bottom-left too and is marked data-bb-consent-clear,
+//    so the card floats above it rather than over it; the AI button lives
+//    bottom-right and is left alone.
+//  • The visible text is one short sentence (cookieBannerShort) with "Læs
+//    mere" → /cookies. The full text (cookieBannerBody, unchanged) is in the
+//    "Tilpas" panel, above the switches.
+//  • Accept all and Decline non-essential: same size, same weight, side by
+//    side. "Tilpas" is a text button. No emoji, no aria-live (a dialog, not
+//    an alert), an opacity-only 180 ms fade when motion is allowed.
+const CLEAR_SELECTOR = "[data-bb-consent-clear]";
+const WIDE_QUERY = "(min-width: 768px)";
 
 export default function CookieConsent() {
   const { t } = useLanguage();
   const { pathname } = useLocation();
-  const compact = COMPACT_ROUTES.has(pathname);
   const [open, setOpen] = useState(false); // banner visible
   const [drawer, setDrawer] = useState(false); // customize drawer
-  const [bodyOpen, setBodyOpen] = useState(false); // compact: the full body text
   const bannerRef = useRef(null);
+  // clear: px from the viewport bottom to the top of the highest bar the
+  // banner must not cover; wide: the desktop layout.
+  const [place, setPlace] = useState({ clear: 0, wide: false });
   const [choices, setChoices] = useState({
     necessary: true,
     analytics: false,
@@ -219,8 +231,8 @@ export default function CookieConsent() {
   // suppressing its consent prompt is a GDPR decision, not a layout fix.
   //
   // The real complaint was that the banner covered the bottom tab bar and
-  // blocked navigation on first launch. That is fixed by clearing the tab bar
-  // (see the padding on the container below), which keeps consent intact.
+  // blocked navigation on first launch. That is fixed by sitting on the tab
+  // bar (data-bb-consent-clear, measured below), which keeps consent intact.
   useEffect(() => {
     // Scheduler (staff) app: it runs NO analytics/marketing scripts and stores
     // only an essential session token — strictly-necessary, which ePrivacy /
@@ -294,18 +306,68 @@ export default function CookieConsent() {
     };
   }, []);
 
-  // The compact banner's height, for the page under it to pad by. Cleared
-  // whenever the compact banner is not on screen.
-  const showCompact = open && compact && !drawer;
+  // Where the banner may sit: above every visible bar marked
+  // data-bb-consent-clear. Bars mount late (the portal's after its fetch) and
+  // move (a tab bar hidden on one page), so re-measure on DOM changes, resize
+  // and transition ends — only while the banner is open.
+  useEffect(() => {
+    if (!open || typeof window === "undefined") return undefined;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      let clear = 0;
+      let wide = false;
+      try {
+        const vh = window.innerHeight;
+        document.querySelectorAll(CLEAR_SELECTOR).forEach((el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0 && r.top < vh) clear = Math.max(clear, Math.ceil(vh - r.top));
+        });
+      } catch { /* noop */ }
+      try { wide = !!window.matchMedia && window.matchMedia(WIDE_QUERY).matches; } catch { /* noop */ }
+      setPlace((p) => (p.clear === clear && p.wide === wide ? p : { clear, wide }));
+    };
+    const schedule = () => {
+      if (frame) return;
+      try { frame = window.requestAnimationFrame(measure); } catch { frame = setTimeout(measure, 16); }
+    };
+    measure();
+    let mo = null;
+    try {
+      mo = new MutationObserver(schedule);
+      mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "hidden"] });
+    } catch { /* no MutationObserver: resize still re-measures */ }
+    try {
+      window.addEventListener("resize", schedule);
+      window.addEventListener("transitionend", schedule, true);
+    } catch { /* noop */ }
+    return () => {
+      try { mo && mo.disconnect(); } catch { /* noop */ }
+      try {
+        window.removeEventListener("resize", schedule);
+        window.removeEventListener("transitionend", schedule, true);
+      } catch { /* noop */ }
+      try { window.cancelAnimationFrame(frame); } catch { clearTimeout(frame); }
+    };
+  }, [open, pathname]);
+
+  // The banner's footprint, for the page under it to pad by: from the top of
+  // the banner down to the bar it sits on (or the viewport bottom). Cleared
+  // whenever the banner is not on screen (answered, or the drawer is open).
+  const showBanner = open && !drawer;
   useEffect(() => {
     const root = typeof document !== "undefined" ? document.documentElement : null;
     if (!root) return undefined;
-    if (!showCompact || !bannerRef.current) {
+    if (!showBanner || !bannerRef.current) {
       root.style.removeProperty("--bb-consent-h");
       return undefined;
     }
     const el = bannerRef.current;
-    const write = () => root.style.setProperty("--bb-consent-h", `${Math.ceil(el.getBoundingClientRect().height)}px`);
+    const write = () => {
+      const r = el.getBoundingClientRect();
+      const h = r.height > 0 ? Math.max(0, Math.ceil(window.innerHeight - r.top - place.clear)) : 0;
+      root.style.setProperty("--bb-consent-h", `${h}px`);
+    };
     write();
     let ro = null;
     try {
@@ -316,7 +378,7 @@ export default function CookieConsent() {
       try { ro && ro.disconnect(); } catch { /* noop */ }
       root.style.removeProperty("--bb-consent-h");
     };
-  }, [showCompact, bodyOpen]);
+  }, [showBanner, place]);
 
   if (!open) return null;
 
@@ -376,67 +438,22 @@ export default function CookieConsent() {
   const bannerBody = t("cookieBannerBody") ||
     "BonBox uses essential cookies to keep you signed in. Settings you choose yourself, like light/dark theme and dismissed tips, are kept on your device because BonBox needs them to do what you asked — they are used for nothing else. Two categories are optional: Analytics (usage statistics: which features are used — the events your browser sends are recorded only after you turn it on) and Marketing (only if you turn it on: the code from the QR on one of our printed flyers is kept on your device for up to 30 days, so we can measure which flyer led to a signup). “Accept all” turns both on.";
 
-  if (showCompact) {
-    // Same words and the same three choices as the full banner; Accept and
-    // Decline carry equal weight, side by side. No bottom-nav offset (these
-    // pages have none) and no aria-live: it is a dialog, not an alert.
-    const choice =
-      "min-h-11 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 " +
-      "text-[14px] font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 " +
-      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 transition-colors duration-150";
-    const textBtn =
-      "min-h-11 text-[13px] text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 " +
-      "hover:text-gray-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 rounded-sm";
-    return (
-      <div
-        ref={bannerRef}
-        role="dialog"
-        aria-label={t("cookieBannerAria") || "Cookie consent"}
-        data-cookie-consent="banner"
-        data-cookie-compact="1"
-        className="fixed left-0 right-0 bottom-0 z-[60] px-3 pb-[calc(0.25rem+env(safe-area-inset-bottom,0px))]"
-      >
-        <div className="max-w-[400px] mx-auto bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm px-3 pt-2.5 pb-0">
-          <p className="text-[14px] font-semibold leading-5 text-gray-900 dark:text-white">
-            {t("cookieBannerTitle") || "We use cookies"}
-          </p>
-          <p
-            id="cookie-banner-body"
-            className={`mt-0.5 text-[13px] leading-[18px] text-gray-600 dark:text-gray-300 ${bodyOpen ? "max-h-[40vh] overflow-y-auto" : "line-clamp-2"}`}
-          >
-            {bannerBody}
-          </p>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <button type="button" onClick={acceptAll} className={choice}>
-              {t("cookieAcceptAll") || "Accept all"}
-            </button>
-            <button type="button" onClick={declineAll} className={choice}>
-              {t("cookieDeclineNonEssential") || "Decline non-essential"}
-            </button>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-4">
-              <button
-                type="button"
-                onClick={() => setBodyOpen((v) => !v)}
-                aria-expanded={bodyOpen}
-                aria-controls="cookie-banner-body"
-                className={textBtn}
-              >
-                {bodyOpen ? t("suCookieLess") : t("suCookieMore")}
-              </button>
-              <button type="button" onClick={() => setDrawer(true)} className={textBtn}>
-                {t("cookieCustomize") || "Customize"}
-              </button>
-            </div>
-            <Link to="/cookies" className={`${textBtn} inline-flex items-center`}>
-              {t("cookiePolicyLinkText") || "cookie policy"}
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Placement. Phone: on the bar under it, or on the bottom edge (then the
+  // sheet itself pads for the home indicator). Desktop: 24 px off the corner,
+  // or 16 px above a marked button in it.
+  const { clear, wide } = place;
+  const bottom = wide ? (clear > 0 ? clear + 16 : 24) : clear;
+  const edgePad = !wide && clear === 0;
+
+  // Accept and Decline: one class, so they can never drift apart in size or
+  // weight. Two lines fit inside the 44 px when a language runs long.
+  const choice =
+    "min-h-11 px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 " +
+    "text-[14px] leading-[18px] font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 " +
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 transition-colors duration-150";
+  const textBtn =
+    "inline-flex items-center min-h-11 px-1 text-[13px] font-medium text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 " +
+    "hover:text-gray-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 rounded-sm";
 
   return (
     <>
@@ -452,54 +469,41 @@ export default function CookieConsent() {
       )}
 
       <div
+        ref={bannerRef}
         role="dialog"
-        aria-live="polite"
         aria-label={t("cookieBannerAria") || "Cookie consent"}
         data-cookie-consent="banner"
-        className="fixed left-0 right-0 bottom-0 z-[60] px-3 sm:px-4 pb-[calc(0.75rem+3.5rem+env(safe-area-inset-bottom,0px))] md:pb-4"
+        className="fixed z-[60] inset-x-0 md:inset-x-auto md:left-6 md:w-[420px] md:max-w-[calc(100vw-3rem)] motion-safe:animate-[bbFade_180ms_ease-out]"
+        style={{ bottom: `${bottom}px` }}
       >
-        <div className="max-w-3xl mx-auto bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-          {/* Banner content */}
+        <div
+          className="bg-white dark:bg-gray-800 border-t md:border border-gray-200 dark:border-gray-700 rounded-t-2xl md:rounded-xl shadow-[0_-2px_10px_rgba(0,0,0,0.06)] md:shadow-sm overflow-hidden"
+          style={edgePad ? { paddingBottom: "env(safe-area-inset-bottom, 0px)" } : undefined}
+        >
           {!drawer ? (
-            <div className="p-4 sm:p-5">
-              <div className="flex items-start gap-3 mb-3">
-                <span className="text-2xl shrink-0" aria-hidden="true">🍪</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 dark:text-white mb-1">
-                    {t("cookieBannerTitle") || "We use cookies"}
-                  </p>
-                  <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
-                    {bannerBody}
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2 mt-3">
-                <button
-                  onClick={acceptAll}
-                  className="flex-1 px-4 py-2.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold rounded-lg transition"
-                >
+            <div className="px-4 pt-3.5 pb-1 md:px-5 md:pt-4">
+              <p className="text-[15px] font-semibold leading-5 text-gray-900 dark:text-white">
+                {t("cookieBannerTitle") || "We use cookies"}
+              </p>
+              <p id="cookie-banner-short" className="mt-1 text-[13px] leading-[19px] text-gray-600 dark:text-gray-300">
+                {t("cookieBannerShort")}
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button type="button" onClick={acceptAll} className={choice}>
                   {t("cookieAcceptAll") || "Accept all"}
                 </button>
-                <button
-                  onClick={declineAll}
-                  className="flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition"
-                >
+                <button type="button" onClick={declineAll} className={choice}>
                   {t("cookieDeclineNonEssential") || "Decline non-essential"}
                 </button>
-                <button
-                  onClick={() => setDrawer(true)}
-                  className="sm:flex-none px-4 py-2.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-sm font-medium transition"
-                >
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <Link to="/cookies" className={textBtn}>
+                  {t("suCookieMore")}
+                </Link>
+                <button type="button" onClick={() => setDrawer(true)} className={textBtn}>
                   {t("cookieCustomize") || "Customize"}
                 </button>
               </div>
-              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-3 leading-relaxed">
-                {t("cookieReadMore") || "Read our"}{" "}
-                <Link to="/cookies" className="underline hover:text-gray-700 dark:hover:text-gray-300">
-                  {t("cookiePolicyLinkText") || "cookie policy"}
-                </Link>
-                .
-              </p>
             </div>
           ) : (
             // Customize drawer
@@ -512,7 +516,7 @@ export default function CookieConsent() {
                   <button
                     onClick={() => setDrawer(false)}
                     aria-label={t("close") || "Close"}
-                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition"
+                    className="-mr-2 inline-flex items-center justify-center w-11 h-11 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition"
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
@@ -522,6 +526,18 @@ export default function CookieConsent() {
                 <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
                   {t("cookieDrawerBody") ||
                     "Pick which cookie categories BonBox can use. Your choice is saved locally and you can change it anytime via the link in the footer."}
+                </p>
+                {/* The full first-layer text, word for word — the banner
+                    itself shows only cookieBannerShort. */}
+                <p id="cookie-banner-body" className="mt-2 text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                  {bannerBody}
+                </p>
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  {t("cookieReadMore") || "Read our"}{" "}
+                  <Link to="/cookies" className="underline hover:text-gray-700 dark:hover:text-gray-300">
+                    {t("cookiePolicyLinkText") || "cookie policy"}
+                  </Link>
+                  .
                 </p>
               </div>
 
@@ -550,13 +566,13 @@ export default function CookieConsent() {
               <div className="p-4 sm:p-5 border-t border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row gap-2">
                 <button
                   onClick={saveCustom}
-                  className="flex-1 px-4 py-2.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold rounded-lg transition"
+                  className="flex-1 min-h-11 px-4 py-2.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold rounded-lg transition"
                 >
                   {t("cookieSaveChoices") || "Save my choices"}
                 </button>
                 <button
                   onClick={acceptAll}
-                  className="flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition"
+                  className="flex-1 min-h-11 px-4 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition"
                 >
                   {t("cookieAcceptAll") || "Accept all"}
                 </button>
