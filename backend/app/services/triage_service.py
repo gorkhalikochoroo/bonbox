@@ -275,7 +275,10 @@ def _fallback_triage(group_summary: dict) -> _TriageOutput:
     return _TriageOutput(
         probable_cause=f"{err_type} firing on {path}. Specific cause not analyzed (AI offline).",
         blast_radius=f"{count} occurrence(s), {affected} affected user(s) within the scan window.",
-        severity=sev,
+        # AI:* rows (ai_model_guard) are written ONCE per model per day, so a
+        # count grade would always say LOW — yet each means photo/text
+        # reading on that model is failing or degraded. High at any count.
+        severity="high" if err_type.startswith("AI:") else sev,
         suggested_actions=(
             "1) Open the recent-errors admin panel to read the full traceback. "
             "2) Reproduce locally if possible. "

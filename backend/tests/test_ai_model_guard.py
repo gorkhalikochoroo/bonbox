@@ -344,6 +344,27 @@ def test_the_ops_triage_reads_the_row(monkeypatch, mem):
         db.close()
 
 
+def test_the_ops_triage_grades_an_ai_row_high_at_any_count(monkeypatch, mem):
+    """The guard writes one row per model per day, so the count grade would
+    always be LOW; an AI:* row means reading on that model is failing."""
+    from app.services.triage_service import _fallback_triage, run_triage
+
+    _install(monkeypatch, _missing_new_model(text="ok"))
+    anthropic_client("k").messages.create(model=NEW, max_tokens=5, messages=[])
+    db = mem()
+    try:
+        res = run_triage(db, since=utc_now() - timedelta(minutes=5),
+                         until=utc_now() + timedelta(minutes=1),
+                         send_emails=False, use_llm=False, keep_sample_message=False)
+        assert [(n.error_type, n.severity) for n in res.new_notes] == [(guard.ALERT_ERROR_TYPE, "high")]
+    finally:
+        db.close()
+    assert _fallback_triage({"error_type": guard.REJECTED_ERROR_TYPE, "occurrence_count": 1}).severity == "high"
+    # Other error types keep the count grade.
+    assert _fallback_triage({"error_type": "ValueError", "occurrence_count": 1}).severity == "low"
+    assert _fallback_triage({"error_type": "ValueError", "occurrence_count": 5}).severity == "medium"
+
+
 # ─── 3. forced tool use on Sonnet 5.5 ───────────────────────────────────
 
 _TOOL = {"name": "extract_x", "input_schema": {"type": "object", "properties": {}}}
