@@ -18,13 +18,12 @@
 //          status "ok" (a FIRST scan) gets the success card, chime and
 //          haptic; "already" gets its own amber warning (different sound,
 //          warning haptic) so a reused/shared ticket can't pass as new.
-//          Exception, and only with the server's stamp as proof: when THIS
-//          device let the ticket in a moment ago — the "already" repeats the
-//          exact stamp of its own "ok" (< 30 s old), or the stamp falls in
-//          the time a POST whose answer was lost was in flight — it is the
-//          same guest re-presenting: a neutral "Tjekket ind her kl. {time}"
-//          card, no tone, no alarm. Another door, or this door earlier, is
-//          always the amber alarm.
+//          No exceptions: EVERY "already" is the amber "Allerede scannet kl.
+//          {time}" card, even right after this device's own "ok" or after a
+//          POST whose answer was lost. Telling "the same guest re-presenting"
+//          from "a shared or passed-back ticket" by time windows let reuse
+//          through each time it was tried, so the page doesn't guess. Only
+//          "ok" moves the scanned count.
 //   L10  — Honest copy: "Allerede scannet kl. {time}" / "Refunderet" /
 //          "Billetten er ikke bekræftet" (the 409 is booking_not_confirmed,
 //          never "already scanned").
@@ -73,23 +72,13 @@ import MoneyField from "../components/ui/MoneyField";
 // once, and two tickets alternating in frame are each posted once; a QR has
 // to be out of view for this long before it is submitted again.
 const SCAN_DEBOUNCE_MS = 3000;
-// This device's own recent check-ins. An "already" whose stamp IS the one
-// this device's own "ok" got, within this window, is the same guest showing
-// the ticket again — the neutral card. Anything else (another door, or this
-// door longer ago: a pass-back) stays the amber alarm. Kept short on purpose:
-// a re-present happens in seconds, a passed-back ticket takes longer.
-const OWN_CHECKIN_WINDOW_MS = 30 * 1000;
-// A scan POST that died with no response may still have landed. The marker
-// lives this long, and the next "already" only counts as ours if its stamp
-// falls inside the time that POST was in flight (± SERVER_CLOCK_SLACK_MS).
-const LOST_RESPONSE_WINDOW_MS = 60 * 1000;
-// How far a server stamp may sit outside this device's own timeline and
-// still be matched to it: phone-vs-server clock skew plus server latency.
-// Phones keep network time, so this is seconds in practice. Deliberately
-// tight — every millisecond of slack is time in which ANOTHER door's scan
-// would be mistaken for ours, and that mistake hides a reused ticket. A
-// phone with a badly wrong clock just gets the amber card (fails safe).
-const SERVER_CLOCK_SLACK_MS = 10 * 1000;
+// How long one scan POST may take. The api instance waits 60 s (sized for
+// slow uploads); at the door a hung request would leave the host with no
+// card and the ticket locked by the in-flight guard for a minute. After
+// this the page says "Ingen forbindelse — scan billetten igen" and the
+// ticket can be posted again. A POST is never auto-replayed on a timeout
+// (api.js only re-sends a POST on 503), so this can't double-submit.
+const SCAN_POST_TIMEOUT_MS = 8000;
 // Last-N visible scan history — keeps the flash log readable at the door.
 const MAX_HISTORY = 5;
 // Camera scan frame interval — using rAF gives us ~60 FPS which is more
@@ -165,17 +154,6 @@ function decodeQrPayload(qrText) {
   }
 }
 
-// Small time-boxed memory: key → { at, ... }. Expired entries are pruned on
-// every write so a long door shift can't grow it without bound.
-function rememberAt(map, key, entry, windowMs) {
-  for (const [k, v] of map) if (entry.at - v.at >= windowMs) map.delete(k);
-  map.set(key, entry);
-}
-function recentEntry(map, key, now, windowMs) {
-  const e = map.get(key);
-  return e != null && now - e.at < windowMs ? e : null;
-}
-
 // Server timestamps (e.g. a ticket's scanned_at) are NAIVE UTC: the backend
 // stores utc_now() in a bare DateTime column and serialises it without an
 // offset ("2026-10-11T18:48:00.123456"). `new Date()` reads an offset-less
@@ -190,12 +168,6 @@ function parseServerUtc(value) {
   if (/T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s)) s += "Z";
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
-}
-// A server stamp as epoch ms, or null when it is missing / unreadable (a
-// stamp we can't read is never matched to this device — fail closed).
-function stampMs(value) {
-  const d = parseServerUtc(value);
-  return d ? d.getTime() : null;
 }
 
 // Format a timestamp into HH:mm (device-local) for the
@@ -334,9 +306,6 @@ function ScanFlashCard({ entry }) {
   // the host has to look at the guest. The one entry kind that tints its
   // border + icon amber, so it can't be mistaken for either neighbour.
   const warn = entry.kind === "warning";
-  // "info" = this device already let this guest in (they showed the ticket
-  // again). Nothing to act on: neutral surface, check icon, gray dot.
-  const info = entry.kind === "info";
   // gray-50/gray-200 neutral surface — same recipe as Card primitive.
   // Doctrine line: "context callouts neutral block + colored icon prefix".
   return (
@@ -350,7 +319,7 @@ function ScanFlashCard({ entry }) {
     >
       <div className="flex items-start gap-2.5">
         <div className="mt-0.5 shrink-0" aria-hidden="true">
-          {ok || info ? (
+          {ok ? (
             <Check size={18} strokeWidth={2.25} className="text-gray-700 dark:text-gray-200" />
           ) : warn ? (
             <AlertTriangle size={18} strokeWidth={2.25} className="text-amber-600 dark:text-amber-400" />
@@ -358,12 +327,11 @@ function ScanFlashCard({ entry }) {
             <AlertTriangle size={18} strokeWidth={2.25} className="text-gray-700 dark:text-gray-200" />
           )}
         </div>
-        {/* Status dot — green for success, gray for checked-in-here, amber
-            for already-scanned, red for error. Tracks the doctrine "● Paid"
-            status-pill pattern. */}
+        {/* Status dot — green for success, amber for already-scanned, red
+            for error. Tracks the doctrine "● Paid" status-pill pattern. */}
         <span
           className={`mt-2 w-1.5 h-1.5 rounded-full shrink-0 ${
-            ok ? "bg-emerald-500" : info ? "bg-gray-400" : warn ? "bg-amber-500" : "bg-red-500"
+            ok ? "bg-emerald-500" : warn ? "bg-amber-500" : "bg-red-500"
           }`}
           aria-hidden="true"
         />
@@ -611,16 +579,10 @@ export default function DoorScanPage() {
   // Debounce: QR text → { until, slide }. Repeated reads of a QR are ignored
   // and (while slide) push its `until` out; see SCAN_DEBOUNCE_MS.
   const recentReadsRef = useRef(new Map());
-  // Ticket ids with a scan POST still waiting for its answer. A second read
-  // of the same ticket is dropped until that answer is in.
+  // Ticket ids with a scan POST still waiting for its answer (at most
+  // SCAN_POST_TIMEOUT_MS). A second read of the same ticket is dropped until
+  // that answer — or the timeout — is in.
   const inFlightRef = useRef(new Set());
-  // ticket id → { at, stamp }: when THIS device got "ok" for it, and the
-  // server's scanned_at in that "ok" (ms, or null if it carried none).
-  const ownCheckinsRef = useRef(new Map());
-  // ticket id → { at, spans: [{ sentAt, failAt }] }: scan POSTs for it that
-  // got no response, and when each was in flight (at = last failAt;
-  // LOST_RESPONSE_WINDOW_MS).
-  const lostScansRef = useRef(new Map());
   const audioRef = useRef(null);
 
   // ── Gavekort redeem sheet ──────────────────────────────────────────
@@ -733,6 +695,8 @@ export default function DoorScanPage() {
     ].filter(Boolean).join(" · ");
     // Already scanned → amber warning: own sound, warning haptic, and the
     // scanned count does NOT move (the guest was counted the first time).
+    // Always, whoever let the ticket in and however recently: the server's
+    // time is on the card, and the host decides at the door.
     const flagAlreadyScanned = (scannedAt, data) => {
       const when = formatTimeShort(scannedAt);
       const who = whoLine(data);
@@ -746,69 +710,6 @@ export default function DoorScanPage() {
       });
       if (audioRef.current) audioRef.current.warning();
       haptic.warning();
-    };
-    // Already checked in BY THIS DEVICE → neutral card, no tone, a light
-    // tap. The host let this guest in a moment ago; nothing to check. The
-    // title carries the check-in time so the host can see it is the one
-    // they just did.
-    const flagCheckedInHere = (scannedAt, data) => {
-      const when = formatTimeShort(scannedAt);
-      pushHistory({
-        kind: "info",
-        title: when
-          ? t("scanCheckedInHereAt", "Tjekket ind her kl. {time}", { time: when })
-          : t("scanCheckedInHere", "Allerede tjekket ind her"),
-        subtitle: whoLine(data) || t("scanCheckedInHereBody", "Du behøver ikke scanne igen"),
-        at: new Date().toISOString(),
-      });
-      haptic.light();
-    };
-    // The server answered for this ticket: that consumes any "no response"
-    // marker a previous POST for it left behind.
-    const takeLost = () => {
-      const lost = lostScansRef.current.get(tid);
-      lostScansRef.current.delete(tid);
-      return lost;
-    };
-    // Is this "already" the guest THIS device just let in, showing the
-    // ticket again? Only with proof from the server's own stamp: it must be
-    // the stamp this device's "ok" got (to the second), or — for a POST
-    // whose answer was lost — a stamp from the time that POST was in flight.
-    // Everything else is someone else's check-in (another door, or this door
-    // earlier) and gets the amber alarm. A missing stamp is never ours.
-    const isOwnCheckin = (stamp, own) => {
-      if (stamp == null || !own) return false;
-      if (own.stamp != null) return Math.floor(stamp / 1000) === Math.floor(own.stamp / 1000);
-      // The "ok" carried no stamp: match it against when that "ok" arrived.
-      return Math.abs(stamp - own.at) <= SERVER_CLOCK_SLACK_MS;
-    };
-    const isLostScanOurs = (stamp, lost, now) =>
-      stamp != null &&
-      lost != null &&
-      now - lost.at < LOST_RESPONSE_WINDOW_MS &&
-      lost.spans.some(
-        ({ sentAt: from, failAt: to }) =>
-          stamp >= from - SERVER_CLOCK_SLACK_MS && stamp <= to + SERVER_CLOCK_SLACK_MS,
-      );
-    // "already" is only an alarm when someone ELSE let this ticket in.
-    const onAlready = (scannedAt, data, lost) => {
-      const now = Date.now();
-      const stamp = stampMs(scannedAt);
-      const own = recentEntry(ownCheckinsRef.current, tid, now, OWN_CHECKIN_WINDOW_MS);
-      if (isOwnCheckin(stamp, own)) {
-        flagCheckedInHere(scannedAt, data);
-        return;
-      }
-      if (isLostScanOurs(stamp, lost, now)) {
-        // Our earlier POST landed and only its answer was lost, so that
-        // check-in was ours: remember it (with the server's stamp), and
-        // count the guest (the lost "ok" never reached the counter).
-        rememberAt(ownCheckinsRef.current, tid, { at: now, stamp }, OWN_CHECKIN_WINDOW_MS);
-        setStats((s) => ({ ...s, scanned: (s.scanned || 0) + 1 }));
-        flagCheckedInHere(scannedAt, data);
-        return;
-      }
-      flagAlreadyScanned(scannedAt, data);
     };
     const flagError = (title, subtitle = null) => {
       pushHistory({ kind: "error", title, subtitle, at: new Date().toISOString() });
@@ -828,15 +729,17 @@ export default function DoorScanPage() {
     // another read of it (the QR left the frame and came back) sends nothing.
     if (inFlightRef.current.has(tid)) return;
     inFlightRef.current.add(tid);
-    const sentAt = Date.now();
     try {
-      const res = await api.post(`/tickets/${tid}/scan`, { qr: qrText });
+      const res = await api.post(
+        `/tickets/${tid}/scan`,
+        { qr: qrText },
+        { timeout: SCAN_POST_TIMEOUT_MS },
+      );
       const data = res?.data || {};
-      const lost = takeLost();
       // The endpoint is idempotent: a re-scan is a 200 too, with
       // status "already". Only "ok" — a first scan — is a welcome.
       if (data.status === "already") {
-        onAlready(data.scanned_at, data, lost);
+        flagAlreadyScanned(data.scanned_at, data);
         return;
       }
       if (data.status !== "ok") {
@@ -853,14 +756,7 @@ export default function DoorScanPage() {
           .filter(Boolean).join(" · ") || t("scanAccepted", "Billet bekræftet"),
         at: new Date().toISOString(),
       });
-      // Remember the stamp this "ok" carries: a later "already" is only this
-      // device's own check-in if it repeats exactly this stamp.
-      rememberAt(
-        ownCheckinsRef.current,
-        tid,
-        { at: Date.now(), stamp: stampMs(data.scanned_at) },
-        OWN_CHECKIN_WINDOW_MS,
-      );
+      // The ONLY place the scanned count goes up.
       setStats((s) => ({ ...s, scanned: (s.scanned || 0) + 1 }));
       if (audioRef.current) audioRef.current.success();
       haptic.success();
@@ -869,26 +765,14 @@ export default function DoorScanPage() {
       const body = err?.response?.data;
       const rawDetail = body?.detail;
       const detail = rawDetail || body?.message;
-      const lost = err?.response ? takeLost() : undefined;
       let title;
       let subtitle = null;
       if (!err?.response && (err?.isAxiosError || err?.request)) {
-        // No HTTP answer at all (offline, timeout, DNS). We can't know if the
-        // scan landed, so say what to do — not what happened — and remember
-        // when this POST was in flight: an "already" stamped inside that span
-        // means it got through; one stamped outside it is someone else's.
+        // No HTTP answer at all (offline, DNS, or SCAN_POST_TIMEOUT_MS ran
+        // out). We can't know if the scan landed, so say what to do — not
+        // what happened. If it did land, the next scan answers "already"
+        // and gets the amber card like any other re-scan.
         title = t("scanNetworkError", "Ingen forbindelse — scan billetten igen");
-        // Two lost POSTs in a row keep BOTH in-flight spans (either may be the
-        // one that landed) — never the gap between them, when another door
-        // could have scanned it.
-        const failAt = Date.now();
-        const prev = recentEntry(lostScansRef.current, tid, failAt, LOST_RESPONSE_WINDOW_MS);
-        rememberAt(
-          lostScansRef.current,
-          tid,
-          { at: failAt, spans: [...(prev?.spans || []), { sentAt, failAt }] },
-          LOST_RESPONSE_WINDOW_MS,
-        );
         allowRetryWhileHeld();
       } else if (status === 409 && rawDetail?.error === "booking_not_confirmed") {
         // The 409 this endpoint sends is an unconfirmed BOOKING (pending /
@@ -899,7 +783,7 @@ export default function DoorScanPage() {
           : null;
       } else if (status === 409 && (body?.scanned_at || rawDetail?.scanned_at)) {
         // Tolerated shape: a 409 that does carry a prior stamp IS a re-scan.
-        onAlready(body?.scanned_at || rawDetail?.scanned_at, rawDetail || body, lost);
+        flagAlreadyScanned(body?.scanned_at || rawDetail?.scanned_at, rawDetail || body);
         return;
       } else if (status === 410) {
         title = t("scanRefunded", "Billet ugyldig — refunderet");

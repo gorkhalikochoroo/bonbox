@@ -15,11 +15,10 @@
  * Strings resolve from the real da dictionary, so every key is proven to
  * exist in Danish, not just in an inline fallback.
  *
- * Follow-up (same day, adversarial review): the same-QR debounce slides (a
- * guest holding the phone up is posted ONCE, not every 3 s), and an
- * "already" for a ticket THIS device just let in — its own "ok", or a POST
- * whose answer was lost — is a neutral "Allerede tjekket ind her", not the
- * reuse alarm. A 403 says "no access", not "wrong event".
+ * Final rule (after 29f03761): there is no neutral "checked in here" card
+ * any more. Every "already" — including one right after a lost response on
+ * this device — is the amber "Allerede scannet kl. {time}" alarm, and the
+ * count moves only on "ok".
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -214,13 +213,11 @@ const cards = () => Array.from(document.querySelectorAll("[data-scan-kind]"));
 const newestCard = () => cards()[0];
 
 // ── Review finding (fix-ticket-rescan, after 6bd20b66) ─────────────────
-// The "lost response" shortcut turns ANY "already" that follows a network
-// error on this device (within 60 s) into the neutral "Allerede tjekket ind
-// her" card and counts the guest — without checking that the server's stamp
-// could be this device's. A ticket another door let in earlier (or during
-// the outage) is a real reuse and must stay the amber alarm. The page has
-// the stamp (data.scanned_at) and knows when its own POST was in flight, so
-// it can tell. Both tests pass against the pre-round page (559f8c68).
+// The "lost response" shortcut turned ANY "already" that followed a network
+// error on this device (within 60 s) into a neutral "checked in here" card
+// and counted the guest. A ticket another door let in earlier (or during
+// the outage) is a real reuse and must stay the amber alarm, never counted.
+// The shortcut is gone: these hold because every "already" is amber.
 const at = (iso) => Date.parse(iso);
 
 describe("DoorScanPage — a lost response must not hide another door's scan", () => {
@@ -235,8 +232,8 @@ describe("DoorScanPage — a lost response must not hide another door's scan", (
     await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("error"));
 
     await scanOnce(2);
-    await waitFor(() => expect(["info", "warning"]).toContain(newestCard()?.dataset.scanKind));
-    expect(newestCard().dataset.scanKind).toBe("warning");
+    await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("warning"));
+    expect(newestCard().className).toMatch(/amber/);
     expect(newestCard().textContent).toContain("Allerede scannet kl. 20.48");
     expect(haptic.warning).toHaveBeenCalledTimes(1);
     // Heard, not just seen: the two-note warning, never the welcome chime.
@@ -256,8 +253,8 @@ describe("DoorScanPage — a lost response must not hide another door's scan", (
 
     clock = at("2026-10-11T19:00:45Z");
     await scanOnce(2);
-    await waitFor(() => expect(["info", "warning"]).toContain(newestCard()?.dataset.scanKind));
-    expect(newestCard().dataset.scanKind).toBe("warning");
+    await waitFor(() => expect(newestCard()?.dataset.scanKind).toBe("warning"));
+    expect(newestCard().className).toMatch(/amber/);
     expect(haptic.warning).toHaveBeenCalledTimes(1);
     expect(tones.filter(isWarningTone)).toHaveLength(2);
     expect(screen.getByText("0 / 100 scannet · 100 tilbage")).toBeInTheDocument();
