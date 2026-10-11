@@ -798,7 +798,7 @@ def _incident_alert(summary: dict, st, run_now: datetime, *, failed: bool,
               "Runbook: bonbox-lab-state/backup_runbook.md, section 2."]
     if new_alarms:
         subject = "BonBox: MASS DELETION in file storage (backup copies kept)"
-        push =("BonBox: mass deletion in storage",
+        push = ("BonBox: mass deletion in storage",
                 f"{sum(int(a.get('gone') or 0) for a in new_alarms)} files vanished from the source bucket.")
     else:
         subject = "BonBox: nightly backup FAILED"
