@@ -8,6 +8,11 @@
  *       skriv til contact@bonbox.dk — så skifter vi planen for dig." The
  *       Stripe portal has plan switching OFF, so nothing in the app may
  *       promise a self-serve switch.
+ *   (C) The iPhone app (App Store 3.1.1 / 3.1.3) renders /terms too: its
+ *       § 8 carries no link and no instruction to buy or manage outside the
+ *       app, and the web text says "when you use BonBox in a browser" where
+ *       it names the Plan & Billing page (the iPhone app's page has no
+ *       prices, portal or card update).
  */
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -33,11 +38,20 @@ vi.mock("../hooks/useLanguage", () => ({
   detectInitialLanguage: () => "da",
 }));
 
+let nativeFlag = false;
+vi.mock("../utils/platform", () => ({
+  isNativeApp: () => nativeFlag,
+  canPurchaseInApp: () => !nativeFlag,
+  isIPad: () => false,
+  platform: { isNative: false, isIOS: false, isAndroid: false, isWeb: true },
+}));
+
 const TermsPage = (await import("../pages/TermsPage")).default;
 
 afterEach(() => {
   cleanup();
   langCode = "da";
+  nativeFlag = false;
 });
 
 const renderTerms = (lang) => {
@@ -91,5 +105,85 @@ describe("decision 2: § 8 says how to switch between Starter and Pro", () => {
       expect(text).not.toMatch(/skifte plan i (kunde)?portalen|switch plans? in the (customer )?portal/i);
       cleanup();
     }
+  });
+});
+
+// ─────────────────────── (C) the iPhone app's /terms ───────────────────────
+
+const section = (n) => {
+  const h = screen.getAllByRole("heading", { level: 2 }).find((x) => x.textContent.startsWith(`${n}.`));
+  return h.closest("section");
+};
+const textOutside8 = () =>
+  screen.getAllByRole("heading", { level: 2 })
+    .filter((h) => !h.textContent.startsWith("8."))
+    .map((h) => h.closest("section").textContent)
+    .join("\n");
+
+describe("(C) § 8 in the iPhone app: no link, address or instruction to buy or manage outside the app", () => {
+  for (const lang of ["da", "en"]) {
+    it(`${lang}: § 8 has no link at all, and says 'outside the app' instead`, () => {
+      nativeFlag = true;
+      renderTerms(lang);
+      const s8 = section(8);
+      expect(s8.querySelectorAll("a")).toHaveLength(0);
+      const text = s8.textContent;
+      for (const cta of ["skriv til", "write to", "contact@bonbox.dk", "bonbox.dk under", "i en browser", "in a browser",
+        "Administrer abonnement", "Manage subscription"]) {
+        expect(text).not.toContain(cta);
+      }
+      if (lang === "da") {
+        expect(text).toContain("Abonnementer administreres uden for appen.");
+        expect(text).toContain("Et skift mellem Starter og Pro foretager vi for dig efter anmodning pr. e-mail.");
+        expect(text).toContain("Du kan opsige abonnementet når som helst. Det sker uden for appen, i Stripes kundeportal.");
+        expect(text).toContain("Imens kan du opdatere dit kort uden for appen, i Stripes kundeportal.");
+        expect(text).toContain("Vi opkræver aldrig betaling med tilbagevirkende kraft.");
+      } else {
+        expect(text).toContain("Subscriptions are managed outside the app.");
+        expect(text).toContain("We switch a subscription between Starter and Pro for you on request by e-mail.");
+        expect(text).toContain("You can cancel at any time. This is done outside the app, in Stripe’s customer portal.");
+        expect(text).toContain("Meanwhile you can update your card outside the app, in Stripe’s customer portal.");
+        expect(text).toContain("We never charge retroactively.");
+      }
+    });
+
+    it(`${lang}: every other section reads exactly as on the web`, () => {
+      renderTerms(lang);
+      const web = textOutside8();
+      cleanup();
+      nativeFlag = true;
+      renderTerms(lang);
+      expect(textOutside8()).toBe(web);
+    });
+  }
+
+  it("the whole native page links nowhere near a purchase (no /#pricing, no /subscription)", () => {
+    for (const lang of ["da", "en"]) {
+      nativeFlag = true;
+      const { container } = renderTerms(lang);
+      const hrefs = [...container.querySelectorAll("a")].map((a) => a.getAttribute("href"));
+      expect(hrefs.some((h) => /pricing|subscription|checkout|stripe/i.test(h))).toBe(false);
+      cleanup();
+    }
+  });
+});
+
+describe("(C) § 8 on the web names where the page works: in a browser", () => {
+  it("da", () => {
+    renderTerms("da");
+    const text = section(8).textContent;
+    expect(text).toContain("Priserne står på bonbox.dk under Priser og på siden Abonnement & betaling, når du bruger BonBox i en browser.");
+    expect(text).toContain("Du kan opsige abonnementet når som helst, når du bruger BonBox i en browser: på siden Abonnement & betaling vælger du Administrer abonnement, som åbner Stripes kundeportal.");
+    expect(text).toContain("Imens kan du, når du bruger BonBox i en browser, se på siden Abonnement & betaling, at betalingen er fejlet, og opdatere dit kort der.");
+    expect(text).not.toContain("i appen");
+  });
+
+  it("en", () => {
+    renderTerms("en");
+    const text = section(8).textContent;
+    expect(text).toContain("The prices are shown on bonbox.dk under Pricing and on the Plan & Billing page when you use BonBox in a browser.");
+    expect(text).toContain("You can cancel at any time when you use BonBox in a browser: on the Plan & Billing page, choose Manage subscription, which opens Stripe’s customer portal.");
+    expect(text).toContain("Meanwhile, when you use BonBox in a browser, the Plan & Billing page shows that the payment failed, and you can update your card there.");
+    expect(text).not.toContain("in the app");
   });
 });

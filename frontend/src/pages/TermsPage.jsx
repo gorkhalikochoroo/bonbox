@@ -6,6 +6,7 @@ import { useLanguage } from "../hooks/useLanguage";
 // account without an acceptance of TERMS_VERSION) — the deploy day + 15 days;
 // the in-app notice runs until then. Both are release-time constants.
 import { TERMS_EXISTING_FROM, TERMS_VERSION, termsDate } from "../legal/terms";
+import { isNativeApp } from "../utils/platform";
 
 function Section({ num, title, children }) {
   return (
@@ -21,12 +22,20 @@ function Section({ num, title, children }) {
 // (TermsEn / TermsDa), so a reviewer can read — and a lawyer can approve —
 // each version top to bottom. Keep the two in step: same numbered sections,
 // same order, same links. If you change one, change the other in the same commit.
+//
+// The iPhone app (App Store 3.1.1 / 3.1.3) renders this page too. It has no
+// purchase path, no prices and no billing portal, and must carry no link or
+// call to action to buy outside the app. So in the native build (`native`),
+// four § 8 sentences say the same thing without a link, an address or an
+// instruction: where prices are shown, how to cancel, how to switch plan and
+// where to update the card. Everything else is the same text. Keep the two
+// variants side by side below, and change both together.
 const CHROME = {
   en: { privacy: "Privacy", cookies: "Cookies", back: "Back to BonBox" },
   da: { privacy: "Privatliv", cookies: "Cookies", back: "Tilbage til BonBox" },
 };
 
-function TermsEn() {
+function TermsEn({ native = false }) {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Terms of Service</h1>
@@ -143,15 +152,15 @@ function TermsEn() {
         </Section>
 
         <Section num={8} title="Subscription and payment">
-          <p><strong>Plans and prices.</strong> BonBox has a free plan (Free) and two paid subscriptions (Starter and Pro). The prices are shown on <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Pricing</a> and on the Plan &amp; Billing page in the app. Prices are per business, in Danish kroner and per month. The amount you pay is shown at checkout before you confirm the purchase. Every plan has usage caps (for example how many receipts you can scan per month). We may change, limit or remove features and usage caps with reasonable notice.</p>
+          <p><strong>Plans and prices.</strong> BonBox has a free plan (Free) and two paid subscriptions (Starter and Pro). {native ? <>Subscriptions are managed outside the app.</> : <>The prices are shown on <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Pricing</a> and on the Plan &amp; Billing page when you use BonBox in a browser.</>} Prices are per business, in Danish kroner and per month. The amount you pay is shown at checkout before you confirm the purchase. Every plan has usage caps (for example how many receipts you can scan per month). We may change, limit or remove features and usage caps with reasonable notice.</p>
           <p className="mt-3"><strong>Businesses only.</strong> Paid subscriptions are for businesses only. By buying a subscription you confirm that you buy it for your business and not as a consumer. An account set up for personal finance (Personal Mode) can use BonBox for free but cannot buy a paid subscription. As subscriptions are sold business to business, the consumer right of withdrawal (fortrydelsesret) under the Danish Consumer Contracts Act does not apply.</p>
           <p className="mt-3"><strong>Trial.</strong> A new account gets 14 days with the Pro features, free of charge and without a payment card. If you do not buy a subscription, the account moves to the Free plan when the trial ends, and you are not charged. If you buy a subscription during the trial, you enter a payment card at checkout, and the first charge is made when the trial ends.</p>
           <p className="mt-3"><strong>Payment and renewal.</strong> Payment is handled by Stripe. A subscription is paid one month in advance at a time, by payment card or another payment method Stripe offers at checkout, and it renews automatically every month until it is cancelled. We never charge retroactively.</p>
           <p className="mt-3"><strong>Founding price.</strong> While fewer than 100 businesses have a paid subscription with us, new subscriptions get the founding price: Starter 129 kr. and Pro 249 kr. per month (regular price: Starter 199 kr. and Pro 349 kr.). You keep the founding price as long as your subscription stays active without a break. If you cancel the subscription, or it ends because a payment does not go through, the founding price is lost, and a new subscription later costs the price that applies at that time.</p>
-          <p className="mt-3" data-testid="terms-plan-switch"><strong>Switching plans.</strong> If you want to switch between Starter and Pro, write to <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a> &mdash; we will switch the plan for you.</p>
-          <p className="mt-3"><strong>Cancellation.</strong> You can cancel at any time on the Plan &amp; Billing page in the app (Manage subscription), which opens Stripe&rsquo;s customer portal. The cancellation takes effect at the end of the period you have paid for. Until then you keep the plan&rsquo;s features; after that the account moves to the Free plan, and your data stays in the account. We do not refund part of a period.</p>
+          <p className="mt-3" data-testid="terms-plan-switch"><strong>Switching plans.</strong> {native ? <>We switch a subscription between Starter and Pro for you on request by e-mail.</> : <>If you want to switch between Starter and Pro, write to <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a> &mdash; we will switch the plan for you.</>}</p>
+          <p className="mt-3"><strong>Cancellation.</strong> {native ? <>You can cancel at any time. This is done outside the app, in Stripe&rsquo;s customer portal.</> : <>You can cancel at any time when you use BonBox in a browser: on the Plan &amp; Billing page, choose Manage subscription, which opens Stripe&rsquo;s customer portal.</>} The cancellation takes effect at the end of the period you have paid for. Until then you keep the plan&rsquo;s features; after that the account moves to the Free plan, and your data stays in the account. We do not refund part of a period.</p>
           <p className="mt-3"><strong>Deleting the account.</strong> If you delete your account, an active subscription stops at once, and the rest of the period is not refunded.</p>
-          <p className="mt-3"><strong>Failed payment.</strong> If a payment fails, Stripe tries to charge it again. Meanwhile the Plan &amp; Billing page shows that the payment failed, and you can update your card there. If the payment still does not go through, the subscription ends and the account moves to the Free plan; your data stays in the account.</p>
+          <p className="mt-3"><strong>Failed payment.</strong> If a payment fails, Stripe tries to charge it again. {native ? <>Meanwhile you can update your card outside the app, in Stripe&rsquo;s customer portal.</> : <>Meanwhile, when you use BonBox in a browser, the Plan &amp; Billing page shows that the payment failed, and you can update your card there.</>} If the payment still does not go through, the subscription ends and the account moves to the Free plan; your data stays in the account.</p>
           <p className="mt-3"><strong>Price changes.</strong> We may change our prices. We give at least 30 days&rsquo; notice by e-mail before a price change applies to your running subscription, and you may cancel the subscription before the change takes effect. We do not raise the founding price while your subscription stays active without a break.</p>
         </Section>
 
@@ -244,7 +253,7 @@ function TermsEn() {
   );
 }
 
-function TermsDa() {
+function TermsDa({ native = false }) {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Handelsbetingelser</h1>
@@ -359,15 +368,15 @@ function TermsDa() {
         </Section>
 
         <Section num={8} title="Abonnement og betaling">
-          <p><strong>Planer og priser.</strong> BonBox har en gratis plan (Free) og to betalte abonnementer (Starter og Pro). Priserne står på <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Priser</a> og på siden Abonnement &amp; betaling i appen. Priserne er pr. virksomhed, i danske kroner og pr. måned. Beløbet, du skal betale, vises ved betalingen, før du bekræfter købet. Alle planer har forbrugslofter (f.eks. hvor mange kvitteringer du kan scanne pr. måned). Vi kan ændre, begrænse eller fjerne funktioner og forbrugslofter med rimeligt varsel.</p>
+          <p><strong>Planer og priser.</strong> BonBox har en gratis plan (Free) og to betalte abonnementer (Starter og Pro). {native ? <>Abonnementer administreres uden for appen.</> : <>Priserne står på <a href="/#pricing" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk under Priser</a> og på siden Abonnement &amp; betaling, når du bruger BonBox i en browser.</>} Priserne er pr. virksomhed, i danske kroner og pr. måned. Beløbet, du skal betale, vises ved betalingen, før du bekræfter købet. Alle planer har forbrugslofter (f.eks. hvor mange kvitteringer du kan scanne pr. måned). Vi kan ændre, begrænse eller fjerne funktioner og forbrugslofter med rimeligt varsel.</p>
           <p className="mt-3"><strong>Kun for virksomheder.</strong> Betalte abonnementer er kun for virksomheder. Når du køber et abonnement, bekræfter du, at du køber det til din virksomhed og ikke som forbruger. En konto, der er oprettet til privatøkonomi (personlig tilstand), kan bruge BonBox gratis, men kan ikke købe et betalt abonnement. Da abonnementerne sælges mellem virksomheder, gælder forbrugeraftalelovens regler om fortrydelsesret ikke.</p>
           <p className="mt-3"><strong>Prøveperiode.</strong> En ny konto får 14 dage med Pro-funktionerne gratis og uden betalingskort. Køber du ikke et abonnement, overgår kontoen til Free-planen, når prøveperioden slutter, og du bliver ikke opkrævet. Køber du et abonnement i prøveperioden, angiver du et betalingskort ved betalingen, og det første træk sker, når prøveperioden slutter.</p>
           <p className="mt-3"><strong>Betaling og fornyelse.</strong> Betalingen håndteres af Stripe. Abonnementet betales forud for én måned ad gangen med betalingskort eller en anden betalingsmetode, som Stripe tilbyder ved betalingen, og det fornyes automatisk hver måned, indtil det bliver opsagt. Vi opkræver aldrig betaling med tilbagevirkende kraft.</p>
           <p className="mt-3"><strong>Stifterpris.</strong> Så længe færre end 100 virksomheder har et betalt abonnement hos os, får nye abonnementer stifterprisen: Starter 129 kr. og Pro 249 kr. pr. måned (normalpris: Starter 199 kr. og Pro 349 kr.). Du beholder stifterprisen, så længe dit abonnement er aktivt uden afbrydelse. Opsiger du abonnementet, eller ophører det, fordi en betaling ikke går igennem, mister du stifterprisen, og et nyt abonnement senere koster den pris, der gælder på det tidspunkt.</p>
-          <p className="mt-3" data-testid="terms-plan-switch"><strong>Skift af plan.</strong> Vil du skifte mellem Starter og Pro, så skriv til <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a> — så skifter vi planen for dig.</p>
-          <p className="mt-3"><strong>Opsigelse.</strong> Du kan opsige abonnementet når som helst på siden Abonnement &amp; betaling i appen (Administrer abonnement), som åbner Stripes kundeportal. Opsigelsen får virkning ved udgangen af den periode, du har betalt for. Indtil da beholder du planens funktioner; derefter overgår kontoen til Free-planen, og dine data bliver i kontoen. Vi refunderer ikke for en del af en periode.</p>
+          <p className="mt-3" data-testid="terms-plan-switch"><strong>Skift af plan.</strong> {native ? <>Et skift mellem Starter og Pro foretager vi for dig efter anmodning pr. e-mail.</> : <>Vil du skifte mellem Starter og Pro, så skriv til <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a> — så skifter vi planen for dig.</>}</p>
+          <p className="mt-3"><strong>Opsigelse.</strong> {native ? <>Du kan opsige abonnementet når som helst. Det sker uden for appen, i Stripes kundeportal.</> : <>Du kan opsige abonnementet når som helst, når du bruger BonBox i en browser: på siden Abonnement &amp; betaling vælger du Administrer abonnement, som åbner Stripes kundeportal.</>} Opsigelsen får virkning ved udgangen af den periode, du har betalt for. Indtil da beholder du planens funktioner; derefter overgår kontoen til Free-planen, og dine data bliver i kontoen. Vi refunderer ikke for en del af en periode.</p>
           <p className="mt-3"><strong>Sletning af kontoen.</strong> Sletter du din konto, stopper et aktivt abonnement med det samme, og der refunderes ikke for resten af perioden.</p>
-          <p className="mt-3"><strong>Betaling, der mislykkes.</strong> Mislykkes en betaling, forsøger Stripe at trække beløbet igen. Imens står der på siden Abonnement &amp; betaling, at betalingen er fejlet, og du kan opdatere dit kort der. Går betalingen stadig ikke igennem, ophører abonnementet, og kontoen overgår til Free-planen; dine data bliver i kontoen.</p>
+          <p className="mt-3"><strong>Betaling, der mislykkes.</strong> Mislykkes en betaling, forsøger Stripe at trække beløbet igen. {native ? <>Imens kan du opdatere dit kort uden for appen, i Stripes kundeportal.</> : <>Imens kan du, når du bruger BonBox i en browser, se på siden Abonnement &amp; betaling, at betalingen er fejlet, og opdatere dit kort der.</>} Går betalingen stadig ikke igennem, ophører abonnementet, og kontoen overgår til Free-planen; dine data bliver i kontoen.</p>
           <p className="mt-3"><strong>Prisændringer.</strong> Vi kan ændre vores priser. En prisændring på dit løbende abonnement varsler vi pr. e-mail mindst 30 dage, før den får virkning, og du kan opsige abonnementet, før ændringen træder i kraft. Stifterprisen hæver vi ikke, så længe dit abonnement er aktivt uden afbrydelse.</p>
         </Section>
 
@@ -465,6 +474,9 @@ export default function TermsPage() {
   // Danish reads the Danish document; every other UI language reads English.
   const docLang = lang === "da" ? "da" : "en";
   const c = CHROME[docLang];
+  // The iPhone app gets the § 8 variant without links or instructions to buy
+  // or manage outside the app (see the note above CHROME).
+  const native = isNativeApp();
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900" lang={docLang}>
       <nav className="bg-slate-950 border-b border-white/5">
@@ -487,7 +499,7 @@ export default function TermsPage() {
       </nav>
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
-        {docLang === "da" ? <TermsDa /> : <TermsEn />}
+        {docLang === "da" ? <TermsDa native={native} /> : <TermsEn native={native} />}
 
         <div className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <Link to="/" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">&larr; {c.back}</Link>
