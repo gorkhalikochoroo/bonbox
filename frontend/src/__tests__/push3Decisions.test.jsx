@@ -301,6 +301,30 @@ describe("(B) a paying subscriber's other plan shows the e-mail line, never a ch
     expect(screen.queryByTestId("plan-switch-by-email")).toBeNull();
   });
 
+  // Nit (review, 11 Oct): a paying subscriber's Free card showed an enabled
+  // "Start gratis" that did nothing (handleCta returns on "free").
+  const freeCard = (container) => [...container.querySelectorAll("div")]
+    .find((d) => d.className.includes("uppercase") && d.textContent === da.pricingTierFree)
+    ?.closest(".relative");
+
+  for (const status of ["active", "trialing", "past_due"]) {
+    it(`a ${status} subscriber's Free card has no button`, async () => {
+      const { container } = renderSub(paying("starter", status));
+      await screen.findByTestId("plan-switch-by-email");
+      const card = freeCard(container);
+      expect(card).toBeTruthy();
+      expect(within(card).queryByRole("button")).toBeNull();
+      expect(card.textContent).not.toContain(da.pricingStartFree);
+    });
+  }
+
+  it("no subscription (trial): the Free card keeps its button", async () => {
+    const { container } = renderSub({ ...paying("trial", null), is_paid: false });
+    await screen.findAllByTestId("checkout-terms-line");
+    const card = freeCard(container);
+    expect(within(card).getByRole("button").textContent).toContain(da.pricingStartFree);
+  });
+
   it("the Terms § 8 sentence and the app's line are the same sentence (da + en)", () => {
     const fill = (s) => s.replace("{email}", "contact@bonbox.dk");
     for (const lang of ["da", "en"]) {
@@ -398,5 +422,23 @@ describe("B3: the buying page is monthly only — no Annual toggle, no '-20%', n
     }
     expect(da.pricingComparePlansSubtitle).toBe("Hvad du får på hver plan.");
     expect(en.pricingComparePlansSubtitle).toBe("What you get on each tier.");
+  });
+});
+
+// ─────────── nits (review, 11 Oct): the label the text quotes, np ───────────
+
+describe("the trial text quotes the button's real label; np has the § 8 switch sentence", () => {
+  it("da + en: pricingAfterTrialClosingNew quotes pricingLockInRate word for word", () => {
+    expect(da.pricingAfterTrialClosingNew).toContain(`"${da.pricingLockInRate}"`);
+    expect(en.pricingAfterTrialClosingNew).toContain(`"${en.pricingLockInRate}"`);
+    expect(da.pricingAfterTrialClosingNew).not.toContain("Lås founder-prisen");
+  });
+
+  it("np: planSwitchByEmail is Nepali, keeps {email}, and names Starter and Pro", async () => {
+    const { np } = await import("../i18n/np");
+    expect(np.planSwitchByEmail).toBe(
+      "Starter र Pro बीच बदल्न चाहनुहुन्छ भने {email} मा लेख्नुहोस् — हामी तपाईंको लागि योजना बदलिदिन्छौं।",
+    );
+    expect(np.planSwitchByEmail).not.toBe(en.planSwitchByEmail);
   });
 });

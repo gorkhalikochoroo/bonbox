@@ -874,6 +874,12 @@ export default function SubscriptionPage() {
             (tier.id === "starter" || tier.id === "pro") &&
             !isCurrent;
 
+          // A paying subscriber's Free card has no button: "Start free" did
+          // nothing (handleCta returns on "free"), and going to Free means
+          // cancelling, which "Manage subscription / cancel" on the current
+          // plan's card does.
+          const hideFreeCta = hasLiveSub && tier.id === "free" && !isCurrent;
+
           // This button opens Stripe Checkout (not the waitlist, not /register).
           const opensCheckout =
             !!user?.email &&
@@ -1006,7 +1012,7 @@ export default function SubscriptionPage() {
               <div className="mt-5">
                 {switchByEmail ? (
                   <PlanSwitchByEmail />
-                ) : (
+                ) : hideFreeCta ? null : (
                   <Button
                     variant={ctaVariant}
                     size="lg"

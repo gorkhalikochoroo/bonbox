@@ -9355,7 +9355,7 @@ export const da = {
     pricingAfterTrialCapExport: 'Manuel Excel / PDF / CSV-eksport',
     pricingAfterTrialCapSingle: '1 bruger, 1 afdeling',
     pricingAfterTrialCapNoFaktura: 'Faktura låst (Starter+)',
-    pricingAfterTrialClosingNew: 'Du behøver ikke et kort for at starte prøveperioden — den kører automatisk, når du opretter dig. Du indtaster kun et kort, hvis du klikker "Lås founder-prisen". Ellers slutter prøveperioden bare, og du falder tilbage til Free.',
+    pricingAfterTrialClosingNew: 'Du behøver ikke et kort for at starte prøveperioden — den kører automatisk, når du opretter dig. Du indtaster kun et kort, hvis du klikker "Lås founding-pris fast". Ellers slutter prøveperioden bare, og du falder tilbage til Free.',
     terminalsFreeOneCap: 'Free inkluderer 1 POS-terminal. {planLabel} låser op for multi-terminal kasserapport — se /subscription.',
     // ── Slice-4 chart polish: Pengestrømsprognose + Omsætningstrend + Ugestatement ──
     cfpTitle: "Pengestrømsprognose",

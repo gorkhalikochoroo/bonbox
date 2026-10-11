@@ -144,6 +144,7 @@ export const np = {
   mostPopular: "सबैभन्दा लोकप्रिय",
   yourTrial: "तपाईंको ट्रायल",
   currentPlan: "हालको योजना",
+  planSwitchByEmail: "Starter र Pro बीच बदल्न चाहनुहुन्छ भने {email} मा लेख्नुहोस् — हामी तपाईंको लागि योजना बदलिदिन्छौं।",
   onTrialFullPro: "ट्रायलमा — पूर्ण Pro सुविधा",
   pricingJoining: "सामेल हुँदै…",
   pricingOnTheList: "✓ सूचीमा",
