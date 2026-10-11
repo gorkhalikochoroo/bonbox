@@ -1256,12 +1256,16 @@ def test_stale_watch_alerts_once(fernet, db_env, buckets, alerts, monkeypatch):
     assert len(alerts) == 1
     st = _rows(Session, MonitorState)[0]
     assert st.state == "BROKEN" and st.incident_entry == "stale"
-    # a failed run inside the open incident: no second alert …
+    # a failed run inside the open stale incident: its one FAILED mail (the
+    # stale mail blamed a skipped night; second review round, Oct 11) …
     _run(fernet, db_env, buckets, dst=_BrokenBucket(), now=NOW + timedelta(days=3))
-    assert len(alerts) == 1
+    assert len(alerts) == 2 and alerts[1]["subject"] == "BonBox: nightly backup FAILED"
+    # … a second failed run stays quiet …
+    _run(fernet, db_env, buckets, dst=_BrokenBucket(), now=NOW + timedelta(days=3, hours=12))
+    assert len(alerts) == 2
     # … and the next good run closes it with one note
     assert _run(fernet, db_env, buckets, now=NOW + timedelta(days=4))["status"] == "ok"
-    assert len(alerts) == 2 and alerts[1]["subject"] == "BonBox: nightly backup recovered"
+    assert len(alerts) == 3 and alerts[2]["subject"] == "BonBox: nightly backup recovered"
 
 
 def test_alerts_go_through_the_frontend_monitors_email_and_push(fernet, key, db_env, buckets, monkeypatch):
@@ -1633,6 +1637,33 @@ def test_misconfigured_storage_never_touches_a_bucket(db_env, monkeypatch, key, 
         monkeypatch.setattr(bs, "settings", _settings(**vals))
         out = bs.run_nightly_backup(engine=engine, session_factory=Session, dst=_ExplodingBucket())
         assert out["status"] == "failed" and out.get("retention") is None, kw
+
+
+def test_a_failed_run_after_a_has_not_run_mail_is_mailed_once(fernet, db_env, buckets, alerts):
+    """The 'has not run' mail says a skipped night is the usual cause; a run
+    that then FAILS is a different problem and gets its one FAILED mail.
+    Further failed nights stay quiet; a good run sends one recovery note."""
+    _, Session = db_env
+    _run(fernet, db_env, buckets)
+    last = _rows(Session, MonitorState)[0].last_check_at
+    cfg = _cfg(fernet)
+    bs.check_backup_staleness(cfg=cfg, session_factory=Session, now=last + timedelta(hours=27))
+    assert [a["subject"] for a in alerts] == ["BonBox: nightly backup has not run"]
+
+    for day in (2, 3, 4):
+        _run(fernet, db_env, buckets, dst=_BrokenBucket(), now=NOW + timedelta(days=day))
+    assert [a["subject"] for a in alerts] == ["BonBox: nightly backup has not run",
+                                              "BonBox: nightly backup FAILED"]
+    text = _alert_text(alerts[1])
+    assert "has not run" in text and "not a skipped night" in text
+    assert SERVICE_KEY not in text and UID_A not in text
+    st = _rows(Session, MonitorState)[0]
+    assert st.incident_entry == "failed" and st.fail_streak == 3
+    # the stale watch stays quiet inside the open incident
+    bs.check_backup_staleness(cfg=cfg, session_factory=Session, now=NOW + timedelta(days=6))
+    assert len(alerts) == 2
+    assert _run(fernet, db_env, buckets, now=NOW + timedelta(days=5))["status"] == "ok"
+    assert len(alerts) == 3 and alerts[2]["subject"] == "BonBox: nightly backup recovered"
 
 
 _URL_PASSWORDS = ["Sup3rS3cret@Frag2Zq9", "Ab%ZZsecretTail9", "Xq/fixSecret77pw", "Hash#secretPart42"]

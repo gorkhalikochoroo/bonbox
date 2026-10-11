@@ -59,6 +59,8 @@ personal data — counts and error kinds only, details stay behind
 /api/admin/backup-health:
   • FAILED — once per incident: the first failed run (or a failed run after
     a recovery) alerts; further failures while the incident is open do not.
+    A failed run after a STALE mail alerts once too (that mail blames a
+    skipped night; a failing run is a different problem).
   • STALE — check_backup_staleness() (hourly) alerts once when the last run
     is older than STALE_AFTER (26 h) and no incident is open.
   • MASS DELETION in the source bucket — always alerts (each is a new event),
@@ -816,15 +818,18 @@ def _mass_deletion_lines(alarms: list[dict]) -> list[str]:
 
 
 def _incident_alert(summary: dict, st, run_now: datetime, *, failed: bool,
-                    new_alarms: list[dict]) -> tuple[str, list[str], str, str]:
+                    new_alarms: list[dict], after_stale: bool = False) -> tuple[str, list[str], str, str]:
     when = run_now.strftime("%Y-%m-%d %H:%M")
     lines: list[str] = []
     if new_alarms:
         lines += _mass_deletion_lines(new_alarms) + [""]
     if failed:
         lines += [f"The nightly off-project backup FAILED at {when} UTC "
-                  f"(failed runs in a row: {st.fail_streak}).",
-                  "What failed (kinds and counts only; no file names or account data by design):"]
+                  f"(failed runs in a row: {st.fail_streak})."]
+        if after_stale:
+            lines += ["This follows the 'nightly backup has not run' mail: the backup ran again "
+                      "and failed, so this is a real failure, not a skipped night."]
+        lines += ["What failed (kinds and counts only; no file names or account data by design):"]
         lines += _kind_lines(summary.get("error_kinds")) or ["  - (no detail recorded)"]
         lines += ["You get one mail per incident; the next one is the recovery note."]
     lines += ["", f"Details: {HEALTH_URL} (super-admin) and /api/admin/recent-errors (method JOB).",
@@ -917,9 +922,15 @@ def _record(session_factory, summary: dict, ok: bool, error_type: str,
                 message=("; ".join(summary.get("errors") or []) or "backup failed")[:2000],
             ))
             first = st.last_alert_at is None          # no incident open yet
-            if first or new_alarms:
-                alert = _incident_alert(summary, st, run_now, failed=first, new_alarms=new_alarms)
-            if first:
+            # The "has not run" mail opened this incident and blames a skipped
+            # night; a run that then fails is a different problem, so it gets
+            # its one FAILED mail too (still one mail per kind per incident).
+            after_stale = not first and st.incident_entry == "stale"
+            failed_mail = first or after_stale
+            if failed_mail or new_alarms:
+                alert = _incident_alert(summary, st, run_now, failed=failed_mail,
+                                        new_alarms=new_alarms, after_stale=after_stale)
+            if failed_mail:
                 st.last_alert_at = now
                 st.incident_entry = "failed"
         st.last_summary = _summary_json(summary)
