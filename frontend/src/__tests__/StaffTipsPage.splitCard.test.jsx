@@ -177,8 +177,11 @@ describe("the split card", () => {
     fireEvent.change(screen.getByLabelText(/Total Tips/), { target: { value: "2340" } });
     const save = screen.getByRole("button", { name: /^Distribute 2\.340,00 kr\./ });
     expect(save.className).toMatch(/\bbg-gray-900\b/);
-    expect(save.className).toMatch(/dark:bg-gray-100/);
-    expect(save.className).toMatch(/dark:text-gray-900/);
+    // The dark pair is the dark SOLID control (Button primary), not a
+    // near-white slab: see components/ui/Button.jsx.
+    expect(save.className).toMatch(/dark:bg-gray-600/);
+    expect(save.className).toMatch(/dark:text-white/);
+    expect(save.className).not.toMatch(/dark:bg-gray-100/);
   });
 
   it("below sm the share % column hides and the share moves under the name", async () => {
