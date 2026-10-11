@@ -376,6 +376,7 @@ def mirror_photos(sources: dict, dst, fernet, *, now: datetime, tombstones: dict
             for k, e in entries.items():
                 if e.get("bucket") == bucket and not e.get("source_deleted_at"):
                     by_path.setdefault(e["path"], []).append(k)
+            was_live = len(by_path)          # paths backed up before tonight
 
             for path in sorted(live):
                 check()
@@ -426,7 +427,6 @@ def mirror_photos(sources: dict, dst, fernet, *, now: datetime, tombstones: dict
                     err(f"{bucket}/{path}: {type(e).__name__}: {e}")
 
             # The listing was complete: whatever it lacks is gone from the source.
-            was_live = sum(len(v) for v in by_path.values())
             gone = 0
             for k, e in entries.items():
                 if e.get("bucket") == bucket and not e.get("source_deleted_at") and e["path"] not in live:
@@ -823,3 +823,25 @@ def run_nightly_backup(*, cfg: Optional[BackupConfig] = None, engine=None, sessi
         logger.error("backup: failed: %s", "; ".join(summary["errors"])[:1000])
     _record(session_factory, summary, ok=ok, error_type="backup:failed")
     return summary
+
+
+def register_backup_job(scheduler) -> None:
+    """Add the nightly run to the app's APScheduler (called from app/main.py).
+
+    04:20 UTC: after the 02:30 maintenance + retention sweep and every 03:xx
+    job, after 04:00 recurring expenses, before the 06:00 brief push. One
+    instance at a time; missed ticks coalesce into one run; a start delayed by
+    a busy pool still runs within 3 h. The job store is in memory, so a process
+    that is down at 04:20 skips that night — /api/admin/backup-health then
+    reports the last run as stale (> 26 h)."""
+    from apscheduler.triggers.cron import CronTrigger
+    scheduler.add_job(
+        run_nightly_backup,
+        trigger=CronTrigger(hour=4, minute=20, timezone="UTC"),
+        id="nightly_backup",
+        name="Nightly encrypted off-project backup (photos + DB export)",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3 * 3600,
+    )

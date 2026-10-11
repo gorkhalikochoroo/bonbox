@@ -750,14 +750,21 @@ def test_restore_refuses_production_and_unconfirmed_targets(fernet, key, db_env,
 # ── wiring ───────────────────────────────────────────────────────────────
 
 def test_scheduler_registers_nightly_backup():
-    import app.main as main
-    job = main._scheduler.get_job("nightly_backup")
+    from apscheduler.schedulers.background import BackgroundScheduler
+    sched = BackgroundScheduler()          # never started
+    bs.register_backup_job(sched)
+    job = sched.get_job("nightly_backup")
     assert job is not None and job.func is bs.run_nightly_backup
     assert job.coalesce is True and job.max_instances == 1
     assert job.misfire_grace_time >= 3600
     fields = {f.name: str(f) for f in job.trigger.fields}
     assert (fields["hour"], fields["minute"]) == ("4", "20")
     assert str(job.trigger.timezone) == "UTC"
+    # …and the app registers it before it starts the scheduler. (Not via
+    # main._scheduler: any `with TestClient(app)` earlier in the run shuts the
+    # scheduler down at lifespan exit, which empties its job store.)
+    src = (Path(__file__).resolve().parents[1] / "app/main.py").read_text(encoding="utf-8")
+    assert 0 < src.index("register_backup_job(_scheduler)") < src.index("\n    _scheduler.start()\n")
 
 
 def test_admin_backup_health(fernet, db_env, buckets, monkeypatch):
