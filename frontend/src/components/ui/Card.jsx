@@ -103,8 +103,14 @@ function Card({
     (className ? " " + className : "");
 
   if (to) {
+    // A Link is an inline <a>: with a border and padding it breaks into one
+    // box per line (found on /profile, 12 Oct 2026). Make it a block unless
+    // the caller chose its own display.
+    const linkClasses = /(^|\s)(block|flex|inline-flex|grid|inline-grid|inline-block|hidden|contents)(\s|$)/.test(className)
+      ? classes
+      : classes + " block";
     return (
-      <Link to={to} className={classes} {...rest}>
+      <Link to={to} className={linkClasses} {...rest}>
         {children}
       </Link>
     );

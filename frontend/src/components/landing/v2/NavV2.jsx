@@ -29,7 +29,7 @@ export default function NavV2() {
   const links = [
     { href: "#modules", label: t("landingV2.nav.product", "Product") },
     { href: "#reservations", label: t("landingV2.nav.reservations", "Reservations") },
-    { href: "#staff", label: t("landingV2.nav.staffApp", "Staff app") },
+    { href: "#staff", label: t("landingV2.nav.staffApp", "Vagtplan") },
     { href: "#ai", label: t("landingV2.nav.ai", "BonBox AI") },
     { href: "#pricing", label: t("landingV2.nav.pricing", "Pricing") },
   ];

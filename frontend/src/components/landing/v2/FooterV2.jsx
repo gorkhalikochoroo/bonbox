@@ -64,7 +64,7 @@ export default function FooterV2() {
       href: "#reservations",
       label: t("landingV2.footer.reservations", "Reservations"),
     },
-    { href: "#staff", label: t("landingV2.footer.staffApp", "Staff app") },
+    { href: "#staff", label: t("landingV2.footer.staffApp", "Vagtplan") },
     { href: "#pricing", label: t("landingV2.footer.pricing", "Pricing") },
   ];
 
