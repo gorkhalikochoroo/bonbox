@@ -77,7 +77,10 @@ NEW_BUILD=$((LAST_MANUAL + CI_BUILD_NUMBER))
 # 976 = the next number after the highest Apple has seen (975, uploaded
 # 2026-09-09 under 1.9.2 and rejected for the closed version train, not for
 # its build number).
-MIN_BUILD=976
+#
+# 978 (11 Oct 2026): owner app 2.2 is archived by hand as build 977, so
+# Xcode Cloud must land above it.
+MIN_BUILD=978
 if [ "$NEW_BUILD" -lt "$MIN_BUILD" ]; then
     echo "   (NEW_BUILD $NEW_BUILD below floor — clamping up to $MIN_BUILD)"
     NEW_BUILD=$MIN_BUILD
