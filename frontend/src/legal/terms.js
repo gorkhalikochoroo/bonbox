@@ -66,7 +66,7 @@ export const TERMS_EXISTING_FROM = "2026-10-26";
    (src/__tests__/push3Privacy.test.jsx checks), and both pages must print
    this constant, not TERMS_VERSION or a hard-coded date
    (src/__tests__/privacyDateMergeGuard.test.jsx). */
-export const PRIVACY_UPDATED = "2026-10-11";
+export const PRIVACY_UPDATED = "2026-10-12";
 
 /** Add accept_terms: true to a sign-up request body — only when the caller
     says the page showed the acceptance line (opts.acceptTerms === true).
