@@ -279,6 +279,15 @@ describe("the language notice never hides a real toast in dark", () => {
     expect(zOf(notice, "")).toBe(50); // light: unchanged
     expect(zOf(notice, "dark:")).toBeLessThan(zOf(toasts, ""));
   });
+
+  it("the page's toasts are opaque in dark, so nothing under them reads through", () => {
+    // the four variant strings sit inside the toast's template literal
+    const variants = [...code("components/BonBoxPolishKit.jsx").matchAll(/"bg-(?:gray|amber|red|blue)-50 dark:bg-(\S+) border/g)];
+    expect(variants).toHaveLength(4); // success, warning, error, info
+    for (const [whole, darkBg] of variants) {
+      expect(darkBg, whole).not.toMatch(/\/\d+$/);
+    }
+  });
 });
 
 describe("the browser bar follows the theme", () => {
