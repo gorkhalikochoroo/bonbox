@@ -9,8 +9,9 @@
  *     keep the IP), no "adjustable 5–10 years" setting, no "the law requires
  *     US to keep your records" — the owner keeps them.
  *   • Processors: a location only where confirmed (Supabase: Ireland,
- *     Render: Frankfurt, Companies House: UK); the rest say "Not confirmed".
- *     The list names every service the code can send data to.
+ *     Render: Frankfurt, Companies House: UK; the Supabase backup project:
+ *     Frankfurt); the rest say "Not confirmed". The list names every service
+ *     the code can send data to.
  *
  * The backend sibling (backend/tests/test_privacy_matches_code.py) holds the
  * same sentences against the code's own constants.
@@ -134,8 +135,8 @@ describe("deletion: /privacy says what Terms § 4 says", () => {
 
 describe("processors: complete, and a location only where confirmed", () => {
   const ALLOWED = {
-    en: ["EU (Ireland)", "EU (Frankfurt, Germany)", "Global CDN", "Global", "United Kingdom", "Not confirmed"],
-    da: ["EU (Irland)", "EU (Frankfurt, Tyskland)", "Globalt CDN", "Globalt", "Storbritannien", "Ikke bekræftet"],
+    en: ["EU (Ireland)", "EU (Frankfurt, Germany)", "EU (Germany, Frankfurt)", "Global CDN", "Global", "United Kingdom", "Not confirmed"],
+    da: ["EU (Irland)", "EU (Frankfurt, Tyskland)", "EU (Tyskland, Frankfurt)", "Globalt CDN", "Globalt", "Storbritannien", "Ikke bekræftet"],
   };
   for (const lang of ["en", "da"]) {
     it(`${lang}: every service the code calls is listed, with a confirmed location or 'not confirmed'`, () => {
@@ -149,7 +150,11 @@ describe("processors: complete, and a location only where confirmed", () => {
       }
       for (const r of rows) expect(ALLOWED[lang]).toContain(r[2]);
       const loc = Object.fromEntries(rows.map((r) => [r[0], r[2]]));
-      expect(loc.Supabase).toBe(lang === "da" ? "EU (Irland)" : "EU (Ireland)");
+      // Supabase has two rows: the main project (Ireland) first, then the
+      // separate backup project (Frankfurt) of the nightly backup.
+      expect(rows.filter((r) => r[0] === "Supabase").map((r) => r[2])).toEqual(lang === "da"
+        ? ["EU (Irland)", "EU (Tyskland, Frankfurt)"]
+        : ["EU (Ireland)", "EU (Germany, Frankfurt)"]);
       expect(loc.Render).toBe(lang === "da" ? "EU (Frankfurt, Tyskland)" : "EU (Frankfurt, Germany)");
       expect(screen.getByTestId("privacy-location-note")).toBeTruthy();
     });

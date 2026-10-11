@@ -1453,3 +1453,25 @@ def test_restore_takes_the_db_target_from_the_environment(fernet, key, db_env, b
     assert restore.main(base + ["--reapply-erasures"], env=env) == 1
     out = capsys.readouterr().out
     assert "DATABASE_URL" in out and "secretpw" not in out
+
+
+# ── /privacy: the backup project is a processor row (EN + DA) ───────────
+
+def test_privacy_names_the_encrypted_backup_copy(key):
+    """/privacy names the backup project (Supabase, Frankfurt) and says the
+    copy is encrypted before it leaves BonBox. The code makes that true: the
+    backup does not run at all without BACKUP_ENCRYPTION_KEY, and what lands
+    in the backup bucket is ciphertext (test_incremental_copy_and_manifest).
+    The frontend sibling is frontend/src/__tests__/backupPrivacyRow.test.jsx."""
+    root = Path(__file__).resolve().parents[2]
+    page = (root / "frontend/src/pages/PrivacyPolicyPage.jsx").read_text(encoding="utf-8")
+    assert ('["Supabase", "Encrypted backup copy (database + receipt photos)", '
+            '"EU (Germany, Frankfurt)", "All account and business data, encrypted before it '
+            'leaves BonBox"]') in page
+    assert ('["Supabase", "Krypteret sikkerhedskopi (database + kvitteringsbilleder)", '
+            '"EU (Tyskland, Frankfurt)", "Alle konto- og virksomhedsdata, krypteret før de '
+            'forlader BonBox"]') in page
+    assert "BACKUP_ENCRYPTION_KEY" in bs.REQUIRED_ENV
+    cfg = bs.load_config(_settings(BACKUP_SUPABASE_URL="https://backup.supabase.co",
+                                   BACKUP_SUPABASE_SERVICE_KEY=SERVICE_KEY))
+    assert cfg.status == "misconfigured" and "BACKUP_ENCRYPTION_KEY is not set" in cfg.problems

@@ -50,6 +50,10 @@ function Table({ headers, rows }) {
 // location is named only where it is confirmed (Supabase: Ireland, project
 // in eu-west-1; Render: Frankfurt; Companies House: UK); every other row
 // says "Not confirmed" / "Ikke bekræftet".
+// Nightly backup (Manoj, 11 Oct 2026): the second Supabase row is the
+// separate backup project (eu-central-1, Frankfurt) that the nightly job
+// (backend services/backup_service) copies the database and the uploaded
+// files to, encrypted on our server before upload.
 const CHROME = {
   en: { terms: "Terms", cookies: "Cookies", cookieSettings: "Cookie settings", back: "Back to BonBox" },
   da: { terms: "Vilkår", cookies: "Cookies", cookieSettings: "Cookieindstillinger", back: "Tilbage til BonBox" },
@@ -197,6 +201,7 @@ function PrivacyEn() {
             headers={["Service", "Purpose", "Location", "Data processed"]}
             rows={[
               ["Supabase", "Database (PostgreSQL) and file storage", "EU (Ireland)", "All account and business data, and the files you upload"],
+              ["Supabase", "Encrypted backup copy (database + receipt photos)", "EU (Germany, Frankfurt)", "All account and business data, encrypted before it leaves BonBox"],
               ["Vercel", "Frontend hosting", "Global CDN", "No personal data stored"],
               ["Render", "Backend API hosting", "EU (Frankfurt, Germany)", "API requests, no persistent storage"],
               ["Resend", "Email delivery", "Not confirmed", "Email address, email content"],
@@ -471,6 +476,7 @@ function PrivacyDa() {
             headers={["Tjeneste", "Formål", "Placering", "Behandlede data"]}
             rows={[
               ["Supabase", "Database (PostgreSQL) og fillagring", "EU (Irland)", "Alle konto- og virksomhedsdata og de filer, du uploader"],
+              ["Supabase", "Krypteret sikkerhedskopi (database + kvitteringsbilleder)", "EU (Tyskland, Frankfurt)", "Alle konto- og virksomhedsdata, krypteret før de forlader BonBox"],
               ["Vercel", "Hosting af frontend", "Globalt CDN", "Ingen personoplysninger gemmes"],
               ["Render", "Hosting af backend-API", "EU (Frankfurt, Tyskland)", "API-forespørgsler, ingen varig lagring"],
               ["Resend", "Afsendelse af e-mails", "Ikke bekræftet", "E-mailadresse, e-mailens indhold"],
