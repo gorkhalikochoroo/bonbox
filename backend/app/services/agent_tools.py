@@ -12,8 +12,9 @@ All queries filter by user_id and exclude soft-deleted rows
 Every result is sent to Anthropic's API as a tool_result (routers/agent.py).
 So no tool returns a phone number or an e-mail address (Push 3, Manoj,
 11 Oct 2026: names, figures and shifts only — /privacy says so). The router
-also strips CONTACT_FIELDS from every result before it leaves the server,
-in case a future tool adds one.
+also strips every key containing one of _CONTACT_KEY_PARTS
+(routers/agent.py, strip_contact_fields) from every result before it leaves
+the server, in case a future tool adds one.
 """
 
 from datetime import date, timedelta
@@ -881,9 +882,10 @@ def query_staff(db: Session, user_id: UUID) -> dict:
             "id": str(m.id),
             "name": m.name,
             "role": m.role,
-            "contract_type": m.contract_type,
-            # No "phone" / "email": this result is sent to Anthropic (see
-            # query_khata). Names, roles and shifts are what the answers need.
+            # No "phone" / "email" and no "contract_type": this result is sent
+            # to Anthropic (see query_khata), so it carries only what the
+            # answers need — names, roles and shifts (data minimisation, and
+            # what /privacy lists).
         })
         staff_ids.append(m.id)
 

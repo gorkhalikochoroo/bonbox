@@ -164,6 +164,10 @@ def test_query_staff_keeps_names_roles_and_shifts_but_not_phone_or_email(db):
     assert STAFF_NAME in dumped
     [m] = result["data"]["staff"]
     assert m["name"] == STAFF_NAME and m["role"] == "server"
+    # Data minimisation: only what the answers need — no contract type
+    # (the seed has one, "full"); /privacy lists names, roles and shifts.
+    assert set(m) == {"id", "name", "role"}
+    assert "contract_type" not in dumped
     [shift] = result["data"]["upcoming_shifts"]
     assert shift["staff_name"] == STAFF_NAME
     assert (shift["start_time"], shift["end_time"]) == ("10:00", "16:00")
