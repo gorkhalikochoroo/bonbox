@@ -162,6 +162,81 @@ describe("processors: complete, and a location only where confirmed", () => {
   });
 });
 
+// ───── B1 / B2 (Manoj, 11 Oct): what the Copilot sends, and what we record ─────
+
+describe("B1: /privacy says what the Copilot sends to Anthropic — never phone numbers or e-mails", () => {
+  const SENDS = {
+    en: "Your message, the earlier messages in the same conversation (up to 10) and the data from your account that the answer needs are sent to Anthropic's API to generate a reply. That data is your business name and type, figures (for example revenue, expenses, stock, waste, credit (khata) and the cash book), the names of your products, khata customers and staff, staff roles and shifts, the pages you use most and recent insights. We never send the phone numbers or e-mail addresses stored in your account.",
+    da: "Din besked, de tidligere beskeder i samme samtale (op til 10) og de data fra din konto, som svaret kræver, sendes til Anthropics API for at generere et svar. Det er din virksomheds navn og type, tal (fx omsætning, udgifter, lager, spild, kredit (khata) og kassebog), navnene på dine varer, khata-kunder og medarbejdere, medarbejdernes roller og vagter, de sider, du bruger mest, og seneste indsigter. Vi sender aldrig de telefonnumre eller e-mailadresser, der er gemt på din konto.",
+  };
+  for (const lang of ["en", "da"]) {
+    it(`${lang}: the Copilot bullet names the data, and no 'never raw customer data' / 'only you can see them'`, () => {
+      const { container } = renderPage(PrivacyPolicyPage, lang);
+      expect(screen.getByTestId("privacy-copilot-sends").textContent).toBe(SENDS[lang]);
+      const text = container.textContent;
+      for (const gone of ["never raw customer data", "aldrig rå kundedata", "only you can see them", "kun du kan se det",
+        "The one exception", "Den eneste undtagelse", "summary of your business context", "resumé af din virksomheds kontekst"]) {
+        expect(text).not.toContain(gone);
+      }
+    });
+
+    it(`${lang}: the Anthropic processor row says the same — names and figures, never phone numbers or e-mails`, () => {
+      const { container } = renderPage(PrivacyPolicyPage, lang);
+      const row = tableRows(container, lang === "da" ? "Tjeneste" : "Service").find((r) => r[0] === "Anthropic (Claude API)");
+      expect(row[3]).toContain(lang === "da"
+        ? "navnene på varer, khata-kunder og medarbejdere, medarbejdernes roller og vagter), aldrig de telefonnumre eller e-mailadresser, der er gemt på din konto"
+        : "the names of products, khata customers and staff, staff roles and shifts), never the phone numbers or e-mail addresses stored in your account");
+    });
+
+    it(`${lang}: who sees the books in BonBox names the team members and the revisor, and Anthropic for the AI features`, () => {
+      const text = renderPage(PrivacyPolicyPage, lang).container.textContent.replace(/\s+/g, " ");
+      expect(text).toContain(lang === "da"
+        ? "I BonBox ser du det, og det gør de teammedlemmer og den revisor, du giver adgang, også, så langt deres adgang rækker."
+        : "In BonBox, you see them, and so do the team members and the revisor you give access to, as far as their access allows.");
+      expect(text).toContain(lang === "da"
+        ? "For at give dig AI-funktionerne (Copilot, morgenbriefen og aflæsning af kvitteringer) sender vi data til Anthropic"
+        : "To give you the AI features (the Copilot, the daily brief and reading receipts) we send data to Anthropic");
+    });
+  }
+});
+
+describe("B2: /privacy records only THAT a Copilot question was asked (true since July) — no review screen", () => {
+  for (const lang of ["en", "da"]) {
+    it(`${lang}: no 200-character log 'so you can review', no 'so we can improve the AI'`, () => {
+      const text = renderPage(PrivacyPolicyPage, lang).container.textContent;
+      for (const gone of ["so you can review what was sent", "så du kan se, hvad der blev sendt",
+        "(so we can improve the AI)", "(så vi kan forbedre AI'en)", "AI Copilot question logs (first 200 chars)",
+        "Log over spørgsmål til AI Copilot (første 200 tegn)"]) {
+        expect(text).not.toContain(gone);
+      }
+      expect(text).toContain(lang === "da"
+        ? "Vi registrerer, at du har stillet et spørgsmål, og hvor mange tokens svaret brugte — ikke selve teksten i dit spørgsmål."
+        : "We record that you asked a question and how many tokens the reply used — not the text of your question.");
+      expect(text).toContain(lang === "da"
+        ? "For BonBox AI Copilot: at du har stillet et spørgsmål — ikke selve spørgsmålet"
+        : "For the BonBox AI Copilot: that you asked a question — not the question itself");
+    });
+  }
+
+  it("the code records the event with no text (BonBoxAgent sends null as the detail)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "components", "BonBoxAgent.jsx"), "utf8");
+    expect(src).toContain('trackEvent("ai_question_asked", "agent", null);');
+    // Every ai_question_asked event is that exact call: no text, ever.
+    expect(src.split('trackEvent("ai_question_asked"').length).toBe(src.split('trackEvent("ai_question_asked", "agent", null);').length);
+  });
+
+  it("the retention table: only the fact is recorded; texts saved until mid-July 2026 go after 180 days", () => {
+    let rows = Object.fromEntries(tableRows(renderPage(PrivacyPolicyPage, "en").container, "Data type"));
+    expect(rows["AI Copilot questions"]).toBe("Only the fact that a question was asked is recorded: 180 days, like other analytics events. Question texts saved until mid-July 2026 (first 200 characters) are deleted 180 days after they were asked");
+    cleanup();
+    rows = Object.fromEntries(tableRows(renderPage(PrivacyPolicyPage, "da").container, "Datatype"));
+    expect(rows["Spørgsmål til AI Copilot"]).toBe("Kun at der blev stillet et spørgsmål, registreres: 180 dage, som andre hændelser til produktanalyse. Spørgsmålstekster, der blev gemt indtil midten af juli 2026 (de første 200 tegn), slettes 180 dage efter, at de blev stillet");
+  });
+});
+
 // ─────────────── (E) the delete-account texts say what § 4 says ───────────────
 
 const packs = {

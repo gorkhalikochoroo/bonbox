@@ -136,7 +136,7 @@ function PrivacyEn() {
           <ul className="list-disc pl-6 space-y-1 mt-1">
             <li>Pages you visit and time spent on each</li>
             <li>Actions you take (sale logged, receipt scanned, AI question asked, daily close completed, login/logout)</li>
-            <li>Up to the first 200 characters of questions you ask the BonBox AI Copilot (so we can improve the AI)</li>
+            <li>For the BonBox AI Copilot: that you asked a question — not the question itself</li>
             <li>Token usage of AI Copilot conversations (metadata only — used for cost monitoring, not content)</li>
           </ul>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
@@ -172,9 +172,9 @@ function PrivacyEn() {
         <Section title="AI Copilot and your data">
           <p>BonBox includes an AI assistant ("BonBox AI Copilot") powered by Anthropic's Claude API. When you chat with the Copilot:</p>
           <ul className="list-disc pl-6 space-y-1 mt-1">
-            <li>Your message and a summary of your business context (revenue totals, top features used, recent insights — never raw customer data) are sent to Anthropic's API to generate a reply.</li>
+            <li data-testid="privacy-copilot-sends">Your message, the earlier messages in the same conversation (up to 10) and the data from your account that the answer needs are sent to Anthropic's API to generate a reply. That data is your business name and type, figures (for example revenue, expenses, stock, waste, credit (khata) and the cash book), the names of your products, khata customers and staff, staff roles and shifts, the pages you use most and recent insights. We never send the phone numbers or e-mail addresses stored in your account.</li>
             <li>Anthropic processes the data on its servers (we have not confirmed where; see the table below) and keeps it only as long as Anthropic's commercial terms and privacy policy allow (link below). Per Anthropic's commercial terms, they do <strong>not</strong> train their models on data sent through their API.</li>
-            <li>We log the question (first 200 chars) and token usage in your account so you can review what was sent.</li>
+            <li>We record that you asked a question and how many tokens the reply used — not the text of your question. Until mid-July 2026 we also saved the first 200 characters of each question; those are deleted 180 days after they were asked.</li>
             <li>You can disable AI Copilot interactions by simply not using it — the rest of BonBox works without it.</li>
           </ul>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Legal basis:</strong> Performance of contract (GDPR Article 6(1)(b)) — providing the Copilot feature you requested.</p>
@@ -191,7 +191,7 @@ function PrivacyEn() {
               ["Render", "Backend API hosting", "EU (Frankfurt, Germany)", "API requests, no persistent storage"],
               ["Resend", "Email delivery", "Not confirmed", "Email address, email content"],
               ["Postmark", "Receiving the e-mails you forward to your BonBox receipt address (when switched on)", "Not confirmed", "The forwarded e-mail and its attachments"],
-              ["Anthropic (Claude API)", "Reading receipts and documents, AI Copilot replies", "Not confirmed", "Photos of receipts, kasserapporter and other documents you upload, plus your chat messages and a summary of your business context; not used for training; kept only as long as Anthropic's terms allow"],
+              ["Anthropic (Claude API)", "Reading receipts and documents, AI Copilot replies, the daily brief and other AI features", "Not confirmed", "Photos of receipts, kasserapporter and other documents you upload. For the AI Copilot: your messages and the data from your account the answer needs (figures, the names of products, khata customers and staff, staff roles and shifts), never the phone numbers or e-mail addresses stored in your account. For the daily brief and other AI features: the figures, item names, text or photos the feature works on. Not used for training; kept only as long as Anthropic's terms allow"],
               ["Google Cloud Vision", "Reading text from receipt photos (when enabled)", "Not confirmed", "Photos of receipts you upload"],
               ["OCR.space", "Reading text from receipt photos (when enabled)", "Not confirmed", "Photos of receipts you upload"],
               ["Stripe", "Subscription payments", "Not confirmed", "Billing email and business name, your BonBox account id, plan, business type and the Terms version you accepted, subscription status; card details go straight to Stripe and never reach our servers"],
@@ -215,10 +215,12 @@ function PrivacyEn() {
           </p>
           <p>
             We do not sell your data, and we do not share it for advertising. Your books stay in our
-            database and only you can see them. The one exception is the list above: to read a receipt
-            we have to send the photo to an OCR provider, and that photo is financial data. Those
-            providers process it on our instructions to read it for us. Anthropic does not train its
-            models on it (Anthropic&rsquo;s commercial terms).
+            database. In BonBox, you see them, and so do the team members and the revisor you give
+            access to, as far as their access allows. To give you the AI features (the Copilot, the
+            daily brief and reading receipts) we send data to Anthropic as described above, and to read
+            a receipt we may send the photo to another OCR provider on the list. Those providers process
+            the data on our instructions. Anthropic does not train its models on it (Anthropic&rsquo;s
+            commercial terms).
           </p>
 
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Law enforcement</h3>
@@ -243,7 +245,7 @@ function PrivacyEn() {
               ["Parsed bank transactions", "Until you delete your account (they are saved as sales and expenses)"],
               ["Product analytics events", "180 days (auto-purged daily)"],
               ["AI insights derived from events", "Auto-expire 1–30 days; can be dismissed any time"],
-              ["AI Copilot question logs (first 200 chars)", "180 days"],
+              ["AI Copilot questions", "Only the fact that a question was asked is recorded: 180 days, like other analytics events. Question texts saved until mid-July 2026 (first 200 characters) are deleted 180 days after they were asked"],
               ["Error log (technical errors, incl. IP address)", "30 days, also after you delete your account"],
               ["Security log (sign-ups, e-mail sign-in links, admin access attempts; incl. IP address)", "No end date; kept when you delete your account"],
               ["Email communication logs", "Until you delete your account"],
@@ -402,7 +404,7 @@ function PrivacyDa() {
           <ul className="list-disc pl-6 space-y-1 mt-1">
             <li>Hvilke sider du besøger, og hvor lang tid du bruger på hver af dem</li>
             <li>Handlinger, du foretager (salg registreret, kvittering scannet, spørgsmål stillet til AI, kasserapport afsluttet, login/logout)</li>
-            <li>Op til de første 200 tegn af de spørgsmål, du stiller BonBox AI Copilot (så vi kan forbedre AI'en)</li>
+            <li>For BonBox AI Copilot: at du har stillet et spørgsmål — ikke selve spørgsmålet</li>
             <li>Tokenforbrug i samtaler med AI Copilot (kun metadata — bruges til at overvåge omkostninger, ikke indhold)</li>
           </ul>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
@@ -438,9 +440,9 @@ function PrivacyDa() {
         <Section title="AI Copilot og dine data">
           <p>BonBox indeholder en AI-assistent (»BonBox AI Copilot«), som drives af Anthropics Claude API. Når du chatter med Copilot:</p>
           <ul className="list-disc pl-6 space-y-1 mt-1">
-            <li>Din besked og et resumé af din virksomheds kontekst (samlet omsætning, de mest brugte funktioner, seneste indsigter — aldrig rå kundedata) sendes til Anthropics API for at generere et svar.</li>
+            <li data-testid="privacy-copilot-sends">Din besked, de tidligere beskeder i samme samtale (op til 10) og de data fra din konto, som svaret kræver, sendes til Anthropics API for at generere et svar. Det er din virksomheds navn og type, tal (fx omsætning, udgifter, lager, spild, kredit (khata) og kassebog), navnene på dine varer, khata-kunder og medarbejdere, medarbejdernes roller og vagter, de sider, du bruger mest, og seneste indsigter. Vi sender aldrig de telefonnumre eller e-mailadresser, der er gemt på din konto.</li>
             <li>Anthropic behandler dataene på sine servere (vi har ikke bekræftet hvor; se tabellen nedenfor) og opbevarer dem kun så længe, som Anthropics kommercielle vilkår og privatlivspolitik tillader (link nedenfor). Ifølge Anthropics kommercielle vilkår træner de <strong>ikke</strong> deres modeller på data, der sendes via deres API.</li>
-            <li>Vi logger spørgsmålet (de første 200 tegn) og tokenforbruget på din konto, så du kan se, hvad der blev sendt.</li>
+            <li>Vi registrerer, at du har stillet et spørgsmål, og hvor mange tokens svaret brugte — ikke selve teksten i dit spørgsmål. Indtil midten af juli 2026 gemte vi også de første 200 tegn af hvert spørgsmål; de slettes 180 dage efter, at de blev stillet.</li>
             <li>Du kan fravælge AI Copilot ved simpelthen ikke at bruge den — resten af BonBox fungerer uden den.</li>
           </ul>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400"><strong>Retsgrundlag:</strong> Opfyldelse af kontrakt (databeskyttelsesforordningens artikel 6, stk. 1, litra b) — levering af den Copilot-funktion, du har bedt om.</p>
@@ -457,7 +459,7 @@ function PrivacyDa() {
               ["Render", "Hosting af backend-API", "EU (Frankfurt, Tyskland)", "API-forespørgsler, ingen varig lagring"],
               ["Resend", "Afsendelse af e-mails", "Ikke bekræftet", "E-mailadresse, e-mailens indhold"],
               ["Postmark", "Modtagelse af de e-mails, du videresender til din BonBox-kvitteringsadresse (når den er slået til)", "Ikke bekræftet", "Den videresendte e-mail og dens vedhæftede filer"],
-              ["Anthropic (Claude API)", "Aflæsning af kvitteringer og dokumenter, svar fra AI Copilot", "Ikke bekræftet", "Billeder af kvitteringer, kasserapporter og andre dokumenter, du uploader, samt dine chatbeskeder og et resumé af din virksomheds kontekst; bruges ikke til træning; opbevares kun så længe, som Anthropics vilkår tillader"],
+              ["Anthropic (Claude API)", "Aflæsning af kvitteringer og dokumenter, svar fra AI Copilot, morgenbriefen og andre AI-funktioner", "Ikke bekræftet", "Billeder af kvitteringer, kasserapporter og andre dokumenter, du uploader. For AI Copilot: dine beskeder og de data fra din konto, som svaret kræver (tal, navnene på varer, khata-kunder og medarbejdere, medarbejdernes roller og vagter), aldrig de telefonnumre eller e-mailadresser, der er gemt på din konto. For morgenbriefen og andre AI-funktioner: de tal, varenavne, tekster eller billeder, funktionen arbejder med. Bruges ikke til træning; opbevares kun så længe, som Anthropics vilkår tillader"],
               ["Google Cloud Vision", "Aflæsning af tekst fra kvitteringsbilleder (når funktionen er slået til)", "Ikke bekræftet", "Billeder af kvitteringer, du uploader"],
               ["OCR.space", "Aflæsning af tekst fra kvitteringsbilleder (når funktionen er slået til)", "Ikke bekræftet", "Billeder af kvitteringer, du uploader"],
               ["Stripe", "Betaling af abonnementer", "Ikke bekræftet", "E-mail og virksomhedsnavn til fakturering, dit BonBox-konto-id, plan, virksomhedstype og den version af Handelsbetingelserne, du har accepteret, abonnementsstatus; kortoplysninger går direkte til Stripe og når aldrig vores servere"],
@@ -481,10 +483,12 @@ function PrivacyDa() {
           </p>
           <p>
             Vi sælger ikke dine data, og vi deler dem ikke til annoncering. Dit regnskab bliver i vores
-            database, og kun du kan se det. Den eneste undtagelse er listen ovenfor: For at kunne læse en
-            kvittering skal vi sende billedet til en OCR-udbyder, og det billede er økonomiske data. Disse
-            udbydere behandler det efter vores instruks for at læse det for os. Anthropic træner ikke sine
-            modeller på det (Anthropics kommercielle vilkår).
+            database. I BonBox ser du det, og det gør de teammedlemmer og den revisor, du giver adgang,
+            også, så langt deres adgang rækker. For at give dig AI-funktionerne (Copilot, morgenbriefen og
+            aflæsning af kvitteringer) sender vi data til Anthropic som beskrevet ovenfor, og for at læse en
+            kvittering kan vi sende billedet til en anden OCR-udbyder på listen. Disse udbydere behandler
+            dataene efter vores instruks. Anthropic træner ikke sine modeller på dem (Anthropics
+            kommercielle vilkår).
           </p>
 
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Retshåndhævelse</h3>
@@ -509,7 +513,7 @@ function PrivacyDa() {
               ["Indlæste banktransaktioner", "Indtil du sletter din konto (de gemmes som salg og udgifter)"],
               ["Hændelser til produktanalyse", "180 dage (slettes automatisk hver dag)"],
               ["AI-indsigter afledt af hændelser", "Udløber automatisk efter 1–30 dage; kan til enhver tid fjernes"],
-              ["Log over spørgsmål til AI Copilot (første 200 tegn)", "180 dage"],
+              ["Spørgsmål til AI Copilot", "Kun at der blev stillet et spørgsmål, registreres: 180 dage, som andre hændelser til produktanalyse. Spørgsmålstekster, der blev gemt indtil midten af juli 2026 (de første 200 tegn), slettes 180 dage efter, at de blev stillet"],
               ["Fejllog (tekniske fejl, inkl. IP-adresse)", "30 dage, også efter at du har slettet din konto"],
               ["Sikkerhedslog (tilmeldinger, login-links pr. e-mail, forsøg på administratoradgang; inkl. IP-adresse)", "Ingen slutdato; beholdes, når du sletter din konto"],
               ["Log over e-mailkommunikation", "Indtil du sletter din konto"],

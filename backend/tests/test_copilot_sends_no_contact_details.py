@@ -302,3 +302,14 @@ def test_a_tool_that_returns_contact_fields_anyway_is_stripped_before_anthropic(
     everything = json.dumps(received) + json.dumps(events)
     for secret in (STAFF_PHONE, STAFF_EMAIL):
         assert secret not in everything
+
+
+# ─── /privacy says what this code sends ─────────────────────────────
+
+def test_privacy_says_the_copilot_never_sends_stored_phone_numbers_or_emails():
+    from pathlib import Path
+    privacy = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "pages" / "PrivacyPolicyPage.jsx").read_text()
+    assert "We never send the phone numbers or e-mail addresses stored in your account." in privacy
+    assert "Vi sender aldrig de telefonnumre eller e-mailadresser, der er gemt på din konto." in privacy
+    # The old sentence that hid the names and contact details is gone.
+    assert "never raw customer data" not in privacy and "aldrig rå kundedata" not in privacy
