@@ -61,7 +61,7 @@ export default function TrialBanner() {
           </span>
           <span className="ml-1 text-gray-600 dark:text-gray-400">
             {closing || personal
-              ? (t("trialClosingDetail") || "When it ends you stay on Free. Every feature still works — just with usage caps. No card, no surprises.")
+              ? (t("trialClosingDetail") || "When it ends you stay on Free. Some features lock and the usage caps come back. No card, no surprises.")
               : (t("trialOpenDetail") || "No card needed. If you decide to keep Pro, the founding price is 249 kr/mo while fewer than 100 businesses have a paid subscription — and you keep it as long as your subscription stays active.")}
           </span>
         </div>

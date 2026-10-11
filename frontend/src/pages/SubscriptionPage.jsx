@@ -92,7 +92,7 @@ const buildTiers = (t) => [
       { text: t("featFreeBrief2", "AI Daily Brief with tap-to-action insights") || "AI Daily Brief with tap-to-action insights" },
       { text: t("featFreeMomsCountdown", "MOMS countdown — see when SKAT is due + estimated amount") || "MOMS countdown — see when SKAT is due + estimated amount" },
       { text: t("featFreeReceiptOCR10", "Receipt OCR — snap a photo, we fill the expense (10 / month)") || "Receipt OCR — snap a photo, we fill the expense (10 / month)" },
-      { text: t("featFreeClose", "30-second daily close") || "30-second daily close" },
+      { text: t("featFreeClose", "Daily close") || "Daily close" },
       { text: t("featFreeSalesExp", "Sales & expenses logging") || "Sales & expenses logging" },
       { text: t("featFreeHistory7", "7 days of export history") || "7 days of export history" },
       { text: t("featFreeExportManual", "Download Excel / PDF / CSV manually") || "Download Excel / PDF / CSV manually" },
@@ -1181,7 +1181,7 @@ export default function SubscriptionPage() {
         </h2>
         <div className="space-y-3">
           <FaqItem q={t("faqQ1") || "What happens when my 14-day trial ends?"} a={t("faqA1") || ""} />
-          <FaqItem q={t("faqQ2") || "Why does Free have every feature, just with caps?"} a={t("faqA2") || ""} />
+          <FaqItem q={t("faqQ2") || "Why does Free have the AI Copilot, just with a cap?"} a={t("faqA2") || ""} />
           <FaqItem q={t("faqQ3") || "How does the founding-member price work?"} a={t("faqA3") || ""} />
           <FaqItem q={t("faqQ10") || "Does my revisor need their own login?"} a={t("faqA10") || ""} />
           <FaqItem q={t("faqQ11") || "How does the staff schedule autopilot work?"} a={t("faqA11") || ""} />
