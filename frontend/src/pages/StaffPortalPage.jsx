@@ -21,6 +21,7 @@ import { formatHoursMinutes, formatHours, hoursUnit } from "../utils/hours";
 import { sectionFor } from "../config/roleSections";
 import { errText } from "../utils/errText";
 import { isNativeApp } from "../utils/platform";
+import { applyVagtplanIcons } from "../lib/vagtplanIcons";
 import { capturePhoto } from "../utils/camera";
 import { Camera as CameraIcon, Trash2, PencilLine, MinusCircle } from "lucide-react";
 import { haptic } from "../utils/haptics"; // no-op on web; physical feedback in the iOS shell
@@ -6824,7 +6825,7 @@ function StaffPushOptIn({ token }) {
           <Smartphone className="w-4 h-4" strokeWidth={2} aria-hidden />
           {t("staffPushIosInstallTitle", "Get push notifications")}
         </div>
-        {t("staffPushIosInstallHint", "On iPhone, tap the share icon in Safari and choose Add to Home Screen. Open BonBox from the home-screen icon to enable push.")}
+        {t("staffPushIosInstallHint", "On iPhone, tap the share icon in Safari and choose Add to Home Screen. Then open your schedule from the new icon — the light Vagtplan icon with your workplace's name — to turn on push.")}
       </div>
     );
   }
@@ -6927,7 +6928,7 @@ function StaffPushOptIn({ token }) {
     return (
       <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-[11px] text-amber-800 leading-relaxed">
         <div className="font-semibold mb-1 inline-flex items-center gap-1.5"><BellOff className="w-4 h-4" strokeWidth={2} aria-hidden />{t("staffPushBlockedTitle", "Push blocked")}</div>
-        {t("staffPushBlockedHint", "Notifications are blocked in your browser settings. Re-enable them in Settings → Notifications → BonBox to get a tap when your shifts change.")}
+        {t("staffPushBlockedHint", "Notifications are blocked in your browser settings. Re-enable them in Settings → Notifications → your workplace's name (the light Vagtplan icon) to get a tap when your shifts change.")}
       </div>
     );
   }
@@ -7654,6 +7655,16 @@ export default function StaffPortalPage() {
     });
     return () => { document.title = prev; };
   }, [info, t]);
+
+  // The Vagtplan tab favicon + apple-touch-icon. index.html swaps them while
+  // parsing when the first page is /s/<token>; a staffer who came in via /join
+  // reached this page by SPA navigation, so the owner's icons were still in
+  // the head (and iOS Add to Home Screen would take the owner's). Same swap
+  // here, undone on unmount — a no-op when the head script already did it.
+  useEffect(() => {
+    if (!token) return undefined;
+    return applyVagtplanIcons();
+  }, [token]);
 
   // Per-staff PWA manifest + iOS home-screen name.
   //
