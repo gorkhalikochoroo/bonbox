@@ -4104,29 +4104,45 @@ _ORIGIN_GUARD_EXEMPT = frozenset(
 )
 
 
+# The origin guard below may only ARM when this is True. Deliberately a code
+# constant, not an env var: arming it needs a Cloudflare zone of our own with
+# a Transform Rule adding X-Bonbox-Origin, and BonBox has none (see docstring).
+_ORIGIN_GUARD_ARMABLE = False
+_origin_guard_warned = False
+_ORIGIN_GUARD_REFUSAL = (
+    "ORIGIN_SHARED_SECRET is set, but the origin guard will not arm: BonBox has no "
+    "Cloudflare zone of its own (DNS at Simply.com; the Cloudflare in front of "
+    "api.bonbox.dk is Render's edge), so no request can carry X-Bonbox-Origin and "
+    "arming would refuse every request. The guard stays OFF. Remove "
+    "ORIGIN_SHARED_SECRET in Render."
+)
+
+
 # --- Cloudflare origin lock: reject traffic that didn't come through Cloudflare ---
 @app.middleware("http")
 async def cloudflare_origin_guard(request: Request, call_next):
-    """Close the residual where an attacker bypasses Cloudflare (hits the
-    *.onrender.com origin directly) to defeat the CF-Connecting-IP rate limits
-    (OCR/AI cost caps, admin scan-ban). Cloudflare is configured to add a secret
-    header to every request it forwards; a direct origin hit won't have it.
+    """Origin lock, written for a Cloudflare zone BonBox would own: a Transform
+    Rule adds X-Bonbox-Origin and the app refuses requests without it. BonBox
+    has no such zone. DNS is at Simply.com, and api.bonbox.dk is a plain CNAME
+    to bonbox-api.onrender.com, whose Cloudflare edge belongs to Render and
+    cannot add our header. Arming it here would answer 403 to every request.
+    So with ORIGIN_SHARED_SECRET set and _ORIGIN_GUARD_ARMABLE False, it logs
+    CRITICAL once and stays off. Arm it only after BonBox runs its own zone
+    with that Transform Rule, by changing the constant in code. What it aimed
+    at already holds: every public request passes Render's edge, which sets
+    CF-Connecting-IP and rejects a client-sent one. client_ip() keys on that
+    and fails closed to one 'no-edge' bucket.
 
-    FAIL-SAFE: enforcement is OFF unless ORIGIN_SHARED_SECRET is set, so merely
-    deploying this code changes nothing. Turn it on in THIS ORDER to avoid a
-    self-inflicted outage:
-      1. Add the Cloudflare Transform Rule that sets `X-Bonbox-Origin: <secret>`
-         on all requests (harmless until step 2 — the app ignores it).
-      2. THEN set ORIGIN_SHARED_SECRET (same value) in Render. Setting it FIRST
-         would 403 all legit traffic, which lacks the header until step 1 lands.
-
-    Exempt: Render's health probe hits the origin directly (/api/health*,
-    /api/keepalive, /) and CORS preflight (OPTIONS). Every EXTERNAL caller
-    (Stripe webhook, OAuth/bank callbacks, the public booking widget) must use
-    the Cloudflare-fronted domain (api.bonbox.dk / bonbox.dk) so it carries the
-    header — which they already do; point the Stripe webhook at api.bonbox.dk.
+    Exempt (when armed): Render's health probe hits the origin directly
+    (/api/health*, /api/keepalive, /) and CORS preflight (OPTIONS).
     """
+    global _origin_guard_warned
     secret = (os.getenv("ORIGIN_SHARED_SECRET") or "").strip()
+    if secret and not _ORIGIN_GUARD_ARMABLE:
+        if not _origin_guard_warned:
+            _origin_guard_warned = True
+            logging.getLogger("bonbox.origin_guard").critical(_ORIGIN_GUARD_REFUSAL)
+        return await call_next(request)
     if (
         secret
         and request.method != "OPTIONS"
@@ -4244,8 +4260,8 @@ async def admin_scan_blocker(request: Request, call_next):
 #
 # In-memory, like the admin scan-blocker above: process-local and reset on
 # deploy. Honest about what that means — it is a brake on a single noisy
-# source, not DDoS protection. That belongs at Cloudflare, and the origin lock
-# (ORIGIN_SHARED_SECRET) is what forces traffic through it.
+# source, not DDoS protection. That belongs at the edge; every public request
+# already passes Render's Cloudflare edge, which BonBox does not control.
 _COARSE_LIMIT = 600           # requests
 _COARSE_WINDOW_SEC = 60.0
 _coarse_hits: dict[str, list[float]] = {}

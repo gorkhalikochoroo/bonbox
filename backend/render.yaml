@@ -29,11 +29,11 @@ services:
       # signs everyone out. Rotate only together with SECRET_KEY_PREVIOUS.
       - key: SECRET_KEY
         sync: false
-      # Cloudflare origin lock (main.py cloudflare_origin_guard): when set, the
-      # app 403s every request without header `X-Bonbox-Origin`. LEAVE UNSET:
+      # Cloudflare origin lock (main.py cloudflare_origin_guard). LEAVE UNSET:
       # BonBox has no Cloudflare zone of its own (DNS is at Simply.com; the
       # Cloudflare in front of api.bonbox.dk is Render's edge), so nothing can
-      # add the header and setting this would 403 the whole API. Unset = OFF.
+      # add the X-Bonbox-Origin header. If set anyway, the app logs CRITICAL
+      # once and keeps the guard OFF (R-sec: it refuses to arm). Unset = OFF.
       - key: ORIGIN_SHARED_SECRET
         sync: false
       - key: FRONTEND_URL
