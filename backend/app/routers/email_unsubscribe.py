@@ -44,6 +44,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models.user import User
 from app.services import audit_service
+from app.services.brand_mark import BRAND_FOREST, brand_tile_svg
 from app.utils.client_ip import client_ip
 from app.utils.email_unsubscribe_token import parse_unsubscribe_token
 
@@ -108,8 +109,11 @@ PAGE_CSS = (
     f".card{{background:{_PALETTE['card']};border:1px solid {_PALETTE['border']};"
     "border-radius:14px;max-width:480px;width:100%;padding:36px 28px;box-sizing:border-box;"
     "box-shadow:0 1px 2px rgba(15,23,42,.04);}"
-    f".brand{{font-size:13px;font-weight:600;color:{_PALETTE['brand_dark']};"
-    "letter-spacing:0.08em;text-transform:uppercase;margin-bottom:18px;}"
+    # The logo: the kit's forest tile (inline SVG, see _BRAND_TILE) + the word in
+    # forest. Not the old uppercase emerald word — that was not the logo.
+    f".brand{{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:700;"
+    f"color:{BRAND_FOREST};letter-spacing:-0.01em;margin-bottom:20px;}}"
+    ".brand svg{display:block;flex:none;}"
     "h1{font-size:22px;font-weight:700;margin:0 0 12px 0;line-height:1.3;}"
     f".lead{{font-size:15px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;}}"
     f".note{{font-size:14px;line-height:1.55;color:{_PALETTE['muted']};margin:0 0 22px 0;}}"
@@ -133,7 +137,8 @@ def _css_hash(css: str) -> str:
     return "sha256-" + base64.b64encode(hashlib.sha256(css.encode("utf-8")).digest()).decode("ascii")
 
 
-# This page's own policy: its one stylesheet (by hash), its favicon, its form
+# This page's own policy: its one stylesheet (by hash), its favicon (the
+# frontend's favicon.ico — favicons load under img-src), its form
 # posting back to itself — nothing else (no scripts, no frames, no base).
 PAGE_CSP = (
     "default-src 'none'; "
@@ -143,6 +148,12 @@ PAGE_CSP = (
     "base-uri 'none'; "
     "frame-ancestors 'none'"
 )
+
+
+# The tile is inline SVG drawn with fill= attributes only: PAGE_CSP allows no
+# inline style beyond the hashed sheet, and an inline <svg> fetches nothing, so
+# it needs no img-src. aria-hidden: the word BonBox sits right next to it.
+_BRAND_TILE = brand_tile_svg(32, title="")
 
 
 def _page(title: str, body_html: str, *, lang: str = "en") -> str:
@@ -159,13 +170,13 @@ def _page(title: str, body_html: str, *, lang: str = "en") -> str:
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>{title} — BonBox</title>
-  <link rel="icon" type="image/svg+xml" href="https://www.bonbox.dk/favicon.svg" />
+  <link rel="icon" href="https://www.bonbox.dk/favicon.ico?v=3" sizes="16x16 32x32" />
   <style>{PAGE_CSS}</style>
 </head>
 <body>
   <div class="wrap">
     <main class="card">
-      <div class="brand">BonBox</div>
+      <div class="brand">{_BRAND_TILE}<span>BonBox</span></div>
       {body_html}
     </main>
   </div>

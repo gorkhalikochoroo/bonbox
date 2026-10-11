@@ -5059,10 +5059,16 @@ async def add_security_headers(request: Request, call_next):
     # revisor or owner opens from their inbox) gets its own policy that allows
     # exactly its own stylesheet by hash — nothing else is loosened.
     csp = "default-src 'none'; frame-ancestors 'none'"
-    if (routed_path(request) == "/api/email/unsubscribe"
-            and "text/html" in (response.headers.get("content-type") or "")):
+    _is_html = "text/html" in (response.headers.get("content-type") or "")
+    if routed_path(request) == "/api/email/unsubscribe" and _is_html:
         from app.routers.email_unsubscribe import PAGE_CSP
         csp = PAGE_CSP
+    elif _is_html and routed_path(request).startswith(("/t/", "/e/")):
+        # The visitor ticket page and the event share page link the
+        # frontend's favicon. Favicons load under img-src, which default-src
+        # 'none' blocks — so these two HTML routes may load images from the
+        # frontend host, and nothing else is loosened.
+        csp = "default-src 'none'; img-src https://www.bonbox.dk; frame-ancestors 'none'"
     response.headers["Content-Security-Policy"] = csp
     # Cache nothing for /api/admin/* — security telemetry should never be cached
     if routed_path(request).startswith("/api/admin"):

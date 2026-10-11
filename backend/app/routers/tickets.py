@@ -42,6 +42,7 @@ from app.models.ticket import Ticket
 from app.models.user import User
 from app.schemas.booking import TicketScanResponse
 from app.services import audit_service
+from app.services.brand_mark import brand_tile_svg
 from app.services.auth import get_current_user
 from app.services.qr_signer import sign_ticket, verify_ticket
 from app.utils.time import utc_now
@@ -235,6 +236,15 @@ def visitor_ticket_page(
     )
 
 
+# The ticket pages are served by the API itself, under its strict CSP
+# (main.add_security_headers): the favicon is the frontend's (the CSP lets
+# these pages load images from www.bonbox.dk only), and the logo is the kit's
+# tile as ONE inline <svg> with fill= attributes — it fetches nothing and needs
+# no inline style, so it renders where <style> and style="" do not.
+_FAVICON_LINK = '<link rel="icon" href="https://www.bonbox.dk/favicon.ico?v=3" sizes="16x16 32x32">'
+_BRAND_TILE = brand_tile_svg(40)
+
+
 def _ticket_html(
     *,
     event_name: str,
@@ -273,6 +283,7 @@ def _ticket_html(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{safe_event} · Billet · BonBox</title>
+  {_FAVICON_LINK}
   <style>
     body {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             max-width: 480px; margin: 32px auto; padding: 16px; color: #111; }}
@@ -285,6 +296,7 @@ def _ticket_html(
   </style>
 </head>
 <body>
+  <div class="brand">{_BRAND_TILE}</div>
   <h1>{safe_event}</h1>
   <div class="meta">{safe_venue}</div>
   <div class="meta">{safe_starts}</div>
@@ -301,9 +313,10 @@ def _ticket_html_error(message: str) -> str:
     safe = html_lib.escape(message, quote=True)
     return f"""<!DOCTYPE html>
 <html lang="da"><head><meta charset="utf-8">
-<title>Billet · BonBox</title></head>
+<title>Billet · BonBox</title>
+{_FAVICON_LINK}</head>
 <body style="font-family: -apple-system, sans-serif; max-width:480px; margin:48px auto; padding:16px;">
-<h1>BonBox</h1>
+<h1>{_BRAND_TILE}</h1>
 <p>{safe}</p>
 </body></html>"""
 
