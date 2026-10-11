@@ -3697,7 +3697,8 @@ def unlock_daily_close(
     dc.unlock_reason = data.reason.strip()
     # The ROLE, not the login e-mail: this field is printed on the kasserapport,
     # the Excel/CSV history and the correction mail — documents a revisor
-    # receives. The address stays in the audit row (unlocked_by_email).
+    # receives. No address is stored: the row's user_id already says whose
+    # account it was (LEG-06).
     dc.unlocked_by = (getattr(user, "role", None) or "owner")[:40]
     dc.unlocked_at = utc_now()
     # Bogføringsloven §10 — unlock is a sensitive mutation; capture reason
@@ -3710,7 +3711,7 @@ def unlock_daily_close(
         before={"status": current_status, "date": dc.date.isoformat() if dc.date else None},
         after={
             "status": "draft", "unlock_reason": data.reason.strip(),
-            "unlocked_by": dc.unlocked_by, "unlocked_by_email": user.email,
+            "unlocked_by": dc.unlocked_by,
             "unlocked_at": dc.unlocked_at.isoformat(),
         },
         ip_address=getattr(request.client, "host", None) if request.client else None,
@@ -5271,7 +5272,10 @@ def _period_send_replay(db: Session, user: User, key: str | None, *,
             return {
                 "ok": True, "replayed": True,
                 "sent_to": a.get("recipient"), "cc_self": bool(a.get("cc_self")),
-                "cc_to": a.get("cc_to"), "filename": a.get("filename"),
+                # Rows since R-h hold no cc_to; the copy went to the login
+                # address (_owner_contact_email ignores `profile`).
+                "cc_to": a.get("cc_to") or (_owner_contact_email(None, user) if a.get("cc_self") else None),
+                "filename": a.get("filename"),
                 "format": a.get("format"), "n_closes": a.get("n_closes"),
                 "n_drafts": a.get("n_drafts"), "n_demo": a.get("n_demo"),
                 "subject": a.get("subject"),
@@ -5621,7 +5625,9 @@ def send_to_accountant(
         entity_id=None,  # range-level action, not single-row
         before=None,
         after={
-            "recipient": recipient, "cc_self": bool(cc), "cc_to": owner_addr if cc else None,
+            # cc_self only: the owner's own address is not stored (R-h LEG-06);
+            # a replay answers cc_to from the login address.
+            "recipient": recipient, "cc_self": bool(cc),
             "format": fmt,
             "filename": filename, "n_closes": totals["n_confirmed"],
             "n_drafts": totals["n_drafts"], "n_demo": n_demo,
@@ -5696,7 +5702,8 @@ def list_accountant_sends(
             "n_closes": a.get("n_closes"),
             "n_drafts": a.get("n_drafts"),
             "filename": a.get("filename"),
-            "cc_to": a.get("cc_to"),
+            # Same fallback as the replay: rows since R-h hold only cc_self.
+            "cc_to": a.get("cc_to") or (_owner_contact_email(None, user) if a.get("cc_self") else None),
         })
     return out
 

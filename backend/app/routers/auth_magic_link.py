@@ -315,17 +315,16 @@ def verify_magic_link(
                 pass
         raise
 
-    # Audit successful verify — tenant-scoped (uses real user.id now).
+    # Audit successful verify — tenant-scoped (uses real user.id now). No
+    # snapshot: user_id says whose account it was and the IP has its own
+    # column (R-h LEG-06 — the address and a duplicate IP were stored here).
     audit_service.record(
         db,
         user=user,
         action="auth.magic_link.verified",
         entity_type="user",
         entity_id=user.id,
-        after={
-            "email": user.email,
-            "ip": ip,
-        },
+        after=None,
         ip_address=ip,
     )
 

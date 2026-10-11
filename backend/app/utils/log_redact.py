@@ -37,3 +37,14 @@ def redact_path(path: str | None) -> str | None:
     if sep:
         out += "?" + _SECRET_PARAM.sub(r"\1:redacted", "?" + query)[1:]
     return out
+
+
+# An e-mail address inside free text (a provider's error message, say). The
+# local part and domain stop at whitespace, brackets, quotes and separators,
+# so "<owner@x.dk>" and "owner@x.dk," are both caught without their wrapping.
+_EMAIL = re.compile(r"[^\s@<>()\[\]\"',;:]+@[^\s@<>()\[\]\"',;:]+\.[A-Za-z]{2,}")
+
+
+def redact_emails(text: str | None) -> str | None:
+    """The same text with every e-mail address replaced by "[e-mail]"."""
+    return _EMAIL.sub("[e-mail]", text) if text else text

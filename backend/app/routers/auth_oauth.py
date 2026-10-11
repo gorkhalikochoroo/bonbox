@@ -131,8 +131,9 @@ def _audit(
             action=action,
             entity_type="user",
             entity_id=user.id,
+            # No address: user_id already says whose account it was (R-h
+            # LEG-06). The IP stays in its own column.
             after={
-                "email": user.email,
                 "provider": provider,
                 "is_new": is_new,
                 "was_linked": was_linked,

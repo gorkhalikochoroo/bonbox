@@ -248,7 +248,9 @@ def test_unlock_history_names_the_owner_never_the_login(db_session, client, mail
     row = (db_session.query(AuditLog)
            .filter(AuditLog.action == "daily_close.unlock").order_by(AuditLog.created_at.desc()).first())
     after = json.loads(row.after_state)
-    assert after["unlocked_by"] == "owner" and after["unlocked_by_email"] == user.email
+    # R-h LEG-06: the owner's address is no longer written; user_id identifies the account.
+    assert after["unlocked_by"] == "owner" and "unlocked_by_email" not in after
+    assert row.user_id == user.id and "@" not in row.after_state
     _lock(client, user, rev=13000.0)
     db_session.refresh(dc)
     txt = _flat(pdf_text(build_close_kasserapport_pdf(db_session, user, dc, profile=prof)["pdf"]))
