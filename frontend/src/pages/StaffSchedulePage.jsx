@@ -2688,38 +2688,65 @@ export default function StaffSchedulePage() {
    *  Same three outcomes as before: a failed call (or an older server that
    *  has no such route) changes nothing, so the page says nothing.
    */
-  const loadReach = useCallback(async () => {
-    try {
-      const r = await api.get("/staff/schedules/link-status");
-      if (!Array.isArray(r.data)) return false;
-      const opened = {};
-      for (const row of r.data) {
-        // Key present = "we asked"; null = never opened (or no link yet —
-        // to the owner both mean "not in yet").
-        if (row.staff_id) opened[row.staff_id] = linkWasOpened(row) ? row.last_accessed : null;
+  //  ONE REQUEST PER TRIGGER (QA 12 Oct: two GETs on every page load). A
+  //  request already in flight is shared, not repeated — a mount and a click,
+  //  or two roster reads, landing together get the one answer. And the
+  //  answer covers EVERY person on the account (the endpoint is not
+  //  branch-filtered), so `reachCoveredRef` remembers whom it has answered
+  //  for: the automatic ask below re-asks only for someone it has not.
+  const reachInFlightRef = useRef(null);
+  const reachCoveredRef = useRef(null); // Set of staff ids answered for, or null = never asked
+  const loadReach = useCallback(() => {
+    if (reachInFlightRef.current) return reachInFlightRef.current;
+    const req = (async () => {
+      try {
+        const r = await api.get("/staff/schedules/link-status");
+        if (!Array.isArray(r.data)) return false;
+        const opened = {};
+        const covered = new Set(reachCoveredRef.current || []);
+        for (const row of r.data) {
+          // Key present = "we asked"; null = never opened (or no link yet —
+          // to the owner both mean "not in yet").
+          if (row.staff_id) {
+            opened[row.staff_id] = linkWasOpened(row) ? row.last_accessed : null;
+            covered.add(String(row.staff_id));
+          }
+        }
+        reachCoveredRef.current = covered;
+        setShareOpened(opened);
+        setPortalReach(summarizePortalReach(r.data));
+        return true;
+      } catch {
+        // Not known is not "nobody": leave whatever the page last actually
+        // knew (or nothing) on screen. No banner — this is a status read.
+        return false;
+      } finally {
+        reachInFlightRef.current = null;
       }
-      setShareOpened(opened);
-      setPortalReach(summarizePortalReach(r.data));
-      return true;
-    } catch {
-      // Not known is not "nobody": leave whatever the page last actually
-      // knew (or nothing) on screen. No banner — this is a status read.
-      return false;
-    }
+    })();
+    reachInFlightRef.current = req;
+    return req;
   }, []);
 
   // WHO IS IN, AT A GLANCE. The owner asked to see who has joined without
   // opening anything, so the answer is fetched when the page has a team to
   // ask about — not only when a sheet or the roster opens. Owner seats only:
   // the endpoint is owner-only, and a manager/viewer seat (or a curtained
-  // shared device) must not fire a call we know is refused. Re-asked when the
-  // roster size changes, so a person added a moment ago gets their status
-  // without a reload. Read-only: it creates no link and mints no code.
-  const activeCount = activeStaff.length;
+  // shared device) must not fire a call we know is refused. Asked ONCE per
+  // page load; re-asked only when the roster holds someone the last answer
+  // did not cover, so a person added a moment ago gets their status without
+  // a reload — but a roster re-read (another branch, a refresh) or a
+  // re-run of this effect asks nothing new. Read-only: no link, no code.
+  const activeIdsKey = useMemo(
+    () => activeStaff.map((s) => String(s.id)).sort().join(","),
+    [activeStaff],
+  );
   useEffect(() => {
-    if (isStaffSeat || activeCount === 0) return;
+    if (isStaffSeat || !activeIdsKey) return;
+    const covered = reachCoveredRef.current;
+    if (covered && activeIdsKey.split(",").every((id) => covered.has(id))) return;
     loadReach();
-  }, [isStaffSeat, activeCount, loadReach]);
+  }, [isStaffSeat, activeIdsKey, loadReach]);
   const team = useMemo(() => teamReach(activeStaff, shareOpened), [activeStaff, shareOpened]);
 
   // The team panel's DOM anchor. The empty schedule's "Tilføj medarbejdere"
