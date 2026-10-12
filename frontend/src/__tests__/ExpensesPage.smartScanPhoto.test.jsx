@@ -76,6 +76,45 @@ describe("Smart skan → Udgifter", () => {
     expect(screen.queryByText("smartScan.prefilled")).toBeNull();
   });
 
+  // QA 12 Oct: the not-read line sat in the success box with a check and
+  // vanished after 4 s. It is an attention note (amber, info icon) that
+  // stays until the owner saves or dismisses it.
+  it("shows the not-read line as an attention note, not a success, and it stays", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { container } = renderFromScan({ vendor: null, amount: null, date: null, ocr_available: false });
+      const note = await screen.findByTestId("exp-scan-not-read");
+      expect(note.textContent).toContain("smartScan.notRead");
+      const box = note.querySelector('[role="status"]');
+      expect(box.className).toContain("bg-amber-50");
+      expect(box.className).not.toContain("emerald");
+      expect(note.querySelector(".lucide-info")).not.toBeNull();
+      expect(note.querySelector(".lucide-circle-check, .lucide-check-circle-2, .lucide-circle-check-big")).toBeNull();
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(container.querySelector('[data-testid="exp-scan-not-read"]')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("the not-read note goes when the owner dismisses it", async () => {
+    renderFromScan({ vendor: null, amount: null, date: null });
+    const note = await screen.findByTestId("exp-scan-not-read");
+    fireEvent.click(note.querySelector('button[aria-label="dismiss"]'));
+    expect(screen.queryByTestId("exp-scan-not-read")).toBeNull();
+  });
+
+  it("the not-read note goes once the owner saves the expense", async () => {
+    renderFromScan({ vendor: null, amount: null, date: null });
+    await screen.findByTestId("exp-scan-not-read");
+    fireEvent.change(screen.getByPlaceholderText("customAmount"), { target: { value: "120" } });
+    const add = screen.getAllByRole("button").find((b) => b.textContent.trim() === "add");
+    await waitFor(() => expect(add).not.toBeDisabled());
+    fireEvent.click(add);
+    await waitFor(() => expect(post.mock.calls.some(([u]) => u === "/expenses")).toBe(true));
+    await waitFor(() => expect(screen.queryByTestId("exp-scan-not-read")).toBeNull());
+  });
+
   it("still says pre-filled when something was read", async () => {
     renderFromScan({ vendor: "Bilka", amount: 226.45, date: null });
     expect(await screen.findByText("smartScan.prefilled")).toBeInTheDocument();

@@ -517,6 +517,8 @@ export default function ExpensesPage() {
   // receipt the owner had just photographed).
   const scanPhotoRef = useRef(null);
   const [scanPhotoHeld, setScanPhotoHeld] = useState(false);
+  // Smart skan could not read the photo: shown until the owner acts.
+  const [scanNotRead, setScanNotRead] = useState(false);
   useEffect(() => {
     const st = location.state;
     if (!st || (st.source !== "smart_scan" && st.source !== "smart_scan_manual")) return;
@@ -547,14 +549,21 @@ export default function ExpensesPage() {
         prefill.suggested_amount, prefill.amount, prefill.suggested_vendor,
         prefill.vendor, prefill.suggested_date, prefill.date,
       ].some((v) => v != null && String(v).trim() !== "");
-      setSuccess(
-        st.source === "smart_scan_manual"
-          ? t("smartScan.openedManual", "Åbnet manuelt — udfyld felterne")
-          : readSomething
-            ? t("smartScan.prefilled", "Felter pre-udfyldt fra billedet — bekræft venligst")
-            : t("smartScan.notRead", "We couldn't read the photo — fill in the amount"),
-      );
-      setTimeout(() => setSuccess(""), 4000);
+      // A read that found nothing is NOT a success: it went into the green
+      // success box with a check and vanished after 4 s, before the owner
+      // had typed anything. It is an attention note now (amber, info icon)
+      // that stays until the owner saves the expense or dismisses it.
+      if (st.source !== "smart_scan_manual" && !readSomething) {
+        setScanNotRead(true);
+      } else {
+        setScanNotRead(false);
+        setSuccess(
+          st.source === "smart_scan_manual"
+            ? t("smartScan.openedManual", "Åbnet manuelt — udfyld felterne")
+            : t("smartScan.prefilled", "Felter pre-udfyldt fra billedet — bekræft venligst"),
+        );
+        setTimeout(() => setSuccess(""), 4000);
+      }
     }
     navigate(location.pathname, { replace: true, state: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -774,6 +783,7 @@ export default function ExpensesPage() {
           : `${value} ${currency}`,
       );
       setSuccess(`${t("expenseLoggedToast", "Expense logged")} · ${formatOwnerMoney(value, currency, { decimals: 2 })}${isBackdated ? ` (${formatDateClear(submittedSnapshot.expDate)})` : ""}`);
+      setScanNotRead(false);
       window.dispatchEvent(new Event("bonbox-data-changed"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -1338,6 +1348,13 @@ export default function ExpensesPage() {
 
       {success && (
         <SectionBanner severity="info" icon="CheckCircle2">{success}</SectionBanner>
+      )}
+      {scanNotRead && (
+        <div data-testid="exp-scan-not-read">
+          <SectionBanner severity="warn" icon="Info" onDismiss={() => setScanNotRead(false)}>
+            {t("smartScan.notRead", "We couldn't read the photo — fill in the amount")}
+          </SectionBanner>
+        </div>
       )}
       {error && (
         <SectionBanner severity="critical" icon="AlertCircle">{error}</SectionBanner>
