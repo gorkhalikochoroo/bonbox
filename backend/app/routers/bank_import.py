@@ -38,6 +38,78 @@ router = APIRouter()
 _IMPORT_ID_PATTERN = re.compile(r"^[a-z0-9_-]{1,32}$")
 
 
+# ── Gavekort online orders paid into the bank ────────────
+#
+# A buyer who orders a gavekort online pays the owner by bank transfer / the
+# MobilePay box. Booking that incoming payment as a normal Sale taxes it as
+# revenue — and the value is taxed AGAIN: on the meal (MPV) or from the
+# gavekort sale itself (SPV). So an incoming line that matches an online order
+# is held back from Sales.
+#
+# The match is deliberately strict — a wrong match would drop a real sale:
+#   • exact amount (to the øre) of a pending/issued online order,
+#   • the order was placed in the 60 days before the payment (or ≤3 days after),
+#   • the transfer text says "gavekort"/"gift card" or names the buyer or the
+#     recipient,
+#   • exactly ONE order fits, and it was not matched to another bank line.
+# The preview shows the match; the owner can untick it (not_gavekort).
+_GK_WORDS = ("gavekort", "gift card", "giftcard", "gift-card", "gavebevis")
+
+
+def _gavekort_order_for(db: Session, user_id, txn_date, amount: float,
+                        description: str, taken: set) -> "GiftCardOrder | None":
+    from datetime import timedelta
+    from app.models.gift_card_order import GiftCardOrder
+
+    minor = int(round(abs(float(amount)) * 100))
+    if minor <= 0:
+        return None
+    lo = datetime.combine(txn_date - timedelta(days=60), datetime.min.time())
+    hi = datetime.combine(txn_date + timedelta(days=4), datetime.min.time())
+    rows = (
+        db.query(GiftCardOrder)
+        .filter(GiftCardOrder.user_id == user_id,
+                GiftCardOrder.amount_minor == minor,
+                GiftCardOrder.status.in_(("pending", "issued")),
+                GiftCardOrder.created_at >= lo, GiftCardOrder.created_at < hi)
+        .all()
+    )
+    text_l = (description or "").lower()
+    has_word = any(w in text_l for w in _GK_WORDS)
+
+    def _names(o) -> bool:
+        for n in (o.buyer_name, o.recipient_name):
+            n = (n or "").strip().lower()
+            if len(n) >= 3 and n in text_l:
+                return True
+        return False
+
+    fits = [o for o in rows if o.id not in taken and (has_word or _names(o))]
+    if len(fits) != 1:
+        return None
+    return fits[0]
+
+
+def _gavekort_already_matched(db: Session, user_id, ref_id: str) -> bool:
+    from app.models.audit_log import AuditLog
+    return db.query(AuditLog.id).filter(
+        AuditLog.user_id == user_id,
+        AuditLog.action == "gavekort.bank_payment_matched",
+        AuditLog.after_state.like(f'%"{ref_id}"%'),
+    ).first() is not None
+
+
+def _gavekort_orders_taken(db: Session, user_id) -> set:
+    """Orders already matched to an earlier bank line (never match twice)."""
+    from app.models.audit_log import AuditLog
+    return {
+        r[0] for r in db.query(AuditLog.entity_id).filter(
+            AuditLog.user_id == user_id,
+            AuditLog.action == "gavekort.bank_payment_matched",
+        ).all() if r[0] is not None
+    }
+
+
 # ── Supported banks ──────────────────────────────────────
 @router.get("/formats")
 def list_formats():
@@ -85,6 +157,29 @@ def preview_csv(
             txn["suggested_category"] = "Sales"
             txn["confidence"] = 1.0
 
+    # Flag incoming payments that match an online gavekort order (see above).
+    try:
+        taken = _gavekort_orders_taken(db, user.id)
+        for txn in result["transactions"]:
+            if txn.get("type") != "income":
+                continue
+            try:
+                tdate = date_type.fromisoformat(str(txn.get("date")))
+            except ValueError:
+                continue
+            o = _gavekort_order_for(db, user.id, tdate, txn.get("amount") or 0,
+                                    txn.get("description") or "", taken)
+            if o is not None:
+                taken.add(o.id)
+                txn["gavekort_order_match"] = {
+                    "order_id": str(o.id),
+                    "amount": round(o.amount_minor / 100.0, 2),
+                    "buyer_name": o.buyer_name,
+                    "voucher_class": o.voucher_class,
+                }
+    except Exception:  # noqa: BLE001 — a match hint must never break preview
+        pass
+
     return result
 
 
@@ -115,6 +210,12 @@ def confirm_import(
         except Exception:  # noqa: BLE001
             return None
 
+    gk_matches: list[dict] = []
+    try:
+        gk_taken = _gavekort_orders_taken(db, user.id)
+    except Exception:  # noqa: BLE001
+        gk_taken = set()
+
     for txn in body.transactions:
         ref_id = f"bank_{body.bank}_{txn.ref_hash}"
 
@@ -133,6 +234,36 @@ def confirm_import(
             if exists:
                 skipped += 1
                 continue
+
+            # A payment for an online gavekort order is NOT revenue (see
+            # _gavekort_order_for). Held back from Sales, recorded in the
+            # audit trail with the bank reference so a re-import is a no-op.
+            if not txn.not_gavekort:
+                try:
+                    if _gavekort_already_matched(db, user.id, ref_id):
+                        skipped += 1
+                        continue
+                    order = _gavekort_order_for(db, user.id, txn_date, txn.amount,
+                                                txn.description, gk_taken)
+                except Exception:  # noqa: BLE001 — never block the import
+                    order = None
+                if order is not None:
+                    gk_taken.add(order.id)
+                    from app.services import audit_service
+                    audit_service.record(
+                        db, user, "gavekort.bank_payment_matched", "gift_card_order", order.id,
+                        after={"ref_id": ref_id, "date": txn_date.isoformat(),
+                               "amount": round(abs(txn.amount), 2),
+                               "description": (txn.description or "")[:120]},
+                    )
+                    gk_matches.append({
+                        "date": txn_date.isoformat(),
+                        "amount": round(abs(txn.amount), 2),
+                        "description": txn.description,
+                        "order_id": str(order.id),
+                        "voucher_class": order.voucher_class,
+                    })
+                    continue
 
             sale = Sale(
                 id=uuid.uuid4(),
@@ -213,6 +344,8 @@ def confirm_import(
         imported=imported,
         skipped=skipped,
         errors=errors,
+        gavekort_matched=len(gk_matches),
+        gavekort_matches=gk_matches,
     )
 
 

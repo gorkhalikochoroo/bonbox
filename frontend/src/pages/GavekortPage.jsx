@@ -401,7 +401,11 @@ function IssueSection({ t, onIssued }) {
   const [amount, setAmount] = useState("");
   const [recipient, setRecipient] = useState("");
   const [note, setNote] = useState("");
-  const [voucherClass, setVoucherClass] = useState("mpv"); // never auto-decided
+  // Pre-selected SPV (enkeltformål): in Denmark a card that can only be used
+  // here, where everything carries 25 % MOMS, is single-purpose (since 1 Jul
+  // 2019) — MOMS at sale. The owner can still pick MPV; both are explained
+  // below with "ask your revisor". Never decided FOR the owner.
+  const [voucherClass, setVoucherClass] = useState("spv");
   const [expiresAt, setExpiresAt] = useState("");
   const [showMore, setShowMore] = useState(false); // gifting/advanced disclosure
   const [busy, setBusy] = useState(false);
@@ -464,7 +468,7 @@ function IssueSection({ t, onIssued }) {
           setRecipient("");
           setNote("");
           setExpiresAt("");
-          setVoucherClass("mpv");
+          setVoucherClass("spv"); // back to the pre-selected class
           setShowMore(false);
           // Tender stays lit (sticky) — back-to-back sales need zero re-setup.
         }}
@@ -521,13 +525,13 @@ function IssueSection({ t, onIssued }) {
               aria-label={t("gkAmountLabel", "Beløb")}
             />
           </div>
-          {/* MOMS status — read-only, off the rush path. The MPV/SPV control
-              lives under "Tilføj modtager"; MPV is the café/salon default. */}
+          {/* MOMS status — read-only, off the rush path. The SPV/MPV control
+              lives under "Tilføj modtager"; SPV is pre-selected (DK rule). */}
           <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
             <Receipt className="w-3.5 h-3.5" aria-hidden />
             {voucherClass === "spv"
-              ? t("gkMomsAtIssue", "MOMS ved udstedelse (SPV)")
-              : t("gkMomsAtRedemption", "MOMS ved indløsning (MPV)")}
+              ? t("gkMomsAtIssue", "MOMS at sale (single-purpose) — counted in your MOMS")
+              : t("gkMomsAtRedemption", "MOMS at redemption (multi-purpose)")}
           </p>
         </div>
 
@@ -607,24 +611,30 @@ function IssueSection({ t, onIssued }) {
                   {t("gkClassLabel", "Type")}
                 </label>
                 <div className="flex flex-wrap gap-2 mt-1.5">
-                  <Chip selected={voucherClass === "mpv"} onClick={() => setVoucherClass("mpv")}>
-                    {t("gkClassMpv", "Flere formål (MPV)")}
-                  </Chip>
                   <Chip selected={voucherClass === "spv"} onClick={() => setVoucherClass("spv")}>
-                    {t("gkClassSpv", "Ét formål (SPV)")}
+                    {t("gkClassSpv", "Single-purpose (SPV)")}
+                  </Chip>
+                  <Chip selected={voucherClass === "mpv"} onClick={() => setVoucherClass("mpv")}>
+                    {t("gkClassMpv", "Multi-purpose (MPV)")}
                   </Chip>
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 max-w-md">
-                  {voucherClass === "spv"
-                    ? t(
-                        "gkClassSpvHelp",
-                        "Ét formål: MOMS afregnes ved udstedelse. Spørg din revisor, hvis du er i tvivl.",
-                      )
-                    : t(
-                        "gkClassMpvHelp",
-                        "Flere formål: MOMS afregnes ved indløsning. Standard for de fleste gavekort.",
-                      )}
-                </p>
+                {/* Both meanings, always — the owner chooses knowing what each
+                    one means, and who to ask. */}
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 max-w-md space-y-1" data-testid="gk-class-help">
+                  <p className={voucherClass === "spv" ? "text-gray-700 dark:text-gray-200" : ""}>
+                    {t(
+                      "gkClassSpvHelp",
+                      "Single-purpose: the card can only be used here, and everything you sell carries 25 % MOMS. MOMS is settled when the card is sold — BonBox counts it in the MOMS for that period. Most gift cards in Denmark are like this.",
+                    )}
+                  </p>
+                  <p className={voucherClass === "mpv" ? "text-gray-700 dark:text-gray-200" : ""}>
+                    {t(
+                      "gkClassMpvHelp",
+                      "Multi-purpose: for when it is not settled at the sale where the card will be used or which MOMS applies — e.g. a card for several shops, or for goods with different MOMS. MOMS is settled only when the card is used.",
+                    )}
+                  </p>
+                  <p className="font-medium">{t("gkClassAskRevisor", "Ask your revisor if you are unsure.")}</p>
+                </div>
               </div>
 
               {/* Expiry (optional) */}
@@ -1869,6 +1879,11 @@ function OrderCard({ t, order, onResolved }) {
         <div className="min-w-0">
           <p className="text-lg font-bold tabular-nums text-gray-900 dark:text-gray-100">
             {krFromMinor(order.amount_minor)}
+            {/* The class the card will be minted with (it decides when MOMS
+                falls) — surfaced, never hidden. */}
+            <span className="ml-2 align-middle text-xs font-medium text-gray-500 dark:text-gray-400">
+              {voucherClassLabel(order.voucher_class, t)}
+            </span>
           </p>
           <p className="mt-0.5 truncate text-sm text-gray-600 dark:text-gray-300">
             {order.buyer_name || t("gkOrderNoName", "Ukendt køber")}

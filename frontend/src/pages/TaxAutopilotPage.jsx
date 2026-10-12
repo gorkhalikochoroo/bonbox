@@ -64,6 +64,8 @@ const TAX_ALERT_KEYS = {
   ytd_summary: { title: "taxAlertYtdTitle", detail: "taxAlertYtdDetail" },
   reconciliation_ok: { title: "taxAlertReconOkTitle", detail: "taxAlertReconOkDetail" },
   gavekort_reconciliation: { title: "taxAlertGavekortTitle", detail: "taxAlertGavekortDetail" },
+  gavekort_double_check: { title: "taxAlertGkDoubleTitle", detail: "taxAlertGkDoubleDetail" },
+  gavekort_spv_voided: { title: "taxAlertGkVoidedTitle", detail: "taxAlertGkVoidedDetail" },
   all_clear: { title: "taxAlertAllClearTitle", detail: "taxAlertAllClearDetail" },
 };
 
@@ -266,6 +268,16 @@ export default function TaxAutopilotPage() {
               <p className="text-xs opacity-70 mt-1">
                 {t("taxOutputVatLabel", "Output {tax}", { tax: tax_name })}: <Amount value={nextDeadline.output_vat} currency={currency} /> • {t("taxInputVatLabel", "Input {tax}", { tax: tax_name })}: <Amount value={nextDeadline.input_vat} currency={currency} />
               </p>
+              {/* SPV gavekort sold in the period: their MOMS is due at sale and
+                  is INSIDE the output figure above — said, not silent. */}
+              {Number(nextDeadline.gavekort_spv_sold || 0) > 0 && (
+                <p className="text-xs opacity-70 mt-0.5" data-testid="tax-gk-spv-line">
+                  {t("taxGkSpvIncluded", "Includes gavekort sold (single-purpose): {amount} — MOMS {moms}", {
+                    amount: formatOwnerMoney(nextDeadline.gavekort_spv_sold, currency),
+                    moms: formatOwnerMoney(nextDeadline.gavekort_spv_output_vat || 0, currency),
+                  })}
+                </p>
+              )}
             </div>
           </div>
           {/* Progress bar to deadline */}

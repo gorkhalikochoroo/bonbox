@@ -1281,10 +1281,9 @@ export const da = {
     gkClassSpv: "Ét formål (SPV)",
     gkClassMpvShort: "MPV",
     gkClassSpvShort: "SPV",
-    gkClassMpvHelp:
-      "Flere formål: MOMS afregnes ved indløsning. Standard for de fleste gavekort.",
-    gkClassSpvHelp:
-      "Ét formål: MOMS afregnes ved udstedelse. Spørg din revisor, hvis du er i tvivl.",
+    gkClassMpvHelp: "Flere formål (flerformålsgavekort): når det ikke står fast ved salget, hvor kortet bliver brugt, eller hvilken moms der gælder — fx et kort til flere butikker eller til varer med forskellig moms. MOMS afregnes først, når kortet bliver brugt.",
+    gkClassSpvHelp: "Ét formål (enkeltformålsgavekort): kortet kan kun bruges her hos jer, og alt, I sælger, har 25 % moms. MOMS afregnes, når kortet sælges — BonBox tæller den med i MOMS for den periode. Sådan er de fleste gavekort i Danmark.",
+    gkClassAskRevisor: "Spørg din revisor, hvis du er i tvivl.",
     gkExpiryLabel: "Udløber (valgfri)",
     gkNoteLabel: "Intern note (valgfri)",
     gkNotePh: "F.eks. fødselsdagsgave",
@@ -1367,8 +1366,8 @@ export const da = {
     gkTenderMobilepay: "MobilePay",
     gkTenderCash: "Kontant",
     gkTenderMixed: "Blandet",
-    gkMomsAtRedemption: "MOMS ved indløsning (MPV)",
-    gkMomsAtIssue: "MOMS ved udstedelse (SPV)",
+    gkMomsAtRedemption: "MOMS ved indløsning (flere formål)",
+    gkMomsAtIssue: "MOMS ved salg (ét formål) — tælles med i din MOMS",
     gkAddRecipient: "Til en anden? Tilføj modtager",
     gkPaidRegistered: "Betalt med {method} · registreret",
     gkValidUntil: "Gælder til {date}",
@@ -2435,6 +2434,11 @@ export const da = {
     taxAlertReconOkDetail: "{count} bekræftede dagsafslutninger denne måned bidrog med {from_closes} {tax}; salgslinjer på de øvrige dage bidrog med {from_sales} — begge indgår i den samlede angivelse.",
     taxAlertGavekortTitle: "Gavekort indløst — tjek at salget er bogført",
     taxAlertGavekortDetail: "{count} dage med gavekortindløsninger (~{total}), hvor måltidet kan mangle i omsætningen. MOMS falder ved indløsning — bogfør salget i en dagsafslutning eller som et salg, så det indgår i MOMS-grundlaget.",
+    taxAlertGkDoubleTitle: "Gavekort kan være talt med to gange",
+    taxAlertGkDoubleDetail: "{count} dag(e), hvor et gavekort (~{total}) kan stå i omsætningen og samtidig være talt med, da kortet blev solgt. Tag det ud af dagens omsætning, eller spørg din revisor.",
+    taxAlertGkVoidedTitle: "Annulleret gavekort — momsen bliver stående",
+    taxAlertGkVoidedDetail: "{count} gavekort med ét formål er annulleret med {total} ubrugt. Momsen ({moms}) blev talt med, da kortet blev solgt, og BonBox lader den stå. Fik kunden pengene tilbage, så spørg din revisor, om den kan reguleres.",
+    taxGkSpvIncluded: "Heraf gavekort solgt (ét formål): {amount} — MOMS {moms}",
     taxAlertAllClearTitle: "Ingen presserende {tax}-frister",
     taxAlertAllClearDetail: "Dine indberetninger er ajour.",
     taxPdfPro: "Pro",
@@ -3107,6 +3111,9 @@ export const da = {
     stepOneRevenueByChannel: "Omsætning pr. kanal",
     // Omsætningstrin
     dcGkRedeemedToday: "Gavekort indløst i dag: {amount} {cur}",
+    dcGkSoldToday: "Gavekort solgt i dag (ikke omsætning)",
+    dcGkSoldTodayHint: "Pengene er med i betalingerne, men de er ikke omsætning — hold dem uden for omsætningen ovenfor. BonBox klarer momsen ud fra gavekortet.",
+    dcGkTenderLine: "Måltidet hører med i omsætningen. Beløbet står under betalinger som »Gavekort«, så dagen går op — gavekort er en betalingsmåde, ikke et ekstra salg.",
     dcGkConfirmIncluded:
       "Sørg for, at måltidet er med i omsætningen ovenfor — gavekort er en betalingsmåde, ikke et ekstra salg. BonBox lægger det ikke til automatisk.",
     dcGkMaybeMissing:
@@ -3600,6 +3607,10 @@ export const da = {
     bankDoneImportedN: "Importerede {n} transaktioner",
     bankDoneSkipped: "{n} dubletter sprunget over",
     bankDoneErrors: "{n} fejl",
+    bankGkMatch: "Gavekort-ordre — bogføres ikke som omsætning",
+    bankGkNotThis: "Ikke gavekortet — bogfør som salg",
+    bankGkMatchUndo: "Det er gavekortet",
+    bankDoneGavekort: "{n} indbetaling(er) for gavekort-ordrer er ikke bogført som omsætning — gavekortet bærer beløbet og momsen.",
     bankDoneMatchInvoices: "Match mod åbne fakturaer",
     bankDoneUpsellBenefit: "Matcher banklinjer automatisk mod åbne fakturaer + udgifter — bekræft i bulk med ét tryk.",
     bankDoneUpsellCta: "Se Starter",
@@ -7606,7 +7617,7 @@ export const da = {
     rsvpOwnerSubtitleProvider: "Din aftalebog og den offentlige Tidsbestilling-side, dine kunder bestiller tid på.",
     // Daglig kasserapport-felter pr. arketype (Phase A).
     closeGavekortSoldLabel: "Gavekort solgt",
-    closeGavekortMomsNote: "Holdes uden for dagens moms-grundlag — din revisor afgør momsen (enkelt- vs flerformålsgavekort).",
+    closeGavekortMomsNote: "Hentet fra de gavekort, der er solgt i dag. Med i betalingerne, ikke i omsætningen — BonBox tæller momsen ud fra gavekortet (ét formål ved salget, flere formål ved indløsning).",
     closeBatchLabel: "Parti / Batch",
     closeBatchPlaceholder: "fx morgenbatch #2",
     // Profil-forhåndsvisning af virksomhedstype (den animerede skifter).

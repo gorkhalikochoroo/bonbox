@@ -292,6 +292,20 @@ def _detect_close_unreconciled(db: Session, user, now, skip=frozenset()):
         )
         .all()
     )
+    # Gavekort sold over the counter on a close's day are in its payments but
+    # are NOT revenue (the close tie-out reads payments = revenue + gavekort
+    # sold). Without this, every such day would raise an urgent "doesn't add
+    # up" for a close that does. Best-effort: on any failure, no adjustment.
+    gk_sold: dict = {}
+    dated = [_close_date(c) for c in closes]
+    dated = [d for d in dated if d is not None]
+    if dated:
+        try:
+            from datetime import timedelta as _td
+            from app.services.gavekort_moms import period_facts
+            gk_sold = period_facts(db, user.id, min(dated), max(dated) + _td(days=1))["counter_sold"]
+        except Exception:  # noqa: BLE001
+            gk_sold = {}
     worst = None
     worst_diff = 0.0
     for c in closes:
@@ -299,6 +313,8 @@ def _detect_close_unreconciled(db: Session, user, now, skip=frozenset()):
         if revenue_total <= 0:
             continue
         payment_total = float(c.payment_total or 0)
+        _cd = _close_date(c)
+        _sold = float(gk_sold.get(_cd, 0.0)) if _cd is not None else 0.0
         # THE FIX. A Z-report-only close stores payment_total = 0.00, so diff
         # == the entire day's revenue, and this row asserted — in red, urgent,
         # in Danish — "du har taget 0,00 kr. ind i betalinger, men bogført
@@ -323,7 +339,7 @@ def _detect_close_unreconciled(db: Session, user, now, skip=frozenset()):
         c_date = _close_date(c)
         if c_date is not None and ("close_unreconciled", c_date.isoformat()) in skip:
             continue
-        diff = abs(payment_total - revenue_total)
+        diff = abs(payment_total - _sold - revenue_total)
         if diff > max(_UNRECONCILED_ABS_KR, _UNRECONCILED_PCT * revenue_total):
             if diff > worst_diff:
                 worst_diff = diff

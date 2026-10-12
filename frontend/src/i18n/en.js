@@ -1309,10 +1309,9 @@ export const en = {
     gkClassSpv: "Single-purpose (SPV)",
     gkClassMpvShort: "MPV",
     gkClassSpvShort: "SPV",
-    gkClassMpvHelp:
-      "Multi-purpose: MOMS is settled at redemption. Standard for most gavekort.",
-    gkClassSpvHelp:
-      "Single-purpose: MOMS is settled at issuance. Ask your revisor if in doubt.",
+    gkClassMpvHelp: "Multi-purpose: for when it is not settled at the sale where the card will be used or which MOMS applies — e.g. a card for several shops, or for goods with different MOMS. MOMS is settled only when the card is used.",
+    gkClassSpvHelp: "Single-purpose: the card can only be used here, and everything you sell carries 25 % MOMS. MOMS is settled when the card is sold — BonBox counts it in the MOMS for that period. Most gift cards in Denmark are like this.",
+    gkClassAskRevisor: "Ask your revisor if you are unsure.",
     gkExpiryLabel: "Expires (optional)",
     gkNoteLabel: "Internal note (optional)",
     gkNotePh: "E.g. birthday gift",
@@ -1397,8 +1396,8 @@ export const en = {
     gkTenderMobilepay: "MobilePay",
     gkTenderCash: "Cash",
     gkTenderMixed: "Mixed",
-    gkMomsAtRedemption: "MOMS at redemption (MPV)",
-    gkMomsAtIssue: "MOMS at issuance (SPV)",
+    gkMomsAtRedemption: "MOMS at redemption (multi-purpose)",
+    gkMomsAtIssue: "MOMS at sale (single-purpose) — counted in your MOMS",
     gkAddRecipient: "For someone else? Add recipient",
     gkPaidRegistered: "Paid with {method} · recorded",
     gkValidUntil: "Valid until {date}",
@@ -2521,6 +2520,11 @@ export const en = {
     taxAlertReconOkDetail: "{count} confirmed closes this month contributed {from_closes} {tax}; Sale rows on the other days contributed {from_sales} — both feed the headline filing total.",
     taxAlertGavekortTitle: "Gavekort redeemed — check the sale is recorded",
     taxAlertGavekortDetail: "{count} days with gavekort redemptions (~{total}) where the meal may be missing from revenue. MOMS falls at redemption — record the sale in a daily close or as a sale so it enters the MOMS base.",
+    taxAlertGkDoubleTitle: "Gavekort may be counted twice",
+    taxAlertGkDoubleDetail: "{count} day(s) where a gavekort (~{total}) may be in revenue as well as counted when the card was sold. Take it out of the day's revenue, or ask your revisor.",
+    taxAlertGkVoidedTitle: "Voided gavekort — the MOMS stays in",
+    taxAlertGkVoidedDetail: "{count} single-purpose gavekort voided with {total} unused. The MOMS ({moms}) was counted when the card was sold, and BonBox leaves it in. If the buyer got the money back, ask your revisor whether it can be adjusted.",
+    taxGkSpvIncluded: "Includes gavekort sold (single-purpose): {amount} — MOMS {moms}",
     taxAlertAllClearTitle: "No urgent {tax} deadlines",
     taxAlertAllClearDetail: "Your tax filings are up to date.",
     taxPdfPro: "Pro",
@@ -3214,6 +3218,9 @@ export const en = {
     stepOneRevenueByChannel: "Revenue by Channel",
     // Revenue step
     dcGkRedeemedToday: "Gavekort redeemed today: {amount} {cur}",
+    dcGkSoldToday: "Gavekort sold today (not revenue)",
+    dcGkSoldTodayHint: "The money is in your payments, but it is not revenue — keep it out of the revenue above. BonBox handles its MOMS from the gavekort.",
+    dcGkTenderLine: "The meal belongs in revenue. The amount is under payments as \"Gavekort\", so the day adds up — gavekort is a way to pay, not an extra sale.",
     dcGkConfirmIncluded:
       "Make sure the meal is in the revenue above — gavekort is a payment method, not an extra sale. BonBox doesn't add it automatically.",
     dcGkMaybeMissing:
@@ -3734,6 +3741,10 @@ export const en = {
     bankDoneImportedN: "Imported {n} transactions",
     bankDoneSkipped: "{n} duplicates skipped",
     bankDoneErrors: "{n} errors",
+    bankGkMatch: "Gavekort order — not booked as revenue",
+    bankGkNotThis: "Not the gavekort — book as a sale",
+    bankGkMatchUndo: "It is the gavekort",
+    bankDoneGavekort: "{n} payment(s) for online gavekort orders were not booked as revenue — the gavekort carries the amount and its MOMS.",
     bankDoneMatchInvoices: "Match against open fakturaer",
     bankDoneUpsellBenefit: "Auto-match bank lines to open fakturaer + expenses, then bulk-confirm in one tap.",
     bankDoneUpsellCta: "See Starter",
@@ -7884,7 +7895,7 @@ export const en = {
     rsvpOwnerSubtitleProvider: "Your appointment book and the public Tidsbestilling page your customers book through.",
     // Per-archetype daily-close fields (Phase A). DK money terms stay Danish.
     closeGavekortSoldLabel: "Gavekort sold",
-    closeGavekortMomsNote: "Kept out of today's moms base — your revisor decides the MOMS (single- vs multi-purpose gavekort).",
+    closeGavekortMomsNote: "From the gavekort sold today. In the payments, not revenue — BonBox counts the MOMS from the gavekort (single-purpose at sale, multi-purpose at redemption).",
     closeBatchLabel: "Batch",
     closeBatchPlaceholder: "e.g. morning batch #2",
     // Profile business-type preview (the animated switch).

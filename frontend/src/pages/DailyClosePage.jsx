@@ -426,11 +426,19 @@ const REVENUE_CATS_BY_TYPE = {
    languages by the locked-terminology rule, as do kasserapport / revisor /
    MOMS. `gavekort` is left as the product's own term so this screen agrees
    with the Gavekort destination in the nav. */
+// A meal paid with a gavekort is revenue paid by a TENDER. Without this line
+// a restaurant close (also salon / bakery / general, which use this list)
+// could only tie out by LOWERING revenue — taking the meal out of MOMS.
+// `fromLedger`: filled from BonBox's own gavekort ledger, not expected on the
+// Z-bon — so it is not one of the fields a scan's confidence counts.
+const GIFT_CARD_PAY = { key: "gift_card", labelKey: "dcPayGiftCard", label: "Gavekort", icon: "Gift", fromLedger: true };
+
 const PAYMENT_METHODS_BY_TYPE = {
   restaurant: [
     { key: "cash", labelKey: "dcPayCash", label: "Cash", icon: "Banknote" },
     { key: "card", labelKey: "dcPayCard", label: "Card", icon: "CreditCard" },
     { key: "mobilepay", label: "MobilePay", icon: "Wallet" },
+    GIFT_CARD_PAY,
     { key: "invoice", labelKey: "dcPayInvoice", label: "Faktura", icon: "FileText" },
   ],
   workshop: [
@@ -2166,6 +2174,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   //     into notes for the revisor, never part of any MOMS computation.
   const [gavekortSold, setGavekortSold] = useState("");
   const [batchRef, setBatchRef] = useState("");
+  // The business day's gavekort facts from /daily-close/prefill — kept even
+  // on a day with no sales (a close-only restaurant's prefill has
+  // has_data=false, and the gavekort note never showed for that owner):
+  //   redeemed        MPV: the meal must be in revenue (MOMS on the meal)
+  //   redeemed_total  every class: the "Gavekort" payment line
+  //   sold            cards sold over the counter today — the money is in
+  //                   the payments, but it is NOT revenue
+  const [gkDay, setGkDay] = useState(null);
 
   // Step 5: Meta
   const [closedBy, setClosedBy] = useState("");
@@ -3832,6 +3848,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // moment the key changes, before the new day's answer is in.
     let stale = false;
     setPrefill(null);
+    setGkDay(null);
     setRegisterCash(null);
     setSplitMeta(null);
     setPrefillStatus("idle");
@@ -3917,6 +3934,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // "keeps the owner's chosen business date" in
         // __tests__/DailyClosePage.moneySurface.test.jsx.
 
+        const gk = res.data?.gavekort || null;
+        setGkDay(gk);
         if (res.data.has_data) {
           setPrefill(res.data);
           // Register-derived expected cash for the drawer variance — the REAL
@@ -3957,6 +3976,27 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
           // informational sync banner + expenses summary keep rendering.
           if (!editLoadedRef.current && !boxesTaken && boxFillEpochRef.current === fillEpoch) {
             fillBoxesFromSync(res.data);
+          }
+        }
+        // Today's redeemed gavekort as the "Gavekort" payment line, so a meal
+        // paid by gavekort ties out without anyone touching revenue. Only into
+        // an EMPTY box on a new close — the owner's figure always wins.
+        if (!editLoadedRef.current && boxFillEpochRef.current === fillEpoch) {
+          const gkTotal = Number(gk?.redeemed_total || 0);
+          if (gkTotal > 0) {
+            const box = asBox(gkTotal);
+            setPayMethods((prev) => (prev.find((m) => m.key === "gift_card") ? prev : [...prev, GIFT_CARD_PAY]));
+            setPayAmounts((prev) => (String(prev.gift_card ?? "").trim() !== "" ? prev : { ...prev, gift_card: box }));
+            salesFillRef.current = {
+              ...(salesFillRef.current || {}),
+              pay: { ...(salesFillRef.current?.pay || {}), gift_card: box },
+            };
+          }
+          // Salon: its "Gavekort solgt" box now comes from the gavekort
+          // ledger (it was a free number nothing checked).
+          const gkSold = Number(gk?.sold || 0);
+          if (config.hasGavekort && gkSold > 0) {
+            setGavekortSold((prev) => (String(prev ?? "").trim() !== "" ? prev : asBox(gkSold)));
           }
         }
         setPrefillStatus("ok");
@@ -4043,13 +4083,18 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // Saved total minus the category lines: the part nobody split (a partly
   // read Z-bon), or a hand-corrected total below the lines (negative).
   const unsplitRevenue = Math.round((savedRevenue - revenueTotal) * 100) / 100;
+  // Gavekort SOLD today: the till / drawer / terminal took the money, but it
+  // is not revenue (MPV: no sale yet; SPV: BonBox counts its MOMS from the
+  // card). So the day ties out as payments = revenue + gavekort sold — the
+  // owner is never pushed to raise revenue (MOMS twice). Salon: its own box.
+  const gkSoldToday = config.hasGavekort ? readMoney0(gavekortSold) : Number(gkDay?.sold || 0);
   const tieOut = useMemo(() => {
     if (!revenueKnown || !hasPaymentEntry) return { state: "unknown", diff: null };
-    const diff = savedRevenue - paymentTotal;
+    const diff = savedRevenue + gkSoldToday - paymentTotal;
     // Under 1 kr is rounding, not a discrepancy — same threshold the
     // payments step has always used, now defined once.
     return { state: Math.abs(diff) < 1 ? "balanced" : "off", diff };
-  }, [revenueKnown, hasPaymentEntry, savedRevenue, paymentTotal]);
+  }, [revenueKnown, hasPaymentEntry, savedRevenue, paymentTotal, gkSoldToday]);
   // Expected cash baseline for the drawer variance. Prefer the SYNCED POS
   // register cash (what the till says was taken) over the owner's typed cash
   // line — typed-vs-counted is self-referential and can't surface a real
@@ -4415,14 +4460,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // before the backend grows dedicated columns. Gavekort is explicitly
     // marked as EXCLUDED from the MOMS base (never auto-decided).
     const extraNoteParts = [];
-    const gavekortNum = gavekortSold ? readMoney0(gavekortSold) : 0;
+    const gavekortNum = gkSoldToday > 0 ? gkSoldToday : 0;
     if (gavekortNum > 0) {
       extraNoteParts.push(
         // formatOwnerMoney, not toLocaleString: this note is persisted on the
         // close row and printed on the revisor's kasserapport, so it has to
         // read "1.500 kr." the way the rest of the document does — never
         // "1,500 DKK" because the closer's browser happened to be in English.
-        `Gavekort solgt: ${formatOwnerMoney(gavekortNum, currency, { decimals: LEDGER_DECIMALS })} (uden for dagens moms-grundlag — vurderes af revisor).`,
+        // Danish on purpose: a revisor document (translation scope).
+        `Gavekort solgt: ${formatOwnerMoney(gavekortNum, currency, { decimals: LEDGER_DECIMALS })} (med i betalingerne, ikke i omsætningen. MOMS: enkeltformål tælles ved salget af gavekortet, flerformål ved indløsning).`,
       );
     }
     if (config.hasBatch && batchRef.trim()) {
@@ -6668,7 +6714,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // still must not read as "aflæst" or count as found.
   const typedOnCard = useMemo(() => new Set(scanResult?.merge_info?.typedFields || []), [scanResult]);
   const readOnCard = (field, v) => typeof v === "number" && v !== 0 && !typedOnCard.has(field);
-  const scanFieldsTotal = defaultRevCats.length + defaultPayMethods.length + (config.hasTips ? 1 : 0) + 2;
+  const scanPayFields = defaultPayMethods.filter((m) => !m.fromLedger);
+  const scanFieldsTotal = defaultRevCats.length + scanPayFields.length + (config.hasTips ? 1 : 0) + 2;
   // The confidence is a READ's: per till, what its own photos read off the
   // paper (a figure the owner changed is not "found"). Counted on the merged
   // card, a fully read bon summed with a typed close or a draft said "Lav
@@ -6677,7 +6724,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   const tillReads = useMemo(() => {
     const fields = [
       ...defaultRevCats.map((c) => `revenue.${c.key}`),
-      ...defaultPayMethods.map((m) => `payments.${m.key}`),
+      ...defaultPayMethods.filter((m) => !m.fromLedger).map((m) => `payments.${m.key}`),
       ...(config.hasTips ? ["tips"] : []),
       "revenue_total", "moms_total",
     ];
@@ -8530,11 +8577,14 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             the MOMS is under-declared (DK MPV VAT falls at redemption). BonBox
             NEVER auto-adds it — the owner confirms it's included. Amber-stronger
             when redemptions materially exceed the gift-card tender on the day. */}
-        {prefill && !prefillLoading && (prefill.gavekort?.redeemed || 0) > 0 && (() => {
-          const redeemed = prefill.gavekort.redeemed;
-          const tender = prefill.gavekort.tender || 0;
+        {gkDay && !prefillLoading && (gkDay.redeemed_total ?? gkDay.redeemed ?? 0) > 0 && (() => {
+          const redeemedTotal = Number(gkDay.redeemed_total ?? gkDay.redeemed ?? 0);
+          const redeemed = Number(gkDay.redeemed || 0);       // MPV — MOMS on the meal
+          // What the day says was paid by gavekort: the "Gavekort" payment
+          // line, or the gift_card-tagged sales.
+          const tender = Math.max(readMoney0(payAmounts.gift_card), Number(gkDay.tender || 0));
           const short = redeemed - tender;
-          const maybeMissing = short > 50 && short / redeemed > 0.1;
+          const maybeMissing = redeemed > 0 && short > 50 && short / redeemed > 0.1;
           return (
             <div className="mb-4 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl text-[13px] text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40">
               <div className="flex items-center gap-2 font-medium">
@@ -8548,7 +8598,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       and the template's token is emptied, then the space it
                       leaves behind is collapsed. */}
                   {t("dcGkRedeemedToday", "Gavekort indløst i dag: {amount} {cur}", {
-                    amount: formatOwnerMoney(redeemed, currency, { decimals: GLANCE_DECIMALS }),
+                    amount: formatOwnerMoney(redeemedTotal, currency, { decimals: GLANCE_DECIMALS }),
                     cur: "",
                   }).replace(/\s{2,}/g, " ").trim()}
                 </span>
@@ -8560,8 +8610,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       "Det ser ud til, at gavekort-måltidet måske ikke er med i omsætningen ovenfor. MOMS skal afregnes ved indløsning — tjek at salget er bogført, så det indgår i MOMS-grundlaget.",
                     )
                   : t(
-                      "dcGkConfirmIncluded",
-                      "Sørg for, at måltidet er med i omsætningen ovenfor — gavekort er en betalingsmåde, ikke et ekstra salg. BonBox lægger det ikke til automatisk.",
+                      "dcGkTenderLine",
+                      "The meal belongs in revenue. The amount is under payments as \"Gavekort\", so the day adds up — gavekort is a way to pay, not an extra sale.",
                     )}
               </p>
             </div>
@@ -8859,6 +8909,22 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   <Amount value={hasRevenueEntry || savedRevenue > 0 ? savedRevenue : null} currency={currency} decimals={pairDecimals(paymentTotal, savedRevenue)} />
                 </span>
               </div>
+              {gkSoldToday > 0 && (
+                <div className="mt-1.5" data-testid="dc-gk-sold-line">
+                  <div className="flex justify-between items-baseline gap-3">
+                    <span className="text-[12px] text-gray-500 dark:text-gray-400">
+                      <Icon name="Gift" size={12} className="inline align-text-bottom mr-1" />
+                      {t("dcGkSoldToday", "Gavekort sold today (not revenue)")}
+                    </span>
+                    <span className="text-[13px] text-gray-600 dark:text-gray-300">
+                      <Amount value={gkSoldToday} currency={currency} decimals={pairDecimals(paymentTotal, savedRevenue)} />
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                    {t("dcGkSoldTodayHint", "The money is in your payments, but it is not revenue — keep it out of the revenue above. BonBox handles its MOMS from the gavekort.")}
+                  </p>
+                </div>
+              )}
               {/* Same verdict object the review card renders, so the two
                   surfaces cannot disagree about whether the day ties out.
                   It used to be gated on `revenueTotal > 0` alone, which meant
@@ -9223,9 +9289,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               </div>
             )}
 
-            {/* Phase A — salon Gavekort solgt. Its own line, EXCLUDED from the
-                day-of-sale service MOMS base, flagged for the revisor (we never
-                auto-decide single- vs multi-purpose voucher MOMS). */}
+            {/* Phase A — salon Gavekort solgt. Its own line, never revenue; filled
+                from the gavekort ledger (gkDay.sold) and part of the tie-out
+                (payments = revenue + gavekort sold). MOMS follows each card's
+                class, which the owner chose when selling it. */}
             {config.hasGavekort && (
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-2">
                 <label className="text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
@@ -9236,7 +9303,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl"
                   value={gavekortSold} onChange={e => setGavekortSold(e.target.value)} />
                 <p className="text-xs text-amber-700 dark:text-amber-300">
-                  {t("closeGavekortMomsNote", "Holdes uden for dagens moms-grundlag — moms afgøres af din revisor (enkelt- vs flerformålsvoucher).")}
+                  {t("closeGavekortMomsNote", "From the gavekort sold today. In the payments, not revenue — BonBox counts the MOMS from the gavekort (single-purpose at sale, multi-purpose at redemption).")}
                 </p>
               </div>
             )}

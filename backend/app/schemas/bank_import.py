@@ -12,6 +12,10 @@ class BankTransactionPreview(BaseModel):
     ref_hash: str
     suggested_category: str | None = None
     confidence: float | None = None
+    # An incoming payment that matches an online gavekort order (same amount,
+    # the transfer text names it). Paying for a gavekort is not revenue — on
+    # confirm it is NOT booked as a sale. None = no match.
+    gavekort_order_match: dict | None = None
 
 
 class BankImportSummary(BaseModel):
@@ -39,6 +43,8 @@ class BankTransactionConfirm(BaseModel):
     category_name: str | None = None
     ref_hash: str
     payment_method: str = "bank_transfer"
+    # Owner override: "this is NOT the gavekort payment — book it as a sale".
+    not_gavekort: bool = False
 
 
 class BankImportConfirmRequest(BaseModel):
@@ -50,6 +56,11 @@ class BankImportConfirmResponse(BaseModel):
     imported: int
     skipped: int
     errors: list[str]
+    # Incoming payments matched to an online gavekort order and therefore NOT
+    # booked as sales (the card itself carries the value; MOMS follows its
+    # class). Listed so the owner sees exactly which lines were held back.
+    gavekort_matched: int = 0
+    gavekort_matches: list[dict] = Field(default_factory=list)
 
 
 # ─── Reconciliation (auto-match suggestions) ─────────────────────────

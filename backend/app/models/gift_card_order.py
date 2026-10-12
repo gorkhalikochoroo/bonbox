@@ -57,7 +57,7 @@ class GiftCardOrder(Base):
 
     # ── What the buyer asked for ──────────────────────────────────────
     amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)   # face value, øre
-    voucher_class: Mapped[str] = mapped_column(String(8), nullable=False, default="mpv")
+    voucher_class: Mapped[str] = mapped_column(String(8), nullable=False, default="spv")
 
     # ── Who's buying / who it's for ───────────────────────────────────
     # buyer_email is where the issued /g/ link gets sent. The rest is optional.

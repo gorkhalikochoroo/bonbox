@@ -115,7 +115,8 @@ class OrderCreateBody(BaseModel):
     buyer_email: str = Field(min_length=3, max_length=255)
     recipient_name: str | None = Field(default=None, max_length=120)
     message: str | None = Field(default=None, max_length=280)
-    voucher_class: str = Field(default="mpv", pattern="^(mpv|spv)$")
+    # Pre-selected SPV (enkeltformål) — see gavekort.IssueBody.
+    voucher_class: str = Field(default="spv", pattern="^(mpv|spv)$")
 
 
 def _kr(minor: int) -> str:

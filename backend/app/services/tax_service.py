@@ -19,6 +19,8 @@ from app.models.daily_close import DailyClose, decode_breakdown
 from app.models.gift_card import GiftCard, GiftCardTransaction
 from app.models.invoice import Invoice
 from app.services.dk_fradrag import fradrag_factor
+# Module-level so GiftCardOrder registers on Base before any create_all.
+from app.services import gavekort_moms as _gkm
 from app.services.expense_status import not_pending
 
 logger = logging.getLogger(__name__)
@@ -568,120 +570,187 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
                     "direction": "close_high" if delta > 0 else "close_low",
                 })
 
-    # ── Gavekort (gift card) redemption reconciliation ──────────────────
-    # HONESTY INVARIANT: a gavekort is a TENDER, never a second sale. When a
-    # gavekort-paid meal is rung up (a Sale tagged payment_method='gift_card')
-    # or scanned into the close's Z-report, the MEAL is ALREADY in revenue_total
-    # + the MOMS base above. So we NEVER add redemptions to revenue — that would
-    # double-count and OVER-declare MOMS to SKAT. Instead, mirroring the §9 stk.2
-    # variance block, we DETECT the one real gap and flag it for the revisor:
-    # an MPV gavekort redeemed (door-scan) whose meal was captured NOWHERE, so
-    # its output MOMS — due AT REDEMPTION under DK MPV rules — silently escapes
-    # the base. This block MUTATES NOTHING: revenue_total, taxable_sales and
-    # output_vat are untouched; it only appends to gavekort_warnings.
-    # SPV (single-purpose) vouchers are EXCLUDED: their MOMS falls at issuance,
-    # not redemption, so a redemption flag would be wrong for them.
+    # ── Gavekort (gift card) — the 4th MOMS stream + reconciliation ─────
+    # Danish rule (Momsloven §§ 4 a–4 c, since 1 Jul 2019) — see
+    # app/services/gavekort_moms.py for the full note:
+    #   • SPV (enkeltformål): MOMS is due when the card is SOLD. The card sale
+    #     is counted here, in the period of sale, from the gavekort ledger.
+    #     When the card is later used, the meal is NOT a new sale — so the
+    #     part of a close / Sale that a gavekort tender shows was paid with an
+    #     SPV card is taken back out, so it is never taxed twice.
+    #   • MPV (flerformål): selling the card is not a sale. MOMS falls on the
+    #     meal when it is used, through the close / Sale revenue. We never add
+    #     a redemption to revenue (that would double-count); we DETECT a meal
+    #     that is missing and flag it for the owner/revisor.
+    # SPV cards sold before gavekort_moms.SPV_MOMS_AT_SALE_FROM keep the
+    # treatment BonBox gave them at the time (MOMS via the meal) — figures
+    # already shown for earlier periods never move.
+    gk = _gkm.period_facts(db, user_id, start_date, end_date)
     gavekort_warnings: list[dict] = []
-    redeemed_by_date: dict[date, float] = {}
-    redeem_rows = (
-        db.query(GiftCardTransaction.business_day, GiftCardTransaction.amount_minor)
-        .join(GiftCard, GiftCard.id == GiftCardTransaction.gift_card_id)
-        .filter(
-            GiftCardTransaction.user_id == user_id,
-            GiftCardTransaction.kind == "redeem",
-            GiftCardTransaction.business_day.isnot(None),
-            GiftCardTransaction.business_day >= datetime.combine(start_date, time.min),
-            GiftCardTransaction.business_day < datetime.combine(end_date, time.min),
-            GiftCard.voucher_class == "mpv",
-        )
-        .all()
-    )
-    for bday, amt in redeem_rows:
-        d = bday.date() if hasattr(bday, "date") else bday
-        # redeem rows carry a NEGATIVE amount_minor (a debit) — negate to kr.
-        redeemed_by_date[d] = redeemed_by_date.get(d, 0.0) + (-float(amt or 0)) / 100.0
 
-    if redeemed_by_date:
-        # Which redemption dates have ANY Sale row (the meal plausibly captured
-        # among them — a gift_card-tagged Sale would be in this set).
-        sale_dates_with_rows: set[date] = set()
-        non_close_redeem_dates = [d for d in redeemed_by_date if d not in close_dates]
-        if non_close_redeem_dates:
+    _r = vat_rate / (1 + vat_rate) if vat_rate > 0 else 0.0
+    spv_sold = float(gk["spv_sold"])
+    spv_sold_vat = round(spv_sold * _r, 2)
+    spv_in_revenue = 0.0       # kr. of SPV-paid meals taken back out
+    spv_in_revenue_vat = 0.0
+
+    redeemed = gk["redeemed"]
+    counter_sold = gk["counter_sold"]
+    check_dates = set(redeemed) | {d for d, v in counter_sold.items() if d in close_dates and v > 0}
+
+    def _material(short: float, base: float) -> bool:
+        # Same threshold as the §9 variance block: > 50 kr. AND > 10 %.
+        return base > 0 and short > 50.0 and (short / base) * 100.0 > 10.0
+
+    if check_dates:
+        # Confirmed closes' payment breakdown per date (kr.).
+        close_pay_by_date: dict[date, dict] = {}
+        closed = [d for d in check_dates if d in close_dates]
+        if closed:
+            for cd, pc, st in (
+                db.query(DailyClose.date, DailyClose.payment_categories, DailyClose.status)
+                .filter(DailyClose.user_id == user_id,
+                        DailyClose.date.in_(closed),
+                        DailyClose.is_deleted.isnot(True))
+                .all()
+            ):
+                if (st or "confirmed") != "confirmed":
+                    continue
+                bd = decode_breakdown(pc) if pc else {}
+                acc = close_pay_by_date.setdefault(cd, {})
+                for k, v in (bd or {}).items():
+                    acc[k] = round(acc.get(k, 0.0) + float(v or 0), 2)
+
+        # Sale rows per non-close date: any row / total / gavekort-tagged.
+        open_dates = [d for d in check_dates if d not in close_dates]
+        sale_any: set[date] = set()
+        sale_total_by_date: dict[date, float] = {}
+        sale_gc_by_date: dict[date, float] = {}
+        if open_dates:
             for (sd,) in (
                 db.query(Sale.date)
-                .filter(
-                    Sale.user_id == user_id,
-                    Sale.date.in_(non_close_redeem_dates),
-                    Sale.is_deleted.isnot(True),
-                )
-                .distinct()
-                .all()
+                .filter(Sale.user_id == user_id, Sale.date.in_(open_dates),
+                        Sale.is_deleted.isnot(True))
+                .distinct().all()
             ):
-                sale_dates_with_rows.add(sd)
-
-        # The gift_card tender line from each confirmed close's payment breakdown
-        # (kr.), for the value-level check that catches a close whose revenue is
-        # net-of-gavekort. Tender key varies by source: gift_card / gavekort / ….
-        gc_tender_by_date: dict[date, float] = {}
-        closed_redeem_dates = [d for d in redeemed_by_date if d in close_dates]
-        if closed_redeem_dates:
-            for cd, pc in (
-                db.query(DailyClose.date, DailyClose.payment_categories)
-                .filter(
-                    DailyClose.user_id == user_id,
-                    DailyClose.date.in_(closed_redeem_dates),
-                    DailyClose.is_deleted.isnot(True),
-                )
-                .all()
+                sale_any.add(sd)
+            for sd, pm, tot in (
+                db.query(Sale.date, Sale.payment_method,
+                         func.coalesce(func.sum(Sale.amount), 0))
+                .filter(Sale.user_id == user_id, Sale.date.in_(open_dates),
+                        Sale.is_deleted.isnot(True), Sale.status == "completed",
+                        Sale.invoice_id.is_(None))
+                .group_by(Sale.date, Sale.payment_method).all()
             ):
-                bd = decode_breakdown(pc) if pc else None
-                if not isinstance(bd, dict):
-                    continue
-                gc = 0.0
-                for k, v in bd.items():
-                    if str(k).lower().replace("-", "_") in (
-                        "gift_card", "gift_cards", "gavekort", "giftcard"
-                    ):
-                        try:
-                            gc += float(v or 0)
-                        except (TypeError, ValueError):
-                            pass
-                gc_tender_by_date[cd] = gc_tender_by_date.get(cd, 0.0) + gc
+                sale_total_by_date[sd] = sale_total_by_date.get(sd, 0.0) + float(tot or 0)
+                if str(pm or "").lower().replace("-", "_") in _gkm.GIFT_CARD_TENDER_KEYS:
+                    sale_gc_by_date[sd] = sale_gc_by_date.get(sd, 0.0) + float(tot or 0)
 
-        for d, redeemed in sorted(redeemed_by_date.items()):
-            if redeemed <= 0:
-                continue
-            has_close = d in close_dates
-            has_sale = d in sale_dates_with_rows
-            if not has_close and not has_sale:
-                # Door-scan-only: the redeemed meal is in NO close and NO Sale —
-                # its revenue + MOMS escapes the base entirely. The real hole.
-                gavekort_warnings.append({
-                    "date": d.isoformat(),
-                    "redeemed": round(redeemed, 2),
-                    "matched_close_tender": None,
-                    "status": "unmatched_redemption",
-                })
-            elif has_close:
-                gc = gc_tender_by_date.get(d)
-                # Value-level check: a confirmed close exists AND it broke out a
-                # gift_card tender, but that tender is materially SMALLER than
-                # what was redeemed → some redeemed meals are likely missing from
-                # revenue_total (the net-of-gavekort case). Same 50 kr / 10%
-                # threshold as the §9 variance block. If the close didn't split
-                # out a gift_card tender (Z-report scans often don't), we stay
-                # quiet rather than nag.
-                if gc is not None and gc > 0:
-                    short = redeemed - gc
-                    if short > 50.0 and (short / redeemed) * 100.0 > 10.0:
+        for d in sorted(check_dates):
+            slot = redeemed.get(d, {})
+            r_meal = float(slot.get("via_meal", 0.0))   # MPV (+ pre-guard SPV)
+            r_spv = float(slot.get("spv", 0.0))         # SPV, MOMS paid at sale
+            if d in close_dates:
+                pay = close_pay_by_date.get(d, {})
+                tender = _gkm.gift_card_tender(pay)      # None = no gavekort line
+                t_val = float(tender or 0.0)
+                # MPV — the meal must be in revenue. The gavekort tender line
+                # says how much of the day's revenue was paid by gavekort.
+                if r_meal > 0:
+                    if tender is None or t_val <= 0:
+                        # P0: a close with NO gavekort line can never show the
+                        # meal is in it (restaurant closes had no such line).
                         gavekort_warnings.append({
-                            "date": d.isoformat(),
-                            "redeemed": round(redeemed, 2),
-                            "matched_close_tender": round(gc, 2),
+                            "date": d.isoformat(), "redeemed": round(r_meal, 2),
+                            "matched_close_tender": None, "voucher_class": "mpv",
+                            "status": "unverified_redemption",
+                        })
+                    elif _material(r_meal - t_val, r_meal):
+                        gavekort_warnings.append({
+                            "date": d.isoformat(), "redeemed": round(r_meal, 2),
+                            "matched_close_tender": round(t_val, 2), "voucher_class": "mpv",
                             "status": "tender_short",
                         })
-            # has_sale (no close): Sale rows exist for the date — the meal is
-            # plausibly captured among them; flagging would be a false positive.
+                # SPV — the tender covers MPV first (the cautious reading), and
+                # only what is left is an SPV meal we can take back out.
+                spv_here = min(r_spv, max(t_val - r_meal, 0.0))
+                if spv_here > 0:
+                    # A close's revenue_total is always GROSS (see Stream 2).
+                    spv_in_revenue += spv_here
+                    spv_in_revenue_vat += spv_here * _r
+                if r_spv > 0 and _material(r_spv - spv_here, r_spv):
+                    gavekort_warnings.append({
+                        "date": d.isoformat(), "redeemed": round(r_spv, 2),
+                        "matched_close_tender": round(t_val, 2) if tender is not None else None,
+                        "voucher_class": "spv", "status": "spv_check_double",
+                    })
+                # Cards SOLD over the counter today: the till took the money,
+                # but it is not revenue. If payments only tie to revenue, the
+                # card sale was put into revenue → MOMS counted twice.
+                sold = float(counter_sold.get(d, 0.0))
+                paid = _gkm.payments_total(pay)
+                if sold > 50.0 and paid > 0:
+                    gap = paid - close_revenue_by_date.get(d, 0.0)
+                    if sold - gap > max(50.0, 0.10 * sold):
+                        gavekort_warnings.append({
+                            "date": d.isoformat(), "sold": round(sold, 2),
+                            "payments": round(paid, 2),
+                            "revenue": round(close_revenue_by_date.get(d, 0.0), 2),
+                            "status": "sold_in_revenue",
+                        })
+            else:
+                has_sale = d in sale_any
+                g_val = float(sale_gc_by_date.get(d, 0.0))
+                if r_meal > 0:
+                    if not has_sale:
+                        # Door-scan-only: the meal is in NO close and NO Sale.
+                        gavekort_warnings.append({
+                            "date": d.isoformat(), "redeemed": round(r_meal, 2),
+                            "matched_close_tender": None, "voucher_class": "mpv",
+                            "status": "unmatched_redemption",
+                        })
+                    else:
+                        # P1: one small Sale must not silence a large
+                        # redemption. Compare value, not mere presence: the
+                        # gavekort-tagged Sales, or the day's Sales if none
+                        # are tagged.
+                        covered = g_val if g_val > 0 else float(sale_total_by_date.get(d, 0.0))
+                        if _material(r_meal - covered, r_meal):
+                            gavekort_warnings.append({
+                                "date": d.isoformat(), "redeemed": round(r_meal, 2),
+                                "matched_sales": round(covered, 2), "voucher_class": "mpv",
+                                "status": "sale_short",
+                            })
+                spv_here = min(r_spv, max(g_val - r_meal, 0.0))
+                if spv_here > 0:
+                    spv_in_revenue += spv_here
+                    if vat_rate > 0:
+                        spv_in_revenue_vat += (spv_here * _r if prices_include_moms
+                                               else spv_here * vat_rate)
+                if r_spv > 0 and has_sale and _material(r_spv - spv_here, r_spv):
+                    gavekort_warnings.append({
+                        "date": d.isoformat(), "redeemed": round(r_spv, 2),
+                        "matched_close_tender": None,
+                        "voucher_class": "spv", "status": "spv_check_double",
+                    })
+
+    for v in gk["spv_voided"]:
+        # An at-sale SPV card voided with value left. BonBox does NOT take the
+        # MOMS back out: only if the buyer got the money back can it be
+        # adjusted — the owner/revisor decides.
+        gavekort_warnings.append({
+            "date": v["date"], "amount": v["amount"],
+            "moms": round(v["amount"] * _r, 2),
+            "voucher_class": "spv", "status": "spv_voided",
+        })
+    gavekort_warnings.sort(key=lambda w: (w.get("date", ""), w.get("status", "")))
+
+    spv_in_revenue = round(spv_in_revenue, 2)
+    spv_in_revenue_vat = round(spv_in_revenue_vat, 2)
+    if spv_sold or spv_in_revenue:
+        output_vat = round(output_vat + spv_sold_vat - spv_in_revenue_vat, 2)
+        sales_total = round(sales_total + spv_sold - spv_in_revenue, 2)
+        taxable_sales = round(max(sales_total - exempt_sales, 0.0), 2)
 
     return {
         "sales_total": sales_total,
@@ -721,6 +790,16 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         # revenue/MOMS). Non-empty ⇒ MPV gavekort were redeemed whose meal may
         # not be in the MOMS base → revisor must verify the sale was bogført.
         "gavekort_warnings": gavekort_warnings,
+        # The 4th stream — SPV (enkeltformål) gavekort SOLD in the period:
+        # their MOMS is due at sale and is included in output_vat /
+        # sales_total above. Shown on its own line on the MOMS page + PDF.
+        "gavekort_spv_sold": round(spv_sold, 2),
+        "gavekort_spv_sold_count": int(gk["spv_sold_count"]),
+        "gavekort_spv_output_vat": spv_sold_vat,
+        # SPV-paid meals a gavekort tender shows inside close/Sale revenue —
+        # taken back out so the same value is not taxed twice.
+        "gavekort_spv_redeemed_in_revenue": spv_in_revenue,
+        "gavekort_spv_redeemed_vat": spv_in_revenue_vat,
     }
 
 
@@ -937,6 +1016,9 @@ def get_tax_overview(user: User, db: Session) -> dict:
             "input_vat": vat_data["input_vat"],
             "sales_total": vat_data["sales_total"],
             "expenses_total": vat_data["expenses_total"],
+            # SPV gavekort sold in the period (MOMS at sale) — its own line.
+            "gavekort_spv_sold": vat_data.get("gavekort_spv_sold", 0.0),
+            "gavekort_spv_output_vat": vat_data.get("gavekort_spv_output_vat", 0.0),
         })
 
     # Current period calc (this month)
@@ -1231,25 +1313,67 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
                 "action": None,
             })
 
-        # Gavekort redemption reconciliation — MPV cards redeemed (door-scan)
-        # whose meal may not be in the MOMS base. Detect-only: BonBox never adds
-        # the redemption to revenue (that would double-count), it flags so the
-        # owner/revisor confirms the meal was bogført. SKAT-correctness signal.
+        # Gavekort reconciliation — split by what the owner must check.
+        #   • a meal paid by an MPV gavekort may be MISSING from revenue
+        #     (MOMS under-declared) → gavekort_reconciliation
+        #   • the same value may be counted TWICE (an SPV meal also in revenue,
+        #     or a card sold at the counter typed into revenue) →
+        #     gavekort_double_check
+        #   • an SPV card voided with value left — MOMS was paid at sale; only
+        #     the owner/revisor knows whether the buyer got the money back →
+        #     gavekort_spv_voided
+        # Detect-only: none of these change a figure.
         gk_warn = (cm.get("gavekort_warnings") or []) if isinstance(cm, dict) else []
-        if gk_warn:
-            gk_total = round(sum(float(w.get("redeemed") or 0) for w in gk_warn))
-            day_word = "day" if len(gk_warn) == 1 else "days"
+        _missing = [w for w in gk_warn if w.get("status") in (
+            "unmatched_redemption", "tender_short", "unverified_redemption", "sale_short")]
+        _double = [w for w in gk_warn if w.get("status") in ("spv_check_double", "sold_in_revenue")]
+        _voided = [w for w in gk_warn if w.get("status") == "spv_voided"]
+        if _missing:
+            gk_total = round(sum(float(w.get("redeemed") or 0) for w in _missing))
+            day_word = "day" if len(_missing) == 1 else "days"
             alerts.append({
                 "type": "gavekort_reconciliation",
-                "params": {"count": len(gk_warn), "total": _m(gk_total)},
+                "params": {"count": len(_missing), "total": _m(gk_total)},
                 "severity": "warning",
                 "icon": "\U0001F381",  # 🎁
                 "title": "Gavekort redeemed — check the sale is bogført",
                 "detail": (
-                    f"{len(gk_warn)} {day_word} with gavekort redemptions "
+                    f"{len(_missing)} {day_word} with gavekort redemptions "
                     f"(~{_m(gk_total)}) where the meal may be missing from revenue. "
                     "MOMS falls at redemption — record the sale in a dagsafslutning "
                     "or as a salg so it enters the MOMS base."
+                ),
+                "action": None,
+            })
+        if _double:
+            dbl_total = round(sum(float(w.get("redeemed") or w.get("sold") or 0) for w in _double))
+            alerts.append({
+                "type": "gavekort_double_check",
+                "params": {"count": len(_double), "total": _m(dbl_total)},
+                "severity": "warning",
+                "icon": "\U0001F381",
+                "title": "Gavekort may be counted twice",
+                "detail": (
+                    f"{len(_double)} day(s) where a gavekort (~{_m(dbl_total)}) may be "
+                    "in revenue as well as counted when the card was sold. Take it out "
+                    "of the day's revenue, or ask your revisor."
+                ),
+                "action": None,
+            })
+        if _voided:
+            v_total = round(sum(float(w.get("amount") or 0) for w in _voided))
+            v_moms = round(sum(float(w.get("moms") or 0) for w in _voided))
+            alerts.append({
+                "type": "gavekort_spv_voided",
+                "params": {"count": len(_voided), "total": _m(v_total), "moms": _m(v_moms)},
+                "severity": "info",
+                "icon": "\U0001F381",
+                "title": "Voided gavekort — MOMS stays in",
+                "detail": (
+                    f"{len(_voided)} single-purpose gavekort voided with {_m(v_total)} unused. "
+                    f"The MOMS ({_m(v_moms)}) was counted when it was sold and BonBox leaves "
+                    "it in. If the buyer got the money back, ask your revisor whether it "
+                    "can be adjusted."
                 ),
                 "action": None,
             })
