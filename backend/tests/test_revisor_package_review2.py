@@ -291,6 +291,33 @@ def test_M2_a_bilag_that_could_not_be_fetched_is_an_open_item_everywhere(db, sto
     b.close()
 
 
+def test_M2_monthend_counts_what_is_certain_without_a_download(client, db, store):
+    """Månedsafslutning reads no files: it counts a forwarded file that is
+    gone or not this owner's, a local file that is gone, a reference that is
+    not this owner's — never a storage key it did not fetch."""
+    u = _owner(db)
+    cat = _month(db, u, store, readable=2, unreadable=1)      # 1 inbox blob, never recorded
+    db.add_all([
+        Expense(user_id=u.id, category_id=cat.id, date=date(2026, 9, 20), amount=10,
+                description="Lokal fil væk", payment_method="card",
+                receipt_photo=f"uploads/receipts/{u.id}_1760000000_deadbeef.jpg"),
+        Expense(user_id=u.id, category_id=cat.id, date=date(2026, 9, 21), amount=11,
+                description="Fremmed nøgle", payment_method="card",
+                receipt_photo=f"{uuid.uuid4()}/expense/{'cd' * 32}.jpg"),
+        Expense(user_id=u.id, category_id=cat.id, date=date(2026, 9, 22), amount=12,
+                description="Ikke hentet", payment_method="card",
+                receipt_photo=f"{u.id}/expense/{'ab' * 32}.jpg"),       # storage: not checked here
+    ])
+    db.commit()
+    _as(u)
+    cl = client.get("/api/revisor-package/checklist",
+                    params={"start": "2026-09-01", "end": "2026-09-30"}).json()
+    item = next(i for i in cl["items"] if i["key"] == "bilag_unreadable")
+    assert sorted(r["description"] for r in item["rows"]) == [
+        "Fremmed nøgle", "Lokal fil væk", "Videresendt 0"]
+    assert cl["bilag_fetched"] is False
+
+
 # ── M3 ───────────────────────────────────────────────────────────────
 
 def test_M3_a_kasserapport_variance_is_an_open_item_in_the_angivelses_words(db, store):

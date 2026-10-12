@@ -657,20 +657,28 @@ def unreadable_without_download(db: Session, user: User, expenses) -> list:
     local file or a forwarded (inbox) file that is gone or not recorded for
     this owner. A storage key is not fetched here — the package build reads
     it and reports what failed."""
-    from app.services.receipt_ref import inbox_blob_owned, parse_receipt_ref
+    from app.services.receipt_ref import parse_receipt_ref
     out = []
     base = Path.cwd()
-    for e in expenses:
-        if not _has_bilag(e):
-            continue
-        parsed = parse_receipt_ref(e.receipt_photo, user.id)
+    parsed_all = [(e, parse_receipt_ref(e.receipt_photo, user.id)) for e in expenses if _has_bilag(e)]
+    inbox_paths = {p[1] for _, p in parsed_all if p and p[0] == "inbox"}
+    owned: set = set()
+    if inbox_paths:   # one query for the period, not one per receipt
+        from app.models.receipt_intake import ReceiptIntake
+        try:
+            owned = {r[0] for r in db.query(ReceiptIntake.storage_path).filter(
+                ReceiptIntake.user_id == user.id,
+                ReceiptIntake.storage_path.in_(list(inbox_paths))).all()}
+        except Exception:  # noqa: BLE001 — cannot tell → not theirs
+            owned = set()
+    for e, parsed in parsed_all:
         if not parsed:
             out.append(e)
             continue
         kind, value = parsed
         if kind == "storage":
             continue
-        if kind == "inbox" and not inbox_blob_owned(db, user.id, value):
+        if kind == "inbox" and value not in owned:
             out.append(e)
             continue
         try:
