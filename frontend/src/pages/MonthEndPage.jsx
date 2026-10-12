@@ -196,6 +196,9 @@ export default function MonthEndPage() {
 
   const entitled = data?.send?.entitled ?? (isReady ? hasFeature("accountant_month_end_bundle") : true);
   const revisorEmail = data?.send?.revisor_email || null;
+  // no_revisor / plan have their own lines; daily_cap is only a "tomorrow".
+  const sendBlocker = ["email_unverified", "claim_question_open", "opted_out", "demo_recipient",
+    "demo_identity", "demo_in_period", "daily_cap"].includes(data?.send?.blocker) ? data.send.blocker : null;
   const last = (data?.last_sends || []).find((s) => s.status === "sent");
   const schedule = data?.send?.schedule || "never";
   const lowerFirst = (x) => (x ? x.charAt(0).toLowerCase() + x.slice(1) : x);
@@ -393,6 +396,14 @@ export default function MonthEndPage() {
         {entitled && revisorEmail && openCount > 0 && (
           <p className="text-xs text-amber-800 dark:text-amber-300 mt-1">
             {t("meSendOpenWarn", "{n} items are open. The e-mail lists them, so your revisor knows the period isn't finished.", { n: openCount })}
+          </p>
+        )}
+        {/* Say BEFORE the tap what would stop the mail (an unconfirmed owner
+            e-mail, the revisor's opt-out, sample data …) — the download works
+            either way. */}
+        {entitled && revisorEmail && sendBlocker && (
+          <p className="mt-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 px-3 py-2 text-xs text-amber-900 dark:text-amber-200" role="status" data-testid="me-send-blocker">
+            {t(`rpsBlocked_${sendBlocker}`, sendBlocker)}
           </p>
         )}
         {entitled && !revisorEmail && data && (

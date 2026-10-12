@@ -128,6 +128,14 @@ describe("Månedsafslutning", () => {
     expect(screen.getByText(/meSendLocked/)).toBeInTheDocument();
   });
 
+  it("says before the tap that an unconfirmed e-mail stops the mail", async () => {
+    get.mockImplementation(() => Promise.resolve({ data: CHECKLIST({ send: { entitled: true, blocker: "email_unverified", revisor_email: "pia@revisorhuset.dk" } }) }));
+    renderPage();
+    expect(await screen.findByTestId("me-send-blocker")).toHaveTextContent("rpsBlocked_email_unverified");
+    // The download is never held back.
+    expect(screen.getByText("meDownloadZip")).toBeInTheDocument();
+  });
+
   it("with no revisor saved it points to where it is saved", async () => {
     get.mockImplementation(() => Promise.resolve({ data: CHECKLIST({ send: { entitled: true, blocker: "no_revisor", revisor_email: null } }) }));
     renderPage();
