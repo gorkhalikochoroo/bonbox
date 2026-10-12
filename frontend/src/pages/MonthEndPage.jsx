@@ -151,7 +151,9 @@ export default function MonthEndPage() {
     setNotice(null);
     try {
       const url = what === "zip" ? "/revisor-package/download" : "/revisor-package/summary.pdf";
-      const res = await api.get(url, { params: { start: period.start, end: period.end }, responseType: "blob", timeout: 120000 });
+      // No automatic retries: a slow 93-day package would otherwise be built
+      // up to five times at once on the server. The owner taps again.
+      const res = await api.get(url, { params: { start: period.start, end: period.end }, responseType: "blob", timeout: 120000, _noRetry: true });
       const cd = res.headers?.["content-disposition"] || "";
       const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
       const name = m ? decodeURIComponent(m[1]) : (what === "zip" ? `Revisorpakke_${period.start}_${period.end}.zip` : `Oversigt_${period.start}_${period.end}.pdf`);
@@ -190,7 +192,8 @@ export default function MonthEndPage() {
       setNotice({
         severity: "success",
         text: t("meSent", "Sent to {email}. The link works until {date}.", {
-          email: res.data?.sent_to || "", date: formatDateClear((res.data?.link_expires_at || "").slice(0, 10)),
+          // The owner's local date the link works through (the mail's own words).
+          email: res.data?.sent_to || "", date: formatDateClear(res.data?.link_expires_on || (res.data?.link_expires_at || "").slice(0, 10)),
         }),
       });
       sendKey.current = null;
@@ -198,8 +201,10 @@ export default function MonthEndPage() {
     } catch (e) {
       setNotice({ severity: "critical", text: sendErrorText(e, t, lang) });
       // A refusal (no revisor, opt-out, unverified …) sent nothing: the
-      // next tap is a new send, not a replay.
-      if (e?.response?.status && e.response.status < 500) sendKey.current = null;
+      // next tap is a new send, not a replay. So is a send whose outcome is
+      // unclear — the owner was just told to ask the revisor first.
+      if ((e?.response?.status && e.response.status < 500)
+        || e?.response?.data?.detail?.code === "email_unclear") sendKey.current = null;
     } finally {
       setSending(false);
     }
@@ -416,7 +421,11 @@ export default function MonthEndPage() {
             either way. */}
         {entitled && revisorEmail && sendBlocker && (
           <p className="mt-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 px-3 py-2 text-xs text-amber-900 dark:text-amber-200" role="status" data-testid="me-send-blocker">
-            {t(`rpsBlocked_${sendBlocker}`, sendBlocker)}
+            {/* Nothing is queued from this page — the schedule card's "it goes
+                out tomorrow" would not be true here. */}
+            {sendBlocker === "daily_cap"
+              ? t("meBlocked_daily_cap", "Today's limit for mail to your revisor is reached — send it tomorrow, or download it and send it yourself.")
+              : t(`rpsBlocked_${sendBlocker}`, sendBlocker)}
           </p>
         )}
         {entitled && !revisorEmail && data && (

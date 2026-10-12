@@ -38,6 +38,7 @@ import io
 import json
 import logging
 import re
+import tempfile
 import time
 import unicodedata
 import zipfile
@@ -288,7 +289,12 @@ def _is_demo_close(c) -> bool:
 
 
 def period_closes(db: Session, user: User, start: date, end: date) -> list[DailyClose]:
-    """The period's real closes (every branch), demo days excluded."""
+    """The period's closes (every branch). Sample (demo) days are left out —
+    unless the business IS still the sample company: then every figure is the
+    sample's, compute_filing_data counts them, and leaving them out printed
+    0 kr. revenue beside the sample's salgsmoms. (Under the owner's own
+    identity a period with sample rows gets no package at all — the router's
+    demo fence.)"""
     rows = (
         db.query(DailyClose)
         .filter(DailyClose.user_id == user.id, DailyClose.is_deleted.isnot(True),
@@ -296,7 +302,17 @@ def period_closes(db: Session, user: User, start: date, end: date) -> list[Daily
         .order_by(DailyClose.date.asc())
         .all()
     )
+    if is_sample_company(db, user):
+        return rows
     return [c for c in rows if not _is_demo_close(c)]
+
+
+def is_sample_company(db: Session, user: User) -> bool:
+    from app.services.revisor_mail import is_demo_identity
+    try:
+        return bool(is_demo_identity(profile_of(db, user), user))
+    except Exception:  # noqa: BLE001 — a package is never refused on this
+        return False
 
 
 def revenue_by_day(db: Session, user: User, start: date, end: date, closes) -> list[dict]:
@@ -744,7 +760,7 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
                       fd: dict, checklist: dict, days: list[dict], payments: list[dict],
                       categories: list[dict], closes, n_bilag: int, n_expenses: int,
                       n_bilag_unreadable: int = 0,
-                      generated_at: datetime, doc_number: str) -> bytes:
+                      generated_at: datetime, doc_number: str, sample: bool = False) -> bytes:
     """Page 1 is the answer a revisor wants first: the figures and what is
     open. Then the detail: revenue per day, categories, gift cards, cash."""
     from reportlab.lib import colors
@@ -812,7 +828,8 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
     def story():
         s = []
         head = Table([[
-            [Paragraph("REVISORPAKKE", eyebrow), Paragraph(escape_pdf_text(biz), h1),
+            [Paragraph("REVISORPAKKE · EKSEMPELDATA" if sample else "REVISORPAKKE", eyebrow),
+             Paragraph(escape_pdf_text(biz), h1),
              Paragraph(escape_pdf_text(" · ".join(x for x in (
                  f"CVR {cvr}" if cvr else "", addr) if x)), small)],
             [Paragraph(escape_pdf_text(label[:1].upper() + label[1:]), ParagraphStyle(
@@ -991,9 +1008,17 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
 
 # ─── The package ─────────────────────────────────────────────────────────
 
+# The ZIP is written to a spooled temp file: in memory up to this size, on
+# disk beyond it. One bilag is in memory at a time — a 93-day period with
+# hundreds of photos never holds all of them (or the ZIP twice) in RAM.
+_SPOOL_BYTES = 8 * 1024 * 1024
+
+
 @dataclass
 class PackageBuild:
-    zip_bytes: bytes
+    zip_file: Any                 # SpooledTemporaryFile holding the ZIP
+    zip_size: int
+    zip_sha256: str
     summary_pdf: bytes
     zip_filename: str
     pdf_filename: str
@@ -1007,8 +1032,26 @@ class PackageBuild:
     files: list[tuple[str, int, str]] = field(default_factory=list)
 
     @property
-    def zip_sha256(self) -> str:
-        return hashlib.sha256(self.zip_bytes).hexdigest()
+    def zip_bytes(self) -> bytes:
+        """The whole ZIP in memory — only where it has to be: the storage
+        upload of a send (capped at MAX_LINK_ZIP_BYTES before it gets here)."""
+        self.zip_file.seek(0)
+        return self.zip_file.read()
+
+    def iter_zip(self, chunk: int = 1024 * 1024):
+        """The ZIP in chunks — the download streams it."""
+        self.zip_file.seek(0)
+        while True:
+            block = self.zip_file.read(chunk)
+            if not block:
+                return
+            yield block
+
+    def close(self) -> None:
+        try:
+            self.zip_file.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def doc_number_for(start: date, end: date) -> str:
@@ -1023,15 +1066,15 @@ def _safe_name(value: str) -> str:
 
 def build_package(db: Session, user: User, start: date, end: date, *,
                   kind: str | None = None, now: datetime | None = None,
-                  include_bilag: bool = True) -> PackageBuild:
+                  include_bilag: bool = True,
+                  max_zip_bytes: int | None = None) -> PackageBuild:
     """Everything for the period, as one ZIP plus the summary PDF on its own
-    (the e-mail attaches the PDF). Read-only: nothing in the books changes."""
-    from app.services.bookkeeping_export import (
-        _query_invoices, export_faktura, export_gavekort_ledger, export_moms_summary,
-    )
-    from app.services.daily_close_range_export import closes_to_csv_bytes
+    (the e-mail attaches the PDF). Read-only: nothing in the books changes.
+
+    With `max_zip_bytes` (a send: the link's size cap) the build stops as
+    soon as the bilag pass the cap — PackageDeliveryError("too_large") —
+    instead of reading every photo first."""
     from app.services.tax_filing_pdf import compute_filing_data
-    from app.utils.document_hash import get_software_identifier
 
     validate_period(start, end)
     kind = kind or period_kind_of(start, end)
@@ -1053,9 +1096,51 @@ def build_package(db: Session, user: User, start: date, end: date, *,
     biz = business_name(profile, user)
     label = period_label(start, end, kind)
     label_file = period_file_label(start, end, kind)
+    sample = is_sample_company(db, user)
 
-    # Bilag files — read now, named for the revisor.
-    bilag_files: list[tuple[str, bytes]] = []
+    # The ZIP: a spooled temp file, every entry stamped with the build time.
+    stamp = (now.year, now.month, now.day, now.hour, now.minute, now.second)
+    out = tempfile.SpooledTemporaryFile(max_size=_SPOOL_BYTES)
+    zf = zipfile.ZipFile(out, "w")
+
+    def put(name: str, data: bytes) -> tuple[str, int, str]:
+        info = zipfile.ZipInfo(name, date_time=stamp)
+        # Photos and PDFs are compressed already.
+        info.compress_type = (zipfile.ZIP_STORED if name.startswith("bilag/")
+                              else zipfile.ZIP_DEFLATED)
+        info.external_attr = 0o644 << 16
+        zf.writestr(info, data)
+        return (name, len(data), hashlib.sha256(data).hexdigest())
+
+    try:
+        return _build_into(
+            db, user, start, end, kind=kind, now=now, include_bilag=include_bilag,
+            max_zip_bytes=max_zip_bytes, out=out, zf=zf, put=put, profile=profile, fd=fd,
+            closes=closes, expenses=expenses, checklist=checklist, cat_names=cat_names,
+            days=days, payments=payments, categories=categories, doc_number=doc_number,
+            biz=biz, label=label, label_file=label_file, sample=sample,
+        )
+    except BaseException:
+        try:
+            zf.close()
+        except Exception:  # noqa: BLE001
+            pass
+        out.close()
+        raise
+
+
+def _build_into(db, user, start, end, *, kind, now, include_bilag, max_zip_bytes, out, zf,
+                put, profile, fd, closes, expenses, checklist, cat_names, days, payments,
+                categories, doc_number, biz, label, label_file, sample=False) -> PackageBuild:
+    from app.services.bookkeeping_export import (
+        _query_invoices, export_faktura, export_gavekort_ledger, export_moms_summary,
+    )
+    from app.services.daily_close_range_export import closes_to_csv_bytes
+    from app.utils.document_hash import get_software_identifier
+
+    # Bilag files — one at a time, straight into the ZIP, named for the
+    # revisor. A send stops here once the cap is passed.
+    bilag_meta: list[tuple[str, int, str]] = []
     file_of: dict = {}
     index_rows = []
     used: set[str] = set()
@@ -1075,7 +1160,10 @@ def build_package(db: Session, user: User, start: date, end: date, *,
             continue
         data, ext = loaded
         name = bilag_filename(e.date, e.description or cat, e.amount, ext, used)
-        bilag_files.append((f"bilag/{name}", data))
+        bilag_meta.append(put(f"bilag/{name}", data))
+        del data, loaded
+        if max_zip_bytes and out.tell() > max_zip_bytes:
+            raise PackageDeliveryError("too_large", f"over {_mb(max_zip_bytes)}")
         file_of[e.id] = name
         index_rows.append([name, e.date.isoformat(), csv_safe(e.description or ""),
                            _dk_num(e.amount), vn, csv_safe(cat), "OK"])
@@ -1087,7 +1175,7 @@ def build_package(db: Session, user: User, start: date, end: date, *,
         # the files, and must not say "0 af 12" for that reason).
         closes=closes, n_bilag=sum(1 for e in expenses if _has_bilag(e)),
         n_bilag_unreadable=unreadable, n_expenses=len(expenses),
-        generated_at=now, doc_number=doc_number,
+        generated_at=now, doc_number=doc_number, sample=sample,
     )
     pdf_name = f"Oversigt_{label_file}.pdf"
 
@@ -1111,12 +1199,12 @@ def build_package(db: Session, user: User, start: date, end: date, *,
         files.append(("fakturaer.csv", export_faktura(user, db, start, end)))
     files.append(("bilag-oversigt.csv", _csv(index_rows, [
         "Fil", "Dato", "Tekst", "Beløb inkl. moms", "Bilagsnr.", "Kategori", "Status"])))
-    files += bilag_files
 
     status = checklist_status(checklist)
     open_lines = status["open"]
     readme = "\n".join([
-        f"Revisorpakke — {biz}",
+        f"Revisorpakke — {biz}" + (" — EKSEMPELDATA (ikke en rigtig virksomheds tal)"
+                                   if sample else ""),
         f"Periode: {label} ({start.isoformat()} til {end.isoformat()})",
         f"Bilagsnr.: {doc_number}",
         f"Genereret: {now.strftime('%Y-%m-%d %H:%M')} UTC af {getattr(user, 'email', '') or 'BonBox'}",
@@ -1161,31 +1249,27 @@ def build_package(db: Session, user: User, start: date, end: date, *,
         "FILER (SHA-256)",
         "-" * 60,
     ]
-    meta = []
-    for name, data in files:
-        digest = hashlib.sha256(data).hexdigest()
-        meta.append((name, len(data), digest))
-        manifest.append(f"{digest}  {len(data):>9}  {name}")
-    files.append(("manifest.txt", ("\n".join(manifest) + "\n").encode("utf-8")))
+    # The small files go in after the bilag (they name them); the manifest
+    # lists everything in reading order: oversigt, CSVs, bilag, LAES-MIG.
+    small = [put(name, data) for name, data in files]
+    readme_meta = small[-1]
+    meta = small[:-1] + bilag_meta + [readme_meta]
+    for name, size, digest in meta:
+        manifest.append(f"{digest}  {size:>9}  {name}")
+    put("manifest.txt", ("\n".join(manifest) + "\n").encode("utf-8"))
+    zf.close()
 
-    # A fixed timestamp per build (the generation time) for every entry.
-    stamp = (now.year, now.month, now.day, now.hour, now.minute, now.second)
-    out = io.BytesIO()
-    with zipfile.ZipFile(out, "w") as zf:
-        for name, data in files:
-            info = zipfile.ZipInfo(name, date_time=stamp)
-            # Photos and PDFs are compressed already.
-            info.compress_type = (zipfile.ZIP_STORED if name.startswith("bilag/")
-                                  else zipfile.ZIP_DEFLATED)
-            info.external_attr = 0o644 << 16
-            zf.writestr(info, data)
-
+    size = out.tell()
+    h = hashlib.sha256()
+    out.seek(0)
+    for block in iter(lambda: out.read(1024 * 1024), b""):
+        h.update(block)
     return PackageBuild(
-        zip_bytes=out.getvalue(), summary_pdf=summary,
+        zip_file=out, zip_size=size, zip_sha256=h.hexdigest(), summary_pdf=summary,
         zip_filename=f"Revisorpakke_{_safe_name(biz)}_{label_file}.zip",
         pdf_filename=pdf_name, doc_number=doc_number, checklist=checklist, fd=fd,
         revenue_total=round(sum(r["amount"] for r in days), 2),
-        n_expenses=len(expenses), n_bilag=len(bilag_files), n_bilag_unreadable=unreadable,
+        n_expenses=len(expenses), n_bilag=len(bilag_meta), n_bilag_unreadable=unreadable,
         files=meta,
     )
 
@@ -1301,10 +1385,52 @@ def send_blocker(db: Session, user: User, profile, start: date, end: date) -> st
 
 
 class PackageDeliveryError(Exception):
-    def __init__(self, code: str, detail: str = ""):
+    """Nothing is known to have gone out. `code`:
+      too_large / storage   — before the mail; safe to try again
+      mail                  — the mail service REFUSED it (nothing sent)
+      mail_unclear          — the mail call failed in a way that does not say
+                              whether the revisor got it (a timeout after the
+                              provider accepted it, a 5xx…). Never retried
+                              automatically; `keep` carries what the row needs
+                              so the link in a mail that did arrive still works."""
+
+    def __init__(self, code: str, detail: str = "", keep: dict | None = None):
         super().__init__(code)
         self.code = code
         self.detail = detail
+        self.keep = keep or {}
+
+
+# What the mail service says when it refused a message outright — the
+# request was answered and nothing was queued. Anything else (a timeout, a
+# dropped connection, a 5xx) leaves it open whether the mail went out.
+_MAIL_REFUSED = {"email_not_configured", "invalid_recipient", "empty_attachment",
+                 "attachment_too_large"}
+_MAIL_REFUSED_API = {"ValidationError", "MissingRequiredFieldsError", "MissingApiKeyError",
+                     "InvalidApiKeyError", "RateLimitError"}
+
+
+def mail_refused(err: str | None) -> bool:
+    """True when the failed send certainly did NOT reach anyone."""
+    e = (err or "").strip()
+    if e in _MAIL_REFUSED:
+        return True
+    if e.startswith("send_error:"):
+        return e.split(":", 1)[1].strip() in _MAIL_REFUSED_API
+    return False
+
+
+def mark_failed(row, exc: Exception, now: datetime) -> str:
+    """Stamp a send row failed after deliver raised (the caller rolled back
+    first and commits after). Returns the error code. A 'mail_unclear' row
+    keeps its stored ZIP and link (the mail may have arrived) and is never
+    retried by the schedule."""
+    code = exc.code if isinstance(exc, PackageDeliveryError) else type(exc).__name__
+    detail = getattr(exc, "detail", "") or ""
+    row.status, row.error, row.updated_at = "failed", f"{code}:{detail}"[:120], now
+    for k, v in (getattr(exc, "keep", None) or {}).items():
+        setattr(row, k, v)
+    return code
 
 
 _SCHEDULE_DA = {
@@ -1383,7 +1509,7 @@ def package_email_html(*, biz: str, cvr: str | None, accountant_name: str | None
         "background:#111827;color:#ffffff;text-decoration:none;padding:10px 16px;"
         "border-radius:8px;font-weight:600;'>Hent hele pakken (ZIP)</a></p>"
         f"<p style='font-size:13px;color:#374151;'>ZIP'en har CSV-filerne og "
-        f"{esc(build.n_bilag)} bilag ({esc(_mb(len(build.zip_bytes)))}). Linket virker til og med "
+        f"{esc(build.n_bilag)} bilag ({esc(_mb(build.zip_size))}). Linket virker til og med "
         f"{esc(dk_date(expires))}; bed {esc(biz)} sende pakken igen, hvis det er udløbet.</p>"
         f"{unread}{sched}"
         + (owner_copy_line(owner_copy_to, True) if owner_copy_to else
@@ -1402,17 +1528,43 @@ def deliver(db: Session, user: User, profile, row, *, now: datetime | None = Non
     """Build the package for `row`'s period, store the ZIP, mail the revisor
     (the owner's copy separately), and stamp `row` sent. Raises
     PackageDeliveryError when nothing went out — the row says failed then.
-    The caller commits."""
+    The caller commits. The returned build's ZIP file is closed (its bytes
+    are in storage under row.storage_key)."""
     from app.services import revisor_mail as rm
-    from app.services.storage import compose_key, get_storage
-    from app.services.audit_service import record as audit_record
 
     now = now or utc_now()
     recipient = rm.saved_revisor_address(profile)
     build = build_package(db, user, row.period_start, row.period_end,
-                          kind=row.period_kind, now=now)
-    if len(build.zip_bytes) > MAX_LINK_ZIP_BYTES:
-        raise PackageDeliveryError("too_large", _mb(len(build.zip_bytes)))
+                          kind=row.period_kind, now=now, max_zip_bytes=MAX_LINK_ZIP_BYTES)
+    try:
+        return _deliver_build(db, user, profile, row, build, recipient=recipient, now=now,
+                              schedule=schedule)
+    finally:
+        build.close()
+
+
+def link_expiry(db: Session, user: User, now: datetime) -> tuple[datetime, date]:
+    """(expires_at as naive UTC, the owner's local date it is valid through).
+
+    The mail says "virker til og med <dato>", so the link lives to the END of
+    that local day — PACKAGE_LINK_TTL_DAYS days after the day it was sent —
+    not to the minute it was sent, mid-day."""
+    from app.services.tz_utils import _user_zone
+    tz = _user_zone(user)
+    aware = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    last_day = aware.astimezone(tz).date() + timedelta(days=PACKAGE_LINK_TTL_DAYS)
+    end_local = datetime.combine(last_day, datetime.max.time().replace(microsecond=0), tzinfo=tz)
+    return end_local.astimezone(timezone.utc).replace(tzinfo=None), last_day
+
+
+def _deliver_build(db: Session, user: User, profile, row, build: PackageBuild, *,
+                   recipient: str, now: datetime, schedule: str | None) -> PackageBuild:
+    from app.services import revisor_mail as rm
+    from app.services.storage import compose_key, get_storage
+    from app.services.audit_service import record as audit_record
+
+    if build.zip_size > MAX_LINK_ZIP_BYTES:
+        raise PackageDeliveryError("too_large", _mb(build.zip_size))
     storage = get_storage()
     key = compose_key(user.id, "revisor_package", build.zip_sha256, "zip")
     try:
@@ -1420,7 +1572,7 @@ def deliver(db: Session, user: User, profile, row, *, now: datetime | None = Non
     except Exception as e:  # noqa: BLE001
         raise PackageDeliveryError("storage", type(e).__name__) from None
 
-    expires_at = now + timedelta(days=PACKAGE_LINK_TTL_DAYS)
+    expires_at, expires_on = link_expiry(db, user, now)
     url = download_url(make_link_token(row.id, user.id, expires_at))
     biz = business_name(profile, user)
     label = period_label(row.period_start, row.period_end, row.period_kind)
@@ -1429,7 +1581,7 @@ def deliver(db: Session, user: User, profile, row, *, now: datetime | None = Non
     common = dict(
         biz=biz, cvr=getattr(profile, "org_number", None),
         accountant_name=getattr(profile, "accountant_name", None),
-        label=label, build=build, url=url, expires=expires_at.date(), schedule=schedule,
+        label=label, build=build, url=url, expires=expires_on, schedule=schedule,
     )
     owner_addr = (getattr(user, "email", None) or "").strip().lower()
     ok, err, owner_copied = rm.send_file_to_revisor(
@@ -1442,12 +1594,21 @@ def deliver(db: Session, user: User, profile, row, *, now: datetime | None = Non
         from_display=rm.sender_display(biz), unsubscribe_url=unsub, is_danish=True,
     )
     if not ok:
+        if not mail_refused(err):
+            # It may have arrived: keep the ZIP behind its link, never
+            # resend on our own, and let ops and the owner know.
+            raise PackageDeliveryError("mail_unclear", err or "unknown", keep={
+                "recipient": recipient,
+                "recipient_fp": rm.address_fingerprint(rm.mailbox_address(recipient)),
+                "storage_key": key, "zip_sha256": build.zip_sha256, "zip_size": build.zip_size,
+                "n_bilag": build.n_bilag, "open_items": build.checklist["open_count"],
+                "link_expires_at": expires_at,
+            })
         try:
             # Nothing references this copy now (a manual re-send of the same
             # bytes would have re-uploaded it under the same key anyway).
             others = db.query(type(row)).filter(
-                type(row).storage_key == key, type(row).status == "sent",
-                type(row).purged_at.is_(None)).first()
+                type(row).storage_key == key, type(row).purged_at.is_(None)).first()
             if others is None:
                 storage.delete(key)
         except Exception:  # noqa: BLE001
@@ -1461,7 +1622,7 @@ def deliver(db: Session, user: User, profile, row, *, now: datetime | None = Non
     row.recipient_fp = rm.address_fingerprint(rm.mailbox_address(recipient))
     row.storage_key = key
     row.zip_sha256 = build.zip_sha256
-    row.zip_size = len(build.zip_bytes)
+    row.zip_size = build.zip_size
     row.n_bilag = build.n_bilag
     row.open_items = build.checklist["open_count"]
     row.link_expires_at = expires_at
@@ -1488,7 +1649,7 @@ def _audit_sent(db, user, row, build, recipient, owner_copied, expires_at, subje
                 "period_start": row.period_start.isoformat(),
                 "period_end": row.period_end.isoformat(),
                 "recipient": recipient, "owner_copy": bool(owner_copied),
-                "zip_sha256": build.zip_sha256, "zip_size": len(build.zip_bytes),
+                "zip_sha256": build.zip_sha256, "zip_size": build.zip_size,
                 "doc_number": build.doc_number, "n_bilag": build.n_bilag,
                 "open_items": build.checklist["open_count"],
                 "link_expires_at": expires_at.isoformat(), "subject": subject,
@@ -1503,16 +1664,35 @@ def last_sends(db: Session, user: User, limit: int = 5) -> list[dict]:
         db.query(R).filter(R.user_id == user.id)
         .order_by(R.created_at.desc()).limit(limit).all()
     )
+    from app.jobs.revisor_package_job import STALE_CLAIM
     now = utc_now()
+
+    def _status(r) -> tuple[str, str | None]:
+        # A claim nobody finished (the process died mid-send) is not "being
+        # sent" forever: it failed, and nobody knows if the mail went.
+        if r.status == "claimed" and now - (r.updated_at or r.created_at or now) > STALE_CLAIM:
+            return "failed", "stale_claim"
+        return r.status, r.error
+
     return [{
         "id": str(r.id), "trigger": r.send_trigger, "kind": r.period_kind,
         "period_start": r.period_start.isoformat(), "period_end": r.period_end.isoformat(),
         "label": period_label(r.period_start, r.period_end, r.period_kind),
-        "status": r.status, "skip_reason": r.skip_reason, "error": r.error,
+        "status": _status(r)[0], "skip_reason": r.skip_reason, "error": _status(r)[1],
         "recipient": r.recipient, "open_items": r.open_items, "n_bilag": r.n_bilag,
         "sent_at": r.sent_at.isoformat() if r.sent_at else None,
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "link_expires_at": r.link_expires_at.isoformat() if r.link_expires_at else None,
+        "link_expires_on": link_local_date(user, r.link_expires_at),
         "link_active": bool(r.status == "sent" and r.link_expires_at and r.link_expires_at > now
                             and not r.purged_at),
     } for r in rows]
+
+
+def link_local_date(user: User, expires_at: datetime | None) -> str | None:
+    """The owner's local date a link is valid through (what the mail says)."""
+    if not expires_at:
+        return None
+    from app.services.tz_utils import _user_zone
+    aware = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
+    return aware.astimezone(_user_zone(user)).date().isoformat()

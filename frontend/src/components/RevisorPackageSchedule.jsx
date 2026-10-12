@@ -200,19 +200,25 @@ export default function RevisorPackageSchedule() {
             <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
               <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5">{t("rpsHistory", "Recent packages")}</p>
               <ul className="space-y-1 text-sm">
-                {data.last_sends.map((s) => (
+                {data.last_sends.map((s) => {
+                  // A failure that may still have reached the revisor (a
+                  // timeout after the mail service took it, a send that
+                  // never finished) is not "Failed": nobody knows.
+                  const st = s.status === "failed" && /^(mail_unclear|stale_claim)/.test(s.error || "") ? "unclear" : s.status;
+                  return (
                   <li key={s.id} className="flex items-baseline justify-between gap-3">
                     <span className="min-w-0 truncate text-gray-700 dark:text-gray-300">
                       {s.label}
                       <span className="text-gray-400"> · {s.trigger === "scheduled" ? t("rpsTriggerScheduled", "automatic") : t("rpsTriggerManual", "by you")}</span>
                     </span>
                     <span className={`shrink-0 text-xs ${s.status === "sent" ? "text-gray-600 dark:text-gray-400" : "text-amber-800 dark:text-amber-300"}`}>
-                      {t(`rpsStatus_${s.status}`, s.status)}
+                      {t(`rpsStatus_${st}`, st)}
                       {s.status === "sent" && s.sent_at ? ` ${formatDateClear(s.sent_at.slice(0, 10))}` : ""}
                       {s.status === "skipped" && s.skip_reason ? ` — ${t(`rpsBlocked_${s.skip_reason}`, BLOCKER_FALLBACK[s.skip_reason] || s.skip_reason)}` : ""}
                     </span>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </div>
           )}

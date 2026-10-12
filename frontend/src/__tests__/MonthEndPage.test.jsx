@@ -192,6 +192,37 @@ describe("Månedsafslutning", () => {
     const [, opts] = get.mock.calls.find(([u]) => u === "/revisor-package/download");
     expect(opts.responseType).toBe("blob");
     expect(opts.params.start <= opts.params.end).toBe(true);
+    // Never retried behind the owner's back (each retry is a full build).
+    expect(opts._noRetry).toBe(true);
+  });
+
+  it("the daily cap on this page promises nothing queued", async () => {
+    get.mockImplementation(() => Promise.resolve({ data: CHECKLIST({ send: { entitled: true, blocker: "daily_cap", revisor_email: "pia@revisorhuset.dk" } }) }));
+    renderPage();
+    expect(await screen.findByTestId("me-send-blocker")).toHaveTextContent("meBlocked_daily_cap");
+    expect(screen.queryByText("rpsBlocked_daily_cap")).toBeNull();
+  });
+
+  it("after an unclear send outcome the next tap is a new send, not a replay", async () => {
+    post.mockRejectedValueOnce({ response: { status: 502, data: { detail: {
+      code: "email_unclear", message: "Couldn't confirm", message_da: "Spørg revisoren, før du sender igen",
+    } } } });
+    renderPage();
+    await screen.findByTestId("me-open-count");
+    fireEvent.click(screen.getByText("meSend"));
+    expect(await screen.findByText(/Spørg revisoren/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("meSend"));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    expect(post.mock.calls[0][1].key).not.toBe(post.mock.calls[1][1].key);
+  });
+
+  it("names the local date the link works through", async () => {
+    post.mockResolvedValueOnce({ data: { ok: true, sent_to: "pia@revisorhuset.dk",
+      link_expires_at: "2026-10-27T03:59:59", link_expires_on: "2026-10-26" } });
+    renderPage();
+    await screen.findByTestId("me-open-count");
+    fireEvent.click(screen.getByText("meSend"));
+    expect(await screen.findByText(/meSent:pia@revisorhuset.dk\|.*26/)).toBeInTheDocument();
   });
 });
 
@@ -229,6 +260,16 @@ describe("Settings → Send revisorpakke", () => {
     fireEvent.change(input, { target: { value: "pia@revisorhuset.dk" } });
     fireEvent.click(screen.getByText("rpsSaveEmail"));
     await waitFor(() => expect(put).toHaveBeenCalledWith("/business", { accountant_email: "pia@revisorhuset.dk" }));
+  });
+
+  it("a send that may have arrived is 'not confirmed', never plain 'failed'", async () => {
+    get.mockResolvedValue({ data: SETTINGS({ schedule: "monthly", last_sends: [
+      { id: "a", label: "oktober 2026", trigger: "scheduled", status: "failed", error: "mail_unclear:send_error: ReadTimeout" },
+      { id: "b", label: "september 2026", trigger: "manual", status: "failed", error: "mail:send_error: RateLimitError" },
+    ] }) });
+    render(<MemoryRouter><RevisorPackageSchedule /></MemoryRouter>);
+    expect(await screen.findByText(/rpsStatus_unclear/)).toBeInTheDocument();
+    expect(screen.getByText(/rpsStatus_failed/)).toBeInTheDocument();
   });
 
   it("on a plan that doesn't send it is an upgrade nudge, not a dead switch", async () => {

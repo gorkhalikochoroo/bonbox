@@ -420,7 +420,17 @@ def test_send_mails_revisor_pdf_and_link_and_the_link_serves_the_same_zip(client
 
     row = db.query(RevisorPackageSend).one()
     assert row.status == "sent" and row.send_trigger == "manual"
-    assert (row.link_expires_at - row.sent_at) == timedelta(days=14)
+    # The link works THROUGH the date the mail names: to 23:59:59 local on
+    # the 14th day after the send — not to the minute it was sent.
+    from zoneinfo import ZoneInfo
+    exp, on = rp.link_expiry(db, u, row.sent_at)
+    assert row.link_expires_at == exp
+    local = exp.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Copenhagen"))
+    sent_local = row.sent_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Copenhagen"))
+    assert (local.hour, local.minute, local.second) == (23, 59, 59)
+    assert on == sent_local.date() + timedelta(days=14) == local.date()
+    assert out["link_expires_on"] == on.isoformat()
+    assert rp.dk_date(on) in html
     a = db.query(AuditLog).filter(AuditLog.action == "revisor_package.sent").one()
     assert json.loads(a.after_state)["recipient"] == "pia@revisorhuset.dk"
 
@@ -435,6 +445,128 @@ def test_send_mails_revisor_pdf_and_link_and_the_link_serves_the_same_zip(client
     r2 = client.post("/api/revisor-package/send",
                      json={"start": "2026-09-01", "end": "2026-09-30", "key": "tap-1"})
     assert r2.json()["replayed"] is True and len(mailbox) == n
+
+
+def test_unclear_mail_outcome_is_not_resent_and_its_link_still_works(client, db, store, mailbox,
+                                                                    monkeypatch):
+    """The provider may have accepted the mail before the call died: the
+    owner is told to ask, the same tap is not mailed again, and a revisor who
+    did get the mail can still use its link."""
+    u = _owner(db)
+    _seed_september(db, u, store)
+    _as(u)
+    links = []
+
+    def _flaky(payload):
+        links.append(payload["html"].split("href='", 1)[1].split("'", 1)[0])
+        raise RuntimeError("read timeout")
+
+    monkeypatch.setattr("app.services.email_service.resend.Emails.send", _flaky)
+    body = {"start": "2026-09-01", "end": "2026-09-30", "key": "tap-u"}
+    r = client.post("/api/revisor-package/send", json=body)
+    assert r.status_code == 502 and r.json()["detail"]["code"] == "email_unclear"
+    assert "Spørg revisoren" in r.json()["detail"]["message_da"]
+    row = db.query(RevisorPackageSend).one()
+    assert row.status == "failed" and row.error.startswith("mail_unclear")
+    assert row.storage_key in store.blobs
+    # The same tap again: refused with the same advice, nothing mailed.
+    r = client.post("/api/revisor-package/send", json=body)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "email_unclear"
+    assert len(links) == 1
+    # The link in the mail that may have arrived serves the package.
+    app.dependency_overrides.pop(get_current_user, None)
+    g = client.get(f"/api/public/revisor-package/{links[0].rsplit('/', 1)[1]}")
+    assert g.status_code == 200 and hashlib.sha256(g.content).hexdigest() == row.zip_sha256
+
+
+def test_a_refused_mail_can_be_sent_again_with_the_same_tap(client, db, store, mailbox, monkeypatch):
+    u = _owner(db)
+    _seed_september(db, u, store)
+    _as(u)
+    from resend.exceptions import RateLimitError
+
+    def _refuse(payload):
+        raise RateLimitError("Too many requests", "rate_limit_exceeded", 429)
+
+    monkeypatch.setattr("app.services.email_service.resend.Emails.send", _refuse)
+    body = {"start": "2026-09-01", "end": "2026-09-30", "key": "tap-r"}
+    r = client.post("/api/revisor-package/send", json=body)
+    assert r.status_code == 502 and r.json()["detail"]["code"] == "email_send_failed"
+    row = db.query(RevisorPackageSend).one()
+    assert row.status == "failed" and row.storage_key is None
+    assert not [k for k in store.blobs if "/revisor_package/" in k]   # no orphan ZIP
+    monkeypatch.setattr("app.services.email_service.resend.Emails.send",
+                        lambda payload: mailbox.append(payload) or {"id": "x"})
+    r = client.post("/api/revisor-package/send", json=body)
+    assert r.status_code == 200 and r.json()["ok"]
+    db.refresh(row)
+    assert row.status == "sent" and row.attempts == 2
+
+
+def test_a_stale_manual_claim_reads_as_failed(db):
+    u = _owner(db)
+    t0 = datetime.utcnow() - timedelta(hours=2)
+    db.add(RevisorPackageSend(user_id=u.id, period_kind="month", period_start=SEP[0],
+                              period_end=SEP[1], send_trigger="manual", dedup_key="manual:k",
+                              status="claimed", attempts=1, created_at=t0, updated_at=t0))
+    db.commit()
+    (x,) = rp.last_sends(db, u)
+    assert (x["status"], x["error"]) == ("failed", "stale_claim")
+
+
+def test_a_send_stops_reading_bilag_once_past_the_size_cap(db, store, monkeypatch):
+    u = _owner(db)
+    _seed_september(db, u, store)
+    reads = []
+    real = rp.load_bilag
+    monkeypatch.setattr(rp, "load_bilag", lambda uid, ref: reads.append(ref) or real(uid, ref))
+    with pytest.raises(rp.PackageDeliveryError) as e:
+        rp.build_package(db, u, *SEP, now=NOW, max_zip_bytes=1)
+    assert e.value.code == "too_large" and len(reads) == 1
+
+
+def test_the_download_is_streamed_and_identical_to_the_build(client, db, store):
+    u = _owner(db)
+    _seed_september(db, u, store)
+    _as(u)
+    r = client.get("/api/revisor-package/download", params={"start": "2026-09-01", "end": "2026-09-30"})
+    assert r.status_code == 200 and int(r.headers["content-length"]) == len(r.content)
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    assert z.testzip() is None and "manifest.txt" in z.namelist()
+    # Every file in the manifest, in reading order: oversigt first, bilag
+    # after the CSVs, LAES-MIG last.
+    names = [ln.split()[-1] for ln in z.read("manifest.txt").decode().splitlines()
+             if len(ln.split()) == 3 and len(ln.split()[0]) == 64]
+    assert names[0].startswith("Oversigt_") and names[-1] == "LAES-MIG.txt"
+    assert names.index("bilag-oversigt.csv") < min(i for i, n in enumerate(names) if n.startswith("bilag/"))
+    assert set(names) == set(z.namelist()) - {"manifest.txt"}
+
+
+def test_the_sample_company_package_agrees_with_itself(db, store):
+    """Still the demo seeder's sample company: every figure is the sample's,
+    the package shows them (marked EKSEMPELDATA) — never 0 kr. revenue beside
+    the sample's salgsmoms."""
+    from pypdf import PdfReader
+    u = _owner(db)
+    p = db.query(BusinessProfile).filter(BusinessProfile.user_id == u.id).one()
+    p.cvr_verified_source = "cvrapi.dk · demo"
+    for day in (1, 2):
+        db.add(DailyClose(user_id=u.id, date=date(2026, 9, day), revenue_total=1250,
+                          moms_total=250, status="confirmed", notes="Eksempeldag · demo"))
+    db.commit()
+    b = rp.build_package(db, u, *SEP, now=NOW)
+    fd = compute_filing_data(db, u, *SEP)
+    assert b.revenue_total == 2500 and fd["moms_af_salg"] > 0
+    text = " ".join(p.extract_text() for p in PdfReader(io.BytesIO(b.summary_pdf)).pages)
+    assert "EKSEMPELDATA" in text
+    with zipfile.ZipFile(io.BytesIO(b.zip_bytes)) as z:
+        assert "EKSEMPELDATA" in z.read("LAES-MIG.txt").decode()
+    # Under the owner's OWN identity the same rows get no package at all.
+    u2 = _owner(db)
+    db.add(DailyClose(user_id=u2.id, date=date(2026, 9, 1), revenue_total=1250,
+                      moms_total=250, status="confirmed", notes="Eksempeldag · demo"))
+    db.commit()
+    assert [c.date for c in rp.period_closes(db, u2, *SEP)] == []
 
 
 def test_link_expires_and_tampering_is_refused(client, db, store, mailbox, monkeypatch):

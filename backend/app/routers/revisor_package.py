@@ -26,7 +26,8 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, field_validator
 from slowapi import Limiter
 from sqlalchemy.exc import IntegrityError
@@ -118,17 +119,25 @@ def download(
     profile = rp.profile_of(db, user)
     _demo_fence(db, user, profile, s, e)
     build = rp.build_package(db, user, s, e)
-    write_export_audit_row(
-        db, user, doc_type="revisor_package_zip", bilagsnummer=build.doc_number,
-        doc_hash=build.zip_sha256,
-        period={"from": s.isoformat(), "to": e.isoformat(), "n_bilag": build.n_bilag,
-                "open_items": build.checklist["open_count"]},
-        ip_address=client_ip(request),
-    )
-    return Response(
-        content=build.zip_bytes, media_type="application/zip",
+    try:
+        write_export_audit_row(
+            db, user, doc_type="revisor_package_zip", bilagsnummer=build.doc_number,
+            doc_hash=build.zip_sha256,
+            period={"from": s.isoformat(), "to": e.isoformat(), "n_bilag": build.n_bilag,
+                    "open_items": build.checklist["open_count"]},
+            ip_address=client_ip(request),
+        )
+    except BaseException:
+        build.close()
+        raise
+    # Streamed from the spooled file (memory holds one chunk, not the ZIP),
+    # and the temp file is removed once the response is sent.
+    return StreamingResponse(
+        build.iter_zip(), media_type="application/zip",
         headers={"Content-Disposition": content_disposition(build.zip_filename),
+                 "Content-Length": str(build.zip_size),
                  "Cache-Control": "private, no-store"},
+        background=BackgroundTask(build.close),
     )
 
 
@@ -147,6 +156,7 @@ def summary_pdf(
     profile = rp.profile_of(db, user)
     _demo_fence(db, user, profile, s, e)
     build = rp.build_package(db, user, s, e, include_bilag=False)
+    build.close()
     write_export_audit_row(
         db, user, doc_type="revisor_package_summary_pdf", bilagsnummer=build.doc_number,
         period={"from": s.isoformat(), "to": e.isoformat()},
@@ -178,15 +188,26 @@ class SendRequest(BaseModel):
         return v
 
 
-def _send_view(row: RevisorPackageSend, *, replayed: bool = False) -> dict:
+def _send_view(row: RevisorPackageSend, user: User, *, replayed: bool = False) -> dict:
     return {
         "ok": row.status == "sent", "replayed": replayed, "status": row.status,
         "send_id": str(row.id), "sent_to": row.recipient,
         "sent_at": row.sent_at.isoformat() if row.sent_at else None,
         "open_items": row.open_items, "n_bilag": row.n_bilag,
         "link_expires_at": row.link_expires_at.isoformat() if row.link_expires_at else None,
+        # The owner's local date the link works through — what the mail says.
+        "link_expires_on": rp.link_local_date(user, row.link_expires_at),
         "period_start": row.period_start.isoformat(), "period_end": row.period_end.isoformat(),
     }
+
+
+_UNCLEAR = {
+    "code": "email_unclear",
+    "message": ("Couldn't confirm that the mail reached your revisor. Ask them before you "
+                "send it again — you can still download the package."),
+    "message_da": ("Vi kunne ikke bekræfte, at mailen nåede frem til revisoren. Spørg "
+                   "revisoren, før du sender igen — du kan stadig hente pakken."),
+}
 
 
 @router.post("/send")
@@ -222,8 +243,12 @@ def send_now(
                     "message_da": "Den nøgle hører til en anden periode. Intet er sendt — prøv igen.",
                 })
             if prior.status == "sent":
-                return _send_view(prior, replayed=True)
+                return _send_view(prior, user, replayed=True)
             if prior.status == "claimed":
+                from app.jobs.revisor_package_job import STALE_CLAIM
+                if utc_now() - (prior.updated_at or prior.created_at) > STALE_CLAIM:
+                    # That attempt never finished — it may have gone out.
+                    raise HTTPException(status_code=409, detail=_UNCLEAR)
                 raise HTTPException(status_code=409, detail={
                     "code": "in_progress",
                     "message": "This package is being sent right now.",
@@ -243,6 +268,10 @@ def send_now(
         row = (db.query(RevisorPackageSend)
                .filter(RevisorPackageSend.user_id == user.id, RevisorPackageSend.dedup_key == dedup)
                .first())
+    in_progress = HTTPException(status_code=409, detail={
+        "code": "in_progress", "message": "This package is being sent right now.",
+        "message_da": "Pakken er ved at blive sendt.",
+    })
     if row is None:
         row = RevisorPackageSend(
             user_id=user.id, period_kind=rp.period_kind_of(s, e), period_start=s, period_end=e,
@@ -251,20 +280,30 @@ def send_now(
             dedup_key=dedup, status="claimed", attempts=1, created_at=now, updated_at=now,
         )
         db.add(row)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise in_progress
     else:
-        row.status, row.attempts, row.updated_at = "claimed", (row.attempts or 0) + 1, now
-    try:
+        # Re-using a failed key: compare-and-swap, so two concurrent taps
+        # with the same key cannot both claim (and both mail).
+        if row.status == "failed" and (row.error or "").startswith(("mail_unclear", "stale_claim")):
+            raise HTTPException(status_code=409, detail=_UNCLEAR)
+        seen_status, seen_attempts = row.status, row.attempts or 0
+        won = (db.query(RevisorPackageSend)
+               .filter(RevisorPackageSend.id == row.id,
+                       RevisorPackageSend.status == seen_status,
+                       RevisorPackageSend.attempts == seen_attempts)
+               .update({"status": "claimed", "attempts": seen_attempts + 1, "updated_at": now},
+                       synchronize_session=False))
         db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail={
-            "code": "in_progress", "message": "This package is being sent right now.",
-            "message_da": "Pakken er ved at blive sendt.",
-        })
+        if won != 1:
+            raise in_progress
     db.refresh(row)
     try:
         rp.deliver(db, user, profile, row, now=now)
-    except Exception as exc:  # noqa: BLE001 — deliver raises only before the mail went
+    except Exception as exc:  # noqa: BLE001 — nothing is KNOWN to have gone out
         code = exc.code if isinstance(exc, rp.PackageDeliveryError) else type(exc).__name__
         detail = getattr(exc, "detail", "") or ""
         if not isinstance(exc, rp.PackageDeliveryError):
@@ -272,8 +311,11 @@ def send_now(
         db.rollback()
         row = db.query(RevisorPackageSend).filter(RevisorPackageSend.id == row.id).first()
         if row is not None:
-            row.status, row.error, row.updated_at = "failed", f"{code}:{detail}"[:120], utc_now()
+            rp.mark_failed(row, exc, utc_now())
             db.commit()
+        if code == "mail_unclear":
+            logger.error("revisor package mail outcome unclear for user=%s: %s", user.id, detail)
+            raise HTTPException(status_code=502, detail=_UNCLEAR)
         if code == "too_large":
             raise HTTPException(status_code=413, detail={
                 "code": "package_too_large", "size": detail,
@@ -289,7 +331,7 @@ def send_now(
         })
     db.commit()
     db.refresh(row)
-    return _send_view(row)
+    return _send_view(row, user)
 
 
 class SettingsRequest(BaseModel):
@@ -307,8 +349,9 @@ class SettingsRequest(BaseModel):
 def _settings_view(db: Session, user: User, profile) -> dict:
     from app.services import revisor_mail as rm
     from app.services.billing import has_feature
-    from app.services.tz_utils import _user_zone
-    from app.jobs.revisor_package_job import due_period, next_due_period
+    from app.services.gavekort_moms import _tz_user
+    from app.services.tz_utils import _user_cutoff_hour, _user_zone
+    from app.jobs.revisor_package_job import due_period, next_due_period, period_settled
     sched = (getattr(profile, "revisor_package_schedule", None) or "never") if profile else "never"
     if sched not in rp.SCHEDULES:
         sched = "never"
@@ -316,20 +359,18 @@ def _settings_view(db: Session, user: User, profile) -> dict:
     blocker = None
     if sched in rp.SCHEDULES:
         # The NEXT period this schedule sends: the current one if it fell due
-        # after the owner switched it on and has not gone yet (the job sends
-        # it within the hour), else the one that falls due next.
+        # after the owner switched it on and is not settled yet (sent — by
+        # the schedule, or by hand after it ended — or given up), else the one
+        # that falls due next. Same rules as the job.
         now = utc_now()
-        cur = due_period(sched, now, _user_zone(user))
-        nxt_due = next_due_period(sched, now, _user_zone(user))
-        if cur and profile.revisor_package_schedule_at and profile.revisor_package_schedule_at <= cur[3]:
-            done = (db.query(RevisorPackageSend.id)
-                    .filter(RevisorPackageSend.user_id == user.id,
-                            RevisorPackageSend.send_trigger == "scheduled",
-                            RevisorPackageSend.period_start == cur[1],
-                            RevisorPackageSend.period_end == cur[2],
-                            RevisorPackageSend.status == "sent").first())
-            if not done:
-                nxt_due = cur
+        tzu = _tz_user(db, user)
+        zone, cutoff = _user_zone(tzu), _user_cutoff_hour(tzu)
+        cur = due_period(sched, now, zone, cutoff)
+        nxt_due = next_due_period(sched, now, zone, cutoff)
+        if (cur and profile.revisor_package_schedule_at
+                and profile.revisor_package_schedule_at <= cur[3]
+                and not period_settled(db, user.id, cur[1], cur[2], zone, cutoff)):
+            nxt_due = cur
         if nxt_due:
             nxt = {"kind": nxt_due[0], "start": nxt_due[1].isoformat(), "end": nxt_due[2].isoformat(),
                    "label": rp.period_label(nxt_due[1], nxt_due[2], nxt_due[0]),
@@ -438,7 +479,12 @@ def public_download(token: str, request: Request, db: Session = Depends(get_db))
         return _page("Linket virker ikke", "Linket til revisorpakken er ugyldigt.", 404)
     row = (db.query(RevisorPackageSend)
            .filter(RevisorPackageSend.id == sid, RevisorPackageSend.user_id == uid).first())
-    if row is None or row.status != "sent" or not row.storage_key:
+    # "sent" — or a send whose mail may have arrived (mail_unclear keeps the
+    # ZIP behind its link so a revisor who got it is not left with a dead link).
+    linked = row is not None and (
+        row.status == "sent"
+        or (row.status == "failed" and (row.error or "").startswith("mail_unclear")))
+    if not linked or not row.storage_key:
         return _page("Linket virker ikke", "Linket til revisorpakken er ugyldigt.", 404)
     user = db.query(User).filter(User.id == uid).first()
     profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == uid).first()

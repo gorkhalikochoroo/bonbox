@@ -247,7 +247,7 @@ export default function BookkeepingExportPage() {
           {t("bkeMonthEndCardTitle", "Revisor package & month-end")}
         </span>
         <span className="block text-xs text-gray-600 dark:text-gray-400 mt-0.5">
-          {t("bkeMonthEndCardBody", "See what's still open, then download or send the package with every receipt — on every plan.")}
+          {t("bkeMonthEndCardBody", "See what's still open and download the package with every receipt — on every plan. Sending it to your revisor from BonBox is on Starter and up.")}
         </span>
       </span>
       <Icon name="ChevronRight" size={16} className="text-gray-400 shrink-0" />
