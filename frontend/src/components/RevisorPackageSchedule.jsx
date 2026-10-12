@@ -102,10 +102,17 @@ export default function RevisorPackageSchedule() {
   const schedule = data?.schedule || "never";
   const next = data?.next;
   const blocker = data?.blocker;
-  const whenText = (iso) => {
+  // When the hourly job really sends it (run_at: the due hour + its :20),
+  // in the business's own zone — not the browser's (minor 9).
+  const whenText = (n) => {
+    const iso = n?.run_at || n?.due_at;
     if (!iso) return "";
-    const d = new Date(iso);
-    return d.toLocaleString(lang === "da" ? "da-DK" : "en-GB", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+    const opts = { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" };
+    try {
+      return new Date(iso).toLocaleString(lang === "da" ? "da-DK" : "en-GB", { ...opts, timeZone: n?.tz || "Europe/Copenhagen" });
+    } catch {
+      return new Date(iso).toLocaleString(lang === "da" ? "da-DK" : "en-GB", { ...opts, timeZone: "Europe/Copenhagen" });
+    }
   };
 
   return (
@@ -184,7 +191,7 @@ export default function RevisorPackageSchedule() {
 
           {schedule !== "never" && next && !blocker && (
             <p className="mt-4 text-sm text-gray-700 dark:text-gray-300" data-testid="rps-next">
-              {t("rpsNext", "Next: {period} — sent {when}", { period: next.label, when: whenText(next.due_at) })}
+              {t("rpsNext", "Next: {period} — sent {when}", { period: next.label, when: whenText(next) })}
             </p>
           )}
           {schedule !== "never" && blocker && (
@@ -213,7 +220,7 @@ export default function RevisorPackageSchedule() {
                     </span>
                     <span className={`shrink-0 text-xs ${s.status === "sent" ? "text-gray-600 dark:text-gray-400" : "text-amber-800 dark:text-amber-300"}`}>
                       {t(`rpsStatus_${st}`, st)}
-                      {s.status === "sent" && s.sent_at ? ` ${formatDateClear(s.sent_at.slice(0, 10))}` : ""}
+                      {s.status === "sent" && s.sent_at ? ` ${formatDateClear(s.sent_on || s.sent_at.slice(0, 10))}` : ""}
                       {s.status === "skipped" && s.skip_reason ? ` — ${t(`rpsBlocked_${s.skip_reason}`, BLOCKER_FALLBACK[s.skip_reason] || s.skip_reason)}` : ""}
                       {s.status === "failed" && /^too_large/.test(s.error || "") ? ` — ${t("rpsTooLarge", "too large for a link — download it on Month-end")}` : ""}
                     </span>

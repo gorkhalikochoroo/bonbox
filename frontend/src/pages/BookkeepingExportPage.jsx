@@ -37,7 +37,8 @@ export default function BookkeepingExportPage() {
   const exportsUnlocked = hasFeature("custom_export_templates");
 
   const [formats, setFormats] = useState([]);
-  // The revisor bundle is the recommended default (it carries every file).
+  // The bookkeeping-files ZIP is the recommended default (it carries every
+  // import file). The revisor package itself lives on Månedsafslutning.
   const [selected, setSelected] = useState("bundle");
   const [start, setStart] = useState(() => {
     // Default: first day of last calendar month

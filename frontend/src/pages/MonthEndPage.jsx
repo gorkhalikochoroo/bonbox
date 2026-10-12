@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   CalendarX, LockOpen, Receipt, Inbox, Scale, Landmark, Gift, CircleCheck,
-  ChevronLeft, ChevronRight, Download, FileText, Send,
+  ChevronLeft, ChevronRight, Download, FileText, Send, FileWarning, ArrowLeftRight, History,
 } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -35,11 +35,16 @@ const ICONS = {
   closes_missing: CalendarX,
   closes_unlocked: LockOpen,
   bilag_missing: Receipt,
+  bilag_unreadable: FileWarning,
   drafts_pending: Inbox,
   cash_differences: Scale,
+  sales_variance: ArrowLeftRight,
   bank_unmatched: Landmark,
   gavekort_checks: Gift,
 };
+
+// The figures a sent package stated (server: revisor_package.package_figures).
+const COUNT_FIGURES = new Set(["antal_udgifter", "udgifter_med_bilag"]);
 
 function monthPeriod(d) {
   const start = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -175,7 +180,29 @@ export default function MonthEndPage() {
     }
   };
 
+  // A period already sent (or maybe sent) goes again only after the owner
+  // says so — and when its figures changed, as a correction (RETTELSE).
+  const confirmResend = async (sp) => {
+    if (!sp) return true;
+    const when = formatDateClear(sp.sent_on || "");
+    return confirm(sp.changed ? {
+      title: t("meResendCorrectedTitle", "Send the corrected package?"),
+      message: t("meResendCorrectedMsg", "Your revisor got this period on {date}. The figures have changed since, so the new package is marked RETTELSE and lists what changed.", { date: when }),
+      confirmLabel: t("meSendCorrected", "Send corrected package"),
+    } : sp.status === "unclear" ? {
+      title: t("meResendTitle", "Send it again?"),
+      message: t("meResendUnclearMsg", "We couldn't confirm that the package of {date} reached {email}. Ask your revisor first — send it again now?", { date: when, email: sp.recipient || "" }),
+      confirmLabel: t("meResendCta", "Send again"),
+    } : {
+      title: t("meResendTitle", "Send it again?"),
+      message: t("meResendMsg", "This period was already sent on {date} to {email}. Nothing has changed since — send the same package again?", { date: when, email: sp.recipient || "" }),
+      confirmLabel: t("meResendCta", "Send again"),
+    });
+  };
+
   const send = async () => {
+    const sp = data?.sent_package || null;
+    if (!(await confirmResend(sp))) return;
     if (openCount > 0) {
       const ok = await confirm({
         title: t("meSendConfirmTitle", "Send with open items?"),
@@ -188,7 +215,9 @@ export default function MonthEndPage() {
     setNotice(null);
     if (!sendKey.current) sendKey.current = `me-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     try {
-      const res = await api.post("/revisor-package/send", { start: period.start, end: period.end, key: sendKey.current }, { timeout: 120000 });
+      const res = await api.post("/revisor-package/send", {
+        start: period.start, end: period.end, key: sendKey.current, resend: !!sp,
+      }, { timeout: 120000 });
       setNotice({
         severity: "success",
         text: t("meSent", "Sent to {email}. The link works until {date}.", {
@@ -199,6 +228,9 @@ export default function MonthEndPage() {
       sendKey.current = null;
       q.reload();
     } catch (e) {
+      // Sent from another tab or device meanwhile: say so (the server's own
+      // words) and refresh, so the next tap asks first.
+      if (e?.response?.data?.detail?.code === "already_sent") q.reload();
       setNotice({ severity: "critical", text: sendErrorText(e, t, lang) });
       // A refusal (no revisor, opt-out, unverified …) sent nothing: the
       // next tap is a new send, not a replay. So is a send whose outcome is
@@ -216,6 +248,20 @@ export default function MonthEndPage() {
   const sendBlocker = ["email_unverified", "claim_question_open", "opted_out", "demo_recipient",
     "demo_identity", "demo_in_period", "daily_cap"].includes(data?.send?.blocker) ? data.send.blocker : null;
   const last = (data?.last_sends || []).find((s) => s.status === "sent");
+  const sentPkg = data?.sent_package || null;
+  const figLabel = (k) => ({
+    salg_med_moms: t("meFigSalesVat", "Sales with VAT"),
+    salg_uden_moms: t("meFigSalesNoVat", "Sales without VAT"),
+    moms_af_salg: t("meFigOutputVat", "Output VAT"),
+    kob_med_moms: t("meFigPurchases", "Purchases with VAT"),
+    moms_af_kob: t("meFigInputVat", "Input VAT"),
+    moms_til_skat: t("meFigVatDue", "VAT payable"),
+    omsaetning: t("meFigRevenue", "Revenue incl. VAT"),
+    udgifter: t("meFigExpenses", "Booked expenses"),
+    antal_udgifter: t("meFigExpenseCount", "Number of expenses"),
+    udgifter_med_bilag: t("meFigWithReceipt", "Expenses with a receipt"),
+  }[k] || k);
+  const figValue = (k, v) => (COUNT_FIGURES.has(k) ? String(v) : formatOwnerMoney(v, currency, { decimals: 2 }));
   const schedule = data?.send?.schedule || "never";
   const lowerFirst = (x) => (x ? x.charAt(0).toLowerCase() + x.slice(1) : x);
   const scheduleText = schedule === "weekly"
@@ -227,6 +273,8 @@ export default function MonthEndPage() {
       case "closes_missing": return t("meItemClosesMissing", "Days without a daily close");
       case "closes_unlocked": return t("meItemClosesUnlocked", "Daily closes not locked");
       case "bilag_missing": return t("meItemBilagMissing", "Expenses without a receipt");
+      case "bilag_unreadable": return t("meItemBilagUnreadable", "Receipts BonBox can't fetch");
+      case "sales_variance": return t("meItemVariance", "Daily close and till sales disagree");
       case "drafts_pending": return t("meItemDrafts", "Expenses waiting for approval");
       case "cash_differences": return t("meItemCash", "Cash differences over {amount}", { amount: formatOwnerMoney(it.threshold || 100, currency) });
       case "bank_unmatched": return t("meItemBank", "Bank lines not reconciled");
@@ -238,6 +286,8 @@ export default function MonthEndPage() {
     closes_missing: t("meHintClosesMissing", "A revisor asks for every trading day."),
     closes_unlocked: t("meHintUnlocked", "A draft isn't counted anywhere until you lock it."),
     bilag_missing: t("meHintBilag", "Without a receipt the input VAT can't be defended."),
+    bilag_unreadable: t("meHintBilagUnreadable", "The file behind the receipt is gone — attach it again on the expense."),
+    sales_variance: t("meHintVariance", "The day's close and its till sales differ a lot — the revisor needs the two to agree (Bogføringsloven §9)."),
     drafts_pending: t("meHintDrafts", "Not in your MOMS until you approve them."),
     cash_differences: t("meHintCash", "Counted minus expected, per locked day."),
     bank_unmatched: t("meHintBank", "Outgoing lines from your bank import with no matching expense."),
@@ -246,6 +296,13 @@ export default function MonthEndPage() {
   const rowText = (it, r) => {
     const d = r.date ? formatDateClear(r.date) : "";
     if (it.key === "cash_differences") return `${d} · ${formatOwnerMoney(r.difference, currency, { decimals: 2 })}`;
+    if (it.key === "sales_variance") {
+      return `${d} · ${t("meVarianceRow", "close {close}, till sales {sales}", {
+        close: formatOwnerMoney(r.close_revenue, currency, { decimals: 2 }),
+        sales: formatOwnerMoney(r.sale_sum, currency, { decimals: 2 }),
+      })}`;
+    }
+    if (it.key === "gavekort_checks" && r.amount != null) return `${d} · ${formatOwnerMoney(r.amount, currency, { decimals: 2 })}`;
     if (r.description != null) return `${d} · ${r.description} · ${formatOwnerMoney(r.amount, currency, { decimals: 2 })}`;
     return d;
   };
@@ -391,6 +448,36 @@ export default function MonthEndPage() {
             </p>
           </div>
         </div>
+        {sentPkg && (
+          <div
+            className={`mt-3 rounded-lg border px-3 py-2 text-sm ${sentPkg.changed
+              ? "border-amber-200 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200"
+              : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 text-gray-700 dark:text-gray-300"}`}
+            data-testid="me-sent-package"
+          >
+            <p className="inline-flex items-center gap-1.5">
+              <History size={14} aria-hidden="true" />
+              {sentPkg.status === "unclear"
+                ? t("meSentUnclear", "Possibly sent {date} to {email} — not confirmed.", { date: formatDateClear(sentPkg.sent_on || ""), email: sentPkg.recipient || "" })
+                : t("meSentOn", "Sent to your revisor {date} ({email}).", { date: formatDateClear(sentPkg.sent_on || ""), email: sentPkg.recipient || "" })}
+            </p>
+            {sentPkg.changed && (
+              <>
+                <p className="font-semibold mt-1" data-testid="me-changed-after-send">
+                  {t("meChangedAfterSend", "Changed after it was sent")}
+                </p>
+                <ul className="mt-0.5 text-xs space-y-0.5">
+                  {(sentPkg.changes || []).map((c) => (
+                    <li key={c.key}>{figLabel(c.key)}: {figValue(c.key, c.before)} → {figValue(c.key, c.after)}</li>
+                  ))}
+                </ul>
+                <p className="text-xs mt-1">
+                  {t("meChangedHint", "Send the corrected package — it is marked RETTELSE and lists what changed. Nothing is sent on its own.")}
+                </p>
+              </>
+            )}
+          </div>
+        )}
         <div className="mt-4 flex flex-col sm:flex-row gap-2">
           <Button variant="secondary" onClick={() => download("zip")} busy={downloading === "zip"} disabled={!!downloading || sending || !validCustom}
             iconLeft={downloading !== "zip" && <Download size={14} aria-hidden="true" />}>
@@ -402,7 +489,9 @@ export default function MonthEndPage() {
           {entitled && revisorEmail && (
             <Button variant="accent" onClick={send} busy={sending} disabled={sending || !!downloading || !data || !validCustom}
               iconLeft={!sending && <Send size={14} aria-hidden="true" />} className="sm:ml-auto">
-              {t("meSend", "Send the package")}
+              {sentPkg?.changed ? t("meSendCorrected", "Send corrected package")
+                : sentPkg ? t("meSendAgain", "Send again")
+                  : t("meSend", "Send the package")}
             </Button>
           )}
         </div>
@@ -441,9 +530,9 @@ export default function MonthEndPage() {
               ctaLabel={t("seePlans", "See plans")} />
           </div>
         )}
-        {last && (
+        {last && !sentPkg && (
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-            {t("meLastSent", "Sent {date} to {email}", { date: formatDateClear((last.sent_at || "").slice(0, 10)), email: last.recipient || "" })}
+            {t("meLastSent", "Sent {date} to {email}", { date: formatDateClear(last.sent_on || (last.sent_at || "").slice(0, 10)), email: last.recipient || "" })}
           </p>
         )}
         {notice && <SectionBanner className="mt-3" severity={notice.severity} title={notice.text} />}

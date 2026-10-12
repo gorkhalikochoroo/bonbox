@@ -226,6 +226,51 @@ describe("Månedsafslutning", () => {
   });
 });
 
+describe("Månedsafslutning — after the package went (12 Oct review M7, minor 8)", () => {
+  const SENT = (o = {}) => CHECKLIST({
+    sent_package: { sent_on: "2026-10-03", recipient: "pia@revisorhuset.dk", trigger: "manual",
+      status: "sent", changed: false, changes: [] },
+    ...o,
+  });
+
+  it("a period that changed after it was sent says so and offers the corrected package", async () => {
+    get.mockImplementation(() => Promise.resolve({ data: SENT({
+      sent_package: { sent_on: "2026-10-03", recipient: "pia@revisorhuset.dk", trigger: "manual", status: "sent",
+        changed: true, changes: [{ key: "moms_af_kob", before: 40.2, after: 290.2 }] },
+    }) }));
+    renderPage();
+    expect(await screen.findByTestId("me-changed-after-send")).toHaveTextContent("meChangedAfterSend");
+    expect(screen.getByTestId("me-sent-package")).toHaveTextContent(/meFigInputVat/);
+    fireEvent.click(screen.getByText("meSendCorrected"));
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    expect(confirmFn).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/^meResendCorrectedMsg/) }));
+    expect(post.mock.calls[0][1]).toMatchObject({ resend: true, key: expect.stringMatching(/^me-/) });
+  });
+
+  it("re-sending an unchanged period asks first, and a 'no' sends nothing", async () => {
+    get.mockImplementation(() => Promise.resolve({ data: SENT() }));
+    confirmFn.mockImplementationOnce(async () => false);
+    renderPage();
+    fireEvent.click(await screen.findByText("meSendAgain"));
+    await waitFor(() => expect(confirmFn).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/^meResendMsg/) })));
+    expect(post).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("me-changed-after-send")).toBeNull();
+  });
+
+  it("lists receipts BonBox can't fetch and close/till variances as open items", async () => {
+    const items = [...CHECKLIST().items,
+      { key: "bilag_unreadable", count: 1, applicable: true,
+        rows: [{ id: "e9", date: "2026-09-10", description: "Videresendt", amount: 250 }], link: "/expenses" },
+      { key: "sales_variance", count: 1, applicable: true,
+        rows: [{ date: "2026-09-07", close_revenue: 5000, sale_sum: 300, delta: 4700, delta_pct: 94, direction: "close_high" }],
+        link: "/daily-close?date=2026-09-07" }];
+    get.mockImplementation(() => Promise.resolve({ data: CHECKLIST({ items, open_count: 5 }) }));
+    renderPage();
+    expect(await screen.findByTestId("me-item-bilag_unreadable")).toHaveTextContent("meItemBilagUnreadable");
+    expect(screen.getByTestId("me-item-sales_variance")).toHaveTextContent(/meVarianceRow/);
+  });
+});
+
 describe("Settings → Send revisorpakke", () => {
   const SETTINGS = (o = {}) => ({
     schedule: "never", entitled: true, revisor_email: "pia@revisorhuset.dk",
@@ -270,6 +315,15 @@ describe("Settings → Send revisorpakke", () => {
     render(<MemoryRouter><RevisorPackageSchedule /></MemoryRouter>);
     expect(await screen.findByText(/rpsStatus_unclear/)).toBeInTheDocument();
     expect(screen.getByText(/rpsStatus_failed/)).toBeInTheDocument();
+  });
+
+  it("shows when the job really sends it, in the business's own time zone", async () => {
+    get.mockResolvedValue({ data: SETTINGS({ schedule: "monthly",
+      next: { kind: "month", start: "2026-10-01", end: "2026-10-31", label: "oktober 2026",
+        due_at: "2026-11-03T06:00:00Z", run_at: "2026-11-03T06:20:00Z", tz: "Europe/Copenhagen" } }) });
+    render(<MemoryRouter><RevisorPackageSchedule /></MemoryRouter>);
+    // 06:20 UTC = 07:20 in Copenhagen, whatever the browser's own zone.
+    expect(await screen.findByTestId("rps-next")).toHaveTextContent(/07[.:]20/);
   });
 
   it("on a plan that doesn't send it is an upgrade nudge, not a dead switch", async () => {
