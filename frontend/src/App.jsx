@@ -92,10 +92,13 @@ function GuestPage({ children }) {
   );
 }
 
-// Loading spinner for lazy-loaded pages
+// Loading spinner for lazy-loaded pages. No light background of its own: it
+// shows the html/body the pre-paint chose — paper on an app route, white on
+// every other page — so a cold load never flashes a third colour between the
+// first paint and the page (it was slate-50 on both). Dark unchanged.
 function PageLoader() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-900">
+    <div className="min-h-screen flex items-center justify-center dark:bg-gray-900">
       <div className="text-center">
         <svg className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-3" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>

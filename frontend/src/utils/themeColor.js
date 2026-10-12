@@ -19,36 +19,63 @@ import { isGuestSurface } from "../lib/guestSurface";
  * keeps it in step when the owner toggles the theme live (useDarkMode) and on
  * every route change (useThemeColorSync, mounted once in App).
  *
- * LIGHT is BonBox paper (#f6f4ec) since 12 Oct 2026: the app's light ground and
- * its light shell (sidebar, top bar, bottom nav) are paper, so a white bar
- * above them was a white strip on a cream screen. Pages that paint their OWN
- * white / near-white page keep the white bar in light (WHITE_PAGE_PATHS,
- * WHITE_PAGE_PREFIXES, and any mounted guest page — lib/guestSurface.js, which
- * is how the vanity /<slug> booking page is told apart from an app page).
- * index.html's pre-paint script leaves light at the static #ffffff, so a cold
- * load of a guest page never shows a cream bar; the app's paper bar arrives
- * with React's first commit (useThemeColorSync). Dark is unchanged.
+ * LIGHT is BonBox paper (#f6f4ec) since 12 Oct 2026, but ONLY on a route that
+ * is known to draw on the paper: the owner app (every page inside <Layout />),
+ * the paper auth screens and the schedule wall screen — PAPER_PATHS /
+ * PAPER_PREFIXES below. Everything else is white: the landing, every guest
+ * page (incl. the vanity /<slug> booking page, which a path list could never
+ * enumerate), the staff portal, and the full-screen pages that paint their own
+ * ground (the host stand, the /stand pairing screen, onboarding…). The list is
+ * the APP side on purpose: a page nobody listed — a new guest page, a mistyped
+ * URL on its way to "/" — falls to white, never to a cream flash.
+ * index.html's pre-paint script carries a copy of the list, so a cold load
+ * paints the right bar and ground before the bundle arrives (paper on an app
+ * route, the static white everywhere else). Dark is unchanged.
  */
 export const THEME_COLOR = Object.freeze({ light: "#f6f4ec", dark: "#1f2937", page: "#ffffff" });
 
 /**
- * Light-mode routes whose page paints its own white / near-white ground over
- * the paper body, so the browser bar stays white there: the landing (/, /v2),
- * the staff join screen (#f5f7fb), the magic-link / claim screens and
- * onboarding (slate-50 / gray-50), the legal pages (white) and the guest-facing
- * pages — staff portal /s/, booking /r/, events /e/, tickets /t/, gift cards
- * /g/, invites. NOT /stand: the door-tablet pairing screen draws on the body,
- * i.e. on paper, as do /login and /register (AuthShell is paper).
+ * Light-mode routes that draw on the paper — the ONLY routes whose browser bar
+ * and html/body are paper. Exact paths (trailing slash ignored):
+ *   - every route inside <Layout /> in App.jsx (owner + /admin), including the
+ *     redirect-only legacy paths, so an old bookmark is paper from first paint;
+ *   - the paper auth screens (AuthShell is bg-bb-paper): /login, /register,
+ *     /forgot-password, /verify-email; and /contact, which draws on the body;
+ *   - /staff/schedule/stand, the schedule wall screen: no chrome, but it draws
+ *     on the body like the in-app schedule.
+ * NOT here (white, by being absent): "/", /v2, /join, /onboarding,
+ * /getting-started (gray-50 full-screen), /login/magic, /login/claim, legal,
+ * /reservations/stand and /stand/<token> (the host stand's own gray-50 page),
+ * /stand (its own gradient), /s/ /r/ /e/ /t/ /g/ /accept-invite/ and the
+ * vanity /<slug>. creamCanvas.test.js makes every static route in App.jsx
+ * declare its side, so a new route cannot slip through unlisted.
+ * Keep equal to index.html's pre-paint copy (same test).
  */
-export const WHITE_PAGE_PATHS = Object.freeze(["/", "/v2", "/join", "/login/magic", "/login/claim", "/onboarding", "/privacy", "/terms", "/cookies"]);
-export const WHITE_PAGE_PREFIXES = Object.freeze(["/s/", "/r/", "/e/", "/t/", "/g/", "/accept-invite/"]);
+export const PAPER_PATHS = Object.freeze([
+  "/login", "/register", "/forgot-password", "/verify-email", "/contact", "/staff/schedule/stand",
+  "/dashboard", "/sales", "/events", "/reservations", "/gavekort", "/scan", "/expenses", "/inventory",
+  "/staffing", "/weather", "/waste", "/weekly-report", "/vat-report", "/reports", "/feedback", "/cashbook",
+  "/cashflow", "/tax", "/pricing", "/retention", "/expiry", "/competitors", "/branches", "/outlets",
+  "/consolidated-close", "/terminals", "/modules", "/daily-close/multi", "/share-recipients", "/daily-close",
+  "/workshop", "/wine-list", "/bar", "/workshop/new-job", "/recently-deleted", "/profile", "/personal",
+  "/khata", "/faktura", "/faktura/review", "/customers", "/mileage", "/loans", "/imports", "/bank-import",
+  "/payment-imports", "/budgets", "/team", "/staff/schedule", "/staff/hours", "/staff/time-registration",
+  "/staff/tips", "/staff/payroll", "/more", "/subscription", "/bookkeeping-export", "/insights",
+  "/daily-report", "/channel-settings", "/connections", "/accountant/clients",
+  "/admin", "/admin/training", "/admin/support",
+]);
+/** Paper routes with a dynamic tail (/workshop/job/:id). */
+export const PAPER_PREFIXES = Object.freeze(["/workshop/job/"]);
 
-/** True on a route that paints its own white page in light (trailing slash ignored). */
-export const isWhitePagePath = (path) => {
+/** True on a route that draws on the paper in light (trailing slash ignored). */
+export const isPaperPath = (path) => {
   if (typeof path !== "string") return false;
   const p = path.replace(/\/+$/, "") || "/";
-  return WHITE_PAGE_PATHS.includes(p) || WHITE_PAGE_PREFIXES.some((x) => p.startsWith(x));
+  return PAPER_PATHS.includes(p) || PAPER_PREFIXES.some((x) => p.startsWith(x));
 };
+
+/** True on a route whose page is white in light: every route that is not paper. */
+export const isWhitePagePath = (path) => !isPaperPath(path);
 
 /**
  * Routes whose page has no dark styling at all (0 `dark:` classes): the
@@ -70,7 +97,8 @@ export const isLightOnlyPath = (path) =>
 export function themeColorFor(isDark, path, { guest = false } = {}) {
   // Dark: exactly what shipped — card rung, white on the light-only pages.
   if (isDark) return isLightOnlyPath(path) ? THEME_COLOR.page : THEME_COLOR.dark;
-  // Light: paper, except on a page that paints its own white.
+  // Light: paper on a known paper route, white everywhere else. A mounted guest
+  // page is white even if it somehow sat on a paper path.
   return guest || isWhitePagePath(path) ? THEME_COLOR.page : THEME_COLOR.light;
 }
 
@@ -78,9 +106,8 @@ export function themeColorFor(isDark, path, { guest = false } = {}) {
 export const WHITE_PAGE_CLASS = "bb-page-white";
 
 /**
- * Write the theme-color meta, and mark <html> when the page paints its own
- * white page so the safe-area / overscroll strips are white too (light only,
- * by CSS). No-op without a document; the meta write is skipped when there is
+ * Write the theme-color meta, and mark <html> on every route that is not paper
+ * so the safe-area / overscroll strips are white too (light only, by CSS). No-op without a document; the meta write is skipped when there is
  * no meta (tests, SSR, a page that dropped the tag).
  */
 export function syncThemeColor(isDark, path) {

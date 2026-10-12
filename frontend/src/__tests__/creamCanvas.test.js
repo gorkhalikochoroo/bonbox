@@ -10,9 +10,12 @@
  *      override can paint the old near-white back over it);
  *   2. dark is unchanged: ground #111827, shell = the card rung, and the paper
  *      bar repaint can never match in dark;
- *   3. the browser bar: paper in light on app pages, white on pages that paint
- *      their own white page (landing, guest pages, the staff portal…), and the
- *      dark answers exactly what shipped before;
+ *   3. the browser bar: paper in light ONLY on a known paper route (the owner
+ *      app, the paper auth screens) and white everywhere else — landing, guest
+ *      pages incl. the vanity /<slug>, the staff portal, the full-screen pages
+ *      that paint their own ground (host stand, /stand, onboarding) — with the
+ *      pre-paint deciding the same before the bundle arrives; every static
+ *      route in App.jsx declares its side; dark answers exactly as it shipped;
  *   4. the muted text that sits directly on the paper clears AA (gray-500 does
  *      not: 4.39:1), and the primitives that put it there say gray-600.
  */
@@ -27,9 +30,11 @@ import { SURFACE_LADDER_HEX, NAV_MUTED_HEX, NAV_SURFACE_HEX, BRAND_ACCENT_HEX } 
 import {
   THEME_COLOR,
   LIGHT_ONLY_PATHS,
-  WHITE_PAGE_PATHS,
+  PAPER_PATHS,
+  PAPER_PREFIXES,
   WHITE_PAGE_CLASS,
   themeColorFor,
+  isPaperPath,
   isWhitePagePath,
   syncThemeColor,
 } from "../utils/themeColor";
@@ -130,26 +135,69 @@ describe("2. dark is unchanged", () => {
 describe("3. the browser bar in light", () => {
   it("is paper on app pages and on the paper auth pages", () => {
     expect(THEME_COLOR.light).toBe(PAPER);
-    for (const p of ["/dashboard", "/sales", "/staff/schedule", "/reservations", "/profile", "/login", "/register", "/stand", "/stand/abc"]) {
+    for (const p of ["/dashboard", "/sales", "/staff/schedule", "/reservations", "/profile", "/profile/", "/login", "/register",
+      "/forgot-password", "/verify-email", "/contact", "/staff/schedule/stand", "/workshop/job/42", "/admin/support"]) {
       expect(themeColorFor(false, p), p).toBe(PAPER);
     }
   });
 
-  it("stays white on pages that paint their own white page", () => {
-    for (const p of ["/", "/v2", "/join", "/join/", "/login/magic", "/login/claim", "/onboarding", "/privacy", "/terms", "/cookies",
-      "/s/tok", "/r/cafe", "/e/jazz", "/e/jazz/checkout", "/t/123", "/g/buy/cafe", "/g/tok", "/accept-invite/tok"]) {
+  it("is white everywhere else — the guest pages, the staff portal and the own-ground full-screen pages", () => {
+    for (const p of ["/", "/v2", "/join", "/join/", "/login/magic", "/login/claim", "/onboarding", "/getting-started",
+      "/privacy", "/terms", "/cookies", "/s/tok", "/r/cafe", "/e/jazz", "/e/jazz/checkout", "/t/123", "/g/buy/cafe",
+      "/g/tok", "/accept-invite/tok",
+      // the host stand (own gray-50 page) through both doors, and the pairing screen (own gradient)
+      "/reservations/stand", "/stand", "/stand/abc",
+      // the vanity booking page: white from the path alone, before it mounts
+      "/cafe-nordlys", "/settings"]) {
       expect(themeColorFor(false, p), p).toBe("#ffffff");
+      expect(isPaperPath(p), p).toBe(false);
     }
-    // the vanity booking page /<slug> is only known once it has mounted
-    expect(themeColorFor(false, "/cafe-nordlys")).toBe(PAPER);
-    expect(themeColorFor(false, "/cafe-nordlys", { guest: true })).toBe("#ffffff");
+    // the guest mark still forces white wherever it is raised
+    expect(themeColorFor(false, "/dashboard", { guest: true })).toBe("#ffffff");
+    // prefixes are prefixes, not substrings or bare stems
+    expect(isPaperPath("/workshop/job")).toBe(false);
+    expect(isPaperPath("/dashboardx")).toBe(false);
+    expect(PAPER_PREFIXES).toEqual(["/workshop/job/"]);
   });
 
-  it("every light-only page except the paper /stand pairing screen keeps the white bar", () => {
-    for (const p of LIGHT_ONLY_PATHS) {
-      expect(isWhitePagePath(p), p).toBe(p !== "/stand");
+  it("every light-only page keeps the white bar in light too", () => {
+    for (const p of LIGHT_ONLY_PATHS) expect(isWhitePagePath(p), p).toBe(true);
+  });
+
+  // The list is the APP side, so a route nobody classified would fall to white
+  // — right for a new guest page, a cream-less shell for a new app page. Every
+  // static route in App.jsx must therefore declare its side here: inside
+  // <Layout /> means paper; everything else is named below.
+  it("every static route in App.jsx is classified: Layout routes paper, the rest as declared", () => {
+    const app = read("App.jsx");
+    // \s+ spans the line break of the multi-line <Route\n path=…> entries too
+    const all = [...app.matchAll(/<Route\s+path="([^"]+)"/g)].map((m) => ({ path: m[1], at: m.index }));
+    const layoutSpans = [...app.matchAll(/<(?:ProtectedRoute|SuperAdminRoute)>\s*<Layout \/>/g)].map((m) => [m.index, app.indexOf("\n        </Route>", m.index)]);
+    expect(layoutSpans.length).toBe(2); // owner + /admin
+    const inLayout = (at) => layoutSpans.some(([a, b]) => at > a && at < b);
+    const sample = (path) => path.replace(/:[A-Za-z_]+/g, "x");
+    const OUTSIDE = {
+      "/": "white", "/v2": "white", "/login": "paper", "/login/magic": "white", "/login/claim": "white",
+      "/register": "paper", "/forgot-password": "paper", "/verify-email": "paper", "/onboarding": "white",
+      "/getting-started": "white", "/contact": "paper", "/privacy": "white", "/terms": "white", "/cookies": "white",
+      "/join": "white", "/s/:token": "white", "/s/:slug/:token": "white", "/s/:slug/:name/:token": "white",
+      "/accept-invite/:token": "white", "/accept-invite/team/:token": "white", "/e/:slug": "white",
+      "/e/:slug/checkout": "white", "/e/:slug/success": "white", "/t/:ticket_id": "white", "/r/:slug": "white",
+      "/g/buy/:slug": "white", "/g/:token": "white", "/reservations/stand": "white", "/stand": "white",
+      "/stand/:standToken": "white", "/staff/schedule/stand": "paper", "/:slug": "white", "*": "white",
+    };
+    const outside = all.filter((r) => !inLayout(r.at)).map((r) => r.path);
+    expect(outside.sort()).toEqual(Object.keys(OUTSIDE).sort());
+    for (const p of outside) {
+      if (p === "*") continue;
+      expect(isPaperPath(sample(p)) ? "paper" : "white", p).toBe(OUTSIDE[p]);
     }
-    expect(WHITE_PAGE_PATHS).not.toContain("/stand");
+    const layout = all.filter((r) => inLayout(r.at)).map((r) => r.path);
+    expect(layout.length).toBeGreaterThan(60);
+    for (const p of layout) expect(isPaperPath(sample(p)), p).toBe(true);
+    // and nothing on the list that the router no longer has
+    const known = new Set(all.map((r) => r.path));
+    for (const p of PAPER_PATHS) expect(known.has(p), p).toBe(true);
   });
 
   describe("at runtime (jsdom)", () => {
@@ -170,8 +218,18 @@ describe("3. the browser bar in light", () => {
       document.documentElement.classList.remove("dark");
     });
 
-    it("a guest page that marks itself turns the bar white, and back to paper when it leaves", async () => {
+    it("the vanity booking page is white before it marks itself, and stays white", () => {
       mount("/cafe-nordlys");
+      expect(meta.getAttribute("content")).toBe("#ffffff");
+      let unmark;
+      act(() => { unmark = markGuestSurface(); });
+      expect(meta.getAttribute("content")).toBe("#ffffff");
+      act(() => unmark());
+      expect(meta.getAttribute("content")).toBe("#ffffff");
+    });
+
+    it("a guest mark still re-syncs live: white while raised, paper again when it drops", () => {
+      mount("/dashboard");
       expect(meta.getAttribute("content")).toBe(PAPER);
       let unmark;
       act(() => { unmark = markGuestSurface(); });
@@ -205,17 +263,17 @@ describe("3b. white pages keep a white html/body in light (safe-area + overscrol
     expect(WHITE_PAGE_CLASS).toBe("bb-page-white");
   });
 
-  it("syncThemeColor marks exactly the white-bar routes (and a mounted guest page)", () => {
-    for (const p of ["/r/cafe", "/privacy", "/s/tok", "/join", "/"]) {
+  it("syncThemeColor marks every non-paper route (and a mounted guest page)", () => {
+    for (const p of ["/r/cafe", "/privacy", "/s/tok", "/join", "/", "/cafe-nordlys", "/stand", "/stand/abc", "/reservations/stand", "/getting-started"]) {
       syncThemeColor(false, p);
       expect(html().classList.contains(WHITE_PAGE_CLASS), p).toBe(true);
     }
-    for (const p of ["/dashboard", "/login", "/stand", "/cafe-nordlys"]) {
+    for (const p of ["/dashboard", "/login", "/staff/schedule/stand"]) {
       syncThemeColor(false, p);
       expect(html().classList.contains(WHITE_PAGE_CLASS), p).toBe(false);
     }
     const unmark = markGuestSurface();
-    syncThemeColor(false, "/cafe-nordlys");
+    syncThemeColor(false, "/dashboard");
     expect(html().classList.contains(WHITE_PAGE_CLASS)).toBe(true);
     unmark();
   });
@@ -229,14 +287,50 @@ describe("3b. white pages keep a white html/body in light (safe-area + overscrol
   };
 
   it.each([
-    "/", "/v2", "/join", "/join/", "/login/magic", "/login/claim", "/onboarding", "/privacy", "/terms", "/cookies",
+    "/", "/v2", "/join", "/join/", "/login/magic", "/login/claim", "/onboarding", "/getting-started", "/privacy", "/terms", "/cookies",
     "/s/tok", "/r/cafe", "/e/jazz", "/t/1", "/g/buy/cafe", "/accept-invite/team/tok",
-    "/dashboard", "/sales", "/login", "/register", "/stand", "/stand/abc", "/cafe-nordlys", "/settings",
-  ])("the pre-paint script agrees with themeColor.js on %s", (path) => {
-    window.history.pushState({}, "", path);
-    html().classList.remove(WHITE_PAGE_CLASS);
-    runPrePaint();
-    expect(html().classList.contains(WHITE_PAGE_CLASS)).toBe(isWhitePagePath(path));
+    "/stand", "/stand/abc", "/reservations/stand", "/cafe-nordlys", "/settings", "/dashboardx", "/workshop/job",
+    ...PAPER_PATHS, "/dashboard/", "/workshop/job/42",
+  ])("the pre-paint script agrees with themeColor.js on %s (ground + light bar)", (path) => {
+    const meta = document.createElement("meta");
+    meta.setAttribute("name", "theme-color");
+    meta.setAttribute("content", "#ffffff"); // the static value a cold load starts from
+    document.head.appendChild(meta);
+    try {
+      window.history.pushState({}, "", path);
+      html().classList.remove(WHITE_PAGE_CLASS);
+      runPrePaint();
+      expect(html().classList.contains(WHITE_PAGE_CLASS)).toBe(isWhitePagePath(path));
+      expect(meta.getAttribute("content")).toBe(themeColorFor(false, path));
+    } finally {
+      meta.remove();
+    }
+  });
+
+  it("the pre-paint carries exactly PAPER_PATHS / PAPER_PREFIXES — no extra, no missing", () => {
+    const page = readFileSync(join(SRC, "..", "index.html"), "utf8");
+    const m = page.match(/var paper = \/\^(.*?)\/\.test\(wp\) \|\| \[([\s\S]*?)\]\.indexOf\(wp\)/);
+    expect(m, "pre-paint paper list not found").not.toBeNull();
+    expect(JSON.parse(`[${m[2]}]`)).toEqual([...PAPER_PATHS]);
+    expect(m[1].replace(/\\\//g, "/")).toBe(PAPER_PREFIXES[0]);
+  });
+
+  it("the pre-paint still writes the paper bar when storage is blocked", () => {
+    const meta = document.createElement("meta");
+    meta.setAttribute("name", "theme-color");
+    meta.setAttribute("content", "#ffffff");
+    document.head.appendChild(meta);
+    const orig = Object.getOwnPropertyDescriptor(window, "localStorage");
+    Object.defineProperty(window, "localStorage", { configurable: true, get() { throw new Error("blocked"); } });
+    try {
+      window.history.pushState({}, "", "/dashboard");
+      runPrePaint();
+      expect(meta.getAttribute("content")).toBe(PAPER);
+      expect(html().classList.contains(WHITE_PAGE_CLASS)).toBe(false);
+    } finally {
+      if (orig) Object.defineProperty(window, "localStorage", orig);
+      meta.remove();
+    }
   });
 });
 

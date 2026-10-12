@@ -302,9 +302,10 @@ describe("the browser bar follows the theme", () => {
   });
 
   // The STATIC value: what a page shows before React's first commit. It stays
-  // white so a cold load of a guest page (the vanity /<slug> booking page can
-  // only be recognised once it mounts) never flashes the app's paper bar.
-  it("the static meta stays white — the pre-paint never writes light", () => {
+  // white so a cold load of a guest page (the vanity /<slug> booking page is
+  // not on any list) never flashes the app's paper bar; the pre-paint writes
+  // paper only on a route it KNOWS is an app route (themeColor.js PAPER_PATHS).
+  it("the static meta stays white — the pre-paint writes light paper only on app routes", () => {
     const html = readFileSync(join(SRC, "..", "index.html"), "utf8");
     expect(html).toContain('<meta name="theme-color" content="#ffffff" />');
   });
@@ -421,7 +422,7 @@ describe("the browser bar follows the theme", () => {
       cleanup();
     });
 
-    it("…but not on the staff portal, and never in light", () => {
+    it("…but not on the staff portal; light writes paper only on an app route", () => {
       localStorage.setItem("theme", "dark");
       window.history.pushState({}, "", "/s/tok");
       runPrePaint();
@@ -429,6 +430,12 @@ describe("the browser bar follows the theme", () => {
 
       localStorage.setItem("theme", "light");
       window.history.pushState({}, "", "/dashboard");
+      runPrePaint();
+      expect(meta.getAttribute("content")).toBe("#f6f4ec");
+
+      // a guest page (the vanity booking link) keeps the static white
+      meta.setAttribute("content", "#ffffff");
+      window.history.pushState({}, "", "/cafe-nordlys");
       runPrePaint();
       expect(meta.getAttribute("content")).toBe("#ffffff");
     });
