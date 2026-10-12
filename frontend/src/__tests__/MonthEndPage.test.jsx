@@ -95,6 +95,37 @@ describe("Månedsafslutning", () => {
     expect(within(missing).getByText(/meHintOpenDays/)).toBeInTheDocument();
   });
 
+  it("an all-clear never says more than was checked", async () => {
+    const clear = (over) => CHECKLIST({
+      open_count: 0,
+      items: CHECKLIST().items.map((i) => ({ ...i, count: 0, rows: [] })),
+      ...over,
+    });
+    // Finished period, closes in use → "every day is closed and locked".
+    get.mockImplementation(() => Promise.resolve({ data: clear() }));
+    const a = renderPage();
+    expect(await screen.findByText("meAllClear")).toBeInTheDocument();
+    expect(screen.getByTestId("me-checked-until")).toHaveTextContent(/^meCheckedUntil:/);
+    a.unmount();
+    // Running period → "so far", and it says the period isn't over.
+    get.mockImplementation(() => Promise.resolve({ data: clear({
+      period: { start: "2026-10-01", end: "2026-10-31", kind: "month", label: "oktober 2026" },
+      checked_until: "2026-10-11",
+    }) }));
+    const b = renderPage();
+    expect(await screen.findByText("meAllClearSoFar")).toBeInTheDocument();
+    expect(screen.getByTestId("me-checked-until")).toHaveTextContent(/^mePeriodNotOver:/);
+    b.unmount();
+    // No daily closes in BonBox → no claim about locked days at all.
+    get.mockImplementation(() => Promise.resolve({ data: clear({
+      items: CHECKLIST().items.map((i) => ({ ...i, count: 0, rows: [],
+        applicable: i.key.startsWith("closes") || i.key === "cash_differences" ? false : i.applicable })),
+    }) }));
+    renderPage();
+    expect(await screen.findByText("meAllClearNoCloses")).toBeInTheDocument();
+    expect(screen.queryByText("meAllClear")).toBeNull();
+  });
+
   it("sends after a confirmation that names the open items, with a one-tap key", async () => {
     renderPage();
     await screen.findByTestId("me-open-count");

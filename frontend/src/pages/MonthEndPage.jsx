@@ -126,6 +126,17 @@ export default function MonthEndPage() {
   const data = q.data;
   const items = (data?.items || []).filter((i) => i.applicable || i.key === "closes_missing");
   const openCount = data?.open_count ?? 0;
+  // Say no more than was checked (the PDF and the mail follow the same
+  // rules, revisor_package.checklist_status): "every day is locked" only
+  // when BonBox checks this owner's closes, "so far" while the period runs.
+  const checkedUntil = data?.checked_until || null;
+  const periodOver = !!(checkedUntil && data?.period?.end && checkedUntil >= data.period.end);
+  const closesChecked = !!(data?.items || []).find((i) => i.key === "closes_missing")?.applicable && !!checkedUntil;
+  const allClearText = !closesChecked
+    ? t("meAllClearNoCloses", "Nothing open — every booked expense with VAT has its receipt.")
+    : periodOver
+      ? t("meAllClear", "Nothing open — every day is closed and locked, and every booked expense with VAT has its receipt.")
+      : t("meAllClearSoFar", "Nothing open so far — every day up to now is closed and locked, and every booked expense with VAT has its receipt.");
 
   const shift = (dir) => {
     setNotice(null);
@@ -301,14 +312,16 @@ export default function MonthEndPage() {
               ) : (
                 <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300 inline-flex items-center gap-1.5">
                   <CircleCheck size={16} aria-hidden="true" />
-                  {t("meAllClear", "Nothing open — every day is closed and locked, and every expense has its receipt.")}
+                  {allClearText}
                 </p>
               )}
-              {data.checked_until && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
-                  {t("meCheckedUntil", "Checked up to and including {date}.", { date: formatDateClear(data.checked_until) })}
-                </p>
-              )}
+              <p className="text-xs text-gray-500 dark:text-gray-400 shrink-0" data-testid="me-checked-until">
+                {periodOver
+                  ? t("meCheckedUntil", "Checked up to and including {date}.", { date: formatDateClear(checkedUntil) })
+                  : checkedUntil
+                    ? t("mePeriodNotOver", "The period isn't over — checked up to and including {date}.", { date: formatDateClear(checkedUntil) })
+                    : t("mePeriodNotStarted", "The period isn't over — no days to check yet.")}
+              </p>
             </div>
             <ul className="divide-y divide-gray-100 dark:divide-gray-800">
               {items.map((it) => {

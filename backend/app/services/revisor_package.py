@@ -616,6 +616,47 @@ def open_item_lines(checklist: dict) -> list[str]:
     return lines
 
 
+def checklist_status(checklist: dict) -> dict:
+    """What the package may say about the period — the summary PDF, the
+    e-mail and LAES-MIG.txt print exactly this, so the three cannot disagree.
+
+    {"open": [lines], "title": str, "notes": [str]}
+
+    It never says more than was checked: "alle dage er lukket og låst" only
+    when BonBox checks this owner's closes (closes_missing applicable), and
+    only for the days checked; a period that is not over says so, with the
+    last day checked; the bilag claim names the rule it was checked by
+    (booked expenses with moms — the Udgifter page's own rule)."""
+    period = checklist.get("period") or {}
+    end = date.fromisoformat(period["end"]) if period.get("end") else None
+    cu = checklist.get("checked_until")
+    checked = date.fromisoformat(cu) if cu else None
+    over = bool(end and checked and checked >= end)
+    closes_item = next((i for i in checklist.get("items") or []
+                        if i.get("key") == "closes_missing"), {}) or {}
+    closes_on = bool(closes_item.get("applicable"))
+    days_word = "alle åbningsdage" if closes_item.get("open_days_configured") else "alle dage"
+
+    notes: list[str] = []
+    if not over:
+        notes.append(f"Perioden er ikke slut — kontrolleret til og med {dk_date(checked)}."
+                     if checked else "Perioden er ikke slut — ingen dage er kontrolleret endnu.")
+    if not closes_on:
+        notes.append("Der føres ikke dagsafslutninger i BonBox, så manglende dage er ikke kontrolleret.")
+
+    lines = open_item_lines(checklist)
+    if lines:
+        return {"open": lines, "notes": notes,
+                "title": f"Åbne punkter ({len(lines)}) — perioden er ikke færdig"}
+    parts = []
+    if closes_on and checked:
+        parts.append(f"{days_word} er lukket og låst" if over
+                     else f"{days_word} indtil nu er lukket og låst")
+    parts.append("alle bogførte udgifter med moms har bilag")
+    return {"open": [], "notes": notes,
+            "title": "Ingen åbne punkter: " + ", og ".join(parts) + "."}
+
+
 # ─── CSV files ───────────────────────────────────────────────────────────
 
 def _csv(rows: list[list], header: list[str]) -> bytes:
@@ -745,7 +786,8 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
     cvr = getattr(profile, "org_number", None) if profile else None
     addr = compose_business_address(profile) if profile else ""
     label = period_label(start, end, kind)
-    lines = open_item_lines(checklist)
+    status = checklist_status(checklist)
+    lines = status["open"]
     P = lambda t, s=cell: Paragraph(escape_pdf_text(t), s)  # noqa: E731
 
     def grid(data, widths, *, total_row=False, header=True):
@@ -786,22 +828,23 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
         s.append(head)
         s.append(Spacer(1, 4 * mm))
 
-        # ── Status: what is open (or that nothing is) ──
+        # ── Status: what is open (or that nothing is) — checklist_status,
+        # the same sentences the e-mail and LAES-MIG.txt print ──
+        note_rows = [[Paragraph(escape_pdf_text(x), small)] for x in status["notes"]]
         if lines:
-            rows = [[Paragraph(escape_pdf_text(
-                f"Åbne punkter ({len(lines)}) — perioden er ikke færdig"), ParagraphStyle(
+            rows = [[Paragraph(escape_pdf_text(status["title"]), ParagraphStyle(
                     "OT", parent=body, fontName="Helvetica-Bold", textColor=AMBER))]]
             rows += [[Paragraph("• " + escape_pdf_text(x), body)] for x in lines]
-            box = Table(rows, colWidths=[W])
+            box = Table(rows + note_rows, colWidths=[W])
             box.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), AMBER_BG),
                                      ("BOX", (0, 0), (-1, -1), 0.6, AMBER),
                                      ("LEFTPADDING", (0, 0), (-1, -1), 8),
                                      ("TOPPADDING", (0, 0), (-1, -1), 2.5),
                                      ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5)]))
         else:
-            box = Table([[Paragraph("Ingen åbne punkter: alle dage er lukket og låst, og alle "
-                                    "udgifter har bilag.", ParagraphStyle(
-                                        "OK", parent=body, textColor=OK))]], colWidths=[W])
+            box = Table([[Paragraph(escape_pdf_text(status["title"]), ParagraphStyle(
+                                        "OK", parent=body, textColor=OK))]] + note_rows,
+                        colWidths=[W])
             box.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), OK_BG),
                                      ("BOX", (0, 0), (-1, -1), 0.6, OK),
                                      ("LEFTPADDING", (0, 0), (-1, -1), 8)]))
@@ -1070,7 +1113,8 @@ def build_package(db: Session, user: User, start: date, end: date, *,
         "Fil", "Dato", "Tekst", "Beløb inkl. moms", "Bilagsnr.", "Kategori", "Status"])))
     files += bilag_files
 
-    open_lines = open_item_lines(checklist)
+    status = checklist_status(checklist)
+    open_lines = status["open"]
     readme = "\n".join([
         f"Revisorpakke — {biz}",
         f"Periode: {label} ({start.isoformat()} til {end.isoformat()})",
@@ -1097,7 +1141,8 @@ def build_package(db: Session, user: User, start: date, end: date, *,
         "  bogføringseksporten, så tallene kan importeres direkte.",
         "",
         "ÅBNE PUNKTER" + (f" ({len(open_lines)})" if open_lines else ""),
-        *([f"  • {x}" for x in open_lines] or ["  Ingen."]),
+        *([f"  • {x}" for x in open_lines] or [f"  {status['title']}"]),
+        *[f"  {x}" for x in status["notes"]],
         "",
         "Udkast i godkend-køen er ikke med i tallene, før ejeren har godkendt dem.",
     ]) + "\n"
@@ -1278,7 +1323,8 @@ def package_email_html(*, biz: str, cvr: str | None, accountant_name: str | None
     the attachment says is not."""
     from app.services.revisor_mail import esc, owner_copy_line, revisor_footer_html
     fd = build.fd
-    lines = open_item_lines(build.checklist)
+    status = checklist_status(build.checklist)
+    lines = status["open"]
     named = bool((accountant_name or "").strip()) and not owner_copy_to
     greeting = f"Hej {esc(accountant_name.strip())}," if named else "Hej,"
     rows = [
@@ -1296,19 +1342,23 @@ def package_email_html(*, biz: str, cvr: str | None, accountant_name: str | None
         f"<td style='padding:4px 0;font-weight:600;text-align:right;'>{esc(_kr(v))}</td></tr>"
         for k, v in rows
     )
+    notes = "".join(
+        f"<p style='margin:6px 0 0;font-size:13px;color:#4b5563;'>{esc(x)}</p>"
+        for x in status["notes"]
+    )
     if lines:
-        status = (
+        status_html = (
             "<div style='margin:16px 0;padding:12px 14px;background:#fffbeb;"
             "border:1px solid #f59e0b;border-radius:8px;'>"
-            f"<p style='margin:0 0 6px;font-weight:600;color:#92400e;'>Åbne punkter ({len(lines)})"
-            " — perioden er ikke færdig</p><ul style='margin:0;padding-left:18px;color:#374151;'>"
+            f"<p style='margin:0 0 6px;font-weight:600;color:#92400e;'>{esc(status['title'])}</p>"
+            "<ul style='margin:0;padding-left:18px;color:#374151;'>"
             + "".join(f"<li>{esc(x)}</li>" for x in lines)
-            + "</ul></div>"
+            + f"</ul>{notes}</div>"
         )
     else:
-        status = (
-            "<p style='margin:16px 0;color:#065f46;'>Ingen åbne punkter: alle dage er lukket "
-            "og låst, og alle udgifter har bilag.</p>"
+        status_html = (
+            f"<div style='margin:16px 0;'><p style='margin:0;color:#065f46;'>{esc(status['title'])}</p>"
+            f"{notes}</div>"
         )
     unread = (
         f"<p style='color:#92400e;font-size:13px;'>{esc(build.n_bilag_unreadable)} bilag kunne ikke "
@@ -1326,7 +1376,7 @@ def package_email_html(*, biz: str, cvr: str | None, accountant_name: str | None
         f"<p>{greeting}</p>"
         f"<p>Her er revisorpakken for <strong>{esc(biz)}</strong> for <strong>{esc(label)}</strong>.</p>"
         f"<table style='border-collapse:collapse;margin:12px 0;font-size:14px;'>{table}</table>"
-        f"{status}"
+        f"{status_html}"
         f"<p style='font-size:13px;color:#374151;'>Vedhæftet: {esc(build.pdf_filename)} "
         f"(oversigt, bilagsnr. {esc(build.doc_number)}).</p>"
         f"<p style='margin:16px 0;'><a href='{esc(url)}' style='display:inline-block;"

@@ -281,6 +281,92 @@ def test_cash_tolerance_is_the_kasserapport_one(db):
     assert [r["date"] for r in rows] == ["2026-09-02"]
 
 
+# ── What the package may say: never more than was checked ───────────
+
+OCT = (date(2026, 10, 1), date(2026, 10, 31))
+
+
+def _locked_days(db, u, start, end, weekdays=None):
+    d = start
+    while d <= end:
+        if weekdays is None or d.isoweekday() in weekdays:
+            db.add(DailyClose(user_id=u.id, date=d, revenue_total=1000, moms_total=200,
+                              status="confirmed"))
+        d += timedelta(days=1)
+    db.commit()
+
+
+def test_all_clear_for_a_finished_period_with_every_day_locked(db):
+    u = _owner(db)
+    _locked_days(db, u, *SEP)
+    st = rp.checklist_status(rp.build_checklist(db, u, *SEP, now=NOW))
+    assert st["open"] == [] and st["notes"] == []
+    assert st["title"] == ("Ingen åbne punkter: alle dage er lukket og låst, "
+                           "og alle bogførte udgifter med moms har bilag.")
+
+
+def test_unfinished_period_says_so_and_claims_only_the_days_checked(db):
+    u = _owner(db)
+    _locked_days(db, u, date(2026, 10, 1), date(2026, 10, 11))
+    st = rp.checklist_status(rp.build_checklist(db, u, *OCT, now=NOW))   # NOW = 12 Oct
+    assert st["open"] == []
+    assert "alle dage indtil nu er lukket og låst" in st["title"]
+    assert "alle dage er lukket og låst" not in st["title"]
+    assert st["notes"] == [
+        f"Perioden er ikke slut — kontrolleret til og med {rp.dk_date(date(2026, 10, 11))}."]
+
+
+def test_period_starting_today_claims_no_locked_days(db):
+    u = _owner(db)
+    _locked_days(db, u, date(2026, 9, 1), date(2026, 10, 11))
+    st = rp.checklist_status(rp.build_checklist(db, u, date(2026, 10, 12), date(2026, 10, 18), now=NOW))
+    assert "lukket og låst" not in st["title"]
+    assert st["notes"] == ["Perioden er ikke slut — ingen dage er kontrolleret endnu."]
+
+
+def test_owner_without_daily_closes_is_never_told_the_days_are_locked(db):
+    u = _owner(db)
+    st = rp.checklist_status(rp.build_checklist(db, u, *SEP, now=NOW))
+    assert st["title"] == "Ingen åbne punkter: alle bogførte udgifter med moms har bilag."
+    assert st["notes"] == ["Der føres ikke dagsafslutninger i BonBox, så manglende dage "
+                           "er ikke kontrolleret."]
+
+
+def test_opening_days_are_named_when_the_owner_set_them(db):
+    u = _owner(db, open_days="12345")
+    _locked_days(db, u, *SEP, weekdays={1, 2, 3, 4, 5})
+    st = rp.checklist_status(rp.build_checklist(db, u, *SEP, now=NOW))
+    assert st["title"].startswith("Ingen åbne punkter: alle åbningsdage er lukket og låst")
+
+
+def test_open_items_keep_the_unfinished_period_note(db, store):
+    u = _owner(db)
+    _locked_days(db, u, date(2026, 10, 1), date(2026, 10, 5))   # 6–11 Oct missing
+    st = rp.checklist_status(rp.build_checklist(db, u, *OCT, now=NOW))
+    assert st["title"] == "Åbne punkter (1) — perioden er ikke færdig"
+    assert st["open"][0].startswith("6 dage uden dagsafslutning")
+    assert st["notes"][0].startswith("Perioden er ikke slut — kontrolleret til og med")
+
+
+def test_pdf_mail_and_readme_print_the_same_status(db, store):
+    from pypdf import PdfReader
+    from app.services.revisor_mail import esc
+    u = _owner(db)
+    _locked_days(db, u, date(2026, 10, 1), date(2026, 10, 11))
+    b = rp.build_package(db, u, *OCT, now=NOW)
+    st = rp.checklist_status(b.checklist)
+    with zipfile.ZipFile(io.BytesIO(b.zip_bytes)) as z:
+        readme = z.read("LAES-MIG.txt").decode("utf-8")
+    assert st["title"] in readme and st["notes"][0] in readme
+    html = rp.package_email_html(biz="Café Hygge", cvr="12345678", accountant_name="Pia",
+                                 label="oktober 2026", build=b, url="https://x.test/p",
+                                 expires=date(2026, 10, 26))
+    assert esc(st["title"]) in html and esc(st["notes"][0]) in html
+    assert "alle dage er lukket og låst" not in html
+    pdf = " ".join(" ".join(p.extract_text().split()) for p in PdfReader(io.BytesIO(b.summary_pdf)).pages)
+    assert st["title"] in pdf and st["notes"][0] in pdf
+
+
 # ── Download (every tier) and send (the plan that sends) ─────────────
 
 def test_free_owner_downloads_but_cannot_send(client, db, store, mailbox):
