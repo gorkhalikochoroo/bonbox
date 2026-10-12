@@ -1527,9 +1527,10 @@ def deliver(db: Session, user: User, profile, row, *, now: datetime | None = Non
             schedule: str | None = None) -> PackageBuild:
     """Build the package for `row`'s period, store the ZIP, mail the revisor
     (the owner's copy separately), and stamp `row` sent. Raises
-    PackageDeliveryError when nothing went out — the row says failed then.
-    The caller commits. The returned build's ZIP file is closed (its bytes
-    are in storage under row.storage_key)."""
+    PackageDeliveryError when nothing is KNOWN to have gone out (code
+    "mail_unclear": it may have — see PackageDeliveryError); the caller
+    marks the row failed (mark_failed) and commits. The returned build's ZIP
+    file is closed (its bytes are in storage under row.storage_key)."""
     from app.services import revisor_mail as rm
 
     now = now or utc_now()
