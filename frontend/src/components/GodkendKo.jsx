@@ -70,10 +70,14 @@ export default function GodkendKo({ getCatName, currency = "DKK", onApproved, on
   const dateGuessed = (d) => d.date_source === "guessed";
   const matchesFor = (d) => (notAMatch.has(d.id) ? [] : (matches[d.id] || []));
   const hasMatch = (d) => (matches[d.id] || []).length > 0;
+  // "Inbox" (forwarded mail) is a placeholder like "Ukategoriseret": it
+  // would book at 100 % fradrag, so the owner picks before "Godkend alle"
+  // (the server's approve-batch skips both too).
+  const placeholderCat = (d) => ["Ukategoriseret", "Inbox"].includes(getCatName(d.category_id));
   const fieldsReady = (d) =>
     !needsRate(d) && hasAmount(d) && hasMethod(d) && !dateGuessed(d)
     && !!d.receipt_photo
-    && getCatName(d.category_id) !== "Ukategoriseret";
+    && !placeholderCat(d);
   const isKlar = (d) => fieldsReady(d) && !hasMatch(d);
   const klarIds = drafts.filter(isKlar).map((d) => d.id);
   const missingAmountCount = drafts.filter((d) => !hasAmount(d)).length;

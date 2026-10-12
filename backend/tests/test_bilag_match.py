@@ -358,6 +358,54 @@ def test_inbox_receipt_lands_as_a_draft_out_of_moms(db):
     assert kob["kob_med_moms"] == 432.50
 
 
+def _ingest(db, u, extracted, received=datetime(2026, 5, 21, 9, 0)):
+    from app.models.email_message import EmailMessage
+    from app.routers import inbox as inbox_router
+    import app.services.smart_scan_service as sss
+    import base64
+    em = EmailMessage(id=uuid.uuid4(), user_id=u.id, alias="x", from_addr="s@x.dk",
+                      subject="Kvittering", received_at=received, status="queued")
+    db.add(em); db.commit()
+    orig, orig_persist = sss.route_and_extract, inbox_router.persist_attachment_blob
+    sss.route_and_extract = lambda *a, **k: {"confidence": 0.95, "extracted_data": extracted}
+    inbox_router.persist_attachment_blob = lambda plain, sha: f"uploads/receipts/{sha}.enc"
+    try:
+        out = inbox_router._ingest_attachment(db, u, em, {
+            "Name": "r.pdf", "ContentType": "application/pdf",
+            "Content": base64.b64encode(b"%PDF-1.4 " + uuid.uuid4().bytes).decode(),
+        })
+    finally:
+        sss.route_and_extract, inbox_router.persist_attachment_blob = orig, orig_persist
+    db.commit()
+    assert out == "drafted"
+    return db.query(Expense).filter(Expense.reference_id.like(f"inbox_{em.id}_%")).one()
+
+
+def test_inbox_date_it_could_not_read_is_marked_guessed(db):
+    u = _owner(db)
+    read = _ingest(db, u, {"vendor": "Hørkram", "amount": 99.0, "date": "2026-05-02"})
+    assert read.date == date(2026, 5, 2) and read.date_source is None
+    unread = _ingest(db, u, {"vendor": "Netto", "amount": 45.0})
+    # The mail's day stands in — marked, so the queue's dato blocker asks.
+    assert unread.date == date(2026, 5, 21) and unread.date_source == "guessed"
+    from app.routers.expenses import _draft_blocker
+    unread.payment_method = "card"
+    assert _draft_blocker(unread) == "dato"
+
+
+def test_godkend_alle_never_books_a_receipt_still_filed_under_inbox(client, db):
+    u = _owner(db)
+    d = _ingest(db, u, {"vendor": "Hørkram", "amount": 99.0, "date": "2026-05-02",
+                        "payment_method": "card"})
+    assert d.payment_method == "card" and d.date_source is None
+    _as(u)
+    r = client.post("/api/expenses/approve-batch", json={"ids": [str(d.id)]})
+    assert r.status_code == 200 and r.json()["count"] == 0
+    assert r.json()["skipped_by_reason"] == {"kategori": [str(d.id)]}
+    # One Godkend after the owner looked still books it.
+    assert client.post(f"/api/expenses/{d.id}/approve").status_code == 200
+
+
 def test_link_is_atomic_and_never_burns_a_voucher_or_copies_foreign_vat(client, db):
     u = _owner(db); cat = _cat(db, u)
     typed = _typed(db, u, cat, 300, D, vendor_key=None)

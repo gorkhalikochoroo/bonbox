@@ -1293,6 +1293,15 @@ def approve_batch(
             skipped.append(str(e.id))
             skipped_by_reason.setdefault("mulig dublet", []).append(str(e.id))
             continue
+        # Nor a forwarded receipt still filed under "Inbox": that is where
+        # the mail webhook puts it, not a category anyone chose, and it would
+        # book at 100 % fradrag. The queue leaves it out of its klar set (as
+        # it does "Ukategoriseret"); a sweep must not book it either. One
+        # Godkend after a look still can.
+        if _in_inbox_category(db, e):
+            skipped.append(str(e.id))
+            skipped_by_reason.setdefault("kategori", []).append(str(e.id))
+            continue
         _promote_to_approved(db, user, e, kind="batch")
         approved.append(str(e.id))
     db.commit()
@@ -1623,6 +1632,14 @@ def _draft_blocker(expense: Expense) -> str | None:
     if expense.date_source == "guessed":
         return "dato"
     return None
+
+
+def _in_inbox_category(db: Session, expense: Expense) -> bool:
+    if not expense.category_id:
+        return False
+    name = (db.query(ExpenseCategory.name)
+            .filter(ExpenseCategory.id == expense.category_id).scalar())
+    return name == "Inbox"
 
 
 def _get_or_create_uncategorized(db: Session, user_id):

@@ -165,4 +165,19 @@ describe("Godkend-kø — a matched draft", () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith("/expenses/typed1/link-bilag", { draft_id: "d1" }));
     await waitFor(() => expect(onApproved).toHaveBeenCalled());
   });
+
+  it("a forwarded receipt still filed under 'Inbox' is not 'klar' (it would book at 100 %)", async () => {
+    const INBOX = { ...READY, id: "d3", description: "Hørkram [from inbox]", category_id: "catInbox" };
+    get.mockImplementation((url) => {
+      if (url === "/expenses/pending") return Promise.resolve({ data: [INBOX, READY] });
+      if (url === "/expenses/pending/bilag-matches") return Promise.resolve({ data: { matches: {} } });
+      return Promise.resolve({ data: [] });
+    });
+    render(<GodkendKo getCatName={(id) => (id === "catInbox" ? "Inbox" : "Råvarer")} currency="DKK" />);
+    const all = await screen.findByText((txt) => txt.startsWith("koApproveAll"));
+    expect(all.closest("button").textContent).toContain("1");
+    fireEvent.click(all.closest("button"));
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/expenses/approve-batch", { ids: ["d2"] }));
+    expect(screen.getByText("opsUncategorized")).toBeInTheDocument();
+  });
 });

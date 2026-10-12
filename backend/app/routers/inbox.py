@@ -771,14 +771,21 @@ def _ingest_attachment(
         description = (f"From {subject}" if subject else "From email inbox")[:220]
     description += " [needs review]" if not high_conf else " [from inbox]"
 
+    # The date printed on the receipt, or — when it could not be read — the
+    # day the mail came in, marked "guessed" so the queue asks (the dato
+    # blocker): a forwarded receipt is often weeks old, and a guessed date is
+    # the wrong MOMS period and the wrong voucher year.
     expense_date: date
+    date_guessed = False
     if isinstance(parsed_date, str):
         try:
             expense_date = datetime.strptime(parsed_date[:10], "%Y-%m-%d").date()
         except ValueError:
             expense_date = em.received_at.date()
+            date_guessed = True
     else:
         expense_date = em.received_at.date()
+        date_guessed = True
 
     # Amount — keep blank (0) for low-conf so the owner is forced to
     # eyeball before confirming. Stored as 0 + needs-review marker in
@@ -816,6 +823,7 @@ def _ingest_attachment(
         receipt_photo=storage_path,
         receipt_source="scan",
         status="pending",
+        date_source="guessed" if date_guessed else None,
         vendor_key=canonical_vendor_key(vendor) if vendor else None,
         reference_id=f"inbox_{em.id}_{intake.id}",
     )
