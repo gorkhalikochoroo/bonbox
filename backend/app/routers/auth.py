@@ -1309,6 +1309,78 @@ def update_profile(
     return current_user
 
 
+class BusinessTypeChange(BaseModel):
+    business_type: str
+    # True = "Anvend": also apply the new type's defaults (cutoff, modules,
+    # starter categories, pillar preset) — additive, see
+    # services/archetype_defaults.plan_type_change. False = "Behold mine
+    # indstillinger": only the type (and with it the app's wording) changes.
+    apply_defaults: bool = False
+
+
+def _known_business_type(value: str | None) -> str:
+    """The catalogue the type pickers offer (archetype.BUSINESS_TYPE_TO_ARCHETYPE).
+    A type outside it 422s here — the plan would resolve it to "generic"."""
+    from app.services.archetype import BUSINESS_TYPE_TO_ARCHETYPE
+    bt = (value or "").strip().lower()
+    if bt not in BUSINESS_TYPE_TO_ARCHETYPE:
+        raise HTTPException(status_code=422, detail={"code": "unknown_business_type"})
+    return bt
+
+
+@router.get("/business-type/preview")
+@limiter.limit("30/minute")
+def preview_business_type_change(
+    request: Request,
+    business_type: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """What changing the business type to ``business_type`` would change —
+    the list the Profile confirm sheet shows before anything is saved. Pure
+    read. Owner only: the type shapes the owner's whole app."""
+    if not is_account_owner(current_user):
+        raise HTTPException(status_code=403, detail={"code": "owner_only"})
+    bt = _known_business_type(business_type)
+    from app.services.archetype_defaults import plan_type_change
+    return plan_type_change(db, current_user, bt)
+
+
+@router.post("/business-type")
+@limiter.limit("10/minute")
+def change_business_type(
+    request: Request,
+    data: BusinessTypeChange,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Change the business type, and — when the owner chose "Anvend" — apply
+    the new type's defaults. Never deletes data and never removes a module, a
+    category or a pillar the owner uses (archetype_defaults.apply_type_change)."""
+    if not is_account_owner(current_user):
+        raise HTTPException(status_code=403, detail={"code": "owner_only"})
+    bt = _known_business_type(data.business_type)
+    db_user = db.query(User).filter(User.id == current_user.id).first()
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User no longer exists")
+    before = db_user.business_type
+    from app.services.archetype_defaults import apply_type_change
+    applied = apply_type_change(db, db_user, bt, apply_defaults=bool(data.apply_defaults))
+    try:
+        from app.services import audit_service
+        audit_service.record(
+            db, db_user, "user.business_type_changed",
+            entity_type="user", entity_id=db_user.id,
+            before={"business_type": before},
+            after={"business_type": bt, "applied": applied},
+            ip_address=getattr(request.client, "host", None),
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001 — audit is best-effort
+        db.rollback()
+    return {"business_type": bt, "applied": applied}
+
+
 @router.post("/change-password")
 @limiter.limit("5/minute")
 def change_password(

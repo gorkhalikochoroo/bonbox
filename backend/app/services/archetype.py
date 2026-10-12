@@ -38,9 +38,15 @@ from __future__ import annotations
 
 from typing import Any
 
-# ── Suggested opt-in modules (User.enabled_modules) per archetype. Values must
-#    match the module keys used by Layout.jsx requiresModule + branchekode_map:
-#    pour | wine | competitor | weather | expiry | khata | workshop | loan
+# ── Suggested opt-in modules (User.enabled_modules) per archetype. The ids
+#    that switch a nav row on MUST be the canonical services/modules.py ids
+#    (bar_pour | wine_sommelier | workshop — navManifest requiresModule). The
+#    rest (competitor | weather | expiry | khata | loan) are legacy SIGNAL ids
+#    that no gate reads (parse_enabled drops them); they stay for continuity.
+#    A bar used to get "pour"/"wine", which matched no module, so Bar Pour and
+#    Vinkort never appeared for a bar (vertical-fit audit, Oct 2026).
+#    archetype_defaults._MODULE_ALIASES maps the old spellings on merge, and
+#    test_archetype_module_ids pins every suggestion to one of the two sets.
 # ── dashboard_mode ∈ {transactionalDaily, projectWeekly}  (dashboardCardSets.js)
 # ── floor_vocab    ∈ {dining, bar, salon, generic}        (venueProfiles.js)
 # ── inv_taxonomy   ∈ {restaurant, cafe, bar, retail, salon, generic} (inventory_categorizer)
@@ -70,7 +76,7 @@ ARCHETYPES: dict[str, dict[str, Any]] = {
         "floor_vocab": "bar",
         "inv_taxonomy": "bar",
         "default_cutoff_hour": 6,
-        "suggested_modules": ["pour", "wine", "competitor"],
+        "suggested_modules": ["bar_pour", "wine_sommelier", "competitor"],
         "lead_features": ["daily_close", "tax", "inventory", "schedule"],
         "first_win": "daily_close",
         "emphasize_channels": ["dine_in", "takeaway"],
