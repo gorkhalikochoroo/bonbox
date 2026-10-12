@@ -224,7 +224,13 @@ export function AuthLanguageSelect({ labelKey = "regLanguageLabel" }) {
  * The page pads its bottom by the cookie banner's footprint
  * (--bb-consent-h, CookieConsent.jsx), so the form can always be scrolled
  * clear of the banner (at rest it may sit over the lower fields on a small
- * phone; the Terms line and Google's button, above the form, stay clear).
+ * phone; the Terms line and Google's button, above the form, stay clear) —
+ * only while the banner CAN sit over the form column: the phone's full-width
+ * sheet, and the md+ corner card (420 px, 24 px off the left edge) until the
+ * 400 px column clears it — from lg beside the register panel (`aside`, 46 %
+ * wide), from 1288 px (2 × 444 + 400) on its own. Wider, the padding only
+ * re-centred the form, and answering the banner moved it: /register jumped
+ * 42 px down at 1440 × 900 (Push 8).
  *
  * `min-w-0` on <main>: a flex item never shrinks below its content's
  * minimum by default, and the code row's minimum (6 × 52 px boxes + 5 gaps
@@ -234,10 +240,14 @@ export function AuthLanguageSelect({ labelKey = "regLanguageLabel" }) {
  * what is left.
  */
 export default function AuthShell({ children, aside = null, footer = null, logoLink = true, language = false }) {
+  const consentPad = aside
+    ? "max-lg:pb-[var(--bb-consent-h,0px)] "
+    : "max-[1287px]:pb-[var(--bb-consent-h,0px)] ";
   return (
     <div
       className={
         "min-h-[100dvh] flex flex-col bg-bb-paper dark:bg-gray-950 text-gray-900 dark:text-gray-100 " +
+        consentPad +
         // The Terms acceptance line (SignupTermsLine, frozen) is gray-500,
         // 4.39:1 on paper: below 4.5. On these pages it reads gray-600
         // (6.86:1; gray-400 in dark), and its two links get a taller hit
@@ -246,7 +256,6 @@ export default function AuthShell({ children, aside = null, footer = null, logoL
         "[&_[data-testid=signup-terms-line]]:text-gray-600 dark:[&_[data-testid=signup-terms-line]]:text-gray-400 " +
         "[&_[data-testid=signup-terms-line]_a]:py-[15px]"
       }
-      style={{ paddingBottom: "var(--bb-consent-h, 0px)" }}
       /* Pads itself, so index.css's phone body padding for the banner skips this page. */
       data-auth-shell=""
     >
