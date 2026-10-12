@@ -4356,29 +4356,55 @@ def prefill_daily_close(
     _cut = getattr(profile, "day_cutoff_hour", None)
     cutoff = 6 if _cut is None else int(_cut)
 
-    # ── Gavekort redeemed this business day (MPV only) ──
-    # A gavekort is a TENDER, not a second sale — the meal it paid for MUST be
-    # in revenue_total or the MOMS is under-declared (DK MPV VAT falls at
-    # redemption). We surface the day's MPV redemptions so the owner can confirm
-    # the meals are included. BonBox NEVER auto-adds them to revenue — the owner
-    # attests (registreret → bogført is the owner's call). SPV excluded (taxed
-    # at issuance). User-level (gift_card_transactions has no branch_id).
-    from app.models.gift_card import GiftCard, GiftCardTransaction  # local — isolate
-    _gk_start = datetime.combine(target_date, datetime.min.time())
-    _gk_end = _gk_start + timedelta(days=1)
-    _gk_redeemed_minor = (
-        db.query(func.coalesce(func.sum(GiftCardTransaction.amount_minor), 0))
-        .join(GiftCard, GiftCard.id == GiftCardTransaction.gift_card_id)
-        .filter(
-            GiftCardTransaction.user_id == user.id,
-            GiftCardTransaction.kind == "redeem",
-            GiftCardTransaction.business_day >= _gk_start,
-            GiftCardTransaction.business_day < _gk_end,
-            GiftCard.voucher_class == "mpv",
-        )
-        .scalar()
-    ) or 0
-    gavekort_redeemed = round(-float(_gk_redeemed_minor) / 100.0, 2)
+    # ── Gavekort this business day ──
+    # A gavekort is a TENDER, not a second sale. Three facts for the close:
+    #   redeemed        — MPV (+ SPV sold before BonBox counted SPV at sale):
+    #                     MOMS falls on the meal, so the meal MUST be in
+    #                     revenue_total. Surfaced, never auto-added.
+    #   redeemed_free   — free / sponsor cards: no MOMS at issue, so the meal
+    #                     is checked like MPV (must be in revenue).
+    #   redeemed_total  — every class (free too): the "Gavekort" payment line, so a meal
+    #                     paid by gavekort ties out without touching revenue.
+    #   sold / sold_by_tender — cards sold over the counter today. The till
+    #                     and drawer hold that money but it is NOT revenue
+    #                     (MPV: no sale yet; SPV: BonBox counts its MOMS from
+    #                     the gavekort itself). The tie-out reads
+    #                     payments = revenue + gavekort sold.
+    # User-level (gift_cards / gift_card_transactions have no branch_id). On
+    # an account with more than one active branch, a branch's close can't
+    # tell which branch sold or took a card (review 12 Oct, g): scope =
+    # "account" and the form does NOT pre-fill the gavekort line, append the
+    # note or assume the money is in this branch's payments — it only says
+    # what happened across the account, and the tie-out lets the evidence
+    # (payments = revenue, or = revenue + sold) decide.
+    from app.services import gavekort_moms as _gkm  # local — isolate
+    _gk_scope = "close"
+    if branch_id:
+        try:
+            from app.models.branch import Branch
+            _n_branches = (
+                db.query(func.count(Branch.id))
+                .filter(Branch.user_id == user.id, Branch.is_active.isnot(False))
+                .scalar()
+            ) or 0
+            if int(_n_branches) > 1:
+                _gk_scope = "account"
+        except Exception:  # noqa: BLE001 — scope falls back to the close
+            _gk_scope = "close"
+    try:
+        _gk = _gkm.period_facts(db, user.id, target_date, target_date + timedelta(days=1))
+    except Exception as e:  # noqa: BLE001 — gavekort must never break prefill
+        print(f"prefill gavekort facts failed: {e}")
+        _gk = {"redeemed": {}, "counter_sold": {}, "counter_sold_by_tender": {}}
+    _gk_day = _gk["redeemed"].get(target_date, {})
+    gavekort_redeemed = round(float(_gk_day.get("via_meal", 0.0)), 2)
+    gavekort_redeemed_spv = round(float(_gk_day.get("spv", 0.0)), 2)
+    # Free / sponsor cards: no MOMS at issue, so the meal is treated like an
+    # MPV meal (it must be in revenue; the revisor decides gaver/reklame).
+    # Paid with the card all the same → on the "Gavekort" payment line.
+    gavekort_redeemed_free = round(float(_gk_day.get("free", 0.0)), 2)
+    gavekort_sold = round(float(_gk["counter_sold"].get(target_date, 0.0)), 2)
+    gavekort_sold_by_tender = _gk["counter_sold_by_tender"].get(target_date, {})
 
     return {
         "date": target_date.isoformat(),
@@ -4396,6 +4422,19 @@ def prefill_daily_close(
         "gavekort": {
             "redeemed": gavekort_redeemed,
             "tender": round(float(by_payment.get("gift_card", 0)), 2),
+            # SPV redeemed today: MOMS was paid when the card was sold.
+            "redeemed_spv": gavekort_redeemed_spv,
+            # Free / sponsor cards redeemed today — the meal must be in
+            # revenue, like MPV (see above).
+            "redeemed_free": gavekort_redeemed_free,
+            "redeemed_total": round(
+                gavekort_redeemed + gavekort_redeemed_spv + gavekort_redeemed_free, 2),
+            # Sold over the counter today — not revenue (see above).
+            "sold": gavekort_sold,
+            "sold_by_tender": gavekort_sold_by_tender,
+            # "close" = these facts belong to this close; "account" = several
+            # branches, BonBox can't tell which one (see above).
+            "scope": _gk_scope,
         },
         "expenses": {
             "total": expenses_total,

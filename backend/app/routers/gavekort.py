@@ -59,14 +59,14 @@ from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
-from sqlalchemy import func, or_, text
+from sqlalchemy import DateTime, bindparam, func, or_, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
 from app.models.business_profile import BusinessProfile
 from app.models.gift_card import (
-    GiftCard, GiftCardTransaction, VOUCHER_CLASSES,
+    DEFAULT_VOUCHER_CLASS, GiftCard, GiftCardTransaction, VOUCHER_CLASSES,
 )
 from app.models.gift_card_order import GiftCardOrder, GIFT_CARD_ORDER_STATUSES
 from app.models.user import User
@@ -76,7 +76,9 @@ from app.services.billing import enforce_cap, enforce_feature
 from app.services.gavekort_codes import generate_code, hash_code
 from app.services.gavekort_pdf import build_gavekort_pdf
 from app.services.qr_signer import GavekortKeyUnset, sign_gavekort, verify_gavekort
-from app.services.tz_utils import business_today_local
+from app.services.gavekort_moms import (
+    VOID_ERROR_REF, _tz_user, business_date_of, business_day_stamp, moms_period_of,
+)
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -96,6 +98,13 @@ router = APIRouter()
 # `request: Request` param, which slowapi requires for keying.
 limiter = Limiter(key_func=client_ip)
 
+# Raw-SQL ledger INSERT binds its datetimes through the SAME DateTime type the
+# ORM uses. Unbound, SQLite stored '2026-10-11 00:00:00' while ORM filters bind
+# '2026-10-11 00:00:00.000000'; the string compare put every redemption in the
+# PREVIOUS day's window (prefill + MOMS recon). Postgres was unaffected.
+def _dt_binds():
+    return (bindparam("bday", type_=DateTime()), bindparam("now", type_=DateTime()))
+
 # How many times we retry on the (astronomically unlikely) code/short_code
 # UNIQUE collision before giving up. Each attempt is a fresh random triple.
 _ISSUE_COLLISION_RETRIES = 5
@@ -107,13 +116,30 @@ class IssueBody(BaseModel):
     amount_minor: int = Field(gt=0, le=100_000_000)
     recipient_name: str | None = Field(default=None, max_length=120)
     note: str | None = Field(default=None, max_length=280)
-    # NEVER auto-decided — default "mpv", owner-set, surfaced.
-    voucher_class: str = Field(default="mpv", pattern="^(mpv|spv)$")
+    # NEVER auto-decided — owner-set, surfaced. Default MPV until the revisor
+    # confirms (models.gift_card.DEFAULT_VOUCHER_CLASS — the one line to
+    # change). The owner can pick "spv" (ét formål): MOMS then falls at sale
+    # (gavekort_moms). Existing cards keep their class.
+    voucher_class: str = Field(default=DEFAULT_VOUCHER_CLASS, pattern="^(mpv|spv)$")
     # How the owner was PAID for the card at the counter. Recorded (not posted)
     # so the close/MOMS bridge has the tender later; the reveal says
     # "registreret", never "bogført". Optional so older callers/tests still pass.
-    payment_method: str | None = Field(default=None, pattern="^(card|mobilepay|cash|mixed)$")
+    # "free" = given away (sponsor, prize, goodwill): no payment, so no MOMS at
+    # issue and never counted as sold at the counter. Its use is surfaced to
+    # the revisor (gavekort_moms.FREE_TENDER), never decided by BonBox.
+    payment_method: str | None = Field(default=None, pattern="^(card|mobilepay|cash|mixed|free)$")
     expires_at: datetime | None = None
+
+
+class VoidBody(BaseModel):
+    # None = an ordinary void (the card was sold; its MOMS stays in).
+    # "issued_in_error" = the card should never have existed and no money was
+    # taken: the card is treated as never sold, so an SPV card's sale MOMS
+    # comes back out — only while the MOMS period of the sale is still
+    # running and nothing was redeemed (never touches a period that could
+    # already be filed).
+    reason: str | None = Field(default=None, pattern="^(issued_in_error)$")
+    note: str | None = Field(default=None, max_length=200)
 
 
 class RedeemBody(BaseModel):
@@ -221,7 +247,7 @@ def _create_gift_card(
     request: Request,
     *,
     amount_minor: int,
-    voucher_class: str = "mpv",
+    voucher_class: str = DEFAULT_VOUCHER_CLASS,
     recipient_name: str | None = None,
     note: str | None = None,
     payment_method: str | None = None,
@@ -297,7 +323,9 @@ def _create_gift_card(
         amount_minor=int(card.face_value_minor),
         balance_after_minor=int(card.balance_minor),
         created_by_user_id=user.id,
-        business_day=utc_now(),
+        # The owner's BUSINESS DATE (cutoff-aware), like redeem rows — not a
+        # raw UTC timestamp, which put a sale at 00:30 on the previous day.
+        business_day=business_day_stamp(db, user),
     ))
 
     after = {"face_value_minor": int(card.face_value_minor), "voucher_class": card.voucher_class}
@@ -446,6 +474,10 @@ class OrderSettingsBody(BaseModel):
     min_amount_minor: int | None = Field(default=None, ge=100, le=100_000_000)
     max_amount_minor: int | None = Field(default=None, ge=100, le=100_000_000)
     instructions: str | None = Field(default=None, max_length=500)
+    # The class of every card ordered online — the OWNER's setting, never the
+    # buyer's (review 12 Oct, j). Unset = DEFAULT_VOUCHER_CLASS (MPV until the
+    # revisor confirms). None = keep the current setting.
+    voucher_class: str | None = Field(default=None, pattern="^(mpv|spv)$")
 
 
 class OrderIssueBody(BaseModel):
@@ -471,7 +503,10 @@ def _order_settings_dict(profile: BusinessProfile | None) -> dict:
     if mx < mn:  # corrupt config → safe defaults
         mn, mx = _ORDER_MIN_MINOR_DEFAULT, _ORDER_MAX_MINOR_DEFAULT
     instr = (data.get("instructions") or "").strip()[:500] or None
-    return {"min_amount_minor": mn, "max_amount_minor": mx, "instructions": instr}
+    vclass = data.get("voucher_class") if data.get("voucher_class") in VOUCHER_CLASSES \
+        else DEFAULT_VOUCHER_CLASS
+    return {"min_amount_minor": mn, "max_amount_minor": mx, "instructions": instr,
+            "voucher_class": vclass}
 
 
 def _allocate_gavekort_slug(db: Session, base: str) -> str:
@@ -616,6 +651,7 @@ def set_order_settings(payload: OrderSettingsBody, db: Session = Depends(get_db)
         "max_amount_minor": new_max,
         "instructions": (payload.instructions.strip()[:500] or None)
         if payload.instructions is not None else cur["instructions"],
+        "voucher_class": payload.voucher_class or cur["voucher_class"],
     })
     db.add(profile)
     db.commit()
@@ -1081,8 +1117,10 @@ def redeem_gavekort(
     tx_id = uuid4()
     business_day = None
     try:
-        business_day = datetime.combine(business_today_local(user),
-                                        datetime.min.time())
+        # Honour the owner's own day cutoff (BusinessProfile.day_cutoff_hour),
+        # the same one the close prefill uses — a fixed 06:00 put a 03:30
+        # redemption on the wrong close for an owner who closes at midnight.
+        business_day = business_day_stamp(db, user)
     except Exception:
         business_day = utc_now()
 
@@ -1094,7 +1132,7 @@ def redeem_gavekort(
             " idempotency_key, created_at) "
             "VALUES (:id, :gid, :uid, 'redeem', :amt, :bal, :by, :sref, NULL, "
             " :bday, :idem, :now)"
-        ), {"id": str(tx_id), "gid": str(card_id), "uid": str(uid),
+        ).bindparams(*_dt_binds()), {"id": str(tx_id), "gid": str(card_id), "uid": str(uid),
             "amt": -amount, "bal": new_balance, "by": str(uid),
             "sref": payload.sale_ref, "bday": business_day, "idem": idem_key,
             "now": utc_now()})
@@ -1107,7 +1145,7 @@ def redeem_gavekort(
             "VALUES (:id, :gid, :uid, 'redeem', :amt, :bal, :by, :sref, NULL, "
             " :bday, :idem, :now) "
             "ON CONFLICT (gift_card_id, idempotency_key) DO NOTHING"
-        ), {"id": str(tx_id), "gid": str(card_id), "uid": str(uid),
+        ).bindparams(*_dt_binds()), {"id": str(tx_id), "gid": str(card_id), "uid": str(uid),
             "amt": -amount, "bal": new_balance, "by": str(uid),
             "sref": payload.sale_ref, "bday": business_day, "idem": idem_key,
             "now": utc_now()})
@@ -1158,6 +1196,7 @@ def redeem_gavekort(
 # ═════════════════════════════════════════════════════════════════════
 @router.post("/{card_id}/void")
 def void_gavekort(card_id: UUID, request: Request,
+                  payload: VoidBody | None = None,
                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     enforce_feature(user, "gavekort")
     card = db.query(GiftCard).filter(GiftCard.id == card_id,
@@ -1168,6 +1207,19 @@ def void_gavekort(card_id: UUID, request: Request,
         # Idempotent — already voided. Return the current shape, no 2nd row.
         return {"id": str(card.id), "status": "voided", "balance_minor": 0}
 
+    reason = payload.reason if payload is not None else None
+    stamp = business_day_stamp(db, user)
+    if reason == "issued_in_error":
+        # Never sold: nothing may have been used, and the MOMS period of the
+        # sale must still be running — a period that has ended could already
+        # be filed, and BonBox never moves a filed figure.
+        if int(card.balance_minor) != int(card.face_value_minor) or card.status != "active":
+            raise HTTPException(status_code=409, detail={"error": "void_error_used"})
+        sold_on = business_date_of(_tz_user(db, user), card.issued_at)
+        p_start, p_end = moms_period_of(user, sold_on) if sold_on else (None, None)
+        if sold_on is None or not (p_start <= stamp.date() <= p_end):
+            raise HTTPException(status_code=409, detail={"error": "void_error_period_closed"})
+
     remaining = int(card.balance_minor)
     # Compensating ledger row zeroes the remaining balance (append-only — we
     # NEVER edit/delete the issue/redeem rows). amount = -(remaining) so the
@@ -1175,18 +1227,27 @@ def void_gavekort(card_id: UUID, request: Request,
     db.add(GiftCardTransaction(
         gift_card_id=card.id, user_id=user.id, kind="void",
         amount_minor=-remaining, balance_after_minor=0,
-        created_by_user_id=user.id, business_day=utc_now(),
+        created_by_user_id=user.id, business_day=stamp,
+        # The reason travels on the ledger row itself, so every MOMS reader
+        # (gavekort_moms.period_facts) sees it without another table.
+        sale_ref=VOID_ERROR_REF if reason == "issued_in_error" else None,
     ))
     card.balance_minor = 0
     card.status = "voided"
     db.add(card)
 
+    after = {"status": "voided"}
+    if reason:
+        after["reason"] = reason
+        if payload is not None and payload.note:
+            after["note"] = payload.note.strip()[:200]
     audit_service.record(
         db, user, "gavekort.voided", "gift_card", card.id,
         before={"balance_minor": remaining},
-        after={"status": "voided"},
+        after=after,
         ip_address=getattr(getattr(request, "client", None), "host", None),
     )
     db.commit()
     db.refresh(card)
-    return {"id": str(card.id), "status": card.status, "balance_minor": 0}
+    return {"id": str(card.id), "status": card.status, "balance_minor": 0,
+            "reason": reason}

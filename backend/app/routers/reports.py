@@ -275,6 +275,45 @@ def _effective_daily(db, user_id, start, end):
     return [_DayRev(d, float(v)) for d, v in sorted(by_date.items()) if v]
 
 
+def _gavekort_moms_lines(fd: dict) -> dict:
+    """The gavekort side of the MOMS, from compute_filing_data — kept APART
+    from revenue on every report (review 12 Oct, blocker 1).
+
+      sold / sold_vat         SPV cards sold: MOMS at sale; NOT revenue
+      redeemed / redeemed_vat SPV meals inside revenue whose MOMS was paid
+                              when the card was sold — taken back out
+      net_vat                 sold_vat − redeemed_vat
+    moms_af_omsaetning + net_vat == moms_af_salg (the filing)."""
+    sold = round(float(fd.get("gavekort_spv_sold") or 0), 2)
+    sold_vat = round(float(fd.get("gavekort_spv_output_vat") or 0), 2)
+    red = round(float(fd.get("gavekort_spv_redeemed_in_revenue") or 0), 2)
+    red_vat = round(float(fd.get("gavekort_spv_redeemed_vat") or 0), 2)
+    return {
+        "sold": sold, "sold_vat": sold_vat,
+        "redeemed": red, "redeemed_vat": red_vat,
+        "net_vat": round(sold_vat - red_vat, 2),
+        "any": bool(sold or red),
+    }
+
+
+def _gavekort_vat_rows_4col(fd: dict) -> list:
+    """Rows for a [label, inkl. moms, ekskl. moms, moms] table: the gavekort
+    lines, each ex-MOMS = gross − MOMS (never negative for a positive line)."""
+    g = _gavekort_moms_lines(fd)
+    rows = []
+    if g["sold"]:
+        rows.append(["Gavekort solgt (enkeltformål)",
+                     _da_money(g["sold"], decimals=2),
+                     _da_money(g["sold"] - g["sold_vat"], decimals=2),
+                     _da_money(g["sold_vat"], decimals=2)])
+    if g["redeemed"]:
+        rows.append(["Gavekort brugt — MOMS betalt ved salg",
+                     _da_money(-g["redeemed"], decimals=2),
+                     _da_money(-(g["redeemed"] - g["redeemed_vat"]), decimals=2),
+                     _da_money(-g["redeemed_vat"], decimals=2)])
+    return rows
+
+
 @router.get("/daily-kasserapport")
 def daily_kasserapport(
     report_date: str = Query(None),
@@ -319,10 +358,25 @@ def daily_kasserapport(
     # Revenue on the effective basis (a confirmed DailyClose wins for the day),
     # and MOMS via the filing engine — excludes exempt sales, never a naive
     # gross/rate — so the printed Kasserapport agrees with the official filing.
+    #
+    # The kasserapport is the TILL's document: its MOMS line is the MOMS inside
+    # the till's revenue (closes + Sales). Gavekort and fakturaer are their own
+    # lines below it, and together they add up to the filing's moms_af_salg
+    # for the day (review 12 Oct, blocker 1: subtracting moms_af_salg — which
+    # holds a gavekort SOLD, not in revenue — printed a 1.000 kr. card-only day
+    # as "MOMS 200, subtotal −200").
     total_revenue = float(effective_revenue_for_date(db, user.id, d))
     _fd_day = compute_filing_data(db, user, d, d)
-    vat_amount = float(_fd_day["moms_af_salg"])
+    vat_amount = round(float(_fd_day["moms_af_kassesalg"]), 2)
     subtotal = round(total_revenue - vat_amount, 2)
+    _gk_lines = _gavekort_moms_lines(_fd_day)
+    moms_reconciliation = {
+        "kassesalg": vat_amount,
+        "fakturaer": round(float(_fd_day["moms_af_fakturaer"]), 2),
+        "gavekort_solgt": _gk_lines["sold_vat"],
+        "gavekort_brugt": round(-_gk_lines["redeemed_vat"], 2),
+        "moms_af_salg": round(float(_fd_day["moms_af_salg"]), 2),
+    }
 
     # Expenses for the day
     total_expenses = float(
@@ -363,8 +417,16 @@ def daily_kasserapport(
         "subtotal": subtotal,
         "vat_rate": round(vat_rate * 100, 1),
         "vat_name": vat_terms["name"],
+        # MOMS inside the day's till revenue (subtotal + vat_amount == total).
         "vat_amount": vat_amount,
         "total": total_revenue,
+        # Gavekort lines, apart from revenue: SPV cards sold today (MOMS at
+        # sale, not revenue) and SPV meals in today's revenue whose MOMS was
+        # paid when the card was sold (taken back out of the MOMS).
+        "gavekort": _gk_lines,
+        # kassesalg + fakturaer + gavekort_solgt + gavekort_brugt == moms_af_salg
+        # (the figure the MOMS-angivelse counts for this day).
+        "moms_reconciliation": moms_reconciliation,
         "payment_breakdown": payment_totals,
         "expenses_total": total_expenses,
         "cash_in": cash_in,
@@ -702,12 +764,15 @@ def monthly_report_pdf(
     vat_payable = _fd["moms_til_skat"]
 
     # HONESTY: a resultatopgørelse states omsætning EKSKL moms. `total_revenue`
-    # is GROSS (moms-inclusive). The output/sales VAT to strip is the SAME figure
-    # the filing uses (moms_af_salg via compute_filing_data) — NOT a naive ÷1.25,
-    # so this never disagrees with the MOMS-angivelse engine. Net profit / margin
-    # are derived from the ex-moms figure, never the gross. Margin is suppressed
-    # when no expenses are recorded (revenue-as-profit at "100% margin" is a lie).
-    revenue_excl_vat = total_revenue - output_vat
+    # is GROSS (moms-inclusive). The VAT to strip is the MOMS INSIDE that
+    # revenue from the filing engine (moms_af_omsaetning) — NOT a naive ÷1.25,
+    # and NOT moms_af_salg: that also holds gavekort SOLD (not revenue) and
+    # takes SPV meals out, so revenue − moms_af_salg went wrong (negative on a
+    # card-only month). The gavekort lines are their own rows in the MOMS
+    # table below. Net profit / margin are derived from the ex-moms figure,
+    # never the gross. Margin is suppressed when no expenses are recorded
+    # (revenue-as-profit at "100% margin" is a lie).
+    revenue_excl_vat = total_revenue - float(_fd["moms_af_omsaetning"])
     net_profit = revenue_excl_vat - total_expenses
     has_expenses = total_expenses > 0
     margin = round((net_profit / revenue_excl_vat) * 100, 1) if (has_expenses and revenue_excl_vat > 0) else None
@@ -1029,7 +1094,18 @@ def monthly_report_pdf(
     # disclaimer + footer make clear this can't be indberettet.
     vat_data = [
         ["", vat_terms["sales_incl"], vat_terms["sales_excl"], f"{vat_terms['name']}-beløb"],
-        [vat_terms["output"], _da_money(_fd['salg_med_moms'], decimals=2), _da_money(_fd['salg_med_moms'] - output_vat, decimals=2), _da_money(output_vat, decimals=2)],
+    ]
+    _gk_rows = _gavekort_vat_rows_4col(_fd)
+    if _gk_rows:
+        # Sales side and gavekort side apart, then the total the filing uses.
+        _so = float(_fd["salg_omsaetning_med_moms"])
+        _mo = float(_fd["moms_af_omsaetning"])
+        vat_data.append(["Salg (omsætning)", _da_money(_so, decimals=2), _da_money(_so - _mo, decimals=2), _da_money(_mo, decimals=2)])
+        vat_data.extend(_gk_rows)
+        vat_data.append([f"{vat_terms['output']} i alt", _da_money(_fd['salg_med_moms'], decimals=2), _da_money(_fd['salg_med_moms'] - output_vat, decimals=2), _da_money(output_vat, decimals=2)])
+    else:
+        vat_data.append([vat_terms["output"], _da_money(_fd['salg_med_moms'], decimals=2), _da_money(_fd['salg_med_moms'] - output_vat, decimals=2), _da_money(output_vat, decimals=2)])
+    vat_data += [
         [vat_terms["input"], _da_money(_fd['kob_med_moms'], decimals=2), _da_money(_fd['kob_med_moms'] - input_vat, decimals=2), _da_money(input_vat, decimals=2)],
         ["Beregnet moms (vejledende)", "", "", _da_money(vat_payable, decimals=2)],
     ]
@@ -1260,6 +1336,11 @@ def _get_vat_data(db, user, start, end):
         "expenses_excl_vat": round(_fd["kob_med_moms"] - input_vat, 2),
         "input_vat": input_vat,
         "vat_payable": vat_payable,
+        # Output MOMS split (review 12 Oct): revenue side + gavekort lines.
+        # revenue_output_vat + gavekort.net_vat == output_vat.
+        "revenue_sales_incl_vat": round(float(_fd["salg_omsaetning_med_moms"]), 2),
+        "revenue_output_vat": round(float(_fd["moms_af_omsaetning"]), 2),
+        "gavekort": _gavekort_moms_lines(_fd),
         "currency": get_display_currency(user.currency),
         "business_name": bp.get("company_name") or user.business_name,
         "org_number": bp.get("org_number", ""),
@@ -1625,12 +1706,18 @@ def report_overview(
     # MOMS matches the official angivelse. `end` is the inclusive month-end.
     _fd_ov = compute_filing_data(db, user, start, end)
     vat_payable = _fd_ov["moms_til_skat"]
-    revenue_ex_moms = round(total_revenue - float(_fd_ov["moms_af_salg"] or 0), 2)
+    # Revenue ex MOMS takes out the MOMS INSIDE revenue (moms_af_omsaetning),
+    # not moms_af_salg — that holds gavekort sold (not revenue) and takes SPV
+    # meals out, so a card-only month read negative (review 12 Oct).
+    _moms_rev = float(_fd_ov.get("moms_af_omsaetning") or 0)
+    revenue_ex_moms = round(total_revenue - _moms_rev, 2)
     vat_terms_data = get_vat_terms(user.currency or "DKK")
     # Revenue and expenses above are MOMS-inclusive, so their difference held
     # SKAT's share as "profit" (585k at a "96% margin" with 117k owed).
-    # Taking the net MOMS out leaves the result ex MOMS.
-    net_profit = total_revenue - total_expenses - float(vat_payable or 0)
+    # Taking the MOMS on revenue (less the købsmoms) out leaves the result ex
+    # MOMS. The gavekort MOMS is a liability on the card, not a cost of the
+    # month's revenue, so it is not taken out of the result.
+    net_profit = total_revenue - total_expenses - (_moms_rev - float(_fd_ov.get("moms_af_kob") or 0))
 
     # Inventory value & low stock
     inventory_rows = (
@@ -1776,10 +1863,11 @@ def custom_report_pdf(
     vat_terms = get_vat_terms(user.currency or "DKK")
 
     # HONESTY: a resultatopgørelse states omsætning EKSKL moms. `total_revenue`
-    # is GROSS (moms-inclusive). The output/sales VAT to strip is the SAME
-    # figure the filing uses (moms_af_salg via compute_filing_data) — NOT a
-    # naive ÷1.25, so this never disagrees with the MOMS-angivelse engine.
-    revenue_excl_vat = total_revenue - output_vat
+    # is GROSS (moms-inclusive). The VAT to strip is the MOMS INSIDE that
+    # revenue from the filing engine (moms_af_omsaetning) — NOT a naive ÷1.25,
+    # and NOT moms_af_salg (which holds gavekort sold, not revenue, and takes
+    # SPV meals out). The gavekort lines are shown apart in the MOMS block.
+    revenue_excl_vat = total_revenue - float(_fd["moms_af_omsaetning"])
     # Expenses ex the købsmoms that is deducted — revenue is ex moms above, so
     # subtracting expenses INCL. moms understated the result (393k on the PDF
     # vs 398k on screen for the same month).
@@ -2122,8 +2210,17 @@ def custom_report_pdf(
             ["", "Beløb"],
             [vat_terms["sales_incl"], _da_money(_fd['salg_med_moms'], decimals=2)],
             [vat_terms["sales_excl"], _da_money(_fd['salg_med_moms'] - output_vat, decimals=2)],
-            [vat_terms["output"], _da_money(output_vat, decimals=2)],
         ]
+        _gk = _gavekort_moms_lines(_fd)
+        if _gk["any"]:
+            # The MOMS split: revenue side, then the gavekort lines, then the
+            # total the filing uses — never one number that mixes them.
+            sales_vat_data.append([f"{vat_terms['name']} af omsætningen", _da_money(_fd['moms_af_omsaetning'], decimals=2)])
+            if _gk["sold"]:
+                sales_vat_data.append([f"Gavekort solgt (enkeltformål) {_da_money(_gk['sold'], decimals=2)} — {vat_terms['name']}", _da_money(_gk['sold_vat'], decimals=2)])
+            if _gk["redeemed"]:
+                sales_vat_data.append([f"Gavekort brugt, {vat_terms['name']} betalt ved salg {_da_money(_gk['redeemed'], decimals=2)}", _da_money(-_gk['redeemed_vat'], decimals=2)])
+        sales_vat_data.append([vat_terms["output"], _da_money(output_vat, decimals=2)])
         t_sv = Table(sales_vat_data, colWidths=[95 * mm, 70 * mm])
         t_sv.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), DARK),
