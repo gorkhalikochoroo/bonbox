@@ -238,6 +238,11 @@ def test_only_member_roles_are_aligned_and_synced(factory):
     assert _row(factory, other_id).business_type == "cafe"
 
 
+def test_the_member_roles_are_the_team_routers_roles():
+    from app.routers.team import VALID_ROLES
+    assert set(ad._MEMBER_ROLES) == VALID_ROLES
+
+
 # ── L5 — never to a personal owner ──────────────────────────────────────
 
 

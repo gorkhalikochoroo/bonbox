@@ -243,6 +243,22 @@ def test_unlink_over_http_like_the_page_sends_it(client, factory):
     s.close()
 
 
+def test_a_linked_line_is_not_counted_as_no_match(client, factory):
+    s = factory()
+    u, receipt, bank = _pair(s)
+    _link(s, u, bank, receipt)
+    uid = u.id
+    s.close()
+    r = client.get("/api/bank-import/latest/suggestions",
+                   headers={"Authorization": f"Bearer {create_access_token(str(uid))}"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    linked = [t for t in body["transactions"] if t["linked_target_id"]]
+    assert len(linked) == 1 and linked[0]["already_matched"] is True
+    assert linked[0]["linked_target_label"] == "Hørkram (bon)"
+    assert body["counts"]["none"] == 0
+
+
 def test_the_revisor_export_ties_out_with_the_filing(db):
     from app.services.bookkeeping_export import _query_expenses
 

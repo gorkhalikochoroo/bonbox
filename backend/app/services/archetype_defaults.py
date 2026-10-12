@@ -485,7 +485,7 @@ def apply_type_change(db: Session, user: User, new_type: str,
 # write keeps users.updated_at, which means "last profile change", not "last
 # boot" (services/last_seen.py writes it the same way).
 
-_MEMBER_ROLES = ("manager", "cashier", "viewer")
+_MEMBER_ROLES = ("manager", "cashier", "viewer")  # = routers/team.VALID_ROLES (test-pinned)
 _PERSONAL_TYPE = "personal"
 
 

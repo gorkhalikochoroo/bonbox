@@ -145,7 +145,7 @@ _LEGACY_LOCAL_PREFIX = "uploads/receipts/"
 
 # The file types a receipt arrives as → the extension in its storage key
 # (storage.compose_key accepts these only). An image type with no entry here
-# (svg+xml — which can carry script —, x-icon, …) is not stored.
+# (svg+xml, which can carry script; x-icon; …) is not stored.
 _EXT_BY_MIME = {
     "application/pdf": "pdf",
     "image/jpeg": "jpg",
