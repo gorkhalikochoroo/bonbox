@@ -60,6 +60,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import usePageTitle from "../hooks/usePageTitle";
 import { isNativeApp } from "../utils/platform";
 import { errText } from "../utils/errText";
+import { jumpToTop } from "../utils/jumpToTop";
 import { completedOnboardingRedirect, finishTargetReached, setFinishTarget } from "../utils/onboardingFinish";
 import { Button, Icon, UpgradeNudge } from "../components/ui";
 import BonBoxMark from "../components/BonBoxMark";
@@ -341,6 +342,16 @@ export default function OnboardingPage() {
   const navigate = useNavigate();
 
   const [step, setStep] = useState(1);
+  // Each step opens at its top: its title and first question. The owner taps
+  // "Næste" at the bottom of a long step, and on a phone the next step opened
+  // where that one ended — steps 3 and 4 below their own headings (mobile
+  // walk, 12 Oct 2026).
+  const stepShown = useRef(step);
+  useEffect(() => {
+    if (stepShown.current === step) return;
+    stepShown.current = step;
+    jumpToTop();
+  }, [step]);
   const [finishing, setFinishing] = useState(false);
   const [stepError, setStepError] = useState("");
 
