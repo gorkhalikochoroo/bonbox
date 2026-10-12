@@ -1813,7 +1813,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
                   <button
                     type="button"
                     onClick={() => onWaitlist(partyN)}
-                    className="mt-2 h-10 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-[13px] font-semibold text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
+                    className="mt-2 h-10 px-3 rounded-lg border border-gray-300 text-[13px] font-semibold text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-800"
                   >
                     {t("rsvpWlAdd", "Add to waitlist")}
                   </button>
