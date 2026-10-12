@@ -8458,7 +8458,7 @@ export const en = {
     // Tier 4 Phase D — InboxBanner hero mode + ExpensesPage restructure.
     inboxHeroTitle: "{n} new receipt(s) to review",
     inboxHeroBody:
-      "Forwarded receipts are waiting as drafts below. Review the amount, vendor, and category — each one becomes a fully audit-trailed expense for your revisor.",
+      "Forwarded receipts wait under To approve at the top of this page. Check amount, supplier and category — nothing is booked until you approve, and a receipt for an expense you already typed can be attached to it instead.",
     inboxHeroReview: "Review {n} receipt(s)",
     fewerFields: "Fewer fields",
     moreFields: "More fields",

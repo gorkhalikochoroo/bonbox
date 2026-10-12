@@ -8179,7 +8179,7 @@ export const da = {
     // Tier 4 Phase D — InboxBanner hero mode + ExpensesPage restructure.
     inboxHeroTitle: "{n} nye kvitteringer at gennemgå",
     inboxHeroBody:
-      "Videresendte kvitteringer ligger som kladder nedenfor. Bekræft beløb, leverandør og kategori — hver enkelt bliver en fuldt revisionssporet udgift til din revisor.",
+      "Videresendte kvitteringer venter under Til godkendelse øverst på siden. Tjek beløb, leverandør og kategori — intet bogføres, før du godkender, og en kvittering til en udgift, du allerede har tastet, kan knyttes til den i stedet.",
     inboxHeroReview: "Gennemgå {n} kvittering(er)",
     fewerFields: "Færre felter",
     moreFields: "Flere felter",

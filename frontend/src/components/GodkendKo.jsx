@@ -142,7 +142,7 @@ export default function GodkendKo({ getCatName, currency = "DKK", onApproved, on
   if (!drafts.length) return null;
 
   return (
-    <section className="space-y-3" aria-label={t("koTitle", "To approve")}>
+    <section id="bonbox-godkend-ko" className="space-y-3 scroll-mt-4" aria-label={t("koTitle", "To approve")}>
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">

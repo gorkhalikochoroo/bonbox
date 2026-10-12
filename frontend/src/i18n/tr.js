@@ -6315,7 +6315,7 @@ export const tr = {
   inboxCardDescSoon: "Gelen e-posta sağlayıcımızı kuruyoruz. Her fişi kişisel adresine yönlendir, Gider'i BonBox oluşturur — Bogføringsloven §10 uyarınca 5 yıl saklanır.",
   inboxComingSoonNote: "Gelen kutun açıldığı gün sana e-posta atarız.",
   inboxHeroTitle: "İncelenecek {n} yeni fiş",
-  inboxHeroBody: "Yönlendirilen fişler aşağıda taslak olarak bekliyor. Tutarı, satıcıyı ve kategoriyi incele — her biri revisor'ün için tam denetim izli bir gidere dönüşür.",
+  inboxHeroBody: "Yönlendirilen fişler bu sayfanın üstünde, Onay bekleyenler altında bekliyor. Tutarı, satıcıyı ve kategoriyi kontrol et — onaylayana kadar hiçbir şey kaydedilmez; zaten girdiğin bir giderin fişi o gidere eklenebilir.",
   inboxHeroReview: "{n} fişi incele",
   fewerFields: "Daha az alan",
   moreFields: "Daha fazla alan",

@@ -353,7 +353,7 @@ export default function InboxBanner({
               {heroMode
                 ? t(
                     "inboxHeroBody",
-                    "Forwarded receipts are waiting as drafts below. Review the amount, vendor, and category — each one becomes a fully audit-trailed expense for your revisor.",
+                    "Forwarded receipts wait under To approve at the top of this page. Check amount, supplier and category — nothing is booked until you approve, and a receipt for an expense you already typed can be attached to it instead.",
                   )
                 : infraEnabled
                   ? t(
@@ -375,7 +375,9 @@ export default function InboxBanner({
           {heroMode && (
             <div className="mt-3">
               <a
-                href="#bonbox-recent-expenses"
+                // Forwarded receipts are Godkend-kø drafts (not booked rows in
+                // the list below), so the CTA goes to the queue.
+                href="#bonbox-godkend-ko"
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg
                            bg-gray-900 text-white hover:bg-gray-700
                            dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white
