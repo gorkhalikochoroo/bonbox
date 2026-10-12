@@ -394,3 +394,14 @@ def test_package_counts_toward_the_shared_revisor_daily_cap(db):
 def test_members_cannot_read_the_package_prefix():
     import app.main as m
     assert "/api/revisor-package" in m._MEMBER_READ_DENY_PREFIXES
+
+
+def test_standalone_summary_counts_bilag_without_reading_them(db, store):
+    from pypdf import PdfReader
+    u = _owner(db)
+    _seed_september(db, u, store)
+    b = rp.build_package(db, u, *SEP, now=NOW, include_bilag=False)
+    text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(b.summary_pdf)).pages)
+    # 2 of the 4 booked business expenses carry a bilag (the draft and the
+    # personal row are not booked business expenses).
+    assert "2 af 4" in text.replace("\n", " ")

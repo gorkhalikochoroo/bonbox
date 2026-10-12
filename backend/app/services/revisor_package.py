@@ -718,6 +718,7 @@ def csv_expenses(expenses: list[Expense], cat_names: dict, files: dict) -> bytes
 def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
                       fd: dict, checklist: dict, days: list[dict], payments: list[dict],
                       categories: list[dict], closes, n_bilag: int, n_expenses: int,
+                      n_bilag_unreadable: int = 0,
                       generated_at: datetime, doc_number: str) -> bytes:
     """Page 1 is the answer a revisor wants first: the figures and what is
     open. Then the detail: revenue per day, categories, gift cards, cash."""
@@ -846,8 +847,11 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
             [P("Fakturaer inkl. moms"), P(_kr(fd.get("invoice_revenue") or 0), cell_r)],
             [P(f"Bogførte udgifter ({n_expenses})"),
              P(_kr(sum(c["gross"] for c in categories)), cell_r)],
-            [P(f"Udgifter med bilag i pakken"), P(f"{n_bilag} af {n_expenses}", cell_r)],
+            [P("Udgifter med bilag"), P(f"{n_bilag} af {n_expenses}", cell_r)],
         ]
+        if n_bilag_unreadable:
+            kt.append([P("— heraf bilag, der ikke kunne hentes (se bilag-oversigt.csv)"),
+                       P(str(n_bilag_unreadable), cell_r)])
         s.append(grid(kt, [W * 0.7, W * 0.3], header=False))
 
         # ── Payment methods ──
@@ -1052,7 +1056,10 @@ def build_package(db: Session, user: User, start: date, end: date, *,
     summary = build_summary_pdf(
         user=user, profile=profile, start=start, end=end, kind=kind, fd=fd,
         checklist=checklist, days=days, payments=payments, categories=categories,
-        closes=closes, n_bilag=len(bilag_files), n_expenses=len(expenses),
+        # Expenses that HAVE a bilag (the standalone summary does not read
+        # the files, and must not say "0 af 12" for that reason).
+        closes=closes, n_bilag=sum(1 for e in expenses if _has_bilag(e)),
+        n_bilag_unreadable=unreadable, n_expenses=len(expenses),
         generated_at=now, doc_number=doc_number,
     )
     pdf_name = f"Oversigt_{label_file}.pdf"
