@@ -91,6 +91,7 @@ import {
   ShapeGlyph,
 } from "../config/tableArchetypes";
 import { fitRoom, roomMinWidth } from "../utils/floorFit";
+import { comboLinks } from "../utils/hostStand";
 import { zoneTones } from "../utils/zoneColors";
 import { lateMinutes, overdueMinutes, overByText } from "../utils/serviceClock";
 
@@ -1722,6 +1723,60 @@ export default function FloorPlan({
           />
 
 
+
+          {/* Tables pushed together for one party, joined. Each table of a
+              combined booking already sits where the floor places it; this
+              only draws a band between their centres (the shortest chain
+              over those positions — no geometry invented), under the tables,
+              in the party's status colour: emerald seated, sky confirmed,
+              amber a request. Not while arranging the room. */}
+          {!editing && (() => {
+            const combos = cells.filter((c) => c.combined && c.booking?.reservation).map((c) => c.booking.reservation);
+            if (combos.length === 0) return null;
+            const posById = {};
+            for (const c of cells) {
+              const id = String(c.res.id);
+              const saved = layout[id] || { pos_x: 50, pos_y: 50 };
+              const p = fitted.pos[id] ? { ...saved, ...fitted.pos[id] } : saved;
+              posById[id] = { x: Number(p.pos_x), y: Number(p.pos_y) };
+            }
+            const groups = comboLinks(combos, posById);
+            if (groups.length === 0) return null;
+            const width = Math.max(8, Math.round(22 * (fitted.scale || 1)));
+            return (
+              <svg
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+                aria-hidden
+                data-combo-links={groups.length}
+              >
+                {groups.map((g) =>
+                  g.edges.map(([a, b]) => (
+                    <line
+                      key={`${g.id}-${a.id}-${b.id}`}
+                      data-combo-edge={`${a.id}:${b.id}`}
+                      x1={a.x}
+                      y1={a.y}
+                      x2={b.x}
+                      y2={b.y}
+                      stroke="currentColor"
+                      strokeWidth={width}
+                      strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
+                      className={
+                        g.status === "seated"
+                          ? "text-emerald-500/40 dark:text-emerald-400/30"
+                          : g.status === "requested"
+                            ? "text-amber-400/40 dark:text-amber-400/30"
+                            : "text-sky-400/40 dark:text-sky-400/30"
+                      }
+                    />
+                  )),
+                )}
+              </svg>
+            );
+          })()}
 
           {/* Tables */}
           {cells.map((c) => {

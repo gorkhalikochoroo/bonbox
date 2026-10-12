@@ -70,6 +70,10 @@ export default function WaitlistSection({
   // Optional (the page passes them; without, every quarter is offered):
   // the venue's hours and turn times, and how to name the table it landed on.
   openHours = null, bookingRules = null, tableLabelFor = null,
+  // The host stand's drop-in buttons, when no table fits now: {party, n}.
+  // Each new `n` opens the add form with that party size filled in — the
+  // host adds the phone (it is how we text them when a table frees).
+  addRequest = null,
 }) {
   const { t } = useLanguage();
   const confirm = useConfirm();
@@ -86,6 +90,12 @@ export default function WaitlistSection({
   const [form, setForm] = useState({ guest_name: "", guest_phone: "", party_size: 2, note: "" });
   const [addErr, setAddErr] = useState("");
   const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!addRequest?.n) return;
+    setForm((f) => ({ ...f, party_size: Number(addRequest.party) || 2 }));
+    setAddErr("");
+    setAdding(true);
+  }, [addRequest?.n, addRequest?.party]);
   // Inline "pick a time" for Book, per entry.
   const [bookFor, setBookFor] = useState(null);
   const [bookTime, setBookTime] = useState(defaultBookTime);
