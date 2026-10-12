@@ -609,11 +609,11 @@ _DOOR_RULE_KEYS = ("turn_time_tiers", "default_duration_min", "combine_enabled",
 def door_rules(db: Session, user: User) -> dict:
     """The booking rules and bookable hours the host stand reads.
 
-    NOT a route on the owner router — the owner reads the same values from
-    GET /settings. Exists for the paired door device (stand_link.py), which
-    has no session and must not reach /settings: without these the stand's
-    drop-in row assumed a 90-minute sitting and a room that never closes, and
-    said "Ledigt nu" where the owner's own stand said "ca. 20.30".
+    The paired door device (stand_link.py) has no session and must not reach
+    /settings: without these the stand's drop-in row assumed a 90-minute
+    sitting and a room that never closes, and said "Ledigt nu" where the
+    owner's own stand said "ca. 20.30". The owner reads the same function
+    through GET /booking-rules below.
 
     Same shape as the matching keys of GET /settings, so the client reads
     both with one code path."""
@@ -625,6 +625,22 @@ def door_rules(db: Session, user: User) -> dict:
         "hours_declared": rsvc.hours_declared(profile, settings),
         "open_hours": _open_hours_by_weekday(profile, settings, user),
     }
+
+
+@router.get("/booking-rules")
+def get_booking_rules(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """The owner's door to the same rules the paired device reads (door_rules)
+    — a subset of /settings, nothing the owner cannot already read there.
+
+    Why the owner needs it: this door, and seating one party across joined
+    tables (POST /book resource_ids), ship in the same release. A server
+    older than that drops resource_ids unread — Pydantic ignores unknown
+    keys — auto-picks tables of its own and answers 201; the stand then said
+    "seated at 6 + 7" for a party sat somewhere else. The frontend usually
+    goes live minutes before the API does. So the stand offers and sends
+    joined tables only once a booking-rules door has answered: this route for
+    the owner, /stand/<token>/booking-rules for the device."""
+    return door_rules(db, user)
 
 
 def _clean_tiers(raw) -> list[dict]:
@@ -1975,6 +1991,13 @@ def create_manual(payload: ManualReservation, request: Request,
             raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
     elif payload.resource_id is None:
         assigned = False
+        # A party seated NOW on the engine's own pick. The engine reads the
+        # hold rows, and those only know booked windows: a party still sitting
+        # past its booked end looks gone, so the pick can be their table. The
+        # named-table paths above refuse that (_seated_occupant); this one
+        # seated the newcomer on top of them. Refused the same way here — and
+        # a lost race is a 409 as well, not a re-pick by that same engine.
+        seating_now = payload.status == "seated"
         if payload.auto_assign:
             # Mirror the public widget's auto-pick exactly (same combo-aware
             # recheck + same duration resolution) so an owner phone booking
@@ -1987,18 +2010,23 @@ def create_manual(payload: ManualReservation, request: Request,
                 party_size=payload.party_size, now=None, duration_min=duration,
                 owner_booking=True,
             )
+            if resource_ids and seating_now and _seated_occupant(db, user, resource_ids) is not None:
+                raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
             if resource_ids:
                 try:
                     # Same insert-and-catch as the public path: reassign=True
-                    # re-picks a different free table if this one loses a race.
+                    # re-picks a different free table if this one loses a race
+                    # (a booking for later; a party seated now gets the 409).
                     occ_service.create_reservation_with_occupancy(
                         db, profile=profile, reservation=r,
                         initial_resource_ids=resource_ids,
                         party_size=payload.party_size, start=payload.starts_at,
-                        duration_min=duration, now=None, reassign=True,
+                        duration_min=duration, now=None, reassign=not seating_now,
                     )
                     assigned = True
                 except occ_service.SlotUnavailable:
+                    if seating_now:
+                        raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
                     assigned = False
             if not assigned and not payload.allow_overflow:
                 # No table (or combination) fits this party for the slot and

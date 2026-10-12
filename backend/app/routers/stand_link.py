@@ -332,12 +332,18 @@ def stand_booking_rules(token: str, db: Session = Depends(get_db)):
 
     The door's drop-in row says "Ledigt nu" or "ca. 20.30" for each party
     size, and both need the turn times and the closing time. The owner's stand
-    reads them from /settings; this device cannot (and must not — /settings
-    carries the slug, the SMS sender and the plan quotas, and stays unwrapped,
-    see test_owner_config_paths_404_under_the_stand_prefix). So the call
-    404'd, the device fell back to a 90-minute sitting in a room that never
-    closes, and told a host "Ledigt nu" for a party the owner's screen said
-    would wait until 20.30.
+    reads them through its own session (GET /reservations/booking-rules, the
+    same R.door_rules); this device asked /settings, which it cannot reach and
+    must not — /settings carries the slug, the SMS sender and the plan
+    quotas, and stays unwrapped, see
+    test_owner_config_paths_404_under_the_stand_prefix. So the call 404'd,
+    the device fell back to a 90-minute sitting in a room that never closes,
+    and told a host "Ledigt nu" for a party the owner's screen said would wait
+    until 20.30.
+
+    Its 200 also tells the device the server seats a party across joined
+    tables (resource_ids) — both shipped together, see
+    R.get_booking_rules.
 
     Read-only, and only those keys (R.door_rules): turn-time tiers, default
     sitting, the table-joining switch and limit, and the bookable hours. No

@@ -433,6 +433,26 @@ def test_the_door_rules_are_the_devices_own_venue(client, db):
     assert door["settings"]["turn_time_tiers"] == []
 
 
+def test_the_owners_stand_reads_the_same_door(client, db):
+    """The owner's own session reads the same rules at GET
+    /reservations/booking-rules (R.door_rules). Its 200 is how the owner's
+    stand knows the server seats a party across joined tables — a server
+    older than that 404s it and drops resource_ids unread. Nothing beyond
+    the door keys, exactly as the device gets."""
+    u = _seed(db); _as(u)
+    assert client.put("/api/reservations/settings", json={"settings": _RULES}).status_code == 200
+    token = _pair(client, _mint(client)["code"])
+    owner = client.get("/api/reservations/booking-rules")
+    assert owner.status_code == 200, owner.text
+    assert owner.json() == client.get(f"/api/stand/{token}/booking-rules").json()
+    assert set(owner.json()) == {"settings", "hours_declared", "open_hours"}
+    assert set(owner.json()["settings"]) == _DOOR_KEYS
+    full = client.get("/api/reservations/settings").json()
+    for k in _DOOR_KEYS:
+        assert owner.json()["settings"][k] == full["settings"][k], k
+    assert owner.json()["open_hours"] == full["open_hours"]
+
+
 def test_a_revoked_device_reads_no_rules(client, db):
     u = _seed(db); _as(u)
     minted = _mint(client)
