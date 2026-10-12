@@ -616,6 +616,29 @@ def test_minor10_readme_heading_is_the_pdf_and_mail_heading(db, store):
     b.close()
 
 
+def test_minor12_one_thing_is_called_revisorpakke_and_kørsel_is_in_it(db, store):
+    from decimal import Decimal
+    from app.models.mileage import MileageEntry
+    from app.services.bookkeeping_export import FORMATS
+    assert "Revisor" not in FORMATS["bundle"]["label"] and "bundle" not in FORMATS["bundle"]["label"].lower()
+    u = _owner(db)
+    _month(db, u, store)
+    b0 = rp.build_package(db, u, *SEP, now=NOW)
+    assert "Ingen kørsel registreret i BonBox i perioden." in _zip(b0).read("LAES-MIG.txt").decode()
+    assert "koersel.csv" not in _zip(b0).namelist()
+    b0.close()
+    db.add(MileageEntry(user_id=u.id, trip_date=date(2026, 9, 8), from_address="Nørregade 1",
+                        to_address="Hørkram, Taastrup", km=Decimal("42.50"), purpose="Varer",
+                        rate_per_km=Decimal("3.8100"), deduction_amount=Decimal("161.93")))
+    db.commit()
+    b = rp.build_package(db, u, *SEP, now=NOW)
+    z = _zip(b)
+    rows = _rows(z, "koersel.csv")
+    assert rows[0][:4] == ["Dato", "Fra", "Til", "Km"] and rows[1][3] == "42,50" and rows[1][7] == "161,93"
+    assert "koersel.csv: 1 tur, 42,50 km, fradrag 161,93 kr." in z.read("LAES-MIG.txt").decode()
+    b.close()
+
+
 def test_minor15_payments_over_revenue_explain_gift_cards_sold_at_the_till(db, store):
     u = _owner(db)
     _month(db, u, store)
