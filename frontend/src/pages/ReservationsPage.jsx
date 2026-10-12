@@ -1078,7 +1078,9 @@ function TableCombiner({ r, tables, busyIds, t, busy, onSave }) {
   return (
     <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-2.5">
       <div className={"text-[12px] tabular-nums " + (total >= r.party_size ? "text-gray-500 dark:text-gray-400" : "font-medium text-gray-800 dark:text-gray-100")}>
-        {t("rsvpCombineSeats", "{seats} seats for {n} guests", { seats: total, n: r.party_size })}
+        {Number(r.party_size) === 1
+          ? t("rsvpCombineSeatsOne", "{seats} seats for 1 guest", { seats: total })
+          : t("rsvpCombineSeats", "{seats} seats for {n} guests", { seats: total, n: r.party_size })}
       </div>
       {/* Every table, no inner scroll: Bord 11–13 and Vindue 1 hid below a
           208px box with nothing saying there was more. */}
@@ -1257,7 +1259,9 @@ function ReservationDrawer({
                 <div className="text-[13px] text-gray-500 dark:text-gray-400 tabular-nums">
                   {apptWords
                     ? t("rsvpPartyPeople", "{n} people", { n: r.party_size })
-                    : r.party_size + " " + t("rsvpCoversHelper", "guests")}
+                    : Number(r.party_size) === 1
+                      ? t("rsvpPartyOne", "1 guest")
+                      : t("rsvpPartyN", "{n} guests", { n: r.party_size })}
                 </div>
               )}
             </div>
@@ -1583,7 +1587,7 @@ function useEscToClose(onClose, busy = false) {
 // The seat sheet's value for "the tables the engine pushes together".
 const JOINED_PICK = "__joined";
 
-function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialParty = null, seatingFor = null }) {
+function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialParty = null, seatingFor = null, error = "", onWaitlist = null }) {
   const pickMode = table === SEAT_WALK_IN_PICK;
   useEscToClose(onClose, busy);
   const dialogRef = useSheetFocus();
@@ -1611,23 +1615,18 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
   // Once the host picks a table by hand, stop moving it under them.
   const [tableTouched, setTableTouched] = useState(false);
 
-  /** Smallest free table that seats `n` — the honest auto-pick. Falls back to
-   *  the largest free table when nothing fits, so a big party still gets the
-   *  best available rather than an empty select. */
+  /** Before the venue's rules are in: the smallest table that is free now,
+   *  has no booking coming up and seats `n` — else nothing. It used to fall
+   *  back to the largest free table, or to one reserved soon: six guests met
+   *  a pre-picked 4-top ("Bordet har 4 pladser — du sætter 6."), and a full
+   *  room a table booked at 13.02 the server then refused. A table the party
+   *  does not fit, or one that is not free for their sitting, is the host's
+   *  call, never the sheet's. */
   const bestFreeFor = useCallback(
     (n) => {
-      // Prefer tables with no booking coming up; a reserved one only when
-      // nothing else is free.
-      const allFree = tables.filter((tb) => !tb.busy);
-      const clear = allFree.filter((tb) => !tb.reservedAt);
-      const free = clear.length ? clear : allFree;
-      if (free.length === 0) return "";
-      const fits = free
-        .filter((tb) => (Number(tb.capacity_seats) || 0) >= n)
-        .sort((a, b) => (a.capacity_seats || 0) - (b.capacity_seats || 0));
-      const pick =
-        fits[0] ||
-        [...free].sort((a, b) => (b.capacity_seats || 0) - (a.capacity_seats || 0))[0];
+      const pick = tables
+        .filter((tb) => !tb.busy && !tb.reservedAt && (Number(tb.capacity_seats) || 0) >= n)
+        .sort((a, b) => (a.capacity_seats || 0) - (b.capacity_seats || 0))[0];
       return pick ? String(pick.id) : "";
     },
     [tables],
@@ -1643,22 +1642,32 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
   // two joined tables where the six-top was free for the whole sitting.
   // seatingFor null (the venue's rules not in yet): the best guess below.
   const partyN = Number(party) || 2;
+  // The rules are in: seatingFor answers, and its "nothing" is an answer too —
+  // no table (or joined set) is free for this party's whole sitting, so
+  // nothing is pre-picked and the sheet says so. Before the rules: the guess
+  // in bestFreeFor, which never picks a table they do not fit.
+  const rulesKnown = pickMode && typeof seatingFor === "function";
   const ruleFor = useCallback(
-    (n) => (pickMode && seatingFor ? seatingFor(n) : null),
-    [pickMode, seatingFor],
+    (n) => (rulesKnown ? seatingFor(n) : null),
+    [rulesKnown, seatingFor],
   );
-  const joinedNow = useMemo(() => {
-    const s = ruleFor(partyN);
-    return s && s.tableIds.length > 1 ? s : null;
-  }, [ruleFor, partyN]);
+  const seatingNowFor = useMemo(() => ruleFor(partyN), [ruleFor, partyN]);
+  const joinedNow = seatingNowFor && seatingNowFor.tableIds.length > 1 ? seatingNowFor : null;
   const autoPick = useCallback(
     (n) => {
-      const s = ruleFor(n);
-      if (s) return s.tableIds.length > 1 ? JOINED_PICK : String(s.tableId);
+      if (rulesKnown) {
+        const s = ruleFor(n);
+        return s ? (s.tableIds.length > 1 ? JOINED_PICK : String(s.tableId)) : "";
+      }
       return bestFreeFor(n);
     },
-    [ruleFor, bestFreeFor],
+    [rulesKnown, ruleFor, bestFreeFor],
   );
+  // Nothing to seat them at now: with the rules, no seating is free for the
+  // whole sitting; without them, only when every table is taken right now.
+  const noneFree = pickMode && (rulesKnown
+    ? !seatingNowFor
+    : tables.length > 0 && tables.every((tb) => tb.busy));
 
   const [pickedId, setPickedId] = useState(() =>
     pickMode ? autoPick(Number(party) || 2) : "",
@@ -1667,11 +1676,12 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
   // Re-suggest as the party changes, and keep the pick valid if a table frees
   // up or fills on the 60s tick. Never overrides a hand-picked table — unless
   // that pick was the joined set and there is none for this party any more.
+  // "Nothing" is a suggestion too: a pick made for two does not stay under six.
   useEffect(() => {
     if (!pickMode) return;
     if (tableTouched && !(pickedId === JOINED_PICK && !joinedNow)) return;
     const next = autoPick(partyN);
-    if (next && next !== pickedId) setPickedId(next);
+    if (next !== pickedId) setPickedId(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pickMode, tableTouched, partyN, autoPick, joinedNow]);
 
@@ -1754,6 +1764,10 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
               {tables.length === 0 && (
                 <option value="">{t("rsvpSeatWalkInNoTables", "No tables")}</option>
               )}
+              {/* Nothing pre-picked: the host chooses. */}
+              {tables.length > 0 && pickedId === "" && (
+                <option value="" disabled>{t("rsvpSeatPickTable", "Choose a table")}</option>
+              )}
               {joinedNow && (
                 <option value={JOINED_PICK}>
                   {t("rsvpSeatJoinedOption", "{tables} · {seats} seats, pushed together", {
@@ -1783,6 +1797,24 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
                   .replace("{party}", party)}
               </p>
             )}
+            {/* A full room says so here, with the way forward — not a
+                pre-picked table the server then refuses. */}
+            {noneFree && (
+              <div role="status" data-seat-none-free="" className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-3 py-2.5">
+                <p className="text-[13px] leading-snug font-medium text-gray-800 dark:text-gray-100">
+                  {t("rsvpSeatNoneFree", "No table free right now — put them on the waitlist")}
+                </p>
+                {onWaitlist && (
+                  <button
+                    type="button"
+                    onClick={() => onWaitlist(partyN)}
+                    className="mt-2 h-10 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-[13px] font-semibold text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  >
+                    {t("rsvpWlAdd", "Add to waitlist")}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
         <div>
@@ -1807,6 +1839,13 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
             className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
           />
         </div>
+        {/* The server's no (a 409: the table just went) is said HERE — on
+            the page it sat behind the open sheet. */}
+        {error && (
+          <p role="alert" className="text-[13px] leading-snug font-medium text-red-700 dark:text-red-400">
+            {error}
+          </p>
+        )}
         <Button
           type="submit"
           variant="primary"
@@ -1874,7 +1913,9 @@ function snapStart({ dateIso, time, openHours, sitting, n, service, t }) {
   if (win && overrunsClose(wins, time, sitting)) {
     note = service
       ? t("rsvpTimeMovedCloseService", "Moved to {to} — the appointment has to end by {close}.", { to: hm(to), close: hm(win[1]) })
-      : t("rsvpTimeMovedClose", "Moved to {to} — {n} guests have to be done by {close}.", { to: hm(to), n, close: hm(win[1]) });
+      : Number(n) === 1
+        ? t("rsvpTimeMovedCloseOne", "Moved to {to} — 1 guest has to be done by {close}.", { to: hm(to), close: hm(win[1]) })
+        : t("rsvpTimeMovedClose", "Moved to {to} — {n} guests have to be done by {close}.", { to: hm(to), n, close: hm(win[1]) });
   } else {
     note = t("rsvpTimeMovedOpen", "Moved to {to} — open {hours} that day.", {
       to: hm(to), hours: wins.map(([a, b]) => `${hm(a)}–${hm(b)}`).join(", "),
@@ -3557,7 +3598,7 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
                              text-[10.5px] font-medium shadow-lg"
                 >
                   {info.bookings || 0}&nbsp;{t("rsvpPeekBookings", "bookings")}
-                  {info.covers ? ` \u00b7 ${info.covers} ${t("rsvpPeekGuests", "guests")}` : ""}
+                  {info.covers ? ` \u00b7 ${info.covers} ${info.covers === 1 ? t("rsvpPeekGuestOne", "guest") : t("rsvpPeekGuests", "guests")}` : ""}
                   {/* Roster only when we HAVE one. "0 on shift" would read as a
                       staffing alarm when it usually means the week is unplanned. */}
                   {info.staff_on ? ` \u00b7 ${info.staff_on} ${t("rsvpPeekOnShift", "on shift")}` : ""}
@@ -3599,10 +3640,12 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
           </span>
         </div>
         <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-          {t("rsvpRailDayLine", "{covers} guests · {staff} on shift", {
-            covers: sel?.covers || 0,
-            staff: sel?.staff_on || 0,
-          })}
+          {(sel?.covers || 0) === 1
+            ? t("rsvpRailDayLineOne", "1 guest · {staff} on shift", { staff: sel?.staff_on || 0 })
+            : t("rsvpRailDayLine", "{covers} guests · {staff} on shift", {
+                covers: sel?.covers || 0,
+                staff: sel?.staff_on || 0,
+              })}
         </p>
         {isHeavy(sel) && (
           <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-2.5 py-1.5 flex items-start gap-1.5">
@@ -4010,6 +4053,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // the "seated at 22" line after a one-tap seat, and the Venteliste form
   // request when nothing fits now.
   const [seatParty, setSeatParty] = useState(null);
+  // A refused seat from the open seat sheet, said inside it.
+  const [seatError, setSeatError] = useState("");
   const [walkInDone, setWalkInDone] = useState(null);
   const [wlAddRequest, setWlAddRequest] = useState(null);
   // New booking (owner takes a phone booking for a future slot).
@@ -4792,9 +4837,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // Seat a walk-in NOW on a free table → the table goes occupied (seated).
   // `resource_ids` (2+) seats them across tables pushed together, all held or
   // none — the joined set the booking engine itself would use.
-  const seatWalkIn = async ({ resource_id = null, resource_ids = null, party_size, guest_name }) => {
+  // `inSheet`: the seat sheet is open over the page — its refusal is said in
+  // the sheet (an error on the page sat behind it, unseen on a phone).
+  const seatWalkIn = async ({ resource_id = null, resource_ids = null, party_size, guest_name }, { inSheet = false } = {}) => {
     setSeating(true);
     setError("");
+    setSeatError("");
+    const say = inSheet ? setSeatError : setError;
     const joined = Array.isArray(resource_ids) && resource_ids.length > 1;
     try {
       const now = new Date();
@@ -4825,21 +4874,21 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // Chosen table just got taken (race, or the picker's 60s view was stale)
       // → honest message, never a silent double-seat.
       if (e?.response?.status === 409 && joined && (code === "slot_unavailable" || code === "room_full")) {
-        setError(
+        say(
           t("rsvpSeatTablesTaken", "Those tables are no longer free together — pick another table."),
         );
       } else if (e?.response?.status === 409 && code === "slot_unavailable") {
-        setError(
+        say(
           t("rsvpSeatTableTaken", "That table is now taken — pick another free table."),
         );
       } else if (e?.response?.status === 409 && code === "table_occupied") {
-        setError(
+        say(
           t("rsvpTableStillTaken", "{table} is still taken — finish the party there first, or pick another table.", {
             table: e.response.data.detail.occupant?.table || t("rsvpTableFallback", "Table"),
           }),
         );
       } else {
-        setError(code || t("rsvpSeatError", "Couldn't seat the guests."));
+        say(code || t("rsvpSeatError", "Couldn't seat the guests."));
       }
       return null;
     } finally {
@@ -4871,6 +4920,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     }
     if (opt.freeNow || opt.unknown) {
       setError("");
+      setSeatError("");
       setSeatParty(opt.size);
       setSeatTarget(SEAT_WALK_IN_PICK);
       return;
@@ -4890,13 +4940,27 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     moved: !sameTables(tablesOf(row), sentIds),
     asked: (sentIds || []).map((id) => labelById[String(id)] || "").filter(Boolean).join(" + "),
   });
-  // The seat sheet's "Seat now": the same seat, silent when the party sits
-  // where the sheet said (as before) — the amber line when it does not.
+  // The seat sheet's "Seat now": the same seat. A drop-in seated from the
+  // sheet (its table picker — the header's button, "6+", a size tapped before
+  // the rules were in) gets the line a one-tap seat gets, named from the
+  // server's answer: "6 gæster sat ved Bord 6 + Bord 7" — the joined 6+ seat
+  // said nothing at all. A table tapped on the floor stays silent where the
+  // party sits as asked; the amber line when it does not.
   const seatFromSheet = async (p) => {
-    const row = await seatWalkIn(p);
+    const fromPicker = seatTarget === SEAT_WALK_IN_PICK;
+    const row = await seatWalkIn(p, { inSheet: true });
     if (!row) return;
     const report = seatedReport(row, p.resource_ids || [p.resource_id], p.party_size);
-    if (report.moved) setWalkInDone(report);
+    if (report.moved || fromPicker) setWalkInDone(report);
+  };
+  // The sheet's "Tilføj til venteliste" when no table is free for the party:
+  // the same Venteliste form the drop-in row opens, on that party size.
+  const waitlistFromSheet = (party) => {
+    setSeatTarget(null);
+    setSeatParty(null);
+    setSeatError("");
+    setWlAddRequest({ party, n: Date.now() });
+    focusWaitlist();
   };
   // The "seated at 22" line clears itself — it reports, it does not ask. The
   // amber "seated elsewhere" line stays until the host closes it: the floor
@@ -5025,6 +5089,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // today so the walk-in is visible, matching the tile flow.
   const openSeatWalkIn = () => {
     setError("");
+    setSeatError("");
     setSeatTarget(SEAT_WALK_IN_PICK);
   };
 
@@ -5985,7 +6050,18 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               />
             )}
           </div>
-          <div className="mt-1 flex items-center gap-2.5 text-[12px] text-gray-500 dark:text-gray-400 tabular-nums min-w-0">
+          {/* A finished row WRAPS instead: its seated → left line ("10.20 →
+              11.45 · 1 t 25 min") goes under the table and status when the
+              phone cannot hold all four — it was shrink-0 on one line, so at
+              360–390 px the table name went to nothing ("2 E ● Afsluttet")
+              and the times ran off the card. */}
+          <div
+            className={
+              "mt-1 flex items-center text-[12px] text-gray-500 dark:text-gray-400 tabular-nums min-w-0 " +
+              (r.status === "completed" ? "flex-wrap gap-x-2.5 gap-y-0.5" : "gap-2.5")
+            }
+            data-row-meta=""
+          >
             <span className="inline-flex items-center gap-1 shrink-0">
               <Users className="w-3 h-3 shrink-0" aria-hidden />
               {r.party_size}
@@ -6042,7 +6118,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 <>
                   {stay != null && (
                     <span
-                      className="shrink-0 whitespace-nowrap"
+                      className="min-w-0 max-w-full truncate"
                       data-stay
                       aria-label={t("rsvpStayAria", "Sat {from} to {to}, {dur}", {
                         from: fmtTime(stampIso(r.seated_at)),
@@ -6190,7 +6266,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           renders outside the app <Layout />. A slim brand row + a Luk that
           closes the popped tab (or falls back to the full app). */}
       {standalone && (
-        <div className="flex items-center justify-between gap-3 pb-3 border-b border-gray-200 dark:border-gray-800">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 pb-3 border-b border-gray-200 dark:border-gray-800">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="inline-flex items-center justify-center h-9 w-9 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-gray-900 shrink-0">
               <CalendarCheck className="w-5 h-5" aria-hidden />
@@ -6210,10 +6286,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           {/* Covers at a glance — guests and parties seated now, still
               expected (confirmed, not yet here) and finished, counted from the
               book on screen. Each opens that slice of the list. Today only:
-              "now" means nothing on another day. Hidden on a phone, where the
-              strip below already carries "Sidder nu". */}
+              "now" means nothing on another day. On a phone a compact row of
+              three under the title (guests only, 40 px / 13 px): hidden there,
+              the phone stand had no Forventet or Afsluttet count at all. */}
           {showStandNow && (
-            <div className="hidden md:flex items-stretch gap-1 min-w-0" role="group" aria-label={t("rsvpStandCoversAria", "Guests today")}>
+            <div className="order-last basis-full grid grid-cols-3 gap-1 min-w-0 md:order-none md:basis-auto md:flex md:items-stretch" role="group" aria-label={t("rsvpStandCoversAria", "Guests today")}>
               {[
                 ["seated", t("rsvpStandSeated", "Seated"), standCovers.seated, "seated"],
                 ["expected", t("rsvpStandExpected", "Expected"), standCovers.expected, "confirmed"],
@@ -6225,23 +6302,25 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                   data-covers={k}
                   onClick={() => focusStatus(st)}
                   className={
-                    "min-h-[44px] px-3 rounded-lg text-left transition hover:bg-gray-100 dark:hover:bg-gray-800 " +
+                    "min-h-[40px] md:min-h-[44px] min-w-0 px-2 md:px-3 rounded-lg text-left transition hover:bg-gray-100 dark:hover:bg-gray-800 " +
                     (view === "liste" && statusFilter === st ? "bg-gray-100 dark:bg-gray-800" : "")
                   }
                 >
                   <span className="flex items-center gap-1.5 text-[11px] leading-tight text-gray-500 dark:text-gray-400">
                     {k === "seated" && c.parties > 0 && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400" aria-hidden />
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-emerald-500 dark:bg-emerald-400" aria-hidden />
                     )}
-                    {label}
+                    <span className="truncate">{label}</span>
                   </span>
-                  <span className="block text-sm leading-tight tabular-nums whitespace-nowrap text-gray-900 dark:text-gray-100">
+                  <span className="block text-[13px] md:text-sm leading-tight tabular-nums whitespace-nowrap truncate text-gray-900 dark:text-gray-100">
                     <span className="font-semibold">
                       {c.guests === 1
                         ? t("rsvpStandGuestsOne", "{n} guest", { n: c.guests })
                         : t("rsvpStandGuests", "{n} guests", { n: c.guests })}
                     </span>
-                    <span className="text-gray-500 dark:text-gray-400">
+                    {/* The parties ride along from md up; a phone cell has room
+                        for the guests alone. */}
+                    <span className="hidden md:inline text-gray-500 dark:text-gray-400">
                       {" · "}
                       {c.parties === 1
                         ? t("rsvpStandPartiesOne", "{n} party", { n: c.parties })
@@ -6579,15 +6658,26 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 const atText = !o.freeNow && o.at ? fmtTime(new Date(o.at).toISOString()) : null;
                 // Rules not loaded yet: no claim either way — the tap opens the
                 // seat sheet on this size, and the button says only that.
+                // One guest is "1 gæst", never "1 gæster" (a screen reader read
+                // the plural on the first button).
+                const one = sizeLabel === "1";
                 const aria = o.unknown
-                  ? t("rsvpWalkInPickAria", "{n} guests: choose a table", { n: sizeLabel })
+                  ? one
+                    ? t("rsvpWalkInPickAriaOne", "1 guest: choose a table")
+                    : t("rsvpWalkInPickAria", "{n} guests: choose a table", { n: sizeLabel })
                   : o.freeNow
                   ? sizeLabel.endsWith("+")
                     ? t("rsvpWalkInSheetAria", "{n} guests: a table is free now — choose the size and table", { n: sizeLabel })
-                    : t("rsvpWalkInSeatAria", "{n} guests: seat now at {table}", { n: sizeLabel, table: o.label || "" })
+                    : one
+                      ? t("rsvpWalkInSeatAriaOne", "1 guest: seat now at {table}", { table: o.label || "" })
+                      : t("rsvpWalkInSeatAria", "{n} guests: seat now at {table}", { n: sizeLabel, table: o.label || "" })
                   : atText
-                    ? t("rsvpWalkInWaitAria", "{n} guests: no table free now, approx. {time} — add to the waitlist", { n: sizeLabel, time: atText })
-                    : t("rsvpWalkInWlAria", "{n} guests: no table free now — add to the waitlist", { n: sizeLabel });
+                    ? one
+                      ? t("rsvpWalkInWaitAriaOne", "1 guest: no table free now, approx. {time} — add to the waitlist", { time: atText })
+                      : t("rsvpWalkInWaitAria", "{n} guests: no table free now, approx. {time} — add to the waitlist", { n: sizeLabel, time: atText })
+                    : one
+                      ? t("rsvpWalkInWlAriaOne", "1 guest: no table free now — add to the waitlist")
+                      : t("rsvpWalkInWlAria", "{n} guests: no table free now — add to the waitlist", { n: sizeLabel });
                 return (
                   <button
                     key={o.size}
@@ -7213,9 +7303,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           t={t}
           busy={seating}
           onSeat={seatFromSheet}
-          onClose={() => { setSeatTarget(null); setSeatParty(null); }}
+          onClose={() => { setSeatTarget(null); setSeatParty(null); setSeatError(""); }}
           initialParty={seatParty}
           seatingFor={seatingFor}
+          error={seatError}
+          onWaitlist={waitlistFromSheet}
         />,
         document.body,
       )}

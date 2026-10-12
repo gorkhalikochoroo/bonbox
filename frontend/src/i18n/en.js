@@ -10327,4 +10327,17 @@ export const en = {
     rsvpOnlineNotReadyOn: "Customers can't book yet, even though the page is switched on — turn it off here.",
     rsvpWebNotReadyProvider: "Nothing to put on your website yet — online booking isn't ready for shops and workshops.",
     rsvpWebNotReady: "Nothing to put on your website yet — online reservations aren't ready for your type of business.",
+    // ── Push 8: the host stand — the seat sheet never pre-picks a table the
+    // party does not fit or that is not free for its sitting, and says when
+    // nothing is; one guest is "1 gæst" everywhere on the stand.
+    rsvpSeatPickTable: "Choose a table",
+    rsvpSeatNoneFree: "No table free right now — put them on the waitlist",
+    rsvpWalkInPickAriaOne: "1 guest: choose a table",
+    rsvpWalkInSeatAriaOne: "1 guest: seat now at {table}",
+    rsvpWalkInWaitAriaOne: "1 guest: no table free now, approx. {time} — add to the waitlist",
+    rsvpWalkInWlAriaOne: "1 guest: no table free now — add to the waitlist",
+    rsvpCombineSeatsOne: "{seats} seats for 1 guest",
+    rsvpTimeMovedCloseOne: "Moved to {to} — 1 guest has to be done by {close}.",
+    rsvpPeekGuestOne: "guest",
+    rsvpRailDayLineOne: "1 guest · {staff} on shift",
 };

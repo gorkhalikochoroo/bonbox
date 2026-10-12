@@ -9999,4 +9999,17 @@ export const da = {
     rsvpOnlineNotReadyOn: "Kunderne kan ikke booke endnu, selv om siden er slået til — slå den fra her.",
     rsvpWebNotReadyProvider: "Intet at sætte på din hjemmeside endnu — online tidsbestilling er ikke klar til butikker og værksteder.",
     rsvpWebNotReady: "Intet at sætte på din hjemmeside endnu — online reservationer er ikke klar til din type forretning.",
+    // ── Push 8: the host stand — the seat sheet never pre-picks a table the
+    // party does not fit or that is not free for its sitting, and says when
+    // nothing is; one guest is "1 gæst" everywhere on the stand.
+    rsvpSeatPickTable: "Vælg bord",
+    rsvpSeatNoneFree: "Ingen ledige borde lige nu — sæt dem på ventelisten",
+    rsvpWalkInPickAriaOne: "1 gæst: vælg bord",
+    rsvpWalkInSeatAriaOne: "1 gæst: sæt til bords nu ved {table}",
+    rsvpWalkInWaitAriaOne: "1 gæst: intet bord ledigt nu, ca. {time} — skriv på ventelisten",
+    rsvpWalkInWlAriaOne: "1 gæst: intet bord ledigt nu — skriv på ventelisten",
+    rsvpCombineSeatsOne: "{seats} pladser til 1 gæst",
+    rsvpTimeMovedCloseOne: "Flyttet til {to} — 1 gæst skal være færdig kl. {close}.",
+    rsvpPeekGuestOne: "gæst",
+    rsvpRailDayLineOne: "1 gæst · {staff} på vagt",
 };
