@@ -490,6 +490,8 @@ const AdminTrainingPage = lazyRetry(() => import("./pages/AdminTrainingPage"));
 const AdminSupportPage = lazyRetry(() => import("./pages/AdminSupportPage"));
 const SubscriptionPage = lazyRetry(() => import("./pages/SubscriptionPage"));
 const BookkeepingExportPage = lazyRetry(() => import("./pages/BookkeepingExportPage"));
+// Månedsafslutning — the period checklist + the revisor package (owner-only).
+const MonthEndPage = lazyRetry(() => import("./pages/MonthEndPage"));
 // C6 — /insights is now the InsightsHub (TabPills over the AI-insights,
 // pricing+market, and retention pages as embedded tab bodies). The hub
 // lazy-loads InsightsPage / PricingPage / CompetitorPage / RetentionPage
@@ -820,6 +822,7 @@ function AppRoutes() {
           <Route path="/cashbook" element={<CashBookPage />} />
           <Route path="/cashflow" element={<OwnerOnlyRoute><CashFlowPage /></OwnerOnlyRoute>} />
           <Route path="/tax" element={<OwnerOnlyRoute><TaxAutopilotPage /></OwnerOnlyRoute>} />
+          <Route path="/month-end" element={<OwnerOnlyRoute><MonthEndPage /></OwnerOnlyRoute>} />
           {/* C7 Intelligence collapse — pricing + competitors + retention are
               now TABS of the InsightsHub at /insights. Legacy routes stay
               registered as permanent redirects into the matching tab so old

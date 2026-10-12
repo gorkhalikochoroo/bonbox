@@ -53,6 +53,7 @@ import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn } from "../components/AnimationKit";
 import ReceiptCapture from "../components/ReceiptCapture";
 import GodkendKo from "../components/GodkendKo";
+import BilagMatchPanel from "../components/BilagMatchPanel";
 import ReceiptViewer from "../components/ReceiptViewer";
 import DismissibleTip from "../components/DismissibleTip";
 import InboxBanner from "../components/InboxBanner";
@@ -118,6 +119,10 @@ const PERSONAL_ONLY_CATS = new Set([
   "Clothing", "Personal Care", "Family", "Savings", "Investment",
 ]);
 
+// A booked business expense whose MOMS-fradrag needs a bilag and has none.
+// Personal and momsfri rows carry no fradrag, so they are never "missing".
+const missesBilag = (e) => !e.receipt_photo && !e.is_personal && !e.is_tax_exempt;
+
 export default function ExpensesPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
@@ -128,8 +133,20 @@ export default function ExpensesPage() {
   const confirm = useConfirm();
   // Declared ABOVE the query below, which names them in its deps array — a
   // `const` read before its line is a TDZ crash, not a lint warning.
-  const [filterFrom, setFilterFrom] = useState("");
-  const [filterTo, setFilterTo] = useState("");
+  // Deep links (Månedsafslutning → "Udgifter uden bilag") arrive as
+  // ?bilag=missing&from=…&to=… and land on exactly the rows it counted.
+  const initialParams = (() => {
+    try { return new URLSearchParams(window.location.search); } catch { return new URLSearchParams(); }
+  })();
+  const isoParam = (k) => {
+    const v = initialParams.get(k) || "";
+    return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : "";
+  };
+  const [filterFrom, setFilterFrom] = useState(() => isoParam("from"));
+  const [filterTo, setFilterTo] = useState(() => isoParam("to"));
+  // "Mangler bilag" — booked business expenses without a receipt (the same
+  // rule as the count banner: personal and momsfri rows carry no fradrag).
+  const [bilagFilter, setBilagFilter] = useState(() => (initialParams.get("bilag") === "missing" ? "missing" : "all"));
   // THREE OUTCOMES, NEVER TWO. These were `useState([])` plus a `.catch` that
   // wrote the message into the page's red banner and left the array at `[]`.
   // The array is what the whole page reads, so a failed GET fell through to
@@ -357,12 +374,13 @@ export default function ExpensesPage() {
     if (categoryFilter && categoryFilter !== "all" && e.category_id !== categoryFilter) {
       return false;
     }
+    if (bilagFilter === "missing" && !missesBilag(e)) return false;
     return true;
   }).sort((a, b) => {
     const d = b.date.localeCompare(a.date);
     if (d !== 0) return d;
     return (b.created_at || "").localeCompare(a.created_at || "");
-  }), [expenses, search, showFilter, categoryFilter]);
+  }), [expenses, search, showFilter, categoryFilter, bilagFilter]);
 
   // This-month summary — replaces the 4-tile period KPI right-rail.
   //
@@ -519,6 +537,12 @@ export default function ExpensesPage() {
   const [scanPhotoHeld, setScanPhotoHeld] = useState(false);
   // Smart skan could not read the photo: shown until the owner acts.
   const [scanNotRead, setScanNotRead] = useState(false);
+  // Photo-later matching for the held Smart Scan photo: typed expenses
+  // without a bilag that this receipt may belong to. Offered, never applied.
+  const [scanMatches, setScanMatches] = useState([]);
+  const [scanMatchDismissed, setScanMatchDismissed] = useState(false);
+  const [scanLinkingId, setScanLinkingId] = useState(null);
+  const scanReadRef = useRef(null);
   useEffect(() => {
     const st = location.state;
     if (!st || (st.source !== "smart_scan" && st.source !== "smart_scan_manual")) return;
@@ -529,6 +553,13 @@ export default function ExpensesPage() {
     const photo = takeScanPhoto("/expenses");
     scanPhotoRef.current = photo;
     setScanPhotoHeld(!!photo);
+    setScanMatchDismissed(false);
+    setScanMatches([]);
+    scanReadRef.current = prefill ? {
+      vendor: prefill.suggested_vendor || prefill.vendor || null,
+      vat_amount: prefill.vat_amount ?? null,
+      vat_rate: prefill.vat_rate ?? null,
+    } : null;
     if (prefill) {
       if (prefill.suggested_amount != null) setAmount(String(prefill.suggested_amount));
       if (prefill.amount != null && !prefill.suggested_amount) setAmount(String(prefill.amount));
@@ -568,6 +599,64 @@ export default function ExpensesPage() {
     navigate(location.pathname, { replace: true, state: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
+
+  useEffect(() => {
+    if (!scanPhotoHeld || scanMatchDismissed) { setScanMatches([]); return undefined; }
+    const value = parseMoneyInput(amount, moneyLocale(currency));
+    if (!(value > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(expDate || "")) { setScanMatches([]); return undefined; }
+    let alive = true;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.get("/expenses/bilag-matches", {
+          params: { amount: value, date: expDate, vendor: scanReadRef.current?.vendor || desc || undefined },
+        });
+        if (alive) setScanMatches(res.data?.candidates || []);
+      } catch {
+        // No answer is not "no match": keep whatever offer was on screen.
+      }
+    }, 350);
+    return () => { alive = false; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanPhotoHeld, scanMatchDismissed, amount, expDate]);
+
+  // "Knyt til eksisterende udgift": the held photo becomes the typed
+  // expense's bilag. Its amount stays; empty fields may be filled; the form
+  // is cleared because nothing new is booked.
+  const linkScanTo = async (c) => {
+    const photo = scanPhotoRef.current;
+    if (!photo) return;
+    setScanLinkingId(c.id);
+    setError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", photo);
+      fd.append("link", "true");
+      const read = scanReadRef.current || {};
+      if (read.vendor) fd.append("vendor", read.vendor);
+      if (read.vat_amount != null) fd.append("vat_amount", String(read.vat_amount));
+      if (read.vat_rate != null) fd.append("vat_rate", String(read.vat_rate));
+      await api.post(`/expenses/${c.id}/attach-receipt`, fd, { timeout: 60000 });
+      scanPhotoRef.current = null;
+      setScanPhotoHeld(false);
+      setScanMatches([]);
+      setScanNotRead(false);
+      setAmount("");
+      setDesc("");
+      setCatId("");
+      setExpDate(bizToday());
+      fetchData();
+      window.dispatchEvent(new Event("bonbox-data-changed"));
+      setSuccess(t("bilagMatchLinked", "Receipt attached to {desc} ({date})", {
+        desc: c.description || c.category_name || "", date: formatDateClear(c.date),
+      }));
+      setTimeout(() => setSuccess(""), 4000);
+    } catch (err) {
+      const d = err?.response?.data?.detail;
+      setError((d && typeof d === "object" && (d.message_da || d.message)) || errText(err, t("bilagMatchFailed", "Couldn't attach the receipt — try again.")));
+    } finally {
+      setScanLinkingId(null);
+    }
+  };
 
   const showVerifyChip = (field) => {
     return verifyHints.includes(field) && !touchedHints.has(field);
@@ -878,12 +967,14 @@ export default function ExpensesPage() {
     || filterTo
     || search
     || (categoryFilter && categoryFilter !== "all")
+    || bilagFilter !== "all"
   );
   const clearAllFilters = () => {
     setFilterFrom("");
     setFilterTo("");
     setSearch("");
     setCategoryFilter("all");
+    setBilagFilter("all");
     // No explicit refetch: clearing the range changes the query's deps, which
     // re-runs it. Search and category are client-side filters over rows we
     // already hold, so there is nothing to go and ask for.
@@ -1509,6 +1600,16 @@ export default function ExpensesPage() {
                     {t("expScanPhotoKept", "The photo is saved as this expense's receipt (bilag)")}
                   </p>
                 )}
+                {scanPhotoHeld && scanMatches.length > 0 && (
+                  <BilagMatchPanel
+                    candidates={scanMatches}
+                    receiptAmount={parseMoneyInput(amount, moneyLocale(currency))}
+                    currency={currency}
+                    busyId={scanLinkingId}
+                    onLink={linkScanTo}
+                    onNew={() => setScanMatchDismissed(true)}
+                  />
+                )}
                 {detailedOpen && detailedExtras}
 
                 {/* Toggle for the disclosure. Doctrine: this is a
@@ -1608,9 +1709,7 @@ export default function ExpensesPage() {
               banner above (stale rows) or the one in the ledger below (no rows)
               is what tells the owner the page has not been able to ask. */}
           {(() => {
-            const missing = expenses.filter(
-              (e) => !e.receipt_photo && !e.is_personal && !e.is_tax_exempt,
-            );
+            const missing = expenses.filter(missesBilag);
             if (!missing.length) return null;
             const missTotal = missing.reduce(
               (s, e) => s + (parseFloat(e.amount) || 0),
@@ -1619,11 +1718,14 @@ export default function ExpensesPage() {
             return (
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  // Show exactly these rows — the snap action sits on each.
+                  setBilagFilter("missing");
                   document
                     .getElementById("bonbox-recent-expenses")
-                    ?.scrollIntoView({ behavior: "smooth" })
-                }
+                    ?.scrollIntoView({ behavior: "smooth" });
+                }}
+                aria-pressed={bilagFilter === "missing"}
                 className="w-full text-left flex items-center gap-3 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/60 dark:bg-amber-900/10 px-4 py-3 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition"
               >
                 <Receipt
@@ -1640,6 +1742,9 @@ export default function ExpensesPage() {
                   <span className="block text-xs text-gray-600 dark:text-gray-400 mt-0.5 tabular-nums">
                     {t("expMissingBilagSub", "{amt} in expenses with no bilag — snap it to keep the fradrag").replace("{amt}", formatOwnerMoney(missTotal, currency))}
                   </span>
+                </span>
+                <span className="shrink-0 text-xs font-semibold text-amber-800 dark:text-amber-300">
+                  {t("expMissingBilagShow", "Show them")}
                 </span>
                 <ChevronRight
                   className="w-4 h-4 shrink-0 text-amber-500"
@@ -1687,12 +1792,32 @@ export default function ExpensesPage() {
               </Button>
             </div>
 
+            {bilagFilter === "missing" && (
+              <p className="text-xs text-gray-700 dark:text-gray-300" data-testid="bilag-filter-active">
+                {t("expBilagFilterActive", "Showing only expenses without a receipt")}
+                {" · "}
+                {filtered.length} · {formatOwnerMoney(filtered.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0), currency)}
+                {" · "}
+                <button type="button" onClick={() => setBilagFilter("all")} className="underline underline-offset-2 font-medium">
+                  {t("expBilagFilterClear", "Show all")}
+                </button>
+              </p>
+            )}
             <FilterBar>
               <FilterBar.Select
                 label={t("category", "Category")}
                 value={categoryFilter}
                 onChange={setCategoryFilter}
                 options={categoryOptions}
+              />
+              <FilterBar.Select
+                label={t("expBilagFilterLabel", "Receipt")}
+                value={bilagFilter}
+                onChange={setBilagFilter}
+                options={[
+                  { value: "all", label: t("expBilagFilterAll", "All") },
+                  { value: "missing", label: t("expBilagFilterMissing", "Missing receipt") },
+                ]}
               />
               <FilterBar.Date
                 label={t("fromDate", "From")}

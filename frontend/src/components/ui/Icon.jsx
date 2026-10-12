@@ -34,6 +34,8 @@ import {
   Boxes, Package, PackageSearch, Martini, Wine, AlarmClock, Trash2,
   // Reports
   BarChart3, Utensils, ClipboardList, Moon, Store, Calculator, Send,
+  // Månedsafslutning (month-end checklist + revisor package)
+  ClipboardCheck,
   // Staff
   UsersRound, Calendar, Timer, Coins, FileSpreadsheet, Briefcase,
   // Intelligence
@@ -131,6 +133,7 @@ const ICONS = {
   Boxes, Package, PackageSearch, Martini, Wine, AlarmClock, Trash2,
   // Reports group
   BarChart3, Utensils, ClipboardList, Moon, Store, Calculator, Send,
+  ClipboardCheck,
   // Staff group
   UsersRound, Calendar, Timer, Coins, FileSpreadsheet, Briefcase,
   // Intelligence group

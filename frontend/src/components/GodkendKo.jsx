@@ -5,6 +5,8 @@ import api from "../services/api";
 import { localIso } from "../utils/dateFormat";
 import { safeImageUrl } from "../utils/safeUrl";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
+import { errText } from "../utils/errText";
+import BilagMatchPanel from "./BilagMatchPanel";
 
 // §42 fradrag % from the canonical DK category name — mirrors dk_fradrag.py so
 // the owner sees WHY a meal/gift deducts less, in the open. Display only; the
@@ -26,6 +28,14 @@ export default function GodkendKo({ getCatName, currency = "DKK", onApproved, on
   const { t } = useLanguage();
   const [drafts, setDrafts] = useState([]);
   const [busy, setBusy] = useState(false);
+  // Photo-later matching: {draftId: [typed expenses without a bilag this
+  // receipt may belong to]}. A matched draft is never "klar" — "Godkend
+  // alle" would book the purchase a second time (the server skips it too).
+  const [matches, setMatches] = useState({});
+  // Drafts the owner answered "no, it's a new expense" for (this session).
+  const [notAMatch, setNotAMatch] = useState(() => new Set());
+  const [linkingId, setLinkingId] = useState(null);
+  const [linkError, setLinkError] = useState("");
   // Currency lives on the ACCOUNT, never the browser: amounts route through
   // formatOwnerMoney (DKK → "1.113,50 kr.", da-DK grouping). The missing-
   // amount branch still renders "— <unit>", now in the same notation as the
@@ -38,6 +48,12 @@ export default function GodkendKo({ getCatName, currency = "DKK", onApproved, on
       setDrafts(Array.isArray(res.data) ? res.data : []);
     } catch {
       setDrafts([]);
+    }
+    try {
+      const m = await api.get("/expenses/pending/bilag-matches");
+      setMatches((m.data && m.data.matches) || {});
+    } catch {
+      // No answer is not "no match": keep what we last knew.
     }
   }, []);
 
@@ -52,13 +68,36 @@ export default function GodkendKo({ getCatName, currency = "DKK", onApproved, on
   // must never call something "klar" that a single Godkend would refuse.
   const needsRate = (d) => Boolean(d.currency) && (d.fx_rate == null || d.original_amount == null);
   const dateGuessed = (d) => d.date_source === "guessed";
-  const isKlar = (d) =>
+  const matchesFor = (d) => (notAMatch.has(d.id) ? [] : (matches[d.id] || []));
+  const hasMatch = (d) => (matches[d.id] || []).length > 0;
+  const fieldsReady = (d) =>
     !needsRate(d) && hasAmount(d) && hasMethod(d) && !dateGuessed(d)
     && !!d.receipt_photo
     && getCatName(d.category_id) !== "Ukategoriseret";
+  const isKlar = (d) => fieldsReady(d) && !hasMatch(d);
   const klarIds = drafts.filter(isKlar).map((d) => d.id);
   const missingAmountCount = drafts.filter((d) => !hasAmount(d)).length;
   const missingMethodCount = drafts.filter((d) => hasAmount(d) && !hasMethod(d)).length;
+  const matchedCount = drafts.filter(hasMatch).length;
+
+  // "Knyt til eksisterende udgift": the draft's bilag goes onto the typed
+  // expense and the draft disappears — never a second booking.
+  const linkTo = async (draft, candidate) => {
+    setLinkingId(candidate.id);
+    setLinkError("");
+    try {
+      await api.post(`/expenses/${candidate.id}/link-bilag`, { draft_id: draft.id });
+      await load();
+      onApproved?.();
+      window.dispatchEvent(new Event("bonbox-data-changed"));
+    } catch (e) {
+      const d = e?.response?.data?.detail;
+      setLinkError((d && typeof d === "object" && (d.message_da || d.message)) || errText(e, t("bilagMatchFailed", "Couldn't attach the receipt — try again.")));
+      await load();
+    } finally {
+      setLinkingId(null);
+    }
+  };
 
   // One tap on the row sets the method — the owner is looking straight at
   // the receipt thumbnail, so sending them into an edit modal to answer
@@ -115,12 +154,16 @@ export default function GodkendKo({ getCatName, currency = "DKK", onApproved, on
           {/* Say what the pile actually contains. "Approve all ready"
               silently doing less than the count implies is how an owner
               ends up believing a receipt was booked when it wasn't. */}
-          {(missingMethodCount > 0 || missingAmountCount > 0) && (
+          {(missingMethodCount > 0 || missingAmountCount > 0 || matchedCount > 0) && (
             <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 tabular-nums">
               {klarIds.length} {t("koStatReady", "ready")}
               {missingMethodCount > 0 && ` · ${missingMethodCount} ${t("koStatNoMethod", "missing payment")}`}
               {missingAmountCount > 0 && ` · ${missingAmountCount} ${t("koStatNoAmount", "missing amount")}`}
+              {matchedCount > 0 && ` · ${matchedCount} ${t("koStatMatches", "may be the receipt of a typed expense")}`}
             </p>
+          )}
+          {linkError && (
+            <p className="text-xs text-red-700 dark:text-red-300 mt-1" role="alert">{linkError}</p>
           )}
         </div>
         {klarIds.length > 0 && (
@@ -165,6 +208,11 @@ export default function GodkendKo({ getCatName, currency = "DKK", onApproved, on
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-2 truncate">{catName} · {d.date}</div>
                   <div className="flex items-center gap-2 flex-wrap">
+                    {hasMatch(d) && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200">
+                        {t("koMatchChip", "Matches an expense you typed")}
+                      </span>
+                    )}
                     {pct < 100 && (
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300">
                         <Scale size={12} strokeWidth={1.75} aria-hidden="true" />{t("opsFradragPct", "Deductible {pct}% · §42", { pct })}
@@ -191,7 +239,7 @@ export default function GodkendKo({ getCatName, currency = "DKK", onApproved, on
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300">
                         <CircleCheck size={12} strokeWidth={1.75} aria-hidden="true" />{t("koReady", "Ready")}
                       </span>
-                    ) : (
+                    ) : hasMatch(d) && fieldsReady(d) ? null : (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">{t("opsUncategorized", "Uncategorized")}</span>
                     )}
                     {noAmount || noRate ? (
@@ -223,10 +271,21 @@ export default function GodkendKo({ getCatName, currency = "DKK", onApproved, on
                       </span>
                     ) : (
                       <button type="button" onClick={() => approveOne(d.id)} disabled={busy} className="ml-auto text-sm font-medium px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition disabled:opacity-40">
-                        {t("koApprove", "Approve")}
+                        {hasMatch(d) ? t("koApproveAsNew", "Approve as new") : t("koApprove", "Approve")}
                       </button>
                     )}
                   </div>
+                  {matchesFor(d).length > 0 && (
+                    <BilagMatchPanel
+                      compact
+                      candidates={matchesFor(d)}
+                      receiptAmount={hasAmount(d) ? parseFloat(d.amount) : null}
+                      currency={currency}
+                      busyId={linkingId}
+                      onLink={(c) => linkTo(d, c)}
+                      onNew={() => setNotAMatch((prev) => new Set(prev).add(d.id))}
+                    />
+                  )}
                 </div>
               </div>
             </div>
