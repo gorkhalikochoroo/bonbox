@@ -75,10 +75,12 @@ def next_due_period(schedule: str, now_utc: datetime, tz) -> tuple[str, date, da
     cur = due_period(schedule, now_utc, tz)
     if cur is None:
         return None
-    # Step past the current due moment by the period length, then take the
+    # Step past the current due moment by the period length (plus half a
+    # day, so a DST change between the two due moments cannot land the probe
+    # an hour BEFORE the next 07:00 and skip a whole period), then take the
     # most recent due moment at or before that probe.
     step = timedelta(days=7) if schedule == "weekly" else timedelta(days=31)
-    probe = cur[3] + step
+    probe = cur[3] + step + timedelta(hours=12)
     nxt = due_period(schedule, probe, tz)
     while nxt is not None and nxt[3] <= (now_utc.replace(tzinfo=None) if now_utc.tzinfo else now_utc):
         probe += step

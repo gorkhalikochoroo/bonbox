@@ -89,10 +89,13 @@ def checklist(
     out = rp.build_checklist(db, user, s, e)
     from app.services import revisor_mail as rm
     from app.services.billing import has_feature
+    sched = getattr(profile, "revisor_package_schedule", None) if profile else None
     out["send"] = {
         "entitled": has_feature(user, "accountant_month_end_bundle"),
         "blocker": rp.send_blocker(db, user, profile, s, e),
         "revisor_email": rm.saved_revisor_address(profile) or None,
+        # The owner's "Send revisorpakke" choice, so the page says it is on.
+        "schedule": sched if sched in rp.SCHEDULES else "never",
     }
     out["last_sends"] = [x for x in rp.last_sends(db, user, limit=10)
                          if x["period_start"] == s.isoformat() and x["period_end"] == e.isoformat()][:3]

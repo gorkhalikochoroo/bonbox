@@ -139,6 +139,15 @@ def test_due_period_monthly_and_weekly():
         date(2026, 9, 28), date(2026, 10, 4))
     nxt = next_due_period("monthly", utc(2026, 11, 3, 7, 20), CPH)
     assert nxt[1:3] == (date(2026, 11, 1), date(2026, 11, 30))
+    # Across the October DST change: on 12 Oct the next monthly package is
+    # October's, due 3 Nov (not November's on 3 Dec).
+    nxt = next_due_period("monthly", utc(2026, 10, 12, 10, 0), CPH)
+    assert nxt[1:3] == (date(2026, 10, 1), date(2026, 10, 31))
+    assert nxt[3] == utc(2026, 11, 3, 7, 0)
+    # Weekly across the same change: Monday 26 Oct (after the switch).
+    nxt = next_due_period("weekly", utc(2026, 10, 20, 10, 0), CPH)
+    assert nxt[1:3] == (date(2026, 10, 19), date(2026, 10, 25))
+    assert nxt[3] == utc(2026, 10, 26, 7, 0)
 
 
 def test_monthly_sends_once_per_period_and_recipient(factory, store, mailbox):

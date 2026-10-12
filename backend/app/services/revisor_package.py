@@ -1320,7 +1320,7 @@ def package_email_html(*, biz: str, cvr: str | None, accountant_name: str | None
             "og låst, og alle udgifter har bilag.</p>"
         )
     unread = (
-        f"<p style='color:#92400e;font-size:13px;'>{build.n_bilag_unreadable} bilag kunne ikke "
+        f"<p style='color:#92400e;font-size:13px;'>{esc(build.n_bilag_unreadable)} bilag kunne ikke "
         "hentes og er ikke i pakken — de står i bilag-oversigt.csv.</p>"
         if build.n_bilag_unreadable else ""
     )
@@ -1342,7 +1342,7 @@ def package_email_html(*, biz: str, cvr: str | None, accountant_name: str | None
         "background:#111827;color:#ffffff;text-decoration:none;padding:10px 16px;"
         "border-radius:8px;font-weight:600;'>Hent hele pakken (ZIP)</a></p>"
         f"<p style='font-size:13px;color:#374151;'>ZIP'en har CSV-filerne og "
-        f"{build.n_bilag} bilag ({esc(_mb(len(build.zip_bytes)))}). Linket virker til og med "
+        f"{esc(build.n_bilag)} bilag ({esc(_mb(len(build.zip_bytes)))}). Linket virker til og med "
         f"{esc(dk_date(expires))}; bed {esc(biz)} sende pakken igen, hvis det er udløbet.</p>"
         f"{unread}{sched}"
         + (owner_copy_line(owner_copy_to, True) if owner_copy_to else
