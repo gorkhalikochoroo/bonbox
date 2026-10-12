@@ -106,7 +106,7 @@ const CHANNEL =
  */
 export default function StaffInviteSheet({ member, link, loading, lastAccessed, restaurant, onClose }) {
   const { t } = useLanguage();
-  const [copied, setCopied] = useState(null); // "msg" | "code" | "fail" | null
+  const [copied, setCopied] = useState(null); // "msg" | "code" | "url" | "fail" | null
   const timer = useRef(null);
   useEffect(() => () => clearTimeout(timer.current), []);
   if (!member) return null;
@@ -125,6 +125,7 @@ export default function StaffInviteSheet({ member, link, loading, lastAccessed, 
   };
   const copyMessage = async () => flash((await writeClipboard(message)) ? "msg" : "fail");
   const copyCode = async () => flash((await writeClipboard(link?.code || "")) ? "code" : "fail");
+  const copyUrl = async () => flash((await writeClipboard(link?.url || "")) ? "url" : "fail");
   const nativeShare = async () => {
     try {
       await navigator.share({
@@ -257,12 +258,25 @@ export default function StaffInviteSheet({ member, link, loading, lastAccessed, 
               </div>
             </div>
 
-            <p
-              className="mx-5 mt-3 rounded-lg bg-gray-50 dark:bg-gray-900/40 px-3 py-2 font-mono text-[11px] text-gray-500 dark:text-gray-400 break-all select-all"
-              data-testid="staff-invite-url"
-            >
-              {link.url}
-            </p>
+            {/* The bare link, for anyone who wants only the URL (the old
+                dialog's "Kopiér" copied just this). */}
+            <div className="mx-5 mt-3 flex items-center gap-1 rounded-lg bg-gray-50 dark:bg-gray-900/40 pl-3">
+              <p
+                className="min-w-0 flex-1 py-2 font-mono text-[11px] text-gray-500 dark:text-gray-400 break-all select-all"
+                data-testid="staff-invite-url"
+              >
+                {link.url}
+              </p>
+              <button
+                type="button"
+                onClick={copyUrl}
+                aria-label={copied === "url" ? t("firstStepsCopied") : t("firstStepsCopy")}
+                title={t("firstStepsCopy")}
+                className="shrink-0 w-10 h-10 inline-flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <Icon name={copied === "url" ? "Check" : "Copy"} size={14} />
+              </button>
+            </div>
             <p className="px-5 pt-3 pb-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
               {t("schedPortalNoAccount")}
             </p>

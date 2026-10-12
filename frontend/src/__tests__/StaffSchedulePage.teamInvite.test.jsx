@@ -195,6 +195,11 @@ describe("the team list", () => {
     expect(within(sheet).getByRole("link", { name: /BonBox Vagtplan i App Store/ }).getAttribute("href"))
       .toContain("id6787010793");
     expect(within(sheet).getByTestId("staff-invite-url").textContent).toContain("/s/cafe-mirabelle/sofie-holm/tokA");
+    // The bare link alone is still one tap (what the old dialog's "Kopiér" did).
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: "Kopiér link" })); });
+    expect(writeText).toHaveBeenCalledWith(within(sheet).getByTestId("staff-invite-url").textContent);
     // Status inside the sheet, from the same answer as the row.
     expect(within(sheet).getByText("Ikke åbnet endnu")).toBeInTheDocument();
   });
