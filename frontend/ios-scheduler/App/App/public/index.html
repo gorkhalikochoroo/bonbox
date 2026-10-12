@@ -313,7 +313,7 @@
     </script>
 
     <title>BonBox — Bagkontoret din virksomhed faktisk kører på</title>
-    <script type="module" crossorigin src="/assets/index-BlrFdeSS.js"></script>
+    <script type="module" crossorigin src="/assets/index-yGjay06R.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-COnpUsM8.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-react-BUHZeGuk.js">
     <link rel="modulepreload" crossorigin href="/assets/dist-CXO7fBfF.js">
@@ -371,7 +371,7 @@
     <link rel="modulepreload" crossorigin href="/assets/useEntitlements-DmZMuZ1M.js">
     <link rel="modulepreload" crossorigin href="/assets/guestSurface-C-71uN2a.js">
     <link rel="modulepreload" crossorigin href="/assets/liveAlertKinds-CWpGtaLh.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-CpUhSlSo.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-XiuycrUV.css">
   <script>(function(){try{var f={"da":"/assets/da-CMcMFCKR.js","en":"/assets/en-0_OXpDvd.js"};var l=null;try{l=localStorage.getItem("lang")}catch(e){}if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}var h=l==="da"?f.da:f.en;var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)}catch(e){}})()</script></head>
   <body>
     <script>
@@ -403,9 +403,16 @@
           "/admin", "/admin/training", "/admin/support"
         ].indexOf(wp) !== -1;
         if (!paper) document.documentElement.classList.add("bb-page-white");
+        // The embedded booking widget (/r/<slug>?embed=1, framed in the owner's
+        // website or the owner's preview) is always light: the stored theme
+        // is skipped, never rewritten. The page holds it off too once mounted
+        // (forceLightTheme, src/utils/themeColor.js; embedLight.test.jsx).
+        var embed = !paper && /[?&]embed=1(&|$)/.test(location.search);
         try {
           var t = localStorage.getItem("theme");
-          if (t === "dark") {
+          if (t === "dark" && embed) {
+            document.documentElement.classList.remove("dark");
+          } else if (t === "dark") {
             document.documentElement.classList.add("dark");
             // The browser bar follows the theme (surface-card, see
             // src/utils/themeColor.js). Not on pages that never render dark:
