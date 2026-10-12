@@ -9987,10 +9987,15 @@ function InstallHostStandHint({ t, isProvider = false }) {
                 designed for. Safari's own Share → Add to Home Screen is the
                 real path there. */}
             {_isIOSDevice()
-              ? t(
-                  "rsvpInstallManualIOS",
-                  "In Safari: tap Share, then Add to Home Screen. The icon opens straight to this screen.",
-                )
+              ? isProvider
+                ? t(
+                    "rsvpInstallManualIOSProvider",
+                    "In Safari: tap Share, then Add to Home Screen. The icon opens straight to the appointment book.",
+                  )
+                : t(
+                    "rsvpInstallManualIOS",
+                    "In Safari: tap Share, then Add to Home Screen. The icon opens straight to this screen.",
+                  )
               : t(
                   "rsvpInstallManual",
                   "In Edge or Chrome: open the ⋯ menu → Apps → Install this site as an app.",

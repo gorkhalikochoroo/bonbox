@@ -10367,4 +10367,7 @@ export const en = {
     rsvpRailDayLineOneAppt: "1 customer · {staff} on shift",
     // ── Push 8: a party at tables across the room — no band, a shared letter.
     rsvpPlanSharedWith: "Shared with {tables}",
+    // ── Push 8: the iPad install line of a salon, a shop or a workshop opens
+    // the appointment book, not the host screen.
+    rsvpInstallManualIOSProvider: "In Safari: tap Share, then Add to Home Screen. The icon opens straight to the appointment book.",
 };

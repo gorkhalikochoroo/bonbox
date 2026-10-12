@@ -10039,4 +10039,7 @@ export const da = {
     rsvpRailDayLineOneAppt: "1 kunde · {staff} på vagt",
     // ── Push 8: a party at tables across the room — no band, a shared letter.
     rsvpPlanSharedWith: "Delt med {tables}",
+    // ── Push 8: the iPad install line of a salon, a shop or a workshop opens
+    // the appointment book, not the host screen.
+    rsvpInstallManualIOSProvider: "I Safari: tryk Del, og vælg Læg på hjemmeskærm. Ikonet åbner direkte på tidsbogen.",
 };

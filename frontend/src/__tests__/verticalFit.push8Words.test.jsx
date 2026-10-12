@@ -193,6 +193,17 @@ describe("8 · a shop's and a workshop's book", () => {
     expect(card.textContent).not.toMatch(/Vært-skærm|reservationer/i);
   });
 
+  it("on an iPad the install line opens the appointment book, not the host screen", async () => {
+    window.__BONBOX_IS_IOS = true;
+    try {
+      renderOwner("/reservations?tab=settings", "clothing");
+      await screen.findByText(da.rsvpInstallManualIOSProvider);
+      expect(pageText()).not.toMatch(/vært-skærm/i);
+    } finally {
+      delete window.__BONBOX_IS_IOS;
+    }
+  });
+
   it("a salon keeps 'Sidder' — its customer is in the chair", async () => {
     resources = [{ id: "r2", kind: "provider", label: "Mia", staff_id: "s1", is_active: true }];
     rows = bookRows();
