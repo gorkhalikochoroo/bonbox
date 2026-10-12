@@ -108,6 +108,7 @@ import FloorPlan from "../components/FloorPlan";
 import { deriveFloorState, fmtTime } from "../utils/floorState";
 import InsightsSection from "../components/reservations/InsightsSection";
 import WaitlistSection from "../components/reservations/WaitlistSection";
+import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
 import { QRCodeSVG } from "qrcode.react";
 import { canPurchaseInApp } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor } from "../config/venueProfiles";
@@ -612,7 +613,9 @@ export default function ReservationsPage() {
       {/* BookSection's own standalone wrapper already sets full-bleed padding
           and safe-area insets, and its header already prints the venue name and
           "Vært-skærm" — the owner wrapper and title would double both. */}
-      {!isHostStand && <PageTitle t={t} isProvider={isProvider} />}
+      {!isHostStand && (
+        <PageTitle t={t} isProvider={isProvider} websiteHref="/reservations?tab=settings&show=website" />
+      )}
       {!isHostStand && (
       <TabPills
         tabs={[
@@ -693,16 +696,31 @@ export default function ReservationsPage() {
   );
 }
 
-function PageTitle({ t, isProvider = false }) {
+function PageTitle({ t, isProvider = false, websiteHref = "" }) {
   // Salon (provider) reads "Tidsbestilling" with an Aftaler-flavoured subtitle.
   // The booking primitive underneath is unchanged — this is vocabulary + IA
   // only (Phase A is NOT appointment-grade; honesty gate #2).
   return (
     <div>
-      <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
-        <CalendarCheck className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700 dark:text-gray-200" aria-hidden />
-        {isProvider ? t("rsvpOwnerTitleProvider", "Appointments") : t("rsvpOwnerTitle", "Reservations")}
-      </h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="min-w-0 text-xl sm:text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+          <CalendarCheck className="w-5 h-5 sm:w-6 sm:h-6 shrink-0 text-gray-700 dark:text-gray-200" aria-hidden />
+          {isProvider ? t("rsvpOwnerTitleProvider", "Appointments") : t("rsvpOwnerTitle", "Reservations")}
+        </h1>
+        {/* The way in to "Book bord på din hjemmeside" from every tab — it
+            used to live only at the bottom of Settings. Quiet, and in the
+            title row, so it adds no row of its own on a phone. */}
+        {websiteHref && (
+          <Link
+            to={websiteHref}
+            data-testid="rsvp-website-entry"
+            className="shrink-0 inline-flex items-center gap-1.5 h-10 sm:h-9 min-h-0! px-3 rounded-lg border border-[rgb(var(--surface-line))] bg-[rgb(var(--surface-card))] text-[13px] font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-green-accent))]"
+          >
+            <Globe className="w-4 h-4 text-gray-500 dark:text-gray-400" aria-hidden />
+            {t("rsvpWebEntry")}
+          </Link>
+        )}
+      </div>
       {/* Hidden on a phone. It tells a first-time owner what this page IS,
           which is worth 40px on a laptop and worth nothing to a host at 19:30
           who opened it to seat a walk-in — measured, it was part of 877px of
@@ -7852,194 +7870,7 @@ function BehandlingerSection({ t }) {
 }
 
 // ─── Settings + share ─────────────────────────────────────────────────
-// EmbedOnWebsite — "Sæt på din hjemmeside": the two copy-paste ways an owner
-// puts BonBox booking where guests actually start. A styled BUTTON (an <a>
-// link — works on any site, zero risk, opens the BonBox page) and an inline
-// IFRAME (the widget lives in-page; needs the /r/ frame-ancestors CSP). Both
-// snippets use inline styles so they render correctly without the host site's
-// CSS. Plus a one-liner for the two link-only channels (Google Maps profile,
-// Instagram bio) — no build, just their existing link.
-function EmbedOnWebsite({ publicUrl, venueName, t }) {
-  const [copied, setCopied] = useState(""); // "" | "button" | "iframe"
-
-  const label = t("rsvpEmbedButtonLabel", "Book bord");
-  const safeName = (venueName || "BonBox").replace(/"/g, "&quot;");
-  const fallbackLabel = t("rsvpEmbedOpenInNewTab", "Åbn booking i nyt vindue →");
-  // The iframe MUST load the /r/ form: only that route carries the
-  // frame-ancestors CSP that lets a third-party site embed it (the bare
-  // /{slug} route inherits the site-wide frame-ancestors 'none'). Same page,
-  // embeddable headers. The button is a full-page link, so bare slug is fine.
-  // The /r/ prefix must be ADDED, not appended blindly. A legacy slug that
-  // collides with an app route already comes back as ".../r/<slug>", and
-  // the old unconditional replace turned that into ".../r/r/<slug>" — a
-  // path no route matches, so those owners were pasting an iframe that
-  // could only ever render a not-found page inside their own site.
-  const embedSrc = /\/r\/[^/]+\/?$/.test(publicUrl)
-    ? publicUrl.replace(/\/$/, "")
-    : publicUrl.replace(/\/([^/]+)\/?$/, "/r/$1");
-  // Origin the height messages must come from, so the host page's listener
-  // cannot be driven by some other frame on the owner's site.
-  let embedOrigin = "https://www.bonbox.dk";
-  try {
-    embedOrigin = new URL(embedSrc).origin;
-  } catch { /* keep the default */ }
-  const buttonSnippet =
-    `<a href="${publicUrl}" target="_blank" rel="noopener"\n` +
-    `  style="display:inline-flex;align-items:center;gap:8px;padding:12px 22px;` +
-    `border-radius:12px;background:#111827;color:#fff;font:600 15px/1 system-ui,` +
-    `sans-serif;text-decoration:none">${label}</a>`;
-  // The iframe used to be a bare fixed height="720". That number is wrong
-  // for every site: on a phone it cut the form off mid-way with no inner
-  // scrollbar to reach the rest, and on desktop it left dead white space
-  // in the middle of the owner's page. The frame now reports its own
-  // height and the host resizes to match.
-  //
-  // The link below the frame is not decoration. frame-ancestors is
-  // https:, so an owner whose site is still plain HTTP gets a silently
-  // blank box — no error, nothing in their page, just white. The link is
-  // what that owner's guests can still use. It hides itself the moment
-  // the frame proves it loaded, so a working embed does not carry it.
-  //
-  // Everything degrades: if the host CMS strips the <script> (Wix and
-  // Squarespace often do), the iframe keeps the 720px fallback height and
-  // the link simply stays visible.
-  const iframeSnippet =
-    `<div style="max-width:460px">\n` +
-    `  <iframe id="bonbox-booking" src="${embedSrc}?embed=1"\n` +
-    `    title="${label} — ${safeName}" width="100%" height="720" loading="lazy"\n` +
-    `    style="border:0;width:100%;border-radius:16px"></iframe>\n` +
-    `  <p id="bonbox-booking-link" style="margin:8px 0 0;font:400 14px/1.4 system-ui,sans-serif">\n` +
-    `    <a href="${publicUrl}" target="_blank" rel="noopener">${fallbackLabel}</a>\n` +
-    `  </p>\n` +
-    `  <script>\n` +
-    `  (function(){\n` +
-    `    var f=document.getElementById('bonbox-booking');\n` +
-    `    var l=document.getElementById('bonbox-booking-link');\n` +
-    `    window.addEventListener('message',function(e){\n` +
-    `      if(e.origin!=='${embedOrigin}'||!f||e.source!==f.contentWindow)return;\n` +
-    `      if(!e.data||e.data.type!=='bonbox:height')return;\n` +
-    `      f.style.height=e.data.height+'px';\n` +
-    `      if(l)l.style.display='none';\n` +
-    `    });\n` +
-    `  })();\n` +
-    // Split so this file never contains a literal closing script tag —
-    // and eslint does not flag a useless escape either.
-    `  <` + `/script>\n` +
-    `</div>`;
-
-  // Hand-off email. A mailto: only OPENS the owner's mail app pre-filled —
-  // we never send anything on their behalf.
-  const mailtoHref =
-    "mailto:?subject=" +
-    encodeURIComponent(t("rsvpEmbedMailSubject", "Booking on our website")) +
-    "&body=" +
-    encodeURIComponent(
-      t(
-        "rsvpEmbedMailBody",
-        "Hi — could you add table booking to our website?\n\nEither this button, anywhere on the site:\n\n{button}\n\nOr the whole booking form inside a page:\n\n{iframe}\n\nBoth are plain copy-paste HTML.\n\nThanks!",
-        { button: buttonSnippet, iframe: iframeSnippet },
-      ),
-    );
-
-  const copy = async (key, text) => {
-    try {
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
-      else {
-        const ta = document.createElement("textarea");
-        ta.value = text; document.body.appendChild(ta); ta.select();
-        document.execCommand("copy"); ta.remove();
-      }
-      setCopied(key);
-      setTimeout(() => setCopied((c) => (c === key ? "" : c)), 2500);
-    } catch { /* clipboard blocked — the owner can still select the text */ }
-  };
-
-  const Snippet = ({ k, code, heading, sub }) => (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{heading}</p>
-          <p className="text-[11px] text-gray-500 dark:text-gray-400">{sub}</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => copy(k, code)}
-          className="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
-        >
-          {copied === k ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-          {copied === k ? t("rsvpCopied", "Copied") : t("rsvpEmbedCopyCode", "Copy code")}
-        </button>
-      </div>
-      <pre className="overflow-x-auto rounded-lg bg-gray-50 dark:bg-gray-950 border border-gray-100 dark:border-gray-800 p-2.5 text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 font-mono whitespace-pre">{code}</pre>
-    </div>
-  );
-
-  return (
-    <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-4">
-      <div>
-        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-          <Globe className="w-4 h-4 text-gray-400" aria-hidden />
-          {t("rsvpEmbedTitle", "Add to your website")}
-        </h2>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-          {t(
-            "rsvpEmbedSub",
-            "Two ways to put booking on your own site — or send them to whoever looks after it.",
-          )}
-        </p>
-      </div>
-
-      <Snippet
-        k="button"
-        code={buttonSnippet}
-        heading={t("rsvpEmbedButtonHeading", "A “Book bord” button")}
-        sub={t("rsvpEmbedButtonSub", "Works on any site. Opens your booking page.")}
-      />
-      <div className="space-y-1.5">
-        <Snippet
-          k="iframe"
-          code={iframeSnippet}
-          heading={t("rsvpEmbedIframeHeading", "Or embed it in the page")}
-          sub={t("rsvpEmbedIframeSub", "The booking form appears inside your page.")}
-        />
-        {/* The one genuinely missing step: WHERE this goes. Pasting HTML is
-            only obvious if you already know your site builder has a block
-            for it. */}
-        <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-          {t(
-            "rsvpEmbedIframeWhere",
-            "In WordPress, Wix or Squarespace: add an “Embed HTML” block, then paste.",
-          )}
-        </p>
-        {/* The unexplained failure. frame-ancestors is https:, so on a site
-            still served over plain HTTP the frame is blocked and the owner
-            sees a blank white box with no error anywhere — in their page,
-            in ours, or in any log they will ever look at. Say the condition
-            out loud, and name the option that does work. */}
-        <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-          {t(
-            "rsvpEmbedNeedsHttps",
-            "Your site must be on https for the embed to show. If it isn't, use the button above — that works anywhere.",
-          )}
-        </p>
-      </div>
-
-      {/* Most owners don't edit their own site — hand the whole thing to
-          whoever does, in one tap. Opens THEIR mail app pre-filled; nothing
-          is sent on their behalf. */}
-      <a
-        href={mailtoHref}
-        className="inline-flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
-      >
-        <Mail className="w-3.5 h-3.5" aria-hidden="true" />
-        {t("rsvpEmbedSendDev", "Send to whoever runs my site")}
-      </a>
-    </div>
-  );
-}
-
-
-function SettingsSection({ t }) {
+function SettingsSection({ t, user }) {
   // SettingsSection only mounts after the parent's `if (!isReady) return null`
   // gate, so entitlements are already settled here — reading hasFeature is
   // flicker-safe (tier-flicker doctrine, useEntitlements.jsx).
@@ -8356,6 +8187,26 @@ function SettingsSection({ t }) {
 
   const smsUnlocked = hasFeature("sms_reminders");
 
+  // ?show=website (the page header's "Sæt på hjemmeside" link) lands on the
+  // website card, not the top of a long settings page: scroll it into view,
+  // move focus to its heading, then drop the param so a later re-render or
+  // back-navigation does not yank the page there again.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const wantsWebsite = new URLSearchParams(location.search).get("show") === "website";
+  useEffect(() => {
+    if (loading || !wantsWebsite) return;
+    const el = document.getElementById("website");
+    if (el) {
+      el.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      document.getElementById("website-title")?.focus?.({ preventScroll: true });
+    }
+    const params = new URLSearchParams(location.search);
+    params.delete("show");
+    const qs = params.toString();
+    navigate({ search: qs ? `?${qs}` : "" }, { replace: true });
+  }, [loading, wantsWebsite, location.search, navigate]);
+
   if (loading) {
     return <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>;
   }
@@ -8512,10 +8363,17 @@ function SettingsSection({ t }) {
         </div>
       )}
 
-      {/* Add to your website — button + iframe snippets, once the page is live. */}
-      {enabled && publicUrl && (
-        <EmbedOnWebsite publicUrl={publicUrl} venueName={data?.business_name} t={t} />
-      )}
+      {/* Book bord på din hjemmeside — the one place for link, button, QR,
+          embed, site-builder steps and the hand-off mail. Always rendered so
+          the page header's "Sæt på hjemmeside" link always lands somewhere;
+          until the page is live it says what to switch on first. */}
+      <WebsiteBookingKit
+        publicUrl={publicUrl}
+        venueName={data?.business_name}
+        isProvider={bookingModeFor(user?.business_type) === "provider"}
+        enabled={enabled}
+        t={t}
+      />
 
       {/* Opening / booking hours — the hours each weekday a guest can book.
           These feed the slot generator (reservation_service reads
