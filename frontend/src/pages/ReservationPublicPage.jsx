@@ -58,6 +58,7 @@ import {
 import api from "../services/api";
 import { slotNote } from "../utils/slotNote";
 import { markGuestSurface } from "../lib/guestSurface";
+import { forceLightTheme } from "../utils/themeColor";
 import { venueMonogram } from "../utils/venueMonogram";
 import { contactState } from "../utils/guestContact";
 import { rescueDay } from "../utils/bookingDay";
@@ -536,6 +537,12 @@ export default function ReservationPublicPage() {
   // identical — the flow is the same, just framed.
   const isEmbed = searchParams.get("embed") === "1";
   const rootMinH = isEmbed ? "" : "min-h-screen";
+
+  // Embedded = always LIGHT, whatever theme this browser stored: the frame
+  // sits in the owner's (light) website, and the owner's dark-mode preview of
+  // it must show what guests get. Layout effect, so the first paint after a
+  // client-side mount is already light. See forceLightTheme (utils/themeColor).
+  useLayoutEffect(() => (isEmbed ? forceLightTheme() : undefined), [isEmbed]);
 
   // ── Height contract with the host page ───────────────────────────
   // The embed snippet ships a fixed height="720". That number is wrong

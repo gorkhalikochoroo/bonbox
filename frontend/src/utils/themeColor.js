@@ -93,6 +93,33 @@ export const isLightOnlyPath = (path) =>
   typeof path === "string" &&
   (isStaffPortalPath(path) || LIGHT_ONLY_PATHS.includes(path.replace(/\/+$/, "") || "/"));
 
+/**
+ * forceLightTheme — the embedded booking widget (`/r/<slug>?embed=1`) is
+ * ALWAYS light.
+ *
+ * It renders inside someone else's page: the owner's website, and the owner's
+ * own "Sådan ser den ud på en telefon" preview of it. Both frames are the
+ * BonBox origin, so they read the same stored theme as the app — an owner in
+ * dark mode saw a dark booking form in the preview while their guests got a
+ * light one, and a guest who once picked dark on bonbox.dk would get a dark
+ * form dropped into a light restaurant site. The host page owns the look, so
+ * the frame never follows the stored theme. index.html's pre-paint skips the
+ * dark class for `embed=1` on any non-paper route (a cold load never flashes
+ * dark), and the page itself holds it off while mounted (below).
+ * The stored choice is never written: the app stays dark for its owner.
+ */
+// Takes <html> out of dark for as long as the caller is mounted and returns
+// the undo (puts `dark` back only if it was there). Never touches storage.
+export function forceLightTheme() {
+  if (typeof document === "undefined") return () => {};
+  const root = document.documentElement;
+  const wasDark = root.classList.contains("dark");
+  root.classList.remove("dark");
+  return () => {
+    if (wasDark) root.classList.add("dark");
+  };
+}
+
 /** The theme-color value for this theme on this path. */
 export function themeColorFor(isDark, path, { guest = false } = {}) {
   // Dark: exactly what shipped — card rung, white on the light-only pages.
