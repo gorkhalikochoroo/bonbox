@@ -247,6 +247,24 @@ describe("the team list", () => {
     await waitFor(() => expect(api.post).toHaveBeenCalledWith("/staff/members/n/link"));
   });
 
+  // QA 12 Oct, 390 px: "Test Person er tilføj…" — the line was truncated.
+  it("the 'er tilføjet' line wraps instead of truncating, and the invite button stays whole", async () => {
+    await openTeam();
+    fireEvent.change(screen.getByLabelText("Navn"), { target: { value: "Freja Lund" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Tilføj" })); });
+    const nudge = await screen.findByTestId("team-just-added");
+    const text = within(nudge).getByTestId("team-just-added-text");
+    expect(text.textContent).toBe("Freja Lund er tilføjet.");
+    expect(text.className).not.toMatch(/\btruncate\b|\bwhitespace-nowrap\b|\boverflow-hidden\b|\btext-ellipsis\b/);
+    expect(text.className).toMatch(/\bbreak-words\b/);
+    expect(text.className).toMatch(/\bmin-w-/);
+    // A long name: the button drops below the text rather than squeezing it.
+    expect(nudge.className).toMatch(/\bflex-wrap\b/);
+    const btn = within(nudge).getByRole("button", { name: /Invitér Freja/ });
+    expect(btn.className).toMatch(/\bshrink-0\b/);
+    expect(btn.className).toMatch(/\bwhitespace-nowrap\b/);
+  });
+
   it("still reaches 'Deaktivér' — now in the person's drawer, not as a red bin on every row", async () => {
     const list = await openTeam();
     const sofie = list.querySelector('[data-staff-row="a"]');

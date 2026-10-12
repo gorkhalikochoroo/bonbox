@@ -5849,17 +5849,23 @@ function StaffPanel({ staff, currency, onRefresh, branchId, openedMap = {}, onCo
             note below says why there is no 4th. */}
         {justAdded && (
           <div
-            className="mt-3 flex items-center gap-3 rounded-xl border border-gray-200 dark:border-gray-700 px-3.5 py-2.5"
+            className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-gray-200 dark:border-gray-700 px-3.5 py-2.5"
             data-testid="team-just-added"
           >
             <Check className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
-            <span className="min-w-0 flex-1 text-[13px] text-gray-700 dark:text-gray-200 truncate">
+            {/* Wraps, never truncates: at 390 a two-word name cut the line to
+                "Test Person er tilføj…". The button keeps its one line; with a
+                long name it drops below the text instead of squeezing it. */}
+            <span
+              className="min-w-[6rem] flex-1 text-[13px] leading-snug text-gray-700 dark:text-gray-200 break-words"
+              data-testid="team-just-added-text"
+            >
               {t("teamJustAdded", { name: justAdded.name })}
             </span>
             <button
               type="button"
               onClick={() => { const m = justAdded; setJustAdded(null); generateLink(m); }}
-              className="shrink-0 h-10 px-3 inline-flex items-center gap-1.5 rounded-lg text-[13px] font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition"
+              className="shrink-0 ml-auto h-10 px-3 inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg text-[13px] font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition"
             >
               <Send className="w-3.5 h-3.5" aria-hidden="true" />
               {t("staffInviteTitle", { name: justAdded.name.trim().split(/\s+/)[0] })}
