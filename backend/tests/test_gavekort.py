@@ -120,10 +120,11 @@ def test_issue_persists_and_returns_shape(client, db):
 
     assert out["face_value_minor"] == 50000
     assert out["balance_minor"] == 50000
-    # Pre-selected SPV (enkeltformål) since 12 Oct 2026 — the DK rule for a
-    # card usable only here. The owner can still pick mpv; never auto-decided
-    # per card (test_voucher_class_is_owner_set_not_auto).
-    assert out["voucher_class"] == "spv"
+    # Default MPV — owner decision 12 Oct 2026: it stays MPV until the
+    # revisor confirms (models.gift_card.DEFAULT_VOUCHER_CLASS). The owner can
+    # pick spv; never auto-decided per card
+    # (test_voucher_class_is_owner_set_not_auto).
+    assert out["voucher_class"] == "mpv"
     assert out["status"] == "active"
     assert out["short_code"].startswith("GK-")
     parts = out["short_code"].split("-")

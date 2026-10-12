@@ -6,9 +6,10 @@ The Danish rule (Momsloven §§ 4 a–4 c, since 1 Jul 2019):
 
 Each test failed on 4a2f7b25 and passes after the fix:
   P0-1  SPV salgsmoms is counted in the period of SALE (screen + filing).
-  P0-2  New cards default to SPV (the owner can still pick MPV); existing
-        cards keep their class; SPV sold before the guard keep the old
-        treatment so no earlier period moves.
+  P0-2  New cards default to MPV until the revisor confirms (owner decision
+        12 Oct 2026; the owner can pick SPV, and an SPV card gets all of the
+        above); existing cards keep their class; SPV sold before the guard
+        keep the old treatment so no earlier period moves.
   P0-3  The close sees gavekort SOLD at the counter (not revenue) and a card
         sale typed into revenue is flagged (counted twice).
   P0-4  An online order paid into the bank is not booked as a taxable Sale.
@@ -208,22 +209,30 @@ def test_spv_voided_keeps_moms_and_asks(db, client):
 # ═════════════════════════════════════════════════════════════════════
 # P0-2 — the default + history
 # ═════════════════════════════════════════════════════════════════════
-def test_new_cards_default_to_spv_and_owner_can_pick_mpv(db, client):
+def test_new_cards_default_to_mpv_and_owner_can_pick_spv(db, client):
+    """Owner decision 12 Oct 2026: the default stays MPV (today's behaviour)
+    until the revisor confirms; picking SPV still mints an SPV card whose
+    MOMS is counted at sale."""
     u = _owner(db)
     _as(u)
     a = client.post("/api/gavekort/issue", json={"amount_minor": 10000})
-    b = client.post("/api/gavekort/issue", json={"amount_minor": 10000, "voucher_class": "mpv"})
+    b = client.post("/api/gavekort/issue", json={"amount_minor": 10000, "voucher_class": "spv"})
     assert a.status_code == 201 and b.status_code == 201
-    assert a.json()["voucher_class"] == "spv"
-    assert b.json()["voucher_class"] == "mpv"
+    assert a.json()["voucher_class"] == "mpv"
+    assert b.json()["voucher_class"] == "spv"
+    today = gkm.business_day_stamp(db, u).date()
+    p_start, p_end = gkm.moms_period_of(u, today)
+    v = _vat(db, u, p_start, p_end)
+    assert v["gavekort_spv_sold"] == 100.0           # only the chosen SPV card
+    assert v["gavekort_spv_output_vat"] == 20.0
 
 
-def test_online_order_defaults_to_spv(db):
+def test_online_order_defaults_to_mpv(db):
     u = _owner(db)
     o = GiftCardOrder(user_id=u.id, amount_minor=20000, buyer_email="k@x.dk")
     db.add(o)
     db.commit()
-    assert o.voucher_class == "spv"
+    assert o.voucher_class == "mpv"
 
 
 def test_spv_sold_before_the_guard_keeps_its_old_treatment(db):

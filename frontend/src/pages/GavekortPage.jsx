@@ -266,6 +266,16 @@ function statusMeta(card, t) {
 
 // voucher_class → short label. NEVER auto-decided; surfaced + owner-set.
 // mpv = multi-purpose voucher, spv = single-purpose voucher (MOMS at issue).
+//
+// The class a new card / the online-order setting starts on. Owner decision
+// 12 Oct 2026: it stays MPV (today's behaviour) until the revisor confirms.
+// Switching it to SPV is a one-line change HERE (it drives the sell form's
+// pre-selection, its reset, the chip order and the order-setting chips) plus
+// its backend twin DEFAULT_VOUCHER_CLASS in backend/app/models/gift_card.py.
+const DEFAULT_VOUCHER_CLASS = "mpv";
+// The default first, the other after it.
+const VOUCHER_CLASS_CHOICES = DEFAULT_VOUCHER_CLASS === "spv" ? ["spv", "mpv"] : ["mpv", "spv"];
+
 function voucherClassLabel(vc, t) {
   if (vc === "spv") return t("gkClassSpvShort", "SPV");
   return t("gkClassMpvShort", "MPV");
@@ -408,12 +418,10 @@ function IssueSection({ t, onIssued }) {
   const [amount, setAmount] = useState("");
   const [recipient, setRecipient] = useState("");
   const [note, setNote] = useState("");
-  // Pre-selected SPV (enkeltformål): in Denmark a card that can only be used
-  // here, where everything carries 25 % MOMS, is single-purpose (since 1 Jul
-  // 2019) — MOMS at sale. The owner can still pick MPV; both are explained
-  // below with "ask your revisor". Never decided FOR the owner.
-  // PENDING REVISOR SIGN-OFF (backend app/services/gavekort_moms.py).
-  const [voucherClass, setVoucherClass] = useState("spv");
+  // Starts on DEFAULT_VOUCHER_CLASS (MPV until the revisor confirms). The
+  // owner can pick SPV (ét formål → MOMS at sale); both are explained below
+  // with "ask your revisor". Never decided FOR the owner.
+  const [voucherClass, setVoucherClass] = useState(DEFAULT_VOUCHER_CLASS);
   // Given away (sponsor, prize, goodwill): no payment → no MOMS when it is
   // issued, and never "money in the till". The revisor sees it.
   const [isFree, setIsFree] = useState(false);
@@ -480,7 +488,7 @@ function IssueSection({ t, onIssued }) {
           setNote("");
           setExpiresAt("");
           setIsFree(false);
-          setVoucherClass("spv"); // back to the pre-selected class
+          setVoucherClass(DEFAULT_VOUCHER_CLASS); // back to the default class
           setShowMore(false);
           // Tender stays lit (sticky) — back-to-back sales need zero re-setup.
         }}
@@ -537,8 +545,8 @@ function IssueSection({ t, onIssued }) {
               aria-label={t("gkAmountLabel", "Beløb")}
             />
           </div>
-          {/* MOMS status — read-only, off the rush path. The SPV/MPV control
-              lives under "Tilføj modtager"; SPV is pre-selected (DK rule). */}
+          {/* MOMS status — read-only, off the rush path. The MPV/SPV control
+              lives under "Tilføj modtager"; DEFAULT_VOUCHER_CLASS starts it. */}
           <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
             <Receipt className="w-3.5 h-3.5" aria-hidden />
             {voucherClass === "spv"
@@ -623,28 +631,30 @@ function IssueSection({ t, onIssued }) {
                   {t("gkClassLabel", "Type")}
                 </label>
                 <div className="flex flex-wrap gap-2 mt-1.5">
-                  <Chip selected={voucherClass === "spv"} onClick={() => setVoucherClass("spv")}>
-                    {t("gkClassSpv", "Single-purpose (SPV)")}
-                  </Chip>
-                  <Chip selected={voucherClass === "mpv"} onClick={() => setVoucherClass("mpv")}>
-                    {t("gkClassMpv", "Multi-purpose (MPV)")}
-                  </Chip>
+                  {VOUCHER_CLASS_CHOICES.map((vc) => (
+                    <Chip key={vc} selected={voucherClass === vc} onClick={() => setVoucherClass(vc)}>
+                      {vc === "spv"
+                        ? t("gkClassSpv", "Single-purpose (SPV)")
+                        : t("gkClassMpv", "Multi-purpose (MPV)")}
+                    </Chip>
+                  ))}
                 </div>
                 {/* Both meanings, always — the owner chooses knowing what each
-                    one means, and who to ask. */}
+                    one means, and who to ask. Neither is called "the usual". */}
                 <div className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 max-w-md space-y-1" data-testid="gk-class-help">
-                  <p className={voucherClass === "spv" ? "text-gray-700 dark:text-gray-200" : ""}>
-                    {t(
-                      "gkClassSpvHelp",
-                      "Single-purpose: the card can only be used here, and everything you sell carries 25 % MOMS. MOMS is settled when the card is sold — BonBox counts it in the MOMS for that period. Most gift cards in Denmark are like this.",
-                    )}
-                  </p>
-                  <p className={voucherClass === "mpv" ? "text-gray-700 dark:text-gray-200" : ""}>
-                    {t(
-                      "gkClassMpvHelp",
-                      "Multi-purpose: for when it is not settled at the sale where the card will be used or which MOMS applies — e.g. a card for several shops, or for goods with different MOMS. MOMS is settled only when the card is used.",
-                    )}
-                  </p>
+                  {VOUCHER_CLASS_CHOICES.map((vc) => (
+                    <p key={vc} className={voucherClass === vc ? "text-gray-700 dark:text-gray-200" : ""}>
+                      {vc === "spv"
+                        ? t(
+                            "gkClassSpvHelp",
+                            "Single-purpose: for when it is settled at the sale where the card will be used and which MOMS applies — e.g. a card that can only be used here, where everything you sell carries 25 % MOMS. MOMS is settled when the card is sold, and BonBox counts it in the MOMS for that period.",
+                          )
+                        : t(
+                            "gkClassMpvHelp",
+                            "Multi-purpose: for when it is not settled at the sale where the card will be used or which MOMS applies — e.g. a card for several shops, or for goods with different MOMS. MOMS is settled only when the card is used.",
+                          )}
+                    </p>
+                  ))}
                   <p className="font-medium">{t("gkClassAskRevisor", "Ask your revisor if you are unsure.")}</p>
                 </div>
               </div>
@@ -1740,7 +1750,7 @@ function OrdersSection({ t, onPendingCount }) {
   };
 
   const setOrderClass = async (vc) => {
-    if (!settings || (settings.voucher_class || "spv") === vc) return;
+    if (!settings || (settings.voucher_class || DEFAULT_VOUCHER_CLASS) === vc) return;
     try {
       const r = await api.put("/gavekort/order-settings", {
         enabled: !!settings.enabled,
@@ -1849,8 +1859,8 @@ function OrdersSection({ t, onPendingCount }) {
                 {t("gkOrdersClassLabel", "Type of cards ordered online")}
               </p>
               <div className="flex flex-wrap gap-2 mt-1.5" data-testid="gk-orders-class">
-                {["spv", "mpv"].map((vc) => (
-                  <Chip key={vc} selected={(settings?.voucher_class || "spv") === vc} onClick={() => setOrderClass(vc)}>
+                {VOUCHER_CLASS_CHOICES.map((vc) => (
+                  <Chip key={vc} selected={(settings?.voucher_class || DEFAULT_VOUCHER_CLASS) === vc} onClick={() => setOrderClass(vc)}>
                     {vc === "spv" ? t("gkClassSpv", "Single-purpose (SPV)") : t("gkClassMpv", "Multi-purpose (MPV)")}
                   </Chip>
                 ))}

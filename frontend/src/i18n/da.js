@@ -1282,7 +1282,7 @@ export const da = {
     gkClassMpvShort: "MPV",
     gkClassSpvShort: "SPV",
     gkClassMpvHelp: "Flere formål (flerformålsgavekort): når det ikke står fast ved salget, hvor kortet bliver brugt, eller hvilken moms der gælder — fx et kort til flere butikker eller til varer med forskellig moms. MOMS afregnes først, når kortet bliver brugt.",
-    gkClassSpvHelp: "Ét formål (enkeltformålsgavekort): kortet kan kun bruges her hos jer, og alt, I sælger, har 25 % moms. MOMS afregnes, når kortet sælges — BonBox tæller den med i MOMS for den periode. Sådan er de fleste gavekort i Danmark.",
+    gkClassSpvHelp: "Ét formål (enkeltformålsgavekort): når det står fast ved salget, hvor kortet bliver brugt, og hvilken moms der gælder — fx et kort, der kun kan bruges hos jer, hvor alt, I sælger, har 25 % moms. MOMS afregnes, når kortet sælges, og BonBox tæller den med i MOMS for den periode.",
     gkClassAskRevisor: "Spørg din revisor, hvis du er i tvivl.",
     gkFreeLabel: "Gratis / sponsoreret — ingen betaling",
     gkFreeHelp: "Ingen moms, når det gives. Din revisor ser det i momsoversigten.",

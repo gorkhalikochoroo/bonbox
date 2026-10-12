@@ -66,7 +66,7 @@ from app.config import settings
 from app.database import get_db
 from app.models.business_profile import BusinessProfile
 from app.models.gift_card import (
-    GiftCard, GiftCardTransaction, VOUCHER_CLASSES,
+    DEFAULT_VOUCHER_CLASS, GiftCard, GiftCardTransaction, VOUCHER_CLASSES,
 )
 from app.models.gift_card_order import GiftCardOrder, GIFT_CARD_ORDER_STATUSES
 from app.models.user import User
@@ -116,12 +116,11 @@ class IssueBody(BaseModel):
     amount_minor: int = Field(gt=0, le=100_000_000)
     recipient_name: str | None = Field(default=None, max_length=120)
     note: str | None = Field(default=None, max_length=280)
-    # NEVER auto-decided — owner-set, surfaced. Pre-selected "spv"
-    # (enkeltformål): in Denmark a card usable only at this venue, where
-    # everything carries 25 % MOMS, is single-purpose since 1 Jul 2019 — MOMS
-    # at sale. The owner can still pick "mpv". Existing cards keep their class.
-    # PENDING REVISOR SIGN-OFF (see app/services/gavekort_moms.py).
-    voucher_class: str = Field(default="spv", pattern="^(mpv|spv)$")
+    # NEVER auto-decided — owner-set, surfaced. Default MPV until the revisor
+    # confirms (models.gift_card.DEFAULT_VOUCHER_CLASS — the one line to
+    # change). The owner can pick "spv" (ét formål): MOMS then falls at sale
+    # (gavekort_moms). Existing cards keep their class.
+    voucher_class: str = Field(default=DEFAULT_VOUCHER_CLASS, pattern="^(mpv|spv)$")
     # How the owner was PAID for the card at the counter. Recorded (not posted)
     # so the close/MOMS bridge has the tender later; the reveal says
     # "registreret", never "bogført". Optional so older callers/tests still pass.
@@ -248,7 +247,7 @@ def _create_gift_card(
     request: Request,
     *,
     amount_minor: int,
-    voucher_class: str = "spv",
+    voucher_class: str = DEFAULT_VOUCHER_CLASS,
     recipient_name: str | None = None,
     note: str | None = None,
     payment_method: str | None = None,
@@ -476,8 +475,8 @@ class OrderSettingsBody(BaseModel):
     max_amount_minor: int | None = Field(default=None, ge=100, le=100_000_000)
     instructions: str | None = Field(default=None, max_length=500)
     # The class of every card ordered online — the OWNER's setting, never the
-    # buyer's (review 12 Oct, j). Pre-selected SPV (pending revisor sign-off,
-    # see gavekort_moms). None = keep the current setting.
+    # buyer's (review 12 Oct, j). Unset = DEFAULT_VOUCHER_CLASS (MPV until the
+    # revisor confirms). None = keep the current setting.
     voucher_class: str | None = Field(default=None, pattern="^(mpv|spv)$")
 
 
@@ -504,7 +503,8 @@ def _order_settings_dict(profile: BusinessProfile | None) -> dict:
     if mx < mn:  # corrupt config → safe defaults
         mn, mx = _ORDER_MIN_MINOR_DEFAULT, _ORDER_MAX_MINOR_DEFAULT
     instr = (data.get("instructions") or "").strip()[:500] or None
-    vclass = data.get("voucher_class") if data.get("voucher_class") in ("mpv", "spv") else "spv"
+    vclass = data.get("voucher_class") if data.get("voucher_class") in VOUCHER_CLASSES \
+        else DEFAULT_VOUCHER_CLASS
     return {"min_amount_minor": mn, "max_amount_minor": mx, "instructions": instr,
             "voucher_class": vclass}
 

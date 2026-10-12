@@ -413,7 +413,8 @@ def test_prefill_on_a_multi_branch_account_says_account_wide(db, client):
 def test_void_issued_in_error_takes_the_spv_moms_out_in_the_open_period(db, client):
     u = _owner(db)
     _as(u)
-    card = client.post("/api/gavekort/issue", json={"amount_minor": 50000, "payment_method": "card"}).json()
+    card = client.post("/api/gavekort/issue", json={"amount_minor": 50000, "payment_method": "card",
+                                                    "voucher_class": "spv"}).json()
     today = gkm.business_day_stamp(db, u).date()
     p_start, p_end = gkm.moms_period_of(u, today)
     assert _vat(db, u, p_start, p_end)["gavekort_spv_output_vat"] == 100.0
@@ -429,7 +430,7 @@ def test_void_issued_in_error_takes_the_spv_moms_out_in_the_open_period(db, clie
 def test_void_issued_in_error_is_refused_for_a_used_card_or_an_ended_period(db, client):
     u = _owner(db)
     _as(u)
-    used = client.post("/api/gavekort/issue", json={"amount_minor": 50000}).json()
+    used = client.post("/api/gavekort/issue", json={"amount_minor": 50000, "voucher_class": "spv"}).json()
     client.post(f"/api/gavekort/{used['id']}/redeem",
                 json={"amount_minor": 10000, "idempotency_key": "u1"})
     r1 = client.post(f"/api/gavekort/{used['id']}/void", json={"reason": "issued_in_error"})
@@ -444,7 +445,8 @@ def test_void_issued_in_error_is_refused_for_a_used_card_or_an_ended_period(db, 
 def test_free_card_has_no_moms_at_issue_and_is_surfaced(db, client):
     u = _owner(db)
     _as(u)
-    r = client.post("/api/gavekort/issue", json={"amount_minor": 30000, "payment_method": "free"})
+    r = client.post("/api/gavekort/issue", json={"amount_minor": 30000, "payment_method": "free",
+                                                 "voucher_class": "spv"})
     assert r.status_code == 201, r.text
     today = gkm.business_day_stamp(db, u).date()
     p_start, p_end = gkm.moms_period_of(u, today)
@@ -472,6 +474,24 @@ def test_online_buyer_cannot_choose_the_voucher_class(db, client):
     assert r.status_code == 201, r.text
     o = db.query(GiftCardOrder).filter(GiftCardOrder.user_id == u.id).one()
     assert o.voucher_class == "spv"
+
+
+def test_online_order_class_defaults_to_mpv_until_the_owner_picks(db, client):
+    """Owner decision 12 Oct 2026: with no class set, online orders stay
+    MPV (today's behaviour) — whatever the buyer sends."""
+    u = _owner(db)
+    db.add(BusinessProfile(user_id=u.id))
+    db.commit()
+    _as(u)
+    s = client.put("/api/gavekort/order-settings", json={"enabled": True})
+    assert s.status_code == 200 and s.json()["voucher_class"] == "mpv"
+    slug = s.json()["slug"]
+    app.dependency_overrides.pop(get_current_user, None)
+    r = client.post(f"/api/public/gavekort/buy/{slug}", json={
+        "amount_minor": 30000, "buyer_email": "k@example.com", "voucher_class": "spv"})
+    assert r.status_code == 201, r.text
+    o = db.query(GiftCardOrder).filter(GiftCardOrder.user_id == u.id).one()
+    assert o.voucher_class == "mpv"
 
 
 # ═════════════════════════════════════════════════════════════════════

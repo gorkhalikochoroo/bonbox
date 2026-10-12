@@ -2118,7 +2118,7 @@ export const tr = {
   gkClassMpvShort: "MPV",
   gkClassSpvShort: "SPV",
   gkClassMpvHelp: "Çok amaçlı: kartın nerede kullanılacağı ya da hangi MOMS'un geçerli olduğu satışta belli değilse — örneğin birkaç mağazada geçen bir kart ya da farklı MOMS oranlı ürünler. MOMS ancak kart kullanıldığında ödenir.",
-  gkClassSpvHelp: "Tek amaçlı: kart yalnızca burada kullanılabilir ve sattığınız her şeyde %25 MOMS var. MOMS kart satıldığında ödenir — BonBox bunu o dönemin MOMS'una sayar. Danimarka'daki çoğu hediye kartı böyledir.",
+  gkClassSpvHelp: "Tek amaçlı: kartın nerede kullanılacağı ve hangi MOMS'un geçerli olduğu satışta belliyse — örneğin yalnızca burada kullanılabilen ve sattığınız her şeyde %25 MOMS olan bir kart. MOMS kart satıldığında ödenir ve BonBox bunu o dönemin MOMS'una sayar.",
   gkExpiryLabel: "Son geçerlilik (isteğe bağlı)",
   gkNoteLabel: "İç not (isteğe bağlı)",
   gkNotePh: "Örn. doğum günü hediyesi",

@@ -1310,7 +1310,7 @@ export const en = {
     gkClassMpvShort: "MPV",
     gkClassSpvShort: "SPV",
     gkClassMpvHelp: "Multi-purpose: for when it is not settled at the sale where the card will be used or which MOMS applies — e.g. a card for several shops, or for goods with different MOMS. MOMS is settled only when the card is used.",
-    gkClassSpvHelp: "Single-purpose: the card can only be used here, and everything you sell carries 25 % MOMS. MOMS is settled when the card is sold — BonBox counts it in the MOMS for that period. Most gift cards in Denmark are like this.",
+    gkClassSpvHelp: "Single-purpose: for when it is settled at the sale where the card will be used and which MOMS applies — e.g. a card that can only be used here, where everything you sell carries 25 % MOMS. MOMS is settled when the card is sold, and BonBox counts it in the MOMS for that period.",
     gkClassAskRevisor: "Ask your revisor if you are unsure.",
     gkFreeLabel: "Free / sponsored — no payment",
     gkFreeHelp: "No MOMS when it is given. Your revisor sees it in the MOMS overview.",

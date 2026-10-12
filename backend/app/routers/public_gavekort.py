@@ -40,7 +40,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.business_profile import BusinessProfile
-from app.models.gift_card import GiftCard
+from app.models.gift_card import DEFAULT_VOUCHER_CLASS, VOUCHER_CLASSES, GiftCard
 from app.models.gift_card_order import GiftCardOrder
 from app.models.user import User
 from app.services.qr_signer import GavekortKeyUnset, verify_gavekort
@@ -145,18 +145,19 @@ def _read_order_settings(profile: BusinessProfile) -> tuple[int, int, str | None
 
 
 def _owner_voucher_class(profile: BusinessProfile) -> str:
-    """The class the OWNER set for online orders (default SPV — pending
-    revisor sign-off, see gavekort_moms). Tolerant of bad JSON."""
+    """The class the OWNER set for online orders; unset = DEFAULT_VOUCHER_CLASS
+    (MPV until the revisor confirms, see models.gift_card). Tolerant of bad
+    JSON."""
     raw = getattr(profile, "gavekort_order_settings_json", None)
     if raw:
         try:
             import json
             v = (json.loads(raw) or {}).get("voucher_class")
-            if v in ("mpv", "spv"):
+            if v in VOUCHER_CLASSES:
                 return v
         except Exception:  # noqa: BLE001
             pass
-    return "spv"
+    return DEFAULT_VOUCHER_CLASS
 
 
 def _resolve_buy_owner(db: Session, slug: str) -> tuple[BusinessProfile, User]:

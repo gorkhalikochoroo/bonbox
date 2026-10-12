@@ -1,12 +1,14 @@
 /**
- * Gavekort vs MOMS P0-2 — the default class and its words were backwards
- * for Denmark.
+ * Gavekort vs MOMS P0-2 — the class on the sell screen and its words.
  *
- * Every card was minted as MPV ("Flere formål: MOMS afregnes ved indløsning.
- * Standard for de fleste gavekort."). Since 1 Jul 2019 a card usable only at
- * this venue, where everything carries 25 %, is single-purpose (SPV): MOMS at
- * SALE. The sell screen now pre-selects SPV, explains BOTH classes, and sends
- * the owner to their revisor when in doubt. The owner can still pick MPV.
+ * The old help called MPV "Standard for de fleste gavekort". The sell screen
+ * now explains BOTH classes neutrally (neither is called the usual one) and
+ * sends the owner to their revisor when in doubt.
+ *
+ * Owner decision 12 Oct 2026: the DEFAULT stays MPV (today's behaviour) until
+ * the revisor confirms (GavekortPage DEFAULT_VOUCHER_CLASS + its backend twin
+ * in app/models/gift_card.py). The owner can pick SPV ("Ét formål"), and the
+ * card is then minted SPV — MOMS counted at sale.
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -61,30 +63,33 @@ const sell = async (container) => {
 };
 
 describe("sell a gavekort — the class", () => {
-  it("is pre-selected SPV and says MOMS is counted at sale", async () => {
+  it("is pre-selected MPV (until the revisor confirms) and says MOMS at redemption", async () => {
     const { container } = render(<MemoryRouter><GavekortPage /></MemoryRouter>);
-    expect(await screen.findByText("gkMomsAtIssue")).toBeInTheDocument();
-    expect((await sell(container)).voucher_class).toBe("spv");
+    expect(await screen.findByText("gkMomsAtRedemption")).toBeInTheDocument();
+    expect((await sell(container)).voucher_class).toBe("mpv");
   });
 
-  it("explains both classes and the revisor, and the owner can still pick MPV", async () => {
+  it("explains both classes and the revisor, and the owner can pick SPV", async () => {
     const { container } = render(<MemoryRouter><GavekortPage /></MemoryRouter>);
     fireEvent.click(await screen.findByText(/gkAddRecipient/));
     const help = screen.getByTestId("gk-class-help");
     expect(help.textContent).toContain("gkClassSpvHelp");
     expect(help.textContent).toContain("gkClassMpvHelp");
     expect(help.textContent).toContain("gkClassAskRevisor");
-    expect(screen.getByRole("button", { name: "gkClassSpv" }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "gkClassMpv" }));
-    expect(screen.getByText("gkMomsAtRedemption")).toBeInTheDocument();
-    expect((await sell(container)).voucher_class).toBe("mpv");
+    expect(screen.getByRole("button", { name: "gkClassMpv" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "gkClassSpv" }).getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "gkClassSpv" }));
+    expect(screen.getByText("gkMomsAtIssue")).toBeInTheDocument();
+    expect((await sell(container)).voucher_class).toBe("spv");
   });
 });
 
 describe("the words (real dictionaries)", () => {
-  it("no longer call MPV the standard; SPV says 25 % and MOMS at sale; both ask the revisor", () => {
+  it("call neither class the standard; SPV says 25 % and MOMS at sale; both ask the revisor", () => {
     expect(da.gkClassMpvHelp).not.toMatch(/Standard for de fleste/);
     expect(en.gkClassMpvHelp).not.toMatch(/Standard for most/);
+    for (const s of [da.gkClassMpvHelp, da.gkClassSpvHelp]) expect(s).not.toMatch(/de fleste|standard/i);
+    for (const s of [en.gkClassMpvHelp, en.gkClassSpvHelp]) expect(s).not.toMatch(/\bmost\b|standard/i);
     expect(da.gkClassSpvHelp).toMatch(/25 %/);
     expect(da.gkClassSpvHelp).toMatch(/når kortet sælges/);
     expect(da.gkClassMpvHelp).toMatch(/når kortet bliver brugt/);

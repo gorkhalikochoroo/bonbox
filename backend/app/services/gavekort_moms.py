@@ -13,19 +13,30 @@ JV D.A.4.10.2.6):
     known at sale (several venues, mixed rates…). Selling it is not a sale;
     MOMS is due when it is REDEEMED, on the meal.
 
-BonBox never decides the class. The owner picks it on each card (SPV is the
-pre-selected default for new cards since this change, with help text that
-sends the owner to their revisor if in doubt). Existing cards keep the class
-they were stored with.
+BonBox never decides the class. The owner picks it on each card and in the
+online-order setting, with help text that explains both classes and sends the
+owner to their revisor if in doubt. Existing cards keep the class they were
+stored with. Whenever a card IS SPV, everything below applies (MOMS at sale
+from SPV_MOMS_AT_SALE_FROM, taken out again at redemption, never counted
+twice).
 
-PENDING REVISOR SIGN-OFF (12 Oct 2026) — two choices in this module are
-BonBox's reading of the rule, not yet confirmed by a revisor:
-  1. SPV as the pre-selected class for new counter cards and online orders.
-  2. SPV_MOMS_AT_SALE_FROM = 1 Oct 2026 as the first day SPV MOMS is counted
-     at sale.
-The questions sent to the revisor are in bonbox-lab-state/legal/
-revisor_spoergsmaal_gavekort_2026-10-12.md. Do not change either without
-that answer; do not move the date backwards in code at all.
+THE DEFAULT (owner decision 12 Oct 2026): new counter cards and online orders
+default to MPV — today's behaviour — until the revisor confirms. Switching
+the default to SPV is a one-line change at each of exactly two places:
+  • backend:  app/models/gift_card.py        DEFAULT_VOUCHER_CLASS = "mpv"
+              (every backend default reads it: GiftCard + GiftCardOrder
+              column defaults, gavekort.IssueBody, gavekort._create_gift_card,
+              gavekort._order_settings_dict, public_gavekort._owner_voucher_class)
+  • frontend: src/pages/GavekortPage.jsx     DEFAULT_VOUCHER_CLASS = "mpv"
+              (the sell form's pre-selection + the order-setting chips)
+Plus the tests that pin the default (test_gavekort.py,
+test_gavekort_moms_spv.py, GavekortPage.spvDefault.test.jsx).
+
+SPV_MOMS_AT_SALE_FROM = 1 Oct 2026 (the first day SPV MOMS is counted at
+sale) is BonBox's reading of the rule and is part of the same revisor
+question. The questions are in bonbox-lab-state/legal/
+revisor_spoergsmaal_gavekort_2026-10-12.md. Do not move the date without
+that answer, and never backwards in code at all.
 
 Two owner-recorded exceptions (no migration — existing columns):
   • FREE / SPONSOR card: GiftCard.payment_method == "free". No payment, so no
@@ -66,8 +77,9 @@ from app.models.user import User
 from app.services.tz_utils import _user_cutoff_hour, _user_zone, business_today_local
 
 # The first business day on which an SPV card's MOMS is counted at SALE.
-# PENDING REVISOR SIGN-OFF — see the module note. Never move it backwards
-# in code: that would rewrite periods that may already be filed.
+# Asked of the revisor with the default question — see the module note. Never
+# move it backwards in code: that would rewrite periods that may already be
+# filed.
 SPV_MOMS_AT_SALE_FROM = date(2026, 10, 1)
 
 # Tender keys a close / Sale may use for "paid with a gavekort".
