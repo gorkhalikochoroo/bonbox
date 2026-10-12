@@ -369,9 +369,32 @@ _migrations = [
     # taps Godkend. DEFAULT 'approved' keeps all existing rows live (numbers
     # byte-identical). The exclusion is enforced in app/services/expense_status.py.
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS status VARCHAR(12) DEFAULT 'approved'",
-    # Backfill: any inbox-captured '[needs review]' row becomes a pending draft
-    # (idempotent — only flips approved→pending for unreviewed rows).
-    "UPDATE expenses SET status = 'pending' WHERE status = 'approved' AND description LIKE '%[needs review]%'",
+    # Backfill: an inbox-captured '[needs review]' row booked before the
+    # Godkend-kø existed becomes a pending draft — ONCE.
+    #
+    # It used to be a bare UPDATE in this list, so it ran on EVERY boot: an
+    # owner approved such a receipt, and the next deploy sent it back to the
+    # queue (out of the MOMS again) — proven on PG16, 12 Oct review M6. Now:
+    #   • a row in data_backfills marks it done; the INSERT … ON CONFLICT DO
+    #     NOTHING and the UPDATE are ONE statement, so the flip happens only
+    #     on the boot that writes the mark (two instances booting at once:
+    #     one wins the INSERT, the other updates nothing);
+    #   • a row with a bilagsnummer was approved by its owner (the number is
+    #     allocated at approval) and is never touched;
+    #   • approving now also removes the marker (expenses._promote_to_approved).
+    """CREATE TABLE IF NOT EXISTS data_backfills (
+        name VARCHAR(80) PRIMARY KEY,
+        applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    """WITH first_run AS (
+        INSERT INTO data_backfills (name) VALUES ('expenses_needs_review_to_pending_v1')
+        ON CONFLICT (name) DO NOTHING
+        RETURNING name
+    )
+    UPDATE expenses SET status = 'pending'
+     WHERE status = 'approved' AND voucher_number IS NULL
+       AND description LIKE '%[needs review]%'
+       AND EXISTS (SELECT 1 FROM first_run)""",
     # Error log — observability without external dependencies (Sentry alternative)
     """CREATE TABLE IF NOT EXISTS error_logs (
         id VARCHAR(36) PRIMARY KEY,

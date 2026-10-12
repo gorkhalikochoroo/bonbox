@@ -1107,6 +1107,9 @@ def attach_receipt_to_expense(
 
 
 # ── Godkend-kø (approve queue) ──────────────────────────────────────
+NEEDS_REVIEW_MARKER = "[needs review]"
+
+
 def _promote_to_approved(db: Session, user: User, expense: Expense, *, kind: str = "confirm") -> None:
     """Flip a pending draft → approved — the moment it becomes a real booked
     expense. Allocate the bilagsnummer NOW (not at draft, so abandoned drafts
@@ -1120,6 +1123,15 @@ def _promote_to_approved(db: Session, user: User, expense: Expense, *, kind: str
         except Exception:  # noqa: BLE001
             expense.voucher_number = None
     expense.status = "approved"
+    # The inbox marks an unsure read "[needs review]". Approving IS that
+    # review: the marker goes, so nothing can later mistake the booked row
+    # for an unreviewed one (a boot-time backfill keyed on the marker sent
+    # approved rows back to the queue on every deploy — 12 Oct review M6).
+    if expense.description and NEEDS_REVIEW_MARKER in expense.description:
+        expense.description = (
+            re.sub(r"\s*" + re.escape(NEEDS_REVIEW_MARKER), "", expense.description).strip()
+            or expense.description
+        )
     if expense.payment_method == "cash" and not expense.is_personal:
         try:
             sync_cash_out_for_expense(db, expense)
@@ -1331,7 +1343,11 @@ def _draft_bilag_candidates(db: Session, user: User, draft: Expense) -> list:
     from app.services.bilag_match import find_candidates
     if not draft.receipt_photo or not draft.amount or float(draft.amount) <= 0:
         return []
-    if draft.currency:  # a foreign receipt has no account-currency amount yet
+    # A foreign receipt matches on its account-currency amount — the one the
+    # owner typed for the same purchase (Adobe 16,25 USD = 112,50 kr.). Until
+    # a rate gives it one there is nothing to compare (and _draft_blocker
+    # holds it back as "kurs" anyway).
+    if draft.currency and (draft.fx_rate is None or draft.original_amount is None):
         return []
     return find_candidates(
         db, user.id, amount=float(draft.amount), on_date=draft.date,
