@@ -225,6 +225,13 @@ export function AuthLanguageSelect({ labelKey = "regLanguageLabel" }) {
  * (--bb-consent-h, CookieConsent.jsx), so the form can always be scrolled
  * clear of the banner (at rest it may sit over the lower fields on a small
  * phone; the Terms line and Google's button, above the form, stay clear).
+ *
+ * `min-w-0` on <main>: a flex item never shrinks below its content's
+ * minimum by default, and the code row's minimum (6 × 52 px boxes + 5 gaps
+ * = 352 px) held <main> at 384 px — wider than a 360 px phone (the 6th box
+ * cut, the button run to the edge; at 320 px nine elements clipped). With
+ * it, the column is the screen minus the 16 px gutters and the boxes share
+ * what is left.
  */
 export default function AuthShell({ children, aside = null, footer = null, logoLink = true, language = false }) {
   return (
@@ -246,7 +253,7 @@ export default function AuthShell({ children, aside = null, footer = null, logoL
       <div aria-hidden="true" className="fixed inset-x-0 top-0 z-40 h-[env(safe-area-inset-top,0px)] bg-bb-paper dark:bg-gray-950" />
       <div className="flex-1 flex">
         {aside}
-        <main className="flex-1 flex justify-center items-start sm:items-center px-4 sm:px-6 pt-6 pb-10 sm:py-14">
+        <main className="flex-1 min-w-0 flex justify-center items-start sm:items-center px-4 sm:px-6 pt-6 pb-10 sm:py-14">
           <div className="w-full max-w-[400px] motion-safe:animate-[bbFade_180ms_ease-out]">
             <AuthLogo link={logoLink} />
             {children}

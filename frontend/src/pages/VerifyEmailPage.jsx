@@ -382,7 +382,10 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
             {/* Six boxes that share the row: 52 px each on a wide screen,
                 narrower (gap 8 px) on a 360–390 px phone — the fixed
                 3.25rem + gap-3 row was 372 px and cut the 6th box off
-                (release gate, 9 Oct). */}
+                (release gate, 9 Oct). w-0: a box asks for no width of its
+                own, so the row's minimum is its gaps, not 6 × 52 px — it
+                held the page at 384 px (Push 7). Measured: 41 px boxes at
+                320 px, 48 at 360, 50.5 at 375, 52 from 390. */}
             {/* No maxLength: a whole code typed, pasted or AutoFilled into
                 one box fills the row (utils/codeBoxes). Not disabled while
                 the code is checked — that closed a phone's keyboard; the row
@@ -407,7 +410,7 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
                   onKeyDown={(e) => handleKeyDown(index, e)}
                   onFocus={(e) => selectBox(e.target)}
                   aria-label={t("suCodeDigit", { n: index + 1 })}
-                  className={`flex-1 min-w-0 max-w-[3.25rem] h-14 text-center text-2xl font-semibold tabular-nums rounded-lg border bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors duration-150 focus:outline-none focus:border-bb-forest focus:ring-[3px] focus:ring-bb-forest/20 dark:focus:border-gray-200 dark:focus:ring-white/20 ${
+                  className={`flex-1 w-0 min-w-0 max-w-[3.25rem] h-14 text-center text-2xl font-semibold tabular-nums rounded-lg border bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors duration-150 focus:outline-none focus:border-bb-forest focus:ring-[3px] focus:ring-bb-forest/20 dark:focus:border-gray-200 dark:focus:ring-white/20 ${
                     digit ? "border-gray-900 dark:border-gray-300" : "border-bb-line dark:border-gray-600"
                   }`}
                   autoComplete="one-time-code"
