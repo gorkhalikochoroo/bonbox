@@ -304,6 +304,9 @@ def apply_archetype_defaults(db: Session, user: User, *, starter_set: bool = Tru
 #     did not, AND the owner has never used it (activated_pillars, fail-open:
 #     no signal = in use = stays). A pillar the OLD preset hid and the new one
 #     does not is shown again.
+#   • sample data is not use: a pillar whose only rows are the "Prøv med
+#     eksempeldata" sample (pillars.sample_only_pillars) stays — the owner is
+#     exploring it — but the sheet never says "because you use it" for it.
 #   • no row of the owner's data is touched.
 
 def _starter_names(archetype_id: str) -> list[str]:
@@ -315,7 +318,7 @@ def plan_type_change(db: Session, user: User, new_type: str | None) -> dict[str,
     from app.services.archetype import cutoff_hour_for
     from app.services.modules import get_enabled, is_valid_module_id
     from app.services.pillars import (
-        activated_pillars, get_hidden, preset_hidden_pillars,
+        activated_pillars, get_hidden, preset_hidden_pillars, sample_only_pillars,
     )
 
     old_type = getattr(user, "business_type", None)
@@ -334,7 +337,8 @@ def plan_type_change(db: Session, user: User, new_type: str | None) -> dict[str,
         # The new preset would hide these, but they stay. `pillars_kept`: the
         # owner uses them (a real usage row) — the sheet says "because you use
         # it". `pillars_stay`: there is no usage signal to go on (Insights has
-        # none), so they stay without a reason claimed.
+        # none), or the only rows are sample data (or that could not be
+        # checked), so they stay without a reason claimed.
         "pillars_kept": [],
         "pillars_stay": [],
     }
@@ -399,10 +403,17 @@ def plan_type_change(db: Session, user: User, new_type: str | None) -> dict[str,
         show = sorted(p for p in hidden if p in old_preset and p not in new_preset)
         candidates = new_preset - old_preset - hidden
         used = activated_pillars(db, user) if candidates else {}
+        sample = sample_only_pillars(db, user) if candidates else {}
         # No signal for a pillar (insights) = treated as in use: it stays —
-        # but the sheet must not claim the owner uses it (pillars_stay).
+        # but the sheet must not claim the owner uses it (pillars_stay). Nor
+        # for a pillar whose rows are all sample data: it stays (hiding it
+        # would pull the sample the owner is exploring out of the nav), and
+        # "because you use it" needs a real row (an explicit False here).
         hide = sorted(p for p in candidates if used.get(p) is False)
-        kept = sorted(p for p in candidates if used.get(p) is True)
+        kept = sorted(
+            p for p in candidates
+            if used.get(p) is True and sample.get(p) is False
+        )
         plan["pillars_show"] = show
         plan["pillars_hide"] = hide
         plan["pillars_kept"] = kept

@@ -53,6 +53,7 @@ from app.services.pillars import (
     ACTIVATION_PILLARS,
     USED_SURFACES,
     activated_pillars,
+    sample_only_pillars,
     used_surfaces,
 )
 from app.utils.features import (
@@ -99,9 +100,21 @@ def get_activation(
           "events": bool, "staff": bool,   # insights NOT gated (omitted)
           "surfaces": {"waste": bool, "expiry": bool, "workshop": bool},
                                            # per-tool usage (Oct 2026)
+          "sample_only": {"inventory": bool|null, "reservations": bool|null,
+                          "events": bool, "staff": bool},
+                                           # the pillar's rows are ONLY sample
+                                           # data (Oct 2026, see below)
           "in_scope": bool,                # cohort firewall
           "enabled": bool                  # feature-flag kill-switch
         }
+
+    SAMPLE DATA. The per-pillar booleans count the "Prøv med eksempeldata"
+    rows: an owner exploring the sample keeps Lager and Reservationer in the
+    nav, and nothing moves under them. `sample_only` says, separately, which of
+    those pillars rest on sample rows alone (null = could not check) — the
+    business-type sheet claims "because you use it" only without them
+    (archetype_defaults.plan_type_change reads the same helper). The nav reads
+    the booleans; nothing in it reads `sample_only`.
 
     When `enabled` is False the per-pillar booleans are all forced True (the
     frontend would treat them as activated anyway, but we make the payload
@@ -121,6 +134,7 @@ def get_activation(
         # …and every tool "used": the type gate then hides nothing (the safe
         # direction, same as the pillars above).
         payload["surfaces"] = {s: True for s in USED_SURFACES}
+        payload["sample_only"] = {p: False for p in ACTIVATION_PILLARS}
         payload["in_scope"] = in_scope
         payload["enabled"] = False
         return payload
@@ -133,6 +147,13 @@ def get_activation(
     # own key so a client that only reads the pillar booleans is unaffected.
     surfaces = used_surfaces(db, user)
     payload["surfaces"] = {s: bool(surfaces.get(s, True)) for s in USED_SURFACES}
+    # Which pillars rest on sample data alone — a separate key, so the nav
+    # booleans above (sample rows included) are untouched. None = unknown.
+    sample = sample_only_pillars(db, user)
+    payload["sample_only"] = {
+        p: (None if sample.get(p) is None else bool(sample.get(p)))
+        for p in ACTIVATION_PILLARS
+    }
     payload["in_scope"] = in_scope
     payload["enabled"] = True
     return payload
