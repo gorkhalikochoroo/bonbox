@@ -2695,6 +2695,13 @@ _migrations = [
     # backfill: a metadata-only ADD COLUMN, run under the 5 s lock_timeout
     # like every statement here, and skipped once the column exists.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP",
+    # ── Migration (2026-10-12): users.subscription_cancel_at ──
+    # Mirrors app/models/user.py:User.subscription_cancel_at. When a cancelled
+    # subscription ends (Stripe cancel_at_period_end / cancel_at), read by the
+    # existing webhook/sync. Display only. Nullable, no default, no backfill —
+    # a metadata-only ADD COLUMN; the next subscription event or /billing/me
+    # sync fills it for an owner who already cancelled.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_cancel_at TIMESTAMP",
     # ── Migration (2026-10-08): accountant_grants — was the invite link mailed ─
     # Mirrors app/models/accountant_grant.py. invite_mailed_at: when the
     # CURRENT invite link was handed to the mail server; invite_mail_held: why
@@ -3425,6 +3432,8 @@ def _run_migrations():
             ok += _add("users", "terms_notice_dismissed_version", "VARCHAR(16)")
             # Mirror of users.last_seen_at (2026-10-11).
             ok += _add("users", "last_seen_at", "TIMESTAMP")
+            # Mirror of users.subscription_cancel_at (2026-10-12).
+            ok += _add("users", "subscription_cancel_at", "TIMESTAMP")
             # Mirror of the accountant_grants invite-mail columns (2026-10-08).
             ok += _add("accountant_grants", "invite_mailed_at", "TIMESTAMP")
             ok += _add("accountant_grants", "invite_mail_held", "VARCHAR(32)")

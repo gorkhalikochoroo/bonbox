@@ -234,6 +234,13 @@ class User(Base):
     # engagement signal: keep it out of thesis/engagement datasets for owners
     # who declined or paused Analytics.
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # When Stripe will END the subscription because the owner cancelled it
+    # (customer.subscription.updated: cancel_at_period_end → the period end,
+    # or an explicit cancel_at). Naive UTC. NULL = not scheduled to end.
+    # DISPLAY ONLY: /subscription says "Opsiges <dato> — du bliver ikke
+    # trukket igen" instead of "billed monthly". It never changes plan or
+    # subscription_status — Stripe's own status still drives those.
+    subscription_cancel_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # ── Migration 016 — receipt-forwarding email inbox (v0.1) ──
     # `inbox_alias` is the user-facing unique address (`nepali-7k4q` in
     # `nepali-7k4q@in.bonbox.dk`) that owners forward receipts to. We

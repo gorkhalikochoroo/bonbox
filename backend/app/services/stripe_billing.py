@@ -1698,6 +1698,25 @@ def _apply_subscription_state(
         except (TypeError, ValueError):
             pass
 
+    # Cancelled-but-still-running: Stripe keeps status 'active' until the
+    # period ends, so status alone said "billed monthly" to an owner who had
+    # cancelled. Read the schedule into subscription_cancel_at — DISPLAY ONLY,
+    # it changes neither plan nor status. cancel_at_period_end=True → the
+    # period end; an explicit cancel_at (newer API / portal) → that moment;
+    # neither, or the sub already ended → NULL. Best-effort: a bad value never
+    # blocks the state sync above.
+    try:
+        cancel_dt = None
+        if status not in ("canceled", "incomplete_expired"):
+            if _g(sub_obj, "cancel_at_period_end"):
+                cancel_dt = user.subscription_period_end
+            ca = _g(sub_obj, "cancel_at")
+            if ca:
+                cancel_dt = datetime.fromtimestamp(int(ca), tz=timezone.utc).replace(tzinfo=None)
+        user.subscription_cancel_at = cancel_dt
+    except (TypeError, ValueError, AttributeError):
+        log.warning("cancel_at parse failed for user=%s", user.id, exc_info=True)
+
     # Wrap commit — a DB error is logged and rolled back. On the webhook path
     # (raise_on_commit_failure=True) it is then re-raised, so handle_webhook
     # releases the ledger row and answers 500 and Stripe retries the event;

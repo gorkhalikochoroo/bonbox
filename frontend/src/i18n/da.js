@@ -2693,6 +2693,7 @@ export const da = {
     pricingLockedTrialingInOne: "om 1 dag",
     pricingLockedTrialingSoon: "snart",
     pricingLockedActive: "Abonnement aktivt — betales månedligt",
+    pricingLockedCancels: "Opsiges {date} — du bliver ikke trukket igen",
     pricingLockedProcessing: "Betaling behandles — din plan låses op, så snart den er gennemført",
     pricingPaymentConfirming: "Bekræfter din betaling…",
     pricingPaymentConfirmed: "Betaling bekræftet — din plan er låst op 🎉",
