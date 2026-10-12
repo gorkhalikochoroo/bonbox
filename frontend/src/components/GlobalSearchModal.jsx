@@ -14,7 +14,8 @@ import { formatDateClear } from "../utils/dateFormat";
 
 // /api/search still labels its groups with emoji; show the Lucide glyph.
 const ENTITY_ICONS = { "💰": "Coins", "💸": "Receipt", "📦": "Package", "📋": "ClipboardList", "👤": "User", "📅": "Calendar", "🧾": "FileText" };
-import { NAV_MANIFEST, filterDestinations, isStaffMemberRole } from "../config/navManifest";
+import { NAV_MANIFEST, filterDestinations, isStaffMemberRole, labelKeyFor } from "../config/navManifest";
+import { archetypeIdFor } from "../config/archetypes";
 import { isNativeApp } from "../utils/platform";
 import { canUsePersonalMode } from "../lib/appMode";
 import { errText } from "../utils/errText";
@@ -159,9 +160,13 @@ export default function GlobalSearchModal({ open, onClose }) {
     // App Store compliance (Apple 3.1.1): the native shell drops locked
     // (purchase-surface) entries; web keeps them locked-but-visible.
     if (isNativeApp()) resolved = resolved.filter((d) => !d.locked);
+    // The label only (labelKeyByArchetype — a salon's "Tidsbestilling"); the
+    // archetype is not passed into filterDestinations above, so ⌘K's reach is
+    // unchanged.
+    const arch = archetypeIdFor(branchType || user?.business_type);
     const manifestPages = resolved.map((d) => ({
       key: d.to,
-      label: t(d.labelKey) || d.labelKey,
+      label: t(labelKeyFor(d, arch)) || d.labelKey,
       icon: d.icon,            // Lucide name (string) — rendered via <Icon>
       to: d.to,
       locked: !!d.locked,
@@ -186,7 +191,7 @@ export default function GlobalSearchModal({ open, onClose }) {
         aliases: d.aliases || [],
       }));
     return [...manifestPages, ...extraPages];
-  }, [t, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, isStaffMember]);
+  }, [t, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, isStaffMember, user]);
 
   const matchedPages = useMemo(() => {
     const q = query.trim().toLowerCase();

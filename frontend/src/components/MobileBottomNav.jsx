@@ -7,8 +7,8 @@ import { resolveMode } from "../lib/appMode";
 import { personalTabs } from "../config/personalNav";
 import { Icon } from "./ui";
 import { Plus } from "lucide-react";
-import { NAV_MANIFEST } from "../config/navManifest";
-import { archetypeIdFor } from "../config/archetypes";
+import { getTabsForType } from "../config/bottomNavTabs";
+import { usePillars } from "../hooks/usePillars";
 
 /**
  * iOS-style 5-tab bottom bar. The slot LAYOUT is bottom-nav chrome (fixed:
@@ -28,66 +28,6 @@ import { archetypeIdFor } from "../config/archetypes";
  * QuickAdd FAB stacked over it.
  */
 
-// Resolve a manifest entry by route path → { to, icon, labelKey }. Falls back
-// to a literal tab spec if the route isn't a manifest destination (keeps the
-// component robust if a type-tab points somewhere off-manifest).
-const byPath = (to) => NAV_MANIFEST.find((d) => d.to === to);
-function manifestTab(to, fallback) {
-  const m = byPath(to);
-  if (!m) return fallback;
-  return { to: m.to, icon: m.icon, labelKey: m.labelKey };
-}
-
-/**
- * Returns 5 bottom nav tabs based on the active branch's business type.
- * Common: Home, Sales, Quick Add (center FAB), [type-specific], More.
- * The type-specific 4th tab maps business_type → the route an owner of that
- * vertical hits most; its icon/label come from the manifest entry for that
- * route. Icons are Lucide names (see ui/Icon.jsx).
- */
-function getTabsForType(branchType) {
-  // type → route for the 4th (vertical-specific) contextual tab.
-  //
-  // C5 nav diet: hospitality branches (restaurant / cafe / bar) now claim
-  // the contextual slot for RESERVATIONS — the table book is the surface a
-  // service owner reaches for most during a shift. ("Today" / daily-close
-  // is no longer parked here; it moved to the core spine and is reachable
-  // from the sidebar / More / ⌘K.) Other verticals keep their best-fit slot.
-  const typeRoute = {
-    restaurant: "/reservations",
-    bar:        "/reservations",
-    cafe:       "/reservations",
-    retail:     "/inventory",
-    workshop:   "/workshop",
-    // Phase A bug fix (BUG #3): salon is reservations-first (Aftaler /
-    // Tidsbestilling). It contradicted its own archetype by routing the 4th
-    // tab to /staff/schedule; bring it in line with every other booking-first
-    // vertical.
-    salon:      "/reservations",
-    hotel:      "/reservations",
-    freelance:  "/cashflow",
-    general:    "/daily-close",
-  };
-  // Retail siblings (clothing / grocery / kiosk / pharmacy / electronics / …)
-  // resolve to the retail archetype and share retail's Inventory-first
-  // contextual tab, instead of falling through to the general '/daily-close'
-  // slot. Direct typeRoute hits (restaurant / cafe / bar / salon / workshop /
-  // …) are matched first and stay exactly as before.
-  const typeTo =
-    typeRoute[branchType] ||
-    (archetypeIdFor(branchType) === "retail" ? "/inventory" : typeRoute.general);
-
-  return [
-    manifestTab("/dashboard", { to: "/dashboard", icon: "Home", labelKey: "navHome" }),
-    manifestTab("/sales", { to: "/sales", icon: "ShoppingBag", labelKey: "sales" }),
-    // Center "+" — bottom-nav chrome. Opens the QuickAdd sheet (no `to`).
-    { icon: "Plus", labelKey: "add", isCenter: true },
-    manifestTab(typeTo, { to: "/daily-close", icon: "Moon", labelKey: "navToday" }),
-    // More — bottom-nav chrome.
-    { to: "/more", icon: "Menu", labelKey: "more" },
-  ];
-}
-
 /* Where the centre "+" goes when the QuickAdd sheet is not there to open.
    Both are pages the owner can do the sheet's default job on by hand — log a
    sale in business mode, log a personal entry in personal mode — so a miss
@@ -98,6 +38,7 @@ export default function MobileBottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
   const { branchType } = useBranch();
+  const { hiddenPillars } = usePillars();
   const { t } = useLanguage();
   // Mode comes from the ACCOUNT (lib/appMode.js) — the same resolver the
   // sidebar and QuickAdd use. This bar used to ask useBranch() what vertical
@@ -112,7 +53,7 @@ export default function MobileBottomNav() {
   const isPersonal = resolveMode(user) === "personal";
   const tabs = isPersonal
     ? personalTabs()
-    : getTabsForType(branchType || "general");
+    : getTabsForType(branchType || "general", hiddenPillars);
 
   return (
     <nav
