@@ -132,7 +132,44 @@ describe("daily close — gavekort is a tender, and sold gavekort is not revenue
   });
 });
 
+describe("free / sponsor gavekort redeemed today (strict review, 12 Oct)", () => {
+  // A 300 kr sponsor card used today: no MOMS at issue, so the meal must be
+  // in revenue like an MPV meal — and it is paid by gavekort all the same.
+  const FREE_DAY = {
+    ...GK_DAY,
+    gavekort: {
+      redeemed: 0, tender: 0, redeemed_spv: 0, redeemed_free: 300, redeemed_total: 300,
+      sold: 0, sold_by_tender: {},
+    },
+  };
+  beforeEach(() => {
+    get.mockImplementation((url) => {
+      if (url === "/daily-close/prefill") return Promise.resolve({ data: FREE_DAY });
+      if (url === "/property-report") return Promise.resolve({ data: { totals: {} } });
+      return Promise.resolve({ data: [] });
+    });
+  });
+
+  it("is on the Gavekort line, and a missing line says the meal may be missing from revenue", async () => {
+    const { container } = render(<MemoryRouter><DailyClosePage /></MemoryRouter>);
+    await toPayments(container);
+    await waitFor(() => expect(container.querySelector("#dc-pay-gift_card")?.value).toBe("300"));
+    expect(screen.queryByText("dcGkMaybeMissing")).toBeNull();
+    fireEvent.change(container.querySelector("#dc-pay-gift_card"), { target: { value: "" } });
+    expect(await screen.findByText("dcGkMaybeMissing")).toBeInTheDocument();
+  });
+});
+
 describe("the copy (real dictionaries)", () => {
+  it("says when the MOMS falls for each class — never 'from the gavekort' alone", () => {
+    for (const k of ["dcGkSoldTodayHint", "taxAlertGkSoldCheckDetail", "taxAlertGkDoubleDetail"]) {
+      expect(da[k], k).toMatch(/Ét formål: momsen tælles ved salget\. Flere formål: når kortet bruges/);
+      expect(da[k], k).not.toMatch(/ud fra gavekortet/);
+      expect(en[k], k).toMatch(/Single-purpose: MOMS is counted at the sale\. Multi-purpose: when the card is used/);
+      expect(en[k], k).not.toMatch(/from the gavekort/);
+    }
+  });
+
   it("is real Danish and English", () => {
     for (const k of ["dcGkSoldToday", "dcGkSoldTodayHint", "dcGkTenderLine", "dcPayGiftCard"]) {
       expect(da[k], k).toBeTruthy();

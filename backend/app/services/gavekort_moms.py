@@ -40,8 +40,10 @@ that answer, and never backwards in code at all.
 
 Two owner-recorded exceptions (no migration — existing columns):
   • FREE / SPONSOR card: GiftCard.payment_method == "free". No payment, so no
-    MOMS at issue; never counted as sold at the counter. Its use is surfaced
-    to the revisor (gaver/reklame), never decided here.
+    MOMS at issue; never counted as sold at the counter. When it is used,
+    the meal is checked like an MPV meal (it must be in revenue; asked when
+    that can't be seen) and the use is surfaced to the revisor (gaver/
+    reklame), never decided here.
   • ISSUED IN ERROR: a void ledger row whose sale_ref is VOID_ERROR_REF. The
     card is treated as never sold — allowed only while the MOMS period of the
     sale is still running and nothing was redeemed (gavekort.void_gavekort),
@@ -98,6 +100,17 @@ _TENDER_ALIASES = {
     "cash": ("cash", "kontant"),
 }
 _GK_WORDS = ("gavekort", "gift card", "giftcard", "gift-card", "gavebevis")
+
+# GiftCard.payment_method values that mean "paid at the till when issued".
+# An online order the owner issued with one of these was paid over the
+# counter (terminal / MobilePay at the till / drawer) — that money is in the
+# day's payments like any counter sale. None (paid online / by bank) is not.
+TILL_TENDERS = ("card", "mobilepay", "cash", "mixed")
+
+# Sale.reference_id prefixes of rows imported from a payment feed (bank CSV /
+# bank connection, MobilePay sync, payment-provider import). A payout there
+# may be an online gavekort order booked as a sale.
+FEED_SALE_PREFIXES = ("bank_", "mobilepay_", "pay_")
 
 
 def _tz_user(db: Session, user_or_id) -> SimpleNamespace:
@@ -165,9 +178,12 @@ def period_facts(db: Session, user_id, start_date: date, end_date: date) -> dict
                            free = free/sponsor cards (no MOMS was counted at
                            issue — the revisor decides about the meal).
       counter_sold       — {date: kr}: cards sold over the counter that day
-                           (all classes; online orders, free cards and cards
-                           issued in error excluded — that money never
-                           passes the till)
+                           (all classes; free cards and cards issued in
+                           error excluded — no money. Online orders count
+                           only when the owner recorded a till tender at
+                           issue (card / MobilePay / cash / mixed) and no
+                           bank line was matched to the order — paid online
+                           or by bank, that money never passes the till)
       counter_sold_by_tender — {date: {tender: kr}}
       counter_cards      — {date: [{"amount", "tender", "issued_at"}]}: the
                            same cards one by one (the close check needs to
@@ -193,16 +209,23 @@ def period_facts(db: Session, user_id, start_date: date, end_date: date) -> dict
                 GiftCard.issued_at >= lo, GiftCard.issued_at < hi)
         .all()
     )
-    online_ids: set = set()
+    off_till_ids: set = set()   # online cards whose money never passed the till
     error_ids: set = set()
     if cards:
         ids = [c[0] for c in cards]
-        online_ids = {
-            r[0] for r in db.query(GiftCardOrder.gift_card_id)
+        orders = (
+            db.query(GiftCardOrder.gift_card_id, GiftCardOrder.id)
             .filter(GiftCardOrder.user_id == user_id,
                     GiftCardOrder.gift_card_id.in_(ids))
             .all()
-        }
+        )
+        if orders:
+            bank_paid = _bank_matched_order_ids(db, user_id)
+            pm_by_id = {c[0]: (c[4] or "").lower() for c in cards}
+            off_till_ids = {
+                gid for gid, oid in orders
+                if oid in bank_paid or pm_by_id.get(gid) not in TILL_TENDERS
+            }
         error_ids = _error_voided_ids(db, user_id, ids)
     spv_sold = 0.0
     spv_count = 0
@@ -226,7 +249,7 @@ def period_facts(db: Session, user_id, start_date: date, end_date: date) -> dict
         if is_spv_at_sale(vclass, d):
             spv_sold += kr
             spv_count += 1
-        if cid not in online_ids:
+        if cid not in off_till_ids:
             counter_sold[d] = round(counter_sold.get(d, 0.0) + kr, 2)
             tender = (pm or "unknown").lower()
             day = counter_by_tender.setdefault(d, {})
@@ -301,6 +324,17 @@ def period_facts(db: Session, user_id, start_date: date, end_date: date) -> dict
     }
 
 
+def _bank_matched_order_ids(db: Session, user_id) -> set:
+    """Online orders the bank import matched to a bank line (paid by bank)."""
+    from app.models.audit_log import AuditLog
+    return {
+        r[0] for r in db.query(AuditLog.entity_id).filter(
+            AuditLog.user_id == user_id,
+            AuditLog.action == "gavekort.bank_payment_matched",
+        ).all() if r[0] is not None
+    }
+
+
 def _error_voided_ids(db: Session, user_id, card_ids) -> set:
     """Cards whose void row says "issued in error, no payment"."""
     if not card_ids:
@@ -361,8 +395,10 @@ def moms_period_of(user, d: date) -> tuple[date, date]:
 
 # ── Bank lines booked as Sales that may be an online gavekort order ──
 def bank_sale_checks(db: Session, user_id, start_date: date, end_date: date) -> list[dict]:
-    """Bank-imported Sales in [start_date, end_date) whose amount fits an
-    online gavekort order BonBox has not matched to a bank line.
+    """Feed-imported Sales (bank CSV / bank connection, MobilePay sync,
+    payment-provider import — FEED_SALE_PREFIXES) in [start_date, end_date)
+    whose amount fits an online gavekort order BonBox has not matched to a
+    bank line.
 
     The import holds back only a STRICT match to an ISSUED order. Everything
     looser — a MobilePay Box payout that bundles several orders, a line with
@@ -378,7 +414,8 @@ def bank_sale_checks(db: Session, user_id, start_date: date, end_date: date) -> 
         .filter(Sale.user_id == user_id,
                 Sale.date >= start_date, Sale.date < end_date,
                 Sale.is_deleted.isnot(True), Sale.status == "completed",
-                Sale.reference_id.startswith("bank_", autoescape=True))
+                or_(*[Sale.reference_id.startswith(p, autoescape=True)
+                      for p in FEED_SALE_PREFIXES]))
         .all()
     )
     if not sales:

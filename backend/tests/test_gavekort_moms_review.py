@@ -517,3 +517,92 @@ def test_revisor_bundle_has_a_gavekort_ledger_that_ties_to_the_angivelse(db):
     assert round(float(sums["Moms af omsætningen"][8]) + float(sums["Gavekort MOMS netto"][8]), 2) \
         == f["moms_af_salg"]
     assert "gavekort-" in z.read("manifest.txt").decode("utf-8")
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Strict review, should-fix (12 Oct)
+# ═════════════════════════════════════════════════════════════════════
+def test_prefill_puts_a_free_card_redeemed_today_on_the_gavekort_line(db, client):
+    """A 300 kr sponsor card used today returned redeemed_total 0: the
+    restaurant's Gavekort line stayed empty and the day did not tie out."""
+    u = _owner(db)
+    _as(u)
+    today = gkm.business_day_stamp(db, u).date()
+    card = _card(db, u, 300, "mpv", today - timedelta(days=3), pm="free")
+    _redeem(db, u, card, 300, today)
+    g = client.get("/api/daily-close/prefill", params={"date": today.isoformat()}).json()["gavekort"]
+    assert g["redeemed_free"] == 300.0
+    assert g["redeemed_total"] == 300.0
+
+
+def test_a_free_card_meal_is_checked_against_revenue_like_mpv(db):
+    u = _owner(db)
+    d = date(2026, 11, 10)
+    card = _card(db, u, 300, "spv", date(2026, 11, 2), pm="free")
+    _redeem(db, u, card, 300, d)
+    _close(db, u, d, 7500, {"card": 7500})                 # no gavekort line
+    v = _vat(db, u, *Q4)
+    w = [x for x in v["gavekort_warnings"] if x["status"] == "unverified_redemption"]
+    assert w and w[0]["redeemed"] == 300.0 and w[0]["voucher_class"] == "free"
+    assert "free_card" in _statuses(v)                     # the revisor note stays
+    types = [a["type"] for a in _generate_tax_alerts(
+        [], {"tax_name": "MOMS"}, "DKK",
+        {"vat_payable": 0.0, "output_vat": 0.0, "input_vat": 0.0, "sales_total": 0.0},
+        {"current_month": v})]
+    assert "gavekort_reconciliation" in types
+    # A close whose Gavekort line carries the meal → nothing to ask.
+    u2 = _owner(db)
+    c2 = _card(db, u2, 300, "spv", date(2026, 11, 2), pm="free")
+    _redeem(db, u2, c2, 300, d)
+    _close(db, u2, d, 7500, {"card": 7200, "gift_card": 300})
+    assert not {"unverified_redemption", "tender_short"} & set(_statuses(_vat(db, u2, *Q4)))
+
+
+def _online_card(db, u, kr, d, pm, *, bank_matched=False):
+    from app.models.audit_log import AuditLog
+    card = _card(db, u, kr, "mpv", d, pm=pm)
+    o = GiftCardOrder(user_id=u.id, amount_minor=int(kr * 100), buyer_email="m@x.dk",
+                      buyer_name="Mette", voucher_class="mpv", status="issued",
+                      gift_card_id=card.id, created_at=_utc(d, 9))
+    db.add(o)
+    db.commit()
+    if bank_matched:
+        db.add(AuditLog(user_id=u.id, action="gavekort.bank_payment_matched",
+                        entity_type="gift_card_order", entity_id=o.id,
+                        after_state='{"ref_id": "bank_x_1"}'))
+        db.commit()
+    return card
+
+
+def test_an_online_order_paid_at_the_till_is_money_in_the_till(db):
+    """An online order the owner issued with a till tender was paid over the
+    counter — tie-out and MOMS checks must see it. Paid by bank: they must not."""
+    u = _owner(db)
+    d = date(2026, 11, 10)
+    _online_card(db, u, 500, d, "card")                    # paid at the terminal
+    _online_card(db, u, 200, d, "mobilepay", bank_matched=True)   # bank paid
+    _online_card(db, u, 400, d, None)                      # paid online, no tender
+    f = gkm.period_facts(db, u.id, d, d + timedelta(days=1))
+    assert f["counter_sold"] == {d: 500.0}
+    assert f["counter_sold_by_tender"][d] == {"card": 500.0}
+    # Payments = revenue on a close with a card line → the card may have been
+    # typed into revenue (MPV taxed twice): asked.
+    _close(db, u, d, 7500, {"card": 6000, "cash": 1500})
+    assert "sold_in_revenue" in _statuses(_vat(db, u, *Q4))
+
+
+def test_mobilepay_and_payment_provider_sales_are_checked_for_gavekort_orders(db):
+    u = _owner(db)
+    _order(db, u, 500)
+    _order(db, u, 350, name="Bo")
+    db.add(Sale(user_id=u.id, date=date(2026, 10, 8), amount=Decimal("500"),
+                payment_method="mobilepay", reference_id="mobilepay_mp123", status="completed"))
+    db.add(Sale(user_id=u.id, date=date(2026, 10, 9), amount=Decimal("350"),
+                payment_method="card", reference_id="pay_stripe_abc", status="completed"))
+    db.commit()
+    v = _vat(db, u, *Q4)
+    w = sorted((x["date"], x["amount"]) for x in v["gavekort_warnings"]
+               if x["status"] == "bank_maybe_gavekort")
+    assert w == [("2026-10-08", 500.0), ("2026-10-09", 350.0)]
+    # Detect-only: the figures are the Sales' own.
+    assert v["sales_total"] == 850.0

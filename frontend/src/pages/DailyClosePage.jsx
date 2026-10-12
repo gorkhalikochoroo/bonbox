@@ -2180,7 +2180,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // on a day with no sales (a close-only restaurant's prefill has
   // has_data=false, and the gavekort note never showed for that owner):
   //   redeemed        MPV: the meal must be in revenue (MOMS on the meal)
-  //   redeemed_total  every class: the "Gavekort" payment line
+  //   redeemed_free   free / sponsor cards: checked like MPV (meal in revenue)
+  //   redeemed_total  every class (free too): the "Gavekort" payment line
   //   sold            cards sold over the counter today — the money is in
   //                   the payments, but it is NOT revenue
   const [gkDay, setGkDay] = useState(null);
@@ -8607,7 +8608,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             when redemptions materially exceed the gift-card tender on the day. */}
         {gkDay && !prefillLoading && (gkDay.redeemed_total ?? gkDay.redeemed ?? 0) > 0 && (() => {
           const redeemedTotal = Number(gkDay.redeemed_total ?? gkDay.redeemed ?? 0);
-          const redeemed = Number(gkDay.redeemed || 0);       // MPV — MOMS on the meal
+          // MPV + free / sponsor cards — MOMS on the meal, so the meal must
+          // be in revenue (a free card had no MOMS at issue).
+          const redeemed = Number(gkDay.redeemed || 0) + Number(gkDay.redeemed_free || 0);
           // What the day says was paid by gavekort: the "Gavekort" payment
           // line, or the gift_card-tagged sales.
           const tender = Math.max(readMoney0(payAmounts.gift_card), Number(gkDay.tender || 0));
@@ -8958,7 +8961,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                         sale was paid elsewhere or after the close, or it is
                         in revenue: ASK, never assume. */}
                     {tieOut.gkInPayments || tieOut.state !== "balanced"
-                      ? t("dcGkSoldTodayHint", "The money is in your payments, but it is not revenue — keep it out of the revenue above. BonBox handles its MOMS from the gavekort.")
+                      ? t("dcGkSoldTodayHint", "The money is in your payments, but it is not revenue — keep it out of the revenue above. Single-purpose: MOMS is counted at the sale. Multi-purpose: when the card is used (the meal must be in revenue).")
                       : t("dcGkSoldNotInPayments", "Not in today's payments — fine if it was paid another way or after the close. Is it in the revenue above? Then take it out.")}
                   </p>
                 </div>

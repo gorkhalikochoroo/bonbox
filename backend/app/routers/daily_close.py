@@ -4361,7 +4361,9 @@ def prefill_daily_close(
     #   redeemed        — MPV (+ SPV sold before BonBox counted SPV at sale):
     #                     MOMS falls on the meal, so the meal MUST be in
     #                     revenue_total. Surfaced, never auto-added.
-    #   redeemed_total  — every class: the "Gavekort" payment line, so a meal
+    #   redeemed_free   — free / sponsor cards: no MOMS at issue, so the meal
+    #                     is checked like MPV (must be in revenue).
+    #   redeemed_total  — every class (free too): the "Gavekort" payment line, so a meal
     #                     paid by gavekort ties out without touching revenue.
     #   sold / sold_by_tender — cards sold over the counter today. The till
     #                     and drawer hold that money but it is NOT revenue
@@ -4397,6 +4399,10 @@ def prefill_daily_close(
     _gk_day = _gk["redeemed"].get(target_date, {})
     gavekort_redeemed = round(float(_gk_day.get("via_meal", 0.0)), 2)
     gavekort_redeemed_spv = round(float(_gk_day.get("spv", 0.0)), 2)
+    # Free / sponsor cards: no MOMS at issue, so the meal is treated like an
+    # MPV meal (it must be in revenue; the revisor decides gaver/reklame).
+    # Paid with the card all the same → on the "Gavekort" payment line.
+    gavekort_redeemed_free = round(float(_gk_day.get("free", 0.0)), 2)
     gavekort_sold = round(float(_gk["counter_sold"].get(target_date, 0.0)), 2)
     gavekort_sold_by_tender = _gk["counter_sold_by_tender"].get(target_date, {})
 
@@ -4418,7 +4424,11 @@ def prefill_daily_close(
             "tender": round(float(by_payment.get("gift_card", 0)), 2),
             # SPV redeemed today: MOMS was paid when the card was sold.
             "redeemed_spv": gavekort_redeemed_spv,
-            "redeemed_total": round(gavekort_redeemed + gavekort_redeemed_spv, 2),
+            # Free / sponsor cards redeemed today — the meal must be in
+            # revenue, like MPV (see above).
+            "redeemed_free": gavekort_redeemed_free,
+            "redeemed_total": round(
+                gavekort_redeemed + gavekort_redeemed_spv + gavekort_redeemed_free, 2),
             # Sold over the counter today — not revenue (see above).
             "sold": gavekort_sold,
             "sold_by_tender": gavekort_sold_by_tender,
