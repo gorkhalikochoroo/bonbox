@@ -9,7 +9,9 @@ late behind a 4 s call). Three guards live here:
 1. ``anthropic_client()`` — the one way to build an Anthropic client: an
    explicit timeout and at most ONE SDK retry. The SDK defaults were a
    600 s timeout and 2 retries, so a hung call could hold a thread for
-   half an hour.
+   half an hour. The client comes wrapped by ``ai_model_guard`` (one
+   legacy-model retry on model-not-found + an ops row; forced tool use
+   adapted for models that refuse it).
 2. ``vision_slot()`` / ``vision_slot_async()`` — at most
    ``VISION_MAX_CONCURRENT`` photo reads (Claude vision, Mindee, OCR) run
    at once across the process, and at most ``VISION_MAX_PER_USER`` of them
@@ -69,15 +71,21 @@ def anthropic_client(api_key: str | None = None, *, timeout: float | None = None
 
     ``anthropic`` is imported here, at call time, so tests that swap
     ``sys.modules["anthropic"]`` for a fake keep working.
+
+    The returned client's ``messages.create`` runs through
+    ``ai_model_guard.guarded_create``; every other attribute is the SDK
+    client's own.
     """
     import anthropic
 
+    from app.services.ai_model_guard import guard_client
+
     key = api_key if api_key is not None else getattr(settings, "ANTHROPIC_API_KEY", None)
-    return anthropic.Anthropic(
+    return guard_client(anthropic.Anthropic(
         api_key=key,
         timeout=float(AI_TIMEOUT_S if timeout is None else timeout),
         max_retries=AI_MAX_RETRIES,
-    )
+    ))
 
 
 # ── Vision concurrency ──────────────────────────────────────────────────

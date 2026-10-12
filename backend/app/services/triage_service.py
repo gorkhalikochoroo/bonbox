@@ -227,7 +227,7 @@ def _try_llm_triage(group_summary: dict) -> Optional[_TriageOutput]:
         return None
 
     client = anthropic_client(settings.ANTHROPIC_API_KEY)  # 30 s, 1 retry (OPS-02)
-    model = getattr(settings, "AI_MODEL_TRIAGE", "claude-sonnet-5")
+    model = getattr(settings, "AI_MODEL_TRIAGE", None) or settings.DEFAULT_MODEL
 
     try:
         resp = client.messages.create(
@@ -303,7 +303,10 @@ def _fallback_triage(group_summary: dict) -> _TriageOutput:
     return _TriageOutput(
         probable_cause=f"{err_type} firing on {path}. Specific cause not analyzed (AI offline).",
         blast_radius=f"{count} occurrence(s), {affected} affected user(s) within the scan window.",
-        severity=sev,
+        # AI:* rows (ai_model_guard) are written ONCE per model per day, so a
+        # count grade would always say LOW — yet each means photo/text
+        # reading on that model is failing or degraded. High at any count.
+        severity="high" if err_type.startswith("AI:") else sev,
         suggested_actions=(
             "1) Open the recent-errors admin panel to read the full traceback. "
             "2) Reproduce locally if possible. "

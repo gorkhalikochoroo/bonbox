@@ -16,7 +16,7 @@ Public surface:
   extract_text(text: str) -> list[dict]
   extract_csv(data: bytes) -> list[dict]
   extract_excel(data: bytes) -> list[dict]
-  extract_image(data: bytes, *, model='claude-sonnet-5') -> tuple[list[dict], dict]
+  extract_image(data: bytes, *, model=None) -> tuple[list[dict], dict]   # None → settings.DEFAULT_MODEL
 
 Each extractor returns items shaped like:
   {"name": str, "qty": float|None, "unit": str|None, "category": str|None}
@@ -436,7 +436,7 @@ def _image_tool_schema() -> dict:
 def extract_image(
     data: bytes,
     *,
-    model: str = "claude-sonnet-5",
+    model: str | None = None,
     max_tokens: int = 4000,
     timeout: float = 60.0,
     media_type: str = "image/jpeg",
@@ -459,8 +459,10 @@ def extract_image(
 
     Returns (items, meta) where meta has:
       input_tokens, output_tokens, model_used, timing_ms, error,
-      confidence.
+      confidence. `model` defaults to settings.DEFAULT_MODEL; model_used is
+      the model that answered.
     """
+    model = model or settings.DEFAULT_MODEL
     meta: dict[str, Any] = {
         "input_tokens": 0,
         "output_tokens": 0,
@@ -529,6 +531,8 @@ def extract_image(
     if hasattr(resp, "usage"):
         meta["input_tokens"] = getattr(resp.usage, "input_tokens", 0) or 0
         meta["output_tokens"] = getattr(resp.usage, "output_tokens", 0) or 0
+    from app.services.ai_model_guard import served_model
+    meta["model_used"] = served_model(resp, model)
 
     tool_input: dict | None = None
     for block in getattr(resp, "content", []) or []:

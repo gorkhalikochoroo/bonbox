@@ -632,10 +632,12 @@ def _promote_smart_scan_to_draft(
 
     extractor_meta: dict = {
         "confidence": overall_confidence,
-        # Match the /file image path tag — the source for these line
-        # items WAS the inventory_ocr primary, just run in a different
-        # router (smart_scan instead of inventory_smart_import).
-        "model_used": "claude-sonnet-5",
+        # The line items came from inventory_ocr in an EARLIER request
+        # (/smart-scan/classify); which model answered there is not known
+        # here — the payload is client-supplied, so a model name in it would
+        # not be trusted anyway. None, never a hard-coded guess (the draft
+        # then records the categorizer's model when that ran).
+        "model_used": None,
     }
 
     sha = _smart_scan_payload_sha(payload)
@@ -929,7 +931,9 @@ def _import_file_counted(
                 overall = (inv_result.get("confidence") or {}).get("overall")
                 extractor_meta = {
                     "confidence": overall,
-                    "model_used": "claude-sonnet-5",  # default; inv_ocr overrides via env
+                    # The model that answered inventory_ocr's read (accuracy
+                    # tier, or its fallback) — never a hard-coded id.
+                    "model_used": inv_result.get("_model"),
                 }
             else:
                 # ── Fallback: existing generic extract_image ─────────────

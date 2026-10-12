@@ -34,7 +34,7 @@ Why deterministic-first matters:
 Public surface:
   TAXONOMY[vertical] -> list[str]      — canonical categories per vertical
   categorize_deterministic(items, vertical) -> tuple[list, list]
-  categorize_with_ai(items, vertical, *, model='claude-sonnet-5') -> tuple[list, dict]
+  categorize_with_ai(items, vertical, *, model=None) -> tuple[list, dict]   # None → settings.DEFAULT_MODEL
   categorize_items(items, vertical, *, use_ai=True) -> tuple[list, dict]
 """
 from __future__ import annotations
@@ -867,7 +867,7 @@ def categorize_with_ai(
     items: list[dict],
     business_type: str | None,
     *,
-    model: str = "claude-sonnet-5",
+    model: str | None = None,
     max_tokens: int = 2000,
     timeout: float = 30.0,
 ) -> tuple[list[dict], dict]:
@@ -876,7 +876,7 @@ def categorize_with_ai(
     Args:
         items: list of items WITHOUT category (or with category=None).
         business_type: drives the allowed-category enum.
-        model: Haiku is the default — Sonnet would be overkill.
+        model: None → settings.DEFAULT_MODEL.
 
     Returns (categorized_items, meta) where meta has:
         input_tokens, output_tokens, model_used, timing_ms, error.
@@ -887,6 +887,7 @@ def categorize_with_ai(
     UX trumps perfect categorization.
     """
     allowed = get_taxonomy(business_type)
+    model = model or settings.DEFAULT_MODEL
     meta: dict[str, Any] = {
         "input_tokens": 0,
         "output_tokens": 0,
@@ -947,6 +948,8 @@ def categorize_with_ai(
     if hasattr(resp, "usage"):
         meta["input_tokens"] = getattr(resp.usage, "input_tokens", 0) or 0
         meta["output_tokens"] = getattr(resp.usage, "output_tokens", 0) or 0
+    from app.services.ai_model_guard import served_model
+    meta["model_used"] = served_model(resp, model)
 
     # Extract tool_use block.
     tool_input: dict | None = None

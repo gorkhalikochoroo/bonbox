@@ -93,13 +93,19 @@ PROMPT_VERSION = "kasserapport-2026-05-28-v1"
 # this output ships into the accountant-grade SKAT MOMS-angivelse PDF
 # (Bogføringsloven §10 liability). Wrong revenue extraction = real
 # money lost to wrong filing.
-_DEFAULT_MODEL_CLASSIFIER = "claude-sonnet-5"
-_DEFAULT_MODEL_FORMAT     = "claude-sonnet-5"
-# claude-sonnet-5 (bumped from claude-sonnet-4-6 on 2026-07-01).
-# WARNING: never use claude-opus-4-7 — it 404s (hallucinated ID, task #239).
-# Sonnet 5 is the accountant-grade extractor here — Bogføringsloven §10
-# liability still well served.
-_DEFAULT_MODEL_EXTRACTOR  = "claude-sonnet-5"
+# Today: classifier + format detector on settings.DEFAULT_MODEL (Sonnet);
+# the extractor on the accuracy tier (ACCURACY_MODEL, falling back to
+# DEFAULT_MODEL — see use_accuracy_fallback). The per-layer settings
+# overrides (AI_MODEL_KASSE_*) still win when present.
+# WARNING: never hand-type a model id here — claude-opus-4-7 404'd
+# (hallucinated ID, task #239). Ids live in config.py only.
+
+
+def _layer_model(override_attr: str) -> str:
+    """The per-layer settings override if set, else settings.DEFAULT_MODEL
+    (resolved per call, so an env hot-swap of the tier applies here too)."""
+    return getattr(settings, override_attr, None) or settings.DEFAULT_MODEL
+
 
 # Soft caps — cheap defense against runaway costs. Caller may override.
 MAX_INPUT_IMAGE_SIDE_PX = 2200   # resize huge phone photos before upload
@@ -371,7 +377,7 @@ def classify_document(b64_jpeg: str, *, model: str | None = None) -> tuple[dict,
         "cache_control": {"type": "ephemeral"},  # static prompt — cache it
     }]
     tool_input, in_tok, out_tok = _call_anthropic_with_image(
-        model=model or getattr(settings, "AI_MODEL_KASSE_CLASSIFIER", _DEFAULT_MODEL_CLASSIFIER),
+        model=model or _layer_model("AI_MODEL_KASSE_CLASSIFIER"),
         system=system,
         tools=[_CLASSIFIER_TOOL],
         user_blocks=[_image_block(b64_jpeg)],
@@ -421,7 +427,7 @@ def detect_pos_format(b64_jpeg: str, *, model: str | None = None) -> tuple[dict,
     """Layer 2 — which POS system? Determines which extractor prompt to use."""
     system = [{"type": "text", "text": _FORMAT_SYSTEM, "cache_control": {"type": "ephemeral"}}]
     tool_input, in_tok, out_tok = _call_anthropic_with_image(
-        model=model or getattr(settings, "AI_MODEL_KASSE_FORMAT", _DEFAULT_MODEL_FORMAT),
+        model=model or _layer_model("AI_MODEL_KASSE_FORMAT"),
         system=system,
         tools=[_FORMAT_TOOL],
         user_blocks=[_image_block(b64_jpeg)],
@@ -674,7 +680,7 @@ def extract_kasserapport(
     })
 
     tool_input, in_tok, out_tok = _call_anthropic_with_image(
-        model=model or getattr(settings, "AI_MODEL_KASSE_EXTRACTOR", _DEFAULT_MODEL_EXTRACTOR),
+        model=model or _layer_model("AI_MODEL_KASSE_EXTRACTOR"),
         system=system,
         tools=[_EXTRACTOR_TOOL],
         user_blocks=user_blocks,
@@ -973,9 +979,9 @@ def extract_kasserapport_full(
     # primary model; the actual model on a given call may have degraded
     # to DEFAULT_MODEL if Opus errored — that path logs a warning.
     result.models_used = {
-        "classifier": getattr(settings, "AI_MODEL_KASSE_CLASSIFIER", _DEFAULT_MODEL_CLASSIFIER),
-        "format": getattr(settings, "AI_MODEL_KASSE_FORMAT", _DEFAULT_MODEL_FORMAT),
-        "extractor": getattr(settings, "ACCURACY_MODEL", _DEFAULT_MODEL_EXTRACTOR),
-        "extractor_fallback": getattr(settings, "DEFAULT_MODEL", _DEFAULT_MODEL_EXTRACTOR),
+        "classifier": _layer_model("AI_MODEL_KASSE_CLASSIFIER"),
+        "format": _layer_model("AI_MODEL_KASSE_FORMAT"),
+        "extractor": settings.ACCURACY_MODEL,
+        "extractor_fallback": settings.DEFAULT_MODEL,
     }
     return result

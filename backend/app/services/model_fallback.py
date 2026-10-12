@@ -5,9 +5,9 @@ A single, tight helper used by the number-extraction OCR services
 misread digit means wrong money. It runs the Anthropic Messages call
 twice at most:
 
-  1. ACCURACY_MODEL  (claude-opus-4-8) — the premium accuracy tier.
-  2. DEFAULT_MODEL   (claude-sonnet-5) — on ANY exception from step 1,
-     log a warning and retry the EXACT same call once.
+  1. ACCURACY_MODEL  (settings; claude-opus-4-8) — the accuracy tier.
+  2. DEFAULT_MODEL   (settings; claude-sonnet-5-5) — on ANY exception
+     from step 1, log a warning and retry the same call once.
 
 So a model outage / 404 / rate-limit on Opus degrades to today's exact
 Sonnet behavior — it never breaks the OCR pipeline harder than a single
@@ -17,11 +17,14 @@ None → fallback chain / manual entry) keeps working exactly as before.
 
 Design constraints honored:
   • Only the `model` kwarg changes between the two attempts. Prompt,
-    images, tools, tool_choice, system, max_tokens, temperature and every
-    other kwarg are forwarded verbatim — passed straight through to
-    client.messages.create(**kwargs).
+    images, tools, tool_choice, system, max_tokens and every other kwarg
+    are forwarded to client.messages.create(**kwargs) — through
+    ai_model_guard, which adapts forced tool_choice for a model that
+    refuses it (Sonnet 5.5) and retries a model-not-found answer for
+    DEFAULT/PREMIUM once on LEGACY_SAFE_MODEL (with one ops row).
   • The caller passes a ready-built `client` (anthropic.Anthropic(...))
-    so SDK init, api_key and timeout stay owned by the call site.
+    so SDK init, api_key and timeout stay owned by the call site; it is
+    wrapped by ai_model_guard.guard_client here if it is not already.
   • No new retry/backoff semantics beyond the single model-swap retry —
     callers that already wrap this in their own transient-retry loop keep
     that behavior layered on top of the all-Sonnet fallback.
@@ -66,12 +69,17 @@ def call_with_fallback(
         retry. The caller's existing exception handling (return None →
         graceful fallback) is therefore preserved unchanged.
     """
-    # Default tier = accuracy (Opus 4.8) → default (Sonnet 4.5). Callers
-    # can override with _primary / _fallback — e.g. the premium assistant
-    # tier passes PREMIUM_MODEL → DEFAULT_MODEL. Existing OCR callers pass
-    # neither, so their behavior is 100% unchanged.
-    primary = _primary or getattr(settings, "ACCURACY_MODEL", "claude-opus-4-8")
-    fallback = _fallback or getattr(settings, "DEFAULT_MODEL", "claude-sonnet-5")
+    # Default tier = ACCURACY_MODEL → DEFAULT_MODEL (both from Settings).
+    # Callers can override with _primary / _fallback — e.g. the premium
+    # assistant tier passes PREMIUM_MODEL → DEFAULT_MODEL. Existing OCR
+    # callers pass neither.
+    primary = _primary or settings.ACCURACY_MODEL
+    fallback = _fallback or settings.DEFAULT_MODEL
+
+    # The model-not-found net + forced-tool adaptation (idempotent: a client
+    # from ai_limits.anthropic_client is already wrapped).
+    from app.services.ai_model_guard import guard_client
+    client = guard_client(client)
 
     # Never let a stray caller-supplied model override the tier policy.
     kwargs.pop("model", None)

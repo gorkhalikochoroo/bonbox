@@ -267,7 +267,7 @@ def _try_llm_parse(
         return None, 0, 0, "fallback"
 
     client = anthropic_client(settings.ANTHROPIC_API_KEY)  # 30 s, 1 retry (OPS-02)
-    model = getattr(settings, "AI_MODEL_SALE_PARSER", "claude-sonnet-5")
+    model = getattr(settings, "AI_MODEL_SALE_PARSER", None) or settings.DEFAULT_MODEL
 
     # Trim inventory to a compact form to save tokens
     inv_compact = [
@@ -306,6 +306,9 @@ def _try_llm_parse(
 
     in_t = int(getattr(resp.usage, "input_tokens", 0) or 0)
     out_t = int(getattr(resp.usage, "output_tokens", 0) or 0)
+    # The model that answered (differs from `model` after a legacy retry).
+    from app.services.ai_model_guard import served_model
+    model = served_model(resp, model)
 
     block = next(
         (b for b in (resp.content or []) if getattr(b, "type", None) == "tool_use"),
