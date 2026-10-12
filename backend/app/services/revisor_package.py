@@ -736,7 +736,7 @@ def open_item_lines(checklist: dict) -> list[str]:
                      f"{_signed_kr(r.get('delta'))} ("
                      + f"{float(r.get('delta_pct') or 0):.1f}".replace(".", ",") + " %)"
                      for r in rows[:6]]
-            lines.append(f"{VARIANCE_D3_INTRO_DA} (Bogføringsloven §9 stk. 2) "
+            lines.append(f"{VARIANCE_D3_INTRO_DA} (Bogføringsloven §9 stk. 2) — "
                          + "; ".join(parts) + (" …" if n > 6 else ""))
         elif k == "bank_unmatched":
             lines.append(f"{n} {'bankpost' if n == 1 else 'bankposter'} fra bankimporten er ikke afstemt")
@@ -1177,7 +1177,7 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
                 # revenue — typically gavekort sold at the counter (a card
                 # sale is not a sale of goods; its MOMS, if any, is in the
                 # gavekort lines). Say what BonBox can see (minor 15).
-                gk_txt = (f" Gavekort solgt ved kassen i perioden: {_kr(gavekort_counter_sold)}."
+                gk_txt = (f" Gavekort solgt ved kassen i perioden: {_kr(gavekort_counter_sold)}"
                           if gavekort_counter_sold else "")
                 s.append(Paragraph(escape_pdf_text(
                     "Note: Betalingerne er højere end omsætningen, når kassen har modtaget penge, "
@@ -1891,7 +1891,7 @@ def _readme(*, biz, sample, label, start, end, doc_number, now, user, pdf_name, 
         "",
         "AFSTEMNING",
         f"  salg.csv i alt: {_kr(sales_total)} = omsætning i alt (oversigten og",
-        f"  omsaetning-pr-dag.csv): {_kr(revenue_total)}."
+        f"  omsaetning-pr-dag.csv): {_kr(revenue_total)}"
         + ("" if abs(sales_total - revenue_total) < 0.005 else "  AFVIGER — kontakt BonBox."),
         "  salg.csv følger omsætningen dag for dag: dagens låste dagsafslutninger, ellers",
         "  dagens gennemførte salg. Ikke med — som i omsætningen og momsen: betaling af",
@@ -1905,7 +1905,7 @@ def _readme(*, biz, sample, label, start, end, doc_number, now, user, pdf_name, 
         km = round(sum(float(t.km or 0) for t in trips), 2)
         ded = round(sum(float(t.deduction_amount or 0) for t in trips), 2)
         out.append(f"  koersel.csv: {len(trips)} {'tur' if len(trips) == 1 else 'ture'}, "
-                   f"{_dk_num(km)} km, fradrag {_kr(ded)}.")
+                   f"{_dk_num(km)} km, fradrag {_kr(ded)}")
     else:
         out.append("  Ingen kørsel registreret i BonBox i perioden.")
     if n_reencoded:
