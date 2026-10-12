@@ -25,6 +25,7 @@ import { withSignupRef } from "../utils/signupRef";
 import SignupTermsLine from "../components/SignupTermsLine";
 import { withTermsAcceptance } from "../legal/terms";
 import { postLoginPath } from "../utils/verifySkip";
+import { safeNextPath } from "../utils/safeNext";
 import AuthShell, {
   AuthAlert, AuthDivider, AuthHeading, FieldError, FieldLabel, PasswordInput, PrimaryButton,
 } from "../components/auth/AuthUI";
@@ -106,6 +107,14 @@ export default function LoginPage() {
   // Push 6 — an address typed on /register ("Log ind", or "Den e-mail har
   // allerede en konto") comes along as router state, never in the URL.
   const handedEmail = typeof location.state?.email === "string" ? location.state.email.trim() : "";
+  // ?next= — e.g. bonbox.dk/staff sends a signed-out owner here with
+  // next=/staff/schedule. An in-app path only (utils/safeNext); the
+  // verification wall, when due, still comes first.
+  const nextPath = safeNextPath(location.search);
+  const landingPath = (u) => {
+    const dest = postLoginPath(u);
+    return dest === "/dashboard" && nextPath ? nextPath : dest;
+  };
   const [email, setEmail] = useState(handedEmail);
   const [password, setPassword] = useState("");
   // { key, vars, action } — rendered with t() so it follows a language
@@ -236,7 +245,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const data = await login(email.trim(), password);
-      navigate(postLoginPath(data.user));
+      navigate(landingPath(data.user));
     } catch (err) {
       // A wrong password reads "E-mail eller adgangskode passer ikke" with
       // the way out beside it; no answer at all says so (utils/authErrors).
@@ -275,7 +284,7 @@ export default function LoginPage() {
       const name =
         [res.givenName, res.familyName].filter(Boolean).join(" ").trim() || null;
       const data = await appleOauthLogin(idToken, name, { acceptTerms: true });
-      navigate(postLoginPath(data.user));
+      navigate(landingPath(data.user));
     } catch (err) {
       // The plugin rejects user-cancellation with code "user_cancelled" —
       // swallow silently (parity with the web button's popup_closed_by_user).
@@ -491,7 +500,7 @@ export default function LoginPage() {
                 setError(null);
                 try {
                   const data = await appleOauthLogin(idToken, name, { acceptTerms: true });
-                  navigate(postLoginPath(data.user));
+                  navigate(landingPath(data.user));
                 } catch (err) {
                   setError({ text: oauthErrText(err, t("appleSigninFailed") || "Apple sign-in failed", t) });
                 }
@@ -517,7 +526,7 @@ export default function LoginPage() {
                   const fn = googleOauthLogin || googleLogin;
                   fn(res.credential, { acceptTerms: true })
                     .then((data) => {
-                      navigate(postLoginPath(data.user));
+                      navigate(landingPath(data.user));
                     })
                     .catch((err) => setError({ text: oauthErrText(err, t("googleSigninFailed"), t) }));
                 }}

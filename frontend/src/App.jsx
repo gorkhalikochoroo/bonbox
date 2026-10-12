@@ -552,6 +552,20 @@ function ProtectedRoute({ children }) {
 }
 
 /**
+ * bonbox.dk/staff — Vagtplan's short address. "staff" is a reserved word
+ * (backend RESERVED_SLUGS), so it is never a venue's booking link; with no
+ * route of its own it fell to "/:slug" and a signed-in owner got the guests'
+ * page "Dette link er ikke åbent for booking". Signed in → the schedule;
+ * signed out → sign in, then the schedule.
+ */
+export function StaffEntryRedirect() {
+  const { user, loading } = useAuth();
+  if (loading) return <PageLoader />;
+  if (user) return <Navigate to="/staff/schedule" replace />;
+  return <Navigate to="/login?next=/staff/schedule" replace />;
+}
+
+/**
  * OnboardingRoute — wraps the welcome wizard. Auth-required, owner-only.
  * If the user has already finished, we kick them to /dashboard so the
  * wizard can't be re-entered casually (they can re-trigger from Profile).
@@ -767,6 +781,8 @@ function AppRoutes() {
             Same StaffSchedulePage (standalone detected from the /stand path),
             same gates, and every provider lives above <Routes> so useBranch /
             useAuth / useConfirm are all intact here. */}
+        {/* Vagtplan's short address — see StaffEntryRedirect. */}
+        <Route path="/staff" element={<StaffEntryRedirect />} />
         <Route
           path="/staff/schedule/stand"
           element={
