@@ -228,9 +228,10 @@ export function AuthLanguageSelect({ labelKey = "regLanguageLabel" }) {
  * only while the banner CAN sit over the form column: the phone's full-width
  * sheet, and the md+ corner card (420 px, 24 px off the left edge) until the
  * 400 px column clears it — from lg beside the register panel (`aside`, 46 %
- * wide), from 1288 px (2 × 444 + 400) on its own. Wider, the padding only
- * re-centred the form, and answering the banner moved it: /register jumped
- * 42 px down at 1440 × 900 (Push 8).
+ * wide), from 1288 px (2 × 444 + 400) on its own (Tailwind 4's max-[1288px]
+ * is `width < 1288px`). Wider, the padding only re-centred the form, and
+ * answering the banner moved it: /register jumped 42 px down at 1440 × 900
+ * (Push 8).
  *
  * `min-w-0` on <main>: a flex item never shrinks below its content's
  * minimum by default, and the code row's minimum (6 × 52 px boxes + 5 gaps
@@ -242,7 +243,7 @@ export function AuthLanguageSelect({ labelKey = "regLanguageLabel" }) {
 export default function AuthShell({ children, aside = null, footer = null, logoLink = true, language = false }) {
   const consentPad = aside
     ? "max-lg:pb-[var(--bb-consent-h,0px)] "
-    : "max-[1287px]:pb-[var(--bb-consent-h,0px)] ";
+    : "max-[1288px]:pb-[var(--bb-consent-h,0px)] ";
   return (
     <div
       className={

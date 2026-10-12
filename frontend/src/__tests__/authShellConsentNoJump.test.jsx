@@ -38,7 +38,7 @@ describe("the auth frame pads for the cookie banner only where it can cover the 
 
   it("a lone column (login, verify, forgot): below 1288 px only", () => {
     const el = frame({});
-    expect(padClasses(el)).toEqual(["max-[1287px]:pb-[var(--bb-consent-h,0px)]"]);
+    expect(padClasses(el)).toEqual(["max-[1288px]:pb-[var(--bb-consent-h,0px)]"]);
     expect(el.style.paddingBottom).toBe("");
   });
 
