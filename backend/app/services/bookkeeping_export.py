@@ -1157,8 +1157,9 @@ FORMATS = {
         "exporter": export_bundle,
         "instructions": (
             "Everything in one ZIP: sales+expenses (Dinero format), faktura "
-            "register, mileage log, and a README. The monthly handoff your "
-            "revisor needs — one attachment, four files, clear import order."
+            "register, mileage log, MOMS summary, gavekort ledger, a README "
+            "and a manifest with SHA-256 checksums — one attachment, clear "
+            "import order."
         ),
     },
 }

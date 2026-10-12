@@ -121,7 +121,9 @@ export default function BookkeepingExportPage() {
         return;
       }
       trackEvent("bookkeeping_export", "exports", `${selected} ${start}..${end}`);
-      setMsg(t("bkeExportedMsg", "Exported! Now open {platform} and import the file.").replace("{platform}", currentFormat?.label || selected));
+      // The format's own translated label — the backend label is English
+      // ("Monthly bundle (ZIP — everything)") and leaked into Danish here.
+      setMsg(t("bkeExportedMsg", "Exported! Now open {platform} and import the file.").replace("{platform}", t(`bkeFmtLabel_${selected}`, currentFormat?.label || selected)));
       setTimeout(() => setMsg(""), 6000);
     } catch (e) {
       // Backend now returns a structured 422 with detail when something fails
@@ -230,6 +232,28 @@ export default function BookkeepingExportPage() {
     }
   };
 
+
+  // Månedsafslutning + the revisor package (every plan): what is still open
+  // for the period, and the ZIP with every bilag to download or send.
+  const monthEndCard = (
+    <Link
+      to="/month-end"
+      className="mb-6 flex items-center gap-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition"
+      data-testid="bke-month-end-card"
+    >
+      <Icon name="ClipboardCheck" size={18} className="text-gray-500 shrink-0" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
+          {t("bkeMonthEndCardTitle", "Revisor package & month-end")}
+        </span>
+        <span className="block text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+          {t("bkeMonthEndCardBody", "See what's still open, then download or send the package with every receipt — on every plan.")}
+        </span>
+      </span>
+      <Icon name="ChevronRight" size={16} className="text-gray-400 shrink-0" />
+    </Link>
+  );
+
   // S8 — Free-tier UpgradeNudge fallback. Renders before the form so a
   // Free user sees the upgrade story instead of getting a 402 mid-click.
   // Backend still enforces; this is the calm UX layer.
@@ -241,6 +265,7 @@ export default function BookkeepingExportPage() {
           title={t("bkeHeaderTitle", "Send to your accountant")}
           subtitle={t("bkeFreeSubtitle", "Clean CSVs for Dinero, Billy, e-conomic, or generic — built so your accountant imports in one click.")}
         />
+        {monthEndCard}
         <UpgradeNudge
           intent="card"
           tier="starter"
@@ -262,6 +287,8 @@ export default function BookkeepingExportPage() {
         title={t("bkeHeaderTitle", "Send to your accountant")}
         subtitle={t("bkeMainSubtitle", "Export sales + expenses as a clean CSV that imports directly into Dinero, Billy, e-conomic, or any generic accounting tool. BonBox stays as your operational + AI layer; your accountant keeps using what they already know.")}
       />
+
+      {monthEndCard}
 
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 sm:p-6 space-y-5">
         {/* Format picker */}

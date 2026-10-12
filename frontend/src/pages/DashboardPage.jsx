@@ -536,7 +536,7 @@ export default function DashboardPage() {
         },
         invoices: { overdueCount: outstandingInvoices?.length || 0 },
         compliance: { daysToNext: momsCountdownDays ?? 999 },
-        now: { daysToMonthEnd: computeDaysToMonthEnd() },
+        now: { daysToMonthEnd: computeDaysToMonthEnd(), dayOfMonth: new Date().getDate() },
         // First-run gate: require summary to be LOADED before treating
         // a zero sale count as first-run. Otherwise existing users see
         // "Welcome to BonBox" during the 600ms cold-start fetch.

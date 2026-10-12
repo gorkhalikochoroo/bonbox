@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { ClipboardCheck } from "lucide-react";
 import { useLanguage } from "../hooks/useLanguage";
 
 /**
- * MonthEndBundleBanner — nudges the owner to send their monthly bookkeeping
- * bundle to their revisor.
+ * MonthEndBundleBanner — nudges the owner into Månedsafslutning (/month-end):
+ * what is still open for the month, and the revisor package (summary PDF,
+ * CSVs, every bilag) to download or send.
  *
  * Visible window:
  *   • Last 5 days of the current month  (heads-up: "coming up")
@@ -20,7 +22,7 @@ import { useLanguage } from "../hooks/useLanguage";
  * unobtrusive, single-action, time-relevant.
  */
 export default function MonthEndBundleBanner() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [visible, setVisible] = useState(false);
   const [phase, setPhase] = useState("heads_up"); // or "do_it_now"
   const [targetPeriod, setTargetPeriod] = useState(""); // YYYY-MM of the period to export
@@ -79,27 +81,29 @@ export default function MonthEndBundleBanner() {
     if (!targetPeriod) return "";
     const [y, m] = targetPeriod.split("-").map(Number);
     const d = new Date(y, m - 1, 1);
-    return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    // The app's language, not the browser's: a Danish sentence names the
+    // month in Danish.
+    return d.toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", { month: "long", year: "numeric" });
   })();
 
   const title =
     phase === "do_it_now"
-      ? (t("bundleBannerTitleNow") || "Send last month's bundle to your revisor")
-      : (t("bundleBannerTitleSoon") || "Month-end coming up — bundle ready soon");
+      ? t("bundleBannerTitleNow", "Month-end: send last month to your revisor")
+      : t("bundleBannerTitleSoon", "Month-end is coming up");
   const body =
     phase === "do_it_now"
       // The month was written into a `||` fallback the populated key shadows,
       // so the banner named no month at all.
       ? t("bundleBannerBodyNow",
-          "{month} is closed. One click downloads everything (sales, expenses, faktura, mileage + README) as a ZIP — attach it to an email to your revisor and you're done.",
+          "See what's still open for {month}, fix it, and send the revisor package — summary, CSV files and every receipt.",
           { month: monthName })
       : t("bundleBannerBodySoon",
-          "In a few days the bookkeeping bundle for {month} will be ready. One ZIP, four files, one email to your revisor.",
+          "Check what's still open for {month} — days without a close, expenses without a receipt — before the month ends.",
           { month: monthName });
   const cta =
     phase === "do_it_now"
-      ? (t("bundleBannerCtaNow") || "Send to revisor")
-      : (t("bundleBannerCtaSoon") || "Preview the bundle");
+      ? t("bundleBannerCtaNow", "Open month-end")
+      : t("bundleBannerCtaSoon", "See what's open");
 
   // Distinct visual treatment per phase: amber for heads-up (passive),
   // green for do-it-now (active CTA).
@@ -131,7 +135,7 @@ export default function MonthEndBundleBanner() {
       </button>
 
       <div className="flex items-start gap-4">
-        <span className="text-2xl shrink-0" aria-hidden="true">📤</span>
+        <ClipboardCheck size={22} strokeWidth={1.75} className="shrink-0 mt-0.5 text-gray-500 dark:text-gray-400" aria-hidden="true" />
         <div className="flex-1 min-w-0">
           <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
             {title}
@@ -140,7 +144,7 @@ export default function MonthEndBundleBanner() {
             {body}
           </p>
           <Link
-            to="/bookkeeping-export?format=bundle"
+            to={targetPeriod ? `/month-end?month=${targetPeriod}` : "/month-end"}
             className={`inline-block px-4 py-2 rounded-xl text-sm font-semibold transition ${btnStyle}`}
           >
             {cta}
