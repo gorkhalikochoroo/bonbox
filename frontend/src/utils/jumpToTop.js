@@ -16,6 +16,14 @@ export function jumpToTop(win = typeof window !== "undefined" ? window : null) {
   const root = win.document && win.document.documentElement;
   const prev = root ? root.style.scrollBehavior : "";
   if (root) root.style.scrollBehavior = "auto";
+  // Chromium does not update style before scrollTo, so without this read it
+  // still sees "smooth" and animates (review, 12 Oct). Reading the computed
+  // value forces the style flush; WebKit already does it.
+  try {
+    if (root && typeof win.getComputedStyle === "function") void win.getComputedStyle(root).scrollBehavior;
+  } catch {
+    /* a test DOM without styles — the scroll below still runs */
+  }
   try {
     win.scrollTo(0, 0);
   } catch {

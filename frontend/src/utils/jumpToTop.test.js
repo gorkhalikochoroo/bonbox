@@ -40,3 +40,21 @@ describe("jumpToTop", () => {
     expect(root.style.scrollBehavior).toBe("smooth");
   });
 });
+
+
+describe("jumpToTop forces a style flush before scrolling (Chromium)", () => {
+  it("reads the computed scroll-behavior after lifting smooth, before scrollTo", async () => {
+    const order = [];
+    const root = { style: { scrollBehavior: "smooth" } };
+    const win = {
+      scrollY: 900, scrollX: 0, pageYOffset: 900, pageXOffset: 0,
+      document: { documentElement: root },
+      getComputedStyle: (el) => { order.push(["read", el.style.scrollBehavior]); return { scrollBehavior: el.style.scrollBehavior }; },
+      scrollTo: () => order.push(["scroll", root.style.scrollBehavior]),
+    };
+    const { jumpToTop } = await import("./jumpToTop");
+    jumpToTop(win);
+    expect(order).toEqual([["read", "auto"], ["scroll", "auto"]]);
+    expect(root.style.scrollBehavior).toBe("smooth");
+  });
+});

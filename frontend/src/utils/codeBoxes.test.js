@@ -73,3 +73,14 @@ describe("isComplete", () => {
     expect(isComplete(emptyCode())).toBe(false);
   });
 });
+
+
+describe("applyBoxInput — text with another number before the code", () => {
+  it("takes the six-digit run, not every digit (review, 12 Oct)", () => {
+    const { code } = applyBoxInput(emptyCode(), 0, "Kode 2: 482913");
+    expect(code.join("")).toBe("482913");
+  });
+  it("a plain six-digit insert still fills the row", () => {
+    expect(applyBoxInput(emptyCode(), 0, "482913").code.join("")).toBe("482913");
+  });
+});

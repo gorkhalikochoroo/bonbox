@@ -37,7 +37,12 @@ function nextEmpty(code, from) {
 
 export function applyBoxInput(code, index, raw) {
   const prev = code[index] || "";
-  let digits = String(raw ?? "").replace(/\D/g, "");
+  const text = String(raw ?? "");
+  let digits = text.replace(/\D/g, "");
+  // Text with other numbers around the code ("Kode 2: 482913" from a
+  // clipboard chip or a password manager) arriving as one input: take the
+  // six-digit run, as a paste does — not every digit in the text.
+  if (/\D/.test(text) && digits.length > CODE_LENGTH) digits = codeDigits(text);
   const next = [...code];
 
   // Nothing, or one digit: the box holds it (a deletion leaves the focus here).
