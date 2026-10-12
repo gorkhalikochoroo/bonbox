@@ -737,7 +737,7 @@ export default function CompetitorPage({ embedded = false }) {
           )}
 
           {places.length === 0 && !discoverLoading && !discoverError && (
-            <div className="text-center py-12 text-gray-400">
+            <div className="text-center py-12 text-gray-600 dark:text-gray-400">
               <p className="text-5xl mb-3">📍</p>
               <p className="text-lg font-medium">{t("discoverYourCompetitors")}</p>
               <p className="text-sm mt-1">{t("cpClickDiscoverHint", "Click \"Discover\" to scan for businesses near your location.")}</p>

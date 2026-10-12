@@ -1452,7 +1452,7 @@ export default function ConnectionsPage() {
       </div>
 
       {/* Footer — sets the right expectation about what's NOT here */}
-      <p className="mt-10 text-center text-[12px] text-gray-500 dark:text-gray-400 leading-relaxed max-w-2xl mx-auto">
+      <p className="mt-10 text-center text-[12px] text-gray-600 dark:text-gray-400 leading-relaxed max-w-2xl mx-auto">
         {t("connectionsFooter") ||
           "We deliberately don't connect to your POS — Lightspeed, Toast, Square keep that role. BonBox sits beside them and reads your sales register via daily sync. Same with payment terminals: keep your Dankort + iZettle, BonBox imports the daily totals."}
       </p>

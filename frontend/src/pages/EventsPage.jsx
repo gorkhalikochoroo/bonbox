@@ -888,7 +888,7 @@ export default function EventsPage() {
           <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
             <span aria-hidden>📅</span> {t("eventsTitle", "Events")}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
             {t(
               "eventsSubtitle",
               "Tag sales by the cultural event or pop-up they belong to. One click to see totals, guests, and MOMS per event.",
@@ -1261,7 +1261,7 @@ export default function EventsPage() {
           {loading ? (
             <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>
           ) : filtered.length === 0 ? (
-            <div className="text-sm text-gray-500 dark:text-gray-400 py-6 text-center">
+            <div className="text-sm text-gray-600 dark:text-gray-400 py-6 text-center">
               {t(
                 "eventsEmpty",
                 "No events yet. Create one to start tagging sales by event.",

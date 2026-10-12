@@ -184,6 +184,7 @@ describe("index.css agrees with the mirrors it is measured through", () => {
     ["--surface-card", "card"],
     ["--surface-raised", "raised"],
     ["--surface-line", "line"],
+    ["--surface-shell", "shell"],
   ])("%s matches SURFACE_LADDER_HEX.%s in both themes", (token, key) => {
     expect(tokenIn(":root", token)).toBe(SURFACE_LADDER_HEX[key].light);
     expect(tokenIn(":root.dark", token)).toBe(SURFACE_LADDER_HEX[key].dark);

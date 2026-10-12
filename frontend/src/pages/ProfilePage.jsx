@@ -1285,7 +1285,7 @@ export default function ProfilePage() {
                   <button
                     type="button"
                     onClick={() => setEditorExpanded(true)}
-                    className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                    className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
                   >
                     {t("smartStaffingShowAdvanced") || "Show advanced operating-profile editor"}
                   </button>
@@ -2079,7 +2079,7 @@ export default function ProfilePage() {
                       {t("deleteAccount") || "Delete Account"}
                     </h3>
                   </div>
-                  <p className="text-xs text-red-600/80 dark:text-red-400/80 mt-1">
+                  <p className="text-xs text-red-700 dark:text-red-400/80 mt-1">
                     {t("deleteAccountDesc") ||
                       "Delete your account and the data in it. This cannot be undone. § 4 of the Terms of Service lists what we keep."}
                   </p>
@@ -2230,7 +2230,7 @@ function TableOfContents({ t }) {
   return (
     <aside className="hidden md:block">
       <nav className="sticky top-20" aria-label={t("profileNavOnThisPage")}>
-        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
+        <p className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-3">
           {t("profileNavOnThisPage")}
         </p>
         <ul className="space-y-0.5">
@@ -2243,7 +2243,9 @@ function TableOfContents({ t }) {
                   className={
                     "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm transition " +
                     (isActive
-                      ? "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-medium"
+                      // white = the selected row on the paper page, as on the
+                      // sidebar rail (gray-100 is 1.00:1 on #f6f4ec)
+                      ? "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-medium"
                       : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/60 hover:text-gray-900 dark:hover:text-gray-100")
                   }
                 >

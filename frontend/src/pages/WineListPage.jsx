@@ -148,7 +148,7 @@ export default function WineListPage() {
             <h1 className="text-2xl font-bold dark:text-white flex items-center gap-2">
               🍷 {t("wineList", "Wine List")}
             </h1>
-            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+            <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">
               {t("wineListDesc", "Manage your wine catalog, track stock & margins, export menus.")}
             </p>
           </div>
@@ -245,7 +245,7 @@ export default function WineListPage() {
 
           {/* Wine list */}
           {filtered.length === 0 ? (
-            <div className="text-center py-16 text-gray-400">
+            <div className="text-center py-16 text-gray-600 dark:text-gray-400">
               {wines.length === 0 ? (
                 <>
                   <p className="text-4xl mb-3">🍷</p>

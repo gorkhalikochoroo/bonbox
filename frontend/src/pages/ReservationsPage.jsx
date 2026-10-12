@@ -707,7 +707,7 @@ function PageTitle({ t, isProvider = false }) {
           which is worth 40px on a laptop and worth nothing to a host at 19:30
           who opened it to seat a walk-in — measured, it was part of 877px of
           chrome sitting above the floor plan on a 390px screen. */}
-      <p className="hidden sm:block text-sm text-gray-500 dark:text-gray-400 mt-1">
+      <p className="hidden sm:block text-sm text-gray-600 dark:text-gray-400 mt-1">
         {isProvider
           ? t(
               "rsvpOwnerSubtitleProvider",

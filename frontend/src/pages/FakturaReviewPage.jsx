@@ -118,14 +118,14 @@ export default function FakturaReviewPage() {
         <div>
           <Link
             to="/faktura"
-            className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            className="text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
           >
             ← {t("backToFaktura") || "Back to fakturaer"}
           </Link>
           <h1 className="text-2xl font-bold text-gray-800 dark:text-white mt-1 flex items-center gap-2">
             <span>📥</span> {t("reviewInboxTitle") || "Payments to review"}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-2xl">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 max-w-2xl">
             {t("reviewInboxDesc") ||
               "Bank deposits where the amount matched a faktura but the description didn't confirm it. Tap Accept or Reject — the auto-matcher won't decide for you."}
           </p>

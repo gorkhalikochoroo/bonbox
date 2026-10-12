@@ -450,7 +450,7 @@ export default function BookkeepingExportPage() {
             {t("bkeRevisorLoginHeading", "Or give your revisor their own login")}
           </h2>
         </div>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+        <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
           {t("bkeRevisorLoginSub", "Free and read-only. They see fakturaer, daily closes, expenses and MOMS live — no monthly CSV to send, no shared password. They can't change a thing.")}
         </p>
         <RevisorSection />
@@ -476,7 +476,7 @@ export default function BookkeepingExportPage() {
       </div>
 
       {/* Trademark notice — referenced platform names belong to their owners */}
-      <p className="mt-6 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">
+      <p className="mt-6 text-[11px] text-gray-600 dark:text-gray-500 leading-relaxed">
         {t("bkeTrademarkNotice", "Dinero, Billy, and e-conomic are trademarks of their respective owners. BonBox is not affiliated with or endorsed by any of these companies. We provide CSV exports as an interoperability convenience for our users.")}
       </p>
     </div>

@@ -211,7 +211,7 @@ export default function ChannelSettingsPage() {
               <Icon name="Smartphone" size={22} className="text-gray-400" aria-hidden="true" />
               {t("channelsPageTitle")}
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 max-w-xl">
               {t("channelsPageSubtitle") ||
                 "Which apps and counters do orders come through? Add new aggregators yourself — no deploy needed."}
             </p>
@@ -388,7 +388,7 @@ export default function ChannelSettingsPage() {
 
             {grouped.archived.length > 0 && (
               <div className="mt-8">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-2">
                   {t("channelsArchived") || "Archived / legacy"}
                 </h2>
                 <div className="space-y-2 opacity-60">

@@ -71,12 +71,16 @@ describe("nav muted tier — WCAG AA in BOTH themes", () => {
     // than a comment: both old values are below the floor on their own ground.
     expect(contrast("#9ca3af", NAV_SURFACE_HEX.light)).toBeLessThan(AA); // 2.54:1
     expect(contrast("#6b7280", NAV_SURFACE_HEX.dark)).toBeLessThan(AA);  // 3.04:1
+    // ...and why light moved on from gray-500 when the rail became paper:
+    // 4.83:1 on the white rail it was chosen for, 4.39:1 on #f6f4ec.
+    expect(contrast("#6b7280", "#ffffff")).toBeGreaterThanOrEqual(AA);
+    expect(contrast("#6b7280", NAV_SURFACE_HEX.light)).toBeLessThan(AA);
   });
 
   it("names the classes the hexes claim to describe", () => {
     // Cheap tie-breaker: the hexes are only a valid guard while they match the
     // Tailwind steps actually shipped in the class strings.
-    expect(NAV_MUTED).toBe("text-gray-500 dark:text-gray-400");
+    expect(NAV_MUTED).toBe("text-gray-600 dark:text-gray-400");
     expect(NAV_MUTED_HOVER).toBe("hover:text-gray-700 dark:hover:text-gray-200");
   });
 });

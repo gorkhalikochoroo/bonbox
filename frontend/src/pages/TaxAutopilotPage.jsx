@@ -198,7 +198,7 @@ export default function TaxAutopilotPage() {
         actions={
           <div className="text-right">
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{tax_name} ({rate_pct}%)</p>
-            <p className="text-xs text-gray-500">{authority} • {freqLabel(t, frequency)}</p>
+            <p className="text-xs text-gray-600 dark:text-gray-500">{authority} • {freqLabel(t, frequency)}</p>
           </div>
         }
       />
@@ -1103,7 +1103,7 @@ function ComplianceCard({ audit }) {
             <h2 className="font-bold text-gray-800 dark:text-white">
               {is_compliant ? t("taxComplianceBooksOk") : t("taxComplianceGaps")}
             </h2>
-            <span className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">
+            <span className="text-[11px] uppercase tracking-wider text-gray-600 dark:text-gray-400 font-semibold">
               {year}
             </span>
           </div>
@@ -1147,11 +1147,11 @@ function ComplianceCol({ label, data, ok }) {
         ? "bg-white/60 dark:bg-gray-800/40 border-gray-100/40 dark:border-gray-800/30"
         : "bg-white/60 dark:bg-gray-800/40 border-amber-200/60 dark:border-amber-800/40"
     }`}>
-      <div className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">{label}</div>
+      <div className="text-[11px] uppercase tracking-wider text-gray-600 dark:text-gray-400 font-semibold">{label}</div>
       <div className="mt-1 text-lg font-bold text-gray-900 dark:text-white">
         #{data.count || 0}
       </div>
-      <div className="text-[11px] text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+      <div className="text-[11px] text-gray-600 dark:text-gray-400 inline-flex items-center gap-1">
         {t("taxComplianceLatest", { n: data.max || 0 })} · {ok
           ? (<><span>{t("taxComplianceNoGaps")}</span> <Icon name="Check" size={11} /></>)
           : t("taxComplianceNMissing", { n: data.missing?.length || 0 })}

@@ -412,7 +412,7 @@ export default function BankImportPage() {
     <div className="p-4 sm:p-6 space-y-6 max-w-[1200px] mx-auto">
       <FadeIn>
         <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("bankImportTitle")}</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
           {t("bankImportSubtitle")}
         </p>
       </FadeIn>
@@ -575,7 +575,7 @@ export default function BankImportPage() {
 
           {/* Supported banks */}
           <div className="mt-4">
-            <p className="text-xs text-gray-400 dark:text-gray-500 mb-2 font-medium uppercase tracking-wider">{t("bankSupportedBanksLabel")}</p>
+            <p className="text-xs text-gray-600 dark:text-gray-500 mb-2 font-medium uppercase tracking-wider">{t("bankSupportedBanksLabel")}</p>
             <div className="flex flex-wrap gap-2">
               {Object.entries(BANK_LABELS).map(([id, { label }]) => (
                 <span key={id} className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg text-xs font-medium inline-flex items-center gap-1.5">

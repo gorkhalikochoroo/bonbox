@@ -236,12 +236,12 @@ export default function TeamPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("team")}</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
               {t("teamSubtitle")}
             </p>
             {/* Cap-aware seat counter — visible only when we have billing data */}
             {teamCap !== null && (
-              <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-1.5">
+              <p className="text-[12px] text-gray-600 dark:text-gray-400 mt-1.5">
                 {teamUnlimited
                   ? t("teamSeatsUnlimited")
                   : t("teamSeatsUsedOfCap", { used: seatsUsed, cap: teamCap })}

@@ -170,7 +170,7 @@ export default function TerminalsPage() {
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
               💳 {t("terminalsPageTitle", "POS Terminals")}
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 max-w-xl">
               {t("terminalsPageSubtitle", "Each physical till station you close out at end of night. Takes 30 seconds to set up — once.")}
             </p>
           </div>

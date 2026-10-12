@@ -79,7 +79,7 @@ export default function Empty({
         </h4>
       )}
       {body && (
-        <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto leading-relaxed">
+        <p className="text-sm text-gray-600 dark:text-gray-400 max-w-sm mx-auto leading-relaxed">
           {body}
         </p>
       )}

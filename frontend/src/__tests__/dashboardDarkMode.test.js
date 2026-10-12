@@ -301,15 +301,20 @@ describe("the browser bar follows the theme", () => {
     expect(code("hooks/useDarkMode.jsx")).toMatch(/syncThemeColor\(dark\)/);
   });
 
-  it("the static meta stays white — light is untouched", () => {
+  // The STATIC value: what a page shows before React's first commit. It stays
+  // white so a cold load of a guest page (the vanity /<slug> booking page is
+  // not on any list) never flashes the app's paper bar; the pre-paint writes
+  // paper only on a route it KNOWS is an app route (themeColor.js PAPER_PATHS).
+  it("the static meta stays white — the pre-paint writes light paper only on app routes", () => {
     const html = readFileSync(join(SRC, "..", "index.html"), "utf8");
     expect(html).toContain('<meta name="theme-color" content="#ffffff" />');
   });
 
-  it("dark is the card rung; light and the staff portal stay white", () => {
+  it("dark is the card rung; light is paper (12 Oct 2026); the staff portal stays white", () => {
     expect(THEME_COLOR.dark).toBe(L.card.dark);
     expect(themeColorFor(true, "/dashboard")).toBe("#1f2937");
-    expect(themeColorFor(false, "/dashboard")).toBe("#ffffff");
+    expect(themeColorFor(false, "/dashboard")).toBe("#f6f4ec");
+    expect(themeColorFor(false, "/s/abc123")).toBe("#ffffff");
     expect(themeColorFor(true, "/s/abc123")).toBe("#ffffff");
     expect(themeColorFor(true, "/sales")).toBe("#1f2937"); // "/s" prefix alone is not the portal
   });
@@ -361,7 +366,7 @@ describe("the browser bar follows the theme", () => {
       syncThemeColor(true, "/dashboard");
       expect(meta.getAttribute("content")).toBe("#1f2937");
       syncThemeColor(false, "/dashboard");
-      expect(meta.getAttribute("content")).toBe("#ffffff");
+      expect(meta.getAttribute("content")).toBe("#f6f4ec");
     });
 
     const runPrePaint = () => {
@@ -413,11 +418,11 @@ describe("the browser bar follows the theme", () => {
       expect(meta.getAttribute("content")).toBe("#1f2937");
       document.documentElement.classList.remove("dark");
       await act(() => router.navigate("/dashboard"));
-      expect(meta.getAttribute("content")).toBe("#ffffff"); // light: always the static white
+      expect(meta.getAttribute("content")).toBe("#f6f4ec"); // light: the paper ground (12 Oct 2026)
       cleanup();
     });
 
-    it("…but not on the staff portal, and never in light", () => {
+    it("…but not on the staff portal; light writes paper only on an app route", () => {
       localStorage.setItem("theme", "dark");
       window.history.pushState({}, "", "/s/tok");
       runPrePaint();
@@ -425,6 +430,12 @@ describe("the browser bar follows the theme", () => {
 
       localStorage.setItem("theme", "light");
       window.history.pushState({}, "", "/dashboard");
+      runPrePaint();
+      expect(meta.getAttribute("content")).toBe("#f6f4ec");
+
+      // a guest page (the vanity booking link) keeps the static white
+      meta.setAttribute("content", "#ffffff");
+      window.history.pushState({}, "", "/cafe-nordlys");
       runPrePaint();
       expect(meta.getAttribute("content")).toBe("#ffffff");
     });

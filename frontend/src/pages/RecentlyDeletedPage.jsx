@@ -242,9 +242,9 @@ export default function RecentlyDeletedPage() {
       </div>
 
       {loading ? (
-        <p className="text-gray-500 dark:text-gray-400 text-center py-8">{t("loading")}</p>
+        <p className="text-gray-600 dark:text-gray-400 text-center py-8">{t("loading")}</p>
       ) : items.length === 0 ? (
-        <p className="text-gray-500 dark:text-gray-400 text-center py-8">{t("noDeletedItems")}</p>
+        <p className="text-gray-600 dark:text-gray-400 text-center py-8">{t("noDeletedItems")}</p>
       ) : (
         <div className="space-y-3">
           {items.map(renderItem)}
