@@ -37,6 +37,7 @@
  */
 
 import { Armchair, Beer, Scissors, Croissant, ShoppingBag, Wrench } from "lucide-react";
+import { archetypeIdFor } from "./archetypes";
 
 // ─────────────────────────────────────────────────────────────────────
 // Archetypes. Each carries:
@@ -311,4 +312,22 @@ export function bookingModeFor(businessType) {
  *  Salon ("provider") and bakery/retail ("none") both return false. */
 export function usesTableFloor(businessType) {
   return bookingModeFor(businessType) === "table";
+}
+
+/**
+ * speaksAppointments(businessType) — does this business book customers for a
+ * TIME (Tidsbestilling · Aftaler · Kunder · "Book tid") rather than guests at
+ * TABLES? WORDING only: the booking engine is bookingModeFor().
+ *
+ * True for the salon (provider) and for every shop and repair / service trade
+ * (the retail + services archetypes): a clothing shop's fitting, a workshop's
+ * service slot, a laundry's pick-up — a customer and a time, never a table
+ * (vertical-fit review, Oct 2026). Food, bars and the unknown / generic type
+ * keep the table words. navManifest labels /reservations "Tidsbestilling" for
+ * the same archetypes, so the menu and the page say the same.
+ */
+export function speaksAppointments(businessType) {
+  if (bookingModeFor(businessType) === "provider") return true;
+  const a = archetypeIdFor(businessType);
+  return a === "salon" || a === "retail" || a === "services";
 }

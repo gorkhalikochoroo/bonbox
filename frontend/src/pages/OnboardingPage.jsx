@@ -67,7 +67,7 @@ import BonBoxWordmark from "../components/BonBoxWordmark";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { archetypeFor, archetypeIdFor, restaurantSampleFits } from "../config/archetypes";
 import { PILLAR_DISPLAY, USAGE_GATED_PILLARS, labelKeyFor } from "../config/navManifest";
-import { bookingModeFor } from "../config/venueProfiles";
+import { bookingModeFor, speaksAppointments } from "../config/venueProfiles";
 
 // "Tilføj også? Reservationer" asked every type "Tager I også imod
 // bordbestilling?" — a shop and a workshop do not take table bookings
@@ -1728,7 +1728,7 @@ export default function OnboardingPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className={"text-sm " + (isFirstWin ? "font-semibold text-gray-900 dark:text-gray-100" : "font-medium text-gray-800 dark:text-gray-200")}>
-                              {k === "reservations" && bookingModeFor(biz.branch_type) === "provider"
+                              {k === "reservations" && speaksAppointments(biz.branch_type)
                                 ? t("navAppointments")
                                 : t(meta.labelKey)}
                             </span>

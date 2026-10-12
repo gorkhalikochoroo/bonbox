@@ -70,7 +70,7 @@ import Input from "../components/ui/Input";
 import Sheet from "../components/ui/Sheet";
 import MonthCalendar from "../components/MonthCalendar";
 import PublicFloorMap from "../components/PublicFloorMap";
-import { bookingModeFor, usesTableFloor } from "../config/venueProfiles";
+import { bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
 
 // ── Severity ladder ────────────────────────────────────────────────
 // Mirrors backend app/services/allergens.py SEVERITY_LEVELS. Stored as
@@ -631,6 +631,11 @@ export default function ReservationPublicPage() {
   // the submit + the recap) alongside the slot times. Table venues never
   // touch any of this — provider is an additive branch.
   const isProvider = !!page && bookingModeFor(page.business_type) === "provider";
+  // The WORDS this page speaks (venueProfiles.speaksAppointments): a salon, a
+  // shop or a repair trade is booked for a time — "Book tid", never "Book
+  // bord" (vertical-fit review, Oct 2026). Wording only; `isProvider` stays
+  // the booking engine switch.
+  const apptWords = !!page && speaksAppointments(page.business_type);
   const [behandlinger, setBehandlinger] = useState([]);
   const [behandlingId, setBehandlingId] = useState("");
   const [stylistId, setStylistId] = useState(""); // "" = Valgfri behandler
@@ -1025,7 +1030,7 @@ export default function ReservationPublicPage() {
     const showsBooking = !!result && linkState !== "loading" && linkState !== "failed";
     // A salon books a time, not a table (vertical-fit audit, Oct 2026).
     const title = !showsBooking
-      ? (isProvider
+      ? (apptWords
         ? t("rsvpDocTitleProvider", "Book an appointment · {venue}", { venue })
         : t("rsvpDocTitle", "Book bord · {venue}", { venue }))
       : resultStatus === "cancelled" && (liveOutcome === "withdrawn" || cancelledFrom === "requested")
@@ -1036,7 +1041,7 @@ export default function ReservationPublicPage() {
         ? t("rsvpDocTitleCancelled", "Booking cancelled · {venue}", { venue })
         : resultStatus === "requested"
           ? t("rsvpDocTitleRequest", "Request received · {venue}", { venue })
-          : isProvider
+          : apptWords
             ? t("rsvpDocTitleBookedProvider", "Appointment confirmed · {venue}", { venue })
             : t("rsvpDocTitleBooked", "Table booked · {venue}", { venue });
     document.title = title;
@@ -1050,12 +1055,12 @@ export default function ReservationPublicPage() {
       m.setAttribute("content", val);
     };
     setMeta("og:title", title);
-    setMeta("og:description", isProvider
+    setMeta("og:description", apptWords
       ? t("rsvpOgDescProvider", "Book an appointment at {venue}.", { venue: page.business_name })
       : t("rsvpOgDesc", "Reservér bord hos {venue}.", { venue: page.business_name }));
     try { setMeta("og:url", window.location.href); } catch { /* noop */ }
     return () => { document.title = prev; };
-  }, [page, t, result, resultStatus, linkState, cancelledFrom, liveOutcome, isProvider]);
+  }, [page, t, result, resultStatus, linkState, cancelledFrom, liveOutcome, isProvider, apptWords]);
 
   // ── Provider venue: load the active behandlinger catalog (S3b) ────
   // Drives the behandling picker (the FIRST step for a salon). Soft-fail to []
@@ -1558,10 +1563,12 @@ export default function ReservationPublicPage() {
           }
         : {
             title: t("rsvpCancelConfirmTitle", "Aflys reservationen?"),
-            message: t(
-              "rsvpCancelConfirmBody",
-              "Bordet bliver frigivet med det samme, og du kan ikke fortryde. Du er velkommen til at booke igen.",
-            ),
+            message: apptWords
+              ? t("rsvpCancelConfirmBodyProvider", "The time is freed right away, and this can't be undone. You're welcome to book again.")
+              : t(
+                "rsvpCancelConfirmBody",
+                "Bordet bliver frigivet med det samme, og du kan ikke fortryde. Du er velkommen til at booke igen.",
+              ),
             confirmLabel: t("rsvpCancelConfirmYes", "Ja, aflys"),
             cancelLabel: t("rsvpCancelConfirmNo", "Behold reservationen"),
             destructive: true,
@@ -1696,7 +1703,7 @@ export default function ReservationPublicPage() {
             {t("rsvpLinkFailedTitle", "We couldn't open this booking")}
           </h1>
           <p className="text-sm text-gray-600 dark:text-gray-300">
-            {isProvider
+            {apptWords
               ? t("rsvpLinkFailedBodyProvider", "The link may have expired. Call us about an existing appointment — or book a new time.")
               : t(
                 "rsvpLinkFailedBody",
@@ -1705,7 +1712,7 @@ export default function ReservationPublicPage() {
           </p>
           <div className="space-y-2">
             <Button variant="main" size="lg" className="w-full" onClick={startOver}>
-              {isProvider ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
+              {apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
             </Button>
             {telHref(page.phone) && (
               <a
@@ -1761,7 +1768,7 @@ export default function ReservationPublicPage() {
     let HeroIcon = CheckCircle2;
     let heroWrap = "bg-emerald-50 dark:bg-emerald-900/20";
     let heroIconCls = "text-emerald-600 dark:text-emerald-400";
-    let title = isProvider
+    let title = apptWords
       ? t("rsvpConfirmedTitleProvider", "Appointment confirmed")
       : t("rsvpConfirmedTitle", "Reservation bekræftet");
     let body = t(
@@ -1817,10 +1824,12 @@ export default function ReservationPublicPage() {
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
       title = t("rsvpCancelledTitle", "Reservation aflyst");
-      body = t(
-        "rsvpCancelledBody",
-        "Din reservation er aflyst, og bordet er frigivet. Du er velkommen til at booke igen.",
-      );
+      body = apptWords
+        ? t("rsvpCancelledBodyProvider", "Your appointment is cancelled and the time is freed. You're welcome to book again.")
+        : t(
+          "rsvpCancelledBody",
+          "Din reservation er aflyst, og bordet er frigivet. Du er velkommen til at booke igen.",
+        );
     } else if (isDone) {
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
@@ -2064,9 +2073,13 @@ export default function ReservationPublicPage() {
                         minutes: isProvider ? chosenBehandling?.duration_min : 120,
                         // business_name, not name — the public payload has no
                         // `name` field at all.
-                        summary: page.business_name
-                          ? t("rsvpIcsSummary", "Bord hos {venue}", { venue: page.business_name })
-                          : t("rsvpIcsSummaryNoVenue", "Bordreservation"),
+                        summary: apptWords
+                          ? (page.business_name
+                            ? t("rsvpIcsSummaryProvider", "Appointment at {venue}", { venue: page.business_name })
+                            : t("rsvpIcsSummaryNoVenueProvider", "Appointment"))
+                          : page.business_name
+                            ? t("rsvpIcsSummary", "Bord hos {venue}", { venue: page.business_name })
+                            : t("rsvpIcsSummaryNoVenue", "Bordreservation"),
                         location: address,
                         description: [refCode, rName].filter(Boolean).join(" · "),
                       });
@@ -2163,7 +2176,7 @@ export default function ReservationPublicPage() {
             <VenueBadge logoUrl={page.logo_url} name={page.business_name} />
             <div className="min-w-0 flex-1">
               <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                {isProvider ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
+                {apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
               </p>
               <h1
                 className={
@@ -2257,7 +2270,7 @@ export default function ReservationPublicPage() {
           <section
             ref={stepFocusRef}
             tabIndex={-1}
-            aria-label={isProvider ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
+            aria-label={apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
             className="space-y-6 outline-none motion-safe:animate-[fadeIn_0.35s_ease-out]"
           >
             {/* Provider (salon): behandling → behandler come FIRST. The chosen
@@ -3117,10 +3130,12 @@ export default function ReservationPublicPage() {
                       id="rsvp-notes"
                       value={guestNotes}
                       onChange={(e) => setGuestNotes(e.target.value)}
-                      placeholder={t(
-                        "rsvpNotesPh",
-                        "Ønsker du et bestemt bord, en barnestol, eller andet?",
-                      )}
+                      placeholder={apptWords
+                        ? t("rsvpNotesPhProvider", "Anything we should know before you come?")
+                        : t(
+                          "rsvpNotesPh",
+                          "Ønsker du et bestemt bord, en barnestol, eller andet?",
+                        )}
                       rows={3}
                       maxLength={2000}
                       className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 px-3.5 py-3 text-[15px] leading-snug resize-none focus:outline-none focus:border-gray-900 dark:focus:border-gray-300"
@@ -3303,7 +3318,7 @@ export default function ReservationPublicPage() {
                           : noArrow(
                               groupRequest
                                 ? t("rsvpSendRequest", "Send forespørgsel")
-                                : isProvider
+                                : apptWords
                                   ? t("rsvpConfirmTime", "Confirm appointment")
                                   : t("rsvpConfirm", "Bekræft reservation"),
                             )}

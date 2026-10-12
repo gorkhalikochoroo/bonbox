@@ -110,7 +110,7 @@ import InsightsSection from "../components/reservations/InsightsSection";
 import WaitlistSection from "../components/reservations/WaitlistSection";
 import { QRCodeSVG } from "qrcode.react";
 import { canPurchaseInApp } from "../utils/platform";
-import { venueProfile, bookingModeFor, usesTableFloor } from "../config/venueProfiles";
+import { venueProfile, bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
 import { formatKr } from "../utils/currency";
 import { businessTodayIso } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
@@ -472,6 +472,10 @@ export default function ReservationsPage() {
     [pageResources],
   );
   const isProvider = bookingModeFor(businessType) === "provider";
+  // The WORDS the page speaks: a salon, a shop and a repair trade book a
+  // customer for a time (Tidsbestilling · Aftaler · Kunder), food and bars a
+  // table. Wording only — `isProvider` stays the engine switch.
+  const apptWords = speaksAppointments(businessType);
   // A real TABLE plan exists → the 2D table-plan view + table-style authoring.
   // (A salon with leftover tables from an earlier setup also counts, so the
   // grandfather/clear-tables path stays reachable.)
@@ -572,7 +576,7 @@ export default function ReservationsPage() {
     if (!hasFeature("reservations")) {
     return (
       <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-6">
-        <PageTitle t={t} isProvider={isProvider} />
+        <PageTitle t={t} isProvider={apptWords} />
         <UpgradeNudge
           intent="card"
           tier="starter"
@@ -612,13 +616,13 @@ export default function ReservationsPage() {
       {/* BookSection's own standalone wrapper already sets full-bleed padding
           and safe-area insets, and its header already prints the venue name and
           "Vært-skærm" — the owner wrapper and title would double both. */}
-      {!isHostStand && <PageTitle t={t} isProvider={isProvider} />}
+      {!isHostStand && <PageTitle t={t} isProvider={apptWords} />}
       {!isHostStand && (
       <TabPills
         tabs={[
           // Salon (provider) reads "Aftaler" (the appointment book) instead of
           // "Reservation book"; the booking primitive underneath is unchanged.
-          { id: "book", label: isProvider ? t("rsvpTabBookProvider", "Appointments") : t("rsvpTabBook", "Reservation book") },
+          { id: "book", label: apptWords ? t("rsvpTabBookProvider", "Appointments") : t("rsvpTabBook", "Reservation book") },
           // Floor/station tab — table venues, venues with existing tables, AND
           // provider venues (where it authors stylist stations). Provider venues
           // read "Behandlere"; table venues keep "Floor".
@@ -688,7 +692,7 @@ export default function ReservationsPage() {
       {/* Insights mounts lazily (only when its tab is open) so it never blocks
           the Book view's first paint; the fetch fires on mount. */}
       {tab === "insights" && <InsightsSection t={t} zones={insightsZones} />}
-      {tab === "settings" && <SettingsSection t={t} user={user} />}
+      {tab === "settings" && <SettingsSection t={t} user={user} tablePlan={tablePlan} />}
     </div>
   );
 }
@@ -1075,6 +1079,9 @@ function ReservationDrawer({
   assignBusy = false,
   assignError = "",
   isProvider = false,
+  // Appointment words (a salon, a shop, a repair trade): "Tjek ind", not
+  // "Sæt til bords"; people, not guests (vertical-fit review, Oct 2026).
+  apptWords = false,
   behandlerName = "",
   highlight = false,
   onAllergyAction = null,
@@ -1131,7 +1138,7 @@ function ReservationDrawer({
     primary = { label: t("rsvpConfirmAction", "Confirm"), to: "confirmed", icon: Check };
     secondary.push({ id: "decline", label: t("rsvpDeclineAction", "Decline"), to: "cancelled" });
   } else if (r.status === "confirmed") {
-    if (isToday) primary = { label: t("rsvpSeatAction", "Seat"), to: "seated", icon: Armchair };
+    if (isToday) primary = { label: apptWords ? t("rsvpSeatActionAppt", "Check in") : t("rsvpSeatAction", "Seat"), to: "seated", icon: Armchair };
     if (due) secondary.push({ id: "no_show", label: t("rsvpNoShowAction", "No-show"), to: "no_show" });
     secondary.push({ id: "cancel", label: t("rsvpCancelAction", "Cancel"), to: "cancelled" });
   } else if (r.status === "seated") {
@@ -1189,7 +1196,9 @@ function ReservationDrawer({
                 ) : null
               ) : (
                 <div className="text-[13px] text-gray-500 dark:text-gray-400 tabular-nums">
-                  {r.party_size + " " + t("rsvpCoversHelper", "guests")}
+                  {apptWords
+                    ? t("rsvpPartyPeople", "{n} people", { n: r.party_size })
+                    : r.party_size + " " + t("rsvpCoversHelper", "guests")}
                 </div>
               )}
             </div>
@@ -1779,6 +1788,8 @@ function EditBookingSheet({
   // name is the customer's (vertical-fit audit, Oct 2026). The stored party
   // size is kept and sent back unchanged.
   isProvider = false,
+  // Appointment words (salon, shop, repair trade) — the labels only.
+  apptWords = isProvider,
 }) {
   const r = reservation;
   const origDate = r.starts_at ? r.starts_at.slice(0, 10) : "";
@@ -1899,7 +1910,7 @@ function EditBookingSheet({
         )}
         {!isProvider && (
         <div>
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpPartySize", "Party size")}</label>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{apptWords ? t("rsvpPartySizeAppt", "People") : t("rsvpPartySize", "Party size")}</label>
           {/* Was [1,2,3,4,5,6,8]: opening Edit on a party of 7, 9, 10 or 12
               showed the whole row unselected — the booking said seven and
               the sheet showed nothing. (It saved 7 correctly; the host just
@@ -1918,7 +1929,7 @@ function EditBookingSheet({
         )}
         <div>
           <label htmlFor="eb-name" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            {isProvider ? t("rsvpNbGuestNameProvider", "Customer's name") : t("rsvpNbGuestName", "Guest name")}
+            {apptWords ? t("rsvpNbGuestNameProvider", "Customer's name") : t("rsvpNbGuestName", "Guest name")}
           </label>
           <input id="eb-name" value={name} onChange={(e) => setName(e.target.value)}
             className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent" />
@@ -2022,6 +2033,9 @@ function NewBookingSheet({
   onSubmit,
   onClose,
   isProvider = false,
+  // Appointment words (salon, shop, repair trade): the labels only. A shop
+  // books one customer by default, not a table for two.
+  apptWords = isProvider,
   behandlinger = [],
   providerStations = [],
   tables = [],
@@ -2032,7 +2046,7 @@ function NewBookingSheet({
   const [date, setDate] = useState(() => (day < serviceDayIso() ? serviceDayIso() : day));
   const [time, setTime] = useState(() => pickBookingTime(day < serviceDayIso() ? serviceDayIso() : day, openHours, isProvider ? 0 : sittingMinutes(2, bookingRules)));
   const [timeNote, setTimeNote] = useState("");
-  const [party, setParty] = useState("2");
+  const [party, setParty] = useState(apptWords && !isProvider ? "1" : "2");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   // A caller's note and allergy go in on the first pass — they needed a
@@ -2193,7 +2207,7 @@ function NewBookingSheet({
           style={{ paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
         >
           <h3 id="rsvp-new-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            {isProvider
+            {apptWords
               ? t("rsvpNewBookingProvider", "Book an appointment")
               : t("rsvpNewBooking", "New booking")}
           </h3>
@@ -2349,7 +2363,7 @@ function NewBookingSheet({
         {!isProvider && (
           <div>
             <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              {t("rsvpPartySize", "Party size")}
+              {apptWords ? t("rsvpPartySizeAppt", "People") : t("rsvpPartySize", "Party size")}
             </label>
             {/* Same ladder as Seat-now and Edit now — this sheet's own 1–10
                 was the widest of the three, so nothing here narrows. */}
@@ -2414,7 +2428,7 @@ function NewBookingSheet({
 
         <div>
           <label htmlFor="nb-name" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            {isProvider ? t("rsvpNbGuestNameProvider", "Customer's name") : t("rsvpNbGuestName", "Guest name")}
+            {apptWords ? t("rsvpNbGuestNameProvider", "Customer's name") : t("rsvpNbGuestName", "Guest name")}
           </label>
           <input
             id="nb-name"
@@ -2466,7 +2480,9 @@ function NewBookingSheet({
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 maxLength={500}
-                placeholder={t("rsvpNewNotePh", "Birthday, high chair, window table…")}
+                placeholder={apptWords
+                  ? t("rsvpNewNotePhAppt", "What it's for, any wishes…")
+                  : t("rsvpNewNotePh", "Birthday, high chair, window table…")}
                 className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
               />
             </div>
@@ -2588,7 +2604,7 @@ function NewBookingSheet({
           disabled={isProvider && behandlinger.length === 0}
           className="w-full justify-center"
         >
-          {isProvider ? t("rsvpCreateBookingProvider", "Book the time") : t("rsvpCreateBooking", "Create booking")}
+          {apptWords ? t("rsvpCreateBookingProvider", "Book the time") : t("rsvpCreateBooking", "Create booking")}
         </Button>
         </div>
       </form>
@@ -3795,6 +3811,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // → dato → tid) instead of a table booking — an ADDITIVE branch; the table
   // flow is left byte-identical.
   const isProvider = bookingModeFor(businessType) === "provider";
+  // The words: a salon, a shop and a repair trade book a customer for a time
+  // (Aftaler · Kunder · Tjek ind), food and bars a table (vertical-fit review,
+  // Oct 2026). Wording only — `isProvider` stays the engine switch.
+  const apptWords = speaksAppointments(businessType);
   const [dayLocal, setDayLocal] = useState(() => serviceDayIso());
   const day = dayProp ?? dayLocal;
   const setDay = onDayChange ?? setDayLocal;
@@ -3814,20 +3834,22 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // so the Venteliste is "spot on" the instant a booking changes (status flip,
   // table move/clear, new booking, walk-in), not just on a day change.
   const [bookTick, setBookTick] = useState(0);
-  const [view, setView] = useState(() => {
+  const [viewPref, setView] = useState(() => {
     // The stand always opens on the list: a host starts from a name spoken at
     // the door, and only the list has the search index and a one-tap Seat. It
     // must also not inherit whatever lens the owner last used on a laptop.
     if (standalone) return "liste";
     try {
-      const saved = localStorage.getItem(RSVP_VIEW_KEY) || "liste";
-      // A non-table venue can't show the plan lens — a stale "plan" preference
-      // falls back to the list, never a dead Floor view.
-      return saved === "plan" && !tableFloor ? "liste" : saved;
+      return localStorage.getItem(RSVP_VIEW_KEY) || "liste";
     } catch {
       return "liste";
     }
   });
+  // The lens on screen. Plan and Timeline both lay out TABLES (the timeline's
+  // lanes are the tables): a venue with no table plan — a salon, a shop — got
+  // "Ingen borde endnu" there, so it only has the list. The saved preference
+  // is kept, so a table plan that loads late still opens on the owner's lens.
+  const view = !tableFloor && viewPref !== "liste" ? "liste" : viewPref;
   const [data, setData] = useState(null);
   const [resources, setResources] = useState([]);
   // Non-bookable room objects (bar, entrance, window, wall). Deliberately its
@@ -3841,6 +3863,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // a claim about the owner's OWN setup, so neither may be drawn from a fetch
   // that failed — see the catch in fetchResources.
   const [resourcesFailed, setResourcesFailed] = useState(false);
+  // Does the book hold anything at all — a booking on any day, a party
+  // waiting? (GET /resources book_has_entries.) null = not answered / an older
+  // API: unknown, which never hides a book.
+  const [bookHasEntries, setBookHasEntries] = useState(null);
   // The canonical venue seat capacity from GET /resources — active, non-deleted,
   // non-provider tables only, the SAME number the booking engine allows against.
   // The occupancy gauge divides by THIS (not a raw resources.reduce, which wrongly
@@ -4010,6 +4036,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // omits it so the gauge can fall back to the raw reduce.
       const vs = res.data?.venue_seats_total;
       setVenueSeats(Number.isFinite(vs) ? vs : null);
+      const he = res.data?.book_has_entries;
+      setBookHasEntries(typeof he === "boolean" ? he : null);
       setResourcesFailed(false);
     } catch {
       setFixtures([]);
@@ -4333,9 +4361,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             : " " + t("rsvpSeatEarlyTaken", "{table} is needed at {time} — give them another table first.", { table: nextTable, time: fmtTime(next.starts_at) });
         if (
           !(await confirm({
-            title: t("rsvpSeatEarlyTitle", "Seat {name} now?", { name: who }),
-            message: t("rsvpSeatEarlyBody", "The booking is for {time}. Seating now starts their table time.", { time: fmtTime(r.starts_at) }) + clashLine + overLine,
-            confirmLabel: t("rsvpSeatAction", "Seat"),
+            title: apptWords
+              ? t("rsvpSeatEarlyTitleAppt", "Check {name} in now?", { name: who })
+              : t("rsvpSeatEarlyTitle", "Seat {name} now?", { name: who }),
+            message: (apptWords
+              ? t("rsvpSeatEarlyBodyAppt", "The appointment is at {time}. Checking in now starts their time now.", { time: fmtTime(r.starts_at) })
+              : t("rsvpSeatEarlyBody", "The booking is for {time}. Seating now starts their table time.", { time: fmtTime(r.starts_at) })) + clashLine + overLine,
+            confirmLabel: apptWords ? t("rsvpSeatActionAppt", "Check in") : t("rsvpSeatAction", "Seat"),
             cancelLabel: t("rsvpSeatEarlyNotNow", "Not now"),
           }))
         ) {
@@ -4667,7 +4699,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             ...(form.allergy_severity ? { allergy_severity: form.allergy_severity } : {}),
             source: "manual",
             status: "confirmed",
-            auto_assign: !form.resource_id,
+            // A venue with no table plan (a shop, a workshop) has nothing to
+            // assign: asking the engine for a table only bounced every booking
+            // off "room full — book without a table". Saved as it is.
+            auto_assign: !form.resource_id && tableFloor,
             ...(allowOverflow ? { allow_overflow: true } : {}),
           };
       const created = await api.post("/reservations/book", payload);
@@ -4684,7 +4719,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           severity: "success",
           message: table
             ? t("rsvpBookedToast", "{name} booked {when} · {table}", { name, when, table })
-            : t("rsvpBookedToastNoTable", "{name} booked {when} — no table yet", { name, when }),
+            : apptWords
+              ? t("rsvpBookedToastAppt", "{name} booked {when}", { name, when })
+              : t("rsvpBookedToastNoTable", "{name} booked {when} — no table yet", { name, when }),
         });
       }
       // The day rail's per-day counts come from a separate month query.
@@ -5047,14 +5084,25 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     () => resources.filter((r) => r.kind === "provider" && r.is_active !== false),
     [resources],
   );
-  // Salon first-run: a provider (salon) venue with no bookable station yet.
-  // Show the calm "confirm hours → open for booking" card instead of an empty,
-  // confusing book. `resourcesLoaded` guards the flash before resources land
-  // (an established salon never sees the card blink in).
-  // !resourcesFailed: a dropped connection used to read as "no stations yet"
-  // and offer to set up a salon that has been running for a year.
-  const salonFirstRun =
+  // A provider (salon) venue with no bookable station yet: nobody can book it
+  // online. `resourcesLoaded` guards the flash before resources land (an
+  // established salon never sees a card blink in); !resourcesFailed: a
+  // dropped connection used to read as "no stations yet" and offer to set up
+  // a salon that has been running for a year.
+  const salonNeedsSetup =
     isProvider && resourcesLoaded && !resourcesFailed && providerStations.length === 0;
+  // Salon first-run: the calm "confirm hours → open for booking" card IN
+  // PLACE OF the book — so only when there is genuinely nothing in it: no
+  // booking on any day, nobody waiting (the server says so; unknown = no
+  // card), and nothing on the day on screen. A café that became a salon has
+  // no behandler yet but does have bookings and a waitlist; the card used to
+  // hide every one of them (vertical-fit review, Oct 2026). They get the book
+  // and a short note pointing at Behandlere instead (salon-setup-nudge).
+  const salonFirstRun =
+    isProvider && resourcesLoaded && !resourcesFailed && providerStations.length === 0 &&
+    bookHasEntries === false &&
+    !(data?.reservations?.length > 0) &&
+    waitlistCount === 0;
   // A live booking page that offers NO time in the next 14 days. For a salon
   // that is the usual dead end: a behandler whose shifts are not published,
   // or no behandler the engine can book (vertical-fit audit, Oct 2026). Asks
@@ -5062,7 +5110,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // banner and the page cannot disagree. A failed read says nothing.
   const [noBookableTimes, setNoBookableTimes] = useState(false);
   useEffect(() => {
-    if (!isProvider || standalone || salonFirstRun || !publicPage?.enabled || !publicPage?.slug) {
+    // A salon that still needs a behandler gets the first-run card or the
+    // setup note — never this banner on top of them.
+    if (!isProvider || standalone || salonNeedsSetup || !publicPage?.enabled || !publicPage?.slug) {
       setNoBookableTimes(false);
       return undefined;
     }
@@ -5073,7 +5123,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       .then((r) => { if (alive) setNoBookableTimes(Array.isArray(r.data?.days) && !r.data?.next_open_day); })
       .catch(() => { if (alive) setNoBookableTimes(false); });
     return () => { alive = false; };
-  }, [isProvider, standalone, salonFirstRun, publicPage, providerStations.length]);
+  }, [isProvider, standalone, salonNeedsSetup, publicPage, providerStations.length]);
   const behandlerByResourceId = useMemo(() => {
     const m = {};
     resources.forEach((r) => {
@@ -5083,6 +5133,16 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     });
     return m;
   }, [resources]);
+  // Does this booking hold a TABLE rather than a behandler's chair? A café
+  // that became a salon keeps its bookings, and they render as the table
+  // bookings they are (vertical-fit review, Oct 2026). A salon appointment
+  // carries its behandling (service_name); a resource that is not one of the
+  // venue's providers is a table. Before the resources land: no.
+  const holdsTable = useCallback((r) => {
+    if (!r || r.service_name || !resourcesLoaded) return false;
+    if (Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length) return true;
+    return !!r.resource_id && !(String(r.resource_id) in behandlerByResourceId);
+  }, [resourcesLoaded, behandlerByResourceId]);
 
   const seatedCount = summary.by_status?.seated || 0;
   // "ved N borde" counted parties: 16 guests "at 2 tables" with one table in
@@ -5304,6 +5364,31 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     return Array.from(s);
   }, [reservations]);
 
+  // Party + Table — a table venue's two columns. A provider venue shows them
+  // only while a row on the day holds a table (a café that became a salon);
+  // a venue with no table plan shows Party alone.
+  const tableColumns = [
+    {
+      id: "party",
+      label: t("rsvpColParty", "Party"),
+      align: "right",
+      width: "w-16",
+      render: (r) => (
+        <span className="inline-flex items-center gap-1 tabular-nums text-gray-700 dark:text-gray-300">
+          <Users className="w-3.5 h-3.5 text-gray-400" aria-hidden />
+          {r.party_size}
+        </span>
+      ),
+    },
+    {
+      id: "tables",
+      label: t("rsvpColTable", "Table"),
+      width: "w-36",
+      render: (r) => <TablesCell r={r} labelById={labelById} seatsById={seatsById} zoneById={zoneById} t={t} />,
+    },
+  ];
+  const dayHasTableRows = isProvider && reservations.some(holdsTable);
+
   const columns = [
     {
       id: "time",
@@ -5419,6 +5504,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     },
     // Provider (salon) venues replace Party + Table with Behandling +
     // Behandler; table venues keep the original two columns byte-identical.
+    // A salon that was a café keeps its table bookings readable: Party and
+    // Table come back while any row on the day holds a table. A shop or a
+    // workshop with no tables has party only — no "Bord" column.
     ...(isProvider
       ? [
           {
@@ -5436,6 +5524,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             label: t("rsvpColBehandler", "Stylist"),
             width: "w-36",
             render: (r) => {
+              // A table booking has no behandler — not "Valgfri behandler".
+              if (holdsTable(r)) return <span className="text-sm text-gray-400">—</span>;
               const who = r.resource_id ? behandlerByResourceId[String(r.resource_id)] : "";
               return (
                 <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300 truncate">
@@ -5445,27 +5535,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               );
             },
           },
+          ...(dayHasTableRows ? tableColumns : []),
         ]
-      : [
-          {
-            id: "party",
-            label: t("rsvpColParty", "Party"),
-            align: "right",
-            width: "w-16",
-            render: (r) => (
-              <span className="inline-flex items-center gap-1 tabular-nums text-gray-700 dark:text-gray-300">
-                <Users className="w-3.5 h-3.5 text-gray-400" aria-hidden />
-                {r.party_size}
-              </span>
-            ),
-          },
-          {
-            id: "tables",
-            label: t("rsvpColTable", "Table"),
-            width: "w-36",
-            render: (r) => <TablesCell r={r} labelById={labelById} seatsById={seatsById} zoneById={zoneById} t={t} />,
-          },
-        ]),
+      : tableFloor ? tableColumns : tableColumns.slice(0, 1)),
     {
       id: "status",
       label: t("rsvpColStatus", "Status"),
@@ -5519,7 +5591,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         onClick: guardedSet(null, "cancelled"),
       });
     } else if (r.status === "confirmed") {
-      if (isViewingToday) out.push({ id: "seated", label: t("rsvpSeatAction", "Seat"), text: true, icon: <Armchair className="w-4 h-4" />, onClick: () => setStatus(r, "seated"), disabled: busy });
+      if (isViewingToday) out.push({ id: "seated", label: apptWords ? t("rsvpSeatActionAppt", "Check in") : t("rsvpSeatAction", "Seat"), text: true, icon: <Armchair className="w-4 h-4" />, onClick: () => setStatus(r, "seated"), disabled: busy });
       // The table only renders from lg up (tablet and phone use the compact
       // row), i.e. with a mouse and hover tooltips: the two destructive
       // flips go icon-only so "Sæt til bords" stays whole — at 1280 the three
@@ -5559,7 +5631,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     if (r.status === "requested")
       primary = { label: t("rsvpConfirmAction", "Confirm"), to: "confirmed" };
     else if (r.status === "confirmed" && isViewingToday)
-      primary = { label: t("rsvpSeatAction", "Seat"), to: "seated" };
+      primary = { label: apptWords ? t("rsvpSeatActionAppt", "Check in") : t("rsvpSeatAction", "Seat"), to: "seated" };
     else if (r.status === "seated")
       primary = { label: t("rsvpCompleteAction", "Complete"), to: "completed" };
     const busy = actioningId === r.id;
@@ -5619,8 +5691,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               <span className="truncate min-w-0">{r.service_name}</span>
             )}
             {/* Where the party sits, on the row itself — a host had to open
-                every booking to find its table. No table = say so. */}
-            {!isProvider && ["confirmed", "seated"].includes(r.status) && (() => {
+                every booking to find its table. No table = say so — but only
+                at a table venue: a salon, a shop or a workshop has no tables
+                to miss, and a salon's leftover table booking shows its table. */}
+            {((!isProvider && tableFloor) || holdsTable(r)) && ["confirmed", "seated"].includes(r.status) && (() => {
               const tl = resolveTableLabel(r, labelById);
               const held = Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length
                 ? r.combined_resource_ids : r.resource_id ? [r.resource_id] : [];
@@ -5729,6 +5803,27 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     !resourcesFailed &&
     assignableTables.length === 0;
 
+  // Pop the book out to its own full-screen door screen (no sidebar). Opens
+  // /reservations/stand in a new tab — a dedicated host-stand display. Hidden
+  // while already inside the pop-out. On a phone it sits after the lens
+  // switch, under Refresh — or beside Refresh when there is no lens switch.
+  const standPopOut = !standalone ? (
+    <button
+      type="button"
+      onClick={() =>
+        window.open("/reservations/stand", "_blank", "noopener,noreferrer")
+      }
+      aria-label={t("rsvpOpenStand", "Open host-stand view")}
+      title={t("rsvpOpenStand", "Open host-stand view")}
+      className={
+        "inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1 " +
+        PHONE_TOOL + " " + PHONE_TOOL_SQUARE + " max-lg:order-1"
+      }
+    >
+      <ExternalLink className="w-5 h-5 max-sm:w-[18px] max-sm:h-[18px]" />
+    </button>
+  ) : null;
+
   return (
     <div
       className={
@@ -5771,7 +5866,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             </span>
             <div className="min-w-0">
               <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-tight truncate">
-                {isProvider
+                {apptWords
                   ? t("rsvpStandTitleProvider", "Aftaler")
                   : t("rsvpStandTitle", "Reservationer")}
               </div>
@@ -5815,6 +5910,31 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           error={salonSetupError}
           onOpen={openSalonForBooking}
         />
+      )}
+
+      {/* A salon with bookings but no behandler yet (a café that became a
+          salon): the book stays, with one line on what opens online booking. */}
+      {salonNeedsSetup && !salonFirstRun && !standalone && (
+        <div
+          role="status"
+          data-testid="salon-setup-nudge"
+          className="flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-100"
+        >
+          <Scissors className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">{t("rsvpProviderSetupTitle", "Customers can't book a time online yet")}</p>
+            <p className="mt-0.5 text-[13px] text-gray-700 dark:text-gray-200">
+              {t("rsvpProviderSetupBody", "Add yourself or a stylist — then customers can book online. Your bookings stay below.")}
+            </p>
+            <Link
+              to="/reservations?tab=floor"
+              className="mt-2 inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-2"
+            >
+              {t("rsvpProviderNoTimesCta", "Add a stylist")}
+              <ChevronRight className="w-3.5 h-3.5" aria-hidden />
+            </Link>
+          </div>
+        </div>
       )}
 
       {!salonFirstRun && noBookableTimes && (
@@ -5959,6 +6079,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           >
             <RefreshCw className="w-5 h-5 max-sm:w-[18px] max-sm:h-[18px]" />
           </button>
+          {!tableFloor && standPopOut}
           {/* The stand used to go stale in complete silence while the now-line
               kept moving. This names the one fact that matters — WHEN what you
               are reading arrived — and sits next to the refresh that fixes it.
@@ -5977,32 +6098,16 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             </span>
           )}
         </div>
+        {/* Floor and Timeline lenses only for a TABLE plan — with one lens
+            left there is nothing to switch, and the pop-out joins the day
+            row instead of standing alone on a row of its own. */}
+        {tableFloor && (
         <div className={"flex items-center gap-2 flex-wrap 2xl:flex-nowrap max-sm:items-stretch xl:ml-auto" + (standalone ? " lg:ml-auto" : "")}>
-          {/* Pop the book out to its own full-screen door screen (no sidebar).
-              Opens /reservations/stand in a new tab — a dedicated host-stand
-              display. Hidden while already inside the pop-out. On a phone it
-              sits after the lens switch, under Refresh. */}
-          {!standalone && (
-            <button
-              type="button"
-              onClick={() =>
-                window.open("/reservations/stand", "_blank", "noopener,noreferrer")
-              }
-              aria-label={t("rsvpOpenStand", "Open host-stand view")}
-              title={t("rsvpOpenStand", "Open host-stand view")}
-              className={
-                "inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1 " +
-                PHONE_TOOL + " " + PHONE_TOOL_SQUARE + " max-lg:order-1"
-              }
-            >
-              <ExternalLink className="w-5 h-5 max-sm:w-[18px] max-sm:h-[18px]" />
-            </button>
-          )}
+          {standPopOut}
           <TabPills
             tabs={[
               { id: "liste", label: t("rsvpViewListe", "List") },
-              // Floor lens only for TABLE venues (gated on venue TYPE).
-              ...(tableFloor ? [{ id: "plan", label: t("rsvpViewPlan", "Floor") }] : []),
+              { id: "plan", label: t("rsvpViewPlan", "Floor") },
               { id: "tidslinje", label: t("rsvpViewTimeline", "Timeline") },
             ]}
             activeId={view}
@@ -6012,6 +6117,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             className="max-sm:flex-1 max-sm:min-w-0"
           />
         </div>
+        )}
           {/* The two actions travel as one pair — a full-width row of equal
               halves on a phone and a tablet; from xl two buttons at the end of
               the one toolbar row. */}
@@ -6051,7 +6157,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             onClick={openNewBooking}
             className={PHONE_ACTION}
           >
-            {isProvider
+            {apptWords
               ? t("rsvpNewBookingProvider", "Book an appointment")
               : t("rsvpNewBooking", "New booking")}
           </Button>
@@ -6083,13 +6189,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         items={[
           {
             key: "covers",
-            // A salon has customers and appointments, not covers and
-            // reservations (vertical-fit audit, Oct 2026).
-            label: isProvider ? t("rsvpCoversProvider", "Customers") : t("rsvpCovers", "Covers"),
+            // A salon, a shop, a workshop: customers and appointments, not
+            // covers and reservations (vertical-fit audit, Oct 2026).
+            label: apptWords ? t("rsvpCoversProvider", "Customers") : t("rsvpCovers", "Covers"),
             value: summary.covers,
             icon: Users,
             tone: summary.covers > 0 ? "info" : "neutral",
-            helper: isProvider
+            helper: apptWords
               ? (coverBookings === 1
                 ? t("rsvpCoversBookingsOneProvider", "{n} appointment", { n: coverBookings })
                 : t("rsvpCoversBookingsProvider", "{n} appointments", { n: coverBookings }))
@@ -6099,7 +6205,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           },
           {
             key: "seated",
-            label: isProvider ? t("rsvpSeatedNowProvider", "In the chair now") : t("rsvpSeatedNow", "Seated now"),
+            // The salon's chair; a shop or a workshop has its customer "here".
+            label: isProvider
+              ? t("rsvpSeatedNowProvider", "In the chair now")
+              : apptWords
+                ? t("rsvpSeatedNowAppt", "Here now")
+                : t("rsvpSeatedNow", "Seated now"),
             value: seatedGuests,
             // The one LIVE number on the page — guests physically in the room
             // right now. Emerald only while that's true; the moment the room is
@@ -6111,6 +6222,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             helper:
               isProvider
                 ? t("rsvpSeatedHelperProvider", "in the salon")
+              : apptWords
+                ? t("rsvpSeatedHelperAppt", "customers")
               : seatedCount === 0
                 ? t("rsvpSeatedHelper", "in the room")
                 : [
@@ -6147,7 +6260,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             selected: view === "liste" && statusFilter === "requested",
             hideOnPhone: requestedCount === 0,
           },
-          {
+          // Occupancy is covers against TABLE seats — a salon or a shop has
+          // none, and the cell only said "set table seats".
+          ...(tableFloor ? [{
             key: "occupancy",
             label: t("rsvpUtilization", "Occupancy"),
             value: peakPct == null ? "—" : `${peakPct}%`,
@@ -6168,7 +6283,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                   ? t("rsvpUtilPeakAt", "peak {time}", { time: peakTime })
                   : t("rsvpUtilHelper", "of {n} seats", { n: totalCapacity }),
             hideOnPhone: !(peakPct != null && peakPct >= 85),
-          },
+          }] : []),
           {
             key: "waitlist",
             label: t("rsvpWlCockpitToday", "On waitlist"),
@@ -6222,8 +6337,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               id="rsvp-search-phone"
               value={q}
               onChange={setQ}
-              placeholder={(isProvider ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
-              aria-label={(isProvider ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
+              placeholder={(apptWords ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
+              aria-label={(apptWords ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
               className="min-w-0"
             />
             <button
@@ -6244,7 +6359,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             <FilterBar.Search
               value={q}
               onChange={setQ}
-              placeholder={(isProvider ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
+              placeholder={(apptWords ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
               className="max-sm:hidden"
             />
             <FilterBar.Select
@@ -6373,7 +6488,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                       ? t("rsvpOnlyCancelledTitle", "No active bookings")
                     : noTablesYet
                       ? t("rsvpBookNoTablesTitle", "No tables set up yet")
-                      : isProvider
+                      : apptWords
                         ? t("rsvpBookEmptyProvider", "No appointments for {date} yet.", { date: fmtDkDate(day) })
                         : t("rsvpBookEmpty", "No reservations for {date} yet.", { date: fmtDkDate(day) })
                 }
@@ -6389,8 +6504,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                           "rsvpBookNoTablesBody",
                           "Guests can't book online until there's a table to seat them at. You can still take one over the phone with New booking.",
                         )
-                      : isProvider
-                        ? t("rsvpBookEmptyBodyProvider", "Appointments appear here as customers book.")
+                      : apptWords
+                        // No table plan and no behandler (a shop, a workshop):
+                        // the page has nothing to offer online, so the book
+                        // fills from "Book en tid" — say that, not "as
+                        // customers book".
+                        ? (!isProvider && !tableFloor
+                          ? t("rsvpBookEmptyBodyManual", "Book a customer's time with “Book an appointment” — it shows here.")
+                          : t("rsvpBookEmptyBodyProvider", "Appointments appear here as customers book."))
                         : t("rsvpBookEmptyBody", "Bookings will appear here as they come in.")
                 }
                 cta={
@@ -6443,7 +6564,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           openHours={openHours}
           bookingRules={bookingRules}
           tableLabelFor={(r) => resolveTableLabel(r, labelById)}
-          isProvider={isProvider}
+          // Appointment words (salon, shop, repair trade); with no table plan
+          // the waitlist books the time as it is, never "find a table".
+          isProvider={apptWords}
+          assignTables={tableFloor || isProvider}
         />
       </div>
 
@@ -6516,7 +6640,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           isToday={isViewingToday}
           dayLabel={isViewingToday ? null : shortDayLabel(day, t, lang)}
           tableLabel={resolveTableLabel(selected, labelById)}
-          isProvider={isProvider}
+          // A salon's leftover table booking opens as the table booking it is.
+          isProvider={isProvider && !holdsTable(selected)}
+          apptWords={apptWords}
           behandlerName={
             selected.resource_id ? behandlerByResourceId[String(selected.resource_id)] : ""
           }
@@ -6550,7 +6676,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           reservation={editRes}
           openHours={openHours}
           bookingRules={bookingRules}
-          isProvider={isProvider}
+          isProvider={isProvider && !holdsTable(editRes)}
+          apptWords={apptWords}
           t={t}
           busy={editBusy}
           error={editError}
@@ -6592,6 +6719,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           error={createError}
           onSubmit={createBooking}
           isProvider={isProvider}
+          apptWords={apptWords}
           behandlinger={behandlinger}
           providerStations={providerStations}
           tables={assignableTables}
@@ -8199,7 +8327,7 @@ function EmbedOnWebsite({ publicUrl, venueName, t, isProvider = false }) {
 }
 
 
-function SettingsSection({ t, user = null }) {
+function SettingsSection({ t, user = null, tablePlan = null }) {
   // SettingsSection only mounts after the parent's `if (!isReady) return null`
   // gate, so entitlements are already settled here — reading hasFeature is
   // flicker-safe (tier-flicker doctrine, useEntitlements.jsx).
@@ -8210,6 +8338,15 @@ function SettingsSection({ t, user = null }) {
   // for it and are not shown (vertical-fit audit, Oct 2026). Their stored
   // values are untouched and still saved as loaded.
   const isProvider = bookingModeFor(user?.business_type) === "provider";
+  // The words (vertical-fit review, Oct 2026): a salon, a shop and a repair
+  // trade book a customer for a time — the provider wording below is theirs.
+  const apptWords = speaksAppointments(user?.business_type);
+  // The table rules (time per party size, max party, group request, covers per
+  // slot, combining, guests picking a table) exist only where there is a
+  // table plan: a table venue, or a shop that already built tables. A salon
+  // never has them; a shop or a workshop without tables neither. Stored
+  // values are untouched and saved as loaded either way.
+  const tableRules = !isProvider && (tablePlan ?? usesTableFloor(user?.business_type));
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -8541,7 +8678,7 @@ function SettingsSection({ t, user = null }) {
       <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 flex items-center justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-            {isProvider
+            {apptWords
               ? t("rsvpAcceptToggleProvider", "Accept online appointments")
               : t("rsvpAcceptToggle", "Accept online reservations")}
           </h2>
@@ -8550,7 +8687,7 @@ function SettingsSection({ t, user = null }) {
               ? (data?.hours_declared === false
                   // Live, but with no saved hours the page offers no times at
                   // all — "taking bookings" would be a promise it can't keep.
-                  ? (isProvider
+                  ? (apptWords
                     ? t("rsvpAcceptOnNoHoursProvider", "Your page is live, but customers can't book until you save opening hours below.")
                     : t("rsvpAcceptOnNoHours", "Your page is live, but guests can't book until you save opening hours below."))
                   : t("rsvpAcceptOn", "Your public page is live and taking bookings."))
@@ -8563,7 +8700,7 @@ function SettingsSection({ t, user = null }) {
           type="button"
           role="switch"
           aria-checked={enabled}
-          aria-label={isProvider
+          aria-label={apptWords
             ? t("rsvpAcceptToggleProvider", "Accept online appointments")
             : t("rsvpAcceptToggle", "Accept online reservations")}
           disabled={savingToggle}
@@ -8608,7 +8745,7 @@ function SettingsSection({ t, user = null }) {
             </div>
             <div className="min-w-0 flex-1 space-y-2">
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                {isProvider
+                {apptWords
                   ? t("rsvpShareHintProvider", "Put this link in your Instagram bio, as the booking link on your Google profile, or print the QR for the counter.")
                   : t(
                     "rsvpShareHint",
@@ -8688,7 +8825,7 @@ function SettingsSection({ t, user = null }) {
 
       {/* Add to your website — button + iframe snippets, once the page is live. */}
       {enabled && publicUrl && (
-        <EmbedOnWebsite publicUrl={publicUrl} venueName={data?.business_name} t={t} isProvider={isProvider} />
+        <EmbedOnWebsite publicUrl={publicUrl} venueName={data?.business_name} t={t} isProvider={apptWords} />
       )}
 
       {/* Opening / booking hours — the hours each weekday a guest can book.
@@ -8702,7 +8839,7 @@ function SettingsSection({ t, user = null }) {
             {t("rsvpHoursTitle", "Opening hours (bookings)")}
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {isProvider
+            {apptWords
               ? t("rsvpHoursHintProvider", "Customers can only book while you're open. Set the hours for each day.")
               : t(
                 "rsvpHoursHint",
@@ -8722,7 +8859,7 @@ function SettingsSection({ t, user = null }) {
           >
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
             <span>
-              {isProvider
+              {apptWords
                 ? t("rsvpHoursNotSetProvider", "Not saved yet — these are suggestions. Until you save your opening hours, customers see no times to book.")
                 : t(
                   "rsvpHoursNotSet",
@@ -8776,7 +8913,7 @@ function SettingsSection({ t, user = null }) {
             htmlFor="rsvp-contact-phone"
             className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
           >
-            {isProvider
+            {apptWords
               ? t("rsvpContactPhoneProvider", "Contact phone (shown to customers)")
               : t("rsvpContactPhone", "Contact phone (shown to guests)")}
           </label>
@@ -8791,7 +8928,7 @@ function SettingsSection({ t, user = null }) {
             className="w-full sm:max-w-[18rem] h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
           />
           <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-            {isProvider
+            {apptWords
               ? t("rsvpContactPhoneHintProvider", "Customers see a tap-to-call link on your booking page. Leave blank to use your business phone.")
               : t("rsvpContactPhoneHint", "Guests see a tap-to-call link on your booking page. Leave blank to use your business phone.")}
           </p>
@@ -8800,7 +8937,7 @@ function SettingsSection({ t, user = null }) {
           {/* Table time by party size — the engine's own rule (the smallest
               band that fits; bigger parties hold the "bigger" time). This was
               one number that, saved, overwrote every band. */}
-          {!isProvider && (
+          {tableRules && (
           <fieldset className="sm:col-span-2 min-w-0 m-0 p-0 border-0">
             <legend className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t("rsvpTableTimes", "Table time (minutes)")}
@@ -8853,7 +8990,7 @@ function SettingsSection({ t, user = null }) {
             </p>
           </fieldset>
           )}
-          {!isProvider && (
+          {tableRules && (
           <NumberField
             label={t("rsvpMaxParty", "Max party size (online)")}
             hint={t("rsvpMaxPartyHint", "Bigger groups see 'call us'.")}
@@ -8861,7 +8998,7 @@ function SettingsSection({ t, user = null }) {
             onChange={(v) => setForm((f) => ({ ...f, max_party_size: v }))}
           />
           )}
-          {!isProvider && (
+          {tableRules && (
           <NumberField
             label={t("rsvpGroupThreshold", "Group-request from")
             }
@@ -8871,23 +9008,23 @@ function SettingsSection({ t, user = null }) {
           />
           )}
           <NumberField
-            label={isProvider
+            label={apptWords
               ? t("rsvpLeadTimeProvider", "Notice (minutes)")
               : t("rsvpLeadTime", "Lead time (minutes)")}
-            hint={isProvider
+            hint={apptWords
               ? t("rsvpLeadTimeHintProvider", "The shortest notice a customer can book a time with.")
               : t("rsvpLeadTimeHint", "Earliest a guest can book from now.")}
             value={form.lead_time_min}
             onChange={(v) => setForm((f) => ({ ...f, lead_time_min: v }))}
           />
           <NumberField
-            label={isProvider
+            label={apptWords
               ? t("rsvpMaxAdvanceProvider", "Customers can book up to (days ahead)")
               : t("rsvpMaxAdvance", "Book up to (days ahead)")}
             value={form.max_advance_days}
             onChange={(v) => setForm((f) => ({ ...f, max_advance_days: v }))}
           />
-          {!isProvider && (
+          {tableRules && (
           <NumberField
             label={t("rsvpPacing", "Max covers per slot")}
             hint={t("rsvpPacingHint", "Leave blank for no pacing cap.")}
@@ -8898,7 +9035,7 @@ function SettingsSection({ t, user = null }) {
         </div>
         {/* Table combining — flag tables as combinable on the Floor tab; this
             switch governs whether the engine actually combines them. */}
-        {!isProvider && (<>
+        {tableRules && (<>
         <div className="pt-3 border-t border-gray-100 dark:border-gray-800">
           <label className="flex items-start gap-2.5 cursor-pointer select-none">
             <input
@@ -9085,7 +9222,7 @@ function SettingsSection({ t, user = null }) {
       {/* Install-as-app hint — BonBox's host-stand edge: runs as an app on
           the Windows PC / touch tablet already at the podium, no locked-down
           terminal required. */}
-      <InstallHostStandHint t={t} isProvider={isProvider} />
+      <InstallHostStandHint t={t} isProvider={apptWords} />
 
       {/* Pair a device with a short code — the alternative to typing the
           owner's email and password on a tablet that lives at the door. */}

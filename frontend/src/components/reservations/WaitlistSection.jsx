@@ -70,8 +70,13 @@ export default function WaitlistSection({
   // Optional (the page passes them; without, every quarter is offered):
   // the venue's hours and turn times, and how to name the table it landed on.
   openHours = null, bookingRules = null, tableLabelFor = null,
-  // A salon waits for a free TIME, not a table (vertical-fit audit, Oct 2026).
+  // A salon, a shop or a workshop waits for a free TIME, not a table
+  // (vertical-fit audit, Oct 2026) — the page passes its appointment words.
   isProvider = false,
+  // false = the venue has nothing the engine can assign (no table plan, no
+  // behandler — a shop, a workshop): "Book" saves the time as it is instead
+  // of asking for a table that cannot exist.
+  assignTables = true,
 }) {
   const { t } = useLanguage();
   const confirm = useConfirm();
@@ -237,7 +242,9 @@ export default function WaitlistSection({
     }
     const who = entry.guest_name || t("rsvpGuest", "Guest");
     const ok = await confirm({
-      message: t("rsvpWlNotifyConfirm", "Let {name} know a spot may have opened? The table isn't reserved for them.", { name: who }),
+      message: isProvider
+        ? t("rsvpWlNotifyConfirmProvider", "Let {name} know a time may have opened? It isn't held for them.", { name: who })
+        : t("rsvpWlNotifyConfirm", "Let {name} know a spot may have opened? The table isn't reserved for them.", { name: who }),
       confirmLabel: t("rsvpWlNotify", "Notify"),
     });
     if (!ok) return;
@@ -324,7 +331,7 @@ export default function WaitlistSection({
       // genuinely filled; we surface the honest toast below.
       const res = await api.post(`/reservations/waitlist/${entry.id}/convert`, {
         starts_at: `${day}T${bookTime}:00`,
-        auto_assign: true,
+        auto_assign: assignTables,
       });
       setBookFor(null);
       reloadWaitlist();
@@ -355,7 +362,9 @@ export default function WaitlistSection({
         } else if (wins && !inside) {
           flashToast(t("rsvpClosedAtTime", "Closed at {time} — open {hours}.", { time: hm(bookTime), hours: wins.map(([a, b]) => `${hm(a)}–${hm(b)}`).join(", ") }));
         } else if (d.tables_busy_at_that_time === 0) {
-          flashToast(t("rsvpNoTableBeforeClose", "No table is free for the whole sitting before closing — pick an earlier time."));
+          flashToast(isProvider
+            ? t("rsvpNoTimeBeforeClose", "There's no free time before closing — pick an earlier time.")
+            : t("rsvpNoTableBeforeClose", "No table is free for the whole sitting before closing — pick an earlier time."));
         } else {
           flashToast(t("rsvpConvertFull", "That slot just filled — pick another time."));
         }
@@ -458,7 +467,7 @@ export default function WaitlistSection({
               number box here). */}
           <div role="group" aria-label={t("rsvpWlPartySize", "Guests")}>
             <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              {t("rsvpPartySize", "Party size")}
+              {isProvider ? t("rsvpPartySizeAppt", "People") : t("rsvpPartySize", "Party size")}
             </span>
             <PartySizeChips
               value={String(form.party_size)}
