@@ -10340,4 +10340,29 @@ export const en = {
     rsvpTimeMovedCloseOne: "Moved to {to} — 1 guest has to be done by {close}.",
     rsvpPeekGuestOne: "guest",
     rsvpRailDayLineOne: "1 guest · {staff} on shift",
+    // ── Push 8: a salon, a shop or a workshop books customers for a time —
+    // the gate, the book's columns and statuses, the party ladder, the public
+    // page and the device card speak that, never guests, tables or the door.
+    pillarGateReservationsTitleAppt: "Appointments are turned off",
+    pillarGateReservationsBodyAppt: "Appointments aren't switched on for your business. Turn them on to keep your customers' appointments in one book.",
+    rsvpPersonOne: "1 person",
+    rsvpPersonN: "{n} people",
+    rsvpPartyOtherAppt: "Other number of people",
+    rsvpStatusSeatedAppt: "Checked in",
+    rsvpColGuestAppt: "Customer",
+    rsvpColPartyAppt: "People",
+    rsvpRowPeople: "People",
+    rsvpStandDevicesTitleAppt: "The appointment book on another device",
+    rsvpStandDevicesBodyAppt: "Make a code, type it on the tablet at the counter, and it shows only the appointments — never your accounts or payroll.",
+    // ── Push 8: the day rail of a salon, a shop or a workshop counts
+    // appointments and customers.
+    rsvpPeekBookingsAppt: "appointments",
+    rsvpPeekCustomers: "customers",
+    rsvpPeekCustomerOne: "customer",
+    rsvpRailMonthAppt: "{month}: {bookings} appointments · {guests} customers",
+    rsvpRailMonthOneAppt: "{month}: 1 appointment · {guests} customers",
+    rsvpRailMonthApptOneCustomer: "{month}: {bookings} appointments · 1 customer",
+    rsvpRailMonthOneApptOneCustomer: "{month}: 1 appointment · 1 customer",
+    rsvpRailDayLineAppt: "{covers} customers · {staff} on shift",
+    rsvpRailDayLineOneAppt: "1 customer · {staff} on shift",
 };

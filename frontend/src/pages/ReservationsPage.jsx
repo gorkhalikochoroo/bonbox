@@ -699,7 +699,7 @@ export default function ReservationsPage() {
               holding the prime top-left of a screen read at arm's length. */}
           {!isHostStand && (
           <div className="hidden min-[1680px]:block min-[1680px]:sticky min-[1680px]:top-6">
-            <DayRail day={bookDay} onPick={setBookDay} t={t} />
+            <DayRail day={bookDay} onPick={setBookDay} t={t} apptWords={apptWords} />
             <div ref={setRailSlot} className="mt-4 empty:hidden" />
           </div>
           )}
@@ -804,11 +804,14 @@ const PHONE_ACTION = "max-sm:h-10 max-sm:min-h-0! max-sm:px-3 max-sm:text-[13px]
 
 // Status → localized label. Shared by the Liste status column + (later) the
 // floor/timeline. Mirrors the map ReservationRow used.
-function statusLabels(t) {
+// `checkedIn`: a shop or a workshop (appointment words, no chair) — its
+// customer is checked in ("Tjek ind" → "Tjekket ind"), nobody "sits". The
+// salon keeps "Sidder": its customer is in the chair.
+function statusLabels(t, checkedIn = false) {
   return {
     requested: t("rsvpStatusRequested", "Requested"),
     confirmed: t("rsvpStatusConfirmed", "Confirmed"),
-    seated: t("rsvpStatusSeated", "Seated"),
+    seated: checkedIn ? t("rsvpStatusSeatedAppt", "Checked in") : t("rsvpStatusSeated", "Seated"),
     completed: t("rsvpStatusCompleted", "Completed"),
     no_show: t("rsvpStatusNoShow", "No-show"),
     cancelled: t("rsvpStatusCancelled", "Cancelled"),
@@ -1143,6 +1146,8 @@ function ReservationDrawer({
   // Appointment words (a salon, a shop, a repair trade): "Tjek ind", not
   // "Sæt til bords"; people, not guests (vertical-fit review, Oct 2026).
   apptWords = false,
+  // A shop or a workshop: "Tjekket ind", not "Sidder" (statusLabels).
+  checkedIn = false,
   behandlerName = "",
   highlight = false,
   onAllergyAction = null,
@@ -1177,7 +1182,7 @@ function ReservationDrawer({
     tables.length > 0 &&
     ["requested", "confirmed", "seated"].includes(r.status) &&
     !(Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length > 1);
-  const labels = statusLabels(t);
+  const labels = statusLabels(t, checkedIn);
   const hasAllergy =
     (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
     !!r.allergy_note ||
@@ -2074,6 +2079,7 @@ function EditBookingSheet({
               changed();
             }}
             t={t}
+            apptWords={apptWords}
           />
         </div>
         )}
@@ -2527,6 +2533,7 @@ function NewBookingSheet({
                 if (warning) onClearWarning();
               }}
               t={t}
+              apptWords={apptWords}
             />
           </div>
         )}
@@ -3447,7 +3454,9 @@ function SalonFirstRunCard({
    covers outrun the roster. No heatmap — a rainbow month would look like a
    dashboard and say less than one marked Saturday does. (Amber is the
    request colour now — Manoj, 1 Oct 2026.) */
-function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
+// `apptWords`: a salon, a shop, a workshop — its days hold appointments and
+// customers, not reservations and guests.
+function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist, apptWords = false }) {
   const { lang } = useLanguage();
   const [month, setMonth] = useState(() => (day || serviceDayIso()).slice(0, 7));
   const [load, setLoad] = useState({});
@@ -3597,8 +3606,14 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
                              bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900
                              text-[10.5px] font-medium shadow-lg"
                 >
-                  {info.bookings || 0}&nbsp;{t("rsvpPeekBookings", "bookings")}
-                  {info.covers ? ` \u00b7 ${info.covers} ${info.covers === 1 ? t("rsvpPeekGuestOne", "guest") : t("rsvpPeekGuests", "guests")}` : ""}
+                  {info.bookings || 0}&nbsp;{apptWords ? t("rsvpPeekBookingsAppt", "appointments") : t("rsvpPeekBookings", "bookings")}
+                  {info.covers
+                    ? ` \u00b7 ${info.covers} ${
+                        apptWords
+                          ? info.covers === 1 ? t("rsvpPeekCustomerOne", "customer") : t("rsvpPeekCustomers", "customers")
+                          : info.covers === 1 ? t("rsvpPeekGuestOne", "guest") : t("rsvpPeekGuests", "guests")
+                      }`
+                    : ""}
                   {/* Roster only when we HAVE one. "0 on shift" would read as a
                       staffing alarm when it usually means the week is unplanned. */}
                   {info.staff_on ? ` \u00b7 ${info.staff_on} ${t("rsvpPeekOnShift", "on shift")}` : ""}
@@ -3617,6 +3632,16 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
           {(() => {
             // One key per singular/plural shape — both counts can be 1.
             const vars = { month: monthName(month, lang, false), bookings: totals.bookings, guests: totals.guests };
+            if (apptWords) {
+              if (totals.bookings === 1) {
+                return totals.guests === 1
+                  ? t("rsvpRailMonthOneApptOneCustomer", "{month}: 1 appointment · 1 customer", vars)
+                  : t("rsvpRailMonthOneAppt", "{month}: 1 appointment · {guests} customers", vars);
+              }
+              return totals.guests === 1
+                ? t("rsvpRailMonthApptOneCustomer", "{month}: {bookings} appointments · 1 customer", vars)
+                : t("rsvpRailMonthAppt", "{month}: {bookings} appointments · {guests} customers", vars);
+            }
             if (totals.bookings === 1) {
               return totals.guests === 1
                 ? t("opsRsvpRailMonthOneBookingOneGuest", "{month}: 1 booking · 1 guest", vars)
@@ -3640,12 +3665,19 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
           </span>
         </div>
         <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-          {(sel?.covers || 0) === 1
-            ? t("rsvpRailDayLineOne", "1 guest · {staff} on shift", { staff: sel?.staff_on || 0 })
-            : t("rsvpRailDayLine", "{covers} guests · {staff} on shift", {
-                covers: sel?.covers || 0,
-                staff: sel?.staff_on || 0,
-              })}
+          {apptWords
+            ? (sel?.covers || 0) === 1
+              ? t("rsvpRailDayLineOneAppt", "1 customer · {staff} on shift", { staff: sel?.staff_on || 0 })
+              : t("rsvpRailDayLineAppt", "{covers} customers · {staff} on shift", {
+                  covers: sel?.covers || 0,
+                  staff: sel?.staff_on || 0,
+                })
+            : (sel?.covers || 0) === 1
+              ? t("rsvpRailDayLineOne", "1 guest · {staff} on shift", { staff: sel?.staff_on || 0 })
+              : t("rsvpRailDayLine", "{covers} guests · {staff} on shift", {
+                  covers: sel?.covers || 0,
+                  staff: sel?.staff_on || 0,
+                })}
         </p>
         {isHeavy(sel) && (
           <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-2.5 py-1.5 flex items-start gap-1.5">
@@ -5294,7 +5326,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     () => (Array.isArray(data?.reservations) ? data.reservations : []),
     [data],
   );
-  const labels = statusLabels(t);
+  // A shop or a workshop checks its customer in; nobody sits (statusLabels).
+  const checkedInWords = apptWords && !isProvider;
+  const labels = statusLabels(t, checkedInWords);
 
   const zones = useMemo(
     () => [...new Set(resources.map((r) => r.zone).filter(Boolean))],
@@ -5727,7 +5761,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const tableColumns = [
     {
       id: "party",
-      label: t("rsvpColParty", "Party"),
+      label: apptWords ? t("rsvpColPartyAppt", "People") : t("rsvpColParty", "Party"),
       align: "right",
       width: "w-16",
       render: (r) => (
@@ -5789,7 +5823,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     },
     {
       id: "guest",
-      label: t("rsvpColGuest", "Guest"),
+      // A salon, a shop, a workshop: its column is the customer.
+      label: apptWords ? t("rsvpColGuestAppt", "Customer") : t("rsvpColGuest", "Guest"),
       render: (r) => (
         <div className="min-w-0 max-w-[16rem]">
           <div
@@ -6507,6 +6542,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                   setDayPickerOpen(false);
                 }}
                 t={t}
+                apptWords={apptWords}
               />
             </div>
           )}
@@ -7247,6 +7283,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           // A salon's leftover table booking opens as the table booking it is.
           isProvider={isProvider && !holdsTable(selected)}
           apptWords={apptWords}
+          checkedIn={checkedInWords}
           behandlerName={
             selected.resource_id ? behandlerByResourceId[String(selected.resource_id)] : ""
           }
@@ -9638,7 +9675,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
 
       {/* Pair a device with a short code — the alternative to typing the
           owner's email and password on a tablet that lives at the door. */}
-      <StandDevices t={t} />
+      <StandDevices t={t} apptWords={apptWords} />
     </div>
   );
 }
@@ -9651,7 +9688,9 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
  * list matters as much as the button — a credential you cannot see is one you
  * cannot revoke, so paired devices are always visible with a one-tap Remove.
  */
-function StandDevices({ t }) {
+// `apptWords`: a salon, a shop, a workshop — the paired tablet shows its
+// appointments at the counter, not "reservations" at "the door".
+function StandDevices({ t, apptWords = false }) {
   const confirm = useConfirm();
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -9747,13 +9786,20 @@ function StandDevices({ t }) {
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-            {t("rsvpStandDevicesTitle", "Vært-skærm på en anden enhed")}
+            {apptWords
+              ? t("rsvpStandDevicesTitleAppt", "The appointment book on another device")
+              : t("rsvpStandDevicesTitle", "Vært-skærm på en anden enhed")}
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
-            {t(
-              "rsvpStandDevicesBody",
-              "Lav en kode, tast den på tabletten ved døren, og den viser kun reservationer — aldrig regnskab eller løn.",
-            )}
+            {apptWords
+              ? t(
+                  "rsvpStandDevicesBodyAppt",
+                  "Make a code, type it on the tablet at the counter, and it shows only the appointments — never your accounts or payroll.",
+                )
+              : t(
+                  "rsvpStandDevicesBody",
+                  "Lav en kode, tast den på tabletten ved døren, og den viser kun reservationer — aldrig regnskab eller løn.",
+                )}
           </p>
         </div>
       </div>

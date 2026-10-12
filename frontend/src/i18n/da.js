@@ -10012,4 +10012,29 @@ export const da = {
     rsvpTimeMovedCloseOne: "Flyttet til {to} — 1 gæst skal være færdig kl. {close}.",
     rsvpPeekGuestOne: "gæst",
     rsvpRailDayLineOne: "1 gæst · {staff} på vagt",
+    // ── Push 8: a salon, a shop or a workshop books customers for a time —
+    // the gate, the book's columns and statuses, the party ladder, the public
+    // page and the device card speak that, never guests, tables or the door.
+    pillarGateReservationsTitleAppt: "Tidsbestilling er slået fra",
+    pillarGateReservationsBodyAppt: "Tidsbestilling er ikke slået til for din virksomhed. Slå det til for at samle dine kunders aftaler i én tidsbog.",
+    rsvpPersonOne: "1 person",
+    rsvpPersonN: "{n} personer",
+    rsvpPartyOtherAppt: "Andet antal personer",
+    rsvpStatusSeatedAppt: "Tjekket ind",
+    rsvpColGuestAppt: "Kunde",
+    rsvpColPartyAppt: "Pers.",
+    rsvpRowPeople: "Personer",
+    rsvpStandDevicesTitleAppt: "Tidsbogen på en anden enhed",
+    rsvpStandDevicesBodyAppt: "Lav en kode, tast den på tabletten ved disken, og den viser kun aftalerne — aldrig regnskab eller løn.",
+    // ── Push 8: the day rail of a salon, a shop or a workshop counts
+    // appointments and customers.
+    rsvpPeekBookingsAppt: "aftaler",
+    rsvpPeekCustomers: "kunder",
+    rsvpPeekCustomerOne: "kunde",
+    rsvpRailMonthAppt: "{month} i alt: {bookings} aftaler · {guests} kunder",
+    rsvpRailMonthOneAppt: "{month} i alt: 1 aftale · {guests} kunder",
+    rsvpRailMonthApptOneCustomer: "{month} i alt: {bookings} aftaler · 1 kunde",
+    rsvpRailMonthOneApptOneCustomer: "{month} i alt: 1 aftale · 1 kunde",
+    rsvpRailDayLineAppt: "{covers} kunder · {staff} på vagt",
+    rsvpRailDayLineOneAppt: "1 kunde · {staff} på vagt",
 };

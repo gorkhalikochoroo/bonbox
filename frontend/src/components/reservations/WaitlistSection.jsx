@@ -483,6 +483,7 @@ export default function WaitlistSection({
               value={String(form.party_size)}
               onChange={(v) => setForm((f) => ({ ...f, party_size: v }))}
               t={t}
+              apptWords={isProvider}
             />
           </div>
           <input className={inputCls} placeholder={t("rsvpWlNote", "Note (optional)")} value={form.note}

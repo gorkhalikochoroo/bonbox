@@ -371,8 +371,10 @@ function capFirst(text) {
   return v ? v[0].toLocaleUpperCase() + v.slice(1) : v;
 }
 
-// "1 gæst" / "2 gæster" — the plural key alone produced "1 gæster".
-function partyLabel(n, t) {
+// "1 gæst" / "2 gæster" — the plural key alone produced "1 gæster". A business
+// booked for a time (a salon, a shop, a workshop) counts people: "1 person".
+function partyLabel(n, t, appt = false) {
+  if (appt) return Number(n) === 1 ? t("rsvpPersonOne", "1 person") : t("rsvpPersonN", "{n} people", { n });
   return Number(n) === 1 ? t("rsvpPartyOne", "1 guest") : t("rsvpPartyN", "{n} guests", { n });
 }
 
@@ -972,7 +974,9 @@ export default function ReservationPublicPage() {
     if (Number.isFinite(qParty) && qParty >= 1) {
       setParty(Math.min(qParty, maxParty));
     } else {
-      setParty(Math.min(2, maxParty));
+      // A shop or a workshop is booked by one customer — like the salon, the
+      // page does not ask how many (vertical-fit, Push 8).
+      setParty(speaksAppointments(page.business_type) ? 1 : Math.min(2, maxParty));
     }
     // Only seed once, when the page first loads. Subsequent user edits
     // own the state.
@@ -994,7 +998,8 @@ export default function ReservationPublicPage() {
     let alive = true;
     api
       .get(`/public/reservations/${slug}/availability-summary`, {
-        params: { from: today, days: 14, party: isProvider ? 1 : (party || 2) },
+        // One person for a salon, a shop or a workshop — as the page asks.
+        params: { from: today, days: 14, party: isProvider || apptWords ? 1 : (party || 2) },
       })
       .then((res) => {
         if (!alive) return;
@@ -1018,7 +1023,7 @@ export default function ReservationPublicPage() {
       alive = false;
     };
     // re-run when party changes (open days depend on party size)
-  }, [page, slug, isProvider, party, today]);
+  }, [page, slug, isProvider, apptWords, party, today]);
 
   // ── Per-venue document title + OG tags ────────────────────────────
   // A diner's browser tab should read the RESTAURANT, not the app default
@@ -1906,7 +1911,10 @@ export default function ReservationPublicPage() {
         ? chosenBehandling
           ? { k: "svc", label: t("rsvpColBehandling", "Service"), value: chosenBehandling.name }
           : null
-        : { k: "party", label: t("rsvpRowGuests", "Guests"), value: String(rParty) },
+        : apptWords
+          // One customer is the booking; more than one is worth a line.
+          ? Number(rParty) > 1 ? { k: "party", label: t("rsvpRowPeople", "People"), value: String(rParty) } : null
+          : { k: "party", label: t("rsvpRowGuests", "Guests"), value: String(rParty) },
       isProvider
         ? { k: "who", label: t("rsvpColBehandler", "Stylist"), value: chosenStylistName || t("rsvpBookValgfri", "Any stylist") }
         : null,
@@ -2356,8 +2364,11 @@ export default function ReservationPublicPage() {
               </>
             )}
             {/* Party size — TABLE venues only. A salon tidsbestilling is one
-                customer; the behandling sets the length, not party size. */}
-            {!isProvider && (
+                customer; the behandling sets the length, not party size. A
+                shop or a workshop is booked by one customer too: "Antal
+                gæster" 1–10 asked a tøjbutik's customer a restaurant's
+                question (Push 8). */}
+            {!apptWords && (
               <div>
                 <h2 className={SECTION_TITLE + " mb-2.5"}>
                   {t("rsvpPartySize", "Antal gæster")}
@@ -2802,7 +2813,7 @@ export default function ReservationPublicPage() {
                   <span className="block text-gray-500 dark:text-gray-400">
                     {[
                       slot || null,
-                      partyLabel(party, t),
+                      partyLabel(party, t, apptWords),
                       !groupRequest && selectedTable
                         ? floor.find((x) => String(x.id) === String(selectedTable))?.label || null
                         : null,
@@ -3261,11 +3272,11 @@ export default function ReservationPublicPage() {
                   <p className="text-[12.5px] text-gray-500 dark:text-gray-400 truncate">
                     {groupRequest
                         ? t("rsvpGroupTimeNote", "{party} · request", {
-                            party: partyLabel(party, t),
+                            party: partyLabel(party, t, apptWords),
                           })
                         : isProvider && chosenBehandling
                           ? chosenBehandling.name
-                          : partyLabel(party, t)}
+                          : partyLabel(party, t, apptWords)}
                   </p>
                 </div>
                 {/* Never a dead grey block: until a time is picked the button
