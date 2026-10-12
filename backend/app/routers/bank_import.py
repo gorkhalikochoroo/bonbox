@@ -452,6 +452,8 @@ def list_match_suggestions(
             amount=r.amount,
             description=r.description,
             already_matched=r.already_matched,
+            linked_target_id=r.linked_target_id,
+            linked_target_label=r.linked_target_label,
             suggestions=[
                 MatchSuggestionSchema(
                     txn_id=s.txn_id,

@@ -51,6 +51,13 @@ class Expense(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_personal: Mapped[bool] = mapped_column(Boolean, default=False)
     reference_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Bank reconcile "link" (Push 8): on a BANK line (reference_id bank_…),
+    # the expense this payment is — the receipt the owner already booked.
+    # While it points at a live, approved expense the bank line is left out of
+    # every money total and of købsmoms (expense_status.not_pending), so the
+    # purchase counts once. Nothing is deleted; "unlink" clears it. NULL on
+    # every row before the migration and on every non-bank expense.
+    linked_expense_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
     # Bilagsnummer — sequential voucher per fiscal year per user (DK
     # Bogføringsloven 2024 compliance). Auto-allocated on creation.
     voucher_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)

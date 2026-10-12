@@ -84,7 +84,8 @@ class BankImportConfirmResponse(BaseModel):
 
 ConfidenceLevel = Literal["high", "medium", "low"]
 TargetType = Literal["invoice", "expense"]
-ConfirmAction = Literal["mark_paid", "link"]
+# "unlink" undoes an expense "link" (the bank line counts again).
+ConfirmAction = Literal["mark_paid", "link", "unlink"]
 
 
 class MatchSuggestion(BaseModel):
@@ -111,6 +112,10 @@ class TransactionWithSuggestions(BaseModel):
     description: str
     already_matched: bool = False  # already linked to an invoice/expense
     suggestions: list[MatchSuggestion] = Field(default_factory=list)
+    # A bank expense line already linked to the expense it paid (counted
+    # once): which expense, so the page can name it and offer "unlink".
+    linked_target_id: str | None = None
+    linked_target_label: str | None = None
 
 
 class BankReconcileSuggestionsResponse(BaseModel):

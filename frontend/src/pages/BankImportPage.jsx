@@ -385,6 +385,27 @@ export default function BankImportPage() {
     setLoading(false);
   };
 
+  // Undo an expense link: the bank line counts in the totals again (the
+  // server keeps both rows either way — a link never deletes anything).
+  const unlinkExpense = async (txn) => {
+    if (!suggestions || !txn?.linked_target_id) return;
+    setLoading(true);
+    setError("");
+    try {
+      const importId = suggestions.import_id || "latest";
+      const res = await api.post(
+        `/bank-import/${encodeURIComponent(importId)}/confirm-matches`,
+        { matches: [{ txn_id: txn.txn_id, target_type: "expense",
+                      target_id: txn.linked_target_id, action: "unlink" }] },
+      );
+      if (res.data?.confirmed) showToast(t("bankReconUnlinkedToast"), "success", 4000);
+      await loadSuggestions(importId);
+    } catch (err) {
+      setError(errText(err, t("bankReconConfirmFailed")));
+    }
+    setLoading(false);
+  };
+
   // ── Toggle helpers ──
   const toggleAll = () => {
     if (selected.size === preview?.transactions?.length) {
@@ -947,8 +968,19 @@ export default function BankImportPage() {
                       </div>
                     </div>
 
-                    {/* Suggestions + action */}
-                    {txn.suggestions.length === 0 ? (
+                    {/* Suggestions + action. A bank line already linked to the
+                        expense it paid is counted once — named here, with an
+                        undo, never re-offered. */}
+                    {txn.linked_target_id ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2" data-testid="bank-recon-linked">
+                        <span className="text-xs text-gray-600 dark:text-gray-300">
+                          {t("bankReconLinkedTo", { label: txn.linked_target_label || "" })}
+                        </span>
+                        <Button variant="ghost" size="sm" onClick={() => unlinkExpense(txn)} disabled={loading}>
+                          {t("bankReconUnlink")}
+                        </Button>
+                      </div>
+                    ) : txn.suggestions.length === 0 ? (
                       <div className="text-xs text-gray-500 dark:text-gray-400 italic">
                         {t("bankReconNoMatch")}
                       </div>

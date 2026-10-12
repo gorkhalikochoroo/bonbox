@@ -202,6 +202,10 @@ class TxnWithSuggestions:
     description: str
     already_matched: bool
     suggestions: list[MatchSuggestion]
+    # A bank expense line already linked to the expense it paid: which one
+    # (the page shows it with an "undo" instead of suggestions).
+    linked_target_id: str | None = None
+    linked_target_label: str | None = None
 
 
 # ─── Helpers: fetch bank-imported rows scoped to user ─────────────────
@@ -319,11 +323,29 @@ def _fetch_open_expenses(
                 ~Expense.reference_id.like("bank_%"),
             ),
             Expense.date >= cutoff,
+            ~_paid_by_a_bank_line(Expense.id, user_id),
         )
         .order_by(Expense.date.desc())
         .limit(500)
         .all()
     )
+
+
+def _paid_by_a_bank_line(expense_id, user_id, *, other_than=None):
+    """EXISTS: a live bank line of this owner is linked to `expense_id`
+    (optionally: a bank line other than `other_than`)."""
+    from sqlalchemy import exists
+    from sqlalchemy.orm import aliased
+
+    line = aliased(Expense)
+    conds = [
+        line.user_id == user_id,
+        line.linked_expense_id == expense_id,
+        line.is_deleted.isnot(True),
+    ]
+    if other_than is not None:
+        conds.append(line.id != other_than)
+    return exists().where(*conds)
 
 
 # ─── Match scoring ────────────────────────────────────────────────────
@@ -512,7 +534,34 @@ def match_transactions(
     # Critical to surface them so the owner sees ALL their imported
     # rows in the reconciliation table, even if no candidate exists.
     open_expenses = _fetch_open_expenses(db, user_id, lookback_days)
+    linked_ids = {e.linked_expense_id for e in expenses if getattr(e, "linked_expense_id", None)}
+    linked_targets: dict = {}
+    if linked_ids:
+        for t in (
+            db.query(Expense)
+            .filter(Expense.user_id == user_id, Expense.id.in_(linked_ids))
+            .all()
+        ):
+            linked_targets[t.id] = t
     for exp in expenses:
+        linked_to = linked_targets.get(getattr(exp, "linked_expense_id", None))
+        if linked_to is not None:
+            # Already linked: shown with the expense it paid (and an undo on
+            # the page), never offered new suggestions.
+            out.append(TxnWithSuggestions(
+                txn_id=str(exp.id),
+                txn_type="expense",
+                txn_date=exp.date,
+                amount=float(exp.amount),
+                description=exp.description or "",
+                already_matched=True,
+                suggestions=[],
+                linked_target_id=str(linked_to.id),
+                # The expense's own words; the page writes the sentence
+                # around them in its language ("Koblet til …").
+                linked_target_label=(linked_to.description or "")[:60] or None,
+            ))
+            continue
         try:
             cands: list[MatchSuggestion] = []
             # Simple expense ↔ expense match: same amount within
@@ -603,13 +652,16 @@ def confirm_matches(
       txn_id      — bank Sale/Expense row id
       target_type — "invoice" | "expense"
       target_id   — Invoice/Expense to apply the action to
-      action      — "mark_paid" | "link"
+      action      — "mark_paid" | "link" | "unlink"
 
     Mutations:
       invoice + mark_paid → InvoiceService.mark_paid(source='bank_csv')
                             + Sale.invoice_id = target.id
-      expense + link      → bank Expense.notes annotated with target ref;
-                            existing reference_id retained for audit
+      expense + link      → bank Expense.linked_expense_id = target.id (the
+                            bank line then counts in no money total while
+                            the target is live; nothing deleted) + the
+                            "[linked:…]" notes marker
+      expense + unlink    → clears both; the bank line counts again
 
     Writes one audit row per applied confirmation. Tenant-scoped via the
     User dependency + per-row ownership re-check (defense-in-depth).
@@ -632,7 +684,7 @@ def confirm_matches(
             txn_id = _parse_uuid(txn_id_raw)
             target_id = _parse_uuid(target_id_raw)
             if not (txn_id and target_id and target_type in ("invoice", "expense")
-                    and action in ("mark_paid", "link")):
+                    and action in ("mark_paid", "link", "unlink")):
                 errors.append(f"invalid match: {txn_id_raw} → {target_id_raw}")
                 continue
 
@@ -713,37 +765,87 @@ def confirm_matches(
                 confirmed += 1
                 continue
 
-            if target_type == "expense" and action == "link":
-                # Expense ↔ expense link: tag the bank Expense's notes
-                # to point at the target (the non-bank Expense we want
-                # to associate with this bank line). Soft-link — we
-                # don't have a dedicated FK column without a migration.
+            if target_type == "expense" and action in ("link", "unlink"):
+                # Expense ↔ expense link: the bank line (txn) IS the payment
+                # of the target — the expense the owner already booked (a
+                # snapped receipt). Stored on the bank line
+                # (linked_expense_id); the shared money gate
+                # (expense_status.not_pending) then leaves the bank line out
+                # of every total and of købsmoms, so the purchase counts
+                # once. Nothing is deleted; "unlink" clears it. The notes
+                # marker stays as the human-readable trace.
                 bank_exp = (
                     db.query(Expense)
-                    .filter(Expense.id == txn_id, Expense.user_id == user.id)
+                    .filter(Expense.id == txn_id, Expense.user_id == user.id,
+                            Expense.is_deleted.isnot(True))
                     .first()
                 )
                 if bank_exp is None:
                     errors.append(f"expense {txn_id_raw} not found")
                     continue
+                if not (bank_exp.reference_id or "").startswith("bank_"):
+                    errors.append(f"expense {txn_id_raw} is not a bank line")
+                    continue
+                link_marker = f"[linked:{target_id}]"
+
+                if action == "unlink":
+                    if bank_exp.linked_expense_id != target_id:
+                        skipped += 1  # not linked to that expense: nothing to undo
+                        continue
+                    before = {"id": str(bank_exp.id), "notes": bank_exp.notes,
+                              "linked_expense_id": str(target_id)}
+                    bank_exp.linked_expense_id = None
+                    if bank_exp.notes and link_marker in bank_exp.notes:
+                        bank_exp.notes = " ".join(
+                            bank_exp.notes.replace(link_marker, " ").split()
+                        ) or None
+                    db.flush()
+                    audit_service.record(
+                        db, user, "bank_reconcile.match_unlinked",
+                        entity_type="expense", entity_id=bank_exp.id,
+                        before=before,
+                        after={"id": str(bank_exp.id), "notes": bank_exp.notes,
+                               "linked_expense_id": None, "action": "unlink"},
+                        ip_address=ip_address,
+                    )
+                    confirmed += 1
+                    continue
+
                 target_exp = (
                     db.query(Expense)
-                    .filter(Expense.id == target_id, Expense.user_id == user.id)
+                    .filter(Expense.id == target_id, Expense.user_id == user.id,
+                            Expense.is_deleted.isnot(True))
                     .first()
                 )
                 if target_exp is None:
                     errors.append(f"expense target {target_id_raw} not found")
                     continue
-
-                link_marker = f"[linked:{target_exp.id}]"
-                if bank_exp.notes and link_marker in bank_exp.notes:
-                    skipped += 1
+                if (target_exp.reference_id or "").startswith("bank_"):
+                    errors.append(f"expense target {target_id_raw} is itself a bank line")
                     continue
 
-                before = {"id": str(bank_exp.id), "notes": bank_exp.notes}
-                bank_exp.notes = (
-                    (bank_exp.notes or "") + (" " if bank_exp.notes else "") + link_marker
-                ).strip()
+                if bank_exp.linked_expense_id == target_exp.id:
+                    skipped += 1  # already linked to this expense
+                    continue
+                if bank_exp.linked_expense_id is not None:
+                    errors.append(
+                        f"expense {txn_id_raw} is already linked to another expense — unlink it first"
+                    )
+                    continue
+                if db.query(_paid_by_a_bank_line(target_exp.id, user.id,
+                                                 other_than=bank_exp.id)).scalar():
+                    errors.append(
+                        f"expense target {target_id_raw} is already linked to another bank line"
+                    )
+                    continue
+
+                before = {"id": str(bank_exp.id), "notes": bank_exp.notes,
+                          "linked_expense_id": None}
+                bank_exp.linked_expense_id = target_exp.id
+                if not (bank_exp.notes and link_marker in bank_exp.notes):
+                    bank_exp.notes = (
+                        (bank_exp.notes or "") + (" " if bank_exp.notes else "") + link_marker
+                    ).strip()
                 db.flush()
 
                 audit_service.record(

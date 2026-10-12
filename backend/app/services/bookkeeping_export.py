@@ -183,7 +183,12 @@ def _query_sale_rows(user: User, db: Session, start: date, end: date) -> list[Sa
 
 
 def _query_expenses(user: User, db: Session, start: date, end: date) -> list[Expense]:
-    """Inner-layer query — graceful fallback for missing is_personal column."""
+    """Inner-layer query — graceful fallback for missing is_personal column.
+
+    A bank line linked in bank reconcile to the expense it paid is left out
+    (expense_status.not_linked_duplicate): the MOMS filing counts that
+    purchase once, and the books handed to the revisor must too."""
+    from app.services.expense_status import not_linked_duplicate
     try:
         return (
             db.query(Expense)
@@ -193,6 +198,7 @@ def _query_expenses(user: User, db: Session, start: date, end: date) -> list[Exp
                 Expense.date <= end,
                 Expense.is_deleted.isnot(True),
                 Expense.is_personal == False,  # noqa: E712
+                not_linked_duplicate(),
             )
             .order_by(Expense.date.asc())
             .all()
@@ -207,6 +213,7 @@ def _query_expenses(user: User, db: Session, start: date, end: date) -> list[Exp
                     Expense.date >= start,
                     Expense.date <= end,
                     Expense.is_deleted.isnot(True),
+                    not_linked_duplicate(),
                 )
                 .order_by(Expense.date.asc())
                 .all()

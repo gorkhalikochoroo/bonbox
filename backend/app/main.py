@@ -2740,6 +2740,16 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_account_claim_tickets_user_id ON account_claim_tickets (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_account_claim_tickets_token_hash ON account_claim_tickets (token_hash)",
+    # ── Migration (2026-10-12, Push 8): expenses.linked_expense_id ──
+    # Mirrors app/models/expense.py:Expense.linked_expense_id. A bank line the
+    # owner linked in bank reconcile to the expense it paid; the shared money
+    # gate (services/expense_status.not_pending) leaves it out of totals and
+    # købsmoms while linked, so the purchase counts once. VARCHAR(36) = the
+    # GUID() type; no FK on purpose — a gone target simply makes the bank line
+    # count again (the gate checks the target is live). Nullable, no default,
+    # no backfill (an old "[linked:…]" note is left as it was): a
+    # metadata-only ADD COLUMN under the 5 s lock_timeout.
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS linked_expense_id VARCHAR(36)",
 ]
 
 
@@ -3441,6 +3451,8 @@ def _run_migrations():
             ok += _add("users", "last_seen_at", "TIMESTAMP")
             # Mirror of users.subscription_cancel_at (2026-10-12).
             ok += _add("users", "subscription_cancel_at", "TIMESTAMP")
+            # Mirror of expenses.linked_expense_id (2026-10-12, Push 8).
+            ok += _add("expenses", "linked_expense_id", "VARCHAR(36)")
             # Mirror of reservations.completed_at (2026-10-12).
             ok += _add("reservations", "completed_at", "TIMESTAMP")
             # Mirror of the accountant_grants invite-mail columns (2026-10-08).
