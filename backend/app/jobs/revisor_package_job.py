@@ -289,8 +289,10 @@ def run_revisor_package_schedule(
                     row = db.query(R).filter(R.id == row.id).first()
                     if row is not None:
                         rp.mark_failed(row, e, now)
-                        if code == "mail_unclear":
-                            # It may have arrived: no automatic second copy.
+                        if code in ("mail_unclear", "too_large"):
+                            # mail_unclear: it may have arrived — no automatic
+                            # second copy. too_large: it will be just as large
+                            # in an hour; the owner downloads it instead.
                             row.attempts = MAX_ATTEMPTS
                         audit_record(db, user, rp.FAIL_ACTION, "revisor_package", entity_id=row.id,
                                      after={"period_start": start.isoformat(),

@@ -9934,6 +9934,7 @@ export const da = {
     rpsStatus_failed: "Fejlede",
     rpsStatus_claimed: "Sendes…",
     rpsStatus_unclear: "Ikke bekræftet — spørg revisoren",
+    rpsTooLarge: "for stor til et link — hent den under Månedsafslutning",
     rpsTriggerScheduled: "automatisk",
     rpsTriggerManual: "af dig",
     rpsLockedBenefit: "Lad BonBox sende revisorpakken hver uge eller måned.",

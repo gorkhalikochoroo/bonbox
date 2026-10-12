@@ -10262,6 +10262,7 @@ export const en = {
     rpsStatus_failed: "Failed",
     rpsStatus_claimed: "Sending…",
     rpsStatus_unclear: "Not confirmed — ask your revisor",
+    rpsTooLarge: "too large for a link — download it on Month-end",
     rpsTriggerScheduled: "automatic",
     rpsTriggerManual: "by you",
     rpsLockedBenefit: "Have BonBox send the revisor package every week or month.",

@@ -215,6 +215,7 @@ export default function RevisorPackageSchedule() {
                       {t(`rpsStatus_${st}`, st)}
                       {s.status === "sent" && s.sent_at ? ` ${formatDateClear(s.sent_at.slice(0, 10))}` : ""}
                       {s.status === "skipped" && s.skip_reason ? ` — ${t(`rpsBlocked_${s.skip_reason}`, BLOCKER_FALLBACK[s.skip_reason] || s.skip_reason)}` : ""}
+                      {s.status === "failed" && /^too_large/.test(s.error || "") ? ` — ${t("rpsTooLarge", "too large for a link — download it on Month-end")}` : ""}
                     </span>
                   </li>
                   );

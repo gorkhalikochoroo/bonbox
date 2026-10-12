@@ -303,6 +303,21 @@ def test_an_unclear_mail_is_never_sent_twice_and_keeps_its_link(factory, store, 
     assert purge_expired(db, now=utc(2026, 11, 19, 8, 0)) == 1 and store.blobs == {}
 
 
+def test_a_package_too_large_for_a_link_is_not_rebuilt_every_hour(factory, store, mailbox,
+                                                                  monkeypatch):
+    from app.services import revisor_package as rp
+    uid = _owner(factory)
+    monkeypatch.setattr(rp, "MAX_LINK_ZIP_BYTES", 10)
+    s = run_revisor_package_schedule(db_factory=factory, now=utc(2026, 11, 3, 7, 20))
+    assert s["send_error"] == "too_large"
+    for h in (8, 9):
+        run_revisor_package_schedule(db_factory=factory, now=utc(2026, 11, 3, h, 20))
+    db = factory()
+    row = db.query(RevisorPackageSend).filter(RevisorPackageSend.user_id == uid).one()
+    assert (row.status, row.attempts) == ("failed", MAX_ATTEMPTS)
+    assert row.error.startswith("too_large") and _revisor_mails(mailbox) == []
+
+
 def test_a_crashed_claim_is_never_sent_twice(factory, store, mailbox):
     uid = _owner(factory)
     db = factory()
