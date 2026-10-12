@@ -813,10 +813,13 @@ def _csv(rows: list[list], header: list[str]) -> bytes:
 _DOT_NUMBER = re.compile(r"^-?\d+\.\d+$")
 
 
-def _danish_excel(raw: bytes, header: list[str], values: dict | None = None) -> bytes:
+def _danish_excel(raw: bytes, header: list[str], values: dict | None = None,
+                  texts: tuple = ()) -> bytes:
     """A comma / decimal-point CSV from the bookkeeping export, re-written
     the Danish-Excel way: same rows and figures (the exporter stays the one
-    source), semicolons, decimal comma, Danish header and words."""
+    source), semicolons, decimal comma, Danish header and words. `texts`:
+    (old, new) phrases to re-point inside the package (the bookkeeping
+    export points at the momsangivelse, which the package does not hold)."""
     rows = list(csv.reader(io.StringIO(raw.decode("utf-8-sig"))))
     out = []
     for r in rows[1:]:
@@ -826,6 +829,8 @@ def _danish_excel(raw: bytes, header: list[str], values: dict | None = None) -> 
                 c = c.replace(".", ",")
             elif values and c in values:
                 c = values[c]
+            for old, new in texts:
+                c = c.replace(old, new)
             cells.append(c)
         out.append(cells)
     if rows and len(rows[0]) != len(header):
@@ -1758,7 +1763,9 @@ def _build_into(db, user, start, end, *, parts, kind, now, include_bilag, split_
         ("salg.csv", csv_sales(lines)),
         ("udgifter.csv", csv_expenses(expenses, cat_names, file_of)),
         ("gavekort.csv", _danish_excel(export_gavekort_ledger(user, db, start, end),
-                                       _GAVEKORT_HEADER)),
+                                       _GAVEKORT_HEADER, texts=(
+                                           ("(se MOMS-angivelsens PDF, afsnit D4)",
+                                            "(se oversigten (PDF), afsnittet Gavekort)"),))),
         ("moms-oversigt.csv", _danish_excel(export_moms_summary(user, db, start, end),
                                             _MOMS_HEADER)),
     ]

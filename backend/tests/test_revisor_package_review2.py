@@ -331,9 +331,11 @@ def test_M3_gavekort_points_carry_the_d4_note_and_never_point_at_the_angivelse(d
     readme = _zip(b).read("LAES-MIG.txt").decode()
     html = rp.package_email_html(biz="X", cvr=None, accountant_name=None, label="september 2026",
                                  build=b, url="https://x.test/p", expires=date(2026, 10, 26))
-    for doc in (_pdf_text(b.summary_pdf), readme, html):
+    gk_csv = _zip(b).read("gavekort.csv").decode("utf-8-sig")
+    for doc in (_pdf_text(b.summary_pdf), readme, html, gk_csv):
         assert "afsnit D4" not in doc or "samme punkter som momsangivelsens afsnit D4" in doc
-        assert "se momsangivelsen" not in doc
+        assert "se momsangivelsen" not in doc and "MOMS-angivelsens PDF" not in doc
+    assert "(se oversigten (PDF), afsnittet Gavekort)" in gk_csv
     b.close()
 
 
