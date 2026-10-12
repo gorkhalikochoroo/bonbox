@@ -70,3 +70,34 @@ def test_dedup_key_is_unique_per_owner_and_null_never_collides(tmp_path):
     db.rollback()
     assert uuid.UUID(str(u.id))
     eng.dispose()
+
+
+def test_split_and_fingerprint_columns_exist_everywhere_with_a_server_default(tmp_path):
+    """12 Oct review (M7/M8): parts_json, figures_json, figures_fp,
+    is_correction — in the model, the PG CREATE, a PG ALTER each, the SQLite
+    mirror; is_correction carries DEFAULT FALSE on every path (create_all on
+    a fresh Postgres gave it none: a raw INSERT failed NOT NULL on PG16)."""
+    import inspect
+    from app import main
+    stmts = [" ".join(s.split()) for s in main._migrations if isinstance(s, str)]
+    for col, typ in (("parts_json", "TEXT"), ("figures_json", "TEXT"), ("figures_fp", "VARCHAR(64)"),
+                     ("is_correction", "BOOLEAN NOT NULL DEFAULT FALSE")):
+        assert col in RevisorPackageSend.__table__.c
+        assert f"ALTER TABLE revisor_package_sends ADD COLUMN IF NOT EXISTS {col} {typ}" in stmts
+        assert f'_add("revisor_package_sends", "{col}"' in inspect.getsource(main._run_migrations)
+    assert RevisorPackageSend.__table__.c.is_correction.server_default is not None
+    from app.models.user import User
+    eng = create_engine(f"sqlite:///{tmp_path / 'raw.db'}")
+    Base.metadata.create_all(eng)
+    db = sessionmaker(bind=eng)()
+    u = User(email="x@y.dk", password_hash="x", business_name="X", currency="DKK")
+    db.add(u); db.commit()
+    uid = str(u.id)
+    db.close()
+    with eng.begin() as conn:      # a raw INSERT that does not name is_correction
+        conn.execute(text("INSERT INTO revisor_package_sends (id, user_id, period_kind, period_start, "
+                          "period_end, send_trigger, status, attempts, created_at) VALUES ('r1', :u, "
+                          "'month', '2026-09-01', '2026-09-30', 'manual', 'claimed', 1, CURRENT_TIMESTAMP)"),
+                     {"u": uid})
+        assert conn.execute(text("SELECT is_correction FROM revisor_package_sends")).scalar() in (0, False)
+    eng.dispose()

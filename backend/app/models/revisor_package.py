@@ -23,7 +23,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, false, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
@@ -74,4 +74,8 @@ class RevisorPackageSend(Base):
     figures_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     figures_fp: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     # This send replaced a sent package whose figures had changed (RETTELSE).
-    is_correction: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # server_default too: create_all on a fresh Postgres must give the column
+    # the same DEFAULT FALSE the ALTER gives an existing table (a raw INSERT
+    # without it failed NOT NULL on PG16).
+    is_correction: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False,
+                                                server_default=false())
