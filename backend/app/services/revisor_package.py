@@ -5,24 +5,31 @@ batch, and send their revisor a weekly or monthly package. This module builds
 that package for a period (week, month or a custom range) and is the one place
 that decides what is in it:
 
-  • Oversigt_<periode>.pdf  — a Danish summary: revenue per day, payment
-    methods, the MOMS summary (straight from compute_filing_data — the same
-    engine as the momsangivelse, never a second calculation), expenses by
-    category with their købsmoms (_calc_vat's own split), gift-card lines,
-    cash differences, and every open item listed plainly (days without a
-    close, closes not locked, expenses without a bilag, …);
-  • CSV files (UTF-8 with BOM, semicolon, decimal comma): revenue per day,
-    kasserapporter, salg, udgifter, fakturaer, the gift-card ledger and the
-    MOMS summary — built from the bookkeeping_export pieces;
-  • bilag/ — every receipt file, named YYYY-MM-DD_leverandør_beløb, with
-    bilag-oversigt.csv mapping each file to its expense;
-  • LÆS-MIG.txt and manifest.txt (SHA-256 of every file).
+  • Oversigt_<periode>.pdf  — a Danish summary: the open items first (days
+    without a close, closes not locked, expenses without a bilag, bilag that
+    could not be fetched, drafts, cash differences, §9 variances between the
+    kasserapport and the till sales, unreconciled bank lines, gavekort checks
+    in the momsangivelse's own words), the MOMS summary (straight from
+    compute_filing_data — the same engine as the momsangivelse, never a
+    second calculation), key figures, payment methods, expenses by category
+    with their købsmoms (_calc_vat's own split), gift-card lines, cash
+    differences and revenue per day;
+  • CSV files, all Danish Excel (UTF-8 with BOM, semicolon, decimal comma,
+    Danish headers): revenue per day, kasserapporter, salg (tied to the
+    revenue to the øre), udgifter, fakturaer, the gift-card ledger, the MOMS
+    summary and kørsel — the last four converted from bookkeeping_export;
+  • bilag/ — every receipt file, named YYYY-MM-DD_leverandør_beløb (photos
+    stored at 1600 px), with bilag-oversigt.csv mapping each file to its
+    expense;
+  • LAES-MIG.txt and manifest.txt (SHA-256 of every file).
 
 Delivered as a ZIP download (every tier — accountant-grade artifacts are the
 same at any tier) and, on plans with `accountant_month_end_bundle`, as an
 e-mail to the saved revisor: the summary PDF attached, the ZIP behind a signed
-link that works for 14 days. The e-mail lists open items honestly — a package
-is never dressed up as "ready" when it is not.
+link that works through the 14th day — numbered parts with a link each when a
+package is over the link cap. The e-mail lists open items honestly — a
+package is never dressed up as "ready" when it is not — and a package re-sent
+after its figures changed says RETTELSE and what changed.
 
 Demo data never leaves: a period holding sample rows under the owner's own
 identity is refused, as for every other revisor artifact.
@@ -64,8 +71,9 @@ logger = logging.getLogger(__name__)
 
 PACKAGE_LINK_TTL_DAYS = 14
 MAX_PERIOD_DAYS = 93
-# A stored ZIP above this is refused for the link (Supabase's per-object
-# ceiling is 50 MB); the owner can still download it from BonBox.
+# One stored ZIP (one link) stays under this — Supabase's per-object ceiling
+# is 50 MB. A sent package over it is split into numbered parts, one link
+# each (MAX_PARTS); the owner's own download is always one ZIP.
 MAX_LINK_ZIP_BYTES = 45 * 1024 * 1024
 
 SEND_ACTION = "revisor_package.sent"
@@ -215,19 +223,23 @@ def _sniff_ext(data: bytes) -> str:
     return "bin"
 
 
-def load_bilag(user_id, photo: str | None) -> tuple[bytes, str] | None:
+def load_bilag(user_id, photo: str | None, *, db: Session | None = None) -> tuple[bytes, str] | None:
     """The bytes of a stored bilag and their file extension, or None when the
-    file cannot be read (gone from local disk, storage down). Never raises.
+    file cannot be read (gone from local disk, storage down, not this
+    owner's). Never raises.
 
     Only the exact shapes services/receipt_ref accepts, and only this owner's
-    storage keys and local files (the inbox blob is reached through the
-    owner's own expense row). Nothing is ever fetched from a URL's host: a
+    storage keys, local files and inbox blobs (an inbox blob only when the
+    mail intake recorded it for this owner — that needs `db`; without it an
+    inbox blob is refused). Nothing is ever fetched from a URL's host: a
     signed URL is reduced to its storage key and read through our backend."""
-    from app.services.receipt_ref import parse_receipt_ref
+    from app.services.receipt_ref import inbox_blob_owned, parse_receipt_ref
     parsed = parse_receipt_ref(photo, user_id)
     if not parsed:
         return None
     kind, value = parsed
+    if kind == "inbox" and not inbox_blob_owned(db, user_id, value):
+        return None
     data: bytes | None = None
     try:
         if kind == "inbox":
@@ -410,6 +422,7 @@ def expenses_by_category(fd: dict, expenses: list[Expense], cat_names: dict) -> 
     """Category table: the MOMS base rows from _calc_vat (gross, fradrag %,
     købsmoms — they sum to moms_af_kob), plus the expenses marked momsfri,
     which carry no købsmoms. Counts from the rows themselves."""
+    from app.services.dk_fradrag import fradrag_reason
     counts: dict[str, int] = {}
     exempt: dict[str, float] = {}
     for e in expenses:
@@ -428,6 +441,7 @@ def expenses_by_category(fd: dict, expenses: list[Expense], cat_names: dict) -> 
             "gross": round(float(r.get("gross") or 0) + exempt.get(name, 0.0), 2),
             "exempt": round(exempt.get(name, 0.0), 2),
             "fradrag_pct": r.get("fradrag_pct"),
+            "reason": fradrag_reason(name),
             "input_vat": float(r.get("input_vat") or 0),
         })
     for name, amt in exempt.items():
@@ -436,7 +450,7 @@ def expenses_by_category(fd: dict, expenses: list[Expense], cat_names: dict) -> 
         out.append({
             "category": name or "Uden kategori", "count": counts.get(name, 0),
             "gross": round(amt, 2), "exempt": round(amt, 2),
-            "fradrag_pct": 0, "input_vat": 0.0,
+            "fradrag_pct": 0, "reason": fradrag_reason(name), "input_vat": 0.0,
         })
     out.sort(key=lambda r: (-r["gross"], r["category"]))
     return out
@@ -452,13 +466,20 @@ def _open_days(profile) -> set[int] | None:
 
 def build_checklist(db: Session, user: User, start: date, end: date, *,
                     now: datetime | None = None, fd: dict | None = None,
-                    closes: list | None = None, expenses: list | None = None) -> dict:
+                    closes: list | None = None, expenses: list | None = None,
+                    unreadable: list | None = None) -> dict:
     """The open items of a period — what a revisor would ask about.
 
     Every item: {key, count, applicable, link, rows, …}. `applicable: False`
     means the owner does not use that part of BonBox (no daily closes, no bank
     import) — not "all good". `open_count` counts the items with something
-    open. Each `link` is the screen where the item is fixed."""
+    open. Each `link` is the screen where the item is fixed.
+
+    `unreadable`: the expenses whose bilag the package build tried to read and
+    could not (the definitive list). Without it (Månedsafslutning, the
+    standalone summary PDF) only what is certain without downloading is
+    counted — a reference that is not this owner's, a local or forwarded
+    file that is gone — and `bilag_fetched` says the files were not read."""
     from app.services.kasserapport_claims import CASH_TOL
     if fd is None:
         from app.services.tax_filing_pdf import compute_filing_data
@@ -514,6 +535,19 @@ def build_checklist(db: Session, user: User, start: date, end: date, *,
         "rows": [{"id": str(e.id), "date": iso(e.date), "description": e.description,
                   "amount": float(e.amount or 0)} for e in no_bilag],
         "link": f"/expenses?bilag=missing&from={iso(start)}&to={iso(end)}",
+    })
+
+    # 3b. Bilag referenced but not fetchable — a forwarded receipt whose file
+    # is gone, a reference that is not this owner's, storage that failed.
+    # The revisor does not get that file, so it is an open item: the package
+    # never says "alle … har bilag" over a file it could not hand over.
+    fetched = unreadable is not None
+    bad = list(unreadable) if fetched else unreadable_without_download(db, user, expenses)
+    items.append({
+        "key": "bilag_unreadable", "count": len(bad), "applicable": True,
+        "rows": [{"id": str(e.id), "date": iso(e.date), "description": e.description,
+                  "amount": float(e.amount or 0)} for e in bad],
+        "link": f"/expenses?from={iso(start)}&to={iso(end)}",
     })
 
     # 4. Drafts in the Godkend-kø dated in the period — not in the MOMS yet.
@@ -574,15 +608,32 @@ def build_checklist(db: Session, user: User, start: date, end: date, *,
         "link": "/imports?tab=bank",
     })
 
-    # 7. Gift-card checks — the warnings the MOMS page and the momsangivelse
-    # (section D4) show, for THIS period.
-    gk = list(fd.get("gavekort_warnings") or [])
+    # 7. Kasserapport vs. the day's POS sales (Bogføringsloven §9 stk. 2) —
+    # compute_filing_data's variance_warnings, the momsangivelse's section D3.
+    vw = [w for w in (fd.get("variance_warnings") or []) if isinstance(w, dict)]
+    items.append({
+        "key": "sales_variance", "count": len(vw), "applicable": True,
+        "rows": [{"date": str(w.get("date") or ""), "close_revenue": w.get("close_revenue"),
+                  "sale_sum": w.get("sale_sum"), "delta": w.get("delta"),
+                  "delta_pct": w.get("delta_pct"), "direction": w.get("direction")} for w in vw],
+        "link": f"/daily-close?date={vw[0].get('date')}" if vw else "/daily-close",
+    })
+
+    # 8. Gift-card checks — the warnings the MOMS page and the momsangivelse
+    # (section D4) show, for THIS period, with the angivelse's own note.
+    from app.services.tax_filing_pdf import GAVEKORT_NOTES_DA, gavekort_warning_amount
+    gk = [w for w in (fd.get("gavekort_warnings") or []) if isinstance(w, dict)]
+
+    def _num(v):
+        return float(v) if isinstance(v, (int, float)) else None
+
     items.append({
         "key": "gavekort_checks", "count": len(gk), "applicable": True,
         "rows": [
             {"date": str(w.get("date") or ""), "status": w.get("status"),
-             "amount": w.get("amount") if isinstance(w.get("amount"), (int, float)) else None}
-            for w in gk if isinstance(w, dict)
+             "amount": _num(gavekort_warning_amount(w)),
+             "note_da": GAVEKORT_NOTES_DA.get(w.get("status", ""), w.get("status", ""))}
+            for w in gk
         ],
         "link": "/tax",
     })
@@ -594,41 +645,108 @@ def build_checklist(db: Session, user: User, start: date, end: date, *,
         "items": items,
         "open_count": len(open_items),
         "checked_until": iso(checked_until) if checked_until >= start else None,
+        # True when the bilag files were actually read (the package build);
+        # False: only references were checked (no download).
+        "bilag_fetched": fetched,
     }
 
 
+def unreadable_without_download(db: Session, user: User, expenses) -> list:
+    """Expenses whose bilag certainly cannot be handed over, found without
+    downloading anything: a reference that is not one of this owner's, a
+    local file or a forwarded (inbox) file that is gone or not recorded for
+    this owner. A storage key is not fetched here — the package build reads
+    it and reports what failed."""
+    from app.services.receipt_ref import inbox_blob_owned, parse_receipt_ref
+    out = []
+    base = Path.cwd()
+    for e in expenses:
+        if not _has_bilag(e):
+            continue
+        parsed = parse_receipt_ref(e.receipt_photo, user.id)
+        if not parsed:
+            out.append(e)
+            continue
+        kind, value = parsed
+        if kind == "storage":
+            continue
+        if kind == "inbox" and not inbox_blob_owned(db, user.id, value):
+            out.append(e)
+            continue
+        try:
+            if not (base / value).resolve().is_file():
+                out.append(e)
+        except OSError:
+            out.append(e)
+    return out
+
+
+def _short_day(d: date) -> str:
+    return f"{d.day}. {_DA_MONTHS_SHORT[d.month - 1]}"
+
+
+def _signed_kr(v) -> str:
+    v = float(v or 0)
+    return ("+" if v > 0 else "") + _kr(v)
+
+
 def open_item_lines(checklist: dict) -> list[str]:
-    """The open items as plain Danish lines — the summary PDF and the e-mail
-    both print exactly these."""
+    """The open items as plain Danish lines — the summary PDF, the e-mail and
+    LAES-MIG.txt all print exactly these."""
+    from app.services.tax_filing_pdf import VARIANCE_D3_INTRO_DA
     lines = []
     for it in checklist.get("items") or []:
         if not it.get("applicable") or not it.get("count"):
             continue
         n = it["count"]
-        dates = [date.fromisoformat(r["date"]) for r in it.get("rows") or [] if r.get("date")]
+        rows = it.get("rows") or []
+        dates = [date.fromisoformat(r["date"]) for r in rows if r.get("date")]
         k = it["key"]
         if k == "closes_missing":
-            lines.append(f"{n} {'dag' if n == 1 else 'dage'} uden dagsafslutning: {_short_dates(dates)}")
+            # Without opening days set, every calendar day is counted —
+            # days the business was closed included. Say so (minor 17).
+            qual = ("" if it.get("open_days_configured")
+                    else " (åbningsdage er ikke angivet i BonBox, så lukkedage tælles med)")
+            lines.append(f"{n} {'dag' if n == 1 else 'dage'} uden dagsafslutning{qual}: "
+                         f"{_short_dates(dates)}")
         elif k == "closes_unlocked":
             lines.append(f"{n} {'dagsafslutning er' if n == 1 else 'dagsafslutninger er'} ikke låst "
                          f"(ikke medregnet): {_short_dates(dates)}")
         elif k == "bilag_missing":
             lines.append(f"{n} {'udgift mangler' if n == 1 else 'udgifter mangler'} bilag "
                          f"({_kr(it.get('amount'))})")
+        elif k == "bilag_unreadable":
+            parts = [f"{_short_day(date.fromisoformat(r['date']))} {r.get('description') or ''} "
+                     f"({_kr(r.get('amount'))})".replace("  ", " ") for r in rows[:6]]
+            lines.append(f"{n} bilag kunne ikke hentes og er ikke med: {', '.join(parts)}"
+                         + (" …" if n > 6 else ""))
         elif k == "drafts_pending":
             lines.append(f"{n} {'udgift venter' if n == 1 else 'udgifter venter'} på godkendelse "
                          "og er ikke med i tallene")
         elif k == "cash_differences":
-            parts = [f"{d.day}. {_DA_MONTHS_SHORT[d.month - 1]} ({_kr(r['difference'])})"
-                     for d, r in zip(dates, it["rows"])][:6]
+            parts = [f"{_short_day(d)} ({_kr(r['difference'])})"
+                     for d, r in zip(dates, rows)][:6]
             lines.append(f"{n} {'kassedifference' if n == 1 else 'kassedifferencer'} over "
                          f"{_kr(it.get('threshold'))}: {', '.join(parts)}"
                          + (" …" if n > 6 else ""))
+        elif k == "sales_variance":
+            # The momsangivelse's D3 sentence, then its columns per date.
+            parts = [f"{_short_day(date.fromisoformat(r['date']))}: kasserapport "
+                     f"{_kr(r.get('close_revenue'))}, POS-salg {_kr(r.get('sale_sum'))}, forskel "
+                     f"{_signed_kr(r.get('delta'))} ("
+                     + f"{float(r.get('delta_pct') or 0):.1f}".replace(".", ",") + " %)"
+                     for r in rows[:6]]
+            lines.append(f"{VARIANCE_D3_INTRO_DA} (Bogføringsloven §9 stk. 2) "
+                         + "; ".join(parts) + (" …" if n > 6 else ""))
         elif k == "bank_unmatched":
             lines.append(f"{n} {'bankpost' if n == 1 else 'bankposter'} fra bankimporten er ikke afstemt")
         elif k == "gavekort_checks":
-            lines.append(f"{n} {'gavekort-punkt' if n == 1 else 'gavekort-punkter'} at tjekke "
-                         "(se momsangivelsen, afsnit D4)")
+            # The momsangivelse's D4 note per check — the angivelse itself is
+            # not in the package, so the line carries the reason.
+            parts = [f"{_short_day(date.fromisoformat(r['date']))} {_kr(r.get('amount'))} — "
+                     f"{r.get('note_da') or r.get('status') or ''}" for r in rows[:6] if r.get("date")]
+            lines.append(f"{n} {'gavekort-punkt' if n == 1 else 'gavekort-punkter'} at tjekke: "
+                         + "; ".join(parts) + (" …" if n > 6 else ""))
     return lines
 
 
@@ -659,6 +777,9 @@ def checklist_status(checklist: dict) -> dict:
                      if checked else "Perioden er ikke slut — ingen dage er kontrolleret endnu.")
     if not closes_on:
         notes.append("Der føres ikke dagsafslutninger i BonBox, så manglende dage er ikke kontrolleret.")
+    if checklist.get("bilag_fetched") is False:
+        notes.append("Bilagsfilerne er ikke hentet i denne oversigt — det sker, når pakken (ZIP) "
+                     "laves, og den viser, om de alle kan hentes.")
 
     lines = open_item_lines(checklist)
     if lines:
@@ -674,6 +795,11 @@ def checklist_status(checklist: dict) -> dict:
 
 
 # ─── CSV files ───────────────────────────────────────────────────────────
+#
+# EVERY CSV in the package is Danish Excel: UTF-8 with BOM, semicolon,
+# decimal comma, Danish headers — the files BonBox writes itself and the
+# ones it takes from the bookkeeping export (gavekort, moms-oversigt,
+# fakturaer, kørsel), which are converted (_danish_excel). LAES-MIG says so.
 
 def _csv(rows: list[list], header: list[str]) -> bytes:
     buf = io.StringIO()
@@ -681,10 +807,57 @@ def _csv(rows: list[list], header: list[str]) -> bytes:
     w.writerow(header)
     for r in rows:
         w.writerow(r)
-    return ("﻿" + buf.getvalue()).encode("utf-8")
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
+
+_DOT_NUMBER = re.compile(r"^-?\d+\.\d+$")
+
+
+def _danish_excel(raw: bytes, header: list[str], values: dict | None = None) -> bytes:
+    """A comma / decimal-point CSV from the bookkeeping export, re-written
+    the Danish-Excel way: same rows and figures (the exporter stays the one
+    source), semicolons, decimal comma, Danish header and words."""
+    rows = list(csv.reader(io.StringIO(raw.decode("utf-8-sig"))))
+    out = []
+    for r in rows[1:]:
+        cells = []
+        for c in r:
+            if _DOT_NUMBER.match(c):
+                c = c.replace(".", ",")
+            elif values and c in values:
+                c = values[c]
+            cells.append(c)
+        out.append(cells)
+    if rows and len(rows[0]) != len(header):
+        raise ValueError("danish_excel header length")
+    return _csv(out, header)
+
+
+_FAKTURA_HEADER = ["Fakturanr.", "Fakturadato", "Forfaldsdato", "Leveringsdato", "Kunde", "CVR",
+                   "Land", "EAN", "Beløb ekskl. moms", "Moms", "Beløb inkl. moms", "Valuta",
+                   "Status", "Betalt dato", "Type"]
+_FAKTURA_VALUES = {"draft": "Kladde", "sent": "Sendt", "paid": "Betalt", "overdue": "Forfalden",
+                   "credited": "Krediteret", "cancelled": "Annulleret"}
+_GAVEKORT_HEADER = ["Dato", "Gavekort", "Hændelse", "Type", "Betalt med", "Online-bestilling",
+                    "Beløb", "MOMS-behandling", "MOMS ved salget", "Valuta"]
+_MOMS_HEADER = ["Periode start", "Periode slut", "Momssats", "Salg inkl. moms", "Moms af salg",
+                "Køb inkl. moms", "Moms af køb", "Netto moms (positiv = skyldig)", "Valuta"]
+_KOERSEL_HEADER = ["Dato", "Fra", "Til", "Km", "Formål", "Reg.nr.", "Sats (kr./km)",
+                   "Fradrag", "Valuta"]
 
 
 _SOURCE_DA = {"close": "Låst dagsafslutning", "sales": "Salg", "none": "—"}
+
+
+def day_source_da(r: dict) -> str:
+    """The 'Kilde' of one day. A day whose close is a draft is counted from
+    its sales when it has any — and says so (it used to say "ikke
+    medregnet" beside sales that WERE counted)."""
+    if r["draft"]:
+        if r["source"] == "sales":
+            return "Salg — dagsafslutningen er en kladde og er ikke medregnet"
+        return "Kladde — ikke låst, ikke medregnet"
+    return _SOURCE_DA[r["source"]]
 
 
 def csv_revenue_by_day(days: list[dict], closes) -> bytes:
@@ -694,12 +867,9 @@ def csv_revenue_by_day(days: list[dict], closes) -> bytes:
             cash[c.date] = cash.get(c.date, 0.0) + float(c.cash_difference)
     rows = []
     for r in days:
-        src = _SOURCE_DA[r["source"]]
-        if r["draft"]:
-            src = "Kladde — ikke låst, ikke medregnet"
         rows.append([
             r["date"].isoformat(), _DA_DAYS[r["date"].weekday()],
-            _dk_num(r["amount"]), src,
+            _dk_num(r["amount"]), day_source_da(r),
             _dk_num(cash[r["date"]]) if r["date"] in cash else "",
         ])
     rows.append(["I alt", "", _dk_num(sum(r["amount"] for r in days)), "", ""])
@@ -714,40 +884,107 @@ def _pay_da(method: str | None) -> str:
     return csv_safe(payment_method_label(method, danish=True))
 
 
-def csv_sales(user: User, db: Session, start: date, end: date) -> bytes:
-    from app.services.bookkeeping_export import _query_sales
-    rows = []
-    for s in _query_sales(user, db, start, end):
-        vn = getattr(s, "voucher_number", None)
-        bilag = getattr(s, "bilag", None) or (f"S-{s.date.year}-{vn:04d}" if vn else "")
-        text = getattr(s, "item_name", None) or getattr(s, "notes", None) or "Salg"
-        rows.append([
-            s.date.isoformat(), bilag, csv_safe(str(text)[:120]), _dk_num(s.amount),
-            "0 %" if getattr(s, "is_tax_exempt", False) else "25 %",
-            _pay_da(getattr(s, "payment_method", None)),
-        ])
-    return _csv(rows, ["Dato", "Bilag", "Tekst", "Beløb inkl. moms", "Moms", "Betaling"])
+def sales_lines(db: Session, user: User, start: date, end: date, days: list[dict],
+                closes, branch_names: dict | None = None) -> list[list]:
+    """The revenue lines behind omsaetning-pr-dag, day by day, with exactly
+    its rule (and the MOMS engine's): a day with locked closes → one line per
+    close (split into the 25 % and the momsfri part the close's own moms
+    gives); any other day → its completed till sales that are not a
+    faktura's payment. So salg.csv sums to the package's revenue to the øre.
+
+    Not here, as in the revenue and the moms: a faktura's payment (the
+    faktura is in fakturaer.csv), returned and exchanged sales (only
+    'completed' sales count), deleted rows, and the sales of a day whose
+    close is locked (the close is that day's figure)."""
+    from app.services.bookkeeping_export import _MOMS_ROUNDING_KR
+    by_day: dict[date, list] = {}
+    for c in closes:
+        if _is_confirmed(c):
+            by_day.setdefault(c.date, []).append(c)
+    sale_days = [r["date"] for r in days if r["source"] == "sales"]
+    sales_by_day: dict[date, list] = {}
+    if sale_days:
+        for s_ in (
+            db.query(Sale)
+            .filter(Sale.user_id == user.id, Sale.date.in_(sale_days),
+                    Sale.is_deleted.isnot(True), Sale.status == "completed",
+                    Sale.invoice_id.is_(None))
+            .order_by(Sale.date.asc(), Sale.created_at.asc())
+            .all()
+        ):
+            sales_by_day.setdefault(s_.date, []).append(s_)
+    out: list[list] = []
+    for r in days:
+        d = r["date"]
+        if r["source"] == "close":
+            for i, c in enumerate(by_day.get(d, []), start=1):
+                gross = float(c.revenue_total or 0)
+                moms = float(c.moms_total) if c.moms_total is not None else None
+                taxed = gross if moms is None else min(gross, round(moms / 0.2, 2))
+                exempt = round(gross - taxed, 2)
+                if exempt <= _MOMS_ROUNDING_KR:
+                    taxed, exempt = gross, 0.0
+                ref = f"K-{d.isoformat()}" + (f"-{i}" if i > 1 else "")
+                text = f"Kasserapport {d.isoformat()}"
+                bname = (branch_names or {}).get(str(c.branch_id)) if c.branch_id else None
+                if bname:
+                    text += f" · {bname}"
+                if abs(taxed) > 0.004 or not exempt:
+                    out.append([d.isoformat(), ref, csv_safe(text), _dk_num(taxed), "25 %", ""])
+                if abs(exempt) > 0.004:
+                    out.append([d.isoformat(), ref, csv_safe(text + " (momsfri)"),
+                                _dk_num(exempt), "0 %", ""])
+        elif r["source"] == "sales":
+            for s_ in sales_by_day.get(d, []):
+                vn = getattr(s_, "voucher_number", None)
+                text = s_.item_name or s_.notes or "Salg"
+                out.append([
+                    d.isoformat(), f"S-{d.year}-{vn:04d}" if vn else "",
+                    csv_safe(str(text)[:120]), _dk_num(s_.amount),
+                    "0 %" if s_.is_tax_exempt else "25 %", _pay_da(s_.payment_method),
+                ])
+    return out
+
+
+def csv_sales(lines: list[list]) -> bytes:
+    return _csv(lines, ["Dato", "Bilag", "Tekst", "Beløb inkl. moms", "Moms", "Betaling"])
+
+
+def _moms_label(e: Expense, cat: str) -> str:
+    """udgifter.csv 'Moms': what the revisor needs to know about the
+    købsmoms of the row. Løn, pension, forsikring carry no moms at all — they
+    are never "25 % — 0 % fradrag" (minor 3)."""
+    from app.services.dk_fradrag import fradrag_reason
+    if e.is_tax_exempt:
+        return "Momsfri"
+    reason = fradrag_reason(cat)
+    if reason == "no_vat":
+        return "Ingen moms (løn/forsikring)"
+    if reason == "no_purchase":
+        return "Ikke et køb (svind) — ingen fradrag"
+    if reason == "s42_zero":
+        return "25 % — 0 % fradrag (§42 stk. 1)"
+    if reason == "s42_quarter":
+        return "25 % — 25 % fradrag (§42 stk. 2)"
+    return "25 %"
+
+
+UNREADABLE_DA = "ÅBENT PUNKT: kunne ikke hentes — se bilaget i BonBox"
 
 
 def csv_expenses(expenses: list[Expense], cat_names: dict, files: dict) -> bytes:
-    from app.services.dk_fradrag import fradrag_factor
     rows = []
     for e in expenses:
         cat = cat_names.get(e.category_id, "") or ""
         vn = e.voucher_number
-        if e.is_tax_exempt:
-            moms = "Momsfri"
-        else:
-            pct = int(round(fradrag_factor(cat) * 100))
-            moms = "25 %" if pct == 100 else f"25 % — {pct} % fradrag"
         status = files.get(e.id)
         rows.append([
             e.date.isoformat(), f"E-{e.date.year}-{vn:04d}" if vn else "",
             csv_safe((e.description or "")[:120]), csv_safe(cat), _dk_num(e.amount),
-            _pay_da(e.payment_method), moms,
-            status or ("MANGLER" if not _has_bilag(e) else "kunne ikke hentes"),
+            _pay_da(e.payment_method), _moms_label(e, cat),
+            status or ("MANGLER" if not _has_bilag(e) else UNREADABLE_DA),
             e.currency or "", _dk_num(e.original_amount) if e.original_amount is not None else "",
-            f"{float(e.fx_rate):.6f}" if e.fx_rate is not None else "",
+            f"{float(e.fx_rate):.6f}".replace(".", ",") if e.fx_rate is not None else "",
         ])
     return _csv(rows, ["Dato", "Bilagsnr.", "Tekst", "Kategori", "Beløb inkl. moms",
                        "Betaling", "Moms", "Bilagsfil", "Original valuta",
@@ -759,10 +996,17 @@ def csv_expenses(expenses: list[Expense], cat_names: dict, files: dict) -> bytes
 def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
                       fd: dict, checklist: dict, days: list[dict], payments: list[dict],
                       categories: list[dict], closes, n_bilag: int, n_expenses: int,
-                      n_bilag_unreadable: int = 0,
-                      generated_at: datetime, doc_number: str, sample: bool = False) -> bytes:
+                      n_bilag_unreadable: int | None = 0,
+                      generated_at: datetime, doc_number: str, sample: bool = False,
+                      correction: dict | None = None, n_parts: int = 1,
+                      gavekort_counter_sold: float = 0.0) -> bytes:
     """Page 1 is the answer a revisor wants first: the figures and what is
-    open. Then the detail: revenue per day, categories, gift cards, cash."""
+    open. Then the detail: revenue per day, categories, gift cards, cash.
+
+    `n_bilag_unreadable` None = the standalone summary, which reads no bilag
+    files: it prints no "kunne ikke hentes" figure (it would be a guess).
+    `correction` (a corrected package): {"replaces": date, "changes": [...]}
+    — labelled RETTELSE on the page and in the running header."""
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_RIGHT
     from reportlab.lib.pagesizes import A4
@@ -828,7 +1072,8 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
     def story():
         s = []
         head = Table([[
-            [Paragraph("REVISORPAKKE · EKSEMPELDATA" if sample else "REVISORPAKKE", eyebrow),
+            [Paragraph("REVISORPAKKE · EKSEMPELDATA" if sample else
+                       ("REVISORPAKKE · RETTELSE" if correction else "REVISORPAKKE"), eyebrow),
              Paragraph(escape_pdf_text(biz), h1),
              Paragraph(escape_pdf_text(" · ".join(x for x in (
                  f"CVR {cvr}" if cvr else "", addr) if x)), small)],
@@ -844,6 +1089,21 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
                                   ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
         s.append(head)
         s.append(Spacer(1, 4 * mm))
+
+        # ── A corrected package says so first, and what changed ──
+        if correction:
+            crows = [[Paragraph(escape_pdf_text(correction_title(correction)), ParagraphStyle(
+                "CT", parent=body, fontName="Helvetica-Bold", textColor=AMBER))]]
+            crows += [[Paragraph("• " + escape_pdf_text(x), body)]
+                      for x in correction_lines(correction)]
+            cbox = Table(crows, colWidths=[W])
+            cbox.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), AMBER_BG),
+                                      ("BOX", (0, 0), (-1, -1), 0.6, AMBER),
+                                      ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                                      ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+                                      ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5)]))
+            s.append(cbox)
+            s.append(Spacer(1, 3 * mm))
 
         # ── Status: what is open (or that nothing is) — checklist_status,
         # the same sentences the e-mail and LAES-MIG.txt print ──
@@ -893,6 +1153,8 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
              P(_kr(sum(c["gross"] for c in categories)), cell_r)],
             [P("Udgifter med bilag"), P(f"{n_bilag} af {n_expenses}", cell_r)],
         ]
+        # Only where the files were read (the package). The standalone
+        # summary reads none and must not guess (12 Oct review B1).
         if n_bilag_unreadable:
             kt.append([P("— heraf bilag, der ikke kunne hentes (se bilag-oversigt.csv)"),
                        P(str(n_bilag_unreadable), cell_r)])
@@ -907,18 +1169,29 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
             unsplit = round(rev_total - pay_total, 2)
             if abs(unsplit) >= 0.5:
                 pt.append([P("Omsætning uden fordeling på betalingsmåde" if unsplit > 0
-                             else "Betalinger over omsætningen"), P(_kr(unsplit), cell_r)])
+                             else "Betalinger over omsætningen (se note)"), P(_kr(unsplit), cell_r)])
             pt.append([P("I alt", cell_b), P(_kr(pay_total + (unsplit if abs(unsplit) >= 0.5 else 0)), cell_br)])
             s.append(grid(pt, [W * 0.7, W * 0.3], total_row=True))
+            if unsplit <= -0.5:
+                # Payments over revenue: the till took money that is not
+                # revenue — typically gavekort sold at the counter (a card
+                # sale is not a sale of goods; its MOMS, if any, is in the
+                # gavekort lines). Say what BonBox can see (minor 15).
+                gk_txt = (f" Gavekort solgt ved kassen i perioden: {_kr(gavekort_counter_sold)}."
+                          if gavekort_counter_sold else "")
+                s.append(Paragraph(escape_pdf_text(
+                    "Note: Betalingerne er højere end omsætningen, når kassen har modtaget penge, "
+                    "der ikke er omsætning — typisk gavekort solgt ved kassen (et gavekort er "
+                    "ikke et salg af varer; momsen af enkeltformålskort står under Gavekort)."
+                    + gk_txt), small))
 
         # ── Expenses by category with købsmoms ──
         s.append(Paragraph("UDGIFTER PR. KATEGORI MED KØBSMOMS", sect))
         ct = [[P("Kategori", cell_b), P("Antal", cell_br), P("Beløb inkl. moms", cell_br),
                P("Fradrag", cell_br), P("Købsmoms", cell_br)]]
         for c in categories:
-            frad = "momsfri" if c["gross"] == c["exempt"] else f"{c['fradrag_pct']} %"
             ct.append([P(c["category"]), P(str(c["count"]), cell_r), P(_kr(c["gross"]), cell_r),
-                       P(frad, cell_r), P(_kr(c["input_vat"]), cell_r)])
+                       P(fradrag_label(c), cell_r), P(_kr(c["input_vat"]), cell_r)])
         ct.append([P("I alt", cell_b), P(str(sum(c["count"] for c in categories)), cell_br),
                    P(_kr(sum(c["gross"] for c in categories)), cell_br), P("", cell_r),
                    P(_kr(fd["moms_af_kob"]), cell_br)])
@@ -938,10 +1211,36 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
              P(_kr(fd.get("gavekort_moms_netto") or 0), cell_br)],
         ]
         s.append(grid(gt, [W * 0.56, W * 0.22, W * 0.22], total_row=True))
-        n_gk = len(fd.get("gavekort_warnings") or [])
-        s.append(Paragraph(escape_pdf_text(
-            f"{n_gk} punkt(er) at tjekke — se momsangivelsen, afsnit D4." if n_gk
-            else "Ingen gavekort-punkter at tjekke."), small))
+        # The momsangivelse is not in the package: its D4 checks are printed
+        # here, in its own words (12 Oct review M3).
+        gk_item = next((i for i in checklist["items"] if i["key"] == "gavekort_checks"), None)
+        if gk_item and gk_item["count"]:
+            from app.services.tax_filing_pdf import GAVEKORT_D4_INTRO_DA
+            s.append(Paragraph(escape_pdf_text(
+                "Gavekort at tjekke (samme punkter som momsangivelsens afsnit D4). "
+                + GAVEKORT_D4_INTRO_DA), small))
+            gkt = [[P("Dato", cell_b), P("Gavekort", cell_br), P("Bemærkning", cell_b)]]
+            for r in gk_item["rows"]:
+                gkt.append([P(dk_date(date.fromisoformat(r["date"])) if r.get("date") else ""),
+                            P(_kr(r.get("amount") or 0), cell_r), P(r.get("note_da") or "")])
+            s.append(grid(gkt, [W * 0.24, W * 0.2, W * 0.56]))
+        else:
+            s.append(Paragraph("Ingen gavekort-punkter at tjekke.", small))
+
+        # ── Kasserapport vs. POS sales (§9 stk. 2) — the angivelse's D3 ──
+        var_item = next((i for i in checklist["items"] if i["key"] == "sales_variance"), None)
+        if var_item and var_item["count"]:
+            from app.services.tax_filing_pdf import VARIANCE_D3_INTRO_DA
+            s.append(Paragraph("KASSERAPPORT OG POS-SALG (BOGFØRINGSLOVEN §9 STK. 2)", sect))
+            s.append(Paragraph(escape_pdf_text(VARIANCE_D3_INTRO_DA), small))
+            vt = [[P("Dato", cell_b), P("Kasserapport", cell_br), P("POS-salg", cell_br),
+                   P("Forskel", cell_br)]]
+            for r in var_item["rows"]:
+                pct = f"{float(r.get('delta_pct') or 0):.1f}".replace(".", ",")
+                vt.append([P(dk_date(date.fromisoformat(r["date"]))),
+                           P(_kr(r.get("close_revenue")), cell_r), P(_kr(r.get("sale_sum")), cell_r),
+                           P(f"{_signed_kr(r.get('delta'))} ({pct} %)", cell_r)])
+            s.append(grid(vt, [W * 0.25, W * 0.25, W * 0.25, W * 0.25]))
 
         # ── Cash differences ──
         confirmed = [c for c in closes if _is_confirmed(c)]
@@ -968,9 +1267,9 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
         s.append(Paragraph("OMSÆTNING PR. DAG", sect))
         dt = [[P("Dato", cell_b), P("Kilde", cell_b), P("Omsætning inkl. moms", cell_br)]]
         for r in days:
-            src = "Kladde — ikke låst" if r["draft"] else _SOURCE_DA[r["source"]]
             dt.append([P(f"{_DA_DAYS[r['date'].weekday()][:3]}. {dk_date(r['date'])}"),
-                       P(src), P(_kr(r["amount"]) if r["source"] != "none" else "—", cell_r)])
+                       P(day_source_da(r)),
+                       P(_kr(r["amount"]) if r["source"] != "none" else "—", cell_r)])
         dt.append([P("I alt", cell_b), P("", cell), P(_kr(rev_total), cell_br)])
         s.append(grid(dt, [W * 0.4, W * 0.32, W * 0.28], total_row=True))
 
@@ -987,10 +1286,13 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
             s.append(grid(mt, [W * 0.25, W * 0.5, W * 0.25]))
 
         s.append(Spacer(1, 4 * mm))
+        parts_txt = (f" Pakken er delt i {n_parts} ZIP-filer (del 1 har denne oversigt, alle "
+                     "CSV-filer og de første bilag)." if n_parts > 1 else "")
         s.append(KeepTogether([Paragraph(escape_pdf_text(
             "Pakken indeholder også CSV-filer (omsætning pr. dag, dagsafslutninger, salg, udgifter, "
-            "gavekort og momsoversigt) og alle bilag under bilag/ med bilag-oversigt.csv. "
-            "manifest.txt har SHA-256 for hver fil."), small)]))
+            "gavekort og momsoversigt — alle i dansk Excel-format: semikolon og decimalkomma) og "
+            "alle bilag under bilag/ med bilag-oversigt.csv. manifest.txt har SHA-256 for hver fil."
+            + parts_txt), small)]))
         return s
 
     gen_str = generated_at.strftime("%d.%m.%Y %H:%M") + " UTC"
@@ -1000,7 +1302,8 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
         software_id=get_software_identifier(), generated_at_str=gen_str,
         generator_email=getattr(user, "email", "") or "",
         is_danish=True,
-        running_header=f"{biz} · Revisorpakke {label} · {doc_number}",
+        running_header=(f"{biz} · Revisorpakke {label}"
+                        + (" · RETTELSE" if correction else "") + f" · {doc_number}"),
         running_header_page_no=True,
         footer_note="Opbevares i 5 år efter bogføringsloven.",
     )
@@ -1008,17 +1311,29 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
 
 # ─── The package ─────────────────────────────────────────────────────────
 
-# The ZIP is written to a spooled temp file: in memory up to this size, on
+# Every ZIP is written to a spooled temp file: in memory up to this size, on
 # disk beyond it. One bilag is in memory at a time — a 93-day period with
 # hundreds of photos never holds all of them (or the ZIP twice) in RAM.
 _SPOOL_BYTES = 8 * 1024 * 1024
+# A sent package over the link cap is split into numbered parts (one link
+# each). Part 1 keeps room for the summary PDF and every CSV.
+_PART1_RESERVE = 3 * 1024 * 1024
+_PART_RESERVE = 64 * 1024
+MAX_PARTS = 20
+
+
+@dataclass
+class ZipPart:
+    file: Any                     # SpooledTemporaryFile holding this ZIP
+    size: int
+    sha256: str
+    n_bilag: int
+    name: str
 
 
 @dataclass
 class PackageBuild:
-    zip_file: Any                 # SpooledTemporaryFile holding the ZIP
-    zip_size: int
-    zip_sha256: str
+    parts: list[ZipPart]
     summary_pdf: bytes
     zip_filename: str
     pdf_filename: str
@@ -1029,17 +1344,43 @@ class PackageBuild:
     n_expenses: int
     n_bilag: int
     n_bilag_unreadable: int
+    figures: dict = field(default_factory=dict)
+    figures_fp: str = ""
+    correction: dict | None = None
+    sales_csv_total: float = 0.0
+    n_reencoded: int = 0
     files: list[tuple[str, int, str]] = field(default_factory=list)
+
+    # Part 1 — the whole package when it was not split (every download).
+    @property
+    def zip_file(self):
+        return self.parts[0].file
+
+    @property
+    def zip_size(self) -> int:
+        return self.parts[0].size
+
+    @property
+    def zip_sha256(self) -> str:
+        return self.parts[0].sha256
+
+    @property
+    def total_size(self) -> int:
+        return sum(pt.size for pt in self.parts)
 
     @property
     def zip_bytes(self) -> bytes:
-        """The whole ZIP in memory — only where it has to be: the storage
-        upload of a send (capped at MAX_LINK_ZIP_BYTES before it gets here)."""
-        self.zip_file.seek(0)
-        return self.zip_file.read()
+        """Part 1 in memory — only where it has to be: the storage upload of
+        a send (each part is under MAX_LINK_ZIP_BYTES)."""
+        return self.part_bytes(0)
+
+    def part_bytes(self, i: int) -> bytes:
+        f = self.parts[i].file
+        f.seek(0)
+        return f.read()
 
     def iter_zip(self, chunk: int = 1024 * 1024):
-        """The ZIP in chunks — the download streams it."""
+        """Part 1 in chunks — the download streams it."""
         self.zip_file.seek(0)
         while True:
             block = self.zip_file.read(chunk)
@@ -1048,10 +1389,11 @@ class PackageBuild:
             yield block
 
     def close(self) -> None:
-        try:
-            self.zip_file.close()
-        except Exception:  # noqa: BLE001
-            pass
+        for pt in self.parts:
+            try:
+                pt.file.close()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def doc_number_for(start: date, end: date) -> str:
@@ -1064,16 +1406,177 @@ def _safe_name(value: str) -> str:
     return safe_name_part(value).replace(" ", "_")
 
 
+# ─── Bilag for the package: legible, and small enough to send ────────────
+#
+# A phone photo of a receipt is 3–5 MB; 150 of them make a month no link can
+# carry. In the package a photo is stored at 1600 px on the long edge as a
+# JPEG at quality 75 — a receipt's smallest print stays readable (proven in
+# tests/test_revisor_package_m8.py) at a tenth of the size. The original stays
+# in BonBox; PDFs and small images are untouched.
+BILAG_LONG_EDGE = 1600
+BILAG_JPEG_QUALITY = 75
+_REENCODE_FROM_BYTES = 400 * 1024
+
+
+def reencode_for_package(data: bytes, ext: str) -> tuple[bytes, str, bool]:
+    """(bytes, ext, re-encoded?) for one bilag. Never raises; when in doubt
+    the original goes in."""
+    if ext not in ("jpg", "png", "webp", "heic"):
+        return data, ext, False
+    try:
+        from PIL import Image, ImageOps
+        try:
+            import pillow_heif  # noqa: F401 — HEIC support when installed
+            pillow_heif.register_heif_opener()
+        except Exception:  # noqa: BLE001
+            pass
+        with Image.open(io.BytesIO(data)) as im:
+            w, h = im.size
+            if len(data) < _REENCODE_FROM_BYTES and max(w, h) <= BILAG_LONG_EDGE and ext in ("jpg", "png"):
+                return data, ext, False
+            im = ImageOps.exif_transpose(im)
+            if max(im.size) > BILAG_LONG_EDGE:
+                im.thumbnail((BILAG_LONG_EDGE, BILAG_LONG_EDGE), Image.LANCZOS)
+            if im.mode not in ("RGB", "L"):
+                bg = Image.new("RGB", im.size, (255, 255, 255))
+                rgba = im.convert("RGBA")
+                bg.paste(rgba, mask=rgba.split()[-1])
+                im = bg
+            out = io.BytesIO()
+            im.save(out, "JPEG", quality=BILAG_JPEG_QUALITY, optimize=True, progressive=True)
+        small = out.getvalue()
+        if len(small) >= len(data) and ext in ("jpg", "png"):
+            return data, ext, False
+        return small, "jpg", True
+    except Exception:  # noqa: BLE001 — a file Pillow cannot read goes in as it is
+        return data, ext, False
+
+
+def supplier_names(db: Session, user: User, expenses) -> dict:
+    """{vendor_key: the owner's own name for the supplier} — what a bilag
+    file is named after (minor 16), when BonBox knows the supplier."""
+    keys = {e.vendor_key for e in expenses if getattr(e, "vendor_key", None)}
+    if not keys:
+        return {}
+    try:
+        from app.models.vendor_profile import VendorProfile
+        rows = (db.query(VendorProfile.vendor_key, VendorProfile.display_name)
+                .filter(VendorProfile.user_id == user.id, VendorProfile.vendor_key.in_(list(keys)),
+                        VendorProfile.display_name.isnot(None))
+                .all())
+    except Exception:  # noqa: BLE001
+        return {}
+    out: dict = {}
+    for k, name in rows:
+        if name and str(name).strip() and k not in out:
+            out[k] = str(name).strip()
+    return out
+
+
+def bilag_label(e: Expense, cat: str, suppliers: dict) -> str:
+    """Supplier when BonBox knows it, else the expense's text, else the
+    category: 2026-10-03_Hoerkram_2345,67.jpg."""
+    if getattr(e, "vendor_key", None):
+        name = suppliers.get(e.vendor_key)
+        if name:
+            return name
+    return e.description or cat
+
+
+# ─── What was sent: the figures, and whether they changed afterwards ─────
+
+FIGURE_LABELS_DA = {
+    "salg_med_moms": "Salg med moms",
+    "salg_uden_moms": "Salg uden moms",
+    "moms_af_salg": "Salgsmoms",
+    "kob_med_moms": "Køb med købsmoms",
+    "moms_af_kob": "Købsmoms",
+    "moms_til_skat": "Moms til betaling",
+    "omsaetning": "Omsætning inkl. moms",
+    "udgifter": "Bogførte udgifter",
+    "antal_udgifter": "Antal bogførte udgifter",
+    "udgifter_med_bilag": "Udgifter med bilag",
+}
+_COUNT_FIGURES = {"antal_udgifter", "udgifter_med_bilag"}
+
+
+def package_figures(fd: dict, days: list[dict], expenses) -> dict:
+    """The figures a package states — fingerprinted on the send row, so a
+    change after the send shows (M7)."""
+    return {
+        "salg_med_moms": round(float(fd.get("salg_med_moms") or 0), 2),
+        "salg_uden_moms": round(float(fd.get("salg_uden_moms") or 0), 2),
+        "moms_af_salg": round(float(fd.get("moms_af_salg") or 0), 2),
+        "kob_med_moms": round(float(fd.get("kob_med_moms") or 0), 2),
+        "moms_af_kob": round(float(fd.get("moms_af_kob") or 0), 2),
+        "moms_til_skat": round(float(fd.get("moms_til_skat") or 0), 2),
+        "omsaetning": round(sum(float(r["amount"]) for r in days), 2),
+        "udgifter": round(sum(float(e.amount or 0) for e in expenses), 2),
+        "antal_udgifter": len(expenses),
+        "udgifter_med_bilag": sum(1 for e in expenses if _has_bilag(e)),
+    }
+
+
+def figures_fingerprint(figures: dict) -> str:
+    return hashlib.sha256(json.dumps(figures, sort_keys=True, separators=(",", ":"))
+                          .encode("utf-8")).hexdigest()
+
+
+def figure_changes(before: dict | None, after: dict) -> list[dict]:
+    before = before or {}
+    out = []
+    for k, label in FIGURE_LABELS_DA.items():
+        b, a = before.get(k), after.get(k)
+        if b is None or a is None:
+            continue
+        if (round(float(b), 2) if k not in _COUNT_FIGURES else int(b)) != \
+                (round(float(a), 2) if k not in _COUNT_FIGURES else int(a)):
+            out.append({"key": k, "label_da": label, "before": b, "after": a})
+    return out
+
+
+def _fig_text(key: str, v) -> str:
+    return str(int(v)) if key in _COUNT_FIGURES else _kr(v)
+
+
+def correction_title(c: dict) -> str:
+    when = c.get("replaces")
+    when_txt = dk_date(date.fromisoformat(when)) if isinstance(when, str) else (
+        dk_date(when) if isinstance(when, date) else "")
+    to = f" til {c['recipient']}" if c.get("recipient") else ""
+    return f"RETTELSE — erstatter pakken for perioden, sendt {when_txt}{to}".strip()
+
+
+def correction_lines(c: dict) -> list[str]:
+    ch = c.get("changes") or []
+    if not ch:
+        return ["Tallene er de samme som i den sendte pakke."]
+    return [f"{x['label_da']}: {_fig_text(x['key'], x['before'])} → {_fig_text(x['key'], x['after'])}"
+            for x in ch]
+
+
+def fradrag_label(c: dict) -> str:
+    """The category table's 'Fradrag' cell (minor 3)."""
+    if c["gross"] and c["gross"] == c["exempt"]:
+        return "momsfri"
+    return {"no_vat": "ingen moms", "no_purchase": "ikke et køb",
+            "s42_zero": "0 % (§42)", "s42_quarter": "25 % (§42)"}.get(
+        c.get("reason"), f"{c['fradrag_pct']} %")
+
+
 def build_package(db: Session, user: User, start: date, end: date, *,
                   kind: str | None = None, now: datetime | None = None,
                   include_bilag: bool = True,
-                  max_zip_bytes: int | None = None) -> PackageBuild:
-    """Everything for the period, as one ZIP plus the summary PDF on its own
+                  split_bytes: int | None = None,
+                  prior_send=None) -> PackageBuild:
+    """Everything for the period, as ZIP(s) plus the summary PDF on its own
     (the e-mail attaches the PDF). Read-only: nothing in the books changes.
 
-    With `max_zip_bytes` (a send: the link's size cap) the build stops as
-    soon as the bilag pass the cap — PackageDeliveryError("too_large") —
-    instead of reading every photo first."""
+    `split_bytes` (a send: the link cap): the bilag are spread over numbered
+    parts, each under the cap; part 1 holds the PDF, every CSV and the
+    LAES-MIG. Without it (the owner's download) it is one ZIP.
+    `prior_send` (a re-send of a period already sent): when the figures
+    changed since, the package is a RETTELSE and says what changed."""
     from app.services.tax_filing_pdf import compute_filing_data
 
     validate_period(start, end)
@@ -1083,90 +1586,143 @@ def build_package(db: Session, user: User, start: date, end: date, *,
     fd = compute_filing_data(db, user, start, end)
     closes = period_closes(db, user, start, end)
     expenses = expense_rows(db, user, start, end)
-    checklist = build_checklist(db, user, start, end, now=now, fd=fd,
-                                closes=closes, expenses=expenses)
     cat_names = dict(
         db.query(ExpenseCategory.id, ExpenseCategory.name)
         .filter(ExpenseCategory.user_id == user.id).all()
     )
-    days = revenue_by_day(db, user, start, end, closes)
-    payments = payment_methods(db, user, start, end, closes)
-    categories = expenses_by_category(fd, expenses, cat_names)
-    doc_number = doc_number_for(start, end)
-    biz = business_name(profile, user)
-    label = period_label(start, end, kind)
-    label_file = period_file_label(start, end, kind)
-    sample = is_sample_company(db, user)
+    ctx = dict(
+        kind=kind, now=now, include_bilag=include_bilag, split_bytes=split_bytes,
+        prior_send=prior_send, profile=profile, fd=fd, closes=closes, expenses=expenses,
+        cat_names=cat_names,
+    )
+    parts: list[dict] = []
+    try:
+        return _build_into(db, user, start, end, parts=parts, **ctx)
+    except BaseException:
+        for pt in parts:
+            try:
+                pt["zf"].close()
+            except Exception:  # noqa: BLE001
+                pass
+            pt["out"].close()
+        raise
 
-    # The ZIP: a spooled temp file, every entry stamped with the build time.
+
+def _build_into(db, user, start, end, *, parts, kind, now, include_bilag, split_bytes,
+                prior_send, profile, fd, closes, expenses, cat_names) -> PackageBuild:
+    from app.services.bookkeeping_export import (
+        _query_invoices, _query_mileage, export_faktura, export_gavekort_ledger,
+        export_mileage, export_moms_summary,
+    )
+    from app.services.daily_close_range_export import closes_to_csv_bytes
+    from app.utils.document_hash import get_software_identifier
+
     stamp = (now.year, now.month, now.day, now.hour, now.minute, now.second)
-    out = tempfile.SpooledTemporaryFile(max_size=_SPOOL_BYTES)
-    zf = zipfile.ZipFile(out, "w")
 
-    def put(name: str, data: bytes) -> tuple[str, int, str]:
+    def new_part() -> dict:
+        out = tempfile.SpooledTemporaryFile(max_size=_SPOOL_BYTES)
+        pt = {"out": out, "zf": zipfile.ZipFile(out, "w"), "meta": [], "n_bilag": 0}
+        parts.append(pt)
+        return pt
+
+    def put(pt: dict, name: str, data: bytes) -> tuple[str, int, str]:
         info = zipfile.ZipInfo(name, date_time=stamp)
         # Photos and PDFs are compressed already.
         info.compress_type = (zipfile.ZIP_STORED if name.startswith("bilag/")
                               else zipfile.ZIP_DEFLATED)
         info.external_attr = 0o644 << 16
-        zf.writestr(info, data)
-        return (name, len(data), hashlib.sha256(data).hexdigest())
+        pt["zf"].writestr(info, data)
+        m = (name, len(data), hashlib.sha256(data).hexdigest())
+        pt["meta"].append(m)
+        return m
 
-    try:
-        return _build_into(
-            db, user, start, end, kind=kind, now=now, include_bilag=include_bilag,
-            max_zip_bytes=max_zip_bytes, out=out, zf=zf, put=put, profile=profile, fd=fd,
-            closes=closes, expenses=expenses, checklist=checklist, cat_names=cat_names,
-            days=days, payments=payments, categories=categories, doc_number=doc_number,
-            biz=biz, label=label, label_file=label_file, sample=sample,
-        )
-    except BaseException:
-        try:
-            zf.close()
-        except Exception:  # noqa: BLE001
-            pass
-        out.close()
-        raise
+    def budget(i: int) -> int | None:
+        if not split_bytes:
+            return None
+        return split_bytes - (_PART1_RESERVE if i == 0 else _PART_RESERVE)
 
-
-def _build_into(db, user, start, end, *, kind, now, include_bilag, max_zip_bytes, out, zf,
-                put, profile, fd, closes, expenses, checklist, cat_names, days, payments,
-                categories, doc_number, biz, label, label_file, sample=False) -> PackageBuild:
-    from app.services.bookkeeping_export import (
-        _query_invoices, export_faktura, export_gavekort_ledger, export_moms_summary,
-    )
-    from app.services.daily_close_range_export import closes_to_csv_bytes
-    from app.utils.document_hash import get_software_identifier
-
-    # Bilag files — one at a time, straight into the ZIP, named for the
-    # revisor. A send stops here once the cap is passed.
-    bilag_meta: list[tuple[str, int, str]] = []
+    # Bilag — one at a time, straight into a part, named for the revisor.
+    current = new_part()
+    suppliers = supplier_names(db, user, expenses)
     file_of: dict = {}
-    index_rows = []
+    index_rows: list[list] = []
+    bilag_meta: list[tuple] = []          # (part number, name, size, sha)
     used: set[str] = set()
-    unreadable = 0
+    unreadable: list = []
+    n_reencoded = 0
     for e in expenses:
         if not _has_bilag(e):
             continue
-        loaded = load_bilag(user.id, e.receipt_photo) if include_bilag else None
         cat = cat_names.get(e.category_id, "") or ""
         vn = f"E-{e.date.year}-{e.voucher_number:04d}" if e.voucher_number else ""
+        row_base = [e.date.isoformat(), csv_safe(e.description or ""), _dk_num(e.amount), vn,
+                    csv_safe(cat)]
+        loaded = load_bilag(user.id, e.receipt_photo, db=db) if include_bilag else None
         if loaded is None:
-            unreadable += 1
-            index_rows.append(["", e.date.isoformat(), csv_safe(e.description or ""),
-                               _dk_num(e.amount), vn, csv_safe(cat),
-                               "Kunne ikke hentes — se bilaget i BonBox"])
-            file_of[e.id] = "kunne ikke hentes"
+            if include_bilag:
+                unreadable.append(e)
+                index_rows.append(["", *row_base, UNREADABLE_DA, ""])
+                file_of[e.id] = UNREADABLE_DA
             continue
         data, ext = loaded
-        name = bilag_filename(e.date, e.description or cat, e.amount, ext, used)
-        bilag_meta.append(put(f"bilag/{name}", data))
+        data, ext, did = reencode_for_package(data, ext)
+        n_reencoded += 1 if did else 0
+        b = budget(len(parts) - 1)
+        if b is not None and current["out"].tell() + len(data) + 1024 > b:
+            if current["n_bilag"] == 0 and len(parts) > 1 or len(data) + 1024 > (budget(1) or 0):
+                # Larger than any part can carry: not in the package — an
+                # open item, and the file stays in BonBox.
+                too_big = "ÅBENT PUNKT: for stor til pakken — se bilaget i BonBox"
+                unreadable.append(e)
+                index_rows.append(["", *row_base, too_big, ""])
+                file_of[e.id] = too_big
+                del data, loaded
+                continue
+            if len(parts) >= MAX_PARTS:
+                raise PackageDeliveryError("too_large", f"over {MAX_PARTS} dele")
+            current = new_part()
+        name = bilag_filename(e.date, bilag_label(e, cat, suppliers), e.amount, ext, used)
+        m = put(current, f"bilag/{name}", data)
+        current["n_bilag"] += 1
+        bilag_meta.append((len(parts), *m))
         del data, loaded
-        if max_zip_bytes and out.tell() > max_zip_bytes:
-            raise PackageDeliveryError("too_large", f"over {_mb(max_zip_bytes)}")
         file_of[e.id] = name
-        index_rows.append([name, e.date.isoformat(), csv_safe(e.description or ""),
-                           _dk_num(e.amount), vn, csv_safe(cat), "OK"])
+        index_rows.append([name, *row_base, "OK", str(len(parts))])
+
+    n_parts = len(parts)
+    checklist = build_checklist(db, user, start, end, now=now, fd=fd, closes=closes,
+                                expenses=expenses,
+                                unreadable=unreadable if include_bilag else None)
+    days = revenue_by_day(db, user, start, end, closes)
+    payments = payment_methods(db, user, start, end, closes)
+    categories = expenses_by_category(fd, expenses, cat_names)
+    figures = package_figures(fd, days, expenses)
+    fp = figures_fingerprint(figures)
+    correction = None
+    if prior_send is not None and getattr(prior_send, "figures_fp", None) \
+            and prior_send.figures_fp != fp:
+        try:
+            before = json.loads(prior_send.figures_json or "{}")
+        except Exception:  # noqa: BLE001
+            before = {}
+        sent = prior_send.sent_at or prior_send.updated_at or prior_send.created_at
+        correction = {
+            "replaces": link_local_date(user, sent) if sent else None,
+            "recipient": prior_send.recipient,
+            "changes": figure_changes(before, figures),
+        }
+    doc_number = doc_number_for(start, end)
+    biz = business_name(profile, user)
+    label = period_label(start, end, kind)
+    label_file = period_file_label(start, end, kind)
+    sample = is_sample_company(db, user)
+    try:
+        from app.services.gavekort_moms import period_facts
+        counter_sold = round(sum(float(v or 0) for v in
+                                 period_facts(db, user.id, start, end + timedelta(days=1))
+                                 .get("counter_sold", {}).values()), 2)
+    except Exception:  # noqa: BLE001 — an explanation, never a blocker
+        counter_sold = 0.0
 
     summary = build_summary_pdf(
         user=user, profile=profile, start=start, end=end, kind=kind, fd=fd,
@@ -1174,69 +1730,64 @@ def _build_into(db, user, start, end, *, kind, now, include_bilag, max_zip_bytes
         # Expenses that HAVE a bilag (the standalone summary does not read
         # the files, and must not say "0 af 12" for that reason).
         closes=closes, n_bilag=sum(1 for e in expenses if _has_bilag(e)),
-        n_bilag_unreadable=unreadable, n_expenses=len(expenses),
-        generated_at=now, doc_number=doc_number, sample=sample,
+        n_bilag_unreadable=len(unreadable) if include_bilag else None,
+        n_expenses=len(expenses), generated_at=now, doc_number=doc_number, sample=sample,
+        correction=correction, n_parts=n_parts, gavekort_counter_sold=counter_sold,
     )
     pdf_name = f"Oversigt_{label_file}.pdf"
 
     try:
-        closes_csv = closes_to_csv_bytes(closes, currency=user.currency or "DKK",
-                                         **_close_extras(db, user, closes))
+        extras = _close_extras(db, user, closes)
+        closes_csv = closes_to_csv_bytes(closes, currency=user.currency or "DKK", **extras)
     except Exception:  # noqa: BLE001 — the extras are decoration, never a blocker
         logger.warning("revisor package: close extras failed", exc_info=True)
+        extras = {"branch_names": {}}
         closes_csv = closes_to_csv_bytes(closes, currency=user.currency or "DKK")
+
+    lines = sales_lines(db, user, start, end, days, closes, extras.get("branch_names"))
+    sales_total = round(sum(float(x[3].replace(",", ".")) for x in lines), 2)
+    revenue_total = round(sum(r["amount"] for r in days), 2)
+    if abs(sales_total - revenue_total) >= 0.005:
+        logger.warning("revisor package: salg.csv %.2f != revenue %.2f (user=%s)",
+                       sales_total, revenue_total, user.id)
 
     files: list[tuple[str, bytes]] = [
         (pdf_name, summary),
         ("omsaetning-pr-dag.csv", csv_revenue_by_day(days, closes)),
         ("dagsafslutninger.csv", closes_csv),
-        ("salg.csv", csv_sales(user, db, start, end)),
+        ("salg.csv", csv_sales(lines)),
         ("udgifter.csv", csv_expenses(expenses, cat_names, file_of)),
-        ("gavekort.csv", export_gavekort_ledger(user, db, start, end)),
-        ("moms-oversigt.csv", export_moms_summary(user, db, start, end)),
+        ("gavekort.csv", _danish_excel(export_gavekort_ledger(user, db, start, end),
+                                       _GAVEKORT_HEADER)),
+        ("moms-oversigt.csv", _danish_excel(export_moms_summary(user, db, start, end),
+                                            _MOMS_HEADER)),
     ]
-    if _query_invoices(user, db, start, end):
-        files.append(("fakturaer.csv", export_faktura(user, db, start, end)))
-    files.append(("bilag-oversigt.csv", _csv(index_rows, [
-        "Fil", "Dato", "Tekst", "Beløb inkl. moms", "Bilagsnr.", "Kategori", "Status"])))
+    has_invoices = bool(_query_invoices(user, db, start, end))
+    if has_invoices:
+        files.append(("fakturaer.csv", _danish_excel(export_faktura(user, db, start, end),
+                                                     _FAKTURA_HEADER, _FAKTURA_VALUES)))
+    trips = _query_mileage(user, db, start, end)
+    if trips:
+        files.append(("koersel.csv", _danish_excel(export_mileage(user, db, start, end),
+                                                   _KOERSEL_HEADER, {"TOTAL": "I alt"})))
+    index_header = ["Fil", "Dato", "Tekst", "Beløb inkl. moms", "Bilagsnr.", "Kategori", "Status"]
+    if n_parts > 1:
+        index_header.append("ZIP-del")
+        idx_rows = index_rows
+    else:
+        idx_rows = [r[:-1] for r in index_rows]
+    files.append(("bilag-oversigt.csv", _csv(idx_rows, index_header)))
 
     status = checklist_status(checklist)
-    open_lines = status["open"]
-    readme = "\n".join([
-        f"Revisorpakke — {biz}" + (" — EKSEMPELDATA (ikke en rigtig virksomheds tal)"
-                                   if sample else ""),
-        f"Periode: {label} ({start.isoformat()} til {end.isoformat()})",
-        f"Bilagsnr.: {doc_number}",
-        f"Genereret: {now.strftime('%Y-%m-%d %H:%M')} UTC af {getattr(user, 'email', '') or 'BonBox'}",
-        "",
-        "INDHOLD",
-        f"  {pdf_name}  Oversigt: moms, nøgletal, betalingsmåder, udgifter pr. kategori,",
-        "      gavekort, kassedifferencer, omsætning pr. dag og åbne punkter.",
-        "  omsaetning-pr-dag.csv  Én række pr. dag: låst dagsafslutning eller salg.",
-        "  dagsafslutninger.csv   Alle dagsafslutninger; kun låste er talt med i totalen.",
-        "  salg.csv               Omsætningsbilag (K-dato = dagsafslutning, S- = salg).",
-        "  udgifter.csv           Bogførte udgifter med bilagsnr., moms/§42-fradrag og bilagsfil.",
-        "  gavekort.csv           Gavekort solgt, brugt og annulleret + momssummerne.",
-        "  moms-oversigt.csv      Periodens momstal — samme beregning som momsangivelsen.",
-        "  fakturaer.csv          Udgående fakturaer (kun hvis der er nogen).",
-        "  bilag/                 Bilagsfilerne: ÅÅÅÅ-MM-DD_leverandør_beløb.",
-        "  bilag-oversigt.csv     Hvilken fil hører til hvilken udgift.",
-        "  manifest.txt           SHA-256 for hver fil.",
-        "",
-        "CSV: UTF-8. Semikolon og decimalkomma (dansk Excel) i omsaetning-pr-dag,",
-        "  dagsafslutninger, salg, udgifter og bilag-oversigt. gavekort.csv og",
-        "  moms-oversigt.csv har komma og decimalpunktum — samme format som",
-        "  bogføringseksporten, så tallene kan importeres direkte.",
-        "",
-        "ÅBNE PUNKTER" + (f" ({len(open_lines)})" if open_lines else ""),
-        *([f"  • {x}" for x in open_lines] or [f"  {status['title']}"]),
-        *[f"  {x}" for x in status["notes"]],
-        "",
-        "Udkast i godkend-køen er ikke med i tallene, før ejeren har godkendt dem.",
-    ]) + "\n"
+    readme = _readme(
+        biz=biz, sample=sample, label=label, start=start, end=end, doc_number=doc_number,
+        now=now, user=user, pdf_name=pdf_name, status=status, correction=correction,
+        sales_total=sales_total, revenue_total=revenue_total, has_invoices=has_invoices,
+        trips=trips, n_reencoded=n_reencoded, n_parts=n_parts,
+    )
     files.append(("LAES-MIG.txt", readme.encode("utf-8")))
 
-    manifest = [
+    head = [
         "BonBox revisorpakke — manifest",
         "=" * 60,
         f"Virksomhed: {biz}",
@@ -1245,33 +1796,125 @@ def _build_into(db, user, start, end, *, kind, now, include_bilag, max_zip_bytes
         f"Bilagsnr.:  {doc_number}",
         f"Genereret:  {now.strftime('%Y-%m-%d %H:%M')} UTC",
         f"Software:   {get_software_identifier()}",
-        "",
-        "FILER (SHA-256)",
-        "-" * 60,
     ]
-    # The small files go in after the bilag (they name them); the manifest
-    # lists everything in reading order: oversigt, CSVs, bilag, LAES-MIG.
-    small = [put(name, data) for name, data in files]
-    readme_meta = small[-1]
-    meta = small[:-1] + bilag_meta + [readme_meta]
-    for name, size, digest in meta:
-        manifest.append(f"{digest}  {size:>9}  {name}")
-    put("manifest.txt", ("\n".join(manifest) + "\n").encode("utf-8"))
-    zf.close()
-
-    size = out.tell()
-    h = hashlib.sha256()
-    out.seek(0)
-    for block in iter(lambda: out.read(1024 * 1024), b""):
-        h.update(block)
+    # Part 1: the small files go in after its bilag (they name them); the
+    # manifest lists everything in reading order: oversigt, CSVs, bilag,
+    # LAES-MIG.
+    p1 = parts[0]
+    small = [put(p1, name, data) for name, data in files]
+    p1_bilag = [m[1:] for m in bilag_meta if m[0] == 1]
+    meta = small[:-1] + p1_bilag + [small[-1]]
+    manifest = head + ([f"Del:        1 af {n_parts}"] if n_parts > 1 else []) + [
+        "", "FILER (SHA-256)", "-" * 60]
+    manifest += [f"{d}  {size:>9}  {name}" for name, size, d in meta]
+    put(p1, "manifest.txt", ("\n".join(manifest) + "\n").encode("utf-8"))
+    all_meta = list(meta)
+    for i, pt in enumerate(parts[1:], start=2):
+        note = (f"Revisorpakke — {biz} — {label}\nDel {i} af {n_parts}: bilag.\n"
+                f"Oversigten (PDF), CSV-filerne og bilag-oversigt.csv er i del 1.\n")
+        mine = [m[1:] for m in bilag_meta if m[0] == i]
+        r_meta = put(pt, "LAES-MIG.txt", note.encode("utf-8"))
+        man = head + [f"Del:        {i} af {n_parts}", "", "FILER (SHA-256)", "-" * 60]
+        man += [f"{d}  {size:>9}  {name}" for name, size, d in mine + [r_meta]]
+        put(pt, "manifest.txt", ("\n".join(man) + "\n").encode("utf-8"))
+        all_meta += mine
+    zparts: list[ZipPart] = []
+    base_name = f"Revisorpakke_{_safe_name(biz)}_{label_file}"
+    for i, pt in enumerate(parts, start=1):
+        pt["zf"].close()
+        size = pt["out"].tell()
+        h = hashlib.sha256()
+        pt["out"].seek(0)
+        for block in iter(lambda: pt["out"].read(1024 * 1024), b""):
+            h.update(block)
+        name = f"{base_name}.zip" if n_parts == 1 else f"{base_name}_del-{i}-af-{n_parts}.zip"
+        zparts.append(ZipPart(file=pt["out"], size=size, sha256=h.hexdigest(),
+                              n_bilag=pt["n_bilag"], name=name))
     return PackageBuild(
-        zip_file=out, zip_size=size, zip_sha256=h.hexdigest(), summary_pdf=summary,
-        zip_filename=f"Revisorpakke_{_safe_name(biz)}_{label_file}.zip",
+        parts=zparts, summary_pdf=summary, zip_filename=zparts[0].name,
         pdf_filename=pdf_name, doc_number=doc_number, checklist=checklist, fd=fd,
-        revenue_total=round(sum(r["amount"] for r in days), 2),
-        n_expenses=len(expenses), n_bilag=len(bilag_meta), n_bilag_unreadable=unreadable,
-        files=meta,
+        revenue_total=revenue_total, n_expenses=len(expenses), n_bilag=len(bilag_meta),
+        n_bilag_unreadable=len(unreadable), figures=figures, figures_fp=fp,
+        correction=correction, sales_csv_total=sales_total, n_reencoded=n_reencoded,
+        files=all_meta,
     )
+
+
+def _readme(*, biz, sample, label, start, end, doc_number, now, user, pdf_name, status,
+            correction, sales_total, revenue_total, has_invoices, trips, n_reencoded,
+            n_parts) -> str:
+    """LAES-MIG.txt. Its status heading is the PDF's and the mail's own
+    (checklist_status) — word for word (minor 10)."""
+    out = [
+        f"Revisorpakke — {biz}" + (" — EKSEMPELDATA (ikke en rigtig virksomheds tal)"
+                                   if sample else ""),
+    ]
+    if correction:
+        out.append(correction_title(correction))
+    out += [
+        f"Periode: {label} ({start.isoformat()} til {end.isoformat()})",
+        f"Bilagsnr.: {doc_number}",
+        f"Genereret: {now.strftime('%Y-%m-%d %H:%M')} UTC af {getattr(user, 'email', '') or 'BonBox'}",
+    ]
+    if n_parts > 1:
+        out.append(f"Del 1 af {n_parts} — bilagene fortsætter i del 2-{n_parts}.")
+    out += ["", status["title"]]
+    out += [f"  • {x}" for x in status["open"]]
+    out += [f"  {x}" for x in status["notes"]]
+    if correction:
+        out += ["", "RETTELSE — ÆNDRET SIDEN DEN SENDTE PAKKE"]
+        out += [f"  • {x}" for x in correction_lines(correction)]
+    out += [
+        "",
+        "INDHOLD",
+        f"  {pdf_name}  Oversigt: moms, nøgletal, betalingsmåder, udgifter pr. kategori,",
+        "      gavekort, kassedifferencer, omsætning pr. dag og åbne punkter.",
+        "  omsaetning-pr-dag.csv  Én række pr. dag: låst dagsafslutning eller salg.",
+        "  dagsafslutninger.csv   Alle dagsafslutninger; kun låste er talt med i totalen.",
+        "  salg.csv               Omsætningen linje for linje (K-dato = dagsafslutning,",
+        "                         S- = salg) — se AFSTEMNING.",
+        "  udgifter.csv           Bogførte udgifter med bilagsnr., moms/§42-fradrag og bilagsfil.",
+        "  gavekort.csv           Gavekort solgt, brugt og annulleret + momssummerne.",
+        "  moms-oversigt.csv      Periodens momstal — samme beregning som momsangivelsen.",
+    ]
+    if has_invoices:
+        out.append("  fakturaer.csv          Udgående fakturaer i perioden.")
+    if trips:
+        out.append("  koersel.csv            Kørsel (kørselsgodtgørelse) i perioden.")
+    out += [
+        "  bilag/                 Bilagsfilerne: ÅÅÅÅ-MM-DD_leverandør_beløb.",
+        "  bilag-oversigt.csv     Hvilken fil hører til hvilken udgift.",
+        "  manifest.txt           SHA-256 for hver fil.",
+        "",
+        "CSV: Alle CSV-filer er i dansk Excel-format: UTF-8 med BOM, semikolon som",
+        "  skilletegn, decimalkomma og danske kolonnenavne.",
+        "",
+        "AFSTEMNING",
+        f"  salg.csv i alt: {_kr(sales_total)} = omsætning i alt (oversigten og",
+        f"  omsaetning-pr-dag.csv): {_kr(revenue_total)}."
+        + ("" if abs(sales_total - revenue_total) < 0.005 else "  AFVIGER — kontakt BonBox."),
+        "  salg.csv følger omsætningen dag for dag: dagens låste dagsafslutninger, ellers",
+        "  dagens gennemførte salg. Ikke med — som i omsætningen og momsen: betaling af",
+        "  en faktura (fakturaen står i fakturaer.csv), returnerede og byttede salg,",
+        "  slettede salg og salg på en dag med låst dagsafslutning (dagsafslutningen er",
+        "  dagens tal).",
+        "",
+        "KØRSEL",
+    ]
+    if trips:
+        km = round(sum(float(t.km or 0) for t in trips), 2)
+        ded = round(sum(float(t.deduction_amount or 0) for t in trips), 2)
+        out.append(f"  koersel.csv: {len(trips)} {'tur' if len(trips) == 1 else 'ture'}, "
+                   f"{_dk_num(km)} km, fradrag {_kr(ded)}.")
+    else:
+        out.append("  Ingen kørsel registreret i BonBox i perioden.")
+    if n_reencoded:
+        out += ["", "BILAG",
+                f"  {n_reencoded} foto(s) er gemt i {BILAG_LONG_EDGE} px (JPEG, kvalitet "
+                f"{BILAG_JPEG_QUALITY}), så pakken kan sendes;",
+                "  originalerne ligger i BonBox."]
+    out += ["", "Udkast i godkend-køen er ikke med i tallene, før ejeren har godkendt dem."]
+    return "\n".join(out) + "\n"
 
 
 def _close_extras(db: Session, user: User, closes) -> dict:
@@ -1310,11 +1953,15 @@ def _link_sig(body: str) -> str:
     return base64.urlsafe_b64encode(sig).rstrip(b"=").decode("ascii")
 
 
-def make_link_token(send_id, user_id, expires_at: datetime) -> str:
+def make_link_token(send_id, user_id, expires_at: datetime, part: int | None = None) -> str:
+    """`part` (2, 3 …) for the later parts of a split package; part 1 has
+    none, so the link of an unsplit package is what it always was."""
     exp = int(expires_at.replace(tzinfo=timezone.utc).timestamp()) if expires_at.tzinfo is None \
         else int(expires_at.timestamp())
-    raw = json.dumps({"s": str(send_id), "u": str(user_id), "e": exp},
-                     separators=(",", ":")).encode("utf-8")
+    payload = {"s": str(send_id), "u": str(user_id), "e": exp}
+    if part and int(part) > 1:
+        payload["p"] = int(part)
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     body = base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
     return f"{body}.{_link_sig(body)}"
 
@@ -1386,7 +2033,8 @@ def send_blocker(db: Session, user: User, profile, start: date, end: date) -> st
 
 class PackageDeliveryError(Exception):
     """Nothing is known to have gone out. `code`:
-      too_large / storage   — before the mail; safe to try again
+      too_large             — more than MAX_PARTS link parts (before the mail)
+      storage               — the upload failed (before the mail; safe to retry)
       mail                  — the mail service REFUSED it (nothing sent)
       mail_unclear          — the mail call failed in a way that does not say
                               whether the revisor got it (a timeout after the
@@ -1440,15 +2088,19 @@ _SCHEDULE_DA = {
 
 
 def package_email_html(*, biz: str, cvr: str | None, accountant_name: str | None,
-                       label: str, build: PackageBuild, url: str, expires: date,
-                       schedule: str | None = None, unsubscribe_url: str | None = None,
-                       owner_copy_to: str | None = None) -> str:
+                       label: str, build: PackageBuild, url: str | None = None,
+                       expires: date, schedule: str | None = None,
+                       unsubscribe_url: str | None = None,
+                       owner_copy_to: str | None = None,
+                       urls: list[str] | None = None) -> str:
     """The mail to the revisor (Danish — revisor-facing). Its figures are the
     package's own (compute_filing_data via the build), and the open items are
     the summary PDF's own lines: the mail can never call a period ready that
-    the attachment says is not."""
+    the attachment says is not. A split package has one link per part; a
+    corrected package says RETTELSE first, and what changed."""
     from app.services.revisor_mail import esc, owner_copy_line, revisor_footer_html
     fd = build.fd
+    links = list(urls or ([url] if url else []))
     status = checklist_status(build.checklist)
     lines = status["open"]
     named = bool((accountant_name or "").strip()) and not owner_copy_to
@@ -1486,32 +2138,55 @@ def package_email_html(*, biz: str, cvr: str | None, accountant_name: str | None
             f"<div style='margin:16px 0;'><p style='margin:0;color:#065f46;'>{esc(status['title'])}</p>"
             f"{notes}</div>"
         )
-    unread = (
-        f"<p style='color:#92400e;font-size:13px;'>{esc(build.n_bilag_unreadable)} bilag kunne ikke "
-        "hentes og er ikke i pakken — de står i bilag-oversigt.csv.</p>"
-        if build.n_bilag_unreadable else ""
-    )
+    correction_html = ""
+    if build.correction:
+        correction_html = (
+            "<div style='margin:16px 0;padding:12px 14px;background:#fffbeb;"
+            "border:1px solid #f59e0b;border-radius:8px;'>"
+            f"<p style='margin:0 0 6px;font-weight:700;color:#92400e;'>"
+            f"{esc(correction_title(build.correction))}</p>"
+            "<p style='margin:0 0 4px;color:#374151;'>Ændret siden den sendte pakke:</p>"
+            "<ul style='margin:0;padding-left:18px;color:#374151;'>"
+            + "".join(f"<li>{esc(x)}</li>" for x in correction_lines(build.correction))
+            + "</ul></div>"
+        )
+    btn = ("display:inline-block;background:#111827;color:#ffffff;text-decoration:none;"
+           "padding:10px 16px;border-radius:8px;font-weight:600;margin:0 8px 8px 0;")
+    n = len(build.parts)
+    if n > 1:
+        buttons = "".join(
+            f"<a href='{esc(u)}' style='{btn}'>Hent del {i} af {n} (ZIP)</a>"
+            for i, u in enumerate(links, start=1))
+        size_txt = (f"Pakken er delt i {n} ZIP-filer (i alt {esc(_mb(build.total_size))}): del 1 "
+                    f"har oversigten, CSV-filerne og de første bilag; i alt {esc(build.n_bilag)} "
+                    "bilag.")
+    else:
+        buttons = "".join(f"<a href='{esc(u)}' style='{btn}'>Hent hele pakken (ZIP)</a>"
+                          for u in links[:1])
+        size_txt = (f"ZIP'en har CSV-filerne og {esc(build.n_bilag)} bilag "
+                    f"({esc(_mb(build.zip_size))}).")
     sched = (
         f"<p style='color:#6b7280;font-size:13px;'>Pakken sendes automatisk "
         f"{esc(_SCHEDULE_DA[schedule])}, som {esc(biz)} har valgt i BonBox.</p>"
         if schedule in _SCHEDULE_DA else ""
     )
+    intro = ("Her er den rettede revisorpakke" if build.correction else "Her er revisorpakken")
     return (
         "<div style='font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;"
         "color:#111827;line-height:1.5;font-size:14px;max-width:560px;'>"
         f"<p>{greeting}</p>"
-        f"<p>Her er revisorpakken for <strong>{esc(biz)}</strong> for <strong>{esc(label)}</strong>.</p>"
+        f"<p>{intro} for <strong>{esc(biz)}</strong> for <strong>{esc(label)}</strong>.</p>"
+        f"{correction_html}"
         f"<table style='border-collapse:collapse;margin:12px 0;font-size:14px;'>{table}</table>"
         f"{status_html}"
         f"<p style='font-size:13px;color:#374151;'>Vedhæftet: {esc(build.pdf_filename)} "
         f"(oversigt, bilagsnr. {esc(build.doc_number)}).</p>"
-        f"<p style='margin:16px 0;'><a href='{esc(url)}' style='display:inline-block;"
-        "background:#111827;color:#ffffff;text-decoration:none;padding:10px 16px;"
-        "border-radius:8px;font-weight:600;'>Hent hele pakken (ZIP)</a></p>"
-        f"<p style='font-size:13px;color:#374151;'>ZIP'en har CSV-filerne og "
-        f"{esc(build.n_bilag)} bilag ({esc(_mb(build.zip_size))}). Linket virker til og med "
-        f"{esc(dk_date(expires))}; bed {esc(biz)} sende pakken igen, hvis det er udløbet.</p>"
-        f"{unread}{sched}"
+        f"<p style='margin:16px 0 8px;'>{buttons}</p>"
+        f"<p style='font-size:13px;color:#374151;'>{size_txt} "
+        f"{'Linkene virker' if n > 1 else 'Linket virker'} til og med "
+        f"{esc(dk_date(expires))}; bed {esc(biz)} sende pakken igen, hvis "
+        f"{'de er udløbet' if n > 1 else 'det er udløbet'}.</p>"
+        f"{sched}"
         + (owner_copy_line(owner_copy_to, True) if owner_copy_to else
            revisor_footer_html(business_name=biz, cvr=cvr,
                                unsubscribe_url=unsubscribe_url, is_danish=True))
@@ -1524,19 +2199,26 @@ def _mb(n: int) -> str:
 
 
 def deliver(db: Session, user: User, profile, row, *, now: datetime | None = None,
-            schedule: str | None = None) -> PackageBuild:
-    """Build the package for `row`'s period, store the ZIP, mail the revisor
-    (the owner's copy separately), and stamp `row` sent. Raises
+            schedule: str | None = None, prior_send=None) -> PackageBuild:
+    """Build the package for `row`'s period, store its ZIP part(s), mail the
+    revisor (the owner's copy separately), and stamp `row` sent. Raises
     PackageDeliveryError when nothing is KNOWN to have gone out (code
     "mail_unclear": it may have — see PackageDeliveryError); the caller
     marks the row failed (mark_failed) and commits. The returned build's ZIP
-    file is closed (its bytes are in storage under row.storage_key)."""
+    files are closed (their bytes are in storage, row.parts_json).
+
+    A package over the link cap is split into numbered parts, one link
+    each, and the summary PDF is always attached (M8). `prior_send`: the
+    package of the finished period that already went out — when the figures
+    changed since, this one is a RETTELSE (M7). The schedule never passes
+    one: it never sends a period twice."""
     from app.services import revisor_mail as rm
 
     now = now or utc_now()
     recipient = rm.saved_revisor_address(profile)
     build = build_package(db, user, row.period_start, row.period_end,
-                          kind=row.period_kind, now=now, max_zip_bytes=MAX_LINK_ZIP_BYTES)
+                          kind=row.period_kind, now=now, split_bytes=MAX_LINK_ZIP_BYTES,
+                          prior_send=prior_send)
     try:
         return _deliver_build(db, user, profile, row, build, recipient=recipient, now=now,
                               schedule=schedule)
@@ -1558,75 +2240,100 @@ def link_expiry(db: Session, user: User, now: datetime) -> tuple[datetime, date]
     return end_local.astimezone(timezone.utc).replace(tzinfo=None), last_day
 
 
+def _release_stored(db: Session, row, keys: list[str]) -> None:
+    """Remove stored ZIPs no send row points at any more — a send that failed
+    after the upload must not leave a copy of the books behind (minor 14).
+    Never raises."""
+    from app.services.storage import get_storage
+    R = type(row)
+    try:
+        storage = get_storage()
+    except Exception:  # noqa: BLE001
+        return
+    for key in keys:
+        try:
+            used = db.query(R.id).filter(
+                R.id != row.id, R.purged_at.is_(None),
+                or_(R.storage_key == key, R.parts_json.like(f"%{key}%"))).first()
+            if used is None:
+                storage.delete(key)
+        except Exception:  # noqa: BLE001
+            logger.warning("revisor package: could not remove an unused ZIP")
+
+
 def _deliver_build(db: Session, user: User, profile, row, build: PackageBuild, *,
                    recipient: str, now: datetime, schedule: str | None) -> PackageBuild:
     from app.services import revisor_mail as rm
     from app.services.storage import compose_key, get_storage
     from app.services.audit_service import record as audit_record
 
-    if build.zip_size > MAX_LINK_ZIP_BYTES:
-        raise PackageDeliveryError("too_large", _mb(build.zip_size))
+    if any(pt.size > MAX_LINK_ZIP_BYTES for pt in build.parts):
+        raise PackageDeliveryError("too_large", _mb(max(pt.size for pt in build.parts)))
     storage = get_storage()
-    key = compose_key(user.id, "revisor_package", build.zip_sha256, "zip")
+    stored: list[str] = []
+    parts_info: list[dict] = []
     try:
-        storage.put(key, build.zip_bytes, content_type="application/zip")
+        for i, pt in enumerate(build.parts):
+            key = compose_key(user.id, "revisor_package", pt.sha256, "zip")
+            storage.put(key, build.part_bytes(i), content_type="application/zip")
+            stored.append(key)
+            parts_info.append({"part": i + 1, "key": key, "sha256": pt.sha256,
+                               "size": pt.size, "n_bilag": pt.n_bilag, "name": pt.name})
     except Exception as e:  # noqa: BLE001
+        _release_stored(db, row, stored)
         raise PackageDeliveryError("storage", type(e).__name__) from None
 
-    expires_at, expires_on = link_expiry(db, user, now)
-    url = download_url(make_link_token(row.id, user.id, expires_at))
-    biz = business_name(profile, user)
-    label = period_label(row.period_start, row.period_end, row.period_kind)
-    subject = rm.header_safe(f"Revisorpakke {label} — {biz}", 180)
-    unsub = rm.revisor_unsubscribe_url(user.id, recipient)
-    common = dict(
-        biz=biz, cvr=getattr(profile, "org_number", None),
-        accountant_name=getattr(profile, "accountant_name", None),
-        label=label, build=build, url=url, expires=expires_on, schedule=schedule,
-    )
-    owner_addr = (getattr(user, "email", None) or "").strip().lower()
+    fp = rm.address_fingerprint(rm.mailbox_address(recipient))
+    try:
+        expires_at, expires_on = link_expiry(db, user, now)
+        urls = [download_url(make_link_token(row.id, user.id, expires_at, part=pi["part"]))
+                for pi in parts_info]
+        biz = business_name(profile, user)
+        label = period_label(row.period_start, row.period_end, row.period_kind)
+        subject = rm.header_safe(("RETTELSE: " if build.correction else "")
+                                 + f"Revisorpakke {label} — {biz}", 180)
+        unsub = rm.revisor_unsubscribe_url(user.id, recipient)
+        common = dict(
+            biz=biz, cvr=getattr(profile, "org_number", None),
+            accountant_name=getattr(profile, "accountant_name", None),
+            label=label, build=build, urls=urls, expires=expires_on, schedule=schedule,
+        )
+        html_revisor = package_email_html(**common, unsubscribe_url=unsub)
+        html_owner = package_email_html(**common, owner_copy_to=recipient)
+        owner_addr = (getattr(user, "email", None) or "").strip().lower()
+    except Exception:
+        # Nothing was mailed: the stored copies have no link out — remove them.
+        _release_stored(db, row, stored)
+        raise
     ok, err, owner_copied = rm.send_file_to_revisor(
         recipient=recipient, subject=subject,
-        html_revisor=package_email_html(**common, unsubscribe_url=unsub),
-        html_owner=package_email_html(**common, owner_copy_to=recipient),
+        html_revisor=html_revisor, html_owner=html_owner,
         owner_email=owner_addr if rm.owner_copy_allowed(profile, owner_addr) else None,
         attachment_bytes=build.summary_pdf, attachment_filename=build.pdf_filename,
         attachment_mime="application/pdf", reply_to=owner_addr or None,
         from_display=rm.sender_display(biz), unsubscribe_url=unsub, is_danish=True,
     )
+    stamp = {
+        "recipient": recipient, "recipient_fp": fp,
+        "storage_key": parts_info[0]["key"], "zip_sha256": parts_info[0]["sha256"],
+        "zip_size": build.total_size, "parts_json": json.dumps(parts_info),
+        "n_bilag": build.n_bilag, "open_items": build.checklist["open_count"],
+        "link_expires_at": expires_at, "figures_json": json.dumps(build.figures),
+        "figures_fp": build.figures_fp, "is_correction": bool(build.correction),
+    }
     if not ok:
         if not mail_refused(err):
-            # It may have arrived: keep the ZIP behind its link, never
+            # It may have arrived: keep the ZIP(s) behind their links, never
             # resend on our own, and let ops and the owner know.
-            raise PackageDeliveryError("mail_unclear", err or "unknown", keep={
-                "recipient": recipient,
-                "recipient_fp": rm.address_fingerprint(rm.mailbox_address(recipient)),
-                "storage_key": key, "zip_sha256": build.zip_sha256, "zip_size": build.zip_size,
-                "n_bilag": build.n_bilag, "open_items": build.checklist["open_count"],
-                "link_expires_at": expires_at,
-            })
-        try:
-            # Nothing references this copy now (a manual re-send of the same
-            # bytes would have re-uploaded it under the same key anyway).
-            others = db.query(type(row)).filter(
-                type(row).storage_key == key, type(row).purged_at.is_(None)).first()
-            if others is None:
-                storage.delete(key)
-        except Exception:  # noqa: BLE001
-            pass
+            raise PackageDeliveryError("mail_unclear", err or "unknown", keep=stamp)
+        _release_stored(db, row, stored)
         raise PackageDeliveryError("mail", err or "unknown")
 
+    for k, v in stamp.items():
+        setattr(row, k, v)
     row.status = "sent"
     row.skip_reason = None
     row.error = None
-    row.recipient = recipient
-    row.recipient_fp = rm.address_fingerprint(rm.mailbox_address(recipient))
-    row.storage_key = key
-    row.zip_sha256 = build.zip_sha256
-    row.zip_size = build.zip_size
-    row.n_bilag = build.n_bilag
-    row.open_items = build.checklist["open_count"]
-    row.link_expires_at = expires_at
     row.sent_at = now
     row.updated_at = now
     # The mail has gone: from here on nothing may raise, or a caller could
@@ -1636,6 +2343,37 @@ def _deliver_build(db: Session, user: User, profile, row, build: PackageBuild, *
     except Exception:  # noqa: BLE001
         logger.exception("revisor package: audit of a delivered send failed")
     return build
+
+
+def stored_keys(row) -> list[str]:
+    """Every stored ZIP of a send row (all parts)."""
+    keys = []
+    try:
+        for pi in json.loads(getattr(row, "parts_json", None) or "[]"):
+            if pi.get("key"):
+                keys.append(pi["key"])
+    except Exception:  # noqa: BLE001
+        pass
+    if row.storage_key and row.storage_key not in keys:
+        keys.insert(0, row.storage_key)
+    return keys
+
+
+def part_of(row, part: int) -> dict | None:
+    """{key, sha256, size, name} of part `part` (1-based) of a send row."""
+    try:
+        parts = json.loads(getattr(row, "parts_json", None) or "[]")
+    except Exception:  # noqa: BLE001
+        parts = []
+    if not parts:
+        if part == 1 and row.storage_key:
+            return {"part": 1, "key": row.storage_key, "sha256": row.zip_sha256,
+                    "size": row.zip_size}
+        return None
+    for pi in parts:
+        if int(pi.get("part") or 0) == part:
+            return pi
+    return None
 
 
 def _audit_sent(db, user, row, build, recipient, owner_copied, expires_at, subject, audit_record):
@@ -1650,7 +2388,9 @@ def _audit_sent(db, user, row, build, recipient, owner_copied, expires_at, subje
                 "period_start": row.period_start.isoformat(),
                 "period_end": row.period_end.isoformat(),
                 "recipient": recipient, "owner_copy": bool(owner_copied),
-                "zip_sha256": build.zip_sha256, "zip_size": build.zip_size,
+                "zip_sha256": build.zip_sha256, "zip_size": build.total_size,
+                "zip_parts": len(build.parts), "correction": bool(build.correction),
+                "figures_fp": build.figures_fp,
                 "doc_number": build.doc_number, "n_bilag": build.n_bilag,
                 "open_items": build.checklist["open_count"],
                 "link_expires_at": expires_at.isoformat(), "subject": subject,
@@ -1682,6 +2422,9 @@ def last_sends(db: Session, user: User, limit: int = 5) -> list[dict]:
         "status": _status(r)[0], "skip_reason": r.skip_reason, "error": _status(r)[1],
         "recipient": r.recipient, "open_items": r.open_items, "n_bilag": r.n_bilag,
         "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+        # The owner's local date — what "Sendt …" prints (minor 9).
+        "sent_on": link_local_date(user, r.sent_at),
+        "is_correction": bool(getattr(r, "is_correction", False)),
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "link_expires_at": r.link_expires_at.isoformat() if r.link_expires_at else None,
         "link_expires_on": link_local_date(user, r.link_expires_at),

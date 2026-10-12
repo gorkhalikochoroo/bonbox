@@ -23,7 +23,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, GUID
@@ -66,3 +66,12 @@ class RevisorPackageSend(Base):
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     # The ZIP was removed from storage after the link expired.
     purged_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # A package over the link cap goes as numbered ZIP parts, one link each:
+    # [{part, key, sha256, size, n_bilag, name}] (part 1 = storage_key).
+    parts_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # The figures the package stated and their fingerprint — a period that
+    # changes after the send shows "Ændret efter afsendelse" (12 Oct M7).
+    figures_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    figures_fp: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # This send replaced a sent package whose figures had changed (RETTELSE).
+    is_correction: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

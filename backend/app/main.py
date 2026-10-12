@@ -2769,10 +2769,21 @@ _migrations = [
         updated_at TIMESTAMP,
         sent_at TIMESTAMP,
         purged_at TIMESTAMP,
+        parts_json TEXT,
+        figures_json TEXT,
+        figures_fp VARCHAR(64),
+        is_correction BOOLEAN NOT NULL DEFAULT FALSE,
         CONSTRAINT ux_revisor_package_dedup UNIQUE (user_id, dedup_key)
     )""",
     "CREATE INDEX IF NOT EXISTS ix_revisor_package_sends_user_id ON revisor_package_sends (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_revisor_package_user_period ON revisor_package_sends (user_id, period_start, period_end)",
+    # 12 Oct review: split packages (M8) and the sent figures' fingerprint
+    # (M7). Nullable / defaulted — rows written before read as one part, no
+    # fingerprint, not a correction.
+    "ALTER TABLE revisor_package_sends ADD COLUMN IF NOT EXISTS parts_json TEXT",
+    "ALTER TABLE revisor_package_sends ADD COLUMN IF NOT EXISTS figures_json TEXT",
+    "ALTER TABLE revisor_package_sends ADD COLUMN IF NOT EXISTS figures_fp VARCHAR(64)",
+    "ALTER TABLE revisor_package_sends ADD COLUMN IF NOT EXISTS is_correction BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 
@@ -3484,6 +3495,10 @@ def _run_migrations():
             # Mirror of the revisor package schedule (2026-10-12).
             ok += _add("business_profiles", "revisor_package_schedule", "VARCHAR(10)")
             ok += _add("business_profiles", "revisor_package_schedule_at", "TIMESTAMP")
+            ok += _add("revisor_package_sends", "parts_json", "TEXT")
+            ok += _add("revisor_package_sends", "figures_json", "TEXT")
+            ok += _add("revisor_package_sends", "figures_fp", "VARCHAR(64)")
+            ok += _add("revisor_package_sends", "is_correction", "BOOLEAN NOT NULL DEFAULT 0")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
@@ -6357,15 +6372,16 @@ try:
     except Exception as _backup_job_err:  # noqa: BLE001
         print(f"Scheduler warning: nightly backup job not registered: {_backup_job_err}")
     # Scheduled revisor packages (Settings → "Send revisorpakke") — hourly at
-    # :20, because the due moment is 07:00 in each OWNER's time zone (Monday
-    # for the week before, the 3rd for the month before). Once per period per
-    # recipient is enforced by the ledger's UNIQUE dedup_key, not by the
-    # scheduler. Own try so it can never cost the other jobs.
+    # :20 (JOB_MINUTE), because the due moment is 07:00 — or the hour after
+    # the owner's day cutoff — in each OWNER's time zone (Monday for the week
+    # before, the 3rd for the month before). Once per period is enforced by
+    # the ledger's UNIQUE dedup_key, not by the scheduler. Own try so it can
+    # never cost the other jobs.
     try:
-        from app.jobs.revisor_package_job import run_revisor_package_schedule
+        from app.jobs.revisor_package_job import JOB_MINUTE, run_revisor_package_schedule
         _scheduler.add_job(
             run_revisor_package_schedule,
-            trigger=CronTrigger(minute=20),
+            trigger=CronTrigger(minute=JOB_MINUTE),
             id="revisor_package_schedule",
             name="Scheduled revisor packages (weekly / monthly)",
             replace_existing=True,

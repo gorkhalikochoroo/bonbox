@@ -214,7 +214,8 @@ def test_moms_in_the_package_is_compute_filing_data(db, store):
     assert sum(r["input_vat"] for r in fd["kob_pr_kategori"]) == pytest.approx(fd["moms_af_kob"])
     z = zipfile.ZipFile(io.BytesIO(b.zip_bytes))
     moms_csv = z.read("moms-oversigt.csv").decode("utf-8-sig")
-    assert f"{fd['moms_af_salg']:.2f}" in moms_csv and f"{fd['moms_af_kob']:.2f}" in moms_csv
+    dk = lambda v: f"{v:.2f}".replace(".", ",")  # noqa: E731 — Danish Excel (decimal comma)
+    assert dk(fd["moms_af_salg"]) in moms_csv and dk(fd["moms_af_kob"]) in moms_csv
     # Open items are printed, plainly.
     assert "Åbne punkter" in text
     assert "uden dagsafslutning" in text and "ikke låst" in text
@@ -299,7 +300,7 @@ def _locked_days(db, u, start, end, weekdays=None):
 def test_all_clear_for_a_finished_period_with_every_day_locked(db):
     u = _owner(db)
     _locked_days(db, u, *SEP)
-    st = rp.checklist_status(rp.build_checklist(db, u, *SEP, now=NOW))
+    st = rp.checklist_status(rp.build_checklist(db, u, *SEP, now=NOW, unreadable=[]))
     assert st["open"] == [] and st["notes"] == []
     assert st["title"] == ("Ingen åbne punkter: alle dage er lukket og låst, "
                            "og alle bogførte udgifter med moms har bilag.")
@@ -308,7 +309,7 @@ def test_all_clear_for_a_finished_period_with_every_day_locked(db):
 def test_unfinished_period_says_so_and_claims_only_the_days_checked(db):
     u = _owner(db)
     _locked_days(db, u, date(2026, 10, 1), date(2026, 10, 11))
-    st = rp.checklist_status(rp.build_checklist(db, u, *OCT, now=NOW))   # NOW = 12 Oct
+    st = rp.checklist_status(rp.build_checklist(db, u, *OCT, now=NOW, unreadable=[]))   # NOW = 12 Oct
     assert st["open"] == []
     assert "alle dage indtil nu er lukket og låst" in st["title"]
     assert "alle dage er lukket og låst" not in st["title"]
@@ -319,14 +320,14 @@ def test_unfinished_period_says_so_and_claims_only_the_days_checked(db):
 def test_period_starting_today_claims_no_locked_days(db):
     u = _owner(db)
     _locked_days(db, u, date(2026, 9, 1), date(2026, 10, 11))
-    st = rp.checklist_status(rp.build_checklist(db, u, date(2026, 10, 12), date(2026, 10, 18), now=NOW))
+    st = rp.checklist_status(rp.build_checklist(db, u, date(2026, 10, 12), date(2026, 10, 18), now=NOW, unreadable=[]))
     assert "lukket og låst" not in st["title"]
     assert st["notes"] == ["Perioden er ikke slut — ingen dage er kontrolleret endnu."]
 
 
 def test_owner_without_daily_closes_is_never_told_the_days_are_locked(db):
     u = _owner(db)
-    st = rp.checklist_status(rp.build_checklist(db, u, *SEP, now=NOW))
+    st = rp.checklist_status(rp.build_checklist(db, u, *SEP, now=NOW, unreadable=[]))
     assert st["title"] == "Ingen åbne punkter: alle bogførte udgifter med moms har bilag."
     assert st["notes"] == ["Der føres ikke dagsafslutninger i BonBox, så manglende dage "
                            "er ikke kontrolleret."]
@@ -335,14 +336,14 @@ def test_owner_without_daily_closes_is_never_told_the_days_are_locked(db):
 def test_opening_days_are_named_when_the_owner_set_them(db):
     u = _owner(db, open_days="12345")
     _locked_days(db, u, *SEP, weekdays={1, 2, 3, 4, 5})
-    st = rp.checklist_status(rp.build_checklist(db, u, *SEP, now=NOW))
+    st = rp.checklist_status(rp.build_checklist(db, u, *SEP, now=NOW, unreadable=[]))
     assert st["title"].startswith("Ingen åbne punkter: alle åbningsdage er lukket og låst")
 
 
 def test_open_items_keep_the_unfinished_period_note(db, store):
     u = _owner(db)
     _locked_days(db, u, date(2026, 10, 1), date(2026, 10, 5))   # 6–11 Oct missing
-    st = rp.checklist_status(rp.build_checklist(db, u, *OCT, now=NOW))
+    st = rp.checklist_status(rp.build_checklist(db, u, *OCT, now=NOW, unreadable=[]))
     assert st["title"] == "Åbne punkter (1) — perioden er ikke færdig"
     assert st["open"][0].startswith("6 dage uden dagsafslutning")
     assert st["notes"][0].startswith("Perioden er ikke slut — kontrolleret til og med")
@@ -376,7 +377,7 @@ def test_free_owner_downloads_but_cannot_send(client, db, store, mailbox):
     r = client.get("/api/revisor-package/download", params={"start": "2026-09-01", "end": "2026-09-30"})
     assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
     assert zipfile.ZipFile(io.BytesIO(r.content)).testzip() is None
-    r = client.post("/api/revisor-package/send", json={"start": "2026-09-01", "end": "2026-09-30"})
+    r = client.post("/api/revisor-package/send", json={"start": "2026-09-01", "end": "2026-09-30", "key": "k1"})
     assert r.status_code == 402
     assert mailbox == []
 
@@ -385,14 +386,14 @@ def test_send_walls(client, db, store, mailbox):
     u = _owner(db, revisor=None)
     _as(u)
     body = {"start": "2026-09-01", "end": "2026-09-30"}
-    r = client.post("/api/revisor-package/send", json=body)
+    r = client.post("/api/revisor-package/send", json={**body, "key": "kb"})
     assert r.status_code == 400 and r.json()["detail"]["code"] == "no_accountant_email"
     u2 = _owner(db, verified=False)
     _as(u2)
-    r = client.post("/api/revisor-package/send", json=body)
+    r = client.post("/api/revisor-package/send", json={**body, "key": "kb"})
     assert r.status_code == 403 and r.json()["detail"]["code"] == "email_unverified"
     assert mailbox == []
-    r = client.post("/api/revisor-package/send", json={"start": "2026-01-01", "end": "2026-06-30"})
+    r = client.post("/api/revisor-package/send", json={"start": "2026-01-01", "end": "2026-06-30", "key": "k2"})
     assert r.status_code == 422
 
 
@@ -463,14 +464,14 @@ def test_unclear_mail_outcome_is_not_resent_and_its_link_still_works(client, db,
 
     monkeypatch.setattr("app.services.email_service.resend.Emails.send", _flaky)
     body = {"start": "2026-09-01", "end": "2026-09-30", "key": "tap-u"}
-    r = client.post("/api/revisor-package/send", json=body)
+    r = client.post("/api/revisor-package/send", json={**body, "key": "kb"})
     assert r.status_code == 502 and r.json()["detail"]["code"] == "email_unclear"
     assert "Spørg revisoren" in r.json()["detail"]["message_da"]
     row = db.query(RevisorPackageSend).one()
     assert row.status == "failed" and row.error.startswith("mail_unclear")
     assert row.storage_key in store.blobs
     # The same tap again: refused with the same advice, nothing mailed.
-    r = client.post("/api/revisor-package/send", json=body)
+    r = client.post("/api/revisor-package/send", json={**body, "key": "kb"})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "email_unclear"
     assert len(links) == 1
     # The link in the mail that may have arrived serves the package.
@@ -490,14 +491,14 @@ def test_a_refused_mail_can_be_sent_again_with_the_same_tap(client, db, store, m
 
     monkeypatch.setattr("app.services.email_service.resend.Emails.send", _refuse)
     body = {"start": "2026-09-01", "end": "2026-09-30", "key": "tap-r"}
-    r = client.post("/api/revisor-package/send", json=body)
+    r = client.post("/api/revisor-package/send", json={**body, "key": "kb"})
     assert r.status_code == 502 and r.json()["detail"]["code"] == "email_send_failed"
     row = db.query(RevisorPackageSend).one()
     assert row.status == "failed" and row.storage_key is None
     assert not [k for k in store.blobs if "/revisor_package/" in k]   # no orphan ZIP
     monkeypatch.setattr("app.services.email_service.resend.Emails.send",
                         lambda payload: mailbox.append(payload) or {"id": "x"})
-    r = client.post("/api/revisor-package/send", json=body)
+    r = client.post("/api/revisor-package/send", json={**body, "key": "kb"})
     assert r.status_code == 200 and r.json()["ok"]
     db.refresh(row)
     assert row.status == "sent" and row.attempts == 2
@@ -514,16 +515,23 @@ def test_a_stale_manual_claim_reads_as_failed(db):
     assert (x["status"], x["error"]) == ("failed", "stale_claim")
 
 
-def test_a_send_stops_reading_bilag_once_past_the_size_cap(db, store, monkeypatch):
+def test_a_send_over_the_link_cap_is_split_and_reads_each_bilag_once(db, store, monkeypatch):
+    """(Was: a send stopped at the cap and mailed nothing. 12 Oct review M8:
+    a package over the cap goes as numbered parts, one link each.)"""
     u = _owner(db)
     _seed_september(db, u, store)
     reads = []
     real = rp.load_bilag
-    monkeypatch.setattr(rp, "load_bilag", lambda uid, ref: reads.append(ref) or real(uid, ref))
-    with pytest.raises(rp.PackageDeliveryError) as e:
-        rp.build_package(db, u, *SEP, now=NOW, max_zip_bytes=1)
-    assert e.value.code == "too_large" and len(reads) == 1
-
+    monkeypatch.setattr(rp, "load_bilag", lambda uid, ref, db=None: reads.append(ref) or real(uid, ref, db=db))
+    monkeypatch.setattr(rp, "_PART1_RESERVE", 0)
+    monkeypatch.setattr(rp, "_PART_RESERVE", 0)
+    b = rp.build_package(db, u, *SEP, now=NOW, split_bytes=1100)
+    try:
+        assert len(b.parts) == 2 and [pt.n_bilag for pt in b.parts] == [1, 1]
+        assert len(reads) == 2
+        assert b.parts[1].name.endswith("_del-2-af-2.zip")
+    finally:
+        b.close()
 
 def test_the_download_is_streamed_and_identical_to_the_build(client, db, store):
     u = _owner(db)
@@ -573,7 +581,7 @@ def test_link_expires_and_tampering_is_refused(client, db, store, mailbox, monke
     u = _owner(db)
     _seed_september(db, u, store)
     _as(u)
-    client.post("/api/revisor-package/send", json={"start": "2026-09-01", "end": "2026-09-30"})
+    client.post("/api/revisor-package/send", json={"start": "2026-09-01", "end": "2026-09-30", "key": "k3"})
     link = mailbox[0]["html"].split("href='", 1)[1].split("'", 1)[0]
     token = link.rsplit("/", 1)[1]
     app.dependency_overrides.pop(get_current_user, None)
@@ -592,14 +600,14 @@ def test_opted_out_revisor_and_demo_rows_are_refused(client, db, store, mailbox)
     rm.record_opt_out(p, rm.address_fingerprint("pia@revisorhuset.dk"))
     db.commit()
     _as(u)
-    r = client.post("/api/revisor-package/send", json={"start": "2026-09-01", "end": "2026-09-30"})
+    r = client.post("/api/revisor-package/send", json={"start": "2026-09-01", "end": "2026-09-30", "key": "k4"})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "accountant_opted_out"
     u2 = _owner(db)
     db.add(DailyClose(user_id=u2.id, date=date(2026, 9, 2), revenue_total=1, status="confirmed",
                       notes="sample · demo"))
     db.commit()
     _as(u2)
-    r = client.post("/api/revisor-package/send", json={"start": "2026-09-01", "end": "2026-09-30"})
+    r = client.post("/api/revisor-package/send", json={"start": "2026-09-01", "end": "2026-09-30", "key": "k5"})
     assert r.status_code == 422 and r.json()["detail"]["code"] == "demo_in_period"
     assert mailbox == []
 

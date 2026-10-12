@@ -1151,7 +1151,10 @@ FORMATS = {
         ),
     },
     "bundle": {
-        "label": "Monthly bundle (ZIP — everything)",
+        # Not "Revisorpakke": that name is the period package (services/
+        # revisor_package.py, Månedsafslutning) — one thing per name (12 Oct
+        # review, minor 12). This is the import files for bookkeeping software.
+        "label": "Bookkeeping files (ZIP — for import)",
         "ext": "zip",
         "mime": "application/zip",
         "exporter": export_bundle,

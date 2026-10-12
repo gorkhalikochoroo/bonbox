@@ -41,9 +41,9 @@ def parse_receipt_ref(ref: str | None, user_id=None) -> tuple[str, str] | None:
     """('storage', key) | ('local', path) | ('inbox', path), or None.
 
     With `user_id`, a storage key or a local file must be that owner's.
-    An inbox blob carries no owner in its name; it is only ever reached
-    through the owner's own expense row (callers that take a client-supplied
-    reference must not accept it — see is_own_upload)."""
+    An inbox blob carries no owner in its name: a caller that READS one must
+    also check inbox_blob_owned (the revisor package does), and a caller that
+    takes a client-supplied reference must not accept it (is_own_upload)."""
     s = _clean(ref or "")
     if s is None:
         return None
@@ -71,6 +71,23 @@ def parse_receipt_ref(ref: str | None, user_id=None) -> tuple[str, str] | None:
     if _INBOX_RE.match(s):
         return ("inbox", s)
     return None
+
+
+def inbox_blob_owned(db, user_id, path: str) -> bool:
+    """An inbox blob ('uploads/receipts/<sha256>.enc') carries no owner in
+    its name — the file is content-addressed. It is this owner's only when
+    the mail intake recorded it for them (receipt_intake.storage_path). A
+    reference to any other blob — another owner's forwarded receipt, typed
+    into an expense — is refused (12 Oct review, minor 6)."""
+    if db is None or user_id is None or not path:
+        return False
+    from app.models.receipt_intake import ReceiptIntake
+    try:
+        return db.query(ReceiptIntake.id).filter(
+            ReceiptIntake.user_id == user_id, ReceiptIntake.storage_path == path,
+        ).first() is not None
+    except Exception:  # noqa: BLE001 — cannot tell → not theirs
+        return False
 
 
 def is_own_upload(ref: str | None, user_id) -> bool:

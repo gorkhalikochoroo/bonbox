@@ -5,6 +5,8 @@ Runs every hour. For each owner who chose a schedule:
   weekly   due Monday 07:00 local → the week before (Monday–Sunday)
   monthly  due the 3rd, 07:00 local → the month before
 
+(the job runs at JOB_MINUTE past each hour, so "07:00" goes out at 07:20)
+
 07:00, or the hour after the owner's own day cutoff when that is later — and
 never before the period's last business day has ended (a bar trading until
 08:00 is still in Sunday at Monday 07:00).
@@ -18,7 +20,10 @@ ONE scheduled package per period, whoever the revisor is — enforced by the
 database: the ledger row's `dedup_key` ("sched:<start>:<end>") is UNIQUE per
 owner. Saving a new revisor address after a period went out never re-mails
 that period to the new address. A period the owner already sent by hand
-after it ended is not sent again either. The row is claimed BEFORE anything is
+after it ended — or may have sent: a mail whose outcome is unclear, a send
+that never finished, one in progress — is not sent again either, and a
+period whose figures changed after it went is never re-sent on its own (the
+owner sends the RETTELSE). The row is claimed BEFORE anything is
 built or mailed; a second worker, the old instance during a deploy, or a
 retried run cannot claim it again. A send the mail service REFUSED (nothing
 went out) is retried on the next runs (3 attempts in all). A send whose
@@ -50,6 +55,9 @@ from app.utils.time import utc_now
 logger = logging.getLogger(__name__)
 
 DUE_HOUR = 7
+# The minute past each hour the job runs (main.py registers it with this):
+# a package due at 07:00 goes out at 07:20 — what the schedule card shows.
+JOB_MINUTE = 20
 MAX_ATTEMPTS = 3
 STALE_CLAIM = timedelta(minutes=30)
 
@@ -119,31 +127,63 @@ def period_over_at(end: date, tz, cutoff_hour: int | None) -> datetime:
             .astimezone(timezone.utc).replace(tzinfo=None))
 
 
-def sent_by_hand_after_end(db: Session, user_id, start: date, end: date, tz,
-                           cutoff_hour: int | None) -> bool:
-    """The owner already mailed exactly this period from Månedsafslutning
-    after it had ended — the schedule does not send it a second time. (A
-    send made while the period was still running does not count: the
-    revisor still needs the finished period.)"""
+def _covering(R):
+    """A send row counts as "this period went out" when it was sent — or
+    when it MAY have gone out: a mail whose outcome is unclear, a claim that
+    never finished (stale), or one being sent right now. A duplicate package
+    to a third party is worse than a missing one (12 Oct review M1: an
+    unclear manual send was mailed again by the schedule)."""
+    from sqlalchemy import and_, or_
+    return or_(
+        R.status == "sent",
+        R.status == "claimed",
+        and_(R.status == "failed", or_(R.error.like("mail_unclear%"), R.error.like("stale_claim%"))),
+    )
+
+
+def manual_send_after_end(db: Session, user_id, start: date, end: date, tz,
+                          cutoff_hour: int | None) -> bool:
+    """The owner mailed exactly this period from Månedsafslutning after it
+    had ended — sent, or possibly sent (unclear / unfinished / in progress)
+    — so the schedule does not send it again. (A send made while the period
+    was still running does not count: the revisor still needs the finished
+    period.)"""
+    from sqlalchemy import func
     from app.models.revisor_package import RevisorPackageSend as R
+    over = period_over_at(end, tz, cutoff_hour)
     return db.query(R.id).filter(
-        R.user_id == user_id, R.send_trigger == "manual", R.status == "sent",
-        R.period_start == start, R.period_end == end,
-        R.sent_at >= period_over_at(end, tz, cutoff_hour),
+        R.user_id == user_id, R.send_trigger == "manual",
+        R.period_start == start, R.period_end == end, _covering(R),
+        func.coalesce(R.sent_at, R.created_at) >= over,
     ).first() is not None
+
+
+def final_sends(db: Session, user_id, start: date, end: date, tz, cutoff_hour: int | None):
+    """The packages of this FINISHED period that went out (or may have),
+    by the schedule or by hand — newest first. A re-send of the period needs
+    the owner's confirmation, and is a RETTELSE when the figures changed."""
+    from sqlalchemy import func
+    from app.models.revisor_package import RevisorPackageSend as R
+    over = period_over_at(end, tz, cutoff_hour)
+    return (db.query(R)
+            .filter(R.user_id == user_id, R.period_start == start, R.period_end == end,
+                    _covering(R), func.coalesce(R.sent_at, R.created_at) >= over)
+            .order_by(func.coalesce(R.sent_at, R.created_at).desc())
+            .all())
 
 
 def period_settled(db: Session, user_id, start: date, end: date, tz,
                    cutoff_hour: int | None) -> bool:
     """Nothing more will go out for this period by the schedule: its package
-    was sent (by the schedule, or by hand after the period ended), or the
-    schedule gave up on it (ops was told)."""
+    was sent (by the schedule, or by hand after the period ended — or may
+    have been), or the schedule gave up on it (ops was told)."""
     from app.models.revisor_package import RevisorPackageSend as R
     row = (db.query(R.status, R.attempts)
            .filter(R.user_id == user_id, R.dedup_key == _dedup_key(start, end)).first())
-    if row is not None and (row[0] == "sent" or (row[0] == "failed" and (row[1] or 0) >= MAX_ATTEMPTS)):
+    if row is not None and (row[0] in ("sent", "claimed")
+                            or (row[0] == "failed" and (row[1] or 0) >= MAX_ATTEMPTS)):
         return True
-    return sent_by_hand_after_end(db, user_id, start, end, tz, cutoff_hour)
+    return manual_send_after_end(db, user_id, start, end, tz, cutoff_hour)
 
 
 def sweep_stale_claims(db: Session, now: datetime) -> int:
@@ -218,8 +258,8 @@ def run_revisor_package_schedule(
                     continue
                 if row is not None and row.status == "failed" and (row.attempts or 0) >= MAX_ATTEMPTS:
                     continue
-                if sent_by_hand_after_end(db, user.id, start, end, zone, cutoff):
-                    continue  # the owner already sent this finished period
+                if manual_send_after_end(db, user.id, start, end, zone, cutoff):
+                    continue  # the owner already sent (or may have) this finished period
                 recipient = rm.saved_revisor_address(profile)
                 fp = rm.address_fingerprint(rm.mailbox_address(recipient)) if recipient else None
 
@@ -329,6 +369,7 @@ def run_revisor_package_schedule(
 
 
 def purge_expired(db: Session, *, now: datetime | None = None) -> int:
+    from sqlalchemy import or_
     from app.models.revisor_package import RevisorPackageSend as R
     from app.services.storage import get_storage
     now = now or utc_now()
@@ -341,21 +382,27 @@ def purge_expired(db: Session, *, now: datetime | None = None) -> int:
         .limit(200)
         .all()
     )
+    from app.services.revisor_package import stored_keys
     n = 0
     storage = get_storage()
     for r in rows:
-        still_used = (
-            db.query(R.id)
-            .filter(R.storage_key == r.storage_key, R.id != r.id, R.purged_at.is_(None),
-                    R.link_expires_at >= cutoff)
-            .first()
-        )
-        if not still_used:
+        failed = False
+        for key in stored_keys(r):
+            still_used = (
+                db.query(R.id)
+                .filter(R.id != r.id, R.purged_at.is_(None), R.link_expires_at >= cutoff,
+                        or_(R.storage_key == key, R.parts_json.like(f"%{key}%")))
+                .first()
+            )
+            if still_used:
+                continue
             try:
-                storage.delete(r.storage_key)
+                storage.delete(key)
             except Exception:  # noqa: BLE001 — retried next run
                 logger.warning("revisor package purge failed for %s", r.id)
-                continue
+                failed = True
+        if failed:
+            continue
         r.purged_at = now
         n += 1
     db.commit()

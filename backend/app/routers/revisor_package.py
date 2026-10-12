@@ -9,12 +9,16 @@ revisor's own read-only login can read, never send or change the schedule).
                                 artifacts are the same at any tier)
   GET  /summary.pdf?start&end   the package's summary PDF on its own
   POST /send                    e-mail it to the saved revisor now
-                                (accountant_month_end_bundle; Starter+)
+                                (accountant_month_end_bundle; Starter+). A
+                                key is required (one tap = one send); a
+                                period that already went needs resend=true,
+                                and goes as a RETTELSE when it changed
   GET  /settings · PUT /settings   the "Send revisorpakke" schedule
   GET  /sends                   what went, when, to whom — and what was skipped
 
-The public, signed 14-day download link the revisor gets lives in
-public_router (mounted at /api/public/revisor-package).
+The public, signed download link the revisor gets (through the 14th day;
+one per ZIP part) lives in public_router (mounted at
+/api/public/revisor-package).
 """
 # NO `from __future__ import annotations` here: with slowapi's @limit wrapper
 # FastAPI cannot resolve the deferred annotations and every query parameter
@@ -87,7 +91,14 @@ def checklist(
     the screen that fixes it — plus whether the package can be sent now."""
     s, e = _period(start, end)
     profile = rp.profile_of(db, user)
-    out = rp.build_checklist(db, user, s, e)
+    from app.services.tax_filing_pdf import compute_filing_data
+    fd = compute_filing_data(db, user, s, e)
+    closes = rp.period_closes(db, user, s, e)
+    expenses = rp.expense_rows(db, user, s, e)
+    out = rp.build_checklist(db, user, s, e, fd=fd, closes=closes, expenses=expenses)
+    # Already sent (or maybe sent)? And changed since? (M7)
+    out["sent_package"] = sent_package_state(db, user, s, e, fd=fd, closes=closes,
+                                             expenses=expenses)
     from app.services import revisor_mail as rm
     from app.services.billing import has_feature
     sched = getattr(profile, "revisor_package_schedule", None) if profile else None
@@ -173,18 +184,20 @@ class SendRequest(BaseModel):
     start: date
     end: date
     # One tap = one send: the same key again answers with what happened.
-    key: str | None = None
+    # Required — a client without one could mail the revisor twice by
+    # retrying (12 Oct review, minor 8).
+    key: str
+    # The period already went to the revisor: the owner confirmed sending it
+    # again (Månedsafslutning asks). Without it the send answers 409
+    # already_sent and mails nothing.
+    resend: bool = False
 
     @field_validator("key")
     @classmethod
     def _key(cls, v):
-        if v is None:
-            return None
-        v = str(v).strip()
-        if not v:
-            return None
-        if len(v) > 64 or not all(c.isalnum() or c in "-_" for c in v):
-            raise ValueError("invalid key")
+        v = str(v or "").strip()
+        if not v or len(v) > 64 or not all(c.isalnum() or c in "-_" for c in v):
+            raise ValueError("a send key (1-64 letters, digits, - or _) is required")
         return v
 
 
@@ -197,7 +210,56 @@ def _send_view(row: RevisorPackageSend, user: User, *, replayed: bool = False) -
         "link_expires_at": row.link_expires_at.isoformat() if row.link_expires_at else None,
         # The owner's local date the link works through — what the mail says.
         "link_expires_on": rp.link_local_date(user, row.link_expires_at),
+        "sent_on": rp.link_local_date(user, row.sent_at),
+        "is_correction": bool(getattr(row, "is_correction", False)),
         "period_start": row.period_start.isoformat(), "period_end": row.period_end.isoformat(),
+    }
+
+
+def _zone_and_cutoff(db: Session, user: User):
+    from app.services.gavekort_moms import _tz_user
+    from app.services.tz_utils import _user_cutoff_hour, _user_zone
+    tzu = _tz_user(db, user)
+    return _user_zone(tzu), _user_cutoff_hour(tzu)
+
+
+def sent_package_state(db: Session, user: User, s: date, e: date, *, fd=None, closes=None,
+                       expenses=None) -> dict | None:
+    """The package of the finished period that already went to the revisor
+    (or may have), and whether its figures have changed since (M7):
+    {sent_on, recipient, status, changed, changes:[{key, before, after}]}."""
+    from app.jobs.revisor_package_job import final_sends
+    zone, cutoff = _zone_and_cutoff(db, user)
+    rows = final_sends(db, user.id, s, e, zone, cutoff)
+    if not rows:
+        return None
+    last = rows[0]
+    with_fp = next((r for r in rows if r.figures_fp), None)
+    changes: list = []
+    changed = False
+    if with_fp is not None:
+        if fd is None:
+            from app.services.tax_filing_pdf import compute_filing_data
+            fd = compute_filing_data(db, user, s, e)
+        closes = closes if closes is not None else rp.period_closes(db, user, s, e)
+        expenses = expenses if expenses is not None else rp.expense_rows(db, user, s, e)
+        days = rp.revenue_by_day(db, user, s, e, closes)
+        now_fig = rp.package_figures(fd, days, expenses)
+        changed = rp.figures_fingerprint(now_fig) != with_fp.figures_fp
+        if changed:
+            import json as _json
+            try:
+                before = _json.loads(with_fp.figures_json or "{}")
+            except Exception:  # noqa: BLE001
+                before = {}
+            changes = [{"key": c["key"], "before": c["before"], "after": c["after"]}
+                       for c in rp.figure_changes(before, now_fig)]
+    unclear = last.status != "sent"
+    return {
+        "sent_on": rp.link_local_date(user, last.sent_at or last.created_at),
+        "recipient": last.recipient, "trigger": last.send_trigger,
+        "status": "unclear" if unclear else "sent",
+        "changed": changed, "changes": changes,
     }
 
 
@@ -230,7 +292,7 @@ def send_now(
     s, e = _period(body.start, body.end)
     if not has_feature(user, "accountant_month_end_bundle"):
         raise HTTPException(status_code=402, detail=feature_locked_detail(user, "accountant_month_end_bundle"))
-    dedup = f"manual:{body.key}" if body.key else None
+    dedup = f"manual:{body.key}"
     if dedup:
         prior = (db.query(RevisorPackageSend)
                  .filter(RevisorPackageSend.user_id == user.id, RevisorPackageSend.dedup_key == dedup)
@@ -261,6 +323,25 @@ def send_now(
         raise rm.demo_in_period_error(n_demo)
     rm.require_verified_revisor_sender(user)
     rm.enforce_revisor_daily_cap(db, user)
+
+    # The finished period already went out (or may have): send again only
+    # when the owner confirmed it — and when its figures changed since, the
+    # new package says RETTELSE (minor 8, M7).
+    from app.jobs.revisor_package_job import final_sends
+    zone, cutoff = _zone_and_cutoff(db, user)
+    earlier = [r for r in final_sends(db, user.id, s, e, zone, cutoff) if r.dedup_key != dedup]
+    prior_send = next((r for r in earlier if r.figures_fp), None)
+    if earlier and not body.resend:
+        last = earlier[0]
+        on = rp.link_local_date(user, last.sent_at or last.created_at)
+        on_da = rp.dk_date(date.fromisoformat(on)) if on else ""
+        raise HTTPException(status_code=409, detail={
+            "code": "already_sent", "sent_on": on, "recipient": last.recipient,
+            "message": f"This period was already sent on {on} to {last.recipient}. "
+                       "Confirm to send it again.",
+            "message_da": f"Perioden er allerede sendt {on_da} til {last.recipient}. "
+                          "Bekræft for at sende den igen.",
+        })
 
     now = utc_now()
     row = None
@@ -302,7 +383,7 @@ def send_now(
             raise in_progress
     db.refresh(row)
     try:
-        rp.deliver(db, user, profile, row, now=now)
+        rp.deliver(db, user, profile, row, now=now, prior_send=prior_send)
     except Exception as exc:  # noqa: BLE001 — nothing is KNOWN to have gone out
         code = exc.code if isinstance(exc, rp.PackageDeliveryError) else type(exc).__name__
         detail = getattr(exc, "detail", "") or ""
@@ -372,9 +453,15 @@ def _settings_view(db: Session, user: User, profile) -> dict:
                 and not period_settled(db, user.id, cur[1], cur[2], zone, cutoff)):
             nxt_due = cur
         if nxt_due:
+            from datetime import timedelta as _td
+            from app.jobs.revisor_package_job import JOB_MINUTE as REVISOR_PACKAGE_JOB_MINUTE
             nxt = {"kind": nxt_due[0], "start": nxt_due[1].isoformat(), "end": nxt_due[2].isoformat(),
                    "label": rp.period_label(nxt_due[1], nxt_due[2], nxt_due[0]),
-                   "due_at": nxt_due[3].isoformat() + "Z"}
+                   "due_at": nxt_due[3].isoformat() + "Z",
+                   # When the hourly job really sends it (its minute past the
+                   # due hour), to show in the owner's own zone (minor 9).
+                   "run_at": (nxt_due[3] + _td(minutes=REVISOR_PACKAGE_JOB_MINUTE)).isoformat() + "Z",
+                   "tz": getattr(zone, "key", None) or str(zone)}
             blocker = rp.send_blocker(db, user, profile, nxt_due[1], nxt_due[2])
     return {
         "schedule": sched,
@@ -484,7 +571,12 @@ def public_download(token: str, request: Request, db: Session = Depends(get_db))
     linked = row is not None and (
         row.status == "sent"
         or (row.status == "failed" and (row.error or "").startswith("mail_unclear")))
-    if not linked or not row.storage_key:
+    try:
+        part_no = int(payload.get("p") or 1)
+    except (TypeError, ValueError):
+        part_no = 0
+    part = rp.part_of(row, part_no) if linked and part_no >= 1 else None
+    if not linked or not row.storage_key or part is None:
         return _page("Linket virker ikke", "Linket til revisorpakken er ugyldigt.", 404)
     user = db.query(User).filter(User.id == uid).first()
     profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == uid).first()
@@ -495,23 +587,25 @@ def public_download(token: str, request: Request, db: Session = Depends(get_db))
                      f"Linket til revisorpakken fra {biz} virker ikke længere. "
                      f"Bed {biz} sende pakken igen fra BonBox.", 410)
     try:
-        data = get_storage().get(row.storage_key)
+        data = get_storage().get(part["key"])
     except Exception:  # noqa: BLE001
         data = None
-    if not data or hashlib.sha256(data).hexdigest() != row.zip_sha256:
+    if not data or hashlib.sha256(data).hexdigest() != part.get("sha256"):
         logger.warning("revisor package %s: stored ZIP missing or changed", row.id)
         return _page("Pakken findes ikke længere",
                      f"Revisorpakken kan ikke hentes. Bed {biz} sende den igen fra BonBox.", 410)
     try:
         with db.begin_nested():
             audit_record(db, user, rp.DOWNLOAD_ACTION, "revisor_package", entity_id=row.id,
-                         after={"send_id": str(row.id), "zip_sha256": row.zip_sha256},
+                         after={"send_id": str(row.id), "part": part_no,
+                                "zip_sha256": part.get("sha256")},
                          ip_address=client_ip(request), actor_type="public.revisor_link")
         db.commit()
     except Exception:  # noqa: BLE001 — the download must not fail on its audit row
         db.rollback()
-    filename = (f"Revisorpakke_{rp._safe_name(biz)}_"
-                f"{rp.period_file_label(row.period_start, row.period_end, row.period_kind)}.zip")
+    filename = part.get("name") or (
+        f"Revisorpakke_{rp._safe_name(biz)}_"
+        f"{rp.period_file_label(row.period_start, row.period_end, row.period_kind)}.zip")
     return Response(
         content=data, media_type="application/zip",
         headers={"Content-Disposition": content_disposition(filename),
