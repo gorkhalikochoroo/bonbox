@@ -1433,35 +1433,44 @@ _REENCODE_FROM_BYTES = 400 * 1024
 
 def reencode_for_package(data: bytes, ext: str) -> tuple[bytes, str, bool]:
     """(bytes, ext, re-encoded?) for one bilag. Never raises; when in doubt
-    the original goes in."""
+    the original goes in.
+
+    Through the app's decode gate (image_guard): one of the process-wide
+    decode slots is held from the decode to the encoded output, the bytes
+    are magic-checked against the image allow-list, and a JPEG is decoded
+    at the smallest scale that still covers 1600 px (a 12 MP photo decodes
+    at a quarter of its pixels)."""
     if ext not in ("jpg", "png", "webp", "heic"):
         return data, ext, False
     try:
         from PIL import Image, ImageOps
-        try:
-            import pillow_heif  # noqa: F401 — HEIC support when installed
-            pillow_heif.register_heif_opener()
-        except Exception:  # noqa: BLE001
-            pass
-        with Image.open(io.BytesIO(data)) as im:
-            w, h = im.size
-            if len(data) < _REENCODE_FROM_BYTES and max(w, h) <= BILAG_LONG_EDGE and ext in ("jpg", "png"):
-                return data, ext, False
-            im = ImageOps.exif_transpose(im)
-            if max(im.size) > BILAG_LONG_EDGE:
-                im.thumbnail((BILAG_LONG_EDGE, BILAG_LONG_EDGE), Image.LANCZOS)
-            if im.mode not in ("RGB", "L"):
-                bg = Image.new("RGB", im.size, (255, 255, 255))
-                rgba = im.convert("RGBA")
-                bg.paste(rgba, mask=rgba.split()[-1])
-                im = bg
-            out = io.BytesIO()
-            im.save(out, "JPEG", quality=BILAG_JPEG_QUALITY, optimize=True, progressive=True)
+        from app.services.image_guard import decode_slot, open_upload_image
+        out = io.BytesIO()
+        with decode_slot():
+            im = open_upload_image(data, max_side=BILAG_LONG_EDGE)
+            try:
+                if (len(data) < _REENCODE_FROM_BYTES and max(im.size) <= BILAG_LONG_EDGE
+                        and ext in ("jpg", "png")):
+                    return data, ext, False
+                im = ImageOps.exif_transpose(im)
+                if max(im.size) > BILAG_LONG_EDGE:
+                    im.thumbnail((BILAG_LONG_EDGE, BILAG_LONG_EDGE), Image.LANCZOS)
+                if im.mode not in ("RGB", "L"):
+                    bg = Image.new("RGB", im.size, (255, 255, 255))
+                    rgba = im.convert("RGBA")
+                    bg.paste(rgba, mask=rgba.split()[-1])
+                    im = bg
+                im.save(out, "JPEG", quality=BILAG_JPEG_QUALITY, optimize=True, progressive=True)
+            finally:
+                try:
+                    im.close()
+                except Exception:  # noqa: BLE001
+                    pass
         small = out.getvalue()
         if len(small) >= len(data) and ext in ("jpg", "png"):
             return data, ext, False
         return small, "jpg", True
-    except Exception:  # noqa: BLE001 — a file Pillow cannot read goes in as it is
+    except Exception:  # noqa: BLE001 — a file the gate refuses / Pillow cannot read goes in as it is
         return data, ext, False
 
 
