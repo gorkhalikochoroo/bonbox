@@ -1737,6 +1737,8 @@ export const en = {
     rsvpWalkInPickAria: "{n} guests: choose a table",
     rsvpSeatTablesTaken: "Those tables are no longer free together — pick another table.",
     rsvpSeatJoinedOption: "{tables} · {seats} seats, pushed together",
+    rsvpWalkInSeatedElsewhere: "Seated at {table} — not at {asked}",
+    rsvpWalkInSeatedNoTable: "Seated without a table — not at {asked}",
     rsvpStayMin: "{n} min", rsvpStayHours: "{h} h {m} min",
     rsvpStayAria: "Sat {from} to {to}, {dur}",
     rsvpStandSettings: "Settings", rsvpOpenStand: "Open host-stand view",

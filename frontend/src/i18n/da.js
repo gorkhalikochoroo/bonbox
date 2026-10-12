@@ -1697,6 +1697,8 @@ export const da = {
     rsvpWalkInPickAria: "{n} gæster: vælg bord",
     rsvpSeatTablesTaken: "Bordene er ikke længere ledige sammen — vælg et andet bord.",
     rsvpSeatJoinedOption: "{tables} · {seats} pladser, sat sammen",
+    rsvpWalkInSeatedElsewhere: "Sat ved {table} — ikke ved {asked}",
+    rsvpWalkInSeatedNoTable: "Sat uden bord — ikke ved {asked}",
     rsvpStayMin: "{n} min", rsvpStayHours: "{h} t {m} min",
     rsvpStayAria: "Sad {from} til {to}, {dur}",
     rsvpStandSettings: "Indstillinger", rsvpOpenStand: "Åbn vært-skærm",

@@ -33,6 +33,10 @@ import {
   findCombo,
   comboRules,
   joinedSeatingNow,
+  seatingNow,
+  tablesOf,
+  sameTables,
+  stampIso,
 } from "../utils/hostStand";
 
 const DAY = "2026-10-12";
@@ -245,6 +249,82 @@ describe("walkInOptions — joined tables", () => {
   });
 });
 
+describe("seatingNow — the one rule behind the row's Free now and the seat sheet's pick", () => {
+  // A six-top that never joins; 51 + 52 that do (4 + 2).
+  const room = [
+    table("10", 6, { zone: "Sal" }),
+    table("51", 4, { zone: "Sal", combinable: true }),
+    table("52", 2, { zone: "Sal", combinable: true }),
+  ];
+  const join = { enabled: true, maxSize: 3 };
+
+  it("a six-top booked inside their whole sitting is not free — the joined pair is", () => {
+    // Booked 21.10; six guests sit 150 minutes from 19.00, to 21.30.
+    const rs = [booking("x", "10", "confirmed", "21:10", "23:40", 6)];
+    expect(seatingNow({ reservations: rs, resources: room, nowMs: NOW, size: 6, sittingMin: 150, combine: join }))
+      .toEqual({ tableId: null, tableIds: ["51", "52"], label: "51 + 52", seats: 6 });
+  });
+
+  it("a six-top free for the whole sitting is the seating — one table, not two", () => {
+    // Booked 20.40; six guests sit 90 minutes from 19.00, to 20.30.
+    const rs = [booking("x", "10", "confirmed", "20:40", "22:10", 6)];
+    expect(seatingNow({ reservations: rs, resources: room, nowMs: NOW, size: 6, sittingMin: 90, combine: join }))
+      .toEqual({ tableId: "10", tableIds: ["10"], label: "10", seats: 6 });
+  });
+
+  it("joins nothing without the joining rule — no rule, switched off, or one table at most", () => {
+    const rs = [booking("x", "10", "confirmed", "21:10", "23:40", 6)];
+    const args = { reservations: rs, resources: room, nowMs: NOW, size: 6, sittingMin: 150 };
+    expect(seatingNow({ ...args, combine: null })).toBeNull();
+    expect(seatingNow({ ...args, combine: { enabled: false, maxSize: 3 } })).toBeNull();
+    expect(seatingNow({ ...args, combine: { enabled: true, maxSize: 1 } })).toBeNull();
+  });
+
+  it("is, size by size, exactly the seating walkInOptions counts as free now", () => {
+    const floor = [
+      table("4", 4, { zone: "Sal" }),
+      table("6", 4, { zone: "Sal", combinable: true }),
+      table("7", 4, { zone: "Sal", combinable: true }),
+      table("8", 2, { zone: "Sal", combinable: true }),
+      table("9", 6, { zone: "Sal" }),
+      table("22", 2, { zone: "Terrasse" }),
+    ];
+    const books = [
+      [],
+      [booking("x", "9", "seated", "18:30", "20:30", 6), booking("y", "4", "seated", "18:45", "20:30", 4)],
+      [booking("p", "6", "confirmed", "20:00", "22:00", 4), booking("q", "9", "confirmed", "21:00", "23:00", 6)],
+      [booking("r", "8", "seated", "17:00", "18:30", 2), booking("s", "22", "confirmed", "19:30", "21:00", 2)],
+    ];
+    for (const reservations of books) {
+      for (const combine of [join, null, { enabled: false, maxSize: 3 }, { enabled: true, maxSize: 2 }]) {
+        const opts = walkInOptions({ reservations, resources: floor, nowMs: NOW, sittingFor: sitting, combine });
+        for (const o of opts) {
+          const s = seatingNow({ reservations, resources: floor, nowMs: NOW, size: o.size, sittingMin: sitting(o.size), combine });
+          expect(s ? s.tableIds : null).toEqual(o.freeNow ? o.tableIds : null);
+          if (s) expect(s.label).toBe(o.label);
+        }
+      }
+    }
+  });
+});
+
+describe("what the server answered a seat with", () => {
+  it("is the tables it holds the booking at — the joined set, else the one table", () => {
+    expect(tablesOf({ resource_id: "51", combined_resource_ids: ["51", "52"] })).toEqual(["51", "52"]);
+    expect(tablesOf({ resource_id: 41, combined_resource_ids: null })).toEqual(["41"]);
+    expect(tablesOf({ resource_id: null, combined_resource_ids: [] })).toEqual([]);
+    expect(tablesOf(null)).toEqual([]);
+  });
+
+  it("is the same seating when the tables are the same, in any order", () => {
+    expect(sameTables(["51", "52"], ["52", "51"])).toBe(true);
+    expect(sameTables(["41"], [41])).toBe(true);
+    expect(sameTables(["41"], ["51", "52"])).toBe(false);
+    expect(sameTables(["51"], ["51", "52"])).toBe(false);
+    expect(sameTables([], ["41"])).toBe(false);
+  });
+});
+
 describe("closeMsFor", () => {
   it("is the end of the day's last window", () => {
     const hours = { mon: [["11:30", "15:00"], ["17:00", "22:00"]] };
@@ -289,6 +369,28 @@ describe("finished history", () => {
     const rows = [
       { id: "riis", starts_at: at("17:00"), seated_at: z("17:20") },
       { id: "hansen", starts_at: at("17:10"), seated_at: z("16:55") },
+      { id: "old", starts_at: at("17:05"), seated_at: null },
+    ];
+    expect([...rows].sort(bySeatedTime).map((r) => r.id)).toEqual(["hansen", "old", "riis"]);
+  });
+
+  // What /book sends: utc_now() with microseconds, "2026-10-12T15:02:00.123456Z".
+  const micro = (hhmm, frac) => z(hhmm).replace(/\.\d{3}Z$/, `.${frac}Z`);
+
+  it("reads the server's stamps — six-digit fractions, Z or not — as the UTC instants they are", () => {
+    expect(stayMinutes({ seated_at: micro("17:02", "123456"), completed_at: micro("18:10", "654321") })).toBe(68);
+    // The same instants without the Z, as most endpoints send a stamp: still UTC.
+    expect(stayMinutes({ seated_at: micro("17:02", "123456").slice(0, -1), completed_at: micro("18:10", "654321") })).toBe(68);
+    expect(stampIso(micro("17:02", "123456"))).toBe(z("17:02").replace(".000Z", ".123Z"));
+    expect(stampIso(micro("17:02", "123456").slice(0, -1))).toBe(z("17:02").replace(".000Z", ".123Z"));
+    expect(stampIso(null)).toBe("");
+    expect(stampIso("garbage")).toBe("");
+  });
+
+  it("orders six-digit stamps against booked wall-clock times by the instant", () => {
+    const rows = [
+      { id: "riis", starts_at: at("17:00"), seated_at: micro("17:20", "123456").slice(0, -1) },
+      { id: "hansen", starts_at: at("17:10"), seated_at: micro("16:55", "999999") },
       { id: "old", starts_at: at("17:05"), seated_at: null },
     ];
     expect([...rows].sort(bySeatedTime).map((r) => r.id)).toEqual(["hansen", "old", "riis"]);

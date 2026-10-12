@@ -9,16 +9,34 @@
  * booked ends) or is not shown at all.
  */
 import { windowsFor, toMin } from "./bookingTimes";
+import { parseServerTime } from "./serverTime";
 
 /** The drop-in buttons: 1–5, and 6 standing for "6 or more". */
 export const WALK_IN_SIZES = [1, 2, 3, 4, 5, 6];
 
 const HOLDING = ["requested", "confirmed", "seated"];
 
+// A booking's own times (starts_at, ends_at): naive Europe/Copenhagen wall
+// clock, which new Date() reads right (utils/serverTime.js says why).
 function msOf(iso) {
   if (!iso) return null;
   const v = new Date(iso).getTime();
   return Number.isFinite(v) ? v : null;
+}
+
+// A stamp the server writes with utc_now() (seated_at, completed_at): UTC,
+// sent as "2026-10-12T17:20:03.123456Z". Read through parseServerTime, the one
+// reader for such stamps — UTC whether or not the "Z" is there.
+function stampMs(v) {
+  const d = parseServerTime(v);
+  return d ? d.getTime() : null;
+}
+
+/** A seated_at / completed_at stamp as an ISO instant for the clock helpers
+ *  (fmtTime) — "" when there is none. */
+export function stampIso(v) {
+  const d = parseServerTime(v);
+  return d ? d.toISOString() : "";
 }
 
 function heldIds(r) {
@@ -224,10 +242,57 @@ function seatingOf(picked) {
 const activeTables = (resources) =>
   (resources || []).filter((t) => t.kind !== "provider" && t.is_active !== false);
 
+const holdsByTable = (tables, reservations, nowMs) =>
+  new Map(tables.map((t) => [String(t.id), holdsOn(t, reservations, nowMs)]));
+
+// The joining rule in force: null (single tables only) unless joining is on
+// and allows two tables or more.
+const joinRule = (combine) => (combine?.enabled && combine.maxSize >= 2 ? combine : null);
+
+/**
+ * Where the booking engine would seat `size` guests sitting down NOW, free
+ * for their whole sitting of `sittingMin` minutes — { tableId, tableIds,
+ * label, seats }, or null: the smallest single table that fits, else (joining
+ * on, `combine`) the engine's own combination.
+ *
+ * THE rule behind both the drop-in row's "Free now" (walkInOptions, the same
+ * seatingAt from the same holds) and what the seat sheet pre-picks. The sheet
+ * used its own — any table with no booking in the next two hours — and so
+ * pre-picked a six-top booked at 21.10 for a 150-minute sitting (the server
+ * refused it) where the row had counted two joined tables, and two joined
+ * tables where the row had counted a six-top free for the whole sitting.
+ */
+export function seatingNow({ reservations, resources, nowMs, size, sittingMin, combine = null }) {
+  const tables = activeTables(resources);
+  const picked = seatingAt({
+    tables,
+    holds: holdsByTable(tables, reservations, nowMs),
+    size,
+    c: nowMs,
+    need: minutes(sittingMin),
+    combine: joinRule(combine),
+  });
+  return picked ? seatingOf(picked) : null;
+}
+
+/** The tables the server actually holds a booking at — its own answer
+ *  (combined_resource_ids, else resource_id), as string ids. */
+export function tablesOf(row) {
+  return row ? heldIds(row) : [];
+}
+
+/** The same tables, in any order. */
+export function sameTables(a, b) {
+  const x = new Set((a || []).map(String));
+  const y = new Set((b || []).map(String));
+  return x.size === y.size && [...x].every((id) => y.has(id));
+}
+
 /**
  * The tables the engine would join for `size` guests sitting down now, free
  * for their whole sitting — { tableIds, label, seats }, or null. Only the
- * joined case: the seat sheet picks single tables itself.
+ * joined case, whether or not a single table is free too; the stand itself
+ * reads seatingNow (a single table first, as the engine seats).
  */
 export function joinedSeatingNow({ reservations, resources, nowMs, size, sittingMin, combine }) {
   if (!combine?.enabled) return null;
@@ -281,8 +346,8 @@ export function closeMsFor(dayIso, openHours) {
  */
 export function walkInOptions({ reservations, resources, nowMs, sittingFor, closeMs = null, sizes = WALK_IN_SIZES, combine = null }) {
   const tables = activeTables(resources);
-  const holds = new Map(tables.map((t) => [String(t.id), holdsOn(t, reservations, nowMs)]));
-  const join = combine?.enabled && combine.maxSize >= 2 ? combine : null;
+  const holds = holdsByTable(tables, reservations, nowMs);
+  const join = joinRule(combine);
   return sizes.map((size) => {
     const need = minutes(sittingFor(size));
     const now = seatingAt({ tables, holds, size, c: nowMs, need, combine: join });
@@ -321,8 +386,8 @@ export function coverCounts(reservations) {
 
 /** Whole minutes a finished party sat — null unless both stamps are known. */
 export function stayMinutes(r) {
-  const a = msOf(r?.seated_at);
-  const b = msOf(r?.completed_at);
+  const a = stampMs(r?.seated_at);
+  const b = stampMs(r?.completed_at);
   if (a == null || b == null || b < a) return null;
   return Math.round((b - a) / 60000);
 }
@@ -330,8 +395,8 @@ export function stayMinutes(r) {
 /** Finished list order: by the time they sat down (booked time when the
  *  seat time is unknown), earliest first. */
 export function bySeatedTime(a, b) {
-  const x = msOf(a.seated_at) ?? msOf(a.starts_at) ?? 0;
-  const y = msOf(b.seated_at) ?? msOf(b.starts_at) ?? 0;
+  const x = stampMs(a.seated_at) ?? msOf(a.starts_at) ?? 0;
+  const y = stampMs(b.seated_at) ?? msOf(b.starts_at) ?? 0;
   return x - y;
 }
 
