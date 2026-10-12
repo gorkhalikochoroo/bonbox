@@ -477,45 +477,107 @@ def apply_type_change(db: Session, user: User, new_type: str,
 # change the owner's manager kept the old type's nav and words (vertical-fit
 # review, Oct 2026). Kept in step on every owner write of the type, and
 # aligned once per boot for the rows that drifted before.
+#
+# Hardened after a Postgres 16 review (Push 8): only the three member roles
+# follow the owner (an accountant / owner row that carries an owner_id is not
+# a team seat); never an owner whose type is "personal" (personal mode is
+# the owner's own household books, not a vertical a team works in); and the
+# write keeps users.updated_at, which means "last profile change", not "last
+# boot" (services/last_seen.py writes it the same way).
+
+_MEMBER_ROLES = ("manager", "cashier", "viewer")
+_PERSONAL_TYPE = "personal"
+
 
 def sync_team_business_type(db: Session, owner: User) -> int:
     """Give ``owner``'s team members the owner's business_type. Does NOT
     commit: the caller commits it with the owner's own change, so the two can
     never disagree. Returns the number of member rows changed."""
+    from sqlalchemy import or_, update
+
     bt = getattr(owner, "business_type", None)
-    if getattr(owner, "id", None) is None or not bt:
+    if getattr(owner, "id", None) is None or not bt or bt == _PERSONAL_TYPE:
         return 0
-    from sqlalchemy import or_
-    return (
-        db.query(User)
-        .filter(
+    result = db.execute(
+        update(User)
+        .where(
             User.owner_id == owner.id,
+            User.role.in_(_MEMBER_ROLES),
             or_(User.business_type.is_(None), User.business_type != bt),
         )
-        .update({User.business_type: bt}, synchronize_session=False)
+        # updated_at=User.updated_at: the column's onupdate would stamp it.
+        .values(business_type=bt, updated_at=User.updated_at)
+        .execution_options(synchronize_session=False)
     )
+    return int(result.rowcount or 0)
+
+
+def _boot_lock_timeout(db: Session) -> None:
+    """A boot fix waits at most 3 s for a row a live request holds (Postgres;
+    SQLite has no row locks). SET LOCAL: it ends with the fix's own
+    transaction, so it never leaks to the pooled connection's next user."""
+    from sqlalchemy import text
+
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(text("SET LOCAL lock_timeout = '3s'"))
+
+
+def _drifted_members(db: Session) -> list[tuple]:
+    """(member id, member type, owner id, owner type) for every team seat
+    whose type differs from its owner's. Read-only."""
+    from sqlalchemy import or_, select
+    from sqlalchemy.orm import aliased
+
+    owner = aliased(User)
+    return list(db.execute(
+        select(User.id, User.business_type, owner.id, owner.business_type)
+        .join(owner, User.owner_id == owner.id)
+        .where(
+            User.role.in_(_MEMBER_ROLES),
+            owner.business_type.isnot(None),
+            owner.business_type != _PERSONAL_TYPE,
+            or_(User.business_type.is_(None), User.business_type != owner.business_type),
+        )
+    ).all())
 
 
 def align_member_business_types(db: Session) -> int:
     """Boot backfill: every member row whose business_type differs from its
     owner's takes the owner's. Idempotent (a second pass changes nothing).
-    Read-mostly: only drifted member rows are written. Returns the count."""
+    Read-mostly: only drifted member rows are written. Returns the count.
+
+    Each write is conditional on what was read: the member still holds the
+    type the boot saw AND the owner still holds the type the boot is about to
+    copy. A row an owner changed between the read and the write is left to
+    the owner's own request (which syncs the team itself)."""
+    from sqlalchemy import exists, update
     from sqlalchemy.orm import aliased
 
-    owner = aliased(User)
-    rows = (
-        db.query(User, owner.business_type)
-        .join(owner, User.owner_id == owner.id)
-        .filter(owner.business_type.isnot(None))
-        .all()
-    )
+    _boot_lock_timeout(db)
     changed = 0
-    for member, owner_type in rows:
-        if owner_type and member.business_type != owner_type:
-            member.business_type = owner_type
-            changed += 1
-    if changed:
-        db.commit()
+    for member_id, member_type, owner_id, owner_type in _drifted_members(db):
+        current_owner = aliased(User)
+        still_member_type = (
+            User.business_type.is_(None) if member_type is None
+            else User.business_type == member_type
+        )
+        result = db.execute(
+            update(User)
+            .where(
+                User.id == member_id,
+                User.owner_id == owner_id,
+                User.role.in_(_MEMBER_ROLES),
+                still_member_type,
+                exists().where(
+                    current_owner.id == owner_id,
+                    current_owner.business_type == owner_type,
+                ),
+            )
+            .values(business_type=owner_type, updated_at=User.updated_at)
+            .execution_options(synchronize_session=False)
+        )
+        changed += int(result.rowcount or 0)
+    db.commit()
     return changed
 
 
@@ -531,18 +593,38 @@ def align_member_business_types(db: Session) -> int:
 #     all, the canonical ids are real, tier-capped ones: a Free bar after its
 #     trial ("pour,wine", cap 1) would come out holding two. Such a row is
 #     left exactly as it was — the owner picks on /modules;
+#   • a live trial counts with the FREE cap here (onboarding still grants a
+#     trial both bar modules). With the trial's own, unlimited cap the answer
+#     depended on the deploy date: the same "pour,wine" bar became two
+#     modules when the boot ran during its trial and stayed as it was when
+#     the boot ran a day after it ended;
+#   • conditional on the value read: an owner who saved /modules between the
+#     boot's read and its write keeps what they saved;
 #   • idempotent: a renamed row holds no old spelling; a row left as it was
 #     is looked at again next boot and renamed once the plan allows it.
-# Runs at boot (main._init_db), on Postgres and SQLite alike.
+# Runs at boot (main._init_db via run_vertical_fit_boot_fixes), on Postgres
+# and SQLite alike.
+
+def _boot_module_cap(user: User) -> int:
+    """The module cap the boot rename applies: the plan's, except that a
+    live trial counts as Free (see above)."""
+    from app.services.billing import PLAN_CAPS, effective_plan, get_cap
+
+    if effective_plan(user) == "trial":
+        return int(PLAN_CAPS["free"].get("modules", 0))
+    return get_cap(user, "modules")
+
 
 def rename_legacy_module_ids(db: Session) -> dict[str, int]:
     """Rename the old module spellings in place for every account that
-    carries one, within its plan's module cap. Returns {renamed, kept}."""
-    from sqlalchemy import or_
+    carries one, within its module cap. Returns {renamed, kept}; "kept" is
+    every row left exactly as it was — over the cap, or changed by a request
+    meanwhile — and looked at again next boot."""
+    from sqlalchemy import or_, update
 
-    from app.services.billing import get_cap
     from app.services.modules import parse_enabled
 
+    _boot_lock_timeout(db)
     out = {"renamed": 0, "kept": 0}
     candidates = (
         db.query(User)
@@ -553,7 +635,8 @@ def rename_legacy_module_ids(db: Session) -> dict[str, int]:
         .all()
     )
     for user in candidates:
-        pieces = [p.strip() for p in (user.enabled_modules or "").split(",") if p.strip()]
+        old_csv = user.enabled_modules
+        pieces = [p.strip() for p in (old_csv or "").split(",") if p.strip()]
         if not any(p in _MODULE_ALIASES for p in pieces):
             continue  # "pour" inside another word — nothing to rename
         renamed: list[str] = []
@@ -561,12 +644,46 @@ def rename_legacy_module_ids(db: Session) -> dict[str, int]:
             c = _MODULE_ALIASES.get(p, p)
             if c not in renamed:
                 renamed.append(c)
-        cap = get_cap(user, "modules")
+        cap = _boot_module_cap(user)
         if cap is not None and cap >= 0 and len(parse_enabled(",".join(renamed))) > cap:
             out["kept"] += 1
             continue
-        user.enabled_modules = ",".join(renamed) or None
-        out["renamed"] += 1
-    if out["renamed"]:
-        db.commit()
+        result = db.execute(
+            update(User)
+            .where(User.id == user.id, User.enabled_modules == old_csv)
+            .values(enabled_modules=",".join(renamed) or None, updated_at=User.updated_at)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount:
+            out["renamed"] += 1
+        else:
+            out["kept"] += 1
+    db.commit()
+    return out
+
+
+def run_vertical_fit_boot_fixes(session_factory, log=print) -> dict[str, Any]:
+    """The two boot data fixes, each in its OWN session and try: a failure in
+    one (a lock timeout, a bad row) never stops the other, and leaves its own
+    rows as they were for the next boot. The log carries the error's type
+    name only — an exception's text can hold the SQL and its parameters.
+    Returns {"modules": {renamed, kept} | None, "members": int | None}."""
+    out: dict[str, Any] = {"modules": None, "members": None}
+    try:
+        with session_factory() as vf_db:
+            out["modules"] = rename_legacy_module_ids(vf_db)
+    except Exception as e:  # noqa: BLE001 — fail-soft, retried next boot
+        log(f"Vertical-fit module rename skipped: {type(e).__name__}")
+    try:
+        with session_factory() as vf_db:
+            out["members"] = align_member_business_types(vf_db)
+    except Exception as e:  # noqa: BLE001 — fail-soft, retried next boot
+        log(f"Vertical-fit member alignment skipped: {type(e).__name__}")
+    mods = out["modules"] or {}
+    if mods.get("renamed") or mods.get("kept") or out["members"]:
+        log(
+            f"Vertical-fit backfill: {mods.get('renamed', 0)} module CSVs renamed, "
+            f"{mods.get('kept', 0)} kept as they were (over the cap, or changed meanwhile), "
+            f"{out['members'] or 0} member types aligned"
+        )
     return out

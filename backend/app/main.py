@@ -4073,30 +4073,23 @@ def _init_db():
     # Vertical fit (Oct 2026), two small data fixes, every boot, idempotent:
     #  • the bar's old module spellings ("pour"/"wine", which no gate reads)
     #    are RENAMED in place to bar_pour / wine_sommelier — never added beside
-    #    them, and never past the plan's module cap (a Free bar after its trial
-    #    keeps what it had); archetype_defaults.rename_legacy_module_ids;
+    #    them, and never past the module cap (a live trial counts as Free, so
+    #    the answer does not depend on the deploy date);
+    #    archetype_defaults.rename_legacy_module_ids;
     #  • a team member's business_type follows its owner's (it was copied at
     #    invite and never updated, so a type change left the manager on the
     #    old type's nav); archetype_defaults.align_member_business_types.
     # Python, not the SQL list: the cap is a per-account plan answer
-    # (billing.get_cap). Fail-soft: a miss leaves the rows as they were.
+    # (billing.get_cap). Each fix runs in its own session and try, under a
+    # 3 s lock_timeout on Postgres, writes only rows still as it read them,
+    # and logs an error's type name only (Push 8 review). Fail-soft: a miss
+    # leaves the rows as they were for the next boot.
     try:
-        from app.services.archetype_defaults import (
-            align_member_business_types,
-            rename_legacy_module_ids,
-        )
+        from app.services.archetype_defaults import run_vertical_fit_boot_fixes
         from app.database import SessionLocal
-        with SessionLocal() as vf_db:
-            vf_modules = rename_legacy_module_ids(vf_db)
-            vf_members = align_member_business_types(vf_db)
-        if vf_modules.get("renamed") or vf_modules.get("kept") or vf_members:
-            print(
-                f"Vertical-fit backfill: {vf_modules.get('renamed', 0)} module CSVs renamed, "
-                f"{vf_modules.get('kept', 0)} kept (over the plan's cap), "
-                f"{vf_members} member types aligned"
-            )
+        run_vertical_fit_boot_fixes(SessionLocal)
     except Exception as e:
-        print(f"Vertical-fit backfill warning: {e}")
+        print(f"Vertical-fit backfill skipped: {type(e).__name__}")
     _db_ready.set()
     print("DB init complete — ready to serve requests")
 
