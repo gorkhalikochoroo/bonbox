@@ -548,7 +548,7 @@ def _try_polish(candidates: list[_Candidate]) -> dict[int, _Candidate] | None:
         return None
 
     client = anthropic_client(settings.ANTHROPIC_API_KEY)  # 30 s, 1 retry (OPS-02)
-    model = getattr(settings, "AI_MODEL_ANOMALY", "claude-sonnet-5")
+    model = getattr(settings, "AI_MODEL_ANOMALY", None) or settings.DEFAULT_MODEL
 
     payload = {
         "alerts": [

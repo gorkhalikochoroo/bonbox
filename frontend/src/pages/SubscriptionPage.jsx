@@ -620,7 +620,7 @@ export default function SubscriptionPage() {
             </div>
           )}
         </Card>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-5 leading-relaxed">
+        <p className="text-sm text-gray-600 dark:text-gray-400 mt-5 leading-relaxed">
           {t("planNativeStatusNote") ||
             "This is your current plan. Plans are managed outside the app."}
         </p>
@@ -813,7 +813,7 @@ export default function SubscriptionPage() {
               the trial days are only what is left of the signup trial), so —
               the G3 badge's rule — it is not shown when signed in. */}
           {!user && (
-            <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-3 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mt-3 max-w-2xl mx-auto leading-relaxed">
               {t(
                 "pricingHeroSubtitleNew",
                 "Pick the plan that matches how much manual work you want to skip. Every signup starts with 14 days of full Pro — no card, no surprises.",
@@ -843,7 +843,7 @@ export default function SubscriptionPage() {
           <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
             {t("pricingComparePlansTitle") || "Compare plans"}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1.5">
             {t("pricingComparePlansSubtitle") ||
               "What you get on each tier."}
           </p>
@@ -1258,7 +1258,7 @@ export default function SubscriptionPage() {
         </div>
 
         {/* Trademark notice */}
-        <p className="mt-10 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed text-center">
+        <p className="mt-10 text-[11px] text-gray-600 dark:text-gray-500 leading-relaxed text-center">
           {t("pricingTrademarkNotice") || "Dinero, Billy, e-conomic, MobilePay and Dankort are trademarks of their respective owners. BonBox is not affiliated with or endorsed by any of these companies. References are made for interoperability and comparative purposes under nominative fair use."}
         </p>
 

@@ -89,6 +89,8 @@
     <link rel="icon" href="/favicon.ico?v=3" sizes="16x16 32x32" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3" />
+    <!-- 192 px for search engines: Google wants a favicon of at least 48x48 (12 Oct 2026). -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=3" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3" />
     <!-- viewport-fit=cover exposes env(safe-area-inset-*) so layouts can
          dodge the notch / punch-hole camera. We dropped maximum-scale +
@@ -205,7 +207,7 @@
                 icons[i].setAttribute("href",
                   icons[i].getAttribute("rel") === "apple-touch-icon"
                     ? "/vagtplan-apple-touch-icon.png?v=3"
-                    : href.replace("/favicon", "/vagtplan-favicon"));
+                    : href.replace("/favicon", "/vagtplan-favicon").replace("/icon-192", "/vagtplan-icon-192"));
               }
             } catch (eIcons) { /* keep the BonBox icons */ }
             if (isIOS) {
@@ -311,7 +313,7 @@
     </script>
 
     <title>BonBox — Bagkontoret din virksomhed faktisk kører på</title>
-    <script type="module" crossorigin src="/assets/index-Bxe9L6w1.js"></script>
+    <script type="module" crossorigin src="/assets/index-yGjay06R.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-COnpUsM8.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-react-BUHZeGuk.js">
     <link rel="modulepreload" crossorigin href="/assets/dist-CXO7fBfF.js">
@@ -351,26 +353,26 @@
     <link rel="modulepreload" crossorigin href="/assets/x-BUwLJiep.js">
     <link rel="modulepreload" crossorigin href="/assets/Icon-JuQsxIqy.js">
     <link rel="modulepreload" crossorigin href="/assets/Card-DUuBLbzY.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-BaZf0ULp.js">
-    <link rel="modulepreload" crossorigin href="/assets/CookieConsent-BXSGnRVw.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-BfU1vEKf.js">
+    <link rel="modulepreload" crossorigin href="/assets/CookieConsent-CymImcbw.js">
     <link rel="modulepreload" crossorigin href="/assets/currency-C3HX3xVd.js">
     <link rel="modulepreload" crossorigin href="/assets/Amount-BWH4F36L.js">
-    <link rel="modulepreload" crossorigin href="/assets/Button-CuAXEVSU.js">
-    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-DKu_zWnG.js">
+    <link rel="modulepreload" crossorigin href="/assets/Button-DDnwAHEx.js">
+    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-CciRkOlZ.js">
     <link rel="modulepreload" crossorigin href="/assets/navManifest-D-mnQtja.js">
     <link rel="modulepreload" crossorigin href="/assets/axios-MlJ7qYYv.js">
     <link rel="modulepreload" crossorigin href="/assets/platform-DXzmFqsj.js">
     <link rel="modulepreload" crossorigin href="/assets/api-Ctd8stLq.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEventLog-DkfU9wR_.js">
+    <link rel="modulepreload" crossorigin href="/assets/useEventLog-CUqAmQDo.js">
     <link rel="modulepreload" crossorigin href="/assets/terms-GFI20Ek6.js">
     <link rel="modulepreload" crossorigin href="/assets/errText-COJAKLWR.js">
-    <link rel="modulepreload" crossorigin href="/assets/useAuth-DFMuRGX-.js">
-    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-CfQFiiIg.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-CNVQysD7.js">
-    <link rel="modulepreload" crossorigin href="/assets/guestSurface-ChR84QU6.js">
-    <link rel="modulepreload" crossorigin href="/assets/liveAlertKinds-CA4bxKir.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-CXLFHVtz.css">
-  <script>(function(){try{var f={"da":"/assets/da-_wKAwmuS.js","en":"/assets/en-PNckVi7g.js"};var l=null;try{l=localStorage.getItem("lang")}catch(e){}if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}var h=l==="da"?f.da:f.en;var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)}catch(e){}})()</script></head>
+    <link rel="modulepreload" crossorigin href="/assets/useAuth-B10t5OgF.js">
+    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-DhMBJOsp.js">
+    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-DmZMuZ1M.js">
+    <link rel="modulepreload" crossorigin href="/assets/guestSurface-C-71uN2a.js">
+    <link rel="modulepreload" crossorigin href="/assets/liveAlertKinds-CWpGtaLh.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-XiuycrUV.css">
+  <script>(function(){try{var f={"da":"/assets/da-CMcMFCKR.js","en":"/assets/en-0_OXpDvd.js"};var l=null;try{l=localStorage.getItem("lang")}catch(e){}if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}var h=l==="da"?f.da:f.en;var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)}catch(e){}})()</script></head>
   <body>
     <script>
       // Force light mode by default — only honor "dark" if the user explicitly
@@ -378,16 +380,46 @@
       // on first load. Migration: any legacy users with theme=null/undefined
       // will see light mode immediately.
       (function () {
+        // LIGHT ground + browser bar (12 Oct 2026): paper ONLY on a route known
+        // to draw on the paper (the owner app, the paper auth screens, the
+        // schedule wall screen); white html/body (.bb-page-white) and the
+        // static white bar everywhere else — so a guest page, incl. the vanity
+        // /<slug> that no list can name, never flashes cream on a cold load.
+        // Keep equal to PAPER_PATHS / PAPER_PREFIXES in src/utils/themeColor.js
+        // — creamCanvas.test.js runs both on the same paths. Outside the
+        // localStorage try: it must run even when storage is blocked.
+        var wp = location.pathname.replace(/\/+$/, "") || "/";
+        var paper = /^\/workshop\/job\//.test(wp) || [
+          "/login", "/register", "/forgot-password", "/verify-email", "/contact", "/staff/schedule/stand",
+          "/dashboard", "/sales", "/events", "/reservations", "/gavekort", "/scan", "/expenses", "/inventory",
+          "/staffing", "/weather", "/waste", "/weekly-report", "/vat-report", "/reports", "/feedback", "/cashbook",
+          "/cashflow", "/tax", "/pricing", "/retention", "/expiry", "/competitors", "/branches", "/outlets",
+          "/consolidated-close", "/terminals", "/modules", "/daily-close/multi", "/share-recipients", "/daily-close",
+          "/workshop", "/wine-list", "/bar", "/workshop/new-job", "/recently-deleted", "/profile", "/personal",
+          "/khata", "/faktura", "/faktura/review", "/customers", "/mileage", "/loans", "/imports", "/bank-import",
+          "/payment-imports", "/budgets", "/team", "/staff/schedule", "/staff/hours", "/staff/time-registration",
+          "/staff/tips", "/staff/payroll", "/more", "/subscription", "/bookkeeping-export", "/insights",
+          "/daily-report", "/channel-settings", "/connections", "/accountant/clients",
+          "/admin", "/admin/training", "/admin/support"
+        ].indexOf(wp) !== -1;
+        if (!paper) document.documentElement.classList.add("bb-page-white");
+        // The embedded booking widget (/r/<slug>?embed=1, framed in the owner's
+        // website or the owner's preview) is always light: the stored theme
+        // is skipped, never rewritten. The page holds it off too once mounted
+        // (forceLightTheme, src/utils/themeColor.js; embedLight.test.jsx).
+        var embed = !paper && /[?&]embed=1(&|$)/.test(location.search);
         try {
           var t = localStorage.getItem("theme");
-          if (t === "dark") {
+          if (t === "dark" && embed) {
+            document.documentElement.classList.remove("dark");
+          } else if (t === "dark") {
             document.documentElement.classList.add("dark");
             // The browser bar follows the theme (surface-card, see
             // src/utils/themeColor.js). Not on pages that never render dark:
             // the staff portal /s/ and LIGHT_ONLY_PATHS (landing, /join,
             // /stand, magic-link/claim). Keep this list equal to
             // themeColor.js — dashboardDarkMode.test.js runs both on the same
-            // paths. Light leaves the static #ffffff alone.
+            // paths. Light is written below the try (paper routes only).
             var p = location.pathname.replace(/\/+$/, "") || "/";
             var lightOnly = location.pathname.indexOf("/s/") === 0 ||
               ["/", "/v2", "/join", "/stand", "/login/magic", "/login/claim"].indexOf(p) !== -1;
@@ -401,6 +433,12 @@
             if (t !== "light") localStorage.setItem("theme", "light");
           }
         } catch (e) { /* localStorage blocked in private mode — default light */ }
+        // Light on a paper route: the paper bar now, not on React's first
+        // commit. Every other route keeps the static white.
+        if (paper && !document.documentElement.classList.contains("dark")) {
+          var lc = document.querySelector('meta[name="theme-color"]');
+          if (lc) lc.setAttribute("content", "#f6f4ec");
+        }
       })();
     </script>
     <div id="root"></div>

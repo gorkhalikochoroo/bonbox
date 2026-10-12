@@ -109,14 +109,14 @@ export default function GodkendKo({ getCatName, currency = "DKK", onApproved, on
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {t("koTitle", "To approve")} · {drafts.length}
           </h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
             {t("koSub", "Not in your MOMS yet — nothing is booked until you approve")}
           </p>
           {/* Say what the pile actually contains. "Approve all ready"
               silently doing less than the count implies is how an owner
               ends up believing a receipt was booked when it wasn't. */}
           {(missingMethodCount > 0 || missingAmountCount > 0) && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 tabular-nums">
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 tabular-nums">
               {klarIds.length} {t("koStatReady", "ready")}
               {missingMethodCount > 0 && ` · ${missingMethodCount} ${t("koStatNoMethod", "missing payment")}`}
               {missingAmountCount > 0 && ` · ${missingAmountCount} ${t("koStatNoAmount", "missing amount")}`}

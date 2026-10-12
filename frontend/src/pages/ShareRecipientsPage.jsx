@@ -147,7 +147,7 @@ export default function ShareRecipientsPage() {
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
               📨 {t("shareRecipientsTitle") || "Share recipients"}
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 max-w-xl">
               {t("shareRecipientsSubtitle") ||
                 "Where your daily-close reports go. Configure once; tjener just taps Send. Email, WhatsApp, Messenger, Slack — your existing channels, your choice."}
             </p>
@@ -252,7 +252,7 @@ export default function ShareRecipientsPage() {
 
       <FadeIn delay={0.05}>
         {loading ? (
-          <div className="text-sm text-gray-500 dark:text-gray-400 mt-6">
+          <div className="text-sm text-gray-600 dark:text-gray-400 mt-6">
             {t("loading") || "Loading…"}
           </div>
         ) : !editing && error ? (

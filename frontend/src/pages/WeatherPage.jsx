@@ -149,7 +149,7 @@ export default function WeatherPage({ embedded = false }) {
       <div className={`${embedded ? "" : "p-4 md:p-8"} flex items-center justify-center min-h-[400px]`}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-gray-900 dark:border-gray-100 mx-auto mb-3" />
-          <p className="text-gray-500 dark:text-gray-400">{t("loadingWeather")}</p>
+          <p className="text-gray-600 dark:text-gray-400">{t("loadingWeather")}</p>
         </div>
       </div>
     );

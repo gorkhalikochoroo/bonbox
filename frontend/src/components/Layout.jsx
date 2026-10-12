@@ -650,11 +650,13 @@ export default function Layout() {
   // background (#f3f4f6) — below the 3:1 WCAG non-text floor, i.e. the one
   // indicator telling you where you are was the least visible thing in the
   // rail. It is emerald-600 in light (3.42:1) and emerald-400 in dark (6.25:1).
+  // Light row is WHITE since 12 Oct 2026 (the rail is paper now, white = the
+  // selected sheet): emerald-600 on white is 3.77:1, the row on paper 1.10:1.
   //
   // Both strings carry NAV_FOCUS_RING (config/navChrome.js). Every nav row on
   // the rail composes one of these two, so putting it here is what makes the
   // sweep exhaustive rather than a list of rows someone remembered.
-  const activeClass = `bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white font-semibold shadow-[inset_2px_0_0_0_rgb(var(--brand-green-accent))] ${NAV_FOCUS_RING}`;
+  const activeClass = `bg-white dark:bg-gray-700/60 text-gray-900 dark:text-white font-semibold shadow-[inset_2px_0_0_0_rgb(var(--brand-green-accent))] ${NAV_FOCUS_RING}`;
   const inactiveClass = `text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-white ${NAV_FOCUS_RING}`;
 
   return (
@@ -681,7 +683,7 @@ export default function Layout() {
         </Suspense>
       )}
       {/* Mobile top bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-30 glass border-b border-gray-200/70 dark:border-gray-700/70 px-4 py-3 flex items-center justify-between gap-3" style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
+      <div className="md:hidden fixed top-0 left-0 right-0 z-30 glass bar-paper border-b border-gray-200/70 dark:border-gray-700/70 px-4 py-3 flex items-center justify-between gap-3" style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
         <button
           ref={menuButtonRef}
           onClick={() => setSidebarOpen(true)}
@@ -816,8 +818,13 @@ export default function Layout() {
            white, i.e. exactly a card; dark now matches instead of leaving the
            rail above the cards in one theme and level with them in the other.
            Same pixels as the `bg-white dark:bg-gray-800` this replaces; the
-           point is that it is now the same TOKEN the cards read. */
-        className={`fixed top-0 left-0 h-full w-56 bg-[rgb(var(--surface-card))] border-r border-[rgb(var(--surface-line))] flex flex-col ${
+           point is that it is now the same TOKEN the cards read.
+           LIGHT moved to the GROUND rung on 12 Oct 2026: the light ground is
+           BonBox paper now, and the rail is paper with it (as are the phone top
+           bar and bottom nav, .bar-paper) so light reads as one cream sheet with
+           white content on it — the /login look. The active row is the white
+           one (activeClass). Dark is unchanged: still the card rung. */
+        className={`fixed top-0 left-0 h-full w-56 bg-[rgb(var(--surface-shell))] border-r border-[rgb(var(--surface-line))] flex flex-col ${
           sidebarOpen ? "z-[60]" : "z-50"
         } ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
@@ -881,7 +888,7 @@ export default function Layout() {
               ref={drawerCloseRef}
               onClick={closeSidebar}
               aria-label={t("closeMenu") || "Close menu"}
-              className="md:hidden text-gray-400 hover:text-gray-600 text-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800 rounded-md w-8 h-8 flex items-center justify-center"
+              className="md:hidden text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-600 text-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800 rounded-md w-8 h-8 flex items-center justify-center"
             >
               <span aria-hidden="true">&times;</span>
             </button>
@@ -1241,7 +1248,7 @@ export default function Layout() {
           </div>
           <button
             onClick={handleLogout}
-            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition font-medium ${NAV_FOCUS_RING}`}
+            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition font-medium ${NAV_FOCUS_RING}`}
           >
             <span className="w-5 flex items-center justify-center"><Icon name="LogOut" size={14} /></span>
             {t("signOut")}

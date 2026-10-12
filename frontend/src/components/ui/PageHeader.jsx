@@ -58,9 +58,11 @@ export default function PageHeader({
         {eyebrow && (
           // Eyebrow mirrors the sidebar group-label treatment exactly
           // (Layout.jsx line ~705): 11px font-semibold uppercase
-          // tracking-wider in gray-400. Reusing this rhythm anchors the
+          // tracking-wider, in the nav's muted tier (gray-600 light since the
+          // page became paper on 12 Oct 2026 — gray-400 measured 2.36:1 there;
+          // gray-400 dark, unchanged). Reusing this rhythm anchors the
           // page in the same visual hierarchy as the nav it sits under.
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1.5">
             {eyebrow}
           </p>
         )}
@@ -89,7 +91,7 @@ export default function PageHeader({
           {title}
         </h1>
         {subtitle && (
-          <p className="text-[14px] text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+          <p className="text-[14px] text-gray-600 dark:text-gray-400 mt-1 leading-relaxed">
             {subtitle}
           </p>
         )}

@@ -82,7 +82,7 @@ export default function MobileBottomNav({ enabledModules = null } = {}) {
          FIXED bars need the compositor hint or WKWebView repaints them every
          scroll frame; .glass-static exists for STICKY bars where that same
          transform causes the documented wobble. */
-      className="fixed bottom-0 left-0 right-0 glass
+      className="fixed bottom-0 left-0 right-0 glass bar-paper
         border-t border-gray-200/70 dark:border-gray-700/70 z-50 md:hidden"
       /* Reserve LESS than the full bottom inset so the row sits lower.
          Padding the full env(safe-area-inset-bottom) — ~34pt on this device —
@@ -151,7 +151,9 @@ export default function MobileBottomNav({ enabledModules = null } = {}) {
                 focus-visible:ring-gray-400 focus-visible:ring-inset
                 ${isActive
                   ? "text-gray-900 dark:text-gray-100"
-                  : "text-gray-500 dark:text-gray-400"}`}
+                  // gray-600 in light: the bar is paper (.bar-paper), where
+                  // gray-500 is 4.39:1 under a 10px label. Dark unchanged.
+                  : "text-gray-600 dark:text-gray-400"}`}
             >
               <Icon name={tab.icon} size={20} strokeWidth={1.75} />
               <span className="text-[10px] mt-0.5 font-medium" aria-hidden="true">

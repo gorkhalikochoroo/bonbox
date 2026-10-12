@@ -341,7 +341,7 @@ export default function StaffingPage({ embedded = false }) {
           </div>
 
           {loading ? (
-            <p className="text-gray-500 dark:text-gray-400 text-center py-12">{t("analyzingPatterns")}</p>
+            <p className="text-gray-600 dark:text-gray-400 text-center py-12">{t("analyzingPatterns")}</p>
           ) : error === "forecast" ? (
             <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-6 rounded-xl text-center">
               <p className="text-gray-900 dark:text-gray-100 font-medium">{t("forecastLoadFailed", "The forecast couldn't load.")}</p>
@@ -708,7 +708,7 @@ export default function StaffingPage({ embedded = false }) {
           )}
 
           {staffLogs.length === 0 && (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-8 text-gray-600 dark:text-gray-400">
               <p className="text-3xl mb-2">📋</p>
               <p>{t("stafNoLogsYet", "No staff logs yet. Start logging above!")}</p>
             </div>

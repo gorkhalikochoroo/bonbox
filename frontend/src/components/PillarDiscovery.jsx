@@ -194,7 +194,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate, only 
   if (variant === "more") {
     return (
       <div className="mb-6">
-        <h3 className="text-xs text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider mb-2 px-1">
+        <h3 className="text-xs text-gray-600 dark:text-gray-500 font-semibold uppercase tracking-wider mb-2 px-1">
           {title}
         </h3>
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
@@ -311,7 +311,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate, only 
             title={`${t("pillarDiscoveryEnableCta")} — ${t(labelKeyFor(p, archetypeId))}`}
             aria-label={`${t("pillarDiscoveryEnableCta")} — ${t(labelKeyFor(p, archetypeId))}`}
             className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition
-              text-gray-500 dark:text-gray-400
+              text-gray-600 dark:text-gray-400
               hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-700 dark:hover:text-gray-200
               disabled:opacity-50 ${NAV_FOCUS_RING}`}
           >

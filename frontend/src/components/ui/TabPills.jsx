@@ -72,7 +72,9 @@ const PHONE_TAB = {
       "max-sm:h-10 max-sm:min-h-0! max-sm:px-0 max-sm:rounded-none max-sm:text-[13px] " +
       "max-sm:bg-transparent max-sm:dark:bg-transparent",
     on: "max-sm:text-gray-900 max-sm:dark:text-white max-sm:shadow-[inset_0_-2px_0_0_currentColor]",
-    off: "max-sm:text-gray-500 max-sm:dark:text-gray-400",
+    // gray-600, not gray-500: an underline row sits on the page, which is
+    // paper (#f6f4ec) in light since 12 Oct 2026 — gray-500 is 4.39:1 there.
+    off: "max-sm:text-gray-600 max-sm:dark:text-gray-400",
   },
   segmented: {
     base:
@@ -85,7 +87,7 @@ const PHONE_TAB = {
 
 // On an underline row the count chip sits on the page, not on a dark pill.
 const PHONE_COUNT_ON_PAGE =
-  "max-sm:bg-gray-100 max-sm:text-gray-600 max-sm:dark:bg-gray-800 max-sm:dark:text-gray-300";
+  "max-sm:bg-gray-900/[0.06] max-sm:text-gray-600 max-sm:dark:bg-gray-800 max-sm:dark:text-gray-300";
 
 export default function TabPills({
   tabs = [],
@@ -140,11 +142,14 @@ export default function TabPills({
       {tabs.map((tab) => {
         const selected = tab.id === activeId;
         // Selected = bg-gray-900 (almost-black) + white text. Unselected
-        // = bg-gray-100 + gray-700. Hover on unselected bumps to gray-200
-        // to signal interactivity without the green sidebar accent.
+        // = a 6% gray-900 tint + gray-700 (hover 10%) to signal interactivity
+        // without the green sidebar accent. A TINT, not gray-100, since the
+        // light page became paper (12 Oct 2026): gray-100 measures 1.00:1 on
+        // #f6f4ec — the pill vanished — while the tint reads 1.10:1 on paper
+        // and lands within a hair of gray-100 on a white card. Dark unchanged.
         const pillClass = selected
           ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900"
-          : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700";
+          : "bg-gray-900/[0.06] text-gray-700 hover:bg-gray-900/10 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700";
 
         // Count chip — flips light/dark based on parent pill state so it
         // remains legible against either bg.

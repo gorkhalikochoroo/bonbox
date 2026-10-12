@@ -413,7 +413,7 @@ export default function CompetitorPage({ embedded = false }) {
       <div className={`${embedded ? "" : "p-4 md:p-8"} flex items-center justify-center min-h-[400px]`}>
         <div className="text-center">
           <div className="text-4xl mb-3 animate-pulse">🔍</div>
-          <p className="text-gray-500 dark:text-gray-400">{t("cpLoadingCompetitors", "Loading competitors...")}</p>
+          <p className="text-gray-600 dark:text-gray-400">{t("cpLoadingCompetitors", "Loading competitors...")}</p>
         </div>
       </div>
     );
@@ -716,7 +716,7 @@ export default function CompetitorPage({ embedded = false }) {
           {places.length > 0 && (
             <>
               <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-500 dark:text-gray-400">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
                   {t("cpFoundPrefix", "Found")} <span className="font-bold text-gray-700 dark:text-gray-200">{places.length}</span> {t("cpBusinessesNearby", "businesses nearby")}
                   {discoverSource === "google" && <span className="ml-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded">Google Places</span>}
                   {discoverSource === "osm" && <span className="ml-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 px-1.5 py-0.5 rounded">OpenStreetMap</span>}
@@ -737,7 +737,7 @@ export default function CompetitorPage({ embedded = false }) {
           )}
 
           {places.length === 0 && !discoverLoading && !discoverError && (
-            <div className="text-center py-12 text-gray-400">
+            <div className="text-center py-12 text-gray-600 dark:text-gray-400">
               <p className="text-5xl mb-3">📍</p>
               <p className="text-lg font-medium">{t("discoverYourCompetitors")}</p>
               <p className="text-sm mt-1">{t("cpClickDiscoverHint", "Click \"Discover\" to scan for businesses near your location.")}</p>
@@ -862,7 +862,7 @@ export default function CompetitorPage({ embedded = false }) {
           )}
 
           {total_competitors === 0 && (
-            <div className="text-center py-12 text-gray-400">
+            <div className="text-center py-12 text-gray-600 dark:text-gray-400">
               <p className="text-4xl mb-3">📊</p>
               <p className="text-lg font-medium">{t("noDataYet")}</p>
               <p className="text-sm mt-1">
@@ -938,7 +938,7 @@ export default function CompetitorPage({ embedded = false }) {
               )}
             </div>
           )) : (
-            <div className="text-center py-12 text-gray-400">
+            <div className="text-center py-12 text-gray-600 dark:text-gray-400">
               <p className="text-5xl mb-3">🎯</p>
               <p className="text-lg font-medium">{t("noCompetitorsTracked")}</p>
               <p className="text-sm mt-1">

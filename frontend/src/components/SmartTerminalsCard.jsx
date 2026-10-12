@@ -500,7 +500,7 @@ export default function SmartTerminalsCard({ onComplete }) {
   if (phase === "saving" || phase === "done") {
     return (
       <>
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 p-5 text-center text-sm text-gray-500">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 p-5 text-center text-sm text-gray-600 dark:text-gray-500">
           {phase === "saving" ? t("saving", "Saving…") : t("smartTerminalsSaved", "Saved.")}
         </div>
         {ToastUI}

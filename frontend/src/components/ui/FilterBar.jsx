@@ -67,7 +67,7 @@ function Field({ label, htmlFor, children, className = "" }) {
       {label && (
         <label
           htmlFor={htmlFor}
-          className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400"
+          className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400"
         >
           {label}
         </label>

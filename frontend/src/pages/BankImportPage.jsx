@@ -111,6 +111,9 @@ export default function BankImportPage() {
   const [preview, setPreview] = useState(null);
   const [selected, setSelected] = useState(new Set());
   const [categories, setCategories] = useState({}); // ref_hash → category_name
+  // ref_hash → true: the owner says this line is NOT the gavekort payment the
+  // preview matched it to, so it is booked as a sale after all.
+  const [notGavekort, setNotGavekort] = useState({});
   const [userCategories, setUserCategories] = useState([]);
 
   // Result
@@ -249,6 +252,7 @@ export default function BankImportPage() {
         category_name: categories[t.ref_hash] || (t.type === "income" ? "Sales" : "Other"),
         ref_hash: t.ref_hash,
         payment_method: paymentMethod,
+        ...(t.gavekort_order_match && notGavekort[t.ref_hash] ? { not_gavekort: true } : {}),
       }));
 
     try {
@@ -408,7 +412,7 @@ export default function BankImportPage() {
     <div className="p-4 sm:p-6 space-y-6 max-w-[1200px] mx-auto">
       <FadeIn>
         <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("bankImportTitle")}</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
           {t("bankImportSubtitle")}
         </p>
       </FadeIn>
@@ -571,7 +575,7 @@ export default function BankImportPage() {
 
           {/* Supported banks */}
           <div className="mt-4">
-            <p className="text-xs text-gray-400 dark:text-gray-500 mb-2 font-medium uppercase tracking-wider">{t("bankSupportedBanksLabel")}</p>
+            <p className="text-xs text-gray-600 dark:text-gray-500 mb-2 font-medium uppercase tracking-wider">{t("bankSupportedBanksLabel")}</p>
             <div className="flex flex-wrap gap-2">
               {Object.entries(BANK_LABELS).map(([id, { label }]) => (
                 <span key={id} className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg text-xs font-medium inline-flex items-center gap-1.5">
@@ -666,8 +670,38 @@ export default function BankImportPage() {
                           />
                         </td>
                         <td className="px-3 py-2.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{txn.date}</td>
-                        <td className="px-3 py-2.5 text-gray-800 dark:text-gray-200 max-w-[250px] truncate" title={txn.description}>
-                          {txn.description}
+                        <td className="px-3 py-2.5 text-gray-800 dark:text-gray-200 max-w-[250px]" title={txn.description}>
+                          <span className="block truncate">{txn.description}</span>
+                          {/* Payment for an online gavekort order: not revenue
+                              (the gavekort carries the value and its MOMS). */}
+                          {isIncome && txn.gavekort_order_match && (
+                            <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]" data-testid="bank-gk-match">
+                              <span className={notGavekort[txn.ref_hash]
+                                ? "text-gray-400 line-through"
+                                : "text-amber-700 dark:text-amber-300"}>
+                                <Icon name="Gift" size={12} className="inline align-text-bottom mr-0.5" />
+                                {t("bankGkMatch", "Gavekort order — not booked as revenue")}
+                              </span>
+                              <button
+                                type="button"
+                                className="underline text-gray-500 dark:text-gray-400"
+                                onClick={() => setNotGavekort((prev) => ({ ...prev, [txn.ref_hash]: !prev[txn.ref_hash] }))}
+                              >
+                                {notGavekort[txn.ref_hash]
+                                  ? t("bankGkMatchUndo", "It is the gavekort")
+                                  : t("bankGkNotThis", "Not the gavekort — book as a sale")}
+                              </button>
+                            </span>
+                          )}
+                          {/* Same as an online order that is NOT issued yet:
+                              booked as a sale (no card exists to carry the
+                              money) — said, so the owner can issue first. */}
+                          {isIncome && !txn.gavekort_order_match && txn.gavekort_order_pending && (
+                            <span className="mt-1 block text-[11px] text-amber-700 dark:text-amber-300" data-testid="bank-gk-pending">
+                              <Icon name="Gift" size={12} className="inline align-text-bottom mr-0.5" />
+                              {t("bankGkPending", "Looks like a gavekort order that is not issued yet. Issue the card first, then import again — otherwise this is booked as a sale.")}
+                            </span>
+                          )}
                         </td>
                         <td className={`px-3 py-2.5 text-right font-semibold whitespace-nowrap ${
                           isIncome ? "text-emerald-600 dark:text-gray-300" : "text-red-600 dark:text-red-400"
@@ -748,6 +782,11 @@ export default function BankImportPage() {
             )}
             {result.errors.length > 0 && (
               <p className="text-sm text-red-500">{t("bankDoneErrors", { n: result.errors.length })}</p>
+            )}
+            {Number(result.gavekort_matched || 0) > 0 && (
+              <p className="text-sm text-gray-600 dark:text-gray-300" data-testid="bank-done-gk">
+                {t("bankDoneGavekort", "{n} payment(s) for online gavekort orders were not booked as revenue — the gavekort carries the amount and its MOMS.", { n: result.gavekort_matched })}
+              </p>
             )}
 
             {/* Starter killer feature: match against open invoices.

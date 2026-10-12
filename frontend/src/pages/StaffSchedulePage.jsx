@@ -3468,7 +3468,7 @@ export default function StaffSchedulePage() {
           grid. An empty cell is SILENT — no dot was ever drawn in it — so the
           legend was teaching a mark that does not exist. */}
       <FadeIn delay={0.12} className="max-md:order-1">
-        <div className="flex items-center gap-x-4 gap-y-2 flex-wrap text-xs text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-x-4 gap-y-2 flex-wrap text-xs text-gray-600 dark:text-gray-400">
           <span className="font-medium">{t("schedLegendStatus", "Status:")}</span>
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm border border-dashed border-amber-400 dark:border-amber-500/60" aria-hidden="true" />
@@ -6704,7 +6704,7 @@ function ShiftTemplatesTray({ templates, armedId, onArm, onAddClick, onRemove, t
   const { lang } = useLanguage();
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mr-0.5">
+      <span className="text-[11px] font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider mr-0.5">
         {t("schedTemplates", "Templates")}
       </span>
       {templates.map((tpl) => {
@@ -6758,7 +6758,7 @@ function ShiftTemplatesTray({ templates, armedId, onArm, onAddClick, onRemove, t
       <button
         type="button"
         onClick={onAddClick}
-        className="inline-flex items-center gap-1 rounded-full border border-dashed border-gray-300 dark:border-gray-600 px-2.5 py-1 text-[12px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-400"
+        className="inline-flex items-center gap-1 rounded-full border border-dashed border-gray-300 dark:border-gray-600 px-2.5 py-1 text-[12px] text-gray-600 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-400"
       >
         <Plus className="w-3 h-3" />
         {t("schedTemplateNew", "New")}

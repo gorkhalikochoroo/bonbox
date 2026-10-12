@@ -88,10 +88,17 @@ const MAX_HISTORY = 5;
 const SCAN_THROTTLE_EVERY_N_FRAMES = 2;
 
 // ── Audio helpers ────────────────────────────────────────────────────
-// Tiny Web Audio beep for success / buzz for failure. No extra audio
+// Soft Web Audio note for success / low hum for failure. No extra audio
 // dependencies — generated programmatically. Safari iOS requires the
 // AudioContext be created on a user-gesture (handled by initing it
 // inside the "Start scanner" click handler).
+//
+// 12 Oct 2026: the old 880 Hz blip and 220 Hz square buzz were part of the
+// set Manoj found "a bit high, irritating"; he chose the softest option.
+// Success is now a warm 440 Hz note built like the stand's mallet chime
+// (utils/sound.js), failure a low 174.61 Hz sine — still unmistakably
+// different, neither one a square wave. Pinned by __tests__/soundSet.test.js.
+const DOOR_WARM = [[1, 1, 1], [2, 0.1, 0.5], [3, 0.03, 0.3]]; // [mult, amp, ringFactor]
 function makeAudioFeedback() {
   let ctx = null;
   const init = () => {
@@ -103,35 +110,45 @@ function makeAudioFeedback() {
       return ctx;
     } catch { return null; }
   };
-  // `delay` (seconds) schedules the tone later on the context clock, so a
-  // two-note pattern needs no timers.
-  const beep = (freq, duration, type = "sine", volume = 0.08, delay = 0) => {
+  // One soft note: sine partials each ringing out on `ring * ringFactor`
+  // (counted from the strike), a short rise instead of a click, and a 40 ms
+  // ease to silence at the end. `type` keeps the scanner's two-note
+  // "already scanned" warning (triangle, never like the chime); `delay`
+  // schedules a note later on the context clock, so a pattern needs no timers.
+  const beep = (freq, duration, volume, ring, { attack = 0.012, partials = [[1, 1, 1]], type = "sine", delay = 0 } = {}) => {
     const c = ctx;
     if (!c) return;
     try {
-      const osc = c.createOscillator();
-      const gain = c.createGain();
       const t0 = c.currentTime + delay;
-      osc.type = type;
-      osc.frequency.value = freq;
-      gain.gain.value = volume;
-      if (gain.gain.setValueAtTime) gain.gain.setValueAtTime(volume, t0);
-      osc.connect(gain).connect(c.destination);
-      osc.start(t0);
-      gain.gain.exponentialRampToValueAtTime(0.00001, t0 + duration);
-      osc.stop(t0 + duration + 0.02);
+      const fadeAt = t0 + Math.max(attack, duration - 0.04);
+      for (const [mult, amp, ringFactor] of partials) {
+        const tau = ring * ringFactor;
+        const peak = volume * amp;
+        const osc = c.createOscillator();
+        const gain = c.createGain();
+        osc.type = type;
+        osc.frequency.value = freq * mult;
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(peak * Math.exp(-attack / tau), t0 + attack);
+        gain.gain.setTargetAtTime(0, t0 + attack, tau);
+        gain.gain.setValueAtTime(peak * Math.exp(-(fadeAt - t0) / tau), fadeAt);
+        gain.gain.linearRampToValueAtTime(0, t0 + duration);
+        osc.connect(gain).connect(c.destination);
+        osc.start(t0);
+        osc.stop(t0 + duration + 0.02);
+      }
     } catch { /* audio errors should never break the scan loop */ }
   };
   return {
     init,
-    success: () => beep(880, 0.12, "sine", 0.06),
+    success: () => beep(440, 0.5, 0.06, 0.2, { partials: DOOR_WARM }),
     // Already scanned: two short mid tones. Must never sound like the
-    // single high success chime — the host may not be looking at the screen.
+    // single welcome note — the host may not be looking at the screen.
     warning: () => {
-      beep(523, 0.09, "triangle", 0.07);
-      beep(523, 0.09, "triangle", 0.07, 0.16);
+      beep(523, 0.09, 0.07, 0.05, { type: "triangle" });
+      beep(523, 0.09, 0.07, 0.05, { type: "triangle", delay: 0.16 });
     },
-    failure: () => beep(220, 0.22, "square", 0.05),
+    failure: () => beep(174.61, 0.25, 0.05, 0.05, { attack: 0.01 }),
   };
 }
 
@@ -1277,7 +1294,7 @@ export default function DoorScanPage() {
             </div>
           )}
           {history.length === 0 && (
-            <p className="text-center text-sm text-gray-500 dark:text-gray-400 py-3">
+            <p className="text-center text-sm text-gray-600 dark:text-gray-400 py-3">
               {scanMode === "gavekort"
                 ? t("scanGavekortWaiting", "Hold et gavekort-QR foran kameraet.")
                 : t("scanWaitingFirst", "Hold en billet-QR foran kameraet for at starte.")}

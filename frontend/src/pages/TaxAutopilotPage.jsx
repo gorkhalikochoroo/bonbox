@@ -64,6 +64,11 @@ const TAX_ALERT_KEYS = {
   ytd_summary: { title: "taxAlertYtdTitle", detail: "taxAlertYtdDetail" },
   reconciliation_ok: { title: "taxAlertReconOkTitle", detail: "taxAlertReconOkDetail" },
   gavekort_reconciliation: { title: "taxAlertGavekortTitle", detail: "taxAlertGavekortDetail" },
+  gavekort_double_check: { title: "taxAlertGkDoubleTitle", detail: "taxAlertGkDoubleDetail" },
+  gavekort_spv_voided: { title: "taxAlertGkVoidedTitle", detail: "taxAlertGkVoidedDetail" },
+  gavekort_sold_check: { title: "taxAlertGkSoldCheckTitle", detail: "taxAlertGkSoldCheckDetail" },
+  gavekort_bank_check: { title: "taxAlertGkBankTitle", detail: "taxAlertGkBankDetail" },
+  gavekort_free: { title: "taxAlertGkFreeTitle", detail: "taxAlertGkFreeDetail" },
   all_clear: { title: "taxAlertAllClearTitle", detail: "taxAlertAllClearDetail" },
 };
 
@@ -151,7 +156,7 @@ export default function TaxAutopilotPage() {
           <div className="mb-3 animate-pulse text-gray-400">
             <Icon name="Receipt" size={36} className="mx-auto" />
           </div>
-          <p className="text-gray-500 dark:text-gray-400">{t("taxLoadingData")}</p>
+          <p className="text-gray-600 dark:text-gray-400">{t("taxLoadingData")}</p>
         </div>
       </div>
     );
@@ -193,7 +198,7 @@ export default function TaxAutopilotPage() {
         actions={
           <div className="text-right">
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{tax_name} ({rate_pct}%)</p>
-            <p className="text-xs text-gray-500">{authority} • {freqLabel(t, frequency)}</p>
+            <p className="text-xs text-gray-600 dark:text-gray-500">{authority} • {freqLabel(t, frequency)}</p>
           </div>
         }
       />
@@ -266,6 +271,16 @@ export default function TaxAutopilotPage() {
               <p className="text-xs opacity-70 mt-1">
                 {t("taxOutputVatLabel", "Output {tax}", { tax: tax_name })}: <Amount value={nextDeadline.output_vat} currency={currency} /> • {t("taxInputVatLabel", "Input {tax}", { tax: tax_name })}: <Amount value={nextDeadline.input_vat} currency={currency} />
               </p>
+              {/* SPV gavekort sold in the period: their MOMS is due at sale and
+                  is INSIDE the output figure above — said, not silent. */}
+              {Number(nextDeadline.gavekort_spv_sold || 0) > 0 && (
+                <p className="text-xs opacity-70 mt-0.5" data-testid="tax-gk-spv-line">
+                  {t("taxGkSpvIncluded", "Includes gavekort sold (single-purpose): {amount} — MOMS {moms}", {
+                    amount: formatOwnerMoney(nextDeadline.gavekort_spv_sold, currency),
+                    moms: formatOwnerMoney(nextDeadline.gavekort_spv_output_vat || 0, currency),
+                  })}
+                </p>
+              )}
             </div>
           </div>
           {/* Progress bar to deadline */}
@@ -1088,7 +1103,7 @@ function ComplianceCard({ audit }) {
             <h2 className="font-bold text-gray-800 dark:text-white">
               {is_compliant ? t("taxComplianceBooksOk") : t("taxComplianceGaps")}
             </h2>
-            <span className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">
+            <span className="text-[11px] uppercase tracking-wider text-gray-600 dark:text-gray-400 font-semibold">
               {year}
             </span>
           </div>
@@ -1132,11 +1147,11 @@ function ComplianceCol({ label, data, ok }) {
         ? "bg-white/60 dark:bg-gray-800/40 border-gray-100/40 dark:border-gray-800/30"
         : "bg-white/60 dark:bg-gray-800/40 border-amber-200/60 dark:border-amber-800/40"
     }`}>
-      <div className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">{label}</div>
+      <div className="text-[11px] uppercase tracking-wider text-gray-600 dark:text-gray-400 font-semibold">{label}</div>
       <div className="mt-1 text-lg font-bold text-gray-900 dark:text-white">
         #{data.count || 0}
       </div>
-      <div className="text-[11px] text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+      <div className="text-[11px] text-gray-600 dark:text-gray-400 inline-flex items-center gap-1">
         {t("taxComplianceLatest", { n: data.max || 0 })} · {ok
           ? (<><span>{t("taxComplianceNoGaps")}</span> <Icon name="Check" size={11} /></>)
           : t("taxComplianceNMissing", { n: data.missing?.length || 0 })}

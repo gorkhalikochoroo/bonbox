@@ -345,7 +345,7 @@ export default function LiveKpisToday({ eventId = null } = {}) {
           jarring spinner. Hidden until the first poll lands. (It shipped
           in English on the Danish close screen; now translated.) */}
       {ageSeconds !== null && (
-        <p className="text-xs text-gray-400 dark:text-gray-500" aria-live="polite">
+        <p className="text-xs text-gray-600 dark:text-gray-500" aria-live="polite">
           {ageSeconds < 5
             ? t("liveUpdatedNow", "Updated just now")
             : t("liveUpdatedAgo", "Updated {n}s ago", { n: ageSeconds })}

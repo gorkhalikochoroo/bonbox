@@ -151,6 +151,13 @@ function gkErrText(e, t) {
     feature_locked: t("gkErrFeature", "Gavekort er ikke en del af dit abonnement."),
     // Online order already issued/declined (race: double-tap / two tabs / stale list).
     already_resolved: t("gkErrOrderResolved", "Bestillingen er allerede behandlet."),
+    // "Issued in error" is only for an unused card in the MOMS period it was
+    // sold in — a period that has ended may already be filed.
+    void_error_used: t("gkErrVoidErrorUsed", "The card has been used, so it was not issued in error. Void it normally."),
+    void_error_period_closed: t(
+      "gkErrVoidErrorPeriod",
+      "The MOMS period the card was sold in has ended. Void it normally and ask your revisor.",
+    ),
     too_many_orders: t(
       "gkErrTooManyOrders",
       "For mange bestillinger lige nu. Prøv igen om lidt.",
@@ -259,6 +266,16 @@ function statusMeta(card, t) {
 
 // voucher_class → short label. NEVER auto-decided; surfaced + owner-set.
 // mpv = multi-purpose voucher, spv = single-purpose voucher (MOMS at issue).
+//
+// The class a new card / the online-order setting starts on. Owner decision
+// 12 Oct 2026: it stays MPV (today's behaviour) until the revisor confirms.
+// Switching it to SPV is a one-line change HERE (it drives the sell form's
+// pre-selection, its reset, the chip order and the order-setting chips) plus
+// its backend twin DEFAULT_VOUCHER_CLASS in backend/app/models/gift_card.py.
+const DEFAULT_VOUCHER_CLASS = "mpv";
+// The default first, the other after it.
+const VOUCHER_CLASS_CHOICES = DEFAULT_VOUCHER_CLASS === "spv" ? ["spv", "mpv"] : ["mpv", "spv"];
+
 function voucherClassLabel(vc, t) {
   if (vc === "spv") return t("gkClassSpvShort", "SPV");
   return t("gkClassMpvShort", "MPV");
@@ -378,7 +395,7 @@ function PageTitle({ t }) {
         <Gift className="w-6 h-6 text-gray-700 dark:text-gray-200" aria-hidden />
         {t("gkOwnerTitle", "Gavekort")}
       </h1>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
         {t(
           "gkOwnerSubtitle",
           "Udsted gavekort, og hold styr på indløsning, saldo og udestående.",
@@ -401,7 +418,13 @@ function IssueSection({ t, onIssued }) {
   const [amount, setAmount] = useState("");
   const [recipient, setRecipient] = useState("");
   const [note, setNote] = useState("");
-  const [voucherClass, setVoucherClass] = useState("mpv"); // never auto-decided
+  // Starts on DEFAULT_VOUCHER_CLASS (MPV until the revisor confirms). The
+  // owner can pick SPV (ét formål → MOMS at sale); both are explained below
+  // with "ask your revisor". Never decided FOR the owner.
+  const [voucherClass, setVoucherClass] = useState(DEFAULT_VOUCHER_CLASS);
+  // Given away (sponsor, prize, goodwill): no payment → no MOMS when it is
+  // issued, and never "money in the till". The revisor sees it.
+  const [isFree, setIsFree] = useState(false);
   const [expiresAt, setExpiresAt] = useState("");
   const [showMore, setShowMore] = useState(false); // gifting/advanced disclosure
   const [busy, setBusy] = useState(false);
@@ -435,13 +458,13 @@ function IssueSection({ t, onIssued }) {
       const body = {
         amount_minor: minor,
         voucher_class: voucherClass,
-        payment_method: tender,
+        payment_method: isFree ? "free" : tender,
       };
       if (recipient.trim()) body.recipient_name = recipient.trim();
       if (note.trim()) body.note = note.trim();
       if (expiresAt) body.expires_at = new Date(expiresAt + "T23:59:59").toISOString();
       const res = await api.post("/gavekort/issue", body);
-      commitMethod(tender); // remember card/mobilepay; cash no-ops (invariant)
+      if (!isFree) commitMethod(tender); // remember card/mobilepay; cash no-ops (invariant)
       setResult(res.data);
       // product analytics — a gavekort was issued (opt-out respected server-side)
       trackEvent("gavekort_issued", "gavekort");
@@ -464,7 +487,8 @@ function IssueSection({ t, onIssued }) {
           setRecipient("");
           setNote("");
           setExpiresAt("");
-          setVoucherClass("mpv");
+          setIsFree(false);
+          setVoucherClass(DEFAULT_VOUCHER_CLASS); // back to the default class
           setShowMore(false);
           // Tender stays lit (sticky) — back-to-back sales need zero re-setup.
         }}
@@ -522,12 +546,12 @@ function IssueSection({ t, onIssued }) {
             />
           </div>
           {/* MOMS status — read-only, off the rush path. The MPV/SPV control
-              lives under "Tilføj modtager"; MPV is the café/salon default. */}
+              lives under "Tilføj modtager"; DEFAULT_VOUCHER_CLASS starts it. */}
           <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
             <Receipt className="w-3.5 h-3.5" aria-hidden />
             {voucherClass === "spv"
-              ? t("gkMomsAtIssue", "MOMS ved udstedelse (SPV)")
-              : t("gkMomsAtRedemption", "MOMS ved indløsning (MPV)")}
+              ? t("gkMomsAtIssue", "MOMS at sale (single-purpose) — counted in your MOMS")
+              : t("gkMomsAtRedemption", "MOMS at redemption (multi-purpose)")}
           </p>
         </div>
 
@@ -607,24 +631,59 @@ function IssueSection({ t, onIssued }) {
                   {t("gkClassLabel", "Type")}
                 </label>
                 <div className="flex flex-wrap gap-2 mt-1.5">
-                  <Chip selected={voucherClass === "mpv"} onClick={() => setVoucherClass("mpv")}>
-                    {t("gkClassMpv", "Flere formål (MPV)")}
-                  </Chip>
-                  <Chip selected={voucherClass === "spv"} onClick={() => setVoucherClass("spv")}>
-                    {t("gkClassSpv", "Ét formål (SPV)")}
-                  </Chip>
+                  {VOUCHER_CLASS_CHOICES.map((vc) => (
+                    <Chip key={vc} selected={voucherClass === vc} onClick={() => setVoucherClass(vc)}>
+                      {vc === "spv"
+                        ? t("gkClassSpv", "Single-purpose (SPV)")
+                        : t("gkClassMpv", "Multi-purpose (MPV)")}
+                    </Chip>
+                  ))}
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 max-w-md">
-                  {voucherClass === "spv"
-                    ? t(
-                        "gkClassSpvHelp",
-                        "Ét formål: MOMS afregnes ved udstedelse. Spørg din revisor, hvis du er i tvivl.",
-                      )
-                    : t(
-                        "gkClassMpvHelp",
-                        "Flere formål: MOMS afregnes ved indløsning. Standard for de fleste gavekort.",
-                      )}
-                </p>
+                {/* Both meanings, always — the owner chooses knowing what each
+                    one means, and who to ask. Neither is called "the usual". */}
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 max-w-md space-y-1" data-testid="gk-class-help">
+                  {VOUCHER_CLASS_CHOICES.map((vc) => (
+                    <p key={vc} className={voucherClass === vc ? "text-gray-700 dark:text-gray-200" : ""}>
+                      {vc === "spv"
+                        ? t(
+                            "gkClassSpvHelp",
+                            "Single-purpose: for when it is settled at the sale where the card will be used and which MOMS applies — e.g. a card that can only be used here, where everything you sell carries 25 % MOMS. MOMS is settled when the card is sold, and BonBox counts it in the MOMS for that period.",
+                          )
+                        : t(
+                            "gkClassMpvHelp",
+                            "Multi-purpose: for when it is not settled at the sale where the card will be used or which MOMS applies — e.g. a card for several shops, or for goods with different MOMS. MOMS is settled only when the card is used.",
+                          )}
+                    </p>
+                  ))}
+                  <p className="font-medium">{t("gkClassAskRevisor", "Ask your revisor if you are unsure.")}</p>
+                </div>
+              </div>
+
+              {/* Free / sponsor card — no payment, no MOMS when given. */}
+              <div className="max-w-md">
+                {/* The control sits in a box one text line tall (h-5 = the
+                    text-sm line) and is centred in it, so it lines up with the
+                    label's FIRST line at any wrap. On touch the global 44px
+                    floor makes the input itself 44px tall; it overflows the
+                    box evenly, and the label's touch padding (py-3) keeps that
+                    44px inside the row — tap target unchanged. */}
+                <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer pointer-coarse:py-3">
+                  <span className="flex h-5 shrink-0 items-center">
+                    <input
+                      type="checkbox"
+                      className="m-0"
+                      checked={isFree}
+                      onChange={(e) => setIsFree(e.target.checked)}
+                      data-testid="gk-free"
+                    />
+                  </span>
+                  <span>{t("gkFreeLabel", "Free / sponsored — no payment")}</span>
+                </label>
+                {isFree && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {t("gkFreeHelp", "No MOMS when it is given. Your revisor sees it in the MOMS overview.")}
+                  </p>
+                )}
               </div>
 
               {/* Expiry (optional) */}
@@ -682,6 +741,7 @@ const TENDER_LABELS = {
   mobilepay: ["gkTenderMobilepay", "MobilePay"],
   cash: ["gkTenderCash", "Kontant"],
   mixed: ["gkTenderMixed", "Blandet"],
+  free: ["gkTenderFree", "Gratis"],
 };
 
 function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
@@ -761,7 +821,9 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
         {methodLabel && (
           <p className="mt-4 flex items-center justify-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
             <Wallet className="w-3.5 h-3.5" aria-hidden />
-            {t("gkPaidRegistered", "Betalt med {method} · registreret", { method: methodLabel })}
+            {result?.payment_method === "free"
+              ? t("gkFreeRegistered", "Free card — no payment · recorded")
+              : t("gkPaidRegistered", "Betalt med {method} · registreret", { method: methodLabel })}
           </p>
         )}
 
@@ -1168,6 +1230,9 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [mode, setMode] = useState("view"); // view | redeem | void
+  // Void reason: "" = an ordinary void (the card was sold — its MOMS stays);
+  // "issued_in_error" = never sold, no money taken.
+  const [voidReason, setVoidReason] = useState("");
   const [showPrint, setShowPrint] = useState(false); // owner-branded print modal
   const [redeemAmount, setRedeemAmount] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
@@ -1253,7 +1318,7 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
     setActionError("");
     setActionBusy(true);
     try {
-      await api.post(`/gavekort/${id}/void`);
+      await api.post(`/gavekort/${id}/void`, voidReason ? { reason: voidReason } : {});
       setMode("view");
       await load();
       onChanged && onChanged();
@@ -1444,6 +1509,35 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
                     "Annullér dette gavekort? Saldoen nulstilles, og handlingen registreres i sporet.",
                   )}
                 </p>
+                {/* Why — it decides the MOMS. Short on purpose. */}
+                <div className="space-y-1.5 text-sm text-gray-700 dark:text-gray-200" role="radiogroup">
+                  {/* Radio centred on the reason's first line — same one-line
+                      box as the Free checkbox above. */}
+                  <label className="flex items-start gap-2 cursor-pointer pointer-coarse:py-3">
+                    <span className="flex h-5 shrink-0 items-center">
+                      <input type="radio" name="gk-void-reason" className="m-0"
+                        checked={voidReason === ""} onChange={() => setVoidReason("")} />
+                    </span>
+                    <span>
+                      {t("gkVoidReasonSold", "It was sold")}
+                      <span className="block text-xs text-gray-500 dark:text-gray-400">
+                        {t("gkVoidReasonSoldHelp", "The MOMS from the sale stays in.")}
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer pointer-coarse:py-3">
+                    <span className="flex h-5 shrink-0 items-center">
+                      <input type="radio" name="gk-void-reason" className="m-0" data-testid="gk-void-error"
+                        checked={voidReason === "issued_in_error"} onChange={() => setVoidReason("issued_in_error")} />
+                    </span>
+                    <span>
+                      {t("gkVoidReasonError", "Issued by mistake — no payment")}
+                      <span className="block text-xs text-gray-500 dark:text-gray-400">
+                        {t("gkVoidReasonErrorHelp", "Counted as never sold. Only for an unused card, in the MOMS period it was made.")}
+                      </span>
+                    </span>
+                  </label>
+                </div>
                 {actionError && <ErrorText>{actionError}</ErrorText>}
                 <div className="flex gap-2">
                   <Button
@@ -1486,6 +1580,7 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
                     size="sm"
                     onClick={() => {
                       setActionError("");
+                      setVoidReason("");
                       setMode("void");
                     }}
                     iconLeft={<Ban className="w-3.5 h-3.5" aria-hidden />}
@@ -1668,6 +1763,22 @@ function OrdersSection({ t, onPendingCount }) {
     }
   };
 
+  const setOrderClass = async (vc) => {
+    if (!settings || (settings.voucher_class || DEFAULT_VOUCHER_CLASS) === vc) return;
+    try {
+      const r = await api.put("/gavekort/order-settings", {
+        enabled: !!settings.enabled,
+        min_amount_minor: settings.min_amount_minor,
+        max_amount_minor: settings.max_amount_minor,
+        instructions: settings.instructions ?? null,
+        voucher_class: vc,
+      });
+      setSettings(r.data);
+    } catch {
+      /* keep the prior setting */
+    }
+  };
+
   const copyLink = async () => {
     if (!settings?.public_url) return;
     try {
@@ -1755,6 +1866,23 @@ function OrdersSection({ t, onPendingCount }) {
                 "Del den på din hjemmeside, Instagram eller i butikken.",
               )}
             </p>
+            {/* The class of every card ordered online — YOUR setting, never
+                the buyer's (it decides when MOMS is due). */}
+            <div className="mt-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                {t("gkOrdersClassLabel", "Type of cards ordered online")}
+              </p>
+              <div className="flex flex-wrap gap-2 mt-1.5" data-testid="gk-orders-class">
+                {VOUCHER_CLASS_CHOICES.map((vc) => (
+                  <Chip key={vc} selected={(settings?.voucher_class || DEFAULT_VOUCHER_CLASS) === vc} onClick={() => setOrderClass(vc)}>
+                    {vc === "spv" ? t("gkClassSpv", "Single-purpose (SPV)") : t("gkClassMpv", "Multi-purpose (MPV)")}
+                  </Chip>
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                {t("gkClassAskRevisor", "Ask your revisor if you are unsure.")}
+              </p>
+            </div>
           </div>
         )}
       </Card>
@@ -1869,6 +1997,11 @@ function OrderCard({ t, order, onResolved }) {
         <div className="min-w-0">
           <p className="text-lg font-bold tabular-nums text-gray-900 dark:text-gray-100">
             {krFromMinor(order.amount_minor)}
+            {/* The class the card will be minted with (it decides when MOMS
+                falls) — surfaced, never hidden. */}
+            <span className="ml-2 align-middle text-xs font-medium text-gray-500 dark:text-gray-400">
+              {voucherClassLabel(order.voucher_class, t)}
+            </span>
           </p>
           <p className="mt-0.5 truncate text-sm text-gray-600 dark:text-gray-300">
             {order.buyer_name || t("gkOrderNoName", "Ukendt køber")}

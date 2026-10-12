@@ -40,7 +40,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.business_profile import BusinessProfile
-from app.models.gift_card import GiftCard
+from app.models.gift_card import DEFAULT_VOUCHER_CLASS, VOUCHER_CLASSES, GiftCard
 from app.models.gift_card_order import GiftCardOrder
 from app.models.user import User
 from app.services.qr_signer import GavekortKeyUnset, verify_gavekort
@@ -115,7 +115,9 @@ class OrderCreateBody(BaseModel):
     buyer_email: str = Field(min_length=3, max_length=255)
     recipient_name: str | None = Field(default=None, max_length=120)
     message: str | None = Field(default=None, max_length=280)
-    voucher_class: str = Field(default="mpv", pattern="^(mpv|spv)$")
+    # NO voucher_class here (review 12 Oct, j): the class decides when MOMS is
+    # due, so it is the OWNER's setting (order-settings), never the buyer's.
+    # A field sent anyway is ignored (pydantic drops unknown keys).
 
 
 def _kr(minor: int) -> str:
@@ -140,6 +142,22 @@ def _read_order_settings(profile: BusinessProfile) -> tuple[int, int, str | None
         mn, mx = _ORDER_MIN_MINOR_DEFAULT, _ORDER_MAX_MINOR_DEFAULT
     instr = (data.get("instructions") or "").strip()[:500] or None
     return mn, mx, instr
+
+
+def _owner_voucher_class(profile: BusinessProfile) -> str:
+    """The class the OWNER set for online orders; unset = DEFAULT_VOUCHER_CLASS
+    (MPV until the revisor confirms, see models.gift_card). Tolerant of bad
+    JSON."""
+    raw = getattr(profile, "gavekort_order_settings_json", None)
+    if raw:
+        try:
+            import json
+            v = (json.loads(raw) or {}).get("voucher_class")
+            if v in VOUCHER_CLASSES:
+                return v
+        except Exception:  # noqa: BLE001
+            pass
+    return DEFAULT_VOUCHER_CLASS
 
 
 def _resolve_buy_owner(db: Session, slug: str) -> tuple[BusinessProfile, User]:
@@ -271,7 +289,7 @@ def public_create_order(body: OrderCreateBody, request: Request,
         order = GiftCardOrder(
             user_id=owner.id,
             amount_minor=amt,
-            voucher_class=body.voucher_class,
+            voucher_class=_owner_voucher_class(profile),
             buyer_name=(body.buyer_name or "").strip()[:120] or None,
             buyer_email=email[:255],
             recipient_name=(body.recipient_name or "").strip()[:120] or None,

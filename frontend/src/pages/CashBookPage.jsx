@@ -382,7 +382,7 @@ export default function CashBookPage() {
       </div>
       {/* What the balance is made of — it is NOT the drawer: a daily close's
           cash takings never post here. */}
-      <p className="text-[12px] text-gray-500 dark:text-gray-400 -mt-2" data-testid="cb-scope-note">
+      <p className="text-[12px] text-gray-600 dark:text-gray-400 -mt-2" data-testid="cb-scope-note">
         {t("cbScopeNote", "Only what is in the cash book: what you write here, plus cash sales and expenses from Sales and Expenses. Cash from your daily closes (kasserapporter) is not included.")}
       </p>
 
@@ -526,7 +526,7 @@ export default function CashBookPage() {
               onChange={(e) => setFilterFrom(e.target.value)}
               className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white"
             />
-            <span className="text-xs text-gray-400">→</span>
+            <span className="text-xs text-gray-600 dark:text-gray-400">→</span>
             <input
               type="date"
               value={filterTo}

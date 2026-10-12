@@ -153,7 +153,7 @@ export default function OperatingProfileSection() {
 
   if (!loaded) {
     return (
-      <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 p-5 text-sm text-gray-500">
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 p-5 text-sm text-gray-600 dark:text-gray-500">
         {t("loading") || "Loading…"}
       </div>
     );

@@ -174,7 +174,7 @@ export default function ExpiryPage() {
       <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <Package className="w-8 h-8 mx-auto mb-3 text-gray-300 dark:text-gray-600 animate-pulse" strokeWidth={1.75} aria-hidden="true" />
-          <p className="text-gray-500 dark:text-gray-400">{t("expChecking", "Checking expiry dates...")}</p>
+          <p className="text-gray-600 dark:text-gray-400">{t("expChecking", "Checking expiry dates...")}</p>
         </div>
       </div>
     );

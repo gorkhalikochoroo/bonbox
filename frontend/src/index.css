@@ -604,6 +604,19 @@ body.modal-open {
   .dark .glass-static { background: rgb(var(--surface-card) / 0.95); }
 }
 
+/* PAPER BARS — the owner app's light shell (12 Oct 2026). The phone top bar and
+   bottom nav are .glass, which is WHITE in light; on the paper ground that drew
+   a white band between the cream browser bar (theme-color #f6f4ec) and the
+   cream page. .bar-paper repaints only those two bars in the ground colour, the
+   same frosted 85% / 95%-fallback recipe as .glass. LIGHT ONLY by selector:
+   `:root:not(.dark)` can never match in dark, so the dark bars keep the
+   `.dark .glass` card rung pixel-for-pixel. Toasts and every other .glass user
+   stay white — they float, the bars do not. */
+:root:not(.dark) .bar-paper { background: rgb(var(--surface-shell) / 0.85); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root:not(.dark) .bar-paper { background: rgb(var(--surface-shell) / 0.95); }
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    STAFF-PORTAL BAR MATERIAL  (.bb-lg-*)              ADDITIVE / PAGE-SCOPED
    Append AFTER the .glass / .glass-static blocks (index.css ~505) and
@@ -907,18 +920,18 @@ body.modal-open {
 :root:not([data-theme="tech"]) .dark\:text-green-300 { color: rgb(var(--brand-100)) !important; }
 :root:not([data-theme="tech"]) .dark\:text-green-400 { color: rgb(var(--brand-400)) !important; }
 
-/* Venue themes tint the LIGHT ground by a hair so the app feels less "app-ish".
-   These now set the GROUND RUNG of the elevation ladder (see the ladder block
-   below) instead of painting `body` directly — one writer for the ground, so a
-   theme can never disagree with html about what colour the page is.
+/* The venue themes used to tint the LIGHT ground by a hair (calm #f9fbfd,
+   modern #faf9fd, focus #f8fafc). Since 12 Oct 2026 the light ground is BonBox
+   PAPER (#F6F4EC, the colour of /login and /register) in every theme — owner's
+   call: "the cream inside the app as well". The three overrides are gone, not
+   re-pointed, because at (0,2,0) they beat `:root` and would have painted the
+   old near-white back over the paper for every venue on calm (the default).
+   The ground has ONE writer again: the ladder block below.
 
-   The dark side is deliberately NOT here any more. `[data-theme="calm"].dark`
+   The dark side is deliberately NOT here either. `[data-theme="calm"].dark`
    used to paint body #0f172a — slate-900, a THIRD near-black from a different
-   family sitting under gray-tinted cards. The dark ground is ladder-owned now:
+   family sitting under gray-tinted cards. The dark ground is ladder-owned:
    one near-black (#111827) for all four themes. See the ladder block. */
-:root[data-theme="calm"]   { --surface-ground: 249 251 253; }
-:root[data-theme="modern"] { --surface-ground: 250 249 253; }
-:root[data-theme="focus"]  { --surface-ground: 248 250 252; }
 
 /* The landing page paints its own full-bleed bands on white, but body carries
    horizontal safe-area padding (the body rule near the top of this file). On a
@@ -930,8 +943,24 @@ body.modal-open {
    MUST stay below the theme rules above: `:root[data-theme="calm"] body` is
    specificity 0,1,2 and would otherwise beat this. `:root` here brings this to
    0,2,2 so it wins on both specificity and order, for every theme at once.
-   Dark mode is exempt — the landing page is light-only. */
+   Dark mode is exempt — the landing page is light-only.
+   html too, since the light ground became paper (12 Oct 2026): html paints the
+   overscroll / rubber-band area, and the landing is a white page — it must not
+   show a cream band when an iPhone bounces past its top or bottom. */
 :root:not(.dark) body:has([data-page="landing"]) { background-color: #fff; }
+:root:not(.dark):has([data-page="landing"]) { background-color: #fff; }
+
+/* WHITE-PAGE GROUND (12 Oct 2026). The light ground became paper, and html +
+   body paint it — including body's safe-area padding (a strip above the page
+   on a notched phone, down both sides in landscape) and the overscroll band.
+   Pages that paint their OWN white page (guest booking /r/ and /<slug>,
+   events, tickets, gift cards, legal pages, the staff portal, /join, /onboarding,
+   magic-link…) would have shown cream in those strips. utils/themeColor.js
+   marks <html> with .bb-page-white on exactly the routes whose browser bar is
+   white (index.html's pre-paint does the same for the paths it can know), and
+   this paints html + body white there. Light only: dark never matches. */
+:root.bb-page-white:not(.dark),
+:root.bb-page-white:not(.dark) body { background-color: #fff; }
 
 /* The landing header is a 66px sticky bar and html sets scroll-behavior:
    smooth, but nothing set scroll-padding — so every in-page anchor (the
@@ -1105,13 +1134,26 @@ body.modal-open {
    the ground gray-800 is still a correct, slightly stronger step), so it is a
    deliberate pass, not a find-and-replace. Not an oversight — a scoped TODO.
    ═══════════════════════════════════════════════════════════════════════ */
+/* LIGHT GROUND = BonBox PAPER (12 Oct 2026). The page behind the cards is the
+   same cream as /login and /register (--color-bb-paper); cards, sheets, inputs
+   and modals stay white and lift off it the way the sign-in fields do.
+   Measured on paper: a white card 1.10:1 (was 1.04:1 on the calm #f9fbfd), the
+   gray-200 hairline 1.12:1 (was 1.19:1; 1.24:1 against the card's own white,
+   unchanged); gray-500 text 4.39:1 — BELOW AA, so text that sits directly on
+   the page reads gray-600 (6.86:1) in light. The light SHELL (sidebar, phone
+   top bar, bottom nav) is paper too — --surface-shell, .bar-paper — so the
+   browser bar
+   (theme-color #f6f4ec), the top bar and the page read as one sheet and the
+   only white on screen is content. Dark is untouched: everything below
+   `:root.dark` and every `.dark` rule wins over this in dark. */
 :root {
-  --surface-ground: 248 250 252;       /* slate-50  #f8fafc — may be theme-tinted */
+  --surface-ground: 246 244 236;       /* bb-paper  #f6f4ec — was slate-50 #f8fafc (calm tint #f9fbfd) */
   --surface-subtle: 249 250 251;       /* gray-50   #f9fafb — unchanged from what shipped */
   --surface-card: 255 255 255;         /* white     #ffffff */
   --surface-raised: 255 255 255;       /* white     — light lifts with shadow */
   --surface-line: 229 231 235;         /* gray-200  #e5e7eb */
   --surface-line-strong: 209 213 219;  /* gray-300  #d1d5db */
+  --surface-shell: 246 244 236;        /* bb-paper  — sidebar rail + phone bars sit ON the paper in light */
 }
 /* MUST stay below the [data-theme] blocks above: those set --surface-ground at
    the same specificity (0,2,0), so only source order keeps the dark ground from
@@ -1128,6 +1170,7 @@ body.modal-open {
   --surface-raised: 43 53 68;          /* #2b3544 — between gray-800 and gray-700 */
   --surface-line: 55 65 81;            /* gray-700  #374151 */
   --surface-line-strong: 75 85 99;     /* gray-600  #4b5563 */
+  --surface-shell: 31 41 55;           /* = card rung in dark — the shell has always sat there */
 }
 
 /* ── Gavekort printable card ────────────────────────────────────────────

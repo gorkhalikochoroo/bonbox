@@ -310,8 +310,8 @@ export default function JobCardPage() {
     } catch (err) { setError(errText(err, t("opsFailed", "Failed"))); }
   };
 
-  if (loading) return <div className="p-8 text-center text-gray-400">{t("loading", "Loading...")}</div>;
-  if (!job) return <div className="p-8 text-center text-gray-400">{t("jcJobNotFound", "Job not found")}</div>;
+  if (loading) return <div className="p-8 text-center text-gray-600 dark:text-gray-400">{t("loading", "Loading...")}</div>;
+  if (!job) return <div className="p-8 text-center text-gray-600 dark:text-gray-400">{t("jcJobNotFound", "Job not found")}</div>;
 
   const currentIdx = STATUS_FLOW.indexOf(job.status);
   const inputClass = "w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900";
@@ -324,8 +324,8 @@ export default function JobCardPage() {
           <div>
             <button onClick={() => nav("/workshop")} className="text-sm text-blue-600 dark:text-blue-400 hover:underline mb-1">← {t("back", "Back")}</button>
             <h1 className="text-2xl font-bold dark:text-white">{job.job_number}</h1>
-            <p className="text-gray-500 dark:text-gray-400 text-sm">{job.vehicle?.plate_number} — {job.vehicle?.make} {job.vehicle?.model}</p>
-            {job.vehicle?.customer_name && <p className="text-sm text-gray-400">{job.vehicle.customer_name} · {job.vehicle?.customer_phone}</p>}
+            <p className="text-gray-600 dark:text-gray-400 text-sm">{job.vehicle?.plate_number} — {job.vehicle?.make} {job.vehicle?.model}</p>
+            {job.vehicle?.customer_name && <p className="text-sm text-gray-600 dark:text-gray-400">{job.vehicle.customer_name} · {job.vehicle?.customer_phone}</p>}
           </div>
           {/* This is what the customer gets invoiced, so it is ledger-exact:
               2 decimals, and the ACCOUNT's notation — an EN-browser session on
@@ -335,7 +335,7 @@ export default function JobCardPage() {
               number sitting under a kr. figure. */}
           <div className="text-right">
             <p className="text-2xl font-bold text-emerald-600 dark:text-gray-300">{formatOwnerMoney(job.grand_total, currency, { decimals: 2 })}</p>
-            <p className="text-xs text-gray-400">{t("jcPartsLabel", "Parts")}: {formatOwnerMoney(job.parts_total, currency, { decimals: 2 })} + {t("jcLaborLabel", "Labor")}: {formatOwnerMoney(job.labor_total, currency, { decimals: 2 })}</p>
+            <p className="text-xs text-gray-600 dark:text-gray-400">{t("jcPartsLabel", "Parts")}: {formatOwnerMoney(job.parts_total, currency, { decimals: 2 })} + {t("jcLaborLabel", "Labor")}: {formatOwnerMoney(job.labor_total, currency, { decimals: 2 })}</p>
           </div>
         </div>
       </FadeIn>

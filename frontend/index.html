@@ -321,16 +321,46 @@
       // on first load. Migration: any legacy users with theme=null/undefined
       // will see light mode immediately.
       (function () {
+        // LIGHT ground + browser bar (12 Oct 2026): paper ONLY on a route known
+        // to draw on the paper (the owner app, the paper auth screens, the
+        // schedule wall screen); white html/body (.bb-page-white) and the
+        // static white bar everywhere else — so a guest page, incl. the vanity
+        // /<slug> that no list can name, never flashes cream on a cold load.
+        // Keep equal to PAPER_PATHS / PAPER_PREFIXES in src/utils/themeColor.js
+        // — creamCanvas.test.js runs both on the same paths. Outside the
+        // localStorage try: it must run even when storage is blocked.
+        var wp = location.pathname.replace(/\/+$/, "") || "/";
+        var paper = /^\/workshop\/job\//.test(wp) || [
+          "/login", "/register", "/forgot-password", "/verify-email", "/contact", "/staff/schedule/stand",
+          "/dashboard", "/sales", "/events", "/reservations", "/gavekort", "/scan", "/expenses", "/inventory",
+          "/staffing", "/weather", "/waste", "/weekly-report", "/vat-report", "/reports", "/feedback", "/cashbook",
+          "/cashflow", "/tax", "/pricing", "/retention", "/expiry", "/competitors", "/branches", "/outlets",
+          "/consolidated-close", "/terminals", "/modules", "/daily-close/multi", "/share-recipients", "/daily-close",
+          "/workshop", "/wine-list", "/bar", "/workshop/new-job", "/recently-deleted", "/profile", "/personal",
+          "/khata", "/faktura", "/faktura/review", "/customers", "/mileage", "/loans", "/imports", "/bank-import",
+          "/payment-imports", "/budgets", "/team", "/staff/schedule", "/staff/hours", "/staff/time-registration",
+          "/staff/tips", "/staff/payroll", "/more", "/subscription", "/bookkeeping-export", "/insights",
+          "/daily-report", "/channel-settings", "/connections", "/accountant/clients",
+          "/admin", "/admin/training", "/admin/support"
+        ].indexOf(wp) !== -1;
+        if (!paper) document.documentElement.classList.add("bb-page-white");
+        // The embedded booking widget (/r/<slug>?embed=1, framed in the owner's
+        // website or the owner's preview) is always light: the stored theme
+        // is skipped, never rewritten. The page holds it off too once mounted
+        // (forceLightTheme, src/utils/themeColor.js; embedLight.test.jsx).
+        var embed = !paper && /[?&]embed=1(&|$)/.test(location.search);
         try {
           var t = localStorage.getItem("theme");
-          if (t === "dark") {
+          if (t === "dark" && embed) {
+            document.documentElement.classList.remove("dark");
+          } else if (t === "dark") {
             document.documentElement.classList.add("dark");
             // The browser bar follows the theme (surface-card, see
             // src/utils/themeColor.js). Not on pages that never render dark:
             // the staff portal /s/ and LIGHT_ONLY_PATHS (landing, /join,
             // /stand, magic-link/claim). Keep this list equal to
             // themeColor.js — dashboardDarkMode.test.js runs both on the same
-            // paths. Light leaves the static #ffffff alone.
+            // paths. Light is written below the try (paper routes only).
             var p = location.pathname.replace(/\/+$/, "") || "/";
             var lightOnly = location.pathname.indexOf("/s/") === 0 ||
               ["/", "/v2", "/join", "/stand", "/login/magic", "/login/claim"].indexOf(p) !== -1;
@@ -344,6 +374,12 @@
             if (t !== "light") localStorage.setItem("theme", "light");
           }
         } catch (e) { /* localStorage blocked in private mode — default light */ }
+        // Light on a paper route: the paper bar now, not on React's first
+        // commit. Every other route keeps the static white.
+        if (paper && !document.documentElement.classList.contains("dark")) {
+          var lc = document.querySelector('meta[name="theme-color"]');
+          if (lc) lc.setAttribute("content", "#f6f4ec");
+        }
       })();
     </script>
     <div id="root"></div>

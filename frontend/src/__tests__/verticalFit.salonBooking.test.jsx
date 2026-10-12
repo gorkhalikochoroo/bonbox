@@ -97,12 +97,17 @@ describe("booking settings follow the booking mode", () => {
     }
     expect(screen.getByText(da.rsvpLeadTimeProvider)).toBeInTheDocument();
     expect(screen.getByText(da.rsvpMaxAdvanceProvider)).toBeInTheDocument();
-    // The website kit says "Book tid" — in the heading and in the copied HTML.
-    expect(screen.getByText(da.rsvpEmbedButtonHeadingProvider)).toBeInTheDocument();
+    // The website kit (Push 6: WebsiteBookingKit) says "Book tid" — in its
+    // title, the button heading, the copied HTML and the hand-off mail.
+    expect(screen.getByText(da.rsvpWebTitleProvider)).toBeInTheDocument();
+    expect(screen.getByText(da.rsvpWebButtonHeading.replace("{label}", "Book tid"))).toBeInTheDocument();
     const code = [...document.querySelectorAll("pre")].map((p) => p.textContent).join("\n");
     expect(code).toContain(">Book tid</a>");
-    expect(code).toContain('title="Book tid — Frisør Saks"');
     expect(code).not.toContain("Book bord");
+    const mail = decodeURIComponent(document.querySelector('a[href^="mailto:"]').getAttribute("href"));
+    expect(mail).toContain('title="Book tid — Frisør Saks"');
+    expect(mail).toContain(">Book tid</a>");
+    expect(mail).not.toContain("Book bord");
   });
 
   it("a café keeps the table rules and the 'Book bord' button", async () => {

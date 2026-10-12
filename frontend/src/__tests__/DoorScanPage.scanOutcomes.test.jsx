@@ -143,12 +143,12 @@ class FakeAudioContext {
   }
   createGain() {
     return {
-      gain: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {} },
+      gain: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {}, linearRampToValueAtTime() {}, setTargetAtTime() {} },
       connect: () => ({}),
     };
   }
 }
-const SUCCESS_TONE = { freq: 880, type: "sine" };
+const SUCCESS_TONE = { freq: 440, type: "sine" }; // the soft welcome note (12 Oct sound set B)
 const isSuccessTone = (tone) => tone.freq === SUCCESS_TONE.freq && tone.type === SUCCESS_TONE.type;
 
 let clock = 1_000_000;

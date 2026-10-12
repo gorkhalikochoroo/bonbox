@@ -89,7 +89,7 @@ export default function TrialChip() {
         className={`hover:underline ${
           urgent
             ? "text-amber-800 dark:text-amber-300 font-medium"
-            : "text-gray-500 dark:text-gray-400"
+            : "text-gray-600 dark:text-gray-400"
         }`}
       >
         {t("trialChipUpgradeLink") || "see plans"}
@@ -99,7 +99,7 @@ export default function TrialChip() {
         onClick={dismiss}
         title={t("hideForToday") || "Hide for today"}
         aria-label={t("hideForToday") || "Hide for today"}
-        className="ml-1 w-5 h-5 inline-flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/50 dark:hover:bg-gray-700/40 transition"
+        className="ml-1 w-5 h-5 inline-flex items-center justify-center rounded-full text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/50 dark:hover:bg-gray-700/40 transition"
       >
         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

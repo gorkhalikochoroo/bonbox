@@ -96,7 +96,7 @@ export default function BranchPage() {
       <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <div className="text-4xl mb-3 animate-pulse">🏢</div>
-          <p className="text-gray-500 dark:text-gray-400">Loading branches...</p>
+          <p className="text-gray-600 dark:text-gray-400">Loading branches...</p>
         </div>
       </div>
     );

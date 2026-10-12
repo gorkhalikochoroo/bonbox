@@ -53,7 +53,7 @@ export default function WorkshopPage() {
     ]).finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="p-8 text-center text-gray-400">{t("loading", "Loading…")}</div>;
+  if (loading) return <div className="p-8 text-center text-gray-600 dark:text-gray-400">{t("loading", "Loading…")}</div>;
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto space-y-6">
@@ -65,7 +65,7 @@ export default function WorkshopPage() {
               <Wrench className="w-6 h-6 text-gray-400" aria-hidden="true" />
               {t("workshop", "Workshop")}
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{t("wsSubtitle", "Job cards, vehicles, mechanics")}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">{t("wsSubtitle", "Job cards, vehicles, mechanics")}</p>
           </div>
           <button onClick={() => nav("/workshop/new-job")}
             className="px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold text-sm transition">

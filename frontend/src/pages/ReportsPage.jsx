@@ -753,7 +753,7 @@ export default function ReportsPage() {
               </div>
 
               {/* Disclaimer */}
-              <p className="text-xs text-center text-gray-400 dark:text-gray-500">
+              <p className="text-xs text-center text-gray-600 dark:text-gray-500">
                 {t("reportsDisclaimer")}
               </p>
             </>
@@ -958,7 +958,9 @@ function DailyKasserapport() {
             <p className="text-xs text-gray-400 mt-1">{formatDate(data.date)}</p>
           </div>
 
-          {data.transaction_count === 0 && !data.from_close && !Number(data.total) ? (
+          {/* A day whose only event is a gavekort sold still has a MOMS line —
+              it is not "no sales" for the revisor. */}
+          {data.transaction_count === 0 && !data.from_close && !Number(data.total) && !data.gavekort?.any ? (
             <div className="py-12 text-center text-gray-400 dark:text-gray-500">{t("noSalesOnDate")}</div>
           ) : (
             <div className="font-mono text-sm">
@@ -970,6 +972,28 @@ function DailyKasserapport() {
                   <Row label={t("totalInclVat")} value={kr(data.total)} bold />
                 </div>
               </div>
+
+              {/* Gavekort — apart from revenue. A card sold is not revenue (its
+                  MOMS is counted at sale); a meal paid with one had its MOMS
+                  paid when the card was sold. The day's MOMS adds up to the
+                  MOMS-angivelse. */}
+              {data.gavekort?.any && (
+                <div className="px-6 py-4 border-t border-dashed border-gray-200 dark:border-gray-700 space-y-2" data-testid="kr-gavekort">
+                  <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{t("krGkTitle", "Gavekort (not revenue)")}</p>
+                  {data.gavekort.sold > 0 && (
+                    <Row label={t("krGkSold", "Gavekort sold (single-purpose)")} value={kr(data.gavekort.sold)} />
+                  )}
+                  {data.gavekort.sold > 0 && (
+                    <Row label={t("krGkSoldVat", "{tax} at sale", { tax: data.vat_name })} value={kr(data.gavekort.sold_vat)} />
+                  )}
+                  {data.gavekort.redeemed > 0 && (
+                    <Row label={t("krGkRedeemedVat", "Gavekort used — {tax} paid at sale", { tax: data.vat_name })} value={kr(-data.gavekort.redeemed_vat)} />
+                  )}
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
+                    <Row label={t("krMomsForDay", "{tax} for the day", { tax: data.vat_name })} value={kr(data.moms_reconciliation?.moms_af_salg)} bold />
+                  </div>
+                </div>
+              )}
 
               {/* Payment Breakdown */}
               <div className="px-6 py-4 border-t border-dashed border-gray-200 dark:border-gray-700 space-y-2">

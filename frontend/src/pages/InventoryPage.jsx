@@ -915,7 +915,7 @@ export default function InventoryPage() {
               margin is that profit over that cost. Before, tile 1 counted all
               60 varer and tiles 2–3 counted the 12 priced ones, and the owner
               had no way to reconcile the red number in the middle. */}
-          <p className="text-[12px] text-gray-500 dark:text-gray-400">
+          <p className="text-[12px] text-gray-600 dark:text-gray-400">
             {t("invPricedScopeStrip")} · {stats.itemsWithMargin}/{items.length} {t("itemsPriced")}
             {stats.unreadable > 0 ? ` · ${stats.unreadable} ${t("invRowsUnreadable", "items could not be read")}` : ""}
           </p>
@@ -972,7 +972,7 @@ export default function InventoryPage() {
           // an owner on a bad connection deserves the difference between a slow
           // page and a stuck one.
           <>
-            <p className="text-[13px] text-gray-500 dark:text-gray-400">
+            <p className="text-[13px] text-gray-600 dark:text-gray-400">
               {t("invLoadingStock", "Checking what's on the shelf…")}
             </p>
             <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -1297,7 +1297,7 @@ export default function InventoryPage() {
               </p>
               <button
                 onClick={() => { setTemplateFilter(null); setActiveCategory("All"); }}
-                className="text-xs text-gray-400 hover:text-red-500 transition inline-flex items-center gap-1"
+                className="text-xs text-gray-600 dark:text-gray-400 hover:text-red-500 transition inline-flex items-center gap-1"
                 aria-label={t("showAll")}
               >
                 <Icon name="X" size={12} /> {t("showAll")}
