@@ -201,3 +201,63 @@ describe("/forgot-password", () => {
     expect(api.post).toHaveBeenCalledWith("/auth/forgot-password", { email: "ole@cafe.dk" });
   });
 });
+
+describe("the phone keyboard (mobile walk, 12 Oct)", () => {
+  it("/login: next on the e-mail, go on the password; Enter in the e-mail goes on to the password and sends nothing", async () => {
+    at("/login");
+    const email = screen.getByLabelText(da.emailLabel);
+    const pw = screen.getByLabelText(da.passwordLabel);
+    expect(email.getAttribute("enterkeyhint")).toBe("next");
+    expect(pw.getAttribute("enterkeyhint")).toBe("go");
+    fireEvent.change(email, { target: { value: "ole@cafe.dk" } });
+    email.focus();
+    await act(async () => { fireEvent.keyDown(email, { key: "Enter", keyCode: 13 }); });
+    expect(document.activeElement).toBe(pw);
+    expect(authState.login).not.toHaveBeenCalled();
+    expect(screen.queryAllByRole("alert")).toHaveLength(0);
+    // the password's Enter is the form's own submit
+    expect(fireEvent.keyDown(pw, { key: "Enter", keyCode: 13 })).toBe(true);
+  });
+
+  it("/login in e-mail-link mode: the only field, so its key says send and Enter is the form's", async () => {
+    at("/login");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: da.useEmailInstead })); });
+    const email = screen.getByLabelText(da.emailLabel);
+    expect(email.getAttribute("enterkeyhint")).toBe("send");
+    expect(fireEvent.keyDown(email, { key: "Enter", keyCode: 13 })).toBe(true);
+  });
+
+  it("/login: a valid sign-in lets go of the field (the keyboard closes over the busy button)", async () => {
+    authState.login = vi.fn(() => new Promise(() => {}));
+    at("/login");
+    fireEvent.change(screen.getByLabelText(da.emailLabel), { target: { value: "ole@cafe.dk" } });
+    const pw = screen.getByLabelText(da.passwordLabel);
+    fireEvent.change(pw, { target: { value: "Kaffe2026" } });
+    pw.focus();
+    await act(async () => { fireEvent.submit(document.querySelector("form")); });
+    expect(authState.login).toHaveBeenCalled();
+    expect(document.activeElement).not.toBe(pw);
+  });
+
+  it("/forgot-password: send on the e-mail; the code keeps a pasted 'Din kode: 482913' (maxLength cut it to 'Din ko'); next, next, go", async () => {
+    api.post.mockResolvedValueOnce({ data: {} });
+    at({ pathname: "/forgot-password", state: { prefillEmail: "ole@cafe.dk" } });
+    expect(screen.getByLabelText(da.fpEmailAddress).getAttribute("enterkeyhint")).toBe("send");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: da.sendResetCode })); });
+    const code = screen.getByLabelText(da.fpSixDigitCode);
+    expect(code.hasAttribute("maxlength")).toBe(false);
+    expect(code.getAttribute("pattern")).toBe("[0-9]*");
+    fireEvent.change(code, { target: { value: "Din kode: 482913" } });
+    expect(code.value).toBe("482913");
+    fireEvent.change(code, { target: { value: "4829137" } });
+    expect(code.value).toBe("482913");
+    expect(code.getAttribute("enterkeyhint")).toBe("next");
+    expect(screen.getByLabelText(da.fpNewPassword).getAttribute("enterkeyhint")).toBe("next");
+    expect(screen.getByLabelText(da.fpConfirmPassword).getAttribute("enterkeyhint")).toBe("go");
+    code.focus();
+    await act(async () => { fireEvent.keyDown(code, { key: "Enter", keyCode: 13 }); });
+    expect(document.activeElement).toBe(screen.getByLabelText(da.fpNewPassword));
+    await act(async () => { fireEvent.keyDown(document.activeElement, { key: "Enter", keyCode: 13 }); });
+    expect(document.activeElement).toBe(screen.getByLabelText(da.fpConfirmPassword));
+  });
+});

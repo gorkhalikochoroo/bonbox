@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, useEffect, useLayoutEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from "react-router-dom";
 import { setStandToken } from "./services/standAuth";
 import { reportClientError } from "./utils/reportClientError";
+import { jumpToTop } from "./utils/jumpToTop";
 import { verifySkipActive, verifyWallExempt } from "./utils/verifySkip";
 import { completedOnboardingRedirect } from "./utils/onboardingFinish";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
@@ -955,9 +956,11 @@ function AppRoutes() {
 function ScrollManager() {
   const { pathname, hash } = useLocation();
   useEffect(() => {
-    // No anchor: plain top-of-page, as before.
+    // No anchor: plain top-of-page, as before — at once, not html's smooth
+    // scroll, which a page focusing a field on arrival cut short
+    // (utils/jumpToTop: /verify-email opened ~275 px down on a small phone).
     if (!hash) {
-      window.scrollTo(0, 0);
+      jumpToTop();
       return;
     }
     // WITH an anchor: scroll to it. Nothing in the app handled location.hash

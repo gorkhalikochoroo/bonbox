@@ -6,6 +6,8 @@ import { useLanguage } from "../hooks/useLanguage";
 import usePageTitle from "../hooks/usePageTitle";
 import { authErrorKey } from "../utils/authErrors";
 import { emailProblem } from "../utils/signupValidation";
+import { dismissKeyboard, enterToNext } from "../utils/phoneForm";
+import { codeDigits } from "../utils/codeBoxes";
 import AuthShell, {
   AuthAlert, AuthHeading, AuthNote, FieldError, FieldLabel, PasswordInput, PrimaryButton,
 } from "../components/auth/AuthUI";
@@ -37,9 +39,12 @@ export default function ForgotPasswordPage() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const emailRef = useRef(null);
+  const newRef = useRef(null);
+  const confirmRef = useRef(null);
 
   const requestCode = async (address) => {
     setError(null);
+    dismissKeyboard();
     setLoading(true);
     try {
       await api.post("/auth/forgot-password", { email: address });
@@ -92,6 +97,7 @@ export default function ForgotPasswordPage() {
       setError({ key: "passwordMinLength" });
       return;
     }
+    dismissKeyboard();
     setLoading(true);
     try {
       // The server's own "message" is English and is not shown: the page
@@ -152,6 +158,7 @@ export default function ForgotPasswordPage() {
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
+              enterKeyHint="send"
               required
               value={email}
               onChange={(e) => { setEmail(e.target.value); if (emailErr) setEmailErr(null); }}
@@ -188,10 +195,14 @@ export default function ForgotPasswordPage() {
                 id="fp-code"
                 type="text"
                 inputMode="numeric"
+                pattern="[0-9]*"
                 autoComplete="one-time-code"
-                maxLength={6}
+                enterKeyHint="next"
+                onKeyDown={enterToNext(newRef)}
+                // No maxLength: a pasted "Din kode: 482913" would be cut to
+                // "Din ko" before it got here; codeDigits keeps the code.
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                onChange={(e) => setCode(codeDigits(e.target.value))}
                 className={`${inputClass(false)} text-center text-2xl font-semibold tracking-[0.5em] tabular-nums`}
                 placeholder="------"
                 required
@@ -200,8 +211,11 @@ export default function ForgotPasswordPage() {
             <div>
               <FieldLabel htmlFor="fp-new">{t("fpNewPassword", "New Password")}</FieldLabel>
               <PasswordInput
+                ref={newRef}
                 id="fp-new"
                 autoComplete="new-password"
+                enterKeyHint="next"
+                onKeyDown={enterToNext(confirmRef)}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder={t("min8chars")}
@@ -212,8 +226,10 @@ export default function ForgotPasswordPage() {
             <div>
               <FieldLabel htmlFor="fp-confirm">{t("fpConfirmPassword", "Confirm Password")}</FieldLabel>
               <PasswordInput
+                ref={confirmRef}
                 id="fp-confirm"
                 autoComplete="new-password"
+                enterKeyHint="go"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder={t("reenterPassword")}

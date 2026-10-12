@@ -193,3 +193,127 @@ describe("codes and resend, in Danish", () => {
     }
   });
 });
+
+describe("phone keyboard, AutoFill and paste (mobile walk, 12 Oct)", () => {
+  const boxes = () => screen.getAllByRole("textbox").filter((el) => el.getAttribute("inputmode") === "numeric");
+  const verifyCalls = () => h.post.mock.calls.filter(([u]) => u === "/auth/verify-email");
+
+  it("every box: numeric keypad, one-time-code, pattern [0-9]*, and NO maxLength (it cut an AutoFilled code to one digit)", () => {
+    open();
+    for (const b of boxes()) {
+      expect(b.getAttribute("autocomplete")).toBe("one-time-code");
+      expect(b.getAttribute("inputmode")).toBe("numeric");
+      expect(b.getAttribute("pattern")).toBe("[0-9]*");
+      expect(b.hasAttribute("maxlength")).toBe(false);
+    }
+  });
+
+  it("the whole code arriving in the first box as ONE input (iOS code AutoFill, Android's clipboard chip) fills the row and is checked once", async () => {
+    open();
+    await act(async () => { fireEvent.change(boxes()[0], { target: { value: "482913" } }); });
+    expect(verifyCalls()).toEqual([["/auth/verify-email", { code: "482913" }]]);
+  });
+
+  it("the same, arriving in the fourth box: the row fills from the first box", async () => {
+    h.post.mockImplementation((url) => (url === "/auth/verify-email" ? new Promise(() => {}) : Promise.resolve({ data: {} })));
+    open();
+    await act(async () => { fireEvent.change(boxes()[3], { target: { value: "482913" } }); });
+    expect(boxes().map((b) => b.value).join("")).toBe("482913");
+    expect(verifyCalls()).toHaveLength(1);
+  });
+
+  it("a paste of 'Din kode: 482913' fills the six boxes and is checked", async () => {
+    open();
+    const row = screen.getByTestId("verify-code-row");
+    await act(async () => { fireEvent.paste(row, { clipboardData: { getData: () => "Din kode: 482913" } }); });
+    expect(verifyCalls()).toEqual([["/auth/verify-email", { code: "482913" }]]);
+  });
+
+  it("filled out of order, the code is checked when the last empty box gets its digit", async () => {
+    open();
+    await act(async () => {
+      "82913".split("").forEach((d, i) => fireEvent.change(boxes()[i + 1], { target: { value: d } }));
+    });
+    expect(verifyCalls()).toHaveLength(0);
+    await act(async () => { fireEvent.change(boxes()[0], { target: { value: "4" } }); });
+    expect(verifyCalls()).toEqual([["/auth/verify-email", { code: "482913" }]]);
+  });
+
+  it("typing over a filled box replaces its digit (a full box used to refuse it)", () => {
+    open();
+    fireEvent.change(boxes()[0], { target: { value: "1" } });
+    fireEvent.change(boxes()[0], { target: { value: "17" } });
+    expect(boxes()[0].value).toBe("7");
+    expect(document.activeElement).toBe(boxes()[1]);
+  });
+
+  it("Backspace in an empty box takes the digit before it, in one press", () => {
+    open();
+    fireEvent.change(boxes()[0], { target: { value: "4" } });
+    fireEvent.change(boxes()[1], { target: { value: "8" } });
+    boxes()[2].focus();
+    fireEvent.keyDown(boxes()[2], { key: "Backspace" });
+    expect(boxes()[1].value).toBe("");
+    expect(document.activeElement).toBe(boxes()[1]);
+  });
+
+  it("while the code is checked the boxes stay enabled (disabling them closed the phone's keyboard); a wrong code clears the row and the first box has the focus", async () => {
+    let reject;
+    h.post.mockImplementation((url) => (url === "/auth/verify-email"
+      ? new Promise((_, rej) => { reject = rej; })
+      : Promise.resolve({ data: {} })));
+    open();
+    await typeCode("000000");
+    expect(boxes().every((b) => !b.disabled)).toBe(true);
+    expect(screen.getByTestId("verify-code-row").getAttribute("aria-busy")).toBe("true");
+    await act(async () => { reject({ response: { status: 400, data: { detail: "Invalid verification code" } } }); });
+    expect(screen.getByRole("alert").textContent).toBe(da.suErrCodeWrong);
+    expect(boxes().map((b) => b.value).join("")).toBe("");
+    expect(document.activeElement).toBe(boxes()[0]);
+  });
+
+  it("no answer (offline): the six digits stay, and Bekræft e-mail tries them again", async () => {
+    h.post
+      .mockImplementationOnce(() => Promise.reject({ code: "ERR_NETWORK", message: "Network Error" }))
+      .mockImplementation(() => Promise.resolve({ data: {} }));
+    open();
+    await typeCode("482913");
+    expect(screen.getByRole("alert").textContent).toBe(da.suErrOffline);
+    expect(boxes().map((b) => b.value).join("")).toBe("482913");
+    const btn = screen.getByRole("button", { name: da.suVerifyBtn });
+    expect(btn.disabled).toBe(false);
+    await act(async () => { fireEvent.click(btn); });
+    expect(verifyCalls()).toEqual([["/auth/verify-email", { code: "482913" }], ["/auth/verify-email", { code: "482913" }]]);
+  });
+
+  it("the first box takes the focus on arrival WITHOUT scrolling (it cut the route's jump to the top short)", () => {
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    try {
+      open();
+      const first = boxes()[0];
+      const call = focus.mock.calls.find((_, i) => focus.mock.instances[i] === first);
+      expect(call).toEqual([{ preventScroll: true }]);
+    } finally {
+      focus.mockRestore();
+    }
+  });
+});
+
+describe("Ret den on a phone (mobile walk, 12 Oct)", () => {
+  it("the new address says next and goes on to the password; the password says send", async () => {
+    open();
+    // Ret den puts the focus in the new address on the next tick.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: da.suWrongEmail }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const email = screen.getByLabelText(da.suChangeEmailLabel);
+    const pw = screen.getByLabelText(da.suChangeEmailPwLabel);
+    expect(email.getAttribute("enterkeyhint")).toBe("next");
+    expect(pw.getAttribute("enterkeyhint")).toBe("send");
+    expect(document.activeElement).toBe(email);
+    await act(async () => { fireEvent.keyDown(email, { key: "Enter", keyCode: 13 }); });
+    expect(document.activeElement).toBe(pw);
+    expect(h.patch).not.toHaveBeenCalled();
+  });
+});

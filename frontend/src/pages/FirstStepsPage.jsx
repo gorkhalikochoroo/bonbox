@@ -145,9 +145,12 @@ export default function FirstStepsPage() {
             </div>
             <BonBoxWordmark height={17} className="text-bb-forest dark:text-bb-paper" />
           </div>
+          {/* inline-flex + items-center: on a touch screen every link is at
+              least 44 px tall (index.css), and the words sat at the top of
+              that box, above the logo's line (mobile walk, 12 Oct). */}
           <Link
             to="/dashboard"
-            className="text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:underline underline-offset-2"
+            className="inline-flex items-center text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:underline underline-offset-2"
           >
             {t("firstStepsToDashboard", "Go to the overview")}
           </Link>
