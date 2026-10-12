@@ -19,6 +19,7 @@ import SignupTermsLine from "../components/SignupTermsLine";
 import { rememberVerifySkip, postLoginPath } from "../utils/verifySkip";
 import { homeFor } from "../lib/appMode";
 import { emailProblem, passwordState } from "../utils/signupValidation";
+import { dismissKeyboard, enterToNext } from "../utils/phoneForm";
 import AuthShell, {
   AuthAlert, AuthDivider, AuthHeading, FieldError, FieldLabel, PasswordInput, PrimaryButton,
 } from "../components/auth/AuthUI";
@@ -373,6 +374,9 @@ export default function RegisterPage() {
     const submitData = isNative
       ? { ...form, business_type: form.business_type || "personal", business_name: form.business_name || "My Dashboard", ui_language: lang, accept_terms: true }
       : { ...base, ...(chosenType ? { business_type: chosenType } : {}), ui_language: lang, accept_terms: true };
+    // "Opret konto" or the keyboard's go key: the keyboard closes, so the
+    // spinner on the button (and the slow-connection line) can be seen.
+    dismissKeyboard();
     setLoading(true);
     setSlow(false);
     const slowTimer = setTimeout(() => setSlow(true), 8000);
@@ -621,7 +625,13 @@ export default function RegisterPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} noValidate className={`${hasOAuthRow ? "mt-5" : "mt-6"} space-y-4`}>
+      {/* Each field keeps one message line under it (empty until there is
+          something to say), so nothing below moves when a message appears.
+          With that line, 8 px between the rows gives every field the same
+          32 px to the next label (it was 16 px after the e-mail and 40 px
+          after the password). The keyboard's key goes e-mail → password →
+          name ("next") and sends the form from the name ("go"). */}
+      <form onSubmit={handleSubmit} noValidate className={`${hasOAuthRow ? "mt-5" : "mt-6"} space-y-2`}>
         {/* Honeypot — visually hidden + aria-hidden + tabindex=-1.
             Real users never see, focus, or fill this. Bots that
             scrape the DOM and fill every input populate this and
@@ -663,6 +673,8 @@ export default function RegisterPage() {
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
+            enterKeyHint="next"
+            onKeyDown={enterToNext(passwordRef)}
             required
             value={form.email}
             onChange={handleChange}
@@ -672,7 +684,7 @@ export default function RegisterPage() {
             aria-describedby={emailKey ? "su-email-error" : undefined}
             className={inputClass(!!emailKey)}
           />
-          <FieldError id="su-email-error">{emailKey ? t(emailKey) : null}</FieldError>
+          <FieldError id="su-email-error" reserve>{emailKey ? t(emailKey) : null}</FieldError>
 
           {/* CVR auto-detect suggestion — only on web (skip in
               native iOS for App Store compliance / friction). */}
@@ -753,6 +765,8 @@ export default function RegisterPage() {
             id="su-password"
             name="password"
             autoComplete="new-password"
+            enterKeyHint="next"
+            onKeyDown={enterToNext(nameRef)}
             required
             value={form.password}
             onChange={handleChange}
@@ -781,6 +795,12 @@ export default function RegisterPage() {
             name="business_name"
             autoComplete="organization"
             autoCapitalize="words"
+            // A business name is not a dictionary word: no autocorrect
+            // turning "Solsikke" into something else, no red squiggle.
+            autoCorrect="off"
+            spellCheck={false}
+            // The last field: the keyboard's key sends the form ("go").
+            enterKeyHint="go"
             required
             value={form.business_name}
             onChange={handleChange}
@@ -790,21 +810,22 @@ export default function RegisterPage() {
             aria-describedby={nameKey ? "su-business-name-error" : undefined}
             className={inputClass(!!nameKey)}
           />
-          <FieldError id="su-business-name-error">{nameKey ? t(nameKey) : null}</FieldError>
+          <FieldError id="su-business-name-error" reserve>{nameKey ? t(nameKey) : null}</FieldError>
         </div>
 
-        <PrimaryButton loading={loading} loadingLabel={t("suCreating")} className="mt-2">
+        <PrimaryButton loading={loading} loadingLabel={t("suCreating")}>
           {t("suCreateAccount")}
         </PrimaryButton>
         {/* Release R-e — with no Google/Apple row, the Terms acceptance
-            line sits under "Opret konto" instead (it renders once). */}
+            line sits under "Opret konto" instead (it renders once). Same
+            12 px under the button as before the rows went to space-y-2. */}
         {!(hasAppleWeb || hasAppleNative || hasGoogle) && (
-          <SignupTermsLine isNative={isNative} className="-mt-1" />
+          <SignupTermsLine isNative={isNative} className="mt-1" />
         )}
         {/* While the request is out: after 8 s, say the connection is slow
             (true at that moment — it is still on its way). */}
         {loading && slow && (
-          <p role="status" className="text-center text-[13px] text-gray-600 dark:text-gray-400">
+          <p role="status" className="pt-2 text-center text-[13px] text-gray-600 dark:text-gray-400">
             {t("slowConnection")}
           </p>
         )}

@@ -14,6 +14,7 @@ import AppleSignInButton from "../components/AppleSignInButton";
 import { oauthErrText } from "../utils/errText";
 import { authErrorKey } from "../utils/authErrors";
 import { emailProblem } from "../utils/signupValidation";
+import { dismissKeyboard, enterToNext } from "../utils/phoneForm";
 import { withSignupRef } from "../utils/signupRef";
 // R-e fix-up — Google, Apple and the e-mail link create an account here too
 // when the address is new, so this page shows the Terms acceptance line
@@ -224,6 +225,8 @@ export default function LoginPage() {
       return;
     }
     setFieldErr({});
+    // The keyboard closes, so the busy button can be seen (utils/phoneForm).
+    dismissKeyboard();
     setLoading(true);
     try {
       const data = await login(email.trim(), password);
@@ -298,6 +301,7 @@ export default function LoginPage() {
       return;
     }
     setFieldErr({});
+    dismissKeyboard();
     setMagicSending(true);
     try {
       // withSignupRef: a kept door-visit code rides along so the mailed link
@@ -571,6 +575,10 @@ export default function LoginPage() {
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
+              // Password mode: the keyboard's key goes on to the password.
+              // E-mail-link mode: it is the only field, so the key sends.
+              enterKeyHint={magicMode ? "send" : "next"}
+              onKeyDown={magicMode ? undefined : enterToNext(passwordRef)}
               required
               aria-invalid={fieldErr.email ? true : undefined}
               aria-describedby={fieldErr.email ? "login-email-error" : undefined}
@@ -602,6 +610,7 @@ export default function LoginPage() {
                 }}
                 placeholder="••••••••"
                 autoComplete="current-password"
+                enterKeyHint="go"
                 required
                 aria-invalid={fieldErr.password ? true : undefined}
                 aria-describedby={fieldErr.password ? "login-password-error" : undefined}

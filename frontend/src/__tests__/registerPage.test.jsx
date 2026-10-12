@@ -474,3 +474,96 @@ describe("an owner who is already signed in (the back button from /verify-email)
     expect(screen.getByTestId("where").textContent).toBe("/verify-email|null");
   });
 });
+
+describe("the phone keyboard (mobile walk, 12 Oct)", () => {
+  it("the keyboard's key says next, next, go", () => {
+    renderRegister();
+    expect(screen.getByLabelText(da.email).getAttribute("enterkeyhint")).toBe("next");
+    expect(screen.getByLabelText(da.password).getAttribute("enterkeyhint")).toBe("next");
+    expect(screen.getByLabelText(da.businessName).getAttribute("enterkeyhint")).toBe("go");
+  });
+
+  it("Enter in the e-mail goes on to the password: nothing is sent and nothing turns red (it used to send the form)", async () => {
+    renderRegister();
+    const email = screen.getByLabelText(da.email);
+    fill(da.email, "ole@cafe.dk");
+    email.focus();
+    let notPrevented;
+    await act(async () => { notPrevented = fireEvent.keyDown(email, { key: "Enter", keyCode: 13 }); });
+    expect(notPrevented).toBe(false);
+    expect(document.activeElement.id).toBe("su-password");
+    expect(authState.register).not.toHaveBeenCalled();
+    expect(screen.queryAllByRole("alert")).toHaveLength(0);
+  });
+
+  it("Enter in the password goes on to the business name", async () => {
+    renderRegister();
+    const pw = screen.getByLabelText(da.password);
+    await act(async () => { pw.focus(); });
+    await act(async () => { fireEvent.keyDown(pw, { key: "Enter", keyCode: 13 }); });
+    expect(document.activeElement.id).toBe("su-business-name");
+    expect(authState.register).not.toHaveBeenCalled();
+  });
+
+  it("Enter in the business name is left to the form (its own submit)", () => {
+    renderRegister();
+    expect(fireEvent.keyDown(screen.getByLabelText(da.businessName), { key: "Enter", keyCode: 13 })).toBe(true);
+  });
+
+  it("a valid submit lets go of the field, so the phone's keyboard closes over the busy button", async () => {
+    let resolve;
+    authState.register.mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
+    renderRegister();
+    fill(da.email, "ole@cafe.dk");
+    fill(da.password, "Kaffe2026");
+    fill(da.businessName, "Café");
+    const name = screen.getByLabelText(da.businessName);
+    name.focus();
+    await act(async () => { fireEvent.submit(document.querySelector("form")); });
+    expect(document.activeElement).not.toBe(name);
+    expect(screen.getByRole("button", { name: da.suCreating }).getAttribute("aria-busy")).toBe("true");
+    await act(async () => { resolve({ user: { id: 1 } }); });
+  });
+
+  it("an invalid submit keeps the focus on the first field to fix (no keyboard dance)", async () => {
+    renderRegister();
+    fill(da.email, "ole@cafe.dk");
+    await act(async () => { fireEvent.submit(document.querySelector("form")); });
+    expect(document.activeElement.id).toBe("su-password");
+  });
+
+  it("the password never autocorrects or capitalises — shown as text either", () => {
+    renderRegister();
+    const pw = screen.getByLabelText(da.password);
+    fireEvent.click(screen.getByRole("button", { name: da.showPassword }));
+    expect(pw.getAttribute("type")).toBe("text");
+    expect(pw.getAttribute("autocapitalize")).toBe("none");
+    expect(pw.getAttribute("autocorrect")).toBe("off");
+    expect(pw.getAttribute("spellcheck")).toBe("false");
+  });
+
+  it("the business name is not autocorrected or spell-checked", () => {
+    renderRegister();
+    const name = screen.getByLabelText(da.businessName);
+    expect(name.getAttribute("autocorrect")).toBe("off");
+    expect(name.getAttribute("spellcheck")).toBe("false");
+  });
+
+  it("a message under the e-mail or the name takes a line that was already there: nothing below moves", () => {
+    renderRegister();
+    const emailSlot = document.getElementById("su-email-error");
+    const nameSlot = document.getElementById("su-business-name-error");
+    for (const slot of [emailSlot, nameSlot]) {
+      expect(slot).toBeTruthy();
+      expect(slot.textContent).toBe("");
+      expect(slot.getAttribute("role")).toBeNull();
+      expect(slot.className).toMatch(/min-h-\[18px\]/);
+    }
+    const email = screen.getByLabelText(da.email);
+    fireEvent.change(email, { target: { value: "ole@cafe" } });
+    fireEvent.blur(email);
+    expect(document.getElementById("su-email-error")).toBe(emailSlot);
+    expect(emailSlot.textContent).toBe(da.suErrEmailInvalid);
+    expect(emailSlot.getAttribute("role")).toBe("alert");
+  });
+});

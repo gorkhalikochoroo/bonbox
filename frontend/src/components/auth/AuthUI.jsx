@@ -123,23 +123,40 @@ export function FieldLabel({ htmlFor, children, aside }) {
   );
 }
 
-/** A field's own error, under it (the input carries aria-invalid + aria-describedby). */
-export function FieldError({ id, children }) {
-  if (!children) return null;
+/**
+ * A field's own error, under it (the input carries aria-invalid +
+ * aria-describedby). `reserve` keeps its one line there while it is empty, so
+ * the fields below do not jump when a message appears (mobile walk: the
+ * password field moved 24 px down as the owner tapped it, the moment the
+ * e-mail's message came in). Empty, it is not an alert.
+ */
+export function FieldError({ id, children, reserve = false }) {
+  if (!children && !reserve) return null;
   return (
-    <p id={id} role="alert" className="mt-1.5 text-[13px] leading-snug text-red-700 dark:text-red-400">
+    <p
+      id={id}
+      role={children ? "alert" : undefined}
+      className={`mt-1.5 text-[13px] leading-snug text-red-700 dark:text-red-400${reserve ? " min-h-[18px]" : ""}`}
+    >
       {children}
     </p>
   );
 }
 
-/** Password input with a 44 x 44 show/hide toggle. */
+/**
+ * Password input with a 44 x 44 show/hide toggle. Shown, it is a text field:
+ * no capital first letter, autocorrect or spell check on what is typed there
+ * (a phone keyboard otherwise "corrects" a password it can now read).
+ */
 export function PasswordInput({ invalid = false, className = "", ...inputProps }) {
   const { t } = useLanguage();
   const [show, setShow] = useState(false);
   return (
     <div className="relative">
       <input
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
         {...inputProps}
         type={show ? "text" : "password"}
         className={`${inputClass(invalid)} pr-12 ${className}`}

@@ -8,6 +8,8 @@ import api from "../services/api";
 import { authErrorKey } from "../utils/authErrors";
 import { emailProblem } from "../utils/signupValidation";
 import { clearVerifySkip, rememberVerifySkip } from "../utils/verifySkip";
+import { applyBoxInput, codeDigits, emptyCode, isComplete, CODE_LENGTH } from "../utils/codeBoxes";
+import { dismissKeyboard, enterToNext } from "../utils/phoneForm";
 import AuthShell, {
   AuthAlert, AuthHeading, AuthNote, FieldError, FieldLabel, PasswordInput, PrimaryButton,
 } from "../components/auth/AuthUI";
@@ -37,6 +39,7 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
   const [loading, setLoading] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const inputRefs = useRef([]);
+  const verifying = useRef(false);
 
   // "Forkert e-mail? Ret den" — change the address in place (PATCH
   // /auth/profile {email, current_password}: the server marks it
@@ -49,6 +52,7 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
   const [fixError, setFixError] = useState(null);
   const [fixSaving, setFixSaving] = useState(false);
   const fixEmailRef = useRef(null);
+  const fixPasswordRef = useRef(null);
 
   // A fresh signup was mailed a code at registration: start the 60-second
   // resend cooldown. An owner who came here on purpose (created before the
@@ -82,60 +86,69 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
     return () => clearTimeout(timer);
   }, [resendCooldown]);
 
-  // Focus first input on mount
+  // The first box has the focus on arrival — without scrolling to it: the
+  // route has just put the page at its top, and a focus that scrolls cut that
+  // short (a 375 x 667 phone opened ~275 px down, the heading off screen).
   useEffect(() => {
-    if (inputRefs.current[0]) {
-      inputRefs.current[0].focus();
-    }
+    const first = inputRefs.current[0];
+    if (!first) return;
+    try { first.focus({ preventScroll: true }); } catch { first.focus(); }
   }, []);
 
-  const handleChange = (index, value) => {
-    // Only allow digits
-    const digit = value.replace(/\D/g, "").slice(-1);
-    const newCode = [...code];
-    newCode[index] = digit;
-    setCode(newCode);
+  // A box's text is selected when it gets the focus, so a digit typed there
+  // replaces the one it holds.
+  const selectBox = (el) => {
+    try { el.setSelectionRange(0, el.value.length); } catch { /* not a text box */ }
+  };
+
+  // The row changed: show it, move on, and verify once all six are there —
+  // however they arrived (typed one by one, in any order, or as one insert).
+  const takeCode = (next, focusIndex) => {
+    setCode(next);
     setError(null);
-
-    // Auto-focus next input
-    if (digit && index < 5) {
-      inputRefs.current[index + 1]?.focus();
+    if (isComplete(next)) {
+      handleVerify(next.join(""));
+      return;
     }
+    const box = inputRefs.current[focusIndex];
+    if (box && box !== document.activeElement) box.focus();
+  };
 
-    // Auto-submit when all 6 digits are filled
-    if (digit && index === 5) {
-      const fullCode = newCode.join("");
-      if (fullCode.length === 6) {
-        handleVerify(fullCode);
-      }
-    }
+  const handleChange = (index, value) => {
+    // The boxes stay enabled while a code is checked (disabling them closed
+    // the phone's keyboard); what is typed meanwhile is not taken.
+    if (loading) return;
+    const { code: next, focus } = applyBoxInput(code, index, value);
+    takeCode(next, focus);
   };
 
   const handleKeyDown = (index, e) => {
+    if (loading) return;
     if (e.key === "Backspace" && !code[index] && index > 0) {
+      // An empty box: the digit before it goes, in one press.
+      e.preventDefault();
+      const next = [...code];
+      next[index - 1] = "";
+      setCode(next);
       inputRefs.current[index - 1]?.focus();
+    } else if (e.key === "ArrowLeft" && index > 0) {
+      e.preventDefault();
+      inputRefs.current[index - 1]?.focus();
+    } else if (e.key === "ArrowRight" && index < CODE_LENGTH - 1) {
+      e.preventDefault();
+      inputRefs.current[index + 1]?.focus();
     }
-    // Allow paste
-    if (e.key === "v" && (e.ctrlKey || e.metaKey)) return;
   };
 
   const handlePaste = (e) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    if (loading) return;
+    // "Din kode: 482913" pastes as 482913 — the six-digit run, not every digit.
+    const pasted = codeDigits(e.clipboardData.getData("text"));
     if (pasted.length === 0) return;
-    const newCode = [...code];
-    for (let i = 0; i < 6; i++) {
-      newCode[i] = pasted[i] || "";
-    }
-    setCode(newCode);
-    setError(null);
-    // Focus last filled input
-    const lastIndex = Math.min(pasted.length - 1, 5);
-    inputRefs.current[lastIndex]?.focus();
-    // Auto-submit if full
-    if (pasted.length === 6) {
-      handleVerify(pasted);
-    }
+    const next = emptyCode();
+    for (let i = 0; i < CODE_LENGTH; i++) next[i] = pasted[i] || "";
+    takeCode(next, Math.min(pasted.length, CODE_LENGTH - 1));
   };
 
   const handleVerify = async (codeStr) => {
@@ -144,6 +157,9 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
       setError({ key: "enter6Digits" });
       return;
     }
+    // One check at a time (a paste and the sixth digit can land together).
+    if (verifying.current) return;
+    verifying.current = true;
     setError(null);
     setLoading(true);
     try {
@@ -164,10 +180,20 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
       // owner's language, with what to do next (utils/authErrors).
       const r = authErrorKey(err, "verify");
       setError({ key: r.key, vars: r.vars, action: r.action });
-      // Clear code on failure
-      setCode(["", "", "", "", "", ""]);
-      inputRefs.current[0]?.focus();
+      // No verdict on the code (no answer, our side broke, too many tries
+      // right now): the six digits stay, and "Bekræft e-mail" tries them
+      // again — nobody retypes a code that may well be right. A code the
+      // server turned down is cleared, and the first box takes the focus
+      // (the boxes are no longer disabled meanwhile, so a phone's keyboard
+      // stays up instead of closing on the owner).
+      const status = Number(err?.response?.status) || 0;
+      const noVerdict = !!r.network || status >= 500 || status === 429;
+      if (!noVerdict) {
+        setCode(emptyCode());
+        inputRefs.current[0]?.focus();
+      }
     } finally {
+      verifying.current = false;
       setLoading(false);
     }
   };
@@ -206,6 +232,7 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
     }
     setFixEmailErr(null);
     const newEmail = fixEmail.trim();
+    dismissKeyboard();
     setFixSaving(true);
     try {
       if (newEmail.toLowerCase() === (user?.email || "").trim().toLowerCase()) {
@@ -290,6 +317,8 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
+                  enterKeyHint="next"
+                  onKeyDown={enterToNext(fixPasswordRef)}
                   required
                   value={fixEmail}
                   onChange={(e) => { setFixEmail(e.target.value); if (fixEmailErr) setFixEmailErr(null); }}
@@ -303,8 +332,10 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
               <div>
                 <FieldLabel htmlFor="ve-password">{t("suChangeEmailPwLabel")}</FieldLabel>
                 <PasswordInput
+                  ref={fixPasswordRef}
                   id="ve-password"
                   autoComplete="current-password"
+                  enterKeyHint="send"
                   required
                   value={fixPassword}
                   onChange={(e) => setFixPassword(e.target.value)}
@@ -352,12 +383,17 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
                 narrower (gap 8 px) on a 360–390 px phone — the fixed
                 3.25rem + gap-3 row was 372 px and cut the 6th box off
                 (release gate, 9 Oct). */}
+            {/* No maxLength: a whole code typed, pasted or AutoFilled into
+                one box fills the row (utils/codeBoxes). Not disabled while
+                the code is checked — that closed a phone's keyboard; the row
+                only dims. */}
             <div
-              className="flex gap-2 sm:gap-3 justify-center w-full"
+              className={`flex gap-2 sm:gap-3 justify-center w-full transition-opacity duration-150 ${loading ? "opacity-60" : ""}`}
               onPaste={handlePaste}
               data-testid="verify-code-row"
               role="group"
               aria-labelledby="ve-code-label"
+              aria-busy={loading || undefined}
             >
               {code.map((digit, index) => (
                 <input
@@ -365,16 +401,18 @@ export default function VerifyEmailPage({ sendOnArrival = false }) {
                   ref={(el) => (inputRefs.current[index] = el)}
                   type="text"
                   inputMode="numeric"
-                  maxLength={1}
+                  pattern="[0-9]*"
                   value={digit}
                   onChange={(e) => handleChange(index, e.target.value)}
                   onKeyDown={(e) => handleKeyDown(index, e)}
+                  onFocus={(e) => selectBox(e.target)}
                   aria-label={t("suCodeDigit", { n: index + 1 })}
                   className={`flex-1 min-w-0 max-w-[3.25rem] h-14 text-center text-2xl font-semibold tabular-nums rounded-lg border bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors duration-150 focus:outline-none focus:border-bb-forest focus:ring-[3px] focus:ring-bb-forest/20 dark:focus:border-gray-200 dark:focus:ring-white/20 ${
                     digit ? "border-gray-900 dark:border-gray-300" : "border-bb-line dark:border-gray-600"
                   }`}
-                  disabled={loading}
                   autoComplete="one-time-code"
+                  autoCorrect="off"
+                  spellCheck={false}
                 />
               ))}
             </div>
