@@ -160,6 +160,9 @@ export default function WebsiteBookingKit({
   const qrRef = useRef(null);
   const frameRef = useRef(null);
 
+  // `isProvider`: the page's appointment words (a salon, a shop, a workshop —
+  // venueProfiles.speaksAppointments): "Book tid", customers, the counter;
+  // never "Book bord" or table cards (vertical-fit review, Oct 2026).
   const title = isProvider ? t("rsvpWebTitleProvider") : t("rsvpWebTitle");
   const label = isProvider ? t("rsvpWebButtonLabelProvider") : t("rsvpEmbedButtonLabel");
   const live = enabled && !!publicUrl;
@@ -228,7 +231,7 @@ export default function WebsiteBookingKit({
           {title}
         </h2>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-          {live ? t("rsvpWebSub") : t("rsvpWebOff")}
+          {live ? t("rsvpWebSub") : isProvider ? t("rsvpWebOffProvider") : t("rsvpWebOff")}
         </p>
       </div>
 
@@ -280,7 +283,7 @@ export default function WebsiteBookingKit({
                     <span className="max-sm:hidden">{t("rsvpOpenPage")}</span>
                   </a>
                 </div>
-                <p className={HINT}>{t("rsvpWebLinkHint")}</p>
+                <p className={HINT}>{isProvider ? t("rsvpWebLinkHintProvider") : t("rsvpWebLinkHint")}</p>
               </div>
 
               <div className="space-y-2 border-t border-gray-100 dark:border-gray-800 pt-4">
@@ -323,8 +326,8 @@ export default function WebsiteBookingKit({
                   />
                 </div>
                 <div className="min-w-0 space-y-2">
-                  <p className={HEAD}>{t("rsvpWebQrHeading")}</p>
-                  <p className={HINT}>{t("rsvpWebQrHint")}</p>
+                  <p className={HEAD}>{isProvider ? t("rsvpWebQrHeadingProvider") : t("rsvpWebQrHeading")}</p>
+                  <p className={HINT}>{isProvider ? t("rsvpWebQrHintProvider") : t("rsvpWebQrHint")}</p>
                   <button type="button" onClick={downloadQr} className={SECONDARY} data-testid="website-qr-download">
                     <Download className="w-4 h-4" aria-hidden />
                     {t("rsvpWebQrDownload")}

@@ -57,21 +57,26 @@ import { Button, Card, Icon, PageHeader } from "../components/ui";
 import { useAuth } from "../hooks/useAuth";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { venueProfile, bookingModeFor } from "../config/venueProfiles";
-import { cutoffHourFor } from "../config/archetypes";
+import { archetypeIdFor, cutoffHourFor } from "../config/archetypes";
+import { BUSINESS_TYPE_VALUES, businessTypeGroupsFor } from "../config/businessTypes";
+import { PILLAR_DISPLAY_BY_ID, labelKeyFor } from "../config/navManifest";
+import { MODULE_COPY } from "../config/verticalModules";
+import { typeGateDelta } from "../config/typeGateDelta";
+import { usePillars } from "../hooks/usePillars";
+import { useActivation } from "../hooks/useActivation";
 
-// Every business_type value offered in the type <select> below — kept in parity
-// with RegisterPage's picker so a saved value can never fail to match an option.
+// Every business_type value the type <select> below can offer — the shared
+// catalogue (config/businessTypes.js), the same set onboarding resolves to.
 // Used to detect (and surface) a saved type that matches none of the rendered
 // options, so the controlled <select> never silently coerces it to the first
-// option (Restaurant) on the next save. Order groups food / retail / services /
-// other, mirroring RegisterPage.
-const PROFILE_BUSINESS_TYPES = [
-  "restaurant", "cafe", "bar", "bakery", "takeaway", "food_truck", "tea_shop",
-  "clothing", "online_clothing", "grocery", "veggie_shop", "kiosk", "electronics",
-  "pharmacy", "cosmetics", "stationery", "hardware", "flower_shop", "jewelry", "thrift",
-  "salon", "mobile_repair", "laundry",
-  "retail", "wholesale", "personal", "other",
-];
+// option (Restaurant) on the next save.
+const PROFILE_BUSINESS_TYPES = BUSINESS_TYPE_VALUES;
+
+// Archetypes the "Hvad serverer du" card is for — it drives the competitor
+// scan's same-cuisine market. A salon, a shop or a workshop was asked what it
+// serves and offered restaurant chips (vertical-fit audit, Oct 2026). An owner
+// who already saved a value keeps the card (never hide what is in use).
+const CUISINE_ARCHETYPES = new Set(["food_service", "bar"]);
 
 /* ─── form primitives ─────────────────────────────────────────────
    Centralised here so every form field on the page lands at exactly
@@ -254,6 +259,14 @@ export default function ProfilePage() {
   const [user, setUser] = useState(null);
   // Only refreshUser — this page keeps its own `user` state above.
   const { refreshUser } = useAuth();
+  // Re-read after a type change applied a new pillar preset.
+  const { refresh: refreshPillars } = usePillars();
+  // Tools this owner uses — a type change never takes them out of the menu,
+  // and the confirm sheet lists only what it really moves (typeGateDelta).
+  const { usedSurfaces } = useActivation();
+  // Bumped after a type change applied new defaults: remounts the cutoff
+  // stepper so it shows the hour that was just saved.
+  const [defaultsNonce, setDefaultsNonce] = useState(0);
   const [form, setForm] = useState({ business_name: "", business_type: "", currency: "", email: "" });
   // Changing the login email needs the current password (server-enforced) —
   // it is where a password reset goes.
@@ -780,6 +793,14 @@ export default function ProfilePage() {
     } catch { /* ignore */ }
   };
 
+  const typeLabel = (value) => {
+    for (const g of businessTypeGroupsFor(value)) {
+      const hit = g.types.find((x) => x.value === value);
+      if (hit) return t(hit.labelKey);
+    }
+    return value;
+  };
+
   const saveProfile = async (e) => {
     e.preventDefault();
     setSaving(true);
@@ -791,7 +812,65 @@ export default function ProfilePage() {
       setSaving(false);
       return;
     }
+    // A NEW business type: say what else would change and let the owner
+    // choose — "Anvend" applies the new type's defaults (additive, never
+    // deletes), "Behold mine indstillinger" changes the type (and with it the
+    // wording) only, "Annuller" saves nothing. A type with nothing to apply,
+    // or a preview that cannot be read, saves the type as before.
+    let applyDefaults = null;
+    const typeChanged = !!form.business_type && form.business_type !== (savedBusinessType || "");
+    if (typeChanged) {
+      let plan = null;
+      // The menu side of the switch: which tools the TYPE moves in or out of
+      // the menu (Madspild / Udløbsprognose outside perishable stock) — with
+      // either choice, since it follows the type itself. Read from the same
+      // filter the sidebar runs, with this owner's modules and tool usage.
+      let tools = { hide: [], show: [] };
+      const [planRes, modsRes] = await Promise.allSettled([
+        api.get("/auth/business-type/preview", { params: { business_type: form.business_type } }),
+        api.get("/modules"),
+      ]);
+      plan = planRes.status === "fulfilled" ? planRes.value.data : null;
+      try {
+        const enabledModules = modsRes.status === "fulfilled"
+          ? new Set((modsRes.value.data?.modules || []).filter((m) => m.enabled).map((m) => m.id))
+          : new Set();
+        tools = typeGateDelta(savedBusinessType || "general", form.business_type, {
+          usedSurfaces: usedSurfaces instanceof Set ? usedSurfaces : new Set(),
+          enabledModules,
+        });
+      } catch { tools = { hide: [], show: [] }; }
+      if (plan) {
+        if (plan.has_changes) {
+          const choice = await confirm({
+            title: t("typeChangeTitle", "Change to {type}?", { type: typeLabel(form.business_type) }),
+            message: <TypeChangeSummary plan={plan} tools={tools} t={t} />,
+            confirmLabel: t("typeChangeApply", "Apply"),
+            extraLabel: t("typeChangeKeep", "Keep my settings"),
+            cancelLabel: t("cancel", "Cancel"),
+          });
+          if (choice !== true && choice !== "extra") { setSaving(false); return; }
+          applyDefaults = choice === true;
+        } else if (tools.hide.length || tools.show.length) {
+          // Nothing to apply, but the menu still changes with the type: say
+          // so, with one way forward (Anvend and Behold would be the same).
+          const ok = await confirm({
+            title: t("typeChangeTitle", "Change to {type}?", { type: typeLabel(form.business_type) }),
+            message: <TypeChangeSummary plan={plan} tools={tools} keepOption={false} t={t} />,
+            confirmLabel: t("typeChangeConfirm", "Change type"),
+            cancelLabel: t("cancel", "Cancel"),
+          });
+          if (ok !== true) { setSaving(false); return; }
+          applyDefaults = true;
+        } else {
+          applyDefaults = true;
+        }
+      }
+    }
     try {
+      if (applyDefaults !== null) {
+        await api.post("/auth/business-type", { business_type: form.business_type, apply_defaults: applyDefaults });
+      }
       const res = await api.patch("/auth/profile", emailChanged ? { ...form, current_password: emailPw } : form);
       setEmailPw("");
       setUser(res.data);
@@ -803,6 +882,13 @@ export default function ProfilePage() {
       // report success and change nothing. On native there is no URL bar to
       // reload with, so that dead end would be permanent.
       await refreshUser();
+      if (applyDefaults) {
+        // The cutoff, modules, pillars or categories just changed server-side.
+        try { await refreshPillars(); } catch { /* the nav catches up on reload */ }
+        api.get("/business").then((r) => setBusinessProfile(r.data)).catch(() => {});
+        setDefaultsNonce((n) => n + 1);
+        try { window.dispatchEvent(new CustomEvent("bonbox-data-changed")); } catch { /* no-op */ }
+      }
       const stored = localStorage.getItem("bonbox_user");
       if (stored) {
         const parsed = JSON.parse(stored);
@@ -886,17 +972,18 @@ export default function ProfilePage() {
   };
 
   /** Cuisine quick-suggest chips, keyed by business_type. */
+  // The chips are the owner's words (they are saved as the cuisine), so they
+  // follow the language: a Danish owner saves "Italiensk", not "Italian".
   const cuisinePresets = useMemo(() => {
     const PRESETS = {
-      restaurant: ["French bistro", "Italian", "Nepali", "Indian", "Thai", "Sushi", "Ramen", "Mexican", "Spanish tapas", "Mediterranean", "Vegan", "Steakhouse"],
-      cafe:       ["Specialty coffee", "Brunch", "Vegan bakery", "Pastries", "Sandwiches"],
-      bar:        ["Cocktail bar", "Wine bar", "Sports pub", "Beer garden", "Whisky bar"],
-      bakery:     ["Sourdough", "French patisserie", "Gluten-free", "Danish wienerbrød", "Nordic bread"],
-      food_truck: ["Burgers", "Tacos", "Asian fusion", "BBQ"],
-      workshop:   ["BMW + Audi", "Tesla + EV", "Classic cars", "Motorcycle"],
+      restaurant: ["cuisFrenchBistro", "cuisItalian", "cuisNepali", "cuisIndian", "cuisThai", "cuisSushi", "cuisRamen", "cuisMexican", "cuisTapas", "cuisMediterranean", "cuisVegan", "cuisSteakhouse"],
+      cafe:       ["cuisSpecialtyCoffee", "cuisBrunch", "cuisVeganBakery", "cuisPastries", "cuisSandwiches"],
+      bar:        ["cuisCocktailBar", "cuisWineBar", "cuisSportsPub", "cuisBeerGarden", "cuisWhiskyBar"],
+      bakery:     ["cuisSourdough", "cuisPatisserie", "cuisGlutenFree", "cuisWienerbrod", "cuisNordicBread"],
+      food_truck: ["cuisBurgers", "cuisTacos", "cuisAsianFusion", "cuisBbq"],
     };
-    return PRESETS[form.business_type] || PRESETS.restaurant;
-  }, [form.business_type]);
+    return (PRESETS[form.business_type] || PRESETS.restaurant).map((k) => t(k));
+  }, [form.business_type, t]);
 
   if (!user) return <div className="p-6 text-center text-gray-600 dark:text-gray-500">{t("loading")}</div>;
 
@@ -1057,41 +1144,13 @@ export default function ProfilePage() {
                         && !PROFILE_BUSINESS_TYPES.includes(form.business_type) && (
                         <option value={form.business_type}>{form.business_type}</option>
                       )}
-                      <optgroup label={t("foodAndDrink")}>
-                        <option value="restaurant">{t("btRestaurant")}</option>
-                        <option value="cafe">{t("btCafe")}</option>
-                        <option value="bar">{t("btBar")}</option>
-                        <option value="bakery">{t("btBakery")}</option>
-                        <option value="takeaway">{t("btTakeaway")}</option>
-                        <option value="food_truck">{t("btFoodTruck")}</option>
-                        <option value="tea_shop">{t("btTeaShop")}</option>
-                      </optgroup>
-                      <optgroup label={t("retail")}>
-                        <option value="clothing">{t("btClothing")}</option>
-                        <option value="online_clothing">{t("btOnlineClothing")}</option>
-                        <option value="grocery">{t("btGrocery")}</option>
-                        <option value="veggie_shop">{t("btVeggieShop")}</option>
-                        <option value="kiosk">{t("btKiosk")}</option>
-                        <option value="electronics">{t("btElectronics")}</option>
-                        <option value="pharmacy">{t("btPharmacy")}</option>
-                        <option value="cosmetics">{t("btCosmetics")}</option>
-                        <option value="stationery">{t("btStationery")}</option>
-                        <option value="hardware">{t("btHardware")}</option>
-                        <option value="flower_shop">{t("btFlowerShop")}</option>
-                        <option value="jewelry">{t("btJewelry")}</option>
-                        <option value="thrift">{t("btThrift")}</option>
-                      </optgroup>
-                      <optgroup label={t("services")}>
-                        <option value="salon">{t("btSalon")}</option>
-                        <option value="mobile_repair">{t("btMobileRepair")}</option>
-                        <option value="laundry">{t("btLaundry")}</option>
-                      </optgroup>
-                      <optgroup label={t("other")}>
-                        <option value="retail">{t("btGeneralRetail")}</option>
-                        <option value="wholesale">{t("btWholesale")}</option>
-                        <option value="personal">{t("personalFinance")}</option>
-                        <option value="other">{t("other")}</option>
-                      </optgroup>
+                      {businessTypeGroupsFor(savedBusinessType).map((g) => (
+                        <optgroup key={g.id} label={t(g.labelKey)}>
+                          {g.types.map((x) => (
+                            <option key={x.value} value={x.value}>{t(x.labelKey)}</option>
+                          ))}
+                        </optgroup>
+                      ))}
                     </select>
                   </Field>
                   <Field label={t("currencyLabel")}>
@@ -1127,7 +1186,23 @@ export default function ProfilePage() {
                     booking-vocab / cutoff hint is ready instantly: no spinner,
                     no refetch. The `key` swap restarts the .animate-venueSwap
                     keyframe so the whole block fades as a unit. */}
-                <VenueTypePreview businessType={form.business_type} savedBusinessType={savedBusinessType} t={t} />
+                <VenueTypePreview
+                  businessType={form.business_type}
+                  savedBusinessType={savedBusinessType}
+                  currentCutoff={businessProfile?.day_cutoff_hour}
+                  t={t}
+                />
+                {/* One place for "how my business works": the type above, and
+                    the features it switched on or off — toggled on /modules. */}
+                <Link
+                  to="/modules"
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white"
+                  data-testid="profile-modules-link"
+                >
+                  <Icon name="LayoutGrid" size={15} />
+                  {t("profileCustomiseFeatures", "Choose which features you use")}
+                  <Icon name="ChevronRight" size={14} />
+                </Link>
                 {error && <Message tone="error">{error}</Message>}
                 {success && <Message tone="success">{success}</Message>}
                 <div className="flex justify-end pt-1">
@@ -1138,6 +1213,7 @@ export default function ProfilePage() {
               </form>
             </Card>
 
+            {(CUISINE_ARCHETYPES.has(archetypeIdFor(savedBusinessType)) || !!(cuisine || "").trim()) && (
             <Card className="mt-4">
               <Card.Header
                 title={t("profileCuisineCardTitle")}
@@ -1190,6 +1266,7 @@ export default function ProfilePage() {
                 </div>
               </form>
             </Card>
+            )}
 
             <Card className="mt-4">
               <Card.Header
@@ -1261,7 +1338,7 @@ export default function ProfilePage() {
                   BusinessProfile.day_cutoff_hour, default 6 (Danish
                   restaurant convention — 02:00 = yesterday's shift).
                   Backend clamps to [0, 23]. */}
-              <DayCutoffStepper />
+              <DayCutoffStepper key={defaultsNonce} />
 
               {editorExpanded ? (
                 <div id="operating-profile-editor">
@@ -2312,6 +2389,77 @@ function Field({ label, hint, children }) {
   );
 }
 
+/** TypeChangeSummary — the body of the "Skift virksomhedstype?" confirm.
+ *  Lists, from the server's plan (GET /auth/business-type/preview), exactly
+ *  what "Anvend" would change. Phrasing content only (useConfirm renders the
+ *  message inside a <p>): one block <span> per line. */
+function TypeChangeSummary({ plan, tools = null, keepOption = true, t }) {
+  const arch = plan?.to_archetype || null;
+  const pillar = (id) => {
+    const p = PILLAR_DISPLAY_BY_ID[id];
+    return p ? t(labelKeyFor(p, arch)) : id;
+  };
+  const tool = (d) => t(labelKeyFor(d, arch));
+  // Tools that leave the menu with the type. Every one the gate can hide has
+  // a usage signal (keepWhenUsed) — it would have stayed if used — so "not
+  // used yet" is true for those; any other is named without a reason.
+  const toolsHiddenUnused = (tools?.hide || []).filter((d) => d.keepWhenUsed);
+  const toolsHiddenOther = (tools?.hide || []).filter((d) => !d.keepWhenUsed);
+  const moduleName = (id) => (MODULE_COPY[id] ? t(MODULE_COPY[id].nameKey) : id);
+  const hh = (h) => String(h).padStart(2, "0") + ":00";
+  const lines = [];
+  lines.push(t("typeChangeWording", "The words in the app follow the new type."));
+  if (plan.cutoff) {
+    lines.push(plan.cutoff.from == null
+      ? t("typeChangeCutoffNew", "Day rollover at {to}", { to: hh(plan.cutoff.to) })
+      : t("typeChangeCutoff", "Day rollover {from} → {to}", { from: hh(plan.cutoff.from), to: hh(plan.cutoff.to) }));
+  }
+  if (plan.cutoff_kept != null) {
+    lines.push(t("typeChangeCutoffKept", "Your day rollover at {time} stays — you chose it.", { time: hh(plan.cutoff_kept) }));
+  }
+  if (plan.pillars_show?.length) {
+    lines.push(t("typeChangeShow", "Shown again: {list}", { list: plan.pillars_show.map(pillar).join(", ") }));
+  }
+  if (plan.pillars_hide?.length) {
+    lines.push(t("typeChangeHide", "Hidden (not used yet): {list}", { list: plan.pillars_hide.map(pillar).join(", ") }));
+  }
+  if (plan.pillars_kept?.length) {
+    lines.push(t("typeChangeKept", "Stays, because you use it: {list}", { list: plan.pillars_kept.map(pillar).join(", ") }));
+  }
+  // The new type's preset would hide these, but there is no usage signal to
+  // go on (Insights has none): they stay, and no reason is claimed.
+  if (plan.pillars_stay?.length) {
+    lines.push(t("typeChangeStay", "Stays in your menu: {list}", { list: plan.pillars_stay.map(pillar).join(", ") }));
+  }
+  if (toolsHiddenUnused.length) {
+    lines.push(t("typeChangeToolsHidden", "Leaves the menu with the new type (not used yet): {list}", { list: toolsHiddenUnused.map(tool).join(", ") }));
+  }
+  if (toolsHiddenOther.length) {
+    lines.push(t("typeChangeToolsHiddenPlain", "Leaves the menu with the new type: {list}", { list: toolsHiddenOther.map(tool).join(", ") }));
+  }
+  if (tools?.show?.length) {
+    lines.push(t("typeChangeToolsShown", "New in the menu: {list}", { list: tools.show.map(tool).join(", ") }));
+  }
+  if (plan.modules_add?.length) {
+    lines.push(t("typeChangeModules", "Switched on: {list}", { list: plan.modules_add.map(moduleName).join(", ") }));
+  }
+  if (plan.categories_add?.length) {
+    lines.push(t("typeChangeCategories", "New expense categories: {list}", { list: plan.categories_add.join(", ") }));
+  }
+  return (
+    <span className="block" data-testid="type-change-summary">
+      {lines.map((l, i) => (
+        <span key={i} className="block">• {l}</span>
+      ))}
+      <span className="block mt-2">
+        {keepOption
+          ? t("typeChangeNothingDeleted", "None of your data is deleted. “Keep my settings” changes only the type.")
+          : t("typeChangeNothingDeletedShort", "None of your data is deleted.")}
+      </span>
+    </span>
+  );
+}
+
 /** VenueTypePreview — the business-type-dependent region that re-dresses with
  *  one smooth, lag-free crossfade when the owner changes the type (Phase A).
  *
@@ -2321,15 +2469,21 @@ function Field({ label, hint, children }) {
  *  inner block, restarting the `.animate-venueSwap` keyframe — a compositor-
  *  only opacity+transform crossfade (`contain: content` scopes it). The global
  *  prefers-reduced-motion rule makes the swap instant for those users. */
-function VenueTypePreview({ businessType, savedBusinessType, t }) {
+function VenueTypePreview({ businessType, savedBusinessType, currentCutoff = null, t }) {
   const profile = venueProfile(businessType);
   // True once the owner has changed the selector away from the saved value —
   // the live re-dress is a PREVIEW until they save, so say so honestly.
   const isUnsaved = (businessType || "") !== (savedBusinessType || "");
   const GlanceIcon = profile.glanceIcon || profile.icon;
   const mode = bookingModeFor(businessType);
-  const cutoff = cutoffHourFor(businessType);
-  const cutoffLabel = String(cutoff).padStart(2, "0") + ":00";
+  // The hour shown is the hour SAVED. It used to be the picked type's default
+  // ("Dagsskifte kl. 00:00") — a promise the save never kept (vertical-fit
+  // audit, Oct 2026). A new type's default is named as a default; whether it
+  // is applied is the owner's choice in the confirm sheet when they save.
+  const hh = (h) => String(h).padStart(2, "0") + ":00";
+  const saved = currentCutoff != null && Number.isFinite(Number(currentCutoff)) ? Number(currentCutoff) : null;
+  const typeDefault = cutoffHourFor(businessType);
+  const cutoffLabel = hh(saved != null ? saved : typeDefault);
 
   // bookingMode → a short, honest "what bookings look like" line. Provider is
   // described as the appointment book (Aftaler) WITHOUT claiming it is
@@ -2361,6 +2515,9 @@ function VenueTypePreview({ businessType, savedBusinessType, t }) {
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {t("profileVenueCutoffHint", "Dagsskifte kl. {time}", { time: cutoffLabel })}
+            {isUnsaved && saved != null && saved !== typeDefault && (
+              <> · {t("profileVenueCutoffTypeDefault", "the usual for this type is {time}", { time: hh(typeDefault) })}</>
+            )}
           </p>
           {isUnsaved && (
             <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">

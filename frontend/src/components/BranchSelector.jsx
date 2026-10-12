@@ -105,7 +105,15 @@ export function BranchProvider({ children }) {
 
   const activeBranch = branchId ? branches.find(b => b.id === branchId) : null;
   const branchName = activeBranch?.name || "All Branches";
-  const branchType = activeBranch?.business_type || null;
+  // The type the NAV adapts to. A single-location owner has no branch rows at
+  // all (and the web never reads the list without a native token), so the
+  // branch's type was null for nearly every account: the bottom bar's 4th tab
+  // was Kasserapport for every business, Mere fell back to "general" (a salon
+  // and a tøjbutik were offered Madspild) and the sidebar's type gate was off
+  // (vertical-fit audit, Oct 2026). With no branches, the owner's own
+  // business_type is the answer — the same fallback DailyClosePage made.
+  const branchType = activeBranch?.business_type
+    || (branches.length === 0 ? (user?.business_type || null) : null);
   const businessTypes = [...new Set(branches.map(b => b.business_type || "general"))];
 
   return (

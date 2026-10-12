@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
+import { archetypeIdFor } from "../config/archetypes";
 import { localIso } from "../utils/dateFormat";
 import { formatOwnerMoney } from "../utils/currency";
 import { StatCard, SectionBanner } from "./ui";
@@ -322,7 +323,11 @@ export default function LiveKpisToday({ eventId = null } = {}) {
           }
         />
         <StatCard
-          label={t("liveGuestsToday") || "Guests"}
+          // Guests at a café or a bar; customers at a salon, a shop or a
+          // workshop (vertical-fit audit, Oct 2026).
+          label={["food_service", "bar"].includes(archetypeIdFor(user?.business_type))
+            ? (t("liveGuestsToday") || "Guests")
+            : t("liveCustomersToday", "Customers")}
           value={countFmt(guests)}
           helper={guests > 0 && orders > 0
             ? `${(guests / Math.max(orders, 1)).toFixed(1)} ${t("liveAvgPerOrder") || "avg / order"}`

@@ -733,7 +733,37 @@ def list_resources(db: Session = Depends(get_db), user: User = Depends(get_curre
         # actually book. Inactive tables + provider chairs are excluded.
         # Fixtures are NOT in this number and have no seats column at all.
         "venue_seats_total": _venue_seats_total(db, user),
+        # Is there anything in the book at all — a booking on any day, or a
+        # party waiting today or later? The salon's first-run card REPLACES the
+        # book, so it may only show when the answer is no: a café that became
+        # a salon has no behandler yet but does have bookings, and the card hid
+        # every one of them (vertical-fit review, Oct 2026).
+        "book_has_entries": _book_has_entries(db, user),
     }
+
+
+def _book_has_entries(db: Session, user: User) -> bool:
+    """True when the owner's book holds anything: a live booking on any day,
+    or an active waitlist entry dated today or later. Two indexed EXISTS
+    probes. Fail-open to True — "we could not ask" must never hide a book."""
+    try:
+        if (
+            db.query(Reservation.id)
+            .filter(Reservation.user_id == user.id, Reservation.is_deleted.is_(False))
+            .first()
+        ) is not None:
+            return True
+        return (
+            db.query(ReservationWaitlistEntry.id)
+            .filter(
+                ReservationWaitlistEntry.user_id == user.id,
+                ReservationWaitlistEntry.waitlist_date >= now_local(user).date(),
+                ReservationWaitlistEntry.status.in_(("waiting", "notified")),
+            )
+            .first()
+        ) is not None
+    except Exception:  # noqa: BLE001 — fail-open: show the book
+        return True
 
 
 def _activate_reservations_on_first_resource(

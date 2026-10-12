@@ -150,6 +150,26 @@ const OFF_SIDEBAR_FOR_HOSPITALITY = {
   bar: ["more", "search"],
 };
 
+// PERISHABLE stock — who gets Udløbsprognose (/expiry) and Madspild (/waste).
+// Every food-service and bar business, the generic/unknown type (fail-open),
+// and the shops that actually sell what goes off. A tøjbutik, a jeweller, an
+// electronics or a hardware shop does not (vertical-fit audit, Oct 2026).
+export const PERISHABLE_TYPES = [
+  "restaurant", "general", "retail",
+  "grocery", "veggie_shop", "kiosk", "flower_shop", "pharmacy", "wholesale",
+];
+export const PERISHABLE_ARCHETYPES = ["food_service", "bar", "generic"];
+
+// Who reads "Tidsbestilling" for /reservations: the archetypes whose book
+// speaks appointments (venueProfiles.speaksAppointments — the salon, every
+// shop, every repair/service trade). Food, bars and the unknown type keep
+// "Reservationer".
+const APPOINTMENT_LABELS = Object.freeze({
+  salon: "navAppointments",
+  retail: "navAppointments",
+  services: "navAppointments",
+});
+
 export const NAV_MANIFEST = [
   // ─── CORE (spine — flat, headerless top of the sidebar) ───────────────
   {
@@ -269,6 +289,12 @@ export const NAV_MANIFEST = [
     to: "/reservations",
     icon: "CalendarCheck",
     labelKey: "reservations",
+    // A salon books appointments, not tables: its own page title says
+    // "Tidsbestilling", so the sidebar, Mere, the bottom bar and ⌘K say it
+    // too (vertical-fit audit, Oct 2026). Resolved by labelKeyFor(). Shops
+    // and repair trades book customers for a TIME as well, and their book
+    // speaks appointments too (venueProfiles.speaksAppointments) — same label.
+    labelKeyByArchetype: APPOINTMENT_LABELS,
     group: "core",
     pillar: "reservations",
     frequency: "daily",
@@ -513,6 +539,8 @@ export const NAV_MANIFEST = [
     pillar: "inventory",
     requiresModule: "wine_sommelier",
     visibleFor: ["restaurant", "bar", "cafe", "hotel", "general"],
+    // Every food-service sibling (bakery, tea_shop, …) with the module on.
+    visibleForArchetypes: ["food_service", "bar"],
     frequency: "weekly",
     surfaces: ["sidebar", "more"],
     aliases: ["wine", "sommelier", "vin"],
@@ -523,11 +551,16 @@ export const NAV_MANIFEST = [
     labelKey: "expiryForecasting",
     group: "stock",
     pillar: "inventory",
-    visibleFor: ["restaurant", "retail", "general"],
-    // Root-cause rule: resolve through the archetype so every retail sibling
-    // (grocery / veggie_shop / flower_shop / pharmacy / … — the MOST perishable
-    // shops) gets Expiry, not just the raw `retail` token. See passesType().
-    visibleForArchetypes: ["retail"],
+    // PERISHABLE stock only (vertical-fit audit, Oct 2026). Until then the
+    // whole retail archetype matched, and a tøjbutik, a jeweller and an
+    // electronics shop were offered Udløbsprognose + Madspild. The type gate
+    // only bites now that branchless owners resolve a type at all (useBranch
+    // falls back to user.business_type) — before, it was off for them.
+    visibleFor: PERISHABLE_TYPES,
+    visibleForArchetypes: PERISHABLE_ARCHETYPES,
+    // …but never taken from an owner who uses it: a salon that dates its
+    // stock keeps Udløbsprognose (filterDestinations ctx.usedSurfaces).
+    keepWhenUsed: "expiry",
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
     aliases: ["expiry", "expiring", "udløb"],
@@ -538,9 +571,10 @@ export const NAV_MANIFEST = [
     labelKey: "wasteTracker",
     group: "stock",
     pillar: "inventory",
-    visibleFor: ["restaurant", "retail", "general"],
-    // Archetype-aware (see /expiry) — every retail sibling gets Waste too.
-    visibleForArchetypes: ["retail"],
+    // Same perishable rule as /expiry — and kept for an owner who logs waste.
+    visibleFor: PERISHABLE_TYPES,
+    visibleForArchetypes: PERISHABLE_ARCHETYPES,
+    keepWhenUsed: "waste",
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
     aliases: ["waste", "spild"],
@@ -627,9 +661,12 @@ export const NAV_MANIFEST = [
     labelKey: "insightsHubTitle",
     group: "reports",
     pillar: "insights",
-    visibleFor: ["restaurant", "retail", "service", "general"],
-    // Archetype-aware (see /expiry) — every retail sibling gets Insights too.
-    visibleForArchetypes: ["retail"],
+    // No business-type gate. It used to list restaurant/retail/service/general,
+    // which was inert for every branchless owner (no type resolved). Now that
+    // useBranch resolves the owner's own type, that list would have taken
+    // Insights away from a café, a bar or a salon that uses it. Whether an
+    // owner wants Insights is the pillar's question (hidden_pillars), not the
+    // type's.
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
     aliases: [
@@ -650,11 +687,20 @@ export const NAV_MANIFEST = [
     group: "workshop",
     pillar: null,
     visibleFor: ["workshop"],
+    // A repair shop / laundry with the Workshop module on (the services
+    // archetype suggests it) gets its job board too.
+    visibleForArchetypes: ["services"],
     requiresModule: "workshop",
+    // Job cards are its usage signal: a workshop's phone tab bar leads with
+    // Værksted once there is one (bottomNavTabs). The module still decides
+    // whether it is in the nav at all.
+    keepWhenUsed: "workshop",
     frequency: "daily",
     // bottomnav: the per-business-type 4th tab for workshop branches
     // resolves its icon/label from this entry (MobileBottomNav).
-    surfaces: ["sidebar", "bottomnav"],
+    // more: the job board was reachable only from the hamburger sidebar on a
+    // phone (vertical-fit audit) — Mere lists it now.
+    surfaces: ["sidebar", "more", "bottomnav"],
   },
 
   // ─── MANAGE ─────────────────────────────────────────────────────────
@@ -950,7 +996,18 @@ export function relevantPillarsForArchetype(archetypeId) {
  *                                            owner has never used (see
  *                                            USAGE_GATED_PILLARS /
  *                                            useActivation.usageDormantPillars)
+ *   usedSurfaces  : Set<string> (default empty)  TOOLS this owner has real
+ *                                            rows for (useActivation
+ *                                            .usedSurfaces). An entry whose
+ *                                            `keepWhenUsed` is in here passes
+ *                                            the BUSINESS-TYPE gate.
  * }
+ *
+ * The business-type gate never takes away what the owner uses or chose
+ * (vertical-fit review, Oct 2026): an entry passes it when its module is
+ * switched on (requiresModule / requiresAnyModule — the owner picked it on
+ * /modules, e.g. "Andet" with Værksted), or when its `keepWhenUsed` tool has
+ * real rows (a salon that logs waste keeps Madspild).
  *
  * Outcome per axis:
  *   • RELEVANCE  (hiddenPillars)            → HIDE (dropped from result)
@@ -976,6 +1033,14 @@ export function relevantPillarsForArchetype(archetypeId) {
 export const STAFF_MEMBER_ROLES = ["manager", "cashier", "viewer"];
 export const isStaffMemberRole = (role) =>
   STAFF_MEMBER_ROLES.includes(String(role || "owner").toLowerCase());
+
+/** The label key a destination (or a PILLAR_DISPLAY row) reads for an
+ *  archetype: `labelKeyByArchetype[archetypeId]` when it has one, else its
+ *  `labelKey`. Pure; an absent archetype keeps the default label. */
+export function labelKeyFor(item, archetypeId) {
+  const by = item && item.labelKeyByArchetype;
+  return (by && archetypeId && by[archetypeId]) || (item && item.labelKey);
+}
 
 export function filterDestinations(items, ctx = {}) {
   const {
@@ -1014,7 +1079,7 @@ export function filterDestinations(items, ctx = {}) {
   // Additive OR: an entry with neither field is visible to all; an archetype
   // match never REMOVES an entry a raw visibleFor already allowed, and an entry
   // without `visibleForArchetypes` behaves exactly as before.
-  const passesType = (vf, vfa) => {
+  const passesTypeLists = (vf, vfa) => {
     if (!vf && (!vfa || !vfa.length)) return true;
     if (!types || types.length === 0) return true;
     if (vf && vf.some((tp) => types.includes(tp))) return true;
@@ -1027,6 +1092,17 @@ export function filterDestinations(items, ctx = {}) {
     if (req && !enabled.has(req)) return false;
     if (reqAny && !reqAny.some((m) => enabled.has(m))) return false;
     return true;
+  };
+  const usedTools = ctx.usedSurfaces instanceof Set ? ctx.usedSurfaces : new Set();
+  // The type gate for one ENTRY. A switched-on module or a used tool always
+  // passes it (see the doc block above) — the type only ever trims what the
+  // owner neither chose nor uses.
+  const passesType = (item) => {
+    if (passesTypeLists(item.visibleFor, item.visibleForArchetypes)) return true;
+    if ((item.requiresModule || item.requiresAnyModule)
+      && passesModule(item.requiresModule, item.requiresAnyModule)) return true;
+    if (item.keepWhenUsed && usedTools.has(item.keepWhenUsed)) return true;
+    return false;
   };
   // ENTITLEMENT — while loading, return true (treat as unlocked) so a
   // trial user never sees their Pro entries flash as locked.
@@ -1092,7 +1168,7 @@ export function filterDestinations(items, ctx = {}) {
   for (const item of items) {
     if (!passesOwnerOnly(item.ownerOnly)) continue;
     if (!passesPillar(item.pillar)) continue;
-    if (!passesType(item.visibleFor, item.visibleForArchetypes)) continue;
+    if (!passesType(item)) continue;
     if (!passesArchetype(item.hideForArchetypes)) continue;
     if (!passesModule(item.requiresModule, item.requiresAnyModule)) continue;
     // USAGE GATE — BEFORE the entitlement branch on purpose: a usage-dormant
@@ -1103,12 +1179,12 @@ export function filterDestinations(items, ctx = {}) {
     // requiresFeature-missing entry is pushed locked:true and is NEVER
     // activation-hidden (the LOCKED-WINS invariant).
     if (item.requiresFeature && !passesFeature(item.requiresFeature)) {
-      out.push({ ...item, locked: true });
+      out.push({ ...item, labelKey: labelKeyFor(item, archetypeId), locked: true });
       continue;
     }
     // ACTIVATION — only non-locked, relevant, dormant, in-scope pillars drop.
     if (!passesActivation(item.pillar)) continue;
-    out.push({ ...item, locked: false });
+    out.push({ ...item, labelKey: labelKeyFor(item, archetypeId), locked: false });
   }
   return out;
 }
@@ -1132,7 +1208,8 @@ export function filterDestinations(items, ctx = {}) {
  * EN + DA entry in useLanguage.jsx (the pillarLabel* block).
  */
 export const PILLAR_DISPLAY = [
-  { id: "reservations", icon: "CalendarCheck", labelKey: "pillarLabelReservations" },
+  { id: "reservations", icon: "CalendarCheck", labelKey: "pillarLabelReservations",
+    labelKeyByArchetype: APPOINTMENT_LABELS },
   { id: "events",       icon: "CalendarDays",  labelKey: "pillarLabelEvents" },
   { id: "inventory",    icon: "Package",       labelKey: "pillarLabelInventory" },
   { id: "staff",        icon: "UsersRound",    labelKey: "pillarLabelStaff" },
@@ -1205,7 +1282,7 @@ export const NAV_GROUPS = [
   // Workshop group shows for workshop branches OR when the workshop module
   // is enabled (legacy `requiresAnyModule: ['workshop']`).
   { id: "workshop", labelKey: "navWorkshop",    icon: "Wrench",
-    visibleFor: ["workshop"], requiresAnyModule: ["workshop"] },
+    visibleFor: null, requiresAnyModule: ["workshop"] },
   // Settings — the rare group: connections, terminals, branches, team,
   // modules, channels, plan & billing, etc. (absorbed ACCOUNT in C5).
   { id: "manage",   labelKey: "navSettings",    icon: "Settings",  visibleFor: null },

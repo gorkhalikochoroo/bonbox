@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Car, Wallet, BarChart3, Timer } from "lucide-react";
+import { Car, Wallet, BarChart3, Timer, Wrench, ClipboardList, List, UserCog } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -60,7 +60,11 @@ export default function WorkshopPage() {
       <FadeIn>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold dark:text-white">🔧 {t("workshop", "Workshop")}</h1>
+            {/* Lucide, not emoji (design doctrine; vertical-fit audit, Oct 2026). */}
+            <h1 className="text-2xl font-bold dark:text-white inline-flex items-center gap-2">
+              <Wrench className="w-6 h-6 text-gray-400" aria-hidden="true" />
+              {t("workshop", "Workshop")}
+            </h1>
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">{t("wsSubtitle", "Job cards, vehicles, mechanics")}</p>
           </div>
           <button onClick={() => nav("/workshop/new-job")}
@@ -98,16 +102,16 @@ export default function WorkshopPage() {
       {/* Tab bar */}
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
         {[
-          { id: "board", label: t("wsJobBoard", "Job Board"), icon: "📋" },
-          { id: "jobs", label: t("wsAllJobs", "All Jobs"), icon: "📑" },
-          { id: "mechanics", label: t("wsMechanics", "Mechanics"), icon: "👨‍🔧" },
+          { id: "board", label: t("wsJobBoard", "Job Board"), Icon: ClipboardList },
+          { id: "jobs", label: t("wsAllJobs", "All Jobs"), Icon: List },
+          { id: "mechanics", label: t("wsMechanics", "Mechanics"), Icon: UserCog },
         ].map(tb => (
           <button key={tb.id} onClick={() => setTab(tb.id)}
-            className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
+            className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition inline-flex items-center justify-center gap-1.5 ${
               tab === tb.id ? "bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white"
                 : "text-gray-500 dark:text-gray-400"
             }`}>
-            {tb.icon} {tb.label}
+            <tb.Icon className="w-4 h-4" aria-hidden="true" /> {tb.label}
           </button>
         ))}
       </div>
@@ -160,7 +164,7 @@ function JobBoard({ jobs, currency, nav }) {
                   <p className="font-semibold dark:text-white mt-0.5">{j.vehicle?.plate_number}</p>
                   <p className="text-gray-500 dark:text-gray-400">{j.vehicle?.make} {j.vehicle?.model}</p>
                   {j.vehicle?.customer_name && <p className="text-gray-400 truncate">{j.vehicle.customer_name}</p>}
-                  {j.assigned_mechanic && <p className="text-gray-400">🔧 {j.assigned_mechanic}</p>}
+                  {j.assigned_mechanic && <p className="text-gray-400 inline-flex items-center gap-1"><Wrench className="w-3 h-3" aria-hidden="true" /> {j.assigned_mechanic}</p>}
                   {j.received_date && (
                     <p className="text-gray-400 mt-1">
                       {t("daysAgo", "{n}d ago", {
@@ -189,7 +193,7 @@ function JobList({ jobs, currency, nav }) {
   const { t } = useLanguage();
   if (!jobs.length) {
     return <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border dark:border-gray-700">
-      <p className="text-4xl mb-3">🔧</p>
+      <Wrench className="w-9 h-9 mx-auto mb-3 text-gray-300 dark:text-gray-600" aria-hidden="true" />
       <p className="font-semibold dark:text-white">{t("opsWsNoJobsTitle", "No job cards yet")}</p>
       <p className="text-sm text-gray-400 mt-1">{t("opsWsNoJobsBody", "Create your first job card to get started.")}</p>
     </div>;
@@ -215,7 +219,7 @@ function JobList({ jobs, currency, nav }) {
               {/* Same figure the job card's header shows — 2 decimals there,
                   2 decimals here, or one job reads two different totals. */}
               {j.grand_total > 0 && <p className="font-bold text-emerald-600 dark:text-gray-300">{formatOwnerMoney(j.grand_total, currency, { decimals: 2 })}</p>}
-              {j.assigned_mechanic && <p className="text-xs text-gray-400">🔧 {j.assigned_mechanic}</p>}
+              {j.assigned_mechanic && <p className="text-xs text-gray-400 inline-flex items-center gap-1"><Wrench className="w-3 h-3" aria-hidden="true" /> {j.assigned_mechanic}</p>}
             </div>
           </div>
           {j.complaint_description && (
@@ -235,7 +239,7 @@ function MechanicView({ data, currency }) {
   const { t, lang } = useLanguage();
   if (!data?.mechanics?.length) {
     return <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border dark:border-gray-700">
-      <p className="text-4xl mb-3">👨‍🔧</p>
+      <UserCog className="w-9 h-9 mx-auto mb-3 text-gray-300 dark:text-gray-600" aria-hidden="true" />
       <p className="font-semibold dark:text-white">{t("opsWsNoMechanicsTitle", "No mechanic data yet")}</p>
       <p className="text-sm text-gray-400 mt-1">{t("opsWsNoMechanicsBody", "Add labor entries to job cards to see mechanic performance.")}</p>
     </div>;

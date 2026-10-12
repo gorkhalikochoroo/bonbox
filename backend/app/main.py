@@ -4061,6 +4061,33 @@ def _init_db():
     except Exception as e:
         # Non-fatal — demo data is nice-to-have, not critical
         print(f"Demo seed warning: {e}")
+    # Vertical fit (Oct 2026), two small data fixes, every boot, idempotent:
+    #  • the bar's old module spellings ("pour"/"wine", which no gate reads)
+    #    are RENAMED in place to bar_pour / wine_sommelier — never added beside
+    #    them, and never past the plan's module cap (a Free bar after its trial
+    #    keeps what it had); archetype_defaults.rename_legacy_module_ids;
+    #  • a team member's business_type follows its owner's (it was copied at
+    #    invite and never updated, so a type change left the manager on the
+    #    old type's nav); archetype_defaults.align_member_business_types.
+    # Python, not the SQL list: the cap is a per-account plan answer
+    # (billing.get_cap). Fail-soft: a miss leaves the rows as they were.
+    try:
+        from app.services.archetype_defaults import (
+            align_member_business_types,
+            rename_legacy_module_ids,
+        )
+        from app.database import SessionLocal
+        with SessionLocal() as vf_db:
+            vf_modules = rename_legacy_module_ids(vf_db)
+            vf_members = align_member_business_types(vf_db)
+        if vf_modules.get("renamed") or vf_modules.get("kept") or vf_members:
+            print(
+                f"Vertical-fit backfill: {vf_modules.get('renamed', 0)} module CSVs renamed, "
+                f"{vf_modules.get('kept', 0)} kept (over the plan's cap), "
+                f"{vf_members} member types aligned"
+            )
+    except Exception as e:
+        print(f"Vertical-fit backfill warning: {e}")
     _db_ready.set()
     print("DB init complete — ready to serve requests")
 

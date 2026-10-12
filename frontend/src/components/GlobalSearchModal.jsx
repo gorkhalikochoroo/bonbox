@@ -7,6 +7,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "./BranchSelector";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { usePillars } from "../hooks/usePillars";
+import { useActivation } from "../hooks/useActivation";
 import { useAuth } from "../hooks/useAuth";
 import { useDeviceShare } from "../hooks/useDeviceShare";
 import { Icon } from "./ui";
@@ -14,7 +15,8 @@ import { formatDateClear } from "../utils/dateFormat";
 
 // /api/search still labels its groups with emoji; show the Lucide glyph.
 const ENTITY_ICONS = { "💰": "Coins", "💸": "Receipt", "📦": "Package", "📋": "ClipboardList", "👤": "User", "📅": "Calendar", "🧾": "FileText" };
-import { NAV_MANIFEST, filterDestinations, isStaffMemberRole } from "../config/navManifest";
+import { NAV_MANIFEST, filterDestinations, isStaffMemberRole, labelKeyFor } from "../config/navManifest";
+import { archetypeIdFor } from "../config/archetypes";
 import { isNativeApp } from "../utils/platform";
 import { canUsePersonalMode } from "../lib/appMode";
 import { errText } from "../utils/errText";
@@ -80,6 +82,8 @@ export default function GlobalSearchModal({ open, onClose }) {
   // setPillarHidden, THEN navigates to the now-live page (no PillarGate
   // bounce). setPillarHidden is the optimistic toggle from the pillar context.
   const { hiddenPillars, setPillarHidden } = usePillars();
+  // Tools the owner has real rows for — the business-type gate keeps them.
+  const { usedSurfaces } = useActivation();
   const inputRef = useRef(null);
   const debounceRef = useRef(null);
 
@@ -153,15 +157,21 @@ export default function GlobalSearchModal({ open, onClose }) {
       hasFeature,
       featReady: entReady !== false,
       hiddenPillars: new Set(),
+      // A tool the owner uses is findable whatever the business type.
+      usedSurfaces,
       // Staff members don't get owner-only financial pages (Reports/Tax) in ⌘K.
       isStaffMember,
     });
     // App Store compliance (Apple 3.1.1): the native shell drops locked
     // (purchase-surface) entries; web keeps them locked-but-visible.
     if (isNativeApp()) resolved = resolved.filter((d) => !d.locked);
+    // The label only (labelKeyByArchetype — a salon's "Tidsbestilling"); the
+    // archetype is not passed into filterDestinations above, so ⌘K's reach is
+    // unchanged.
+    const arch = archetypeIdFor(branchType || user?.business_type);
     const manifestPages = resolved.map((d) => ({
       key: d.to,
-      label: t(d.labelKey) || d.labelKey,
+      label: t(labelKeyFor(d, arch)) || d.labelKey,
       icon: d.icon,            // Lucide name (string) — rendered via <Icon>
       to: d.to,
       locked: !!d.locked,
@@ -186,7 +196,7 @@ export default function GlobalSearchModal({ open, onClose }) {
         aliases: d.aliases || [],
       }));
     return [...manifestPages, ...extraPages];
-  }, [t, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, isStaffMember]);
+  }, [t, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, isStaffMember, user, usedSurfaces]);
 
   const matchedPages = useMemo(() => {
     const q = query.trim().toLowerCase();

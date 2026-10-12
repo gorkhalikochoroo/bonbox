@@ -10,7 +10,11 @@ import { useActivation } from "../hooks/useActivation";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, SectionBanner, Button, Icon } from "../components/ui";
-import { PILLAR_DISPLAY } from "../config/navManifest";
+import { PILLAR_DISPLAY, labelKeyFor } from "../config/navManifest";
+import { useAuth } from "../hooks/useAuth";
+import { archetypeIdFor } from "../config/archetypes";
+
+import { MODULE_COPY, moduleFitsArchetype } from "../config/verticalModules";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 import { errText } from "../utils/errText";
 
@@ -33,6 +37,8 @@ import { errText } from "../utils/errText";
  */
 function FunktionerSection() {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const archetypeId = archetypeIdFor(user?.business_type);
   const { hiddenPillars, isReady, setPillarHidden } = usePillars();
   // USAGE GATE — a pillar the owner has never used (today: Events) is not in
   // their nav, so listing a switch for it here would be a lie: the switch
@@ -91,7 +97,7 @@ function FunktionerSection() {
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                    {t(p.labelKey)}
+                    {t(labelKeyFor(p, archetypeId))}
                   </div>
                 </div>
                 {/* Switch — a real toggle button. gray-900 fill when ON
@@ -101,7 +107,7 @@ function FunktionerSection() {
                   type="button"
                   role="switch"
                   aria-checked={on}
-                  aria-label={`${t(p.labelKey)} — ${on ? t("funktionerOn") : t("funktionerOff")}`}
+                  aria-label={`${t(labelKeyFor(p, archetypeId))} — ${on ? t("funktionerOn") : t("funktionerOff")}`}
                   disabled={busy || !isReady}
                   onClick={() => toggle(p)}
                   className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors
@@ -149,6 +155,8 @@ function FunktionerSection() {
  */
 export default function ModulesPage() {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const archetypeId = archetypeIdFor(user?.business_type);
   const [data, setData] = useState(null); // { plan, modules_cap, modules: [...] }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -269,11 +277,15 @@ export default function ModulesPage() {
         </div>
       )}
 
-      {data && (
-        <FadeIn delay={0.04}>
-          <div className="space-y-2">
-            {data.modules.map((m) => {
+      {data && (() => {
+        // Fits this business, or switched on → the main list. The rest folds
+        // under "Andre brancher".
+        const fits = (m) => moduleFitsArchetype(m.id, archetypeId) || selectedIds.includes(m.id);
+        const mine = data.modules.filter(fits);
+        const others = data.modules.filter((m) => !fits(m));
+        const card = (m) => {
               const selected = selectedIds.includes(m.id);
+              const copy = MODULE_COPY[m.id];
               const wouldBeBlocked = !selected && atCap;
               return (
                 <button
@@ -299,18 +311,37 @@ export default function ModulesPage() {
                   </span>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                      {m.name}
+                      {copy ? t(copy.nameKey) : m.name}
                     </div>
                     <div className="text-[12.5px] text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
-                      {m.description}
+                      {copy ? t(copy.descKey) : m.description}
                     </div>
                   </div>
                 </button>
               );
-            })}
-          </div>
-        </FadeIn>
-      )}
+        };
+        return (
+          <FadeIn delay={0.04}>
+            <div className="space-y-2" data-testid="modules-mine">
+              {mine.map(card)}
+            </div>
+            {mine.length === 0 && (
+              <p className="text-[12.5px] text-gray-600 dark:text-gray-400 leading-relaxed">
+                {t("modulesNoneForYou", "None of the modules is made for your kind of business yet — the features above cover what you need.")}
+              </p>
+            )}
+            {others.length > 0 && (
+              <details className="mt-4 group" data-testid="modules-other-trades">
+                <summary className="cursor-pointer select-none text-[13px] font-medium text-gray-600 dark:text-gray-300 py-2 list-none flex items-center gap-1.5">
+                  <Icon name="ChevronRight" size={14} className="transition-transform group-open:rotate-90" />
+                  {t("modulesOtherTrades", "Other trades")} ({others.length})
+                </summary>
+                <div className="space-y-2 mt-2">{others.map(card)}</div>
+              </details>
+            )}
+          </FadeIn>
+        );
+      })()}
 
       {/* Cap-hit hint — only shown when at cap AND there's an off module.
           App Store compliance (Apple 3.1.1): this banner pitches "upgrade to

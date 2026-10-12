@@ -40,6 +40,7 @@ import { useAuth } from "../hooks/useAuth";
 import { Icon } from "./ui";
 import {
   PILLAR_DISPLAY,
+  labelKeyFor,
   relevantPillarsForArchetype,
   pillarIsScopedOffTheRail,
 } from "../config/navManifest";
@@ -63,7 +64,8 @@ const ACTIVATION_SETUP_ROUTE = {
 const SETUP_LABEL_KEY = {
   staff: "staffSchedule",
 };
-const setupLabelKey = (p) => SETUP_LABEL_KEY[p.id] || p.labelKey;
+// A salon's booking tile says "Tidsbestilling" (labelKeyByArchetype).
+const setupLabelKey = (p, archetypeId = null) => SETUP_LABEL_KEY[p.id] || labelKeyFor(p, archetypeId);
 
 /**
  * @param {object} props
@@ -208,7 +210,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate, only 
             <button
               key={`setup-${p.id}`}
               onClick={() => goSetup(p)}
-              aria-label={`${t("activationSetupEyebrow")} — ${t(setupLabelKey(p))}`}
+              aria-label={`${t("activationSetupEyebrow")} — ${t(setupLabelKey(p, archetypeId))}`}
               className="flex flex-col items-center justify-center
                 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700
                 rounded-xl p-3 min-h-[72px] active:scale-95 transition-transform
@@ -221,7 +223,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate, only 
                 className="text-gray-700 dark:text-gray-300 mb-1.5"
               />
               <span className="text-[11px] text-gray-600 dark:text-gray-400 text-center leading-tight font-medium">
-                {t(setupLabelKey(p))}
+                {t(setupLabelKey(p, archetypeId))}
               </span>
               <span className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400 leading-none font-medium">
                 {t("activationSetupEyebrow")}
@@ -233,7 +235,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate, only 
               key={p.id}
               onClick={() => enable(p)}
               disabled={enablingId === p.id}
-              aria-label={`${t("pillarDiscoveryEnableCta")} — ${t(p.labelKey)}`}
+              aria-label={`${t("pillarDiscoveryEnableCta")} — ${t(labelKeyFor(p, archetypeId))}`}
               className="flex flex-col items-center justify-center
                 bg-white dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600
                 rounded-xl p-3 min-h-[72px] active:scale-95 transition-transform
@@ -246,7 +248,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate, only 
                 className={`text-gray-500 dark:text-gray-400 mb-1.5 ${enablingId === p.id ? "animate-spin" : ""}`}
               />
               <span className="text-[11px] text-gray-500 dark:text-gray-400 text-center leading-tight font-medium">
-                {t(p.labelKey)}
+                {t(labelKeyFor(p, archetypeId))}
               </span>
             </button>
           ))}
@@ -288,14 +290,14 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate, only 
           <button
             key={`setup-${p.id}`}
             onClick={() => { goSetup(p); }}
-            title={`${t("activationSetupEyebrow")} — ${t(setupLabelKey(p))}`}
-            aria-label={`${t("activationSetupEyebrow")} — ${t(setupLabelKey(p))}`}
+            title={`${t("activationSetupEyebrow")} — ${t(setupLabelKey(p, archetypeId))}`}
+            aria-label={`${t("activationSetupEyebrow")} — ${t(setupLabelKey(p, archetypeId))}`}
             className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition
               text-gray-600 dark:text-gray-300
               hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-800 dark:hover:text-gray-100 ${NAV_FOCUS_RING}`}
           >
             <Icon name={p.icon} size={16} strokeWidth={1.75} className="shrink-0" />
-            <span className="flex-1 truncate text-left">{t(setupLabelKey(p))}</span>
+            <span className="flex-1 truncate text-left">{t(setupLabelKey(p, archetypeId))}</span>
             <span className={`text-[10px] font-semibold ${NAV_MUTED} shrink-0`}>
               {t("activationSetupEyebrow")}
             </span>
@@ -306,8 +308,8 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate, only 
             key={p.id}
             onClick={() => { enable(p); }}
             disabled={enablingId === p.id}
-            title={`${t("pillarDiscoveryEnableCta")} — ${t(p.labelKey)}`}
-            aria-label={`${t("pillarDiscoveryEnableCta")} — ${t(p.labelKey)}`}
+            title={`${t("pillarDiscoveryEnableCta")} — ${t(labelKeyFor(p, archetypeId))}`}
+            aria-label={`${t("pillarDiscoveryEnableCta")} — ${t(labelKeyFor(p, archetypeId))}`}
             className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition
               text-gray-600 dark:text-gray-400
               hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-700 dark:hover:text-gray-200
@@ -319,7 +321,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate, only 
               strokeWidth={1.75}
               className={`shrink-0 ${enablingId === p.id ? "animate-spin" : ""}`}
             />
-            <span className="flex-1 truncate text-left">{t(p.labelKey)}</span>
+            <span className="flex-1 truncate text-left">{t(labelKeyFor(p, archetypeId))}</span>
             <span className={`text-[10px] font-semibold ${NAV_MUTED} shrink-0`}>
               {t("pillarDiscoveryEnableCta")}
             </span>
