@@ -27,7 +27,7 @@ export function applyVagtplanIcons(doc = typeof document !== "undefined" ? docum
       const href = link.getAttribute("href") || "";
       const next = link.getAttribute("rel") === "apple-touch-icon"
         ? VAGTPLAN_APPLE_TOUCH_ICON
-        : href.replace("/favicon", "/vagtplan-favicon");
+        : href.replace("/favicon", "/vagtplan-favicon").replace("/icon-192", "/vagtplan-icon-192");
       if (next !== href) {
         changed.push([link, href]);
         link.setAttribute("href", next);

@@ -207,7 +207,7 @@
                 icons[i].setAttribute("href",
                   icons[i].getAttribute("rel") === "apple-touch-icon"
                     ? "/vagtplan-apple-touch-icon.png?v=3"
-                    : href.replace("/favicon", "/vagtplan-favicon"));
+                    : href.replace("/favicon", "/vagtplan-favicon").replace("/icon-192", "/vagtplan-icon-192"));
               }
             } catch (eIcons) { /* keep the BonBox icons */ }
             if (isIOS) {
