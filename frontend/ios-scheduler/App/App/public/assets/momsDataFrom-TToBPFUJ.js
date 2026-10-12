@@ -1,0 +1,1 @@
+function e(e){let t=e?.data_from,n=e?.period_start;if(!t||!n||t<=n)return null;let r=new Date(`${t}T12:00:00`);r.setDate(r.getDate()-1);let i=e=>String(e).padStart(2,`0`);return{from:t,start:n,end:`${r.getFullYear()}-${i(r.getMonth()+1)}-${i(r.getDate())}`}}export{e as t};

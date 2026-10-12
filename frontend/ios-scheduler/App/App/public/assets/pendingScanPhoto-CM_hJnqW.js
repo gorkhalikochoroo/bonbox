@@ -1,0 +1,1 @@
+var e=600*1e3,t=null;function n(e,n){t=e&&n?{file:e,route:n,at:Date.now()}:null}function r(n){let r=t;return t=null,!r||r.route!==n||Date.now()-r.at>e?null:r.file}export{r as n,n as t};
