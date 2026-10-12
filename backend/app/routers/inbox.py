@@ -711,9 +711,29 @@ def _ingest_attachment(
 
     sha = sha256_hex(plain)
     try:
-        storage_path = persist_attachment_blob(plain, sha)
+        # Durable storage (services/storage.py), per tenant — never the web
+        # instance's own disk, which every deploy wipes (Push 8).
+        storage_path = persist_attachment_blob(plain, sha, user_id=user.id, content_type=ctype)
+    except ValueError:
+        # An image type with no safe file name to store it under (e.g.
+        # image/svg+xml): recorded as skipped, like a type outside the
+        # allowlist — nothing stored, no draft.
+        intake = ReceiptIntake(
+            id=uuid.uuid4(),
+            email_message_id=em.id,
+            user_id=user.id,
+            storage_path="",
+            filename=name or None,
+            mime_type=ctype or None,
+            byte_size=len(plain),
+            sha256=sha,
+            ocr_status="skipped",
+        )
+        db.add(intake)
+        db.flush()
+        return "skipped"
     except Exception as e:  # noqa: BLE001
-        logger.warning("inbox: blob persist failed sha=%s: %s", sha[:8], e)
+        logger.warning("inbox: blob persist failed sha=%s: %s", sha[:8], type(e).__name__)
         return "failed"
 
     intake = ReceiptIntake(

@@ -301,8 +301,12 @@ def test_happy_path_creates_draft_expense_and_audits(client, db, monkeypatch):
     intake = db.query(ReceiptIntake).filter(ReceiptIntake.user_id == user.id).one()
     assert intake.ocr_status == "ok"
     assert intake.expense_id is not None
-    assert intake.storage_path.startswith("uploads/receipts/")
+    # Durable storage, per tenant (Push 8) — not ./uploads/receipts on the
+    # instance's disk, which every Render deploy wiped.
+    assert intake.storage_path == f"{user.id}/inbox_receipt/{intake.sha256}.pdf"
     assert intake.sha256 and len(intake.sha256) == 64
+    from app.services.inbox_service import load_attachment_blob
+    assert load_attachment_blob(intake.storage_path).startswith(b"%PDF")
 
     # ── Draft Expense exists with the OCR'd amount + vendor ──
     expense = db.query(Expense).filter(Expense.user_id == user.id).one()

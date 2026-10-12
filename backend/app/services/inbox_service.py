@@ -8,8 +8,8 @@ unit-testable without spinning up FastAPI:
   • generate_inbox_alias()         — slugify + Crockford suffix + dedup
   • ensure_alias()                  — lazy allocator for legacy users
   • allowed_attachment_mime()       — MIME allowlist
-  • persist_attachment_blob()       — Fernet-encrypt + write to disk
-  • load_attachment_blob()          — decrypt for OCR
+  • persist_attachment_blob()       — store in the storage abstraction
+  • load_attachment_blob()          — read it back (legacy disk paths too)
   • count_messages_this_month()     — cap counter
 
 Why a dedicated module:
@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import random
 import re
 import uuid
@@ -33,7 +32,7 @@ from sqlalchemy.orm import Session
 
 from app.models.email_message import EmailMessage
 from app.models.user import User
-from app.utils.crypto import fernet_decrypt_bytes, fernet_encrypt_bytes
+from app.utils.crypto import fernet_decrypt_bytes
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -129,63 +128,93 @@ def allowed_attachment_mime(content_type: str | None) -> bool:
     return ct in _ALLOWED_MIME_EXACT
 
 
-# ── Blob persistence (Fernet-encrypted on local disk) ───────────────
+# ── Blob persistence (the storage abstraction) ──────────────────────
 
-# Repo-root-relative — same convention as `receipt_ocr.UPLOAD_DIR`.
-# We could swap to Supabase Storage via the storage abstraction later;
-# the column shape (`storage_path TEXT`) allows that without a schema
-# change. v0.1 stays on local disk so we have one fewer dependency
-# to wire when INBOX_ENABLED first flips on.
-_RECEIPT_DIR = Path("uploads/receipts")
+# Until Push 8 (12 Oct 2026) every attachment was Fernet-encrypted and written
+# to ./uploads/receipts/<sha>.enc on the web instance's own disk — which
+# Render wipes on every deploy, so a forwarded bilag was lost at the next
+# push while its expense still pointed at it, and the name (the content hash
+# alone) was shared by every tenant. It now goes through services/storage.py
+# like every other upload: Supabase Storage in production (a private bucket,
+# server-side reads only; it refuses rather than fall back to the disk), the
+# local backend in dev/tests, under <user_id>/inbox_receipt/<sha>.<ext>. The
+# other uploads store their own bytes there, so this does too; a path written
+# before the move is still read (and decrypted) by load_attachment_blob.
+INBOX_STORAGE_KIND = "inbox_receipt"
+_LEGACY_LOCAL_PREFIX = "uploads/receipts/"
+
+# The file types a receipt arrives as → the extension in its storage key
+# (storage.compose_key accepts these only). An image type with no entry here
+# (svg+xml — which can carry script —, x-icon, …) is not stored.
+_EXT_BY_MIME = {
+    "application/pdf": "pdf",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/pjpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/heic": "heic",
+    "image/heif": "heic",
+    "image/gif": "gif",
+    "image/tiff": "tiff",
+}
 
 
-def _ensure_storage_dir() -> Path:
-    _RECEIPT_DIR.mkdir(parents=True, exist_ok=True)
-    return _RECEIPT_DIR
+def attachment_ext(content_type: str | None) -> str | None:
+    """The storage-key extension for an attachment's content type, or None
+    when the type has no safe one."""
+    ct = (content_type or "").split(";", 1)[0].strip().lower()
+    return _EXT_BY_MIME.get(ct)
 
 
 def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def persist_attachment_blob(plaintext: bytes, sha_hex: str) -> str:
-    """Fernet-encrypt `plaintext` and write to disk under
-    `uploads/receipts/<sha>.enc`. Returns the relative storage path
-    stamped into ReceiptIntake.storage_path.
+def persist_attachment_blob(plaintext: bytes, sha_hex: str, *, user_id,
+                            content_type: str | None) -> str:
+    """Store a forwarded attachment and return the storage key stamped into
+    ReceiptIntake.storage_path (and the drafted expense's receipt_photo).
 
-    The sha is over the PLAINTEXT, not the ciphertext — each Fernet
-    encrypt() uses a fresh nonce so the ciphertext differs every time
-    even for identical input. Stamping the sha against plaintext means
-    dedup queries (e.g. "same receipt forwarded twice") work
-    regardless of encryption-time noise.
-    """
-    folder = _ensure_storage_dir()
-    relative = f"{sha_hex}.enc"
-    target = folder / relative
-    if target.exists():
-        # Same plaintext sha — same blob. Don't re-encrypt and replace
-        # the file (atomic write is overkill for the dedup case).
-        return f"uploads/receipts/{relative}"
-    enc = fernet_encrypt_bytes(plaintext)
-    # Best-effort atomic write — write to a temp neighbour then rename.
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_bytes(enc)
-    os.replace(tmp, target)
-    return f"uploads/receipts/{relative}"
+    The sha is over the attachment's bytes, so the same file forwarded twice
+    by one owner lands on the same key (an idempotent overwrite).
+
+    Raises ValueError for a type with no safe extension (the caller records
+    the attachment as skipped) and storage.StorageError when durable storage
+    is not configured in production (the caller records a failure — never a
+    file on the instance's disk)."""
+    from app.services.storage import compose_key, get_storage
+
+    ext = attachment_ext(content_type)
+    if ext is None:
+        raise ValueError("attachment type has no storable extension")
+    key = compose_key(user_id, INBOX_STORAGE_KIND, sha_hex, ext)
+    ctype = (content_type or "").split(";", 1)[0].strip().lower() or "application/octet-stream"
+    get_storage().put(key, plaintext, content_type=ctype)
+    return key
 
 
 def load_attachment_blob(storage_path: str) -> bytes:
-    """Reverse of `persist_attachment_blob`. Returns the original
-    plaintext bytes. Raises FileNotFoundError if the blob is gone
-    (caller maps to a graceful OCR failure)."""
+    """Reverse of `persist_attachment_blob`. Returns the attachment's bytes.
+    Raises FileNotFoundError if the blob is gone (caller maps to a graceful
+    OCR failure). A path from before the move to the storage abstraction
+    (uploads/receipts/<sha>.enc, Fernet-encrypted on local disk) is read
+    from the disk and decrypted, as before."""
     if not storage_path:
         raise FileNotFoundError("empty storage_path")
-    p = Path(storage_path)
-    if not p.is_absolute():
-        # storage_path is repo-relative; resolve against cwd.
-        p = Path.cwd() / p
-    enc = p.read_bytes()
-    return fernet_decrypt_bytes(enc)
+    if storage_path.startswith(_LEGACY_LOCAL_PREFIX):
+        p = Path(storage_path)
+        if not p.is_absolute():
+            # storage_path is repo-relative; resolve against cwd.
+            p = Path.cwd() / p
+        enc = p.read_bytes()
+        return fernet_decrypt_bytes(enc)
+    from app.services.storage import get_storage
+
+    data = get_storage().get(storage_path)
+    if data is None:
+        raise FileNotFoundError(storage_path)
+    return data
 
 
 # ── Cap counter ─────────────────────────────────────────────────────
