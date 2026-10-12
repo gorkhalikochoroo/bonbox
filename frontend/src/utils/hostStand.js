@@ -30,18 +30,20 @@ function heldIds(r) {
 }
 
 const seatsOf = (t) => Number(t?.capacity_seats) || 0;
+// A missing zone is its own group, as in the engine (getattr(r, "zone", None)).
+const zoneOf = (t) => (t?.zone === undefined ? null : t.zone);
+// The order the floor and the book name tables in: "2" before "10".
+const byLabel = (a, b) =>
+  String(a?.label || "").localeCompare(String(b?.label || ""), "da", { numeric: true, sensitivity: "base" });
+const minutes = (m) => Math.max(1, Number(m) || 90) * 60000;
 
 /**
- * The earliest moment (ms) a table can take a new party for a whole sitting
- * of `sittingMin` minutes, from now on — `nowMs` itself when it can right now.
- *
- * Built only from what the book knows: each live booking's own window
- * (starts_at → ends_at, the end the turn-time setting gave it). Returns null
- * when that is NOT knowable: a party still seated past its booked end has no
- * end anyone can read, so the table's free time is unknown, not "now".
- * A booking whose whole window is already behind us holds nothing.
+ * A table's live holds from now on, as [start, end) spans in ms — or null
+ * when its free time cannot be known: a party still seated past its booked
+ * end has no end anyone can read, and a hold without a readable window is no
+ * better. A booking whose whole window is already behind us holds nothing.
  */
-export function tableFreeAt(table, reservations, nowMs, sittingMin) {
+function holdsOn(table, reservations, nowMs) {
   const id = String(table.id);
   const spans = [];
   for (const r of reservations || []) {
@@ -58,12 +60,187 @@ export function tableFreeAt(table, reservations, nowMs, sittingMin) {
       spans.push([s, e]);
     }
   }
-  const need = Math.max(1, Number(sittingMin) || 90) * 60000;
+  return spans;
+}
+
+// Free for a whole sitting [c, c + need) — touching ends do not overlap.
+const clearFor = (spans, c, need) => !spans.some(([s, e]) => s < c + need && c < e);
+
+/**
+ * The earliest moment (ms) a table can take a new party for a whole sitting
+ * of `sittingMin` minutes, from now on — `nowMs` itself when it can right now.
+ *
+ * Built only from what the book knows: each live booking's own window
+ * (starts_at → ends_at, the end the turn-time setting gave it). Returns null
+ * when that is NOT knowable (see holdsOn) — unknown, not "now".
+ */
+export function tableFreeAt(table, reservations, nowMs, sittingMin) {
+  const spans = holdsOn(table, reservations, nowMs);
+  if (spans == null) return null;
+  const need = minutes(sittingMin);
   const candidates = [nowMs, ...spans.map(([, e]) => e).filter((e) => e > nowMs)].sort((a, b) => a - b);
   for (const c of candidates) {
-    if (!spans.some(([s, e]) => s < c + need && c < e)) return c;
+    if (clearFor(spans, c, need)) return c;
   }
   return null;
+}
+
+// ── Joining tables: the booking engine's own rule ───────────────────────
+// A port of availability_engine.find_combo, NOT a second opinion: the door
+// may only call a set of tables "free" when the engine would seat a party
+// there itself. backend/tests/test_find_combo_parity.py runs the same cases
+// (src/__tests__/fixtures/findComboCases.json) through the Python original,
+// so the two cannot drift apart silently.
+
+/** Max combinable tables considered per zone (the engine's _COMBO_POOL_CAP). */
+export const COMBO_POOL_CAP = 24;
+
+function* combinations(pool, k, start = 0, picked = []) {
+  if (picked.length === k) {
+    yield picked;
+    return;
+  }
+  for (let i = start; i <= pool.length - (k - picked.length); i += 1) {
+    yield* combinations(pool, k, i + 1, [...picked, pool[i]]);
+  }
+}
+
+// Python orders str by code point; ids are ASCII, so < on strings agrees.
+const cmpStr = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+function keyLess(a, b) {
+  if (a[0] !== b[0]) return a[0] < b[0];
+  if (a[1] !== b[1]) return a[1] < b[1];
+  for (let i = 0; i < Math.min(a[2].length, b[2].length); i += 1) {
+    const c = cmpStr(a[2][i], b[2][i]);
+    if (c) return c < 0;
+  }
+  return a[2].length < b[2].length;
+}
+
+/**
+ * The engine's combination for a party, from tables already known to be free
+ * for the whole sitting: only tables flagged `combinable`, one zone at a time
+ * (an indoor table never joins a terrace one), at most `maxComboSize` tables;
+ * fewest tables, then fewest empty seats, then id order. Table ids (≥ 2), or
+ * null when no combination seats the party.
+ */
+export function findCombo(partySize, freeTables, maxComboSize) {
+  const max = Number.parseInt(maxComboSize, 10) || 0;
+  if (max < 2) return null;
+  const free = (freeTables || []).filter((t) => t && t.combinable);
+  if (free.length < 2) return null;
+  const zones = new Map();
+  for (const t of free) {
+    const z = zoneOf(t);
+    if (!zones.has(z)) zones.set(z, []);
+    zones.get(z).push(t);
+  }
+  let bestKey = null;
+  let bestIds = null;
+  for (const group of zones.values()) {
+    let pool = [...group].sort((a, b) => seatsOf(a) - seatsOf(b) || cmpStr(String(a.id), String(b.id)));
+    if (pool.length > COMBO_POOL_CAP) pool = pool.slice(0, COMBO_POOL_CAP);
+    const biggestFirst = pool.map(seatsOf).sort((a, b) => b - a);
+    const upper = Math.min(max, pool.length);
+    for (let size = 2; size <= upper; size += 1) {
+      // Not a rule, only a shortcut (the answer is the engine's either way):
+      // when the `size` biggest tables of the zone fall short, every set of
+      // that size does — this runs on the stand's minute tick, in the browser.
+      if (biggestFirst.slice(0, size).reduce((s, n) => s + n, 0) < partySize) continue;
+      let found = false;
+      for (const combo of combinations(pool, size)) {
+        const total = combo.reduce((s, t) => s + seatsOf(t), 0);
+        if (total < partySize) continue;
+        found = true;
+        const key = [size, total - partySize, combo.map((t) => String(t.id))];
+        if (!bestKey || keyLess(key, bestKey)) {
+          bestKey = key;
+          bestIds = key[2];
+        }
+      }
+      // Fewer tables always wins, so a zone that seats them at this size has
+      // nothing better further up.
+      if (found) break;
+    }
+  }
+  return bestIds;
+}
+
+/**
+ * The venue's joining rules, read from its booking settings the way
+ * reservation_service.build_config reads them (on unless switched off; at
+ * most 3 tables unless set). null when the settings are not known.
+ */
+export function comboRules(settings) {
+  if (!settings) return null;
+  return {
+    enabled: settings.combine_enabled == null ? true : Boolean(settings.combine_enabled),
+    maxSize: Number.parseInt(settings.max_combo_size, 10) || 3,
+  };
+}
+
+// Could this table take part in seating `size` at all — alone, or in some
+// combination the engine would allow (same zone, combinable, ≤ maxSize)?
+function couldSeat(t, size, tables, maxSize) {
+  if (seatsOf(t) >= size) return true;
+  if (!(maxSize >= 2) || !t.combinable) return false;
+  const z = zoneOf(t);
+  const others = tables
+    .filter((o) => o !== t && o.combinable && zoneOf(o) === z)
+    .map(seatsOf)
+    .sort((a, b) => b - a)
+    .slice(0, maxSize - 1);
+  return seatsOf(t) + others.reduce((s, n) => s + n, 0) >= size;
+}
+
+// The engine's seating at moment `c` (assign_seats): the smallest single
+// table that seats the party, else — when joining is on — its combination,
+// both only from tables free for the whole sitting.
+function seatingAt({ tables, holds, size, c, need, combine }) {
+  const free = tables.filter((t) => {
+    const sp = holds.get(String(t.id));
+    return sp != null && clearFor(sp, c, need);
+  });
+  let best = null;
+  for (const t of free) {
+    if (seatsOf(t) >= size && (!best || seatsOf(t) < seatsOf(best))) best = t;
+  }
+  if (best) return [best];
+  if (!combine?.enabled) return null;
+  const ids = findCombo(size, free, combine.maxSize);
+  return ids ? free.filter((t) => ids.includes(String(t.id))).sort(byLabel) : null;
+}
+
+function seatingOf(picked) {
+  const ids = picked.map((t) => String(t.id));
+  return {
+    tableId: picked.length === 1 ? ids[0] : null,
+    tableIds: ids,
+    label: picked.map((t) => t.label).join(" + "),
+    seats: picked.reduce((s, t) => s + seatsOf(t), 0),
+  };
+}
+
+const activeTables = (resources) =>
+  (resources || []).filter((t) => t.kind !== "provider" && t.is_active !== false);
+
+/**
+ * The tables the engine would join for `size` guests sitting down now, free
+ * for their whole sitting — { tableIds, label, seats }, or null. Only the
+ * joined case: the seat sheet picks single tables itself.
+ */
+export function joinedSeatingNow({ reservations, resources, nowMs, size, sittingMin, combine }) {
+  if (!combine?.enabled) return null;
+  const tables = activeTables(resources);
+  const holds = new Map(tables.map((t) => [String(t.id), holdsOn(t, reservations, nowMs)]));
+  const free = tables.filter((t) => {
+    const sp = holds.get(String(t.id));
+    return sp != null && clearFor(sp, nowMs, minutes(sittingMin));
+  });
+  const ids = findCombo(size, free, combine.maxSize);
+  if (!ids) return null;
+  const { tableIds, label, seats } = seatingOf(free.filter((t) => ids.includes(String(t.id))).sort(byLabel));
+  return { tableIds, label, seats };
 }
 
 /**
@@ -88,33 +265,37 @@ export function closeMsFor(dayIso, openHours) {
 
 /**
  * One entry per drop-in size:
- *   { size, freeNow, tableId, label, at }
- * freeNow — a table that seats `size` is free for their whole sitting now;
- *   tableId/label name the best one (the SMALLEST that fits, the same honest
- *   auto-pick as the seat sheet — never the six-top for a couple).
- * at — otherwise, when the first fitting table frees for a whole sitting
- *   (ms), or null when no fitting table's free time is knowable, or it falls
- *   after closing.
+ *   { size, freeNow, tableId, tableIds, label, at }
+ * freeNow — the party can sit down now for their whole sitting, where the
+ *   booking engine itself would seat them: the SMALLEST single table that
+ *   fits (the seat sheet's honest auto-pick — never the six-top for a
+ *   couple), else the tables the engine joins (`combine`, its own rule —
+ *   findCombo). tableIds name them (one, or the joined set in table order),
+ *   tableId only for a single table, label reads "22" or "6 + 7 + 8".
+ * at — otherwise the first moment such a seating opens (ms). null when that
+ *   cannot be known — any table that could take part has a party sitting past
+ *   its booked end, which could free it any minute, so a later time from
+ *   another table would be a worst case dressed as the wait — or when no
+ *   table could ever seat them, or it falls after closing.
+ * `combine` is comboRules(settings): null or disabled = single tables only.
  */
-export function walkInOptions({ reservations, resources, nowMs, sittingFor, closeMs = null, sizes = WALK_IN_SIZES }) {
-  const tables = (resources || []).filter((t) => t.kind !== "provider" && t.is_active !== false);
+export function walkInOptions({ reservations, resources, nowMs, sittingFor, closeMs = null, sizes = WALK_IN_SIZES, combine = null }) {
+  const tables = activeTables(resources);
+  const holds = new Map(tables.map((t) => [String(t.id), holdsOn(t, reservations, nowMs)]));
+  const join = combine?.enabled && combine.maxSize >= 2 ? combine : null;
   return sizes.map((size) => {
-    const need = sittingFor(size);
-    let best = null;
-    let soonest = null;
-    for (const t of tables) {
-      if (seatsOf(t) < size) continue;
-      const at = tableFreeAt(t, reservations, nowMs, need);
-      if (at == null) continue;
-      if (at <= nowMs) {
-        if (!best || seatsOf(t) < seatsOf(best)) best = t;
-      } else if (soonest == null || at < soonest) {
-        soonest = at;
-      }
-    }
-    if (best) return { size, freeNow: true, tableId: String(best.id), label: best.label, at: nowMs };
-    const at = soonest != null && (closeMs == null || soonest < closeMs) ? soonest : null;
-    return { size, freeNow: false, tableId: null, label: null, at };
+    const need = minutes(sittingFor(size));
+    const now = seatingAt({ tables, holds, size, c: nowMs, need, combine: join });
+    if (now) return { size, freeNow: true, ...seatingOf(now), at: nowMs };
+    const none = { size, freeNow: false, tableId: null, tableIds: null, label: null, at: null };
+    const could = tables.filter((t) => couldSeat(t, size, tables, join ? join.maxSize : 1));
+    if (could.length === 0 || could.some((t) => holds.get(String(t.id)) == null)) return none;
+    // A seating can only open where a hold ends.
+    const ends = [...new Set(could.flatMap((t) => holds.get(String(t.id)).map(([, e]) => e)))]
+      .filter((e) => e > nowMs)
+      .sort((a, b) => a - b);
+    const at = ends.find((c) => seatingAt({ tables, holds, size, c, need, combine: join }));
+    return at != null && (closeMs == null || at < closeMs) ? { ...none, at } : none;
   });
 }
 

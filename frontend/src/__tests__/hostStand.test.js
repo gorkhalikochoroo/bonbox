@@ -11,9 +11,16 @@
  *   • covers count seated / confirmed-still-to-come / finished, never a
  *     request and never a removed drop-in;
  *   • the finished list's time at the table needs both stamps;
- *   • combined tables join neighbour to neighbour, from their own positions.
+ *   • combined tables join neighbour to neighbour, from their own positions;
+ *   • tables are joined for a party exactly as the booking engine joins them
+ *     (findCombo runs the engine's own cases, shared with the backend), and a
+ *     wait is never a later time from one table while another that could
+ *     take the party has a free time nobody can know.
  */
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import {
   WALK_IN_SIZES,
   tableFreeAt,
@@ -23,6 +30,9 @@ import {
   stayMinutes,
   bySeatedTime,
   comboLinks,
+  findCombo,
+  comboRules,
+  joinedSeatingNow,
 } from "../utils/hostStand";
 
 const DAY = "2026-10-12";
@@ -122,6 +132,116 @@ describe("walkInOptions", () => {
   it("does not count an inactive table", () => {
     const opts = walkInOptions({ reservations: [], resources: [table("41", 2, { is_active: false })], nowMs: NOW, sittingFor: sitting });
     expect(opts[1]).toMatchObject({ freeNow: false, at: null });
+  });
+});
+
+describe("walkInOptions — a wait nobody can know", () => {
+  it("shows no time when a fitting table's party sits past its end — not a later one from another table", () => {
+    // 23's party was due to leave at 18.30 and is still there: it could free
+    // any minute. 33 frees at 20.15. "approx. 20.15" would be a worst case
+    // dressed as the wait.
+    const rs = [
+      booking("c", "23", "seated", "16:30", "18:30", 4),
+      booking("d", "33", "seated", "18:15", "20:15", 4),
+    ];
+    const opts = walkInOptions({ reservations: rs, resources: [table("23", 4), table("33", 4)], nowMs: NOW, sittingFor: sitting });
+    expect(opts[3]).toMatchObject({ size: 4, freeNow: false, at: null });
+  });
+
+  it("still says free now when a fitting table is free, whatever the others do", () => {
+    const rs = [booking("c", "23", "seated", "16:30", "18:30", 4)];
+    const opts = walkInOptions({ reservations: rs, resources: [table("23", 4), table("33", 4)], nowMs: NOW, sittingFor: sitting });
+    expect(opts[3]).toMatchObject({ size: 4, freeNow: true, tableId: "33", tableIds: ["33"], label: "33" });
+  });
+});
+
+// The engine's own cases — the same file backend/tests/test_find_combo_parity.py
+// runs through availability_engine.find_combo.
+const CASES = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "findComboCases.json"), "utf8"),
+).cases;
+
+describe("findCombo — the booking engine's joining rule, case for case", () => {
+  it.each(CASES.map((c) => [c.name, c]))("%s", (_name, c) => {
+    const tables = c.tables.map((tb) => ({
+      id: tb.id, label: tb.id, capacity_seats: tb.seats, combinable: tb.combinable, zone: tb.zone,
+    }));
+    expect(findCombo(c.party, tables, c.max)).toEqual(c.expected);
+  });
+});
+
+describe("comboRules", () => {
+  it("reads the settings as the engine does: on unless switched off, three tables unless set", () => {
+    expect(comboRules(null)).toBeNull();
+    expect(comboRules({})).toEqual({ enabled: true, maxSize: 3 });
+    expect(comboRules({ combine_enabled: false, max_combo_size: 2 })).toEqual({ enabled: false, maxSize: 2 });
+    expect(comboRules({ combine_enabled: true, max_combo_size: 0 })).toEqual({ enabled: true, maxSize: 3 });
+  });
+});
+
+describe("walkInOptions — joined tables", () => {
+  // 6 + 7 + 8 are a joinable row (4 + 4 + 2); 4 and 9 are not joinable.
+  const room = [
+    table("4", 4, { zone: "Sal" }),
+    table("6", 4, { zone: "Sal", combinable: true }),
+    table("7", 4, { zone: "Sal", combinable: true }),
+    table("8", 2, { zone: "Sal", combinable: true }),
+    table("9", 6, { zone: "Sal" }),
+  ];
+  const join = { enabled: true, maxSize: 3 };
+  const bigTablesTaken = [
+    booking("x", "9", "seated", "18:30", "20:30", 6),
+    booking("y", "4", "seated", "18:45", "20:30", 4),
+  ];
+
+  it("says free now for a party only joined tables seat — the set the engine would use", () => {
+    const opts = walkInOptions({ reservations: bigTablesTaken, resources: room, nowMs: NOW, sittingFor: sitting, combine: join });
+    expect(opts[3]).toMatchObject({ size: 4, freeNow: true, tableId: "6", tableIds: ["6"] });
+    expect(opts[4]).toMatchObject({ size: 5, freeNow: true, tableId: null, tableIds: ["6", "8"], label: "6 + 8" });
+    expect(opts[5]).toMatchObject({ size: 6, freeNow: true, tableId: null, tableIds: ["6", "8"], label: "6 + 8" });
+  });
+
+  it("joins nothing when the venue has joining switched off", () => {
+    const opts = walkInOptions({
+      reservations: bigTablesTaken, resources: room, nowMs: NOW, sittingFor: sitting, combine: { enabled: false, maxSize: 3 },
+    });
+    expect(opts[5]).toMatchObject({ size: 6, freeNow: false, at: ms("20:30") });
+  });
+
+  it("waits for the first seating that opens — joined tables before a later six-top", () => {
+    const rs = [
+      booking("x", "9", "seated", "19:30", "21:30", 6),
+      booking("p", "6", "seated", "18:15", "20:15", 4),
+      booking("q", "7", "seated", "18:30", "21:00", 4),
+      booking("r", "8", "seated", "18:30", "20:00", 2),
+      booking("s", "4", "seated", "18:45", "20:45", 4),
+    ];
+    const opts = walkInOptions({ reservations: rs, resources: room, nowMs: NOW, sittingFor: sitting, combine: join });
+    expect(opts[5]).toMatchObject({ size: 6, freeNow: false, at: ms("20:15") });
+  });
+
+  it("shows no time when a joinable table that could take them has a party past its end", () => {
+    const rs = [
+      booking("x", "9", "seated", "18:45", "20:45", 6),
+      booking("q", "7", "seated", "17:00", "18:45", 4),
+      booking("p", "6", "seated", "18:15", "20:15", 4),
+      booking("r", "8", "seated", "18:30", "20:00", 2),
+      booking("s", "4", "seated", "18:45", "20:45", 4),
+    ];
+    const opts = walkInOptions({ reservations: rs, resources: room, nowMs: NOW, sittingFor: sitting, combine: join });
+    expect(opts[5]).toMatchObject({ size: 6, freeNow: false, at: null });
+  });
+
+  it("never joins across zones", () => {
+    const split = [table("in", 4, { zone: "Sal", combinable: true }), table("out", 4, { zone: "Terrasse", combinable: true })];
+    const opts = walkInOptions({ reservations: [], resources: split, nowMs: NOW, sittingFor: sitting, combine: join });
+    expect(opts[5]).toMatchObject({ size: 6, freeNow: false, at: null });
+  });
+
+  it("names the engine's joined set for the seat sheet, and nothing when joining is off", () => {
+    const args = { reservations: bigTablesTaken, resources: room, nowMs: NOW, size: 6, sittingMin: 120 };
+    expect(joinedSeatingNow({ ...args, combine: join })).toEqual({ tableIds: ["6", "8"], label: "6 + 8", seats: 6 });
+    expect(joinedSeatingNow({ ...args, combine: { enabled: false, maxSize: 3 } })).toBeNull();
   });
 });
 

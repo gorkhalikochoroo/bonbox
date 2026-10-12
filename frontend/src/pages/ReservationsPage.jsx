@@ -106,7 +106,9 @@ import FloorPlan from "../components/FloorPlan";
 // deriveFloorState + fmtTime live in utils/floorState so they can be tested;
 // one definition each, imported here.
 import { deriveFloorState, fmtTime } from "../utils/floorState";
-import { WALK_IN_SIZES, walkInOptions, closeMsFor, coverCounts, stayMinutes, bySeatedTime } from "../utils/hostStand";
+import {
+  WALK_IN_SIZES, walkInOptions, closeMsFor, coverCounts, stayMinutes, bySeatedTime, comboRules, joinedSeatingNow,
+} from "../utils/hostStand";
 import InsightsSection from "../components/reservations/InsightsSection";
 import WaitlistSection from "../components/reservations/WaitlistSection";
 import { QRCodeSVG } from "qrcode.react";
@@ -1520,7 +1522,10 @@ function useEscToClose(onClose, busy = false) {
   }, [onClose, busy]);
 }
 
-function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialParty = null }) {
+// The seat sheet's value for "the tables the engine pushes together".
+const JOINED_PICK = "__joined";
+
+function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialParty = null, joinedFor = null }) {
   const pickMode = table === SEAT_WALK_IN_PICK;
   useEscToClose(onClose, busy);
   const dialogRef = useSheetFocus();
@@ -1570,21 +1575,46 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
     [tables],
   );
 
+  // A party no free table seats on its own (nothing clear of a booking that
+  // fits): the tables the booking engine would push together for them now,
+  // free for their whole sitting (joinedFor — the venue's own joining rule),
+  // offered and pre-picked ahead of a too-small table. "6+" on the stand opens
+  // here, so its "free now" for a big party lands on the set it counted.
+  const clearFits = useCallback(
+    (n) => tables.some((tb) => !tb.busy && !tb.reservedAt && (Number(tb.capacity_seats) || 0) >= n),
+    [tables],
+  );
+  const partyN = Number(party) || 2;
+  const joinedNow = useMemo(
+    () => (pickMode && joinedFor && !clearFits(partyN) ? joinedFor(partyN) : null),
+    [pickMode, joinedFor, clearFits, partyN],
+  );
+  const autoPick = useCallback(
+    (n) => (pickMode && joinedFor && !clearFits(n) && joinedFor(n) ? JOINED_PICK : bestFreeFor(n)),
+    [pickMode, joinedFor, clearFits, bestFreeFor],
+  );
+
   const [pickedId, setPickedId] = useState(() =>
-    pickMode ? bestFreeFor(Number(party) || 2) : "",
+    pickMode ? autoPick(Number(party) || 2) : "",
   );
 
   // Re-suggest as the party changes, and keep the pick valid if a table frees
-  // up or fills on the 60s tick. Never overrides a hand-picked table.
+  // up or fills on the 60s tick. Never overrides a hand-picked table — unless
+  // that pick was the joined set and there is none for this party any more.
   useEffect(() => {
-    if (!pickMode || tableTouched) return;
-    const next = bestFreeFor(Number(party) || 2);
+    if (!pickMode) return;
+    if (tableTouched && !(pickedId === JOINED_PICK && !joinedNow)) return;
+    const next = autoPick(partyN);
     if (next && next !== pickedId) setPickedId(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickMode, tableTouched, party, bestFreeFor]);
+  }, [pickMode, tableTouched, partyN, autoPick, joinedNow]);
 
   const chosenTable = pickMode
-    ? tables.find((tb) => String(tb.id) === String(pickedId)) || null
+    ? pickedId === JOINED_PICK
+      ? joinedNow
+        ? { id: JOINED_PICK, label: joinedNow.label, capacity_seats: joinedNow.seats, busy: false }
+        : null
+      : tables.find((tb) => String(tb.id) === String(pickedId)) || null
     : table;
   // Honest warning rather than a silent bad seat: the host may deliberately
   // put 4 on a 2-top by pushing chairs together, so this informs, never blocks.
@@ -1596,7 +1626,9 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
   const seat = () => {
     if (busy || !canSeat || !chosenTable) return;
     onSeat({
-      resource_id: chosenTable.id,
+      ...(chosenTable.id === JOINED_PICK
+        ? { resource_ids: joinedNow.tableIds }
+        : { resource_id: chosenTable.id }),
       party_size: Math.max(1, Math.min(100, parseInt(party, 10) || 2)),
       guest_name: name.trim() || t("rsvpWalkIn", "Drop-in"),
     });
@@ -1655,6 +1687,14 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
             >
               {tables.length === 0 && (
                 <option value="">{t("rsvpSeatWalkInNoTables", "No tables")}</option>
+              )}
+              {joinedNow && (
+                <option value={JOINED_PICK}>
+                  {t("rsvpSeatJoinedOption", "{tables} · {seats} seats, pushed together", {
+                    tables: joinedNow.label,
+                    seats: joinedNow.seats,
+                  })}
+                </option>
               )}
               {[...tables].sort(byTableLabel).map((tb) => (
                 <option key={tb.id} value={String(tb.id)} disabled={tb.busy}>
@@ -3888,19 +3928,31 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // …and how long each party size holds a table, so a start is only offered
   // when the whole sitting ends by closing.
   const [bookingRules, setBookingRules] = useState(null);
+  // Whether those two have actually ARRIVED. openHours null can be a real
+  // answer (hours never declared), so it cannot say this by itself — and the
+  // stand's drop-in row may claim "free now" / "approx. 20.30" only from the
+  // venue's own turn times and closing time, never from defaults.
+  const [rulesLoaded, setRulesLoaded] = useState(false);
   useEffect(() => {
     let alive = true;
-    api.get("/reservations/settings")
+    // A paired door device has no session and cannot reach /settings (its
+    // calls are rewritten onto /stand/<token>/…, where only the wrapped reads
+    // exist). It reads the same keys from its own read-only door: turn times,
+    // the table-joining rule and the hours (stand_link.py, booking-rules).
+    api.get(isStandDevice ? "/reservations/booking-rules" : "/reservations/settings")
       .then((r) => {
         if (!alive) return;
         // Undeclared hours are unknown, not "closed every day" — see
         // bookableHoursFromSettings. The waitlist reads the same state.
         setOpenHours(bookableHoursFromSettings(r.data));
         setBookingRules(r.data?.settings || null);
+        setRulesLoaded(!!r.data?.settings);
       })
-      .catch(() => {});
+      // Not loaded stays not loaded: the pickers offer every quarter and the
+      // drop-in row says nothing it cannot know.
+      .catch(() => { if (alive) setRulesLoaded(false); });
     return () => { alive = false; };
-  }, []);
+  }, [isStandDevice]);
   const [creating, setCreating] = useState(false);
   const [roomFull, setRoomFull] = useState(null); // {seats} on 409 room_full
   const [createError, setCreateError] = useState("");
@@ -4581,9 +4633,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   };
 
   // Seat a walk-in NOW on a free table → the table goes occupied (seated).
-  const seatWalkIn = async ({ resource_id, party_size, guest_name }) => {
+  // `resource_ids` (2+) seats them across tables pushed together, all held or
+  // none — the joined set the booking engine itself would use.
+  const seatWalkIn = async ({ resource_id = null, resource_ids = null, party_size, guest_name }) => {
     setSeating(true);
     setError("");
+    const joined = Array.isArray(resource_ids) && resource_ids.length > 1;
     try {
       const now = new Date();
       const pad = (n) => String(n).padStart(2, "0");
@@ -4592,7 +4647,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         guest_name,
         party_size,
         starts_at: startsAt,
-        resource_id,
+        ...(joined ? { resource_id: null, resource_ids } : { resource_id }),
         source: "walk_in",
         status: "seated",
       });
@@ -4612,7 +4667,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       const code = e?.response?.data?.detail?.error;
       // Chosen table just got taken (race, or the picker's 60s view was stale)
       // → honest message, never a silent double-seat.
-      if (e?.response?.status === 409 && code === "slot_unavailable") {
+      if (e?.response?.status === 409 && joined && (code === "slot_unavailable" || code === "room_full")) {
+        setError(
+          t("rsvpSeatTablesTaken", "Those tables are no longer free together — pick another table."),
+        );
+      } else if (e?.response?.status === 409 && code === "slot_unavailable") {
         setError(
           t("rsvpSeatTableTaken", "That table is now taken — pick another free table."),
         );
@@ -4631,24 +4690,28 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     }
   };
 
-  // The stand's one-tap drop-in. A size with a fitting table free for a whole
-  // sitting seats them there at once (the smallest table that fits) and says
-  // where, with "Skift bord" one tap away. "6+" opens the seat sheet on 6 —
-  // the exact size is the host's to say. No table free: the Venteliste form
-  // opens with the party size filled in (it needs a phone to text them).
+  // The stand's one-tap drop-in. A size with a seating free for a whole
+  // sitting seats them there at once — the smallest table that fits, or the
+  // tables the engine pushes together — and says where, with "Skift bord"
+  // one tap away. "6+" opens the seat sheet on 6 — the exact size is the
+  // host's to say. No table free: the Venteliste form opens with the party
+  // size filled in (it needs a phone to text them). Rules not loaded: no
+  // claim was made, so no one-tap seat either — the seat sheet opens on the
+  // size and the host picks the table.
   const walkInTap = async (opt) => {
     if (seating) return;
     setWalkInDone(null);
     if (opt.freeNow && opt.size < WALK_IN_SIZES[WALK_IN_SIZES.length - 1]) {
+      const joined = Array.isArray(opt.tableIds) && opt.tableIds.length > 1;
       const row = await seatWalkIn({
-        resource_id: opt.tableId,
+        ...(joined ? { resource_ids: opt.tableIds } : { resource_id: opt.tableId }),
         party_size: opt.size,
         guest_name: t("rsvpWalkIn", "Drop-in"),
       });
       if (row) setWalkInDone({ row, label: opt.label, size: opt.size });
       return;
     }
-    if (opt.freeNow) {
+    if (opt.freeNow || opt.unknown) {
       setError("");
       setSeatParty(opt.size);
       setSeatTarget(SEAT_WALK_IN_PICK);
@@ -5143,16 +5206,38 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // another day. Recomputed on the 60s tick, like the floor.
   const standCovers = useMemo(() => coverCounts(reservations), [reservations]);
   const showStandNow = standalone && isViewingToday && !isProvider;
+  // The venue's own table-joining rule (on unless switched off, at most 3).
+  const combine = useMemo(() => comboRules(bookingRules), [bookingRules]);
   const walkIns = useMemo(() => {
     if (!showStandNow || !tableFloor || assignableTables.length === 0) return null;
+    // Without the venue's turn times and closing time there is no "free now"
+    // and no "approx." — a 90-minute guess in a room that never closes told
+    // the door "free now" where the owner's stand said "approx. 20.30". The
+    // buttons still work: each opens the seat sheet on its size.
+    if (!rulesLoaded) return WALK_IN_SIZES.map((size) => ({ size, unknown: true, freeNow: false, at: null }));
     return walkInOptions({
       reservations,
       resources: assignableTables,
       nowMs: nowTs,
       sittingFor: (n) => sittingMinutes(n, bookingRules),
       closeMs: closeMsFor(day, openHours),
+      combine,
     });
-  }, [showStandNow, tableFloor, assignableTables, reservations, nowTs, bookingRules, day, openHours]);
+  }, [showStandNow, tableFloor, assignableTables, reservations, nowTs, bookingRules, day, openHours, rulesLoaded, combine]);
+  // The seat sheet's joined-tables suggestion: the tables the engine would
+  // push together for n guests sitting down now — only once the rules are in.
+  const joinedFor = useMemo(() => {
+    if (!rulesLoaded || !tableFloor || !combine?.enabled) return null;
+    return (n) =>
+      joinedSeatingNow({
+        reservations,
+        resources: assignableTables,
+        nowMs: nowTs,
+        size: n,
+        sittingMin: sittingMinutes(n, bookingRules),
+        combine,
+      });
+  }, [rulesLoaded, tableFloor, combine, reservations, assignableTables, nowTs, bookingRules]);
   // One canonical seat count: the booking engine's own venue total. Fall back
   // to the raw reduce ONLY when an older API doesn't return the field.
   const totalCapacity = useMemo(
@@ -6150,11 +6235,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       </div>
 
       {/* Host stand: drop-in by party size. One tap seats a party where a
-          fitting table is free for their whole sitting (the smallest that
-          fits); otherwise the Venteliste form opens with the size filled in.
-          Under each size: "Ledigt nu", or the time the first fitting table
-          frees, worked out from the booked ends and marked "ca." — or
-          nothing, when no fitting table's free time can be known.
+          seating is free for their whole sitting (the smallest table that
+          fits, else the tables the booking engine pushes together);
+          otherwise the Venteliste form opens with the size filled in.
+          Under each size: "Ledigt nu", or the first time such a seating
+          opens, worked out from the booked ends and marked "ca." — or
+          nothing, when that cannot be known (a party past its end at a table
+          that could take them). "—" until the venue's turn times and hours
+          have loaded: no claim is made from defaults.
           Not on the Plan lens: the room is fitted to the screen height, and
           this row cost it ~100px — at 1024×768 31/32/33 drew on top of each
           other and the tiles lost their "fri 20.15". There the floor is the
@@ -6164,23 +6252,30 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           aria-labelledby="rsvp-walkin-title"
           className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] px-3 py-2.5"
         >
-          <div className="flex items-center gap-3">
-            <div className="shrink-0 w-28 max-lg:w-24">
+          {/* Below md (a phone, also a paired device) the six sizes are a 3×2
+              grid under the title: in one row of six at 390px every button
+              was ~40px wide and "Ledigt nu" clipped to "L…". */}
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+            <div className="shrink-0 flex flex-wrap items-baseline gap-x-2 md:block md:w-24 lg:w-28">
               <div id="rsvp-walkin-title" className="flex items-center gap-1.5 text-sm font-semibold text-gray-900 dark:text-gray-100">
                 <Footprints className="w-4 h-4 text-gray-500 dark:text-gray-400" aria-hidden />
                 {t("rsvpSeatWalkInShort", "Drop-in")}
               </div>
-              <div className="mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+              <div className="md:mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
                 {walkIns.some((o) => !o.freeNow && o.at)
                   ? t("rsvpWalkInAboutHow", "approx. = worked out from the bookings' end times")
                   : t("rsvpWalkInHint", "Tap the number of guests")}
               </div>
             </div>
-            <div className="grid grid-cols-6 gap-2 flex-1 min-w-0">
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-2 flex-1 min-w-0" data-walkin-grid>
               {walkIns.map((o) => {
                 const sizeLabel = o.size === WALK_IN_SIZES[WALK_IN_SIZES.length - 1] ? `${o.size}+` : String(o.size);
                 const atText = !o.freeNow && o.at ? fmtTime(new Date(o.at).toISOString()) : null;
-                const aria = o.freeNow
+                // Rules not loaded yet: no claim either way — the tap opens the
+                // seat sheet on this size, and the button says only that.
+                const aria = o.unknown
+                  ? t("rsvpWalkInPickAria", "{n} guests: choose a table", { n: sizeLabel })
+                  : o.freeNow
                   ? sizeLabel.endsWith("+")
                     ? t("rsvpWalkInSheetAria", "{n} guests: a table is free now — choose the size and table", { n: sizeLabel })
                     : t("rsvpWalkInSeatAria", "{n} guests: seat now at {table}", { n: sizeLabel, table: o.label || "" })
@@ -6192,11 +6287,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                     key={o.size}
                     type="button"
                     data-walkin={o.size}
+                    data-walkin-state={o.unknown ? "unknown" : o.freeNow ? "free" : atText ? "wait" : "none"}
                     disabled={seating}
                     onClick={() => walkInTap(o)}
                     aria-label={aria}
                     title={aria}
-                    className="h-16 min-w-0 rounded-lg border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] hover:bg-gray-100 dark:hover:bg-[rgb(var(--surface-raised))] active:scale-[0.98] transition flex flex-col items-center justify-center gap-0.5 disabled:opacity-50"
+                    className="h-14 md:h-16 min-w-0 rounded-lg border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] hover:bg-gray-100 dark:hover:bg-[rgb(var(--surface-raised))] active:scale-[0.98] transition flex flex-col items-center justify-center gap-0.5 disabled:opacity-50"
                   >
                     <span className="inline-flex items-center gap-1 text-lg font-semibold leading-none tabular-nums text-gray-900 dark:text-gray-100">
                       <Users className="w-4 h-4 text-gray-400 dark:text-gray-500" aria-hidden />
@@ -6208,7 +6304,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                         (o.freeNow ? "text-emerald-700 dark:text-emerald-400" : "text-gray-500 dark:text-gray-400")
                       }
                     >
-                      {o.freeNow
+                      {o.unknown
+                        ? "—"
+                        : o.freeNow
                         ? t("rsvpWalkInFreeNow", "Free now")
                         : atText
                           ? t("rsvpWalkInAbout", "approx. {time}", { time: atText })
@@ -6755,6 +6853,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           onSeat={seatWalkIn}
           onClose={() => { setSeatTarget(null); setSeatParty(null); }}
           initialParty={seatParty}
+          joinedFor={joinedFor}
         />,
         document.body,
       )}

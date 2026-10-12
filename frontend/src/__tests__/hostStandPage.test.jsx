@@ -9,7 +9,12 @@
  *   • covers in the header: seated / expected / finished, guests and parties;
  *   • a finished party reads seated → left and the time at the table, and the
  *     finished list runs in the order they sat down;
- *   • the floor joins the tables a combined party sits at.
+ *   • the floor joins the tables a combined party sits at;
+ *   • on the paired door device (/stand/<token>) the row claims nothing until
+ *     the venue's own turn times and hours have arrived — from the device's
+ *     own read-only door, never /settings;
+ *   • a party only joined tables seat reads "Free now" and one tap seats them
+ *     there; on a phone the six sizes are a 3×2 grid.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
@@ -74,11 +79,16 @@ const BOOK = [
   row("h", "Juhl", null, "confirmed", "19:45", "21:45", 4),
 ];
 
-function mockApi() {
+const RULES = {
+  settings: { turn_time_tiers: [{ up_to: 2, minutes: 90 }, { up_to: 8, minutes: 120 }], default_duration_min: 90 },
+  hours_declared: false,
+};
+
+// `over` answers chosen urls differently: { url: () => Promise }.
+function mockApi(over = {}) {
   api.get.mockImplementation((url) => {
-    if (url === "/reservations/settings") {
-      return Promise.resolve({ data: { settings: { turn_time_tiers: [{ up_to: 2, minutes: 90 }, { up_to: 8, minutes: 120 }], default_duration_min: 90 }, hours_declared: false } });
-    }
+    if (over[url]) return over[url]();
+    if (url === "/reservations/settings") return Promise.resolve({ data: RULES });
     if (url === "/reservations/book") {
       return Promise.resolve({ data: { date: DAY, reservations: BOOK, summary: { total: BOOK.length, covers: 0, by_status: {} } } });
     }
@@ -104,12 +114,14 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
-const renderStand = () =>
+const renderStand = (path = "/reservations/stand") =>
   render(
-    <MemoryRouter initialEntries={["/reservations/stand"]}>
+    <MemoryRouter initialEntries={[path]}>
       <ReservationsPage />
     </MemoryRouter>,
   );
+const walkinText = () =>
+  [...document.querySelectorAll("[data-walkin]")].map((b) => b.textContent.replace(/\s+/g, " ").trim());
 const sizeButton = async (n) => {
   await waitFor(() => expect(document.querySelector(`[data-walkin="${n}"]`)).not.toBeNull());
   return document.querySelector(`[data-walkin="${n}"]`);
@@ -146,6 +158,100 @@ describe("drop-in by party size", () => {
     const venteliste = document.getElementById("rsvp-venteliste");
     const chip = within(venteliste).getByRole("button", { name: "4 guests" });
     expect(chip).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+describe("the paired door device", () => {
+  const DEVICE = "/stand/tok-door-1";
+
+  it("claims nothing until the venue's turn times and hours arrive — then the same answers as the owner's stand", async () => {
+    let arrive;
+    mockApi({
+      "/reservations/booking-rules": () => new Promise((res) => { arrive = () => res({ data: RULES }); }),
+      // What the device met before: /settings rewritten onto the stand prefix, 404.
+      "/reservations/settings": () => Promise.reject({ response: { status: 404, data: { detail: { error: "not_found" } } } }),
+    });
+    renderStand(DEVICE);
+    await sizeButton(1);
+    const texts = walkinText();
+    expect(texts).toHaveLength(6);
+    for (const x of texts) {
+      expect(x).not.toMatch(/Free now|approx\./);
+      expect(x).toContain("—");
+    }
+    expect([...document.querySelectorAll("[data-walkin]")].every((b) => b.dataset.walkinState === "unknown")).toBe(true);
+    const asked = api.get.mock.calls.map((c) => c[0]);
+    expect(asked).toContain("/reservations/booking-rules");
+    expect(asked).not.toContain("/reservations/settings");
+
+    // A tap still helps the host: the seat sheet opens on that size, and
+    // nothing is seated by a guess.
+    fireEvent.click(await sizeButton(3));
+    expect(await screen.findByRole("dialog", { name: "Seat guests" })).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    arrive();
+    await waitFor(() => expect((document.querySelector('[data-walkin="1"]')).textContent).toContain("Free now"));
+    expect(document.querySelector('[data-walkin="3"]').textContent).toContain("approx. 20.15");
+  });
+
+  it("stays silent when the device cannot read the rules at all", async () => {
+    mockApi({ "/reservations/booking-rules": () => Promise.reject({ response: { status: 404 } }) });
+    renderStand(DEVICE);
+    await sizeButton(1);
+    await waitFor(() => expect(api.get.mock.calls.map((c) => c[0])).toContain("/reservations/booking-rules"));
+    expect(walkinText().join(" ")).not.toMatch(/Free now|approx\./);
+  });
+});
+
+describe("joined tables at the door", () => {
+  // Every single table that seats five or six is taken; 51 + 52 are a free,
+  // joinable pair — the set the booking engine would seat them at.
+  const JOINABLE = [
+    ...RESOURCES,
+    { ...table("51", 4, 70, 40), combinable: true },
+    { ...table("52", 2, 80, 40), combinable: true },
+  ];
+  const withJoinable = () => mockApi({
+    "/reservations/resources": () => Promise.resolve({ data: { resources: JOINABLE, fixtures: [], venue_seats_total: 30 } }),
+  });
+
+  it("says Free now for five and one tap seats them across both tables", async () => {
+    withJoinable();
+    renderStand();
+    await waitFor(async () => expect((await sizeButton(5)).textContent).toContain("Free now"));
+    fireEvent.click(await sizeButton(5));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    const [url, body] = api.post.mock.calls[0];
+    expect(url).toBe("/reservations/book");
+    expect(body).toMatchObject({ resource_id: null, resource_ids: ["51", "52"], party_size: 5, status: "seated", source: "walk_in" });
+    expect(await screen.findByText("5 guests seated at 51 + 52")).toBeInTheDocument();
+  });
+
+  it("6+ opens the seat sheet with the joined tables already picked", async () => {
+    withJoinable();
+    renderStand();
+    await waitFor(async () => expect((await sizeButton(6)).textContent).toContain("Free now"));
+    fireEvent.click(await sizeButton(6));
+    const dialog = await screen.findByRole("dialog", { name: "Seat guests" });
+    expect(within(dialog).getByText("51 + 52 · 6 seats")).toBeInTheDocument();
+    expect(within(dialog).getByRole("combobox", { name: "Table" })).toHaveValue("__joined");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(api.post.mock.calls[0][1]).toMatchObject({ resource_id: null, resource_ids: ["51", "52"], party_size: 6 });
+  });
+});
+
+describe("the drop-in row on a phone", () => {
+  it("is a 3×2 grid below md, six across from md up", async () => {
+    renderStand();
+    await sizeButton(1);
+    const grid = document.querySelector("[data-walkin-grid]");
+    expect(grid).not.toBeNull();
+    expect(grid.className).toMatch(/(^|\s)grid-cols-3(\s|$)/);
+    expect(grid.className).toMatch(/(^|\s)md:grid-cols-6(\s|$)/);
+    expect(grid.className).not.toMatch(/(^|\s)grid-cols-6(\s|$)/);
   });
 });
 
