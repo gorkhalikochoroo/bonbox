@@ -17,6 +17,14 @@ Decision (locked, see Manoj's audit #224):
 This is per-date precedence, NOT range-level — day X with confirmed close
 uses the close, day Y without close uses sale-sum.
 
+Multi-branch (Push 8): the precedence is per BRANCH, then summed per date.
+Every branch files its own close (UNIQUE user, branch, date), and the old
+{date: close} dict kept one of them — branch A 1.000 + branch B 2.500 read as
+one branch. Now each confirmed close counts; a branch's close wins over its
+own Sale rows; a branch with Sale rows and no close that day adds them; a
+close with no branch (single location, legacy) covers the whole day and an
+unattributed Sale on a closed day is taken as in a till — both as before.
+
 Tenant scoping is automatic because every helper filters by user_id.
 Callers MUST pass the correct user_id; never trust client input.
 """
@@ -67,8 +75,10 @@ def effective_revenue_by_date(
     # Step 1 — confirmed closes win. is_deleted IS NOT TRUE (not "== False")
     # because SQLite stores boolean as int and rows with NULL would slip
     # past `== False`. Same pattern Sale queries use across dashboard.py.
+    # One close per branch per date: every one of them counts (summed), and
+    # the branches that closed are remembered for step 2.
     close_q = (
-        db.query(DailyClose.date, DailyClose.revenue_total)
+        db.query(DailyClose.date, DailyClose.branch_id, DailyClose.revenue_total)
         .filter(
             DailyClose.user_id == user_id,
             DailyClose.date >= start_date,
@@ -79,13 +89,17 @@ def effective_revenue_by_date(
     )
     if branch_id is not None:
         close_q = close_q.filter(DailyClose.branch_id == branch_id)
-    result: dict[date, float] = {
-        d: float(rev or 0) for d, rev in close_q.all()
-    }
+    result: dict[date, float] = {}
+    closed_branches: dict[date, set] = {}
+    for d, b, rev in close_q.all():
+        result[d] = result.get(d, 0.0) + float(rev or 0)
+        closed_branches.setdefault(d, set()).add(b)
 
-    # Step 2 — Sale fallback for dates without a confirmed close.
+    # Step 2 — Sale fallback, per branch: a branch's Sale rows count only on
+    # a date that branch has no confirmed close.
     sale_q = (
-        db.query(Sale.date, func.coalesce(func.sum(Sale.amount), 0).label("total"))
+        db.query(Sale.date, Sale.branch_id,
+                 func.coalesce(func.sum(Sale.amount), 0).label("total"))
         .filter(
             Sale.user_id == user_id,
             Sale.date >= start_date,
@@ -96,16 +110,19 @@ def effective_revenue_by_date(
     )
     if branch_id is not None:
         sale_q = sale_q.filter(Sale.branch_id == branch_id)
-    sale_rows = sale_q.group_by(Sale.date).all()
-    for d, total in sale_rows:
-        if d in result:
-            # Confirmed close already wins — Sale rows on this date are
-            # treated as already-reflected in the close total (the owner
-            # closes against the same till the sales rang up on).
+    sale_rows = sale_q.group_by(Sale.date, Sale.branch_id).all()
+    for d, b, total in sale_rows:
+        closed = closed_branches.get(d)
+        if closed is not None and (b in closed or None in closed or b is None):
+            # Already reflected in a close (the owner closes against the
+            # same till the sales rang up on): the branch's own close; a
+            # close with no branch, which covers the day; or a Sale with no
+            # branch on a closed day, which cannot be told apart from a
+            # till's.
             continue
         amt = float(total or 0)
         if amt:
-            result[d] = amt
+            result[d] = result.get(d, 0.0) + amt
 
     return result
 
