@@ -54,8 +54,9 @@ import { formatHours, hoursUnit } from "../utils/hours";
 // "Has anyone actually opened their link?" — three outcomes, never a boolean.
 // null (we never asked / the call failed) must not render as "nobody has",
 // and it must never render as the sentence claiming the team can see the week.
-import { summarizePortalReach, linkWasOpened } from "../utils/portalReach";
-import { formatDateClear, dateLocale } from "../utils/dateFormat";
+import { summarizePortalReach, linkWasOpened, teamReach, staffReachState } from "../utils/portalReach";
+import StaffInviteSheet, { StaffReachStatus } from "../components/StaffInviteSheet";
+import { dateLocale } from "../utils/dateFormat";
 import { saveFile } from "../utils/download";
 import { expectedWeekLabor } from "../utils/weekLaborPct";
 // The 11-hour / 48-hour checks the shift sheet runs BEFORE saving — mirrors
@@ -77,7 +78,7 @@ import { useLocation, Link as RouterLink } from "react-router-dom";
 import ClaimQuestionResend from "../components/ClaimQuestionResend";
 import { heldReasonForUser, heldReasonFromError, HELD_CLAIM_OPEN } from "../utils/senderGate";
 import { emailOk } from "../utils/guestContact";
-import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPin, MapPinOff, CalendarOff, Lock, LockKeyholeOpen, StickyNote } from "lucide-react";
+import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPin, MapPinOff, CalendarOff, Lock, LockKeyholeOpen, StickyNote, Send } from "lucide-react";
 import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
 // Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
 // EMPTY cell (different staff and/or day) to REASSIGN it. dnd-kit gives us an
@@ -2666,6 +2667,41 @@ export default function StaffSchedulePage() {
     }
   }, []);
 
+  // WHO IS IN, AT A GLANCE. The owner asked to see who has joined without
+  // opening anything, so the answer is fetched when the page has a team to
+  // ask about — not only when a sheet or the roster opens. Owner seats only:
+  // the endpoint is owner-only, and a manager/viewer seat (or a curtained
+  // shared device) must not fire a call we know is refused. Re-asked when the
+  // roster size changes, so a person added a moment ago gets their status
+  // (and their link) without a reload. A failed call leaves the map empty,
+  // which every status renders as NOTHING — never as "not opened".
+  const activeCount = activeStaff.length;
+  useEffect(() => {
+    if (isStaffSeat || activeCount === 0) return;
+    loadShareLinks();
+  }, [isStaffSeat, activeCount, loadShareLinks]);
+  const team = useMemo(() => teamReach(activeStaff, shareOpened), [activeStaff, shareOpened]);
+
+  // The team panel's DOM anchor. The empty schedule's "Tilføj medarbejdere"
+  // and the reach line under the toolbar both land the owner here: open, in
+  // view, and (for the first person) the cursor in the name field. On a phone
+  // the panel sits under the day view, ~1.4 screens below the button — an
+  // expand with no scroll looked like a button that did nothing.
+  const teamPanelRef = useRef(null);
+  const openTeamPanel = ({ focusName = false } = {}) => {
+    if (!showManageStaff) loadShareLinks();
+    setShowManageStaff(true);
+    requestAnimationFrame(() => {
+      const el = teamPanelRef.current;
+      el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+      if (focusName) {
+        // preventScroll: the smooth scroll above owns the motion; a focus
+        // jump would cut it short and land the field under the top bar.
+        el?.querySelector?.('[data-team-name-input]')?.focus?.({ preventScroll: true });
+      }
+    });
+  };
+
   const openShareSheet = () => {
     // Default selection = everyone active (the "share to all" path; owner
     // unchecks who they don't want).
@@ -3099,10 +3135,15 @@ export default function StaffSchedulePage() {
                   loadShareLinks();
                   setHandoffSheet(true);
                 }}
-                disabled={sharing || emailing || exporting}
+                // With nobody on the team every door behind this button is
+                // empty (no links to copy, nobody to mail, a blank PDF). Dead,
+                // and its title says why, rather than a chooser of nothing.
+                disabled={sharing || emailing || exporting || activeStaff.length === 0}
                 busy={sharing || emailing || exporting}
                 iconLeft={!(sharing || emailing || exporting) && <Icon name="Share2" size={14} />}
-                title={t("schedHandoffTitle", "Choose how this week reaches your staff")}
+                title={activeStaff.length === 0
+                  ? t("schedShareNeedsStaff")
+                  : t("schedHandoffTitle", "Choose how this week reaches your staff")}
               >
                 <span className="hidden sm:inline">{t("schedHandoffButton", "Share week")}</span>
                 <span className="sm:hidden">{t("scheduleShareButtonShort", "Share")}</span>
@@ -3142,61 +3183,62 @@ export default function StaffSchedulePage() {
               Now it states what `last_accessed` on the staff links actually
               says, in three outcomes:
                 • portalReach === null — we have not asked the server (the call
-                  is owner-only and deliberately not made on mount). Render
-                  NOTHING. Silence is the only honest output for "unknown"; the
-                  zero-state below would be a different, equally wrong claim.
-                • opened > 0 — say how many, and keep the store link.
+                  is owner-only; it is made on mount for owner seats with a
+                  team, see `team` above). Render NOTHING. Silence is the only
+                  honest output for "unknown"; the zero-state below would be a
+                  different, equally wrong claim.
+                • opened > 0 — say how many are in, and point at WHO: the team
+                  list is where each person's status and "Invitér" live. (This
+                  line used to end in a bare "App Store" link with nothing
+                  saying what app or for whom; the app now lives in the invite
+                  sheet, next to the code that signs a staffer into it.)
                 • opened === 0 — say so plainly and hand over the control that
-                  fixes it. Not a dead end: it opens the same hand-off chooser
-                  as the toolbar button. */}
+                  fixes it: the team list, where every row has "Invitér". */}
           {portalReach && portalReach.staff > 0 && (
-            portalReach.opened > 0 ? (
-              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-gray-400 dark:text-gray-500">
+            !team ? null : team.joined > 0 ? (
+              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-gray-500 dark:text-gray-400">
                 {/* No leading icon: a 14px Lucide "Smartphone" is a bare rounded
                     rectangle at this size and read as a missing-glyph box rather
                     than an icon. */}
                 <span>
-                  {/* "staff links", not "your team": the denominator is the
-                      rows this endpoint returned — one per non-deleted staff
-                      member, which can include someone deactivated. Counting
-                      links is the thing we actually measured, so that is what
-                      the sentence names. */}
+                  {/* Active staff the server answered for (`team`), not every
+                      link row: the endpoint also returns deactivated people,
+                      and "2 of 6 are in" with a leaver in the 6 is a count the
+                      owner cannot reconcile with the team list below. */}
                   {t(
                     "scheduleStaffOpenedCount",
-                    "{opened} of {total} staff links have been opened",
-                    { opened: portalReach.opened, total: portalReach.staff },
+                    { opened: team.joined, total: team.total },
                   )}
                 </span>
-                {/* The separator travels WITH the link — on a phone the line broke
-                    after the "·", orphaning it at the end of the first line. */}
+                {/* The separator travels WITH the action — on a phone the line
+                    broke after the "·", orphaning it at the end of the first line. */}
                 <span className="whitespace-nowrap">
                   <span aria-hidden="true">·</span>{" "}
-                  <a
-                    href="https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+                  <button
+                    type="button"
+                    onClick={() => openTeamPanel()}
+                    className="font-medium text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white underline-offset-2 hover:underline transition-colors"
                   >
-                    {t("appStore", "App Store")}
-                  </a>
+                    {t("scheduleStaffSeeWho")}
+                  </button>
                 </span>
               </div>
             ) : (
               <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-amber-700 dark:text-amber-400">
-                <Icon name="AlertTriangle" size={13} className="shrink-0" />
+                <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-500" aria-hidden="true" />
                 <span>
-                  {t(
-                    "scheduleStaffNoneOpened",
-                    "No one has opened their schedule link yet",
-                  )}
+                  {t("scheduleStaffNoneOpened")}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => { loadShareLinks(); setHandoffSheet(true); }}
-                  className="font-semibold underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-300 transition-colors"
-                >
-                  {t("schedHandoffButton", "Share week")}
-                </button>
+                <span className="whitespace-nowrap">
+                  <span aria-hidden="true">·</span>{" "}
+                  <button
+                    type="button"
+                    onClick={() => openTeamPanel()}
+                    className="font-semibold underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-300 transition-colors"
+                  >
+                    {t("scheduleStaffInviteThem")}
+                  </button>
+                </span>
               </div>
             )
           )}
@@ -3288,28 +3330,50 @@ export default function StaffSchedulePage() {
       )}
 
 
-      {/* Manage Staff collapsible */}
+      {/* Dit team — the one place a person is added, invited and checked on.
+          The header carries the at-a-glance answer ("2 ikke med endnu" /
+          "Alle er med") so the owner does not have to open it to know. */}
       <FadeIn delay={0.1} className="order-1">
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+        <div
+          ref={teamPanelRef}
+          id="manage-staff"
+          className="scroll-mt-20 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700"
+        >
           <button
             onClick={() => {
-              // Fetch the codes on EXPAND, not on mount: this is owner-only
-              // data and most visits to the schedule never open the roster.
-              // From the click handler rather than an effect so the state
-              // write stays in an event, per react-hooks/set-state-in-effect.
+              // Re-ask on EXPAND too: the mount fetch may be minutes old, and
+              // this is the moment the owner looks at who is in. From the
+              // click handler so the state write stays in an event.
               if (!showManageStaff) loadShareLinks();
               setShowManageStaff(!showManageStaff);
             }}
             aria-expanded={showManageStaff}
-            className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40 transition rounded-xl"
+            className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40 transition rounded-xl"
           >
-            <span className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-              <Icon name="Users" size={16} className="text-gray-500" /> {t("schedManageStaff", "Manage Staff")}
-              <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
-                ({activeStaff.length} {t("schedActiveCount", "active")})
+            <span className="min-w-0 flex-1 flex items-center gap-2 font-semibold text-gray-900 dark:text-gray-100">
+              <Icon name="Users" size={16} className="shrink-0 text-gray-500" />
+              <span>{t("schedManageStaff", "Manage Staff")}</span>
+              <span className="text-xs font-normal text-gray-500 dark:text-gray-400 tabular-nums">
+                {activeStaff.length}
               </span>
             </span>
-            <Icon name="ChevronDown" size={16} className={`text-gray-500 transition-transform ${showManageStaff ? "rotate-180" : ""}`} />
+            {team && (
+              <span
+                className={`shrink-0 inline-flex items-center gap-1.5 text-[12px] font-medium ${
+                  team.notYet > 0 ? "text-amber-700 dark:text-amber-400" : "text-gray-600 dark:text-gray-300"
+                }`}
+                data-testid="team-reach-chip"
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${team.notYet > 0 ? "bg-amber-500" : "bg-emerald-500"}`}
+                  aria-hidden="true"
+                />
+                {team.notYet > 0
+                  ? t("teamNotInYet", { n: team.notYet })
+                  : t("teamAllIn")}
+              </span>
+            )}
+            <Icon name="ChevronDown" size={16} className={`shrink-0 text-gray-500 transition-transform ${showManageStaff ? "rotate-180" : ""}`} />
           </button>
           {showManageStaff && (
             <StaffPanel
@@ -3318,6 +3382,7 @@ export default function StaffSchedulePage() {
               onRefresh={fetchStaff}
               branchId={branchId}
               joinCodes={shareCodes}
+              openedMap={shareOpened}
               onCodeMinted={(id, code) =>
                 setShareCodes((prev) => ({ ...prev, [id]: code }))
               }
@@ -3494,7 +3559,11 @@ export default function StaffSchedulePage() {
               </p>
               <button
                 type="button"
-                onClick={() => setShowManageStaff(true)}
+                // Open the team panel AND take the owner to it, with the
+                // cursor in the name field. On a phone it opened ~1.4 screens
+                // further down with no scroll: the page's only button seemed
+                // to do nothing (first-15 walk, 12 Oct).
+                onClick={() => openTeamPanel({ focusName: true })}
                 className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gray-900 text-white px-5 py-2.5 text-sm font-semibold hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
               >
                 <Icon name="Users" size={16} />
@@ -3927,8 +3996,11 @@ export default function StaffSchedulePage() {
           onShare={() => {
             setPublishConfirm(null);
             setPublishResult(null);
-            loadShareLinks();
-            setHandoffSheet(true);
+            // Straight to the links. This is only offered when NOBODY was
+            // told — the normal case for a new owner, whose staff have no
+            // e-mail — so the three-way chooser's mail row could not work
+            // here, and it cost a tap and a read before the link sheet.
+            openShareSheet();
           }}
           t={t}
         />
@@ -4111,19 +4183,9 @@ export default function StaffSchedulePage() {
                           staffer (the key is present): an absent key means we
                           did not ask, and "we did not ask" must not print as
                           "never opened". */}
-                      {Object.prototype.hasOwnProperty.call(shareOpened, s.id) && (
-                        <div
-                          className={`text-[11px] truncate ${
-                            shareOpened[s.id]
-                              ? "text-gray-400 dark:text-gray-500"
-                              : "text-amber-700 dark:text-amber-500"
-                          }`}
-                        >
-                          {shareOpened[s.id]
-                            ? t("shareLinkOpened", "Opened {date}", { date: formatDateClear(shareOpened[s.id]) })
-                            : t("shareLinkNeverOpened", "Never opened")}
-                        </div>
-                      )}
+                      {/* Same words and dots as the team list, from the same
+                          helper — one vocabulary for "is this person in". */}
+                      <StaffReachStatus lastAccessed={shareOpened[s.id]} className="max-w-full" />
                     </div>
                     {/* Extra PIN lock — hidden unless the owner opened the
                         "Extra security" section, OR this link already has a
@@ -4192,7 +4254,7 @@ export default function StaffSchedulePage() {
                 {shareBusy
                   ? t("shareWorking", "Preparing…")
                   : shareCopiedN > 0
-                    ? (<><Icon name="Check" size={14} />{`${shareCopiedN} ${t("shareCopiedLinks", "links copied")}`}</>)
+                    ? (<><Icon name="Check" size={14} />{`${shareCopiedN} ${shareCopiedN === 1 ? t("shareCopiedLink") : t("shareCopiedLinks", "links copied")}`}</>)
                     : (<><Icon name="Copy" size={14} />{`${t("shareCopyLinks", "Copy")} ${shareSel.size} ${shareSel.size === 1 ? t("shareLinkWord", "link") : t("shareLinksWord", "links")}`}</>)}
               </button>
               <button
@@ -5194,17 +5256,16 @@ function staffSaveErrText(err, t, fallback) {
   return errText(err, fallback);
 }
 
-function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCodeMinted }) {
+// The add-staff fields: 40px tall, 13px text — the phone control size used
+// across the app (and comfortably tappable at a desk too).
+const TEAM_FIELD =
+  "h-10 min-w-0 px-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-[13px] placeholder-gray-400 dark:placeholder-gray-400 focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none";
+
+function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, openedMap = {}, onCodeMinted }) {
   // Wage rates are money — same reasoning as StaffDetailModal above.
   const mLocale = moneyLocale(currency);
-  const catFor = useCatFor();
   const { t, lang } = useLanguage();
   const confirm = useConfirm();
-  // Which row's code was just copied. Local on purpose — the parent has its
-  // own copied-state for the Share sheet and the two should not fight over
-  // one flag. Cleared on a timer, and guarded so a later row's copy cannot
-  // be cleared by an earlier row's timeout.
-  const [codeCopied, setCodeCopied] = useState(null);
   // `user` is referenced below for the admin-only WhatsApp setup block
   // (`user?.is_admin`). The parent had it via useAuth() but sub-components
   // each need their own destructure — this exact pattern crashed the
@@ -5241,71 +5302,33 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
   // modal owns the edit now; `editForm` is the shared draft state it drives.
   const [detailMember, setDetailMember] = useState(null);
   const [panelError, setPanelError] = useState("");
-  const [linkModal, setLinkModal] = useState(null); // { staffName, portalUrl, loading }
-  const [linkCopied, setLinkCopied] = useState(false);
+  // The invite sheet (components/StaffInviteSheet): { member, link, loading }.
+  // One sheet for the row's "Invitér", the edit drawer's "Del link" and the
+  // just-added nudge — it replaced the "Del portal-link" dialog, which had
+  // copy + share but neither the code nor the app.
+  const [invite, setInvite] = useState(null);
+  // The person added a moment ago, for the one-tap "Invitér {name}" nudge
+  // under the form. Cleared when the owner starts typing the next person.
+  const [justAdded, setJustAdded] = useState(null);
 
   const generateLink = async (member) => {
-    setLinkModal({ staffName: member.name, portalUrl: null, loading: true });
+    setInvite({ member, link: null, loading: true });
     try {
+      // Idempotent: returns the staffer's existing link (rotating it would
+      // break the one they bookmarked) and a LIVE join code — the endpoint
+      // routes through _ensure_join_code, which re-mints a burned or expired
+      // one. The parent's code map is updated from it, so the bulk share
+      // sheet can never show an older code than this sheet.
       const res = await api.post(`/staff/members/${member.id}/link`);
-      const fullUrl = publicUrl(res.data.portal_url);
-      // This endpoint routes through _ensure_join_code, so its join_code is the
-      // one value guaranteed live — it re-mints a burned or expired one. The
-      // response used to be read for portal_url only and the code thrown away,
-      // which would leave the roster chip four lines above showing the OLD code
-      // right after the owner pressed the button that replaced it.
+      const url = publicUrl(res.data.portal_url);
+      const code = res.data.join_code || joinCodes[member.id] || "";
       if (res.data.join_code) onCodeMinted?.(member.id, res.data.join_code);
-      setLinkModal({ staffName: member.name, portalUrl: fullUrl, loading: false });
+      setInvite((cur) => (cur && cur.member.id === member.id
+        ? { member, link: { url, code }, loading: false }
+        : cur));
     } catch (err) {
       setPanelError(errText(err, t("stfLinkFailed", "Failed to generate link")));
-      setLinkModal(null);
-    }
-  };
-
-  const copyLink = async () => {
-    if (!linkModal?.portalUrl) return;
-    try {
-      await navigator.clipboard.writeText(linkModal.portalUrl);
-      setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 2000);
-    } catch {
-      // Fallback for older browsers
-      const input = document.createElement("input");
-      input.value = linkModal.portalUrl;
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand("copy");
-      document.body.removeChild(input);
-      setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 2000);
-    }
-  };
-
-  const shareLink = async () => {
-    if (!linkModal?.portalUrl) return;
-    if (navigator.share) {
-      const restaurant = user?.business_name || "BonBox";
-      const firstName = (linkModal.staffName || "").trim().split(/\s+/)[0] || linkModal.staffName;
-      try {
-        await navigator.share({
-          title: t("scheduleShareLinkTitle", "Your schedule · {restaurant}", { restaurant }),
-          text: t(
-            "scheduleShareText",
-            "Hi {name} 👋 Here's your personal link to your shifts, hours and tips at {restaurant}:",
-            { name: firstName, restaurant },
-          ),
-          url: linkModal.portalUrl,
-        });
-      } catch {
-        // The ONE catch on this page that is genuinely nothing: the OS share
-        // sheet rejects when the owner dismisses it. Nothing failed and
-        // nothing is claimed, so there is nothing to report — returning says
-        // that out loud rather than leaving an empty block to be read as an
-        // oversight.
-        return;
-      }
-    } else {
-      copyLink();
+      setInvite(null);
     }
   };
 
@@ -5317,8 +5340,9 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
     if (atSeatCap) return;
     setSaving(true);
     setPanelError("");
+    setJustAdded(null);
     try {
-      await api.post("/staff/members", {
+      const created = await api.post("/staff/members", {
         name: name.trim(),
         email: email.trim() || undefined,
         phone: phone.trim() || undefined,
@@ -5344,6 +5368,9 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
         })(),
         branch_id: branchId || undefined,
       });
+      // The created row (it carries the id and the phone the SMS door needs).
+      // Older/odd responses without an id simply get no nudge.
+      if (created?.data?.id) setJustAdded(created.data);
       setName("");
       setEmail("");
       setPhone("");
@@ -5504,36 +5531,173 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
   };
 
   return (
-    <div className="px-5 pb-5 space-y-4 border-t border-gray-100 dark:border-gray-700">
-      {/* Add form */}
-      <div className="pt-4">
+    <div className="px-5 pb-5 space-y-5 border-t border-gray-100 dark:border-gray-700">
+      {panelError && (
+        <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-2.5 text-red-700 dark:text-red-300 text-xs">
+          {panelError}
+        </div>
+      )}
+
+      {/* THE TEAM — one row per person: who they are, whether they are in,
+          and the one action that gets them in. The row used to carry a role
+          chip, a stray "@", the contract, an unlabelled 6-character code, the
+          rates and three icons (link, edit, a red bin) — on a 390px phone the
+          NAME was what got squeezed ("Emm…"). The code now lives, labelled, in
+          the invite sheet; "Deaktivér" in the edit drawer, one tap away, where
+          the confirm already names the person. */}
+      {staff.length > 0 && (
+        <div className="pt-3">
+          <h3 className="sr-only">{t("currentStaff")}</h3>
+          <ul className="divide-y divide-gray-100 dark:divide-gray-700/70" data-testid="team-list">
+            {staff.map((member) => {
+              const rates = getRateCard(member);
+              const isInactive = member.active === false;
+              const reach = staffReachState(openedMap[member.id]);
+              return (
+                <li
+                  key={member.id}
+                  className={`flex items-center gap-3 py-3 ${isInactive ? "opacity-60" : ""}`}
+                  data-staff-row={member.id}
+                >
+                  <span className="relative shrink-0 w-9 h-9 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-[13px] font-semibold text-gray-600 dark:text-gray-300" aria-hidden="true">
+                    {(member.name || "?").charAt(0).toUpperCase()}
+                    <StaffAvatar member={member} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    {/* The name opens the detail/edit drawer (#336) — for an
+                        inactive member too, read-only: the owner still has to
+                        get IN to clear a leaver's bank details. */}
+                    <button
+                      type="button"
+                      onClick={() => openDetail(member)}
+                      title={t("viewStaffDetails", "View details")}
+                      aria-label={`${t("viewStaffDetails", "View details")} — ${member.name}`}
+                      className="block max-w-full text-left text-sm font-medium text-gray-900 dark:text-white truncate cursor-pointer hover:underline underline-offset-2 decoration-gray-300 dark:decoration-gray-600 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400/40"
+                    >
+                      {member.name}
+                    </button>
+                    {/* Wraps rather than truncates: on a 390px phone the
+                        status ("Ikke åbnet endnu") is the point of the row,
+                        and "Ikke …" said nothing. Its own dot separates it. */}
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12px] text-gray-500 dark:text-gray-400">
+                      <span className="shrink-0">{roleName(member.role, t)}</span>
+                      <span className="hidden sm:inline shrink-0 text-gray-400 dark:text-gray-500">
+                        {contractLabel(member.contract_type, t)}
+                      </span>
+                      {isInactive ? (
+                        <span className="text-red-600 dark:text-red-400 font-medium">{t("inactive")}</span>
+                      ) : (
+                        <StaffReachStatus lastAccessed={openedMap[member.id]} className="shrink-0 max-w-full" />
+                      )}
+                    </div>
+                  </div>
+                  {/* Rate card — laptop only; the drawer has it in full. */}
+                  <div className="hidden lg:flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500 tabular-nums">
+                    {/* The rate read "185DKK/hr" — the raw Numeric straight
+                        out of the payload, no grouping, the currency CODE
+                        jammed against it and an English unit, on the one
+                        line of this roster that states a wage. Through the
+                        house formatter and utils/hours.js it reads
+                        "185 kr./t", the same notation as the Hours table's
+                        rate column. Øre survive (a real 137,50 kr./t is a
+                        rate people type); whole rates stay clean. */}
+                    <span title={t("baseRate")}>
+                      {t("baseRate")}: {rates.base == null
+                        ? "—"
+                        : `${formatOwnerMoney(rates.base, currency, { decimals: rateDecimals(rates.base) })}/${hoursUnit(lang)}`}
+                    </span>
+                    {rates.evening != null && (
+                      <span title={t("rateEvening", "Evening")}>{t("rateEveShort", "Eve")}: {formatOwnerMoney(rates.evening, currency, { decimals: rateDecimals(rates.evening) })}</span>
+                    )}
+                    {rates.weekend != null && (
+                      <span title={t("rateWeekend", "Weekend")}>{t("rateWkndShort", "Wknd")}: {formatOwnerMoney(rates.weekend, currency, { decimals: rateDecimals(rates.weekend) })}</span>
+                    )}
+                  </div>
+                  {!isInactive && (
+                    // Fixed width from lg up, so the rate column lines up
+                    // whether a row ends in "Invitér" or in the quiet icon.
+                    <div className="shrink-0 flex items-center justify-end gap-1 lg:w-[140px]">
+                      {/* Not in yet (or not known): the word. In already: a
+                          quiet icon — re-sending is rare, and a row of
+                          identical "Invitér" buttons would hide the people
+                          who still need one. */}
+                      {reach.state === "none" || reach.state === "unknown" ? (
+                        <button
+                          type="button"
+                          onClick={() => generateLink(member)}
+                          aria-label={`${t("staffInviteCta")} — ${member.name}`}
+                          className="h-10 px-3 inline-flex items-center gap-1.5 rounded-lg text-[13px] font-medium border border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition"
+                        >
+                          <Send className="w-3.5 h-3.5" aria-hidden="true" />
+                          {t("staffInviteCta")}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => generateLink(member)}
+                          title={t("staffInviteAgain")}
+                          aria-label={`${t("staffInviteAgain")} — ${member.name}`}
+                          className="w-10 h-10 inline-flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition"
+                        >
+                          <Send className="w-4 h-4" aria-hidden="true" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => openDetail(member)}
+                        title={t("editStaff", "Edit")}
+                        aria-label={`${t("editStaff", "Edit")} — ${member.name}`}
+                        className="w-10 h-10 inline-flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {/* ADD — a name is all it takes; the rest can wait for the drawer.
+          Phone before e-mail: a number is what lets the invite go by SMS. */}
+      <div className={staff.length > 0 ? "" : "pt-4"}>
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{t("addNewStaffMember")}</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+        <form
+          onSubmit={(e) => { e.preventDefault(); handleAdd(); }}
+          className="grid grid-cols-2 lg:grid-cols-[minmax(0,2fr)_repeat(5,minmax(0,1fr))_auto] gap-2.5"
+        >
           <input
             type="text"
+            data-team-name-input=""
             placeholder={t("staffName", "Name")}
+            aria-label={t("staffName", "Name")}
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
-          />
-          <input
-            type="email"
-            placeholder={t("schedEmailOptional", "Email (optional)")}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
+            onChange={(e) => { setName(e.target.value); if (justAdded) setJustAdded(null); }}
+            className={`col-span-2 lg:col-span-1 ${TEAM_FIELD}`}
           />
           <input
             type="tel"
             placeholder={t("schedPhoneOptional", "Phone (optional)")}
+            aria-label={t("schedPhoneOptional", "Phone (optional)")}
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
+            className={TEAM_FIELD}
+          />
+          <input
+            type="email"
+            placeholder={t("schedEmailOptional", "Email (optional)")}
+            aria-label={t("schedEmailOptional", "Email (optional)")}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className={TEAM_FIELD}
           />
           <select
             value={role}
             onChange={(e) => setRole(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
+            aria-label={t("staffRole")}
+            className={TEAM_FIELD}
           >
             {roles.map((r) => (
               <option key={r} value={r}>{roleName(r, t)}</option>
@@ -5542,7 +5706,8 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
           <select
             value={contractType}
             onChange={(e) => setContractType(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
+            aria-label={t("contractType")}
+            className={TEAM_FIELD}
           >
             {CONTRACT_TYPES.map((ct) => (
               <option key={ct.value} value={ct.value}>{t(ct.labelKey, ct.fallback)}</option>
@@ -5551,19 +5716,44 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
           <MoneyField
             locale={mLocale}
             placeholder={`${t("schedBaseRate", "Base rate")} (${currency}/${hoursUnit(lang)})`}
+            aria-label={t("schedBaseRate", "Base rate")}
             value={baseRate}
             onChange={(e) => setBaseRate(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
+            className={`w-full ${TEAM_FIELD}`}
           />
           <button
-            onClick={handleAdd}
+            type="submit"
             disabled={saving || !name.trim() || atSeatCap || isMoneyRejected(baseRate, mLocale)}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50 inline-flex items-center gap-1.5"
+            className="h-10 px-4 rounded-lg text-[13px] font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
           >
-            {atSeatCap && <Lock className="w-3.5 h-3.5" aria-hidden="true" />}
+            {atSeatCap ? <Lock className="w-3.5 h-3.5" aria-hidden="true" /> : <Plus className="w-4 h-4" aria-hidden="true" />}
             {saving ? t("schedAdding", "Adding...") : t("schedAddShort", "Add")}
           </button>
-        </div>
+        </form>
+        <p className="mt-2 text-[12px] text-gray-500 dark:text-gray-400">{t("teamAddHint")}</p>
+
+        {/* The step after adding is getting them in — offered right here,
+            once, for the person just added. Not a popup: an owner adding
+            five people in a row keeps typing; it goes away when they do. */}
+        {justAdded && !atSeatCap && (
+          <div
+            className="mt-3 flex items-center gap-3 rounded-xl border border-gray-200 dark:border-gray-700 px-3.5 py-2.5"
+            data-testid="team-just-added"
+          >
+            <Check className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+            <span className="min-w-0 flex-1 text-[13px] text-gray-700 dark:text-gray-200 truncate">
+              {t("teamJustAdded", { name: justAdded.name })}
+            </span>
+            <button
+              type="button"
+              onClick={() => { const m = justAdded; setJustAdded(null); generateLink(m); }}
+              className="shrink-0 h-10 px-3 inline-flex items-center gap-1.5 rounded-lg text-[13px] font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition"
+            >
+              <Send className="w-3.5 h-3.5" aria-hidden="true" />
+              {t("staffInviteTitle", { name: justAdded.name.trim().split(/\s+/)[0] })}
+            </button>
+          </div>
+        )}
 
         {/* Roster seats are used up — say so plainly and offer the one real
             way forward. Existing staff are untouched (grandfathered); this
@@ -5593,199 +5783,8 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
         )}
       </div>
 
-      {panelError && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-2.5 text-red-700 dark:text-red-300 text-xs">
-          {panelError}
-        </div>
-      )}
-
-      {/* Staff list */}
-      {staff.length === 0 ? (
-        <p className="text-gray-400 dark:text-gray-500 text-sm text-center py-4">
-          {t("schedNoStaffPanel", "No staff members yet. Add your first team member above.")}
-        </p>
-      ) : (
-        <div className="space-y-2">
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("currentStaff")}</h3>
-          <div className="divide-y divide-gray-100 dark:divide-gray-700 border border-gray-100 dark:border-gray-700 rounded-xl overflow-hidden">
-            {staff.map((member) => {
-              const cat = catFor(member.role);
-              const colors = ROLE_COLORS[cat] || ROLE_COLORS.floor;
-              const rates = getRateCard(member);
-              const isInactive = member.active === false;
-
-              return (
-                <div
-                  key={member.id}
-                  className={`px-4 py-3 bg-white dark:bg-gray-800 ${isInactive ? "opacity-50" : ""}`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 min-w-0">
-                      {/* shrink-0: single-word chips have a min-content floor
-                          and cannot shrink, so without this they take their
-                          width out of the NAME's budget. */}
-                      <div className={`shrink-0 px-2 py-0.5 rounded-md text-xs font-medium ${colors.bg} ${colors.text}`}>
-                        {roleName(member.role, t)}
-                      </div>
-                      {/* Click the name to open the detail/edit modal (#336).
-                          Disabled for inactive members (their edit affordances
-                          are hidden below). */}
-                      {/* Inactive members open the drawer too, read-only: the
-                          edit affordances below are gated on !isInactive, but
-                          the owner still has to be able to get IN to clear a
-                          leaver's bank details — their own portal stops working
-                          the moment active=false. */}
-                      <button
-                        type="button"
-                        onClick={() => openDetail(member)}
-                        title={t("viewStaffDetails", "View details")}
-                        aria-label={`${t("viewStaffDetails", "View details")} — ${member.name}`}
-                        // `flex-1 min-w-0` — WITHOUT IT THIS RENDERED AT 0px.
-                        // Measured at 390px the row's inner width is 282px and
-                        // the right cluster takes 171px, leaving 111px for an
-                        // identity column whose unshrinkable siblings (role
-                        // chip, "@", contract label, three gap-3s) already want
-                        // ~186px. `truncate` sets overflow:hidden, which
-                        // resolves min-width:auto to 0 — so the NAME was the
-                        // one item that could absorb the whole deficit, and it
-                        // did. The owner saw a role chip, a stray "@" and a
-                        // code, and no idea whose row they were about to tap
-                        // to edit or deactivate.
-                        className="flex-1 min-w-0 text-left text-sm font-medium text-gray-900 dark:text-white truncate cursor-pointer hover:underline underline-offset-2 decoration-gray-300 dark:decoration-gray-600 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400/40 transition"
-                      >
-                        {member.name}
-                      </button>
-                      {/* Both hidden on a phone, matching what the rate card
-                          below already does. A bare "@" and the contract label
-                          are worth their width on a laptop; on 282px they were
-                          spending the name's budget, and both are shown in
-                          full in the detail modal one tap away. */}
-                      {member.email && (
-                        <span className="hidden sm:inline shrink-0 text-xs text-emerald-600 dark:text-gray-300" title={member.email}>
-                          @
-                        </span>
-                      )}
-                      <span className="hidden sm:inline shrink-0 text-xs text-gray-400 dark:text-gray-500">
-                        {contractLabel(member.contract_type, t)}
-                      </span>
-                      {isInactive && (
-                        <span className="text-xs text-red-500 font-medium">{t("inactive")}</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-4">
-                      {/* Join code — the ONLY way this person gets into the
-                          Scheduler app. It already existed inside the "Share
-                          with staff" sheet, two screens from the row that
-                          names its owner; this is the same value where you are
-                          already thinking about the person.
-
-                          NOT hidden on mobile the way the rate card beside it
-                          is: a rate is something you read, a code is something
-                          you read ALOUD to someone standing in front of you,
-                          which is exactly when you are holding the phone.
-
-                          Tap copies. Renders nothing when there is no code —
-                          the endpoint is owner-only, so a staff seat simply
-                          sees the row without one rather than an error. */}
-                      {!isInactive && joinCodes[member.id] && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const code = joinCodes[member.id];
-                            try {
-                              await navigator.clipboard.writeText(code);
-                            } catch {
-                              const ta = document.createElement("textarea");
-                              ta.value = code;
-                              document.body.appendChild(ta);
-                              ta.select();
-                              document.execCommand("copy");
-                              document.body.removeChild(ta);
-                            }
-                            setCodeCopied(member.id);
-                            setTimeout(
-                              () => setCodeCopied((c) => (c === member.id ? null : c)),
-                              1500,
-                            );
-                          }}
-                          title={t("schedCopyJoinCode", "Copy join code")}
-                          aria-label={`${t("schedCopyJoinCode", "Copy join code")} — ${member.name}`}
-                          className="shrink-0 px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-700 font-mono text-xs font-semibold tracking-wider tabular-nums text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
-                        >
-                          {codeCopied === member.id
-                            ? t("copied", "Copied")
-                            : joinCodes[member.id]}
-                        </button>
-                      )}
-                      {/* Rate card */}
-                      <div className="hidden sm:flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500 tabular-nums">
-                        {/* The rate read "185DKK/hr" — the raw Numeric straight
-                            out of the payload, no grouping, the currency CODE
-                            jammed against it and an English unit, on the one
-                            line of this roster that states a wage. Through the
-                            house formatter and utils/hours.js it reads
-                            "185 kr./t", the same notation as the Hours table's
-                            rate column. Øre survive (a real 137,50 kr./t is a
-                            rate people type); whole rates stay clean. */}
-                        <span title={t("baseRate")}>
-                          {t("baseRate")}: {rates.base == null
-                            ? "—"
-                            : `${formatOwnerMoney(rates.base, currency, { decimals: rateDecimals(rates.base) })}/${hoursUnit(lang)}`}
-                        </span>
-                        {/* Premiums were bare numbers ("Aften: 231") sitting
-                            beside a formatted base — same row, two notations,
-                            and one of them not identifiable as money at all.
-                            The unit is carried once, by the base chip, so these
-                            stay compact on the narrow tablet this row targets. */}
-                        {rates.evening != null && (
-                          <span title={t("rateEvening", "Evening")}>{t("rateEveShort", "Eve")}: {formatOwnerMoney(rates.evening, currency, { decimals: rateDecimals(rates.evening) })}</span>
-                        )}
-                        {rates.weekend != null && (
-                          <span title={t("rateWeekend", "Weekend")}>{t("rateWkndShort", "Wknd")}: {formatOwnerMoney(rates.weekend, currency, { decimals: rateDecimals(rates.weekend) })}</span>
-                        )}
-                        {rates.evening == null && rates.weekend == null && (
-                          <span className="text-gray-300 dark:text-gray-600">{t("noPremiumSet", "No premium")}</span>
-                        )}
-                      </div>
-                      {!isInactive && (
-                        <div className="flex gap-1">
-                          <button
-                            type="button"
-                            onClick={() => generateLink(member)}
-                            title={t("sharePortalLink")}
-                            aria-label={`${t("sharePortalLink")} — ${member.name}`}
-                            className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition"
-                          >
-                            <Link2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openDetail(member)}
-                            title={t("editStaff", "Edit")}
-                            aria-label={`${t("editStaff", "Edit")} — ${member.name}`}
-                            className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeactivate(member)}
-                            title={t("deactivate", "Deactivate")}
-                            aria-label={`${t("deactivate", "Deactivate")} — ${member.name}`}
-                            className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* (An empty team needs no "no staff yet" line here: the form above IS
+          the empty state, and the first-run card over the grid says it too.) */}
 
       {/* WhatsApp Setup Guide
           ──────────────────────────────────────────────────────────
@@ -5906,71 +5905,17 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
       </details>
       )}
 
-      {/* Portal Link Modal */}
-      {linkModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setLinkModal(null)}
-          onKeyDown={(e) => { if (e.key === "Escape") setLinkModal(null); }}>
-          <div role="dialog" aria-modal="true" tabIndex={-1}
-            ref={(el) => { if (el && !el.contains(document.activeElement)) el.focus(); }}
-            className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-sm w-full p-5 space-y-4 outline-none" onClick={(e) => e.stopPropagation()}>
-            <div className="text-center">
-              {/* A 30px emoji chain link was the largest thing in this dialog and
-                  the only coloured one. Same Lucide Link2 the toolbar and the
-                  share toast use, in the quiet tile the chooser rows use. */}
-              <div className="mx-auto mb-2 w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-300">
-                <Icon name="Link2" size={18} />
-              </div>
-              <h3 className="text-base font-bold text-gray-900 dark:text-white">{t("sharePortalLink")}</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {t("schedSendThisTo", "Send this to")} <strong>{linkModal.staffName}</strong> {t("schedPortalLinkDesc", "— they can see their schedule, hours, and tips.")}
-              </p>
-            </div>
-
-            {linkModal.loading ? (
-              <div className="flex justify-center py-4">
-                <div className="animate-spin w-6 h-6 border-2 border-gray-300 border-t-transparent rounded-full" />
-              </div>
-            ) : (
-              <>
-                <div className="bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] rounded-xl p-3 text-xs font-mono text-gray-600 dark:text-gray-400 break-all select-all">
-                  {linkModal.portalUrl}
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={copyLink}
-                    className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
-                      linkCopied
-                        ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-                        : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
-                    }`}
-                  >
-                    {/* Emoji clipboard / phone → Lucide, same as every other
-                        copy-and-share control on this page. */}
-                    <Icon name={linkCopied ? "Check" : "Copy"} size={14} />
-                    <span>{linkCopied ? t("schedCopied", "Copied!") : t("schedCopyBtn", "Copy")}</span>
-                  </button>
-                  <button
-                    onClick={shareLink}
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition"
-                  >
-                    <Icon name="Share2" size={14} />
-                    <span>{t("schedShareBtn", "Share")}</span>
-                  </button>
-                </div>
-                <p className="text-[11px] text-gray-400 dark:text-gray-600 text-center">
-                  {t("schedPortalNoAccount", "No account needed. Staff just opens the link. You can deactivate it anytime.")}
-                </p>
-              </>
-            )}
-
-            <button
-              onClick={() => setLinkModal(null)}
-              className="w-full py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-            >
-              {t("close", "Close")}
-            </button>
-          </div>
-        </div>
+      {/* The invite sheet — "Invitér {name}". Replaced the "Del portal-link"
+          dialog (copy + share only); see components/StaffInviteSheet.jsx. */}
+      {invite && (
+        <StaffInviteSheet
+          member={invite.member}
+          link={invite.link}
+          loading={invite.loading}
+          lastAccessed={openedMap[invite.member.id]}
+          restaurant={user?.business_name || ""}
+          onClose={() => setInvite(null)}
+        />
       )}
 
       {/* Staff detail / edit modal (#336). Owns the edit; delegates the
