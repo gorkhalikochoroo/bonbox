@@ -31,6 +31,7 @@
  * QuickAdd's "Smart skan" entry. Both surfaces reach the same UX.
  */
 import { useEffect, useRef, useState } from "react";
+import { holdScanPhoto } from "../utils/pendingScanPhoto";
 import { useNavigate } from "react-router-dom";
 import { ScanLine, Camera, Receipt, FileText, Moon } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
@@ -81,6 +82,9 @@ export default function SmartScanModal({ open, onClose }) {
   const [preview, setPreview] = useState(null);
   const [countdown, setCountdown] = useState(AUTO_PROCEED_SECONDS);
   const [error, setError] = useState("");
+  // The (resized) photo being classified — handed to the destination page so
+  // an expense keeps it as its bilag (see utils/pendingScanPhoto.js).
+  const scannedFileRef = useRef(null);
 
   const fileRef = useRef(null);
   const timerRef = useRef(null);
@@ -208,6 +212,7 @@ export default function SmartScanModal({ open, onClose }) {
       // Same client-side resize the receipt + close-day scans use so we
       // stay under the backend's 12 MB cap.
       const file = await resizeImageIfLarge(rawFile);
+      scannedFileRef.current = file;
       const formData = new FormData();
       formData.append("file", file);
       const res = await api.post("/smart-scan/classify", formData, {
@@ -393,7 +398,8 @@ export default function SmartScanModal({ open, onClose }) {
     const verifyHints = result.verify_hints || [];
     // React Router v6 state — never appears in the URL, exactly matches
     // the brief's "no URL leak" requirement. Page components read this
-    // via useLocation().state on mount.
+    // via useLocation().state on mount. The photo goes beside it.
+    holdScanPhoto(scannedFileRef.current, route);
     navigate(route, {
       state: {
         prefill,
@@ -437,7 +443,9 @@ export default function SmartScanModal({ open, onClose }) {
     }
     trackEvent("smart_scan_manual_pick", "smart_scan", chosenDocType);
     // Empty prefill — we explicitly don't pass extracted_data here
-    // because the classifier got it wrong. Owner enters fresh data.
+    // because the classifier got it wrong. Owner enters fresh data. The
+    // photo is still the owner's document: it goes along as the bilag.
+    holdScanPhoto(scannedFileRef.current, routeTo);
     navigate(routeTo, {
       state: {
         prefill: null,

@@ -13,6 +13,7 @@ import api from "../services/api";
 import { safeExternalUrl } from "../utils/safeUrl";
 import { errText } from "../utils/errText";
 import { Button, Card } from "../components/ui";
+import { cancelDateLabel } from "../utils/subscriptionCancel";
 
 /**
  * isNative — running inside Capacitor (iOS or Android).
@@ -573,6 +574,7 @@ export default function SubscriptionPage() {
 
   // True iff the user has a real Stripe subscription (post lock-in).
   const hasStripeSub = ["active", "trialing", "past_due"].includes(billing?.subscription_status);
+  const cancelsOn = cancelDateLabel(billing);
 
   // Founder counts derived from the live endpoint (Task #89 P2-2).
   // We only render the "X spots left" chip when we got a coherent
@@ -654,6 +656,8 @@ export default function SubscriptionPage() {
       )}
 
       {/* Locked-in banner — for users with a real Stripe sub */}
+      {/* cancelsOn: the owner cancelled; Stripe ends the subscription on this
+          (local) date and never charges again. Display only. */}
       {hasStripeSub ? (
         <Card variant="emphasis" className="mb-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
@@ -662,7 +666,12 @@ export default function SubscriptionPage() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                {billing?.subscription_status === "trialing"
+                {cancelsOn
+                  // Cancelled at period end: Stripe keeps the subscription
+                  // 'active' until then, so the status alone said "billed
+                  // monthly" to an owner who will not be charged again.
+                  ? t("pricingLockedCancels", "Cancels {date} — you won't be charged again", { date: cancelsOn })
+                  : billing?.subscription_status === "trialing"
                   ? (t("pricingLockedTrialing") || "Subscription started — first charge {when}").replace(
                       "{when}",
                       trialDaysLeft != null && trialDaysLeft > 0

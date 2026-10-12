@@ -249,6 +249,10 @@ def my_billing(
     summary["subscription_period_end"] = (
         user.subscription_period_end.isoformat() if user.subscription_period_end else None
     )
+    # Set when the owner cancelled and Stripe will end the subscription then
+    # (no further charge). Display only — see User.subscription_cancel_at.
+    _cancel_at = getattr(user, "subscription_cancel_at", None)
+    summary["subscription_cancel_at"] = _cancel_at.isoformat() if _cancel_at else None
     return summary
 
 
