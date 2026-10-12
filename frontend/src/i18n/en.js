@@ -10077,6 +10077,8 @@ export const en = {
     staffInviteGetApp: "BonBox Vagtplan on the App Store",
     staffInviteMsgHello: "Hi {name}! Here's your personal link to your shifts at {restaurant}:",
     staffInviteMsgCode: "Sign in to the app with the code {code}",
+    staffInviteCodeUsed: "{name} has already used their code. New phone? Make a new code.",
+    staffInviteNewCode: "Make a new code",
     shareCopiedLink: "link copied",
     closeNextStepsTitle: "Next steps",
     closeNextSchedule: "Plan the week and invite your staff",

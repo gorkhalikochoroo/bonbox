@@ -20,6 +20,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let ROLE = "owner";
+let AT_CAP = false;
 vi.mock("../services/api", () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
@@ -30,7 +31,10 @@ vi.mock("../hooks/useAuth", () => ({
   }),
 }));
 vi.mock("../hooks/useEntitlements", () => ({
-  useEntitlements: () => ({ isAtCap: () => false, cap: () => 25, isReady: true, plan: "pro", data: {} }),
+  // AT_CAP: a Free roster of 3 — at the cap once the 3rd person is on it.
+  useEntitlements: () => (AT_CAP
+    ? { isAtCap: (_k, used) => used >= 3, cap: () => 3, isReady: true, plan: "free", data: {} }
+    : { isAtCap: () => false, cap: () => 25, isReady: true, plan: "pro", data: {} }),
 }));
 vi.mock("../hooks/useDeviceShare", () => ({
   useDeviceShare: () => ({ ready: true, enabled: false, hasPin: false, locked: false }),
@@ -52,6 +56,12 @@ let LINKS = [];
 
 function routeGet(url) {
   const u = String(url);
+  // The read-only status: what /link-status sends — no token, no code, no URL.
+  if (u.includes("/staff/schedules/link-status")) {
+    return Promise.resolve({
+      data: LINKS.map((r) => ({ staff_id: r.staff_id, has_link: true, has_pin: !!r.has_pin, last_accessed: r.last_accessed })),
+    });
+  }
   if (u.includes("/staff/schedules/share-links")) return Promise.resolve({ data: LINKS });
   if (u.includes("/staff/members")) return Promise.resolve({ data: STAFF });
   if (u.includes("/staff/schedules/week-cost")) return Promise.reject({ response: { status: 500 } });
@@ -65,9 +75,12 @@ function routeGet(url) {
 }
 
 const shareLinkCalls = () => api.get.mock.calls.filter(([u]) => String(u).includes("/share-links"));
+const statusCalls = () => api.get.mock.calls.filter(([u]) => String(u).includes("/link-status"));
+const linkPosts = (id) => api.post.mock.calls.filter(([u]) => String(u).startsWith(`/staff/members/${id}/link`));
 
 beforeEach(() => {
   ROLE = "owner";
+  AT_CAP = false;
   STAFF = TEAM;
   LINKS = [
     { staff_id: "a", staff_name: "Sofie Holm", join_code: "2TC5NS", portal_url: "/s/cafe-mirabelle/sofie-holm/tokA", has_pin: false, last_accessed: null },
@@ -110,10 +123,25 @@ async function mountPage() {
 const teamToggle = () => screen.findByRole("button", { name: /Dit team/ }, { timeout: 8000 });
 
 describe("who is in — at a glance, without opening anything", () => {
-  it("asks the server on mount for an owner with a team", async () => {
+  it("asks the server on mount for an owner with a team — READ-ONLY, minting nothing", async () => {
     await mountPage();
     await teamToggle();
-    await waitFor(() => expect(shareLinkCalls().length).toBeGreaterThan(0));
+    await waitFor(() => expect(statusCalls().length).toBeGreaterThan(0));
+    // /share-links is a get-or-create: it made a link for everyone and
+    // refreshed every 7-day code. Loading the page must never call it.
+    expect(shareLinkCalls()).toHaveLength(0);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("opening the team, the toolbar's 'Se hvem' and the hand-off chooser mint nothing either", async () => {
+    await mountPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Se hvem" }, { timeout: 8000 }));
+    await screen.findByTestId("team-list");
+    fireEvent.click(screen.getByTitle("Vælg hvordan ugen når dine medarbejdere"));
+    expect(await screen.findByText("Vælg hvordan ugen når dine medarbejdere", { selector: "h2, h3, p, span, div" })).toBeInTheDocument();
+    expect(shareLinkCalls()).toHaveLength(0);
+    expect(api.post).not.toHaveBeenCalled();
+    expect(statusCalls().length).toBeGreaterThan(1);
   });
 
   it("says in the team header how many are not in yet", async () => {
@@ -136,6 +164,7 @@ describe("who is in — at a glance, without opening anything", () => {
     // Give any effect a chance to fire.
     await act(async () => { await Promise.resolve(); });
     expect(shareLinkCalls()).toHaveLength(0);
+    expect(statusCalls()).toHaveLength(0);
     expect(screen.queryByTestId("team-reach-chip")).toBeNull();
   });
 
@@ -280,5 +309,120 @@ describe("after publishing, when nobody was told", () => {
     expect(await within(share).findByText(/1 link kopieret/)).toBeInTheDocument();
     expect(within(share).queryByText(/1 links kopieret/)).toBeNull();
     expect(writeText).toHaveBeenCalled();
+  });
+});
+
+describe("review round — minting, races and where errors land", () => {
+  async function openTeam() {
+    await mountPage();
+    fireEvent.click(await teamToggle());
+    return screen.findByTestId("team-list");
+  }
+
+  it("a double tap on 'Invitér' asks the server ONCE", async () => {
+    let release;
+    api.post.mockImplementation((url) => {
+      if (String(url).startsWith("/staff/members/a/link")) {
+        return new Promise((resolve) => {
+          release = () => resolve({ data: { portal_url: "/s/cafe-mirabelle/sofie-holm/tokA", join_code: "2TC5NS", code_state: "live" } });
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    const list = await openTeam();
+    const btn = within(list.querySelector('[data-staff-row="a"]')).getByRole("button", { name: "Invitér — Sofie Holm" });
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    await waitFor(() => expect(release).toBeTypeOf("function"));
+    expect(linkPosts("a")).toHaveLength(1);
+    await act(async () => { release(); });
+    const sheet = await screen.findByTestId("staff-invite-sheet");
+    expect(await within(sheet).findByTestId("staff-invite-code")).toHaveTextContent("2TC5NS");
+    expect(linkPosts("a")).toHaveLength(1);
+  });
+
+  it("a USED code is not re-minted on open — the owner makes a new one with a tap", async () => {
+    api.post.mockImplementation((url) => {
+      const u = String(url);
+      if (u === "/staff/members/b/link") {
+        return Promise.resolve({ data: { portal_url: "/s/cafe-mirabelle/mads-kjaer/tokB", join_code: null, code_state: "used" } });
+      }
+      if (u === "/staff/members/b/link?new_code=true") {
+        return Promise.resolve({ data: { portal_url: "/s/cafe-mirabelle/mads-kjaer/tokB", join_code: "N3WC0D", code_state: "live" } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    const list = await openTeam();
+    fireEvent.click(within(list.querySelector('[data-staff-row="b"]')).getByRole("button", { name: "Send linket igen — Mads Kjær" }));
+    const sheet = await screen.findByTestId("staff-invite-sheet");
+    const used = await within(sheet).findByTestId("staff-invite-code-used");
+    expect(used.textContent).toContain("Mads har allerede brugt sin kode.");
+    expect(within(sheet).queryByTestId("staff-invite-code")).toBeNull();
+    // The message carries no code line — there is no live code to send.
+    const wa = sheet.querySelector('[data-channel="whatsapp"]');
+    expect(decodeURIComponent(wa.getAttribute("href"))).not.toContain("Log ind i appen med koden");
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(api.post).toHaveBeenCalledWith("/staff/members/b/link");
+
+    await act(async () => { fireEvent.click(within(used).getByRole("button", { name: "Lav en ny kode" })); });
+    expect(api.post).toHaveBeenLastCalledWith("/staff/members/b/link?new_code=true");
+    expect(await within(sheet).findByTestId("staff-invite-code")).toHaveTextContent("N3WC0D");
+  });
+
+  it("the just-added nudge still shows when that person took the last seat", async () => {
+    AT_CAP = true; // Free: 3 seats, 2 used
+    await openTeam();
+    expect(screen.queryByText(/af 3 pladser brugt/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Navn"), { target: { value: "Bishnu Prasad Shrestha" } });
+    api.post.mockImplementation((url) => (String(url) === "/staff/members"
+      ? Promise.resolve({ data: { id: "n", name: "Bishnu Prasad Shrestha", active: true, role: "Barista" } })
+      : Promise.resolve({ data: {} })));
+    // The roster refresh after the add lands him in the third — last — seat.
+    STAFF = [...TEAM, { id: "n", name: "Bishnu Prasad Shrestha", role: "Barista", active: true, contract_type: "part" }];
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Tilføj" })); });
+    expect(await screen.findByText(/3 af 3 pladser brugt/)).toBeInTheDocument();
+    const nudge = screen.getByTestId("team-just-added");
+    expect(nudge.textContent).toContain("Bishnu Prasad Shrestha er tilføjet.");
+    expect(within(nudge).getByRole("button", { name: /Invitér Bishnu/ })).toBeInTheDocument();
+  });
+
+  it("a failed add says so UNDER the form and keeps what was typed", async () => {
+    await openTeam();
+    api.post.mockImplementation((url) => (String(url) === "/staff/members"
+      ? Promise.reject({ response: { status: 500, data: { detail: "boom" } } })
+      : Promise.resolve({ data: {} })));
+    const name = screen.getByLabelText("Navn");
+    fireEvent.change(name, { target: { value: "Freja Lund" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Tilføj" })); });
+    const err = await screen.findByTestId("team-add-error");
+    expect(err).toHaveAttribute("role", "alert");
+    // Beside the form it belongs to — after the form in the DOM, not above the list.
+    const form = name.closest("form");
+    expect(form.compareDocumentPosition(err) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId("team-list").compareDocumentPosition(err) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(name).toHaveValue("Freja Lund");
+  });
+
+  it("a failed invite keeps the sheet open, says why inside it, and retries", async () => {
+    let fail = true;
+    api.post.mockImplementation((url) => {
+      if (String(url) === "/staff/members/a/link") {
+        return fail
+          ? Promise.reject({ response: { status: 503, data: {} } })
+          : Promise.resolve({ data: { portal_url: "/s/cafe-mirabelle/sofie-holm/tokA", join_code: "2TC5NS", code_state: "live" } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    const list = await openTeam();
+    await act(async () => {
+      fireEvent.click(within(list.querySelector('[data-staff-row="a"]')).getByRole("button", { name: "Invitér — Sofie Holm" }));
+    });
+    const sheet = await screen.findByTestId("staff-invite-sheet");
+    const box = await within(sheet).findByTestId("staff-invite-error");
+    expect(within(box).getByRole("alert").textContent).toBeTruthy();
+    fail = false;
+    await act(async () => { fireEvent.click(within(box).getByRole("button", { name: "Prøv igen" })); });
+    expect(await within(sheet).findByTestId("staff-invite-code")).toHaveTextContent("2TC5NS");
+    expect(within(sheet).queryByTestId("staff-invite-error")).toBeNull();
   });
 });

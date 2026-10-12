@@ -86,3 +86,37 @@ export function canSendSms(nav = typeof navigator !== "undefined" ? navigator : 
   if (/iPhone|iPad|iPod|Android|Macintosh|Mac OS X/i.test(ua)) return true;
   return Number(nav.maxTouchPoints || 0) > 0 && !/Windows/i.test(ua);
 }
+
+/**
+ * One request per key at a time: a second call while the first is still in
+ * flight gets the SAME promise instead of starting another. Cleared when the
+ * request settles (success or failure), so the next tap asks again.
+ *
+ * Why: creating a staffer's link is a get-or-create on the server, and two
+ * owner taps that overlap (a double tap on "Invitér", or a row's copy while
+ * the Share sheet's bulk fetch is still out) used to both see "no link yet"
+ * and each create one. The server now guards that too; this keeps the page
+ * from asking twice in the first place.
+ *
+ * @returns {(key: string, start: () => Promise<any>) => Promise<any>}
+ */
+export function onePerKey() {
+  const inFlight = new Map();
+  return (key, start) => {
+    const running = inFlight.get(key);
+    if (running) return running;
+    const p = new Promise((resolve) => resolve(start())).finally(() => {
+      if (inFlight.get(key) === p) inFlight.delete(key);
+    });
+    inFlight.set(key, p);
+    return p;
+  };
+}
+
+/**
+ * The page-wide gate for POST /staff/members/{id}/link — shared by the invite
+ * sheet and the week's Share sheet, which can both ask for the same person.
+ * Key on the staff id (plus ":new" for an explicit new-code request, which is
+ * a different question and must not be answered by a plain open).
+ */
+export const staffLinkOnce = onePerKey();

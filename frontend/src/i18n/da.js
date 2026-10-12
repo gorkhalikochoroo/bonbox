@@ -9749,6 +9749,8 @@ export const da = {
     staffInviteGetApp: "BonBox Vagtplan i App Store",
     staffInviteMsgHello: "Hej {name}! Her er dit personlige link til dine vagter hos {restaurant}:",
     staffInviteMsgCode: "Log ind i appen med koden {code}",
+    staffInviteCodeUsed: "{name} har allerede brugt sin kode. Ny telefon? Lav en ny kode.",
+    staffInviteNewCode: "Lav en ny kode",
     shareCopiedLink: "link kopieret",
     closeNextStepsTitle: "Næste skridt",
     closeNextSchedule: "Læg ugens vagtplan, og invitér dit personale",

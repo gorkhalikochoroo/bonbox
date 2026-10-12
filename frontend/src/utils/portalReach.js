@@ -24,6 +24,8 @@
  * schedule page.
  */
 
+import { parseServerTime } from "./serverTime";
+
 /**
  * Has this row ever been opened?
  *
@@ -84,7 +86,8 @@ export const ACTIVE_WITHIN_DAYS = 7;
 /**
  * The server sends `last_accessed` as NAIVE UTC ("2026-10-11T23:32:03").
  * Date.parse reads a zone-less ISO string as LOCAL time, which moves a late
- * evening visit onto the next day for a Dane. Read it as UTC unless it
+ * evening visit onto the next day for a Dane. Read through the app's one
+ * server-stamp reader (utils/serverTime), which takes it as UTC unless it
  * already carries a zone.
  *
  * @param {string|null|undefined} raw
@@ -92,14 +95,20 @@ export const ACTIVE_WITHIN_DAYS = 7;
  */
 export function parseServerUtc(raw) {
   if (!raw || typeof raw !== "string") return NaN;
-  const iso = raw.trim().replace(" ", "T");
-  const hasZone = /(?:[zZ]|[+-]\d\d:?\d\d)$/.test(iso);
-  return Date.parse(hasZone ? iso : `${iso}Z`);
+  const d = parseServerTime(raw);
+  return d ? d.getTime() : NaN;
 }
 
 const localDay = (ms) => {
   const d = new Date(ms);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+};
+
+/** "YYYY-MM-DD" of an instant, in the viewer's own zone. */
+const localIsoDay = (ms) => {
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
 /**
@@ -112,19 +121,25 @@ const localDay = (ms) => {
  *   "active"  — opened within ACTIVE_WITHIN_DAYS calendar days.
  *   "joined"  — opened once, but not lately.
  *
+ * `lastSeenDay` is the day of that visit IN THE VIEWER'S ZONE ("YYYY-MM-DD"),
+ * for a date label. Never slice the raw string for it: the stamp is UTC, so
+ * "2026-10-04T22:30:00" is 5 October in Copenhagen, and its first ten
+ * characters say the 4th.
+ *
  * @param {string|null|undefined} lastAccessed
  * @param {number} [now] epoch ms (tests pin it)
- * @returns {{state: "unknown"|"none"|"active"|"joined", lastSeen: string|null, daysAgo: number|null}}
+ * @returns {{state: "unknown"|"none"|"active"|"joined", lastSeen: string|null, lastSeenDay: string|null, daysAgo: number|null}}
  */
 export function staffReachState(lastAccessed, now = Date.now()) {
-  if (lastAccessed === undefined) return { state: "unknown", lastSeen: null, daysAgo: null };
+  if (lastAccessed === undefined) return { state: "unknown", lastSeen: null, lastSeenDay: null, daysAgo: null };
   const ms = parseServerUtc(lastAccessed);
-  if (!Number.isFinite(ms)) return { state: "none", lastSeen: null, daysAgo: null };
+  if (!Number.isFinite(ms)) return { state: "none", lastSeen: null, lastSeenDay: null, daysAgo: null };
   // Calendar days in the owner's own zone; Math.round absorbs a DST hour.
   const daysAgo = Math.max(0, Math.round((localDay(now) - localDay(ms)) / 86400000));
   return {
     state: daysAgo < ACTIVE_WITHIN_DAYS ? "active" : "joined",
     lastSeen: lastAccessed,
+    lastSeenDay: localIsoDay(ms),
     daysAgo,
   };
 }

@@ -56,6 +56,7 @@ import { formatHours, hoursUnit } from "../utils/hours";
 // and it must never render as the sentence claiming the team can see the week.
 import { summarizePortalReach, linkWasOpened, teamReach, staffReachState } from "../utils/portalReach";
 import StaffInviteSheet, { StaffReachStatus } from "../components/StaffInviteSheet";
+import { staffLinkOnce } from "../utils/staffInvite";
 import { dateLocale } from "../utils/dateFormat";
 import { saveFile } from "../utils/download";
 import { expectedWeekLabor } from "../utils/weekLaborPct";
@@ -2641,8 +2642,16 @@ export default function StaffSchedulePage() {
       // re-minted — and a live bug the moment it does, because the screen
       // would keep showing the burned code it had already cached.
       // shareLinks deliberately keeps prev-wins: a portal token is durable and
-      // that ordering protects an in-flight per-staff mint. A code is not.
-      setShareCodes((prev) => ({ ...prev, ...codes }));
+      // that ordering protects an in-flight per-staff mint. A code is not —
+      // and a row the server answered WITHOUT a code (redeemed, not replaced)
+      // drops any cached one rather than keep showing a dead string.
+      setShareCodes((prev) => {
+        const next = { ...prev, ...codes };
+        for (const row of r.data || []) {
+          if (row.staff_id && !row.join_code) delete next[row.staff_id];
+        }
+        return next;
+      });
       setPinHas(pins);
       setShareOpened(opened);
       // The server has answered, so the page may now speak about reach — and
@@ -2667,19 +2676,50 @@ export default function StaffSchedulePage() {
     }
   }, []);
 
+  /** Who is in — READ-ONLY (GET /staff/schedules/link-status).
+   *
+   *  The status the page shows on load, on the team panel and under the
+   *  toolbar. It must not come from loadShareLinks: /share-links is a
+   *  get-or-create, so asking it on every page load created a link for every
+   *  staffer and refreshed their 7-day join codes — live credentials minted by
+   *  nobody's tap. Links and codes are now made only when the owner opens an
+   *  invite (StaffPanel → POST /members/{id}/link) or the Share sheet.
+   *
+   *  Same three outcomes as before: a failed call (or an older server that
+   *  has no such route) changes nothing, so the page says nothing.
+   */
+  const loadReach = useCallback(async () => {
+    try {
+      const r = await api.get("/staff/schedules/link-status");
+      if (!Array.isArray(r.data)) return false;
+      const opened = {};
+      for (const row of r.data) {
+        // Key present = "we asked"; null = never opened (or no link yet —
+        // to the owner both mean "not in yet").
+        if (row.staff_id) opened[row.staff_id] = linkWasOpened(row) ? row.last_accessed : null;
+      }
+      setShareOpened(opened);
+      setPortalReach(summarizePortalReach(r.data));
+      return true;
+    } catch {
+      // Not known is not "nobody": leave whatever the page last actually
+      // knew (or nothing) on screen. No banner — this is a status read.
+      return false;
+    }
+  }, []);
+
   // WHO IS IN, AT A GLANCE. The owner asked to see who has joined without
   // opening anything, so the answer is fetched when the page has a team to
   // ask about — not only when a sheet or the roster opens. Owner seats only:
   // the endpoint is owner-only, and a manager/viewer seat (or a curtained
   // shared device) must not fire a call we know is refused. Re-asked when the
   // roster size changes, so a person added a moment ago gets their status
-  // (and their link) without a reload. A failed call leaves the map empty,
-  // which every status renders as NOTHING — never as "not opened".
+  // without a reload. Read-only: it creates no link and mints no code.
   const activeCount = activeStaff.length;
   useEffect(() => {
     if (isStaffSeat || activeCount === 0) return;
-    loadShareLinks();
-  }, [isStaffSeat, activeCount, loadShareLinks]);
+    loadReach();
+  }, [isStaffSeat, activeCount, loadReach]);
   const team = useMemo(() => teamReach(activeStaff, shareOpened), [activeStaff, shareOpened]);
 
   // The team panel's DOM anchor. The empty schedule's "Tilføj medarbejdere"
@@ -2689,7 +2729,7 @@ export default function StaffSchedulePage() {
   // expand with no scroll looked like a button that did nothing.
   const teamPanelRef = useRef(null);
   const openTeamPanel = ({ focusName = false } = {}) => {
-    if (!showManageStaff) loadShareLinks();
+    if (!showManageStaff) loadReach();
     setShowManageStaff(true);
     requestAnimationFrame(() => {
       const el = teamPanelRef.current;
@@ -2733,15 +2773,25 @@ export default function StaffSchedulePage() {
     });
   };
 
+  // The code the server just gave for one person — or none (a redeemed code
+  // it did not replace), which must clear a cached one, not keep it.
+  const setCodeFor = (id, code) =>
+    setShareCodes((prev) => {
+      const next = { ...prev };
+      if (code) next[id] = code;
+      else delete next[id];
+      return next;
+    });
+
   // Mint (or reuse cached) a portal link for one staff member.
   const mintLinkFor = async (member) => {
     if (shareLinks[member.id]) return shareLinks[member.id];
-    const res = await api.post(`/staff/members/${member.id}/link`);
+    // One request per person at a time, shared with the invite sheet: two
+    // overlapping asks for the same person get the same answer.
+    const res = await staffLinkOnce(member.id, () => api.post(`/staff/members/${member.id}/link`));
     const fullUrl = publicUrl(res.data.portal_url);
     setShareLinks((prev) => ({ ...prev, [member.id]: fullUrl }));
-    if (res.data.join_code) {
-      setShareCodes((prev) => ({ ...prev, [member.id]: res.data.join_code }));
-    }
+    setCodeFor(member.id, res.data.join_code);
     return fullUrl;
   };
 
@@ -3127,12 +3177,12 @@ export default function StaffSchedulePage() {
                 size="sm"
                 onClick={() => {
                   // Ask who has actually opened their link at the moment the
-                  // owner starts a hand-off. Same owner-only call the Share
-                  // sheet and the roster already make (and a no-op re-read once
-                  // every staffer has a live code), but made HERE it means the
-                  // reach line below the toolbar can stop guessing before the
-                  // owner sends the week out one more time into silence.
-                  loadShareLinks();
+                  // owner starts a hand-off, so the reach line below the
+                  // toolbar can stop guessing before the owner sends the week
+                  // out one more time into silence. The read-only status: the
+                  // Share sheet (one of the three doors) fetches the links
+                  // itself when the owner opens it.
+                  loadReach();
                   setHandoffSheet(true);
                 }}
                 // With nobody on the team every door behind this button is
@@ -3343,8 +3393,9 @@ export default function StaffSchedulePage() {
             onClick={() => {
               // Re-ask on EXPAND too: the mount fetch may be minutes old, and
               // this is the moment the owner looks at who is in. From the
-              // click handler so the state write stays in an event.
-              if (!showManageStaff) loadShareLinks();
+              // click handler so the state write stays in an event. Status
+              // only — an invite is minted when the owner opens one.
+              if (!showManageStaff) loadReach();
               setShowManageStaff(!showManageStaff);
             }}
             aria-expanded={showManageStaff}
@@ -3381,11 +3432,8 @@ export default function StaffSchedulePage() {
               currency={currency}
               onRefresh={fetchStaff}
               branchId={branchId}
-              joinCodes={shareCodes}
               openedMap={shareOpened}
-              onCodeMinted={(id, code) =>
-                setShareCodes((prev) => ({ ...prev, [id]: code }))
-              }
+              onCodeMinted={setCodeFor}
             />
           )}
         </div>
@@ -5261,7 +5309,7 @@ function staffSaveErrText(err, t, fallback) {
 const TEAM_FIELD =
   "h-10 min-w-0 px-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-[13px] placeholder-gray-400 dark:placeholder-gray-400 focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none";
 
-function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, openedMap = {}, onCodeMinted }) {
+function StaffPanel({ staff, currency, onRefresh, branchId, openedMap = {}, onCodeMinted }) {
   // Wage rates are money — same reasoning as StaffDetailModal above.
   const mLocale = moneyLocale(currency);
   const { t, lang } = useLanguage();
@@ -5302,7 +5350,11 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, open
   // modal owns the edit now; `editForm` is the shared draft state it drives.
   const [detailMember, setDetailMember] = useState(null);
   const [panelError, setPanelError] = useState("");
-  // The invite sheet (components/StaffInviteSheet): { member, link, loading }.
+  // An add that failed, shown UNDER the add form — the panel-top banner sat
+  // above the whole team list, off-screen on a phone, so the tap looked dead.
+  const [addError, setAddError] = useState("");
+  // The invite sheet (components/StaffInviteSheet):
+  // { member, link, loading, error, busy }.
   // One sheet for the row's "Invitér", the edit drawer's "Del link" and the
   // just-added nudge — it replaced the "Del portal-link" dialog, which had
   // copy + share but neither the code nor the app.
@@ -5311,24 +5363,39 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, open
   // under the form. Cleared when the owner starts typing the next person.
   const [justAdded, setJustAdded] = useState(null);
 
-  const generateLink = async (member) => {
-    setInvite({ member, link: null, loading: true });
+  const generateLink = async (member, { newCode = false } = {}) => {
+    setInvite((cur) => (newCode && cur && cur.member.id === member.id
+      ? { ...cur, busy: true, error: "" }
+      : { member, link: null, loading: true, error: "", busy: false }));
     try {
       // Idempotent: returns the staffer's existing link (rotating it would
-      // break the one they bookmarked) and a LIVE join code — the endpoint
-      // routes through _ensure_join_code, which re-mints a burned or expired
-      // one. The parent's code map is updated from it, so the bulk share
-      // sheet can never show an older code than this sheet.
-      const res = await api.post(`/staff/members/${member.id}/link`);
+      // break the one they bookmarked) and their join code — minted if they
+      // have none, refreshed if it expired unused. A code they already USED
+      // comes back empty (code_state "used") and is replaced only on the
+      // sheet's "Lav en ny kode" (?new_code=true): a fresh code is a new
+      // credential, so it is made on that tap, never on open.
+      //
+      // One request per person at a time (staffLinkOnce, shared with the
+      // week's Share sheet), so a double tap cannot ask the server twice.
+      // The answer is the code — no fallback to a cached one, which could be
+      // the very code that was redeemed since.
+      const res = await staffLinkOnce(newCode ? `${member.id}:new` : member.id, () =>
+        newCode
+          ? api.post(`/staff/members/${member.id}/link?new_code=true`)
+          : api.post(`/staff/members/${member.id}/link`));
       const url = publicUrl(res.data.portal_url);
-      const code = res.data.join_code || joinCodes[member.id] || "";
-      if (res.data.join_code) onCodeMinted?.(member.id, res.data.join_code);
+      const code = res.data.join_code || "";
+      const codeState = res.data.code_state || (code ? "live" : "none");
+      onCodeMinted?.(member.id, code || null);
       setInvite((cur) => (cur && cur.member.id === member.id
-        ? { member, link: { url, code }, loading: false }
+        ? { member, link: { url, code, codeState }, loading: false, error: "", busy: false }
         : cur));
     } catch (err) {
-      setPanelError(errText(err, t("stfLinkFailed", "Failed to generate link")));
-      setInvite(null);
+      // The sheet stays open and says why, next to what failed.
+      const msg = errText(err, t("stfLinkFailed", "Failed to generate link"));
+      setInvite((cur) => (cur && cur.member.id === member.id
+        ? { ...cur, loading: false, busy: false, error: msg }
+        : cur));
     }
   };
 
@@ -5339,7 +5406,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, open
     // honest answer is "you're out of seats, here's the upgrade".
     if (atSeatCap) return;
     setSaving(true);
-    setPanelError("");
+    setAddError("");
     setJustAdded(null);
     try {
       const created = await api.post("/staff/members", {
@@ -5379,7 +5446,8 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, open
       setBaseRate("");
       onRefresh();
     } catch (err) {
-      setPanelError(staffSaveErrText(err, t, t("stfStaffAddFailed", "Failed to add staff member.")));
+      // Next to the form, which keeps what was typed for a second try.
+      setAddError(staffSaveErrText(err, t, t("stfStaffAddFailed", "Failed to add staff member.")));
     }
     setSaving(false);
   };
@@ -5572,14 +5640,19 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, open
                       onClick={() => openDetail(member)}
                       title={t("viewStaffDetails", "View details")}
                       aria-label={`${t("viewStaffDetails", "View details")} — ${member.name}`}
-                      className="block max-w-full text-left text-sm font-medium text-gray-900 dark:text-white truncate cursor-pointer hover:underline underline-offset-2 decoration-gray-300 dark:decoration-gray-600 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400/40"
+                      className="block max-w-full text-left text-sm font-medium text-gray-900 dark:text-white cursor-pointer hover:underline underline-offset-2 decoration-gray-300 dark:decoration-gray-600 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400/40"
                     >
-                      {member.name}
+                      {/* Two lines, then clamp: "Bishnu Prasad Shrestha" was
+                          cut to "Bishnu Prasad Sh…" at 390px — a name the
+                          owner could not tell apart from a cousin's. */}
+                      <span className="line-clamp-2 [overflow-wrap:anywhere]">{member.name}</span>
                     </button>
-                    {/* Wraps rather than truncates: on a 390px phone the
-                        status ("Ikke åbnet endnu") is the point of the row,
-                        and "Ikke …" said nothing. Its own dot separates it. */}
-                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12px] text-gray-500 dark:text-gray-400">
+                    {/* Wraps rather than truncates: on a phone the status
+                        ("Ikke åbnet endnu") is the point of the row, and
+                        "Ikke åbnet e…" said nothing. When role + status do not
+                        fit on one line the status drops under the role, and
+                        wraps itself if it must. Its own dot separates it. */}
+                    <div className="mt-0.5 flex flex-wrap items-start gap-x-2.5 gap-y-0.5 text-[12px] leading-4 text-gray-500 dark:text-gray-400">
                       <span className="shrink-0">{roleName(member.role, t)}</span>
                       <span className="hidden sm:inline shrink-0 text-gray-400 dark:text-gray-500">
                         {contractLabel(member.contract_type, t)}
@@ -5587,7 +5660,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, open
                       {isInactive ? (
                         <span className="text-red-600 dark:text-red-400 font-medium">{t("inactive")}</span>
                       ) : (
-                        <StaffReachStatus lastAccessed={openedMap[member.id]} className="shrink-0 max-w-full" />
+                        <StaffReachStatus lastAccessed={openedMap[member.id]} className="max-w-full" />
                       )}
                     </div>
                   </div>
@@ -5731,11 +5804,23 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, open
           </button>
         </form>
         <p className="mt-2 text-[12px] text-gray-500 dark:text-gray-400">{t("teamAddHint")}</p>
+        {addError && (
+          <p
+            className="mt-2 text-[12px] text-red-700 dark:text-red-400"
+            role="alert"
+            data-testid="team-add-error"
+          >
+            {addError}
+          </p>
+        )}
 
         {/* The step after adding is getting them in — offered right here,
             once, for the person just added. Not a popup: an owner adding
-            five people in a row keeps typing; it goes away when they do. */}
-        {justAdded && !atSeatCap && (
+            five people in a row keeps typing; it goes away when they do.
+            Shown at the seat cap too: the person who just took the last seat
+            (a Free owner's 3rd) needs inviting more than anyone; the seat
+            note below says why there is no 4th. */}
+        {justAdded && (
           <div
             className="mt-3 flex items-center gap-3 rounded-xl border border-gray-200 dark:border-gray-700 px-3.5 py-2.5"
             data-testid="team-just-added"
@@ -5912,6 +5997,10 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, open
           member={invite.member}
           link={invite.link}
           loading={invite.loading}
+          error={invite.error}
+          busy={invite.busy}
+          onRetry={() => generateLink(invite.member)}
+          onNewCode={() => generateLink(invite.member, { newCode: true })}
           lastAccessed={openedMap[invite.member.id]}
           restaurant={user?.business_name || ""}
           onClose={() => setInvite(null)}
