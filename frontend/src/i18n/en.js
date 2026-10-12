@@ -2788,6 +2788,7 @@ export const en = {
     pricingLockedTrialingInOne: "in 1 day",
     pricingLockedTrialingSoon: "soon",
     pricingLockedActive: "Subscription active — billed monthly",
+    pricingLockedCancels: "Cancels {date} — you won't be charged again",
     pricingLockedProcessing: "Payment processing — your plan unlocks as soon as it clears",
     pricingPaymentConfirming: "Confirming your payment…",
     pricingPaymentConfirmed: "Payment confirmed — your plan is unlocked 🎉",
