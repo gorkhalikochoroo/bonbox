@@ -106,6 +106,8 @@ export default function MorePage() {
     // exactly as it is off the sidebar. Same Set both places, so the two
     // surfaces can't disagree.
     usageDormant: activation.usageDormantPillars instanceof Set ? activation.usageDormantPillars : undefined,
+    // Tools in use stay, whatever the business type (same Set as the sidebar).
+    usedSurfaces: activation.usedSurfaces instanceof Set ? activation.usedSurfaces : undefined,
     // Owner-only financial tiles (Reports/Tax) drop from the More grid for staff.
     isStaffMember: isStaffMemberRole(user?.role) || (_devShared && _devLocked),
   };

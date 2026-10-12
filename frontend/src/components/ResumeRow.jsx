@@ -105,6 +105,8 @@ export default function ResumeRow({ enabledModules, onNavigate }) {
       // USAGE GATE — never resume into a pillar that isn't in the nav right
       // now (today: Events for an owner who has never created one).
       usageDormant: activation.usageDormantPillars instanceof Set ? activation.usageDormantPillars : undefined,
+      // A tool the owner uses is reachable whatever the business type.
+      usedSurfaces: activation.usedSurfaces instanceof Set ? activation.usedSurfaces : undefined,
       // Never resume a staff member into an owner-only financial page.
       isStaffMember: isStaffMemberRole(user?.role) || (_devShared && _devLocked),
     });

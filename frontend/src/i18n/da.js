@@ -9872,4 +9872,11 @@ export const da = {
     rsvpProviderNoTimesNoHoursBody: "Din bookingside har ingen ledige tider de næste 14 dage — jeres åbningstider er ikke gemt endnu.",
     rsvpProviderNoTimesHoursCta: "Gem åbningstider",
     rsvpSearchPhProvider: "Søg kunde eller telefon",
+    // ── vertical-fit review (Oct 2026) ──
+    typeChangeStay: "Bliver i menuen: {list}",
+    typeChangeToolsHidden: "Forsvinder fra menuen med den nye type (ikke brugt endnu): {list}",
+    typeChangeToolsHiddenPlain: "Forsvinder fra menuen med den nye type: {list}",
+    typeChangeToolsShown: "Nyt i menuen: {list}",
+    typeChangeConfirm: "Skift type",
+    typeChangeNothingDeletedShort: "Intet af dine data slettes.",
 };

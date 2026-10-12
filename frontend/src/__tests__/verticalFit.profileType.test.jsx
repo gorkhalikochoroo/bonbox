@@ -10,6 +10,11 @@
  * Now: saving a NEW type asks first (useConfirm) with the server's plan —
  * "Anvend" applies the defaults, "Behold mine indstillinger" changes the type
  * only, "Annuller" saves nothing — and the type list is the shared catalogue.
+ *
+ * Review round: the sheet only says "because you use it" where there is a
+ * usage signal ("Bliver i menuen" otherwise), and it names the tools the new
+ * type takes out of (or puts into) the menu — the same filter the sidebar
+ * runs, so a tool in use is never on the list.
  */
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -21,6 +26,8 @@ vi.mock("../services/api", () => ({
 }));
 vi.mock("../hooks/useAuth", () => ({ useAuth: () => ({ user: h.me, refreshUser: vi.fn() }) }));
 vi.mock("../hooks/usePillars", () => ({ usePillars: () => ({ hiddenPillars: new Set(), refresh: h.refreshPillars }) }));
+const used = vi.hoisted(() => ({ surfaces: new Set() }));
+vi.mock("../hooks/useActivation", () => ({ useActivation: () => ({ usedSurfaces: used.surfaces }) }));
 vi.mock("../hooks/useEntitlements", () => ({
   useEntitlements: () => ({ hasFeature: () => true, minPlanForFeature: () => null, isReady: true, plan: "pro" }),
 }));
@@ -60,6 +67,7 @@ beforeEach(() => {
   h.get.mockReset(); h.post.mockReset(); h.patch.mockReset(); h.refreshPillars.mockReset();
   h.me = { ...CAFE };
   h.plan = SALON_PLAN;
+  used.surfaces = new Set();
   h.business = { day_cutoff_hour: 6 };
   h.get.mockImplementation((url) => {
     if (url === "/auth/me") return Promise.resolve({ data: h.me });
@@ -192,5 +200,55 @@ describe("the business card fits the type", () => {
     fireEvent.change(select, { target: { value: "salon" } });
     await settle();
     expect(screen.getByText(/Dagsskifte kl\. 06:00/).textContent).toContain("the usual for this type is 00:00");
+  });
+});
+
+describe("the sheet tells the truth (review round)", () => {
+  it("a pillar with no usage signal stays without a claimed reason", async () => {
+    h.plan = { ...SALON_PLAN, pillars_show: [], pillars_kept: [], pillars_stay: ["insights"] };
+    const { select } = await renderProfile();
+    await pickAndSave(select, "salon");
+    const summary = await screen.findByTestId("type-change-summary");
+    expect(summary.textContent).toContain("Stays in your menu: pillarLabelInsights");
+    expect(summary.textContent).not.toContain("because you use it");
+  });
+
+  it("names the tools the new type takes out of the menu — not used yet", async () => {
+    const { select } = await renderProfile();
+    await pickAndSave(select, "salon");
+    const summary = await screen.findByTestId("type-change-summary");
+    expect(summary.textContent).toContain("Leaves the menu with the new type (not used yet): expiryForecasting, wasteTracker");
+  });
+
+  it("a tool in use stays, and is not on the list", async () => {
+    used.surfaces = new Set(["waste"]);
+    const { select } = await renderProfile();
+    await pickAndSave(select, "salon");
+    const summary = await screen.findByTestId("type-change-summary");
+    expect(summary.textContent).toContain("(not used yet): expiryForecasting");
+    expect(summary.textContent).not.toContain("wasteTracker");
+  });
+
+  it("a type that puts tools into the menu says so", async () => {
+    h.me = { ...CAFE, business_type: "salon" };
+    h.plan = { ...SALON_PLAN, from_type: "salon", to_type: "cafe", to_archetype: "food_service" };
+    const { select } = await renderProfile();
+    await pickAndSave(select, "cafe");
+    const summary = await screen.findByTestId("type-change-summary");
+    expect(summary.textContent).toContain("New in the menu: expiryForecasting, wasteTracker");
+  });
+
+  it("nothing to apply but the menu changes: one way forward, no 'Keep my settings'", async () => {
+    h.plan = { ...SALON_PLAN, to_type: "jewelry", cutoff: null, categories_add: [], pillars_show: [], has_changes: false };
+    const { select } = await renderProfile();
+    await pickAndSave(select, "jewelry");
+    const summary = await screen.findByTestId("type-change-summary");
+    expect(summary.textContent).toContain("(not used yet): expiryForecasting, wasteTracker");
+    expect(summary.textContent).toContain("None of your data is deleted.");
+    expect(summary.textContent).not.toContain("Keep my settings");
+    expect(screen.queryByRole("button", { name: "Keep my settings" })).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Change type" })); });
+    await settle();
+    expect(h.post).toHaveBeenCalledWith("/auth/business-type", { business_type: "jewelry", apply_defaults: true });
   });
 });

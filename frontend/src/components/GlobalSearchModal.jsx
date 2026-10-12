@@ -7,6 +7,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "./BranchSelector";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { usePillars } from "../hooks/usePillars";
+import { useActivation } from "../hooks/useActivation";
 import { useAuth } from "../hooks/useAuth";
 import { useDeviceShare } from "../hooks/useDeviceShare";
 import { Icon } from "./ui";
@@ -81,6 +82,8 @@ export default function GlobalSearchModal({ open, onClose }) {
   // setPillarHidden, THEN navigates to the now-live page (no PillarGate
   // bounce). setPillarHidden is the optimistic toggle from the pillar context.
   const { hiddenPillars, setPillarHidden } = usePillars();
+  // Tools the owner has real rows for — the business-type gate keeps them.
+  const { usedSurfaces } = useActivation();
   const inputRef = useRef(null);
   const debounceRef = useRef(null);
 
@@ -154,6 +157,8 @@ export default function GlobalSearchModal({ open, onClose }) {
       hasFeature,
       featReady: entReady !== false,
       hiddenPillars: new Set(),
+      // A tool the owner uses is findable whatever the business type.
+      usedSurfaces,
       // Staff members don't get owner-only financial pages (Reports/Tax) in ⌘K.
       isStaffMember,
     });
@@ -191,7 +196,7 @@ export default function GlobalSearchModal({ open, onClose }) {
         aliases: d.aliases || [],
       }));
     return [...manifestPages, ...extraPages];
-  }, [t, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, isStaffMember, user]);
+  }, [t, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, isStaffMember, user, usedSurfaces]);
 
   const matchedPages = useMemo(() => {
     const q = query.trim().toLowerCase();

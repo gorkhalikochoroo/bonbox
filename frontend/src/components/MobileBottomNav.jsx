@@ -9,6 +9,7 @@ import { Icon } from "./ui";
 import { Plus } from "lucide-react";
 import { getTabsForType } from "../config/bottomNavTabs";
 import { usePillars } from "../hooks/usePillars";
+import { useActivation } from "../hooks/useActivation";
 
 /**
  * iOS-style 5-tab bottom bar. The slot LAYOUT is bottom-nav chrome (fixed:
@@ -34,11 +35,20 @@ import { usePillars } from "../hooks/usePillars";
    costs taps, never the task. */
 const CENTER_FALLBACK = { business: "/sales", personal: "/personal" };
 
-export default function MobileBottomNav() {
+/**
+ * @param {{enabledModules?: Set<string>|null}} props  the owner's switched-on
+ *   vertical modules from Layout's /modules read — null until it has answered
+ *   (unknown never switches a tab off).
+ */
+export default function MobileBottomNav({ enabledModules = null } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const { branchType } = useBranch();
   const { hiddenPillars } = usePillars();
+  // What the owner has in use: the 4th slot leads with a type's own tool only
+  // once it is used (bottomNavTabs) — known pillars and tools, never the
+  // fail-open "everything" of a request still in flight.
+  const { knownActivatedPillars, usedSurfaces } = useActivation();
   const { t } = useLanguage();
   // Mode comes from the ACCOUNT (lib/appMode.js) — the same resolver the
   // sidebar and QuickAdd use. This bar used to ask useBranch() what vertical
@@ -53,7 +63,11 @@ export default function MobileBottomNav() {
   const isPersonal = resolveMode(user) === "personal";
   const tabs = isPersonal
     ? personalTabs()
-    : getTabsForType(branchType || "general", hiddenPillars);
+    : getTabsForType(branchType || "general", hiddenPillars, {
+      usedPillars: knownActivatedPillars ?? null,
+      usedSurfaces: usedSurfaces instanceof Set ? usedSurfaces : new Set(),
+      enabledModules: enabledModules instanceof Set ? enabledModules : null,
+    });
 
   return (
     <nav

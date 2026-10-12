@@ -33,6 +33,21 @@
  *   refresh()                      re-pull /api/activation.
  *   usageDormantPillars Set<string> the USAGE GATE (below) — what the NAV hides.
  *   usageKnownDormant   Set<string> the usage gate, but only once it is KNOWN.
+ *   usedSurfaces       Set<string> TOOLS this owner has real rows for (waste /
+ *                                 expiry / workshop — the payload's `surfaces`).
+ *                                 The nav keeps a tool the business-type gate
+ *                                 would hide when it is in here (navManifest
+ *                                 keepWhenUsed). Loading → the stored hint, else
+ *                                 empty (the type gate decides); error → the
+ *                                 hint, else EVERY tool (fail open).
+ *   knownActivatedPillars Set<string>|null  the activated pillars as far as
+ *                                 KNOWN: the response, else this owner's stored
+ *                                 hint, else null while loading (error → every
+ *                                 pillar). Unlike activatedPillars it does not
+ *                                 fail open while loading — the phone tab bar
+ *                                 reads it, and a tab that appears and then
+ *                                 flips back on every load is worse than one
+ *                                 that settles once (bottomNavTabs).
  *
  * ── THE USAGE GATE (Sep 2026) ────────────────────────────────────────────
  * Separate from, and stricter than, the activation axis: navManifest's
@@ -130,6 +145,12 @@ const USAGE_DORMANT_ALL = Object.freeze(new Set(USAGE_GATED_PILLARS));
 // and a missing/corrupt value just means "not known yet".
 const USAGE_HINT_PREFIX = "bonbox_usage_hint:";
 
+// The per-TOOL usage signals GET /api/activation reports under `surfaces`
+// (backend pillars.USED_SURFACES). Keep in sync.
+const USED_SURFACE_IDS = Object.freeze(["waste", "expiry", "workshop"]);
+const NO_SURFACES = Object.freeze(new Set());
+const ALL_SURFACES = Object.freeze(new Set(USED_SURFACE_IDS));
+
 /** Read the stored hint for a user key → { <pillar>: bool } or null. Every
  *  access is guarded: private mode, cleared site data and blocked storage all
  *  throw, and a thrown read here would take down the whole authed tree. */
@@ -151,16 +172,52 @@ function readUsageHint(userKey) {
   }
 }
 
-/** Persist the server's answer for the gated pillars. Fire-and-forget. */
-function writeUsageHint(userKey, activated) {
+/** Persist the server's answer for the gated pillars. Fire-and-forget.
+ *  `_pillars` / `_surfaces` (Oct 2026) carry the whole known answer for the
+ *  tab bar and the type-gate keep; readUsageHint ignores them, so a hint
+ *  written by either bundle reads in the other. */
+function writeUsageHint(userKey, activated, surfaces = null) {
   if (!userKey) return;
   try {
     const hint = {};
     for (const pid of USAGE_GATED_PILLARS) hint[pid] = activated.has(pid);
+    hint._pillars = [...activated];
+    if (surfaces instanceof Set) hint._surfaces = [...surfaces];
     localStorage.setItem(USAGE_HINT_PREFIX + userKey, JSON.stringify(hint));
   } catch {
     /* storage unavailable — the gate still works, just without the hint. */
   }
+}
+
+/** The stored whole-answer hint → { pillars:Set, surfaces:Set|null } or null
+ *  (none, corrupt, or written before it carried `_pillars`). Guarded like
+ *  readUsageHint: a thrown storage read must never take the tree down. */
+function readKnownUsageHint(userKey) {
+  if (!userKey) return null;
+  try {
+    const raw = localStorage.getItem(USAGE_HINT_PREFIX + userKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed._pillars)) return null;
+    return {
+      pillars: new Set(parsed._pillars.filter((p) => GATEABLE.includes(p))),
+      surfaces: Array.isArray(parsed._surfaces)
+        ? new Set(parsed._surfaces.filter((x) => USED_SURFACE_IDS.includes(x)))
+        : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** `surfaces` from a payload → the Set of tools used. A missing map or key
+ *  reads as used (fail open: an older API never hides a tool). */
+function surfacesFrom(data) {
+  const map = data && typeof data.surfaces === "object" && data.surfaces ? data.surfaces : null;
+  if (!map) return ALL_SURFACES;
+  const out = new Set();
+  for (const id of USED_SURFACE_IDS) if (map[id] !== false) out.add(id);
+  return out;
 }
 
 /** The dormant Set implied by a per-pillar "has used it" map (from a response
@@ -185,6 +242,10 @@ const FAIL_OPEN = Object.freeze({
   // usage gate hides NOTHING — same fail-open direction as every other field.
   usageDormantPillars: NO_USAGE_DORMANT,
   usageKnownDormant: NO_USAGE_DORMANT,
+  // Fail open: every tool reads used (the type gate keeps them all) and every
+  // pillar is known activated.
+  usedSurfaces: ALL_SURFACES,
+  knownActivatedPillars: ALL_ACTIVATED,
 });
 
 export function ActivationProvider({ children }) {
@@ -240,6 +301,7 @@ export function ActivationProvider({ children }) {
         if (key !== currentKeyRef.current) return activated;
         const used = {};
         for (const pid of USAGE_GATED_PILLARS) used[pid] = activated.has(pid);
+        const surfaces = surfacesFrom(data);
         setState({
           key,
           activated,
@@ -247,8 +309,9 @@ export function ActivationProvider({ children }) {
           enabled: data.enabled === true,
           ok: true,
           used,
+          surfaces,
         });
-        writeUsageHint(key, activated);
+        writeUsageHint(key, activated, surfaces);
         return activated;
       })
       .catch(() => {
@@ -271,6 +334,8 @@ export function ActivationProvider({ children }) {
             // No response → the owner's last known answer, else unknown
             // (→ usage gate fails open, Events visible).
             used: hint,
+            // Tools: the last known answer, else every tool (fail open).
+            surfaces: readKnownUsageHint(key)?.surfaces || ALL_SURFACES,
           };
         });
         return activated;
@@ -356,6 +421,28 @@ export function ActivationProvider({ children }) {
     return [dormant, dormant];
   }, [user, isUsageExemptType, isAccountant, settled, usageHint]);
 
+  // The whole stored answer for this owner (tab bar + type-gate keep), read
+  // once per account like usageHint.
+  const knownHint = useMemo(() => readKnownUsageHint(userKey), [userKey]);
+
+  // Tools used (navManifest keepWhenUsed). Accountant: every tool (a revisor
+  // sees the full nav). Loading: the hint, else none — the type gate decides
+  // and a used tool appears once the answer lands.
+  const usedSurfaces = useMemo(() => {
+    if (!user) return NO_SURFACES;
+    if (isAccountant) return ALL_SURFACES;
+    if (settled) return settled.surfaces instanceof Set ? settled.surfaces : ALL_SURFACES;
+    return knownHint?.surfaces || NO_SURFACES;
+  }, [user, isAccountant, settled, knownHint]);
+
+  // Pillars KNOWN to be activated — null while loading with no hint.
+  const knownActivatedPillars = useMemo(() => {
+    if (!user) return null;
+    if (isAccountant) return ALL_ACTIVATED;
+    if (settled) return settled.activated;
+    return knownHint?.pillars || null;
+  }, [user, isAccountant, settled, knownHint]);
+
   const value = useMemo(
     () => ({
       activatedPillars,
@@ -367,6 +454,8 @@ export function ActivationProvider({ children }) {
       refresh,
       usageDormantPillars,
       usageKnownDormant,
+      usedSurfaces,
+      knownActivatedPillars,
     }),
     [
       activatedPillars,
@@ -377,6 +466,8 @@ export function ActivationProvider({ children }) {
       refresh,
       usageDormantPillars,
       usageKnownDormant,
+      usedSurfaces,
+      knownActivatedPillars,
     ],
   );
 

@@ -61,7 +61,9 @@ import { archetypeIdFor, cutoffHourFor } from "../config/archetypes";
 import { BUSINESS_TYPE_VALUES, businessTypeGroupsFor } from "../config/businessTypes";
 import { PILLAR_DISPLAY_BY_ID, labelKeyFor } from "../config/navManifest";
 import { MODULE_COPY } from "../config/verticalModules";
+import { typeGateDelta } from "../config/typeGateDelta";
 import { usePillars } from "../hooks/usePillars";
+import { useActivation } from "../hooks/useActivation";
 
 // Every business_type value the type <select> below can offer — the shared
 // catalogue (config/businessTypes.js), the same set onboarding resolves to.
@@ -259,6 +261,9 @@ export default function ProfilePage() {
   const { refreshUser } = useAuth();
   // Re-read after a type change applied a new pillar preset.
   const { refresh: refreshPillars } = usePillars();
+  // Tools this owner uses — a type change never takes them out of the menu,
+  // and the confirm sheet lists only what it really moves (typeGateDelta).
+  const { usedSurfaces } = useActivation();
   // Bumped after a type change applied new defaults: remounts the cutoff
   // stepper so it shows the hour that was just saved.
   const [defaultsNonce, setDefaultsNonce] = useState(0);
@@ -816,20 +821,47 @@ export default function ProfilePage() {
     const typeChanged = !!form.business_type && form.business_type !== (savedBusinessType || "");
     if (typeChanged) {
       let plan = null;
+      // The menu side of the switch: which tools the TYPE moves in or out of
+      // the menu (Madspild / Udløbsprognose outside perishable stock) — with
+      // either choice, since it follows the type itself. Read from the same
+      // filter the sidebar runs, with this owner's modules and tool usage.
+      let tools = { hide: [], show: [] };
+      const [planRes, modsRes] = await Promise.allSettled([
+        api.get("/auth/business-type/preview", { params: { business_type: form.business_type } }),
+        api.get("/modules"),
+      ]);
+      plan = planRes.status === "fulfilled" ? planRes.value.data : null;
       try {
-        plan = (await api.get("/auth/business-type/preview", { params: { business_type: form.business_type } })).data;
-      } catch { plan = null; }
+        const enabledModules = modsRes.status === "fulfilled"
+          ? new Set((modsRes.value.data?.modules || []).filter((m) => m.enabled).map((m) => m.id))
+          : new Set();
+        tools = typeGateDelta(savedBusinessType || "general", form.business_type, {
+          usedSurfaces: usedSurfaces instanceof Set ? usedSurfaces : new Set(),
+          enabledModules,
+        });
+      } catch { tools = { hide: [], show: [] }; }
       if (plan) {
         if (plan.has_changes) {
           const choice = await confirm({
             title: t("typeChangeTitle", "Change to {type}?", { type: typeLabel(form.business_type) }),
-            message: <TypeChangeSummary plan={plan} t={t} />,
+            message: <TypeChangeSummary plan={plan} tools={tools} t={t} />,
             confirmLabel: t("typeChangeApply", "Apply"),
             extraLabel: t("typeChangeKeep", "Keep my settings"),
             cancelLabel: t("cancel", "Cancel"),
           });
           if (choice !== true && choice !== "extra") { setSaving(false); return; }
           applyDefaults = choice === true;
+        } else if (tools.hide.length || tools.show.length) {
+          // Nothing to apply, but the menu still changes with the type: say
+          // so, with one way forward (Anvend and Behold would be the same).
+          const ok = await confirm({
+            title: t("typeChangeTitle", "Change to {type}?", { type: typeLabel(form.business_type) }),
+            message: <TypeChangeSummary plan={plan} tools={tools} keepOption={false} t={t} />,
+            confirmLabel: t("typeChangeConfirm", "Change type"),
+            cancelLabel: t("cancel", "Cancel"),
+          });
+          if (ok !== true) { setSaving(false); return; }
+          applyDefaults = true;
         } else {
           applyDefaults = true;
         }
@@ -2359,12 +2391,18 @@ function Field({ label, hint, children }) {
  *  Lists, from the server's plan (GET /auth/business-type/preview), exactly
  *  what "Anvend" would change. Phrasing content only (useConfirm renders the
  *  message inside a <p>): one block <span> per line. */
-function TypeChangeSummary({ plan, t }) {
+function TypeChangeSummary({ plan, tools = null, keepOption = true, t }) {
   const arch = plan?.to_archetype || null;
   const pillar = (id) => {
     const p = PILLAR_DISPLAY_BY_ID[id];
     return p ? t(labelKeyFor(p, arch)) : id;
   };
+  const tool = (d) => t(labelKeyFor(d, arch));
+  // Tools that leave the menu with the type. Every one the gate can hide has
+  // a usage signal (keepWhenUsed) — it would have stayed if used — so "not
+  // used yet" is true for those; any other is named without a reason.
+  const toolsHiddenUnused = (tools?.hide || []).filter((d) => d.keepWhenUsed);
+  const toolsHiddenOther = (tools?.hide || []).filter((d) => !d.keepWhenUsed);
   const moduleName = (id) => (MODULE_COPY[id] ? t(MODULE_COPY[id].nameKey) : id);
   const hh = (h) => String(h).padStart(2, "0") + ":00";
   const lines = [];
@@ -2386,6 +2424,20 @@ function TypeChangeSummary({ plan, t }) {
   if (plan.pillars_kept?.length) {
     lines.push(t("typeChangeKept", "Stays, because you use it: {list}", { list: plan.pillars_kept.map(pillar).join(", ") }));
   }
+  // The new type's preset would hide these, but there is no usage signal to
+  // go on (Insights has none): they stay, and no reason is claimed.
+  if (plan.pillars_stay?.length) {
+    lines.push(t("typeChangeStay", "Stays in your menu: {list}", { list: plan.pillars_stay.map(pillar).join(", ") }));
+  }
+  if (toolsHiddenUnused.length) {
+    lines.push(t("typeChangeToolsHidden", "Leaves the menu with the new type (not used yet): {list}", { list: toolsHiddenUnused.map(tool).join(", ") }));
+  }
+  if (toolsHiddenOther.length) {
+    lines.push(t("typeChangeToolsHiddenPlain", "Leaves the menu with the new type: {list}", { list: toolsHiddenOther.map(tool).join(", ") }));
+  }
+  if (tools?.show?.length) {
+    lines.push(t("typeChangeToolsShown", "New in the menu: {list}", { list: tools.show.map(tool).join(", ") }));
+  }
   if (plan.modules_add?.length) {
     lines.push(t("typeChangeModules", "Switched on: {list}", { list: plan.modules_add.map(moduleName).join(", ") }));
   }
@@ -2397,7 +2449,11 @@ function TypeChangeSummary({ plan, t }) {
       {lines.map((l, i) => (
         <span key={i} className="block">• {l}</span>
       ))}
-      <span className="block mt-2">{t("typeChangeNothingDeleted", "None of your data is deleted. “Keep my settings” changes only the type.")}</span>
+      <span className="block mt-2">
+        {keepOption
+          ? t("typeChangeNothingDeleted", "None of your data is deleted. “Keep my settings” changes only the type.")
+          : t("typeChangeNothingDeletedShort", "None of your data is deleted.")}
+      </span>
     </span>
   );
 }

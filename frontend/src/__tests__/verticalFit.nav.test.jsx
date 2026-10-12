@@ -10,9 +10,14 @@
  *
  * Pinned here:
  *   • useBranch falls back to user.business_type when there are no branches;
- *   • a branchless salon's tab 4 is "Tidsbestilling" (→ /reservations) and its
- *     Mere has no Madspild / Udløbsprognose;
- *   • the slot never points at a pillar the owner switched off;
+ *   • tab 4 (review round, product decision): Kasserapport for food service
+ *     and bars — their first job, and what their bar has always shown; a
+ *     salon / shop / workshop gets its own tool (Tidsbestilling / Lager /
+ *     Værksted) once that tool is on AND used, else Kasserapport;
+ *   • a branchless salon's Mere has no Madspild / Udløbsprognose — unless it
+ *     uses them (a real waste row / a dated stock item keeps the tool);
+ *   • a module the owner switched on always shows, whatever the type
+ *     ("Andet" + Værksted);
  *   • perishable-only Expiry/Waste, Insights for every type, the Workshop job
  *     board in Mere for a repair trade with the module on.
  */
@@ -46,10 +51,12 @@ const pillarState = vi.hoisted(() => ({ hidden: new Set() }));
 vi.mock("../hooks/usePillars", () => ({
   usePillars: () => ({ hiddenPillars: pillarState.hidden, isReady: true, setPillarHidden: vi.fn(), refresh: vi.fn() }),
 }));
+const act8n = vi.hoisted(() => ({ known: null, surfaces: new Set() }));
 vi.mock("../hooks/useActivation", () => ({
   useActivation: () => ({
     usageDormantPillars: new Set(), usageKnownDormant: new Set(), activatedPillars: undefined,
     isActivated: () => true, isInScope: false, activationEnabled: false, isReady: true, refresh: vi.fn(),
+    knownActivatedPillars: act8n.known, usedSurfaces: act8n.surfaces,
   }),
 }));
 vi.mock("../hooks/useDeviceShare", () => ({ useDeviceShare: () => ({ enabled: false, locked: false }) }));
@@ -73,6 +80,8 @@ const modulesPayload = (enabled = []) => ({
 beforeEach(() => {
   localStorage.clear();
   pillarState.hidden = new Set();
+  act8n.known = null;
+  act8n.surfaces = new Set();
   get.mockReset();
   get.mockImplementation((url) => (url === "/modules" ? Promise.resolve(modulesPayload()) : Promise.resolve({ data: {} })));
 });
@@ -103,8 +112,9 @@ describe("useBranch resolves the owner's own type when there are no branches", (
 });
 
 describe("the phone tab bar's 4th slot", () => {
-  it("a branchless salon gets Tidsbestilling as tab 4", async () => {
+  it("a branchless salon that takes bookings gets Tidsbestilling as tab 4", async () => {
     auth.user = { id: "u3", business_type: "salon", role: "owner" };
+    act8n.known = new Set(["reservations"]);
     render(<MemoryRouter><BranchProvider><MobileBottomNav /></BranchProvider></MemoryRouter>);
     await settle();
     const tab = screen.getByRole("link", { name: da.navAppointments });
@@ -113,20 +123,63 @@ describe("the phone tab bar's 4th slot", () => {
     expect(screen.queryByRole("link", { name: da.navToday })).toBeNull();
   });
 
+  it("a salon that has not taken a booking yet — or whose answer is not in — keeps Kasserapport", async () => {
+    auth.user = { id: "u3b", business_type: "salon", role: "owner" };
+    act8n.known = new Set(["staff"]);
+    const { unmount } = render(<MemoryRouter><BranchProvider><MobileBottomNav /></BranchProvider></MemoryRouter>);
+    await settle();
+    expect(screen.getByRole("link", { name: da.navToday }).getAttribute("href")).toBe("/daily-close");
+    unmount();
+    act8n.known = null; // loading, no stored answer
+    render(<MemoryRouter><BranchProvider><MobileBottomNav /></BranchProvider></MemoryRouter>);
+    await settle();
+    expect(screen.getByRole("link", { name: da.navToday }).getAttribute("href")).toBe("/daily-close");
+  });
+
+  it("a café, a restaurant and a bar keep Kasserapport — even with bookings (product decision)", async () => {
+    act8n.known = new Set(["reservations", "inventory", "staff"]);
+    for (const type of ["cafe", "restaurant", "bar", "bakery"]) {
+      auth.user = { id: `u-${type}`, business_type: type, role: "owner" };
+      const { unmount } = render(<MemoryRouter><BranchProvider><MobileBottomNav /></BranchProvider></MemoryRouter>);
+      await settle();
+      expect(screen.getByRole("link", { name: da.navToday }).getAttribute("href")).toBe("/daily-close");
+      expect(screen.queryByRole("link", { name: da.reservations })).toBeNull();
+      unmount();
+    }
+  });
+
   it.each([
-    ["cafe", "/reservations", "reservations"],
-    ["bar", "/reservations", "reservations"],
-    ["clothing", "/inventory", null],
-    ["workshop", "/workshop", "workshop"],
-    ["general", "/daily-close", null],
-  ])("%s → %s", (type, to) => {
+    ["cafe", "/daily-close"],
+    ["restaurant", "/daily-close"],
+    ["bar", "/daily-close"],
+    ["salon", "/reservations"],
+    ["clothing", "/inventory"],
+    ["workshop", "/workshop"],
+    ["general", "/daily-close"],
+  ])("%s → %s (no usage rule)", (type, to) => {
     expect(getTabsForType(type)[3].to).toBe(to);
   });
 
-  it("never points at a pillar the owner switched off — a café without Reservationer keeps Kasserapport", () => {
-    const tab = getTabsForType("cafe", new Set(["reservations"]))[3];
-    expect(tab.to).toBe("/daily-close");
+  it("never points at a pillar the owner switched off", () => {
+    expect(getTabsForType("salon", new Set(["reservations"]))[3].to).toBe("/daily-close");
     expect(getTabsForType("clothing", new Set(["inventory"]))[3].to).toBe("/daily-close");
+  });
+
+  it("leads with the type's own tool only once it is used", () => {
+    const used = (pillars = [], surfaces = [], modules = null) => ({
+      usedPillars: new Set(pillars), usedSurfaces: new Set(surfaces),
+      enabledModules: modules === null ? null : new Set(modules),
+    });
+    expect(getTabsForType("clothing", null, used([]))[3].to).toBe("/daily-close");
+    expect(getTabsForType("clothing", null, used(["inventory"]))[3].to).toBe("/inventory");
+    expect(getTabsForType("salon", null, used(["inventory"]))[3].to).toBe("/daily-close");
+    // Workshop: job cards are the use; the module must be on (once known).
+    expect(getTabsForType("workshop", null, used([], [], ["workshop"]))[3].to).toBe("/daily-close");
+    expect(getTabsForType("workshop", null, used([], ["workshop"], ["workshop"]))[3].to).toBe("/workshop");
+    expect(getTabsForType("workshop", null, used([], ["workshop"], null))[3].to).toBe("/workshop");
+    expect(getTabsForType("workshop", null, used([], ["workshop"], []))[3].to).toBe("/daily-close");
+    // Unknown (still loading, no hint) reads as not used.
+    expect(getTabsForType("salon", null, { usedPillars: null, usedSurfaces: new Set() })[3].to).toBe("/daily-close");
   });
 });
 
@@ -152,6 +205,15 @@ describe("Mere follows the owner's type", () => {
     const hrefs = tiles();
     expect(hrefs).toContain("/waste");
     expect(hrefs).toContain("/expiry");
+  });
+
+  it("a salon that logs waste keeps Madspild — the type never takes a tool in use", async () => {
+    auth.user = { id: "u4b", business_type: "salon", role: "owner" };
+    act8n.surfaces = new Set(["waste"]);
+    render(<MemoryRouter><BranchProvider><MorePage /></BranchProvider></MemoryRouter>);
+    await settle();
+    expect(tiles()).toContain("/waste");
+    expect(tiles()).not.toContain("/expiry");
   });
 
   it("a cykelværksted with the Workshop module sees its job board in Mere", async () => {
@@ -186,10 +248,30 @@ describe("type gates now that a type is resolved", () => {
     }
   });
 
-  it("the Workshop job board follows the module for every repair trade", () => {
+  it("the Workshop job board follows the module — a module the owner switched on always shows", () => {
     expect(visible("mobile_repair", ["workshop"])).toContain("/workshop");
-    expect(visible("salon", ["workshop"])).not.toContain("/workshop");
+    // "Andet" with Værksted switched on in /modules (review round): it shows.
+    expect(visible("general", ["workshop"])).toContain("/workshop");
+    expect(visible("other", ["workshop"])).toContain("/workshop");
+    expect(visible("salon", ["workshop"])).toContain("/workshop");
     expect(visible("workshop", [])).not.toContain("/workshop");
+    expect(visible("general", [])).not.toContain("/workshop");
+  });
+
+  it("a module switched on beats the type gate for Vinkort too", () => {
+    expect(visible("salon", ["wine_sommelier"])).toContain("/wine-list");
+    expect(visible("salon", [])).not.toContain("/wine-list");
+  });
+
+  it("a tool in use beats the type gate (Madspild / Udløbsprognose)", () => {
+    const keep = (type, used) => filterDestinations(
+      NAV_MANIFEST.filter((d) => d.surfaces.includes("more") || d.surfaces.includes("sidebar")),
+      { businessTypes: [type], archetypeId: archetypeIdFor(type), enabledModules: new Set(), hasFeature: () => true, usedSurfaces: new Set(used) },
+    ).map((d) => d.to);
+    expect(keep("salon", ["waste"])).toContain("/waste");
+    expect(keep("salon", ["waste"])).not.toContain("/expiry");
+    expect(keep("clothing", ["expiry"])).toContain("/expiry");
+    expect(keep("jewelry", [])).not.toContain("/expiry");
   });
 
   it("Bar Pour and Vinkort show for a bar with the canonical module ids", () => {

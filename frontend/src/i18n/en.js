@@ -10200,4 +10200,11 @@ export const en = {
     rsvpProviderNoTimesNoHoursBody: "Your booking page has no free time in the next 14 days — your opening hours aren't saved yet.",
     rsvpProviderNoTimesHoursCta: "Save opening hours",
     rsvpSearchPhProvider: "Search customer or phone",
+    // ── vertical-fit review (Oct 2026) ──
+    typeChangeStay: "Stays in your menu: {list}",
+    typeChangeToolsHidden: "Leaves the menu with the new type (not used yet): {list}",
+    typeChangeToolsHiddenPlain: "Leaves the menu with the new type: {list}",
+    typeChangeToolsShown: "New in the menu: {list}",
+    typeChangeConfirm: "Change type",
+    typeChangeNothingDeletedShort: "None of your data is deleted.",
 };

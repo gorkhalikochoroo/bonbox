@@ -161,7 +161,9 @@ describe("usage gate — responses", () => {
     await waitFor(() => expect(probe()).toHaveAttribute("data-loading", "false"));
     expect(navHides()).toBe(true);
     expect(knownDormant()).toBe(true);
-    expect(JSON.parse(localStorage.getItem(HINT_KEY(1)))).toEqual({ events: false });
+    // The gate's bit; the hint also carries the whole answer for the tab bar
+    // (`_pillars` / `_surfaces`, Oct 2026), which this gate ignores.
+    expect(JSON.parse(localStorage.getItem(HINT_KEY(1)))).toMatchObject({ events: false });
   });
 
   it("events:true → visible everywhere, hint records it", async () => {
@@ -170,7 +172,7 @@ describe("usage gate — responses", () => {
     await waitFor(() => expect(probe()).toHaveAttribute("data-loading", "false"));
     expect(navHides()).toBe(false);
     expect(knownDormant()).toBe(false);
-    expect(JSON.parse(localStorage.getItem(HINT_KEY(1)))).toEqual({ events: true });
+    expect(JSON.parse(localStorage.getItem(HINT_KEY(1)))).toMatchObject({ events: true });
   });
 
   it("a payload with the flag OFF (all true) leaves Events visible", async () => {

@@ -156,6 +156,9 @@ function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasF
     // in the sidebar at all. Cohort-wide + flag-free, unlike the activation
     // axis above; it returns the moment the first real row exists.
     usageDormant: act.usageDormantPillars instanceof Set ? act.usageDormantPillars : undefined,
+    // TOOLS IN USE — the business-type gate never takes one the owner has
+    // real rows for (Madspild for a salon that logs waste).
+    usedSurfaces: act.usedSurfaces instanceof Set ? act.usedSurfaces : undefined,
     // OWNER-ONLY axis — hide the owner's financial surfaces (Reports & MOMS,
     // Tax) from invited staff members. Owner + accountant are not staff.
     isStaffMember,
@@ -393,6 +396,9 @@ export default function Layout() {
   // (only core + general inventory visible). Once /api/modules resolves,
   // the sidebar re-renders with whatever the owner has opted into.
   const [enabledModules, setEnabledModules] = useState(() => new Set());
+  // Has /modules answered? The phone tab bar treats "not known yet" as
+  // unknown, never as "switched off" (MobileBottomNav enabledModules).
+  const [modulesKnown, setModulesKnown] = useState(false);
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -405,6 +411,7 @@ export default function Layout() {
             .filter((m) => m.enabled)
             .map((m) => m.id);
           setEnabledModules(new Set(enabledIds));
+          setModulesKnown(true);
         })
         .catch(() => { /* silent — sidebar stays in strict default */ });
     });
@@ -1304,7 +1311,7 @@ export default function Layout() {
       </main>
 
       {/* Mobile bottom nav — iOS tab bar pattern */}
-      <MobileBottomNav />
+      <MobileBottomNav enabledModules={modulesKnown ? enabledModules : null} />
 
       {/* Floating widgets — MOUNTED ON EVERY ROUTE.
           The quiet-on-/subscription rule still holds, but it is now each
