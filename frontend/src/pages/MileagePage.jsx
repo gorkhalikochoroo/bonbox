@@ -128,7 +128,7 @@ export default function MileagePage() {
           <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
             <span>🚗</span> {t("mileage", "Mileage")}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
             {t("mileageDesc", "Track business trips · mileage allowance · auto-calculated deduction")}
           </p>
         </div>

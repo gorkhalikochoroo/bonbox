@@ -71,7 +71,7 @@ function FunktionerSection() {
         <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
           {t("funktionerSectionTitle")}
         </h2>
-        <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mt-1 mb-3 leading-relaxed">
+        <p className="text-[12.5px] text-gray-600 dark:text-gray-400 mt-1 mb-3 leading-relaxed">
           {t("funktionerSectionSubtitle")}
         </p>
         <div className="space-y-2">
@@ -242,7 +242,7 @@ export default function ModulesPage() {
         <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
           {t("modulesPageTitle") || "Vertical modules"}
         </h2>
-        <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mb-4 leading-relaxed">
+        <p className="text-[12.5px] text-gray-600 dark:text-gray-400 mb-4 leading-relaxed">
           {t("modulesPageSubtitle") ||
             "Pick the feature areas relevant to your business. Hidden modules don't appear in the sidebar — keeps the app focused on what you actually use."}
         </p>

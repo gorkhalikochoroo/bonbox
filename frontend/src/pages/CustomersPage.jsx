@@ -102,7 +102,7 @@ export default function CustomersPage() {
           <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
             <span>👥</span> {t("customers", "Customers")}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
             {t("customersDesc", "Debitors you invoice. CVR-verified for B2B.")}
           </p>
         </div>

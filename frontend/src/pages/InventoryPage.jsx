@@ -915,7 +915,7 @@ export default function InventoryPage() {
               margin is that profit over that cost. Before, tile 1 counted all
               60 varer and tiles 2–3 counted the 12 priced ones, and the owner
               had no way to reconcile the red number in the middle. */}
-          <p className="text-[12px] text-gray-500 dark:text-gray-400">
+          <p className="text-[12px] text-gray-600 dark:text-gray-400">
             {t("invPricedScopeStrip")} · {stats.itemsWithMargin}/{items.length} {t("itemsPriced")}
             {stats.unreadable > 0 ? ` · ${stats.unreadable} ${t("invRowsUnreadable", "items could not be read")}` : ""}
           </p>

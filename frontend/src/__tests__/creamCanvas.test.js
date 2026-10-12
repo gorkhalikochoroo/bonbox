@@ -354,6 +354,8 @@ describe("4. text that sits directly on the paper", () => {
     ["components/ui/TabPills.jsx", 'off: "max-sm:text-gray-600 max-sm:dark:text-gray-400"'],
     ["components/ui/TabPills.jsx", '"bg-gray-900/[0.06] text-gray-700 hover:bg-gray-900/10 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"'],
     ["components/Layout.jsx", "text-xs text-red-700 dark:text-red-400 hover:bg-red-50"],
+    // the empty-state primitive's body sits on the paper on several pages (/staff/hours Tid…)
+    ["components/ui/Empty.jsx", '"text-sm text-gray-600 dark:text-gray-400 max-w-sm mx-auto leading-relaxed"'],
   ])("%s keeps its on-paper class: %s", (rel, cls) => {
     expect(read(rel)).toContain(cls);
   });

@@ -192,7 +192,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate, only 
   if (variant === "more") {
     return (
       <div className="mb-6">
-        <h3 className="text-xs text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider mb-2 px-1">
+        <h3 className="text-xs text-gray-600 dark:text-gray-500 font-semibold uppercase tracking-wider mb-2 px-1">
           {title}
         </h3>
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">

@@ -53,7 +53,7 @@ function MultiLocationEmptyState({ onAddLocation }) {
         <h2 className="text-base font-semibold text-gray-900 dark:text-white">
           {t("locMultiOnlyTitle")}
         </h2>
-        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
           {t("locMultiOnlyBody")}
         </p>
         <button

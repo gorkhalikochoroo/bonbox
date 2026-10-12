@@ -310,16 +310,16 @@ export default function MultiTerminalClosePage() {
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
               🌙 {t("multiClose") || "Multiple terminals"}
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
               {t("smartTerminalsFirstTimeIntro") ||
                 "Looks like this is your first multi-terminal close. Let's set it up the easy way."}
             </p>
           </div>
         </FadeIn>
         <SmartTerminalsCard onComplete={handleSmartSetupDone} />
-        <p className="text-center text-[11px] text-gray-400 mt-5">
+        <p className="text-center text-[11px] text-gray-600 dark:text-gray-400 mt-5">
           {t("smartTerminalsAdvancedHint") || "Prefer to set up by hand?"}{" "}
-          <Link to="/terminals" className="text-emerald-600 hover:underline">
+          <Link to="/terminals" className="text-emerald-700 dark:text-emerald-600 hover:underline">
             {t("smartTerminalsAdvancedLink") || "Open Terminals settings"}
           </Link>
         </p>

@@ -832,7 +832,7 @@ export default function SubscriptionPage() {
           <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
             {t("pricingComparePlansTitle") || "Compare plans"}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1.5">
             {t("pricingComparePlansSubtitle") ||
               "What you get on each tier."}
           </p>
@@ -1240,7 +1240,7 @@ export default function SubscriptionPage() {
         </div>
 
         {/* Trademark notice */}
-        <p className="mt-10 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed text-center">
+        <p className="mt-10 text-[11px] text-gray-600 dark:text-gray-500 leading-relaxed text-center">
           {t("pricingTrademarkNotice") || "Dinero, Billy, e-conomic, MobilePay and Dankort are trademarks of their respective owners. BonBox is not affiliated with or endorsed by any of these companies. References are made for interoperability and comparative purposes under nominative fair use."}
         </p>
 

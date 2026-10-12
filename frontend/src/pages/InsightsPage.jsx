@@ -245,7 +245,7 @@ export default function InsightsPage({ embedded = false }) {
       )}
 
       {/* Footer */}
-      <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-8 leading-relaxed text-center">
+      <p className="text-[11px] text-gray-600 dark:text-gray-500 mt-8 leading-relaxed text-center">
         {t("insPrivacyFooter", "Insights are computed on our servers from your account data only. We never share insights about your business with anyone, and they're never used to train external AI models.")}
       </p>
     </div>

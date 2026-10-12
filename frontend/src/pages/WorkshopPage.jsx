@@ -61,7 +61,7 @@ export default function WorkshopPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold dark:text-white">🔧 {t("workshop", "Workshop")}</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{t("wsSubtitle", "Job cards, vehicles, mechanics")}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">{t("wsSubtitle", "Job cards, vehicles, mechanics")}</p>
           </div>
           <button onClick={() => nav("/workshop/new-job")}
             className="px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold text-sm transition">

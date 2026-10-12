@@ -1049,9 +1049,9 @@ export default function PaymentImportsPage() {
           nightly auto-sync. The wizard handles the rest. */}
       {!connectingProvider && Object.entries(providersByCountry).map(([countryCode, countryProviders]) => (
         <div key={countryCode}>
-          <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2 font-semibold uppercase tracking-wider">
+          <p className="text-[11px] text-gray-600 dark:text-gray-400 mb-2 font-semibold uppercase tracking-wider">
             {t("advancedAutoSync", "Advanced — auto-sync with API keys")}{" "}
-            <span className="text-gray-400 dark:text-gray-500 font-normal normal-case tracking-normal">
+            <span className="text-gray-600 dark:text-gray-500 font-normal normal-case tracking-normal">
               · {COUNTRY_LABELS[countryCode] || countryCode}
             </span>
           </p>
@@ -1129,7 +1129,7 @@ export default function PaymentImportsPage() {
       {/* Help footer */}
       {!connectingProvider && (
         <div className="text-center pt-2 pb-1">
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-gray-600 dark:text-gray-400">
             {t("needHelpConnecting", "Need help connecting?")}{" "}
             <Link to="/contact" className="text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white underline underline-offset-2">
               {t("contactUs", "Contact us")}

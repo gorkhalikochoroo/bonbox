@@ -378,7 +378,7 @@ function PageTitle({ t }) {
         <Gift className="w-6 h-6 text-gray-700 dark:text-gray-200" aria-hidden />
         {t("gkOwnerTitle", "Gavekort")}
       </h1>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
         {t(
           "gkOwnerSubtitle",
           "Udsted gavekort, og hold styr på indløsning, saldo og udestående.",
