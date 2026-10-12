@@ -18,6 +18,8 @@ import { resizeImageIfLarge } from "../utils/resizeImage";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 import { haptic } from "../utils/haptics";
 import { archetypeForUser, archetypeIdFor } from "../config/archetypes";
+import { relevantPillarsForArchetype } from "../config/navManifest";
+import { usePillars } from "../hooks/usePillars";
 import {
   firstNeedingConfirmation,
   getOfflineQueue,
@@ -1113,6 +1115,29 @@ export default function DailyClosePage() {
   // than double-counted, which is the fact that makes the CTA safe to tap.
   const lockStatusUnknown = historyQ.failed && !isLockedToday;
 
+  // NEXT STEPS after the FIRST kasserapport. "Du er klar" is the only screen
+  // built to invite staff, and its primary button (this page) leaves it for
+  // good; once the first close was locked nothing pointed to the schedule or
+  // to reservations (first-15 walk, 12 Oct — fits 0 of 51 venues ever having
+  // a staff link opened). Shown when the owner came from "Du er klar", or when
+  // this is the only confirmed close on the account — a known list, never a
+  // failed one. Each link only for a pillar this business has and has not
+  // switched off, so a shop is never sent to a reservation book.
+  const { hiddenPillars: closeHiddenPillars } = usePillars();
+  const confirmedCloseCount = useMemo(
+    () => history.filter((dc) => dc?.status === "confirmed").length,
+    [history],
+  );
+  const firstCloseNextSteps = useMemo(() => {
+    const first = Boolean(location.state?.fromFirstSteps)
+      || (!historyQ.failed && !historyQ.loading && confirmedCloseCount === 1);
+    if (!first) return null;
+    const relevant = relevantPillarsForArchetype(archetypeIdFor(user?.business_type));
+    const has = (id) => relevant.has(id) && !closeHiddenPillars.has(id);
+    const steps = { schedule: has("staff"), reservations: has("reservations") };
+    return steps.schedule || steps.reservations ? steps : null;
+  }, [location.state, historyQ.failed, historyQ.loading, confirmedCloseCount, user?.business_type, closeHiddenPillars]);
+
   // CTA scroll target — when the owner taps "Close the day" at the top
   // we auto-scroll to the wizard. ref attached on the wrapper below.
   const closeWizardRef = useRef(null);
@@ -1335,6 +1360,7 @@ export default function DailyClosePage() {
           profile={bizQ.data}
           profileLoaded={!bizQ.loading && !bizQ.failed}
           businessType={user?.business_type}
+          nextSteps={firstCloseNextSteps}
           onEmailSent={fetchHistory}
           onDismiss={() => {
             setTodayCardDismissed(true);
@@ -1365,7 +1391,12 @@ export default function DailyClosePage() {
           (close wizard, history, insights) still renders cleanly. */}
       {/* On a phone's close tab the live cards come AFTER the wizard: above
           it they put "Tag billede" ~950px down, below the fold. */}
-      {!(isPhone && tab === "close") && <LiveKpisToday />}
+      {/* …and not at all once today is LOCKED: they count Sale/POS rows, not
+          the kasserapport, so right under "låst · 7.000 kr." (the lock lands
+          on History) they said "I dag indtil nu 0 kr. · Ingen salg endnu i
+          dag". The day's figure is the locked card's; the dashboard keeps
+          its own live tiles. */}
+      {!(isPhone && tab === "close") && !isLockedToday && <LiveKpisToday />}
 
       {/* "Close the day" CTA — the explicit handoff from "I'm running
           the shift" to "the shift is done, let's lock the books".
@@ -1544,7 +1575,7 @@ export default function DailyClosePage() {
           onRetry={fetchInsights} />}
         {tab === "branches" && <BranchSummaryView currency={currency} />}
       </div>
-      {isPhone && tab === "close" && <LiveKpisToday />}
+      {isPhone && tab === "close" && !isLockedToday && <LiveKpisToday />}
     </PageShell>
   );
 }
@@ -10012,7 +10043,7 @@ function CloseEmailStatus({ t, close, ritual = null, profile = null, profileLoad
   );
 }
 
-function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel = "", profile = null, profileLoaded = false, onEmailSent = null }) {
+function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel = "", profile = null, profileLoaded = false, onEmailSent = null, nextSteps = null }) {
   const ritual = close.close_ritual || {};
   // The server stores closed_at in UTC without a zone suffix; read bare, the
   // browser took it as LOCAL time and "låst kl. 08:55" appeared at 10:55.
@@ -10174,6 +10205,36 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
               <p className="text-xs text-gray-700 dark:text-gray-300">
                 {t("bankDropDone", "✓ In safe")}
               </p>
+            )}
+            {/* The way on from the first close — see firstCloseNextSteps. */}
+            {nextSteps && (
+              <div className="pt-3 border-t border-gray-200/80 dark:border-gray-700" data-testid="close-next-steps">
+                <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  {t("closeNextStepsTitle")}
+                </p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {nextSteps.schedule && (
+                    <Link
+                      to="/staff/schedule"
+                      className="min-h-[44px] flex items-center gap-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-[13px] font-medium text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition"
+                    >
+                      <Icon name="CalendarDays" size={16} className="shrink-0 text-gray-500 dark:text-gray-400" />
+                      <span className="min-w-0 flex-1">{t("closeNextSchedule")}</span>
+                      <Icon name="ChevronRight" size={16} className="shrink-0 text-gray-400" />
+                    </Link>
+                  )}
+                  {nextSteps.reservations && (
+                    <Link
+                      to="/reservations"
+                      className="min-h-[44px] flex items-center gap-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-[13px] font-medium text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition"
+                    >
+                      <Icon name="CalendarCheck" size={16} className="shrink-0 text-gray-500 dark:text-gray-400" />
+                      <span className="min-w-0 flex-1">{t("closeNextReservation")}</span>
+                      <Icon name="ChevronRight" size={16} className="shrink-0 text-gray-400" />
+                    </Link>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         </div>

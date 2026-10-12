@@ -198,10 +198,20 @@ function saveConsent(choices) {
 // Both pages use AuthShell, which pads by --bb-consent-h.
 const COMPACT_ROUTES = new Set(["/register", "/login", "/verify-email", "/forgot-password"]);
 
+// A staffer's first visit — their personal link (/s/…) or the code door
+// (/join) — got the FULL banner: ~480 px on a 390 px phone, over "Din næste
+// vagt" and the "Jeg har set det" button (first-15 walk, 12 Oct). It is the
+// screen the 0-of-51 "staff link opened" number depends on, so it gets the
+// same compact banner and the same words as the sign-up doors.
+function isCompactConsentRoute(pathname) {
+  const p = String(pathname || "");
+  return COMPACT_ROUTES.has(p) || p.startsWith("/s/") || p === "/join";
+}
+
 export default function CookieConsent() {
   const { t } = useLanguage();
   const { pathname } = useLocation();
-  const compact = COMPACT_ROUTES.has(pathname);
+  const compact = isCompactConsentRoute(pathname);
   const [open, setOpen] = useState(false); // banner visible
   const [drawer, setDrawer] = useState(false); // customize drawer
   const [bodyOpen, setBodyOpen] = useState(false); // compact: the full body text

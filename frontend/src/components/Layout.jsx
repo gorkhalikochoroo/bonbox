@@ -1057,6 +1057,14 @@ export default function Layout() {
                           </NavLink>
                         )
                       ))}
+                      {/* KOM I GANG — switched-on-but-unused features (Vagtplan,
+                          Reservationer) right under the core spine, not pinned
+                          under the drawer footer where a phone had to scroll
+                          inside the drawer to find them. Null when there are
+                          none, and for the revisor view. */}
+                      {!isAccountant && (
+                        <PillarDiscovery variant="sidebar" only="setup" onNavigate={closeSidebar} />
+                      )}
                       {/* The core spine's closing rule. `mb-0` because the next
                           group brings its own 12px step (see the ladder above);
                           `my-1.5` here stacked with it and opened a gap wider
@@ -1169,7 +1177,7 @@ export default function Layout() {
                   accountant-view (empty hiddenPillars Set upstream), so a
                   revisor never sees it. */}
               {!isAccountant && (
-                <PillarDiscovery variant="sidebar" onNavigate={closeSidebar} />
+                <PillarDiscovery variant="sidebar" only="off" onNavigate={closeSidebar} />
               )}
             </div>
           )}

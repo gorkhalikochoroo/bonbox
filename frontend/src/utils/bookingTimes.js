@@ -47,6 +47,19 @@ function inWindow([a, b], hhmm) {
   return { start, end, t0 };
 }
 
+// The hours the owner's pickers may treat as KNOWN, from GET
+// /reservations/settings. When the owner never declared hours
+// (hours_declared: false) the server answers open_hours {mon: [], …} — seven
+// empty lists — and treats bookings as the owner's call (reservations.py: no
+// hours check at all). Read literally, those empty lists say "closed every
+// day", and a brand-new café saw "I har lukket den dag." on every date of its
+// first phone booking. Undeclared hours are UNKNOWN, not closed: null, which
+// openTimesFor already answers with every quarter and closed:false.
+export function bookableHoursFromSettings(data) {
+  if (!data || data.hours_declared === false) return null;
+  return data.open_hours || null;
+}
+
 // The day's open windows ([["11:30","22:00"]]), [] when closed, null when
 // no hours were loaded.
 export function windowsFor(dateIso, openHours) {

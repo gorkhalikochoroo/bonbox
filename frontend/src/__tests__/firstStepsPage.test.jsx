@@ -71,7 +71,9 @@ describe("FirstStepsPage — the first kasserapport", () => {
     expect(screen.getByText("Make your first kasserapport")).toBeInTheDocument();
     expect(screen.getByText("Snap the Z-report, or type in the day's totals yourself.")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("first-steps-close"));
-    expect(h.navigate).toHaveBeenCalledWith("/daily-close");
+    // …carrying "from Du er klar", so the locked card can point onward to
+    // the schedule and reservations (this page is left behind for good).
+    expect(h.navigate).toHaveBeenCalledWith("/daily-close", { state: { fromFirstSteps: true } });
   });
 
   it("offers the overview as the way out", () => {

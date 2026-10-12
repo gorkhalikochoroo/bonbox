@@ -134,6 +134,12 @@ export default function MorePage() {
       <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-4">
         {t("more") || "More"}
       </h2>
+      {/* KOM I GANG — the owner's own features that onboarding switched on
+          and that have not been used yet (Vagtplan, Reservationer …), at the
+          TOP. They sat at the very bottom under "Tilføj funktioner", below
+          26 other tiles, while onboarding had just said "vi har slået til". */}
+      <PillarDiscovery variant="more" only="setup" />
+
       {visible.map((section) => (
         <div key={section.id} className="mb-6">
           <h3 className="text-xs text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider mb-2 px-1">
@@ -183,7 +189,7 @@ export default function MorePage() {
       {/* DISCOVERY FLOOR (C10) — "Tilføj funktioner" section listing the
           owner's OFF pillars as one-tap "Slå til" tiles. Renders null when
           nothing is hidden (the steady state for most accounts). */}
-      <PillarDiscovery variant="more" />
+      <PillarDiscovery variant="more" only="off" />
 
       {/* Theme picker — accent only, doesn't change light/dark mode */}
       <div className="mt-2 mb-2">
