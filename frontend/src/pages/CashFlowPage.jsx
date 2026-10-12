@@ -24,6 +24,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { formatKr, isMoneyRejected, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
 import { formatDateClear } from "../utils/dateFormat";
+import { momsDataFromParts } from "../utils/momsDataFrom";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, Button, Amount } from "../components/ui";
 
@@ -404,6 +405,18 @@ export default function CashFlowPage() {
                   )}{" "}
                   <span className="text-gray-400">({t("cfpEstimateTag")})</span>
                 </p>
+                {(() => {
+                  // Joined mid-period: the MOMS before the first data day is
+                  // not in BonBox, and the forecast runs on the days with data.
+                  const df = momsDataFromParts(fs.moms);
+                  return df ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-300 mt-1" data-testid="cfp-data-from">
+                      {t("fsDataFromNote", "BonBox only has figures from {from} — MOMS for {start}–{end} is not included", {
+                        from: formatDateClear(df.from), start: formatDateClear(df.start), end: formatDateClear(df.end),
+                      })}
+                    </p>
+                  ) : null;
+                })()}
                 {low && high && (
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 tabular-nums">
                     {t("cfpRange")}: {low} – {high}

@@ -58,6 +58,7 @@ import DismissibleTip from "../components/DismissibleTip";
 import InboxBanner from "../components/InboxBanner";
 import { safeImageUrl } from "../utils/safeUrl";
 import { resizeImageIfLarge } from "../utils/resizeImage";
+import { takeScanPhoto } from "../utils/pendingScanPhoto";
 import { scanPileWithResends } from "../utils/burstScanResend";
 import { errText } from "../utils/errText";
 import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
@@ -511,6 +512,11 @@ export default function ExpensesPage() {
   const navigate = useNavigate();
   const [verifyHints, setVerifyHints] = useState([]);
   const [touchedHints, setTouchedHints] = useState(new Set());
+  // The Smart skan photo, kept as the next saved expense's bilag (it was
+  // dropped: the expense saved without one and the page then asked for the
+  // receipt the owner had just photographed).
+  const scanPhotoRef = useRef(null);
+  const [scanPhotoHeld, setScanPhotoHeld] = useState(false);
   useEffect(() => {
     const st = location.state;
     if (!st || (st.source !== "smart_scan" && st.source !== "smart_scan_manual")) return;
@@ -518,6 +524,9 @@ export default function ExpensesPage() {
     const hints = Array.isArray(st.verify_hints) ? st.verify_hints : [];
     setVerifyHints(hints);
     setTouchedHints(new Set());
+    const photo = takeScanPhoto("/expenses");
+    scanPhotoRef.current = photo;
+    setScanPhotoHeld(!!photo);
     if (prefill) {
       if (prefill.suggested_amount != null) setAmount(String(prefill.suggested_amount));
       if (prefill.amount != null && !prefill.suggested_amount) setAmount(String(prefill.amount));
@@ -532,10 +541,18 @@ export default function ExpensesPage() {
       // hints — open the disclosure so the owner sees the fields that
       // need confirmation. Without this, the chips would be hidden.
       if (hints.length > 0) setDetailedOpen(true);
+      // "Pre-filled" only when something WAS read. An all-null read (blurry
+      // photo, no OCR) used to say "Felter pre-udfyldt" above empty fields.
+      const readSomething = [
+        prefill.suggested_amount, prefill.amount, prefill.suggested_vendor,
+        prefill.vendor, prefill.suggested_date, prefill.date,
+      ].some((v) => v != null && String(v).trim() !== "");
       setSuccess(
         st.source === "smart_scan_manual"
           ? t("smartScan.openedManual", "Åbnet manuelt — udfyld felterne")
-          : t("smartScan.prefilled", "Felter pre-udfyldt fra billedet — bekræft venligst"),
+          : readSomething
+            ? t("smartScan.prefilled", "Felter pre-udfyldt fra billedet — bekræft venligst")
+            : t("smartScan.notRead", "We couldn't read the photo — fill in the amount"),
       );
       setTimeout(() => setSuccess(""), 4000);
     }
@@ -715,6 +732,23 @@ export default function ExpensesPage() {
           expensesQ.setData(prev => (prev || []).map(e => e.id === tempId ? res.data : e));
         } else {
           fetchData();
+        }
+        // The Smart skan photo becomes this expense's bilag — once.
+        const scanPhoto = scanPhotoRef.current;
+        if (scanPhoto && res?.data?.id) {
+          scanPhotoRef.current = null;
+          setScanPhotoHeld(false);
+          try {
+            const formData = new FormData();
+            formData.append("file", scanPhoto);
+            await api.post(`/expenses/${res.data.id}/attach-receipt`, formData, { timeout: 60000 });
+            fetchData();
+          } catch {
+            // The expense is saved; only the bilag failed — say so, and the
+            // row's "Mangler bilag" snap still works.
+            setError(t("expBilagAttachFailed", "Could not attach receipt"));
+            setTimeout(() => setError(""), 3000);
+          }
         }
       } catch (postErr) {
         // Roll back optimistic insert + restore the form values so the
@@ -1451,6 +1485,13 @@ export default function ExpensesPage() {
             busy={submitting}
             extras={
               <>
+                {/* The Smart skan photo rides along as this expense's bilag. */}
+                {scanPhotoHeld && (
+                  <p className="flex items-center gap-1.5 text-[12px] text-gray-600 dark:text-gray-300" data-testid="exp-scan-photo-kept">
+                    <Receipt size={13} strokeWidth={1.75} aria-hidden />
+                    {t("expScanPhotoKept", "The photo is saved as this expense's receipt (bilag)")}
+                  </p>
+                )}
                 {detailedOpen && detailedExtras}
 
                 {/* Toggle for the disclosure. Doctrine: this is a
