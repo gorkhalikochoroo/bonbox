@@ -466,6 +466,10 @@ export default function ReservationsPage() {
   // grandfather just below). Soft-fail: the page works without it. The state
   // lives up here so the grandfather flag is in scope before the tab logic.
   const [pageResources, setPageResources] = useState([]);
+  // Did that read answer? null = not yet, true = it did, false = it failed.
+  // "We could not ask" is never "there are none" (the salon cards' rule) —
+  // onlineNotReady below may only be drawn from an answer.
+  const [pageResourcesRead, setPageResourcesRead] = useState(null);
   // GRANDFATHER: a venue whose TYPE isn't table-booking but that has ALREADY
   // configured tables keeps its Floor — Phase A type-gating must never strip a
   // surface the owner already built (e.g. a legacy / personal-mode account with
@@ -532,15 +536,34 @@ export default function ReservationsPage() {
     api
       .get("/reservations/resources")
       .then((res) => {
-        if (alive) setPageResources(Array.isArray(res.data?.resources) ? res.data.resources : []);
+        if (!alive) return;
+        const list = Array.isArray(res.data?.resources) ? res.data.resources : null;
+        setPageResources(list || []);
+        setPageResourcesRead(list !== null);
       })
       .catch(() => {
-        if (alive) setPageResources([]);
+        if (alive) {
+          setPageResources([]);
+          setPageResourcesRead(false);
+        }
       });
     return () => {
       alive = false;
     };
   }, [isReady, hasFeature, isStandDevice]);
+
+  // Push 7 — a shop or a workshop (booking mode "none": no Floor tab, no
+  // behandler) with nothing the availability engine can book. The engine
+  // (reservation_service.available_slots) books active tables and active
+  // behandler stations only; with neither, the public page returns no slot
+  // on any day. Settings then says so instead of offering online booking as
+  // if it worked (QA: "Din offentlige side er live" over a page that showed
+  // every day closed). Unknown — not answered yet, or the read failed —
+  // never claims it. The book and the waitlist are untouched.
+  const onlineNotReady =
+    bookingModeFor(businessType) === "none" &&
+    pageResourcesRead === true &&
+    !pageResources.some((r) => r.is_active !== false);
 
   const insightsZones = useMemo(
     () => [...new Set(pageResources.map((r) => r.zone).filter(Boolean))],
@@ -697,7 +720,9 @@ export default function ReservationsPage() {
       {/* Insights mounts lazily (only when its tab is open) so it never blocks
           the Book view's first paint; the fetch fires on mount. */}
       {tab === "insights" && <InsightsSection t={t} zones={insightsZones} />}
-      {tab === "settings" && <SettingsSection t={t} user={user} tablePlan={tablePlan} />}
+      {tab === "settings" && (
+        <SettingsSection t={t} user={user} tablePlan={tablePlan} onlineNotReady={onlineNotReady} />
+      )}
     </div>
   );
 }
@@ -8619,7 +8644,10 @@ function BehandlingerSection({ t }) {
 }
 
 // ─── Settings + share ─────────────────────────────────────────────────
-function SettingsSection({ t, user = null, tablePlan = null }) {
+// onlineNotReady (Push 7): the venue has nothing the availability engine can
+// book — a shop or a workshop with no table and no behandler (see the parent).
+// Online booking is then not offered as working, and nothing says "live".
+function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = false }) {
   // SettingsSection only mounts after the parent's `if (!isReady) return null`
   // gate, so entitlements are already settled here — reading hasFeature is
   // flicker-safe (tier-flicker doctrine, useEntitlements.jsx).
@@ -8959,6 +8987,10 @@ function SettingsSection({ t, user = null, tablePlan = null }) {
 
   const enabled = !!data?.reservations_enabled;
   const publicUrl = data?.public_url || "";
+  // Switched on AND there is something to book. A page that is on with
+  // nothing the engine can book is not live: no "Din bookingside", and the
+  // website kit explains itself instead of handing out the link (Push 7).
+  const live = enabled && !onlineNotReady;
 
   return (
     <div className="space-y-5">
@@ -8976,6 +9008,25 @@ function SettingsSection({ t, user = null, tablePlan = null }) {
               ? t("rsvpAcceptToggleProvider", "Accept online appointments")
               : t("rsvpAcceptToggle", "Accept online reservations")}
           </h2>
+          {onlineNotReady ? (
+            // Push 7 — nothing here the engine can book: the public page
+            // would show every day closed. Not offered as working, never
+            // "live". Still switched on (an earlier tap): say plainly that
+            // customers can't book yet, and keep the switch to turn it off.
+            // Modelled on the salon's "Kunderne kan ikke booke endnu".
+            <div role="status" data-testid="rsvp-online-not-ready" className="mt-0.5 space-y-1 text-xs text-gray-600 dark:text-gray-300">
+              {enabled && (
+                <p className="font-medium text-gray-800 dark:text-gray-100">
+                  {t("rsvpOnlineNotReadyOn", "Customers can't book yet, even though the page is switched on — turn it off here.")}
+                </p>
+              )}
+              <p>
+                {apptWords
+                  ? t("rsvpOnlineNotReadyProvider", "Online booking isn't ready for shops and workshops yet — you can still add appointments to the book here.")
+                  : t("rsvpOnlineNotReady", "Online reservations aren't ready for your type of business yet — you can still add bookings to the book here.")}
+              </p>
+            </div>
+          ) : (
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {enabled
               ? (data?.hours_declared === false
@@ -8987,9 +9038,11 @@ function SettingsSection({ t, user = null, tablePlan = null }) {
                   : t("rsvpAcceptOn", "Your public page is live and taking bookings."))
               : t("rsvpAcceptOff", "Turn on to publish your booking page.")}
           </p>
+          )}
         </div>
         {/* 44px-tall tap target (host-stand touch), with the visual switch
-            track centred inside it. */}
+            track centred inside it. Not ready: only the way off. */}
+        {(!onlineNotReady || enabled) && (
         <button
           type="button"
           role="switch"
@@ -9015,13 +9068,15 @@ function SettingsSection({ t, user = null, tablePlan = null }) {
             />
           </span>
         </button>
+        )}
       </div>
 
       {/* Din bookingside — the page's own address, renamed here. The link
           (Kopiér + Åbn siden) and the QR (with Hent PNG) live ONCE, in the kit
           right below: this card used to repeat both, so Settings showed two
-          QR codes and two copy-link rows one card apart. */}
-      {enabled && publicUrl && (
+          QR codes and two copy-link rows one card apart. Only for a page
+          that can take a booking (live — Push 7). */}
+      {live && publicUrl && (
         <div
           data-testid="rsvp-share-card"
           className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
@@ -9086,7 +9141,10 @@ function SettingsSection({ t, user = null, tablePlan = null }) {
         // The page's own wording rule (speaksAppointments): a salon, a
         // shop or a workshop gets "Book tid", never "Book bord".
         isProvider={apptWords}
-        enabled={enabled}
+        enabled={live}
+        // Nothing to book online yet (Push 7): the kit says so instead of
+        // "switch it on at the top" — there is no switch there to find.
+        notReady={onlineNotReady}
         t={t}
       />
 

@@ -10319,4 +10319,12 @@ export const en = {
     rsvpWebLinkHintProvider: "Add it to your Facebook page, your Instagram bio and as the booking link on your Google profile.",
     rsvpWebQrHeadingProvider: "QR code for the counter and business cards",
     rsvpWebQrHintProvider: "Customers scan it and book. Download it in high resolution for print.",
+    // ── Push 7: online booking for a venue the engine can't book (a shop or
+    // a workshop with no table and no behandler) — Settings says so instead
+    // of "live" (ReservationsPage SettingsSection + WebsiteBookingKit).
+    rsvpOnlineNotReadyProvider: "Online booking isn't ready for shops and workshops yet — you can still add appointments to the book here.",
+    rsvpOnlineNotReady: "Online reservations aren't ready for your type of business yet — you can still add bookings to the book here.",
+    rsvpOnlineNotReadyOn: "Customers can't book yet, even though the page is switched on — turn it off here.",
+    rsvpWebNotReadyProvider: "Nothing to put on your website yet — online booking isn't ready for shops and workshops.",
+    rsvpWebNotReady: "Nothing to put on your website yet — online reservations aren't ready for your type of business.",
 };

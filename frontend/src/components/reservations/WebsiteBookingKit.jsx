@@ -148,6 +148,10 @@ export default function WebsiteBookingKit({
   venueName,
   isProvider = false,
   enabled = true,
+  // Push 7 — the venue has nothing online booking can book yet (a shop or a
+  // workshop with no table and no behandler): there is no switch to point
+  // at, so the kit says why there is nothing here.
+  notReady = false,
   t,
   // Injected for tests; the real values come from the running app.
   appOrigin = typeof window !== "undefined" ? window.location.origin : "",
@@ -231,7 +235,11 @@ export default function WebsiteBookingKit({
           {title}
         </h2>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-          {live ? t("rsvpWebSub") : isProvider ? t("rsvpWebOffProvider") : t("rsvpWebOff")}
+          {live
+            ? t("rsvpWebSub")
+            : notReady
+              ? (isProvider ? t("rsvpWebNotReadyProvider") : t("rsvpWebNotReady"))
+              : isProvider ? t("rsvpWebOffProvider") : t("rsvpWebOff")}
         </p>
       </div>
 

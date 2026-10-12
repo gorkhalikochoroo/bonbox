@@ -9991,4 +9991,12 @@ export const da = {
     rsvpWebLinkHintProvider: "Sæt det på din Facebook-side, i din Instagram-bio og som bookinglink på din Google-profil.",
     rsvpWebQrHeadingProvider: "QR-kode til disken og visitkort",
     rsvpWebQrHintProvider: "Kunderne scanner og booker. Hent den i høj opløsning til print.",
+    // ── Push 7: online booking for a venue the engine can't book (a shop or
+    // a workshop with no table and no behandler) — Settings says so instead
+    // of "live" (ReservationsPage SettingsSection + WebsiteBookingKit).
+    rsvpOnlineNotReadyProvider: "Online tidsbestilling er ikke klar til butikker og værksteder endnu — du kan stadig skrive tider ind i bogen her.",
+    rsvpOnlineNotReady: "Online reservationer er ikke klar til din type forretning endnu — du kan stadig skrive bookinger ind i bogen her.",
+    rsvpOnlineNotReadyOn: "Kunderne kan ikke booke endnu, selv om siden er slået til — slå den fra her.",
+    rsvpWebNotReadyProvider: "Intet at sætte på din hjemmeside endnu — online tidsbestilling er ikke klar til butikker og værksteder.",
+    rsvpWebNotReady: "Intet at sætte på din hjemmeside endnu — online reservationer er ikke klar til din type forretning.",
 };
