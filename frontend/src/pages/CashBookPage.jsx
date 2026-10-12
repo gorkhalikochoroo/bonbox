@@ -23,6 +23,14 @@ const IN_CATEGORIES = ["Sales", "Tips", "Loan", "Other"];
 const OUT_CATEGORIES = ["Purchase", "Wages", "Supplies", "Rent", "Other"];
 const QUICK_AMOUNTS = [100, 500, 1000, 2500, 5000];
 const CATEGORY_KEYS = { Sales: "catSales", Tips: "catTips", Loan: "catLoan", Other: "catOther", Purchase: "catPurchase", Wages: "catWages", Supplies: "catSupplies", Rent: "catRent" };
+function categoryLabel(t, c) {
+  if (!c) return "—";
+  return CATEGORY_KEYS[c] ? t(CATEGORY_KEYS[c], c) : c;
+}
+// Cash spent on these is a business EXPENSE — but a line here is not booked
+// in Udgifter, so it gets no MOMS fradrag and stays out of profit. Said on
+// screen instead of building a second ledger.
+const EXPENSE_LIKE = new Set(["Purchase", "Supplies", "Rent", "Wages"]);
 
 export default function CashBookPage() {
   const { user } = useAuth();
@@ -227,7 +235,9 @@ export default function CashBookPage() {
       label: t("category"),
       render: (r) => (
         <span className={mutedIf(r) || "text-gray-500 dark:text-gray-400"}>
-          {r.category || "—"}
+          {/* Stored as the English key ("Purchase"); shown in the owner's
+              language. A category the owner typed keeps their own word. */}
+          {categoryLabel(t, r.category)}
         </span>
       ),
     },
@@ -354,7 +364,7 @@ export default function CashBookPage() {
           the empty state below used to tell. */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard
-          label={t("cashBalance")}
+          label={t("cbBalanceLabel", "Cash book balance (excl. cash sales from daily closes)")}
           value={<Amount value={balBalance} currency={currency} decimals={2} />}
           accent={balBalance == null ? "neutral" : balBalance >= 0 ? "success" : "critical"}
           helper={bal.loading && bal.data == null ? t("cbCheckingBalance") : null}
@@ -370,6 +380,11 @@ export default function CashBookPage() {
           accent={balOut == null || !balOut ? "neutral" : "critical"}
         />
       </div>
+      {/* What the balance is made of — it is NOT the drawer: a daily close's
+          cash takings never post here. */}
+      <p className="text-[12px] text-gray-500 dark:text-gray-400 -mt-2" data-testid="cb-scope-note">
+        {t("cbScopeNote", "Only what is in the cash book: what you write here, plus cash sales and expenses from Sales and Expenses. Cash from your daily closes (kasserapporter) is not included.")}
+      </p>
 
       {/* Quick Entry */}
       <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
@@ -410,7 +425,7 @@ export default function CashBookPage() {
             // tapped standing at a till, often one-handed.
             <button
               key={c}
-              onClick={() => { setCategory(c); setDesc(c); }}
+              onClick={() => { setCategory(c); setDesc(categoryLabel(t, c)); }}
               aria-pressed={category === c}
               className={`px-4 py-3 rounded-xl text-sm font-medium border transition ${
                 category === c
@@ -424,6 +439,12 @@ export default function CashBookPage() {
             </button>
           ))}
         </div>
+
+        {tab === "cash_out" && EXPENSE_LIKE.has(category) && (
+          <p className="text-[12px] text-amber-700 dark:text-amber-300 mb-3" data-testid="cb-not-expense">
+            {t("cbNotAnExpense", "Not booked as an expense — log it under Expenses (Udgifter) to get the MOMS deduction.")}
+          </p>
+        )}
 
         {/* Description */}
         <input

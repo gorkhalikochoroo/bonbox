@@ -458,8 +458,11 @@ def _generate_alerts(
                        "amount": round(receivables[0]["outstanding"], 2)},
         })
 
-    # Alert 5: No data
-    if not has_revenue_data or not any(p["revenue"] > 0 for p in projection[1:]):
+    # Alert 5: No data — ONLY when the sales history really is missing. With
+    # no bank balance the projection is empty, which used to trip this too:
+    # an owner with 29 locked closes was told "not enough sales data" when
+    # the missing piece was the balance (the balance prompt covers that).
+    if not has_revenue_data:
         alerts.append({
             "type": "no_data",
             "severity": "info",

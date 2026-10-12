@@ -37,6 +37,7 @@ import api from "../../services/api";
 import { useLanguage } from "../../hooks/useLanguage";
 import { formatKr, isMoneyRejected, parseMoneyInput } from "../../utils/currency";
 import MoneyField from "../ui/MoneyField";
+import { momsDataFromParts } from "../../utils/momsDataFrom";
 
 function fmtDate(iso) {
   if (!iso) return "";
@@ -304,6 +305,15 @@ export default function ComplianceCountdownCard({
     }
 
     const eyebrow = `MOMS${dl.period_label ? " · " + dl.period_label : ""} · ${daysPhrase(t, dl.days_until)}`;
+    // Joined mid-period: the forecast runs on the days WITH data, and the
+    // MOMS for the days before is not in BonBox — said, not hidden.
+    const dataFrom = momsDataFromParts(moms);
+    const dataFromNote = dataFrom
+      ? t("fsDataFromNote", "BonBox only has figures from {from} — MOMS for {start}–{end} is not included")
+          .replace("{from}", fmtDate(dataFrom.from))
+          .replace("{start}", fmtDate(dataFrom.start))
+          .replace("{end}", fmtDate(dataFrom.end))
+      : null;
 
     // Balance footer + freshness — only when the owner has typed a balance.
     const hasManualBalance =
@@ -358,6 +368,11 @@ export default function ComplianceCountdownCard({
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5 leading-snug">
                 {detail}
               </p>
+              {dataFromNote && (
+                <p className="text-xs mt-1 text-amber-700 dark:text-amber-300" data-testid="fs-data-from">
+                  {dataFromNote}
+                </p>
+              )}
               {balanceFooter && (
                 <p
                   className={
