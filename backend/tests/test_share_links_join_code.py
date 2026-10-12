@@ -19,6 +19,13 @@ code onto a row redeem still rejects.
 
 The same block also never set code_expires_at, so codes born here had no TTL —
 and both liveness gates deliberately grandfather a NULL expiry as live.
+
+Oct 2026: a burned code is no longer RE-MINTED here either. The page called this
+endpoint on every load, and every call put a fresh 7-day code on screen for each
+staffer who was already signed in — a working credential to their portal that
+nobody asked for. A burned code now comes back as None (never the dead string),
+and the new one is minted only when the owner asks for it on that person's
+invite sheet: POST /members/{id}/link?new_code=true.
 """
 from __future__ import annotations
 
@@ -121,8 +128,9 @@ def _codes(client) -> dict:
 
 
 class TestTheCodeTheOwnerReadsOutCanBeRedeemed:
-    def test_a_burned_code_is_replaced_not_re_served(self, client, db):
-        """The regression. Connect once, then ask for the code again."""
+    def test_a_burned_code_is_not_re_served(self, client, db):
+        """The regression. Connect once, then ask for the code again: never the
+        dead string — and (Oct 2026) never a silently re-minted live one."""
         u = _owner(db)
         m = _staff(db, u)
 
@@ -135,11 +143,28 @@ class TestTheCodeTheOwnerReadsOutCanBeRedeemed:
         db.commit()
 
         second = _codes(client)[str(m.id)]
-        assert second, "endpoint returned no code at all for a burned link"
         assert second != first, (
             "re-served the BURNED code — the owner would read out a string "
             "that /join answers with 404"
         )
+        assert second is None, "re-minted a live code for a staffer already signed in"
+        db.refresh(link)
+        assert link.join_code == first and link.code_used_at is not None
+
+    def test_the_owner_still_gets_a_working_code_when_they_ask(self, client, db):
+        """The reconnect (new phone, reinstall) still works — by asking."""
+        u = _owner(db)
+        m = _staff(db, u)
+        first = _codes(client)[str(m.id)]
+        link = db.query(StaffLink).filter(StaffLink.staff_id == m.id).first()
+        link.code_used_at = utc_now()
+        db.commit()
+
+        r = client.post(f"/api/staff/members/{m.id}/link?new_code=true")
+        assert r.status_code == 200, r.text
+        fresh = r.json()["join_code"]
+        assert fresh and fresh != first
+        assert _codes(client)[str(m.id)] == fresh
 
     def test_an_expired_code_is_replaced(self, client, db):
         u = _owner(db)
@@ -184,7 +209,8 @@ class TestEveryCodeGetsATTL:
         link.code_used_at = utc_now()
         db.commit()
 
-        _codes(client)
+        # The replacement is minted on the owner's explicit ask (see above).
+        client.post(f"/api/staff/members/{m.id}/link?new_code=true")
         db.refresh(link)
         assert link.code_expires_at is not None
         assert link.code_used_at is None, "recycled the row without clearing the burn"

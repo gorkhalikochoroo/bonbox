@@ -1347,15 +1347,43 @@ def _join_code_live(link: StaffLink) -> bool:
     return True
 
 
-def _ensure_join_code(db: Session, link: StaffLink) -> str:
+def _join_code_used(link: StaffLink) -> bool:
+    """True when the link's code was redeemed — the staffer is already in."""
+    return bool(link.join_code) and link.code_used_at is not None
+
+
+def _code_state(link: StaffLink) -> str:
+    """What the owner's screen may say about this link's code.
+
+    "live" — a code that /join will accept; "used" — redeemed (the staffer is
+    signed in with it) and NOT replaced; "none" — no usable code.
+    """
+    if _join_code_live(link):
+        return "live"
+    if _join_code_used(link):
+        return "used"
+    return "none"
+
+
+def _ensure_join_code(db: Session, link: StaffLink, *, reissue_used: bool = False) -> str | None:
     """Get-or-mint the link's short join code.
 
-    Idempotent while the code is still live; mints a fresh one once it has been
-    redeemed or expired, so the owner never has to know the difference — they
-    ask for the code and get one that works.
+    Idempotent while the code is still live. Mints when there is no code yet
+    and refreshes one that EXPIRED unused — every caller is an owner action
+    that hands a code out.
+
+    A REDEEMED (burned) code is different: the staffer is already signed in
+    with it, so a fresh code for them is a new 7-day credential to their portal
+    that nobody asked for (/join answers it with their token). It is replaced
+    only when the owner explicitly asks for a new one (reissue_used=True — the
+    invite sheet's "Ny kode" button). Otherwise this returns None and leaves
+    the row untouched: never the dead string (/join 404s it — the Aug-2026 bug)
+    and never a silent re-mint (the Oct-2026 review).
     """
     if _join_code_live(link):
         return link.join_code
+    if _join_code_used(link) and not reissue_used:
+        return None
     link.join_code = None      # release the old value so the unique index frees it
     link.code_used_at = None
     for _ in range(8):
@@ -1376,10 +1404,65 @@ def _ensure_join_code(db: Session, link: StaffLink) -> str:
     return link.join_code
 
 
+def _lock_staff_member(db: Session, member_id) -> None:
+    """Serialize link creation for one staff member.
+
+    Row lock on the member (FOR UPDATE on Postgres; SQLite has no row locks and
+    a single writer, so it is a plain read there). Held until the caller's
+    commit, so a second get-or-create for the same person waits here and then
+    SEES the link the first one committed. Separate function so a test can
+    stand in for the concurrent request that wins the race.
+    """
+    db.query(StaffMember.id).filter(StaffMember.id == member_id).with_for_update().first()
+
+
+def _active_link(db: Session, user_id, member_id) -> StaffLink | None:
+    return (
+        db.query(StaffLink)
+        .filter(
+            StaffLink.staff_id == member_id,
+            StaffLink.user_id == user_id,
+            StaffLink.active.is_(True),
+        )
+        .first()
+    )
+
+
+def _get_or_create_active_link(db: Session, user_id, member_id) -> tuple[StaffLink, bool]:
+    """The member's active portal link, created at most ONCE.
+
+    Two owner taps can race — "Invitér" pressed while the Share sheet's bulk
+    fetch is still running, or a double tap — and both used to see "no link
+    yet" and each insert one: two active StaffLinks for one person, two tokens,
+    and the one the staffer bookmarked could be the one the next screen does
+    not show. Check, lock the member row, check again, and only then create.
+    Returns (link, created). The new row is flushed, not committed — the caller
+    commits (which also releases the lock).
+    """
+    link = _active_link(db, user_id, member_id)
+    if link:
+        return link, False
+    _lock_staff_member(db, member_id)
+    link = _active_link(db, user_id, member_id)
+    if link:
+        return link, False
+    link = StaffLink(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        staff_id=member_id,
+        token=secrets.token_urlsafe(24),  # ~32 chars, 192 bits of entropy
+        active=True,
+    )
+    db.add(link)
+    db.flush()
+    return link, True
+
+
 @router.post("/members/{member_id}/link")
 def generate_staff_link(
     member_id: str,
     rotate: bool = Query(False, description="Force a brand-new token, revoking the old one"),
+    new_code: bool = Query(False, description="Replace a REDEEMED join code with a fresh one"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -1402,14 +1485,21 @@ def generate_staff_link(
     if not member:
         raise HTTPException(status_code=404, detail="Staff member not found")
 
-    existing = db.query(StaffLink).filter(
-        StaffLink.staff_id == member.id,
-        StaffLink.user_id == user.id,
-        StaffLink.active.is_(True),
-    ).first()
-
-    if existing and not rotate:
+    # The join code: minted when there is none and refreshed when it expired
+    # unused (opening an invite is the owner handing it out), but a REDEEMED
+    # one is replaced only on an explicit ?new_code=true — see
+    # _ensure_join_code. `code_state` tells the sheet which it got.
+    if not rotate:
         # Reuse the durable link — do NOT rotate (would break bookmarks).
+        # Created at most once per person, even under racing taps.
+        existing, created = _get_or_create_active_link(db, user.id, member.id)
+        if created:
+            # A first link (or one after a revoke) starts with no devices —
+            # the same drop the create path always did.
+            _drop_staff_push(db, user.id, member.id)
+            db.commit()  # releases the member-row lock
+            db.refresh(existing)
+        code = _ensure_join_code(db, existing, reissue_used=new_code)
         return {
             "id": str(existing.id),
             "staff_id": str(member.id),
@@ -1417,13 +1507,13 @@ def generate_staff_link(
             "token": existing.token,
             "active": existing.active,
             "has_pin": bool(existing.pin_hash),
-            "join_code": _ensure_join_code(db, existing),
+            "join_code": code,
+            "code_state": _code_state(existing),
             "portal_url": portal_path(existing.token, user.business_name, member.name),
             "created_at": existing.created_at,
         }
 
-    # Either rotating on request, or no active link exists: revoke any active
-    # links, then mint a fresh one.
+    # Rotating on request: revoke any active links, then mint a fresh one.
     db.query(StaffLink).filter(
         StaffLink.staff_id == member.id,
         StaffLink.user_id == user.id,
@@ -1451,6 +1541,7 @@ def generate_staff_link(
         "active": link.active,
         "has_pin": False,
         "join_code": _ensure_join_code(db, link),
+        "code_state": _code_state(link),
         "portal_url": portal_path(link.token, user.business_name, member.name),
         "created_at": link.created_at,
     }
@@ -1628,25 +1719,10 @@ def list_share_links(
     out = []
     dirty = False
     for m in members:
-        link = (
-            db.query(StaffLink)
-            .filter(
-                StaffLink.staff_id == m.id,
-                StaffLink.user_id == user.id,
-                StaffLink.active.is_(True),
-            )
-            .first()
-        )
-        if not link:
-            link = StaffLink(
-                id=uuid.uuid4(),
-                user_id=user.id,
-                staff_id=m.id,
-                token=secrets.token_urlsafe(24),
-                active=True,
-            )
-            db.add(link)
-            db.flush()  # give it an identity before _ensure_join_code may commit
+        # Get-or-create under the member-row lock, so a per-person "Invitér"
+        # racing this batch cannot leave the person with two active links.
+        link, created = _get_or_create_active_link(db, user.id, m.id)
+        if created:
             dirty = True
         # _ensure_join_code, NOT an inline mint. The block that used to live here
         # gated on `if not link.join_code:` — bare falsiness — and redeeming a code
@@ -1666,12 +1742,20 @@ def list_share_links(
         # a code the owner has already shared is never swapped out from under them.
         # The batch-local `used` set is gone with it — the helper queries for a
         # clash and commits each mint, so the next iteration sees it.
+        #
+        # A REDEEMED code comes back as None, not re-minted (Oct 2026). This
+        # sheet opens for the whole team at once; re-minting here put a fresh
+        # 7-day code on screen for every staffer who was already signed in,
+        # each one a working credential to their portal that nobody asked for.
+        # The person who needs a new one (new phone, reinstall) gets it from
+        # their own invite sheet — POST /members/{id}/link?new_code=true.
         code = _ensure_join_code(db, link)
         out.append({
             "staff_id": str(m.id),
             "staff_name": m.name,
             "email": m.email,
             "join_code": code,
+            "code_state": _code_state(link),
             "has_pin": bool(link.pin_hash),
             "portal_url": portal_path(link.token, user.business_name, m.name),
             # Whether this person has EVER opened their link, and when.
@@ -1694,6 +1778,53 @@ def list_share_links(
         })
     if dirty:
         db.commit()
+    return out
+
+
+@router.get("/schedules/link-status")
+def list_link_status(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Who is in — READ-ONLY. Creates nothing, mints nothing.
+
+    The Vagtplan page asks "has Sofie opened her link?" every time it loads, to
+    show who is in at a glance. It used to ask GET /share-links, which is a
+    get-or-create: every page load created a link for every staffer without one
+    and refreshed their 7-day join codes — a pile of live credentials minted by
+    nobody's tap. This answers the same question from the rows as they are.
+    Links and codes are made only when the owner opens an invite (POST
+    /members/{id}/link) or the Share sheet (GET /share-links).
+
+    No token, no code, no URL: nothing here is a credential. `last_accessed`
+    is NULL both for "never opened" and for "no link yet" — to the owner they
+    are the same answer: not in yet.
+    """
+    _require_owner_actor(user)  # same gate as the data it summarises
+    members = (
+        db.query(StaffMember.id)
+        .filter(
+            StaffMember.user_id == user.id,
+            StaffMember.is_deleted.isnot(True),
+        )
+        .all()
+    )
+    links = {
+        link.staff_id: link
+        for link in db.query(StaffLink).filter(
+            StaffLink.user_id == user.id,
+            StaffLink.active.is_(True),
+        )
+    }
+    out = []
+    for (mid,) in members:
+        link = links.get(mid)
+        out.append({
+            "staff_id": str(mid),
+            "has_link": link is not None,
+            "has_pin": bool(link and link.pin_hash),
+            "last_accessed": link.last_accessed if link else None,
+        })
     return out
 
 

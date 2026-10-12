@@ -568,8 +568,9 @@ def portal_join(payload: JoinCodeRequest, request: Request, db: Session = Depend
     # Burn the code. The staffer's device now holds the real credential (the
     # 192-bit token), so the short code has done its whole job — leaving it live
     # only widens the window for whoever else can see it. The owner can mint a
-    # fresh one any time; _ensure_join_code re-mints automatically once a code
-    # is used or expired, so they never have to think about it.
+    # fresh one any time: an expired code is refreshed when they open the
+    # invite, and a burned one is replaced when they ask for a new one
+    # (POST /staff/members/{id}/link?new_code=true — never silently).
     #
     # Burned FIRST and atomically: the "unused?" check above and this write
     # were separate steps, so two devices redeeming at once both passed the
