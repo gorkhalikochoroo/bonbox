@@ -225,32 +225,54 @@ def _split_input_vat_by_category(cat_rows, input_vat_total: float, vat_rate: flo
                                  prices_include_moms: bool) -> list[dict]:
     """The deductible købsmoms of `_calc_vat`, split per expense category.
 
-    `cat_rows` are _calc_vat's own (category name, gross) rows. Each row gets
-    gross × §42 fradrag factor × the rate formula input_vat uses. The rows are
-    rounded to the øre, and the difference to `input_vat_total` (a few øre at
-    most) is put on the row with the largest købsmoms, so the column sums to
-    the figure on the angivelse exactly."""
-    if vat_rate <= 0:
-        k = 0.0
-    elif prices_include_moms:
-        k = vat_rate / (1 + vat_rate)
-    else:
-        k = vat_rate
-    out: list[dict] = []
-    for name, total in cat_rows or []:
-        gross = float(total or 0)
-        factor = fradrag_factor(name or "")
-        out.append({
-            "category": name or "",
-            "gross": round(gross, 2),
-            "fradrag_pct": int(round(factor * 100)),
-            "input_vat": round(gross * factor * k, 2),
-        })
-    if out:
-        diff = round(float(input_vat_total or 0) - sum(r["input_vat"] for r in out), 2)
-        if diff:
-            biggest = max(out, key=lambda r: abs(r["input_vat"]))
-            biggest["input_vat"] = round(biggest["input_vat"] + diff, 2)
+    `cat_rows` are _calc_vat's own (category name, gross) rows. Each row's
+    exact share is gross × §42 fradrag factor × the rate formula input_vat
+    uses. The shares are rounded by LARGEST REMAINDER: every row is cut to
+    the øre below, and the øre still missing to `input_vat_total` go one each
+    to the rows with the largest cut-off fractions. So the column sums to the
+    figure on the angivelse exactly, and every row is within one øre of its
+    exact share — a row whose share is a whole øre amount (12.500 kr. husleje
+    → 2.500,00) is never moved to absorb another row's rounding."""
+    from decimal import Decimal, ROUND_FLOOR, localcontext
+
+    rate = Decimal(str(vat_rate or 0))
+    with localcontext() as ctx:
+        ctx.prec = 34
+        if rate <= 0:
+            k = Decimal(0)
+        elif prices_include_moms:
+            k = rate / (1 + rate)
+        else:
+            k = rate
+        rows: list[dict] = []
+        for name, total in cat_rows or []:
+            gross = Decimal(str(float(total or 0)))
+            factor = fradrag_factor(name or "")
+            exact_ore = gross * Decimal(str(factor)) * k * 100
+            floor_ore = int(exact_ore.to_integral_value(rounding=ROUND_FLOOR))
+            rows.append({
+                "category": name or "",
+                "gross": round(float(gross), 2),
+                "fradrag_pct": int(round(factor * 100)),
+                "_floor": floor_ore,
+                "_rem": exact_ore - floor_ore,
+                "_exact": exact_ore,
+            })
+    if rows:
+        target = int(round(float(input_vat_total or 0) * 100))
+        missing = target - sum(r["_floor"] for r in rows)
+        # Largest fraction first; ties: the larger amount, then the name.
+        order = sorted(rows, key=lambda r: (-r["_rem"], -abs(r["_exact"]), r["category"]))
+        if missing >= 0:
+            for i in range(missing):
+                order[i % len(order)]["_floor"] += 1
+        else:  # float noise in input_vat_total — take from the smallest fractions
+            for i in range(-missing):
+                order[-1 - (i % len(order))]["_floor"] -= 1
+    out = [{
+        "category": r["category"], "gross": r["gross"], "fradrag_pct": r["fradrag_pct"],
+        "input_vat": r["_floor"] / 100,
+    } for r in rows]
     out.sort(key=lambda r: (-r["gross"], r["category"]))
     return out
 
@@ -541,10 +563,11 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     output_vat = round(pos_output_vat + invoice_moms, 2)
 
     # Total revenue: POS gross + Invoice gross (which already includes moms).
-    # NB: `sales_total` INCLUDES `exempt_sales` — these are the gross top-line
-    # revenue across both taxable + exempt streams. Use `taxable_sales` below
-    # (sales_total - exempt_sales) when the consumer wants the "Salg med moms"
-    # number for the SKAT MOMS-angivelse "row A: taxable sales" line.
+    # NB: `sales_total` includes the zero-moms INVOICES (part of exempt_sales)
+    # but not the momsfri POS sales (pos_sale_total leaves them out; they are
+    # in exempt_sales / "Salg uden moms"). Use `taxable_sales` below when the
+    # consumer wants the "Salg med moms" number for the SKAT MOMS-angivelse
+    # "row A: taxable sales" line.
     sales_total = round(pos_total + invoice_total_gross, 2)
 
     # SKAT MOMS-angivelse box A ("Salg med moms") = taxable sales only.
@@ -553,7 +576,16 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     # exempt revenue (it appeared on both "Salg med moms" AND "Salg uden
     # moms" rows, breaking the sum). Surface a dedicated `taxable_sales`
     # field so the PDF + downstream callers can land the right number.
-    taxable_sales = round(max(sales_total - exempt_sales, 0.0), 2)
+    #
+    # Only the exempt revenue that is INSIDE sales_total comes off it: the
+    # zero-moms invoices (invoice_total_gross holds them). Momsfri POS sales
+    # never entered sales_total — pos_sale_total above leaves them out — so
+    # subtracting all of exempt_sales took them off a second time: a day with
+    # 1.000 kr. taxable and 200 kr. momsfri till sales put 800 kr. in box A.
+    # (12 Oct review M5. The moms itself was always right: it is computed
+    # from the taxable streams, never from this box.)
+    exempt_in_sales_total = round(invoice_exempt_total, 2)
+    taxable_sales = round(max(sales_total - exempt_in_sales_total, 0.0), 2)
 
     # ─── Bogføringsloven §9 stk. 2 — per-date variance detection
     #
@@ -922,7 +954,7 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     if spv_sold or spv_in_revenue:
         output_vat = round(output_vat + spv_sold_vat - spv_in_revenue_vat, 2)
         sales_total = round(sales_total + spv_sold - spv_in_revenue, 2)
-        taxable_sales = round(max(sales_total - exempt_sales, 0.0), 2)
+        taxable_sales = round(max(sales_total - exempt_in_sales_total, 0.0), 2)
 
     return {
         "sales_total": sales_total,
