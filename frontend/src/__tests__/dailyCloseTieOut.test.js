@@ -132,8 +132,10 @@ describe("three outcomes, not two", () => {
     // read is KNOWN revenue, and calling it "can't be checked" while locking
     // 17.030 was the opposite lie.
     expect(CODE).toMatch(/const revenueKnown = hasRevenueEntry \|\| savedRevenue > 0;/);
+    // (7f4e7f75 added gkInPayments: false to the same "unknown" verdict — the
+    // gavekort tie-out flag; the verdict itself is unchanged.)
     expect(CODE).toMatch(
-      /if \(!revenueKnown \|\| !hasPaymentEntry\) return \{ state: "unknown", diff: null \}/,
+      /if \(!revenueKnown \|\| !hasPaymentEntry\) return \{ state: "unknown", diff: null(, gkInPayments: false)? \}/,
     );
   });
 
