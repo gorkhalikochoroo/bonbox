@@ -3,9 +3,11 @@
  *
  *   playChime()  — soft rising two-note chime: a new booking or a change.
  *   playCancel() — the same chime falling: a booking was cancelled.
- *   playUrgent() — sharper triple-pulse for a SEVERE allergy (Art. 9 health
- *                  data: the louder cue is deliberate — a severe allergy is a
- *                  safety event, not just an FYI).
+ *   playUrgent() — a distinct triple-pulse for a SEVERE allergy (Art. 9 health
+ *                  data: the stronger cue is deliberate — a severe allergy is
+ *                  a safety event, not just an FYI). Three pulses on a
+ *                  different interval, a touch louder than the chime — no
+ *                  longer a square-wave alarm (see SOUND SET below).
  *
  * WHY THIS IS NOT PURE WEB AUDIO ANY MORE.
  * This module used to be Web Audio only (AudioContext + createOscillator).
@@ -75,8 +77,9 @@ export function subscribeSound(fn) {
 
 /**
  * Render `parts` into a mono 16-bit PCM WAV blob URL.
- * Each part: { freq, start, duration, volume, square } — matching the tones
- * the Web Audio version produced, so the stand sounds the same as before.
+ * Each part is either a mallet note { freq, start, duration, volume, attack,
+ * decay, partials } (every alert today) or a plain tone { freq, start,
+ * duration, volume, square } (kept for callers that want one).
  */
 function buildWavUrl(parts) {
   const end = Math.max(...parts.map((p) => p.start + p.duration)) + 0.05;
@@ -141,25 +144,52 @@ function buildWavUrl(parts) {
   return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
 }
 
-// Booking and cancel are one family of soft mallet notes (Sep 2026: the old
-// 880/1175 Hz blip read as an irritating beep). A new booking rises
-// (E5 → B5), a cancellation falls (B5 → E5, a touch quieter) — staff can tell
-// which without looking. The severe-allergy alarm below stays sharp on purpose.
+/*
+ * SOUND SET.
+ *
+ * Sep 2026: the old 880/1175 Hz blip read as an irritating beep, so booking
+ * and cancel became one family of soft mallet notes (E5/B5). On 27 Sep the
+ * severe-allergy alarm was kept as a sharp square-wave triple-beep on purpose.
+ *
+ * 12 Oct 2026: Manoj still found the set "a bit high, irritating" and chose
+ * the softest of three rendered options. Everything moved down an octave onto
+ * WARM partials (no inharmonic "tok"), quieter and with a longer ring:
+ *   chime  — rising E4 → B4: a new booking or a change.
+ *   cancel — falling B4 → E4, a touch quieter: a booking was cancelled.
+ *   urgent — B4 · D#5 · B4, three pulses, still the loudest of the three.
+ * The allergy alarm stays DISTINCT — three pulses, a different interval (a
+ * major third, not the chime's fifth), a little louder (≈ +1.6 dB peak,
+ * +2.5 dB rms) — but it is no longer a square wave. Staff still tell the three apart without looking.
+ * Pinned by __tests__/soundSet.test.js.
+ */
 const MALLET = [
   [1, 1.0, 1.0], // fundamental
   [2, 0.16, 0.55], // a little warmth, fades faster
   [3.98, 0.05, 0.3], // the soft "tok" of a mallet, gone almost at once
 ];
-const mallet = (freq, start, volume) => ({
-  freq, start, volume, duration: 1.0, attack: 0.012, decay: 0.26, partials: MALLET,
-});
-const CHIME_PARTS = [mallet(659.25, 0, 0.3), mallet(987.77, 0.14, 0.26)];
-const CANCEL_PARTS = [mallet(987.77, 0, 0.24), mallet(659.25, 0.16, 0.22)];
-const URGENT_PARTS = [
-  { freq: 660, start: 0, duration: 0.12, volume: 0.6, square: true },
-  { freq: 880, start: 0.16, duration: 0.12, volume: 0.6, square: true },
-  { freq: 660, start: 0.32, duration: 0.16, volume: 0.6, square: true },
+const WARM = [
+  [1, 1.0, 1.0], // fundamental
+  [2, 0.1, 0.5], // a little warmth, fades faster
+  [3, 0.03, 0.3], // a harmonic (not 3.98) — rounder, no "tok"
 ];
+// [mult, amp, decayFactor]: each partial rings out on `decay * decayFactor`.
+const mallet = (freq, start, volume, decay = 0.26, partials = MALLET, duration = 1.0) => ({
+  freq, start, volume, duration, attack: 0.012, decay, partials,
+});
+const CHIME_PARTS = [mallet(329.63, 0, 0.18, 0.38, WARM), mallet(493.88, 0.16, 0.16, 0.38, WARM)];
+const CANCEL_PARTS = [mallet(493.88, 0, 0.14, 0.38, WARM), mallet(329.63, 0.18, 0.13, 0.38, WARM)];
+const URGENT_PARTS = [
+  mallet(493.88, 0, 0.26, 0.2, WARM, 0.55),
+  mallet(622.25, 0.22, 0.26, 0.2, WARM, 0.55),
+  mallet(493.88, 0.44, 0.26, 0.25, WARM, 0.8),
+];
+
+/** The alert recipes, read-only — for the tests and the offline renderer. */
+export const ALERT_PARTS = Object.freeze({
+  chime: Object.freeze(CHIME_PARTS),
+  cancel: Object.freeze(CANCEL_PARTS),
+  urgent: Object.freeze(URGENT_PARTS),
+});
 
 /* ── the media elements ───────────────────────────────────────────────────── */
 
@@ -380,43 +410,55 @@ function resumeCtx() {
   }
 }
 
-function tone(freq, startOffset, duration, volume = 0.06, type = "sine") {
+/**
+ * One sine note shaped like the WAV mallet's fundamental: a 12 ms rise
+ * instead of a click, a natural ring-out on time constant `ring` (counted from
+ * the strike, not from the end of the rise), and a 40 ms ease to silence.
+ */
+function tone(freq, startOffset, duration, volume = 0.04, ring = 0.38, type = "sine") {
   const c = ctx();
   if (!c) return;
   try {
+    const attack = 0.012;
     const t0 = c.currentTime + startOffset;
+    const fadeAt = t0 + Math.max(attack, duration - 0.04);
     const osc = c.createOscillator();
     const gain = c.createGain();
     osc.type = type;
     osc.frequency.value = freq;
-    gain.gain.setValueAtTime(volume, t0);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(volume * Math.exp(-attack / ring), t0 + attack);
+    gain.gain.setTargetAtTime(0, t0 + attack, ring);
+    gain.gain.setValueAtTime(volume * Math.exp(-(fadeAt - t0) / ring), fadeAt);
+    gain.gain.linearRampToValueAtTime(0, t0 + duration);
     osc.connect(gain).connect(c.destination);
     osc.start(t0);
-    gain.gain.exponentialRampToValueAtTime(0.00001, t0 + duration);
     osc.stop(t0 + duration + 0.03);
   } catch {
     /* swallow — audio is best-effort */
   }
 }
 
+// The same notes as the WAV clips, sine only (the fallback path has always
+// been quieter than the media element; it is the last resort).
 function toneFallback(kind) {
   resumeCtx();
   if (kind === "urgent") {
-    tone(660, 0, 0.12, 0.07, "square");
-    tone(880, 0.16, 0.12, 0.07, "square");
-    tone(660, 0.32, 0.16, 0.07, "square");
+    tone(493.88, 0, 0.55, 0.05, 0.2);
+    tone(622.25, 0.22, 0.55, 0.05, 0.2);
+    tone(493.88, 0.44, 0.8, 0.05, 0.25);
   } else if (kind === "cancel") {
-    tone(987.77, 0, 0.9, 0.05, "sine");
-    tone(659.25, 0.16, 0.9, 0.045, "sine");
+    tone(493.88, 0, 1.0, 0.03, 0.38);
+    tone(329.63, 0.18, 1.0, 0.028, 0.38);
   } else {
-    tone(659.25, 0, 0.9, 0.06, "sine");
-    tone(987.77, 0.14, 0.9, 0.05, "sine");
+    tone(329.63, 0, 1.0, 0.04, 0.38);
+    tone(493.88, 0.16, 1.0, 0.035, 0.38);
   }
 }
 
 /* ── public play API (unchanged signatures) ───────────────────────────────── */
 
-/** Soft rising two-note chime for a new booking or a change. */
+/** Soft rising two-note chime (E4 → B4) for a new booking or a change. */
 export function playChime() {
   play("chime");
 }
@@ -426,7 +468,8 @@ export function playCancel() {
   play("cancel");
 }
 
-/** Sharper triple-pulse for a severe allergy — distinctly more alarming. */
+/** Distinct triple-pulse (B4 · D#5 · B4) for a severe allergy — a little
+ *  louder and on a different interval than the chime, but not a square wave. */
 export function playUrgent() {
   play("urgent");
 }

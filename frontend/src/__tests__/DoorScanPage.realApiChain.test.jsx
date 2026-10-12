@@ -92,7 +92,7 @@ class FakeAudioContext {
     return { type: "sine", frequency: { value: 0 }, connect: (n) => n, start() {}, stop() {} };
   }
   createGain() {
-    return { gain: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect: () => ({}) };
+    return { gain: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {}, linearRampToValueAtTime() {}, setTargetAtTime() {} }, connect: () => ({}) };
   }
 }
 
