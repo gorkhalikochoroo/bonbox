@@ -30,7 +30,7 @@ import logging
 import uuid
 from datetime import datetime
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.models.business_profile import BusinessProfile
@@ -50,6 +50,45 @@ HOLDING_STATUSES = ("requested", "confirmed", "seated")
 # 3 covers realistic contention (a handful of simultaneous bookers on one
 # popular slot) without unbounded retry under a thundering herd.
 _MAX_ASSIGN_ATTEMPTS = 3
+
+# Postgres SQLSTATE "deadlock detected".
+_DEADLOCK_SQLSTATE = "40P01"
+
+
+def is_deadlock(exc: BaseException) -> bool:
+    """True when a database error is Postgres's "deadlock detected" (40P01):
+    psycopg2's DeadlockDetected, as SQLAlchemy wraps it (an OperationalError
+    whose .orig carries pgcode 40P01), or psycopg 3's .sqlstate."""
+    orig = getattr(exc, "orig", None)
+    for err in (orig, exc):
+        if err is None:
+            continue
+        code = getattr(err, "pgcode", None) or getattr(err, "sqlstate", None)
+        if code == _DEADLOCK_SQLSTATE:
+            return True
+    try:
+        from psycopg2 import errors as pg_errors
+    except Exception:  # noqa: BLE001 — no psycopg2 (SQLite-only env)
+        return False
+    return isinstance(orig, pg_errors.DeadlockDetected)
+
+
+def _lock_order_key(resource_id):
+    """The order a reservation's occupancy rows are written in: the table id's
+    UUID value — one order for every writer.
+
+    Postgres checks the exclusion constraint row by row and, on a competing
+    row not yet committed, waits for that transaction. The stand sends joined
+    tables in label order, the booking engine in (capacity, id) order — so two
+    devices taking the same two tables could insert A then B, and B then A,
+    each wait on the other, and one died of a deadlock: a 500 (review, 1 in 40
+    truly simultaneous pairs). Written in one order, the second insert waits
+    on the first table, then meets the committed row and loses cleanly (409).
+    """
+    try:
+        return (0, uuid.UUID(str(resource_id)).int, "")
+    except (TypeError, ValueError, AttributeError):
+        return (1, 0, str(resource_id))
 
 
 def add_occupancy_row(
@@ -81,11 +120,16 @@ def add_occupancy_rows(
     All rows share the reservation's half-open range; they're flushed together
     so the DB exclusion constraint vets EVERY table in one transaction — if any
     table is taken, the whole insert fails and rolls back (no half-seated
-    party). Returns the staged rows."""
+    party). Returns the staged rows.
+
+    Staged — and so inserted — in table-id order (_lock_order_key), whatever
+    order the caller names them in, so two writers never take the same tables
+    in opposite orders. Only the WRITE order changes: the reservation's
+    primary table and its combined_resource_ids (what the book shows, "6 + 7")
+    stay in the caller's order — the callers set them on the reservation
+    itself (_apply_assignment, the router's table moves), not from here."""
     rows: list[ReservationOccupancy] = []
-    for rid in resource_ids:
-        if rid is None:
-            continue
+    for rid in sorted((x for x in resource_ids if x is not None), key=_lock_order_key):
         row = ReservationOccupancy(
             id=uuid.uuid4(),
             reservation_id=reservation.id,
@@ -148,6 +192,13 @@ def create_reservation_with_occupancy(
     we raise `SlotUnavailable`. Caller owns post-commit side-effects (email,
     push, audit); this function commits the reservation + occupancy atomically.
 
+    A Postgres deadlock (40P01) on this insert is the same lost race: Postgres
+    aborted this transaction so a competing one could finish. Rolled back and
+    handled exactly like the exclusion violation — never a 500. (The rows are
+    written in one table order, add_occupancy_rows, so occupancy writers do not
+    deadlock each other; this is the backstop.) Any other OperationalError is
+    not a lost race and propagates as before.
+
     On SQLite the exclusion constraint can't exist, so the IntegrityError
     never fires and this is a single insert + commit.
     """
@@ -163,7 +214,7 @@ def create_reservation_with_occupancy(
         # Nothing to seat on — caller should not have routed here.
         raise SlotUnavailable()
 
-    last_error: IntegrityError | None = None
+    last_error: IntegrityError | OperationalError | None = None
 
     for attempt in range(_MAX_ASSIGN_ATTEMPTS):
         _apply_assignment(reservation, resource_ids)
@@ -180,12 +231,22 @@ def create_reservation_with_occupancy(
             db.flush()
             db.commit()
             return reservation
-        except IntegrityError as exc:
+        except (IntegrityError, OperationalError) as exc:
             # Someone won the race for one of these tables (the exclusion
             # constraint, or — defensively — any integrity violation on this
-            # insert). Roll back and free the session.
+            # insert), or Postgres broke a deadlock by aborting this insert.
+            # Roll back and free the session. Any other OperationalError (a
+            # dropped connection, a timeout) is not a lost race: re-raised.
+            if isinstance(exc, OperationalError) and not is_deadlock(exc):
+                raise
+            deadlock = isinstance(exc, OperationalError)
             last_error = exc
             db.rollback()
+            if deadlock:
+                logger.warning(
+                    "occupancy insert deadlocked on resources=%s start=%s — treated as a lost race",
+                    resource_ids, start,
+                )
             if not reassign:
                 # Owner's explicit table is taken — don't second-guess them.
                 raise SlotUnavailable() from exc

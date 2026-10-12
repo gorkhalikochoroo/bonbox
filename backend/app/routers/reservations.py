@@ -221,6 +221,12 @@ class ManualReservation(BaseModel):
     starts_at: datetime
     duration_min: int | None = Field(default=None, ge=15, le=600)
     resource_id: UUID | None = None
+    # Tables pushed together for this party (2–6): the host stand's drop-in
+    # seats a party the booking engine itself would join (find_combo's rules)
+    # in one tap. Same ownership, still-seated and clash rules as one picked
+    # table, and all-or-nothing — every table is held, or none is. Wins over
+    # resource_id when it names two or more tables.
+    resource_ids: list[UUID] | None = Field(default=None, max_length=6)
     service_name: str | None = Field(default=None, max_length=120)
     source: str = Field(default="manual", pattern="^(manual|walk_in)$")
     # "seated" lets the host mark a table occupied immediately (a walk-in);
@@ -410,7 +416,17 @@ def _reservation_dict(r: Reservation) -> dict:
             ),
         },
         "note_intent": r.note_intent,
+        # When the party sat down and when the host marked them finished — the
+        # stand's history reads "seated → left" and the time at the table from
+        # these. Stored as naive UTC (utc_now), unlike starts_at/ends_at which
+        # are naive business-local, so they go out with an explicit "Z".
+        "seated_at": _utc_iso(r.seated_at),
+        "completed_at": _utc_iso(getattr(r, "completed_at", None)),
     }
+
+
+def _utc_iso(ts: datetime | None) -> str | None:
+    return ts.isoformat() + "Z" if ts else None
 
 
 def _reservation_change_dict(r: Reservation, label_by_id: dict, cutoff: datetime) -> dict:
@@ -580,6 +596,51 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
         "reservations_used_this_month": _month_usage(db, user),
         "reservations_cap": get_cap(user, "reservations_per_month"),
     }
+
+
+# What the door needs from the venue's booking rules to say "free now" or
+# "approx. 20.30" truthfully: how long each party size holds a table, and
+# whether (and how far) the booking engine joins tables for a party no single
+# table seats. Nothing else in the settings — no slug, no SMS sender, no
+# quotas — and no personal data.
+_DOOR_RULE_KEYS = ("turn_time_tiers", "default_duration_min", "combine_enabled", "max_combo_size")
+
+
+def door_rules(db: Session, user: User) -> dict:
+    """The booking rules and bookable hours the host stand reads.
+
+    The paired door device (stand_link.py) has no session and must not reach
+    /settings: without these the stand's drop-in row assumed a 90-minute
+    sitting and a room that never closes, and said "Ledigt nu" where the
+    owner's own stand said "ca. 20.30". The owner reads the same function
+    through GET /booking-rules below.
+
+    Same shape as the matching keys of GET /settings, so the client reads
+    both with one code path."""
+    enforce_feature(user, "reservations")
+    profile = _profile(db, user)
+    settings = rsvc.load_settings(profile)
+    return {
+        "settings": {k: settings.get(k) for k in _DOOR_RULE_KEYS},
+        "hours_declared": rsvc.hours_declared(profile, settings),
+        "open_hours": _open_hours_by_weekday(profile, settings, user),
+    }
+
+
+@router.get("/booking-rules")
+def get_booking_rules(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """The owner's door to the same rules the paired device reads (door_rules)
+    — a subset of /settings, nothing the owner cannot already read there.
+
+    Why the owner needs it: this door, and seating one party across joined
+    tables (POST /book resource_ids), ship in the same release. A server
+    older than that drops resource_ids unread — Pydantic ignores unknown
+    keys — auto-picks tables of its own and answers 201; the stand then said
+    "seated at 6 + 7" for a party sat somewhere else. The frontend usually
+    goes live minutes before the API does. So the stand offers and sends
+    joined tables only once a booking-rules door has answered: this route for
+    the owner, /stand/<token>/booking-rules for the device."""
+    return door_rules(db, user)
 
 
 def _clean_tiers(raw) -> list[dict]:
@@ -1885,14 +1946,23 @@ def create_manual(payload: ManualReservation, request: Request,
     # and skips this entirely.
     if payload.behandling_id is not None or payload.stylist_resource_id is not None:
         return _create_provider_booking(db, user, profile, payload)
-    if payload.resource_id is not None:
-        _assert_owned_resource(db, user, payload.resource_id)
+    # Two or more tables named = one party across them (resource_ids); one
+    # named that way is simply a picked table.
+    combo = list(dict.fromkeys(x for x in (payload.resource_ids or []) if x))
+    if len(combo) == 1 and payload.resource_id is None:
+        payload.resource_id = combo[0]
+    if len(combo) < 2:
+        combo = []
+    picked = combo or ([payload.resource_id] if payload.resource_id is not None else [])
+    if picked:
+        for rid in picked:
+            _assert_owned_resource(db, user, rid)
         # A drop-in seated on a table someone is still sitting at — the hold
         # rows only know booked windows, so a party running over looked gone.
         if payload.status == "seated":
-            occupant = _seated_occupant(db, user, [payload.resource_id])
+            occupant = _seated_occupant(db, user, picked)
             if occupant is not None:
-                raise _occupied_409(db, user, occupant, [payload.resource_id])
+                raise _occupied_409(db, user, occupant, picked)
     duration = rsvc.resolve_duration(profile, payload.party_size, payload.duration_min)
     from app.services.allergens import sanitize_tags, sanitize_severity
     btype = getattr(user, "business_type", None) or "restaurant"
@@ -1921,8 +1991,43 @@ def create_manual(payload: ManualReservation, request: Request,
     apply_ai_signals(r, btype, owner_entered=True)
 
     overflow = False
-    if payload.resource_id is None:
+    if combo:
+        # The host named these tables together — hold exactly these, never a
+        # re-pick, and all of them or none (one occupancy row per table, vetted
+        # in one flush). The app-level clash check is the guard on SQLite,
+        # where the exclusion constraint does not exist; on Postgres the
+        # constraint is the backstop, caught as SlotUnavailable.
+        clash = (
+            db.query(ReservationOccupancy.id)
+            .filter(
+                ReservationOccupancy.user_id == user.id,
+                ReservationOccupancy.resource_id.in_(combo),
+                ReservationOccupancy.active.is_(True),
+                ReservationOccupancy.starts_at < payload.starts_at + timedelta(minutes=duration),
+                ReservationOccupancy.ends_at > payload.starts_at,
+            )
+            .first()
+        )
+        if clash is not None:
+            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+        try:
+            occ_service.create_reservation_with_occupancy(
+                db, profile=profile, reservation=r,
+                initial_resource_ids=combo,
+                party_size=payload.party_size, start=payload.starts_at,
+                duration_min=duration, now=None, reassign=False,
+            )
+        except occ_service.SlotUnavailable:
+            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+    elif payload.resource_id is None:
         assigned = False
+        # A party seated NOW on the engine's own pick. The engine reads the
+        # hold rows, and those only know booked windows: a party still sitting
+        # past its booked end looks gone, so the pick can be their table. The
+        # named-table paths above refuse that (_seated_occupant); this one
+        # seated the newcomer on top of them. Refused the same way here — and
+        # a lost race is a 409 as well, not a re-pick by that same engine.
+        seating_now = payload.status == "seated"
         if payload.auto_assign:
             # Mirror the public widget's auto-pick exactly (same combo-aware
             # recheck + same duration resolution) so an owner phone booking
@@ -1935,18 +2040,23 @@ def create_manual(payload: ManualReservation, request: Request,
                 party_size=payload.party_size, now=None, duration_min=duration,
                 owner_booking=True,
             )
+            if resource_ids and seating_now and _seated_occupant(db, user, resource_ids) is not None:
+                raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
             if resource_ids:
                 try:
                     # Same insert-and-catch as the public path: reassign=True
-                    # re-picks a different free table if this one loses a race.
+                    # re-picks a different free table if this one loses a race
+                    # (a booking for later; a party seated now gets the 409).
                     occ_service.create_reservation_with_occupancy(
                         db, profile=profile, reservation=r,
                         initial_resource_ids=resource_ids,
                         party_size=payload.party_size, start=payload.starts_at,
-                        duration_min=duration, now=None, reassign=True,
+                        duration_min=duration, now=None, reassign=not seating_now,
                     )
                     assigned = True
                 except occ_service.SlotUnavailable:
+                    if seating_now:
+                        raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
                     assigned = False
             if not assigned and not payload.allow_overflow:
                 # No table (or combination) fits this party for the slot and
@@ -2687,6 +2797,14 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                     restore_blocked = {"booked_at": booked.strftime("%H:%M"), "table": _lbl}
         except Exception:  # noqa: BLE001 — the undo itself must still go through
             restored_from = None
+    # Finished: when they left. A reopen (or any other move off "completed")
+    # clears it, so the history never shows a leave time for a party still
+    # sitting. Re-marking an already-finished row keeps its first stamp.
+    if payload.status == "completed":
+        if prev_status != "completed" or r.completed_at is None:
+            r.completed_at = utc_now()
+    else:
+        r.completed_at = None
     if payload.status == "cancelled":
         r.cancelled_at = utc_now()
         # Cancelling a REQUEST is declining it — recorded as such, so the

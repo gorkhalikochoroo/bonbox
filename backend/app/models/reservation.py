@@ -144,6 +144,11 @@ class Reservation(Base):
 
     # ── State transitions ──────────────────────────────────────────────
     seated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # When the host marked the party finished (UTC, like seated_at). The host
+    # stand's history reads "seated → left" and how long they sat from these
+    # two; NULL on rows finished before the column existed — the history then
+    # shows no time rather than a guessed one. Cleared on a reopen.
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     cancel_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
 

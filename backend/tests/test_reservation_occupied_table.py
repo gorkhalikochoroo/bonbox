@@ -13,6 +13,9 @@ Locks under test:
   • Finish that party, and the same seating goes through.
   • A drop-in seated on such a table, and a seated party moved onto one, are
     refused the same way.
+  • A drop-in seated with NO table named — the booking engine's own pick,
+    which reads booked windows only — is refused (409 slot_unavailable) when
+    that pick is such a table, and a lost race there is a 409, not a re-pick.
   • Search ranks live bookings before cancelled ones, so 20 cancelled rows
     cannot push a real booking out of the 20 results.
   • "Gem alligevel" that keeps a too-big party on its table says so ("kept").
@@ -281,3 +284,88 @@ def test_a_party_seated_long_after_its_time_gets_its_sitting_from_now(client, db
     back = _status(client, b["id"], "confirmed")
     assert back.status_code == 200, back.text
     assert datetime.fromisoformat(back.json()["starts_at"]) == booked
+
+
+# ── a drop-in on the engine's own pick ───────────────────────────────
+
+def _still_seated_past_its_end(client, db, u, table):
+    """Test Overdue sat down on `table` two hours ago and is still there, 30
+    min past the end of a 90-minute sitting — and nothing else is booked on
+    it, so its hold rows say the table is free from then on."""
+    start = _earlier_today(u, 120)
+    now = now_local(u).replace(tzinfo=None, second=0, microsecond=0)
+    a = _book(client, table, now, "Test Overdue")
+    assert _status(client, a["id"], "seated").status_code == 200
+    db.expire_all()
+    row = db.query(Reservation).filter(Reservation.id == uuid.UUID(a["id"])).one()
+    row.starts_at, row.ends_at = start, start + timedelta(minutes=90)
+    for o in db.query(ReservationOccupancy).filter(ReservationOccupancy.reservation_id == row.id).all():
+        o.starts_at, o.ends_at = row.starts_at, row.ends_at
+    db.commit()
+    return a
+
+
+def _seat_anywhere(client, u, name="Test Drop-in", party=2):
+    """A drop-in seated now with no table named: auto_assign (the default)
+    lets the booking engine pick — the smallest free table that fits."""
+    now = now_local(u).replace(tzinfo=None, second=0, microsecond=0)
+    return client.post("/api/reservations/book", json={
+        "guest_name": name, "party_size": party, "source": "walk_in", "status": "seated",
+        "starts_at": now.isoformat(),
+    })
+
+
+def test_a_drop_in_the_engine_would_put_on_that_table_is_refused(client, db):
+    """The engine picks Bord 1, the only two-top: its hold ended 30 minutes
+    ago, so to the engine it is free. Test Overdue is still sitting there."""
+    u, (two, four) = _venue(db)
+    a = _still_seated_past_its_end(client, db, u, two)
+    before = db.query(Reservation).count()
+
+    res = _seat_anywhere(client, u)
+    assert res.status_code == 409, res.text
+    assert res.json()["detail"] == {"error": "slot_unavailable"}
+    db.expire_all()
+    assert db.query(Reservation).count() == before, "a second party was seated on a taken table"
+    occupant = db.query(Reservation).filter(Reservation.id == uuid.UUID(a["id"])).one()
+    assert occupant.status == "seated"
+
+
+def test_the_engines_pick_still_seats_a_drop_in_on_a_free_table(client, db):
+    u, (two, four) = _venue(db)
+    res = _seat_anywhere(client, u)
+    assert res.status_code in (200, 201), res.text
+    assert res.json()["resource_id"] == str(two.id)
+    assert res.json()["status"] == "seated"
+
+
+def test_a_seated_drop_in_that_loses_its_race_is_a_409_never_a_re_pick(client, db, monkeypatch):
+    """A re-pick runs the same engine, which cannot see a party past its end,
+    so a drop-in seated now is not re-picked: a lost race is the clash 409.
+    A booking for later keeps the re-pick, as before."""
+    from app.services import reservation_occupancy_service as occ_service
+
+    u, (two, four) = _venue(db)
+    real = occ_service.create_reservation_with_occupancy
+    seen = []
+
+    def lost(*args, **kwargs):
+        seen.append(kwargs["reassign"])
+        raise occ_service.SlotUnavailable()
+
+    monkeypatch.setattr(occ_service, "create_reservation_with_occupancy", lost)
+    res = _seat_anywhere(client, u)
+    assert res.status_code == 409, res.text
+    assert res.json()["detail"] == {"error": "slot_unavailable"}
+
+    def passes(*args, **kwargs):
+        seen.append(kwargs["reassign"])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(occ_service, "create_reservation_with_occupancy", passes)
+    later = (now_local(u).replace(tzinfo=None, second=0, microsecond=0) + timedelta(days=2)).replace(hour=18, minute=0)
+    ok = client.post("/api/reservations/book", json={
+        "guest_name": "Test Senere", "party_size": 2, "source": "manual", "starts_at": later.isoformat(),
+    })
+    assert ok.status_code in (200, 201), ok.text
+    assert seen == [False, True]

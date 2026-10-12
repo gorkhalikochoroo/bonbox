@@ -104,3 +104,23 @@ describe("wall-clock reservation times are NOT read as UTC", () => {
     expect(src.match(/parseServerTime\(/g)).toHaveLength(1);
   });
 });
+
+describe("the host stand's seated → left stamps are read as UTC, its booked times are not", () => {
+  // seated_at / completed_at are utc_now() stamps (/book sends them with
+  // microseconds and a Z); starts_at / ends_at are wall-clock.
+  it("utils/hostStand.js reads seated_at / completed_at through parseServerTime", () => {
+    const src = read("utils/hostStand.js");
+    expect(src).toMatch(/import \{ parseServerTime \} from "\.\/serverTime";/);
+    expect(src).not.toMatch(/parseServerTime\([^)]*\b(starts_at|ends_at)\b/);
+    expect(src).not.toMatch(/msOf\([^)]*\b(seated_at|completed_at)\b/);
+    expect(src).toMatch(/stampMs\(r\?\.seated_at\)/);
+    expect(src).toMatch(/stampMs\(r\?\.completed_at\)/);
+  });
+
+  it("ReservationsPage shows them through stampIso, never straight into the clock", () => {
+    const src = read("pages/ReservationsPage.jsx");
+    expect(src).not.toMatch(/fmtTime\(r\.(seated_at|completed_at)\)/);
+    expect(src).toMatch(/fmtTime\(stampIso\(r\.seated_at\)\)/);
+    expect(src).toMatch(/fmtTime\(stampIso\(r\.completed_at\)\)/);
+  });
+});
