@@ -968,17 +968,21 @@ export default function ReservationPublicPage() {
   }, [page]);
 
   // ── 14-day open/closed overview → auto-advance off a closed day ────
-  // TABLE venues only. Fetches the same available_slots() the diner sees, so the
+  // Table AND provider venues. A salon used to skip it, so on a closed Monday
+  // its page said "Ingen ledige tider de næste 14 dage" while Tuesday–Saturday
+  // were bookable (vertical-fit audit, Oct 2026). A provider asks for ONE
+  // person: an appointment chair seats one, and party 2 would read every day
+  // as closed. Fetches the same available_slots() the diner sees, so the
   // strip can't disagree. If the seeded day (today, or a ?d= link) has NO slots
   // but the week does, we jump to the next open day — killing the dead-end where
   // "closed today" showed "No available times" with no way forward. Fail-soft:
   // on error dayMap stays null and the single-day flow + phone fallback still run.
   useEffect(() => {
-    if (!page || isProvider) return;
+    if (!page) return;
     let alive = true;
     api
       .get(`/public/reservations/${slug}/availability-summary`, {
-        params: { from: today, days: 14, party: party || 2 },
+        params: { from: today, days: 14, party: isProvider ? 1 : (party || 2) },
       })
       .then((res) => {
         if (!alive) return;
@@ -1019,8 +1023,11 @@ export default function ReservationPublicPage() {
     // should not read "Book a table" over a finished booking.
     // A link still loading or no longer resolving is not a booking yet.
     const showsBooking = !!result && linkState !== "loading" && linkState !== "failed";
+    // A salon books a time, not a table (vertical-fit audit, Oct 2026).
     const title = !showsBooking
-      ? t("rsvpDocTitle", "Book bord · {venue}", { venue })
+      ? (isProvider
+        ? t("rsvpDocTitleProvider", "Book an appointment · {venue}", { venue })
+        : t("rsvpDocTitle", "Book bord · {venue}", { venue }))
       : resultStatus === "cancelled" && (liveOutcome === "withdrawn" || cancelledFrom === "requested")
         ? t("rsvpDocTitleWithdrawn", "Request withdrawn · {venue}", { venue })
         : resultStatus === "cancelled" && liveOutcome === "declined"
@@ -1029,7 +1036,9 @@ export default function ReservationPublicPage() {
         ? t("rsvpDocTitleCancelled", "Booking cancelled · {venue}", { venue })
         : resultStatus === "requested"
           ? t("rsvpDocTitleRequest", "Request received · {venue}", { venue })
-          : t("rsvpDocTitleBooked", "Table booked · {venue}", { venue });
+          : isProvider
+            ? t("rsvpDocTitleBookedProvider", "Appointment confirmed · {venue}", { venue })
+            : t("rsvpDocTitleBooked", "Table booked · {venue}", { venue });
     document.title = title;
     const setMeta = (prop, val) => {
       let m = document.querySelector(`meta[property="${prop}"]`);
@@ -1041,11 +1050,12 @@ export default function ReservationPublicPage() {
       m.setAttribute("content", val);
     };
     setMeta("og:title", title);
-    setMeta("og:description",
-      t("rsvpOgDesc", "Reservér bord hos {venue}.", { venue: page.business_name }));
+    setMeta("og:description", isProvider
+      ? t("rsvpOgDescProvider", "Book an appointment at {venue}.", { venue: page.business_name })
+      : t("rsvpOgDesc", "Reservér bord hos {venue}.", { venue: page.business_name }));
     try { setMeta("og:url", window.location.href); } catch { /* noop */ }
     return () => { document.title = prev; };
-  }, [page, t, result, resultStatus, linkState, cancelledFrom, liveOutcome]);
+  }, [page, t, result, resultStatus, linkState, cancelledFrom, liveOutcome, isProvider]);
 
   // ── Provider venue: load the active behandlinger catalog (S3b) ────
   // Drives the behandling picker (the FIRST step for a salon). Soft-fail to []
@@ -1686,14 +1696,16 @@ export default function ReservationPublicPage() {
             {t("rsvpLinkFailedTitle", "We couldn't open this booking")}
           </h1>
           <p className="text-sm text-gray-600 dark:text-gray-300">
-            {t(
-              "rsvpLinkFailedBody",
-              "The link may have expired. Call us about an existing booking — or book a new table.",
-            )}
+            {isProvider
+              ? t("rsvpLinkFailedBodyProvider", "The link may have expired. Call us about an existing appointment — or book a new time.")
+              : t(
+                "rsvpLinkFailedBody",
+                "The link may have expired. Call us about an existing booking — or book a new table.",
+              )}
           </p>
           <div className="space-y-2">
             <Button variant="main" size="lg" className="w-full" onClick={startOver}>
-              {t("rsvpBookATable", "Book a table")}
+              {isProvider ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
             </Button>
             {telHref(page.phone) && (
               <a
@@ -1749,7 +1761,9 @@ export default function ReservationPublicPage() {
     let HeroIcon = CheckCircle2;
     let heroWrap = "bg-emerald-50 dark:bg-emerald-900/20";
     let heroIconCls = "text-emerald-600 dark:text-emerald-400";
-    let title = t("rsvpConfirmedTitle", "Reservation bekræftet");
+    let title = isProvider
+      ? t("rsvpConfirmedTitleProvider", "Appointment confirmed")
+      : t("rsvpConfirmedTitle", "Reservation bekræftet");
     let body = t(
       "rsvpConfirmedBody",
       // The email sentence used to live here too, hedged as "hvis du har
@@ -2243,7 +2257,7 @@ export default function ReservationPublicPage() {
           <section
             ref={stepFocusRef}
             tabIndex={-1}
-            aria-label={t("rsvpBookATable", "Book a table")}
+            aria-label={isProvider ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
             className="space-y-6 outline-none motion-safe:animate-[fadeIn_0.35s_ease-out]"
           >
             {/* Provider (salon): behandling → behandler come FIRST. The chosen

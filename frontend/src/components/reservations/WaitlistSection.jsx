@@ -70,6 +70,8 @@ export default function WaitlistSection({
   // Optional (the page passes them; without, every quarter is offered):
   // the venue's hours and turn times, and how to name the table it landed on.
   openHours = null, bookingRules = null, tableLabelFor = null,
+  // A salon waits for a free TIME, not a table (vertical-fit audit, Oct 2026).
+  isProvider = false,
 }) {
   const { t } = useLanguage();
   const confirm = useConfirm();
@@ -182,10 +184,12 @@ export default function WaitlistSection({
     setAddErr("");
     if (!form.guest_phone.trim()) {
       setAddErr(
-        t(
-          "rsvpWaitlistPhoneRequired",
-          "Add a phone — we text them when a table frees.",
-        ),
+        isProvider
+          ? t("rsvpWaitlistPhoneRequiredProvider", "Add a phone — we text them when a time frees up.")
+          : t(
+            "rsvpWaitlistPhoneRequired",
+            "Add a phone — we text them when a table frees.",
+          ),
       );
       return;
     }
@@ -508,7 +512,9 @@ export default function WaitlistSection({
         <div className="px-4 py-6 text-center">
           <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{t("rsvpWlEmpty", "No one waiting yet")}</p>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {t("rsvpWlEmptyBody", "Turned someone away? Add them here — you'll see who fits when a table frees.")}
+            {isProvider
+              ? t("rsvpWlEmptyBodyProvider", "Turned someone away? Add them here — you'll see who fits when a time frees up.")
+              : t("rsvpWlEmptyBody", "Turned someone away? Add them here — you'll see who fits when a table frees.")}
           </p>
         </div>
       ) : (

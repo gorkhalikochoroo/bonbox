@@ -1775,6 +1775,10 @@ function snapStart({ dateIso, time, openHours, sitting, n, service, t }) {
 function EditBookingSheet({
   reservation, t, busy, error, onSubmit, onClose, openHours = null, bookingRules = null,
   warning = null, onClearWarning = null,
+  // A salon appointment has one customer: no party size to edit, and the
+  // name is the customer's (vertical-fit audit, Oct 2026). The stored party
+  // size is kept and sent back unchanged.
+  isProvider = false,
 }) {
   const r = reservation;
   const origDate = r.starts_at ? r.starts_at.slice(0, 10) : "";
@@ -1893,6 +1897,7 @@ function EditBookingSheet({
         {timeNote && !editTimes.closed && (
           <p role="status" className="-mt-2 text-[12px] text-gray-600 dark:text-gray-300">{timeNote}</p>
         )}
+        {!isProvider && (
         <div>
           <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpPartySize", "Party size")}</label>
           {/* Was [1,2,3,4,5,6,8]: opening Edit on a party of 7, 9, 10 or 12
@@ -1910,8 +1915,11 @@ function EditBookingSheet({
             t={t}
           />
         </div>
+        )}
         <div>
-          <label htmlFor="eb-name" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpNbGuestName", "Guest name")}</label>
+          <label htmlFor="eb-name" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            {isProvider ? t("rsvpNbGuestNameProvider", "Customer's name") : t("rsvpNbGuestName", "Guest name")}
+          </label>
           <input id="eb-name" value={name} onChange={(e) => setName(e.target.value)}
             className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent" />
         </div>
@@ -2406,7 +2414,7 @@ function NewBookingSheet({
 
         <div>
           <label htmlFor="nb-name" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            {t("rsvpNbGuestName", "Guest name")}
+            {isProvider ? t("rsvpNbGuestNameProvider", "Customer's name") : t("rsvpNbGuestName", "Guest name")}
           </label>
           <input
             id="nb-name"
@@ -2580,7 +2588,7 @@ function NewBookingSheet({
           disabled={isProvider && behandlinger.length === 0}
           className="w-full justify-center"
         >
-          {t("rsvpCreateBooking", "Create booking")}
+          {isProvider ? t("rsvpCreateBookingProvider", "Book the time") : t("rsvpCreateBooking", "Create booking")}
         </Button>
         </div>
       </form>
@@ -3870,6 +3878,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // …and how long each party size holds a table, so a start is only offered
   // when the whole sitting ends by closing.
   const [bookingRules, setBookingRules] = useState(null);
+  // Is the public page on, and under which slug — for the salon's
+  // "customers can't book yet" check below.
+  const [publicPage, setPublicPage] = useState(null); // {enabled, slug}
   useEffect(() => {
     let alive = true;
     api.get("/reservations/settings")
@@ -3879,6 +3890,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         // bookableHoursFromSettings. The waitlist reads the same state.
         setOpenHours(bookableHoursFromSettings(r.data));
         setBookingRules(r.data?.settings || null);
+        setPublicPage({
+          enabled: !!r.data?.reservations_enabled,
+          slug: r.data?.reservation_slug || null,
+          // false = no opening hours saved: a self-chair has no time to offer.
+          hoursDeclared: r.data?.hours_declared !== false,
+        });
       })
       .catch(() => {});
     return () => { alive = false; };
@@ -5038,6 +5055,25 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // and offer to set up a salon that has been running for a year.
   const salonFirstRun =
     isProvider && resourcesLoaded && !resourcesFailed && providerStations.length === 0;
+  // A live booking page that offers NO time in the next 14 days. For a salon
+  // that is the usual dead end: a behandler whose shifts are not published,
+  // or no behandler the engine can book (vertical-fit audit, Oct 2026). Asks
+  // the SAME summary the customer's page reads (party 1 — one chair), so the
+  // banner and the page cannot disagree. A failed read says nothing.
+  const [noBookableTimes, setNoBookableTimes] = useState(false);
+  useEffect(() => {
+    if (!isProvider || standalone || salonFirstRun || !publicPage?.enabled || !publicPage?.slug) {
+      setNoBookableTimes(false);
+      return undefined;
+    }
+    let alive = true;
+    api.get(`/public/reservations/${publicPage.slug}/availability-summary`, {
+      params: { from: serviceDayIso(), days: 14, party: 1 },
+    })
+      .then((r) => { if (alive) setNoBookableTimes(Array.isArray(r.data?.days) && !r.data?.next_open_day); })
+      .catch(() => { if (alive) setNoBookableTimes(false); });
+    return () => { alive = false; };
+  }, [isProvider, standalone, salonFirstRun, publicPage, providerStations.length]);
   const behandlerByResourceId = useMemo(() => {
     const m = {};
     resources.forEach((r) => {
@@ -5781,6 +5817,35 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         />
       )}
 
+      {!salonFirstRun && noBookableTimes && (
+        <div
+          role="status"
+          data-testid="salon-no-bookable-times"
+          className="flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-100"
+        >
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">{t("rsvpProviderNoTimesTitle", "Customers can't book yet")}</p>
+            {/* Name the likely cause: no saved opening hours (a self-chair
+                follows them), else no behandler with time to book. */}
+            <p className="mt-0.5 text-[13px] opacity-90">
+              {publicPage?.hoursDeclared === false
+                ? t("rsvpProviderNoTimesNoHoursBody", "Your booking page has no free time in the next 14 days — your opening hours aren't saved yet.")
+                : t("rsvpProviderNoTimesBody", "Your booking page has no free time in the next 14 days. Add a stylist — yourself too — or publish their shifts in Vagtplan.")}
+            </p>
+            <Link
+              to={publicPage?.hoursDeclared === false ? "/reservations?tab=settings" : "/reservations?tab=floor"}
+              className="mt-2 inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-2"
+            >
+              {publicPage?.hoursDeclared === false
+                ? t("rsvpProviderNoTimesHoursCta", "Save opening hours")
+                : t("rsvpProviderNoTimesCta", "Add a stylist")}
+              <ChevronRight className="w-3.5 h-3.5" aria-hidden />
+            </Link>
+          </div>
+        </div>
+      )}
+
       {!salonFirstRun && (
         <>
       {/* Toolbar: day controls (left) + view toggle (right). Every control is
@@ -6018,18 +6083,23 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         items={[
           {
             key: "covers",
-            label: t("rsvpCovers", "Covers"),
+            // A salon has customers and appointments, not covers and
+            // reservations (vertical-fit audit, Oct 2026).
+            label: isProvider ? t("rsvpCoversProvider", "Customers") : t("rsvpCovers", "Covers"),
             value: summary.covers,
             icon: Users,
             tone: summary.covers > 0 ? "info" : "neutral",
-            helper:
-              coverBookings === 1
+            helper: isProvider
+              ? (coverBookings === 1
+                ? t("rsvpCoversBookingsOneProvider", "{n} appointment", { n: coverBookings })
+                : t("rsvpCoversBookingsProvider", "{n} appointments", { n: coverBookings }))
+              : coverBookings === 1
                 ? t("rsvpCoversBookingsOne", "{n} booking", { n: coverBookings })
                 : t("rsvpCoversBookings", "{n} bookings", { n: coverBookings }),
           },
           {
             key: "seated",
-            label: t("rsvpSeatedNow", "Seated now"),
+            label: isProvider ? t("rsvpSeatedNowProvider", "In the chair now") : t("rsvpSeatedNow", "Seated now"),
             value: seatedGuests,
             // The one LIVE number on the page — guests physically in the room
             // right now. Emerald only while that's true; the moment the room is
@@ -6039,7 +6109,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             icon: Armchair,
             tone: seatedCount > 0 ? "success" : "neutral",
             helper:
-              seatedCount === 0
+              isProvider
+                ? t("rsvpSeatedHelperProvider", "in the salon")
+              : seatedCount === 0
                 ? t("rsvpSeatedHelper", "in the room")
                 : [
                     seatedTables.tables === 1
@@ -6150,8 +6222,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               id="rsvp-search-phone"
               value={q}
               onChange={setQ}
-              placeholder={t("rsvpSearchPh", "Search guest or phone")}
-              aria-label={t("rsvpSearchPh", "Search guest or phone")}
+              placeholder={(isProvider ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
+              aria-label={(isProvider ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
               className="min-w-0"
             />
             <button
@@ -6172,7 +6244,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             <FilterBar.Search
               value={q}
               onChange={setQ}
-              placeholder={t("rsvpSearchPh", "Search guest or phone")}
+              placeholder={(isProvider ? t("rsvpSearchPhProvider", "Search customer or phone") : t("rsvpSearchPh", "Search guest or phone"))}
               className="max-sm:hidden"
             />
             <FilterBar.Select
@@ -6301,7 +6373,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                       ? t("rsvpOnlyCancelledTitle", "No active bookings")
                     : noTablesYet
                       ? t("rsvpBookNoTablesTitle", "No tables set up yet")
-                      : t("rsvpBookEmpty", "No reservations for {date} yet.", { date: fmtDkDate(day) })
+                      : isProvider
+                        ? t("rsvpBookEmptyProvider", "No appointments for {date} yet.", { date: fmtDkDate(day) })
+                        : t("rsvpBookEmpty", "No reservations for {date} yet.", { date: fmtDkDate(day) })
                 }
                 body={
                   filtersOn
@@ -6315,7 +6389,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                           "rsvpBookNoTablesBody",
                           "Guests can't book online until there's a table to seat them at. You can still take one over the phone with New booking.",
                         )
-                      : t("rsvpBookEmptyBody", "Bookings will appear here as they come in.")
+                      : isProvider
+                        ? t("rsvpBookEmptyBodyProvider", "Appointments appear here as customers book.")
+                        : t("rsvpBookEmptyBody", "Bookings will appear here as they come in.")
                 }
                 cta={
                   noTablesYet && !filtersOn ? (
@@ -6367,6 +6443,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           openHours={openHours}
           bookingRules={bookingRules}
           tableLabelFor={(r) => resolveTableLabel(r, labelById)}
+          isProvider={isProvider}
         />
       </div>
 
@@ -6473,6 +6550,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           reservation={editRes}
           openHours={openHours}
           bookingRules={bookingRules}
+          isProvider={isProvider}
           t={t}
           busy={editBusy}
           error={editError}
@@ -6618,6 +6696,7 @@ function ZonePresetChips({ profile, t, value, onPick }) {
 
 function FloorSection({ t, businessType }) {
   const confirm = useConfirm();
+  const { user } = useAuth();
   // Account venue archetype — drives the section's vocabulary (heading,
   // intro, empty state, icon) and the suggested zone-preset chips.
   const profile = venueProfile(businessType);
@@ -6658,12 +6737,16 @@ function FloorSection({ t, businessType }) {
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkDone, setBulkDone] = useState(null); // {created, capped}
 
+  // The list was READ (not just empty because the read failed) — "Det er mig"
+  // is offered only then, so a dropped connection never mints a second chair.
+  const [listRead, setListRead] = useState(false);
   const fetchResources = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const res = await api.get("/reservations/resources");
       setResources(Array.isArray(res.data?.resources) ? res.data.resources : []);
+      setListRead(true);
     } catch (e) {
       setError(
         e?.response?.data?.detail?.error ||
@@ -6712,6 +6795,43 @@ function FloorSection({ t, businessType }) {
   }, [staffMembers]);
 
   const chosenStaff = staffMembers.find((s) => String(s.id) === String(staffId)) || null;
+
+  // "Det er mig" — a solo stylist adds HERSELF as a behandler. Before, the only
+  // way in was a staff member with published Vagtplan shifts, so a one-chair
+  // salon could not add herself (vertical-fit audit, Oct 2026). This is the
+  // owner "self-chair" the Aftaler first-run card makes: a provider row with
+  // no staff member whose availability is the saved opening hours
+  // (follows_opening_hours — no hours saved = no times, never invented).
+  // Any self-chair, active or not — never a second one.
+  const selfChair = resources.find(
+    (r) => r.kind === "provider" && r.follows_opening_hours,
+  );
+  const [selfSaving, setSelfSaving] = useState(false);
+  const addSelfChair = async () => {
+    setSelfSaving(true);
+    setError("");
+    setCapMsg(null);
+    try {
+      const res = await api.post("/reservations/resources", {
+        kind: "provider",
+        label: (user?.business_name || "").trim().slice(0, 120) || t("rsvpSelfChairLabel", "Me"),
+        capacity_seats: 1,
+        combinable: false,
+        zone: null,
+        follows_opening_hours: true,
+      });
+      setResources((prev) => [...prev, res.data]);
+    } catch (e) {
+      if (e?.response?.status === 402) {
+        const d = e?.response?.data?.detail || e?.response?.data || {};
+        setCapMsg({ cap: d.cap, current: d.current, limit: d.limit, plan: d.plan, upgrade_to: d.upgrade_to });
+      } else {
+        setError(e?.response?.data?.detail?.error || t("rsvpSelfChairError", "Couldn't add you. Try again."));
+      }
+    } finally {
+      setSelfSaving(false);
+    }
+  };
 
   // Provider mode: create a stylist (behandler) station. Same 402 cap-handling
   // + error handling as the table path — only the payload + validation branch.
@@ -7047,7 +7167,7 @@ function FloorSection({ t, businessType }) {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {t(
               "rsvpProvidersIntro",
-              "Add each stylist as a bookable station. Their published shifts decide when guests can book them.",
+              "Add each stylist as a bookable station. Their published shifts decide when customers can book them.",
             )}
           </p>
         </div>
@@ -7094,6 +7214,34 @@ function FloorSection({ t, businessType }) {
           >
             <X className="w-4 h-4" />
           </button>
+        </div>
+      )}
+
+      {/* "Det er mig" — the owner as behandler, offered until she is one. */}
+      {isProvider && !loading && listRead && !selfChair && (
+        <div
+          className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 flex flex-col sm:flex-row sm:items-center gap-3"
+          data-testid="self-chair-card"
+        >
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+              {t("rsvpSelfChairTitle", "Do you take customers yourself?")}
+            </h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              {t("rsvpSelfChairBody", "Add yourself as a stylist. Your times follow the opening hours under Settings — no rota needed.")}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="primary"
+            size="lg"
+            busy={selfSaving}
+            onClick={addSelfChair}
+            iconLeft={<Check className="w-4 h-4" />}
+            className="justify-center"
+          >
+            {t("rsvpSelfChairCta", "That's me")}
+          </Button>
         </div>
       )}
 
@@ -7859,10 +8007,14 @@ function BehandlingerSection({ t }) {
 // snippets use inline styles so they render correctly without the host site's
 // CSS. Plus a one-liner for the two link-only channels (Google Maps profile,
 // Instagram bio) — no build, just their existing link.
-function EmbedOnWebsite({ publicUrl, venueName, t }) {
+function EmbedOnWebsite({ publicUrl, venueName, t, isProvider = false }) {
   const [copied, setCopied] = useState(""); // "" | "button" | "iframe"
 
-  const label = t("rsvpEmbedButtonLabel", "Book bord");
+  // A salon's button says "Book tid", not "Book bord" — and so do the iframe
+  // title and the hand-off mail (vertical-fit audit, Oct 2026).
+  const label = isProvider
+    ? t("rsvpEmbedButtonLabelProvider", "Book an appointment")
+    : t("rsvpEmbedButtonLabel", "Book bord");
   const safeName = (venueName || "BonBox").replace(/"/g, "&quot;");
   const fallbackLabel = t("rsvpEmbedOpenInNewTab", "Åbn booking i nyt vindue →");
   // The iframe MUST load the /r/ form: only that route carries the
@@ -7934,11 +8086,17 @@ function EmbedOnWebsite({ publicUrl, venueName, t }) {
     encodeURIComponent(t("rsvpEmbedMailSubject", "Booking on our website")) +
     "&body=" +
     encodeURIComponent(
-      t(
-        "rsvpEmbedMailBody",
-        "Hi — could you add table booking to our website?\n\nEither this button, anywhere on the site:\n\n{button}\n\nOr the whole booking form inside a page:\n\n{iframe}\n\nBoth are plain copy-paste HTML.\n\nThanks!",
-        { button: buttonSnippet, iframe: iframeSnippet },
-      ),
+      isProvider
+        ? t(
+          "rsvpEmbedMailBodyProvider",
+          "Hi — could you add appointment booking to our website?\n\nEither this button, anywhere on the site:\n\n{button}\n\nOr the whole booking form inside a page:\n\n{iframe}\n\nBoth are plain copy-paste HTML.\n\nThanks!",
+          { button: buttonSnippet, iframe: iframeSnippet },
+        )
+        : t(
+          "rsvpEmbedMailBody",
+          "Hi — could you add table booking to our website?\n\nEither this button, anywhere on the site:\n\n{button}\n\nOr the whole booking form inside a page:\n\n{iframe}\n\nBoth are plain copy-paste HTML.\n\nThanks!",
+          { button: buttonSnippet, iframe: iframeSnippet },
+        ),
     );
 
   const copy = async (key, text) => {
@@ -7992,7 +8150,9 @@ function EmbedOnWebsite({ publicUrl, venueName, t }) {
       <Snippet
         k="button"
         code={buttonSnippet}
-        heading={t("rsvpEmbedButtonHeading", "A “Book bord” button")}
+        heading={isProvider
+          ? t("rsvpEmbedButtonHeadingProvider", "A “Book an appointment” button")
+          : t("rsvpEmbedButtonHeading", "A “Book bord” button")}
         sub={t("rsvpEmbedButtonSub", "Works on any site. Opens your booking page.")}
       />
       <div className="space-y-1.5">
@@ -8039,11 +8199,17 @@ function EmbedOnWebsite({ publicUrl, venueName, t }) {
 }
 
 
-function SettingsSection({ t }) {
+function SettingsSection({ t, user = null }) {
   // SettingsSection only mounts after the parent's `if (!isReady) return null`
   // gate, so entitlements are already settled here — reading hasFeature is
   // flicker-safe (tier-flicker doctrine, useEntitlements.jsx).
   const { hasFeature } = useEntitlements();
+  // A salon (provider mode) books one customer into a behandler's time: the
+  // table rules — table time per party size, max party, group request,
+  // covers per slot, combining tables, guests picking a table — do not exist
+  // for it and are not shown (vertical-fit audit, Oct 2026). Their stored
+  // values are untouched and still saved as loaded.
+  const isProvider = bookingModeFor(user?.business_type) === "provider";
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -8375,14 +8541,18 @@ function SettingsSection({ t }) {
       <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 flex items-center justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-            {t("rsvpAcceptToggle", "Accept online reservations")}
+            {isProvider
+              ? t("rsvpAcceptToggleProvider", "Accept online appointments")
+              : t("rsvpAcceptToggle", "Accept online reservations")}
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {enabled
               ? (data?.hours_declared === false
                   // Live, but with no saved hours the page offers no times at
                   // all — "taking bookings" would be a promise it can't keep.
-                  ? t("rsvpAcceptOnNoHours", "Your page is live, but guests can't book until you save opening hours below.")
+                  ? (isProvider
+                    ? t("rsvpAcceptOnNoHoursProvider", "Your page is live, but customers can't book until you save opening hours below.")
+                    : t("rsvpAcceptOnNoHours", "Your page is live, but guests can't book until you save opening hours below."))
                   : t("rsvpAcceptOn", "Your public page is live and taking bookings."))
               : t("rsvpAcceptOff", "Turn on to publish your booking page.")}
           </p>
@@ -8393,7 +8563,9 @@ function SettingsSection({ t }) {
           type="button"
           role="switch"
           aria-checked={enabled}
-          aria-label={t("rsvpAcceptToggle", "Accept online reservations")}
+          aria-label={isProvider
+            ? t("rsvpAcceptToggleProvider", "Accept online appointments")
+            : t("rsvpAcceptToggle", "Accept online reservations")}
           disabled={savingToggle}
           onClick={toggleEnabled}
           className="shrink-0 inline-flex items-center justify-center min-h-[44px] min-w-[44px] -mr-2 disabled:opacity-50"
@@ -8436,10 +8608,12 @@ function SettingsSection({ t }) {
             </div>
             <div className="min-w-0 flex-1 space-y-2">
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                {t(
-                  "rsvpShareHint",
-                  "Put this link in your bio, on Google, or print the QR for the tables.",
-                )}
+                {isProvider
+                  ? t("rsvpShareHintProvider", "Put this link in your Instagram bio, as the booking link on your Google profile, or print the QR for the counter.")
+                  : t(
+                    "rsvpShareHint",
+                    "Put this link in your bio, on Google, or print the QR for the tables.",
+                  )}
               </p>
               <div className="flex items-center gap-2">
                 <div className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-300 truncate">
@@ -8514,7 +8688,7 @@ function SettingsSection({ t }) {
 
       {/* Add to your website — button + iframe snippets, once the page is live. */}
       {enabled && publicUrl && (
-        <EmbedOnWebsite publicUrl={publicUrl} venueName={data?.business_name} t={t} />
+        <EmbedOnWebsite publicUrl={publicUrl} venueName={data?.business_name} t={t} isProvider={isProvider} />
       )}
 
       {/* Opening / booking hours — the hours each weekday a guest can book.
@@ -8528,10 +8702,12 @@ function SettingsSection({ t }) {
             {t("rsvpHoursTitle", "Opening hours (bookings)")}
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {t(
-              "rsvpHoursHint",
-              "Guests can only book while you're open. Set the hours for each day.",
-            )}
+            {isProvider
+              ? t("rsvpHoursHintProvider", "Customers can only book while you're open. Set the hours for each day.")
+              : t(
+                "rsvpHoursHint",
+                "Guests can only book while you're open. Set the hours for each day.",
+              )}
           </p>
         </div>
 
@@ -8546,10 +8722,12 @@ function SettingsSection({ t }) {
           >
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
             <span>
-              {t(
-                "rsvpHoursNotSet",
-                "Not saved yet — these are suggestions. Until you save your opening hours, guests see no times to book.",
-              )}
+              {isProvider
+                ? t("rsvpHoursNotSetProvider", "Not saved yet — these are suggestions. Until you save your opening hours, customers see no times to book.")
+                : t(
+                  "rsvpHoursNotSet",
+                  "Not saved yet — these are suggestions. Until you save your opening hours, guests see no times to book.",
+                )}
             </span>
           </div>
         )}
@@ -8598,7 +8776,9 @@ function SettingsSection({ t }) {
             htmlFor="rsvp-contact-phone"
             className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
           >
-            {t("rsvpContactPhone", "Contact phone (shown to guests)")}
+            {isProvider
+              ? t("rsvpContactPhoneProvider", "Contact phone (shown to customers)")
+              : t("rsvpContactPhone", "Contact phone (shown to guests)")}
           </label>
           <input
             id="rsvp-contact-phone"
@@ -8611,13 +8791,16 @@ function SettingsSection({ t }) {
             className="w-full sm:max-w-[18rem] h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
           />
           <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-            {t("rsvpContactPhoneHint", "Guests see a tap-to-call link on your booking page. Leave blank to use your business phone.")}
+            {isProvider
+              ? t("rsvpContactPhoneHintProvider", "Customers see a tap-to-call link on your booking page. Leave blank to use your business phone.")
+              : t("rsvpContactPhoneHint", "Guests see a tap-to-call link on your booking page. Leave blank to use your business phone.")}
           </p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Table time by party size — the engine's own rule (the smallest
               band that fits; bigger parties hold the "bigger" time). This was
               one number that, saved, overwrote every band. */}
+          {!isProvider && (
           <fieldset className="sm:col-span-2 min-w-0 m-0 p-0 border-0">
             <legend className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t("rsvpTableTimes", "Table time (minutes)")}
@@ -8669,12 +8852,16 @@ function SettingsSection({ t }) {
               {t("rsvpTableTimesHint", "How long a table is held. New bookings, the time pickers and the floor all use these.")}
             </p>
           </fieldset>
+          )}
+          {!isProvider && (
           <NumberField
             label={t("rsvpMaxParty", "Max party size (online)")}
             hint={t("rsvpMaxPartyHint", "Bigger groups see 'call us'.")}
             value={form.max_party_size}
             onChange={(v) => setForm((f) => ({ ...f, max_party_size: v }))}
           />
+          )}
+          {!isProvider && (
           <NumberField
             label={t("rsvpGroupThreshold", "Group-request from")
             }
@@ -8682,26 +8869,36 @@ function SettingsSection({ t }) {
             value={form.group_request_threshold}
             onChange={(v) => setForm((f) => ({ ...f, group_request_threshold: v }))}
           />
+          )}
           <NumberField
-            label={t("rsvpLeadTime", "Lead time (minutes)")}
-            hint={t("rsvpLeadTimeHint", "Earliest a guest can book from now.")}
+            label={isProvider
+              ? t("rsvpLeadTimeProvider", "Notice (minutes)")
+              : t("rsvpLeadTime", "Lead time (minutes)")}
+            hint={isProvider
+              ? t("rsvpLeadTimeHintProvider", "The shortest notice a customer can book a time with.")
+              : t("rsvpLeadTimeHint", "Earliest a guest can book from now.")}
             value={form.lead_time_min}
             onChange={(v) => setForm((f) => ({ ...f, lead_time_min: v }))}
           />
           <NumberField
-            label={t("rsvpMaxAdvance", "Book up to (days ahead)")}
+            label={isProvider
+              ? t("rsvpMaxAdvanceProvider", "Customers can book up to (days ahead)")
+              : t("rsvpMaxAdvance", "Book up to (days ahead)")}
             value={form.max_advance_days}
             onChange={(v) => setForm((f) => ({ ...f, max_advance_days: v }))}
           />
+          {!isProvider && (
           <NumberField
             label={t("rsvpPacing", "Max covers per slot")}
             hint={t("rsvpPacingHint", "Leave blank for no pacing cap.")}
             value={form.pacing_max_per_slot}
             onChange={(v) => setForm((f) => ({ ...f, pacing_max_per_slot: v }))}
           />
+          )}
         </div>
         {/* Table combining — flag tables as combinable on the Floor tab; this
             switch governs whether the engine actually combines them. */}
+        {!isProvider && (<>
         <div className="pt-3 border-t border-gray-100 dark:border-gray-800">
           <label className="flex items-start gap-2.5 cursor-pointer select-none">
             <input
@@ -8749,6 +8946,7 @@ function SettingsSection({ t }) {
             </span>
           </label>
         </div>
+        </>)}
         <div className="flex items-center justify-end gap-3">
           {formSaved && (
             <span className="text-xs text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1">
@@ -8887,7 +9085,7 @@ function SettingsSection({ t }) {
       {/* Install-as-app hint — BonBox's host-stand edge: runs as an app on
           the Windows PC / touch tablet already at the podium, no locked-down
           terminal required. */}
-      <InstallHostStandHint t={t} />
+      <InstallHostStandHint t={t} isProvider={isProvider} />
 
       {/* Pair a device with a short code — the alternative to typing the
           owner's email and password on a tablet that lives at the door. */}
@@ -9118,7 +9316,7 @@ function _isIOSDevice() {
   );
 }
 
-function InstallHostStandHint({ t }) {
+function InstallHostStandHint({ t, isProvider = false }) {
   const [installEvent, setInstallEvent] = useState(null);
   const [installed, setInstalled] = useState(() => _isStandaloneDisplay());
   const [installing, setInstalling] = useState(false);
@@ -9168,10 +9366,12 @@ function InstallHostStandHint({ t }) {
             {t("rsvpInstallTitle", "Open the book as an app")}
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
-            {t(
-              "rsvpInstallBody",
-              "Install BonBox on your host PC / tablet so the reservation book opens as an app.",
-            )}
+            {isProvider
+              ? t("rsvpInstallBodyProvider", "Install BonBox on the reception computer or tablet so the appointment book opens as an app.")
+              : t(
+                "rsvpInstallBody",
+                "Install BonBox on your host PC / tablet so the reservation book opens as an app.",
+              )}
           </p>
         </div>
         {installEvent ? (
