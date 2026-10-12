@@ -7,6 +7,7 @@ import StaffBankRow from "../components/StaffBankRow";
 import StaffDocumentsRow from "../components/StaffDocumentsRow";
 import { useAuth } from "../hooks/useAuth";
 import { sectionFor, sectionsFor, hasSections } from "../config/roleSections";
+import { ROLES_RESTAURANT, rolesFor } from "../config/staffRoles";
 import {
   SECTION_COLORS,
   SECTION_BAR,
@@ -107,18 +108,7 @@ import ScheduleConfirmationCard from "../components/ScheduleConfirmationCard";
 /* ═══════════════════════════════════════════════════════════
    CONSTANTS & HELPERS
    ═══════════════════════════════════════════════════════════ */
-// Shift-role options are VERTICAL-AWARE (display-only vocab; role_on_shift never
-// drives availability/booking). A restaurant/cafe/bar owner sees kitchen/floor
-// roles; a salon owner sees salon roles. Default = restaurant so every existing
-// (non-salon) account stays byte-identical. Salon role names stay Danish in BOTH
-// locales (proper role nouns, like the DK terminology lock) — plain strings,
-// never t() keys.
-const ROLES_RESTAURANT = ["Chef", "Bartender", "Server", "Runner", "Dishwasher", "Manager"];
-const ROLES_SALON = ["Frisør", "Barber", "Kolorist", "Kosmetolog", "Negletekniker", "Reception"];
-const ROLES_BY_TYPE = { salon: ROLES_SALON }; // extend later (bakery/retail); default = restaurant
-function rolesFor(businessType) {
-  return ROLES_BY_TYPE[String(businessType || "").toLowerCase()] || ROLES_RESTAURANT;
-}
+// Shift-role presets per vertical: config/staffRoles.js.
 
 // Staff roles are stored lowercase ("server", "kitchen"), but the shift-role
 // <select> options are capitalized ("Server"). A raw `member.role` default left

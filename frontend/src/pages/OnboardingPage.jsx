@@ -65,8 +65,20 @@ import { Button, Icon, UpgradeNudge } from "../components/ui";
 import BonBoxMark from "../components/BonBoxMark";
 import BonBoxWordmark from "../components/BonBoxWordmark";
 import { useEntitlements } from "../hooks/useEntitlements";
-import { archetypeFor } from "../config/archetypes";
-import { PILLAR_DISPLAY, USAGE_GATED_PILLARS } from "../config/navManifest";
+import { archetypeFor, archetypeIdFor, restaurantSampleFits } from "../config/archetypes";
+import { PILLAR_DISPLAY, USAGE_GATED_PILLARS, labelKeyFor } from "../config/navManifest";
+import { bookingModeFor } from "../config/venueProfiles";
+
+// "Tilføj også? Reservationer" asked every type "Tager I også imod
+// bordbestilling?" — a shop and a workshop do not take table bookings
+// (vertical-fit audit, Oct 2026). The question follows the archetype.
+const RESERVATIONS_NUDGE_KEY = {
+  food_service: "onbPresetReservationsNudge",
+  bar: "onbPresetReservationsNudge",
+  salon: "onbPresetReservationsNudgeSalon",
+  retail: "onbPresetReservationsNudgeRetail",
+  services: "onbPresetReservationsNudgeService",
+};
 
 // The pillar catalog the preset chips are drawn from: every pillar EXCEPT the
 // usage-gated ones. A usage-gated pillar (today: Events) is hidden from the
@@ -1251,6 +1263,7 @@ export default function OnboardingPage() {
                   One glance, one tap, skippable. */}
               {(biz.branch_type || "").trim() !== "" && <PresetPillarChips
                 typeLabel={t(resolvedArchetype.labelKey)}
+                businessType={biz.branch_type}
                 ready={pillarReady}
                 onPillars={presetOnPillars}
                 offPillars={presetOffPillars}
@@ -1715,7 +1728,9 @@ export default function OnboardingPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className={"text-sm " + (isFirstWin ? "font-semibold text-gray-900 dark:text-gray-100" : "font-medium text-gray-800 dark:text-gray-200")}>
-                              {t(meta.labelKey)}
+                              {k === "reservations" && bookingModeFor(biz.branch_type) === "provider"
+                                ? t("navAppointments")
+                                : t(meta.labelKey)}
                             </span>
                             {isFirstWin && (
                               <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-500/15 rounded-full px-2 py-0.5">
@@ -1724,7 +1739,9 @@ export default function OnboardingPage() {
                             )}
                           </div>
                           <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
-                            {t(meta.descKey)}
+                            {k === "reservations" && bookingModeFor(biz.branch_type) === "provider"
+                              ? t("onbFeatReservationsDescProvider")
+                              : t(meta.descKey)}
                           </p>
                         </div>
                         {/* Quiet ready-check on the right — signals "already
@@ -1764,6 +1781,7 @@ export default function OnboardingPage() {
               {/* Tertiary path — land on a FULL dashboard instead of an empty
                   one. Quiet by design so it never competes with the firstWin
                   primary; clearly-labelled demo (amber banner + clearable). */}
+              {restaurantSampleFits(biz.branch_type) && (<>
               <button
                 type="button"
                 onClick={seedDemoAndFinish}
@@ -1776,6 +1794,7 @@ export default function OnboardingPage() {
               <p className="mt-1 text-center text-[11px] text-gray-600 dark:text-gray-400">
                 {t("onbExploreSampleNote", "Your own details stay as you typed them. The sample figures are marked as demo and can be cleared again.")}
               </p>
+              </>)}
             </div>
           )}
         </div>
@@ -1896,7 +1915,9 @@ function PillarChip({ icon, label, on, sublabel, onToggle, ariaLabel }) {
   );
 }
 
-function PresetPillarChips({ typeLabel, ready, onPillars, offPillars, pillarOff, onToggle, t }) {
+function PresetPillarChips({ typeLabel, businessType = null, ready, onPillars, offPillars, pillarOff, onToggle, t }) {
+  const archetypeId = archetypeIdFor(businessType);
+  const label = (p) => t(labelKeyFor(p, archetypeId));
   // Nothing to show if the preset neither hides nor offers anything (e.g. the
   // restaurant preset = all on with no OFF adds). Showing every-chip-on-no-adds
   // is noise; the discovery floor + /modules already cover later changes.
@@ -1936,10 +1957,10 @@ function PresetPillarChips({ typeLabel, ready, onPillars, offPillars, pillarOff,
                 <PillarChip
                   key={p.id}
                   icon={p.icon}
-                  label={t(p.labelKey)}
+                  label={label(p)}
                   on={on}
                   onToggle={(next) => onToggle(p.id, next)}
-                  ariaLabel={t(p.labelKey)}
+                  ariaLabel={label(p)}
                 />
               );
             })}
@@ -1956,16 +1977,18 @@ function PresetPillarChips({ typeLabel, ready, onPillars, offPillars, pillarOff,
                   // Café/takeaway brunch-booking nudge: Reservations gets an
                   // extra "do you take bookings?" line when offered as an add.
                   const sublabel =
-                    p.id === "reservations" ? t("onbPresetReservationsNudge") : undefined;
+                    p.id === "reservations"
+                      ? t(RESERVATIONS_NUDGE_KEY[archetypeId] || "onbPresetReservationsNudgeGeneric")
+                      : undefined;
                   return (
                     <PillarChip
                       key={p.id}
                       icon={p.icon}
-                      label={t(p.labelKey)}
+                      label={label(p)}
                       on={on}
                       sublabel={sublabel}
                       onToggle={(next) => onToggle(p.id, next)}
-                      ariaLabel={t(p.labelKey)}
+                      ariaLabel={label(p)}
                     />
                   );
                 })}

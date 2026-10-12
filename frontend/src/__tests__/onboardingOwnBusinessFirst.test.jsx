@@ -10,7 +10,7 @@
  *     server to keep the owner's own profile (POST /demo/seed?keep_profile).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, cleanup } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 const h = vi.hoisted(() => ({
@@ -82,7 +82,9 @@ async function toStep3() {
 async function toStep4() {
   await toStep3();
   await act(async () => { fireEvent.click(screen.getByText("onbNext")); });
-  await screen.findByTestId("onb-explore-sample");
+  // Step 4's own primary — the sample-data link is no longer a marker: it is
+  // offered only where the restaurant sample fits (vertical-fit, 12 Oct).
+  await screen.findByText("onbFinishToFirstWin");
 }
 
 const lastBusinessPut = () => {
@@ -198,6 +200,15 @@ describe("the finish — one obvious next step (item 4)", () => {
     expect(h.navigate).toHaveBeenLastCalledWith("/getting-started", { replace: true });
   });
 
+  it("the restaurant sample data is offered to a café, not to a salon", async () => {
+    await toStep4();
+    expect(screen.getByTestId("onb-explore-sample")).toBeInTheDocument();
+    cleanup();
+    h.businessType = "salon";
+    await toStep4();
+    expect(screen.queryByTestId("onb-explore-sample")).toBeNull();
+  });
+
   it("a salon keeps its own first win (reservations)", async () => {
     h.businessType = "salon";
     await toStep4();
@@ -250,5 +261,41 @@ describe("step 4 — an unconfirmed owner's invite is saved, not mailed (8 Oct)"
     expect(screen.queryByText("onbRevisorInviteHeld")).toBeNull();
     // A mailed invite carries nothing past the redirect.
     expect(h.navigate).toHaveBeenLastCalledWith("/getting-started", { replace: true });
+  });
+});
+
+describe("step 2 — the Reservations chip asks each business its own question (vertical-fit, 12 Oct)", () => {
+  const toStep2 = async (type, suggested) => {
+    h.businessType = type;
+    h.get.mockImplementation((url) => (
+      url === "/pillars/preset"
+        ? Promise.resolve({ data: { suggested } })
+        : Promise.resolve({ data: {} })
+    ));
+    render(<MemoryRouter><OnboardingPage /></MemoryRouter>);
+    await act(async () => { fireEvent.click(screen.getByText("onbStep1Cta")); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  };
+
+  it("a workshop is asked about service bookings, not table bookings", async () => {
+    await toStep2("workshop", ["reservations"]);
+    expect(await screen.findByText("onbPresetReservationsNudgeService")).toBeInTheDocument();
+    expect(screen.queryByText("onbPresetReservationsNudge")).toBeNull();
+  });
+
+  it("a shop is asked whether customers book a time", async () => {
+    await toStep2("clothing", ["reservations"]);
+    expect(await screen.findByText("onbPresetReservationsNudgeRetail")).toBeInTheDocument();
+  });
+
+  it("a café keeps the table-booking question", async () => {
+    await toStep2("cafe", ["reservations", "insights"]);
+    expect(await screen.findByText("onbPresetReservationsNudge")).toBeInTheDocument();
+  });
+
+  it("a salon's chip is named Tidsbestilling", async () => {
+    await toStep2("salon", ["insights"]);
+    expect(await screen.findAllByText("navAppointments")).not.toHaveLength(0);
+    expect(screen.queryByText("pillarLabelReservations")).toBeNull();
   });
 });

@@ -46,7 +46,9 @@ export const ARCHETYPES = {
     floorVocab: "bar",
     leadFeatures: ["daily_close", "tax", "inventory", "schedule"],
     firstWin: "daily_close",
-    suggestedModules: ["pour", "wine", "competitor"],
+    // Canonical module ids (services/modules.py) — "pour"/"wine" matched no
+    // gate, so Bar Pour + Vinkort never showed for a bar (Oct 2026).
+    suggestedModules: ["bar_pour", "wine_sommelier", "competitor"],
     emphasizeChannels: ["dine_in", "takeaway"],
   },
   retail: {
@@ -181,4 +183,15 @@ export function archetypeFor(businessType) {
 /** Convenience: resolve straight from a user object (user.business_type). */
 export function archetypeForUser(user) {
   return archetypeFor(user?.business_type);
+}
+
+/** Does the restaurant sample data fit this business? services/demo_seed.py
+ *  has ONE data set — a restaurant's tables, bookings, food stock and closes —
+ *  so it is offered only to food service, bars and the unknown/generic type.
+ *  A salon, a shop or a workshop that loaded it got a restaurant inside its
+ *  own app, which undoes the "this fits my business" moment (vertical-fit
+ *  audit, Oct 2026). Per-type sample sets are a separate piece of work. */
+export function restaurantSampleFits(businessType) {
+  const a = archetypeIdFor(businessType);
+  return a === "food_service" || a === "bar" || a === "generic";
 }

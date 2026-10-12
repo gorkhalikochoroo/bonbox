@@ -24,7 +24,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../ui";
 import { useLanguage } from "../../hooks/useLanguage";
 import { useFeatures } from "../../hooks/useFeatures";
-import { archetypeForUser } from "../../config/archetypes";
+import { archetypeForUser, restaurantSampleFits } from "../../config/archetypes";
+import { bookingModeFor } from "../../config/venueProfiles";
 import DemoDataCard from "../DemoDataCard";
 
 function StepRow({ index, title, body, action, lastItem = false }) {
@@ -106,10 +107,16 @@ export default function FirstRunCollapsedDashboard({ user = null, className = ""
     reservations: {
       key: "booking",
       title: t("dashFirstRunBookTitle", "Take your first booking"),
-      body: t(
-        "dashFirstRunBookBody",
-        "Add a booking — a walk-in or the phone — and your floor, waitlist, and no-show view start filling in. Share your booking link and guests book themselves.",
-      ),
+      // A salon has a tidsbog, not a salsplan, and customers, not guests.
+      body: bookingModeFor(user?.business_type) === "provider"
+        ? t(
+          "dashFirstRunBookBodyProvider",
+          "Add an appointment — a walk-in or a phone call — and your appointment book, waitlist and no-shows start filling in. Share your booking link and customers book themselves.",
+        )
+        : t(
+          "dashFirstRunBookBody",
+          "Add a booking — a walk-in or the phone — and your floor, waitlist, and no-show view start filling in. Share your booking link and guests book themselves.",
+        ),
       cta: t("dashFirstRunBookCta", "Open your booking book"),
       route: "/reservations",
     },
@@ -243,7 +250,12 @@ export default function FirstRunCollapsedDashboard({ user = null, className = ""
           Visually amber/secondary so the gray-900 kasserapport CTA below stays
           the hero — the wedge still leads. Honest: DemoActiveBanner + ` · demo`
           tags mean seeded data never masquerades as real. */}
-      <DemoDataCard forceShow onAvailabilityChange={setDemoOffered} />
+      {/* The sample data is a restaurant's — offered only where that fits
+          (archetypes.restaurantSampleFits). Not rendered = not offered, so
+          demoOffered stays null and the "two ways" header is not said. */}
+      {restaurantSampleFits(user?.business_type) && (
+        <DemoDataCard forceShow onAvailabilityChange={setDemoOffered} />
+      )}
 
       {demoOffered === true && (
         <div
