@@ -416,6 +416,60 @@ def activated_pillars(db: Session, user: User) -> dict[str, bool]:
     return result
 
 
+# ─── Per-TOOL usage (Oct 2026) ──────────────────────────────────────────
+#
+# The nav's business-type gate hides a few tools from types they rarely fit —
+# Udløbsprognose and Madspild outside perishable stock (navManifest
+# PERISHABLE_TYPES). A gate on the TYPE must never take a tool from an owner
+# who USES it (a salon that logs product waste, a shop that dates its stock),
+# so the frontend keeps a tool whose signal here is True whatever the type
+# (navManifest keepWhenUsed). The workshop signal also decides whether a
+# repair trade's phone tab bar leads with Værksted (bottomNavTabs).
+#
+# Same contract as activated_pillars: real rows only, tenant-scoped, read-only,
+# each signal in its own try/except and FAIL-OPEN (an error reads as used →
+# the tool stays visible).
+USED_SURFACES: tuple[str, ...] = ("waste", "expiry", "workshop")
+
+
+def used_surfaces(db: Session, user: User) -> dict[str, bool]:
+    """``{waste, expiry, workshop}``: has this owner a real row for the tool?
+
+      • waste    — a live (not deleted) WasteLog row;
+      • expiry   — a stock item with an expiry date;
+      • workshop — a live (not deleted) job card.
+    """
+    result: dict[str, bool] = {}
+    try:
+        from app.models.waste import WasteLog
+        result["waste"] = (
+            db.query(WasteLog.id)
+            .filter(WasteLog.user_id == user.id, WasteLog.is_deleted.isnot(True))
+            .first()
+        ) is not None
+    except Exception:  # noqa: BLE001 — fail-open
+        result["waste"] = True
+    try:
+        from app.models.inventory import InventoryItem
+        result["expiry"] = (
+            db.query(InventoryItem.id)
+            .filter(InventoryItem.user_id == user.id, InventoryItem.expiry_date.isnot(None))
+            .first()
+        ) is not None
+    except Exception:  # noqa: BLE001 — fail-open
+        result["expiry"] = True
+    try:
+        from app.models.workshop import JobCard
+        result["workshop"] = (
+            db.query(JobCard.id)
+            .filter(JobCard.user_id == user.id, JobCard.is_deleted.isnot(True))
+            .first()
+        ) is not None
+    except Exception:  # noqa: BLE001 — fail-open
+        result["workshop"] = True
+    return result
+
+
 def active_staff_count(db: Session, user: User) -> int:
     """Count of ACTIVE (active=True, not deleted) StaffMember rows for THIS
     owner. Real signal backing the dead `staff_headcount` dashboard input.

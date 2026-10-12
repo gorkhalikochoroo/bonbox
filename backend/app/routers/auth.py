@@ -1207,6 +1207,12 @@ def update_profile(
         current_user.business_name = data.business_name
     if data.business_type is not None:
         current_user.business_type = data.business_type
+        # The owner's team members take the type in the same commit — their
+        # app reads it from their own row (archetype_defaults
+        # .sync_team_business_type). Owners only: a member never writes here.
+        if is_account_owner(current_user):
+            from app.services.archetype_defaults import sync_team_business_type
+            sync_team_business_type(db, current_user)
     if data.currency is not None:
         current_user.currency = data.currency
     # A change of letter case only is no change (push 6): the lookups ignore

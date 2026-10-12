@@ -92,6 +92,40 @@ def canonical_module_id(module_id: str | None) -> str:
     return _MODULE_ALIASES.get(m, m)
 
 
+def _suggested_within_cap(user: User, suggested: list[str]) -> list[str]:
+    """The archetype's suggestions that may be merged into ``user``'s module
+    CSV without granting more than the plan allows.
+
+    Canonical ids (the real, tier-capped modules — bar_pour / wine_sommelier /
+    workshop) are kept only while the account has room under its plan's
+    module cap: a bar is suggested two, and a Free account (cap 1) — say one
+    that runs the wizard after its trial ended — gets the first only. Ids the
+    account already has always pass (no new grant). The legacy signal ids
+    (competitor / weather / …) are not modules, count for nothing and always
+    pass. Pure; never raises (an unreadable cap keeps only what is held)."""
+    from app.services.modules import get_enabled, is_valid_module_id
+
+    held = set(get_enabled(user))
+    try:
+        from app.services.billing import get_cap
+        cap = get_cap(user, "modules")
+    except Exception:  # noqa: BLE001 — no cap answer = no new module
+        cap = 0
+    room = None if cap is None or cap < 0 else max(0, cap - len(held))
+    out: list[str] = []
+    for m in suggested:
+        cid = canonical_module_id(m)
+        if not cid or cid in out:
+            continue
+        if is_valid_module_id(cid) and cid not in held:
+            if room is not None:
+                if room <= 0:
+                    continue
+                room -= 1
+        out.append(cid)
+    return out
+
+
 def _merge_enabled_modules(raw: str | None, suggested: list[str]) -> str | None:
     """Union an existing comma-separated module CSV with the archetype's
     suggested modules, preserving existing order then appending any new ones.
@@ -182,8 +216,12 @@ def apply_archetype_defaults(db: Session, user: User, *, starter_set: bool = Tru
             return result
 
         # ── 2. User.enabled_modules — additive merge ───────────────────────
+        # Within the plan's module cap (_suggested_within_cap): the bar's
+        # suggestions are real modules now, and a Free account must not be
+        # handed two (vertical-fit review, Oct 2026). On a trial — where every
+        # new account starts — the cap is unlimited and nothing changes.
         try:
-            suggested = defaults["suggested_modules"]
+            suggested = _suggested_within_cap(user, defaults["suggested_modules"])
             if suggested:
                 before = getattr(user, "enabled_modules", None)
                 merged = _merge_enabled_modules(before, suggested)
@@ -293,7 +331,12 @@ def plan_type_change(db: Session, user: User, new_type: str | None) -> dict[str,
         "categories_add": [],
         "pillars_show": [],
         "pillars_hide": [],
+        # The new preset would hide these, but they stay. `pillars_kept`: the
+        # owner uses them (a real usage row) — the sheet says "because you use
+        # it". `pillars_stay`: there is no usage signal to go on (Insights has
+        # none), so they stay without a reason claimed.
         "pillars_kept": [],
+        "pillars_stay": [],
     }
 
     # 1. Day cutoff — moves only while it is still the old type's default.
@@ -356,11 +399,14 @@ def plan_type_change(db: Session, user: User, new_type: str | None) -> dict[str,
         show = sorted(p for p in hidden if p in old_preset and p not in new_preset)
         candidates = new_preset - old_preset - hidden
         used = activated_pillars(db, user) if candidates else {}
-        # No signal for a pillar (insights) = treated as in use: it stays.
+        # No signal for a pillar (insights) = treated as in use: it stays —
+        # but the sheet must not claim the owner uses it (pillars_stay).
         hide = sorted(p for p in candidates if used.get(p) is False)
+        kept = sorted(p for p in candidates if used.get(p) is True)
         plan["pillars_show"] = show
         plan["pillars_hide"] = hide
-        plan["pillars_kept"] = sorted(candidates - set(hide))
+        plan["pillars_kept"] = kept
+        plan["pillars_stay"] = sorted(candidates - set(hide) - set(kept))
     except Exception as e:  # noqa: BLE001
         logger.warning("plan_type_change: pillars skipped for user=%s: %s",
                        getattr(user, "id", "?"), e)
@@ -381,6 +427,11 @@ def apply_type_change(db: Session, user: User, new_type: str,
 
     plan = plan_type_change(db, user, new_type) if apply_defaults else None
     user.business_type = new_type
+    # The owner's team members read their OWN row's business_type (/auth/me
+    # answers as the member) — copied at invite and never updated, so a
+    # manager kept the café's nav after the owner became a salon. Same
+    # transaction as the owner's own change.
+    sync_team_business_type(db, user)
     db.commit()
     if not plan:
         return None
@@ -414,3 +465,108 @@ def apply_type_change(db: Session, user: User, new_type: str,
         set_hidden(db, user, hidden)
 
     return plan
+
+
+# ─── Team members carry the owner's type ──────────────────────────────────
+#
+# An invited member is a User row with owner_id = the owner (routers/team.py
+# copies business_type at invite). Every request a member makes is answered
+# as the owner (services/auth._resolve_member_view) EXCEPT /auth/me and the
+# login responses, which serialise the member's own row — and the app takes
+# the business type from there. Nothing updated that copy, so after a type
+# change the owner's manager kept the old type's nav and words (vertical-fit
+# review, Oct 2026). Kept in step on every owner write of the type, and
+# aligned once per boot for the rows that drifted before.
+
+def sync_team_business_type(db: Session, owner: User) -> int:
+    """Give ``owner``'s team members the owner's business_type. Does NOT
+    commit: the caller commits it with the owner's own change, so the two can
+    never disagree. Returns the number of member rows changed."""
+    bt = getattr(owner, "business_type", None)
+    if getattr(owner, "id", None) is None or not bt:
+        return 0
+    from sqlalchemy import or_
+    return (
+        db.query(User)
+        .filter(
+            User.owner_id == owner.id,
+            or_(User.business_type.is_(None), User.business_type != bt),
+        )
+        .update({User.business_type: bt}, synchronize_session=False)
+    )
+
+
+def align_member_business_types(db: Session) -> int:
+    """Boot backfill: every member row whose business_type differs from its
+    owner's takes the owner's. Idempotent (a second pass changes nothing).
+    Read-mostly: only drifted member rows are written. Returns the count."""
+    from sqlalchemy.orm import aliased
+
+    owner = aliased(User)
+    rows = (
+        db.query(User, owner.business_type)
+        .join(owner, User.owner_id == owner.id)
+        .filter(owner.business_type.isnot(None))
+        .all()
+    )
+    changed = 0
+    for member, owner_type in rows:
+        if owner_type and member.business_type != owner_type:
+            member.business_type = owner_type
+            changed += 1
+    if changed:
+        db.commit()
+    return changed
+
+
+# ─── The bar's old module spellings, renamed in place ─────────────────────
+#
+# Until Oct 2026 a new bar was given enabled_modules "pour,wine" — spellings
+# no gate reads — so Bar Pour (/bar) and Vinkort (/wine-list) never appeared.
+# archetype.py suggests the canonical ids now; this renames the old spelling
+# for the accounts that already carry it. A RENAME, never an addition:
+#   • only an id the account already holds is touched ("pour" → "bar_pour",
+#     "wine" → "wine_sommelier", in place, order kept);
+#   • never past the plan's module cap. The old spellings were no module at
+#     all, the canonical ids are real, tier-capped ones: a Free bar after its
+#     trial ("pour,wine", cap 1) would come out holding two. Such a row is
+#     left exactly as it was — the owner picks on /modules;
+#   • idempotent: a renamed row holds no old spelling; a row left as it was
+#     is looked at again next boot and renamed once the plan allows it.
+# Runs at boot (main._init_db), on Postgres and SQLite alike.
+
+def rename_legacy_module_ids(db: Session) -> dict[str, int]:
+    """Rename the old module spellings in place for every account that
+    carries one, within its plan's module cap. Returns {renamed, kept}."""
+    from sqlalchemy import or_
+
+    from app.services.billing import get_cap
+    from app.services.modules import parse_enabled
+
+    out = {"renamed": 0, "kept": 0}
+    candidates = (
+        db.query(User)
+        .filter(
+            User.enabled_modules.isnot(None),
+            or_(*[User.enabled_modules.like(f"%{old}%") for old in _MODULE_ALIASES]),
+        )
+        .all()
+    )
+    for user in candidates:
+        pieces = [p.strip() for p in (user.enabled_modules or "").split(",") if p.strip()]
+        if not any(p in _MODULE_ALIASES for p in pieces):
+            continue  # "pour" inside another word — nothing to rename
+        renamed: list[str] = []
+        for p in pieces:
+            c = _MODULE_ALIASES.get(p, p)
+            if c not in renamed:
+                renamed.append(c)
+        cap = get_cap(user, "modules")
+        if cap is not None and cap >= 0 and len(parse_enabled(",".join(renamed))) > cap:
+            out["kept"] += 1
+            continue
+        user.enabled_modules = ",".join(renamed) or None
+        out["renamed"] += 1
+    if out["renamed"]:
+        db.commit()
+    return out

@@ -5,7 +5,9 @@ Covers:
     canonical services/modules.py id (one a nav gate reads) or a documented
     legacy signal id — never an old spelling like "pour"/"wine";
   • a new bar gets bar_pour + wine_sommelier, and the old spellings map;
-  • the idempotent SQL backfill for accounts that already carry "pour"/"wine";
+  • the boot backfill that RENAMES "pour"/"wine" in place — never adds a
+    module, never past the plan's module cap (a Free bar after its trial);
+  • a team member's business_type follows the owner's (POST + PATCH + boot);
   • plan_type_change / apply_type_change: the cutoff moves only while it is
     the old type's default, modules + categories are only added (within the
     plan's module cap), a pillar is hidden only when unused, nothing deleted;
@@ -17,25 +19,30 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from datetime import timedelta
+
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.main import _BAR_MODULE_BACKFILL, _db_ready, app
+from app.main import _db_ready, app
 from app.models.business_profile import BusinessProfile
 from app.models.expense import ExpenseCategory
 from app.models.user import User
 from app.services.archetype import ARCHETYPES
 from app.services.archetype_defaults import (
     _MODULE_ALIASES,
+    align_member_business_types,
     apply_archetype_defaults,
     apply_type_change,
     plan_type_change,
+    rename_legacy_module_ids,
 )
 from app.services.auth import get_current_user, hash_password
 from app.services.modules import MODULES, get_enabled
 from app.services.pillars import get_hidden
+from app.utils.time import utc_now
 
 _db_ready.set()
 
@@ -84,7 +91,10 @@ def client(session_factory):
 
 
 def _user(db, email, business_type="cafe", enabled_modules=None, role="owner",
-          hidden_pillars=None, cutoff=None):
+          hidden_pillars=None, cutoff=None, trial_days=None, owner=None):
+    # trial_days: >0 = a live trial (every new account starts on one — the
+    # module cap is unlimited); <0 = a trial that ended (Free, cap 1);
+    # None = no trial at all (Free).
     u = User(
         email=email,
         password_hash=hash_password("hunter2pass"),
@@ -95,6 +105,8 @@ def _user(db, email, business_type="cafe", enabled_modules=None, role="owner",
         email_verified=True,
         enabled_modules=enabled_modules,
         hidden_pillars=hidden_pillars,
+        trial_ends_at=(utc_now() + timedelta(days=trial_days)) if trial_days else None,
+        owner_id=owner.id if owner is not None else None,
     )
     db.add(u)
     db.commit()
@@ -125,10 +137,27 @@ def test_every_alias_points_at_a_real_module():
 
 
 def test_new_bar_gets_bar_pour_and_wine(db):
-    u = _user(db, "bar@bonbox.test", business_type="bar")
+    # A new account is on its trial at onboarding — unlimited modules.
+    u = _user(db, "bar@bonbox.test", business_type="bar", trial_days=10)
     apply_archetype_defaults(db, u)
     db.refresh(u)
     assert set(get_enabled(u)) == {"bar_pour", "wine_sommelier"}
+
+
+def test_onboarding_never_grants_past_the_module_cap(db):
+    # A bar that runs the wizard after its trial ended is Free (cap 1): the
+    # bar's two suggestions must not become two modules.
+    u = _user(db, "late@bonbox.test", business_type="bar", trial_days=-3)
+    apply_archetype_defaults(db, u)
+    db.refresh(u)
+    assert get_enabled(u) == ["bar_pour"]
+    # The signal id is no module and still rides along.
+    assert "competitor" in (u.enabled_modules or "").split(",")
+    # One already held: nothing new is granted, nothing taken.
+    full = _user(db, "full2@bonbox.test", business_type="bar", trial_days=-3, enabled_modules="workshop")
+    apply_archetype_defaults(db, full)
+    db.refresh(full)
+    assert get_enabled(full) == ["workshop"]
 
 
 def test_old_spelling_maps_on_merge(db, monkeypatch):
@@ -141,7 +170,7 @@ def test_old_spelling_maps_on_merge(db, monkeypatch):
         return d
 
     monkeypatch.setattr(ad, "archetype_defaults", fake)
-    u = _user(db, "alias@bonbox.test", business_type="bar", enabled_modules="khata")
+    u = _user(db, "alias@bonbox.test", business_type="bar", enabled_modules="khata", trial_days=10)
     ad.apply_archetype_defaults(db, u)
     db.refresh(u)
     csv = (u.enabled_modules or "").split(",")
@@ -150,21 +179,41 @@ def test_old_spelling_maps_on_merge(db, monkeypatch):
     assert "pour" not in csv and "wine" not in csv
 
 
-def test_backfill_adds_canonical_ids_once_and_never_removes(session_factory):
+def test_backfill_renames_in_place_and_never_adds(session_factory):
     s = session_factory()
-    a = _user(s, "a@bonbox.test", business_type="bar", enabled_modules="pour,wine,competitor")
+    trial = _user(s, "a@bonbox.test", business_type="bar", enabled_modules="pour,wine,competitor", trial_days=10)
     b = _user(s, "b@bonbox.test", business_type="cafe", enabled_modules="competitor,weather")
     c = _user(s, "c@bonbox.test", business_type="bar", enabled_modules="bar_pour")  # saved on /modules
     d = _user(s, "d@bonbox.test", business_type="bar", enabled_modules=None)
+    one = _user(s, "e@bonbox.test", business_type="bar", enabled_modules="pour,competitor", trial_days=-5)
     for _ in range(2):  # every boot runs it — the second pass must be a no-op
-        for stmt in _BAR_MODULE_BACKFILL:
-            s.execute(text(stmt))
-        s.commit()
+        rename_legacy_module_ids(s)
+    s.expire_all()
     rows = {u.email: u.enabled_modules for u in s.query(User).all()}
-    assert rows[a.email] == "pour,wine,competitor,bar_pour,wine_sommelier"
+    # Renamed where the old spelling stood — nothing appended beside it.
+    assert rows[trial.email] == "bar_pour,wine_sommelier,competitor"
     assert rows[b.email] == "competitor,weather"
     assert rows[c.email] == "bar_pour"
     assert rows[d.email] is None
+    # Free, one old id → one module: within the cap, so renamed.
+    assert rows[one.email] == "bar_pour,competitor"
+    s.close()
+
+
+def test_backfill_keeps_a_free_bar_after_trial_within_its_cap(session_factory):
+    # The bar signed up on a trial and got "pour,wine" (no gate read them). The
+    # trial ended: Free, one module. Renaming would hand it two real modules,
+    # so the row stays exactly as it was — the owner picks on /modules.
+    s = session_factory()
+    bar = _user(s, "free@bonbox.test", business_type="bar", enabled_modules="pour,wine,competitor", trial_days=-1)
+    mixed = _user(s, "mixed@bonbox.test", business_type="bar", enabled_modules="workshop,pour", trial_days=-1)
+    out = rename_legacy_module_ids(s)
+    assert out == {"renamed": 0, "kept": 2}
+    s.expire_all()
+    assert s.get(User, bar.id).enabled_modules == "pour,wine,competitor"
+    assert s.get(User, mixed.id).enabled_modules == "workshop,pour"
+    assert get_enabled(s.get(User, bar.id)) == []
+    assert get_enabled(s.get(User, mixed.id)) == ["workshop"]
     s.close()
 
 
@@ -295,4 +344,78 @@ def test_staff_member_cannot_change_the_type(client, session_factory):
     app.dependency_overrides[get_current_user] = lambda: staff
     r = client.post("/api/auth/business-type", json={"business_type": "salon"})
     assert r.status_code == 403
+    s.close()
+
+
+# ─── The confirm sheet only claims "because you use it" with a signal ────
+
+def test_kept_pillars_say_why_only_when_used(db):
+    # salon → café: the café preset hides Insights. Insights has no usage
+    # signal at all, so it stays — but not "because you use it".
+    u = _user(db, "why@bonbox.test", business_type="salon", cutoff=0)
+    plan = plan_type_change(db, u, "cafe")
+    assert plan["pillars_hide"] == []
+    assert plan["pillars_kept"] == []
+    assert plan["pillars_stay"] == ["insights"]
+
+
+# ─── Team members carry the owner's type ─────────────────────────────────
+
+def test_type_change_reaches_the_team_in_the_same_commit(db):
+    owner = _user(db, "boss@bonbox.test", business_type="cafe", cutoff=6)
+    mgr = _user(db, "mgr2@bonbox.test", business_type="cafe", role="manager", owner=owner)
+    other_owner = _user(db, "else@bonbox.test", business_type="bar")
+    stranger = _user(db, "str@bonbox.test", business_type="bar", role="manager", owner=other_owner)
+    apply_type_change(db, owner, "salon", apply_defaults=False)
+    db.expire_all()
+    assert db.get(User, mgr.id).business_type == "salon"
+    assert db.get(User, stranger.id).business_type == "bar"
+
+
+def _as_user(user_id):
+    # The real get_current_user loads the user in the request's own session
+    # (get_db is cached per request), which update_profile relies on.
+    from fastapi import Depends
+
+    def _dep(db=Depends(get_db)):
+        return db.get(User, user_id)
+    return _dep
+
+
+def test_patch_profile_type_reaches_the_team(client, session_factory):
+    s = session_factory()
+    owner = _user(s, "patch@bonbox.test", business_type="cafe")
+    mgr = _user(s, "patchm@bonbox.test", business_type="cafe", role="cashier", owner=owner)
+    app.dependency_overrides[get_current_user] = _as_user(owner.id)
+    r = client.patch("/api/auth/profile", json={"business_type": "clothing"})
+    assert r.status_code == 200, r.text
+    s.expire_all()
+    assert s.get(User, mgr.id).business_type == "clothing"
+    s.close()
+
+
+def test_post_business_type_reaches_the_team(client, session_factory):
+    s = session_factory()
+    owner = _user(s, "post@bonbox.test", business_type="cafe", cutoff=6)
+    mgr = _user(s, "postm@bonbox.test", business_type="cafe", role="manager", owner=owner)
+    app.dependency_overrides[get_current_user] = _as_user(owner.id)
+    r = client.post("/api/auth/business-type", json={"business_type": "salon", "apply_defaults": True})
+    assert r.status_code == 200, r.text
+    s.expire_all()
+    assert s.get(User, mgr.id).business_type == "salon"
+    s.close()
+
+
+def test_boot_aligns_members_that_drifted(session_factory):
+    s = session_factory()
+    owner = _user(s, "drift@bonbox.test", business_type="salon")
+    stale = _user(s, "stale@bonbox.test", business_type="cafe", role="viewer", owner=owner)
+    fine = _user(s, "fine@bonbox.test", business_type="salon", role="manager", owner=owner)
+    lone = _user(s, "lone@bonbox.test", business_type="bar")
+    assert align_member_business_types(s) == 1
+    assert align_member_business_types(s) == 0  # idempotent
+    s.expire_all()
+    assert s.get(User, stale.id).business_type == "salon"
+    assert s.get(User, fine.id).business_type == "salon"
+    assert s.get(User, lone.id).business_type == "bar"
     s.close()

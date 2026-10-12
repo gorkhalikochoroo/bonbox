@@ -174,24 +174,6 @@ _OCCUPANCY_BACKFILL_CANDIDATES = """
          )"""
 
 # Run schema migrations (idempotent — safe to run multiple times)
-# A new bar was given enabled_modules "pour,wine" — spellings no gate reads —
-# so Bar Pour (/bar) and Vinkort (/wine-list) never appeared for a bar
-# (vertical-fit audit, Oct 2026; archetype.py now suggests the canonical
-# bar_pour / wine_sommelier). Add the canonical id beside the old spelling.
-# Idempotent (the NOT LIKE guard) and additive: nothing is removed. Like every
-# UPDATE in this list it runs at EVERY boot (_migration_already_applied never
-# skips one — see the Migration 042 note), which is safe here: a row matches
-# only while it holds the old spelling and not the canonical id, and a row the
-# owner ever saved on /modules holds neither old spelling (the picker stores
-# allowlisted ids only) — so turning Bar Pour off is never undone by a deploy.
-# Shared by the PG list below and the SQLite branch of _run_migrations.
-_BAR_MODULE_BACKFILL = tuple(
-    "UPDATE users SET enabled_modules = enabled_modules || ',{canon}' "
-    "WHERE (',' || enabled_modules || ',') LIKE '%,{old},%' "
-    "AND (',' || enabled_modules || ',') NOT LIKE '%,{canon},%'".format(old=o, canon=c)
-    for o, c in (("pour", "bar_pour"), ("wine", "wine_sommelier"))
-)
-
 _migrations = [
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) DEFAULT 'card'",
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS clock_settings_json TEXT",
@@ -2751,8 +2733,6 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_account_claim_tickets_user_id ON account_claim_tickets (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_account_claim_tickets_token_hash ON account_claim_tickets (token_hash)",
-    # ── Backfill (2026-10-12): bar module ids — see _BAR_MODULE_BACKFILL. ──
-    *_BAR_MODULE_BACKFILL,
 ]
 
 
@@ -3461,12 +3441,6 @@ def _run_migrations():
             # shipped with the PG ALTER only, so every BusinessProfile query
             # 500'd on a dev DB from before it (release gate, 9 Oct).
             ok += _add("business_profiles", "timereg_period_json", "TEXT")
-            # Mirror of the bar module-id backfill in the PG list above.
-            for _stmt in _BAR_MODULE_BACKFILL:
-                try:
-                    conn.execute(text(_stmt))
-                except Exception:
-                    pass
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
@@ -4087,6 +4061,33 @@ def _init_db():
     except Exception as e:
         # Non-fatal — demo data is nice-to-have, not critical
         print(f"Demo seed warning: {e}")
+    # Vertical fit (Oct 2026), two small data fixes, every boot, idempotent:
+    #  • the bar's old module spellings ("pour"/"wine", which no gate reads)
+    #    are RENAMED in place to bar_pour / wine_sommelier — never added beside
+    #    them, and never past the plan's module cap (a Free bar after its trial
+    #    keeps what it had); archetype_defaults.rename_legacy_module_ids;
+    #  • a team member's business_type follows its owner's (it was copied at
+    #    invite and never updated, so a type change left the manager on the
+    #    old type's nav); archetype_defaults.align_member_business_types.
+    # Python, not the SQL list: the cap is a per-account plan answer
+    # (billing.get_cap). Fail-soft: a miss leaves the rows as they were.
+    try:
+        from app.services.archetype_defaults import (
+            align_member_business_types,
+            rename_legacy_module_ids,
+        )
+        from app.database import SessionLocal
+        with SessionLocal() as vf_db:
+            vf_modules = rename_legacy_module_ids(vf_db)
+            vf_members = align_member_business_types(vf_db)
+        if vf_modules.get("renamed") or vf_modules.get("kept") or vf_members:
+            print(
+                f"Vertical-fit backfill: {vf_modules.get('renamed', 0)} module CSVs renamed, "
+                f"{vf_modules.get('kept', 0)} kept (over the plan's cap), "
+                f"{vf_members} member types aligned"
+            )
+    except Exception as e:
+        print(f"Vertical-fit backfill warning: {e}")
     _db_ready.set()
     print("DB init complete — ready to serve requests")
 

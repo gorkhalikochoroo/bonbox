@@ -49,7 +49,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.services.auth import get_current_user
-from app.services.pillars import ACTIVATION_PILLARS, activated_pillars
+from app.services.pillars import (
+    ACTIVATION_PILLARS,
+    USED_SURFACES,
+    activated_pillars,
+    used_surfaces,
+)
 from app.utils.features import (
     ACTIVATION_DISCLOSURE_LAUNCH_AT,
     is_activation_disclosure_enabled,
@@ -92,6 +97,8 @@ def get_activation(
         {
           "inventory": bool, "reservations": bool,
           "events": bool, "staff": bool,   # insights NOT gated (omitted)
+          "surfaces": {"waste": bool, "expiry": bool, "workshop": bool},
+                                           # per-tool usage (Oct 2026)
           "in_scope": bool,                # cohort firewall
           "enabled": bool                  # feature-flag kill-switch
         }
@@ -111,6 +118,9 @@ def get_activation(
     if not enabled:
         # Kill-switch OFF — force every gateable pillar activated. Today's nav.
         payload = {p: True for p in ACTIVATION_PILLARS}
+        # …and every tool "used": the type gate then hides nothing (the safe
+        # direction, same as the pillars above).
+        payload["surfaces"] = {s: True for s in USED_SURFACES}
         payload["in_scope"] = in_scope
         payload["enabled"] = False
         return payload
@@ -118,6 +128,11 @@ def get_activation(
     # Derived per-pillar activation (fail-open per pillar inside the helper).
     derived = activated_pillars(db, user)
     payload = {p: bool(derived.get(p, True)) for p in ACTIVATION_PILLARS}
+    # Per-TOOL usage (pillars.used_surfaces): a tool the business-type gate
+    # would hide stays in the nav of an owner who uses it. Nested under its
+    # own key so a client that only reads the pillar booleans is unaffected.
+    surfaces = used_surfaces(db, user)
+    payload["surfaces"] = {s: bool(surfaces.get(s, True)) for s in USED_SURFACES}
     payload["in_scope"] = in_scope
     payload["enabled"] = True
     return payload
