@@ -184,7 +184,7 @@ describe("3. the browser bar in light", () => {
       "/accept-invite/:token": "white", "/accept-invite/team/:token": "white", "/e/:slug": "white",
       "/e/:slug/checkout": "white", "/e/:slug/success": "white", "/t/:ticket_id": "white", "/r/:slug": "white",
       "/g/buy/:slug": "white", "/g/:token": "white", "/reservations/stand": "white", "/stand": "white",
-      "/stand/:standToken": "white", "/staff/schedule/stand": "paper", "/:slug": "white", "*": "white",
+      "/stand/:standToken": "white", "/staff/schedule/stand": "paper", "/staff": "paper", "/:slug": "white", "*": "white",
     };
     const outside = all.filter((r) => !inLayout(r.at)).map((r) => r.path);
     expect(outside.sort()).toEqual(Object.keys(OUTSIDE).sort());
