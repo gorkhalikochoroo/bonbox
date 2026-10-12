@@ -75,6 +75,39 @@ describe("/subscription banner", () => {
     showPage({ ...ACTIVE, subscription_cancel_at: null });
     expect(await screen.findByText(da.pricingLockedActive)).toBeTruthy();
   });
+
+  // QA 12 Oct: the green check stayed beside "Opsiges …", and the Pro card
+  // still offered "Administrer abonnement / opsig" — a second cancel.
+  it("cancelled at period end: a neutral icon, not the green check", async () => {
+    showPage({ ...ACTIVE, subscription_cancel_at: "2026-11-12T10:00:00" });
+    await screen.findByText("Opsiges 12. nov. 2026 — du bliver ikke trukket igen");
+    const icon = screen.getByTestId("sub-status-icon");
+    expect(icon.dataset.state).toBe("cancels");
+    expect(icon.textContent).not.toContain("✓");
+    expect(icon.className).not.toMatch(/emerald/);
+    expect(icon.className).toMatch(/text-gray-500/);
+    expect(icon.querySelector("svg")).not.toBeNull();
+  });
+
+  it("cancelled at period end: the Pro card offers 'Administrer abonnement', never 'opsig' again", async () => {
+    showPage({ ...ACTIVE, subscription_cancel_at: "2026-11-12T10:00:00" });
+    await screen.findByText("Opsiges 12. nov. 2026 — du bliver ikke trukket igen");
+    const manage = screen.getByTestId("plan-card-manage");
+    expect(manage.textContent).toBe(da.pricingManageSubscription);
+    expect(screen.queryByText(da.pricingManageOrCancel)).toBeNull();
+    // No control on the page offers to cancel again.
+    for (const b of screen.getAllByRole("button")) expect(b.textContent).not.toMatch(/\bopsig\b/i);
+  });
+
+  it("not cancelled: the green check and 'Administrer abonnement / opsig' stay", async () => {
+    showPage({ ...ACTIVE, subscription_cancel_at: null });
+    await screen.findByText(da.pricingLockedActive);
+    const icon = screen.getByTestId("sub-status-icon");
+    expect(icon.dataset.state).toBe("ok");
+    expect(icon.textContent).toBe("✓");
+    expect(icon.className).toMatch(/emerald/);
+    expect(screen.getByTestId("plan-card-manage").textContent).toBe(da.pricingManageOrCancel);
+  });
 });
 
 describe("/subscription after cancel at period end", () => {

@@ -13,6 +13,7 @@ import api from "../services/api";
 import { safeExternalUrl } from "../utils/safeUrl";
 import { errText } from "../utils/errText";
 import { Button, Card } from "../components/ui";
+import { CalendarClock } from "lucide-react";
 import { cancelDateLabel } from "../utils/subscriptionCancel";
 
 /**
@@ -661,8 +662,18 @@ export default function SubscriptionPage() {
       {hasStripeSub ? (
         <Card variant="emphasis" className="mb-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
-            <div className="w-10 h-10 rounded-full bg-gray-50 dark:bg-gray-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 text-lg">
-              {billing?.subscription_status === "past_due" ? "!" : "✓"}
+            {/* Cancelled at period end is not "all good": a neutral calendar,
+                not the green check, beside "Opsiges <dato>". */}
+            <div
+              className={`w-10 h-10 rounded-full bg-gray-50 dark:bg-gray-800 flex items-center justify-center shrink-0 text-lg ${
+                cancelsOn ? "text-gray-500 dark:text-gray-400" : "text-emerald-600 dark:text-emerald-400"
+              }`}
+              data-testid="sub-status-icon"
+              data-state={cancelsOn ? "cancels" : billing?.subscription_status === "past_due" ? "past_due" : "ok"}
+            >
+              {cancelsOn
+                ? <CalendarClock className="w-5 h-5" aria-hidden="true" />
+                : billing?.subscription_status === "past_due" ? "!" : "✓"}
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
@@ -1097,14 +1108,21 @@ export default function SubscriptionPage() {
                 {opensCheckout && <CheckoutTermsLine className="mt-2 text-center" />}
               </div>
 
-              {/* Manage / Cancel — only when user has a real Stripe sub */}
+              {/* Manage / Cancel — only when user has a real Stripe sub.
+                  Already cancelled at period end: no second "opsig" — the
+                  same portal link, named for what is left (resume, card). */}
               {isCurrent && hasStripeSub && (tier.id === "pro" || tier.id === "starter") && (
                 <button
                   onClick={handleManage}
                   disabled={pending === "manage"}
                   className="w-full text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline mt-2 disabled:opacity-50"
+                  data-testid="plan-card-manage"
                 >
-                  {pending === "manage" ? (t("pricingOpening") || "Opening…") : (t("pricingManageOrCancel") || "Manage subscription / cancel")}
+                  {pending === "manage"
+                    ? (t("pricingOpening") || "Opening…")
+                    : cancelsOn
+                      ? t("pricingManageSubscription", "Manage subscription")
+                      : (t("pricingManageOrCancel") || "Manage subscription / cancel")}
                 </button>
               )}
 
