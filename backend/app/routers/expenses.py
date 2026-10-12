@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
@@ -1048,9 +1048,28 @@ def attach_receipt_to_expense(
         # nothing stored, so the 503 "busy, try again" is safe to retry.
         raise AIBusyError(owner_lang(user)) from None
 
-    expense.receipt_photo = stored_path
-    # Mark as a manual attach so the scan-cap meter excludes it (no OCR ran).
-    expense.receipt_source = "attach"
+    if link:
+        # Only onto a row that still has no bilag — a second tab or a retry
+        # can never overwrite the evidence the first one stapled.
+        won = (
+            db.query(Expense)
+            .filter(Expense.id == expense.id, Expense.user_id == user.id,
+                    or_(Expense.receipt_photo.is_(None), Expense.receipt_photo == ""))
+            .update({"receipt_photo": stored_path, "receipt_source": "attach"},
+                    synchronize_session=False)
+        )
+        if won != 1:
+            db.rollback()
+            raise HTTPException(status_code=409, detail={
+                "code": "already_has_bilag",
+                "message": "That expense already has a receipt.",
+                "message_da": "Den udgift har allerede et bilag.",
+            })
+        db.refresh(expense)
+    else:
+        expense.receipt_photo = stored_path
+        # Mark as a manual attach so the scan-cap meter excludes it (no OCR ran).
+        expense.receipt_source = "attach"
     filled, locked = [], None
     if link:
         filled, locked = _fill_empty_from_receipt(
@@ -1371,17 +1390,10 @@ def pending_bilag_matches(
 
 def _receipt_path_owned(user_id, path: str | None) -> bool:
     """A stored receipt path /expenses/upload-receipt could have handed THIS
-    owner: the durable key (or a signed URL over it) under <uid>/expense/, or
-    the local fallback file named <uid>_<ts>_<rand>.jpg. Anything else — a
-    URL from elsewhere, another owner's photo — is refused."""
-    if not path:
-        return False
-    uid = str(user_id)
-    p = str(path)
-    if f"/{uid}/expense/" in p or p.startswith(f"{uid}/expense/"):
-        return True
-    base = p.replace("\\", "/").rsplit("/", 1)[-1]
-    return p.startswith("uploads/receipts/") and base.startswith(f"{uid}_") and ".." not in p
+    owner (services/receipt_ref.is_own_upload — one strict parser, shared
+    with the revisor package that reads these files)."""
+    from app.services.receipt_ref import is_own_upload
+    return is_own_upload(path, user_id)
 
 
 def _fill_empty_from_receipt(db: Session, user: User, target: Expense, *,
@@ -1466,10 +1478,19 @@ def link_bilag(
                 "message": "Only a draft in the approve queue that has a receipt can be linked.",
                 "message_da": "Kun et udkast i godkend-køen med et bilag kan knyttes.",
             })
+        if draft.voucher_number is not None:
+            # A supplier-invoice draft got its bilagsnummer at draft time;
+            # removing it would leave a hole in the §10 sequence.
+            raise HTTPException(status_code=409, detail={
+                "code": "draft_has_voucher",
+                "message": "This draft already has a voucher number — approve it or edit it instead.",
+                "message_da": "Udkastet har allerede et bilagsnummer — godkend eller ret det i stedet.",
+            })
         photo = draft.receipt_photo
         source = draft.receipt_source or "scan"
         vkey = draft.vendor_key
-        vat_amount, vat_rate = draft.vat_amount, draft.vat_rate
+        # A foreign receipt's printed VAT is not DKK købsmoms: never copied.
+        vat_amount, vat_rate = (None, None) if draft.currency else (draft.vat_amount, draft.vat_rate)
     else:
         if not _receipt_path_owned(user.id, body.receipt_photo):
             raise HTTPException(status_code=422, detail="receipt_photo is not one of your stored receipts")
@@ -1485,8 +1506,37 @@ def link_bilag(
         "vendor_key": target.vendor_key,
         "vat_amount": float(target.vat_amount) if target.vat_amount is not None else None,
     }
-    target.receipt_photo = photo
-    target.receipt_source = source
+    # Both sides are claimed with conditional writes, so two taps (two tabs,
+    # a retried request) can never both win: the draft is removed only if it
+    # is still a live draft, and the bilag lands only on a row that still has
+    # none. Either refusal rolls the whole link back.
+    if draft is not None:
+        gone = (
+            db.query(Expense)
+            .filter(Expense.id == draft.id, Expense.user_id == user.id,
+                    Expense.status == "pending", Expense.is_deleted.isnot(True))
+            .count()
+        )
+        if gone != 1:
+            raise HTTPException(status_code=409, detail={
+                "code": "not_a_draft_with_bilag",
+                "message": "That draft was already handled.",
+                "message_da": "Udkastet er allerede behandlet.",
+            })
+    won = (
+        db.query(Expense)
+        .filter(Expense.id == target.id, Expense.user_id == user.id,
+                or_(Expense.receipt_photo.is_(None), Expense.receipt_photo == ""))
+        .update({"receipt_photo": photo, "receipt_source": source}, synchronize_session=False)
+    )
+    if won != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={
+            "code": "already_has_bilag",
+            "message": "That expense already has a receipt.",
+            "message_da": "Den udgift har allerede et bilag.",
+        })
+    db.refresh(target)
     filled, locked = _fill_empty_from_receipt(
         db, user, target, vendor_key=vkey, vat_amount=vat_amount, vat_rate=vat_rate,
     )
@@ -1507,7 +1557,19 @@ def link_bilag(
             ).update({"expense_id": target.id}, synchronize_session=False)
         except Exception:  # noqa: BLE001 — the intake log must not block the link
             logger.warning("link-bilag: intake re-point failed", exc_info=True)
-        db.delete(draft)
+        removed = (
+            db.query(Expense)
+            .filter(Expense.id == draft.id, Expense.user_id == user.id,
+                    Expense.status == "pending", Expense.is_deleted.isnot(True))
+            .delete(synchronize_session=False)
+        )
+        if removed != 1:
+            db.rollback()
+            raise HTTPException(status_code=409, detail={
+                "code": "not_a_draft_with_bilag",
+                "message": "That draft was already handled.",
+                "message_da": "Udkastet er allerede behandlet.",
+            })
     try:
         from app.services.audit_service import record as audit_record
         audit_record(

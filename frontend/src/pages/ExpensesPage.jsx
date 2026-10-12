@@ -555,10 +555,13 @@ export default function ExpensesPage() {
     setScanPhotoHeld(!!photo);
     setScanMatchDismissed(false);
     setScanMatches([]);
+    // A foreign receipt's printed VAT is not DKK købsmoms: never sent along.
+    const scanCcy = String(prefill?.suggested_currency || prefill?.currency || "").toUpperCase();
+    const foreignScan = !!scanCcy && scanCcy !== (user?.currency || "DKK").toUpperCase();
     scanReadRef.current = prefill ? {
       vendor: prefill.suggested_vendor || prefill.vendor || null,
-      vat_amount: prefill.vat_amount ?? null,
-      vat_rate: prefill.vat_rate ?? null,
+      vat_amount: foreignScan ? null : (prefill.vat_amount ?? null),
+      vat_rate: foreignScan ? null : (prefill.vat_rate ?? null),
     } : null;
     if (prefill) {
       if (prefill.suggested_amount != null) setAmount(String(prefill.suggested_amount));

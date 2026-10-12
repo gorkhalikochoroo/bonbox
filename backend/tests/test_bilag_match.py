@@ -356,3 +356,26 @@ def test_inbox_receipt_lands_as_a_draft_out_of_moms(db):
     kob = compute_filing_data(db, u, date(2026, 5, 1), date(2026, 5, 31))
     # Only the typed expense is in MOMS; the forwarded copy waits in the queue.
     assert kob["kob_med_moms"] == 432.50
+
+
+def test_link_is_atomic_and_never_burns_a_voucher_or_copies_foreign_vat(client, db):
+    u = _owner(db); cat = _cat(db, u)
+    typed = _typed(db, u, cat, 300, D, vendor_key=None)
+    # A supplier-invoice draft that already holds a bilagsnummer.
+    vd = _draft(db, u, cat, 300, D, voucher_number=17)
+    _as(u)
+    r = client.post(f"/api/expenses/{typed.id}/link-bilag", json={"draft_id": str(vd.id)})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "draft_has_voucher"
+    # A foreign draft: the bilag moves, its foreign VAT does not.
+    fd = _draft(db, u, cat, 300, D, currency="EUR", vat_amount=60, vat_rate=0.25)
+    fd_id = str(fd.id)
+    r = client.post(f"/api/expenses/{typed.id}/link-bilag", json={"draft_id": fd_id})
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    assert db.get(Expense, typed.id).vat_amount is None
+    # The same draft linked again (a second tab): refused, nothing changes.
+    other = _typed(db, u, cat, 300, D)
+    r = client.post(f"/api/expenses/{other.id}/link-bilag", json={"draft_id": fd_id})
+    assert r.status_code == 404
+    db.expire_all()
+    assert db.get(Expense, other.id).receipt_photo is None

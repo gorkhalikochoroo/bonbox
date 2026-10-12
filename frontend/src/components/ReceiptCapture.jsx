@@ -425,8 +425,10 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
       await api.post(`/expenses/${c.id}/link-bilag`, {
         receipt_photo: result.filepath,
         vendor: result?.suggested_vendor || null,
-        vat_amount: result?.vat_amount ?? null,
-        vat_rate: result?.vat_rate ?? null,
+        // Never a foreign receipt's VAT (the match only runs for an
+        // account-currency receipt; belt and braces).
+        vat_amount: isForeign ? null : (result?.vat_amount ?? null),
+        vat_rate: isForeign ? null : (result?.vat_rate ?? null),
       });
       trackEvent("receipt_linked_to_typed_expense", mode, `${c.day_diff}d`);
       setSuccess(t("bilagMatchLinked", "Receipt attached to {desc} ({date})", { desc: c.description || "", date: c.date }));

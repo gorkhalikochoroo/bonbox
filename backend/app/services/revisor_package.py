@@ -45,7 +45,6 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -201,21 +200,6 @@ def business_today(db: Session, user: User, now: datetime | None = None) -> date
 
 # ─── Bilag files ─────────────────────────────────────────────────────────
 
-def _storage_key_from(photo: str) -> str | None:
-    """The storage key inside a stored receipt reference: a Supabase signed
-    URL (…/object/sign/<bucket>/<key>?token=…), a public/plain object URL, or
-    a bare '<uid>/<kind>/<sha>.<ext>' key."""
-    p = photo.split("?", 1)[0]
-    for marker in ("/object/sign/", "/object/public/", "/object/"):
-        if marker in p:
-            rest = p.split(marker, 1)[1]
-            parts = rest.split("/", 1)
-            return unquote(parts[1]) if len(parts) == 2 else None
-    if re.match(r"^[0-9a-fA-F-]{32,36}/[a-z_]+/[0-9a-f]{16,64}\.[a-z0-9]+$", p):
-        return p
-    return None
-
-
 def _sniff_ext(data: bytes) -> str:
     if data[:4] == b"%PDF":
         return "pdf"
@@ -234,29 +218,29 @@ def load_bilag(user_id, photo: str | None) -> tuple[bytes, str] | None:
     """The bytes of a stored bilag and their file extension, or None when the
     file cannot be read (gone from local disk, storage down). Never raises.
 
-    Only this owner's files: a storage key must sit under '<user_id>/', a
-    local file must sit under uploads/receipts/ (no path traversal)."""
-    p = (photo or "").strip()
-    if not p:
+    Only the exact shapes services/receipt_ref accepts, and only this owner's
+    storage keys and local files (the inbox blob is reached through the
+    owner's own expense row). Nothing is ever fetched from a URL's host: a
+    signed URL is reduced to its storage key and read through our backend."""
+    from app.services.receipt_ref import parse_receipt_ref
+    parsed = parse_receipt_ref(photo, user_id)
+    if not parsed:
         return None
+    kind, value = parsed
     data: bytes | None = None
     try:
-        if p.startswith("uploads/receipts/") and p.endswith(".enc"):
+        if kind == "inbox":
             from app.services.inbox_service import load_attachment_blob
-            data = load_attachment_blob(p)
+            data = load_attachment_blob(value)
+        elif kind == "storage":
+            from app.services.storage import get_storage
+            data = get_storage().get(value)
         else:
-            key = _storage_key_from(p) if ("/object/" in p or "://" not in p) else None
-            if key and not p.startswith("uploads/"):
-                if not key.startswith(f"{user_id}/"):
-                    return None
-                from app.services.storage import get_storage
-                data = get_storage().get(key)
-            elif p.startswith("uploads/"):
-                root = (Path.cwd() / "uploads" / "receipts").resolve()
-                target = (Path.cwd() / p).resolve()
-                target.relative_to(root)  # ValueError outside uploads/receipts
-                if target.is_file():
-                    data = target.read_bytes()
+            root = (Path.cwd() / "uploads" / "receipts").resolve()
+            target = (Path.cwd() / value).resolve()
+            target.relative_to(root)  # ValueError outside uploads/receipts
+            if target.is_file():
+                data = target.read_bytes()
     except Exception as e:  # noqa: BLE001 — a missing file is reported, not raised
         logger.info("revisor package: bilag not readable (%s)", type(e).__name__)
         return None
