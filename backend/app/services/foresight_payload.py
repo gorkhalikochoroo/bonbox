@@ -51,14 +51,21 @@ def _log_calibration(cone, recurring, deadline, as_of, bank_balance, frequency):
 
 
 def _first_data_day(user, db, period_start, realized_end):
-    """The first business day in [period_start, realized_end] on which the
-    account holds ANY money data (a confirmed close, a sale, an expense or a
-    sent faktura). None when there is none, or no session (unit tests).
+    """For a NEW account only: the first business day in
+    [period_start, realized_end] on which it holds ANY money data (a confirmed
+    close, a sale, an expense or a sent faktura).
+
+    None — keep the full-period basis, no caveat — when the account already
+    held data BEFORE period_start (established: a gap at the start of the
+    period is a holiday or a quiet week, not "BonBox has no figures"), when
+    there is no data at all, or with no session (unit tests).
 
     Why: the run-rate below divides the booked MOMS by the days it covers. An
     owner who signs up mid-period has no data for the days before; dividing by
     every day since the period started spread 29 days of MOMS over 103 and told
-    them to set aside about half of what they will owe."""
+    them to set aside about half of what they will owe. But an owner with June
+    closes whose first July close is 22 Jul must not be told the figures start
+    on 22 Jul, nor have July's MOMS stretched over 12 weeks instead of 15."""
     if db is None:
         return None
     try:
@@ -68,24 +75,29 @@ def _first_data_day(user, db, period_start, realized_end):
         from app.models.invoice import Invoice
         from app.models.sale import Sale
 
+        # No lower bound: the account's first data EVER (up to realized_end).
+        # Before period_start → established account → full-period basis.
         firsts = [
             db.query(func.min(DailyClose.date)).filter(
                 DailyClose.user_id == user.id, DailyClose.is_deleted.isnot(True),
                 DailyClose.status == "confirmed",
-                DailyClose.date >= period_start, DailyClose.date <= realized_end).scalar(),
+                DailyClose.date <= realized_end).scalar(),
             db.query(func.min(Sale.date)).filter(
                 Sale.user_id == user.id, Sale.is_deleted.isnot(True),
-                Sale.date >= period_start, Sale.date <= realized_end).scalar(),
+                Sale.date <= realized_end).scalar(),
             db.query(func.min(Expense.date)).filter(
                 Expense.user_id == user.id, Expense.is_deleted.isnot(True),
-                Expense.date >= period_start, Expense.date <= realized_end).scalar(),
+                Expense.date <= realized_end).scalar(),
             db.query(func.min(Invoice.issue_date)).filter(
                 Invoice.user_id == user.id,
                 Invoice.status.in_(("sent", "paid", "overdue", "credited")),
-                Invoice.issue_date >= period_start, Invoice.issue_date <= realized_end).scalar(),
+                Invoice.issue_date <= realized_end).scalar(),
         ]
         firsts = [d for d in firsts if d is not None]
-        return min(firsts) if firsts else None
+        if not firsts:
+            return None
+        first = min(firsts)
+        return first if first >= period_start else None
     except Exception:  # noqa: BLE001 — fall back to the period start, never raise
         logger.exception("foresight: first data day lookup failed")
         return None
@@ -96,9 +108,10 @@ def _moms_range_split(user, db, period_start, period_end, as_of, data_start=None
     not-yet-elapsed remainder. Negative (refund) periods clamp to 0 — a refund
     isn't a cash outflow at the frist.
 
-    The run-rate is per day OF DATA: from the first day the account holds money
-    data in the period (``data_start``; looked up when not given), not from the
-    period start. See _first_data_day.
+    For a NEW account the run-rate is per day OF DATA: from its first day of
+    money data in the period (``data_start``; looked up when not given), not
+    from the period start. An established account keeps the full-period basis.
+    See _first_data_day.
     """
     currency = getattr(user, "currency", None) or "DKK"
     vat_rate = tax_service._get_vat_rate(currency)
@@ -173,8 +186,9 @@ def build_foresight_payload(user, db, *, as_of, bank_balance=None, reserved=Deci
     realized, projected = _moms_range_split(
         user, db, _p_start, deadline_info["period_end"], as_of, data_start=data_start,
     )
-    # Only data from part of the period: say so next to the figure ("BonBox
-    # har kun tal fra 11. sep. — MOMS for 1. jul.–10. sep. er ikke med").
+    # A NEW account with data from part of the period only: say so next to the
+    # figure ("BonBox har kun tal fra 11. sep. — MOMS for 1. jul.–10. sep. er
+    # ikke med"). An established account never gets this (data_start is None).
     data_from = data_start.isoformat() if (data_start and data_start > _p_start) else None
     recurring = detect_recurring_outflows(user, db, as_of=as_of, horizon_end=deadline)
 
@@ -227,9 +241,9 @@ def build_foresight_payload(user, db, *, as_of, bank_balance=None, reserved=Deci
             # still contains a projection and must not be shown as "booked".
             "realized": _f(cone.moms_range.realized),
             "projected": _f(cone.moms_range.projected),
-            # Set only when the account's first data in the period is AFTER
-            # the period start: the MOMS for the days before is not in the
-            # figure. The card prints a one-line caveat.
+            # Set only for a NEW account (no data before the period) whose
+            # first data is AFTER the period start: the MOMS for the days
+            # before is not in the figure. The card prints a one-line caveat.
             "period_start": _p_start.isoformat(),
             "data_from": data_from,
         },
