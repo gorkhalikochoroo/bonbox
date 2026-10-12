@@ -112,7 +112,10 @@ function svgToPngBlob(svg, size = 1024) {
   });
 }
 
-function CopyButton({ text, label, copiedLabel, primary = false, testId }) {
+// promptLabel: when both clipboard paths are refused (an embedded webview, a
+// locked-down browser), show the text in a prompt so it can be copied by hand
+// — the last resort the old share card had, kept for the link.
+function CopyButton({ text, label, copiedLabel, primary = false, testId, promptLabel = "" }) {
   const [done, setDone] = useState(false);
   useEffect(() => {
     if (!done) return undefined;
@@ -123,7 +126,15 @@ function CopyButton({ text, label, copiedLabel, primary = false, testId }) {
     <button
       type="button"
       data-testid={testId}
-      onClick={async () => setDone(await copyText(text))}
+      onClick={async () => {
+        const ok = await copyText(text);
+        setDone(ok);
+        if (!ok && promptLabel) {
+          try {
+            window.prompt(promptLabel, text);
+          } catch { /* no prompt (headless): nothing more to offer */ }
+        }
+      }}
       className={primary ? PRIMARY : SECONDARY}
     >
       {done ? <Check className="w-4 h-4" aria-hidden /> : <Copy className="w-4 h-4" aria-hidden />}
@@ -252,7 +263,22 @@ export default function WebsiteBookingKit({
                     copiedLabel={t("rsvpCopied")}
                     primary
                     testId="website-copy-link"
+                    promptLabel={t("rsvpCopyLinkPrompt")}
                   />
+                  {/* Below sm: the icon alone, so the link box keeps room
+                      for the address; named by aria-label, titled on hover. */}
+                  <a
+                    href={publicUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={t("rsvpOpenPage")}
+                    title={t("rsvpOpenPage")}
+                    className={SECONDARY + " max-sm:w-10 max-sm:px-0"}
+                    data-testid="website-open-page"
+                  >
+                    <ExternalLink className="w-4 h-4" aria-hidden />
+                    <span className="max-sm:hidden">{t("rsvpOpenPage")}</span>
+                  </a>
                 </div>
                 <p className={HINT}>{t("rsvpWebLinkHint")}</p>
               </div>
@@ -409,7 +435,20 @@ export default function WebsiteBookingKit({
                     >
                       {i + 1}
                     </span>
-                    <span className="min-w-0 pt-px">{s}</span>
+                    <div className="min-w-0 pt-px space-y-2">
+                      <span className="block">{s}</span>
+                      {/* Step 3 pastes the code: copy it right here — the
+                          same snippet as "Indlejr", no tab switch. */}
+                      {i === 2 && (
+                        <CopyButton
+                          text={kit.iframe}
+                          label={t("rsvpEmbedCopyCode")}
+                          copiedLabel={t("rsvpCopied")}
+                          primary
+                          testId="website-guide-copy-embed"
+                        />
+                      )}
+                    </div>
                   </li>
                 ))}
               </ol>

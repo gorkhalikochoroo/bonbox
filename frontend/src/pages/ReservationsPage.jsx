@@ -37,7 +37,6 @@ import {
   Plus,
   Minus,
   Trash2,
-  Copy,
   Check,
   Users,
   Armchair,
@@ -109,7 +108,6 @@ import { deriveFloorState, fmtTime } from "../utils/floorState";
 import InsightsSection from "../components/reservations/InsightsSection";
 import WaitlistSection from "../components/reservations/WaitlistSection";
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
-import { QRCodeSVG } from "qrcode.react";
 import { canPurchaseInApp } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor } from "../config/venueProfiles";
 import { formatKr } from "../utils/currency";
@@ -702,22 +700,29 @@ function PageTitle({ t, isProvider = false, websiteHref = "" }) {
   // only (Phase A is NOT appointment-grade; honesty gate #2).
   return (
     <div>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="min-w-0 text-xl sm:text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
           <CalendarCheck className="w-5 h-5 sm:w-6 sm:h-6 shrink-0 text-gray-700 dark:text-gray-200" aria-hidden />
           {isProvider ? t("rsvpOwnerTitleProvider", "Appointments") : t("rsvpOwnerTitle", "Reservations")}
         </h1>
         {/* The way in to "Book bord på din hjemmeside" from every tab — it
             used to live only at the bottom of Settings. Quiet, and in the
-            title row, so it adds no row of its own on a phone. */}
+            title row, so it adds no row of its own on a phone. Below 390px
+            the label does not fit beside the title (at 360 it pushed
+            "Reservationer" 20px past its box), so it is the globe alone —
+            named by aria-label, explained by title. flex-wrap is the net for
+            a longer title or wider font: the entry drops to its own line
+            rather than cutting the title. */}
         {websiteHref && (
           <Link
             to={websiteHref}
             data-testid="rsvp-website-entry"
-            className="shrink-0 inline-flex items-center gap-1.5 h-10 sm:h-9 min-h-0! px-3 rounded-lg border border-[rgb(var(--surface-line))] bg-[rgb(var(--surface-card))] text-[13px] font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-green-accent))]"
+            aria-label={t("rsvpWebEntry")}
+            title={t("rsvpWebEntry")}
+            className="shrink-0 inline-flex items-center justify-center gap-1.5 h-10 sm:h-9 min-h-0! px-3 max-[389px]:w-10 max-[389px]:px-0 rounded-lg border border-[rgb(var(--surface-line))] bg-[rgb(var(--surface-card))] text-[13px] font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-green-accent))]"
           >
-            <Globe className="w-4 h-4 text-gray-500 dark:text-gray-400" aria-hidden />
-            {t("rsvpWebEntry")}
+            <Globe className="w-4 h-4 shrink-0 text-gray-500 dark:text-gray-400" aria-hidden />
+            <span className="max-[389px]:hidden">{t("rsvpWebEntry")}</span>
           </Link>
         )}
       </div>
@@ -7879,7 +7884,6 @@ function SettingsSection({ t, user }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [savingToggle, setSavingToggle] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   // Slug editor.
   const [slugDraft, setSlugDraft] = useState("");
@@ -7993,23 +7997,6 @@ function SettingsSection({ t, user }) {
       );
     } finally {
       setSavingToggle(false);
-    }
-  };
-
-  const copyLink = async () => {
-    if (!data?.public_url) return;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(data.public_url);
-      }
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-    } catch {
-      try {
-        window.prompt(t("rsvpCopyLinkPrompt", "Copy this link"), data.public_url);
-      } catch {
-        /* headless */
-      }
     }
   };
 
@@ -8265,57 +8252,18 @@ function SettingsSection({ t, user }) {
         </button>
       </div>
 
-      {/* Share — link + QR (only meaningful once enabled & a slug exists) */}
+      {/* Din bookingside — the page's own address, renamed here. The link
+          (Kopiér + Åbn siden) and the QR (with Hent PNG) live ONCE, in the kit
+          right below: this card used to repeat both, so Settings showed two
+          QR codes and two copy-link rows one card apart. */}
       {enabled && publicUrl && (
-        <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-4">
+        <div
+          data-testid="rsvp-share-card"
+          className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
+        >
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
             {t("rsvpShareTitle", "Your booking page")}
           </h2>
-          <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
-            <div className="bg-white rounded-xl border border-gray-200 dark:border-gray-700 p-3 shrink-0 self-start">
-              {/* Generated client-side (qrcode.react) — no dependency on an
-                  external image service, so it always renders + works offline
-                  for a printed table card. */}
-              <QRCodeSVG
-                value={publicUrl}
-                size={140}
-                level="M"
-                marginSize={2}
-                title={t("rsvpQrAlt", "QR code for your booking page")}
-                className="w-[140px] h-[140px]"
-              />
-            </div>
-            <div className="min-w-0 flex-1 space-y-2">
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                {t(
-                  "rsvpShareHint",
-                  "Put this link in your bio, on Google, or print the QR for the tables.",
-                )}
-              </p>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-300 truncate">
-                  {publicUrl}
-                </div>
-                <Button
-                  variant="secondary"
-                  size="lg"
-                  onClick={copyLink}
-                  iconLeft={copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                >
-                  {copied ? t("rsvpCopied", "Copied") : t("rsvpCopy", "Copy")}
-                </Button>
-              </div>
-              <a
-                href={publicUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-900 dark:hover:text-gray-200"
-              >
-                <Link2 className="w-3.5 h-3.5" />
-                {t("rsvpOpenPage", "Open the page")}
-              </a>
-            </div>
-          </div>
 
           {/* Slug editor — <form> so Enter saves from the field. */}
           <form
@@ -8323,7 +8271,7 @@ function SettingsSection({ t, user }) {
               e.preventDefault();
               if (!slugSaving && slugDraft.trim() !== (data?.reservation_slug || "")) saveSlug();
             }}
-            className="border-t border-gray-100 dark:border-gray-800 pt-3 space-y-2"
+            className="space-y-2"
           >
             <label
               htmlFor="rsvp-slug"

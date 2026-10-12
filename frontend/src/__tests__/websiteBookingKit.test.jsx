@@ -87,6 +87,41 @@ describe("WebsiteBookingKit — 1. Link og knap (the default, fastest)", () => {
     expect(screen.getByTestId("website-copy-link")).toHaveTextContent("Kopieret");
   });
 
+  it("the ONE link row: Kopiér link + Åbn siden, side by side", () => {
+    renderKit();
+    const row = screen.getByTestId("website-link").parentElement;
+    expect(within(row).getByTestId("website-copy-link")).toBeInTheDocument();
+    const open = within(row).getByRole("link", { name: "Åbn siden" });
+    expect(open).toHaveAttribute("href", PUBLIC);
+    expect(open).toHaveAttribute("target", "_blank");
+    expect(open).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    // Icon-only on a phone, still named and titled.
+    expect(open).toHaveAttribute("title", "Åbn siden");
+    expect(open.className).toContain("max-sm:w-10");
+    // One link row and one QR in the whole kit.
+    expect(screen.getAllByTestId("website-link")).toHaveLength(1);
+    expect(screen.getAllByTitle("QR-kode til din bookingside")).toHaveLength(1);
+  });
+
+  it("when the clipboard is refused, the link is offered to copy by hand", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn(async () => { throw new Error("denied"); }) },
+      configurable: true,
+    });
+    const exec = document.execCommand;
+    document.execCommand = () => false;
+    const prompt = vi.spyOn(window, "prompt").mockImplementation(() => null);
+    try {
+      renderKit();
+      await act(async () => fireEvent.click(screen.getByTestId("website-copy-link")));
+      expect(prompt).toHaveBeenCalledWith("Kopiér dette link", PUBLIC);
+      expect(screen.getByTestId("website-copy-link")).toHaveTextContent("Kopiér link");
+    } finally {
+      document.execCommand = exec;
+      prompt.mockRestore();
+    }
+  });
+
   it("copies a ready “Book bord” button that links to the booking page", async () => {
     renderKit();
     expect(screen.getByText("En færdig “Book bord”-knap")).toBeInTheDocument();
@@ -227,6 +262,30 @@ describe("WebsiteBookingKit — 3. Vejledning", () => {
     }
   });
 
+  it("step 3 copies the embed code right there — the same snippet as “Indlejr”", async () => {
+    renderKit();
+    fireEvent.click(screen.getByRole("tab", { name: "Vejledning" }));
+    const steps = within(screen.getByTestId("website-guide-steps")).getAllByRole("listitem");
+    expect(steps[2]).toHaveTextContent("Kopiér koden, og indsæt den i blokken.");
+    const btn = within(steps[2]).getByTestId("website-guide-copy-embed");
+    expect(btn).toHaveTextContent("Kopiér kode");
+    await act(async () => fireEvent.click(btn));
+    const fromGuide = writeText.mock.calls[0][0];
+    expect(fromGuide).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1"');
+    expect(btn).toHaveTextContent("Kopieret");
+    // Same builder output as the Indlejr tab's own copy button.
+    fireEvent.click(screen.getByRole("tab", { name: "Indlejr" }));
+    await act(async () => fireEvent.click(screen.getByTestId("website-copy-embed")));
+    expect(writeText.mock.calls[1][0]).toBe(fromGuide);
+    // Only step 3 carries it, for every builder.
+    fireEvent.click(screen.getByRole("tab", { name: "Vejledning" }));
+    for (const n of ["Wix", "WordPress", "Squarespace", "One.com", "Simply.com", "Shopify"]) {
+      fireEvent.click(screen.getByRole("radio", { name: n }));
+      const li = within(screen.getByTestId("website-guide-steps")).getAllByRole("listitem");
+      expect(li.map((x) => !!within(x).queryByTestId("website-guide-copy-embed"))).toEqual([false, false, true, false]);
+    }
+  });
+
   it("WordPress: an HTML block; One.com points WordPress sites to that guide", () => {
     renderKit();
     fireEvent.click(screen.getByRole("tab", { name: "Vejledning" }));
@@ -304,9 +363,27 @@ describe("Reservationer — the ways in", () => {
     expect(src).not.toMatch(/enabled && publicUrl && \(\s*<WebsiteBookingKit/);
     expect(src).toContain('get("show") === "website"');
   });
-  it("the share card (QR, link, copy, open, custom link) is still there", () => {
+  it("the header entry never cuts the title: icon-only below 390px, named and titled; wraps rather than cuts", () => {
+    const entry = src.slice(src.indexOf('data-testid="rsvp-website-entry"'), src.indexOf("</Link>", src.indexOf('data-testid="rsvp-website-entry"')));
+    expect(entry).toContain('aria-label={t("rsvpWebEntry")}');
+    expect(entry).toContain('title={t("rsvpWebEntry")}');
+    expect(entry).toContain("max-[389px]:w-10");
+    expect(entry).toMatch(/<span className="max-\[389px\]:hidden">\{t\("rsvpWebEntry"\)\}<\/span>/);
+    const row = src.slice(src.indexOf("function PageTitle("), src.indexOf('data-testid="rsvp-website-entry"'));
+    expect(row).toContain('className="flex flex-wrap items-center justify-between gap-3"');
+  });
+  // Removal audit for the merge: "Din bookingside" + the kit used to show two
+  // QR codes and two copy-link rows. One of each now, and every action that
+  // card had is still reachable — the QR (+ PNG), the link with Kopiér and
+  // Åbn siden in the kit (asserted above), the custom link here.
+  it("Din bookingside keeps the custom link; QR and link row live once, in the kit", () => {
     expect(src).toContain('t("rsvpShareTitle", "Your booking page")');
-    expect(src).toContain("<QRCodeSVG");
     expect(src).toContain('t("rsvpCustomLink", "Customise your link")');
+    expect(src).toContain('id="rsvp-slug"');
+    expect(src).not.toContain("<QRCodeSVG");
+    expect(src).not.toContain('t("rsvpCopy", "Copy")');
+    // Order: the card, then the kit right under it.
+    expect(src.indexOf('data-testid="rsvp-share-card"')).toBeLessThan(src.indexOf("<WebsiteBookingKit"));
+    expect(src.indexOf('id="rsvp-slug"')).toBeLessThan(src.indexOf("<WebsiteBookingKit"));
   });
 });
