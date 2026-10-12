@@ -20,7 +20,7 @@
  *      not: 4.39:1), and the primitives that put it there say gray-600.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createElement as h } from "react";
@@ -356,7 +356,46 @@ describe("4. text that sits directly on the paper", () => {
     ["components/Layout.jsx", "text-xs text-red-700 dark:text-red-400 hover:bg-red-50"],
     // the empty-state primitive's body sits on the paper on several pages (/staff/hours Tid…)
     ["components/ui/Empty.jsx", '"text-sm text-gray-600 dark:text-gray-400 max-w-sm mx-auto leading-relaxed"'],
+    // QA 12 Oct: the rail's "Tilføj funktioner → Indsigt" (Slå til) row, every owner page
+    ["components/PillarDiscovery.jsx", "text-[13px] font-medium transition\n              text-gray-600 dark:text-gray-400\n"],
+    // QA 12 Oct: /staff/schedule — the SKABELONER label and the "+ Ny" chip sit on the page
+    ["pages/StaffSchedulePage.jsx", '"text-[11px] font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider mr-0.5"'],
+    ["pages/StaffSchedulePage.jsx", "px-2.5 py-1 text-[12px] text-gray-600 dark:text-gray-500 hover:text-gray-700"],
+    // the rest of the paper shell: the phone bottom nav's idle tabs and the drawer's ×
+    ["components/MobileBottomNav.jsx", ': "text-gray-600 dark:text-gray-400"}`}'],
+    ["components/Layout.jsx", '"md:hidden text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-600 text-xl'],
+    // page-level states drawn straight on the paper (the sweep's sample)
+    ["pages/WeeklyReportPage.jsx", '<div className="p-8 text-center text-gray-600 dark:text-gray-400">{t("noSalesData")}'],
+    ["pages/ProfilePage.jsx", '<span className="text-xs text-gray-600 dark:text-gray-400">\n                      {t("smartStaffingFineTune")'],
+    ["components/GodkendKo.jsx", '<p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">'],
+    ["pages/InsightsPage.jsx", '<p className="text-sm text-gray-600 dark:text-gray-400 mt-1 max-w-xl">'],
   ])("%s keeps its on-paper class: %s", (rel, cls) => {
     expect(read(rel)).toContain(cls);
+  });
+
+  // The commonest way muted text lands on the paper: a page's own loading /
+  // empty / not-found guard line returned bare, with no card around it. Every owner
+  // page inside <Layout /> draws on the paper, so none of those may be a bare
+  // gray-400/500 in light (the dark half is free: `dark:text-…` is untouched).
+  it("no owner page returns a bare gray-400/500 state line straight onto the paper", () => {
+    const pages = readdirSync(join(SRC, "pages")).filter((f) => f.endsWith(".jsx"));
+    const app = read("App.jsx");
+    // owner pages only: the ones the router mounts inside <Layout /> (paper paths)
+    const owner = pages.filter((f) => {
+      const name = f.replace(/\.jsx$/, "");
+      const route = [...app.matchAll(new RegExp(`<Route\\s+path="([^"]+)"[^>]*element=\\{[^}]*<${name}\\b`, "g"))].map((m) => m[1]);
+      return route.some((p) => isPaperPath(p.replace(/:[A-Za-z_]+/g, "x")));
+    });
+    expect(owner.length).toBeGreaterThan(30);
+    // `if (loading) return <div …>` / `if (!x) {\n return <p …>`: the page's own guard lines
+    const bare = /\bif \([^\n]*\)\s*\{?\s*return <(?:div|p)\s+className="([^"]*)"/g;
+    const offenders = [];
+    for (const f of owner) {
+      for (const m of read(`pages/${f}`).matchAll(bare)) {
+        const toks = m[1].split(/\s+/);
+        if (toks.some((t) => t === "text-gray-400" || t === "text-gray-500")) offenders.push(`${f}: ${m[1]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

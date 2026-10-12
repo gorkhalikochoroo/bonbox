@@ -673,7 +673,7 @@ export default function SalesPage() {
   );
 
   const sessionInlineLine = (
-    <p className="text-sm text-gray-500 dark:text-gray-400">
+    <p className="text-sm text-gray-600 dark:text-gray-400">
       {sessionAgg.sessionCount} {sessionAgg.sessionCount === 1 ? t("saleCount") : t("salesCount")}
       {" "}{t("thisSessionInline", "new since you opened")} · <Amount value={sessionAgg.sessionTotal} currency={user?.currency} />
       <Link
@@ -1317,7 +1317,7 @@ export default function SalesPage() {
             and the table showed 50, with nothing to explain the gap or to warn
             that select-all reaches only this far. */}
         {filtered.length > visible.length && (
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-gray-600 dark:text-gray-400">
             {t(
               "salPgShowingNofM",
               "Showing the {shown} most recent of {total}. Select all and bulk actions cover these {shown} — narrow the dates or search to reach the rest.",

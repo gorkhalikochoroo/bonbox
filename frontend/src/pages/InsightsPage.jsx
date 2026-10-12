@@ -172,7 +172,7 @@ export default function InsightsPage({ embedded = false }) {
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
               <span>✨</span> {t("insTitle", "Insights")}
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 max-w-xl">
               {t("insIntro", "Patterns BonBox AI detected about your business — anomalies, routines, dormant features. Your 👍/👎 feedback teaches the system which insights are worth surfacing again.")}
             </p>
           </div>
@@ -392,7 +392,7 @@ function EmptyState({ filter }) {
     );
   }
   return (
-    <div className="text-center py-12 text-gray-400 dark:text-gray-500">
+    <div className="text-center py-12 text-gray-600 dark:text-gray-500">
       {t("insEmptyOther", "No insights in this view.")}
     </div>
   );

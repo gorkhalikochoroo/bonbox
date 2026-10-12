@@ -87,7 +87,7 @@ export default function ConsolidatedClosePage() {
   if (isPro === null) {
     return (
       <div className="px-4 sm:px-6 py-6 max-w-4xl mx-auto">
-        <div className="text-sm text-gray-500 dark:text-gray-400">
+        <div className="text-sm text-gray-600 dark:text-gray-400">
           {t("loading") || "Loading…"}
         </div>
       </div>
@@ -107,7 +107,7 @@ export default function ConsolidatedClosePage() {
           <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
             {t("consolidatedNativeUnavailTitle") || "Not available on this plan"}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 leading-relaxed">
             {t("consolidatedNativeUnavailBody") ||
               "Consolidated daily close isn't part of your current plan."}
           </p>
@@ -121,7 +121,7 @@ export default function ConsolidatedClosePage() {
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
               🏢 {t("consolidatedTitle") || "Consolidated daily close"}
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 max-w-xl">
               {t("consolidatedSubtitle") ||
                 "Roll up daily closes from all your branches into one report. Send the consolidated PDF to the owner or revisor in one tap."}
             </p>
@@ -171,7 +171,7 @@ export default function ConsolidatedClosePage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             🏢 {t("consolidatedTitle") || "Consolidated daily close"}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 max-w-xl">
             {t("consolidatedSubtitle") ||
               "Roll up daily closes from all your branches into one report. Send the consolidated PDF to the owner or revisor in one tap."}
           </p>

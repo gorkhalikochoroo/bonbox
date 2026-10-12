@@ -949,7 +949,7 @@ function TipEntryForm({ currency, t, staffQ, onDone }) {
             {saving ? t("stDistributing", "Distributing...") : `${t("stDistribute", "Distribute")} ${oreText(amountOre)}`}
           </Button>
           {loadsFailed && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+            <p className="text-xs text-gray-600 dark:text-gray-400 text-center">
               {t("stTipSaveBlocked", "Saving is paused until your staff and their hours have loaded.")}
             </p>
           )}
@@ -1054,7 +1054,7 @@ function TipHistoryView({ historyQ, currency, t }) {
   // the first save, which otherwise flashed a "0 kr. · 0/0" summary.
   if (historyQ.loading && data.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-400 dark:text-gray-500">
+      <div className="text-center py-12 text-gray-600 dark:text-gray-500">
         <div className="animate-spin inline-block w-6 h-6 border-2 border-gray-300 border-t-transparent rounded-full mb-3" />
         <p className="text-sm">{t("loading", "Loading…")}</p>
       </div>

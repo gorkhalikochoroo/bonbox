@@ -972,7 +972,7 @@ export default function InventoryPage() {
           // an owner on a bad connection deserves the difference between a slow
           // page and a stuck one.
           <>
-            <p className="text-[13px] text-gray-500 dark:text-gray-400">
+            <p className="text-[13px] text-gray-600 dark:text-gray-400">
               {t("invLoadingStock", "Checking what's on the shelf…")}
             </p>
             <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -1297,7 +1297,7 @@ export default function InventoryPage() {
               </p>
               <button
                 onClick={() => { setTemplateFilter(null); setActiveCategory("All"); }}
-                className="text-xs text-gray-400 hover:text-red-500 transition inline-flex items-center gap-1"
+                className="text-xs text-gray-600 dark:text-gray-400 hover:text-red-500 transition inline-flex items-center gap-1"
                 aria-label={t("showAll")}
               >
                 <Icon name="X" size={12} /> {t("showAll")}

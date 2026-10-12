@@ -898,7 +898,7 @@ export default function ProfilePage() {
     return PRESETS[form.business_type] || PRESETS.restaurant;
   }, [form.business_type]);
 
-  if (!user) return <div className="p-6 text-center text-gray-500">{t("loading")}</div>;
+  if (!user) return <div className="p-6 text-center text-gray-600 dark:text-gray-500">{t("loading")}</div>;
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto">
@@ -1266,14 +1266,14 @@ export default function ProfilePage() {
               {editorExpanded ? (
                 <div id="operating-profile-editor">
                   <div className="flex items-center justify-between mb-2 px-1">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                    <span className="text-xs text-gray-600 dark:text-gray-400">
                       {t("smartStaffingFineTune") ||
                         "Fine-tune individual values below — these save independently from the card above."}
                     </span>
                     <button
                       type="button"
                       onClick={() => setEditorExpanded(false)}
-                      className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                      className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                     >
                       {t("smartStaffingHideAdvanced") || "Hide advanced editor"}
                     </button>

@@ -620,7 +620,7 @@ export default function SubscriptionPage() {
             </div>
           )}
         </Card>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-5 leading-relaxed">
+        <p className="text-sm text-gray-600 dark:text-gray-400 mt-5 leading-relaxed">
           {t("planNativeStatusNote") ||
             "This is your current plan. Plans are managed outside the app."}
         </p>
@@ -813,7 +813,7 @@ export default function SubscriptionPage() {
               the trial days are only what is left of the signup trial), so —
               the G3 badge's rule — it is not shown when signed in. */}
           {!user && (
-            <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-3 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mt-3 max-w-2xl mx-auto leading-relaxed">
               {t(
                 "pricingHeroSubtitleNew",
                 "Pick the plan that matches how much manual work you want to skip. Every signup starts with 14 days of full Pro — no card, no surprises.",

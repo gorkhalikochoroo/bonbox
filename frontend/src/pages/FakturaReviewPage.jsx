@@ -160,7 +160,7 @@ export default function FakturaReviewPage() {
       )}
 
       {loading ? (
-        <div className="text-center py-12 text-gray-500">
+        <div className="text-center py-12 text-gray-600 dark:text-gray-500">
           {t("loading") || "Loading…"}
         </div>
       ) : suggestions.length === 0 ? (

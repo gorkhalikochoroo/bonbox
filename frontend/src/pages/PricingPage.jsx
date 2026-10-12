@@ -86,7 +86,7 @@ export default function PricingPage({ embedded = false }) {
       <div className={`${embedded ? "" : "p-4 md:p-8"} flex items-center justify-center min-h-[400px]`}>
         <div className="text-center">
           <div className="text-4xl mb-3 animate-pulse">💰</div>
-          <p className="text-gray-500 dark:text-gray-400">{t("ppAnalyzing", "Analyzing pricing...")}</p>
+          <p className="text-gray-600 dark:text-gray-400">{t("ppAnalyzing", "Analyzing pricing...")}</p>
         </div>
       </div>
     );
@@ -414,7 +414,7 @@ function SmartPricingSection({ data, loading, currencyCode }) {
         <h2 className="text-lg font-bold text-gray-800 dark:text-white">
           🌍 {t("smartPricingTitle") || "Market comparison"}
         </h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-gray-600 dark:text-gray-400">
           {t("smartPricingSubtitle") || "How your prices compare to neighborhood businesses."}
         </p>
       </div>
@@ -427,7 +427,7 @@ function SmartPricingSection({ data, loading, currencyCode }) {
           />
         ))}
       </div>
-      <p className="text-xs text-gray-400 dark:text-gray-500 italic mt-2">{privacyNote}</p>
+      <p className="text-xs text-gray-600 dark:text-gray-500 italic mt-2">{privacyNote}</p>
     </div>
   );
 }

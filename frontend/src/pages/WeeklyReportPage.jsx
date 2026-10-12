@@ -44,8 +44,8 @@ export default function WeeklyReportPage() {
     return () => { alive = false; };
   }, [weeksAgo]);
 
-  if (loading) return <div className="p-8 text-center text-gray-500">{t("loadingReport")}</div>;
-  if (!report) return <div className="p-8 text-center text-gray-400">{t("noSalesData")}</div>;
+  if (loading) return <div className="p-8 text-center text-gray-600 dark:text-gray-500">{t("loadingReport")}</div>;
+  if (!report) return <div className="p-8 text-center text-gray-600 dark:text-gray-400">{t("noSalesData")}</div>;
 
   // Fail-soft: a partial / empty payload must not throw.
   const breakdown = Array.isArray(report.daily_breakdown) ? report.daily_breakdown : [];

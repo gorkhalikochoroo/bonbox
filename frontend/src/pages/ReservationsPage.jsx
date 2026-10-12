@@ -8195,7 +8195,7 @@ function SettingsSection({ t, user }) {
   }, [loading, wantsWebsite, location.search, navigate]);
 
   if (loading) {
-    return <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>;
+    return <div className="text-sm text-gray-600 dark:text-gray-500">{t("loading", "Loading…")}</div>;
   }
 
   const enabled = !!data?.reservations_enabled;

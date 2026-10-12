@@ -365,7 +365,7 @@ export default function ChannelSettingsPage() {
       {/* Active list */}
       <FadeIn delay={0.05}>
         {loading ? (
-          <div className="text-sm text-gray-500 dark:text-gray-400 mt-6">
+          <div className="text-sm text-gray-600 dark:text-gray-400 mt-6">
             {t("loading") || "Loading…"}
           </div>
         ) : !editing && error ? (

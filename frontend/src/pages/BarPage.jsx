@@ -224,10 +224,10 @@ export default function BarPage() {
         <FadeIn delay={0.04}>
           <div className="mt-5">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[13px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <h2 className="text-[13px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
                 {t("barTapToPour") || "Tap to pour"}
               </h2>
-              <span className="text-[11px] text-gray-400 dark:text-gray-500">
+              <span className="text-[11px] text-gray-600 dark:text-gray-500">
                 {stockedItems.length} {t("stockedItems") || "stocked"}
               </span>
             </div>

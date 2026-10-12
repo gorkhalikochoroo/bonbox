@@ -753,7 +753,7 @@ export default function ReportsPage() {
               </div>
 
               {/* Disclaimer */}
-              <p className="text-xs text-center text-gray-400 dark:text-gray-500">
+              <p className="text-xs text-center text-gray-600 dark:text-gray-500">
                 {t("reportsDisclaimer")}
               </p>
             </>

@@ -264,7 +264,7 @@ export default function ModulesPage() {
 
       {/* Module cards */}
       {loading && !data && (
-        <div className="text-sm text-gray-500 dark:text-gray-400 mt-4">
+        <div className="text-sm text-gray-600 dark:text-gray-400 mt-4">
           {t("loading") || "Loading…"}
         </div>
       )}

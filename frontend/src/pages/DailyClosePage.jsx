@@ -10205,7 +10205,7 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
     // with NO upgrade pitch / tier name / CTA. Web keeps the "Upgrade to
     // Starter" conversion nudge below.
     emailLine = isNativeApp() ? (
-      <p className="text-sm text-gray-500 dark:text-gray-400">
+      <p className="text-sm text-gray-600 dark:text-gray-400">
         <Icon name="Info" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedAutoSendNativeNote", "Auto-send on lock isn't part of your current plan. You can still tap Send to revisor manually.")}
       </p>
     ) : (
@@ -10230,7 +10230,7 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType, dateLabel
             status line names nobody there, and the owner's own copy that
             DID go would be said nowhere. */}
         {(emailStatus === "sent" || emailStatus === "partial") && recipients && !statusNamesWho && (
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-gray-600 dark:text-gray-400">
             <Icon name="Mail" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailSent", "Sent to {recipients}").replace("{recipients}", recipients)}
           </p>
         )}
@@ -12652,7 +12652,7 @@ function InsightsView({ data, currency, t, loading = false, failed = false, isOn
       ))}
 
       {insights.length === 0 && (
-        <div className="text-center text-gray-400 dark:text-gray-500 text-[13px] py-8">
+        <div className="text-center text-gray-600 dark:text-gray-500 text-[13px] py-8">
           {t("dcInsightsKeepLogging", "Keep locking a kasserapport each day to unlock more insights.")}
         </div>
       )}

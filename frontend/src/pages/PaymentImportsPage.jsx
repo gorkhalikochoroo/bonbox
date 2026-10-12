@@ -1093,7 +1093,7 @@ export default function PaymentImportsPage() {
       {/* Connected providers + their sync state */}
       {!connectingProvider && connections.length > 0 && (
         <div className="space-y-3">
-          <p className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wider">
+          <p className="text-[11px] text-gray-600 dark:text-gray-400 font-semibold uppercase tracking-wider">
             {t("yourConnections", "Your connections")}
           </p>
           {connections.map((conn) => (

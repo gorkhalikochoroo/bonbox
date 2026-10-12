@@ -129,7 +129,7 @@ export default function AdminTrainingPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
             🧠 Kasserapport learning
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-2xl">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 max-w-2xl">
             Founder dashboard for the auto-improving OCR loop. Drift, stats,
             and recent auto-promoted examples — your weekly Sunday triage view.
           </p>

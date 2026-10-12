@@ -1259,7 +1259,7 @@ export default function EventsPage() {
           />
 
           {loading ? (
-            <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>
+            <div className="text-sm text-gray-600 dark:text-gray-500">{t("loading", "Loading…")}</div>
           ) : filtered.length === 0 ? (
             <div className="text-sm text-gray-600 dark:text-gray-400 py-6 text-center">
               {t(

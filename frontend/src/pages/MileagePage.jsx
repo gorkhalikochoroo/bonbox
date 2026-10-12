@@ -222,7 +222,7 @@ export default function MileagePage() {
       )}
 
       {loading ? (
-        <div className="text-center py-12 text-gray-500">{t("loading", "Loading…")}</div>
+        <div className="text-center py-12 text-gray-600 dark:text-gray-500">{t("loading", "Loading…")}</div>
       ) : entries.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-12 text-center border border-gray-100 dark:border-gray-700">
           <p className="text-4xl mb-3">🚗</p>

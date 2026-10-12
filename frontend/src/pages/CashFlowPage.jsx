@@ -273,7 +273,7 @@ export default function CashFlowPage() {
       <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <Wallet size={32} strokeWidth={1.5} className="mx-auto mb-3 text-gray-400 animate-pulse" />
-          <p className="text-gray-500 dark:text-gray-400">{t("cfpLoading")}</p>
+          <p className="text-gray-600 dark:text-gray-400">{t("cfpLoading")}</p>
         </div>
       </div>
     );

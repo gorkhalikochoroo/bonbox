@@ -309,7 +309,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate, only 
             title={`${t("pillarDiscoveryEnableCta")} — ${t(p.labelKey)}`}
             aria-label={`${t("pillarDiscoveryEnableCta")} — ${t(p.labelKey)}`}
             className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition
-              text-gray-500 dark:text-gray-400
+              text-gray-600 dark:text-gray-400
               hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-700 dark:hover:text-gray-200
               disabled:opacity-50 ${NAV_FOCUS_RING}`}
           >

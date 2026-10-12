@@ -1294,7 +1294,7 @@ export default function DoorScanPage() {
             </div>
           )}
           {history.length === 0 && (
-            <p className="text-center text-sm text-gray-500 dark:text-gray-400 py-3">
+            <p className="text-center text-sm text-gray-600 dark:text-gray-400 py-3">
               {scanMode === "gavekort"
                 ? t("scanGavekortWaiting", "Hold et gavekort-QR foran kameraet.")
                 : t("scanWaitingFirst", "Hold en billet-QR foran kameraet for at starte.")}

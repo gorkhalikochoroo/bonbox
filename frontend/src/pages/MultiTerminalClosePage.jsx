@@ -239,7 +239,7 @@ export default function MultiTerminalClosePage() {
         <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
           {t("multiClose", "Multiple terminals")}
         </h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-5">
           {t(
             "multiCloseProIntro",
             "Consolidate every POS terminal into one daily close in under 90 seconds — built for chain operators.",
@@ -262,7 +262,7 @@ export default function MultiTerminalClosePage() {
     return (
       <div className="px-4 sm:px-6 py-12 max-w-3xl mx-auto text-center">
         <div className="text-3xl mb-3 animate-pulse">💳</div>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-gray-600 dark:text-gray-400">
           {t("loading") || "Loading…"}
         </p>
       </div>
@@ -337,7 +337,7 @@ export default function MultiTerminalClosePage() {
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
               🌙 {t("multiClose") || "Multiple terminals"}
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
               {today} · {scanProgress.done}/{scanProgress.total} {t("terminalsScanned") || "terminals scanned"}
             </p>
           </div>
@@ -444,7 +444,7 @@ export default function MultiTerminalClosePage() {
                 {t("continueToManual") || "Continue → Manual entry"}
               </button>
               {scanProgress.done < scanProgress.total && scanProgress.done > 0 && (
-                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
+                <p className="text-[11px] text-gray-600 dark:text-gray-500 mt-2">
                   {(t("partialScansHint") || "{done} of {total} terminals scanned. You can continue and add the rest later.")
                     .replace("{done}", scanProgress.done)
                     .replace("{total}", scanProgress.total)}

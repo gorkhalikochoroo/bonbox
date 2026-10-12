@@ -53,7 +53,7 @@ export default function WorkshopPage() {
     ]).finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="p-8 text-center text-gray-400">{t("loading", "Loading…")}</div>;
+  if (loading) return <div className="p-8 text-center text-gray-600 dark:text-gray-400">{t("loading", "Loading…")}</div>;
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto space-y-6">

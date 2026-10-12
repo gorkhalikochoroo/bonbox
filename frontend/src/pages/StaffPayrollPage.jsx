@@ -861,7 +861,7 @@ export default function StaffPayrollPage() {
           <div className="mb-3 animate-pulse text-gray-400">
             <Icon name="FileText" size={36} className="mx-auto" />
           </div>
-          <p className="text-gray-500 dark:text-gray-400">{t("loadingPayroll", "Loading payroll...")}</p>
+          <p className="text-gray-600 dark:text-gray-400">{t("loadingPayroll", "Loading payroll...")}</p>
         </div>
       </div>
     );

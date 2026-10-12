@@ -196,7 +196,9 @@ export default function MobileBottomNav() {
                 focus-visible:ring-gray-400 focus-visible:ring-inset
                 ${isActive
                   ? "text-gray-900 dark:text-gray-100"
-                  : "text-gray-500 dark:text-gray-400"}`}
+                  // gray-600 in light: the bar is paper (.bar-paper), where
+                  // gray-500 is 4.39:1 under a 10px label. Dark unchanged.
+                  : "text-gray-600 dark:text-gray-400"}`}
             >
               <Icon name={tab.icon} size={20} strokeWidth={1.75} />
               <span className="text-[10px] mt-0.5 font-medium" aria-hidden="true">

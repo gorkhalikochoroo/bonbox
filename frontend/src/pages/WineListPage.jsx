@@ -230,7 +230,7 @@ export default function WineListPage() {
 
           {/* Selection bar */}
           {filtered.length > 0 && (
-            <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex items-center gap-3 text-xs text-gray-600 dark:text-gray-400">
               <button onClick={selected.size === filtered.length ? selectNone : selectAll}
                 className="underline hover:text-gray-700 dark:hover:text-gray-200">
                 {selected.size === filtered.length ? t("wineDeselectAll", "Deselect all") : `${t("wineSelectAll", "Select all")} ${filtered.length}`}
@@ -640,7 +640,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
 
       {/* Wines grouped by type */}
       {wines.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
+        <div className="text-center py-16 text-gray-600 dark:text-gray-400">
           <p className="text-4xl mb-3">📜</p>
           <p className="text-lg font-medium">{t("wineNoWinesInCatalog")}</p>
           <p className="text-sm mt-1">{t("wineAddInCatalogFirst", "Add wines in the Catalog tab first.")}</p>
@@ -648,7 +648,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
       ) : (
         TYPE_ORDER.filter(t => grouped[t]).map(wtype => (
           <div key={wtype}>
-            <h3 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+            <h3 className="text-sm font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-2">
               <span className="w-8 h-px bg-gray-200 dark:bg-gray-700" />
               {TYPE_LABELS[wtype] || wtype}
               <span className="text-xs font-normal">({grouped[wtype].length})</span>
@@ -776,7 +776,7 @@ function StaffSheet({ wines, currency }) {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-center text-gray-400 py-8">{t("wineNoWinesToShow", "No wines to show.")}</p>
+        <p className="text-center text-gray-600 dark:text-gray-400 py-8">{t("wineNoWinesToShow", "No wines to show.")}</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {filtered.map(w => (
@@ -894,7 +894,7 @@ function SommelierTab({ currency }) {
       {results !== null && (
         <div className="space-y-3">
           {results.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-8 text-gray-600 dark:text-gray-400">
               <p className="text-2xl mb-2">🤔</p>
               <p>{t("wineNoMatchingInStock", "No matching wines in stock. Try a different description.")}</p>
             </div>

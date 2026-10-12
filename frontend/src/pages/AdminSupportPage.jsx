@@ -124,11 +124,11 @@ export default function AdminSupportPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <Link to="/admin" className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">
+          <Link to="/admin" className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">
             ← Platform admin
           </Link>
           <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">Support inbox</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             In-app tickets from owners (the SupportChip). Priority (Pro) first. Replies email the owner.
           </p>
         </div>

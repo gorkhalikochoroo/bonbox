@@ -209,7 +209,7 @@ export default function VatReportPage() {
         </button>
       </div>
 
-      {loading && <div className="p-8 text-center text-gray-500 dark:text-gray-400">{t("loadingVat")}</div>}
+      {loading && <div className="p-8 text-center text-gray-600 dark:text-gray-400">{t("loadingVat")}</div>}
       {error && <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg text-sm">{error}</div>}
 
       {report && !loading && (
