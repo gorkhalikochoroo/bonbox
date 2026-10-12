@@ -183,3 +183,13 @@ describe("FirstStepsPage — invite your staff", () => {
     expect(screen.getByTestId("first-steps-close")).toBeInTheDocument();
   });
 });
+
+describe("the header on a phone (mobile walk, 12 Oct)", () => {
+  it("'Go to the overview' centres its words in its 44 px touch box (they sat at its top, above the logo's line)", () => {
+    page();
+    const link = screen.getAllByRole("link").find((a) => a.getAttribute("href") === "/dashboard" && a.closest("header"));
+    expect(link).toBeTruthy();
+    expect(link.className).toMatch(/\binline-flex\b/);
+    expect(link.className).toMatch(/\bitems-center\b/);
+  });
+});

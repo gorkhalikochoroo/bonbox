@@ -53,7 +53,10 @@ export default function NavV2() {
       {/* Same gutters as the bands below (./fluid.js); above 1440px the
           bar's contents, height and gaps grow at the slower chrome scale
           (--lc, at most 1.2: a 79px bar at 2560, not 110px). */}
-      <div className={`mx-auto flex h-[66px] w-full max-w-[1180px] items-center gap-9 px-[clamp(24px,4vw,64px)] ${WIDE} min-[1441px]:h-[calc(66px*var(--lc))] min-[1441px]:gap-[calc(36px*var(--lc))] ${CHROME_CHILDREN}`}>
+      {/* Under 400px the gap after the logo is 16px, not 36px: with 36 the
+          "Prøv gratis" pill had 109px at 375 and 94px at 360 and broke onto
+          two lines (mobile walk, 12 Oct) — it stays one line (nowrap). */}
+      <div className={`mx-auto flex h-[66px] w-full max-w-[1180px] items-center gap-9 max-[399px]:gap-4 px-[clamp(24px,4vw,64px)] ${WIDE} min-[1441px]:h-[calc(66px*var(--lc))] min-[1441px]:gap-[calc(36px*var(--lc))] ${CHROME_CHILDREN}`}>
         <a href="#top" className="flex items-center gap-2.5" onClick={close}>
           <span
             aria-hidden="true"
@@ -144,7 +147,7 @@ export default function NavV2() {
               HeroV2. Pricing is still reachable from the nav link. */}
           <Link
             to="/register"
-            className="rounded-full bg-slate-900 px-[18px] py-[9px] text-[14.5px] font-medium text-white transition-colors duration-[160ms] ease-[cubic-bezier(0.22,0.61,0.36,1)] hover:bg-bb-green"
+            className="whitespace-nowrap rounded-full bg-slate-900 px-[18px] py-[9px] text-[14.5px] font-medium text-white transition-colors duration-[160ms] ease-[cubic-bezier(0.22,0.61,0.36,1)] hover:bg-bb-green"
             onClick={close}
           >
             {t("landingV2.nav.cta", "Free trial")}
