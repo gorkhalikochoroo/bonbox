@@ -22,6 +22,7 @@ Locks under test:
 Run: cd backend && python3 -m pytest tests/test_stand_link.py -x -q
 """
 
+import json
 import uuid
 from datetime import datetime, timedelta
 
@@ -361,6 +362,107 @@ def test_revoke_kills_the_new_surface_too(client, db):
     }).status_code == 404
 
 
+# ── the door's booking rules ─────────────────────────────────────────
+
+_RULES = {
+    "turn_time_tiers": [{"up_to": 2, "minutes": 90}, {"up_to": 4, "minutes": 105},
+                        {"up_to": 8, "minutes": 120}],
+    "default_duration_min": 100,
+    "combine_enabled": True,
+    "max_combo_size": 2,
+    "booking_hours": {"mon": "closed", "tue": "17:00-23:00", "wed": "17:00-23:00",
+                      "thu": "17:00-23:00", "fri": "17:00-01:00", "sat": "17:00-01:00",
+                      "sun": "closed"},
+}
+_DOOR_KEYS = {"turn_time_tiers", "default_duration_min", "combine_enabled", "max_combo_size"}
+
+
+def test_stand_reads_the_door_rules(client, db):
+    """DEFECT: the paired door tablet could not read the turn times or hours.
+
+    The drop-in row says "Ledigt nu" or "ca. 20.30" per party size, and both
+    need how long each size holds a table and when the room closes. The device
+    asked /settings — rewritten onto /stand/<token>/settings, which does not
+    exist and must not — got a 404, and fell back to a 90-minute sitting in a
+    room that never closes: "3: Ledigt nu" at the door while the owner's own
+    stand said "ca. 20.30". The door now reads the very values the owner's
+    stand reads."""
+    u = _seed(db); _as(u)
+    assert client.put("/api/reservations/settings", json={"settings": _RULES}).status_code == 200
+    owner = client.get("/api/reservations/settings").json()
+    token = _pair(client, _mint(client)["code"])
+
+    r = client.get(f"/api/stand/{token}/booking-rules")
+    assert r.status_code == 200, r.text
+    door = r.json()
+    for k in _DOOR_KEYS:
+        assert door["settings"][k] == owner["settings"][k], k
+    assert door["settings"]["max_combo_size"] == 2
+    assert door["hours_declared"] is True
+    assert door["open_hours"] == owner["open_hours"]
+    assert door["open_hours"]["fri"] == [["17:00", "01:00"]]
+    assert door["open_hours"]["mon"] == []
+
+
+def test_the_door_rules_carry_nothing_else(client, db):
+    """Only what the drop-in row needs — none of /settings' other keys: not the
+    public slug or link, the SMS sender, the plan quotas or the venue name. The
+    device stands unlocked in a public room."""
+    u = _seed(db); _as(u)
+    client.put("/api/reservations/settings", json={
+        "reservations_enabled": True, "settings": {**_RULES, "sms_sender": "HavnenSMS"},
+    })
+    token = _pair(client, _mint(client)["code"])
+    door = client.get(f"/api/stand/{token}/booking-rules").json()
+    assert set(door) == {"settings", "hours_declared", "open_hours"}
+    assert set(door["settings"]) == _DOOR_KEYS
+    flat = json.dumps(door)
+    for leak in ("HavnenSMS", "Bistro", "reservation_slug", "public_url", "_cap", "used_this_month"):
+        assert leak not in flat, leak
+
+
+def test_the_door_rules_are_the_devices_own_venue(client, db):
+    a, b = _seed(db), _seed(db)
+    _as(a)
+    client.put("/api/reservations/settings", json={"settings": {"default_duration_min": 75, "turn_time_tiers": []}})
+    token_a = _pair(client, _mint(client)["code"])
+    _as(b)
+    client.put("/api/reservations/settings", json={"settings": {"default_duration_min": 150, "turn_time_tiers": []}})
+    door = client.get(f"/api/stand/{token_a}/booking-rules").json()
+    assert door["settings"]["default_duration_min"] == 75
+    assert door["settings"]["turn_time_tiers"] == []
+
+
+def test_a_revoked_device_reads_no_rules(client, db):
+    u = _seed(db); _as(u)
+    minted = _mint(client)
+    token = _pair(client, minted["code"])
+    assert client.get(f"/api/stand/{token}/booking-rules").status_code == 200
+    assert client.delete(f"/api/stand/links/{minted['id']}").status_code == 200
+    assert client.get(f"/api/stand/{token}/booking-rules").status_code == 404
+
+
+def test_stand_seats_a_drop_in_across_joined_tables(client, db):
+    """The door's "Ledigt nu" for a party only joined tables seat must seat
+    them there in one tap — the same create path, exactly those tables."""
+    u = _seed(db); _as(u)
+    ids = []
+    for label, seats in (("6", 4), ("8", 2)):
+        r = client.post("/api/reservations/resources", json={
+            "label": label, "capacity_seats": seats, "zone": "Sal", "combinable": True,
+        })
+        assert r.status_code in (200, 201), r.text
+        ids.append(r.json()["id"])
+    token = _pair(client, _mint(client)["code"])
+
+    r = client.post(f"/api/stand/{token}/book", json={
+        "guest_name": "Drop-in", "party_size": 6, "starts_at": _START,
+        "status": "seated", "source": "walk_in", "resource_ids": ids,
+    })
+    assert r.status_code in (200, 201), r.text
+    assert r.json()["combined_resource_ids"] == ids
+
+
 # ── what it must NOT reach ───────────────────────────────────────────
 
 def test_credential_reaches_no_owner_config_route(client, db):
@@ -404,6 +506,12 @@ def test_credential_reaches_no_owner_config_route(client, db):
         # says it out loud; the owner handler still escalates severity only
         # upward and never writes raw tags.
         "/stand/{token}/reservations/{reservation_id}/allergy-suggestion",
+        # The drop-in row's turn times, table-joining rule and hours. Without
+        # them the device assumed a 90-minute sitting in a room that never
+        # closes and said "Ledigt nu" where the owner's stand said "ca. 20.30".
+        # Read-only, four rule keys + the hours — /settings itself stays out
+        # (test_owner_config_paths_404_under_the_stand_prefix).
+        "/stand/{token}/booking-rules",
     }
     assert wrapped == allowed, (
         "the stand credential's reach changed — this is a security boundary, "

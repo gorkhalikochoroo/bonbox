@@ -221,6 +221,12 @@ class ManualReservation(BaseModel):
     starts_at: datetime
     duration_min: int | None = Field(default=None, ge=15, le=600)
     resource_id: UUID | None = None
+    # Tables pushed together for this party (2–6): the host stand's drop-in
+    # seats a party the booking engine itself would join (find_combo's rules)
+    # in one tap. Same ownership, still-seated and clash rules as one picked
+    # table, and all-or-nothing — every table is held, or none is. Wins over
+    # resource_id when it names two or more tables.
+    resource_ids: list[UUID] | None = Field(default=None, max_length=6)
     service_name: str | None = Field(default=None, max_length=120)
     source: str = Field(default="manual", pattern="^(manual|walk_in)$")
     # "seated" lets the host mark a table occupied immediately (a walk-in);
@@ -589,6 +595,35 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
         # -1 means unlimited; the UI renders nothing in that case.
         "reservations_used_this_month": _month_usage(db, user),
         "reservations_cap": get_cap(user, "reservations_per_month"),
+    }
+
+
+# What the door needs from the venue's booking rules to say "free now" or
+# "approx. 20.30" truthfully: how long each party size holds a table, and
+# whether (and how far) the booking engine joins tables for a party no single
+# table seats. Nothing else in the settings — no slug, no SMS sender, no
+# quotas — and no personal data.
+_DOOR_RULE_KEYS = ("turn_time_tiers", "default_duration_min", "combine_enabled", "max_combo_size")
+
+
+def door_rules(db: Session, user: User) -> dict:
+    """The booking rules and bookable hours the host stand reads.
+
+    NOT a route on the owner router — the owner reads the same values from
+    GET /settings. Exists for the paired door device (stand_link.py), which
+    has no session and must not reach /settings: without these the stand's
+    drop-in row assumed a 90-minute sitting and a room that never closes, and
+    said "Ledigt nu" where the owner's own stand said "ca. 20.30".
+
+    Same shape as the matching keys of GET /settings, so the client reads
+    both with one code path."""
+    enforce_feature(user, "reservations")
+    profile = _profile(db, user)
+    settings = rsvc.load_settings(profile)
+    return {
+        "settings": {k: settings.get(k) for k in _DOOR_RULE_KEYS},
+        "hours_declared": rsvc.hours_declared(profile, settings),
+        "open_hours": _open_hours_by_weekday(profile, settings, user),
     }
 
 
@@ -1865,14 +1900,23 @@ def create_manual(payload: ManualReservation, request: Request,
     # and skips this entirely.
     if payload.behandling_id is not None or payload.stylist_resource_id is not None:
         return _create_provider_booking(db, user, profile, payload)
-    if payload.resource_id is not None:
-        _assert_owned_resource(db, user, payload.resource_id)
+    # Two or more tables named = one party across them (resource_ids); one
+    # named that way is simply a picked table.
+    combo = list(dict.fromkeys(x for x in (payload.resource_ids or []) if x))
+    if len(combo) == 1 and payload.resource_id is None:
+        payload.resource_id = combo[0]
+    if len(combo) < 2:
+        combo = []
+    picked = combo or ([payload.resource_id] if payload.resource_id is not None else [])
+    if picked:
+        for rid in picked:
+            _assert_owned_resource(db, user, rid)
         # A drop-in seated on a table someone is still sitting at — the hold
         # rows only know booked windows, so a party running over looked gone.
         if payload.status == "seated":
-            occupant = _seated_occupant(db, user, [payload.resource_id])
+            occupant = _seated_occupant(db, user, picked)
             if occupant is not None:
-                raise _occupied_409(db, user, occupant, [payload.resource_id])
+                raise _occupied_409(db, user, occupant, picked)
     duration = rsvc.resolve_duration(profile, payload.party_size, payload.duration_min)
     from app.services.allergens import sanitize_tags, sanitize_severity
     btype = getattr(user, "business_type", None) or "restaurant"
@@ -1901,7 +1945,35 @@ def create_manual(payload: ManualReservation, request: Request,
     apply_ai_signals(r, btype, owner_entered=True)
 
     overflow = False
-    if payload.resource_id is None:
+    if combo:
+        # The host named these tables together — hold exactly these, never a
+        # re-pick, and all of them or none (one occupancy row per table, vetted
+        # in one flush). The app-level clash check is the guard on SQLite,
+        # where the exclusion constraint does not exist; on Postgres the
+        # constraint is the backstop, caught as SlotUnavailable.
+        clash = (
+            db.query(ReservationOccupancy.id)
+            .filter(
+                ReservationOccupancy.user_id == user.id,
+                ReservationOccupancy.resource_id.in_(combo),
+                ReservationOccupancy.active.is_(True),
+                ReservationOccupancy.starts_at < payload.starts_at + timedelta(minutes=duration),
+                ReservationOccupancy.ends_at > payload.starts_at,
+            )
+            .first()
+        )
+        if clash is not None:
+            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+        try:
+            occ_service.create_reservation_with_occupancy(
+                db, profile=profile, reservation=r,
+                initial_resource_ids=combo,
+                party_size=payload.party_size, start=payload.starts_at,
+                duration_min=duration, now=None, reassign=False,
+            )
+        except occ_service.SlotUnavailable:
+            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+    elif payload.resource_id is None:
         assigned = False
         if payload.auto_assign:
             # Mirror the public widget's auto-pick exactly (same combo-aware

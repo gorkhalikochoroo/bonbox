@@ -1,0 +1,105 @@
+{
+  "about": "Shared cases for the booking engine's table-joining rule. backend/tests/test_find_combo_parity.py runs them through availability_engine.find_combo (the original); src/__tests__/hostStand.test.js runs them through utils/hostStand.findCombo (the host stand's port). Every table listed is free for the whole sitting; expected is the joined set in the engine's own order, or null.",
+  "cases": [
+    {
+      "name": "a row of three: the two smallest that seat them exactly, then id order",
+      "party": 6, "max": 3,
+      "tables": [
+        { "id": "6", "seats": 4, "combinable": true, "zone": "Sal" },
+        { "id": "7", "seats": 4, "combinable": true, "zone": "Sal" },
+        { "id": "8", "seats": 2, "combinable": true, "zone": "Sal" },
+        { "id": "9", "seats": 6, "combinable": false, "zone": "Sal" }
+      ],
+      "expected": ["8", "6"]
+    },
+    {
+      "name": "fewest empty seats among two-table sets",
+      "party": 7, "max": 3,
+      "tables": [
+        { "id": "6", "seats": 4, "combinable": true, "zone": "Sal" },
+        { "id": "7", "seats": 4, "combinable": true, "zone": "Sal" },
+        { "id": "8", "seats": 2, "combinable": true, "zone": "Sal" }
+      ],
+      "expected": ["6", "7"]
+    },
+    {
+      "name": "three tables only when two cannot",
+      "party": 9, "max": 3,
+      "tables": [
+        { "id": "6", "seats": 4, "combinable": true, "zone": "Sal" },
+        { "id": "7", "seats": 4, "combinable": true, "zone": "Sal" },
+        { "id": "8", "seats": 2, "combinable": true, "zone": "Sal" }
+      ],
+      "expected": ["8", "6", "7"]
+    },
+    {
+      "name": "never more tables than the venue allows",
+      "party": 9, "max": 2,
+      "tables": [
+        { "id": "6", "seats": 4, "combinable": true, "zone": "Sal" },
+        { "id": "7", "seats": 4, "combinable": true, "zone": "Sal" },
+        { "id": "8", "seats": 2, "combinable": true, "zone": "Sal" }
+      ],
+      "expected": null
+    },
+    {
+      "name": "fewer tables beats fewer empty seats",
+      "party": 6, "max": 3,
+      "tables": [
+        { "id": "a1", "seats": 2, "combinable": true, "zone": "A" },
+        { "id": "a2", "seats": 2, "combinable": true, "zone": "A" },
+        { "id": "a3", "seats": 2, "combinable": true, "zone": "A" },
+        { "id": "b1", "seats": 4, "combinable": true, "zone": "B" },
+        { "id": "b2", "seats": 4, "combinable": true, "zone": "B" }
+      ],
+      "expected": ["b1", "b2"]
+    },
+    {
+      "name": "the zone with less waste wins at the same table count",
+      "party": 5, "max": 3,
+      "tables": [
+        { "id": "a1", "seats": 4, "combinable": true, "zone": "A" },
+        { "id": "a2", "seats": 4, "combinable": true, "zone": "A" },
+        { "id": "b1", "seats": 2, "combinable": true, "zone": "B" },
+        { "id": "b2", "seats": 4, "combinable": true, "zone": "B" }
+      ],
+      "expected": ["b1", "b2"]
+    },
+    {
+      "name": "tables in different zones never join",
+      "party": 7, "max": 3,
+      "tables": [
+        { "id": "in", "seats": 4, "combinable": true, "zone": "Sal" },
+        { "id": "out", "seats": 4, "combinable": true, "zone": "Terrasse" }
+      ],
+      "expected": null
+    },
+    {
+      "name": "tables without a zone join each other",
+      "party": 7, "max": 3,
+      "tables": [
+        { "id": "x", "seats": 4, "combinable": true, "zone": null },
+        { "id": "y", "seats": 4, "combinable": true, "zone": null }
+      ],
+      "expected": ["x", "y"]
+    },
+    {
+      "name": "a table not flagged combinable never joins",
+      "party": 7, "max": 3,
+      "tables": [
+        { "id": "big", "seats": 6, "combinable": false, "zone": "Sal" },
+        { "id": "small", "seats": 2, "combinable": true, "zone": "Sal" }
+      ],
+      "expected": null
+    },
+    {
+      "name": "joining switched to one table is no joining",
+      "party": 6, "max": 1,
+      "tables": [
+        { "id": "6", "seats": 4, "combinable": true, "zone": "Sal" },
+        { "id": "7", "seats": 4, "combinable": true, "zone": "Sal" }
+      ],
+      "expected": null
+    }
+  ]
+}

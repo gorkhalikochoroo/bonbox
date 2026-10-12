@@ -326,6 +326,26 @@ def stand_resources(token: str, db: Session = Depends(get_db)):
     return R.list_resources(db=db, user=user)
 
 
+@router.get("/{token}/booking-rules")
+def stand_booking_rules(token: str, db: Session = Depends(get_db)):
+    """How long a party holds a table, whether tables join, and the hours.
+
+    The door's drop-in row says "Ledigt nu" or "ca. 20.30" for each party
+    size, and both need the turn times and the closing time. The owner's stand
+    reads them from /settings; this device cannot (and must not — /settings
+    carries the slug, the SMS sender and the plan quotas, and stays unwrapped,
+    see test_owner_config_paths_404_under_the_stand_prefix). So the call
+    404'd, the device fell back to a 90-minute sitting in a room that never
+    closes, and told a host "Ledigt nu" for a party the owner's screen said
+    would wait until 20.30.
+
+    Read-only, and only those keys (R.door_rules): turn-time tiers, default
+    sitting, the table-joining switch and limit, and the bookable hours. No
+    personal data."""
+    _, user = _bind(db, token)
+    return R.door_rules(db=db, user=user)
+
+
 @router.get("/{token}/changes")
 def stand_changes(
     token: str,
