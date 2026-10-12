@@ -132,6 +132,7 @@ from app.routers import reservation_insights as reservation_insights_router
 from app.routers import public_reservations as public_reservations_router
 from app.routers import stand_link as stand_link_router
 from app.routers import public_gavekort as public_gavekort_router
+from app.routers import revisor_package as revisor_package_router
 from app.routers import gavekort as gavekort_router
 # Onboarding — business-archetype detection (keyword fast-path → AI fallback)
 from app.routers import onboarding as onboarding_router
@@ -2733,6 +2734,45 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_account_claim_tickets_user_id ON account_claim_tickets (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_account_claim_tickets_token_hash ON account_claim_tickets (token_hash)",
+    # ── Migration (2026-10-12): revisor package — schedule + send ledger ──
+    # business_profiles: the owner's "Send revisorpakke" choice (NULL = off)
+    # and when it was turned on. Nullable, no default, no backfill — every
+    # existing owner reads "off", exactly as before.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS revisor_package_schedule VARCHAR(10)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS revisor_package_schedule_at TIMESTAMP",
+    # Net-new table backing app/models/revisor_package.py (one row per package
+    # e-mailed for a period). Additive; create_all() builds it first, this is
+    # the create_all-bypassed net with create_all's types (GUID → VARCHAR(36)).
+    # The UNIQUE (user_id, dedup_key) is the once-per-period-per-recipient
+    # guarantee of the scheduled send.
+    """CREATE TABLE IF NOT EXISTS revisor_package_sends (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        period_kind VARCHAR(10) NOT NULL,
+        period_start DATE NOT NULL,
+        period_end DATE NOT NULL,
+        send_trigger VARCHAR(10) NOT NULL,
+        recipient VARCHAR(255),
+        recipient_fp VARCHAR(16),
+        dedup_key VARCHAR(80),
+        status VARCHAR(12) NOT NULL,
+        skip_reason VARCHAR(40),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        storage_key TEXT,
+        zip_sha256 VARCHAR(64),
+        zip_size INTEGER,
+        n_bilag INTEGER,
+        open_items INTEGER,
+        link_expires_at TIMESTAMP,
+        error VARCHAR(120),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP,
+        sent_at TIMESTAMP,
+        purged_at TIMESTAMP,
+        CONSTRAINT ux_revisor_package_dedup UNIQUE (user_id, dedup_key)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_revisor_package_sends_user_id ON revisor_package_sends (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_revisor_package_user_period ON revisor_package_sends (user_id, period_start, period_end)",
 ]
 
 
@@ -3441,6 +3481,9 @@ def _run_migrations():
             # shipped with the PG ALTER only, so every BusinessProfile query
             # 500'd on a dev DB from before it (release gate, 9 Oct).
             ok += _add("business_profiles", "timereg_period_json", "TEXT")
+            # Mirror of the revisor package schedule (2026-10-12).
+            ok += _add("business_profiles", "revisor_package_schedule", "VARCHAR(10)")
+            ok += _add("business_profiles", "revisor_package_schedule_at", "TIMESTAMP")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
@@ -4793,6 +4836,11 @@ _MEMBER_READ_DENY_PREFIXES = (
     # A member's own-data request goes through the owner, who is the
     # controller of that data.
     "/api/auth/export-data",
+    # The revisor package IS the books for a period: every sale, every expense
+    # with its bilag photo, the MOMS figures and the gift-card ledger, as one
+    # ZIP — and the month-end checklist names the cash differences. Owner-only,
+    # like /api/exports and /api/reports beside it.
+    "/api/revisor-package",
     # The same kr ÷ hours division, in a router the wage round did not look at.
     # /api/staffing/logs returns labor_cost + total_hours + staff_count per day,
     # and on any day logged with one person on, that division IS their exact
@@ -5688,6 +5736,15 @@ app.include_router(
     prefix="/api/public/gavekort",
     tags=["Public Gavekort"],
 )
+# Revisorpakke + Månedsafslutning (owner-only: the prefix is in
+# _MEMBER_READ_DENY_PREFIXES) and the revisor's signed 14-day download link
+# (no auth — the HMAC token names the send, the send names the stored ZIP).
+app.include_router(revisor_package_router.router, prefix="/api/revisor-package", tags=["Revisor package"])
+app.include_router(
+    revisor_package_router.public_router,
+    prefix="/api/public/revisor-package",
+    tags=["Public Revisor package"],
+)
 # Door-scan + visitor's web-ticket page (signed URL). Same no-prefix
 # pattern as public_events_router because the routes (`/api/tickets/*`
 # + `/t/{ticket_id}`) live at distinct path roots.
@@ -6299,6 +6356,22 @@ try:
         register_backup_job(_scheduler)
     except Exception as _backup_job_err:  # noqa: BLE001
         print(f"Scheduler warning: nightly backup job not registered: {_backup_job_err}")
+    # Scheduled revisor packages (Settings → "Send revisorpakke") — hourly at
+    # :20, because the due moment is 07:00 in each OWNER's time zone (Monday
+    # for the week before, the 3rd for the month before). Once per period per
+    # recipient is enforced by the ledger's UNIQUE dedup_key, not by the
+    # scheduler. Own try so it can never cost the other jobs.
+    try:
+        from app.jobs.revisor_package_job import run_revisor_package_schedule
+        _scheduler.add_job(
+            run_revisor_package_schedule,
+            trigger=CronTrigger(minute=20),
+            id="revisor_package_schedule",
+            name="Scheduled revisor packages (weekly / monthly)",
+            replace_existing=True,
+        )
+    except Exception as e:
+        print(f"Scheduler revisor_package warning: {e}")
     # Ops triage + operator alerts (R-i, OPS-04) — every 15 min: groups new
     # error_logs rows (500s, raised 5xx, JOB, WEBHOOK) and sends ONE capped,
     # deduplicated, customer-data-free digest (services/ops_alert.py).
@@ -6319,7 +6392,8 @@ try:
           "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30), "
           "recurring expenses (04:00), daily brief push (06:00), daily brief email (06:30), "
           "aiia sync (03:30), mobilepay sync (03:45), frontend monitor (5m), "
-          "nightly backup (04:20 UTC, off unless BACKUP_* set), abuse monitor (2m)")
+          "nightly backup (04:20 UTC, off unless BACKUP_* set), abuse monitor (2m), "
+          "revisor packages (hourly :20)")
 
     # Scheduler shutdown migrated to the `lifespan` context manager
     # near the FastAPI() constructor. It checks globals() for the

@@ -1,0 +1,72 @@
+"""Schema for the revisor package: the schedule columns and the send ledger.
+
+Postgres runs main._migrations (no Alembic); SQLite dev databases need the
+hand-kept mirror. Both additive and idempotent.
+"""
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+
+from app.database import Base
+from app.models.business_profile import BusinessProfile
+from app.models.revisor_package import RevisorPackageSend
+
+
+def test_columns_are_nullable_without_default():
+    for name in ("revisor_package_schedule", "revisor_package_schedule_at"):
+        col = BusinessProfile.__table__.c[name]
+        assert col.nullable is True and col.default is None and col.server_default is None
+
+
+def test_postgres_list_has_the_alters_and_the_table():
+    from app import main
+    stmts = [s for s in main._migrations if isinstance(s, str)]
+    assert "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS revisor_package_schedule VARCHAR(10)" in stmts
+    assert "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS revisor_package_schedule_at TIMESTAMP" in stmts
+    create = [s for s in stmts if s.lstrip().startswith("CREATE TABLE IF NOT EXISTS revisor_package_sends")]
+    assert len(create) == 1
+    # Every model column is in the hand-written CREATE (create_all-bypassed net).
+    for col in RevisorPackageSend.__table__.columns:
+        assert f"\n        {col.name} " in create[0], col.name
+    assert "UNIQUE (user_id, dedup_key)" in create[0]
+
+
+def test_the_sqlite_mirror_adds_the_columns_and_a_second_boot_is_a_no_op(tmp_path, monkeypatch):
+    from app import main
+    eng = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    Base.metadata.create_all(eng)
+    with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE business_profiles DROP COLUMN revisor_package_schedule"))
+        conn.execute(text("ALTER TABLE business_profiles DROP COLUMN revisor_package_schedule_at"))
+    monkeypatch.setattr(main, "engine", eng)
+    main._run_migrations()
+    main._run_migrations()
+    with eng.connect() as conn:
+        info = {r[1]: r for r in conn.execute(text("PRAGMA table_info('business_profiles')"))}
+    assert info["revisor_package_schedule"][2].upper() == "VARCHAR(10)"
+    assert info["revisor_package_schedule_at"][2].upper() == "TIMESTAMP"
+    eng.dispose()
+
+
+def test_dedup_key_is_unique_per_owner_and_null_never_collides(tmp_path):
+    import uuid
+    from datetime import date
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+    from app.models.user import User
+    eng = create_engine(f"sqlite:///{tmp_path / 'u.db'}")
+    Base.metadata.create_all(eng)
+    db = sessionmaker(bind=eng)()
+    u = User(email="a@b.dk", password_hash="x", business_name="X", currency="DKK")
+    db.add(u); db.commit()
+
+    def row(key):
+        return RevisorPackageSend(user_id=u.id, period_kind="month", period_start=date(2026, 9, 1),
+                                  period_end=date(2026, 9, 30), send_trigger="manual",
+                                  dedup_key=key, status="claimed")
+    db.add_all([row(None), row(None), row("sched:a")]); db.commit()
+    db.add(row("sched:a"))
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+    assert uuid.UUID(str(u.id))
+    eng.dispose()

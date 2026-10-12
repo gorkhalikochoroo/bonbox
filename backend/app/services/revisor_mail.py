@@ -46,6 +46,8 @@ REVISOR_SEND_ACTIONS = (
     "payroll.send_to_accountant",
     # The accountant-login invite is mail to a third party too.
     "accountant.invited",
+    # The revisor package (manual "Send pakken" and the weekly/monthly schedule).
+    "revisor_package.sent",
 )
 
 # Generous for a real owner (a month of resends is a handful), small enough

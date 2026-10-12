@@ -93,6 +93,11 @@ def _money_dot(amount) -> str:
         return "0.00"
 
 
+# moms ÷ 0,20 reconstructs the 25 % gross only to ±0,025 kr. (moms is stored
+# to the øre). A smaller "momsfri" remainder is that rounding.
+_MOMS_ROUNDING_KR = 0.025
+
+
 def _query_sales(user: User, db: Session, start: date, end: date) -> list:
     """Revenue lines for the period, per-date precedence exactly like the
     dashboard's revenue resolver: a day with a confirmed kasserapport exports
@@ -130,6 +135,11 @@ def _query_sales(user: User, db: Session, start: date, end: date) -> list:
         # rest is exempt. No moms figure on the close = treat it all as 25 %.
         taxed = gross if moms is None else min(gross, round(moms / 0.2, 2))
         exempt = round(gross - taxed, 2)
+        # The moms is stored to the øre, so moms ÷ 0,20 can miss the gross by
+        # up to 2,5 øre. That is rounding, not momsfri revenue: it printed a
+        # "Kasserapport … (momsfri) 0,01" line for nearly every day.
+        if exempt <= _MOMS_ROUNDING_KR:
+            taxed, exempt = gross, 0.0
         day = c.date.isoformat()
         if taxed > 0.004:
             lines.append(SimpleNamespace(

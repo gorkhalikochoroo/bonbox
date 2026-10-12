@@ -172,6 +172,14 @@ class BusinessProfile(Base):
     #   complexity). Validated server-side: only digits 1-7, no dupes,
     #   length 0-7.
     open_days_mask: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    # ── Revisorpakke schedule (Settings → "Send revisorpakke") ──
+    # NULL / "never" = off; "weekly" = Monday morning, the week before;
+    # "monthly" = the 3rd, the month before. Sent to the saved revisor
+    # (accountant_email) by jobs/revisor_package_job.py. `_at` is when the
+    # owner turned it on: only periods that fall due AFTER it are sent, so
+    # switching on mid-month never mails last month's package by surprise.
+    revisor_package_schedule: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    revisor_package_schedule_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # operating_hours_json — per-day open/close times. JSON-as-text so
     # SQLite and Postgres both work. Schema (validated at the service
     # layer):

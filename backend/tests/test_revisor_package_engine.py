@@ -101,3 +101,21 @@ def test_bookkeeping_files_leave_out_godkend_ko_drafts():
     csv_text = bx.export_dinero(u, db, date(2026, 9, 1), date(2026, 9, 30)).decode("utf-8-sig")
     assert "OCR guess" not in csv_text and "Råvarer: Bilag" not in csv_text
     assert "Netto" in csv_text
+
+
+def test_close_moms_rounding_is_not_a_momsfri_line():
+    """moms 1.602,69 on 8.013,46 kr. ÷ 0,20 = 8.013,45: the 1 øre is the
+    rounding of the stored moms, not momsfri revenue."""
+    from app.models.daily_close import DailyClose
+    db = _db(); u = _owner(db)
+    d = date(2026, 9, 1)
+    db.add(DailyClose(user_id=u.id, date=d, revenue_total=8013.46, moms_total=1602.69,
+                      status="confirmed"))
+    db.add(DailyClose(user_id=u.id, date=date(2026, 9, 2), revenue_total=1300, moms_total=200,
+                      status="confirmed"))
+    db.commit()
+    lines = bx._query_sales(u, db, d, date(2026, 9, 2))
+    assert [(float(l.amount), l.is_tax_exempt) for l in lines if l.date == d] == [(8013.46, False)]
+    # A real momsfri share is still split out.
+    assert sorted((float(l.amount), l.is_tax_exempt) for l in lines if l.date != d) == [
+        (300.0, True), (1000.0, False)]

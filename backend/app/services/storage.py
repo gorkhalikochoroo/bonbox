@@ -64,6 +64,10 @@ ALLOWED_KINDS = {
     # addendum, certificate). Personal data with no accounting-retention basis,
     # so it is in ERASURE_PURGE_KINDS below too — see the note there.
     "staff_document",
+    # The ZIP behind a revisor package's 14-day download link
+    # (services/revisor_package.py). A COPY of the books, not a source
+    # document — removed when its link expires, and on erasure (below).
+    "revisor_package",
 }
 
 
@@ -77,8 +81,11 @@ def compose_key(user_id, kind: str, sha: str, ext: str = "jpg") -> str:
         raise ValueError("sha must be lowercase hex")
     # Extension is enum-like.
     # "pdf" added for staff_document — everything else here is an image.
-    if ext not in {"jpg", "jpeg", "png", "webp", "heic", "pdf"}:
+    # "zip" for revisor_package only (checked below).
+    if ext not in {"jpg", "jpeg", "png", "webp", "heic", "pdf", "zip"}:
         raise ValueError(f"Unsupported ext: {ext!r}")
+    if (ext == "zip") != (kind == "revisor_package"):
+        raise ValueError(f"ext {ext!r} not allowed for kind {kind!r}")
     uid = str(user_id)
     # uuid4 string with hyphens, or all-hex; reject anything weirder.
     if not all(c in "0123456789abcdef-" for c in uid.lower()):
@@ -416,6 +423,10 @@ ERASURE_PURGE_KINDS = frozenset({
     # it would silently orphan any premises photo uploaded while the feature was
     # live. Inert config that guarantees GDPR Art.17 still cleans those up.
     "floor_background",
+    # A revisor package ZIP is a dated COPY of records that are themselves
+    # retained (expense / sale / kasserapport kinds); it has no retention
+    # basis of its own and is purged when its link expires anyway.
+    "revisor_package",
 })
 
 
