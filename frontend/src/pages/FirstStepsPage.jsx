@@ -172,7 +172,10 @@ export default function FirstStepsPage() {
           {/* 1 — the primary: today's kasserapport, one tap. */}
           <button
             type="button"
-            onClick={() => navigate("/daily-close")}
+            // The state tells the close page this is the owner's first one, so
+            // its locked card can point onward (schedule, reservations) — this
+            // page's own staff card is left behind for good by this tap.
+            onClick={() => navigate("/daily-close", { state: { fromFirstSteps: true } })}
             data-testid="first-steps-close"
             className="mt-6 w-full text-left flex items-center gap-4 rounded-2xl border border-gray-900 dark:border-gray-100 bg-white dark:bg-gray-900 p-4 sm:p-5 shadow-sm hover:shadow transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           >

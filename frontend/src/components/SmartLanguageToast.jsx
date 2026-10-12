@@ -19,10 +19,13 @@
  *   • Marks itself shown on close so it never re-appears.
  */
 import { useEffect, useState } from "react";
+import { Globe } from "lucide-react";
 import { useLanguage } from "../hooks/useLanguage";
 
 
 const SHOWN_KEY = "bonbox_lang_toast_shown";
+// How long the one-time notice stays before it steps aside on its own.
+export const AUTO_HIDE_MS = 8000;
 const AUTO_PICKED_KEY = "bonbox_lang_auto_picked";
 
 const NATIVE_LABEL = {
@@ -50,6 +53,20 @@ export default function SmartLanguageToast() {
     }
   }, [lang]);
 
+  // Shown ONCE, for a few seconds. It is fixed at the top of every screen and
+  // had no timeout, so until the owner found the × it covered each page's
+  // title (Kasserapport, Forsiden, Vagtplan, Reservationer) and the e-mail
+  // banner (first-15 walk, 12 Oct). Marked shown when it goes, exactly as a
+  // tap on × does; the language stays switchable in the menu.
+  useEffect(() => {
+    if (!open) return undefined;
+    const id = setTimeout(() => {
+      setOpen(false);
+      try { localStorage.setItem(SHOWN_KEY, "1"); } catch { /* storage refused — it simply shows again next visit */ }
+    }, AUTO_HIDE_MS);
+    return () => clearTimeout(id);
+  }, [open]);
+
   function dismiss() {
     setOpen(false);
     try { localStorage.setItem(SHOWN_KEY, "1"); } catch { /* silent */ }
@@ -74,7 +91,7 @@ export default function SmartLanguageToast() {
       className="fixed left-1/2 -translate-x-1/2 z-50 max-w-md w-[92vw] sm:w-auto px-4 py-2.5 rounded-xl bg-gray-900/95 text-white shadow-sm flex items-center gap-3 text-[13px] top-[calc(env(safe-area-inset-top,0px)+4.25rem)] md:top-[max(1rem,env(safe-area-inset-top))]"
     >
       <span className="flex-1 min-w-0">
-        <span aria-hidden>🌍 </span>
+        <Globe className="inline w-3.5 h-3.5 mr-1.5 -mt-0.5 opacity-80" aria-hidden="true" />
         {(t("smartLangPicked") || "We picked {lang} {source}.")
           .replace("{lang}", nativeLabel)
           .replace("{source}", sourceText)}

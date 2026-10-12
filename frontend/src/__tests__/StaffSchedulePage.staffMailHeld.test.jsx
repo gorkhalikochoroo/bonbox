@@ -207,7 +207,8 @@ describe("staff mail held or limited (SEC-1)", () => {
         : Promise.resolve({ data: {} }),
     );
     await mountPage();
-    fireEvent.click(screen.getByRole("button", { name: /Administrér medarbejdere/ }));
+    // The panel is "Dit team" since 12 Oct (was "Administrér medarbejdere").
+    fireEvent.click(screen.getByRole("button", { name: /Dit team/ }));
     fireEvent.change(await screen.findByPlaceholderText("Navn"), { target: { value: "Cy" } });
     fireEvent.change(screen.getByPlaceholderText("E-mail (valgfri)"), { target: { value: "cy@cafe" } });
     await act(async () => {

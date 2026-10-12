@@ -24,6 +24,8 @@
  * schedule page.
  */
 
+import { parseServerTime } from "./serverTime";
+
 /**
  * Has this row ever been opened?
  *
@@ -73,4 +75,88 @@ export function summarizePortalReach(rows) {
     neverOpened: rows.length - opened,
     lastOpenedAt,
   };
+}
+
+/**
+ * How recently counts as "active" for one staffer's way in. A week: a café
+ * staffer who looks at their shifts once a week is using it.
+ */
+export const ACTIVE_WITHIN_DAYS = 7;
+
+/**
+ * The server sends `last_accessed` as NAIVE UTC ("2026-10-11T23:32:03").
+ * Date.parse reads a zone-less ISO string as LOCAL time, which moves a late
+ * evening visit onto the next day for a Dane. Read through the app's one
+ * server-stamp reader (utils/serverTime), which takes it as UTC unless it
+ * already carries a zone.
+ *
+ * @param {string|null|undefined} raw
+ * @returns {number} epoch ms, or NaN when there is no usable timestamp.
+ */
+export function parseServerUtc(raw) {
+  if (!raw || typeof raw !== "string") return NaN;
+  const d = parseServerTime(raw);
+  return d ? d.getTime() : NaN;
+}
+
+const localDay = (ms) => {
+  const d = new Date(ms);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+};
+
+/** "YYYY-MM-DD" of an instant, in the viewer's own zone. */
+const localIsoDay = (ms) => {
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
+/**
+ * One staffer's way-in status, from the `shareOpened` map the schedule page
+ * keeps (staffId → ISO | null, key absent = not asked). Four outcomes, and the
+ * first one is the reason this returns an object instead of a boolean:
+ *
+ *   "unknown" — the key is absent: we never asked the server. Render NOTHING.
+ *   "none"    — asked, and this person has never opened their link (or app).
+ *   "active"  — opened within ACTIVE_WITHIN_DAYS calendar days.
+ *   "joined"  — opened once, but not lately.
+ *
+ * `lastSeenDay` is the day of that visit IN THE VIEWER'S ZONE ("YYYY-MM-DD"),
+ * for a date label. Never slice the raw string for it: the stamp is UTC, so
+ * "2026-10-04T22:30:00" is 5 October in Copenhagen, and its first ten
+ * characters say the 4th.
+ *
+ * @param {string|null|undefined} lastAccessed
+ * @param {number} [now] epoch ms (tests pin it)
+ * @returns {{state: "unknown"|"none"|"active"|"joined", lastSeen: string|null, lastSeenDay: string|null, daysAgo: number|null}}
+ */
+export function staffReachState(lastAccessed, now = Date.now()) {
+  if (lastAccessed === undefined) return { state: "unknown", lastSeen: null, lastSeenDay: null, daysAgo: null };
+  const ms = parseServerUtc(lastAccessed);
+  if (!Number.isFinite(ms)) return { state: "none", lastSeen: null, lastSeenDay: null, daysAgo: null };
+  // Calendar days in the owner's own zone; Math.round absorbs a DST hour.
+  const daysAgo = Math.max(0, Math.round((localDay(now) - localDay(ms)) / 86400000));
+  return {
+    state: daysAgo < ACTIVE_WITHIN_DAYS ? "active" : "joined",
+    lastSeen: lastAccessed,
+    lastSeenDay: localIsoDay(ms),
+    daysAgo,
+  };
+}
+
+/**
+ * The team-level rollup for the people the owner actually schedules: only
+ * ACTIVE staff, and only those the server answered for. null = not known yet,
+ * which (as above) must render nothing.
+ *
+ * @param {Array<{id: string}>} activeStaff
+ * @param {Object<string, string|null>} openedMap staffId → ISO | null
+ * @returns {{total: number, joined: number, notYet: number}|null}
+ */
+export function teamReach(activeStaff, openedMap) {
+  if (!Array.isArray(activeStaff) || !openedMap) return null;
+  const known = activeStaff.filter((s) => Object.prototype.hasOwnProperty.call(openedMap, s.id));
+  if (known.length === 0) return null;
+  const notYet = known.filter((s) => !Number.isFinite(parseServerUtc(openedMap[s.id]))).length;
+  return { total: known.length, joined: known.length - notYet, notYet };
 }

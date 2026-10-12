@@ -57,7 +57,25 @@ const ACTIVATION_SETUP_ROUTE = {
   staff: "/staff/schedule",
 };
 
-export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
+// A setup tile is named after the PAGE it opens, not the pillar: the staff
+// pillar's tile goes to /staff/schedule, which onboarding, the nav and the
+// page itself all call "Vagtplan" — the tile said "Personale".
+const SETUP_LABEL_KEY = {
+  staff: "staffSchedule",
+};
+const setupLabelKey = (p) => SETUP_LABEL_KEY[p.id] || p.labelKey;
+
+/**
+ * @param {object} props
+ * @param {"sidebar"|"more"} [props.variant]
+ * @param {"setup"|"off"} [props.only] render one of the two lists. The two have
+ *   different jobs, so they sit in different places: "setup" tiles are the
+ *   owner's OWN features, switched on at onboarding and not used yet — they go
+ *   at the TOP ("Kom i gang"), where onboarding's "we turned these on" points;
+ *   "off" tiles re-find something the owner HID and stay at the bottom.
+ *   Omitted = both, as before.
+ */
+export default function PillarDiscovery({ variant = "sidebar", onNavigate, only }) {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -134,7 +152,12 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
   // or state not settled) → no affordance at all. PillarDiscovery renders only
   // when it has something genuinely re-findable to offer.
   if (!isReady || !activationReady) return null;
-  if (offPillars.length === 0 && setupPillars.length === 0) return null;
+  const showSetup = only !== "off" ? setupPillars : [];
+  const showOff = only !== "setup" ? offPillars : [];
+  if (showOff.length === 0 && showSetup.length === 0) return null;
+  // Setup tiles alone are features that are ON and waiting to be started —
+  // "Kom i gang", not "Tilføj funktioner" (which read as "these are off").
+  const title = showOff.length === 0 ? t("activationSetupTitle") : t("pillarDiscoveryTitle");
 
   // Navigate into a dormant pillar's setup/landing. Does NOT toggle
   // hidden_pillars — the pillar was never OFF, just unused. Auto-graduation
@@ -170,38 +193,42 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
     return (
       <div className="mb-6">
         <h3 className="text-xs text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider mb-2 px-1">
-          {t("pillarDiscoveryTitle")}
+          {title}
         </h3>
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
           {/* DORMANT-RELEVANT setup tiles — "Sæt op X". Distinct from the
               "Slå til" re-enable tiles below: these pillars were NEVER off,
               just unused, so tapping NAVIGATES to setup (no hidden_pillars
               toggle). The eyebrow makes the affordance unambiguous. */}
-          {setupPillars.map((p) => (
+          {/* The owner's own features, not used yet: drawn like every other
+              tile on this page (solid edge, full-ink icon and label). The
+              dashed, gray-400 version read as disabled — onboarding had just
+              said these were switched on. The eyebrow stays, readable. */}
+          {showSetup.map((p) => (
             <button
               key={`setup-${p.id}`}
               onClick={() => goSetup(p)}
-              aria-label={`${t("activationSetupEyebrow")} — ${t(p.labelKey)}`}
+              aria-label={`${t("activationSetupEyebrow")} — ${t(setupLabelKey(p))}`}
               className="flex flex-col items-center justify-center
-                bg-white dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600
+                bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700
                 rounded-xl p-3 min-h-[72px] active:scale-95 transition-transform
-                hover:border-gray-400 dark:hover:border-gray-500"
+                hover:border-gray-300 dark:hover:border-gray-600"
             >
               <Icon
                 name={p.icon}
                 size={20}
                 strokeWidth={1.75}
-                className="text-gray-500 dark:text-gray-400 mb-1.5"
+                className="text-gray-700 dark:text-gray-300 mb-1.5"
               />
-              <span className="text-[10px] text-gray-400 dark:text-gray-500 leading-none mb-0.5 uppercase tracking-wide font-semibold">
-                {t("activationSetupEyebrow")}
+              <span className="text-[11px] text-gray-600 dark:text-gray-400 text-center leading-tight font-medium">
+                {t(setupLabelKey(p))}
               </span>
-              <span className="text-[11px] text-gray-500 dark:text-gray-400 text-center leading-tight font-medium">
-                {t(p.labelKey)}
+              <span className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400 leading-none font-medium">
+                {t("activationSetupEyebrow")}
               </span>
             </button>
           ))}
-          {offPillars.map((p) => (
+          {showOff.map((p) => (
             <button
               key={p.id}
               onClick={() => enable(p)}
@@ -247,32 +274,34 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
           own gray-400 so it still matches the other MorePage section headers
           (that page is outside this change's scope). */}
       <p className={`px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider ${NAV_MUTED} flex items-center gap-1.5`}>
-        <Icon name="Plus" size={12} className="shrink-0 opacity-70" />
-        <span>{t("pillarDiscoveryTitle")}</span>
+        {/* "+" belongs to "Tilføj funktioner"; "Kom i gang" lists features
+            that are already on, so it carries no add mark. */}
+        {showOff.length > 0 && <Icon name="Plus" size={12} className="shrink-0 opacity-70" />}
+        <span>{title}</span>
       </p>
       <div className="space-y-0.5">
         {/* DORMANT-RELEVANT setup rows — "Sæt op". A relevant feature the owner
             hasn't used yet; tapping NAVIGATES to its setup/landing (no
             hidden_pillars toggle). The suffix copy distinguishes it from the
             "Slå til" re-enable rows below. */}
-        {setupPillars.map((p) => (
+        {showSetup.map((p) => (
           <button
             key={`setup-${p.id}`}
             onClick={() => { goSetup(p); }}
-            title={`${t("activationSetupEyebrow")} — ${t(p.labelKey)}`}
-            aria-label={`${t("activationSetupEyebrow")} — ${t(p.labelKey)}`}
+            title={`${t("activationSetupEyebrow")} — ${t(setupLabelKey(p))}`}
+            aria-label={`${t("activationSetupEyebrow")} — ${t(setupLabelKey(p))}`}
             className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition
-              text-gray-500 dark:text-gray-400
-              hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-700 dark:hover:text-gray-200 ${NAV_FOCUS_RING}`}
+              text-gray-600 dark:text-gray-300
+              hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-800 dark:hover:text-gray-100 ${NAV_FOCUS_RING}`}
           >
             <Icon name={p.icon} size={16} strokeWidth={1.75} className="shrink-0" />
-            <span className="flex-1 truncate text-left">{t(p.labelKey)}</span>
+            <span className="flex-1 truncate text-left">{t(setupLabelKey(p))}</span>
             <span className={`text-[10px] font-semibold ${NAV_MUTED} shrink-0`}>
               {t("activationSetupEyebrow")}
             </span>
           </button>
         ))}
-        {offPillars.map((p) => (
+        {showOff.map((p) => (
           <button
             key={p.id}
             onClick={() => { enable(p); }}
