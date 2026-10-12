@@ -145,7 +145,7 @@ export default function SmartDriftBanner() {
               type="button"
               onClick={() => applyAndNavigate(f)}
               disabled={!!busy[f.id]}
-              className="px-3 py-1 text-xs font-semibold rounded-md bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-50"
+              className="px-3 py-1 text-xs font-semibold rounded-md bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500 disabled:opacity-50"
             >
               {t("smartDriftUpdate") || "Update"}
             </button>

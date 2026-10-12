@@ -70,7 +70,7 @@ export default function TrialChip() {
     <div className={`hidden md:flex items-center justify-end gap-2 px-4 sm:px-6 py-1.5 border-b text-[11px] ${
       urgent
         ? "border-amber-200 dark:border-amber-800/50 bg-amber-50/60 dark:bg-amber-900/10"
-        : "border-gray-100 dark:border-gray-700/50 bg-gray-50/40 dark:bg-gray-800/20"
+        : "border-gray-100 dark:border-[rgb(var(--surface-line))] bg-gray-50/40 dark:bg-gray-800/20"
     }`}>
       <Link
         to="/subscription"
@@ -83,7 +83,7 @@ export default function TrialChip() {
         
         <span>{label}</span>
       </Link>
-      <span className="text-gray-300 dark:text-gray-600" aria-hidden="true">·</span>
+      <span className="text-gray-300 dark:text-gray-500" aria-hidden="true">·</span>
       <Link
         to="/subscription"
         className={`hover:underline ${

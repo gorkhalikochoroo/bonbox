@@ -55,7 +55,7 @@ export default function TrialBanner() {
   if (ent.inTrial && days > 0) {
     const closing = days <= 2; // "closing" not "urgent" — wording matters
     return (
-      <div className="flex items-start gap-3 rounded-xl border bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700 px-4 py-3">
+      <div className="flex items-start gap-3 rounded-xl border bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] border-gray-200 dark:border-[rgb(var(--surface-line))] px-4 py-3">
         
         <div className="flex-1 text-sm">
           <span className="font-semibold text-gray-800 dark:text-gray-200">
@@ -70,7 +70,7 @@ export default function TrialBanner() {
         <Link
           to="/subscription"
           className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap
-            bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100"
+            bg-gray-900 dark:bg-gray-600 text-white dark:text-white hover:bg-gray-800 dark:hover:bg-gray-500"
         >
           {closing ? (t("seeWhatChanges") || "See what changes") : (t("seePlans") || "See plans")}
         </Link>
@@ -95,7 +95,7 @@ export default function TrialBanner() {
     const daysSince = Math.floor((Date.now() - endTime) / 86400000);
     if (daysSince < 0 || daysSince > 7) return null;
     return (
-      <div className="flex items-start gap-3 rounded-xl border bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700 px-4 py-3">
+      <div className="flex items-start gap-3 rounded-xl border bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] border-gray-200 dark:border-[rgb(var(--surface-line))] px-4 py-3">
         {/* The kit's forest tile (docs/brand), not a parcel emoji. */}
         <span className="w-7 h-7 rounded-md bg-bb-forest text-bb-paper flex items-center justify-center shrink-0" aria-hidden="true">
           <BonBoxMark size={22} />
@@ -114,7 +114,7 @@ export default function TrialBanner() {
         </div>
         <Link
           to="/subscription"
-          className="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white whitespace-nowrap"
+          className="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500 whitespace-nowrap"
         >
           {t("upgrade") || "Upgrade"}
         </Link>

@@ -129,9 +129,9 @@ export default function CloserPromptCard({ user }) {
   if (stage === "done") return null;
 
   return (
-    <div className="mb-5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-5 sm:p-6">
+    <div className="mb-5 rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] p-5 sm:p-6">
       <div className="flex items-start gap-3 mb-3">
-        <div className="shrink-0 w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-300" aria-hidden="true">
+        <div className="shrink-0 w-9 h-9 rounded-lg bg-gray-100 dark:bg-[rgb(var(--surface-card))] flex items-center justify-center text-gray-600 dark:text-gray-300" aria-hidden="true">
           <Users size={18} strokeWidth={1.75} />
         </div>
         <div className="flex-1 min-w-0">
@@ -156,7 +156,7 @@ export default function CloserPromptCard({ user }) {
         <div className="flex flex-wrap gap-2 mt-4">
           <button
             onClick={() => setStage("form")}
-            className="px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold rounded-lg transition"
+            className="px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500 text-sm font-semibold rounded-lg transition"
           >
             {t("closerPromptAddCloser") || "Add my closer"}
           </button>
@@ -220,7 +220,7 @@ export default function CloserPromptCard({ user }) {
             <button
               type="submit"
               disabled={saving || !closerEmail.trim()}
-              className="flex-1 sm:flex-none px-5 py-2.5 bg-gray-900 hover:bg-gray-800 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold rounded-lg disabled:opacity-50 transition"
+              className="flex-1 sm:flex-none px-5 py-2.5 bg-gray-900 hover:bg-gray-800 text-white dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500 text-sm font-semibold rounded-lg disabled:opacity-50 transition"
             >
               {saving ? (t("saving") || "Saving…") : (t("save") || "Save")}
             </button>

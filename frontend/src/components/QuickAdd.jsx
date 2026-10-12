@@ -393,7 +393,7 @@ export default function QuickAdd() {
           aria-label={t("quickEntry")}
           /* The desktop cookie card floats above this "+" instead of over it (CookieConsent.jsx). */
           data-bb-consent-clear=""
-          className={`hidden md:flex fixed md:bottom-6 left-6 z-40 w-10 h-10 bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-white rounded-full shadow-sm hover:scale-105 transition-all items-center justify-center text-xl font-normal`}
+          className={`hidden md:flex fixed md:bottom-6 left-6 z-40 w-10 h-10 bg-gray-900 hover:bg-gray-700 dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500 text-white rounded-full shadow-sm hover:scale-105 transition-all items-center justify-center text-xl font-normal`}
         >
           +
         </button>

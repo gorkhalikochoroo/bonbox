@@ -104,8 +104,8 @@ export default function DemoActiveBanner() {
       role="status"
       aria-live="polite"
       className="flex items-center justify-between gap-3 px-3.5 py-2.5
-                 rounded-xl border border-amber-200/70 dark:border-amber-900/40
-                 bg-amber-50/80 dark:bg-amber-900/15"
+                 rounded-xl border border-amber-200/70 dark:border-amber-800/50
+                 bg-amber-50/80 dark:bg-amber-900/20"
     >
       <div className="flex items-center gap-2 min-w-0">
         <Icon

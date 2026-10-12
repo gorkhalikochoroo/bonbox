@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { syncThemeColor } from "../utils/themeColor";
 
 export function useDarkMode() {
   // Default to LIGHT mode unless the user has explicitly chosen dark.
@@ -15,6 +16,9 @@ export function useDarkMode() {
       document.documentElement.classList.remove("dark");
       localStorage.setItem("theme", "light");
     }
+    // The browser bar follows the theme on a live toggle too (index.html sets
+    // it before first paint). See utils/themeColor.js.
+    syncThemeColor(dark);
   }, [dark]);
 
   return [dark, () => setDark(!dark)];

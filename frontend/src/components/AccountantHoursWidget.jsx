@@ -132,7 +132,7 @@ function BreakdownDrawer({ data, onClose, t }) {
         aria-modal="true"
         aria-labelledby="acct-savings-breakdown-title"
         onClick={(e) => e.stopPropagation()}
-        className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-t-2xl sm:rounded-xl shadow-sm max-w-md w-full p-5 sm:p-6"
+        className="bg-white dark:bg-[rgb(var(--surface-raised))] border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] rounded-t-2xl sm:rounded-xl shadow-sm max-w-md w-full p-5 sm:p-6"
       >
         <div className="flex items-start justify-between gap-4 mb-4">
           <h3
@@ -197,7 +197,7 @@ function BreakdownDrawer({ data, onClose, t }) {
         )}
 
         {breakdown.length > 0 && (
-          <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-4 leading-snug">
+          <p className="text-[11px] text-gray-400 mt-4 leading-snug">
             {t(
               "acctSavingsBreakdownHonesty",
               "Tallene tæller kun handlinger, der faktisk er sket: kvitteringer med foto, låste kasserapporter, downloadede MOMS-eksporter og sendte fakturaer. Vi runder altid ned.",
@@ -406,9 +406,9 @@ export default function AccountantHoursWidget() {
           }
           className={
             "absolute top-2 right-2 z-10 w-8 h-8 rounded-lg " +
-            "flex items-center justify-center text-gray-400 dark:text-gray-500 " +
+            "flex items-center justify-center text-gray-400 " +
             "hover:text-gray-700 dark:hover:text-gray-200 " +
-            "hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors " +
+            "hover:bg-gray-100 dark:hover:bg-[rgb(var(--surface-raised))] transition-colors " +
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           }
         >
@@ -422,14 +422,14 @@ export default function AccountantHoursWidget() {
           "Se hvordan timerne er regnet ud"
         }
         className={
-          "w-full text-left rounded-xl ring-1 ring-gray-200 dark:ring-gray-800 " +
-          "bg-white dark:bg-gray-900 p-5 hover:shadow-sm transition-shadow " +
+          "w-full text-left rounded-xl ring-1 ring-gray-200 dark:ring-[rgb(var(--surface-line))] " +
+          "bg-white dark:bg-[rgb(var(--surface-card))] dark:hover:bg-[rgb(var(--surface-raised))] p-5 hover:shadow-sm transition-shadow " +
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 " +
-          "focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
+          "focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-[rgb(var(--surface-card))]"
         }
       >
         <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] flex items-center justify-center shrink-0">
             <Icon name="TrendingDown" size={20} className="text-gray-700 dark:text-gray-300" />
           </div>
           <div className="min-w-0 flex-1">

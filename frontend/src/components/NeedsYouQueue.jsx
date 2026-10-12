@@ -156,7 +156,7 @@ const RENDERERS = {
 const SEVERITY_DOT = {
   urgent: "bg-red-500",
   warn: "bg-amber-500",
-  info: "bg-gray-300 dark:bg-gray-600",
+  info: "bg-gray-300 dark:bg-gray-500",
 };
 
 export default function NeedsYouQueue() {
@@ -199,13 +199,13 @@ export default function NeedsYouQueue() {
   if (!visible.length) return null;
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-800">
+    <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-gray-100 dark:border-[rgb(var(--surface-line))]">
         <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
           {t("nyqTitle", "Needs you now")}
         </h3>
       </div>
-      <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+      <ul className="divide-y divide-gray-100 dark:divide-[rgb(var(--surface-line))]">
         {visible.map((f) => {
           const r = RENDERERS[f.code];
           if (!r) return null; // unknown code → skip (forward-compatible)
@@ -215,7 +215,7 @@ export default function NeedsYouQueue() {
               <button
                 type="button"
                 onClick={() => navigate(f.deep_link)}
-                className="min-w-0 flex-1 flex items-center gap-3 pl-4 pr-2 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 active:scale-[0.997] transition"
+                className="min-w-0 flex-1 flex items-center gap-3 pl-4 pr-2 py-3 text-left hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] active:scale-[0.997] transition"
               >
                 <span className={`h-2 w-2 rounded-full shrink-0 ${SEVERITY_DOT[f.severity] || SEVERITY_DOT.info}`} aria-hidden />
                 <RowIcon className="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" strokeWidth={1.75} aria-hidden />
@@ -234,7 +234,7 @@ export default function NeedsYouQueue() {
                 onClick={() => dismiss(f)}
                 aria-label={t("nyqDismiss", "Dismiss")}
                 title={t("nyqDismiss", "Dismiss")}
-                className="shrink-0 p-2 mr-2 rounded-lg text-gray-300 hover:text-gray-500 hover:bg-gray-50 dark:text-gray-600 dark:hover:text-gray-400 dark:hover:bg-gray-800/50 transition"
+                className="shrink-0 p-2 mr-2 rounded-lg text-gray-300 hover:text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-[rgb(var(--surface-raised))] transition"
               >
                 <X className="w-4 h-4" strokeWidth={1.75} aria-hidden />
               </button>

@@ -60,7 +60,7 @@ export default function PageHeader({
           // (Layout.jsx line ~705): 11px font-semibold uppercase
           // tracking-wider in gray-400. Reusing this rhythm anchors the
           // page in the same visual hierarchy as the nav it sits under.
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
             {eyebrow}
           </p>
         )}

@@ -337,7 +337,7 @@ export default function ComplianceCountdownCard({
           className={
             "w-full text-left block rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] " +
             "bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 " +
-            "hover:shadow-sm transition-shadow group " +
+            "hover:shadow-sm transition-shadow dark:hover:bg-[rgb(var(--surface-raised))] dark:transition-colors group " +
             "focus-visible:outline-none focus-visible:ring-2 " +
             "focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
             "focus-visible:ring-offset-1 " +
@@ -359,7 +359,7 @@ export default function ComplianceCountdownCard({
               <Icon size={18} strokeWidth={2} className={TONE[iconTone]} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">
                 {eyebrow}
               </p>
               <p className="text-base font-semibold text-gray-900 dark:text-gray-100 leading-snug">
@@ -379,7 +379,7 @@ export default function ComplianceCountdownCard({
                     "text-xs mt-1.5 " +
                     (fs.balance_stale
                       ? "text-amber-600 dark:text-amber-400"
-                      : "text-gray-400 dark:text-gray-500")
+                      : "text-gray-400")
                   }
                 >
                   {balanceFooter}
@@ -389,7 +389,7 @@ export default function ComplianceCountdownCard({
             <ArrowRight
               size={18}
               strokeWidth={2}
-              className="shrink-0 mt-1 text-gray-300 dark:text-gray-600 group-hover:text-gray-400 transition-colors"
+              className="shrink-0 mt-1 text-gray-300 dark:text-gray-400 group-hover:text-gray-400 dark:group-hover:text-gray-200 transition-colors"
               aria-hidden="true"
             />
           </div>
@@ -441,7 +441,7 @@ export default function ComplianceCountdownCard({
       className={
         "block rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] " +
         "bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 " +
-        "hover:shadow-sm transition-shadow " +
+        "hover:shadow-sm transition-shadow dark:hover:bg-[rgb(var(--surface-raised))] dark:transition-colors " +
         "focus-visible:outline-none focus-visible:ring-2 " +
         "focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
         "focus-visible:ring-offset-1 " +
@@ -465,7 +465,7 @@ export default function ComplianceCountdownCard({
           <Calendar size={18} strokeWidth={2} className={severity.iconClass} />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-0.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-0.5">
             {t("dashComplianceNextLabel", "Next deadline")}
           </p>
           <p className="text-sm text-gray-900 dark:text-gray-100 leading-snug">
@@ -548,7 +548,7 @@ function BalanceModal({ t, current, onClose, onSaved }) {
           type="button"
           onClick={() => submit(false)}
           disabled={saving || value === "" || rejected}
-          className="mt-4 w-full rounded-xl bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 py-2.5 font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+          className="mt-4 w-full rounded-xl bg-gray-900 dark:bg-gray-600 text-white dark:text-white py-2.5 font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
         >
           {t("fsBalanceSave", "Save")}
         </button>

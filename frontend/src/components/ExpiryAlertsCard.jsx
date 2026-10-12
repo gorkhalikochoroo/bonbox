@@ -64,14 +64,14 @@ export default function ExpiryAlertsCard() {
   // dashboard feels coherent).
   const hasToday = today.length > 0;
   const tone = hasToday
-    ? "bg-red-50 dark:bg-red-900/15"
-    : "bg-amber-50 dark:bg-amber-900/15";
+    ? "bg-red-50 dark:bg-red-900/15 dark:hover:bg-red-900/30"
+    : "bg-amber-50 dark:bg-amber-900/15 dark:hover:bg-amber-900/30";
   const toneText = hasToday
     ? "text-red-700 dark:text-red-300"
     : "text-amber-700 dark:text-amber-300";
   const toneRing = hasToday
-    ? "ring-red-200 dark:ring-red-800/40"
-    : "ring-amber-200 dark:ring-amber-800/40";
+    ? "ring-red-200 dark:ring-red-800/60"
+    : "ring-amber-200 dark:ring-amber-800/60";
 
   // Headline framing — "today" wins when present, otherwise "within 3 days"
   const headline = hasToday

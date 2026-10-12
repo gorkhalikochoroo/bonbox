@@ -69,20 +69,25 @@ export default function AnomalyAlertsCard() {
 
   // Highest severity present sets the card's accent
   const hasHigh = alerts.some((a) => a.severity === "high");
-  const accent = hasHigh ? "#dc2626" : "#f59e0b";
+  const accent = hasHigh ? "text-[#dc2626] dark:text-red-400" : "text-[#f59e0b] dark:text-amber-400";
 
+  // The high-severity edge and chip are inline rgba() so light renders the
+  // exact values it always has. In dark a 25% red edge measured 1.17 against
+  // the card and the 10% chip 1.05 — the most urgent card on Home had the
+  // faintest outline. Dark overrides through a var whose FALLBACK is the light
+  // literal (a utility class would be minified to a different alpha).
   return (
     <div
-      className="bg-white dark:bg-gray-800 rounded-xl border shadow-sm p-5 sm:p-6"
-      style={{ borderColor: hasHigh ? "rgba(220,38,38,0.25)" : "rgba(245,158,11,0.25)" }}
+      className="bg-white dark:bg-[rgb(var(--surface-card))] rounded-xl border shadow-sm p-5 sm:p-6 dark:[--anom-edge:rgba(220,38,38,0.45)] dark:[--anom-chip:rgba(220,38,38,0.2)]"
+      style={{ borderColor: hasHigh ? "var(--anom-edge, rgba(220,38,38,0.25))" : "rgba(245,158,11,0.25)" }}
     >
       <div className="flex items-center justify-between gap-3 mb-3">
         <div className="flex items-center gap-2.5 min-w-0">
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-            style={{ backgroundColor: hasHigh ? "rgba(220,38,38,0.10)" : "rgba(245,158,11,0.10)" }}
+            style={{ backgroundColor: hasHigh ? "var(--anom-chip, rgba(220,38,38,0.10))" : "rgba(245,158,11,0.10)" }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" className={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
               <line x1="12" y1="9" x2="12" y2="13" />
               <line x1="12" y1="17" x2="12.01" y2="17" />
@@ -94,7 +99,7 @@ export default function AnomalyAlertsCard() {
               : t("anomThingsToReview", "{count} things to review").replace("{count}", alerts.length)}
           </h3>
         </div>
-        <span className="text-[11px] uppercase tracking-[0.08em] text-gray-400 dark:text-gray-500 shrink-0">
+        <span className="text-[11px] uppercase tracking-[0.08em] text-gray-400 shrink-0">
           {alerts.some((a) => a.polished_by_ai)
             ? t("anomAiWatchdog", "AI watchdog")
             : t("anomBonboxWatchdog", "BonBox watchdog")}
@@ -105,7 +110,7 @@ export default function AnomalyAlertsCard() {
         {visible.map((a) => (
           <li
             key={a.id}
-            className="flex items-start gap-2.5 p-2.5 rounded-lg bg-gray-50/60 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-700/60"
+            className="flex items-start gap-2.5 p-2.5 rounded-lg bg-gray-50/60 dark:bg-[rgb(var(--surface-subtle))] border border-gray-100 dark:border-[rgb(var(--surface-line))]"
           >
             <span
               className="w-1.5 h-1.5 rounded-full mt-[8px] shrink-0"

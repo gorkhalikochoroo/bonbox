@@ -84,11 +84,17 @@ export default function SmartLanguageToast() {
     ? (t("smartLangSourceBrowser") || "from your browser")
     : (t("smartLangSourceCurrency") || "from your currency");
 
+  // dark:z-40 — under the page's own toasts (ToastContainer, z-50). Since the
+  // dark card went opaque, this notice sat ON TOP of a real error at 390: both
+  // are fixed at the same top offset and this one renders later, so "Hent PDF
+  // failed" was covered completely. A one-time language notice must never
+  // hide a failure. Light keeps its z-order in this dark-only pass (it has
+  // the same overlap under a 95%-opaque gray-900 — logged for the owner).
   return (
     <div
       role="status"
       aria-live="polite"
-      className="fixed left-1/2 -translate-x-1/2 z-50 max-w-md w-[92vw] sm:w-auto px-4 py-2.5 rounded-xl bg-gray-900/95 text-white shadow-sm flex items-center gap-3 text-[13px] top-[calc(env(safe-area-inset-top,0px)+4.25rem)] md:top-[max(1rem,env(safe-area-inset-top))]"
+      className="fixed left-1/2 -translate-x-1/2 z-50 dark:z-40 max-w-md w-[92vw] sm:w-auto px-4 py-2.5 rounded-xl bg-gray-900/95 text-white shadow-sm dark:bg-[rgb(var(--surface-raised))] dark:ring-1 dark:ring-[rgb(var(--surface-line-strong))] dark:shadow-[0_4px_12px_rgb(0_0_0/0.4)] flex items-center gap-3 text-[13px] top-[calc(env(safe-area-inset-top,0px)+4.25rem)] md:top-[max(1rem,env(safe-area-inset-top))]"
     >
       <span className="flex-1 min-w-0">
         <Globe className="inline w-3.5 h-3.5 mr-1.5 -mt-0.5 opacity-80" aria-hidden="true" />

@@ -68,7 +68,7 @@ export default function BranchSummaryCard() {
   const totalRev = summary.consolidated?.month_revenue || 0;
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/40 p-5 mb-4">
+    <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 mb-4">
       <div className="flex items-baseline justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
           {t("branchSummaryTitle") || "Your locations this month"}
@@ -132,7 +132,7 @@ export default function BranchSummaryCard() {
         })}
       </div>
 
-      <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
+      <p className="text-[11px] text-gray-400 mt-2">
         {t("branchSummaryHint") || "Tap a location to scope the Smart cards below to it."}
       </p>
     </div>

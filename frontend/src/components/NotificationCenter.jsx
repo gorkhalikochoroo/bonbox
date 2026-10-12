@@ -274,7 +274,7 @@ export default function NotificationCenter({ align = "right" }) {
           // The count sat at 10px in a 700 weight — below the 11px floor and
           // off the 400/500/600 ramp, on the one number in the chrome the owner
           // reads from arm's length. 11/600 in the same 18px dot.
-          <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[11px] font-semibold rounded-full flex items-center justify-center min-w-[18px] h-[18px] px-1 leading-none">
+          <span className="absolute -top-0.5 -right-0.5 bg-red-500 dark:bg-red-600 text-white text-[11px] font-semibold rounded-full flex items-center justify-center min-w-[18px] h-[18px] px-1 leading-none">
             {badge > 9 ? "9+" : badge}
           </span>
         ) : checkFailed ? (

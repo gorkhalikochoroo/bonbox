@@ -105,12 +105,14 @@ export default function MonthEndBundleBanner() {
   // green for do-it-now (active CTA).
   const wrapStyle =
     phase === "do_it_now"
-      ? "bg-gray-50/80 dark:bg-gray-800/50 border-gray-100 dark:border-gray-800"
+      ? "bg-gray-50/80 dark:bg-[rgb(var(--surface-subtle))] border-gray-100 dark:border-[rgb(var(--surface-line))]"
       : "bg-amber-50/70 dark:bg-amber-900/15 border-amber-200 dark:border-amber-800";
   const btnStyle =
     phase === "do_it_now"
-      ? "bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
-      : "bg-amber-600 hover:bg-amber-700 text-white";
+      ? "bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500"
+      : // Dark: an amber TINT with an amber edge, not a solid amber-600 slab
+        // (the brightest solid on a night screen). Same hue as light.
+        "bg-amber-600 hover:bg-amber-700 text-white dark:bg-amber-500/15 dark:text-amber-300 dark:hover:bg-amber-500/25 dark:shadow-[inset_0_0_0_1px_var(--color-amber-700)]";
 
   return (
     <div

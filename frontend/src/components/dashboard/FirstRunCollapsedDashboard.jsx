@@ -252,7 +252,7 @@ export default function FirstRunCollapsedDashboard({ user = null, className = ""
           data-testid="first-run-or-divider"
         >
           <span className="h-px flex-1 bg-gray-100 dark:bg-[rgb(var(--surface-line))]" />
-          <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
             {t("dashFirstRunOrStartReal", "or start with your real numbers")}
           </span>
           <span className="h-px flex-1 bg-gray-100 dark:bg-[rgb(var(--surface-line))]" />

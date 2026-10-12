@@ -6,7 +6,7 @@
  *
  * Variants (paired to intent, not color):
  *   • primary   — the action you want the user to take. Gray-900 on
- *                  light bg, gray-50 on dark. Quiet but confident.
+ *                  light bg, gray-600 on dark. Quiet but confident.
  *   • main      — THE one main action of a screen (New booking, Quick sale,
  *                  Snap your Z-report). BonBox green, so the eye has one
  *                  place to go. One per screen, never in forms or dialogs.
@@ -56,10 +56,19 @@ const VARIANTS = {
   primary:
     FADE_WHEN_DISABLED +
     "bg-gray-900 text-white hover:bg-gray-800 " +
-    "dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white " +
-    // gray-700, not gray-800: gray-800 is the dark CARD, so a disabled
-    // "Tilføj" on a card read as floating text.
-    "dark:disabled:opacity-100 dark:disabled:bg-gray-700 dark:disabled:text-gray-400 " +
+    // Dark: a dark SOLID control, not an inverted near-white block. gray-100
+    // (luminance 0.90) was the brightest slab on a night-time screen — the
+    // first-run hero CTA outshone the money on the card beside it. gray-600
+    // reads 1.94 against the card, white on it is 7.56:1 (4.84 on the
+    // gray-500 hover), and the green `main` stays the screen's one bright act.
+    "dark:bg-gray-600 dark:text-white dark:hover:bg-gray-500 " +
+    // Disabled RECEDES to line-only: no fill (the surface shows through), a
+    // line-strong hairline so it never reads as floating text (why it once
+    // got a gray-700 fill), gray-400 ink. A gray-700 fill sat only 1.36:1 from
+    // the gray-600 enabled fill — on /sales "Registrer" went live with a small
+    // lift — and was the secondary button's hover fill too.
+    "dark:disabled:opacity-100 dark:disabled:bg-transparent dark:disabled:text-gray-400 " +
+    "dark:disabled:shadow-[inset_0_0_0_1px_rgb(var(--surface-line-strong))] " +
     "focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100",
   // The screen's ONE main action (Sep 2026, founder's pick: only the main
   // button green, every other stays gray-900). #15803D, not the logo's

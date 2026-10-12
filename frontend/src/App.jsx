@@ -18,6 +18,7 @@ import { BranchProvider } from "./components/BranchSelector";
 import { LanguageProvider, detectInitialLanguage, useLanguage } from "./hooks/useLanguage";
 import { ConfirmProvider } from "./hooks/useConfirm";
 import { ToastProvider } from "./hooks/useToast";
+import { useThemeColorSync } from "./hooks/useThemeColorSync";
 import LandingV2Page from "./pages/LandingV2Page";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AlertTriangle } from "lucide-react";
@@ -1021,12 +1022,24 @@ function ScrollManager() {
   return null;
 }
 
+/**
+ * ThemeColorSync — the browser bar (<meta name="theme-color">) follows the
+ * route: dark pages get the dark bar, pages that never render dark (landing,
+ * /join, /stand, the staff portal) keep white. See hooks/useThemeColorSync.
+ * Declared above AppInner for the same reason as ScrollManager.
+ */
+function ThemeColorSync() {
+  useThemeColorSync();
+  return null;
+}
+
 function AppInner() {
   useKeepAlive(); // ping Render every 10 min to prevent cold starts
   return (
     <ErrorBoundary>
       <BrowserRouter>
         <ScrollManager />
+        <ThemeColorSync />
         <LanguageProvider>
           {/* ConfirmProvider — the one premium replacement for native
               window.confirm(). Sits inside LanguageProvider (the dialog reads

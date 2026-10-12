@@ -129,6 +129,10 @@ export function useToast() {
     }, duration);
   }, []);
 
+  // Dark: every toast is OPAQUE (the success one sits on the raised rung,
+  // the tinted ones on solid -900s). At /90 whatever lay under a toast read
+  // through it — at 390 the language notice's "Skift til engelsk" showed
+  // inside the red "Hent PDF failed". Light is unchanged.
   const ToastContainer = () => (
     // Safe-area aware: toasts dodge the notch on iPhone X+/Android punch-holes.
     // max(1rem, env(...)) keeps the existing 16px offset on no-notch devices.
@@ -142,12 +146,12 @@ export function useToast() {
             transition-all duration-300 ease-out
             ${toast.exiting ? "opacity-0 translate-x-8" : "opacity-100 translate-x-0 animate-slideIn"}
             ${toast.type === "success"
-              ? "bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-700 text-gray-800 dark:text-gray-100"
+              ? "bg-gray-50 dark:bg-[rgb(var(--surface-raised))] border border-gray-100 dark:border-[rgb(var(--surface-line-strong))] text-gray-800 dark:text-gray-100"
               : toast.type === "warning"
-              ? "bg-amber-50 dark:bg-amber-900/90 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-100"
+              ? "bg-amber-50 dark:bg-amber-900 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-100"
               : toast.type === "error"
-              ? "bg-red-50 dark:bg-red-900/90 border border-red-200 dark:border-red-700 text-red-800 dark:text-red-100"
-              : "bg-blue-50 dark:bg-blue-900/90 border border-blue-200 dark:border-blue-700 text-blue-800 dark:text-blue-100"
+              ? "bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 text-red-800 dark:text-red-100"
+              : "bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 text-blue-800 dark:text-blue-100"
             }
           `}
         >

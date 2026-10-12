@@ -275,10 +275,10 @@ export default function DailyBriefCard() {
   const headlineCta = _safeCtaPath(brief.headline_cta_url);
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700/60 p-6 sm:p-7">
+    <div className="bg-white dark:bg-[rgb(var(--surface-card))] rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] p-6 sm:p-7">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0 mt-0.5 text-gray-700 dark:text-gray-300">
+          <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] flex items-center justify-center shrink-0 mt-0.5 text-gray-700 dark:text-gray-300">
             <Icon name="Sparkles" size={16} strokeWidth={1.75} />
           </div>
           <div className="min-w-0">
@@ -359,8 +359,8 @@ export default function DailyBriefCard() {
         </ul>
       )}
 
-      <div className="mt-5 pt-3.5 border-t border-gray-100 dark:border-gray-700/60 flex items-center justify-between gap-3">
-        <span className="text-[11px] uppercase tracking-[0.08em] text-gray-400 dark:text-gray-500">
+      <div className="mt-5 pt-3.5 border-t border-gray-100 dark:border-[rgb(var(--surface-line))] flex items-center justify-between gap-3">
+        <span className="text-[11px] uppercase tracking-[0.08em] text-gray-400">
           {brief.ai_polished ? "AI Insight · BonBox" : "BonBox Insight"}
         </span>
         <div className="flex items-center gap-2">
@@ -397,7 +397,7 @@ export default function DailyBriefCard() {
           no redesign. Renders only when we successfully fetched the
           pref; silent on auth/network errors so the card still works. */}
       {briefEmailEnabled !== null && (
-        <div className="mt-2 text-[11.5px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+        <div className="mt-2 text-[11.5px] text-gray-400 flex items-center gap-1.5">
           <Icon name="Mail" size={12} strokeWidth={1.75} />
           {briefEmailEnabled ? (
             <span>{t("arrivesAt8amInbox")}</span>

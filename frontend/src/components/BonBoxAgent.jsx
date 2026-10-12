@@ -701,8 +701,8 @@ export default function BonBoxAgent() {
             hidden md:flex
             fixed right-5 z-[9999]
             w-11 h-11 rounded-full
-            bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-white
-            text-white dark:text-gray-900
+            bg-gray-900 hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500
+            text-white dark:text-white
             shadow-md
             items-center justify-center
             cursor-pointer select-none
