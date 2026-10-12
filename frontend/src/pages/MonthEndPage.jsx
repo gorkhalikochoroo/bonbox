@@ -189,6 +189,10 @@ export default function MonthEndPage() {
       title: t("meResendCorrectedTitle", "Send the corrected package?"),
       message: t("meResendCorrectedMsg", "Your revisor got this period on {date}. The figures have changed since, so the new package is marked RETTELSE and lists what changed.", { date: when }),
       confirmLabel: t("meSendCorrected", "Send corrected package"),
+    } : sp.partial ? {
+      title: t("meResendTitle", "Send it again?"),
+      message: t("meResendPartialMsg", "A package for this period went to {email} on {date}, before the period was over. Send a new package now?", { date: when, email: sp.recipient || "" }),
+      confirmLabel: t("meResendCta", "Send again"),
     } : sp.status === "unclear" ? {
       title: t("meResendTitle", "Send it again?"),
       message: t("meResendUnclearMsg", "We couldn't confirm that the package of {date} reached {email}. Ask your revisor first — send it again now?", { date: when, email: sp.recipient || "" }),
@@ -459,7 +463,9 @@ export default function MonthEndPage() {
               <History size={14} aria-hidden="true" />
               {sentPkg.status === "unclear"
                 ? t("meSentUnclear", "Possibly sent {date} to {email} — not confirmed.", { date: formatDateClear(sentPkg.sent_on || ""), email: sentPkg.recipient || "" })
-                : t("meSentOn", "Sent to your revisor {date} ({email}).", { date: formatDateClear(sentPkg.sent_on || ""), email: sentPkg.recipient || "" })}
+                : sentPkg.partial
+                  ? t("meSentPartial", "Sent {date} to {email} — before the period was over.", { date: formatDateClear(sentPkg.sent_on || ""), email: sentPkg.recipient || "" })
+                  : t("meSentOn", "Sent to your revisor {date} ({email}).", { date: formatDateClear(sentPkg.sent_on || ""), email: sentPkg.recipient || "" })}
             </p>
             {sentPkg.changed && (
               <>

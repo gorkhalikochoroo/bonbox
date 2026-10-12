@@ -225,16 +225,19 @@ def _zone_and_cutoff(db: Session, user: User):
 
 def sent_package_state(db: Session, user: User, s: date, e: date, *, fd=None, closes=None,
                        expenses=None) -> dict | None:
-    """The package of the finished period that already went to the revisor
-    (or may have), and whether its figures have changed since (M7):
-    {sent_on, recipient, status, changed, changes:[{key, before, after}]}."""
-    from app.jobs.revisor_package_job import final_sends
+    """The latest package of this period that went to the revisor (or may
+    have) — {sent_on, recipient, status, partial, changed, changes} — and,
+    for a package of the FINISHED period, whether its figures changed since
+    (M7). `partial`: it went while the period still ran (the period's full
+    package is still owed — not a correction)."""
+    from app.jobs.revisor_package_job import final_sends, period_sends
     zone, cutoff = _zone_and_cutoff(db, user)
-    rows = final_sends(db, user.id, s, e, zone, cutoff)
+    rows = period_sends(db, user.id, s, e)
     if not rows:
         return None
     last = rows[0]
-    with_fp = next((r for r in rows if r.figures_fp), None)
+    finals = final_sends(db, user.id, s, e, zone, cutoff)
+    with_fp = next((r for r in finals if r.figures_fp), None)
     changes: list = []
     changed = False
     if with_fp is not None:
@@ -254,11 +257,11 @@ def sent_package_state(db: Session, user: User, s: date, e: date, *, fd=None, cl
                 before = {}
             changes = [{"key": c["key"], "before": c["before"], "after": c["after"]}
                        for c in rp.figure_changes(before, now_fig)]
-    unclear = last.status != "sent"
     return {
         "sent_on": rp.link_local_date(user, last.sent_at or last.created_at),
         "recipient": last.recipient, "trigger": last.send_trigger,
-        "status": "unclear" if unclear else "sent",
+        "status": "sent" if last.status == "sent" else "unclear",
+        "partial": not finals,
         "changed": changed, "changes": changes,
     }
 
@@ -327,10 +330,11 @@ def send_now(
     # The finished period already went out (or may have): send again only
     # when the owner confirmed it — and when its figures changed since, the
     # new package says RETTELSE (minor 8, M7).
-    from app.jobs.revisor_package_job import final_sends
+    from app.jobs.revisor_package_job import final_sends, period_sends
     zone, cutoff = _zone_and_cutoff(db, user)
-    earlier = [r for r in final_sends(db, user.id, s, e, zone, cutoff) if r.dedup_key != dedup]
-    prior_send = next((r for r in earlier if r.figures_fp), None)
+    earlier = [r for r in period_sends(db, user.id, s, e) if r.dedup_key != dedup]
+    prior_send = next((r for r in final_sends(db, user.id, s, e, zone, cutoff)
+                       if r.dedup_key != dedup and r.figures_fp), None)
     if earlier and not body.resend:
         last = earlier[0]
         on = rp.link_local_date(user, last.sent_at or last.created_at)

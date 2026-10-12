@@ -649,6 +649,28 @@ def test_minor8_a_send_needs_a_key_and_a_resend_a_confirmation(client, db, store
     assert len([m for m in mailbox if m["to"] == ["pia@revisorhuset.dk"]]) == 1
 
 
+def test_minor8_a_period_sent_while_it_ran_needs_a_confirmation_but_is_no_rettelse(client, db, store,
+                                                                                 mailbox, monkeypatch):
+    import app.routers.revisor_package as rr
+    u = _owner(db)
+    _month(db, u, store, month=10)
+    _as(u)
+    body = {"start": "2026-10-01", "end": "2026-10-31"}
+    for mod in (rr, rp):
+        monkeypatch.setattr(mod, "utc_now", lambda: utc(2026, 10, 20, 10, 0))   # October still runs
+    assert client.post("/api/revisor-package/send", json={**body, "key": "p1"}).status_code == 200
+    sp = client.get("/api/revisor-package/checklist", params=body).json()["sent_package"]
+    assert sp["partial"] is True and sp["changed"] is False
+    for mod in (rr, rp):
+        monkeypatch.setattr(mod, "utc_now", lambda: utc(2026, 11, 2, 10, 0))    # October is over
+    r = client.post("/api/revisor-package/send", json={**body, "key": "p2"})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "already_sent"
+    r = client.post("/api/revisor-package/send", json={**body, "key": "p2", "resend": True})
+    assert r.status_code == 200
+    last = [m for m in mailbox if m["to"] == ["pia@revisorhuset.dk"]][-1]
+    assert not last["subject"].startswith("RETTELSE")        # the full month, not a correction
+
+
 def test_minor9_the_card_gets_the_real_run_time_and_the_owners_zone(client, db, monkeypatch):
     import app.routers.revisor_package as rr
     u = _owner(db, schedule="monthly", since=utc(2026, 10, 5))   # after September fell due

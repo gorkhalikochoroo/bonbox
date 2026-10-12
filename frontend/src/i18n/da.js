@@ -9882,6 +9882,8 @@ export const da = {
     meResendCta: "Send igen",
     meSentUnclear: "Måske sendt {date} til {email} — ikke bekræftet.",
     meSentOn: "Sendt til din revisor {date} ({email}).",
+    meResendPartialMsg: "En pakke for perioden gik til {email} {date}, før perioden var slut. Send en ny pakke nu?",
+    meSentPartial: "Sendt {date} til {email} — før perioden var slut.",
     meChangedAfterSend: "Ændret efter afsendelse",
     meChangedHint: "Send den rettede pakke — den er mærket RETTELSE og viser, hvad der er ændret. Intet sendes af sig selv.",
     meSendAgain: "Send igen",

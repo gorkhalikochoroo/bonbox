@@ -158,18 +158,27 @@ def manual_send_after_end(db: Session, user_id, start: date, end: date, tz,
     ).first() is not None
 
 
-def final_sends(db: Session, user_id, start: date, end: date, tz, cutoff_hour: int | None):
-    """The packages of this FINISHED period that went out (or may have),
-    by the schedule or by hand — newest first. A re-send of the period needs
-    the owner's confirmation, and is a RETTELSE when the figures changed."""
+def period_sends(db: Session, user_id, start: date, end: date):
+    """Every package of exactly this period that went out (or may have) —
+    any trigger, any time, newest first. Sending the period again needs the
+    owner's confirmation (minor 8)."""
     from sqlalchemy import func
     from app.models.revisor_package import RevisorPackageSend as R
-    over = period_over_at(end, tz, cutoff_hour)
     return (db.query(R)
             .filter(R.user_id == user_id, R.period_start == start, R.period_end == end,
-                    _covering(R), func.coalesce(R.sent_at, R.created_at) >= over)
+                    _covering(R))
             .order_by(func.coalesce(R.sent_at, R.created_at).desc())
             .all())
+
+
+def final_sends(db: Session, user_id, start: date, end: date, tz, cutoff_hour: int | None):
+    """The packages of this FINISHED period that went out (or may have) —
+    sent after its last business day ended — newest first. A package sent
+    again after one of these, with changed figures, is a RETTELSE (M7); a
+    package sent while the period still ran is superseded, not corrected."""
+    over = period_over_at(end, tz, cutoff_hour)
+    return [r for r in period_sends(db, user_id, start, end)
+            if (r.sent_at or r.created_at) >= over]
 
 
 def period_settled(db: Session, user_id, start: date, end: date, tz,

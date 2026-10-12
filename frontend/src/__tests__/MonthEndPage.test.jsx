@@ -257,6 +257,19 @@ describe("Månedsafslutning — after the package went (12 Oct review M7, minor 
     expect(screen.queryByTestId("me-changed-after-send")).toBeNull();
   });
 
+  it("a package sent while the period ran is named so, and a new send still asks first", async () => {
+    get.mockImplementation(() => Promise.resolve({ data: SENT({
+      sent_package: { sent_on: "2026-10-20", recipient: "pia@revisorhuset.dk", trigger: "manual",
+        status: "sent", partial: true, changed: false, changes: [] },
+    }) }));
+    renderPage();
+    expect(await screen.findByTestId("me-sent-package")).toHaveTextContent(/^meSentPartial/);
+    fireEvent.click(screen.getByText("meSendAgain"));
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    expect(confirmFn).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/^meResendPartialMsg/) }));
+    expect(post.mock.calls[0][1]).toMatchObject({ resend: true });
+  });
+
   it("lists receipts BonBox can't fetch and close/till variances as open items", async () => {
     const items = [...CHECKLIST().items,
       { key: "bilag_unreadable", count: 1, applicable: true,

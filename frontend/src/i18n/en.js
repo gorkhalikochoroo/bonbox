@@ -10210,6 +10210,8 @@ export const en = {
     meResendCta: "Send again",
     meSentUnclear: "Possibly sent {date} to {email} — not confirmed.",
     meSentOn: "Sent to your revisor {date} ({email}).",
+    meResendPartialMsg: "A package for this period went to {email} on {date}, before the period was over. Send a new package now?",
+    meSentPartial: "Sent {date} to {email} — before the period was over.",
     meChangedAfterSend: "Changed after it was sent",
     meChangedHint: "Send the corrected package — it is marked RETTELSE and lists what changed. Nothing is sent on its own.",
     meSendAgain: "Send again",
