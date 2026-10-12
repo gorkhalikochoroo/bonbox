@@ -229,6 +229,11 @@ class ExpenseResponse(BaseModel):
     # Godkend-kø: 'approved' = booked; 'pending' = unapproved draft (excluded
     # from every money total until the owner approves). NULL/legacy → approved.
     status: str | None = None
+    # 'guessed' = the scan could not read the date and stamped today's. The
+    # queue's "Couldn't read the date" answer (GodkendKo) reads this; without
+    # it in the response that branch could never show, while the server's
+    # approve gate still refused the draft with "dato".
+    date_source: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -236,3 +241,50 @@ class ExpenseResponse(BaseModel):
 class ExpenseApproveBatch(BaseModel):
     """Bulk-approve request — the ids the owner tapped 'Godkend alle klar' on."""
     ids: list[str]
+
+
+class LinkBilagRequest(BaseModel):
+    """"Knyt til eksisterende udgift" — staple a scanned receipt onto an
+    expense the owner already typed, instead of booking it a second time.
+
+    Exactly ONE source:
+      draft_id      — a Godkend-kø draft (Scan bunke / e-mail inbox) whose
+                      bilag moves onto the typed expense; the draft goes.
+      receipt_photo — the stored path /expenses/upload-receipt returned
+                      (single scan, nothing booked yet).
+    vendor / vat_amount / vat_rate are what the receipt said; they only ever
+    fill fields that are EMPTY on the typed expense — never its amount."""
+    draft_id: uuid.UUID | None = None
+    receipt_photo: str | None = None
+    vendor: str | None = None
+    vat_amount: float | None = None
+    vat_rate: float | None = None
+
+    @field_validator("receipt_photo", mode="before")
+    @classmethod
+    def cap_receipt_photo(cls, v):
+        if v is None or v == "":
+            return None
+        if not isinstance(v, str) or len(v) > RECEIPT_PHOTO_MAX_LEN:
+            raise ValueError("receipt_photo invalid")
+        return v
+
+    @field_validator("vat_amount", mode="before")
+    @classmethod
+    def validate_vat_amount(cls, v):
+        if v is None or v == "":
+            return None
+        av = float(v)
+        if av < 0:
+            raise ValueError("vat_amount must be non-negative")
+        return av
+
+    @field_validator("vat_rate", mode="before")
+    @classmethod
+    def validate_vat_rate(cls, v):
+        if v is None or v == "":
+            return None
+        rv = float(v)
+        if not 0 <= rv <= 1:
+            raise ValueError("vat_rate must be a decimal between 0 and 1")
+        return rv

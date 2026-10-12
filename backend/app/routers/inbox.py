@@ -792,6 +792,18 @@ def _ingest_attachment(
     else:
         amount_dec = None
 
+    # A DRAFT in the Godkend-kø, like every other machine-read receipt
+    # (Scan bunke, supplier-invoice import). It used to be created with no
+    # status, so the model default 'approved' booked it straight into MOMS —
+    # unseen, with a hard-coded "card" method, at 0 kr. when the read was
+    # unsure, and as a second copy of any expense the owner had already typed
+    # (duplicate fradrag). As a draft it stays out of every money total until
+    # the owner approves it, gets its bilagsnummer at approval, and the queue
+    # can offer "Knyt til eksisterende udgift" when it matches a typed row.
+    # The method is the receipt's own when it printed one — never invented.
+    _pm = str((extracted or {}).get("payment_method") or "").strip().lower() if extracted else ""
+    _pm = {"kontant": "cash", "kort": "card", "dankort": "card"}.get(_pm, _pm)
+    from app.services.vendor_identity import canonical_vendor_key
     expense = Expense(
         id=uuid.uuid4(),
         user_id=user.id,
@@ -799,9 +811,12 @@ def _ingest_attachment(
         date=expense_date,
         amount=amount_dec if amount_dec is not None else 0,
         description=description,
-        payment_method="card",
+        payment_method=_pm if _pm in ("cash", "card", "mobilepay") else None,
         notes=f"Auto-drafted from inbox email {em.id}. SHA256 {sha[:16]}…",
         receipt_photo=storage_path,
+        receipt_source="scan",
+        status="pending",
+        vendor_key=canonical_vendor_key(vendor) if vendor else None,
         reference_id=f"inbox_{em.id}_{intake.id}",
     )
     db.add(expense)

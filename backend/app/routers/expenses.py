@@ -5,7 +5,7 @@ import logging
 from datetime import date, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from slowapi import Limiter
@@ -31,6 +31,7 @@ from app.models.category_mapping import CategoryMapping
 from app.schemas.expense import (
     ExpenseCreate, ExpenseUpdate, ExpenseResponse,
     ExpenseCategoryCreate, ExpenseCategoryResponse, ExpenseApproveBatch,
+    LinkBilagRequest,
 )
 from app.services.auth import get_current_user
 from app.services.cash_sync import (
@@ -969,6 +970,15 @@ def attach_receipt_to_expense(
     expense_id: str,
     request: Request,
     file: UploadFile = File(...),
+    # "Knyt til eksisterende udgift" from a Smart Scan: the scanned photo
+    # goes onto an expense the owner already typed. link=1 refuses a draft
+    # or a row that already has a bilag (never overwrite evidence), and the
+    # receipt's own vendor / printed MOMS fill EMPTY fields only. Without
+    # link (the "Mangler bilag" snap) behaviour is unchanged.
+    link: bool = Form(False),
+    vendor: str | None = Form(None),
+    vat_amount: float | None = Form(None),
+    vat_rate: float | None = Form(None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -1000,6 +1010,23 @@ def attach_receipt_to_expense(
     )
     if not expense:
         raise HTTPException(status_code=404, detail="Expense not found")
+    if link:
+        if expense.is_deleted or _is_pending(expense):
+            raise HTTPException(status_code=409, detail={
+                "code": "target_is_draft",
+                "message": "Pick an expense that is already booked.",
+                "message_da": "Vælg en udgift, der allerede er bogført.",
+            })
+        if (expense.receipt_photo or "").strip():
+            raise HTTPException(status_code=409, detail={
+                "code": "already_has_bilag",
+                "message": "That expense already has a receipt.",
+                "message_da": "Den udgift har allerede et bilag.",
+            })
+        if vat_amount is not None and vat_amount < 0:
+            raise HTTPException(status_code=422, detail="vat_amount must be non-negative")
+        if vat_rate is not None and not 0 <= vat_rate <= 1:
+            raise HTTPException(status_code=422, detail="vat_rate must be a decimal between 0 and 1")
 
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "Please upload an image file")
@@ -1024,6 +1051,13 @@ def attach_receipt_to_expense(
     expense.receipt_photo = stored_path
     # Mark as a manual attach so the scan-cap meter excludes it (no OCR ran).
     expense.receipt_source = "attach"
+    filled, locked = [], None
+    if link:
+        filled, locked = _fill_empty_from_receipt(
+            db, user, expense,
+            vendor_key=canonical_vendor_key(vendor) if vendor else None,
+            vat_amount=vat_amount, vat_rate=vat_rate,
+        )
     db.commit()
     db.refresh(expense)
 
@@ -1034,7 +1068,7 @@ def attach_receipt_to_expense(
         audit_record(
             db,
             user,
-            "expense.receipt_attached",
+            "expense.bilag_linked" if link else "expense.receipt_attached",
             "expense",
             entity_id=expense.id,
             after={
@@ -1042,6 +1076,8 @@ def attach_receipt_to_expense(
                 "receipt_photo": stored_path,
                 "amount": float(expense.amount),
                 "date": expense.date.isoformat() if expense.date else None,
+                **({"source": "smart_scan", "filled": filled, "locked_period": locked}
+                   if link else {}),
             },
         )
         db.commit()
@@ -1228,6 +1264,16 @@ def approve_batch(
             elif blocker == "betalingsmåde":
                 skipped_no_method.append(str(e.id))
             continue
+        # A sweep never books a receipt that may be the bilag of an expense
+        # the owner already typed — that is the duplicate fradrag this queue
+        # exists to stop. Not a _draft_blocker on purpose: nothing is MISSING,
+        # a decision is. The single Godkend stays the owner's explicit "no,
+        # this is a separate purchase"; "Knyt til eksisterende udgift" is the
+        # other answer (POST /{id}/link-bilag).
+        if _draft_bilag_candidates(db, user, e):
+            skipped.append(str(e.id))
+            skipped_by_reason.setdefault("mulig dublet", []).append(str(e.id))
+            continue
         _promote_to_approved(db, user, e, kind="batch")
         approved.append(str(e.id))
     db.commit()
@@ -1242,6 +1288,248 @@ def approve_batch(
         # instead of quietly doing less than its count implied.
         "skipped_by_reason": skipped_by_reason,
     }
+
+
+# ── "Knyt til eksisterende udgift" — photo-later matching ────────────
+# Owners type the day's expenses by hand and photograph the receipts later.
+# Every receipt path used to book the photo as a NEW expense, so the typed row
+# and the scanned row both stood in the books (the same købsmoms twice). These
+# endpoints find the typed expense a receipt belongs to and staple the bilag
+# onto it — only when the owner taps it (services/bilag_match.py).
+
+def _draft_bilag_candidates(db: Session, user: User, draft: Expense) -> list:
+    """Typed expenses without a bilag that this draft's receipt could belong
+    to. Only a draft that carries a bilag and a readable amount can match."""
+    from app.services.bilag_match import find_candidates
+    if not draft.receipt_photo or not draft.amount or float(draft.amount) <= 0:
+        return []
+    if draft.currency:  # a foreign receipt has no account-currency amount yet
+        return []
+    return find_candidates(
+        db, user.id, amount=float(draft.amount), on_date=draft.date,
+        vendor_key=draft.vendor_key, branch_id=draft.branch_id,
+        exclude_ids=[draft.id],
+    )
+
+
+def _candidates_payload(db: Session, user: User, cands: list) -> list[dict]:
+    from app.services.bilag_match import candidate_json
+    cat_ids = {c.expense.category_id for c in cands if c.expense.category_id}
+    names = {}
+    if cat_ids:
+        names = {
+            cid: name for cid, name in db.query(ExpenseCategory.id, ExpenseCategory.name)
+            .filter(ExpenseCategory.id.in_(list(cat_ids)), ExpenseCategory.user_id == user.id)
+            .all()
+        }
+    return [candidate_json(c, names.get(c.expense.category_id)) for c in cands]
+
+
+@router.get("/bilag-matches")
+def bilag_matches(
+    amount: float = Query(..., gt=0, le=10_000_000),
+    on_date: date = Query(..., alias="date"),
+    vendor: str | None = Query(None, max_length=200),
+    exclude_id: uuid.UUID | None = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Booked expenses WITHOUT a bilag that a receipt of `amount` dated `date`
+    could belong to (±0,50 kr., ±3 days; same supplier first). Read-only —
+    it offers, it never links."""
+    from app.services.bilag_match import find_candidates
+    vkey = canonical_vendor_key(vendor) if vendor else None
+    cands = find_candidates(
+        db, user.id, amount=amount, on_date=on_date, vendor_key=vkey,
+        exclude_ids=[exclude_id] if exclude_id else (),
+    )
+    return {"candidates": _candidates_payload(db, user, cands), "count": len(cands)}
+
+
+@router.get("/pending/bilag-matches")
+def pending_bilag_matches(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """For every Godkend-kø draft that carries a bilag: the typed expenses it
+    may belong to. {draft_id: [candidate, …]} — drafts with none are absent."""
+    drafts = (
+        db.query(Expense)
+        .filter(Expense.user_id == user.id, Expense.is_deleted.isnot(True),
+                Expense.status == "pending")
+        .order_by(Expense.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    out: dict[str, list[dict]] = {}
+    for d in drafts:
+        cands = _draft_bilag_candidates(db, user, d)
+        if cands:
+            out[str(d.id)] = _candidates_payload(db, user, cands)
+    return {"matches": out}
+
+
+def _receipt_path_owned(user_id, path: str | None) -> bool:
+    """A stored receipt path /expenses/upload-receipt could have handed THIS
+    owner: the durable key (or a signed URL over it) under <uid>/expense/, or
+    the local fallback file named <uid>_<ts>_<rand>.jpg. Anything else — a
+    URL from elsewhere, another owner's photo — is refused."""
+    if not path:
+        return False
+    uid = str(user_id)
+    p = str(path)
+    if f"/{uid}/expense/" in p or p.startswith(f"{uid}/expense/"):
+        return True
+    base = p.replace("\\", "/").rsplit("/", 1)[-1]
+    return p.startswith("uploads/receipts/") and base.startswith(f"{uid}_") and ".." not in p
+
+
+def _fill_empty_from_receipt(db: Session, user: User, target: Expense, *,
+                             vendor_key: str | None, vat_amount, vat_rate) -> tuple[list[str], str | None]:
+    """Fill fields that are EMPTY on the typed expense from what the receipt
+    said. Never the amount, date, category or payment method — those are the
+    owner's. On a locked period (its kasserapport is locked, or a
+    MOMS-angivelse / revisor package covering it has gone to the revisor) no
+    VAT field is touched either. Returns (filled fields, locked reason)."""
+    from app.services.bilag_match import locked_reason
+    filled: list[str] = []
+    locked = locked_reason(db, user.id, target.date)
+    if not target.vendor_key and vendor_key:
+        target.vendor_key = vendor_key
+        filled.append("vendor_key")
+    if (not locked and target.vat_amount is None and vat_amount is not None
+            and not target.currency):
+        target.vat_amount = vat_amount
+        target.vat_rate = vat_rate
+        target.vat_source = "receipt"
+        filled.append("vat_amount")
+    return filled, locked
+
+
+@router.post("/{expense_id}/link-bilag", response_model=ExpenseResponse)
+@_limiter.limit("30/minute;400/day")
+def link_bilag(
+    expense_id: uuid.UUID,
+    body: LinkBilagRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Staple a scanned receipt onto an expense the owner already typed.
+
+    Adds the bilag and fills EMPTY fields only; the typed amount is never
+    changed. From a Godkend-kø draft the draft is removed afterwards — it
+    was never booked (no bilagsnummer, no kassebog line), and its photo now
+    is this expense's bilag. Never runs on its own: the owner taps it.
+
+    Multi-barrier: auth → tenant (404) → target must be booked and without a
+    bilag (409) → exactly one source; a draft must be this owner's pending
+    draft with a bilag; a stored path must be this owner's (422) → locked
+    period keeps its VAT fields → audit row expense.bilag_linked.
+    """
+    target = (
+        db.query(Expense)
+        .filter(Expense.id == expense_id, Expense.user_id == user.id,
+                Expense.is_deleted.isnot(True))
+        .first()
+    )
+    if not target:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    if _is_pending(target):
+        raise HTTPException(status_code=409, detail={
+            "code": "target_is_draft",
+            "message": "Pick an expense that is already booked.",
+            "message_da": "Vælg en udgift, der allerede er bogført.",
+        })
+    if (target.receipt_photo or "").strip():
+        raise HTTPException(status_code=409, detail={
+            "code": "already_has_bilag",
+            "message": "That expense already has a receipt.",
+            "message_da": "Den udgift har allerede et bilag.",
+        })
+    if bool(body.draft_id) == bool(body.receipt_photo):
+        raise HTTPException(status_code=422, detail="Send either draft_id or receipt_photo")
+
+    draft = None
+    if body.draft_id:
+        draft = (
+            db.query(Expense)
+            .filter(Expense.id == body.draft_id, Expense.user_id == user.id,
+                    Expense.is_deleted.isnot(True))
+            .first()
+        )
+        if not draft or draft.id == target.id:
+            raise HTTPException(status_code=404, detail="Draft not found")
+        if not _is_pending(draft) or not (draft.receipt_photo or "").strip():
+            raise HTTPException(status_code=409, detail={
+                "code": "not_a_draft_with_bilag",
+                "message": "Only a draft in the approve queue that has a receipt can be linked.",
+                "message_da": "Kun et udkast i godkend-køen med et bilag kan knyttes.",
+            })
+        photo = draft.receipt_photo
+        source = draft.receipt_source or "scan"
+        vkey = draft.vendor_key
+        vat_amount, vat_rate = draft.vat_amount, draft.vat_rate
+    else:
+        if not _receipt_path_owned(user.id, body.receipt_photo):
+            raise HTTPException(status_code=422, detail="receipt_photo is not one of your stored receipts")
+        photo = body.receipt_photo
+        # The photo came through /upload-receipt, which read it — a scan, so
+        # it counts toward the monthly scan meter like any scanned bilag.
+        source = "scan"
+        vkey = canonical_vendor_key(body.vendor) if body.vendor else None
+        vat_amount, vat_rate = body.vat_amount, body.vat_rate
+
+    before = {
+        "receipt_photo": None,
+        "vendor_key": target.vendor_key,
+        "vat_amount": float(target.vat_amount) if target.vat_amount is not None else None,
+    }
+    target.receipt_photo = photo
+    target.receipt_source = source
+    filled, locked = _fill_empty_from_receipt(
+        db, user, target, vendor_key=vkey, vat_amount=vat_amount, vat_rate=vat_rate,
+    )
+    draft_info = None
+    if draft is not None:
+        draft_info = {
+            "draft_id": str(draft.id),
+            "draft_amount": float(draft.amount or 0),
+            "draft_date": draft.date.isoformat() if draft.date else None,
+            "draft_description": draft.description,
+            "draft_reference_id": draft.reference_id,
+        }
+        # An inbox intake row keeps pointing at the bilag's expense.
+        try:
+            from app.models.receipt_intake import ReceiptIntake
+            db.query(ReceiptIntake).filter(
+                ReceiptIntake.expense_id == draft.id, ReceiptIntake.user_id == user.id,
+            ).update({"expense_id": target.id}, synchronize_session=False)
+        except Exception:  # noqa: BLE001 — the intake log must not block the link
+            logger.warning("link-bilag: intake re-point failed", exc_info=True)
+        db.delete(draft)
+    try:
+        from app.services.audit_service import record as audit_record
+        audit_record(
+            db, user, "expense.bilag_linked", "expense", entity_id=target.id,
+            before=before,
+            after={
+                "expense_id": str(target.id),
+                "amount": float(target.amount),
+                "date": target.date.isoformat() if target.date else None,
+                "receipt_photo": photo,
+                "receipt_source": source,
+                "filled": filled,
+                "locked_period": locked,
+                **(draft_info or {"source": "upload"}),
+            },
+            ip_address=client_ip(request),
+        )
+    except Exception:  # noqa: BLE001 — audit write must never break the link
+        logger.exception("audit.expense.bilag_linked failed")
+    db.commit()
+    db.refresh(target)
+    return target
 
 
 def _draft_blocker(expense: Expense) -> str | None:
