@@ -274,6 +274,9 @@ def compute_filing_data(
         # Section B
         "kob_med_moms": kob_med_moms,
         "moms_af_kob": moms_af_kob,
+        # moms_af_kob split per expense category by _calc_vat itself
+        # ([{category, gross, fradrag_pct, input_vat}], sums to moms_af_kob).
+        "kob_pr_kategori": vat.get("input_vat_by_category", []),
         # Section C
         "moms_til_skat": moms_til_skat,
         # Section D

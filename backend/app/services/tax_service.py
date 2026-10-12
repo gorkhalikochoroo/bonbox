@@ -221,6 +221,40 @@ def _resolve_frequency(user, config: dict) -> str:
     return config.get("default_frequency", "quarterly")
 
 
+def _split_input_vat_by_category(cat_rows, input_vat_total: float, vat_rate: float,
+                                 prices_include_moms: bool) -> list[dict]:
+    """The deductible købsmoms of `_calc_vat`, split per expense category.
+
+    `cat_rows` are _calc_vat's own (category name, gross) rows. Each row gets
+    gross × §42 fradrag factor × the rate formula input_vat uses. The rows are
+    rounded to the øre, and the difference to `input_vat_total` (a few øre at
+    most) is put on the row with the largest købsmoms, so the column sums to
+    the figure on the angivelse exactly."""
+    if vat_rate <= 0:
+        k = 0.0
+    elif prices_include_moms:
+        k = vat_rate / (1 + vat_rate)
+    else:
+        k = vat_rate
+    out: list[dict] = []
+    for name, total in cat_rows or []:
+        gross = float(total or 0)
+        factor = fradrag_factor(name or "")
+        out.append({
+            "category": name or "",
+            "gross": round(gross, 2),
+            "fradrag_pct": int(round(factor * 100)),
+            "input_vat": round(gross * factor * k, 2),
+        })
+    if out:
+        diff = round(float(input_vat_total or 0) - sum(r["input_vat"] for r in out), 2)
+        if diff:
+            biggest = max(out, key=lambda r: abs(r["input_vat"]))
+            biggest["input_vat"] = round(biggest["input_vat"] + diff, 2)
+    out.sort(key=lambda r: (-r["gross"], r["category"]))
+    return out
+
+
 def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
               vat_rate: float, prices_include_moms: bool = True) -> dict:
     """
@@ -486,6 +520,15 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     else:
         pos_sale_vat = pos_sale_total * vat_rate
         input_vat = round(deductible_expense_base * vat_rate, 2)
+
+    # Købsmoms per expense category — the SAME rows (_fradrag_cat_rows), the
+    # SAME §42 factor and the SAME formula as input_vat above, so the revisor
+    # package's category table is this engine's own breakdown, never a second
+    # calculation. Rounded per row, then the øre the rounding lost (or added)
+    # goes on the largest row: the rows sum to input_vat exactly.
+    input_vat_by_category = _split_input_vat_by_category(
+        _fradrag_cat_rows, input_vat, vat_rate, prices_include_moms,
+    )
 
     pos_output_vat = round(pos_sale_vat + close_pos_moms, 2)
 
@@ -909,6 +952,8 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         "exempt_on_close_dates": exempt_on_close_dates,
         "output_vat": output_vat,
         "input_vat": input_vat,
+        # [{category, gross, fradrag_pct, input_vat}] — sums to input_vat.
+        "input_vat_by_category": input_vat_by_category,
         "vat_payable": round(output_vat - input_vat, 2),
         # Bogføringsloven §9 stk. 2 — per-date variance warnings.
         # Empty list = no material variance to flag (or no overlap

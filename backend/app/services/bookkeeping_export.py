@@ -34,6 +34,7 @@ from app.utils.csv_safe import csv_safe  # neutralize CSV formula-injection in f
 
 from app.models.business_profile import BusinessProfile
 from app.models.expense import Expense, ExpenseCategory
+from app.services.expense_status import not_pending
 from app.models.sale import Sale
 from app.models.daily_close import DailyClose
 from app.models.user import User
@@ -183,7 +184,13 @@ def _query_sale_rows(user: User, db: Session, start: date, end: date) -> list[Sa
 
 
 def _query_expenses(user: User, db: Session, start: date, end: date) -> list[Expense]:
-    """Inner-layer query — graceful fallback for missing is_personal column."""
+    """Inner-layer query — graceful fallback for missing is_personal column.
+
+    Booked expenses only: a Godkend-kø draft (status 'pending') is a machine
+    read nobody has approved. The MOMS summary in the same bundle
+    (compute_filing_data) never counted one, so every line-item file listed
+    drafts — "Mangler beløb" rows at 0,00 and OCR guesses — that its own
+    moms-summary.csv left out (expense_status.not_pending is the one gate)."""
     try:
         return (
             db.query(Expense)
@@ -193,6 +200,7 @@ def _query_expenses(user: User, db: Session, start: date, end: date) -> list[Exp
                 Expense.date <= end,
                 Expense.is_deleted.isnot(True),
                 Expense.is_personal == False,  # noqa: E712
+                not_pending(),
             )
             .order_by(Expense.date.asc())
             .all()
@@ -207,6 +215,7 @@ def _query_expenses(user: User, db: Session, start: date, end: date) -> list[Exp
                     Expense.date >= start,
                     Expense.date <= end,
                     Expense.is_deleted.isnot(True),
+                    not_pending(),
                 )
                 .order_by(Expense.date.asc())
                 .all()
