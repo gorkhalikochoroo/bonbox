@@ -2702,6 +2702,13 @@ _migrations = [
     # a metadata-only ADD COLUMN; the next subscription event or /billing/me
     # sync fills it for an owner who already cancelled.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_cancel_at TIMESTAMP",
+    # ── Migration (2026-10-12): reservations.completed_at ──
+    # Mirrors app/models/reservation.py:Reservation.completed_at. When the host
+    # marked a party finished (UTC, like seated_at) — the host stand's history
+    # reads "seated → left" and the time at the table from it. Nullable, no
+    # default, no backfill: rows finished before it show no time, never a
+    # guessed one. Doc record: alembic/versions/029_reservation_completed_at.py.
+    "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP",
     # ── Migration (2026-10-08): accountant_grants — was the invite link mailed ─
     # Mirrors app/models/accountant_grant.py. invite_mailed_at: when the
     # CURRENT invite link was handed to the mail server; invite_mail_held: why
@@ -3434,6 +3441,8 @@ def _run_migrations():
             ok += _add("users", "last_seen_at", "TIMESTAMP")
             # Mirror of users.subscription_cancel_at (2026-10-12).
             ok += _add("users", "subscription_cancel_at", "TIMESTAMP")
+            # Mirror of reservations.completed_at (2026-10-12).
+            ok += _add("reservations", "completed_at", "TIMESTAMP")
             # Mirror of the accountant_grants invite-mail columns (2026-10-08).
             ok += _add("accountant_grants", "invite_mailed_at", "TIMESTAMP")
             ok += _add("accountant_grants", "invite_mail_held", "VARCHAR(32)")

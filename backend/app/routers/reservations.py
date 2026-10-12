@@ -410,7 +410,17 @@ def _reservation_dict(r: Reservation) -> dict:
             ),
         },
         "note_intent": r.note_intent,
+        # When the party sat down and when the host marked them finished — the
+        # stand's history reads "seated → left" and the time at the table from
+        # these. Stored as naive UTC (utc_now), unlike starts_at/ends_at which
+        # are naive business-local, so they go out with an explicit "Z".
+        "seated_at": _utc_iso(r.seated_at),
+        "completed_at": _utc_iso(getattr(r, "completed_at", None)),
     }
+
+
+def _utc_iso(ts: datetime | None) -> str | None:
+    return ts.isoformat() + "Z" if ts else None
 
 
 def _reservation_change_dict(r: Reservation, label_by_id: dict, cutoff: datetime) -> dict:
@@ -2657,6 +2667,14 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                     restore_blocked = {"booked_at": booked.strftime("%H:%M"), "table": _lbl}
         except Exception:  # noqa: BLE001 — the undo itself must still go through
             restored_from = None
+    # Finished: when they left. A reopen (or any other move off "completed")
+    # clears it, so the history never shows a leave time for a party still
+    # sitting. Re-marking an already-finished row keeps its first stamp.
+    if payload.status == "completed":
+        if prev_status != "completed" or r.completed_at is None:
+            r.completed_at = utc_now()
+    else:
+        r.completed_at = None
     if payload.status == "cancelled":
         r.cancelled_at = utc_now()
         # Cancelling a REQUEST is declining it — recorded as such, so the
