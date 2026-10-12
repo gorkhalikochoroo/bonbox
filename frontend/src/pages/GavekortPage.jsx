@@ -661,14 +661,22 @@ function IssueSection({ t, onIssued }) {
 
               {/* Free / sponsor card — no payment, no MOMS when given. */}
               <div className="max-w-md">
-                <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={isFree}
-                    onChange={(e) => setIsFree(e.target.checked)}
-                    data-testid="gk-free"
-                  />
+                {/* The control sits in a box one text line tall (h-5 = the
+                    text-sm line) and is centred in it, so it lines up with the
+                    label's FIRST line at any wrap. On touch the global 44px
+                    floor makes the input itself 44px tall; it overflows the
+                    box evenly, and the label's touch padding (py-3) keeps that
+                    44px inside the row — tap target unchanged. */}
+                <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer pointer-coarse:py-3">
+                  <span className="flex h-5 shrink-0 items-center">
+                    <input
+                      type="checkbox"
+                      className="m-0"
+                      checked={isFree}
+                      onChange={(e) => setIsFree(e.target.checked)}
+                      data-testid="gk-free"
+                    />
+                  </span>
                   <span>{t("gkFreeLabel", "Free / sponsored — no payment")}</span>
                 </label>
                 {isFree && (
@@ -1503,9 +1511,13 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
                 </p>
                 {/* Why — it decides the MOMS. Short on purpose. */}
                 <div className="space-y-1.5 text-sm text-gray-700 dark:text-gray-200" role="radiogroup">
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <input type="radio" name="gk-void-reason" className="mt-1"
-                      checked={voidReason === ""} onChange={() => setVoidReason("")} />
+                  {/* Radio centred on the reason's first line — same one-line
+                      box as the Free checkbox above. */}
+                  <label className="flex items-start gap-2 cursor-pointer pointer-coarse:py-3">
+                    <span className="flex h-5 shrink-0 items-center">
+                      <input type="radio" name="gk-void-reason" className="m-0"
+                        checked={voidReason === ""} onChange={() => setVoidReason("")} />
+                    </span>
                     <span>
                       {t("gkVoidReasonSold", "It was sold")}
                       <span className="block text-xs text-gray-500 dark:text-gray-400">
@@ -1513,9 +1525,11 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
                       </span>
                     </span>
                   </label>
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <input type="radio" name="gk-void-reason" className="mt-1" data-testid="gk-void-error"
-                      checked={voidReason === "issued_in_error"} onChange={() => setVoidReason("issued_in_error")} />
+                  <label className="flex items-start gap-2 cursor-pointer pointer-coarse:py-3">
+                    <span className="flex h-5 shrink-0 items-center">
+                      <input type="radio" name="gk-void-reason" className="m-0" data-testid="gk-void-error"
+                        checked={voidReason === "issued_in_error"} onChange={() => setVoidReason("issued_in_error")} />
+                    </span>
                     <span>
                       {t("gkVoidReasonError", "Issued by mistake — no payment")}
                       <span className="block text-xs text-gray-500 dark:text-gray-400">

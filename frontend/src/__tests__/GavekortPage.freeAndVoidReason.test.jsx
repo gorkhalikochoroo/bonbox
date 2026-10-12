@@ -102,6 +102,41 @@ describe("void — why", () => {
   });
 });
 
+// QA 12 Oct 2026: on a phone the global 44px touch floor made the checkbox and
+// the radios 44px tall, and with `items-start mt-*` their glyph sat 10-16px
+// below the label's first line. Now each control is centred in a box one
+// text-sm line tall (h-5), so it meets the FIRST line at any wrap; the
+// label's touch padding keeps the 44px input inside its row (no shrink).
+const expectFirstLineAligned = (input) => {
+  expect(input.className).not.toMatch(/\bmt-/);
+  const box = input.parentElement;
+  expect(box.tagName).toBe("SPAN");
+  for (const c of ["flex", "h-5", "shrink-0", "items-center"]) expect(box.classList.contains(c), c).toBe(true);
+  const label = input.closest("label");
+  expect(label.classList.contains("items-start")).toBe(true);
+  expect(label.classList.contains("pointer-coarse:py-3")).toBe(true);
+  // the touch floor itself is untouched: no min-h override on the control
+  expect(input.className).not.toMatch(/min-h/);
+};
+
+describe("controls line up with their label's first line", () => {
+  it("the Free / sponsored checkbox", async () => {
+    render(<MemoryRouter><GavekortPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByText(/gkAddRecipient/));
+    expectFirstLineAligned(screen.getByTestId("gk-free"));
+  });
+
+  it("both void-reason radios", async () => {
+    render(<MemoryRouter><GavekortPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByText("gkTabLedger"));
+    fireEvent.click(await screen.findByText("···· BBBC"));
+    fireEvent.click(await screen.findByText("gkVoidAction"));
+    const radios = [...document.querySelectorAll('input[name="gk-void-reason"]')];
+    expect(radios).toHaveLength(2);
+    radios.forEach(expectFirstLineAligned);
+  });
+});
+
 describe("the words (real dictionaries)", () => {
   it("are real Danish and English", () => {
     for (const k of ["gkFreeLabel", "gkFreeHelp", "gkTenderFree", "gkVoidReasonSold", "gkVoidReasonSoldHelp",
