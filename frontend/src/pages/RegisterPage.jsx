@@ -20,6 +20,7 @@ import { rememberVerifySkip, postLoginPath } from "../utils/verifySkip";
 import { homeFor } from "../lib/appMode";
 import { emailProblem, passwordState } from "../utils/signupValidation";
 import { dismissKeyboard, enterToNext } from "../utils/phoneForm";
+import { inAppBrowserName } from "../utils/inAppBrowser";
 import AuthShell, {
   AuthAlert, AuthDivider, AuthHeading, FieldError, FieldLabel, PasswordInput, PrimaryButton,
 } from "../components/auth/AuthUI";
@@ -86,7 +87,13 @@ export default function RegisterPage() {
   //             Google flow doesn't work inside WKWebView;
   //             that's a follow-up.
   const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
-  const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID && !isNative;
+  const googleConfigured = !!import.meta.env.VITE_GOOGLE_CLIENT_ID && !isNative;
+  // Push 7 — Google refuses its sign-in inside Instagram's, Facebook's and
+  // Messenger's own browsers ("disallowed_useragent"), and the paid Instagram
+  // ad opens this page in exactly that browser. There the button gives way to
+  // one line saying so (utils/inAppBrowser); the e-mail form is unchanged.
+  const googleBlockedIn = googleConfigured ? inAppBrowserName() : null;
+  const hasGoogle = googleConfigured && !googleBlockedIn;
   // Feature-detect the native plugin so older TestFlight builds (which
   // shipped without the bridge) gracefully fall back to email/password.
   const hasAppleNative =
@@ -471,6 +478,16 @@ export default function RegisterPage() {
   // such row. Every request this page sends carries accept_terms=true.
   const hasOAuthRow = hasAppleWeb || hasAppleNative || hasGoogle;
   const typedEmail = form.email.trim();
+  // Push 7 — in Instagram / Facebook / Messenger Google's button would only
+  // lead to Google's error page: one calm line instead, naming the two ways
+  // that work. It takes the button's place in the Apple row when there is
+  // one, else it stands alone above the form (no row: the Terms line stays
+  // under "Opret konto", as on any page without Google or Apple).
+  const googleInAppNote = googleBlockedIn ? (
+    <p data-testid="google-inapp-note" className="text-[14px] leading-relaxed text-pretty text-gray-600 dark:text-gray-400">
+      {t("googleInAppNote", { app: googleBlockedIn })}
+    </p>
+  ) : null;
 
   // Desktop only: what the trial is, in three true lines (push 6). The
   // founding-price line is hidden on native (Apple 3.1.1 — no subscription
@@ -611,6 +628,7 @@ export default function RegisterPage() {
               />
             </div>
           )}
+          {googleInAppNote}
           {/* Release R-e — the Terms acceptance line, beside the
               Google/Apple row: those buttons create the account
               without the form, so the line must be seen here. It also
@@ -624,6 +642,7 @@ export default function RegisterPage() {
           </div>
         </div>
       )}
+      {!hasOAuthRow && googleInAppNote && <div className="mt-6">{googleInAppNote}</div>}
 
       {/* Each field keeps one message line under it (empty until there is
           something to say), so nothing below moves when a message appears.

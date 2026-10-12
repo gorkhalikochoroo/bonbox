@@ -6983,6 +6983,10 @@ export const da = {
     appleSigninFailed: "Apple-login mislykkedes",
     appleSignupFailed: "Apple-tilmelding mislykkedes",
     orUseEmail: "eller brug e-mail",
+    // Push 7 — /register and /login inside Instagram's, Facebook's or
+    // Messenger's own browser, where Google refuses its sign-in. {app} is
+    // the app's name (Instagram / Facebook / Messenger).
+    googleInAppNote: "Google-login virker ikke inde i {app} — brug e-mail, eller åbn siden i Safari/Chrome.",
     smartEntryTooltip: "Skriv et salg i almindeligt sprog",
     welcomeDashboard: "Velkommen til dit dashboard",
     dashboardIntroTip: "Det her er din forretning på et øjeblik. Tryk på periode-chipsene nedenfor for at skifte mellem i dag, uge og måned. Brug Hurtig Tilføj til at registrere et salg eller en udgift på sekunder — BonBox håndterer MOMS-regnestykket automatisk.",

@@ -7186,6 +7186,10 @@ export const en = {
     appleSigninFailed: "Apple sign-in failed",
     appleSignupFailed: "Apple sign-up failed",
     orUseEmail: "or use email",
+    // Push 7 — /register and /login inside Instagram's, Facebook's or
+    // Messenger's own browser, where Google refuses its sign-in. {app} is
+    // the app's name (Instagram / Facebook / Messenger).
+    googleInAppNote: "Google sign-in doesn't work inside {app} — use email, or open the page in Safari/Chrome.",
     smartEntryTooltip: "Type a sale in plain language",
     welcomeDashboard: "Welcome to your dashboard",
     dashboardIntroTip: "This is your business at a glance. Tap the period chips below to flip between today, week and month. Use Quick Add to log a sale or expense in seconds — BonBox handles the MOMS math automatically.",

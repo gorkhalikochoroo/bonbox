@@ -15,6 +15,7 @@ import { oauthErrText } from "../utils/errText";
 import { authErrorKey } from "../utils/authErrors";
 import { emailProblem } from "../utils/signupValidation";
 import { dismissKeyboard, enterToNext } from "../utils/phoneForm";
+import { inAppBrowserName } from "../utils/inAppBrowser";
 import { withSignupRef } from "../utils/signupRef";
 // R-e fix-up — Google, Apple and the e-mail link create an account here too
 // when the address is new, so this page shows the Terms acceptance line
@@ -132,7 +133,12 @@ export default function LoginPage() {
   //     web Google flow doesn't work reliably inside the
   //     Capacitor WebView. v1.x follow-up.
   const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
-  const hasGoogle = !!import.meta.env.VITE_GOOGLE_CLIENT_ID && !isNative;
+  const googleConfigured = !!import.meta.env.VITE_GOOGLE_CLIENT_ID && !isNative;
+  // Push 7 — Google refuses its sign-in inside Instagram's, Facebook's and
+  // Messenger's own browsers ("disallowed_useragent"): there the button gives
+  // way to one line saying so (utils/inAppBrowser), as on /register.
+  const googleBlockedIn = googleConfigured ? inAppBrowserName() : null;
+  const hasGoogle = googleConfigured && !googleBlockedIn;
   // Task #90 — true on iOS native when our custom AppleSignInPlugin is
   // registered. We feature-detect via window.Capacitor.Plugins.AppleSignIn
   // so a stale TestFlight build that predates the plugin gracefully
@@ -337,6 +343,14 @@ export default function LoginPage() {
   };
 
   const typedEmail = email.trim();
+  // Push 7 — in Instagram / Facebook / Messenger: one calm line where
+  // Google's button would be (in the Apple row when there is one, else on its
+  // own above the form), naming the two ways that work.
+  const googleInAppNote = googleBlockedIn ? (
+    <p data-testid="google-inapp-note" className="text-[14px] leading-relaxed text-pretty text-gray-600 dark:text-gray-400">
+      {t("googleInAppNote", { app: googleBlockedIn })}
+    </p>
+  ) : null;
 
   return (
     <AuthShell
@@ -514,6 +528,7 @@ export default function LoginPage() {
               />
             </div>
           )}
+          {googleInAppNote}
           {/* R-e fix-up — the Terms acceptance line beside the
               Google/Apple row (those buttons create an account when
               the address is new). Once, before the e-mail divider. */}
@@ -522,6 +537,9 @@ export default function LoginPage() {
             <AuthDivider label={t("orUseEmail") || (t("or") + " " + (t("emailLabel") || "email")).toLowerCase()} />
           </div>
         </div>
+      )}
+      {!magicMode && !(hasAppleWeb || hasAppleNative || hasGoogle) && googleInAppNote && (
+        <div className="mt-6">{googleInAppNote}</div>
       )}
 
       {/* Magic-link sent confirmation — replaces the form entirely
