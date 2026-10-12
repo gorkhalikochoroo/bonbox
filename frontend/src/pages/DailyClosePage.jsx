@@ -6,6 +6,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "../components/BranchSelector";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { GK_NOTE_PREFIX, splitGkNote } from "../utils/gavekortNote";
 import { displayCurrency, formatOwnerMoney, getTaxConfig, getVatTerms, isMoneyRejected, moneyInputText, moneyLocale, parseMoneyInput } from "../utils/currency";
 import { trackEvent } from "../hooks/useEventLog";
 import DismissibleTip from "../components/DismissibleTip";
@@ -432,6 +433,7 @@ const REVENUE_CATS_BY_TYPE = {
 // `fromLedger`: filled from BonBox's own gavekort ledger, not expected on the
 // Z-bon — so it is not one of the fields a scan's confidence counts.
 const GIFT_CARD_PAY = { key: "gift_card", labelKey: "dcPayGiftCard", label: "Gavekort", icon: "Gift", fromLedger: true };
+
 
 const PAYMENT_METHODS_BY_TYPE = {
   restaurant: [
@@ -2730,17 +2732,24 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // Every field takes the SAVED value, empty included: a field the close
     // never had kept whatever this form held before, and the next save
     // filed it under the edited day.
+    const gkNoteSplit = splitGkNote(dc.notes || "");
     const loaded = {
       cash: dc.cash_counted != null ? asInput(dc.cash_counted) : "",
       tips: dc.tips_total != null ? asInput(dc.tips_total) : "",
       staff: dc.tips_staff_count != null ? String(dc.tips_staff_count) : "",
       by: dc.closed_by || "",
-      notes: dc.notes || "",
+      // Without the form's own "Gavekort solgt:" line — the save writes it
+      // again from the day's facts (never twice).
+      notes: gkNoteSplit.notes,
       // A typed (or scanned) MOMS comes back as typed. Opening it in Auto
       // re-saved a different MOMS the moment anything else changed.
       momsMode: dc.moms_mode === "manual" && dc.moms_total != null ? "manual" : "auto",
       momsManual: dc.moms_mode === "manual" && dc.moms_total != null ? asInput(dc.moms_total) : "",
-      gavekort: "",
+      // The salon's own "Gavekort solgt" figure comes back from its note line
+      // (it is the owner's typed figure, not a ledger fact).
+      gavekort: config.hasGavekort && gkNoteSplit.amountText
+        ? (() => { const n = readMoney(gkNoteSplit.amountText); return Number.isFinite(n) && n > 0 ? asInput(n) : ""; })()
+        : "",
       batch: "",
     };
     // The reopened close is the day's one till now: a "draft" till with the
@@ -3981,7 +3990,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // Today's redeemed gavekort as the "Gavekort" payment line, so a meal
         // paid by gavekort ties out without anyone touching revenue. Only into
         // an EMPTY box on a new close — the owner's figure always wins.
-        if (!editLoadedRef.current && boxFillEpochRef.current === fillEpoch) {
+        if (!editLoadedRef.current && boxFillEpochRef.current === fillEpoch && gk?.scope !== "account") {
           const gkTotal = Number(gk?.redeemed_total || 0);
           if (gkTotal > 0) {
             const box = asBox(gkTotal);
@@ -4087,14 +4096,28 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // is not revenue (MPV: no sale yet; SPV: BonBox counts its MOMS from the
   // card). So the day ties out as payments = revenue + gavekort sold — the
   // owner is never pushed to raise revenue (MOMS twice). Salon: its own box.
-  const gkSoldToday = config.hasGavekort ? readMoney0(gavekortSold) : Number(gkDay?.sold || 0);
+  // On an account with several branches the gavekort facts are the
+  // account's (cards carry no branch): nothing is pre-filled or assumed to be
+  // in THIS close — the evidence below decides (review 12 Oct, g).
+  const gkScopeAccount = gkDay?.scope === "account";
+  const gkSalonTyped = config.hasGavekort && String(gavekortSold ?? "").trim() !== "";
+  const gkSoldToday = gkSalonTyped ? readMoney0(gavekortSold) : Number(gkDay?.sold || 0);
   const tieOut = useMemo(() => {
-    if (!revenueKnown || !hasPaymentEntry) return { state: "unknown", diff: null };
-    const diff = savedRevenue + gkSoldToday - paymentTotal;
+    if (!revenueKnown || !hasPaymentEntry) return { state: "unknown", diff: null, gkInPayments: false };
     // Under 1 kr is rounding, not a discrepancy — same threshold the
     // payments step has always used, now defined once.
-    return { state: Math.abs(diff) < 1 ? "balanced" : "off", diff };
-  }, [revenueKnown, hasPaymentEntry, savedRevenue, paymentTotal, gkSoldToday]);
+    // The evidence decides whether today's gavekort sale went through these
+    // payments: payments = revenue + gavekort sold, or = revenue alone (sold
+    // after the close, paid another way, or at another branch).
+    const withSold = savedRevenue + gkSoldToday - paymentTotal;
+    const plain = savedRevenue - paymentTotal;
+    if (gkSoldToday > 0 && Math.abs(withSold) < 1) return { state: "balanced", diff: withSold, gkInPayments: true };
+    if (Math.abs(plain) < 1) return { state: "balanced", diff: plain, gkInPayments: false };
+    return { state: "off", diff: gkScopeAccount || gkSoldToday <= 0 ? plain : withSold, gkInPayments: false };
+  }, [revenueKnown, hasPaymentEntry, savedRevenue, paymentTotal, gkSoldToday, gkScopeAccount]);
+  // The sold line: shown when the sale is in these payments, or — on a
+  // one-branch account — whenever there is one (asked, not assumed).
+  const gkSoldShown = gkSoldToday > 0 && (tieOut.gkInPayments || gkSalonTyped || !gkScopeAccount);
   // Expected cash baseline for the drawer variance. Prefer the SYNCED POS
   // register cash (what the till says was taken) over the owner's typed cash
   // line — typed-vs-counted is self-referential and can't surface a real
@@ -4460,7 +4483,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
     // before the backend grows dedicated columns. Gavekort is explicitly
     // marked as EXCLUDED from the MOMS base (never auto-decided).
     const extraNoteParts = [];
-    const gavekortNum = gkSoldToday > 0 ? gkSoldToday : 0;
+    // Written only when the evidence puts the sale in THIS close (payments =
+    // revenue + sold) or the salon typed it — never on a branch that sold
+    // nothing — and always ONE line: `notes` never holds it (see splitGkNote).
+    const gavekortNum = gkSoldToday > 0 && (tieOut.gkInPayments || gkSalonTyped) ? gkSoldToday : 0;
     if (gavekortNum > 0) {
       extraNoteParts.push(
         // formatOwnerMoney, not toLocaleString: this note is persisted on the
@@ -4468,13 +4494,15 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         // read "1.500 kr." the way the rest of the document does — never
         // "1,500 DKK" because the closer's browser happened to be in English.
         // Danish on purpose: a revisor document (translation scope).
-        `Gavekort solgt: ${formatOwnerMoney(gavekortNum, currency, { decimals: LEDGER_DECIMALS })} (med i betalingerne, ikke i omsætningen. MOMS: enkeltformål tælles ved salget af gavekortet, flerformål ved indløsning).`,
+        tieOut.gkInPayments
+          ? `${GK_NOTE_PREFIX} ${formatOwnerMoney(gavekortNum, currency, { decimals: LEDGER_DECIMALS })} (med i betalingerne, ikke i omsætningen. MOMS: enkeltformål tælles ved salget af gavekortet, flerformål ved indløsning).`
+          : `${GK_NOTE_PREFIX} ${formatOwnerMoney(gavekortNum, currency, { decimals: LEDGER_DECIMALS })} (ikke i omsætningen. MOMS: enkeltformål tælles ved salget af gavekortet, flerformål ved indløsning).`,
       );
     }
     if (config.hasBatch && batchRef.trim()) {
       extraNoteParts.push(`Parti/Batch: ${batchRef.trim()}.`);
     }
-    const notesWithExtras = [notes, ...extraNoteParts].filter(Boolean).join("\n") || null;
+    const notesWithExtras = [splitGkNote(notes).notes, ...extraNoteParts].filter(Boolean).join("\n") || null;
 
     // Where the figures came from, for the revisor's kasserapport — read off
     // the tills (closeTills.sourceMetaOf): read off a Z-bon (and the tills
@@ -8604,7 +8632,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 </span>
               </div>
               <p className="mt-1 text-[12px] leading-relaxed">
-                {maybeMissing
+                {gkScopeAccount
+                  ? t(
+                      "dcGkAccountWide",
+                      "Across all your branches — BonBox can't tell which one. On the branch where it was used, put it under payments as \"Gavekort\".",
+                    )
+                  : maybeMissing
                   ? t(
                       "dcGkMaybeMissing",
                       "Det ser ud til, at gavekort-måltidet måske ikke er med i omsætningen ovenfor. MOMS skal afregnes ved indløsning — tjek at salget er bogført, så det indgår i MOMS-grundlaget.",
@@ -8909,7 +8942,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   <Amount value={hasRevenueEntry || savedRevenue > 0 ? savedRevenue : null} currency={currency} decimals={pairDecimals(paymentTotal, savedRevenue)} />
                 </span>
               </div>
-              {gkSoldToday > 0 && (
+              {gkSoldShown && (
                 <div className="mt-1.5" data-testid="dc-gk-sold-line">
                   <div className="flex justify-between items-baseline gap-3">
                     <span className="text-[12px] text-gray-500 dark:text-gray-400">
@@ -8920,8 +8953,13 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       <Amount value={gkSoldToday} currency={currency} decimals={pairDecimals(paymentTotal, savedRevenue)} />
                     </span>
                   </div>
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                    {t("dcGkSoldTodayHint", "The money is in your payments, but it is not revenue — keep it out of the revenue above. BonBox handles its MOMS from the gavekort.")}
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5" data-testid="dc-gk-sold-hint">
+                    {/* In these payments → say so. Payments = revenue → the
+                        sale was paid elsewhere or after the close, or it is
+                        in revenue: ASK, never assume. */}
+                    {tieOut.gkInPayments || tieOut.state !== "balanced"
+                      ? t("dcGkSoldTodayHint", "The money is in your payments, but it is not revenue — keep it out of the revenue above. BonBox handles its MOMS from the gavekort.")
+                      : t("dcGkSoldNotInPayments", "Not in today's payments — fine if it was paid another way or after the close. Is it in the revenue above? Then take it out.")}
                   </p>
                 </div>
               )}

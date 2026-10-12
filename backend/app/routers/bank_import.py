@@ -47,17 +47,25 @@ _IMPORT_ID_PATTERN = re.compile(r"^[a-z0-9_-]{1,32}$")
 # is held back from Sales.
 #
 # The match is deliberately strict — a wrong match would drop a real sale:
-#   • exact amount (to the øre) of a pending/issued online order,
+#   • exact amount (to the øre) of an ISSUED online order — a card exists, so
+#     its value and MOMS are carried by the card. A PENDING order has no card
+#     yet: holding its money back would leave money with no card and no MOMS
+#     (review 12 Oct, c). The preview says so; the line is booked as a sale,
+#     and the MOMS page asks about it until the owner sorts it out.
 #   • the order was placed in the 60 days before the payment (or ≤3 days after),
 #   • the transfer text says "gavekort"/"gift card" or names the buyer or the
 #     recipient,
 #   • exactly ONE order fits, and it was not matched to another bank line.
 # The preview shows the match; the owner can untick it (not_gavekort).
+# Anything looser (a MobilePay Box payout bundling several orders, a fee taken
+# off) is booked as a sale and asked about on the MOMS page —
+# gavekort_moms.bank_sale_checks.
 _GK_WORDS = ("gavekort", "gift card", "giftcard", "gift-card", "gavebevis")
 
 
 def _gavekort_order_for(db: Session, user_id, txn_date, amount: float,
-                        description: str, taken: set) -> "GiftCardOrder | None":
+                        description: str, taken: set,
+                        statuses=("issued",)) -> "GiftCardOrder | None":
     from datetime import timedelta
     from app.models.gift_card_order import GiftCardOrder
 
@@ -70,7 +78,7 @@ def _gavekort_order_for(db: Session, user_id, txn_date, amount: float,
         db.query(GiftCardOrder)
         .filter(GiftCardOrder.user_id == user_id,
                 GiftCardOrder.amount_minor == minor,
-                GiftCardOrder.status.in_(("pending", "issued")),
+                GiftCardOrder.status.in_(tuple(statuses)),
                 GiftCardOrder.created_at >= lo, GiftCardOrder.created_at < hi)
         .all()
     )
@@ -177,6 +185,19 @@ def preview_csv(
                     "buyer_name": o.buyer_name,
                     "voucher_class": o.voucher_class,
                 }
+                continue
+            # Fits an order that is NOT issued yet: not held back (there is
+            # no card to carry the money). Said, so the owner can issue the
+            # card first — the MOMS page keeps asking until then.
+            p = _gavekort_order_for(db, user.id, tdate, txn.get("amount") or 0,
+                                    txn.get("description") or "", taken,
+                                    statuses=("pending",))
+            if p is not None:
+                txn["gavekort_order_pending"] = {
+                    "order_id": str(p.id),
+                    "amount": round(p.amount_minor / 100.0, 2),
+                    "buyer_name": p.buyer_name,
+                }
     except Exception:  # noqa: BLE001 — a match hint must never break preview
         pass
 
@@ -238,7 +259,19 @@ def confirm_import(
             # A payment for an online gavekort order is NOT revenue (see
             # _gavekort_order_for). Held back from Sales, recorded in the
             # audit trail with the bank reference so a re-import is a no-op.
-            if not txn.not_gavekort:
+            if txn.not_gavekort:
+                # The owner said "not the gavekort" — remembered, so the MOMS
+                # page does not ask about this line again.
+                try:
+                    from app.services import audit_service
+                    audit_service.record(
+                        db, user, "gavekort.bank_payment_not_gavekort", "bank_line", None,
+                        after={"ref_id": ref_id, "date": txn_date.isoformat(),
+                               "amount": round(abs(txn.amount), 2)},
+                    )
+                except Exception:  # noqa: BLE001 — never block the import
+                    pass
+            else:
                 try:
                     if _gavekort_already_matched(db, user.id, ref_id):
                         skipped += 1

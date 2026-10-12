@@ -827,6 +827,65 @@ def export_mileage(user: User, db: Session, start: date, end: date) -> bytes:
 # ───────── BUNDLE (everything for one month, as a ZIP) ─────────
 
 
+def export_gavekort_ledger(user: User, db: Session, start: date, end: date) -> bytes:
+    """Gavekort ledger for the period — every card sold, used and voided, with
+    how its MOMS was treated, and the sums that tie the MOMS-angivelse:
+
+        moms af omsætningen + gavekort MOMS netto = moms af salg
+
+    Bogføringsloven §9: the difference a gavekort makes to the MOMS must be
+    traceable to the single card. The sums come from compute_filing_data —
+    the same engine as the angivelse — never re-derived here."""
+    from app.services.gavekort_moms import ledger_rows
+    from app.services.tax_filing_pdf import compute_filing_data
+
+    rows = ledger_rows(db, user, start, end)
+    data = compute_filing_data(db, user, start, end)
+    cur = data["currency"]
+
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=",", quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
+    w.writerow([
+        "Dato", "Gavekort", "Hændelse", "Type", "Betalt med", "Online-bestilling",
+        "Beløb", "MOMS-behandling", "MOMS ved salget", "Currency",
+    ])
+    for r in rows:
+        w.writerow([
+            r["date"].isoformat(), csv_safe(r["code"] or ""), r["event"], r["class"],
+            r["tender"], "ja" if r["online"] else "nej",
+            _money_dot(r["amount"]), r["treatment"],
+            _money_dot(r["moms"]) if r["moms"] is not None else "",
+            cur,
+        ])
+    # The sums the MOMS-angivelse uses (compute_filing_data).
+    w.writerow([])
+    sums = [
+        ("Gavekort solgt (enkeltformål) — MOMS ved salget",
+         data.get("gavekort_spv_sold", 0.0), data.get("gavekort_spv_output_vat", 0.0)),
+        ("Gavekort brugt — MOMS betalt ved salget, taget ud af omsætningen",
+         -float(data.get("gavekort_spv_redeemed_in_revenue", 0.0) or 0),
+         -float(data.get("gavekort_spv_redeemed_vat", 0.0) or 0)),
+        ("Gavekort MOMS netto", "", data.get("gavekort_moms_netto", 0.0)),
+        ("Moms af omsætningen", data.get("salg_omsaetning_med_moms", 0.0),
+         data.get("moms_af_omsaetning", 0.0)),
+        ("Moms af salg i alt (som i momsangivelsen)", data.get("salg_med_moms", 0.0),
+         data.get("moms_af_salg", 0.0)),
+    ]
+    for label, amount, moms in sums:
+        w.writerow([
+            "", "", label, "", "", "",
+            _money_dot(amount) if amount != "" else "", "",
+            _money_dot(moms), cur,
+        ])
+    n_checks = len(data.get("gavekort_warnings") or [])
+    if n_checks:
+        w.writerow([
+            "", "", f"Punkter at tjekke: {n_checks} (se MOMS-angivelsens PDF, afsnit D4)",
+            "", "", "", "", "", "", cur,
+        ])
+    return buf.getvalue().encode("utf-8-sig")
+
+
 def export_bundle(user: User, db: Session, start: date, end: date) -> bytes:
     """
     Monthly handoff ZIP — everything the revisor needs for the period:
@@ -834,6 +893,7 @@ def export_bundle(user: User, db: Session, start: date, end: date) -> bytes:
       • faktura CSV (AR register)
       • mileage CSV (kørselsfradrag log)
       • moms-summary CSV (period MOMS totals at a glance)
+      • gavekort CSV (every card sold/used/voided + the MOMS sums)
       • README.txt explaining what each file is + import order
       • manifest.txt with business info, period, file list, and SHA-256
         hash of each file (audit-grade tamper-evidence)
@@ -852,6 +912,7 @@ def export_bundle(user: User, db: Session, start: date, end: date) -> bytes:
     faktura_csv = export_faktura(user, db, start, end)
     mileage_csv = export_mileage(user, db, start, end)
     moms_summary_csv = export_moms_summary(user, db, start, end)
+    gavekort_csv = export_gavekort_ledger(user, db, start, end)
 
     # Look up the BusinessProfile for the manifest — gracefully empty
     # when the owner hasn't filled it in yet.
@@ -877,6 +938,7 @@ def export_bundle(user: User, db: Session, start: date, end: date) -> bytes:
         (f"faktura-{period_label}.csv", faktura_csv),
         (f"mileage-{period_label}.csv", mileage_csv),
         (f"moms-summary-{period_label}.csv", moms_summary_csv),
+        (f"gavekort-{period_label}.csv", gavekort_csv),
     ]
     file_hashes = {
         name: compute_document_hash(data) for name, data in files_to_pack
@@ -955,7 +1017,12 @@ def export_bundle(user: User, db: Session, start: date, end: date) -> bytes:
         f"     Period MOMS totals at a glance — salg ekskl. moms, moms af salg,\n"
         f"     køb ekskl. moms, moms af køb, netto moms. Confirms the angivelse\n"
         f"     before you dive into the line-item CSV.\n\n"
-        f"  5. manifest.txt\n"
+        f"  5. gavekort-{period_label}.csv\n"
+        f"     Gavekort ledger: every card sold, used and voided, with how its\n"
+        f"     MOMS was treated (enkeltformål: MOMS ved salget; flerformål: ved\n"
+        f"     brug). The sums at the bottom tie moms af omsætningen + gavekort\n"
+        f"     MOMS netto to moms af salg in the angivelse.\n\n"
+        f"  6. manifest.txt\n"
         f"     Business info + SHA-256 of every file in this bundle. If a\n"
         f"     downloaded copy's hash doesn't match the manifest, the file\n"
         f"     has been altered after BonBox produced it.\n\n"

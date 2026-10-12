@@ -693,6 +693,15 @@ export default function BankImportPage() {
                               </button>
                             </span>
                           )}
+                          {/* Same as an online order that is NOT issued yet:
+                              booked as a sale (no card exists to carry the
+                              money) — said, so the owner can issue first. */}
+                          {isIncome && !txn.gavekort_order_match && txn.gavekort_order_pending && (
+                            <span className="mt-1 block text-[11px] text-amber-700 dark:text-amber-300" data-testid="bank-gk-pending">
+                              <Icon name="Gift" size={12} className="inline align-text-bottom mr-0.5" />
+                              {t("bankGkPending", "Looks like a gavekort order that is not issued yet. Issue the card first, then import again — otherwise this is booked as a sale.")}
+                            </span>
+                          )}
                         </td>
                         <td className={`px-3 py-2.5 text-right font-semibold whitespace-nowrap ${
                           isIncome ? "text-emerald-600 dark:text-gray-300" : "text-red-600 dark:text-red-400"

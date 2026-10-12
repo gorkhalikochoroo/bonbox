@@ -76,7 +76,9 @@ from app.services.billing import enforce_cap, enforce_feature
 from app.services.gavekort_codes import generate_code, hash_code
 from app.services.gavekort_pdf import build_gavekort_pdf
 from app.services.qr_signer import GavekortKeyUnset, sign_gavekort, verify_gavekort
-from app.services.gavekort_moms import business_day_stamp
+from app.services.gavekort_moms import (
+    VOID_ERROR_REF, _tz_user, business_date_of, business_day_stamp, moms_period_of,
+)
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -118,12 +120,27 @@ class IssueBody(BaseModel):
     # (enkeltformål): in Denmark a card usable only at this venue, where
     # everything carries 25 % MOMS, is single-purpose since 1 Jul 2019 — MOMS
     # at sale. The owner can still pick "mpv". Existing cards keep their class.
+    # PENDING REVISOR SIGN-OFF (see app/services/gavekort_moms.py).
     voucher_class: str = Field(default="spv", pattern="^(mpv|spv)$")
     # How the owner was PAID for the card at the counter. Recorded (not posted)
     # so the close/MOMS bridge has the tender later; the reveal says
     # "registreret", never "bogført". Optional so older callers/tests still pass.
-    payment_method: str | None = Field(default=None, pattern="^(card|mobilepay|cash|mixed)$")
+    # "free" = given away (sponsor, prize, goodwill): no payment, so no MOMS at
+    # issue and never counted as sold at the counter. Its use is surfaced to
+    # the revisor (gavekort_moms.FREE_TENDER), never decided by BonBox.
+    payment_method: str | None = Field(default=None, pattern="^(card|mobilepay|cash|mixed|free)$")
     expires_at: datetime | None = None
+
+
+class VoidBody(BaseModel):
+    # None = an ordinary void (the card was sold; its MOMS stays in).
+    # "issued_in_error" = the card should never have existed and no money was
+    # taken: the card is treated as never sold, so an SPV card's sale MOMS
+    # comes back out — only while the MOMS period of the sale is still
+    # running and nothing was redeemed (never touches a period that could
+    # already be filed).
+    reason: str | None = Field(default=None, pattern="^(issued_in_error)$")
+    note: str | None = Field(default=None, max_length=200)
 
 
 class RedeemBody(BaseModel):
@@ -458,6 +475,10 @@ class OrderSettingsBody(BaseModel):
     min_amount_minor: int | None = Field(default=None, ge=100, le=100_000_000)
     max_amount_minor: int | None = Field(default=None, ge=100, le=100_000_000)
     instructions: str | None = Field(default=None, max_length=500)
+    # The class of every card ordered online — the OWNER's setting, never the
+    # buyer's (review 12 Oct, j). Pre-selected SPV (pending revisor sign-off,
+    # see gavekort_moms). None = keep the current setting.
+    voucher_class: str | None = Field(default=None, pattern="^(mpv|spv)$")
 
 
 class OrderIssueBody(BaseModel):
@@ -483,7 +504,9 @@ def _order_settings_dict(profile: BusinessProfile | None) -> dict:
     if mx < mn:  # corrupt config → safe defaults
         mn, mx = _ORDER_MIN_MINOR_DEFAULT, _ORDER_MAX_MINOR_DEFAULT
     instr = (data.get("instructions") or "").strip()[:500] or None
-    return {"min_amount_minor": mn, "max_amount_minor": mx, "instructions": instr}
+    vclass = data.get("voucher_class") if data.get("voucher_class") in ("mpv", "spv") else "spv"
+    return {"min_amount_minor": mn, "max_amount_minor": mx, "instructions": instr,
+            "voucher_class": vclass}
 
 
 def _allocate_gavekort_slug(db: Session, base: str) -> str:
@@ -628,6 +651,7 @@ def set_order_settings(payload: OrderSettingsBody, db: Session = Depends(get_db)
         "max_amount_minor": new_max,
         "instructions": (payload.instructions.strip()[:500] or None)
         if payload.instructions is not None else cur["instructions"],
+        "voucher_class": payload.voucher_class or cur["voucher_class"],
     })
     db.add(profile)
     db.commit()
@@ -1172,6 +1196,7 @@ def redeem_gavekort(
 # ═════════════════════════════════════════════════════════════════════
 @router.post("/{card_id}/void")
 def void_gavekort(card_id: UUID, request: Request,
+                  payload: VoidBody | None = None,
                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     enforce_feature(user, "gavekort")
     card = db.query(GiftCard).filter(GiftCard.id == card_id,
@@ -1182,6 +1207,19 @@ def void_gavekort(card_id: UUID, request: Request,
         # Idempotent — already voided. Return the current shape, no 2nd row.
         return {"id": str(card.id), "status": "voided", "balance_minor": 0}
 
+    reason = payload.reason if payload is not None else None
+    stamp = business_day_stamp(db, user)
+    if reason == "issued_in_error":
+        # Never sold: nothing may have been used, and the MOMS period of the
+        # sale must still be running — a period that has ended could already
+        # be filed, and BonBox never moves a filed figure.
+        if int(card.balance_minor) != int(card.face_value_minor) or card.status != "active":
+            raise HTTPException(status_code=409, detail={"error": "void_error_used"})
+        sold_on = business_date_of(_tz_user(db, user), card.issued_at)
+        p_start, p_end = moms_period_of(user, sold_on) if sold_on else (None, None)
+        if sold_on is None or not (p_start <= stamp.date() <= p_end):
+            raise HTTPException(status_code=409, detail={"error": "void_error_period_closed"})
+
     remaining = int(card.balance_minor)
     # Compensating ledger row zeroes the remaining balance (append-only — we
     # NEVER edit/delete the issue/redeem rows). amount = -(remaining) so the
@@ -1189,18 +1227,27 @@ def void_gavekort(card_id: UUID, request: Request,
     db.add(GiftCardTransaction(
         gift_card_id=card.id, user_id=user.id, kind="void",
         amount_minor=-remaining, balance_after_minor=0,
-        created_by_user_id=user.id, business_day=business_day_stamp(db, user),
+        created_by_user_id=user.id, business_day=stamp,
+        # The reason travels on the ledger row itself, so every MOMS reader
+        # (gavekort_moms.period_facts) sees it without another table.
+        sale_ref=VOID_ERROR_REF if reason == "issued_in_error" else None,
     ))
     card.balance_minor = 0
     card.status = "voided"
     db.add(card)
 
+    after = {"status": "voided"}
+    if reason:
+        after["reason"] = reason
+        if payload is not None and payload.note:
+            after["note"] = payload.note.strip()[:200]
     audit_service.record(
         db, user, "gavekort.voided", "gift_card", card.id,
         before={"balance_minor": remaining},
-        after={"status": "voided"},
+        after=after,
         ip_address=getattr(getattr(request, "client", None), "host", None),
     )
     db.commit()
     db.refresh(card)
-    return {"id": str(card.id), "status": card.status, "balance_minor": 0}
+    return {"id": str(card.id), "status": card.status, "balance_minor": 0,
+            "reason": reason}

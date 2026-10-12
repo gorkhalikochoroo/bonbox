@@ -16,6 +16,10 @@ class BankTransactionPreview(BaseModel):
     # the transfer text names it). Paying for a gavekort is not revenue — on
     # confirm it is NOT booked as a sale. None = no match.
     gavekort_order_match: dict | None = None
+    # Same amount + text as an online order that is NOT issued yet. Not held
+    # back (no card exists to carry the money) — the owner is told to issue
+    # the card first; the MOMS page asks about the line until then.
+    gavekort_order_pending: dict | None = None
 
 
 class BankImportSummary(BaseModel):

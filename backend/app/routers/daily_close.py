@@ -4368,8 +4368,27 @@ def prefill_daily_close(
     #                     (MPV: no sale yet; SPV: BonBox counts its MOMS from
     #                     the gavekort itself). The tie-out reads
     #                     payments = revenue + gavekort sold.
-    # User-level (gift_card_transactions has no branch_id).
+    # User-level (gift_cards / gift_card_transactions have no branch_id). On
+    # an account with more than one active branch, a branch's close can't
+    # tell which branch sold or took a card (review 12 Oct, g): scope =
+    # "account" and the form does NOT pre-fill the gavekort line, append the
+    # note or assume the money is in this branch's payments — it only says
+    # what happened across the account, and the tie-out lets the evidence
+    # (payments = revenue, or = revenue + sold) decide.
     from app.services import gavekort_moms as _gkm  # local — isolate
+    _gk_scope = "close"
+    if branch_id:
+        try:
+            from app.models.branch import Branch
+            _n_branches = (
+                db.query(func.count(Branch.id))
+                .filter(Branch.user_id == user.id, Branch.is_active.isnot(False))
+                .scalar()
+            ) or 0
+            if int(_n_branches) > 1:
+                _gk_scope = "account"
+        except Exception:  # noqa: BLE001 — scope falls back to the close
+            _gk_scope = "close"
     try:
         _gk = _gkm.period_facts(db, user.id, target_date, target_date + timedelta(days=1))
     except Exception as e:  # noqa: BLE001 — gavekort must never break prefill
@@ -4403,6 +4422,9 @@ def prefill_daily_close(
             # Sold over the counter today — not revenue (see above).
             "sold": gavekort_sold,
             "sold_by_tender": gavekort_sold_by_tender,
+            # "close" = these facts belong to this close; "account" = several
+            # branches, BonBox can't tell which one (see above).
+            "scope": _gk_scope,
         },
         "expenses": {
             "total": expenses_total,

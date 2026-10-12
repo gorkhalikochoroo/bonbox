@@ -151,6 +151,13 @@ function gkErrText(e, t) {
     feature_locked: t("gkErrFeature", "Gavekort er ikke en del af dit abonnement."),
     // Online order already issued/declined (race: double-tap / two tabs / stale list).
     already_resolved: t("gkErrOrderResolved", "Bestillingen er allerede behandlet."),
+    // "Issued in error" is only for an unused card in the MOMS period it was
+    // sold in — a period that has ended may already be filed.
+    void_error_used: t("gkErrVoidErrorUsed", "The card has been used, so it was not issued in error. Void it normally."),
+    void_error_period_closed: t(
+      "gkErrVoidErrorPeriod",
+      "The MOMS period the card was sold in has ended. Void it normally and ask your revisor.",
+    ),
     too_many_orders: t(
       "gkErrTooManyOrders",
       "For mange bestillinger lige nu. Prøv igen om lidt.",
@@ -405,7 +412,11 @@ function IssueSection({ t, onIssued }) {
   // here, where everything carries 25 % MOMS, is single-purpose (since 1 Jul
   // 2019) — MOMS at sale. The owner can still pick MPV; both are explained
   // below with "ask your revisor". Never decided FOR the owner.
+  // PENDING REVISOR SIGN-OFF (backend app/services/gavekort_moms.py).
   const [voucherClass, setVoucherClass] = useState("spv");
+  // Given away (sponsor, prize, goodwill): no payment → no MOMS when it is
+  // issued, and never "money in the till". The revisor sees it.
+  const [isFree, setIsFree] = useState(false);
   const [expiresAt, setExpiresAt] = useState("");
   const [showMore, setShowMore] = useState(false); // gifting/advanced disclosure
   const [busy, setBusy] = useState(false);
@@ -439,13 +450,13 @@ function IssueSection({ t, onIssued }) {
       const body = {
         amount_minor: minor,
         voucher_class: voucherClass,
-        payment_method: tender,
+        payment_method: isFree ? "free" : tender,
       };
       if (recipient.trim()) body.recipient_name = recipient.trim();
       if (note.trim()) body.note = note.trim();
       if (expiresAt) body.expires_at = new Date(expiresAt + "T23:59:59").toISOString();
       const res = await api.post("/gavekort/issue", body);
-      commitMethod(tender); // remember card/mobilepay; cash no-ops (invariant)
+      if (!isFree) commitMethod(tender); // remember card/mobilepay; cash no-ops (invariant)
       setResult(res.data);
       // product analytics — a gavekort was issued (opt-out respected server-side)
       trackEvent("gavekort_issued", "gavekort");
@@ -468,6 +479,7 @@ function IssueSection({ t, onIssued }) {
           setRecipient("");
           setNote("");
           setExpiresAt("");
+          setIsFree(false);
           setVoucherClass("spv"); // back to the pre-selected class
           setShowMore(false);
           // Tender stays lit (sticky) — back-to-back sales need zero re-setup.
@@ -637,6 +649,25 @@ function IssueSection({ t, onIssued }) {
                 </div>
               </div>
 
+              {/* Free / sponsor card — no payment, no MOMS when given. */}
+              <div className="max-w-md">
+                <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={isFree}
+                    onChange={(e) => setIsFree(e.target.checked)}
+                    data-testid="gk-free"
+                  />
+                  <span>{t("gkFreeLabel", "Free / sponsored — no payment")}</span>
+                </label>
+                {isFree && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {t("gkFreeHelp", "No MOMS when it is given. Your revisor sees it in the MOMS overview.")}
+                  </p>
+                )}
+              </div>
+
               {/* Expiry (optional) */}
               <div className="sm:max-w-xs">
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -692,6 +723,7 @@ const TENDER_LABELS = {
   mobilepay: ["gkTenderMobilepay", "MobilePay"],
   cash: ["gkTenderCash", "Kontant"],
   mixed: ["gkTenderMixed", "Blandet"],
+  free: ["gkTenderFree", "Gratis"],
 };
 
 function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
@@ -771,7 +803,9 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
         {methodLabel && (
           <p className="mt-4 flex items-center justify-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
             <Wallet className="w-3.5 h-3.5" aria-hidden />
-            {t("gkPaidRegistered", "Betalt med {method} · registreret", { method: methodLabel })}
+            {result?.payment_method === "free"
+              ? t("gkFreeRegistered", "Free card — no payment · recorded")
+              : t("gkPaidRegistered", "Betalt med {method} · registreret", { method: methodLabel })}
           </p>
         )}
 
@@ -1178,6 +1212,9 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [mode, setMode] = useState("view"); // view | redeem | void
+  // Void reason: "" = an ordinary void (the card was sold — its MOMS stays);
+  // "issued_in_error" = never sold, no money taken.
+  const [voidReason, setVoidReason] = useState("");
   const [showPrint, setShowPrint] = useState(false); // owner-branded print modal
   const [redeemAmount, setRedeemAmount] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
@@ -1263,7 +1300,7 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
     setActionError("");
     setActionBusy(true);
     try {
-      await api.post(`/gavekort/${id}/void`);
+      await api.post(`/gavekort/${id}/void`, voidReason ? { reason: voidReason } : {});
       setMode("view");
       await load();
       onChanged && onChanged();
@@ -1454,6 +1491,29 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
                     "Annullér dette gavekort? Saldoen nulstilles, og handlingen registreres i sporet.",
                   )}
                 </p>
+                {/* Why — it decides the MOMS. Short on purpose. */}
+                <div className="space-y-1.5 text-sm text-gray-700 dark:text-gray-200" role="radiogroup">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input type="radio" name="gk-void-reason" className="mt-1"
+                      checked={voidReason === ""} onChange={() => setVoidReason("")} />
+                    <span>
+                      {t("gkVoidReasonSold", "It was sold")}
+                      <span className="block text-xs text-gray-500 dark:text-gray-400">
+                        {t("gkVoidReasonSoldHelp", "The MOMS from the sale stays in.")}
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input type="radio" name="gk-void-reason" className="mt-1" data-testid="gk-void-error"
+                      checked={voidReason === "issued_in_error"} onChange={() => setVoidReason("issued_in_error")} />
+                    <span>
+                      {t("gkVoidReasonError", "Issued by mistake — no payment")}
+                      <span className="block text-xs text-gray-500 dark:text-gray-400">
+                        {t("gkVoidReasonErrorHelp", "Counted as never sold. Only for an unused card, in the MOMS period it was made.")}
+                      </span>
+                    </span>
+                  </label>
+                </div>
                 {actionError && <ErrorText>{actionError}</ErrorText>}
                 <div className="flex gap-2">
                   <Button
@@ -1496,6 +1556,7 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
                     size="sm"
                     onClick={() => {
                       setActionError("");
+                      setVoidReason("");
                       setMode("void");
                     }}
                     iconLeft={<Ban className="w-3.5 h-3.5" aria-hidden />}
@@ -1678,6 +1739,22 @@ function OrdersSection({ t, onPendingCount }) {
     }
   };
 
+  const setOrderClass = async (vc) => {
+    if (!settings || (settings.voucher_class || "spv") === vc) return;
+    try {
+      const r = await api.put("/gavekort/order-settings", {
+        enabled: !!settings.enabled,
+        min_amount_minor: settings.min_amount_minor,
+        max_amount_minor: settings.max_amount_minor,
+        instructions: settings.instructions ?? null,
+        voucher_class: vc,
+      });
+      setSettings(r.data);
+    } catch {
+      /* keep the prior setting */
+    }
+  };
+
   const copyLink = async () => {
     if (!settings?.public_url) return;
     try {
@@ -1765,6 +1842,23 @@ function OrdersSection({ t, onPendingCount }) {
                 "Del den på din hjemmeside, Instagram eller i butikken.",
               )}
             </p>
+            {/* The class of every card ordered online — YOUR setting, never
+                the buyer's (it decides when MOMS is due). */}
+            <div className="mt-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                {t("gkOrdersClassLabel", "Type of cards ordered online")}
+              </p>
+              <div className="flex flex-wrap gap-2 mt-1.5" data-testid="gk-orders-class">
+                {["spv", "mpv"].map((vc) => (
+                  <Chip key={vc} selected={(settings?.voucher_class || "spv") === vc} onClick={() => setOrderClass(vc)}>
+                    {vc === "spv" ? t("gkClassSpv", "Single-purpose (SPV)") : t("gkClassMpv", "Multi-purpose (MPV)")}
+                  </Chip>
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                {t("gkClassAskRevisor", "Ask your revisor if you are unsure.")}
+              </p>
+            </div>
           </div>
         )}
       </Card>

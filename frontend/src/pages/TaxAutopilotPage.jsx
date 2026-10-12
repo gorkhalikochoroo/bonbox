@@ -66,6 +66,9 @@ const TAX_ALERT_KEYS = {
   gavekort_reconciliation: { title: "taxAlertGavekortTitle", detail: "taxAlertGavekortDetail" },
   gavekort_double_check: { title: "taxAlertGkDoubleTitle", detail: "taxAlertGkDoubleDetail" },
   gavekort_spv_voided: { title: "taxAlertGkVoidedTitle", detail: "taxAlertGkVoidedDetail" },
+  gavekort_sold_check: { title: "taxAlertGkSoldCheckTitle", detail: "taxAlertGkSoldCheckDetail" },
+  gavekort_bank_check: { title: "taxAlertGkBankTitle", detail: "taxAlertGkBankDetail" },
+  gavekort_free: { title: "taxAlertGkFreeTitle", detail: "taxAlertGkFreeDetail" },
   all_clear: { title: "taxAlertAllClearTitle", detail: "taxAlertAllClearDetail" },
 };
 

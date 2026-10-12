@@ -588,6 +588,14 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     gk = _gkm.period_facts(db, user_id, start_date, end_date)
     gavekort_warnings: list[dict] = []
 
+    # The period's revenue streams BEFORE any gavekort line — what the
+    # revenue on the reports actually contains. Reports take MOMS out of
+    # revenue with THESE (never with output_vat, which also holds the card
+    # sales and takes the SPV meals out), and show the gavekort lines apart.
+    revenue_output_vat = round(output_vat, 2)
+    revenue_taxable_sales = taxable_sales
+    pos_output_vat_total = round(pos_output_vat, 2)
+
     _r = vat_rate / (1 + vat_rate) if vat_rate > 0 else 0.0
     spv_sold = float(gk["spv_sold"])
     spv_sold_vat = round(spv_sold * _r, 2)
@@ -596,19 +604,23 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
 
     redeemed = gk["redeemed"]
     counter_sold = gk["counter_sold"]
-    check_dates = set(redeemed) | {d for d, v in counter_sold.items() if d in close_dates and v > 0}
+    counter_cards = gk.get("counter_cards", {})
+    check_dates = set(redeemed) | {d for d, v in counter_sold.items() if v > 0}
 
     def _material(short: float, base: float) -> bool:
         # Same threshold as the §9 variance block: > 50 kr. AND > 10 %.
         return base > 0 and short > 50.0 and (short / base) * 100.0 > 10.0
 
     if check_dates:
-        # Confirmed closes' payment breakdown per date (kr.).
+        # Confirmed closes per date (summed over branches — this is the
+        # account's MOMS): payment breakdown + when the close was last saved.
         close_pay_by_date: dict[date, dict] = {}
+        close_saved_by_date: dict[date, datetime] = {}
         closed = [d for d in check_dates if d in close_dates]
         if closed:
-            for cd, pc, st in (
-                db.query(DailyClose.date, DailyClose.payment_categories, DailyClose.status)
+            for cd, pc, st, c_at, u_at, cl_at in (
+                db.query(DailyClose.date, DailyClose.payment_categories, DailyClose.status,
+                         DailyClose.created_at, DailyClose.updated_at, DailyClose.closed_at)
                 .filter(DailyClose.user_id == user_id,
                         DailyClose.date.in_(closed),
                         DailyClose.is_deleted.isnot(True))
@@ -619,21 +631,31 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
                 bd = decode_breakdown(pc) if pc else {}
                 acc = close_pay_by_date.setdefault(cd, {})
                 for k, v in (bd or {}).items():
-                    acc[k] = round(acc.get(k, 0.0) + float(v or 0), 2)
+                    try:
+                        acc[k] = round(acc.get(k, 0.0) + float(v or 0), 2)
+                    except (TypeError, ValueError):
+                        continue
+                stamps = [x for x in (c_at, u_at, cl_at) if x is not None]
+                if stamps:
+                    latest = max(stamps)
+                    prev = close_saved_by_date.get(cd)
+                    close_saved_by_date[cd] = latest if prev is None else max(prev, latest)
 
         # Sale rows per non-close date: any row / total / gavekort-tagged.
         open_dates = [d for d in check_dates if d not in close_dates]
         sale_any: set[date] = set()
         sale_total_by_date: dict[date, float] = {}
         sale_gc_by_date: dict[date, float] = {}
+        sale_rows_by_date: dict[date, list] = {}
         if open_dates:
-            for (sd,) in (
-                db.query(Sale.date)
+            for sd, amt, item, notes in (
+                db.query(Sale.date, Sale.amount, Sale.item_name, Sale.notes)
                 .filter(Sale.user_id == user_id, Sale.date.in_(open_dates),
                         Sale.is_deleted.isnot(True))
-                .distinct().all()
+                .all()
             ):
                 sale_any.add(sd)
+                sale_rows_by_date.setdefault(sd, []).append((float(amt or 0), item, notes))
             for sd, pm, tot in (
                 db.query(Sale.date, Sale.payment_method,
                          func.coalesce(func.sum(Sale.amount), 0))
@@ -650,12 +672,39 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
             slot = redeemed.get(d, {})
             r_meal = float(slot.get("via_meal", 0.0))   # MPV (+ pre-guard SPV)
             r_spv = float(slot.get("spv", 0.0))         # SPV, MOMS paid at sale
+            r_free = float(slot.get("free", 0.0))       # free card: no MOMS at issue
+            sold = float(counter_sold.get(d, 0.0))      # cards sold at the counter
             if d in close_dates:
                 pay = close_pay_by_date.get(d, {})
                 tender = _gkm.gift_card_tender(pay)      # None = no gavekort line
                 t_val = float(tender or 0.0)
-                # MPV — the meal must be in revenue. The gavekort tender line
-                # says how much of the day's revenue was paid by gavekort.
+                paid = _gkm.payments_total(pay)
+                rev = float(close_revenue_by_date.get(d, 0.0))
+                # How the day ties out decides how much of the gavekort line
+                # can be INSIDE revenue (review 12 Oct, a): payments are
+                # revenue + cards sold at the counter, or revenue alone.
+                # Anything else → BonBox can't tell; it takes out no more
+                # than the evidence allows and says so.
+                tol = max(1.0, 0.002 * rev)
+                if paid <= 0:
+                    tie = "no_payments"          # Z-bon only: nothing to check
+                    sold_in_pay = 0.0
+                elif sold > 0 and abs(paid - rev - sold) <= tol:
+                    tie = "with_sold"
+                    sold_in_pay = sold
+                elif abs(paid - rev) <= tol:
+                    tie = "plain"
+                    sold_in_pay = 0.0
+                else:
+                    tie = "uncertain"
+                    sold_in_pay = 0.0
+                # Gavekort-paid revenue: revenue minus what the other tenders
+                # paid for it, never more than the gavekort line itself.
+                room = 0.0
+                if paid > 0 and t_val > 0:
+                    room = min(max(rev - (paid - t_val - sold_in_pay), 0.0), t_val)
+                uncertain = tie == "uncertain"
+                # MPV — the meal must be in revenue.
                 if r_meal > 0:
                     if tender is None or t_val <= 0:
                         # P0: a close with NO gavekort line can never show the
@@ -665,15 +714,21 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
                             "matched_close_tender": None, "voucher_class": "mpv",
                             "status": "unverified_redemption",
                         })
-                    elif _material(r_meal - t_val, r_meal):
-                        gavekort_warnings.append({
-                            "date": d.isoformat(), "redeemed": round(r_meal, 2),
-                            "matched_close_tender": round(t_val, 2), "voucher_class": "mpv",
-                            "status": "tender_short",
-                        })
-                # SPV — the tender covers MPV first (the cautious reading), and
-                # only what is left is an SPV meal we can take back out.
-                spv_here = min(r_spv, max(t_val - r_meal, 0.0))
+                    else:
+                        covered = min(r_meal, room)
+                        if _material(r_meal - covered, r_meal):
+                            gavekort_warnings.append({
+                                "date": d.isoformat(), "redeemed": round(r_meal, 2),
+                                "matched_close_tender": round(covered, 2),
+                                "voucher_class": "mpv", "status": "tender_short",
+                                "uncertain": uncertain,
+                            })
+                # The line covers MPV first, then free cards (their meal keeps
+                # its MOMS — the cautious reading), and only what is left is
+                # an SPV meal that can be taken back out.
+                left = max(room - min(r_meal, room), 0.0)
+                left = max(left - min(r_free, left), 0.0)
+                spv_here = min(r_spv, left)
                 if spv_here > 0:
                     # A close's revenue_total is always GROSS (see Stream 2).
                     spv_in_revenue += spv_here
@@ -682,22 +737,46 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
                     gavekort_warnings.append({
                         "date": d.isoformat(), "redeemed": round(r_spv, 2),
                         "matched_close_tender": round(t_val, 2) if tender is not None else None,
+                        "taken_out": round(spv_here, 2),
                         "voucher_class": "spv", "status": "spv_check_double",
+                        "uncertain": uncertain,
+                    })
+                elif uncertain and spv_here > 50.0:
+                    # Taken out because revenue CAN hold the meal, but the
+                    # day's payments don't add up — if the meal is not in
+                    # revenue after all, MOMS is too low. Asked.
+                    gavekort_warnings.append({
+                        "date": d.isoformat(), "redeemed": round(spv_here, 2),
+                        "taken_out": round(spv_here, 2), "voucher_class": "spv",
+                        "status": "spv_taken_out_uncertain",
                     })
                 # Cards SOLD over the counter today: the till took the money,
-                # but it is not revenue. If payments only tie to revenue, the
-                # card sale was put into revenue → MOMS counted twice.
-                sold = float(counter_sold.get(d, 0.0))
-                paid = _gkm.payments_total(pay)
-                if sold > 50.0 and paid > 0:
-                    gap = paid - close_revenue_by_date.get(d, 0.0)
-                    if sold - gap > max(50.0, 0.10 * sold):
+                # but it is not revenue (review 12 Oct, d + e).
+                if sold > 50.0:
+                    if tie in ("no_payments", "uncertain"):
+                        # Z-bon only, or payments that tie to neither reading:
+                        # BonBox can't see whether the sale is in revenue → ask.
                         gavekort_warnings.append({
                             "date": d.isoformat(), "sold": round(sold, 2),
-                            "payments": round(paid, 2),
-                            "revenue": round(close_revenue_by_date.get(d, 0.0), 2),
-                            "status": "sold_in_revenue",
+                            "reason": tie, "status": "sold_unchecked",
                         })
+                    elif tie == "plain":
+                        # Payments = revenue. Only cards that could be inside
+                        # this close count as evidence: sold BEFORE it was last
+                        # saved, on a tender the close carries (or unknown).
+                        # Sold after the close / paid another way → quiet.
+                        saved = close_saved_by_date.get(d)
+                        evid = round(sum(
+                            c["amount"] for c in counter_cards.get(d, [])
+                            if (saved is None or c["issued_at"] is None or c["issued_at"] <= saved)
+                            and _gkm.tender_could_be_in(c["tender"], pay)
+                        ), 2)
+                        if evid > 50.0:
+                            gavekort_warnings.append({
+                                "date": d.isoformat(), "sold": evid,
+                                "payments": round(paid, 2), "revenue": round(rev, 2),
+                                "status": "sold_in_revenue",
+                            })
             else:
                 has_sale = d in sale_any
                 g_val = float(sale_gc_by_date.get(d, 0.0))
@@ -721,7 +800,9 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
                                 "matched_sales": round(covered, 2), "voucher_class": "mpv",
                                 "status": "sale_short",
                             })
-                spv_here = min(r_spv, max(g_val - r_meal, 0.0))
+                left = max(g_val - r_meal, 0.0)
+                left = max(left - min(r_free, left), 0.0)
+                spv_here = min(r_spv, left)
                 if spv_here > 0:
                     spv_in_revenue += spv_here
                     if vat_rate > 0:
@@ -730,8 +811,25 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
                 if r_spv > 0 and has_sale and _material(r_spv - spv_here, r_spv):
                     gavekort_warnings.append({
                         "date": d.isoformat(), "redeemed": round(r_spv, 2),
-                        "matched_close_tender": None,
+                        "matched_close_tender": None, "taken_out": round(spv_here, 2),
                         "voucher_class": "spv", "status": "spv_check_double",
+                    })
+                # A card sold on a day kept as Sale rows (review 12 Oct, e):
+                # no Sales → it is in no revenue (quiet). A Sale of the card's
+                # amount, or one that says "gavekort" → it may be in revenue.
+                # Other Sales → BonBox can't check → it asks.
+                if sold > 50.0 and has_sale:
+                    rows = sale_rows_by_date.get(d, [])
+                    amounts = [c["amount"] for c in counter_cards.get(d, [])]
+                    looks_in = any(
+                        _gkm.mentions_gavekort(item, notes)
+                        or any(abs(a - amt) <= 1.0 for amt in amounts)
+                        for a, item, notes in rows
+                    )
+                    gavekort_warnings.append({
+                        "date": d.isoformat(), "sold": round(sold, 2),
+                        "reason": "sales",
+                        "status": "sold_in_revenue" if looks_in else "sold_unchecked",
                     })
 
     for v in gk["spv_voided"]:
@@ -743,6 +841,29 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
             "moms": round(v["amount"] * _r, 2),
             "voucher_class": "spv", "status": "spv_voided",
         })
+    # Free / sponsor cards — no MOMS at issue; the revisor decides about the
+    # meal (gaver / reklame). Said, never decided.
+    _free_by_date: dict[str, dict] = {}
+    for f in gk.get("free_issued", []):
+        e = _free_by_date.setdefault(f["date"], {"issued": 0.0, "redeemed": 0.0})
+        e["issued"] = round(e["issued"] + float(f["amount"]), 2)
+    for d, slot in redeemed.items():
+        fr = float(slot.get("free", 0.0))
+        if fr > 0:
+            e = _free_by_date.setdefault(d.isoformat(), {"issued": 0.0, "redeemed": 0.0})
+            e["redeemed"] = round(e["redeemed"] + fr, 2)
+    for ds, e in _free_by_date.items():
+        gavekort_warnings.append({
+            "date": ds, "amount": round(e["issued"] or e["redeemed"], 2),
+            "issued": e["issued"], "redeemed": e["redeemed"],
+            "status": "free_card",
+        })
+    # Bank lines booked as Sales that may be an online gavekort order paid
+    # (review 12 Oct, b + c). Detect-only; never changes a figure.
+    try:
+        gavekort_warnings.extend(_gkm.bank_sale_checks(db, user_id, start_date, end_date))
+    except Exception as e:  # noqa: BLE001 — a check must never break the MOMS
+        logger.warning("gavekort bank check failed: %s", e)
     gavekort_warnings.sort(key=lambda w: (w.get("date", ""), w.get("status", "")))
 
     spv_in_revenue = round(spv_in_revenue, 2)
@@ -800,6 +921,15 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         # taken back out so the same value is not taxed twice.
         "gavekort_spv_redeemed_in_revenue": spv_in_revenue,
         "gavekort_spv_redeemed_vat": spv_in_revenue_vat,
+        # The MOMS that sits INSIDE the period's revenue (closes + Sales +
+        # fakturaer), before the gavekort lines. Revenue ex MOMS on every
+        # report = revenue − this. Invariant:
+        #   output_vat == revenue_output_vat + gavekort_spv_output_vat
+        #                 − gavekort_spv_redeemed_vat
+        "revenue_output_vat": revenue_output_vat,
+        "revenue_taxable_sales": revenue_taxable_sales,
+        "pos_output_vat": pos_output_vat_total,
+        "invoice_output_vat": round(invoice_moms, 2),
     }
 
 
@@ -1318,16 +1448,26 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
         #     (MOMS under-declared) → gavekort_reconciliation
         #   • the same value may be counted TWICE (an SPV meal also in revenue,
         #     or a card sold at the counter typed into revenue) →
-        #     gavekort_double_check
+        #     gavekort_double_check — worded as a question: the evidence
+        #     supports it, it does not prove it
+        #   • a card sold where BonBox can't see whether it is in revenue
+        #     (Z-bon-only close, Sale rows) → gavekort_sold_check (asks)
+        #   • a bank line booked as a sale that may be an online gavekort
+        #     order → gavekort_bank_check (asks)
         #   • an SPV card voided with value left — MOMS was paid at sale; only
         #     the owner/revisor knows whether the buyer got the money back →
         #     gavekort_spv_voided
+        #   • free / sponsor cards → gavekort_free (for the revisor)
         # Detect-only: none of these change a figure.
         gk_warn = (cm.get("gavekort_warnings") or []) if isinstance(cm, dict) else []
         _missing = [w for w in gk_warn if w.get("status") in (
-            "unmatched_redemption", "tender_short", "unverified_redemption", "sale_short")]
+            "unmatched_redemption", "tender_short", "unverified_redemption", "sale_short",
+            "spv_taken_out_uncertain")]
         _double = [w for w in gk_warn if w.get("status") in ("spv_check_double", "sold_in_revenue")]
+        _unchecked = [w for w in gk_warn if w.get("status") == "sold_unchecked"]
+        _bank = [w for w in gk_warn if w.get("status") == "bank_maybe_gavekort"]
         _voided = [w for w in gk_warn if w.get("status") == "spv_voided"]
+        _free = [w for w in gk_warn if w.get("status") == "free_card"]
         if _missing:
             gk_total = round(sum(float(w.get("redeemed") or 0) for w in _missing))
             day_word = "day" if len(_missing) == 1 else "days"
@@ -1352,11 +1492,41 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
                 "params": {"count": len(_double), "total": _m(dbl_total)},
                 "severity": "warning",
                 "icon": "\U0001F381",
-                "title": "Gavekort may be counted twice",
+                "title": "Gavekort — is it in revenue too?",
                 "detail": (
-                    f"{len(_double)} day(s) where a gavekort (~{_m(dbl_total)}) may be "
-                    "in revenue as well as counted when the card was sold. Take it out "
-                    "of the day's revenue, or ask your revisor."
+                    f"{len(_double)} day(s) with gavekort (~{_m(dbl_total)}) that may also be "
+                    "in the day's revenue. Is it? Then take it out of revenue — the MOMS is "
+                    "counted from the gavekort. If not, nothing to do."
+                ),
+                "action": None,
+            })
+        if _unchecked:
+            unc_total = round(sum(float(w.get("sold") or 0) for w in _unchecked))
+            alerts.append({
+                "type": "gavekort_sold_check",
+                "params": {"count": len(_unchecked), "total": _m(unc_total)},
+                "severity": "info",
+                "icon": "\U0001F381",
+                "title": "Gavekort sold — BonBox can't see the till",
+                "detail": (
+                    f"{len(_unchecked)} day(s) with gavekort sold (~{_m(unc_total)}) where "
+                    "BonBox can't see whether the sale is in the day's revenue. Is it? "
+                    "Then take it out — the MOMS is counted from the gavekort."
+                ),
+                "action": None,
+            })
+        if _bank:
+            bank_total = round(sum(float(w.get("amount") or 0) for w in _bank))
+            alerts.append({
+                "type": "gavekort_bank_check",
+                "params": {"count": len(_bank), "total": _m(bank_total)},
+                "severity": "warning",
+                "icon": "\U0001F381",
+                "title": "Bank payment — a gavekort order?",
+                "detail": (
+                    f"{len(_bank)} bank payment(s) booked as sales (~{_m(bank_total)}) have "
+                    "the amount of an online gavekort order. Is it the gavekort money? Then "
+                    "delete the sale and issue the card — otherwise it is counted twice."
                 ),
                 "action": None,
             })
@@ -1374,6 +1544,21 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
                     f"The MOMS ({_m(v_moms)}) was counted when it was sold and BonBox leaves "
                     "it in. If the buyer got the money back, ask your revisor whether it "
                     "can be adjusted."
+                ),
+                "action": None,
+            })
+        if _free:
+            f_issued = round(sum(float(w.get("issued") or 0) for w in _free))
+            f_used = round(sum(float(w.get("redeemed") or 0) for w in _free))
+            alerts.append({
+                "type": "gavekort_free",
+                "params": {"count": len(_free), "issued": _m(f_issued), "redeemed": _m(f_used)},
+                "severity": "info",
+                "icon": "\U0001F381",
+                "title": "Free gavekort — for your revisor",
+                "detail": (
+                    f"Free / sponsor gavekort: {_m(f_issued)} given, {_m(f_used)} used. "
+                    "No MOMS when given. Ask your revisor whether the meals need MOMS."
                 ),
                 "action": None,
             })

@@ -102,6 +102,7 @@ class GiftCard(Base):
     balance_minor: Mapped[int] = mapped_column(Integer, nullable=False)
 
     # ── Classification + lifecycle ────────────────────────────────────
+    # Default SPV — PENDING REVISOR SIGN-OFF (see app/services/gavekort_moms.py).
     voucher_class: Mapped[str] = mapped_column(String(8), nullable=False, default="spv")
     status: Mapped[str] = mapped_column(String(12), nullable=False, default="active")
 

@@ -251,6 +251,15 @@ def compute_filing_data(
     # Positive = owed to SKAT, negative = refund due.
     moms_til_skat = vat["vat_payable"]
 
+    _moms_omsaetning = float(vat.get(
+        "revenue_output_vat",
+        moms_af_salg - vat.get("gavekort_spv_output_vat", 0.0) + vat.get("gavekort_spv_redeemed_vat", 0.0),
+    ))
+    _salg_omsaetning = float(vat.get(
+        "revenue_taxable_sales",
+        salg_med_moms - vat.get("gavekort_spv_sold", 0.0) + vat.get("gavekort_spv_redeemed_in_revenue", 0.0),
+    ))
+
     return {
         "currency": currency,
         "vat_rate": vat_rate,
@@ -300,6 +309,18 @@ def compute_filing_data(
         "gavekort_spv_output_vat": vat.get("gavekort_spv_output_vat", 0.0),
         "gavekort_spv_redeemed_in_revenue": vat.get("gavekort_spv_redeemed_in_revenue", 0.0),
         "gavekort_spv_redeemed_vat": vat.get("gavekort_spv_redeemed_vat", 0.0),
+        # Revenue side vs gavekort side (review 12 Oct, blocker 1). Reports
+        # that start from REVENUE take its MOMS out with moms_af_omsaetning —
+        # never with moms_af_salg, which also holds the card sales and takes
+        # the SPV meals out. Invariants (tested):
+        #   moms_af_salg  == moms_af_omsaetning + gavekort_moms_netto
+        #   salg_med_moms == salg_omsaetning_med_moms + gavekort_spv_sold
+        #                    − gavekort_spv_redeemed_in_revenue
+        "moms_af_omsaetning": round(_moms_omsaetning, 2),
+        "salg_omsaetning_med_moms": round(_salg_omsaetning, 2),
+        "gavekort_moms_netto": round(moms_af_salg - _moms_omsaetning, 2),
+        "moms_af_kassesalg": vat.get("pos_output_vat", round(_moms_omsaetning - vat.get("invoice_output_vat", 0.0), 2)),
+        "moms_af_fakturaer": vat.get("invoice_output_vat", 0.0),
     }
 
 
@@ -542,8 +563,12 @@ def _gavekort_redemption_section(
         "tender_short": "Mindre end indløst i dagsafslutningen",
         "unverified_redemption": "Dagsafslutningen har ingen gavekort-betaling — tjek at måltidet er med",
         "sale_short": "Dagens salg dækker ikke det indløste beløb",
-        "spv_check_double": "Enkeltformål: MOMS betalt ved salg — er måltidet også i omsætningen, tælles det to gange",
-        "sold_in_revenue": "Gavekort solgt i dag ser ud til at være lagt i omsætningen — så tælles det to gange",
+        "spv_check_double": "Enkeltformål: MOMS betalt ved salg — er måltidet også i omsætningen? Så tælles det to gange",
+        "sold_in_revenue": "Gavekort solgt i dag — er beløbet også i omsætningen? Så tælles det to gange",
+        "sold_unchecked": "Gavekort solgt i dag — BonBox kan ikke se, om beløbet er i omsætningen",
+        "spv_taken_out_uncertain": "Enkeltformål: måltidet er taget ud af momsen, men dagens betalinger går ikke op — tjek at måltidet er i omsætningen",
+        "bank_maybe_gavekort": "Bankbetaling bogført som salg har beløbet fra en online gavekort-bestilling — er det gavekortet?",
+        "free_card": "Gratis/sponsor-gavekort — ingen MOMS ved udstedelse; revisor vurderer brugen",
         "spv_voided": "Enkeltformål annulleret — MOMS fra salget er bevaret; fik kunden pengene tilbage, spørg revisor",
     }
     _gk_note_en = {
@@ -551,8 +576,12 @@ def _gavekort_redemption_section(
         "tender_short": "Less than redeemed in the close",
         "unverified_redemption": "The daily close has no gift card payment — check the meal is included",
         "sale_short": "The day's sales do not cover the amount redeemed",
-        "spv_check_double": "Single-purpose: VAT paid at sale — if the meal is also in revenue it is counted twice",
-        "sold_in_revenue": "A gift card sold today seems to be in revenue — that counts it twice",
+        "spv_check_double": "Single-purpose: VAT paid at sale — is the meal also in revenue? Then it is counted twice",
+        "sold_in_revenue": "A gift card sold today — is the amount also in revenue? Then it is counted twice",
+        "sold_unchecked": "A gift card sold today — BonBox can't see whether it is in revenue",
+        "spv_taken_out_uncertain": "Single-purpose: the meal was taken out of the VAT, but the day's payments don't add up — check the meal is in revenue",
+        "bank_maybe_gavekort": "A bank payment booked as a sale has the amount of an online gift card order — is it the card?",
+        "free_card": "Free/sponsor gift card — no VAT when given; the revisor judges its use",
         "spv_voided": "Single-purpose voided — VAT from the sale is kept; if the buyer was refunded, ask your revisor",
     }
     gk_rows = [[Paragraph(h, val_b) for h in gk_header]]

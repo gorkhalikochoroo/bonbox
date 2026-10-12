@@ -96,15 +96,21 @@ def _as(user):
 _N = [0]
 
 
-def _card(db, user, kr, vclass, issued_on: date, *, hour=12, status="active"):
+def _utc(on: date, hour: int) -> datetime:
+    local = datetime.combine(on, time(hour, 0), tzinfo=ZoneInfo("Europe/Copenhagen"))
+    return local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+
+def _card(db, user, kr, vclass, issued_on: date, *, hour=12, status="active",
+          payment_method=None):
     """A card sold on `issued_on` at `hour`:00 Copenhagen (stored naive UTC)."""
     _N[0] += 1
-    local = datetime.combine(issued_on, time(hour, 0), tzinfo=ZoneInfo("Europe/Copenhagen"))
-    issued_utc = local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    issued_utc = _utc(issued_on, hour)
     c = GiftCard(user_id=user.id, code_hash=f"{'b' * 58}{_N[0]:06d}",
                  short_code=f"GK-T{_N[0]:04d}-X", code_last4=f"{_N[0]:04d}"[-4:],
                  face_value_minor=int(kr * 100), balance_minor=int(kr * 100),
-                 voucher_class=vclass, status=status, issued_at=issued_utc)
+                 voucher_class=vclass, status=status, issued_at=issued_utc,
+                 payment_method=payment_method)
     db.add(c)
     db.commit()
     db.refresh(c)
@@ -118,9 +124,13 @@ def _redeem(db, user, card, kr, on: date):
     db.commit()
 
 
-def _close(db, user, on, revenue, payments: dict | None):
+def _close(db, user, on, revenue, payments: dict | None, *, saved_hour=23):
+    """A confirmed close for `on`, saved at `saved_hour`:00 that evening (a
+    real close is saved after the day's sales — the 'sold after the close'
+    evidence reads this)."""
+    saved = _utc(on, saved_hour)
     db.add(DailyClose(user_id=user.id, date=on, revenue_total=Decimal(str(revenue)),
-                      status="confirmed",
+                      status="confirmed", created_at=saved, updated_at=saved,
                       payment_categories=encode_breakdown(payments) if payments else None))
     db.commit()
 

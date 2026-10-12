@@ -339,7 +339,15 @@ def _detect_close_unreconciled(db: Session, user, now, skip=frozenset()):
         c_date = _close_date(c)
         if c_date is not None and ("close_unreconciled", c_date.isoformat()) in skip:
             continue
-        diff = abs(payment_total - _sold - revenue_total)
+        # Evidence decides whether the day's gavekort sale is in THIS close's
+        # payments: payments = revenue + sold, or = revenue (sold after the
+        # close, paid another way, or at another branch — the account's cards
+        # carry no branch). The closer of the two readings is the honest diff,
+        # so a branch that sold nothing is never called unreconciled for a
+        # card another branch sold (review 12 Oct, g).
+        diff = abs(payment_total - revenue_total)
+        if _sold > 0:
+            diff = min(diff, abs(payment_total - _sold - revenue_total))
         if diff > max(_UNRECONCILED_ABS_KR, _UNRECONCILED_PCT * revenue_total):
             if diff > worst_diff:
                 worst_diff = diff
