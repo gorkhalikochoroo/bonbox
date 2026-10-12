@@ -7797,7 +7797,12 @@ export default function StaffPortalPage() {
     // transform, so it doesn't trap them.
     <div
       className="full-height scrollable bg-[#f5f7fb] text-gray-900 pb-24"
-      style={kbShell > 0 ? { height: `calc(100dvh - ${kbShell}px)` } : undefined}
+      /* pb-24 clears the tab bar; while the cookie banner sits on it, the
+         scroller pads by the banner too (--bb-consent-h, CookieConsent.jsx). */
+      style={{
+        paddingBottom: "calc(6rem + var(--bb-consent-h, 0px))",
+        ...(kbShell > 0 ? { height: `calc(100dvh - ${kbShell}px)` } : {}),
+      }}
     >
       {/* Header — sticks to the top of the internal scroller. Uses .glass-static
           (no translateZ) so the sticky header doesn't wobble during momentum
@@ -8398,7 +8403,8 @@ export default function StaffPortalPage() {
       </div>
 
       {/* Bottom Navigation */}
-      <nav className={`fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20${BAR_V2 ? " bb-lg-tabbar" : ""}`}>
+      {/* data-bb-consent-clear: the cookie banner sits on this bar, not over it (CookieConsent.jsx). */}
+      <nav data-bb-consent-clear="" className={`fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20${BAR_V2 ? " bb-lg-tabbar" : ""}`}>
         <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {TABS.filter(
             // Alerts moved to the header bell (design).

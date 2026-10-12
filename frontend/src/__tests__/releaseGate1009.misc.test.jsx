@@ -256,7 +256,11 @@ describe.each(Object.keys(DICT))("cookie banner first layer in %s (item 6)", (la
     localStorage.setItem("lang", lang);
     render(<LanguageProvider><MemoryRouter><CookieConsent /></MemoryRouter></LanguageProvider>);
     const dialog = await screen.findByRole("dialog", {}, { timeout: 3000 });
-    expect(dialog.textContent).toContain(body);
+    // Since 12 Oct the banner shows one short sentence; this text, word for
+    // word, is one tap away in Customize.
+    expect(dialog.textContent).toContain(d.cookieBannerShort);
+    fireEvent.click(screen.getByRole("button", { name: d.cookieCustomize }));
+    expect(screen.getByRole("dialog").textContent).toContain(body);
   });
 });
 

@@ -117,6 +117,8 @@ export default function MobileBottomNav() {
   return (
     <nav
       aria-label={t("bottomNav") || "Primary"}
+      /* The cookie banner sits on this bar instead of over it (CookieConsent.jsx). */
+      data-bb-consent-clear=""
       /* .glass, not bg-white. The bar is h-14 (56px) plus the ~34pt home
          indicator area iOS reserves, and as an opaque white block that reads as
          a 90pt empty slab at the bottom of a light app. Translucent, it reads as

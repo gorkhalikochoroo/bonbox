@@ -5,7 +5,11 @@
  * side with equal weight, "Tilpas" as a text link, no bottom-nav offset and
  * no aria-live; and the page pads its bottom by the banner's height
  * (--bb-consent-h) so the form can always be scrolled clear of it.
- * Everywhere else the banner is as it was.
+ *
+ * 12 Oct 2026: that compact banner became THE banner on every route (see
+ * cookieOneBanner.test.jsx). It shows one short sentence (cookieBannerShort)
+ * with "Læs mere" → /cookies instead of the clamped body; the full body,
+ * word for word, sits in "Tilpas". The rest of this file holds as it was.
  */
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -37,23 +41,19 @@ beforeEach(() => { localStorage.clear(); document.documentElement.style.removePr
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe.each(["/register", "/login", "/verify-email", "/forgot-password"])("compact banner on %s", (route) => {
-  it("same words, no 🍪, no aria-live, clamped body behind Læs mere / Vis mindre", async () => {
+  it("short sentence, no 🍪, no aria-live, Læs mere → /cookies; the full words behind Tilpas", async () => {
     const banner = await openAt(route);
-    expect(banner.getAttribute("data-cookie-compact")).toBe("1");
     expect(banner.getAttribute("role")).toBe("dialog");
     expect(banner.getAttribute("aria-label")).toBe(da.cookieBannerAria);
     expect(banner.hasAttribute("aria-live")).toBe(false);
     expect(banner.textContent).not.toContain("🍪");
     expect(banner.textContent).toContain(da.cookieBannerTitle);
-    const body = banner.querySelector("#cookie-banner-body");
-    expect(body.textContent).toBe(da.cookieBannerBody);
-    expect(body.className).toMatch(/line-clamp-2/);
-    const more = within(banner).getByRole("button", { name: da.suCookieMore });
-    expect(more.getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(more);
-    expect(body.className).not.toMatch(/line-clamp-2/);
-    expect(within(banner).getByRole("button", { name: da.suCookieLess })).toBeTruthy();
-    // no 3.5rem bottom-nav offset on these pages
+    expect(banner.querySelector("#cookie-banner-short").textContent).toBe(da.cookieBannerShort);
+    expect(banner.textContent).not.toContain(da.cookieBannerBody);
+    expect(within(banner).getByRole("link", { name: da.suCookieMore }).getAttribute("href")).toBe("/cookies");
+    fireEvent.click(within(banner).getByRole("button", { name: da.cookieCustomize }));
+    expect(document.querySelector("#cookie-banner-body").textContent).toBe(da.cookieBannerBody);
+    // no fixed 3.5rem bottom-nav offset: the banner sits on a marked bar instead
     expect(banner.className).not.toMatch(/3\.5rem/);
   });
 
@@ -79,13 +79,15 @@ describe.each(["/register", "/login", "/verify-email", "/forgot-password"])("com
   });
 });
 
-describe("everywhere else the banner is unchanged", () => {
-  it("/ keeps the full banner with its offset and aria-live", async () => {
+describe("everywhere else it is the same banner (12 Oct 2026)", () => {
+  it("/ has the short sentence, no fixed offset and no aria-live — the full text is in Tilpas", async () => {
     const banner = await openAt("/");
-    expect(banner.hasAttribute("data-cookie-compact")).toBe(false);
-    expect(banner.getAttribute("aria-live")).toBe("polite");
-    expect(banner.className).toMatch(/3\.5rem/);
-    expect(banner.textContent).toContain(da.cookieBannerBody);
+    expect(banner.hasAttribute("aria-live")).toBe(false);
+    expect(banner.className).not.toMatch(/3\.5rem/);
+    expect(banner.querySelector("#cookie-banner-short").textContent).toBe(da.cookieBannerShort);
+    expect(banner.textContent).not.toContain(da.cookieBannerBody);
+    fireEvent.click(within(banner).getByRole("button", { name: da.cookieCustomize }));
+    expect(screen.getByRole("dialog").textContent).toContain(da.cookieBannerBody);
   });
 });
 

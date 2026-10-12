@@ -204,7 +204,7 @@ export function AuthLanguageSelect({ labelKey = "regLanguageLabel" }) {
  * A fixed strip the height of the status bar keeps scrolled content out from
  * under the clock in the iOS app (the webview overlays the status bar and
  * the body pads by env(safe-area-inset-top)); on the web it is 0 px tall.
- * The page pads its bottom by the compact cookie banner's height
+ * The page pads its bottom by the cookie banner's footprint
  * (--bb-consent-h, CookieConsent.jsx), so the form can always be scrolled
  * clear of the banner (at rest it may sit over the lower fields on a small
  * phone; the Terms line and Google's button, above the form, stay clear).
@@ -223,6 +223,8 @@ export default function AuthShell({ children, aside = null, footer = null, logoL
         "[&_[data-testid=signup-terms-line]_a]:py-[15px]"
       }
       style={{ paddingBottom: "var(--bb-consent-h, 0px)" }}
+      /* Pads itself, so index.css's phone body padding for the banner skips this page. */
+      data-auth-shell=""
     >
       <div aria-hidden="true" className="fixed inset-x-0 top-0 z-40 h-[env(safe-area-inset-top,0px)] bg-bb-paper dark:bg-gray-950" />
       <div className="flex-1 flex">
