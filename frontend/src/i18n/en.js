@@ -10365,4 +10365,6 @@ export const en = {
     rsvpRailMonthOneApptOneCustomer: "{month}: 1 appointment · 1 customer",
     rsvpRailDayLineAppt: "{covers} customers · {staff} on shift",
     rsvpRailDayLineOneAppt: "1 customer · {staff} on shift",
+    // ── Push 8: a party at tables across the room — no band, a shared letter.
+    rsvpPlanSharedWith: "Shared with {tables}",
 };

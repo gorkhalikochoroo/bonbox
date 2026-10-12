@@ -90,7 +90,7 @@ import {
   TableMark,
   ShapeGlyph,
 } from "../config/tableArchetypes";
-import { fitRoom, roomMinWidth } from "../utils/floorFit";
+import { fitRoom, roomMinWidth, tableFootprint } from "../utils/floorFit";
 import { comboLinks } from "../utils/hostStand";
 import { zoneTones } from "../utils/zoneColors";
 import { lateMinutes, overdueMinutes, overByText } from "../utils/serviceClock";
@@ -300,6 +300,10 @@ function TableNode({
   nowMs,
   // Seats of all the tables a combined party sits at (null when single).
   comboSeats = null,
+  // A combined party whose tables do not stand together (no band joins them):
+  // { letter, others } — the same small letter on each of its tables, and the
+  // other tables' names for the title / screen reader. null otherwise.
+  shared = null,
   // The table's zone ring (same hue as the list and the timeline), or null.
   zoneDot = null,
   t,
@@ -528,7 +532,8 @@ function TableNode({
           " · " +
           seats +
           (status === "overdue" ? " · " + t("rsvpPlanOverdue", "Overdue") : "") +
-          (sub ? " · " + sub : "")
+          (sub ? " · " + sub : "") +
+          (shared ? " · " + t("rsvpPlanSharedWith", "Shared with {tables}", { tables: shared.others }) : "")
         }
         title={res.label + (sub ? " · " + sub : "")}
         className={
@@ -617,7 +622,9 @@ function TableNode({
               </>
             ) : (
               <>
-                <Users className="w-3 h-3 opacity-70" aria-hidden />
+                {/* On a two-top the shared letter takes the people icon's
+                    room, so the seat line stays inside the table. */}
+                {!(combined && shared && innerW < 58) && <Users className="w-3 h-3 opacity-70" aria-hidden />}
                 <span className="text-[13px] tabular-nums">
                   {/* A party across tables counts every table's seats: 12 at
                       Bord 5 + 6 read "12/6" and "12/8", as if over-full. */}
@@ -625,7 +632,19 @@ function TableNode({
                     ? `${partySize}/${comboSeats || seats}`
                     : seats}
                 </span>
-                {combined && <Link2 className="w-3 h-3 opacity-70 ml-0.5" aria-hidden />}
+                {combined && !shared && <Link2 className="w-3 h-3 opacity-70 ml-0.5" aria-hidden />}
+                {/* Joined to tables across the room: no band there, so each
+                    of the party's tables carries the same small letter. */}
+                {combined && shared && (
+                  <span
+                    data-combo-badge={shared.letter}
+                    title={t("rsvpPlanSharedWith", "Shared with {tables}", { tables: shared.others })}
+                    className="ml-0.5 inline-flex items-center gap-px rounded-full px-1 text-[10px] font-semibold leading-[14px] bg-white/90 text-gray-900 dark:bg-gray-900/85 dark:text-gray-100"
+                  >
+                    <Link2 className="w-2.5 h-2.5" aria-hidden />
+                    {shared.letter}
+                  </span>
+                )}
               </>
             )}
           </span>
@@ -989,6 +1008,42 @@ export default function FloorPlan({
         : fitRoom(cells, layout, canvasSize, shownFixtures),
     [editing, cells, layout, canvasSize, shownFixtures],
   );
+
+  // Combined parties on the floor (view mode): the links between their
+  // tables, each marked `near` when the two stand together (comboLinks), and
+  // for a party a band cannot join — tables across the room — the same
+  // letter on each of its tables (A, B … in the order the floor names them).
+  const { comboGroups, comboBadges } = useMemo(() => {
+    const none = { comboGroups: [], comboBadges: {} };
+    if (editing) return none;
+    const combos = cells.filter((c) => c.combined && c.booking?.reservation).map((c) => c.booking.reservation);
+    if (combos.length === 0) return none;
+    const posById = {};
+    const labelById = {};
+    for (const c of cells) {
+      const id = String(c.res.id);
+      const saved = layout[id] || { pos_x: 50, pos_y: 50 };
+      const p = fitted.pos[id] ? { ...saved, ...fitted.pos[id] } : saved;
+      const fp = tableFootprint(c.res, p, fitted.scale || 1);
+      posById[id] = { x: Number(p.pos_x), y: Number(p.pos_y), hw: fp.hw, hh: fp.hh };
+      labelById[id] = String(c.res.label || id);
+    }
+    const room = canvasSize.w > 0 && canvasSize.h > 0 ? canvasSize : null;
+    const groups = comboLinks(combos, posById, room ? room.w / room.h : 1.6, { room });
+    const byName = (a, b) => a.localeCompare(b, "da", { numeric: true, sensitivity: "base" });
+    const apart = groups
+      .filter((g) => !g.linked)
+      .map((g) => ({ ...g, names: g.ids.map((id) => labelById[id]).sort(byName) }))
+      .sort((a, b) => byName(a.names[0], b.names[0]));
+    const badges = {};
+    apart.forEach((g, i) => {
+      const letter = String.fromCharCode(65 + (i % 26));
+      for (const id of g.ids) {
+        badges[id] = { letter, others: g.names.filter((n) => n !== labelById[id]).join(" + ") };
+      }
+    });
+    return { comboGroups: groups, comboBadges: badges };
+  }, [editing, cells, layout, fitted, canvasSize]);
 
   // Zones: a hollow ring on each zoned table + the legend — a drawn area
   // mislabelled the room (equal bands put "VINDUE" over Indendørs tables; a
@@ -1729,18 +1784,12 @@ export default function FloorPlan({
               only draws a band between their centres (the shortest chain
               over those positions — no geometry invented), under the tables,
               in the party's status colour: emerald seated, sky confirmed,
-              amber a request. Not while arranging the room. */}
+              amber a request. Only between tables that stand together
+              (comboLinks `near`): a band from wall to wall read as one long
+              table across the room — those tables carry a shared letter
+              instead (comboBadges). Not while arranging the room. */}
           {!editing && (() => {
-            const combos = cells.filter((c) => c.combined && c.booking?.reservation).map((c) => c.booking.reservation);
-            if (combos.length === 0) return null;
-            const posById = {};
-            for (const c of cells) {
-              const id = String(c.res.id);
-              const saved = layout[id] || { pos_x: 50, pos_y: 50 };
-              const p = fitted.pos[id] ? { ...saved, ...fitted.pos[id] } : saved;
-              posById[id] = { x: Number(p.pos_x), y: Number(p.pos_y) };
-            }
-            const groups = comboLinks(combos, posById);
+            const groups = comboGroups.filter((g) => g.edges.some((e) => e[2]));
             if (groups.length === 0) return null;
             const width = Math.max(8, Math.round(22 * (fitted.scale || 1)));
             return (
@@ -1752,7 +1801,7 @@ export default function FloorPlan({
                 data-combo-links={groups.length}
               >
                 {groups.map((g) =>
-                  g.edges.map(([a, b]) => (
+                  g.edges.filter((e) => e[2]).map(([a, b]) => (
                     <line
                       key={`${g.id}-${a.id}-${b.id}`}
                       data-combo-edge={`${a.id}:${b.id}`}
@@ -1809,6 +1858,7 @@ export default function FloorPlan({
                       ? c.booking.reservation.combined_resource_ids.reduce((sum, rid) => sum + (seatsByRes[String(rid)] || 0), 0) || null
                       : null
                   }
+                  shared={editing ? null : comboBadges[id] || null}
                   t={t}
                   profile={cellProfile}
                   editing={editing}

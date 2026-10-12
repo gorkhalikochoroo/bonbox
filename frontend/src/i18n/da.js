@@ -10037,4 +10037,6 @@ export const da = {
     rsvpRailMonthOneApptOneCustomer: "{month} i alt: 1 aftale · 1 kunde",
     rsvpRailDayLineAppt: "{covers} kunder · {staff} på vagt",
     rsvpRailDayLineOneAppt: "1 kunde · {staff} på vagt",
+    // ── Push 8: a party at tables across the room — no band, a shared letter.
+    rsvpPlanSharedWith: "Delt med {tables}",
 };

@@ -402,13 +402,41 @@ export function bySeatedTime(a, b) {
 
 /**
  * Which tables a combined party joins, as links between table centres
- * ({ id, status, edges: [[a, b], …] }, a/b = { id, x, y } in % of the room).
- * Only tables the floor already places are joined — no geometry is invented —
- * and the links are a shortest tree over those positions, so three tables in
- * a row read as one chain, never a triangle across the room.
- * `aspect` is the room's width / height, so distances compare like on screen.
+ * ({ id, status, ids, linked, edges: [[a, b, near], …] }, a/b = { id, x, y }
+ * in % of the room). Only tables the floor already places are joined — no
+ * geometry is invented — and the links are a shortest tree over those
+ * positions, so three tables in a row read as one chain, never a triangle
+ * across the room.
+ *
+ * `near` (Push 8): the two tables stand together — the gap between their
+ * footprints (chairs included) is at most half the smaller footprint, tables
+ * a host could push together. Only a near link is drawn as a band: Bord 6 and
+ * Bord 7 on opposite walls drew a band through the middle of the room, which
+ * read as one long table. `linked` = every link is near (the band shows the
+ * whole party); otherwise the floor marks each of its tables instead.
+ *
+ * A position may carry its drawn footprint (hw / hh, half-width and
+ * half-height in px — floorFit.tableFootprint); without one a two-top's is
+ * assumed. `room` is the canvas in px; without it the nominal 880 × 550 room
+ * the table sizes are drawn against. `aspect` is the room's width / height,
+ * so distances compare like on screen.
  */
-export function comboLinks(bookings, posById, aspect = 1.6) {
+const NOMINAL_ROOM = { w: 880, h: 550 };
+const NOMINAL_HALF = 48; // a two-top's footprint, halved (64 px body + chairs)
+
+function nearEnough(a, b, room) {
+  const ahw = Number.isFinite(a.hw) ? a.hw : NOMINAL_HALF;
+  const ahh = Number.isFinite(a.hh) ? a.hh : NOMINAL_HALF;
+  const bhw = Number.isFinite(b.hw) ? b.hw : NOMINAL_HALF;
+  const bhh = Number.isFinite(b.hh) ? b.hh : NOMINAL_HALF;
+  const gx = (Math.abs(a.x - b.x) / 100) * room.w - (ahw + bhw);
+  const gy = (Math.abs(a.y - b.y) / 100) * room.h - (ahh + bhh);
+  const gap = gx > 0 && gy > 0 ? Math.hypot(gx, gy) : Math.max(gx, gy, 0);
+  return gap <= Math.min(ahw, ahh, bhw, bhh);
+}
+
+export function comboLinks(bookings, posById, aspect = 1.6, { room = null } = {}) {
+  const px = room && room.w > 0 && room.h > 0 ? room : NOMINAL_ROOM;
   const out = [];
   const seen = new Set();
   for (const r of bookings || []) {
@@ -419,7 +447,7 @@ export function comboLinks(bookings, posById, aspect = 1.6) {
       : [];
     const pts = ids
       .filter((id) => posById[id] && Number.isFinite(posById[id].x) && Number.isFinite(posById[id].y))
-      .map((id) => ({ id, x: posById[id].x, y: posById[id].y }));
+      .map((id) => ({ ...posById[id], id }));
     if (pts.length < 2) continue;
     const dist = (p, q) => Math.hypot((p.x - q.x) * aspect, p.y - q.y);
     const tree = [pts[0]];
@@ -434,10 +462,16 @@ export function comboLinks(bookings, posById, aspect = 1.6) {
         }
       }
       const b = rest.splice(pick.i, 1)[0];
-      edges.push([pick.a, b]);
+      edges.push([pick.a, b, nearEnough(pick.a, b, px)]);
       tree.push(b);
     }
-    out.push({ id: String(r.id), status: r.status, edges });
+    out.push({
+      id: String(r.id),
+      status: r.status,
+      ids: pts.map((p) => p.id),
+      linked: edges.every((e) => e[2]),
+      edges,
+    });
   }
   return out;
 }
