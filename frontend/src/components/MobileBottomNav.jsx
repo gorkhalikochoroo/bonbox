@@ -127,7 +127,7 @@ export default function MobileBottomNav() {
          FIXED bars need the compositor hint or WKWebView repaints them every
          scroll frame; .glass-static exists for STICKY bars where that same
          transform causes the documented wobble. */
-      className="fixed bottom-0 left-0 right-0 glass
+      className="fixed bottom-0 left-0 right-0 glass bar-paper
         border-t border-gray-200/70 dark:border-gray-700/70 z-50 md:hidden"
       /* Reserve LESS than the full bottom inset so the row sits lower.
          Padding the full env(safe-area-inset-bottom) — ~34pt on this device —

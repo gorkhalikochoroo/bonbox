@@ -319,6 +319,16 @@
       // on first load. Migration: any legacy users with theme=null/undefined
       // will see light mode immediately.
       (function () {
+        // Pages that paint their OWN white page keep a white html/body in
+        // light (the app's ground is paper since 12 Oct 2026). Keep equal to
+        // WHITE_PAGE_PATHS / WHITE_PAGE_PREFIXES in src/utils/themeColor.js —
+        // creamCanvas.test.js runs both on the same paths. Outside the
+        // localStorage try: it must run even when storage is blocked.
+        var wp = location.pathname.replace(/\/+$/, "") || "/";
+        if (["/", "/v2", "/join", "/login/magic", "/login/claim", "/onboarding", "/privacy", "/terms", "/cookies"].indexOf(wp) !== -1 ||
+            /^\/(s|r|e|t|g|accept-invite)\//.test(wp)) {
+          document.documentElement.classList.add("bb-page-white");
+        }
         try {
           var t = localStorage.getItem("theme");
           if (t === "dark") {
@@ -328,7 +338,11 @@
             // the staff portal /s/ and LIGHT_ONLY_PATHS (landing, /join,
             // /stand, magic-link/claim). Keep this list equal to
             // themeColor.js — dashboardDarkMode.test.js runs both on the same
-            // paths. Light leaves the static #ffffff alone.
+            // paths. Light leaves the static #ffffff alone: the app's paper
+            // bar (#f6f4ec, 12 Oct 2026) is written by useThemeColorSync on
+            // React's first commit, because only then can the vanity /<slug>
+            // guest booking page be told from an app page — a cold load of a
+            // guest page must never flash a cream bar over its white page.
             var p = location.pathname.replace(/\/+$/, "") || "/";
             var lightOnly = location.pathname.indexOf("/s/") === 0 ||
               ["/", "/v2", "/join", "/stand", "/login/magic", "/login/claim"].indexOf(p) !== -1;

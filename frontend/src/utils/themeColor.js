@@ -1,3 +1,5 @@
+import { isGuestSurface } from "../lib/guestSurface";
+
 /**
  * The browser bar (`<meta name="theme-color">`) follows the app theme.
  *
@@ -16,8 +18,37 @@
  * white flash on a cold start) and carries a copy of the list; this helper
  * keeps it in step when the owner toggles the theme live (useDarkMode) and on
  * every route change (useThemeColorSync, mounted once in App).
+ *
+ * LIGHT is BonBox paper (#f6f4ec) since 12 Oct 2026: the app's light ground and
+ * its light shell (sidebar, top bar, bottom nav) are paper, so a white bar
+ * above them was a white strip on a cream screen. Pages that paint their OWN
+ * white / near-white page keep the white bar in light (WHITE_PAGE_PATHS,
+ * WHITE_PAGE_PREFIXES, and any mounted guest page — lib/guestSurface.js, which
+ * is how the vanity /<slug> booking page is told apart from an app page).
+ * index.html's pre-paint script leaves light at the static #ffffff, so a cold
+ * load of a guest page never shows a cream bar; the app's paper bar arrives
+ * with React's first commit (useThemeColorSync). Dark is unchanged.
  */
-export const THEME_COLOR = Object.freeze({ light: "#ffffff", dark: "#1f2937" });
+export const THEME_COLOR = Object.freeze({ light: "#f6f4ec", dark: "#1f2937", page: "#ffffff" });
+
+/**
+ * Light-mode routes whose page paints its own white / near-white ground over
+ * the paper body, so the browser bar stays white there: the landing (/, /v2),
+ * the staff join screen (#f5f7fb), the magic-link / claim screens and
+ * onboarding (slate-50 / gray-50), the legal pages (white) and the guest-facing
+ * pages — staff portal /s/, booking /r/, events /e/, tickets /t/, gift cards
+ * /g/, invites. NOT /stand: the door-tablet pairing screen draws on the body,
+ * i.e. on paper, as do /login and /register (AuthShell is paper).
+ */
+export const WHITE_PAGE_PATHS = Object.freeze(["/", "/v2", "/join", "/login/magic", "/login/claim", "/onboarding", "/privacy", "/terms", "/cookies"]);
+export const WHITE_PAGE_PREFIXES = Object.freeze(["/s/", "/r/", "/e/", "/t/", "/g/", "/accept-invite/"]);
+
+/** True on a route that paints its own white page in light (trailing slash ignored). */
+export const isWhitePagePath = (path) => {
+  if (typeof path !== "string") return false;
+  const p = path.replace(/\/+$/, "") || "/";
+  return WHITE_PAGE_PATHS.includes(p) || WHITE_PAGE_PREFIXES.some((x) => p.startsWith(x));
+};
 
 /**
  * Routes whose page has no dark styling at all (0 `dark:` classes): the
@@ -36,18 +67,28 @@ export const isLightOnlyPath = (path) =>
   (isStaffPortalPath(path) || LIGHT_ONLY_PATHS.includes(path.replace(/\/+$/, "") || "/"));
 
 /** The theme-color value for this theme on this path. */
-export function themeColorFor(isDark, path) {
-  return isDark && !isLightOnlyPath(path) ? THEME_COLOR.dark : THEME_COLOR.light;
+export function themeColorFor(isDark, path, { guest = false } = {}) {
+  // Dark: exactly what shipped — card rung, white on the light-only pages.
+  if (isDark) return isLightOnlyPath(path) ? THEME_COLOR.page : THEME_COLOR.dark;
+  // Light: paper, except on a page that paints its own white.
+  return guest || isWhitePagePath(path) ? THEME_COLOR.page : THEME_COLOR.light;
 }
 
+/** The class on <html> that paints html + body white in light (index.css). */
+export const WHITE_PAGE_CLASS = "bb-page-white";
+
 /**
- * Write the theme-color meta. No-op when there is no document or no meta
- * (tests, SSR, a page that dropped the tag).
+ * Write the theme-color meta, and mark <html> when the page paints its own
+ * white page so the safe-area / overscroll strips are white too (light only,
+ * by CSS). No-op without a document; the meta write is skipped when there is
+ * no meta (tests, SSR, a page that dropped the tag).
  */
 export function syncThemeColor(isDark, path) {
   if (typeof document === "undefined") return;
+  const where = path ?? (typeof window !== "undefined" ? window.location.pathname : "");
+  const guest = isGuestSurface();
+  document.documentElement.classList.toggle(WHITE_PAGE_CLASS, guest || isWhitePagePath(where));
   const meta = document.querySelector('meta[name="theme-color"]');
   if (!meta) return;
-  const where = path ?? (typeof window !== "undefined" ? window.location.pathname : "");
-  meta.setAttribute("content", themeColorFor(isDark, where));
+  meta.setAttribute("content", themeColorFor(isDark, where, { guest }));
 }

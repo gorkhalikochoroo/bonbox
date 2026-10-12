@@ -70,7 +70,10 @@
 export const NAV_GROUPS_STORAGE_KEY = "bonbox_nav_groups";
 
 /** The structural muted tier. AA-passing in both themes — see the header. */
-export const NAV_MUTED = "text-gray-500 dark:text-gray-400";
+// Light is gray-600 since 12 Oct 2026: the rail is paper (#f6f4ec) now, and
+// gray-500 measures 4.39:1 there (4.83:1 on the white rail it was chosen for).
+// gray-600 is 6.86:1 on paper. Dark unchanged.
+export const NAV_MUTED = "text-gray-600 dark:text-gray-400";
 
 /** Hover companion for interactive muted chrome (group headers, ⌘K trigger). */
 export const NAV_MUTED_HOVER = "hover:text-gray-700 dark:hover:text-gray-200";
@@ -90,13 +93,14 @@ export const NAV_MUTED_HOVER = "hover:text-gray-700 dark:hover:text-gray-200";
  * one identity accent (the same token the active row's 2px rail and the
  * collapsed-group dot are drawn in), and it FLIPS by theme — a fixed emerald
  * cannot clear the 3:1 non-text floor on both grounds. The offset ground is
- * --surface-card because that is the rail itself, which is what is actually
- * behind the ring.
+ * --surface-shell because that is the rail itself, which is what is actually
+ * behind the ring (paper in light since 12 Oct 2026, the card rung in dark —
+ * same pixels as the --surface-card it replaces there).
  */
 export const NAV_FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 " +
   "focus-visible:ring-[rgb(var(--brand-green-accent))] " +
-  "focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--surface-card))]";
+  "focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--surface-shell))]";
 
 /**
  * The literal colours behind the tokens above, kept next to them so the AA
@@ -104,9 +108,9 @@ export const NAV_FOCUS_RING =
  * `surface` is the sidebar's own background (`bg-white dark:bg-gray-800`) —
  * contrast is meaningless without the ground the text sits on.
  */
-export const NAV_MUTED_HEX = { light: "#6b7280", dark: "#9ca3af" };      // gray-500 / gray-400
+export const NAV_MUTED_HEX = { light: "#4b5563", dark: "#9ca3af" };      // gray-600 (was gray-500 on white) / gray-400
 export const NAV_MUTED_HOVER_HEX = { light: "#374151", dark: "#e5e7eb" }; // gray-700 / gray-200
-export const NAV_SURFACE_HEX = { light: "#ffffff", dark: "#1f2937" };     // white / gray-800
+export const NAV_SURFACE_HEX = { light: "#f6f4ec", dark: "#1f2937" };     // paper (--surface-shell, was white) / gray-800
 
 /**
  * ─────────────────────────────────────────────────────────────────────────
@@ -144,18 +148,22 @@ export const BRAND_LOGO_HEX = { tile: "#093A26", ink: "#F6F4EC" };
  *  against, so it is what the rail's contrast must be measured on. Dark is the
  *  RESOLVED blend of `dark:bg-gray-700/60` over the gray-800 rail surface;
  *  a ratio taken against the un-blended gray-700 would flatter the result. */
-export const NAV_ACTIVE_ROW_HEX = { light: "#f3f4f6", dark: "#2d3747" };  // gray-100 / gray-700@60% on gray-800
+export const NAV_ACTIVE_ROW_HEX = { light: "#ffffff", dark: "#2d3747" };  // white (on the paper rail, since 12 Oct 2026; was gray-100) / gray-700@60% on gray-800
 
 /** The SURFACE LADDER rungs (index.css). `ground` is the page, `subtle` is the
  *  half-rung used by pressed/selected chrome and Card's `subtle` variant,
  *  `card` is a resting card AND the shell, `raised` floats above a card,
  *  `line` is the hairline on a card. */
 export const SURFACE_LADDER_HEX = {
-  ground: { light: "#f8fafc", dark: "#111827" },
+  ground: { light: "#f6f4ec", dark: "#111827" }, // light = bb-paper since 12 Oct 2026 (was slate-50 #f8fafc)
   subtle: { light: "#f9fafb", dark: "#18212f" },
   card:   { light: "#ffffff", dark: "#1f2937" },
   raised: { light: "#ffffff", dark: "#2b3544" },
   line:   { light: "#e5e7eb", dark: "#374151" },
+  // The SHELL (sidebar rail, focus-ring offset; the phone bars via .bar-paper):
+  // paper in light since 12 Oct 2026 — one cream sheet with the browser bar and
+  // the page — and still the card rung in dark.
+  shell:  { light: "#f6f4ec", dark: "#1f2937" },
 };
 
 /**

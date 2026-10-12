@@ -1430,7 +1430,7 @@ export default function ExpensesPage() {
             {/* "or enter it manually" — a real hairline divider, not orphan text. */}
             <div className="flex items-center gap-3">
               <div className="flex-1 border-t border-gray-200 dark:border-gray-800" aria-hidden="true" />
-              <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">{t("expOrTypeManually", "or enter it manually")}</span>
+              <span className="text-xs text-gray-600 dark:text-gray-500 shrink-0">{t("expOrTypeManually", "or enter it manually")}</span>
               <div className="flex-1 border-t border-gray-200 dark:border-gray-800" aria-hidden="true" />
             </div>
 
@@ -1550,7 +1550,7 @@ export default function ExpensesPage() {
             // why and offers Try again.
             null
           ) : (
-          <p className="text-xs text-gray-500 dark:text-gray-400 px-1">
+          <p className="text-xs text-gray-600 dark:text-gray-400 px-1">
             {/* The label follows the scope. With a date filter set this total
                 is the filtered range, not the calendar month, so it says so —
                 see monthSummary. */}

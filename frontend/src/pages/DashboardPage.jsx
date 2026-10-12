@@ -995,7 +995,7 @@ export default function DashboardPage() {
         <div className="mt-8 text-center">
           <Link
             to="/reports"
-            className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline"
+            className="text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 underline"
           >
             {t("dashViewAllMetrics", "View all metrics in Reports →")}
           </Link>

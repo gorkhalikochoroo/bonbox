@@ -3451,7 +3451,7 @@ export default function StaffSchedulePage() {
           grid. An empty cell is SILENT — no dot was ever drawn in it — so the
           legend was teaching a mark that does not exist. */}
       <FadeIn delay={0.12} className="max-md:order-1">
-        <div className="flex items-center gap-x-4 gap-y-2 flex-wrap text-xs text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-x-4 gap-y-2 flex-wrap text-xs text-gray-600 dark:text-gray-400">
           <span className="font-medium">{t("schedLegendStatus", "Status:")}</span>
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm border border-dashed border-amber-400 dark:border-amber-500/60" aria-hidden="true" />
