@@ -88,6 +88,7 @@ def build_owner_context(user: User, db: Session, max_patterns: int = 5) -> str:
     lines.append(f"Last 30d: {float(month_rev):,.0f} {user.currency}")
 
     # ── 3. Recent expenses ──
+    from app.services.expense_status import not_pending  # the shared money gate
     month_exp = (
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(
@@ -95,6 +96,7 @@ def build_owner_context(user: User, db: Session, max_patterns: int = 5) -> str:
             Expense.date >= month_ago.date(),
             Expense.is_deleted.isnot(True),
             Expense.is_personal == False,  # noqa: E712
+            not_pending(),
         )
         .scalar()
         or 0

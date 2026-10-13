@@ -270,12 +270,16 @@ def query_expenses(
     start, end = _resolve_period(period, from_date, to_date)
     prev_start, prev_end = _previous_period(start, end)
 
+    # not_pending(): the shared money gate — no unapproved draft, and no
+    # bank line linked to the expense it paid (counted once; Push 8).
+    from app.services.expense_status import not_pending
     base = (
         db.query(Expense)
         .filter(
             Expense.user_id == user_id,
             Expense.is_deleted.isnot(True),
             Expense.is_personal.isnot(True),
+            not_pending(),
         )
     )
 
@@ -323,6 +327,7 @@ def query_expenses(
             Expense.is_personal.isnot(True),
             Expense.date >= start,
             Expense.date <= end,
+            not_pending(),
         )
         .group_by(ExpenseCategory.name)
         .order_by(func.sum(Expense.amount).desc())

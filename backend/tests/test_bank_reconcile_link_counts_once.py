@@ -279,3 +279,51 @@ def test_schema_change_is_additive_on_both_branches():
     assert col.nullable is True and col.default is None and col.server_default is None
     import inspect
     assert '_add("expenses", "linked_expense_id", "VARCHAR(36)")' in inspect.getsource(main._run_migrations)
+
+
+# ── Readers that summed expenses without the shared gate (Push 8 finish) ──
+# The AI agent's expense answer, the owner context the copilot reads and the
+# weekly category-spike alert summed Expense.amount on their own, so a linked
+# purchase still read twice there (and an unapproved draft counted). They now
+# go through not_pending() like every other money read.
+
+
+def test_the_agents_expense_answer_counts_a_linked_purchase_once(db):
+    from app.services.agent_tools import query_expenses
+
+    u, receipt, bank = _pair(db)
+    before = query_expenses(db, u.id, from_date=DAY, to_date=DAY, period="custom")["data"]
+    assert before["total_expenses"] == 2500.0          # both rows, before the link
+    _link(db, u, bank, receipt)
+    after = query_expenses(db, u.id, from_date=DAY, to_date=DAY, period="custom")["data"]
+    assert after["total_expenses"] == 1250.0
+    assert after["expense_count"] == 1
+    assert [c["total"] for c in after["by_category"]] == [1250.0]
+
+
+def test_the_owner_context_counts_a_linked_purchase_once(db):
+    from app.services.owner_memory import build_owner_context
+
+    u, receipt, bank = _pair(db)
+    _link(db, u, bank, receipt)
+    ctx = build_owner_context(u, db)
+    assert "Last 30d expenses: 1,250 DKK" in ctx, ctx
+
+
+def test_a_linked_purchase_is_not_a_category_spike(db):
+    from app.services.alert_service import detect_expense_alerts
+
+    u = _owner(db)
+    cat = _cat(db, u)
+    today = date.today()
+    # Four earlier weeks at 1.000 a week (inside each [w_start, w_end) window).
+    for w in range(1, 5):
+        _exp(db, u, cat, 1000, d=today - timedelta(days=7 * (w + 1)), desc="Hørkram uge")
+    # This week: the receipt and the bank line that paid it.
+    receipt = _exp(db, u, cat, 1100, d=today - timedelta(days=1), desc="Hørkram (bon)")
+    bank = _exp(db, u, cat, 1100, bank=True, d=today - timedelta(days=1), desc="HORKRAM A/S")
+    spikes = [a for a in detect_expense_alerts(u, db) if a["type"] == "category_spike"]
+    assert spikes and spikes[0]["this_week"] == 2200.0  # the double count read as +120 %
+    _link(db, u, bank, receipt)
+    spikes = [a for a in detect_expense_alerts(u, db) if a["type"] == "category_spike"]
+    assert spikes == []                                  # 1.100 vs 1.000: +10 %, no alert
