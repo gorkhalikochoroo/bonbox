@@ -120,3 +120,65 @@ describe("bank reconcile — a linked bank line", () => {
     expect(en.bankReconUnlinkedToast).toMatch(/count again/);
   });
 });
+
+// A link the server refuses (Push 8 guards: one payment, one link) comes back
+// with a code beside its English message; the page words it in the owner's
+// language. Any other message is shown as the server sent it, as before.
+describe("bank reconcile — a refused link reads in the owner's language", () => {
+  const OPEN = {
+    import_id: "danske_bank",
+    counts: { high: 1, medium: 0, low: 0, none: 0 },
+    transactions: [
+      { txn_id: "bank-2", txn_type: "expense", date: "2026-10-09", amount: 1250,
+        description: "HORKRAM A/S", already_matched: false,
+        suggestions: [{ txn_id: "bank-2", target_type: "expense", target_id: "exp-9",
+                        target_label: "Hørkram (bon)", confidence: "high",
+                        amount_diff: 0, date_diff_days: 1, reason: "same amount" }] },
+    ],
+  };
+
+  it("a coded guard is translated; an uncoded message stays as sent", async () => {
+    get.mockImplementation((url) => Promise.resolve({
+      data: String(url).includes("/suggestions") ? OPEN : [],
+    }));
+    post.mockImplementation((url) => {
+      if (String(url).startsWith("/bank-import/preview")) return Promise.resolve({ data: PREVIEW });
+      if (String(url).startsWith("/bank-import/confirm")) return Promise.resolve({ data: { imported: 1, skipped: 0, errors: [] } });
+      return Promise.resolve({ data: {
+        confirmed: 0, skipped: 0,
+        errors: ["expense target exp-9 is already linked to another bank line", "faktura 7: boom"],
+        error_codes: ["expense_paid_by_another_bank_line", ""],
+      } });
+    });
+    await openReconcile();
+    fireEvent.click(await screen.findByRole("button", { name: /^bankReconConfirmN/ }));
+    expect(await screen.findByText("bankReconErrExpensePaidByAnotherBankLine")).toBeTruthy();
+    expect(screen.getByText("faktura 7: boom")).toBeTruthy();
+    expect(screen.queryByText(/already linked to another bank line/)).toBeNull();
+  });
+
+  it("an older server without codes still shows its messages", async () => {
+    get.mockImplementation((url) => Promise.resolve({
+      data: String(url).includes("/suggestions") ? OPEN : [],
+    }));
+    post.mockImplementation((url) => {
+      if (String(url).startsWith("/bank-import/preview")) return Promise.resolve({ data: PREVIEW });
+      if (String(url).startsWith("/bank-import/confirm")) return Promise.resolve({ data: { imported: 1, skipped: 0, errors: [] } });
+      return Promise.resolve({ data: { confirmed: 0, skipped: 0, errors: ["expense exp-1 not found"] } });
+    });
+    await openReconcile();
+    fireEvent.click(await screen.findByRole("button", { name: /^bankReconConfirmN/ }));
+    expect(await screen.findByText("expense exp-1 not found")).toBeTruthy();
+  });
+
+  it("every guard has real Danish and English", () => {
+    for (const k of ["bankReconErrNotABankLine", "bankReconErrTargetIsABankLine",
+      "bankReconErrBankLineLinkedElsewhere", "bankReconErrExpensePaidByAnotherBankLine"]) {
+      expect(da[k], k).toBeTruthy();
+      expect(en[k], k).toBeTruthy();
+      expect(da[k]).not.toBe(en[k]);
+    }
+    expect(da.bankReconErrExpensePaidByAnotherBankLine).toMatch(/allerede koblet til en anden banklinje/);
+    expect(en.bankReconErrBankLineLinkedElsewhere).toMatch(/undo that link first/);
+  });
+});

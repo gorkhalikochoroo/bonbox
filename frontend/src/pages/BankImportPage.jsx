@@ -79,6 +79,15 @@ const BANK_CAT_KEYS = {
   Marketing: "opsBankCatMarketing",
 };
 
+// Bank reconcile link guards (backend bank_reconciliation.ERROR_CODES) →
+// the sentence the owner reads. The server's English text stays for logs.
+const RECON_ERROR_KEYS = {
+  not_a_bank_line: "bankReconErrNotABankLine",
+  target_is_a_bank_line: "bankReconErrTargetIsABankLine",
+  bank_line_linked_elsewhere: "bankReconErrBankLineLinkedElsewhere",
+  expense_paid_by_another_bank_line: "bankReconErrExpensePaidByAnotherBankLine",
+};
+
 export default function BankImportPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
@@ -1036,9 +1045,15 @@ export default function BankImportPage() {
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/60 rounded-lg px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
                 <strong>{t("bankReconIssues", { n: reconcileResult.errors.length })}</strong>
                 <ul className="list-disc list-inside mt-1">
-                  {reconcileResult.errors.slice(0, 5).map((e, i) => (
-                    <li key={i}>{e}</li>
-                  ))}
+                  {reconcileResult.errors.slice(0, 5).map((e, i) => {
+                    // A link guard comes with a code (error_codes, aligned
+                    // with errors) and is worded in the owner's language;
+                    // any other message is shown as the server sent it.
+                    const code = reconcileResult.error_codes?.[i];
+                    const key = code && Object.prototype.hasOwnProperty.call(RECON_ERROR_KEYS, code)
+                      ? RECON_ERROR_KEYS[code] : null;
+                    return <li key={i}>{key ? t(key) : e}</li>;
+                  })}
                 </ul>
               </div>
             )}

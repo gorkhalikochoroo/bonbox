@@ -639,6 +639,17 @@ def _parse_uuid(s: str) -> UUID | None:
         return None
 
 
+# The link guards' codes (confirm_matches → error_codes). The page words each
+# one in the owner's language (BankImportPage RECON_ERROR_KEYS, da + en); the
+# English message stays in `errors` for logs and older clients.
+ERROR_CODES = frozenset({
+    "not_a_bank_line",
+    "target_is_a_bank_line",
+    "bank_line_linked_elsewhere",
+    "expense_paid_by_another_bank_line",
+})
+
+
 def confirm_matches(
     db: Session,
     user: User,
@@ -666,13 +677,22 @@ def confirm_matches(
     Writes one audit row per applied confirmation. Tenant-scoped via the
     User dependency + per-row ownership re-check (defense-in-depth).
 
-    Returns: {"confirmed": N, "skipped": N, "errors": [str, ...]}
+    Returns: {"confirmed": N, "skipped": N, "errors": [str, ...],
+              "error_codes": [str, ...]}
+    error_codes is aligned 1:1 with errors: a stable code for the link
+    guards the page words in Danish and English (ERROR_CODES), "" for
+    every other message.
 
     Caller (router) commits the transaction after this returns.
     """
     confirmed = 0
     skipped = 0
     errors: list[str] = []
+    coded: dict[int, str] = {}  # index in errors -> ERROR_CODES entry
+
+    def _guard(code: str, message: str) -> None:
+        coded[len(errors)] = code
+        errors.append(message)
 
     for raw in matches:
         try:
@@ -784,7 +804,7 @@ def confirm_matches(
                     errors.append(f"expense {txn_id_raw} not found")
                     continue
                 if not (bank_exp.reference_id or "").startswith("bank_"):
-                    errors.append(f"expense {txn_id_raw} is not a bank line")
+                    _guard("not_a_bank_line", f"expense {txn_id_raw} is not a bank line")
                     continue
                 link_marker = f"[linked:{target_id}]"
 
@@ -821,22 +841,21 @@ def confirm_matches(
                     errors.append(f"expense target {target_id_raw} not found")
                     continue
                 if (target_exp.reference_id or "").startswith("bank_"):
-                    errors.append(f"expense target {target_id_raw} is itself a bank line")
+                    _guard("target_is_a_bank_line",
+                           f"expense target {target_id_raw} is itself a bank line")
                     continue
 
                 if bank_exp.linked_expense_id == target_exp.id:
                     skipped += 1  # already linked to this expense
                     continue
                 if bank_exp.linked_expense_id is not None:
-                    errors.append(
-                        f"expense {txn_id_raw} is already linked to another expense — unlink it first"
-                    )
+                    _guard("bank_line_linked_elsewhere",
+                           f"expense {txn_id_raw} is already linked to another expense — unlink it first")
                     continue
                 if db.query(_paid_by_a_bank_line(target_exp.id, user.id,
                                                  other_than=bank_exp.id)).scalar():
-                    errors.append(
-                        f"expense target {target_id_raw} is already linked to another bank line"
-                    )
+                    _guard("expense_paid_by_another_bank_line",
+                           f"expense target {target_id_raw} is already linked to another bank line")
                     continue
 
                 before = {"id": str(bank_exp.id), "notes": bank_exp.notes,
@@ -877,4 +896,5 @@ def confirm_matches(
             errors.append(f"unexpected error: {str(e)[:80]}")
             continue
 
-    return {"confirmed": confirmed, "skipped": skipped, "errors": errors}
+    return {"confirmed": confirmed, "skipped": skipped, "errors": errors,
+            "error_codes": [coded.get(i, "") for i in range(len(errors))]}

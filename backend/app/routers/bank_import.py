@@ -521,4 +521,5 @@ def confirm_match_batch(
         confirmed=result["confirmed"],
         skipped=result["skipped"],
         errors=result["errors"],
+        error_codes=result.get("error_codes", []),
     )

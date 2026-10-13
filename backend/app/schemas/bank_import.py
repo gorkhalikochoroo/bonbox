@@ -147,3 +147,6 @@ class BankReconcileConfirmResponse(BaseModel):
     confirmed: int  # successful state mutations (mark_paid / link)
     skipped: int    # idempotent no-ops (already paid, already linked, etc.)
     errors: list[str]  # short messages — caller surfaces to UI
+    # Aligned 1:1 with errors: a link guard's code (bank_reconciliation.
+    # ERROR_CODES), which the page words in da/en; "" for any other message.
+    error_codes: list[str] = Field(default_factory=list)

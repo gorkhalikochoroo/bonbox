@@ -327,3 +327,74 @@ def test_a_linked_purchase_is_not_a_category_spike(db):
     _link(db, u, bank, receipt)
     spikes = [a for a in detect_expense_alerts(u, db) if a["type"] == "category_spike"]
     assert spikes == []                                  # 1.100 vs 1.000: +10 %, no alert
+
+
+# ── a refused link carries a code the page words in da/en ───────────────
+# The four link guards answered English only ("expense target … is already
+# linked to another bank line"), and the page lists `errors` as sent — in a
+# Danish UI. Each guard now also returns a stable code in error_codes,
+# aligned 1:1 with errors ("" for any other message); `errors` is unchanged.
+
+
+def test_each_link_guard_returns_its_code_aligned_with_its_message(db):
+    u, receipt, bank = _pair(db)
+    cat = db.query(ExpenseCategory).filter(ExpenseCategory.user_id == u.id).first()
+    other_bank = _exp(db, u, cat, 1250, bank=True, desc="HORKRAM A/S #2")
+    other_receipt = _exp(db, u, cat, 1250, desc="Hørkram (bon 2)")
+    assert _link(db, u, bank, receipt)["error_codes"] == []
+    cases = [
+        (other_bank, receipt, "expense_paid_by_another_bank_line"),
+        (bank, other_receipt, "bank_line_linked_elsewhere"),
+        (other_receipt, receipt, "not_a_bank_line"),
+        (other_bank, bank, "target_is_a_bank_line"),
+    ]
+    for txn, target, code in cases:
+        out = _link(db, u, txn, target)
+        assert out["confirmed"] == 0 and len(out["errors"]) == 1, out
+        assert out["error_codes"] == [code], out
+        assert code in recon.ERROR_CODES
+    # A batch mixing a guard with an uncoded message keeps the two aligned.
+    out = recon.confirm_matches(db, u, [
+        {"txn_id": "not-a-uuid", "target_type": "expense", "target_id": str(receipt.id),
+         "action": "link"},
+        {"txn_id": str(other_bank.id), "target_type": "expense", "target_id": str(receipt.id),
+         "action": "link"},
+    ])
+    assert out["error_codes"] == ["", "expense_paid_by_another_bank_line"], out
+    assert out["errors"][0].startswith("invalid match")
+    assert _counted(db, u) == 1250.0 * 3                 # nothing moved
+
+
+def test_the_codes_reach_the_page_over_http(client, factory):
+    s = factory()
+    u, receipt, bank = _pair(s)
+    cat = s.query(ExpenseCategory).filter(ExpenseCategory.user_id == u.id).first()
+    other_bank = _exp(s, u, cat, 1250, bank=True, desc="HORKRAM A/S #2")
+    _link(s, u, bank, receipt)
+    uid, oid, rid = u.id, other_bank.id, receipt.id
+    s.close()
+    r = client.post("/api/bank-import/latest/confirm-matches",
+                    headers={"Authorization": f"Bearer {create_access_token(str(uid))}"},
+                    json={"matches": [{"txn_id": str(oid), "target_type": "expense",
+                                       "target_id": str(rid), "action": "link"}]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["confirmed"] == 0
+    assert body["errors"] == [f"expense target {rid} is already linked to another bank line"]
+    assert body["error_codes"] == ["expense_paid_by_another_bank_line"]
+
+
+def test_every_guard_code_has_da_and_en_on_the_page():
+    from pathlib import Path
+    import re as _re
+
+    root = Path(__file__).resolve().parents[2] / "frontend" / "src"
+    page = (root / "pages" / "BankImportPage.jsx").read_text()
+    block = page.split("const RECON_ERROR_KEYS = {", 1)[1].split("};", 1)[0]
+    mapping = dict(_re.findall(r'(\w+):\s*"(\w+)"', block))
+    assert set(mapping) == set(recon.ERROR_CODES)
+    da = (root / "i18n" / "da.js").read_text()
+    en = (root / "i18n" / "en.js").read_text()
+    for key in mapping.values():
+        assert _re.search(rf'^\s+{key}: "', da, _re.M), key
+        assert _re.search(rf'^\s+{key}: "', en, _re.M), key
