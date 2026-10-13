@@ -10370,4 +10370,13 @@ export const en = {
     // ── Push 8: the iPad install line of a salon, a shop or a workshop opens
     // the appointment book, not the host screen.
     rsvpInstallManualIOSProvider: "In Safari: tap Share, then Add to Home Screen. The icon opens straight to the appointment book.",
+    // ── Push 8 (round 2): a shop's and a workshop's door screen and book —
+    // the counter, its customers and appointments, never the host stand.
+    rsvpOpenStandAppt: "Open the appointment book in its own window",
+    rsvpStandModeAppt: "Counter screen",
+    rsvpStandCoversAriaAppt: "Customers today",
+    rsvpStandCustomersOne: "{n} customer", rsvpStandCustomers: "{n} customers",
+    rsvpStandApptsOne: "{n} appointment", rsvpStandAppts: "{n} appointments",
+    rsvpBookDayAppt: "Appointment book date",
+    rsvpTabsAriaAppt: "Appointment book sections",
 };

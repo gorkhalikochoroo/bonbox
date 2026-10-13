@@ -197,6 +197,27 @@ describe("3 · a joined seat from the sheet says where", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: da.rsvpSeatNowBtn }));
     expect(await screen.findByText("6 gæster sat ved 51 + 52")).toBeInTheDocument();
   });
+
+  it("the header's 'Seat a drop-in' sheet gets the same line as a one-tap seat", async () => {
+    // One tap on "2" first: the line a one-tap seat gets.
+    renderStand();
+    await waitFor(async () => expect((await sizeButton(2)).textContent).toContain("Free now"));
+    fireEvent.click(await sizeButton(2));
+    const oneTap = await screen.findByText("2 guests seated at 41");
+    const oneTapLine = oneTap.closest("[data-walkin-done]");
+    expect(oneTapLine.dataset.walkinDone).toBe("seated");
+    fireEvent.click(within(oneTapLine).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(document.querySelector("[data-walkin-done]")).toBeNull());
+    // The header's sheet, on the table it picks (41 for two): the same line.
+    fireEvent.click(screen.getByRole("button", { name: "Seat a drop-in" }));
+    const dialog = await screen.findByRole("dialog", { name: "Seat guests" });
+    await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "Table" })).toHaveValue("41"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    const fromSheet = await screen.findByText("2 guests seated at 41");
+    expect(fromSheet.closest("[data-walkin-done]").dataset.walkinDone).toBe("seated");
+    expect(screen.queryByRole("dialog", { name: "Seat guests" })).toBeNull();
+  });
 });
 
 describe("4 · the booking-rules door down", () => {
@@ -348,6 +369,30 @@ describe("9 · one guest is one guest", () => {
     expect(names()[0]).toBe("1 gæst: vælg bord");
     expect(names()[1]).toBe("2 gæster: vælg bord");
   });
+
+  it("a one-tap seat of one: '1 gæst sat ved 41' / '1 guest seated at 41'", async () => {
+    renderStand();
+    await waitFor(async () => expect((await sizeButton(1)).textContent).toContain("Free now"));
+    fireEvent.click(await sizeButton(1));
+    expect(await screen.findByText("1 guest seated at 41")).toBeInTheDocument();
+    expect(da.rsvpWalkInSeatedOne.replace("{table}", "41")).toBe("1 gæst sat ved 41");
+  });
+
+  it.each([["da", "1 gæst", /(^|\D)1 gæster/], ["en", "1 guest", /(^|\D)1 guests/]])(
+    "%s: a party of one in the drawer reads '%s'",
+    async (code, one, plural) => {
+      lang.code = code;
+      const solo = [...BOOK, row("solo", "Holm", null, "confirmed", "19:30", "21:00", 1)];
+      mockApi({}, { book: solo });
+      renderStand();
+      await waitFor(() => expect(compactRowOf("Holm")).toBeTruthy());
+      fireEvent.click(compactRowOf("Holm"));
+      const drawer = await screen.findByRole("dialog");
+      // The party line under the name is exactly "1 gæst" — it read "1 gæster".
+      await waitFor(() => expect([...drawer.querySelectorAll("div")].some((d) => d.textContent.trim() === one)).toBe(true));
+      expect(drawer.textContent).not.toMatch(plural);
+    },
+  );
 
   it("every new One key has real Danish and English", () => {
     for (const k of ["rsvpWalkInPickAriaOne", "rsvpWalkInSeatAriaOne", "rsvpWalkInWaitAriaOne", "rsvpWalkInWlAriaOne", "rsvpCombineSeatsOne", "rsvpTimeMovedCloseOne", "rsvpRailDayLineOne"]) {

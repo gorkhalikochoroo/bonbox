@@ -475,7 +475,7 @@ export default function WaitlistSection({
           </div>
           {/* The same party ladder as every other sheet (it was a bare
               number box here). */}
-          <div role="group" aria-label={t("rsvpWlPartySize", "Guests")}>
+          <div role="group" aria-label={isProvider ? t("rsvpPartySizeAppt", "People") : t("rsvpWlPartySize", "Guests")}>
             <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
               {isProvider ? t("rsvpPartySizeAppt", "People") : t("rsvpPartySize", "Party size")}
             </span>

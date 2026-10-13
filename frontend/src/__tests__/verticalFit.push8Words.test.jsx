@@ -224,6 +224,100 @@ describe("8 · a shop's and a workshop's book", () => {
   });
 });
 
+describe("8 · a shop's and a workshop's door screen and pop-out (round 2)", () => {
+  // The last restaurant words the QA saw on a shop: "Åbn vært-skærm" on the
+  // book, and on the door screen (the owner's pop-out and a paired tablet)
+  // "Vært-skærm", "Sidder" and "1 gæst · 2 gæster · 0 gæster".
+  const HOST = /vært/i;
+
+  it.each(["clothing", "workshop"])("%s: the book's pop-out opens the appointment book, not the host stand", async (type) => {
+    rows = bookRows();
+    renderOwner("/reservations", type);
+    await settle(14);
+    const btn = screen.getByRole("button", { name: da.rsvpOpenStandAppt });
+    expect(btn).toHaveAttribute("title", da.rsvpOpenStandAppt);
+    expect(ariaText()).not.toMatch(HOST);
+    expect(ariaText()).not.toMatch(/reservation/i);
+  });
+
+  it.each([
+    ["clothing", "/reservations/stand"],
+    ["workshop", "/reservations/stand"],
+    ["clothing", "/stand/tok-shop-1"],
+  ])("%s %s: the counter screen counts customers — no Vært-skærm, no Sidder, no gæst", async (type, path) => {
+    rows = bookRows();
+    renderOwner(path, type);
+    await settle(14);
+    expect(pageText()).toContain(`Butik Nord · ${da.rsvpStandModeAppt}`);
+    const covers = screen.getByRole("group", { name: da.rsvpStandCoversAriaAppt });
+    // Jensen (1) is checked in, Hansen (2) is expected, none finished.
+    const seated = covers.querySelector('[data-covers="seated"]');
+    expect(seated.textContent).toContain(da.rsvpStatusSeatedAppt);
+    expect(seated.textContent).toContain("1 kunde");
+    expect(seated.textContent).toContain("1 aftale");
+    expect(covers.querySelector('[data-covers="expected"]').textContent).toContain("2 kunder");
+    expect(covers.querySelector('[data-covers="finished"]').textContent).toContain("0 kunder");
+    expect(pageText()).not.toMatch(GUEST);
+    expect(pageText()).not.toMatch(HOST);
+    expect(pageText()).not.toMatch(new RegExp(`\\b${da.rsvpStandSeated}\\b`));
+    expect(ariaText()).not.toMatch(GUEST);
+    expect(ariaText()).not.toMatch(HOST);
+  });
+
+  it("a café keeps 'Åbn vært-skærm' and its guests on the door screen (unchanged)", async () => {
+    resources = [{ id: "t1", kind: "table", label: "Bord 1", capacity_seats: 4, is_active: true }];
+    rows = bookRows().map((r) => ({ ...r, resource_id: "t1" }));
+    renderOwner("/reservations", "cafe");
+    await settle(14);
+    expect(screen.getByRole("button", { name: da.rsvpOpenStand })).toBeInTheDocument();
+    cleanup();
+    renderOwner("/reservations/stand", "cafe");
+    await settle(14);
+    expect(pageText()).toContain(`Butik Nord · ${da.rsvpStandMode}`);
+    const covers = screen.getByRole("group", { name: da.rsvpStandCoversAria });
+    expect(covers.querySelector('[data-covers="seated"]').textContent).toContain(da.rsvpStandSeated);
+    expect(covers.querySelector('[data-covers="seated"]').textContent).toContain("1 gæst");
+  });
+
+  it("the Venteliste form on a shop counts people — its party group is not named 'Gæster'", async () => {
+    rows = bookRows();
+    renderOwner("/reservations", "clothing");
+    await settle(14);
+    const wl = document.getElementById("rsvp-venteliste");
+    await act(async () => { fireEvent.click(within(wl).getByRole("button", { name: da.rsvpWlAddCta })); });
+    await settle(4);
+    expect(within(wl).getByRole("group", { name: da.rsvpPartySizeAppt })).toBeInTheDocument();
+    expect(within(wl).queryByRole("group", { name: da.rsvpWlPartySize })).toBeNull();
+    expect(wl.textContent).not.toMatch(GUEST);
+    expect(ariaText()).not.toMatch(GUEST);
+  });
+
+  it("one customer is '1 person' in the drawer, never '1 people'", async () => {
+    rows = bookRows();
+    renderOwner("/reservations", "clothing");
+    await settle(14);
+    // Jensen is a party of one.
+    const row = [...document.querySelectorAll('[role="button"][data-status], tr')].find((el) => el.textContent.includes("Jensen"));
+    await act(async () => { fireEvent.click(row); });
+    await settle(4);
+    const drawer = screen.getByRole("dialog");
+    expect(drawer.textContent).toContain(da.rsvpPersonOne);
+    expect(drawer.textContent).not.toContain("1 pers.");
+    expect(en.rsvpPersonOne).toBe("1 person");
+  });
+
+  it("the new words have real Danish and English", () => {
+    for (const k of ["rsvpOpenStandAppt", "rsvpStandModeAppt", "rsvpStandCoversAriaAppt", "rsvpStandCustomersOne",
+      "rsvpStandCustomers", "rsvpStandApptsOne", "rsvpStandAppts", "rsvpBookDayAppt", "rsvpTabsAriaAppt"]) {
+      expect(da[k], k).toBeTruthy();
+      expect(en[k], k).toBeTruthy();
+      expect(da[k], k).not.toBe(en[k]);
+      expect(da[k], k).not.toMatch(/gæst|vært|reservation/i);
+      expect(en[k], k).not.toMatch(/guest|host|reservation/i);
+    }
+  });
+});
+
 describe("8 · a shop's public page asks no party", () => {
   const renderPublic = (type) => {
     h.get.mockImplementation((url) => {

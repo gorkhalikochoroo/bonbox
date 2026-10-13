@@ -10042,4 +10042,13 @@ export const da = {
     // ── Push 8: the iPad install line of a salon, a shop or a workshop opens
     // the appointment book, not the host screen.
     rsvpInstallManualIOSProvider: "I Safari: tryk Del, og vælg Læg på hjemmeskærm. Ikonet åbner direkte på tidsbogen.",
+    // ── Push 8 (round 2): a shop's and a workshop's door screen and book —
+    // the counter, its customers and appointments, never the host stand.
+    rsvpOpenStandAppt: "Åbn tidsbogen i eget vindue",
+    rsvpStandModeAppt: "Skærm ved disken",
+    rsvpStandCoversAriaAppt: "Kunder i dag",
+    rsvpStandCustomersOne: "{n} kunde", rsvpStandCustomers: "{n} kunder",
+    rsvpStandApptsOne: "{n} aftale", rsvpStandAppts: "{n} aftaler",
+    rsvpBookDayAppt: "Dato i tidsbogen",
+    rsvpTabsAriaAppt: "Tidsbogens sektioner",
 };

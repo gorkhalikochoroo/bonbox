@@ -674,7 +674,7 @@ export default function ReservationsPage() {
         ]}
         activeId={tab}
         onChange={changeTab}
-        ariaLabel={t("rsvpTabsAria", "Reservation sections")}
+        ariaLabel={apptWords ? t("rsvpTabsAriaAppt", "Appointment book sections") : t("rsvpTabsAria", "Reservation sections")}
         size="lg"
         phone="underline"
       />
@@ -1262,8 +1262,12 @@ function ReservationDrawer({
                 ) : null
               ) : (
                 <div className="text-[13px] text-gray-500 dark:text-gray-400 tabular-nums">
+                  {/* One is one here too: a shop's single customer read
+                      "1 people" in English. */}
                   {apptWords
-                    ? t("rsvpPartyPeople", "{n} people", { n: r.party_size })
+                    ? Number(r.party_size) === 1
+                      ? t("rsvpPersonOne", "1 person")
+                      : t("rsvpPartyPeople", "{n} people", { n: r.party_size })
                     : Number(r.party_size) === 1
                       ? t("rsvpPartyOne", "1 guest")
                       : t("rsvpPartyN", "{n} guests", { n: r.party_size })}
@@ -6255,8 +6259,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       onClick={() =>
         window.open("/reservations/stand", "_blank", "noopener,noreferrer")
       }
-      aria-label={t("rsvpOpenStand", "Open host-stand view")}
-      title={t("rsvpOpenStand", "Open host-stand view")}
+      // A salon, a shop or a workshop has no host and no door: the pop-out is
+      // the appointment book on its own screen ("Åbn vært-skærm" was the one
+      // restaurant word left on a shop's book).
+      aria-label={apptWords ? t("rsvpOpenStandAppt", "Open the appointment book in its own window") : t("rsvpOpenStand", "Open host-stand view")}
+      title={apptWords ? t("rsvpOpenStandAppt", "Open the appointment book in its own window") : t("rsvpOpenStand", "Open host-stand view")}
       className={
         "inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1 " +
         PHONE_TOOL + " " + PHONE_TOOL_SQUARE + " max-lg:order-1"
@@ -6314,7 +6321,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               </div>
               <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight truncate">
                 {user?.business_name ? `${user.business_name} · ` : ""}
-                {t("rsvpStandMode", "Vært-skærm")}
+                {apptWords
+                  ? t("rsvpStandModeAppt", "Counter screen")
+                  : t("rsvpStandMode", "Vært-skærm")}
               </div>
             </div>
           </div>
@@ -6325,9 +6334,16 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               three under the title (guests only, 40 px / 13 px): hidden there,
               the phone stand had no Forventet or Afsluttet count at all. */}
           {showStandNow && (
-            <div className="order-last basis-full grid grid-cols-3 gap-1 min-w-0 md:order-none md:basis-auto md:flex md:items-stretch" role="group" aria-label={t("rsvpStandCoversAria", "Guests today")}>
+            <div
+              className="order-last basis-full grid grid-cols-3 gap-1 min-w-0 md:order-none md:basis-auto md:flex md:items-stretch"
+              role="group"
+              aria-label={apptWords ? t("rsvpStandCoversAriaAppt", "Customers today") : t("rsvpStandCoversAria", "Guests today")}
+            >
+              {/* A shop or a workshop (a salon has no covers row): its
+                  customers are checked in, counted as customers and
+                  appointments — never "Sidder" or "gæster". */}
               {[
-                ["seated", t("rsvpStandSeated", "Seated"), standCovers.seated, "seated"],
+                ["seated", apptWords ? t("rsvpStatusSeatedAppt", "Checked in") : t("rsvpStandSeated", "Seated"), standCovers.seated, "seated"],
                 ["expected", t("rsvpStandExpected", "Expected"), standCovers.expected, "confirmed"],
                 ["finished", t("rsvpStandFinished", "Finished"), standCovers.finished, "completed"],
               ].map(([k, label, c, st]) => (
@@ -6349,17 +6365,25 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                   </span>
                   <span className="block text-[13px] md:text-sm leading-tight tabular-nums whitespace-nowrap truncate text-gray-900 dark:text-gray-100">
                     <span className="font-semibold">
-                      {c.guests === 1
-                        ? t("rsvpStandGuestsOne", "{n} guest", { n: c.guests })
-                        : t("rsvpStandGuests", "{n} guests", { n: c.guests })}
+                      {apptWords
+                        ? c.guests === 1
+                          ? t("rsvpStandCustomersOne", "{n} customer", { n: c.guests })
+                          : t("rsvpStandCustomers", "{n} customers", { n: c.guests })
+                        : c.guests === 1
+                          ? t("rsvpStandGuestsOne", "{n} guest", { n: c.guests })
+                          : t("rsvpStandGuests", "{n} guests", { n: c.guests })}
                     </span>
                     {/* The parties ride along from md up; a phone cell has room
                         for the guests alone. */}
                     <span className="hidden md:inline text-gray-500 dark:text-gray-400">
                       {" · "}
-                      {c.parties === 1
-                        ? t("rsvpStandPartiesOne", "{n} party", { n: c.parties })
-                        : t("rsvpStandParties", "{n} parties", { n: c.parties })}
+                      {apptWords
+                        ? c.parties === 1
+                          ? t("rsvpStandApptsOne", "{n} appointment", { n: c.parties })
+                          : t("rsvpStandAppts", "{n} appointments", { n: c.parties })
+                        : c.parties === 1
+                          ? t("rsvpStandPartiesOne", "{n} party", { n: c.parties })
+                          : t("rsvpStandParties", "{n} parties", { n: c.parties })}
                     </span>
                   </span>
                 </button>
@@ -6493,7 +6517,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 onClick={() => setDayPickerOpen((v) => !v)}
                 aria-haspopup="dialog"
                 aria-expanded={dayPickerOpen}
-                aria-label={t("rsvpBookDay", "Reservation date")}
+                aria-label={apptWords ? t("rsvpBookDayAppt", "Appointment book date") : t("rsvpBookDay", "Reservation date")}
                 className="relative h-11 max-sm:h-[38px] max-sm:min-h-0! flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] max-sm:flex-1 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
               >
                 <span className="text-[13px] font-semibold leading-none text-gray-900 dark:text-gray-100">
@@ -6515,7 +6539,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 type="date"
                 value={day}
                 onChange={(e) => e.target.value && setDay(e.target.value)}
-                aria-label={t("rsvpBookDay", "Reservation date")}
+                aria-label={apptWords ? t("rsvpBookDayAppt", "Appointment book date") : t("rsvpBookDay", "Reservation date")}
                 className="absolute inset-0 opacity-0 cursor-pointer"
               />
             </label>
@@ -6532,7 +6556,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           {standalone && dayPickerOpen && (
             <div
               role="dialog"
-              aria-label={t("rsvpBookDay", "Reservation date")}
+              aria-label={apptWords ? t("rsvpBookDayAppt", "Appointment book date") : t("rsvpBookDay", "Reservation date")}
               className="absolute left-0 top-full z-30 mt-2 w-[300px] max-w-[calc(100vw-2rem)] rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] bg-white dark:bg-[rgb(var(--surface-raised))] shadow-xl"
             >
               <DayRail
