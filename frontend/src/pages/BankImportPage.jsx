@@ -974,7 +974,9 @@ export default function BankImportPage() {
                     {txn.linked_target_id ? (
                       <div className="flex flex-wrap items-center justify-between gap-2" data-testid="bank-recon-linked">
                         <span className="text-xs text-gray-600 dark:text-gray-300">
-                          {t("bankReconLinkedTo", { label: txn.linked_target_label || "" })}
+                          {/* An expense with no description reads "Koblet til udgift",
+                              never "Koblet til  — …". */}
+                          {t("bankReconLinkedTo", { label: txn.linked_target_label || t("bankReconRowExpense") })}
                         </span>
                         <Button variant="ghost" size="sm" onClick={() => unlinkExpense(txn)} disabled={loading}>
                           {t("bankReconUnlink")}

@@ -92,6 +92,17 @@ describe("bank reconcile — a linked bank line", () => {
     expect(screen.queryByText("bankReconNoMatch")).toBeNull();
   });
 
+  it("an expense with no description is named by the word, never a blank", async () => {
+    get.mockImplementation((url) => Promise.resolve({
+      data: String(url).includes("/suggestions")
+        ? { ...LINKED, transactions: [{ ...LINKED.transactions[0], linked_target_label: null }] }
+        : [],
+    }));
+    await openReconcile();
+    const row = await screen.findByTestId("bank-recon-linked");
+    expect(row.textContent).toContain("bankReconLinkedTo:bankReconRowExpense");
+  });
+
   it("the undo posts action unlink for that pair and reloads the list", async () => {
     await openReconcile();
     fireEvent.click(await screen.findByRole("button", { name: "bankReconUnlink" }));
