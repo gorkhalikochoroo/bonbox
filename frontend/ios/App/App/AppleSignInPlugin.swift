@@ -160,9 +160,18 @@ private class AppleSignInDelegate: NSObject, ASAuthorizationControllerDelegate, 
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        return UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow } ?? ASPresentationAnchor()
+        // UIScene lifecycle: the key window of a connected window scene is the
+        // SceneDelegate's bridge window — the one the user just tapped in.
+        let windowScenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        if let keyWindow = windowScenes.flatMap({ $0.windows }).first(where: { $0.isKeyWindow }) {
+            return keyWindow
+        }
+        // No key window: anchor to a window that belongs to a scene. A bare
+        // ASPresentationAnchor() has no scene, and a scene-based app can never
+        // show it, so the sheet would have nowhere to present.
+        if let scene = windowScenes.first(where: { $0.activationState == .foregroundActive }) ?? windowScenes.first {
+            return scene.windows.first ?? ASPresentationAnchor(windowScene: scene)
+        }
+        return ASPresentationAnchor()
     }
 }
