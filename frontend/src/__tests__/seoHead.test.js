@@ -2,7 +2,7 @@
 // signal named https://bonbox.dk while the server sends everyone to
 // https://www.bonbox.dk. These pins keep the head honest and consistent.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -41,5 +41,16 @@ describe("landing head for search engines", () => {
     expect(ld.availableLanguage).toEqual(["da", "en"]);
     expect(ld.offers).toBeUndefined();
     expect(ld.description).not.toMatch(/&/);
+  });
+
+  it("offers Google a favicon that is a multiple of 48 px (owner and Vagtplan twins exist)", () => {
+    for (const n of [48, 96]) {
+      expect(html).toContain(`<link rel="icon" type="image/png" sizes="${n}x${n}" href="/favicon-${n}.png?v=3" />`);
+      for (const f of [`favicon-${n}.png`, `vagtplan-favicon-${n}.png`]) {
+        const buf = readFileSync(resolve(root, "public", f));
+        expect(existsSync(resolve(root, "public", f))).toBe(true);
+        expect([buf.readUInt32BE(16), buf.readUInt32BE(20)]).toEqual([n, n]);
+      }
+    }
   });
 });
