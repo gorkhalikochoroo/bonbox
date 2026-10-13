@@ -68,8 +68,20 @@ def test_the_alter_matches_the_model_type(eng):
     assert tuple(row) == ("character varying", 36, "YES", None)
 
 
-def test_link_and_unlink_through_the_filing_queries(eng):
-    s = sessionmaker(bind=eng, autoflush=False)()
+@pytest.fixture
+def s(eng):
+    # Closed even when an assert fails: a session left idle in transaction
+    # holds its locks, and the module's DROP SCHEMA then waits forever — a
+    # red run must end red, not hang.
+    session = sessionmaker(bind=eng, autoflush=False)()
+    try:
+        yield session
+    finally:
+        session.rollback()
+        session.close()
+
+
+def test_link_and_unlink_through_the_filing_queries(s):
     u = User(email=f"{uuid.uuid4().hex[:8]}@pg.test", password_hash="x", business_name="B",
              business_type="cafe", currency="DKK", role="owner", plan="pro")
     s.add(u)
@@ -99,4 +111,3 @@ def test_link_and_unlink_through_the_filing_queries(eng):
                                   "target_id": str(receipt.id), "action": "unlink"}])
     s.commit()
     assert filing() == (2500.0, 500.0)
-    s.close()
