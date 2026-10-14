@@ -68,6 +68,12 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* iPad layout of the staff portal (BonBox Vagtplan + /s/<token>). Must match
+   PAD_QUERY / PAD_WIDE_QUERY in src/lib/padLayout.js — a test reads both.
+   The height floor keeps a sideways phone (≤440 px tall) on the phone layout. */
+@custom-variant pad (@media (min-width: 744px) and (min-height: 600px));
+@custom-variant pad-wide (@media (min-width: 1024px) and (min-height: 600px));
+
 /* Restore the hand-cursor on clickable controls.
    Tailwind v4 reverted to the W3C-spec default of cursor:default for
    buttons — technically correct, but every user expects a hand on

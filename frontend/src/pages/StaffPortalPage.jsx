@@ -31,6 +31,27 @@ import { useKeyboardReveal, KB_LIFT_STYLE } from "../hooks/useKeyboardReveal";
 import { usePortalStream } from "../hooks/usePortalStream";
 import { App as CapApp } from "@capacitor/app";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
+import { usePadLayout, matchesPad, PAD_WIDE_QUERY } from "../lib/padLayout";
+
+// ─── iPad layout (pad: / pad-wide: — see src/lib/padLayout.js) ─────────
+// Every class below is inert under 744 px wide or 600 px tall, so a phone
+// renders exactly what it rendered before. On an iPad a phone BOTTOM sheet
+// becomes a centred FORM sheet: rounded on all four corners, no home-
+// indicator padding, sitting where the eye already is instead of 1,100 px
+// below the thing that opened it. The `!` beats the inline radius/padding
+// those sheets carry for the phone.
+// pad:m-0 — some sheets render inside a tab's space-y-4 stack, whose margin
+// lands on the fixed overlay and left a 16 px undimmed strip under it (the
+// phone sheet has the same strip; it is left as shipped there).
+const PAD_SHEET_OVERLAY = "pad:items-center pad:justify-center pad:p-8 pad:m-0";
+const PAD_SHEET_PANEL = "pad:max-w-[520px] pad:rounded-[24px]! pad:pb-[20px]! pad:shadow-[0_40px_90px_-30px_rgba(8,14,22,.6)]";
+// A short action sheet (photo, department) is narrower than a form.
+const PAD_SHEET_PANEL_SM = "pad:max-w-[400px] pad:rounded-[24px]! pad:pb-[20px]! pad:shadow-[0_40px_90px_-30px_rgba(8,14,22,.6)]";
+// The grab handle means "drag me down" — a centred sheet cannot be dragged.
+const PAD_HIDE = "pad:hidden";
+// The handle-topped sheets pad themselves inline for a phone (18px 16px).
+// With the handle gone on iPad, the same inset all round: 24px.
+const PAD_SHEET_INSET = "pad:px-6! pad:pt-2.5!";
 
 // One-per-PAGE-LOAD latch for the hero's ceremonial settle beat. Module scope
 // on purpose: switching tabs remounts ScheduleTab, and the beat must not
@@ -536,16 +557,16 @@ function DocumentsSection({ token }) {
       </button>
 
       {openSheet && createPortal(
-        <div className="fixed inset-0 z-[60] flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setOpenSheet(false)}>
+        <div className={`fixed inset-0 z-[60] flex items-end ${PAD_SHEET_OVERLAY}`} style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setOpenSheet(false)}>
           <div
             role="dialog"
             aria-modal="true"
             aria-label={t("portalDocsSection")}
-            className="w-full bg-white"
+            className={`w-full bg-white ${PAD_SHEET_PANEL_SM} ${PAD_SHEET_INSET}`}
             style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+            <div className={`mx-auto ${PAD_HIDE}`} style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
             <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
               {t("portalDocsSection", "Contract & documents")}
             </div>
@@ -876,8 +897,10 @@ function PinGate({ onVerified, token, staffName }) {
        the 1px inset highlight. Nothing about the gate's behaviour changes;
        the PIN is still verified server-side and still mints the proof. */
     <div className="min-h-[100dvh] flex items-center justify-center p-6" style={{ background: "#f5f7fb" }}>
+      {/* iPad: a 320 px card read as a phone screen left on a table. 420 px
+          with roomier padding and a larger title holds the screen. */}
       <div
-        className="relative overflow-hidden w-full max-w-xs text-center"
+        className="relative overflow-hidden w-full max-w-xs text-center pad:max-w-[420px] pad:px-10! pad:pt-10! pad:pb-9!"
         style={{
           borderRadius: 22,
           padding: "28px 22px 24px",
@@ -905,15 +928,15 @@ function PinGate({ onVerified, token, staffName }) {
             <Lock className="w-6 h-6" strokeWidth={2} aria-hidden style={{ color: "#4ade80" }} />
           </div>
           <h1
-            className="text-white mb-1.5"
+            className="text-white mb-1.5 pad:text-[26px]!"
             style={{ font: "700 22px/1.1 var(--font-display)", letterSpacing: "-0.03em" }}
           >
             {t("portalPinTitle", "Enter PIN")}
           </h1>
-          <p className="mb-7" style={{ font: "400 12.5px/1.45 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
+          <p className="mb-7 pad:text-[14px]!" style={{ font: "400 12.5px/1.45 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
             {t("portalPinSubtitle", "Hi {name}, enter your 4-digit PIN", { name: staffName })}
           </p>
-          <div className="flex gap-2.5 justify-center mb-5">
+          <div className="flex gap-2.5 justify-center mb-5 pad:gap-3.5">
             {pin.map((d, i) => (
               <input
                 key={i}
@@ -924,7 +947,7 @@ function PinGate({ onVerified, token, staffName }) {
                 value={d}
                 onChange={(e) => handleDigit(i, e.target.value)}
                 onKeyDown={(e) => handleKeyDown(i, e)}
-                className="w-[52px] h-[56px] text-center outline-none pin-cell"
+                className="w-[52px] h-[56px] text-center outline-none pin-cell pad:w-[60px] pad:h-[64px]"
                 style={{
                   font: "700 24px/1 var(--font-display)",
                   color: "#fff",
@@ -986,6 +1009,19 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
+
+  // iPad: "Meld syg" sits at the foot of the left column, so in landscape the
+  // form it reveals opened below the fold and the tap looked like it did
+  // nothing. Bring the form into view there. matchesPad() is false on a
+  // phone, which keeps exactly the behaviour it has today.
+  const formRef = useRef(null);
+  useEffect(() => {
+    if (!open || !matchesPad()) return undefined;
+    const id = setTimeout(() => {
+      formRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    }, 30);
+    return () => clearTimeout(id);
+  }, [open]);
 
   // The schedule_id IS optional — the backend auto-finds the shift
   // by date if we don't pass one — but if the staff picks a date
@@ -1053,7 +1089,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
   }
 
   return (
-    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
+    <div ref={formRef} data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between">
         <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><Thermometer className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalCallInSick", "Call in sick")}</div>
         <button
@@ -1595,7 +1631,7 @@ function WhosOnStrip({ teamShifts, nextShift }) {
   if (mates.length === 0) {
     return (
       <div className="mt-4 pt-4 border-t border-white/10">
-        <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
+        <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 pad:text-[12px]">
           {t("portalWhosOnTitle")}
         </div>
         <div className="text-[13px] text-gray-400">
@@ -1606,7 +1642,7 @@ function WhosOnStrip({ teamShifts, nextShift }) {
   }
   return (
     <div className="mt-4 pt-4 border-t border-white/10">
-      <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+      <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2 pad:text-[12px]">
         {t("portalWhosOnTitle")}
         {myBranch && <span className="normal-case tracking-normal text-gray-500"> · {myBranch}</span>}
       </div>
@@ -1710,7 +1746,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts, businessType }
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
-      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2 flex items-center gap-1.5">
+      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2 flex items-center gap-1.5 pad:text-[11px]">
         <CalendarPlus className="w-3.5 h-3.5" />
         {t("portalOpenTitle", "Open shifts")}
       </div>
@@ -1986,7 +2022,12 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   const grossHrs = (s) => (Number(s?.net_hours) || 0) + (Number(s?.break_minutes) || 0) / 60;
 
   return (
-    <div className="space-y-4">
+    /* pad-wide (iPad 1024+): two columns. LEFT = today — hero, open shifts,
+       "Jeg har set det", Meld syg (so the sick-call form opens in view);
+       RIGHT = the week. The week is placed explicitly across all five rows
+       and the last row is 1fr, so a tall week never stretches the gaps
+       between the left cards. Phones: these classes are inert. */
+    <div className="space-y-4 pad-wide:grid pad-wide:grid-cols-[minmax(0,1fr)_minmax(0,1.08fr)] pad-wide:grid-rows-[auto_auto_auto_auto_1fr] pad-wide:gap-x-6 pad-wide:items-start" data-testid="portal-schedule-grid">
       {/* HERO — dark gray-900 next-shift card with a 4px role-colored left-bar.
           Absorbs the punch-clock (elapsed timer + Stempl ind/ud) and a live
           countdown. Role shows ONLY via the thin left-bar + a tiny label. */}
@@ -2045,7 +2086,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             urgent. Respects prefers-reduced-motion via motion-safe. */}
         <div className="relative flex items-start justify-between gap-2">
           <div
-            className="flex items-center gap-1.5 uppercase"
+            className="flex items-center gap-1.5 uppercase pad:text-[11px]!"
             style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.16em", color: "#4ade80" }}
           >
             <span
@@ -2414,7 +2455,8 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           OFF = silent hollow dot; TODAY = bold gray-900 label + soft cell fill.
           Tap a working day → the day panel below shows it. */}
       <div
-        className="bg-white"
+        className="bg-white pad-wide:col-start-2 pad-wide:row-start-1 pad-wide:row-span-5 pad:p-5!"
+        data-testid="portal-week-card"
         style={{
           border: "1px solid #e8edf3", borderRadius: 20, padding: "15px 15px 13px",
           boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
@@ -2427,7 +2469,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             "I dag" is the one-tap way back once you have paged away. */}
         <div className="flex items-start justify-between gap-2">
           <div>
-            <div data-testid="portal-week-label" style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+            <div data-testid="portal-week-label" className="pad:text-[11px]!" style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
               {weekOffset === 0
                 ? t("portalSecThisWeek", "This week")
                 : weekOffset === 1
@@ -2510,9 +2552,9 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                     ring — a ring hugging a 4px bar rendered as a broken pill.
                     EXPANDED = a step darker (bg-gray-100) so "open" reads
                     distinctly from "today". */}
-                <span style={{ font: "600 9.5px/1 var(--font-text)", color: isExpanded ? "rgba(255,255,255,.55)" : "#94a3b8" }}>{WD[i]}</span>
+                <span className="pad:text-[11px]!" style={{ font: "600 9.5px/1 var(--font-text)", color: isExpanded ? "rgba(255,255,255,.55)" : "#94a3b8" }}>{WD[i]}</span>
                 <span
-                  className="tabular-nums"
+                  className="tabular-nums pad:text-[15.5px]!"
                   style={{
                     font: "700 13.5px/1 var(--font-display)", letterSpacing: "-0.02em",
                     color: isExpanded ? "#fff" : "#0f172a",
@@ -2627,7 +2669,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                     }}
                   >
                     <div className="flex items-baseline justify-between gap-2">
-                      <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: isTodayCell ? "#0f172a" : "#94a3b8" }}>
+                      <span className="pad:text-[11px]!" style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: isTodayCell ? "#0f172a" : "#94a3b8" }}>
                         {fmtWeekdayDay(d, lang).toUpperCase()}
                         {isTodayCell ? ` · ${t("portalToday", "Today")}` : ""}
                       </span>
@@ -2639,14 +2681,17 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                     </div>
 
                     {all.map((fs) => (
-                      <div key={fs.id || `${fs.date}-${fs.start_time}`} className="flex items-center justify-between gap-3 mt-2">
+                      /* pad: the hours sit on the TIME line (items-start), not
+                         centred on the whole block — with a "Med …" line under
+                         the time, a centred figure floated between rows. */
+                      <div key={fs.id || `${fs.date}-${fs.start_time}`} className="flex items-center justify-between gap-3 mt-2 pad:items-start pad:mt-3">
                         <div className="flex items-start gap-2.5 min-w-0">
                           {/* Top-aligned: with a "Med Sara, Jonas" line the
                               block grows, and a centred bar drifted below the
                               time it belongs to. */}
                           <span className={`w-1.5 h-8 mt-0.5 rounded-full shrink-0 ${roleBarColor(effRole(fs), businessType)}`} aria-hidden />
                           <div className="min-w-0">
-                            <div className="text-[13px] font-semibold text-gray-900 tabular-nums truncate">
+                            <div className="text-[13px] font-semibold text-gray-900 tabular-nums truncate pad:text-[15px]">
                               {fs.start_time}–{fs.end_time}
                             </div>
                             {/* Role (override, else the staffer's own) and the
@@ -2656,7 +2701,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                                 the right only (printing them here said them
                                 twice per shift). */}
                             {(effRole(fs) || fs.break_minutes > 0) && (
-                              <div className="text-[11px] text-gray-500 truncate" data-testid="portal-week-row-meta">
+                              <div className="text-[11px] text-gray-500 truncate pad:text-[12.5px] pad:mt-0.5" data-testid="portal-week-row-meta">
                                 {[
                                   effRole(fs) ? roleName(effRole(fs), t) : null,
                                   fs.break_minutes > 0 ? t("portalHoursBreak", "{m} min break", { m: fs.break_minutes }) : null,
@@ -2685,7 +2730,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                               const mates = matesForShift(teamShifts, fs);
                               if (!mates.length) {
                                 return (
-                                  <div className="text-[11px] text-gray-400 truncate mt-0.5">
+                                  <div className="text-[11px] text-gray-400 truncate mt-0.5 pad:text-[12.5px]">
                                     {t("portalWhosOnSoloShort", "On your own")}
                                   </div>
                                 );
@@ -2703,7 +2748,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                               const open = openIdx >= 0 ? mates[openIdx] : null;
                               return (
                                 <div className="mt-0.5">
-                                  <div className="text-[11px] text-gray-400 flex flex-wrap items-baseline gap-x-1">
+                                  <div className="text-[11px] text-gray-400 flex flex-wrap items-baseline gap-x-1 pad:text-[12.5px]">
                                     <span>{t("portalWithLabel", "With")}</span>
                                     {mates.slice(0, 4).map((m, mi) => {
                                       const key = `${rowKey}|${midOf(m, mi)}`;
@@ -2734,7 +2779,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                                       .sort((a, b) => a.date.localeCompare(b.date))
                                       .slice(0, 3);
                                     return (
-                                      <div className="mt-1 pl-2 border-l-2 border-[#eef2f7] text-[11px] text-gray-400 space-y-0.5">
+                                      <div className="mt-1 pl-2 border-l-2 border-[#eef2f7] text-[11px] text-gray-400 space-y-0.5 pad:text-[12.5px]">
                                         {others.length === 0 ? (
                                           <div>{t("portalMateNoOther", "{name} has no other shift on the rota.", { name: firstName(open.staff_name) || open.staff_name })}</div>
                                         ) : others.map((x, xi) => (
@@ -2767,8 +2812,8 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                             )}
                           </div>
                         </div>
-                        <div className="text-right shrink-0">
-                          <div className="tabular-nums" style={{ font: "700 13px/1 var(--font-display)", color: "#0f172a" }}>
+                        <div className="text-right shrink-0 pad:pt-0.5">
+                          <div className="tabular-nums pad:text-[15px]!" style={{ font: "700 13px/1 var(--font-display)", color: "#0f172a" }}>
                             {fmtHM(fs.net_hours)}
                           </div>
                         </div>
@@ -2911,21 +2956,21 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={onClose}>
+    <div className={`fixed inset-0 z-50 flex items-end ${PAD_SHEET_OVERLAY}`} style={{ background: "rgba(8,14,22,.45)" }} onClick={onClose}>
       <div
         role="dialog"
             aria-modal="true"
             aria-label={t("portalHoursCustomTitle")}
-            className="w-full bg-white"
+            className={`w-full bg-white ${PAD_SHEET_PANEL} ${PAD_SHEET_INSET}`}
         style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+        <div className={`mx-auto ${PAD_HIDE}`} style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
         <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
           {t("portalHoursCustomTitle", "Choose a period")}
         </div>
 
-        <div style={{ marginTop: 16, ...cap }}>{t("portalHoursCycle", "Pay cycle")}</div>
+        <div className="pad:text-[11px]!" style={{ marginTop: 16, ...cap }}>{t("portalHoursCycle", "Pay cycle")}</div>
         <div className="flex" style={{ gap: 7, marginTop: 8 }}>
           {cycles.map((c) => {
             const active = from === c.start && to === c.end;
@@ -2942,20 +2987,20 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
                 }}
               >
                 <div style={{ font: "700 13px/1 var(--font-text)", color: active ? "#fff" : "#0f172a" }}>{c.label}</div>
-                <div style={{ marginTop: 5, font: "600 10px/1 var(--font-text)", color: active ? "rgba(255,255,255,.55)" : "#94a3b8" }}>{c.hint}</div>
+                <div className="pad:text-[11.5px]!" style={{ marginTop: 5, font: "600 10px/1 var(--font-text)", color: active ? "rgba(255,255,255,.55)" : "#94a3b8" }}>{c.hint}</div>
               </button>
             );
           })}
         </div>
 
-        <div style={{ marginTop: 18, ...cap }}>{t("portalHoursCustomRange", "Or pick your own dates")}</div>
+        <div className="pad:text-[11px]!" style={{ marginTop: 18, ...cap }}>{t("portalHoursCustomRange", "Or pick your own dates")}</div>
         <div className="flex" style={{ gap: 10, marginTop: 8 }}>
           <label style={{ flex: 1, minWidth: 0 }}>
-            <span style={cap}>{t("portalHoursFrom", "From")}</span>
+            <span className="pad:text-[11px]!" style={cap}>{t("portalHoursFrom", "From")}</span>
             <input type="date" value={from} min={floorISO} max={todayISO} onChange={(e) => setFrom(e.target.value)} style={field} />
           </label>
           <label style={{ flex: 1, minWidth: 0 }}>
-            <span style={cap}>{t("portalHoursTo", "To")}</span>
+            <span className="pad:text-[11px]!" style={cap}>{t("portalHoursTo", "To")}</span>
             <input type="date" value={to} min={from || floorISO} onChange={(e) => setTo(e.target.value)} style={field} />
           </label>
         </div>
@@ -3142,7 +3187,11 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
 
 
   return (
-    <div className="space-y-4">
+    /* pad-wide: LEFT = the period, the total and the weekly bars (plus the
+       permit warning and the recent clock-ins); RIGHT = the shift list, placed
+       across every row with a closing 1fr row so it never pulls the left
+       cards apart. The PeriodSheet is position:fixed — not a grid item. */
+    <div className="space-y-4 pad-wide:grid pad-wide:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] pad-wide:grid-rows-[repeat(6,auto)_1fr] pad-wide:gap-x-6 pad-wide:items-start" data-testid="portal-hours-grid">
 
       {customOpen && (
         <PeriodSheet
@@ -3245,7 +3294,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
         </div>
         <div className="relative flex" style={{ marginTop: 16, gap: 9 }}>
           <div style={{ flex: maxHours ? 1 : "0 1 auto", minWidth: 96, padding: "11px 12px", borderRadius: 14, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.10)" }}>
-            <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
+            <div className="pad:text-[11px]!" style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
               {t("portalHoursShiftsCount", "Shifts")}
             </div>
             <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#fff" }}>
@@ -3258,7 +3307,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
               cap the Shifts tile simply takes the full width. */}
           {maxHours ? (
             <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: "rgba(34,197,94,.14)", border: "1px solid rgba(34,197,94,.26)" }}>
-              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(134,239,172,.85)" }}>
+              <div className="pad:text-[11px]!" style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(134,239,172,.85)" }}>
                 {t("portalWorkPermitLimit", "Work permit limit")}
               </div>
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#dcfce7" }}>
@@ -3269,7 +3318,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             /* Mid-period only: before the first shift or after the last, a
                split states nothing the headline has not. */
             <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.10)" }}>
-              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
+              <div className="pad:text-[11px]!" style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
                 {t("portalHoursLeft", "Still to come")}
               </div>
               {/* Was "12 / 8" in the permit tile's exact shape — a ratio
@@ -3284,7 +3333,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                "same", never as "+0" — a signed zero reads like a measurement
                when it is really "no difference". */
             <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: delta >= 0 ? "rgba(34,197,94,.14)" : "rgba(255,255,255,.07)", border: `1px solid ${delta >= 0 ? "rgba(34,197,94,.26)" : "rgba(255,255,255,.10)"}` }}>
-              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: delta >= 0 ? "rgba(134,239,172,.85)" : "rgba(255,255,255,.42)" }}>
+              <div className="pad:text-[11px]!" style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: delta >= 0 ? "rgba(134,239,172,.85)" : "rgba(255,255,255,.42)" }}>
                 {t("portalHoursVsLast", "vs last period")}
               </div>
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: delta >= 0 ? "#dcfce7" : "#fff" }}>
@@ -3297,7 +3346,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             /* Nothing worked yet in this window — the useful fact is when it
                starts, not a split that would just restate the headline. */
             <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: "rgba(34,197,94,.14)", border: "1px solid rgba(34,197,94,.26)" }}>
-              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(134,239,172,.85)" }}>
+              <div className="pad:text-[11px]!" style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(134,239,172,.85)" }}>
                 {t("portalHoursFirstShift", "First shift")}
               </div>
               <div style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#dcfce7" }}>
@@ -3323,7 +3372,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           }}
         >
           <div className="flex items-center justify-between">
-            <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+            <span className="pad:text-[11px]!" style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
               {t("portalHoursByWeek", "By week")}
             </span>
             <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>
@@ -3335,7 +3384,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           <div className="flex items-end" style={{ marginTop: 16, gap: 9, height: 104 }}>
             {weekBars.map((b) => (
               <div key={b.k} className="flex-1 flex flex-col items-center justify-end h-full" style={{ gap: 7 }} data-testid="portal-week-bar">
-                <span className="tabular-nums" style={{ font: "700 10px/1 var(--font-text)", color: "#475569" }}>{fmtPortalHours(b.v, lang)}</span>
+                <span className="tabular-nums pad:text-[12px]!" style={{ font: "700 10px/1 var(--font-text)", color: "#475569" }}>{fmtPortalHours(b.v, lang)}</span>
                 <div
                   style={{
                     width: "100%", borderRadius: 7,
@@ -3347,7 +3396,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                     transition: "height .5s cubic-bezier(.22,.9,.24,1)",
                   }}
                 />
-                <span style={{ font: "600 9.5px/1 var(--font-text)", color: "#94a3b8" }}>{b.w}</span>
+                <span className="pad:text-[11px]!" style={{ font: "600 9.5px/1 var(--font-text)", color: "#94a3b8" }}>{b.w}</span>
               </div>
             ))}
           </div>
@@ -3364,9 +3413,9 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       )}
 
       {/* Recent / upcoming shifts */}
-      <div>
+      <div className="pad-wide:col-start-2 pad-wide:row-start-1 pad-wide:row-span-7" data-testid="portal-hours-list">
         <div className="flex items-baseline justify-between mb-2">
-          <span className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8]">{recentLabel}</span>
+          <span className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] pad:text-[11px]">{recentLabel}</span>
           {data.entries.length > 0 && (
             <button
               type="button"
@@ -3622,7 +3671,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
     <div className="space-y-4">
       {/* Actions — trade (targeted) or sell (open pool) */}
       {!showPropose && !showSell && (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 pad:max-w-[560px]">
           <button
             onClick={() => setShowPropose(true)}
             className="px-3 py-3 rounded-xl bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold transition flex items-center justify-center gap-1.5"
@@ -3658,12 +3707,13 @@ function SwapTab({ token, ownShifts, onChanged }) {
 
       {/* Colleagues' open give-aways — first qualified taker wins. */}
       {pool.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-[10px] uppercase tracking-wide font-medium text-gray-500">
+        /* pad-wide: the cards sit two abreast; heading and error span both. */
+        <div className="space-y-2 pad-wide:grid pad-wide:grid-cols-2 pad-wide:gap-3 pad-wide:space-y-0">
+          <div className="text-[10px] uppercase tracking-wide font-medium text-gray-500 pad-wide:col-span-2 pad:text-[11px]">
             {t("portalGaPoolHeading", "Shifts up for grabs")}
           </div>
           {claimErr && (
-            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-[14px] px-2.5 py-1.5">{claimErr}</div>
+            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-[14px] px-2.5 py-1.5 pad-wide:col-span-2">{claimErr}</div>
           )}
           {pool.map((g) => {
             const clash = overlapsOwnShift(g.from_shift_date, g.from_shift_time, ownShifts);
@@ -3687,7 +3737,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
                     {clash ? t("portalGaOverlaps", "Overlaps you") : t("portalGaFree", "Free for you")}
                   </span>
                 </div>
-                <div className="text-[11px] text-gray-500 truncate">
+                <div className="text-[11px] text-gray-500 truncate pad:text-[13px]">
                   {t("portalGaFrom", "From")} {g.from_staff_name}
                   {g.from_branch_name ? ` · ${g.from_branch_name}` : ""}
                   {g.reason ? ` — “${g.reason}”` : ""}
@@ -3723,7 +3773,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
         </div>
       )}
       {inbox && inbox.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-2 pad-wide:grid pad-wide:grid-cols-2 pad-wide:gap-3 pad-wide:space-y-0 pad-wide:items-start">
           {inbox.map((s) => (
             <SwapRow key={s.id} swap={s} token={token} onChanged={reload} />
           ))}
@@ -3844,14 +3894,14 @@ function SwapRow({ swap, token, onChanged }) {
   return (
     <div className="rounded-xl bg-white border border-gray-200 p-3 space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] uppercase tracking-wide font-medium text-gray-500">
+        <span className="text-[10px] uppercase tracking-wide font-medium text-gray-500 pad:text-[11px]">
           {swap.direction === "outgoing" ? t("portalSwapOutgoing", "Outgoing") : t("portalSwapIncoming", "Incoming")}
         </span>
-        <span className={`text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded ${statusPill}`}>
+        <span className={`text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded ${statusPill} pad:text-[11px]`}>
           {statusLabel}
         </span>
       </div>
-      <div className="text-sm text-gray-900">
+      <div className="text-sm text-gray-900 pad:text-[15px]">
         <span className="font-semibold">{swap.from_staff_name}</span>
         {isGiveaway ? (
           swap.status === "done" && swap.to_staff_name ? (
@@ -3869,9 +3919,9 @@ function SwapRow({ swap, token, onChanged }) {
           </>
         )}
       </div>
-      <div className={`grid gap-2 text-[11px] ${isGiveaway ? "grid-cols-1" : "grid-cols-2"}`}>
+      <div className={`grid gap-2 text-[11px] ${isGiveaway ? "grid-cols-1" : "grid-cols-2"} pad:text-[13px]`}>
         <div className="bg-[#f5f8fb] rounded-[13px] p-1.5">
-          <div className="text-[10px] text-gray-500">
+          <div className="text-[10px] text-gray-500 pad:text-[11.5px]">
             {isGiveaway ? t("portalGaShiftLabel", "Shift") : t("portalSwapGives", "Gives")}
           </div>
           <div className="text-gray-900">{fmtSwapDay(swap.from_shift_date, lang)}</div>
@@ -3879,17 +3929,17 @@ function SwapRow({ swap, token, onChanged }) {
         </div>
         {!isGiveaway && (
           <div className="bg-[#f5f8fb] rounded-[13px] p-1.5">
-            <div className="text-[10px] text-gray-500">{t("portalSwapGets", "Gets")}</div>
+            <div className="text-[10px] text-gray-500 pad:text-[11.5px]">{t("portalSwapGets", "Gets")}</div>
             <div className="text-gray-900">{fmtSwapDay(swap.to_shift_date, lang)}</div>
             <div className="text-gray-500">{swap.to_shift_time}</div>
           </div>
         )}
       </div>
       {swap.reason && (
-        <div className="text-[11px] text-gray-500 italic">"{swap.reason}"</div>
+        <div className="text-[11px] text-gray-500 italic pad:text-[13px]">"{swap.reason}"</div>
       )}
       {swap.owner_note && (
-        <div className="text-[11px] text-gray-500">
+        <div className="text-[11px] text-gray-500 pad:text-[13px]">
           <span className="text-gray-500">{t("portalSwapOwnerLabel", "Owner")}:</span> {swap.owner_note}
         </div>
       )}
@@ -3988,7 +4038,7 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
   };
 
   return (
-    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
+    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 pad:max-w-[560px] shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between">
         <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5">
           <Send className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />
@@ -4099,7 +4149,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
   };
 
   return (
-    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
+    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 pad:max-w-[560px] shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between">
         <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><ArrowLeftRight className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalOfferSwap", "Offer to swap")}</div>
         <button
@@ -4368,15 +4418,15 @@ function AlertsTab({ token, onNavigate }) {
               </span>
               <span className="flex-1 min-w-0">
                 <span className="flex items-baseline justify-between" style={{ gap: 8 }}>
-                  <span style={{ font: `${unread ? 700 : 600} 12.5px/1.2 var(--font-text)`, color: unread ? "#0f172a" : "#475569" }}>
+                  <span className="pad:text-[14px]!" style={{ font: `${unread ? 700 : 600} 12.5px/1.2 var(--font-text)`, color: unread ? "#0f172a" : "#475569" }}>
                     {meta.title}
                   </span>
-                  <span style={{ font: "500 10.5px/1 var(--font-text)", color: "#94a3b8", flex: "none" }}>
+                  <span className="pad:text-[11.5px]!" style={{ font: "500 10.5px/1 var(--font-text)", color: "#94a3b8", flex: "none" }}>
                     {n.created_at ? formatTimeAgo(n.created_at, lang, t) : ""}
                   </span>
                 </span>
                 {detail && (
-                  <span className="block" style={{ marginTop: 5, font: "400 11.5px/1.45 var(--font-text)", color: "#64748b", textWrap: "pretty" }}>
+                  <span className="block pad:text-[13px]!" style={{ marginTop: 5, font: "400 11.5px/1.45 var(--font-text)", color: "#64748b", textWrap: "pretty" }}>
                     {detail}
                   </span>
                 )}
@@ -4432,7 +4482,7 @@ function formatTimeAgo(dateStr, lang, t) {
 
 /** One row in the conversation list. Unread is carried by weight and a solid
     card, not just a badge — a badge alone is invisible in a hurried glance. */
-function ThreadRow({ thread, onOpen }) {
+function ThreadRow({ thread, onOpen, active = false }) {
   const { t, lang } = useLanguage();
   const unread = thread.unread || 0;
   const isGroup = thread.kind === "group";
@@ -4445,11 +4495,14 @@ function ThreadRow({ thread, onOpen }) {
     <button
       type="button"
       onClick={onOpen}
-      className="w-full text-left flex items-center"
+      // active: the thread open in the iPad pane beside the list (only ever
+      // true in the master-detail layout). Same green tint as the active tab.
+      aria-current={active ? "true" : undefined}
+      className="w-full text-left flex items-center pad:min-h-[64px]"
       style={{
         gap: 11, padding: "12px 13px", borderRadius: 16,
-        background: unread ? "#fff" : "rgba(255,255,255,0.55)",
-        border: `1px solid ${unread ? "#e8edf3" : "#eef2f7"}`,
+        background: active ? "rgba(22,163,74,0.08)" : unread ? "#fff" : "rgba(255,255,255,0.55)",
+        border: `1px solid ${active ? "rgba(22,163,74,0.35)" : unread ? "#e8edf3" : "#eef2f7"}`,
         boxShadow: unread
           ? "0 1px 2px rgba(15,23,42,0.04),0 14px 28px -26px rgba(15,23,42,0.4)"
           : "none",
@@ -4474,17 +4527,17 @@ function ThreadRow({ thread, onOpen }) {
       <span className="flex-1 min-w-0">
         <span className="flex items-baseline justify-between gap-2">
           <span
-            className="truncate"
+            className="truncate pad:text-[14px]!"
             style={{ font: `${unread ? 700 : 600} 12.5px/1 var(--font-text)`, color: "#0f172a" }}
           >
             {name}
           </span>
-          <span className="flex-none" style={{ font: "500 10.5px/1 var(--font-text)", color: "#94a3b8" }}>
+          <span className="flex-none pad:text-[11.5px]!" style={{ font: "500 10.5px/1 var(--font-text)", color: "#94a3b8" }}>
             {thread.last_message_at ? formatTimeAgo(thread.last_message_at, lang, t) : ""}
           </span>
         </span>
         <span
-          className="block truncate"
+          className="block truncate pad:text-[13px]!"
           style={{
             marginTop: 5,
             font: `${unread ? 500 : 400} 11.5px/1.35 var(--font-text)`,
@@ -4549,13 +4602,18 @@ function NewGroupSheet({ token, onClose, onCreated }) {
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end sm:items-center sm:justify-center" style={KB_LIFT_STYLE}>
+    /* From 640 px wide (a sideways phone, iPad Split View, every iPad) this is
+       a centred 384 px card, as it always was — now rounded on all four
+       corners and without the home-indicator padding, so it no longer reads
+       as a bottom sheet left floating mid-screen. Below 640 px it is the phone
+       bottom sheet, unchanged. */
+    <div className={`fixed inset-0 z-40 flex items-end sm:items-center sm:justify-center ${PAD_SHEET_OVERLAY}`} style={KB_LIFT_STYLE}>
       <div className="absolute inset-0 bg-gray-900/40" onClick={onClose} aria-hidden />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={t("staffChatNewGroup", "New group")}
-        className="relative w-full sm:max-w-sm bg-white"
+        className="relative w-full sm:max-w-sm bg-white sm:rounded-[22px]! sm:pb-4! pad:shadow-[0_40px_90px_-30px_rgba(8,14,22,.6)]"
         style={{
           borderRadius: "22px 22px 0 0",
           paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
@@ -4590,7 +4648,7 @@ function NewGroupSheet({ token, onClose, onCreated }) {
             }}
           />
           <p
-            className="mt-3 mb-1.5"
+            className="mt-3 mb-1.5 pad:text-[11px]!"
             style={{
               font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.06em",
               textTransform: "uppercase", color: "#94a3b8",
@@ -4680,7 +4738,7 @@ function NewGroupSheet({ token, onClose, onCreated }) {
 
 /** The conversation list. Search filters on name AND last message, which is
     what people actually remember — "the one about Friday", not a name. */
-function ThreadListView({ token, onOpen, onRead }) {
+function ThreadListView({ token, onOpen, onRead, activeId = null, refreshTick = 0 }) {
   const { t } = useLanguage();
   const [threads, setThreads] = useState(null);
   const [query, setQuery] = useState("");
@@ -4703,6 +4761,12 @@ function ThreadListView({ token, onOpen, onRead }) {
     }, 8000);
     return () => clearInterval(id);
   }, [load]);
+
+  // iPad master-detail asks for a re-read (MessagesTab). 0 = never asked —
+  // a phone never passes it, so it adds no request there.
+  useEffect(() => {
+    if (refreshTick > 0) load();
+  }, [refreshTick]); // eslint-disable-line react-hooks/exhaustive-deps -- load is re-created with onRead; only an ask should re-read
 
   const q = query.trim().toLowerCase();
   const shown = (threads || []).filter(
@@ -4760,7 +4824,7 @@ function ThreadListView({ token, onOpen, onRead }) {
           </div>
         ) : (
           shown.map((th) => (
-            <ThreadRow key={th.thread_id} thread={th} onOpen={() => onOpen(th)} />
+            <ThreadRow key={th.thread_id} thread={th} onOpen={() => onOpen(th)} active={activeId != null && th.thread_id === activeId} />
           ))
         )}
       </div>
@@ -4783,7 +4847,7 @@ function ThreadListView({ token, onOpen, onRead }) {
 
 /** One open conversation. Same bubbles and composer for the owner thread and
     for a group — the only difference is that a group names who spoke. */
-function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft }) {
+function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, pane = false, split = false }) {
   const { t, lang } = useLanguage();
   const confirm = useConfirm();
   const [meta, setMeta] = useState(thread);
@@ -4915,34 +4979,65 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
     ? meta?.title || t("staffChatGroup", "Group")
     : restaurantName || t("staffChatOwnerLabel", "Manager");
 
+  // iPad (pane): the conversation is a bounded card — header, a stream that
+  // scrolls inside it, and the composer as its last row — instead of a phone
+  // page with a composer pinned to the bottom of the whole screen. With
+  // `split` the thread list sits beside it, so "All conversations" has
+  // nothing to go back to and is not drawn. Phones never pass either flag.
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center justify-between" style={{ padding: "2px 0 12px" }}>
+    <div
+      className={pane ? "flex flex-col bg-white overflow-hidden" : "flex flex-col"}
+      data-testid={pane ? "portal-chat-pane" : undefined}
+      style={pane ? {
+        height: `calc(100dvh - 10.25rem - env(safe-area-inset-top) - ${kb}px)`,
+        minHeight: 360,
+        borderRadius: 20,
+        border: "1px solid #e8edf3",
+        boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
+      } : undefined}
+    >
+      <div
+        className="flex items-center justify-between"
+        style={pane ? { padding: "14px 20px 0" } : { padding: "2px 0 12px" }}
+      >
+        {!split && (
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center"
-          style={{ gap: 7, font: "600 12px/1 var(--font-text)", color: "#16a34a" }}
+          className={pane ? "flex items-center min-h-[44px]" : "flex items-center"}
+          style={{ gap: 7, font: pane ? "600 13.5px/1 var(--font-text)" : "600 12px/1 var(--font-text)", color: "#16a34a" }}
         >
           <ChevronLeft className="w-[14px] h-[14px]" strokeWidth={2.4} aria-hidden />
           {t("staffChatAllConversations", "All conversations")}
         </button>
+        )}
+        {split && (
+          // The heading moves up into this row when there is no back link.
+          <h2 className="font-display text-[17px] font-bold tracking-[-0.02em] leading-[1.2] text-gray-900 truncate">
+            {heading}
+          </h2>
+        )}
         {isGroup && (
           <button
             type="button"
             onClick={leave}
-            style={{ font: "600 11.5px/1 var(--font-text)", color: "#94a3b8" }}
+            className={pane ? "min-h-[44px] px-1" : undefined}
+            style={{ font: pane ? "600 13px/1 var(--font-text)" : "600 11.5px/1 var(--font-text)", color: "#94a3b8" }}
           >
             {t("staffChatLeave", "Leave")}
           </button>
         )}
       </div>
 
-      <div style={{ marginBottom: 10 }}>
-        <h2 className="font-display text-[15px] font-bold tracking-[-0.02em] leading-[1.2] text-gray-900">
+      <div
+        style={pane ? { padding: split ? "2px 20px 12px" : "4px 20px 12px", borderBottom: "1px solid #f1f5f9" } : { marginBottom: 10 }}
+      >
+        {!split && (
+        <h2 className={`font-display font-bold tracking-[-0.02em] leading-[1.2] text-gray-900 ${pane ? "text-[17px]" : "text-[15px]"}`}>
           {heading}
         </h2>
-        <p style={{ marginTop: 3, font: "400 11px/1 var(--font-text)", color: "#94a3b8" }}>
+        )}
+        <p style={{ marginTop: 3, font: pane ? "400 12.5px/1.2 var(--font-text)" : "400 11px/1 var(--font-text)", color: pane ? "#64748b" : "#94a3b8" }}>
           {isGroup && memberCount
             ? t("staffChatMemberCount", "{n} people").replace("{n}", String(memberCount))
             : t("staffChatDirectSub", "Your manager")}
@@ -4952,8 +5047,10 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
       {/* Message stream */}
       <div
         ref={scrollRef}
-        className="flex flex-col overflow-y-auto"
-        style={{ maxHeight: kb > 0 ? `calc(100vh - 20rem - ${kb}px)` : "calc(100vh - 20rem)", gap: 9 }}
+        className={pane ? "flex flex-col overflow-y-auto overscroll-contain flex-1 min-h-0" : "flex flex-col overflow-y-auto"}
+        style={pane
+          ? { gap: 10, padding: "16px 20px", background: "#f8fafc" }
+          : { maxHeight: kb > 0 ? `calc(100vh - 20rem - ${kb}px)` : "calc(100vh - 20rem)", gap: 9 }}
       >
         {messages === null ? (
           <div className="space-y-2 animate-pulse">
@@ -4991,7 +5088,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
             >
               <div className={`max-w-[78%] ${m.mine ? "items-end" : "items-start"} flex flex-col`}>
                 {!m.mine && (
-                  <span style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.06em", textTransform: "uppercase", color: "#94a3b8", padding: "0 4px", marginBottom: 4 }}>
+                  <span style={{ font: pane ? "600 10.5px/1 var(--font-text)" : "600 9.5px/1 var(--font-text)", letterSpacing: "0.06em", textTransform: "uppercase", color: "#94a3b8", padding: "0 4px", marginBottom: 4 }}>
                     {/* In a group the sender is the point; in the owner thread
                         there is only one other party and naming them is noise. */}
                     {m.sender_type === "owner"
@@ -5024,10 +5121,13 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
                     }
                     className={`whitespace-pre-wrap break-words ${m._pending ? "opacity-60" : ""} ${m._failed ? "cursor-pointer ring-1 ring-red-300" : ""}`}
                     style={{
-                      maxWidth: "80%",
-                      padding: "11px 13px",
+                      // pane: the column above already caps a bubble at 78% of
+                      // the pane; a second 80% of a shrink-wrapped column made
+                      // short replies wrap after two words.
+                      maxWidth: pane ? "100%" : "80%",
+                      padding: pane ? "11px 14px" : "11px 13px",
                       borderRadius: m.mine ? "16px 16px 5px 16px" : "16px 16px 16px 5px",
-                      font: "400 12.5px/1.45 var(--font-text)",
+                      font: pane ? "400 14px/1.45 var(--font-text)" : "400 12.5px/1.45 var(--font-text)",
                       textWrap: "pretty",
                       background: m.mine ? "linear-gradient(180deg,#22c55e,#16a34a)" : "#fff",
                       color: m.mine ? "#fff" : "#0f172a",
@@ -5040,7 +5140,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
                     {m.body}
                   </div>
                 )}
-                <span style={{ font: "500 9.5px/1 var(--font-text)", color: "#cbd5e1", padding: "0 4px", marginTop: 4 }}>
+                <span style={{ font: pane ? "500 11px/1 var(--font-text)" : "500 9.5px/1 var(--font-text)", color: pane ? "#94a3b8" : "#cbd5e1", padding: "0 4px", marginTop: 4 }}>
                   {m._failed
                     ? t("staffChatFailed", "Not sent — tap to retry")
                     : m.created_at
@@ -5058,12 +5158,14 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
       <div
         data-testid="portal-chat-composer"
         data-kb-skip=""
-        className={`fixed inset-x-0 z-20 glass border-t border-gray-200/70${BAR_V2 ? " bb-lg-composer" : ""}`}
-        style={{ bottom: kb > 0 ? `${kb}px` : "calc(3.5rem + env(safe-area-inset-bottom))" }}
+        className={pane
+          ? "flex-none bg-white border-t border-[#f1f5f9]"
+          : `fixed inset-x-0 z-20 glass border-t border-gray-200/70${BAR_V2 ? " bb-lg-composer" : ""}`}
+        style={pane ? undefined : { bottom: kb > 0 ? `${kb}px` : "calc(3.5rem + env(safe-area-inset-bottom))" }}
       >
-        <div className="max-w-lg mx-auto px-3 pt-2">
+        <div className={pane ? "px-4 pt-3" : "max-w-lg mx-auto px-3 pt-2"}>
           <PendingPhotos picker={picker} />
-          <div className="pb-2 flex items-end gap-1.5">
+          <div className={pane ? "pb-3 flex items-end gap-2" : "pb-2 flex items-end gap-1.5"}>
             <AttachButton picker={picker} label={t("staffChatAddPhoto", "Add photo")} />
             <textarea
               value={text}
@@ -5106,7 +5208,76 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
 
 
 function MessagesTab({ token, restaurantName, onRead }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(null);
+  // iPad: `pad` puts the conversation in a bounded card with its composer
+  // inside it; `split` (pad-wide, 1024+) keeps the thread list beside it —
+  // master-detail, like Mail and Messages on iPad. A phone gets neither and
+  // renders exactly the list → conversation flow it always had.
+  const pad = usePadLayout();
+  const split = usePadLayout(PAD_WIDE_QUERY);
+  // Master-detail keeps the list on screen beside the open thread, so it has
+  // to re-read at the two moments it goes stale — the first read of a newly
+  // opened thread (its unread dot clears) and leaving a group (the row goes)
+  // — instead of waiting for its own 8 s poll. Once per thread, never per
+  // conversation poll: Conversation calls onRead every 6 s.
+  const [listTick, setListTick] = useState(0);
+  const refreshList = useCallback(() => setListTick((n) => n + 1), []);
+  const firstReadRef = useRef(null);
+  const openId = open?.thread_id ?? null;
+  const onPaneRead = useCallback(() => {
+    onRead?.();
+    if (openId && firstReadRef.current !== openId) {
+      firstReadRef.current = openId;
+      refreshList();
+    }
+  }, [onRead, openId, refreshList]);
+
+  if (split) {
+    return (
+      <div className="grid grid-cols-[320px_minmax(0,1fr)] gap-5 items-start" data-testid="portal-messages-split">
+        <div
+          className="min-w-0 overflow-y-auto overscroll-contain"
+          style={{ maxHeight: "calc(100dvh - 10.25rem - env(safe-area-inset-top))", paddingRight: 2 }}
+        >
+          <ThreadListView token={token} onOpen={setOpen} onRead={onRead} activeId={openId} refreshTick={listTick} />
+        </div>
+        {open ? (
+          <Conversation
+            key={open.thread_id}
+            token={token}
+            thread={open}
+            restaurantName={restaurantName}
+            onBack={() => setOpen(null)}
+            onLeft={() => { setOpen(null); refreshList(); }}
+            onRead={onPaneRead}
+            pane
+            split
+          />
+        ) : (
+          // Nothing is opened on its own: opening a thread marks it read, and
+          // that must stay the staffer's tap, not a side effect of the layout.
+          <div
+            className="flex flex-col items-center justify-center text-center bg-white"
+            data-testid="portal-chat-pick"
+            style={{
+              height: "calc(100dvh - 10.25rem - env(safe-area-inset-top))", minHeight: 360,
+              borderRadius: 20, border: "1px solid #e8edf3", padding: 32,
+            }}
+          >
+            <MessageSquare className="w-9 h-9 text-gray-300 mb-3" strokeWidth={2} aria-hidden />
+            <h3 className="font-display text-[17px] font-bold tracking-[-0.02em] leading-[1.2] text-gray-900">
+              {t("staffChatPickTitle", "Pick a conversation")}
+            </h3>
+            <p className="mt-1.5 max-w-[320px]" style={{ font: "400 13.5px/1.45 var(--font-text)", color: "#64748b" }}>
+              {t("staffChatPickBody", "Your manager and your groups are on the left. Tap one to read and reply here.")}
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return open ? (
     <Conversation
       token={token}
@@ -5115,6 +5286,7 @@ function MessagesTab({ token, restaurantName, onRead }) {
       onBack={() => setOpen(null)}
       onLeft={() => setOpen(null)}
       onRead={onRead}
+      pane={pad}
     />
   ) : (
     <ThreadListView token={token} onOpen={setOpen} onRead={onRead} />
@@ -5149,15 +5321,15 @@ function PortalError({ message, expected = false }) {
   useStaffDocTitle(t("portalAppDocTitle", "BonBox Vagtplan"));
   return (
     <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center p-6">
-      <div className="text-center max-w-xs">
-        <Link2Off className="w-8 h-8 text-gray-400 mb-3 mx-auto" strokeWidth={2} aria-hidden />
-        <h1 className="text-xl font-bold text-gray-900 mb-2">{t("portalErrorTitle", "Link not working")}</h1>
+      <div className="text-center max-w-xs pad:max-w-[420px]">
+        <Link2Off className="w-8 h-8 text-gray-400 mb-3 mx-auto pad:w-10 pad:h-10" strokeWidth={2} aria-hidden />
+        <h1 className="text-xl font-bold text-gray-900 mb-2 pad:text-2xl">{t("portalErrorTitle", "Link not working")}</h1>
         {/* Catalogue copy wins for the expected dead/expired link — it exists
             in real en+da and it tells the staffer what to DO ("ask your manager
             for a new one"), which a server status string never does. `message`
             is raw server English, so it only earns the slot when we could not
             classify the failure and it is the only clue available. */}
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500 pad:text-[15px]">
           {expected || !message
             ? t("portalErrorBody", "This link may have expired or been deactivated. Ask your manager for a new one.")
             : message}
@@ -5206,7 +5378,7 @@ function PortalOpening() {
   return (
     <div className="min-h-screen bg-[#f5f7fb] flex flex-col items-center justify-center p-6">
       <div className="animate-spin w-8 h-8 border-2 border-gray-300 border-t-transparent rounded-full" aria-hidden />
-      <p role="status" className="mt-4 text-center text-[13px] text-gray-600 max-w-xs min-h-[1.25rem]">
+      <p role="status" className="mt-4 text-center text-[13px] text-gray-600 max-w-xs min-h-[1.25rem] pad:max-w-[420px] pad:text-[15px]">
         {slow ? t("portalOpeningSlow", "Connecting to BonBox… this can take up to 20 seconds.") : ""}
       </p>
     </div>
@@ -5227,12 +5399,12 @@ function PortalOffline({ onRetry, busy = false, kind = "offline" }) {
   const Icon = server ? ServerCrash : CloudOff;
   return (
     <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center p-6">
-      <div className="text-center max-w-xs" data-kind={kind}>
-        <Icon className="w-8 h-8 text-gray-400 mb-3 mx-auto" strokeWidth={2} aria-hidden />
-        <h1 className="text-xl font-bold text-gray-900 mb-2">
+      <div className="text-center max-w-xs pad:max-w-[420px]" data-kind={kind}>
+        <Icon className="w-8 h-8 text-gray-400 mb-3 mx-auto pad:w-10 pad:h-10" strokeWidth={2} aria-hidden />
+        <h1 className="text-xl font-bold text-gray-900 mb-2 pad:text-2xl">
           {server ? t("portalServerDownTitle", "The server isn't answering") : t("portalOfflineTitle", "No connection")}
         </h1>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500 pad:text-[15px]">
           {server
             ? t("portalServerDownBody", "It's not your phone — it's on our side. Your link is saved, and we'll try again by ourselves in a moment.")
             : t("portalOfflineBody", "We couldn't reach BonBox. Your link is saved — we'll try again as soon as you're online.")}
@@ -5309,7 +5481,7 @@ function DateField({ label, value, onChange, min, max, testId }) {
   );
 }
 
-function AbsenceSection({ token, onChanged }) {
+function AbsenceSection({ token, onChanged, padClassName = "" }) {
   const { t, lang } = useLanguage();
   const [rows, setRows] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -5416,7 +5588,7 @@ function AbsenceSection({ token, onChanged }) {
   const groups = groupAbsence(rows);
 
   return (
-    <div className="space-y-3">
+    <div className={`space-y-3${padClassName ? ` ${padClassName}` : ""}`}>
       <div>
         {/* Neutral heading. This list holds BOTH kinds — GET /absence has no kind
             filter (staff_portal.py ~2382), so a Schedule-tab sygemelding lands
@@ -5576,7 +5748,7 @@ function MonthCalendar({
       {/* Month nav — mutates view only, never data */}
       <div className="flex items-center justify-between px-1 pb-1">
         <button type="button" onClick={onPrev} aria-label={t("kanIkkePrevMonth", "Previous month")}
-          className="w-9 h-9 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-[11px] flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-[#eef2f7] transition">
+          className="w-9 h-9 min-w-[44px] min-h-[44px] sm:pointer-fine:min-w-0 sm:pointer-fine:min-h-0 rounded-[11px] flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-[#eef2f7] transition">
           <ChevronLeft className="w-5 h-5" strokeWidth={2} aria-hidden />
         </button>
         <div className="flex items-center gap-2 min-w-0">
@@ -5589,7 +5761,7 @@ function MonthCalendar({
           )}
         </div>
         <button type="button" onClick={onNext} aria-label={t("kanIkkeNextMonth", "Next month")}
-          className="w-9 h-9 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-[11px] flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-[#eef2f7] transition">
+          className="w-9 h-9 min-w-[44px] min-h-[44px] sm:pointer-fine:min-w-0 sm:pointer-fine:min-h-0 rounded-[11px] flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-[#eef2f7] transition">
           <ChevronRight className="w-5 h-5" strokeWidth={2} aria-hidden />
         </button>
       </div>
@@ -5731,7 +5903,7 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
           </div>
         </button>
         <button type="button" onClick={onRemove} aria-label={t("kanIkkeRemove", "Remove")}
-          className="w-8 h-8 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition shrink-0">
+          className="w-8 h-8 min-w-[44px] min-h-[44px] sm:pointer-fine:min-w-0 sm:pointer-fine:min-h-0 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition shrink-0">
           <X className="w-4 h-4" strokeWidth={2} aria-hidden />
         </button>
       </div>
@@ -5818,7 +5990,7 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
         >
           <ChevronLeft size={16} strokeWidth={2.5} />
         </button>
-        <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+        <span className="pad:text-[11px]!" style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
           {range}
         </span>
         <button
@@ -5887,11 +6059,11 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
                 cursor: locked ? "default" : "pointer", ...cell,
               }}
             >
-              <span style={{ font: "600 9.5px/1 var(--font-text)", color: dow }}>
+              <span className="pad:text-[11px]!" style={{ font: "600 9.5px/1 var(--font-text)", color: dow }}>
                 {wdShort(d, lang)}
               </span>
               <span
-                className="tabular-nums"
+                className="tabular-nums pad:text-[15.5px]!"
                 style={{
                   font: "700 13.5px/1 var(--font-display)", letterSpacing: "-0.02em", color: num,
                   textDecoration: on && !pref ? "line-through" : "none",
@@ -6097,7 +6269,11 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
   }
 
   return (
-    <div className="space-y-4">
+    /* pad-wide: LEFT = marking days (kind, calendar, legend, marks, weekly);
+       RIGHT = Fravær, the request the owner approves — a different kind of
+       thing, which on a phone the divider separates. Same 1fr-last-row grid
+       as the Schedule and Hours tabs. The two confirm sheets are fixed. */
+    <div className="space-y-4 pad-wide:grid pad-wide:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] pad-wide:grid-rows-[repeat(9,auto)_1fr] pad-wide:gap-x-6 pad-wide:items-start" data-testid="portal-availability-grid">
       {/* Which kind of day a tap marks. Both are real: "kan ikke" constrains
           the roster, "helst" is a soft preference the manager sees while
           planning. The copy for each says exactly that much and no more —
@@ -6225,16 +6401,20 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
       )}
 
       {/* Divider — a different kind of thing below */}
-      <div className="h-px bg-[#f1f5f9]" />
+      <div className="h-px bg-[#f1f5f9] pad-wide:hidden" />
 
       {/* Fravær — a request the owner approves (distinct from the soft calendar taps) */}
-      <AbsenceSection token={token} onChanged={loadAbsence} />
+      <AbsenceSection
+        token={token}
+        onChanged={loadAbsence}
+        padClassName="pad-wide:col-start-2 pad-wide:row-start-1 pad-wide:row-span-10 pad-wide:rounded-[20px] pad-wide:bg-white pad-wide:border pad-wide:border-[#e8edf3] pad-wide:p-5"
+      />
 
       {/* Rostered-day confirm: the mark is a planning signal, not a cancellation. */}
       {confirmRostered && (
-        <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true">
+        <div className={`fixed inset-0 z-[60] flex flex-col justify-end ${PAD_SHEET_OVERLAY}`} role="dialog" aria-modal="true">
           <button type="button" className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px]" onClick={() => setConfirmRostered(null)} aria-label={t("portalCancel", "Cancel")} />
-          <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3">
+          <div className={`relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3 ${PAD_SHEET_PANEL_SM}`}>
             <div className="text-base font-bold text-gray-900">{t("kanIkkeRosteredTitle", "You already have a shift that day")}</div>
             <p className="text-[13px] text-gray-600">
               {t("kanIkkeRosteredBody", "Marking this only tells the manager how to plan future weeks. It does not cancel the shift and nobody is notified — message them if you can't work it.")}
@@ -6261,9 +6441,9 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
 
       {/* Remove-weekly-rule scoped confirm (blast-radius honesty) */}
       {confirmWeekday && (
-        <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true">
+        <div className={`fixed inset-0 z-[60] flex flex-col justify-end ${PAD_SHEET_OVERLAY}`} role="dialog" aria-modal="true">
           <button type="button" className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px]" onClick={() => setConfirmWeekday(null)} aria-label={t("portalCancel", "Cancel")} />
-          <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3">
+          <div className={`relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3 ${PAD_SHEET_PANEL_SM}`}>
             <div className="text-base font-bold text-gray-900">{t("kanIkkeRemoveWeeklyTitle", "Remove this weekly rule?")}</div>
             <p className="text-[13px] text-gray-600">{t("kanIkkeRemoveWeeklyBody", "This clears every {day}.").split("{day}").join(WD[confirmWeekday.wd])}</p>
             <div className="flex gap-2 pt-1">
@@ -6988,6 +7168,9 @@ export default function StaffPortalPage() {
   // on top of it (KB_LIFT_STYLE), and the focused field — any field — is
   // scrolled into what is left. See hooks/useKeyboardReveal.js.
   const kbShell = useKeyboardReveal();
+  // iPad layout (sidebar instead of the tab bar). CSS does the drawing via
+  // pad: classes; JS only needs it where CSS cannot reach — see below.
+  const isPad = usePadLayout();
   const [tab, setTab] = useState(() => {
     // Honor ?tab= so the installed-app shortcuts (Schedule / Hours) and
     // any deep link open the right tab.
@@ -7757,6 +7940,13 @@ export default function StaffPortalPage() {
     }} />;
   }
 
+  // iPad column width, shared by the header row and the content so the title
+  // lines up with the cards under it. Alerts is one reading column; the other
+  // tabs split into two columns from pad-wide (1024+) — see each tab.
+  const padColumn = tab === "alerts"
+    ? "pad:max-w-[720px]"
+    : "pad:max-w-[720px] pad-wide:max-w-[1080px]";
+
   const handleContactSave = async () => {
     setEmailSaving(true);
     setEmailMsg("");
@@ -7796,9 +7986,12 @@ export default function StaffPortalPage() {
     // chat composer stay position:fixed (viewport-pinned) — .scrollable has no
     // transform, so it doesn't trap them.
     <div
-      className="full-height scrollable bg-[#f5f7fb] text-gray-900 pb-24"
+      className="full-height scrollable bg-[#f5f7fb] text-gray-900 pb-24 pad:pl-[calc(14rem+env(safe-area-inset-left))] pad:pr-[env(safe-area-inset-right)] pad:pb-[calc(2rem+var(--bb-consent-h,0px))]!"
       /* pb-24 clears the tab bar; while the cookie banner sits on it, the
-         scroller pads by the banner too (--bb-consent-h, CookieConsent.jsx). */
+         scroller pads by the banner too (--bb-consent-h, CookieConsent.jsx).
+         iPad (pad:): the tab bar is a 14rem sidebar on the left, so the
+         scroller makes room on the LEFT instead and only keeps a calm 2rem
+         at the bottom. The ! beats the inline phone padding below. */
       style={{
         paddingBottom: "calc(6rem + var(--bb-consent-h, 0px))",
         ...(kbShell > 0 ? { height: `calc(100dvh - ${kbShell}px)` } : {}),
@@ -7807,6 +8000,16 @@ export default function StaffPortalPage() {
       {/* Header — sticks to the top of the internal scroller. Uses .glass-static
           (no translateZ) so the sticky header doesn't wobble during momentum
           scroll on iOS. */}
+      {/* KNOWN, deliberately left as shipped: the top-inset padding token on
+          the next line is glued to the ${BAR_V2…} that follows it, so Tailwind
+          never emits that class and the header has NO top inset padding.
+          (Do not quote the bare token in a comment either — Tailwind scans
+          comments, and a quoted copy is enough to emit it.) The app measures
+          right on device that way (contentInset "automatic" +
+          overlaysWebView false put the webview below the status bar, so the
+          inset is 0 there). Un-gluing it is a native-inset decision — it has
+          to be made, and checked on a phone and an iPad, together with the
+          native-shell work, not slipped in by a layout pass. */}
       <div className={`sticky top-0 z-10 glass-static border-b border-gray-200/70 pt-[env(safe-area-inset-top)]${BAR_V2 ? " bb-lg-header" : ""}`}>
         {/* Opaque cap over the status-bar / notch inset. The header glass is
             translucent (85%), so without this the content scrolling underneath
@@ -7817,9 +8020,9 @@ export default function StaffPortalPage() {
           className={`absolute inset-x-0 top-0 ${BAR_V2 ? "bb-lg-cap" : "bg-white/95 dark:bg-gray-900"}`}
           style={{ height: "env(safe-area-inset-top)" }}
         />
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-          <div>
-            <h1 style={{ font: "700 23px/1.08 var(--font-display)", letterSpacing: "-0.03em", color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div className={`max-w-lg mx-auto px-4 py-3 flex items-center justify-between pad:px-8 pad:py-4 ${padColumn}`}>
+          <div className="pad:min-w-0">
+            <h1 className="pad:text-[28px]!" style={{ font: "700 23px/1.08 var(--font-display)", letterSpacing: "-0.03em", color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {tab === "schedule" ? t("portalTitleSchedule", "My schedule")
                 : tab === "availability" ? t("portalTitleKanIkke", "Availability")
                 : tab === "messages" ? t("portalTitleMessages", "Messages")
@@ -7937,16 +8140,16 @@ export default function StaffPortalPage() {
           </div>
         </div>
         {photoMenu && createPortal(
-          <div className="fixed inset-0 z-[60] flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setPhotoMenu(false)}>
+          <div className={`fixed inset-0 z-[60] flex items-end ${PAD_SHEET_OVERLAY}`} style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setPhotoMenu(false)}>
             <div
               role="dialog"
             aria-modal="true"
             aria-label={t("portalPhotoLabel")}
-            className="w-full bg-white"
+            className={`w-full bg-white ${PAD_SHEET_PANEL_SM} ${PAD_SHEET_INSET}`}
               style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+              <div className={`mx-auto ${PAD_HIDE}`} style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
               <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
                 {t("portalPhotoLabel", "Photo")}
               </div>
@@ -7989,16 +8192,16 @@ export default function StaffPortalPage() {
         )}
 
         {deptOpen && createPortal(
-          <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setDeptOpen(false)}>
+          <div className={`fixed inset-0 z-50 flex items-end ${PAD_SHEET_OVERLAY}`} style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setDeptOpen(false)}>
             <div
               role="dialog"
             aria-modal="true"
             aria-label={t("portalDepartment")}
-            className="w-full bg-white"
+            className={`w-full bg-white ${PAD_SHEET_PANEL_SM} ${PAD_SHEET_INSET}`}
               style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+              <div className={`mx-auto ${PAD_HIDE}`} style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
               <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
                 {t("portalDepartment", "Department")}
               </div>
@@ -8037,15 +8240,15 @@ export default function StaffPortalPage() {
             behind it. As an overlay it has its own scroll + a tap-out backdrop
             and never disturbs the main scroll. */}
         {showEmailEdit && createPortal((
-          <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true" style={KB_LIFT_STYLE}>
+          <div className={`fixed inset-0 z-[60] flex flex-col justify-end ${PAD_SHEET_OVERLAY}`} role="dialog" aria-modal="true" style={KB_LIFT_STYLE}>
             <button
               type="button"
               aria-label={t("close", "Close")}
               onClick={() => setShowEmailEdit(false)}
               className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px]"
             />
-            <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl shadow-soft-lg max-h-[90dvh] overflow-y-auto overscroll-contain">
-              <div className="sticky top-0 bg-white/95 flex items-center justify-between px-4 pt-4 pb-2 border-b border-[#f1f5f9]">
+            <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl shadow-soft-lg max-h-[90dvh] overflow-y-auto overscroll-contain pad:max-w-[560px] pad:max-h-[min(940px,calc(100dvh_-_4rem_-_var(--kb-h,0px)))] pad:rounded-[24px] pad:shadow-[0_40px_90px_-30px_rgba(8,14,22,.6)]">
+              <div className="sticky top-0 bg-white/95 flex items-center justify-between px-4 pt-4 pb-2 border-b border-[#f1f5f9] pad:px-6">
                 <h2 className="text-base font-bold text-gray-900">{t("portalEditContact", "Edit profile")}</h2>
                 <button
                   type="button"
@@ -8056,7 +8259,7 @@ export default function StaffPortalPage() {
                   <X className="w-5 h-5" strokeWidth={2} aria-hidden />
                 </button>
               </div>
-              <div className="px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3">
+              <div className="px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3 pad:px-6 pad:pb-6">
               {/* Profile photo — staff pick a photo; the owner sees it too. */}
               <div
                 className="relative flex items-center overflow-hidden"
@@ -8122,7 +8325,7 @@ export default function StaffPortalPage() {
                   </div>
                   {info?.since && (
                     <div style={{ marginTop: 10 }}>
-                      <span
+                      <span className="pad:text-[11px]!"
                         style={{
                           display: "inline-block", padding: "5px 9px", borderRadius: 999,
                           background: "rgba(34,197,94,.16)", border: "1px solid rgba(34,197,94,.28)",
@@ -8138,19 +8341,19 @@ export default function StaffPortalPage() {
                     </div>
                   )}
                   {photoBusy ? (
-                    <div style={{ marginTop: 10, font: "600 10px/1 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
+                    <div className="pad:text-[11px]!" style={{ marginTop: 10, font: "600 10px/1 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
                       {t("portalSaving", "Saving…")}
                     </div>
                   ) : (
-                    <div style={{ marginTop: 10, font: "600 10px/1 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
+                    <div className="pad:text-[11px]!" style={{ marginTop: 10, font: "600 10px/1 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
                       {photoUrl ? t("portalPhotoChange", "Change") : t("portalPhotoAdd", "Add photo")}
                     </div>
                   )}
                 </div>
               </div>
-              <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8]">{t("portalNotifications", "Notifications")}</div>
+              <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] pad:text-[11px]">{t("portalNotifications", "Notifications")}</div>
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">{t("portalContactEmailLabel", "Email")}</label>
+                <label className="text-[10px] text-gray-500 mb-1 block pad:text-[12px]">{t("portalContactEmailLabel", "Email")}</label>
                 <input
                   type="email"
                   value={emailInput}
@@ -8160,7 +8363,7 @@ export default function StaffPortalPage() {
                 />
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">{t("portalContactPhoneLabel", "Phone (optional)")}</label>
+                <label className="text-[10px] text-gray-500 mb-1 block pad:text-[12px]">{t("portalContactPhoneLabel", "Phone (optional)")}</label>
                 <input
                   type="tel"
                   value={phoneInput}
@@ -8172,9 +8375,9 @@ export default function StaffPortalPage() {
               {/* Home address — DK-structured (adresse / postnr / by). Optional;
                   the owner sees it so they have a current address on file. */}
               <div className="pt-1 border-t border-[#f1f5f9] space-y-3">
-                <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8]">{t("portalAddressSection", "Address")}</div>
+                <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] pad:text-[11px]">{t("portalAddressSection", "Address")}</div>
                 <div>
-                  <label className="text-[10px] text-gray-500 mb-1 block">{t("portalAddressStreetLabel", "Street & number")}</label>
+                  <label className="text-[10px] text-gray-500 mb-1 block pad:text-[12px]">{t("portalAddressStreetLabel", "Street & number")}</label>
                   <input
                     type="text"
                     value={addressInput}
@@ -8186,7 +8389,7 @@ export default function StaffPortalPage() {
                 </div>
                 <div className="flex gap-2">
                   <div className="w-24 shrink-0">
-                    <label className="text-[10px] text-gray-500 mb-1 block">{t("portalAddressPostalLabel", "Postal code")}</label>
+                    <label className="text-[10px] text-gray-500 mb-1 block pad:text-[12px]">{t("portalAddressPostalLabel", "Postal code")}</label>
                     <input
                       type="text"
                       inputMode="numeric"
@@ -8198,7 +8401,7 @@ export default function StaffPortalPage() {
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="text-[10px] text-gray-500 mb-1 block">{t("portalAddressCityLabel", "City")}</label>
+                    <label className="text-[10px] text-gray-500 mb-1 block pad:text-[12px]">{t("portalAddressCityLabel", "City")}</label>
                     <input
                       type="text"
                       value={cityInput}
@@ -8267,7 +8470,7 @@ export default function StaffPortalPage() {
                   data you are editing. The hint still earns its place: it
                   says WHY the fields matter when they are blank. */}
               {!info?.email && !info?.phone && (
-                <div className="text-[10px] text-gray-400">
+                <div className="text-[10px] text-gray-400 pad:text-[12px]">
                   {t("portalContactEmptyHint", "Add your email or phone to get notified when your schedule changes.")}
                 </div>
               )}
@@ -8321,7 +8524,7 @@ export default function StaffPortalPage() {
           known ones, not confirmed-current ones, and only this chip says so. */}
       {pullState && (
         <div
-          className="fixed left-0 right-0 z-40 flex justify-center pointer-events-none"
+          className="fixed left-0 right-0 z-40 flex justify-center pointer-events-none pad:left-[calc(14rem+env(safe-area-inset-left))]"
           style={{ top: 8 }}
           role="status"
           aria-live="polite"
@@ -8348,8 +8551,9 @@ export default function StaffPortalPage() {
         </div>
       )}
 
-      {/* Content */}
-      <div className="max-w-lg mx-auto px-4 py-4">
+      {/* Content. iPad: a wider column beside the sidebar (padColumn) — and
+          on the two-column tabs the tab itself splits it (pad-wide:). */}
+      <div className={`max-w-lg mx-auto px-4 py-4 pad:px-8 pad:py-6 ${padColumn}`}>
         {tab === "schedule" && (
           <ScheduleTab
             shifts={visibleShifts}
@@ -8404,8 +8608,27 @@ export default function StaffPortalPage() {
 
       {/* Bottom Navigation */}
       {/* data-bb-consent-clear: the cookie banner sits on this bar, not over it (CookieConsent.jsx). */}
-      <nav data-bb-consent-clear="" className={`fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20${BAR_V2 ? " bb-lg-tabbar" : ""}`}>
-        <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      {/* iPad (pad:): the same five buttons become a left sidebar — icon and
+          label side by side at a readable size, the way iPad apps carry their
+          sections. The bar is no longer at the bottom there, so the cookie
+          banner must not measure it as one (it would place itself above a
+          full-height "bar", i.e. off the top of the screen). */}
+      <nav
+        data-bb-consent-clear={isPad ? undefined : ""}
+        className={`fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20${BAR_V2 ? " bb-lg-tabbar" : ""} pad:top-0 pad:right-auto pad:w-[calc(14rem+env(safe-area-inset-left))] pad:pl-[env(safe-area-inset-left)] pad:border-t-0 pad:border-r pad:border-r-[rgb(15_23_42/0.08)]`}
+      >
+        <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pad:max-w-none pad:mx-0 pad:flex-col pad:justify-start pad:gap-1 pad:px-3 pad:pt-[calc(env(safe-area-inset-top)+1.25rem)]">
+          {/* Sidebar heading — whose rota this is. display:none on a phone. */}
+          <div className="hidden pad:block px-3 pb-4" data-testid="portal-pad-rail-heading">
+            <div className="truncate" style={{ font: "700 16px/1.2 var(--font-display)", letterSpacing: "-0.02em", color: "#0f172a" }}>
+              {info?.restaurant_name || t("portalTitleSchedule", "My schedule")}
+            </div>
+            {info?.staff_name && (
+              <div className="truncate" style={{ marginTop: 4, font: "500 12.5px/1.2 var(--font-text)", color: "#64748b" }}>
+                {info.staff_name}
+              </div>
+            )}
+          </div>
           {TABS.filter(
             // Alerts moved to the header bell (design).
             // Leaves 5 tabs: Schedule · Availability · Messages · Swaps · Hours.
@@ -8417,7 +8640,7 @@ export default function StaffPortalPage() {
                 key={item.key}
                 onClick={() => setTab(item.key)}
                 aria-current={active ? "page" : undefined}
-                className="relative flex flex-col items-center gap-1 px-1.5 sm:px-4 py-1 rounded-lg active:opacity-60"
+                className={`relative flex flex-col items-center gap-1 px-1.5 sm:px-4 py-1 rounded-lg active:opacity-60 pad:flex-row pad:gap-3 pad:w-full pad:min-h-[44px] pad:px-3 pad:py-2.5 pad:rounded-xl ${active ? "pad:bg-[rgb(22_163_74/0.12)]" : "pad:hover:bg-[rgb(15_23_42/0.04)]"}`}
                 style={{
                   // #64748b (slate-500), not #94a3b8 (slate-400). The label is
                   // text-[10px] font-semibold — never "large text" — so WCAG AA
@@ -8439,7 +8662,7 @@ export default function StaffPortalPage() {
                   {active && (
                     <span
                       aria-hidden
-                      className={`absolute -inset-x-3.5 -inset-y-[4px] rounded-full${BAR_V2 ? " bb-lg-pill" : ""}`}
+                      className={`absolute -inset-x-3.5 -inset-y-[4px] rounded-full${BAR_V2 ? " bb-lg-pill" : ""} pad:hidden`}
                       style={
                         BAR_V2
                           ? undefined
@@ -8452,7 +8675,7 @@ export default function StaffPortalPage() {
                     />
                   )}
                   <item.Icon
-                    className="relative z-10 w-[18px] h-[18px]"
+                    className="relative z-10 w-[18px] h-[18px] pad:w-5 pad:h-5"
                     strokeWidth={active ? 2.25 : 2}
                     aria-hidden
                   />
@@ -8465,7 +8688,7 @@ export default function StaffPortalPage() {
                     </span>
                   )}
                 </span>
-                <span className="relative max-w-[64px] truncate text-[10px] font-semibold">
+                <span className="relative max-w-[64px] truncate text-[10px] font-semibold pad:max-w-none pad:text-[14.5px]">
                   {t(item.labelKey, item.labelFallback)}
                 </span>
               </button>
@@ -8480,7 +8703,7 @@ export default function StaffPortalPage() {
           Generic by design (Phase 1) — no per-field human diff. */}
       {scheduleUpdated && (
         <div
-          className="fixed inset-x-0 z-30 flex justify-center px-4 pointer-events-none"
+          className="fixed inset-x-0 z-30 flex justify-center px-4 pointer-events-none pad:left-[calc(14rem+env(safe-area-inset-left))]"
           style={{ bottom: "calc(5rem + env(safe-area-inset-bottom))" }}
           role="status"
           aria-live="polite"

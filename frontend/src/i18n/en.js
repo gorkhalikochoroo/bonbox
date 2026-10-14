@@ -9494,6 +9494,8 @@ export const en = {
     staffChatSearch: 'Search people and messages',
     staffChatNoMatches: 'Nothing matches that.',
     staffChatAllConversations: 'All conversations',
+    staffChatPickTitle: 'Pick a conversation',
+    staffChatPickBody: 'Your manager and your groups are on the left. Tap one to read and reply here.',
     staffChatNewGroup: 'New group',
     staffChatCancel: 'Cancel',
     staffChatGroupNamePlaceholder: 'e.g. Kitchen',

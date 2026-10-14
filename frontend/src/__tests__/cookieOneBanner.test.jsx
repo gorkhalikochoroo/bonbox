@@ -229,7 +229,10 @@ describe("placement", () => {
 describe("the page pads for the banner (--bb-consent-h)", () => {
   it("the bars the banner sits on, and the desktop '+', are marked", () => {
     expect(read("components/MobileBottomNav.jsx")).toContain('data-bb-consent-clear=""');
-    expect(read("pages/StaffPortalPage.jsx")).toContain('<nav data-bb-consent-clear=""');
+    // The portal's tab bar is marked on a phone; on an iPad (usePadLayout) the
+    // same <nav> is a full-height LEFT sidebar, which the banner must not
+    // measure as a bottom bar — staffPortalPadLayout.test.jsx renders both.
+    expect(read("pages/StaffPortalPage.jsx")).toContain('data-bb-consent-clear={isPad ? undefined : ""}');
     expect(read("components/QuickAdd.jsx")).toContain('data-bb-consent-clear=""');
   });
   it("body pads by it on a phone (not on AuthShell pages, which pad themselves, nor the portal)", () => {

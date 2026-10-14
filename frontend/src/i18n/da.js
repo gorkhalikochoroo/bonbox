@@ -9168,6 +9168,8 @@ export const da = {
     staffChatSearch: 'Søg personer og beskeder',
     staffChatNoMatches: 'Ingen træffere.',
     staffChatAllConversations: 'Alle samtaler',
+    staffChatPickTitle: 'Vælg en samtale',
+    staffChatPickBody: 'Din leder og dine grupper står til venstre. Tryk på en for at læse og svare her.',
     staffChatNewGroup: 'Ny gruppe',
     staffChatCancel: 'Annuller',
     staffChatGroupNamePlaceholder: 'fx Køkken',
