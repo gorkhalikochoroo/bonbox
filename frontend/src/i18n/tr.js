@@ -5168,6 +5168,8 @@ export const tr = {
   landingV2HeroCardMonthLabel: "Bu ay",
   landingV2HeroCardMargin: "%82 marj",
   landingV2HeroKr: "kr.",
+  // Push 9 landing (15 Oct 2026).
+  "landingV2.footer.contact": "İletişim",
   landingV2HeroCardMomsEyebrow: "MOMS · {period} · {days} gün içinde",
   landingV2HeroCardMomsSetAside: "MOMS için haftada ~{weekly} kr. ayır",
   landingV2HeroCardMomsDue: "~88.777 kr., son tarih {frist}",

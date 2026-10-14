@@ -6836,6 +6836,8 @@ export const en = {
     landingV2HeroCardMonthLabel: "This month",
     landingV2HeroCardMargin: "82% margin",
     landingV2HeroKr: "kr.",
+    // Push 9 landing (15 Oct 2026).
+    "landingV2.footer.contact": "Contact",
     landingV2HeroCardMomsEyebrow: "MOMS · {period} · in {days} days",
     landingV2HeroCardMomsSetAside: "Set aside ~{weekly} kr./week to cover MOMS",
     landingV2HeroCardMomsDue: "~88.777 kr. due {frist}",

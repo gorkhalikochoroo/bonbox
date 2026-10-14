@@ -6625,6 +6625,8 @@ export const da = {
     landingV2HeroCardMonthLabel: "Denne måned",
     landingV2HeroCardMargin: "82 % margin",
     landingV2HeroKr: "kr.",
+    // Push 9 landing (15 Oct 2026).
+    "landingV2.footer.contact": "Kontakt",
     landingV2HeroCardMomsEyebrow: "MOMS · {period} · om {days} dage",
     landingV2HeroCardMomsSetAside: "Sæt ~{weekly} kr./uge til side for at dække MOMS",
     landingV2HeroCardMomsDue: "~88.777 kr. forfalder {frist}",
