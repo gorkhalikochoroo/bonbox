@@ -559,7 +559,7 @@ describe("sheets on iPad are form sheets; on a phone they are the bottom sheets 
     expect(tokens(panel.parentElement)).toEqual(expect.arrayContaining(["pad:items-center", "pad:justify-center"]));
   });
 
-  it("New group: the phone bottom sheet under 640 px; from 640 px the centred 384 px card it was — rounded all round in an iPad window, as shipped on a sideways phone", async () => {
+  it("New group: the phone bottom sheet; in a Split View window a bottom sheet like the others; on iPad a centred card; a sideways phone keeps origin/main's card", async () => {
     mockMatchMedia([PAD_QUERY]);
     await mount();
     navTo("Beskeder");
@@ -572,12 +572,19 @@ describe("sheets on iPad are form sheets; on a phone they are the bottom sheets 
     expect(unprefixed(dialog.parentElement)).toBe("fixed inset-0 z-40 flex items-end m-0");
     expect(dialog.getAttribute("style")).toContain("border-radius: 22px 22px 0 0");
     expect(dialog.getAttribute("style")).toContain("padding-bottom: calc(16px + env(safe-area-inset-bottom))");
-    // From 640 px: centred, 384 px, and no longer square-bottomed.
-    expect(tokens(dialog.parentElement)).toEqual(expect.arrayContaining(["sm:items-center", "sm:justify-center", "pad:items-center"]));
-    expect(tokens(dialog)).toEqual(expect.arrayContaining(["sm:max-w-sm", "sm:tablet:rounded-[22px]!", "sm:tablet:pb-4!"]));
-    // A sideways phone (≥ 640 wide, < 600 tall) gets exactly origin/main's card.
-    expect(tokens(dialog).filter((c) => c.startsWith("sm:") && !c.startsWith("sm:tablet:"))).toEqual(["sm:max-w-sm"]);
-    expect(tokens(dialog.parentElement)).toContain("pad:pb-[calc(2rem+var(--kb-h,0px))]!");
+    // A sideways phone (≥ 640 wide, < 600 tall — never tablet:) gets exactly
+    // origin/main's centred 384 px card: the only sm: tokens are main's.
+    expect(tokens(dialog).filter((c) => c.startsWith("sm:"))).toEqual(["sm:max-w-sm"]);
+    expect(tokens(dialog.parentElement).filter((c) => c.startsWith("sm:"))).toEqual(["sm:items-center", "sm:justify-center"]);
+    // A Split View window (tablet:, e.g. 694 × 1180) presents it like every
+    // other sheet there: a bottom sheet as wide as the 512 px column (it was
+    // the one centred card among bottom sheets).
+    expect(tokens(dialog.parentElement)).toContain("tablet:items-end");
+    expect(tokens(dialog)).toEqual(expect.arrayContaining(["tablet:max-w-lg", "tablet:mx-auto"]));
+    expect(tokens(dialog).some((c) => c.startsWith("sm:tablet:"))).toBe(false);
+    // iPad: a centred 384 px form sheet, rounded all round.
+    expect(tokens(dialog.parentElement)).toEqual(expect.arrayContaining(["pad:items-center", "pad:pb-[calc(2rem+var(--kb-h,0px))]!"]));
+    expect(tokens(dialog)).toEqual(expect.arrayContaining(["pad:max-w-sm", "pad:rounded-[22px]!", "pad:pb-4!"]));
   });
 
   it("the documents sheet opens on top of the 560 px profile sheet, so on iPad it is the narrower 400 px sheet", () => {
@@ -845,15 +852,37 @@ describe("smaller fixes", () => {
     expect(document.querySelector("[data-portal-scroller]").style.getPropertyValue("--portal-head-h")).toBe("");
   });
 
-  it("iPad pane: the header row is 44 px for a direct thread and a group alike; a real hairline under it", async () => {
+  it("iPad master-detail: title and its line are one block, 3 px apart as in the pane; ≥ 44 px for a direct thread and a group alike; a real hairline under it", async () => {
     mockMatchMedia([PAD_QUERY, PAD_WIDE_QUERY]);
     await mount();
     navTo("Beskeder");
     fireEvent.click((await screen.findByText("Køkken + sal")).closest("button"));
     const pane = await screen.findByTestId("portal-chat-pane");
-    const row = pane.firstElementChild;
-    expect(tokens(row)).toContain("min-h-[44px]");
-    expect(row.nextElementSibling.style.borderBottom).toBe("1px solid rgb(232, 237, 243)");
+    const head = within(pane).getByTestId("portal-chat-pane-head");
+    expect(pane.firstElementChild).toBe(head);
+    expect(head.style.borderBottom).toBe("1px solid rgb(232, 237, 243)");
+    const title = within(head).getByRole("heading", { level: 2 });
+    const block = title.parentElement;
+    expect(tokens(block)).toEqual(expect.arrayContaining(["min-h-[44px]", "flex-col", "justify-center"]));
+    // The line sits right under the title, in the same block (it was the
+    // next block, 12 px down, while the single pane had it 3 px down).
+    expect(title.nextElementSibling.tagName).toBe("P");
+    expect(title.nextElementSibling.style.marginTop).toBe("3px");
+    // (This mock's group has no size yet: the line holds its place, empty.)
+    expect(title.nextElementSibling.textContent).toBe("\u00a0");
+    expect(within(head).getByRole("button", { name: "Forlad" })).toBeTruthy();
+  });
+
+  it("the single iPad pane keeps title and line 3 px apart under the 44 px back-link row", async () => {
+    mockMatchMedia([PAD_QUERY]);
+    await mount();
+    navTo("Beskeder");
+    fireEvent.click((await screen.findByText("Køkken + sal")).closest("button"));
+    const pane = await screen.findByTestId("portal-chat-pane");
+    expect(tokens(pane.firstElementChild)).toContain("min-h-[44px]");
+    const title = within(pane).getByRole("heading", { level: 2 });
+    expect(title.nextElementSibling.style.marginTop).toBe("3px");
+    expect(title.parentElement.style.borderBottom).toBe("1px solid rgb(232, 237, 243)");
   });
 
   it("a Helst (preferred) day in the marked list is green with CalendarCheck and says Helst; a Kan ikke day is unchanged", async () => {

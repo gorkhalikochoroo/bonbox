@@ -31,7 +31,7 @@ import { useKeyboardReveal, KB_LIFT_STYLE } from "../hooks/useKeyboardReveal";
 import { usePortalStream } from "../hooks/usePortalStream";
 import { App as CapApp } from "@capacitor/app";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
-import { usePadLayout, PAD_WIDE_QUERY } from "../lib/padLayout";
+import { usePadLayout, matchesPad, PAD_WIDE_QUERY } from "../lib/padLayout";
 import { roleName } from "../utils/roleNames";
 
 // ─── iPad layout (tablet: / pad: / pad-wide: — see src/lib/padLayout.js) ─
@@ -160,6 +160,18 @@ function _isStandalone() {
     if (window.navigator?.standalone === true) return true;
   } catch { /* SSR / sandbox */ }
   return false;
+}
+
+/** An iPad, in Safari or in the Vagtplan app. iPadOS Safari and its
+    WKWebView present a desktop (Macintosh) user agent, so a Mac UA with a
+    touch screen is an iPad too. The DEVICE, not the window: in Slide Over an
+    iPad is still an iPad. Used for the copy that names the device ("this
+    phone" read wrong on an iPad). */
+function _isIpad() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  return /iPad/.test(ua) ||
+    (/Macintosh/.test(ua) && typeof navigator.maxTouchPoints === "number" && navigator.maxTouchPoints > 1);
 }
 
 function _isIos() {
@@ -722,6 +734,18 @@ export function BankSection({ token }) {
 
   useEffect(() => load(), [load]);
 
+  // iPad: this section is the last thing in the profile form sheet, and on a
+  // landscape iPad "Tilføj" opened the fields half below the sheet's fold —
+  // "Gem konto" and "Annuller" cut off, the sheet not scrolling to them.
+  // Bring the whole form into view inside the sheet ("nearest": a form
+  // already on screen does not move). Phones keep what they had.
+  const editRef = useRef(null);
+  useEffect(() => {
+    if (!editing || !matchesPad()) return undefined;
+    const id = setTimeout(() => editRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" }), 30);
+    return () => clearTimeout(id);
+  }, [editing]);
+
   // Server error codes → real Danish copy. Anything unmapped falls back to a
   // generic line rather than showing the English developer message.
   const messageFor = (e) => {
@@ -845,7 +869,7 @@ export function BankSection({ token }) {
       )}
 
       {editing && !state.unavailable && (
-        <div className="space-y-3">
+        <div ref={editRef} className="space-y-3 pad:scroll-mb-4" data-testid="portal-bank-form">
           <div className="flex gap-2">
             <div className="w-24 shrink-0">
               <label className="text-[10px] text-gray-500 mb-1 block pad:text-[12px]">{t("portalBankRegLabel", "Reg. no.")}</label>
@@ -3131,11 +3155,12 @@ function PeriodSheet({ initial, current, anchorMonth, onClose, onApply }) {
         <div className="flex" style={{ gap: 10, marginTop: 8 }}>
           <label style={{ flex: 1, minWidth: 0 }}>
             <span className="pad:text-[11px]!" style={cap}>{t("portalHoursFrom", "From")}</span>
-            <input type="date" value={from} min={floorISO} max={todayISO} onChange={(e) => setFrom(e.target.value)} style={field} />
+            {/* iPad: 44 px (the inline padding drew 42). */}
+            <input type="date" value={from} min={floorISO} max={todayISO} onChange={(e) => setFrom(e.target.value)} style={field} className="pad:min-h-11" />
           </label>
           <label style={{ flex: 1, minWidth: 0 }}>
             <span className="pad:text-[11px]!" style={cap}>{t("portalHoursTo", "To")}</span>
-            <input type="date" value={to} min={from || floorISO} onChange={(e) => setTo(e.target.value)} style={field} />
+            <input type="date" value={to} min={from || floorISO} onChange={(e) => setTo(e.target.value)} style={field} className="pad:min-h-11" />
           </label>
         </div>
         {problem && (
@@ -3624,7 +3649,12 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           </div>
         )}
         {data.entries.length === 0 ? (
-          <div className="text-sm text-gray-400 py-4 text-center">{emptyLabel}</div>
+          /* pad-wide: the right column's only content — a card under its
+             heading, like the list it stands in for. */
+          <div className="text-sm text-gray-400 py-4 text-center pad-wide:flex pad-wide:flex-col pad-wide:items-center pad-wide:bg-white pad-wide:border pad-wide:border-[#e8edf3] pad-wide:rounded-[20px] pad-wide:py-10 pad-wide:px-6 pad-wide:text-[13.5px] pad-wide:text-[#64748b]" data-testid="portal-hours-empty">
+            <Calendar className="hidden pad-wide:block w-8 h-8 text-gray-300 mb-3" strokeWidth={2} aria-hidden />
+            {emptyLabel}
+          </div>
         ) : (
           <div
             className="bg-white overflow-hidden"
@@ -3814,7 +3844,11 @@ function SwapTab({ token, ownShifts, onChanged }) {
     ? <div className="text-xs text-gray-500">{t("portalLoading", "Loading…")}</div>
     : inbox.length === 0
       ? (!showPropose ? (
-          <div className="text-center text-xs text-gray-500 py-6">
+          /* pad-wide: this is the whole right column, so it is a card on the
+             column's top line (like the cards beside it), not a lone grey
+             sentence floating in the middle of an empty column. */
+          <div className="text-center text-xs text-gray-500 py-6 pad-wide:flex pad-wide:flex-col pad-wide:items-center pad-wide:bg-white pad-wide:border pad-wide:border-[#e8edf3] pad-wide:rounded-[20px] pad-wide:py-10 pad-wide:px-6 pad-wide:text-[13.5px] pad-wide:text-[#64748b]" data-testid="portal-swap-empty">
+            <ArrowLeftRight className="hidden pad-wide:block w-8 h-8 text-gray-300 mb-3" strokeWidth={2} aria-hidden />
             {t("portalSwapNonePending", "No pending swap requests.")}
           </div>
         ) : null)
@@ -4251,10 +4285,11 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
       <p className="text-[11px] text-gray-500 leading-snug">
         {t("portalGaSellHint", "Your shift goes on the board for colleagues. You keep it until someone takes it — first to take it, gets it.")}
       </p>
+      {/* iPad: 44 px fields, like the Byt form's (they were 40–41). */}
       <select
         value={shiftId}
         onChange={(e) => setShiftId(e.target.value)}
-        className="w-full px-3 py-2 rounded-[14px] border border-[#e2e8f0] bg-[#fbfdff] text-sm text-gray-800"
+        className="w-full px-3 py-2 rounded-[14px] border border-[#e2e8f0] bg-[#fbfdff] text-sm text-gray-800 pad:min-h-11"
       >
         <option value="">{t("portalGaPickShift", "Pick your shift…")}</option>
         {upcomingOwn.map((s) => (
@@ -4269,7 +4304,7 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
         onChange={(e) => setReason(e.target.value)}
         maxLength={200}
         placeholder={t("portalGaReasonPh", "Reason (optional — colleagues see it)")}
-        className="w-full px-3 py-2 rounded-[14px] border border-[#e2e8f0] bg-[#fbfdff] text-sm text-gray-800"
+        className="w-full px-3 py-2 rounded-[14px] border border-[#e2e8f0] bg-[#fbfdff] text-sm text-gray-800 pad:min-h-11"
       />
       {error && (
         <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-[14px] px-2.5 py-1.5">{error}</div>
@@ -4801,19 +4836,21 @@ function NewGroupSheet({ token, onClose, onCreated }) {
   };
 
   return (
-    /* From 640 px wide this is a centred 384 px card, as it always was. In an
-       iPad window (tablet: — Split View 2/3 and up; a sideways phone is under
-       600 px tall and keeps exactly what it had) it is also rounded on all
-       four corners and drops the home-indicator padding, so it no longer reads
-       as a bottom sheet left floating mid-screen. Below 640 px it is the phone
-       bottom sheet, unchanged. */
-    <div className={`fixed inset-0 z-40 flex items-end sm:items-center sm:justify-center ${PAD_SHEET_OVERLAY} ${PAD_SHEET_KB}`} style={KB_LIFT_STYLE}>
+    /* Presented like every other sheet in the same window:
+       • a phone (< 640 px), and a Split View window that is not iPad-sized
+         (tablet:, ≈507–694 px): the bottom sheet — in the tablet window
+         as wide as the 512 px column, like the period / profile sheets.
+         At 694 px it used to be the one centred card among bottom sheets;
+       • an iPad (pad:): a centred 384 px form sheet, rounded all round;
+       • a sideways phone (≥ 640 wide, < 600 tall — never tablet:): the
+         centred 384 px card it always was (origin/main's sm: classes). */
+    <div className={`fixed inset-0 z-40 flex items-end sm:items-center sm:justify-center tablet:items-end ${PAD_SHEET_OVERLAY} ${PAD_SHEET_KB}`} style={KB_LIFT_STYLE}>
       <div className="absolute inset-0 bg-gray-900/40" onClick={onClose} aria-hidden />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={t("staffChatNewGroup", "New group")}
-        className="relative w-full sm:max-w-sm bg-white sm:tablet:rounded-[22px]! sm:tablet:pb-4! pad:shadow-[0_40px_90px_-30px_rgba(8,14,22,.6)]"
+        className="relative w-full sm:max-w-sm bg-white tablet:max-w-lg tablet:mx-auto pad:max-w-sm pad:rounded-[22px]! pad:pb-4! pad:shadow-[0_40px_90px_-30px_rgba(8,14,22,.6)]"
         style={{
           borderRadius: "22px 22px 0 0",
           paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
@@ -5264,6 +5301,24 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
     ? meta?.title || t("staffChatGroup", "Group")
     : restaurantName || t("staffChatOwnerLabel", "Manager");
 
+  const leaveBtn = isGroup && (
+    <button
+      type="button"
+      onClick={leave}
+      className={pane ? "min-h-[44px] px-1" : undefined}
+      style={{ font: pane ? "600 13px/1 var(--font-text)" : "600 11.5px/1 var(--font-text)", color: "#94a3b8" }}
+    >
+      {t("staffChatLeave", "Leave")}
+    </button>
+  );
+  // An unknown group size keeps the line (a no-break space), so the header
+  // does not jump when the count arrives.
+  const subEl = (
+    <p style={{ marginTop: 3, font: pane ? "400 12.5px/1.2 var(--font-text)" : "400 11px/1 var(--font-text)", color: pane ? "#64748b" : "#94a3b8" }}>
+      {subline || "\u00a0"}
+    </p>
+  );
+
   // iPad (pane): the conversation is a bounded card — header, a stream that
   // scrolls inside it, and the composer as its last row — instead of a phone
   // page with a composer pinned to the bottom of the whole screen. With
@@ -5281,60 +5336,59 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
         boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
       } : undefined}
     >
-      {/* pane: the top row is always 44 px — the back link or the Leave
-          button is 44 px tall, and a direct thread in the master-detail has
-          neither, so its "Din leder" line sat 11 px higher than a group's
-          "3 personer". Same height, same line, either way. */}
-      <div
-        className={pane ? "flex items-center justify-between min-h-[44px]" : "flex items-center justify-between"}
-        style={pane ? { padding: "10px 20px 0" } : { padding: "2px 0 12px" }}
-      >
-        {!split && (
-        <button
-          type="button"
-          onClick={onBack}
-          className={pane ? "flex items-center min-h-[44px]" : "flex items-center"}
-          style={{ gap: 7, font: pane ? "600 13.5px/1 var(--font-text)" : "600 12px/1 var(--font-text)", color: "#16a34a" }}
+      {split ? (
+        /* Master-detail: no back link, so the title and its line are ONE
+           block — 3 px apart, as in the single pane and on a phone. (The
+           title sat centred in a 44 px row and the line in the block under
+           it: 12 px apart here, 3 px everywhere else.) The block is ≥ 44 px
+           whether or not a Leave button sits beside it, so a direct thread
+           and a group line up; the hairline under it is the pane's. */
+        <div
+          className="flex items-center justify-between gap-3"
+          data-testid="portal-chat-pane-head"
+          style={{ padding: "12px 20px", borderBottom: "1px solid #e8edf3" }}
         >
-          <ChevronLeft className="w-[14px] h-[14px]" strokeWidth={2.4} aria-hidden />
-          {t("staffChatAllConversations", "All conversations")}
-        </button>
-        )}
-        {split && (
-          // The heading moves up into this row when there is no back link.
-          <h2 className="font-display text-[17px] font-bold tracking-[-0.02em] leading-[1.2] text-gray-900 truncate">
-            {heading}
-          </h2>
-        )}
-        {isGroup && (
-          <button
-            type="button"
-            onClick={leave}
-            className={pane ? "min-h-[44px] px-1" : undefined}
-            style={{ font: pane ? "600 13px/1 var(--font-text)" : "600 11.5px/1 var(--font-text)", color: "#94a3b8" }}
+          <div className="min-w-0 min-h-[44px] flex flex-col justify-center">
+            <h2 className="font-display text-[17px] font-bold tracking-[-0.02em] leading-[1.2] text-gray-900 truncate">
+              {heading}
+            </h2>
+            {subEl}
+          </div>
+          {leaveBtn}
+        </div>
+      ) : (
+        <>
+          {/* pane: the top row is always 44 px — the back link and the Leave
+              button are 44 px tall. */}
+          <div
+            className={pane ? "flex items-center justify-between min-h-[44px]" : "flex items-center justify-between"}
+            style={pane ? { padding: "10px 20px 0" } : { padding: "2px 0 12px" }}
           >
-            {t("staffChatLeave", "Leave")}
-          </button>
-        )}
-      </div>
+            <button
+              type="button"
+              onClick={onBack}
+              className={pane ? "flex items-center min-h-[44px]" : "flex items-center"}
+              style={{ gap: 7, font: pane ? "600 13.5px/1 var(--font-text)" : "600 12px/1 var(--font-text)", color: "#16a34a" }}
+            >
+              <ChevronLeft className="w-[14px] h-[14px]" strokeWidth={2.4} aria-hidden />
+              {t("staffChatAllConversations", "All conversations")}
+            </button>
+            {leaveBtn}
+          </div>
 
-      {/* pane: a real hairline under the header (#e8edf3 — the #f1f5f9 one
-          vanished against the #f8fafc stream), and the stream fades in under
-          it instead of slicing a bubble or a sender name in half. */}
-      <div
-        style={pane ? { padding: split ? "2px 20px 12px" : "4px 20px 12px", borderBottom: "1px solid #e8edf3" } : { marginBottom: 10 }}
-      >
-        {!split && (
-        <h2 className={`font-display font-bold tracking-[-0.02em] leading-[1.2] text-gray-900 ${pane ? "text-[17px]" : "text-[15px]"}`}>
-          {heading}
-        </h2>
-        )}
-        {/* An unknown group size keeps the line (a no-break space), so the
-            header does not jump when the count arrives. */}
-        <p style={{ marginTop: 3, font: pane ? "400 12.5px/1.2 var(--font-text)" : "400 11px/1 var(--font-text)", color: pane ? "#64748b" : "#94a3b8" }}>
-          {subline || "\u00a0"}
-        </p>
-      </div>
+          {/* pane: a real hairline under the header (#e8edf3 — the #f1f5f9 one
+              vanished against the #f8fafc stream), and the stream fades in under
+              it instead of slicing a bubble or a sender name in half. */}
+          <div
+            style={pane ? { padding: "4px 20px 12px", borderBottom: "1px solid #e8edf3" } : { marginBottom: 10 }}
+          >
+            <h2 className={`font-display font-bold tracking-[-0.02em] leading-[1.2] text-gray-900 ${pane ? "text-[17px]" : "text-[15px]"}`}>
+              {heading}
+            </h2>
+            {subEl}
+          </div>
+        </>
+      )}
 
       {/* Message stream */}
       <div
@@ -5745,7 +5799,9 @@ function PortalOffline({ onRetry, busy = false, kind = "offline" }) {
         </h1>
         <p className="text-sm text-gray-500 pad:text-[15px]">
           {server
-            ? t("portalServerDownBody", "It's not your phone — it's on our side. Your link is saved, and we'll try again by ourselves in a moment.")
+            ? (_isIpad()
+              ? t("portalServerDownBodyIpad", "It's not your iPad — it's on our side. Your link is saved, and we'll try again by ourselves in a moment.")
+              : t("portalServerDownBody", "It's not your phone — it's on our side. Your link is saved, and we'll try again by ourselves in a moment."))
             : t("portalOfflineBody", "We couldn't reach BonBox. Your link is saved — we'll try again as soon as you're online.")}
         </p>
         <button
@@ -7127,6 +7183,12 @@ function ShiftReminderRow({ token }) {
               : t("staffRemindNeedsPush", "Needs notifications switched on for this device.")}
           </div>
         </div>
+        {/* The switch is the 42 × 25 track drawn inside the button. On a
+            phone the button IS the track (no padding, same box as before).
+            iPad: the button is a 44 × 44 target around the same track (the
+            negative margins keep the row's height). index.css leaves
+            role=switch out of its 44 px rule on purpose — that rule squashed
+            toggles into circles — so the target is sized here. */}
         <button
           type="button"
           role="switch"
@@ -7134,22 +7196,26 @@ function ShiftReminderRow({ token }) {
           aria-label={t("staffRemindTitle", "Remind me before a shift")}
           disabled={busy}
           onClick={() => save(minutes ? null : 60)}
-          className="flex-shrink-0 disabled:opacity-50"
-          style={{
-            width: 42, height: 25, borderRadius: 99, padding: 3, display: "flex",
-            transition: "background .25s",
-            background: minutes ? "linear-gradient(180deg,#22c55e,#16a34a)" : "#dbe3ec",
-            boxShadow: "inset 0 1px 2px rgba(15,23,42,.14)",
-          }}
+          className="flex-shrink-0 flex disabled:opacity-50 pad:items-center pad:justify-center pad:w-11 pad:h-11 pad:-my-[9.5px] pad:-mx-px"
         >
           <span
+            aria-hidden
             style={{
-              width: 19, height: 19, borderRadius: 99, background: "#fff",
-              boxShadow: "0 1px 3px rgba(15,23,42,.35)",
-              transition: "transform .25s cubic-bezier(.3,1.4,.5,1)",
-              transform: minutes ? "translateX(17px)" : "translateX(0)",
+              width: 42, height: 25, borderRadius: 99, padding: 3, display: "flex", flex: "none",
+              transition: "background .25s",
+              background: minutes ? "linear-gradient(180deg,#22c55e,#16a34a)" : "#dbe3ec",
+              boxShadow: "inset 0 1px 2px rgba(15,23,42,.14)",
             }}
-          />
+          >
+            <span
+              style={{
+                width: 19, height: 19, borderRadius: 99, background: "#fff",
+                boxShadow: "0 1px 3px rgba(15,23,42,.35)",
+                transition: "transform .25s cubic-bezier(.3,1.4,.5,1)",
+                transform: minutes ? "translateX(17px)" : "translateX(0)",
+              }}
+            />
+          </span>
         </button>
       </div>
       {minutes && (
@@ -7370,7 +7436,11 @@ function StaffPushOptIn({ token }) {
           <Smartphone className="w-4 h-4" strokeWidth={2} aria-hidden />
           {t("staffPushIosInstallTitle", "Get push notifications")}
         </div>
-        {t("staffPushIosInstallHint", "On iPhone, tap the share icon in Safari and choose Add to Home Screen. Then open your schedule from the new icon — the light Vagtplan icon with your workplace's name — to turn on push.")}
+        {/* iPad Safari has Share at the top of the window, not at the
+            bottom as on an iPhone — and the reader is not on an iPhone. */}
+        {_isIpad()
+          ? t("staffPushIpadInstallHint", "On iPad, tap the share icon at the top of Safari and choose Add to Home Screen. Then open your schedule from the new icon — the light Vagtplan icon with your workplace's name — to turn on push.")
+          : t("staffPushIosInstallHint", "On iPhone, tap the share icon in Safari and choose Add to Home Screen. Then open your schedule from the new icon — the light Vagtplan icon with your workplace's name — to turn on push.")}
       </div>
     );
   }
@@ -7506,11 +7576,16 @@ function StaffPushOptIn({ token }) {
 
 
 
-/** iPad sidebar count (unread messages / updates): at the row's end, 11.5 px. */
+/** iPad sidebar count (unread messages / updates): at the row's end, 11.5 px.
+    The SAME green (#16a34a, as a hex — index.css remaps green-* classes to
+    the owner's theme accent) as each thread's count in the list beside it:
+    one thing, one colour. It was red beside green rows. (The phone's tiny
+    tab-bar and bell badges stay red: they sit on an icon, never beside the
+    list.) */
 function RailCount({ n, label }) {
   return (
     <span
-      className="hidden pad:inline-flex ml-auto items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-red-600 text-white text-[11.5px] font-bold tabular-nums"
+      className="hidden pad:inline-flex ml-auto items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-[#16a34a] text-white text-[11.5px] font-bold tabular-nums"
       aria-label={label}
     >
       {n > 9 ? "9+" : n}
@@ -8457,6 +8532,149 @@ export default function StaffPortalPage() {
     }
   };
 
+  // Bottom Navigation — one element, placed by layout (see its two uses
+  // below). On a phone it follows the content (the tab bar, as ever); on an
+  // iPad it is the sidebar and comes FIRST, so a hardware keyboard tabs
+  // through the sections before the page (it came after all of it: the
+  // sidebar was not reached in the first 14 Tab stops), and a screen reader
+  // meets it where it is drawn.
+  // data-bb-consent-clear: the cookie banner sits on this bar, not over it
+  // (CookieConsent.jsx).
+  // iPad (pad:): the same five buttons become a left sidebar — icon and
+  // label side by side at a readable size, the way iPad apps carry their
+  // sections. The bar is no longer at the bottom there, so the cookie
+  // banner must not measure it as one (it would place itself above a
+  // full-height "bar", i.e. off the top of the screen).
+  const portalNav = (
+      <nav
+        data-bb-consent-clear={isPad ? undefined : ""}
+        className={`fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20${BAR_V2 ? " bb-lg-tabbar" : ""} pad:top-0 pad:right-auto pad:w-[calc(14rem+env(safe-area-inset-left))] pad:pl-[env(safe-area-inset-left)] pad:border-t-0 pad:border-r pad:border-r-[rgb(15_23_42/0.08)]`}
+      >
+        <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pad:max-w-none pad:mx-0 pad:flex-col pad:justify-start pad:gap-1 pad:px-3 pad:pt-[calc(env(safe-area-inset-top)+1.25rem)]">
+          {/* Sidebar heading — which app this is, and whose. The venue is
+              already under every page title in the header, so it is not
+              repeated here. display:none on a phone. */}
+          <div className="hidden pad:flex items-center gap-3 px-3 pb-5" data-testid="portal-pad-rail-heading">
+            <img
+              src="/vagtplan-icon-192.png"
+              alt=""
+              width={36}
+              height={36}
+              className="shrink-0 rounded-[10px]"
+              style={{ boxShadow: "0 0 0 1px rgba(15,23,42,.08)" }}
+            />
+            <div className="min-w-0">
+              <div className="truncate" style={{ font: "700 15px/1.2 var(--font-display)", letterSpacing: "-0.02em", color: "#0f172a" }}>
+                {t("portalAppDocTitle", "BonBox Vagtplan")}
+              </div>
+              {info?.staff_name && (
+                <div className="truncate" style={{ marginTop: 3, font: "500 12.5px/1.2 var(--font-text)", color: "#64748b" }}>
+                  {info.staff_name}
+                </div>
+              )}
+            </div>
+          </div>
+          {TABS.filter(
+            // Alerts moved to the header bell (design).
+            // Leaves 5 tabs: Schedule · Availability · Messages · Swaps · Hours.
+            (item) => item.key !== "alerts",
+          ).map((item) => {
+            const active = tab === item.key;
+            return (
+              <button
+                key={item.key}
+                onClick={() => setTab(item.key)}
+                aria-current={active ? "page" : undefined}
+                className={`relative flex flex-col items-center gap-1 px-1.5 sm:px-4 py-1 rounded-lg active:opacity-60 pad:flex-row pad:gap-3 pad:w-full pad:min-h-[44px] pad:px-3 pad:py-2.5 pad:rounded-xl ${active ? "pad:bg-[rgb(22_163_74/0.12)]" : "pad:hover:bg-[rgb(15_23_42/0.04)]"}`}
+                style={{
+                  // #64748b (slate-500), not #94a3b8 (slate-400). The label is
+                  // text-[10px] font-semibold — never "large text" — so WCAG AA
+                  // wants 4.5:1. #94a3b8 on this bar measures 2.59:1: a shipped
+                  // failure, and nothing to do with the bar material. #64748b is
+                  // 4.70:1. Deliberately OUTSIDE the BAR_V2 flag — an
+                  // accessibility fix must not be revertible by a cosmetic
+                  // toggle. Same hue family, no geometry change.
+                  color: active ? "#15803d" : "#64748b",
+                  transition: "color 250ms ease",
+                }}
+              >
+                <span className="relative">
+                  {/* v2 tab pill — the portal's one recurring touch of colour.
+                      Scoped to the icon so it never slices through the label.
+                      BonBox green (#16a34a family), not the --brand accent:
+                      this is a standalone staff app carrying brand identity,
+                      and the accent themes belong to the owner dashboard. */}
+                  {active && (
+                    <span
+                      aria-hidden
+                      className={`absolute -inset-x-3.5 -inset-y-[4px] rounded-full${BAR_V2 ? " bb-lg-pill" : ""} pad:hidden`}
+                      style={
+                        BAR_V2
+                          ? undefined
+                          : {
+                              background: "linear-gradient(180deg,#dcfce7,#bbf7d0)",
+                              boxShadow:
+                                "inset 0 1px 0 rgba(255,255,255,.8), 0 4px 10px -6px rgba(22,163,74,.7)",
+                            }
+                      }
+                    />
+                  )}
+                  <item.Icon
+                    className="relative z-10 w-[18px] h-[18px] pad:w-5 pad:h-5"
+                    strokeWidth={active ? 2.25 : 2}
+                    aria-hidden
+                  />
+                  {/* Phone: no badge on the tab you are on — the list right
+                      under it carries each conversation's count (as on
+                      origin/main, where the badge was held at 0 there). */}
+                  {item.key === "messages" && chatUnread > 0 && !active && (
+                    <span
+                      className="absolute z-10 -top-1 -right-1.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-600 text-white text-[9px] font-bold leading-[14px] text-center pad:hidden"
+                      aria-label={t("staffChatUnreadBadge", "Unread messages")}
+                    >
+                      {chatUnread > 9 ? "9+" : chatUnread}
+                    </span>
+                  )}
+                </span>
+                <span className="relative max-w-[64px] truncate text-[10px] font-semibold pad:max-w-none pad:text-[14.5px]">
+                  {t(item.labelKey, item.labelFallback)}
+                </span>
+                {/* iPad: the count sits at the row's end, readable, the way a
+                    sidebar carries it — on the Beskeder row too while it is
+                    open, beside the list it sums (Mail's Inbox count does the
+                    same). Not rendered on a phone. */}
+                {isPad && item.key === "messages" && chatUnread > 0 && (
+                  <RailCount n={chatUnread} label={t("staffChatUnreadBadge", "Unread messages")} />
+                )}
+              </button>
+            );
+          })}
+          {/* Nyt (alerts) — on a phone it is the header bell; on an iPad it is
+              a sidebar row like the five tabs, so the page you are on is always
+              the highlighted row. Not rendered at all on a phone (isPad), and
+              display:none there besides. */}
+          {isPad && (
+          <div className="hidden pad:block mt-2 pt-2 border-t border-[rgb(15_23_42/0.06)]">
+            <button
+              type="button"
+              onClick={() => setTab("alerts")}
+              aria-current={tab === "alerts" ? "page" : undefined}
+              data-testid="portal-rail-alerts"
+              className={`relative flex flex-row items-center gap-3 w-full min-h-[44px] px-3 py-2.5 rounded-xl active:opacity-60 ${tab === "alerts" ? "bg-[rgb(22_163_74/0.12)]" : "hover:bg-[rgb(15_23_42/0.04)]"}`}
+              style={{ color: tab === "alerts" ? "#15803d" : "#64748b", transition: "color 250ms ease" }}
+            >
+              <Bell className="w-5 h-5" strokeWidth={tab === "alerts" ? 2.25 : 2} aria-hidden />
+              <span className="text-[14.5px] font-semibold">{t("navAlerts", "Alerts")}</span>
+              {alertsUnread > 0 && tab !== "alerts" && (
+                <RailCount n={alertsUnread} label={t("portalAlertsUnreadBadge", "Unread updates")} />
+              )}
+            </button>
+          </div>
+          )}
+        </div>
+      </nav>
+  );
+
   return (
     // full-height + scrollable = one fixed app-shell with a single internal
     // momentum scroller (‑webkit-overflow-scrolling + overscroll containment).
@@ -8478,6 +8696,8 @@ export default function StaffPortalPage() {
         ...(kbShell > 0 ? { height: `calc(100dvh - ${kbShell}px)` } : {}),
       }}
     >
+      {/* iPad: the sidebar first (keyboard and screen-reader order). */}
+      {isPad && portalNav}
       {/* Header — sticks to the top of the internal scroller. Uses .glass-static
           (no translateZ) so the sticky header doesn't wobble during momentum
           scroll on iOS. */}
@@ -8984,7 +9204,9 @@ export default function StaffPortalPage() {
                   type="button"
                   onClick={async () => {
                     const ok = await confirmDisconnect({
-                      title: t("portalDisconnectTitle", "Disconnect this phone?"),
+                      title: _isIpad()
+                        ? t("portalDisconnectTitleIpad", "Disconnect this iPad?")
+                        : t("portalDisconnectTitle", "Disconnect this phone?"),
                       message: t("portalDisconnectBody", "You will stop getting shift alerts, and to see your schedule again you need your link or a new code from your manager."),
                       confirmLabel: t("portalDisconnectConfirm", "Disconnect"),
                       destructive: true,
@@ -9001,7 +9223,9 @@ export default function StaffPortalPage() {
                   }}
                   className="mt-2 min-h-[44px] text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
                 >
-                  {t("portalDisconnect", "Disconnect this phone from the schedule")}
+                  {_isIpad()
+                    ? t("portalDisconnectIpad", "Disconnect this iPad from the schedule")
+                    : t("portalDisconnect", "Disconnect this phone from the schedule")}
                 </button>
               </div>
               </div>
@@ -9110,140 +9334,8 @@ export default function StaffPortalPage() {
         )}
       </div>
 
-      {/* Bottom Navigation */}
-      {/* data-bb-consent-clear: the cookie banner sits on this bar, not over it (CookieConsent.jsx). */}
-      {/* iPad (pad:): the same five buttons become a left sidebar — icon and
-          label side by side at a readable size, the way iPad apps carry their
-          sections. The bar is no longer at the bottom there, so the cookie
-          banner must not measure it as one (it would place itself above a
-          full-height "bar", i.e. off the top of the screen). */}
-      <nav
-        data-bb-consent-clear={isPad ? undefined : ""}
-        className={`fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20${BAR_V2 ? " bb-lg-tabbar" : ""} pad:top-0 pad:right-auto pad:w-[calc(14rem+env(safe-area-inset-left))] pad:pl-[env(safe-area-inset-left)] pad:border-t-0 pad:border-r pad:border-r-[rgb(15_23_42/0.08)]`}
-      >
-        <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pad:max-w-none pad:mx-0 pad:flex-col pad:justify-start pad:gap-1 pad:px-3 pad:pt-[calc(env(safe-area-inset-top)+1.25rem)]">
-          {/* Sidebar heading — which app this is, and whose. The venue is
-              already under every page title in the header, so it is not
-              repeated here. display:none on a phone. */}
-          <div className="hidden pad:flex items-center gap-3 px-3 pb-5" data-testid="portal-pad-rail-heading">
-            <img
-              src="/vagtplan-icon-192.png"
-              alt=""
-              width={36}
-              height={36}
-              className="shrink-0 rounded-[10px]"
-              style={{ boxShadow: "0 0 0 1px rgba(15,23,42,.08)" }}
-            />
-            <div className="min-w-0">
-              <div className="truncate" style={{ font: "700 15px/1.2 var(--font-display)", letterSpacing: "-0.02em", color: "#0f172a" }}>
-                {t("portalAppDocTitle", "BonBox Vagtplan")}
-              </div>
-              {info?.staff_name && (
-                <div className="truncate" style={{ marginTop: 3, font: "500 12.5px/1.2 var(--font-text)", color: "#64748b" }}>
-                  {info.staff_name}
-                </div>
-              )}
-            </div>
-          </div>
-          {TABS.filter(
-            // Alerts moved to the header bell (design).
-            // Leaves 5 tabs: Schedule · Availability · Messages · Swaps · Hours.
-            (item) => item.key !== "alerts",
-          ).map((item) => {
-            const active = tab === item.key;
-            return (
-              <button
-                key={item.key}
-                onClick={() => setTab(item.key)}
-                aria-current={active ? "page" : undefined}
-                className={`relative flex flex-col items-center gap-1 px-1.5 sm:px-4 py-1 rounded-lg active:opacity-60 pad:flex-row pad:gap-3 pad:w-full pad:min-h-[44px] pad:px-3 pad:py-2.5 pad:rounded-xl ${active ? "pad:bg-[rgb(22_163_74/0.12)]" : "pad:hover:bg-[rgb(15_23_42/0.04)]"}`}
-                style={{
-                  // #64748b (slate-500), not #94a3b8 (slate-400). The label is
-                  // text-[10px] font-semibold — never "large text" — so WCAG AA
-                  // wants 4.5:1. #94a3b8 on this bar measures 2.59:1: a shipped
-                  // failure, and nothing to do with the bar material. #64748b is
-                  // 4.70:1. Deliberately OUTSIDE the BAR_V2 flag — an
-                  // accessibility fix must not be revertible by a cosmetic
-                  // toggle. Same hue family, no geometry change.
-                  color: active ? "#15803d" : "#64748b",
-                  transition: "color 250ms ease",
-                }}
-              >
-                <span className="relative">
-                  {/* v2 tab pill — the portal's one recurring touch of colour.
-                      Scoped to the icon so it never slices through the label.
-                      BonBox green (#16a34a family), not the --brand accent:
-                      this is a standalone staff app carrying brand identity,
-                      and the accent themes belong to the owner dashboard. */}
-                  {active && (
-                    <span
-                      aria-hidden
-                      className={`absolute -inset-x-3.5 -inset-y-[4px] rounded-full${BAR_V2 ? " bb-lg-pill" : ""} pad:hidden`}
-                      style={
-                        BAR_V2
-                          ? undefined
-                          : {
-                              background: "linear-gradient(180deg,#dcfce7,#bbf7d0)",
-                              boxShadow:
-                                "inset 0 1px 0 rgba(255,255,255,.8), 0 4px 10px -6px rgba(22,163,74,.7)",
-                            }
-                      }
-                    />
-                  )}
-                  <item.Icon
-                    className="relative z-10 w-[18px] h-[18px] pad:w-5 pad:h-5"
-                    strokeWidth={active ? 2.25 : 2}
-                    aria-hidden
-                  />
-                  {/* Phone: no badge on the tab you are on — the list right
-                      under it carries each conversation's count (as on
-                      origin/main, where the badge was held at 0 there). */}
-                  {item.key === "messages" && chatUnread > 0 && !active && (
-                    <span
-                      className="absolute z-10 -top-1 -right-1.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-600 text-white text-[9px] font-bold leading-[14px] text-center pad:hidden"
-                      aria-label={t("staffChatUnreadBadge", "Unread messages")}
-                    >
-                      {chatUnread > 9 ? "9+" : chatUnread}
-                    </span>
-                  )}
-                </span>
-                <span className="relative max-w-[64px] truncate text-[10px] font-semibold pad:max-w-none pad:text-[14.5px]">
-                  {t(item.labelKey, item.labelFallback)}
-                </span>
-                {/* iPad: the count sits at the row's end, readable, the way a
-                    sidebar carries it — on the Beskeder row too while it is
-                    open, beside the list it sums (Mail's Inbox count does the
-                    same). Not rendered on a phone. */}
-                {isPad && item.key === "messages" && chatUnread > 0 && (
-                  <RailCount n={chatUnread} label={t("staffChatUnreadBadge", "Unread messages")} />
-                )}
-              </button>
-            );
-          })}
-          {/* Nyt (alerts) — on a phone it is the header bell; on an iPad it is
-              a sidebar row like the five tabs, so the page you are on is always
-              the highlighted row. Not rendered at all on a phone (isPad), and
-              display:none there besides. */}
-          {isPad && (
-          <div className="hidden pad:block mt-2 pt-2 border-t border-[rgb(15_23_42/0.06)]">
-            <button
-              type="button"
-              onClick={() => setTab("alerts")}
-              aria-current={tab === "alerts" ? "page" : undefined}
-              data-testid="portal-rail-alerts"
-              className={`relative flex flex-row items-center gap-3 w-full min-h-[44px] px-3 py-2.5 rounded-xl active:opacity-60 ${tab === "alerts" ? "bg-[rgb(22_163_74/0.12)]" : "hover:bg-[rgb(15_23_42/0.04)]"}`}
-              style={{ color: tab === "alerts" ? "#15803d" : "#64748b", transition: "color 250ms ease" }}
-            >
-              <Bell className="w-5 h-5" strokeWidth={tab === "alerts" ? 2.25 : 2} aria-hidden />
-              <span className="text-[14.5px] font-semibold">{t("navAlerts", "Alerts")}</span>
-              {alertsUnread > 0 && tab !== "alerts" && (
-                <RailCount n={alertsUnread} label={t("portalAlertsUnreadBadge", "Unread updates")} />
-              )}
-            </button>
-          </div>
-          )}
-        </div>
-      </nav>
+      {/* Phone: the tab bar after the content, as it always was. */}
+      {!isPad && portalNav}
 
       {/* "Schedule updated" toast — fires only on a REAL change to the
           published schedule after data already existed (never on first load).

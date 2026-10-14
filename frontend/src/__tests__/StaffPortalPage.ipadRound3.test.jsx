@@ -85,6 +85,7 @@ const get = vi.fn((url) => {
   if (url.endsWith("/availability")) return ok({ availability: api.availability });
   if (url.endsWith("/give-aways")) return ok(api.giveaways);
   if (url.endsWith("/swap-requests")) return ok([]);
+  if (url.endsWith("/bank")) return ok({ has_bank: false });
   if (url === `/portal/${TOK}/chat/threads`) {
     const snapshot = { data: { threads: api.threads.map((th) => ({ ...th })) } };
     const hold = api.listHold;
@@ -127,6 +128,7 @@ const { PAD_QUERY, PAD_WIDE_QUERY } = await import("../lib/padLayout");
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(HERE, "..", "pages", "StaffPortalPage.jsx"), "utf8");
+const CSS = readFileSync(join(HERE, "..", "index.css"), "utf8");
 const SWAP_SERVICE = readFileSync(join(HERE, "..", "..", "..", "backend", "app", "services", "shift_swap_service.py"), "utf8");
 
 /** Pretend to be an iPad: `which` = which pad queries match. */
@@ -626,6 +628,169 @@ describe("load-bearing behaviours, now pinned by behaviour", () => {
 describe("install card", () => {
   it("the bold title is a block of its own, so the hint starts on the next line", () => {
     expect(SRC).toContain('className="font-semibold text-gray-700 mb-1 flex items-center gap-1.5" data-testid="staff-push-install-title"');
+  });
+});
+
+// ─── iPad only ────────────────────────────────────────────────────────────
+describe("iPad: every control a finger can hit is 44 px", () => {
+  it("Giv en vagt væk: the shift picker and the reason field (were 40–41 px)", async () => {
+    mockMatchMedia([PAD_QUERY, PAD_WIDE_QUERY]);
+    await mount();
+    navTo("Bytte");
+    fireEvent.click(await screen.findByText("Giv en vagt væk"));
+    const select = await screen.findByRole("combobox");
+    expect(tokens(select)).toContain("pad:min-h-11");
+    expect(tokens(screen.getByPlaceholderText(/Årsag/))).toContain("pad:min-h-11");
+  });
+
+  it("Timer's period sheet: the Fra / Til date fields (were 42 px)", async () => {
+    mockMatchMedia([PAD_QUERY]);
+    await mount();
+    navTo("Timer");
+    fireEvent.click(await screen.findByText((_, el) => el?.tagName === "BUTTON" && / – /.test(el.textContent || "")));
+    const sheet = await screen.findByRole("dialog", { name: "Vælg en periode" });
+    const dates = sheet.querySelectorAll('input[type="date"]');
+    expect(dates).toHaveLength(2);
+    for (const d of dates) expect(tokens(d)).toContain("pad:min-h-11");
+  });
+
+  it("'Mind mig om vagt': a 44 × 44 target around the same 42 × 25 track; on a phone the button is the track, as before", async () => {
+    await mount();
+    fireEvent.click(screen.getByTitle("Rediger profil"));
+    const sw = await screen.findByRole("switch", { name: "Mind mig om vagt" });
+    expect(tokens(sw).filter((c) => !c.startsWith("pad:"))).toEqual(["flex-shrink-0", "flex", "disabled:opacity-50"]);
+    expect(tokens(sw)).toEqual(expect.arrayContaining(["pad:w-11", "pad:h-11", "pad:-my-[9.5px]", "pad:-mx-px"]));
+    const track = sw.firstElementChild;
+    expect(track.style.width).toBe("42px");
+    expect(track.style.height).toBe("25px");
+    expect(track.style.padding).toBe("3px");
+  });
+});
+
+describe("iPad: two-column empty states are cards on the column's top line", () => {
+  it("Bytte with no requests, and Timer with no shifts", async () => {
+    mockMatchMedia([PAD_QUERY, PAD_WIDE_QUERY]);
+    await mount();
+    navTo("Bytte");
+    const swap = await screen.findByTestId("portal-swap-empty");
+    expect(tokens(swap)).toEqual(expect.arrayContaining(["pad-wide:bg-white", "pad-wide:border", "pad-wide:rounded-[20px]"]));
+    expect(swap.parentElement.getAttribute("data-testid")).toBe("portal-swap-inbox");
+    navTo("Timer");
+    const hours = await screen.findByTestId("portal-hours-empty");
+    expect(tokens(hours)).toEqual(expect.arrayContaining(["pad-wide:bg-white", "pad-wide:border", "pad-wide:rounded-[20px]"]));
+    // A phone keeps its own tokens.
+    expect(tokens(hours).filter((c) => !c.startsWith("pad-wide:"))).toEqual(["text-sm", "text-gray-400", "py-4", "text-center"]);
+  });
+});
+
+describe("iPad: the bank form opens in view inside the profile sheet", () => {
+  const openBank = async () => {
+    await mount();
+    fireEvent.click(screen.getByTitle("Rediger profil"));
+    fireEvent.click(await screen.findByRole("button", { name: "Tilføj" }));
+    return screen.findByTestId("portal-bank-form");
+  };
+  it("iPad: Tilføj brings the fields AND Gem konto / Annuller into view", async () => {
+    mockMatchMedia([PAD_QUERY, PAD_WIDE_QUERY]);
+    const spy = vi.fn();
+    const real = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = spy;
+    try {
+      const form = await openBank();
+      await settle(80);
+      expect(spy.mock.contexts).toContain(form);
+      expect(within(form).getByText("Gem konto")).toBeTruthy();
+    } finally {
+      Element.prototype.scrollIntoView = real;
+    }
+  });
+  it("a phone does not scroll (as before)", async () => {
+    const spy = vi.fn();
+    const real = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = spy;
+    try {
+      const form = await openBank();
+      await settle(80);
+      expect(spy.mock.contexts).not.toContain(form);
+    } finally {
+      Element.prototype.scrollIntoView = real;
+    }
+  });
+});
+
+describe("iPad: copy names the device it is on", () => {
+  const withUA = async (ua, touch, fn) => {
+    const uaDesc = Object.getOwnPropertyDescriptor(window.navigator, "userAgent");
+    const tpDesc = Object.getOwnPropertyDescriptor(window.navigator, "maxTouchPoints");
+    Object.defineProperty(window.navigator, "userAgent", { configurable: true, get: () => ua });
+    Object.defineProperty(window.navigator, "maxTouchPoints", { configurable: true, get: () => touch });
+    try { await fn(); } finally {
+      if (uaDesc) Object.defineProperty(window.navigator, "userAgent", uaDesc); else delete window.navigator.userAgent;
+      if (tpDesc) Object.defineProperty(window.navigator, "maxTouchPoints", tpDesc); else delete window.navigator.maxTouchPoints;
+    }
+  };
+  const IPAD = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+  const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+
+  it("an iPad (desktop-class UA + touch) is told 'Frakobl denne iPad', and the confirm says iPad too", async () => {
+    await withUA(IPAD, 5, async () => {
+      mockMatchMedia([PAD_QUERY]);
+      await mount();
+      fireEvent.click(screen.getByTitle("Rediger profil"));
+      fireEvent.click(await screen.findByText("Frakobl denne iPad fra vagtplanen"));
+      expect(await screen.findByText("Frakoble denne iPad?")).toBeInTheDocument();
+      expect(screen.queryByText(/denne telefon/)).toBeNull();
+    });
+  });
+
+  it("an iPhone keeps 'Frakobl denne telefon' (unchanged)", async () => {
+    await withUA(IPHONE, 5, async () => {
+      await mount();
+      fireEvent.click(screen.getByTitle("Rediger profil"));
+      expect(await screen.findByText("Frakobl denne telefon fra vagtplanen")).toBeInTheDocument();
+    });
+  });
+
+  it("the install hint and the server-down line have iPad versions (Share is at the TOP of iPad Safari)", () => {
+    expect(SRC).toContain('t("staffPushIpadInstallHint"');
+    expect(SRC).toContain('t("portalServerDownBodyIpad"');
+  });
+});
+
+describe("iPad: the sidebar's count is the list's colour", () => {
+  it("green #16a34a (as a hex: index.css remaps green-* classes), not red beside green rows", async () => {
+    mockMatchMedia([PAD_QUERY, PAD_WIDE_QUERY]);
+    await mount();
+    await waitFor(() => expect(railCount()).toBe("2"));
+    const row = within(nav()).getByText("Beskeder").closest("button");
+    const pill = [...row.querySelectorAll('[aria-label="Ulæste beskeder"]')].find((n) => tokens(n).includes("pad:inline-flex"));
+    expect(tokens(pill)).toContain("bg-[#16a34a]");
+    expect(tokens(pill)).not.toContain("bg-red-600");
+    // The phone's icon badge stays red.
+    expect(SRC).toContain('className="absolute z-10 -top-1 -right-1.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-600');
+  });
+});
+
+describe("iPad + hardware keyboard", () => {
+  const order = (a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? "before" : "after");
+  it("the sidebar comes BEFORE the header and the page in Tab order; a phone keeps the tab bar after the content", async () => {
+    mockMatchMedia([PAD_QUERY, PAD_WIDE_QUERY]);
+    await mount();
+    const header = screen.getByRole("heading", { level: 1 });
+    expect(order(nav(), header)).toBe("before");
+    expect(order(nav(), screen.getByTestId("portal-schedule-grid"))).toBe("before");
+    cleanup();
+    delete window.matchMedia;
+    await mount();
+    expect(order(nav(), screen.getByRole("heading", { level: 1 }))).toBe("after");
+    expect(order(nav(), screen.getByTestId("portal-schedule-grid"))).toBe("after");
+  });
+
+  it("every portal control draws a focus ring for the keyboard (beats focus:outline-none; never on a tap)", () => {
+    expect(CSS).toMatch(/body:has\(\[data-portal-scroller\]\) :is\(button, a\[href\], summary, \[role="button"\], \[role="switch"\], \[role="tab"\]\):focus-visible \{\s*outline: 2px solid #16a34a;\s*outline-offset: 2px;/);
+    // Unlayered: not inside an @layer block.
+    const at = CSS.indexOf("body:has([data-portal-scroller])");
+    expect(CSS.slice(0, at).lastIndexOf("@layer")).toBeLessThan(CSS.slice(0, at).lastIndexOf("}"));
   });
 });
 
