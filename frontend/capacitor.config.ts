@@ -39,58 +39,36 @@ const config: CapacitorConfig = {
 
   ios: {
     path: isScheduler ? "ios-scheduler" : "ios",
-    // Scheduler: the staff portal owns its safe areas in CSS (the header pads
-    // by env(safe-area-inset-top) + draws an opaque cap over the notch). With
-    // contentInset "automatic" WKWebView ALSO insets the scroll view for the
-    // status bar, so the two stack → a fat empty gap under the notch. "never"
-    // hands safe-area handling entirely to CSS (single, correct inset). The
-    // owner app keeps "automatic" (its chrome doesn't do CSS insets).
-    // 2026-09-03 — SCHEDULER REVERTS TO "automatic". iOS OWNS THE TOP INSET.
+    // BOTH apps: "never". The webview covers the whole screen and CSS owns
+    // every safe area through env(safe-area-inset-*) — one source, no stacking.
     //
-    // The CSS-owns-it model below is correct in theory and stopped working in
-    // practice: on iOS 26.4 / Capacitor 8, overlaysWebView:true no longer
-    // propagates a top safe-area inset to web content. env(safe-area-inset-top)
-    // resolves to 0 while the webview still covers the status bar, so the
-    // portal header rendered UNDER the notch, on top of the clock. Measured:
-    // the title row and the status-bar clock both land at y=80-110 in a device
-    // screenshot; with this change the clock stays at 80-110 and the title
-    // moves to 210-260 where it belongs.
+    // Why not "automatic" (what the staff app shipped until 1.6 build 22),
+    // measured in the iOS 27 simulator on an iPhone 18 Pro with a lab probe:
+    //   • WKWebView insets its scroll view by the safe areas (8 pt top under
+    //     the status bar, 34 pt bottom) AND still reports
+    //     env(safe-area-inset-bottom) = 34, so the tab bar padded for the home
+    //     indicator and the scroll view added a second 34 pt below it.
+    //   • The 100dvh shell (812 pt) plus those insets (8 + 34) is taller than
+    //     the webview (820 pt), so the OUTER scroll view could be dragged
+    //     34 pt. Capacitor turns bouncing off, so it stayed there: the tab bar
+    //     rose and a 34 pt band of ios.backgroundColor opened under it — the
+    //     "it gets stuck and creates gaps" report. WebKit then shrank the
+    //     layout viewport to 786 pt, so the gap outlived scrolling back.
+    //     Same on iPad (20 pt).
+    //   • The status-bar strip was a native view in ios.backgroundColor above
+    //     the white header: a visible seam.
+    // With "never" + StatusBar.overlaysWebView true there is no scroll inset to
+    // stack and nothing to scroll: the portal header pads by
+    // env(safe-area-inset-top) and runs white under the status bar, the tab bar
+    // pads by env(safe-area-inset-bottom) and reaches the bottom edge.
+    // Measurements and before/after shots: bonbox-lab-state/vagtplan-inset.
     //
-    // NOT a regression from the bar-material work — a build from the previous
-    // source reproduced it exactly. The bottom inset was never affected
-    // (nav height identical at 262px before and after), which is what makes
-    // this specifically a top-inset propagation failure rather than a layout
-    // bug of ours.
-    //
-    // The old comment warned that "automatic" double-insets into a fat gap.
-    // It cannot now: the two mechanisms are mutually exclusive. iOS insets the
-    // webview below the status bar, which makes env(safe-area-inset-top) 0, so
-    // the CSS padding that would have stacked contributes nothing. Verified on
-    // device — no gap, and the sticky header stays pinned to the pixel across
-    // 18 mid-fling frames.
-    //
-    // CONSEQUENCE, stated rather than discovered later: the portal's notch cap
-    // (.bb-lg-cap) is sized by env(safe-area-inset-top), so it is now zero-height
-    // and inert in the iOS app. Nothing needs it there — the native view paints
-    // the status-bar strip. It still applies on bonbox.dk/s/<token> in browsers
-    // that report a top inset.
-    //
-    // The owner app keeps "never" — its chrome does its own CSS insets and it
-    // is not affected by this.
-    // BOTH targets now: "never" hands safe-area handling entirely to CSS.
-    //
-    // With "automatic" WKWebView is inset inside the safe areas, so the strips
-    // above the status bar and below the home indicator are painted by the
-    // NATIVE view using ios.backgroundColor — one static build-time colour for
-    // a runtime theme toggle. Measured on device in dark mode: a 34pt band of
-    // rgb(248,250,252) from 840-874pt under the tab bar, and 8pt at the top.
-    // Flipping shellBg only moves which theme is wrong.
-    //
-    // With the webview covering the screen, index.css's html/html.dark
-    // background paints those strips and they follow the live theme. body
-    // already pads by env(safe-area-inset-*), and Layout's mobile header pads
-    // by env(safe-area-inset-top) itself, so content stays clear.
-    contentInset: isScheduler ? "automatic" : "never",
+    // (2026-09-03 the staff app moved to "automatic" because on iOS 26.4 the
+    // header once drew under the clock with env(safe-area-inset-top) = 0. With
+    // this setup the iOS 27 simulator reported 62 pt (iPhone 18 Pro) and 32 pt
+    // (iPad Air 11) on every one of 8 cold launches — but that is a simulator,
+    // so look at the header under the clock on a real phone before release.)
+    contentInset: "never",
     allowsLinkPreview: false,
     backgroundColor: shellBg,
     // Do NOT set preferredContentMode: 'mobile' — breaks iPad responsive layout
@@ -123,17 +101,11 @@ const config: CapacitorConfig = {
       // shellBg above — changing one without the other is the unreadable case.
       style: "LIGHT",
       backgroundColor: shellBg,
-      // Scheduler: draw the webview UNDER the status bar so CSS owns the safe
-      // area (the portal header pads by env(safe-area-inset-top) + caps the
-      // notch). Without this, iOS ALSO offsets the webview below the status bar
-      // and the two stack into a fat gap — contentInset:"never" alone doesn't
-      // fix it because the offset is the frame, not the scroll inset. The owner
-      // app keeps the default (its chrome doesn't do CSS safe-area insets).
-      // Required alongside contentInset "never" — the config note below is
-      // right that "never" alone is not enough, because iOS also offsets the
-      // webview FRAME, not just the scroll inset.
-      // false for the scheduler — see the contentInset note above.
-      overlaysWebView: !isScheduler,
+      // Draw the webview UNDER the status bar (both apps). Required alongside
+      // ios.contentInset "never": with false, the plugin moves the webview
+      // FRAME below the status bar and paints that strip itself in
+      // backgroundColor — the seam above the staff portal's white header.
+      overlaysWebView: true,
     },
     Keyboard: {
       resize: "body",

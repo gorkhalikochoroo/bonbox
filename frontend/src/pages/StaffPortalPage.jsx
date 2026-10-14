@@ -9011,17 +9011,15 @@ export default function StaffPortalPage() {
       {/* Header — sticks to the top of the internal scroller. Uses .glass-static
           (no translateZ) so the sticky header doesn't wobble during momentum
           scroll on iOS. */}
-      {/* KNOWN, deliberately left as shipped: the top-inset padding token on
-          the next line is glued to the ${BAR_V2…} that follows it, so Tailwind
-          never emits that class and the header has NO top inset padding.
-          (Do not quote the bare token in a comment either — Tailwind scans
-          comments, and a quoted copy is enough to emit it.) The app measures
-          right on device that way (contentInset "automatic" +
-          overlaysWebView false put the webview below the status bar, so the
-          inset is 0 there). Un-gluing it is a native-inset decision — it has
-          to be made, and checked on a phone and an iPad, together with the
-          native-shell work, not slipped in by a layout pass. */}
-      <div ref={setHeaderEl} data-portal-header="" className={`sticky top-0 z-10 glass-static border-b border-gray-200/70 pt-[env(safe-area-inset-top)]${BAR_V2 ? " bb-lg-header" : ""}`}>
+      {/* Top inset: the header owns it. The native shell runs edge to edge
+          (capacitor.config.ts: contentInset "never" + overlaysWebView true),
+          so this padding is what keeps the title clear of the status bar and
+          Dynamic Island, and the header's white runs up under them. The token
+          used to be glued to the template expression after it, so Tailwind
+          never emitted it — that only worked while the native shell inset the
+          webview itself, which is what stacked the insets at the bottom. In a
+          browser tab env() is 0 and nothing changes. */}
+      <div ref={setHeaderEl} data-portal-header="" className={`sticky top-0 z-10 glass-static border-b border-gray-200/70 pt-[env(safe-area-inset-top)] ${BAR_V2 ? "bb-lg-header" : ""}`}>
         {/* Opaque cap over the status-bar / notch inset. The header glass is
             translucent (85%), so without this the content scrolling underneath
             bleeds up into the status bar — this keeps the notch clean and the

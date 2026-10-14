@@ -141,4 +141,21 @@ describe("/join chrome", () => {
     expect(hint.className).toContain("text-gray-500");
     expect(hint.className).toContain("text-[12px]");
   });
+
+  it("owns its safe areas like the portal: the body inset is dropped while it is mounted, restored after", async () => {
+    // The wrapper pads its own top by env(safe-area-inset-top) inside one
+    // 100dvh; the body inset on top of that made the page taller than the
+    // screen in the edge-to-edge Vagtplan app (a second top gap, and a page
+    // that could be dragged up and stay there).
+    document.body.classList.remove("portal-shell");
+    mount();
+    expect(document.body.classList.contains("portal-shell")).toBe(true);
+    const input = screen.getByLabelText(/Tilslutningskode|Join code|kode/i);
+    expect(input.closest("form").parentElement.parentElement.className).toContain("pt-[max(1.5rem,env(safe-area-inset-top))]");
+    // Joining navigates away (here to a stand-in route): the switch goes with it.
+    fireEvent.change(input, { target: { value: "K7P2QM" } });
+    await act(async () => { fireEvent.submit(input.closest("form")); });
+    await waitFor(() => expect(screen.getByText("portal")).toBeInTheDocument());
+    expect(document.body.classList.contains("portal-shell")).toBe(false);
+  });
 });

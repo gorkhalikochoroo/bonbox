@@ -68,6 +68,18 @@ export default function JoinPage() {
   // what the keyboard leaves, so Tilslut stays visible.
   const kb = useKeyboardReveal();
 
+  // This screen owns its safe areas, like the staff portal: the wrapper pads
+  // its top by env(safe-area-inset-top) and centres the card in one screen
+  // height. The global body inset (index.css) would add the same inset again
+  // on top of a 100dvh wrapper, so the page was taller than the screen — a
+  // second top gap, and in the edge-to-edge Vagtplan app a page that could be
+  // dragged up and stay there. Drop the body inset while it is mounted, the
+  // same switch StaffPortalPage uses. In a browser tab env() is 0: no change.
+  useEffect(() => {
+    document.body.classList.add("portal-shell");
+    return () => document.body.classList.remove("portal-shell");
+  }, []);
+
   // The tab / app-switcher title is the staff app's, not the owner pitch.
   useEffect(() => {
     const prev = document.title;

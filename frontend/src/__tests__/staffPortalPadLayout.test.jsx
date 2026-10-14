@@ -475,21 +475,20 @@ describe("iPad Messages: a bounded pane, and master-detail from pad-wide", () =>
 
 // ─── Source pins ──────────────────────────────────────────────────────────
 describe("source pins for the iPad pass", () => {
-  it("the sticky header's class string is byte-for-byte origin/main's (its top inset is a native-shell decision, not this pass)", () => {
-    // Known: the glued token means Tailwind never emits the top padding. The
-    // app measures right on device that way; un-gluing it changes the phone
-    // header the moment env(safe-area-inset-top) is non-zero, so it is left
-    // for the native-shell work and checked on hardware there.
-    expect(SRC).toContain('glass-static border-b border-gray-200/70 pt-[env(safe-area-inset-top)]${BAR_V2 ? " bb-lg-header" : ""}');
-    // Tailwind scans comments too: a bare copy of the token anywhere in the
-    // page would emit the class and move the phone header. Every occurrence
-    // must stay glued to the template expression, as on origin/main.
-    // Assembled, so this test file is not itself a bare copy Tailwind reads.
+  it("the sticky header pads by the top safe area, as a token Tailwind can see (the native shell is edge to edge now)", () => {
+    // Vagtplan 1.6 (23): capacitor.config.ts runs the staff app with
+    // contentInset "never" + overlaysWebView true, so the header — not the
+    // native view — keeps the title clear of the status bar. The token used to
+    // be glued to the ${BAR_V2…} after it, which hid it from Tailwind's scanner
+    // and left the header with no top padding at all.
+    expect(SRC).toContain('glass-static border-b border-gray-200/70 pt-[env(safe-area-inset-top)] ${BAR_V2 ? "bb-lg-header" : ""}');
+    // Every occurrence stands on its own (whitespace or a quote after it), so
+    // the scanner extracts it. Assembled, so this file is not itself a copy.
     const TOKEN = ["pt-[env(safe-area", "-inset-top)]"].join("");
     let at = SRC.indexOf(TOKEN);
     expect(at).toBeGreaterThan(-1);
     while (at !== -1) {
-      expect(SRC.slice(at + TOKEN.length, at + TOKEN.length + 2)).toBe("${");
+      expect(SRC.charAt(at + TOKEN.length)).toMatch(/[\s"'`]/);
       at = SRC.indexOf(TOKEN, at + 1);
     }
   });

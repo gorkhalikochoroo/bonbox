@@ -218,12 +218,13 @@ describe("staff app (ios-scheduler): Vagtplan on the home screen and in all four
   });
 });
 
-describe("versions: owner 2.2, staff 1.5 (build numbers untouched, CI-driven)", () => {
+describe("versions: owner 2.2, staff 1.6 (build numbers untouched, CI-driven)", () => {
   it("MARKETING_VERSION in both configurations of each project", () => {
     const owner = read("ios/App/App.xcodeproj/project.pbxproj");
     const staff = read("ios-scheduler/App/App.xcodeproj/project.pbxproj");
     expect(owner.match(/MARKETING_VERSION = [\d.]+;/g)).toEqual(["MARKETING_VERSION = 2.2;", "MARKETING_VERSION = 2.2;"]);
-    expect(staff.match(/MARKETING_VERSION = [\d.]+;/g)).toEqual(["MARKETING_VERSION = 1.5;", "MARKETING_VERSION = 1.5;"]);
+    // Vagtplan 1.6 (iPad + iPhone, d54c5939); build 23 carries the safe-area fix.
+    expect(staff.match(/MARKETING_VERSION = [\d.]+;/g)).toEqual(["MARKETING_VERSION = 1.6;", "MARKETING_VERSION = 1.6;"]);
   });
 });
 
