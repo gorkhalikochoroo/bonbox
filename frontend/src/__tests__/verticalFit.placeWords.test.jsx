@@ -293,7 +293,12 @@ describe("8 · a workshop's places tab, quick setup and settings", () => {
 
   it("a workshop's settings: people and places, no guests, tables or parties", async () => {
     renderOwner("/reservations?tab=settings", "workshop");
-    await screen.findByText(da.rsvpMaxPartyAppt);
+    // Round 4: the two ONLINE party-size rules are gone from a shop's
+    // settings — its public page always books one person, so "Maks. antal
+    // personer (online)" could never apply (verticalFit.apptWords). The
+    // anchor moves to the place rules, which stay.
+    await screen.findByText(da.rsvpTableTimesAppt);
+    expect(pageText()).not.toContain(da.rsvpMaxPartyAppt);
     for (const k of ["rsvpTableTimesAppt", "rsvpMaxComboSizeAppt", "rsvpGuestPickSettingAppt", "rsvpCombineSettingAppt", "rsvpPacingAppt"]) {
       expect(pageText(), k).toContain(da[k]);
     }

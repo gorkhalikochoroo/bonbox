@@ -1072,7 +1072,11 @@ export default function ReservationPublicPage() {
         : resultStatus === "cancelled" && liveOutcome === "declined"
         ? t("rsvpDocTitleDeclined", "Request not confirmed · {venue}", { venue })
         : resultStatus === "cancelled" || resultStatus === "no_show"
-        ? t("rsvpDocTitleCancelled", "Booking cancelled · {venue}", { venue })
+        // A time, not a reservation, for a salon, a shop or a workshop
+        // (Push 8 review: "Reservation aflyst · Cykelværkstedet Amager").
+        ? (apptWords
+          ? t("rsvpDocTitleCancelledAppt", "Appointment cancelled · {venue}", { venue })
+          : t("rsvpDocTitleCancelled", "Booking cancelled · {venue}", { venue }))
         : resultStatus === "requested"
           ? t("rsvpDocTitleRequest", "Request received · {venue}", { venue })
           : apptWords
@@ -1598,7 +1602,9 @@ export default function ReservationPublicPage() {
             destructive: true,
           }
         : {
-            title: t("rsvpCancelConfirmTitle", "Aflys reservationen?"),
+            title: apptWords
+              ? t("rsvpCancelConfirmTitleAppt", "Cancel the appointment?")
+              : t("rsvpCancelConfirmTitle", "Aflys reservationen?"),
             message: apptWords
               ? t("rsvpCancelConfirmBodyProvider", "The time is freed right away, and this can't be undone. You're welcome to book again.")
               : t(
@@ -1606,7 +1612,9 @@ export default function ReservationPublicPage() {
                 "Bordet bliver frigivet med det samme, og du kan ikke fortryde. Du er velkommen til at booke igen.",
               ),
             confirmLabel: t("rsvpCancelConfirmYes", "Ja, aflys"),
-            cancelLabel: t("rsvpCancelConfirmNo", "Behold reservationen"),
+            cancelLabel: apptWords
+              ? t("rsvpCancelConfirmNoAppt", "Keep the appointment")
+              : t("rsvpCancelConfirmNo", "Behold reservationen"),
             destructive: true,
           },
     );
@@ -1850,16 +1858,22 @@ export default function ReservationPublicPage() {
       HeroIcon = XCircle;
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
-      title = t("rsvpCancelledTitle", "Reservation aflyst");
-      body = t(
-        "rsvpCancelledByVenueBody",
-        "Sorry — we've had to cancel your reservation. Call us, or book another day.",
-      );
+      title = apptWords
+        ? t("rsvpCancelledTitleAppt", "Appointment cancelled")
+        : t("rsvpCancelledTitle", "Reservation aflyst");
+      body = apptWords
+        ? t("rsvpCancelledByVenueBodyAppt", "Sorry — we've had to cancel your appointment. Call us, or book another day.")
+        : t(
+          "rsvpCancelledByVenueBody",
+          "Sorry — we've had to cancel your reservation. Call us, or book another day.",
+        );
     } else if (isCancelled) {
       HeroIcon = XCircle;
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
-      title = t("rsvpCancelledTitle", "Reservation aflyst");
+      title = apptWords
+        ? t("rsvpCancelledTitleAppt", "Appointment cancelled")
+        : t("rsvpCancelledTitle", "Reservation aflyst");
       body = apptWords
         ? t("rsvpCancelledBodyProvider", "Your appointment is cancelled and the time is freed. You're welcome to book again.")
         : t(
@@ -1870,7 +1884,9 @@ export default function ReservationPublicPage() {
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
       title = t("rsvpDoneTitle", "Tak for besøget");
-      body = t("rsvpDoneBody", "Denne reservation er afsluttet.");
+      body = apptWords
+        ? t("rsvpDoneBodyAppt", "This appointment is closed.")
+        : t("rsvpDoneBody", "Denne reservation er afsluttet.");
     }
 
     // Human-friendly reference code — first 8 chars of the UUID, upper-cased,
@@ -2170,7 +2186,9 @@ export default function ReservationPublicPage() {
               >
                 {isRequest
                   ? t("rsvpWithdrawRequest", "Withdraw request")
-                  : t("rsvpCancelOrChange", "Cancel this booking")}
+                  : apptWords
+                    ? t("rsvpCancelOrChangeAppt", "Cancel this appointment")
+                    : t("rsvpCancelOrChange", "Cancel this booking")}
               </Button>
               {cancelError && (
                 <p role="alert" className="text-xs text-red-600 dark:text-red-400">

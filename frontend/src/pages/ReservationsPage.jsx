@@ -1645,10 +1645,15 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
     // host only changes it when more walked in.
     initialParty
       ? String(initialParty)
-      : // Tapping a specific table on the floor still means "seat them here",
-        // but even then the party is whoever walked in — so default to 2
-        // unless the table physically cannot take 2.
-        String(Math.min(2, Number(table?.capacity_seats) || 2) || 2),
+      : apptWords
+        // A shop or a workshop checks in one customer, as "Book en tid" and
+        // its public page do: on 2 the sheet pre-joined two places and one
+        // tap checked one customer in across both (Push 8 review).
+        ? "1"
+        : // Tapping a specific table on the floor still means "seat them here",
+          // but even then the party is whoever walked in — so default to 2
+          // unless the table physically cannot take 2.
+          String(Math.min(2, Number(table?.capacity_seats) || 2) || 2),
   );
   const [name, setName] = useState("");
   // Once the host picks a table by hand, stop moving it under them.
@@ -2027,6 +2032,10 @@ function EditBookingSheet({
   isProvider = false,
   // Appointment words (salon, shop, repair trade) — the labels only.
   apptWords = isProvider,
+  // A shop or a workshop asks no allergies (allergens.collects_allergies on
+  // the server, which stores none for it): the field shows only to clear one
+  // a booking already carries (Push 8 review).
+  noAllergy = false,
 }) {
   const r = reservation;
   const origDate = r.starts_at ? r.starts_at.slice(0, 10) : "";
@@ -2104,7 +2113,7 @@ function EditBookingSheet({
           style={{ paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
         >
           <h3 id="rsvp-edit-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            {t("rsvpEditTitle", "Edit reservation")}
+            {apptWords ? t("rsvpEditTitleAppt", "Edit appointment") : t("rsvpEditTitle", "Edit reservation")}
           </h3>
           <button type="button" onClick={onClose} aria-label={t("close", "Close")}
             className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800">
@@ -2182,9 +2191,12 @@ function EditBookingSheet({
         <div>
           <label htmlFor="eb-note" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("rsvpNewNote", "Note (optional)")}</label>
           <input id="eb-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500}
-            placeholder={t("rsvpNewNotePh", "Birthday, high chair, window table…")}
+            placeholder={apptWords
+              ? t("rsvpNewNotePhAppt", "What it's for, any wishes…")
+              : t("rsvpNewNotePh", "Birthday, high chair, window table…")}
             className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent" />
         </div>
+        {(!noAllergy || initialAllergy || initialSeverity) && (
         <div>
           <label htmlFor="eb-allergy" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             {t("rsvpNewAllergy", "Allergy (optional)")}
@@ -2219,6 +2231,7 @@ function EditBookingSheet({
             </p>
           )}
         </div>
+        )}
         </div>
         <div
           className="shrink-0 border-t border-gray-100 dark:border-[rgb(var(--surface-line))] px-5 pt-3 space-y-3"
@@ -2274,6 +2287,10 @@ function NewBookingSheet({
   // Appointment words (salon, shop, repair trade): the labels only. A shop
   // books one customer by default, not a table for two.
   apptWords = isProvider,
+  // A shop or a workshop: no allergy field — the server stores none for it
+  // (allergens.collects_allergies; Push 8 review: "ALLERGI (VALGFRI) · fx
+  // nødder, gluten" on a bike workshop's "Book en tid").
+  noAllergy = false,
   behandlinger = [],
   providerStations = [],
   tables = [],
@@ -2406,8 +2423,8 @@ function NewBookingSheet({
         // "" = auto-assign; a chosen id pins that specific table.
         resource_id: resourceId || null,
         guest_notes: note.trim() || null,
-        allergy_note: allergy.trim() || null,
-        allergy_severity: allergy.trim() && allergySeverity ? allergySeverity : null,
+        allergy_note: noAllergy ? null : allergy.trim() || null,
+        allergy_severity: !noAllergy && allergy.trim() && allergySeverity ? allergySeverity : null,
       },
       allowOverflow,
     );
@@ -2625,8 +2642,12 @@ function NewBookingSheet({
             clean 409 the page surfaces as honest room-full pushback. */}
         {!isProvider && tables.length > 0 && (
           <div>
+            {/* A shop's or a workshop's place, never a table (Push 8 review:
+                "BORD (VALGFRIT — VÆLGES AUTOMATISK)" over "Plads 1 · 1"). */}
             <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              {t("rsvpBookingTableOptional", "Table (optional — auto if blank)")}
+              {apptWords
+                ? t("rsvpBookingTableOptionalAppt", "Space (optional — auto if blank)")
+                : t("rsvpBookingTableOptional", "Table (optional — auto if blank)")}
             </label>
             <select
               value={resourceId}
@@ -2634,7 +2655,9 @@ function NewBookingSheet({
                 setResourceId(e.target.value);
                 if (warning) onClearWarning();
               }}
-              aria-label={t("rsvpBookingTableOptional", "Table (optional — auto if blank)")}
+              aria-label={apptWords
+                ? t("rsvpBookingTableOptionalAppt", "Space (optional — auto if blank)")
+                : t("rsvpBookingTableOptional", "Table (optional — auto if blank)")}
               className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             >
               <option value="">{t("rsvpBookingTableAuto", "Auto")}</option>
@@ -2656,10 +2679,15 @@ function NewBookingSheet({
                 after Opret. */}
             {resourceId && tableTaken[resourceId] && (
               <p className="mt-1.5 text-[12px] text-gray-700 dark:text-gray-300">
-                ⚠ {t("rsvpTablePickedTaken", "{table} is booked at {time} — pick another table, or Auto.", {
-                  table: (tables.find((tb) => String(tb.id) === resourceId) || {}).label || t("rsvpTableFallback", "Table"),
-                  time: fmtTime(tableTaken[resourceId]),
-                })}
+                ⚠ {apptWords
+                  ? t("rsvpTablePickedTakenAppt", "{table} is booked at {time} — pick another space, or Auto.", {
+                    table: (tables.find((tb) => String(tb.id) === resourceId) || {}).label || t("rsvpTableFallbackAppt", "The space"),
+                    time: fmtTime(tableTaken[resourceId]),
+                  })
+                  : t("rsvpTablePickedTaken", "{table} is booked at {time} — pick another table, or Auto.", {
+                    table: (tables.find((tb) => String(tb.id) === resourceId) || {}).label || t("rsvpTableFallback", "Table"),
+                    time: fmtTime(tableTaken[resourceId]),
+                  })}
               </p>
             )}
           </div>
@@ -2687,7 +2715,9 @@ function NewBookingSheet({
               {/* Was rsvpNameRequired — the PUBLIC guest page's own key, so
                   the owner taking a booking over the phone was told
                   "Indtast dit navn." about somebody else's name. */}
-              {t("rsvpOwnerGuestNameRequired", "Enter the guest's name.")}
+              {apptWords
+                ? t("rsvpOwnerGuestNameRequiredAppt", "Enter the customer's name.")
+                : t("rsvpOwnerGuestNameRequired", "Enter the guest's name.")}
             </p>
           )}
         </div>
@@ -2725,6 +2755,7 @@ function NewBookingSheet({
                 className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
               />
             </div>
+            {!noAllergy && (
             <div>
               <label htmlFor="nb-allergy" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 {t("rsvpNewAllergy", "Allergy (optional)")}
@@ -2761,6 +2792,7 @@ function NewBookingSheet({
                 </div>
               )}
             </div>
+            )}
           </div>
         )}
 
@@ -2793,7 +2825,7 @@ function NewBookingSheet({
             <div className="flex flex-wrap gap-2">
               {/* Reached only after the past-time question (if any) was answered. */}
               <Button variant="secondary" size="md" disabled={busy} onClick={() => submit(true, true)}>
-                {t("rsvpBookAnyway", "Book anyway (no table)")}
+                {apptWords ? t("rsvpBookAnywayAppt", "Book anyway (no space)") : t("rsvpBookAnyway", "Book anyway (no table)")}
               </Button>
               {/* Another time can't help when no table is big enough — nor
                   when there are no tables at all (a brand-new venue). */}
@@ -3885,7 +3917,10 @@ function StandSoundChip({ t }) {
  * install affordance was unreachable. Renders nothing once installed; there is
  * nothing honest to offer then.
  */
-function StandInstallItem({ t, className }) {
+// `apptWords`: a shop's or a workshop's counter screen ("Skærm ved disken") —
+// never "the host stand" (Push 8 review: its ⋯ menu said "Åbner direkte på
+// vært-skærmen" under the header "Skærm ved disken").
+function StandInstallItem({ t, className, apptWords = false }) {
   const [installEvent, setInstallEvent] = useState(null);
   const [installed, setInstalled] = useState(() => _isStandaloneDisplay());
   const [showHow, setShowHow] = useState(false);
@@ -3933,14 +3968,18 @@ function StandInstallItem({ t, className }) {
         <span className="min-w-0">
           {t("rsvpStandInstall", "Installér på enheden")}
           <span className="block text-[11px] text-gray-500 dark:text-gray-400">
-            {t("rsvpStandInstallHint", "Åbner direkte på vært-skærmen")}
+            {apptWords
+              ? t("rsvpStandInstallHintAppt", "Opens straight to the counter screen")
+              : t("rsvpStandInstallHint", "Åbner direkte på vært-skærmen")}
           </span>
         </span>
       </button>
       {showHow && !installEvent && (
         <p className="px-3 pb-2.5 -mt-1 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
           {_isIOSDevice()
-            ? t(
+            ? apptWords
+              ? t("rsvpInstallManualIOSProvider", "In Safari: tap Share, then Add to Home Screen. The icon opens straight to the appointment book.")
+              : t(
                 "rsvpInstallManualIOS",
                 "In Safari: tap Share, then Add to Home Screen. The icon opens straight to this screen.",
               )
@@ -3954,7 +3993,7 @@ function StandInstallItem({ t, className }) {
   );
 }
 
-function StandMenu({ t, onLogout }) {
+function StandMenu({ t, onLogout, apptWords = false }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const canClose = typeof window !== "undefined" && !!window.opener;
@@ -4010,7 +4049,7 @@ function StandMenu({ t, onLogout }) {
               </span>
             </span>
           </a>
-          <StandInstallItem t={t} className={item} />
+          <StandInstallItem t={t} className={item} apptWords={apptWords} />
           <div className="h-px bg-gray-200 dark:bg-gray-800" />
           {canClose ? (
             <button
@@ -6280,7 +6319,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             className={
               "mt-1 flex items-center text-[12px] text-gray-500 dark:text-gray-400 tabular-nums min-w-0 " +
               (r.status === "completed" ||
-              (["confirmed", "seated"].includes(r.status) && Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length > 1)
+              (["confirmed", "seated"].includes(r.status) && Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length > 1) ||
+              // A shop's checked-in customer: "Tjekket ind" is longer than
+              // "Sidder", and at 360–375 px it left the place "Pl…" — the
+              // status goes under the place instead (Push 8 review).
+              (checkedInWords && r.status === "seated")
                 ? "flex-wrap gap-x-2.5 gap-y-0.5"
                 : "gap-2.5")
             }
@@ -6529,7 +6572,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               the phone stand had no Forventet or Afsluttet count at all. */}
           {showStandNow && (
             <div
-              className="order-last basis-full grid grid-cols-3 gap-1 min-w-0 md:order-none md:basis-auto md:flex md:items-stretch"
+              // From lg (the door iPad, 1024 × 768) the counts keep their full
+              // width and the venue name gives way, as on 7a631c0f — "3
+              // selska…" was cut there. At 768–1023 the cells may truncate:
+              // there the row did not fit and ran under the sound chip and ⋯.
+              className="order-last basis-full grid grid-cols-3 gap-1 min-w-0 md:order-none md:basis-auto md:flex md:items-stretch lg:shrink-0"
+              data-stand-covers=""
               role="group"
               aria-label={apptWords ? t("rsvpStandCoversAriaAppt", "Customers today") : t("rsvpStandCoversAria", "Guests today")}
             >
@@ -6599,6 +6647,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             <StandSoundChip t={t} />
             <StandMenu
               t={t}
+              apptWords={apptWords}
               onLogout={async () => {
                 try {
                   await logout();
@@ -7536,6 +7585,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           bookingRules={bookingRules}
           isProvider={isProvider && !holdsTable(editRes)}
           apptWords={apptWords}
+          noAllergy={checkedInWords}
           t={t}
           busy={editBusy}
           error={editError}
@@ -7583,6 +7633,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           onSubmit={createBooking}
           isProvider={isProvider}
           apptWords={apptWords}
+          noAllergy={checkedInWords}
           behandlinger={behandlinger}
           providerStations={providerStations}
           tables={assignableTables}
@@ -9060,6 +9111,9 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   // never has them; a shop or a workshop without tables neither. Stored
   // values are untouched and saved as loaded either way.
   const tableRules = !isProvider && (tablePlan ?? usesTableFloor(user?.business_type));
+  // A shop or a workshop: its public page books one person, always
+  // (ReservationPublicPage: speaksAppointments → party 1, no picker).
+  const onlineBooksOne = apptWords && !isProvider;
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -9711,7 +9765,12 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
             </p>
           </fieldset>
           )}
-          {tableRules && (
+          {/* A shop's or a workshop's public page always books one customer
+              (no party picker; ?party is ignored), so the two ONLINE
+              party-size rules can never apply there — "Flere personer ser
+              'ring til os'" was a dead control with a false hint (Push 8
+              review). Their stored values are kept and saved as loaded. */}
+          {tableRules && !onlineBooksOne && (
           <NumberField
             label={apptWords ? t("rsvpMaxPartyAppt", "Max people per appointment (online)") : t("rsvpMaxParty", "Max party size (online)")}
             hint={apptWords ? t("rsvpMaxPartyHintAppt", "More people see 'call us'.") : t("rsvpMaxPartyHint", "Bigger groups see 'call us'.")}
@@ -9719,7 +9778,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
             onChange={(v) => setForm((f) => ({ ...f, max_party_size: v }))}
           />
           )}
-          {tableRules && (
+          {tableRules && !onlineBooksOne && (
           <NumberField
             label={apptWords ? t("rsvpGroupThresholdAppt", "Request from (number of people)") : t("rsvpGroupThreshold", "Group-request from")}
             hint={apptWords

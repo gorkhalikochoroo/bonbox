@@ -55,6 +55,7 @@ from app.models.reservation import Reservation
 from app.models.staff import NotificationLog
 from app.models.user import User
 from app.services.allergens import allergen_label
+from app.services.archetype import archetype_id_for
 from app.services.mailbox import count_same_mailbox
 from app.services.owner_language import owner_lang, venue_language
 from app.utils import abuse_signals
@@ -223,10 +224,12 @@ def _party(n, lang: str) -> str:
     return "1 person" if n == 1 else f"{n} people"
 
 
-def _party_short(n, lang: str) -> str:
+def _party_short(n, lang: str, appointment: bool = False) -> str:
     n = int(n or 0)
     if lang == "da":
         return f"{n} pers"
+    if appointment:
+        return "1 person" if n == 1 else f"{n} people"
     return "1 guest" if n == 1 else f"{n} guests"
 
 
@@ -262,6 +265,20 @@ class Venue:
     address: str | None = None
     booking_url: str | None = None   # the public booking page ("book again")
     reply_to: str | None = None      # the owner's inbox
+    # A salon, a shop or a repair trade books a customer for a time: its mails
+    # speak "aftale" / "tiden" / "en anden", never "reservation", "bordet" or
+    # "en anden gæst" (Push 8 review: a bike workshop's customer was told
+    # "Din reservation er bekræftet … så en anden gæst kan få bordet").
+    appointment: bool = False
+
+
+# The archetypes that book a customer for a time — the backend twin of the
+# frontend's venueProfiles.speaksAppointments (salon, retail, services).
+_APPOINTMENT_ARCHETYPES = frozenset({"salon", "retail", "services"})
+
+
+def speaks_appointments(business_type: str | None) -> bool:
+    return archetype_id_for(business_type) in _APPOINTMENT_ARCHETYPES
 
 
 def _app_base_url() -> str:
@@ -306,6 +323,7 @@ def venue_context(owner, profile, *, guest_lang: str | None = None) -> Venue:
         address=(" ".join(str(address).split()) or None) if address else None,
         booking_url=public_booking_url(profile, lang=guest_lang),
         reply_to=(getattr(owner, "email", None) or None),
+        appointment=speaks_appointments(getattr(owner, "business_type", None)),
     )
 
 
@@ -354,8 +372,15 @@ def owner_booking_url(r, owner) -> str:
 
 # ── Template pieces ────────────────────────────────────────────────────
 
-def _is_appointment(r) -> bool:
-    return bool(getattr(r, "service_name", None))
+def _is_appointment(r, venue: Venue | None = None) -> bool:
+    """A time booked by a customer, not a table: a salon treatment (it has a
+    service), or any booking at a salon, a shop or a workshop (venue)."""
+    return bool(getattr(r, "service_name", None)) or bool(getattr(venue, "appointment", False))
+
+
+def _what(r, lang: str) -> str:
+    """The booked service when there is one, else the number of people."""
+    return _e(r.service_name) if getattr(r, "service_name", None) else _party(r.party_size, lang)
 
 
 def _hello(r, lang: str) -> str:
@@ -365,7 +390,7 @@ def _hello(r, lang: str) -> str:
 
 
 def _details(r, venue: Venue, lang: str, *, when: str) -> str:
-    what = _e(r.service_name) if _is_appointment(r) else _party(r.party_size, lang)
+    what = _what(r, lang)
     lines = [f"<strong>{_e(venue.name)}</strong>", f"{_e(when)} · {what}"]
     if venue.address:
         lines.append(_e(venue.address))
@@ -397,14 +422,18 @@ def _cancel_line(url: str | None, lang: str, *, is_request: bool, appointment: b
         if is_request:
             return (f'<p>Har du fået andre planer? <a href="{href}">Træk din '
                     f'forespørgsel tilbage her</a>.</p>')
-        what = "tiden" if appointment else "bordet"
+        if appointment:
+            return (f'<p>Kan du ikke komme? <a href="{href}">Aflys din aftale her</a>, '
+                    f'så en anden kan få tiden.</p>')
         return (f'<p>Kan du ikke komme? <a href="{href}">Aflys din reservation her</a>, '
-                f'så en anden gæst kan få {what}.</p>')
+                f'så en anden gæst kan få bordet.</p>')
     if is_request:
         return f'<p>Plans changed? <a href="{href}">Withdraw your request here</a>.</p>'
-    what = "the slot" if appointment else "the table"
+    if appointment:
+        return (f'<p>Can\'t make it? <a href="{href}">Cancel your booking here</a> '
+                f'so someone else can have the slot.</p>')
     return (f'<p>Can\'t make it? <a href="{href}">Cancel your booking here</a> '
-            f'so another guest can have {what}.</p>')
+            f'so another guest can have the table.</p>')
 
 
 def _call_us(venue: Venue, lead: str) -> str:
@@ -441,16 +470,20 @@ def render_guest_confirmation(r, venue: Venue, lang: str, *, cancel_url: str | N
     """(a) Booked online: confirmed, or — for a group request — received."""
     is_request = r.status == "requested"
     when = format_when(r.starts_at, lang, now=now)
+    appointment = _is_appointment(r, venue)
     if lang == "da":
         if is_request:
             subject = f"{venue.name} — forespørgsel modtaget: {when}"
             lead = ("<p>Tak for din forespørgsel — vi har modtaget den og vender "
                     "tilbage hurtigst muligt.</p>")
-            note = "<p>Bordet er først reserveret, når du har fået en bekræftelse fra os.</p>"
+            note = ("<p>Tiden er først reserveret, når du har fået en bekræftelse fra os.</p>"
+                    if appointment else
+                    "<p>Bordet er først reserveret, når du har fået en bekræftelse fra os.</p>")
             outro = ""
         else:
-            subject = f"{venue.name} — reservation bekræftet: {when}"
-            lead = "<p>Din reservation er bekræftet.</p>"
+            noun = "aftale" if appointment else "reservation"
+            subject = f"{venue.name} — {noun} bekræftet: {when}"
+            lead = f"<p>Din {noun} er bekræftet.</p>"
             note = ""
             outro = "<p>Vi glæder os til at se dig.</p>"
         allergy = _allergy_line(r, lang, "Allergi noteret")
@@ -459,7 +492,9 @@ def render_guest_confirmation(r, venue: Venue, lang: str, *, cancel_url: str | N
             subject = f"{venue.name} — request received: {when}"
             lead = ("<p>Thanks for your request — we've received it and will get back "
                     "to you as soon as we can.</p>")
-            note = "<p>Your table isn't held until you've had a confirmation from us.</p>"
+            note = ("<p>Your time isn't held until you've had a confirmation from us.</p>"
+                    if appointment else
+                    "<p>Your table isn't held until you've had a confirmation from us.</p>")
             outro = ""
         else:
             subject = f"{venue.name} — booking confirmed: {when}"
@@ -469,7 +504,7 @@ def render_guest_confirmation(r, venue: Venue, lang: str, *, cancel_url: str | N
         allergy = _allergy_line(r, lang, "Allergy noted")
     body = (
         _hello(r, lang) + lead + _details(r, venue, lang, when=when) + allergy + note
-        + _cancel_line(cancel_url, lang, is_request=is_request, appointment=_is_appointment(r))
+        + _cancel_line(cancel_url, lang, is_request=is_request, appointment=appointment)
         + outro
     )
     return _subject(subject), _shell(lang, body, _guest_footer(venue, lang))
@@ -479,16 +514,19 @@ def render_guest_cancelled_by_guest(r, venue: Venue, lang: str, *, was_request: 
                                     now: datetime | None = None) -> tuple[str, str]:
     """(b) The guest cancelled online — confirm it, offer another day."""
     when = format_when(r.starts_at, lang, now=now)
-    appointment = _is_appointment(r)
+    appointment = _is_appointment(r, venue)
     if lang == "da":
         if was_request:
             subject = f"{venue.name} — din forespørgsel er trukket tilbage"
             lead = "<p>Din forespørgsel er trukket tilbage. Tak fordi du sagde til.</p>"
+        elif appointment:
+            subject = f"{venue.name} — din aftale er aflyst"
+            lead = ("<p>Din aftale er aflyst. Tak fordi du sagde til — så kan "
+                    "tiden gå til en anden.</p>")
         else:
             subject = f"{venue.name} — din reservation er aflyst"
-            what = "tiden" if appointment else "bordet"
-            lead = (f"<p>Din reservation er aflyst. Tak fordi du sagde til — så kan "
-                    f"{what} gå til en anden gæst.</p>")
+            lead = ("<p>Din reservation er aflyst. Tak fordi du sagde til — så kan "
+                    "bordet gå til en anden gæst.</p>")
         again = "<p>Vil du finde en anden dag?</p>" + _button(venue.booking_url, "Book igen")
         outro = "<p>Vi håber at se dig en anden gang.</p>"
     else:
@@ -498,8 +536,9 @@ def render_guest_cancelled_by_guest(r, venue: Venue, lang: str, *, was_request: 
         else:
             subject = f"{venue.name} — your booking is cancelled"
             what = "the slot" if appointment else "the table"
+            whom = "someone else" if appointment else "another guest"
             lead = (f"<p>Your booking is cancelled. Thanks for letting us know — now "
-                    f"{what} can go to another guest.</p>")
+                    f"{what} can go to {whom}.</p>")
         again = "<p>Want to find another day?</p>" + _button(venue.booking_url, "Book again")
         outro = "<p>We hope to see you another time.</p>"
     if not venue.booking_url:
@@ -516,14 +555,15 @@ def render_guest_cancelled_by_venue(r, venue: Venue, lang: str, *, was_request: 
     whether the venue had to cancel or the guest phoned to cancel, so the mail
     must read right in both cases."""
     when = format_when(r.starts_at, lang, now=now)
+    noun = "aftale" if _is_appointment(r, venue) else "reservation"
     if lang == "da":
         if was_request:
             subject = f"{venue.name} — vi kunne ikke bekræfte din forespørgsel"
             lead = "<p>Vi kunne desværre ikke bekræfte din forespørgsel.</p>"
             call = _call_us(venue, "Ring gerne til os, hvis du vil finde en anden tid:")
         else:
-            subject = f"{venue.name} — din reservation er aflyst: {when}"
-            lead = "<p>Din reservation er blevet aflyst.</p>"
+            subject = f"{venue.name} — din {noun} er aflyst: {when}"
+            lead = f"<p>Din {noun} er blevet aflyst.</p>"
             call = _call_us(venue, "Er det en overraskelse, eller vil du finde en anden tid? "
                                    "Ring til os på")
         if not call:
@@ -551,20 +591,25 @@ def render_guest_request_confirmed(r, venue: Venue, lang: str, *, cancel_url: st
                                    now: datetime | None = None) -> tuple[str, str]:
     """(d) The venue accepted a group request (requested → confirmed)."""
     when = format_when(r.starts_at, lang, now=now)
+    appointment = _is_appointment(r, venue)
     if lang == "da":
         subject = f"{venue.name} — din forespørgsel er bekræftet: {when}"
-        lead = ("<p>Gode nyheder: vi har bekræftet din forespørgsel, og bordet er "
-                "reserveret til jer.</p>")
+        lead = (("<p>Gode nyheder: vi har bekræftet din forespørgsel, og tiden er "
+                 "reserveret til dig.</p>") if appointment else
+                ("<p>Gode nyheder: vi har bekræftet din forespørgsel, og bordet er "
+                 "reserveret til jer.</p>"))
         allergy = _allergy_line(r, lang, "Allergi noteret")
-        outro = "<p>Vi glæder os til at se jer.</p>"
+        outro = "<p>Vi glæder os til at se dig.</p>" if appointment else "<p>Vi glæder os til at se jer.</p>"
     else:
         subject = f"{venue.name} — your request is confirmed: {when}"
-        lead = "<p>Good news: we've confirmed your request and your table is held.</p>"
+        lead = ("<p>Good news: we've confirmed your request and your time is held.</p>"
+                if appointment else
+                "<p>Good news: we've confirmed your request and your table is held.</p>")
         allergy = _allergy_line(r, lang, "Allergy noted")
         outro = "<p>We look forward to seeing you.</p>"
     body = (
         _hello(r, lang) + lead + _details(r, venue, lang, when=when) + allergy
-        + _cancel_line(cancel_url, lang, is_request=False, appointment=_is_appointment(r))
+        + _cancel_line(cancel_url, lang, is_request=False, appointment=appointment)
         + outro
     )
     return _subject(subject), _shell(lang, body, _guest_footer(venue, lang))
@@ -577,12 +622,14 @@ def render_guest_moved(r, venue: Venue, lang: str, *, old_starts_at: datetime | 
     is_request = r.status == "requested"
     when = format_when(r.starts_at, lang, now=now)
     old_when = format_when(old_starts_at, lang, now=now) if old_starts_at else ""
-    what = _e(r.service_name) if _is_appointment(r) else _party(r.party_size, lang)
+    what = _what(r, lang)
+    appointment = _is_appointment(r, venue)
     if lang == "da":
-        noun = "forespørgsel" if is_request else "reservation"
+        booked = "aftale" if appointment else "reservation"
+        noun = "forespørgsel" if is_request else booked
         subject = f"{venue.name} — ny tid for din {noun}: {when}"
         lead = ("<p>Vi har ændret tidspunktet for din forespørgsel.</p>" if is_request
-                else "<p>Vi har flyttet din reservation til en ny tid.</p>")
+                else f"<p>Vi har flyttet din {booked} til en ny tid.</p>")
         new_label, old_label = "Ny tid:", "Før:"
         pending = ("<p>Forespørgslen er endnu ikke bekræftet — vi vender tilbage.</p>"
                    if is_request else "")
@@ -607,7 +654,7 @@ def render_guest_moved(r, venue: Venue, lang: str, *, old_starts_at: datetime | 
     details = "<p>" + "<br>".join(lines) + "</p>"
     body = (
         _hello(r, lang) + lead + details + pending + call
-        + _cancel_line(cancel_url, lang, is_request=is_request, appointment=_is_appointment(r))
+        + _cancel_line(cancel_url, lang, is_request=is_request, appointment=appointment)
         + outro
     )
     return _subject(subject), _shell(lang, body, _guest_footer(venue, lang))
@@ -617,12 +664,13 @@ def render_guest_reminder(r, venue: Venue, lang: str, *, cancel_url: str | None 
                           now: datetime | None = None) -> tuple[str, str]:
     """(f) The day-before reminder (the nightly job decides WHO gets one)."""
     when = format_when(r.starts_at, lang, now=now)
-    what = _e(r.service_name) if _is_appointment(r) else _party(r.party_size, lang)
+    what = _what(r, lang)
     where = f"<br>{_e(venue.address)}" if venue.address else ""
-    appointment = _is_appointment(r)
+    appointment = _is_appointment(r, venue)
     if lang == "da":
         subject = f"Påmindelse — {venue.name}, {when}"
-        lead = (f"<p>Bare en venlig påmindelse om din reservation hos "
+        noun = "aftale" if appointment else "reservation"
+        lead = (f"<p>Bare en venlig påmindelse om din {noun} hos "
                 f"<strong>{_e(venue.name)}</strong>:</p>")
         tail = (_cancel_line(cancel_url, lang, is_request=False, appointment=appointment)
                 + "<p>Vi glæder os til at se dig.</p>") if cancel_url else (
@@ -645,17 +693,18 @@ def render_guest_request_expired(r, venue: Venue, lang: str, *,
     """An unanswered group request was closed before the sitting."""
     when = format_when(r.starts_at, lang, now=now)
     party = _party(r.party_size, lang)
+    appointment = _is_appointment(r, venue)
     if lang == "da":
         subject = f"{venue.name} — vi kunne ikke bekræfte din forespørgsel"
-        lead = (f"<p>Vi kunne desværre ikke bekræfte din forespørgsel om bord til "
-                f"{party} {_e(when)}.</p>")
+        lead = (f"<p>Vi kunne desværre ikke bekræfte din forespørgsel om "
+                f"{'en tid' if appointment else 'bord'} til {party} {_e(when)}.</p>")
         call = _call_us(venue, "Ring gerne, hvis du stadig gerne vil komme:")
         again = _button(venue.booking_url, "Book en anden dag")
         outro = "<p>Beklager ventetiden.</p>"
     else:
         subject = f"{venue.name} — we couldn't confirm your request"
-        lead = (f"<p>We're sorry — we couldn't confirm your request for a table for "
-                f"{party} on {_e(when)}.</p>")
+        lead = (f"<p>We're sorry — we couldn't confirm your request for "
+                f"{'a time' if appointment else 'a table'} for {party} on {_e(when)}.</p>")
         call = _call_us(venue, "Please call us if you'd still like to come:")
         again = _button(venue.booking_url, "Book another day")
         outro = "<p>Sorry for the wait.</p>"
@@ -665,8 +714,10 @@ def render_guest_request_expired(r, venue: Venue, lang: str, *,
 
 # ── Owner templates ────────────────────────────────────────────────────
 
-def _owner_guest_block(r, lang: str, *, when: str) -> str:
-    name = (getattr(r, "guest_name", None) or "").strip() or ("Gæst" if lang == "da" else "Guest")
+def _owner_guest_block(r, lang: str, *, when: str, appointment: bool = False) -> str:
+    fallback = (("Kunde" if lang == "da" else "Customer") if appointment
+                else ("Gæst" if lang == "da" else "Guest"))
+    name = (getattr(r, "guest_name", None) or "").strip() or fallback
     bits = []
     if r.guest_phone:
         bits.append(("Tlf: " if lang == "da" else "Phone: ") + _e(r.guest_phone))
@@ -678,11 +729,15 @@ def _owner_guest_block(r, lang: str, *, when: str) -> str:
             f"{_e(when)}<br>{contact}</p>")
 
 
-def _owner_reply_hint(r, lang: str) -> str:
+def _owner_reply_hint(r, lang: str, *, appointment: bool = False) -> str:
     if not r.guest_email:
         return ""
-    text = ("Svar på denne e-mail for at skrive direkte til gæsten." if lang == "da"
-            else "Reply to this email to write to the guest directly.")
+    if appointment:
+        text = ("Svar på denne e-mail for at skrive direkte til kunden." if lang == "da"
+                else "Reply to this email to write to the customer directly.")
+    else:
+        text = ("Svar på denne e-mail for at skrive direkte til gæsten." if lang == "da"
+                else "Reply to this email to write to the guest directly.")
     return f'<p style="{_MUTED};margin-top:24px">{text}</p>'
 
 
@@ -691,31 +746,35 @@ def render_owner_new_booking(r, venue: Venue, lang: str, *, booking_url: str,
     """A guest booked via /r/<slug>: who, when, contact, notes, allergy."""
     is_request = r.status == "requested"
     when = format_when(r.starts_at, lang, now=now)
+    appointment = _is_appointment(r, venue)
+    has_service = bool(getattr(r, "service_name", None))
     if lang == "da":
-        head = "Ny forespørgsel" if is_request else "Ny reservation"
-        subject = f"{venue.name} — {head.lower()}: {_party_short(r.party_size, lang)} · {when}"
+        head = "Ny forespørgsel" if is_request else ("Ny aftale" if appointment else "Ny reservation")
+        subject = f"{venue.name} — {head.lower()}: {_party_short(r.party_size, lang, appointment)} · {when}"
         title = f"<p><strong>{head} via din bookingside</strong></p>"
         service = (f"<p><strong>Behandling:</strong> {_e(r.service_name)}</p>"
-                   if _is_appointment(r) else "")
+                   if has_service else "")
         occasion = f"<p><strong>Anledning:</strong> {_e(r.occasion)}</p>" if r.occasion else ""
         notes = f"<p><strong>Besked:</strong> {_e(r.guest_notes)}</p>" if r.guest_notes else ""
         allergy = _allergy_line(r, lang, "Allergi", severity=True)
-        waiting = "<p>Gæsten venter på dit svar.</p>" if is_request else ""
-        cta = "Åbn og bekræft" if is_request else "Åbn reservationen"
+        waiting = ((f"<p>{'Kunden' if appointment else 'Gæsten'} venter på dit svar.</p>")
+                   if is_request else "")
+        cta = "Åbn og bekræft" if is_request else ("Åbn aftalen" if appointment else "Åbn reservationen")
     else:
         head = "New request" if is_request else "New booking"
-        subject = f"{venue.name} — {head.lower()}: {_party_short(r.party_size, lang)} · {when}"
+        subject = f"{venue.name} — {head.lower()}: {_party_short(r.party_size, lang, appointment)} · {when}"
         title = f"<p><strong>{head} via your booking page</strong></p>"
         service = (f"<p><strong>Service:</strong> {_e(r.service_name)}</p>"
-                   if _is_appointment(r) else "")
+                   if has_service else "")
         occasion = f"<p><strong>Occasion:</strong> {_e(r.occasion)}</p>" if r.occasion else ""
         notes = f"<p><strong>Message:</strong> {_e(r.guest_notes)}</p>" if r.guest_notes else ""
         allergy = _allergy_line(r, lang, "Allergy", severity=True)
-        waiting = "<p>The guest is waiting for your answer.</p>" if is_request else ""
+        waiting = ((f"<p>The {'customer' if appointment else 'guest'} is waiting for your answer.</p>")
+                   if is_request else "")
         cta = "Open and confirm" if is_request else "Open the booking"
-    body = (title + _owner_guest_block(r, lang, when=when) + service + occasion + notes
-            + allergy + waiting + _button(booking_url, cta))
-    return _subject(subject), _shell(lang, body, _owner_reply_hint(r, lang))
+    body = (title + _owner_guest_block(r, lang, when=when, appointment=appointment) + service
+            + occasion + notes + allergy + waiting + _button(booking_url, cta))
+    return _subject(subject), _shell(lang, body, _owner_reply_hint(r, lang, appointment=appointment))
 
 
 def render_owner_guest_cancelled(r, venue: Venue, lang: str, *, booking_url: str,
@@ -723,34 +782,38 @@ def render_owner_guest_cancelled(r, venue: Venue, lang: str, *, booking_url: str
                                  now: datetime | None = None) -> tuple[str, str]:
     """A guest cancelled (or withdrew a request) via the self-cancel link."""
     when = format_when(r.starts_at, lang, now=now)
-    appointment = _is_appointment(r)
+    appointment = _is_appointment(r, venue)
     if lang == "da":
+        who, whom = ("En kunde", "kunden") if appointment else ("En gæst", "gæsten")
         if was_request:
             subject = (f"{venue.name} — forespørgsel trukket tilbage: "
-                       f"{_party_short(r.party_size, lang)} · {when}")
-            title = "<p><strong>En gæst har trukket sin forespørgsel tilbage</strong></p>"
-            freed = "<p>Der var ikke reserveret noget bord.</p>"
+                       f"{_party_short(r.party_size, lang, appointment)} · {when}")
+            title = f"<p><strong>{who} har trukket sin forespørgsel tilbage</strong></p>"
+            freed = ("<p>Der var ikke reserveret nogen tid.</p>" if appointment
+                     else "<p>Der var ikke reserveret noget bord.</p>")
         else:
-            subject = f"{venue.name} — aflyst af gæsten: {_party_short(r.party_size, lang)} · {when}"
-            title = "<p><strong>En gæst har aflyst via din bookingside</strong></p>"
+            subject = f"{venue.name} — aflyst af {whom}: {_party_short(r.party_size, lang, appointment)} · {when}"
+            title = f"<p><strong>{who} har aflyst via din bookingside</strong></p>"
             freed = ("<p>Tiden er ledig igen.</p>" if appointment
                      else "<p>Bordet er ledigt igen.</p>")
-        cta = "Se dagens reservationer"
+        cta = "Se dagens aftaler" if appointment else "Se dagens reservationer"
     else:
+        who, whom = ("A customer", "the customer") if appointment else ("A guest", "the guest")
         if was_request:
             subject = (f"{venue.name} — request withdrawn: "
-                       f"{_party_short(r.party_size, lang)} · {when}")
-            title = "<p><strong>A guest withdrew their request</strong></p>"
-            freed = "<p>No table was held.</p>"
+                       f"{_party_short(r.party_size, lang, appointment)} · {when}")
+            title = f"<p><strong>{who} withdrew their request</strong></p>"
+            freed = "<p>No time was held.</p>" if appointment else "<p>No table was held.</p>"
         else:
-            subject = (f"{venue.name} — cancelled by the guest: "
-                       f"{_party_short(r.party_size, lang)} · {when}")
-            title = "<p><strong>A guest cancelled via your booking page</strong></p>"
+            subject = (f"{venue.name} — cancelled by {whom}: "
+                       f"{_party_short(r.party_size, lang, appointment)} · {when}")
+            title = f"<p><strong>{who} cancelled via your booking page</strong></p>"
             freed = ("<p>The slot is free again.</p>" if appointment
                      else "<p>The table is free again.</p>")
         cta = "See the day's bookings"
-    body = title + _owner_guest_block(r, lang, when=when) + freed + _button(booking_url, cta)
-    return _subject(subject), _shell(lang, body, _owner_reply_hint(r, lang))
+    body = (title + _owner_guest_block(r, lang, when=when, appointment=appointment) + freed
+            + _button(booking_url, cta))
+    return _subject(subject), _shell(lang, body, _owner_reply_hint(r, lang, appointment=appointment))
 
 
 # ── Delivery ───────────────────────────────────────────────────────────

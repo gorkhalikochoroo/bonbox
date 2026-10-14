@@ -1852,7 +1852,7 @@ def _create_provider_booking(db: Session, user: User, profile, payload: "ManualR
     Reuses the SAME occupancy / no-double-book machinery (occ_service +
     busy_for_day) as every other create path — never weakened.
     """
-    from app.services.allergens import sanitize_tags, sanitize_severity
+    from app.services.allergens import collects_allergies, sanitize_tags, sanitize_severity
 
     # SERVER re-resolves the slot length from the catalog — never the client's.
     duration = rsvc.resolve_behandling_duration(db, user.id, payload.behandling_id)
@@ -1879,8 +1879,10 @@ def _create_provider_booking(db: Session, user: User, profile, payload: "ManualR
         status=payload.status, source=payload.source,
         guest_notes=payload.guest_notes,
         allergen_tags=sanitize_tags(payload.allergen_tags, btype),
-        allergy_note=payload.allergy_note,
-        allergy_severity=sanitize_severity(payload.allergy_severity),
+        # Same gate as the public booking (allergens.collects_allergies).
+        allergy_note=payload.allergy_note if collects_allergies(btype) else None,
+        allergy_severity=(sanitize_severity(payload.allergy_severity)
+                          if collects_allergies(btype) else None),
     )
     if payload.status == "seated":
         r.seated_at = utc_now()
@@ -1964,8 +1966,15 @@ def create_manual(payload: ManualReservation, request: Request,
             if occupant is not None:
                 raise _occupied_409(db, user, occupant, picked)
     duration = rsvc.resolve_duration(profile, payload.party_size, payload.duration_min)
-    from app.services.allergens import sanitize_tags, sanitize_severity
+    from app.services.allergens import collects_allergies, sanitize_tags, sanitize_severity
     btype = getattr(user, "business_type", None) or "restaurant"
+    # A shop or a workshop asks no allergies (allergens.collects_allergies):
+    # the public booking stores none for it, and neither does the owner's
+    # "Book en tid" — QA stored "nødder, gluten" on a bike workshop's booking
+    # through this path (Push 8 review). Health data with no purpose is not
+    # collected (GDPR Art. 5(1)(c)); the tags already go through the empty
+    # catalogue.
+    asks_allergies = collects_allergies(btype)
     r = Reservation(
         user_id=user.id,
         resource_id=payload.resource_id,
@@ -1977,8 +1986,8 @@ def create_manual(payload: ManualReservation, request: Request,
         status=payload.status, source=payload.source,
         guest_notes=payload.guest_notes,
         allergen_tags=sanitize_tags(payload.allergen_tags, btype),
-        allergy_note=payload.allergy_note,
-        allergy_severity=sanitize_severity(payload.allergy_severity),
+        allergy_note=payload.allergy_note if asks_allergies else None,
+        allergy_severity=sanitize_severity(payload.allergy_severity) if asks_allergies else None,
     )
     # Seating a walk-in on the spot → stamp it seated now.
     if payload.status == "seated":
@@ -2436,7 +2445,7 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
     NEVER sent a cancellation for a mere change. Multi-barrier: auth · tenant
     scope on the row · Pydantic bounds · status gate · occupancy re-check ·
     audit with before/after."""
-    from app.services.allergens import sanitize_tags, sanitize_severity
+    from app.services.allergens import collects_allergies, sanitize_tags, sanitize_severity
 
     enforce_feature(user, "reservations")
     r = (
@@ -2478,17 +2487,20 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
     # so the vertical's vocabulary and severity vocabulary stay the only things
     # that can land in the column.
     allergy_touched = False
+    btype = getattr(user, "business_type", None) or "restaurant"
+    # A shop or a workshop asks no allergies (allergens.collects_allergies):
+    # an edit may CLEAR one a booking already carries, never write one.
+    asks_allergies = collects_allergies(btype)
     if payload.allergen_tags is not None:
-        btype = getattr(user, "business_type", None) or "restaurant"
         r.allergen_tags = sanitize_tags(payload.allergen_tags, btype)
         allergy_touched = True
     if payload.allergy_note is not None:
-        r.allergy_note = payload.allergy_note or None
+        r.allergy_note = (payload.allergy_note or None) if asks_allergies else None
         allergy_touched = True
     if payload.allergy_severity is not None:
         # sanitize_severity returns None for anything outside SEVERITY_LEVELS,
         # which doubles as the "clear it" path when the host empties the field.
-        r.allergy_severity = sanitize_severity(payload.allergy_severity)
+        r.allergy_severity = sanitize_severity(payload.allergy_severity) if asks_allergies else None
         allergy_touched = True
 
     # A human entry IS the confirmed record. Without this the host types the
