@@ -36,16 +36,60 @@ describe("the auth frame pads for the cookie banner only where it can cover the 
     expect(el.style.paddingBottom).toBe("");
   });
 
-  it("a lone column (login, verify, forgot): below 1288 px only", () => {
+  it("a lone column (login, verify, forgot): pads at every width, and from lg the frame grows by the same height", () => {
     const el = frame({});
-    expect(padClasses(el)).toEqual(["max-[1288px]:pb-[var(--bb-consent-h,0px)]"]);
+    // Push 8 review, second round: the padding stopped at 1288 px, and from
+    // there the card sat over /login's footer line ("Lavet i København ·
+    // database i Irland") with no way to scroll it clear. The padding is back
+    // at every width; from lg the frame grows by it, so it moves nothing.
+    expect(padClasses(el)).toEqual([
+      "pb-[var(--bb-consent-h,0px)]",
+      "lg:min-h-[calc(100dvh+var(--bb-consent-h,0px))]",
+    ]);
     expect(el.style.paddingBottom).toBe("");
   });
 
-  it("no width-independent padding is left to re-centre the form", () => {
+  // Push 8 review: /login still jumped 42 px at 1280 × 800 and 26 px at
+  // 1024 × 768 — the padding lifted the centred form while the banner was up.
+  // On a desktop (lg up) the frame now grows by exactly the padding
+  // (border-box), so the room the form is centred in stays 100dvh, banner or
+  // not; the padding only adds scroll room under it. Measured in a browser
+  // (vite preview): /login and /forgot-password move 0 px at 1024–1287 px,
+  // and every control scrolls clear of the card. Below lg the padding alone.
+  it("a lone column on a desktop: the frame grows by the banner, so the form is not lifted", () => {
+    const el = frame({});
+    const cls = el.className.split(/\s+/);
+    expect(cls).toContain("min-h-[100dvh]");
+    expect(cls).toContain("lg:min-h-[calc(100dvh+var(--bb-consent-h,0px))]");
+    // The same variable as the padding it offsets, at every desktop width.
+    expect(cls).toContain("pb-[var(--bb-consent-h,0px)]");
+  });
+
+  it("beside the register panel nothing grows (it measured 0 px at every size)", () => {
+    const el = frame({ aside: <aside>panel</aside> });
+    expect(el.className).not.toMatch(/min-h-\[calc/);
+  });
+
+  it("no padding is left to re-centre the form on a desktop", () => {
     const src = fs.readFileSync(path.join(SRC, "components/auth/AuthUI.jsx"), "utf8");
     expect(src).not.toContain('paddingBottom: "var(--bb-consent-h');
-    expect(src).not.toMatch(/["\s]pb-\[var\(--bb-consent-h/);
+    // A desktop-wide padding only ever beside the frame's growth by the same
+    // height (the lone column); the register frame pads below lg only.
+    const unconditional = src.match(/["\s]pb-\[var\(--bb-consent-h,0px\)\][^"]*"/g) || [];
+    expect(unconditional).toHaveLength(1);
+    expect(unconditional[0]).toContain("lg:min-h-[calc(100dvh+var(--bb-consent-h,0px))]");
+  });
+
+  // Push 8 review: the frame's growth makes the page scroll while the banner
+  // is up and stop once it is answered. Where a scrollbar takes room
+  // (Windows' classic ones) that nudged the centred form half a scrollbar
+  // sideways — a jump too. From lg the page keeps the gutter while a lone
+  // column is on screen; beside the register panel nothing grows or changes.
+  it("a lone column keeps the scrollbar gutter from lg, so the growth cannot nudge the form sideways", () => {
+    expect(frame({}).hasAttribute("data-auth-grow")).toBe(true);
+    expect(frame({ aside: <aside>panel</aside> }).hasAttribute("data-auth-grow")).toBe(false);
+    const css = fs.readFileSync(path.join(SRC, "index.css"), "utf8");
+    expect(css).toMatch(/@media \(min-width: 64rem\) \{\s*html:has\(\[data-auth-grow\]\) \{\s*scrollbar-gutter: stable;/);
   });
 
   it("/register gives the frame its panel (so the lg rule is the one it gets)", () => {

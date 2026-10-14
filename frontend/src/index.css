@@ -171,6 +171,17 @@ body.portal-shell {
     padding-bottom: calc(env(safe-area-inset-bottom) + var(--bb-consent-h, 0px));
   }
 }
+/* From lg the lone auth column (login, verify, forgot — AuthShell's
+   data-auth-grow) grows by the banner's height while it is up, so the page
+   scrolls then and stops scrolling once the banner is answered. Where a
+   scrollbar takes room (Windows' classic scrollbars) its coming and going
+   would nudge the centred form half a scrollbar sideways: keep the gutter.
+   Overlay scrollbars (macOS, phones, tablets) take no room — no change. */
+@media (min-width: 64rem) {
+  html:has([data-auth-grow]) {
+    scrollbar-gutter: stable;
+  }
+}
 
 /* Marketing display headlines (Task #109 / Task #110 update).
    We tried Fraunces serif first — Manoj's call was that it skewed

@@ -233,6 +233,21 @@ export function AuthLanguageSelect({ labelKey = "regLanguageLabel" }) {
  * answering the banner moved it: /register jumped 42 px down at 1440 × 900
  * (Push 8).
  *
+ * The lone column (login, verify, forgot) pads at every width, and from lg
+ * the frame also grows by the same height (min-h 100dvh + the banner), so
+ * the room the form is centred in stays exactly 100dvh: the padding adds
+ * scroll room under the form instead of lifting it, and answering the banner
+ * moves nothing. /login jumped 43 px at 1280 × 800, 113 px at 1280 × 960 and
+ * 27 px at 1024 × 768, /forgot-password 114 px, when only the padding was
+ * there (Push 8 review). From 1288 px the card no longer reaches the column,
+ * but it sat over /login's footer ("Lavet i København · database i Irland")
+ * with no way to scroll it clear once the padding stopped there; with the
+ * growth the padding is back at every width and still moves nothing. Below
+ * lg the padding alone stays: on a tablet the lift is what keeps a short
+ * form's button clear of the card at rest (measured: /forgot-password at
+ * 900 × 700 had its button under the card without it), and below sm the
+ * form sits at the top.
+ *
  * `min-w-0` on <main>: a flex item never shrinks below its content's
  * minimum by default, and the code row's minimum (6 × 52 px boxes + 5 gaps
  * = 352 px) held <main> at 384 px — wider than a 360 px phone (the 6th box
@@ -243,7 +258,7 @@ export function AuthLanguageSelect({ labelKey = "regLanguageLabel" }) {
 export default function AuthShell({ children, aside = null, footer = null, logoLink = true, language = false }) {
   const consentPad = aside
     ? "max-lg:pb-[var(--bb-consent-h,0px)] "
-    : "max-[1288px]:pb-[var(--bb-consent-h,0px)] ";
+    : "pb-[var(--bb-consent-h,0px)] lg:min-h-[calc(100dvh+var(--bb-consent-h,0px))] ";
   return (
     <div
       className={
@@ -259,6 +274,11 @@ export default function AuthShell({ children, aside = null, footer = null, logoL
       }
       /* Pads itself, so index.css's phone body padding for the banner skips this page. */
       data-auth-shell=""
+      /* The lone column grows by the banner from lg: index.css keeps the
+         scrollbar gutter there, so the scroll room that growth adds (and
+         takes away when the banner is answered) never moves the form
+         sideways where scrollbars take room (Windows' classic ones). */
+      data-auth-grow={aside ? undefined : ""}
     >
       <div aria-hidden="true" className="fixed inset-x-0 top-0 z-40 h-[env(safe-area-inset-top,0px)] bg-bb-paper dark:bg-gray-950" />
       <div className="flex-1 flex">
