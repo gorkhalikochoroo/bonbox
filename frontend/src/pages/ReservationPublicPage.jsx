@@ -149,7 +149,10 @@ const CHIP_FOCUS = "focus-visible:ring-gray-900! dark:focus-visible:ring-gray-10
 // every time of the chosen service is on screen. Opens on the service holding
 // the picked time, else dinner, else the first. A dot marks the service that
 // holds the pick when another one is open.
-function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t }) {
+// `apptWords`: a salon, a shop or a workshop — its scarce slot is the last
+// TIME, never the last table. (Its groups are the day's parts, not meals:
+// groupSlots; with no "dinner" among them the grid opens on the first.)
+function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords = false }) {
   const groupOf = (s) => groups.find((g) => g.slots.includes(s))?.key || null;
   const fallback = groupOf(slot) || (groups.some((g) => g.key === "dinner") ? "dinner" : groups[0]?.key);
   const [tab, setTab] = useState(fallback);
@@ -163,7 +166,7 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t }) {
   // it is. A note that is the same everywhere is noise; show none.
   const allCounts = groups.flatMap((g) => g.slots.map((x) => slotRemaining[x])).filter((v) => v != null);
   const uniform = allCounts.length > 0 && allCounts.every((v) => v === allCounts[0]);
-  const noteFor = (x) => (uniform ? null : slotNote(slotRemaining[x], t));
+  const noteFor = (x) => (uniform ? null : slotNote(slotRemaining[x], t, { apptWords }));
   const withNotes = current.slots.some((x) => noteFor(x));
   return (
     <div className={loading ? "opacity-50 pointer-events-none transition-opacity duration-200" : "transition-opacity duration-200"}>
@@ -453,19 +456,28 @@ const SLOT_GROUP_DEFS = [
   { key: "afternoon", labelKey: "rsvpGroupAfternoon", test: (h) => h >= 15 && h < 17 },
   { key: "dinner", labelKey: "rsvpGroupDinner", test: (h) => h >= 17 },
 ];
+// A salon, a shop or a workshop books a time, not a meal: the day's parts —
+// Formiddag (before 12), Eftermiddag (12–17), Aften (17 and later). Its
+// customers met "Frokost" over 02:00–14:45 (QA item 8, Push 8 review).
+const APPT_SLOT_GROUP_DEFS = [
+  { key: "morning", labelKey: "rsvpGroupMorning", test: (h) => h < 12 },
+  { key: "afternoon", labelKey: "rsvpGroupAfternoon", test: (h) => h >= 12 && h < 17 },
+  { key: "evening", labelKey: "rsvpGroupEvening", test: (h) => h >= 17 },
+];
 
-function groupSlots(slots) {
-  const buckets = { lunch: [], afternoon: [], dinner: [] };
+function groupSlots(slots, apptWords = false) {
+  const defs = apptWords ? APPT_SLOT_GROUP_DEFS : SLOT_GROUP_DEFS;
+  const buckets = Object.fromEntries(defs.map((g) => [g.key, []]));
   for (const s of slots) {
     // Defensive parse — only well-formed "HH:MM" strings are bucketed.
     const m = /^(\d{1,2}):(\d{2})$/.exec(String(s));
     if (!m) continue;
     const hour = parseInt(m[1], 10);
     if (Number.isNaN(hour)) continue;
-    const def = SLOT_GROUP_DEFS.find((g) => g.test(hour));
+    const def = defs.find((g) => g.test(hour));
     if (def) buckets[def.key].push(s);
   }
-  return SLOT_GROUP_DEFS.map((g) => ({
+  return defs.map((g) => ({
     key: g.key,
     labelKey: g.labelKey,
     slots: buckets[g.key],
@@ -1258,7 +1270,7 @@ export default function ReservationPublicPage() {
   );
   // Period-grouped slots (Frokost / Eftermiddag / Aften), computed once per
   // availability response. Only non-empty groups survive.
-  const slotGroups = useMemo(() => groupSlots(slots), [slots]);
+  const slotGroups = useMemo(() => groupSlots(slots, apptWords), [slots, apptWords]);
   // Provider recap pieces: the chosen behandling (name + duration) and the
   // pinned behandler's name (empty = Valgfri behandler).
   const chosenBehandling = useMemo(
@@ -2708,6 +2720,7 @@ export default function ReservationPublicPage() {
                     // the new ones arrive — no flash of placeholders, no jump.
                     loading={slotsLoading}
                     t={t}
+                    apptWords={apptWords}
                   />
                 )}
             </div>

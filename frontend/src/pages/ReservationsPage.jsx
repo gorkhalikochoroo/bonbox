@@ -820,7 +820,8 @@ function statusLabels(t, checkedIn = false) {
 
 // Table(s) cell — a combined seating shows the "Bord 1 + Bord 2" chip, a
 // single table its label, an unassigned booking a muted dash.
-function TablesCell({ r, labelById, t, seatsById = null, zoneById = null }) {
+// `apptWords`: a shop's or a workshop's place ("Plads"), never a table.
+function TablesCell({ r, labelById, t, seatsById = null, zoneById = null, apptWords = false }) {
   // More guests than the table(s) seat — after "Gem alligevel" this showed
   // only on the floor plan ("10/8"). Live bookings only.
   const heldIds = Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length
@@ -830,7 +831,9 @@ function TablesCell({ r, labelById, t, seatsById = null, zoneById = null }) {
   const overTag = over ? (
     <span
       className="ml-1 inline-flex items-center gap-0.5 text-[12px] font-medium tabular-nums text-gray-700 dark:text-gray-200"
-      title={t("rsvpOverFull", "{n} guests at {seats} seats.", { n: r.party_size, seats })}
+      title={apptWords
+        ? t("rsvpOverFullAppt", "{n} people at {seats} places.", { n: r.party_size, seats })
+        : t("rsvpOverFull", "{n} guests at {seats} seats.", { n: r.party_size, seats })}
     >
       {r.party_size}/{seats}
     </span>
@@ -857,7 +860,7 @@ function TablesCell({ r, labelById, t, seatsById = null, zoneById = null }) {
     return (
       <span className="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
         <ZoneDot dot={zoneById ? zoneById[String(r.resource_id)] : null} />
-        {labelById[String(r.resource_id)] || t("rsvpTableFallback", "Table")}
+        {labelById[String(r.resource_id)] || (apptWords ? t("rsvpSeatWalkInTableAppt", "Space") : t("rsvpTableFallback", "Table"))}
         {overTag}
       </span>
     );
@@ -868,7 +871,7 @@ function TablesCell({ r, labelById, t, seatsById = null, zoneById = null }) {
     return (
       <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
         <AlertTriangle className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" aria-hidden />
-        {t("rsvpNoTableShort", "No table")}
+        {apptWords ? t("rsvpNoTableShortAppt", "No space") : t("rsvpNoTableShort", "No table")}
       </span>
     );
   }
@@ -1055,7 +1058,8 @@ function resolveTableLabel(r, labelById) {
 // Several tables for one party ("Bord 3 + Bord 4") — the way through "no
 // table seats 12", which the refusal tells the host to do and which had no
 // control. Tables taken at the booking's time can't be ticked.
-function TableCombiner({ r, tables, busyIds, t, busy, onSave }) {
+// `apptWords`: a shop's or a workshop's places, counted as people.
+function TableCombiner({ r, tables, busyIds, t, busy, onSave, apptWords = false }) {
   const current = (Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length
     ? r.combined_resource_ids
     : r.resource_id ? [r.resource_id] : []
@@ -1074,16 +1078,22 @@ function TableCombiner({ r, tables, busyIds, t, busy, onSave }) {
         className="mt-2 inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
       >
         <Link2 className="w-4 h-4" aria-hidden />
-        {current.length > 1 ? t("rsvpCombineChange", "Change tables") : t("rsvpCombineTables", "Push tables together")}
+        {apptWords
+          ? current.length > 1 ? t("rsvpCombineChangeAppt", "Change spaces") : t("rsvpCombineTablesAppt", "Join spaces")
+          : current.length > 1 ? t("rsvpCombineChange", "Change tables") : t("rsvpCombineTables", "Push tables together")}
       </button>
     );
   }
   return (
     <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-2.5">
       <div className={"text-[12px] tabular-nums " + (total >= r.party_size ? "text-gray-500 dark:text-gray-400" : "font-medium text-gray-800 dark:text-gray-100")}>
-        {Number(r.party_size) === 1
-          ? t("rsvpCombineSeatsOne", "{seats} seats for 1 guest", { seats: total })
-          : t("rsvpCombineSeats", "{seats} seats for {n} guests", { seats: total, n: r.party_size })}
+        {apptWords
+          ? Number(r.party_size) === 1
+            ? t("rsvpCombineSeatsOneAppt", "{seats} places for 1 person", { seats: total })
+            : t("rsvpCombineSeatsAppt", "{seats} places for {n} people", { seats: total, n: r.party_size })
+          : Number(r.party_size) === 1
+            ? t("rsvpCombineSeatsOne", "{seats} seats for 1 guest", { seats: total })
+            : t("rsvpCombineSeats", "{seats} seats for {n} guests", { seats: total, n: r.party_size })}
       </div>
       {/* Every table, no inner scroll: Bord 11–13 and Vindue 1 hid below a
           208px box with nothing saying there was more. */}
@@ -1120,7 +1130,7 @@ function TableCombiner({ r, tables, busyIds, t, busy, onSave }) {
           // In table order, so it reads "Bord 3 + Bord 6", not tap order.
           onClick={() => onSave([...tables].sort(byTableLabel).map((tb) => String(tb.id)).filter((id) => picked.includes(id)))}
         >
-          {t("rsvpCombineSave", "Seat at these tables")}
+          {apptWords ? t("rsvpCombineSaveAppt", "Use these spaces") : t("rsvpCombineSave", "Seat at these tables")}
         </Button>
         <Button size="md" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
           {t("cancel", "Cancel")}
@@ -1381,7 +1391,9 @@ function ReservationDrawer({
             ) : (
               // The table select below already names it — the drawer said
               // "Bord 2" twice, once as a row and once in the select.
-              tableLabel && !canAssign && <DetailRow label={t("rsvpColTable", "Table")} value={tableLabel} />
+              tableLabel && !canAssign && (
+                <DetailRow label={apptWords ? t("rsvpColTableAppt", "Space") : t("rsvpColTable", "Table")} value={tableLabel} />
+              )
             )}
             {r.guest_phone && (
               <DetailRow
@@ -1420,20 +1432,26 @@ function ReservationDrawer({
           {canAssign && (
               <div>
                 <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  {r.resource_id ? t("rsvpColTable", "Table") : t("rsvpAssignTable", "Assign table")}
+                  {apptWords
+                    ? r.resource_id ? t("rsvpColTableAppt", "Space") : t("rsvpAssignTableAppt", "Assign a space")
+                    : r.resource_id ? t("rsvpColTable", "Table") : t("rsvpAssignTable", "Assign table")}
                 </label>
                 <select
                   id="rsvp-drawer-table"
                   value={r.resource_id ? String(r.resource_id) : ""}
                   disabled={busy || assignBusy}
                   onChange={(e) => onAssign(r, e.target.value || null)}
-                  aria-label={t("rsvpAssignTable", "Assign table")}
+                  aria-label={apptWords ? t("rsvpAssignTableAppt", "Assign a space") : t("rsvpAssignTable", "Assign table")}
                   className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm disabled:opacity-50 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
                 >
                   <option value="">
-                    {r.resource_id
-                      ? t("rsvpNoTable", "No table")
-                      : t("rsvpChooseTable", "Choose a table…")}
+                    {apptWords
+                      ? r.resource_id
+                        ? t("rsvpNoTableShortAppt", "No space")
+                        : t("rsvpChooseTableAppt", "Choose a space…")
+                      : r.resource_id
+                        ? t("rsvpNoTable", "No table")
+                        : t("rsvpChooseTable", "Choose a table…")}
                   </option>
                   {/* Taken at this time → can't be picked (it silently
                       refused); too small → still allowed, but said. */}
@@ -1451,14 +1469,16 @@ function ReservationDrawer({
                 </select>
                 {heldSeats > 0 && Number(r.party_size) > heldSeats && (
                   <p className="mt-1.5 text-[12px] font-medium text-gray-700 dark:text-gray-200">
-                    {t("rsvpOverFull", "{n} guests at {seats} seats.", { n: r.party_size, seats: heldSeats })}
+                    {apptWords
+                      ? t("rsvpOverFullAppt", "{n} people at {seats} places.", { n: r.party_size, seats: heldSeats })
+                      : t("rsvpOverFull", "{n} guests at {seats} seats.", { n: r.party_size, seats: heldSeats })}
                   </p>
                 )}
                 {assignError && (
                   <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{assignError}</p>
                 )}
                 {onAssignMany && tables.length > 1 && (
-                  <TableCombiner r={r} tables={tables} busyIds={busyIds} t={t} busy={busy || assignBusy} onSave={(ids) => onAssignMany(r, ids)} />
+                  <TableCombiner r={r} tables={tables} busyIds={busyIds} t={t} busy={busy || assignBusy} onSave={(ids) => onAssignMany(r, ids)} apptWords={apptWords} />
                 )}
               </div>
             )}
@@ -1468,11 +1488,13 @@ function ReservationDrawer({
               <div>
                 {heldSeats > 0 && Number(r.party_size) > heldSeats && (
                   <p className="text-[12px] font-medium text-gray-700 dark:text-gray-200">
-                    {t("rsvpOverFull", "{n} guests at {seats} seats.", { n: r.party_size, seats: heldSeats })}
+                    {apptWords
+                      ? t("rsvpOverFullAppt", "{n} people at {seats} places.", { n: r.party_size, seats: heldSeats })
+                      : t("rsvpOverFull", "{n} guests at {seats} seats.", { n: r.party_size, seats: heldSeats })}
                   </p>
                 )}
                 {assignError && <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{assignError}</p>}
-                <TableCombiner r={r} tables={tables} busyIds={busyIds} t={t} busy={busy || assignBusy} onSave={(ids) => onAssignMany(r, ids)} />
+                <TableCombiner r={r} tables={tables} busyIds={busyIds} t={t} busy={busy || assignBusy} onSave={(ids) => onAssignMany(r, ids)} apptWords={apptWords} />
               </div>
             )}
 
@@ -1596,7 +1618,11 @@ function useEscToClose(onClose, busy = false) {
 // The seat sheet's value for "the tables the engine pushes together".
 const JOINED_PICK = "__joined";
 
-function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialParty = null, seatingFor = null, error = "", onWaitlist = null }) {
+// `apptWords`: a shop or a workshop (venueProfiles.speaksAppointments) checks
+// a customer in at a place, counted as people — "Tjek en kunde ind", "Plads",
+// "Antal personer". It read "Sæt gæster til bords / BORD / ANTAL GÆSTER" (QA
+// item 8, Push 8 review). The restaurant's words are untouched.
+function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialParty = null, seatingFor = null, error = "", onWaitlist = null, apptWords = false }) {
   const pickMode = table === SEAT_WALK_IN_PICK;
   useEscToClose(onClose, busy);
   const dialogRef = useSheetFocus();
@@ -1677,22 +1703,44 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
   const noneFree = pickMode && (rulesKnown
     ? !seatingNowFor
     : tables.length > 0 && tables.every((tb) => tb.busy));
+  // …and why. Tables standing free that are all too small for this party (a
+  // seven in a room of four- and six-tops, an empty room and a party of ten)
+  // is not "no table free": the host can see the free tables, and the
+  // waitlist will not make a four-top seat ten. The sheet says what is true —
+  // no free table seats them — and the host may still pick one by hand.
+  const freeNowTables = pickMode ? tables.filter((tb) => !tb.busy) : [];
+  const noneFitsFree =
+    noneFree &&
+    freeNowTables.length > 0 &&
+    freeNowTables.every((tb) => (Number(tb.capacity_seats) || 0) < partyN);
 
   const [pickedId, setPickedId] = useState(() =>
     pickMode ? autoPick(Number(party) || 2) : "",
   );
 
+  // A hand-picked table that is now taken — the book was read again after the
+  // server refused it (409): another host seated someone there.
+  const pickedTaken =
+    pickMode &&
+    pickedId !== "" &&
+    pickedId !== JOINED_PICK &&
+    !!tables.find((tb) => String(tb.id) === String(pickedId) && tb.busy);
+
   // Re-suggest as the party changes, and keep the pick valid if a table frees
   // up or fills on the 60s tick. Never overrides a hand-picked table — unless
-  // that pick was the joined set and there is none for this party any more.
+  // that pick was the joined set and there is none for this party any more,
+  // or the table it names is now taken (it stayed selected, listed as free,
+  // and a second tap met the same refusal).
   // "Nothing" is a suggestion too: a pick made for two does not stay under six.
   useEffect(() => {
     if (!pickMode) return;
-    if (tableTouched && !(pickedId === JOINED_PICK && !joinedNow)) return;
+    if (tableTouched && !(pickedId === JOINED_PICK && !joinedNow) && !pickedTaken) return;
+    // The host's pick is gone: suggestions lead again until they pick anew.
+    if (pickedTaken && tableTouched) setTableTouched(false);
     const next = autoPick(partyN);
     if (next !== pickedId) setPickedId(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickMode, tableTouched, partyN, autoPick, joinedNow]);
+  }, [pickMode, tableTouched, partyN, autoPick, joinedNow, pickedTaken]);
 
   const chosenTable = pickMode
     ? pickedId === JOINED_PICK
@@ -1730,7 +1778,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 id="rsvp-seat-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
-              {t("rsvpSeatNowTitle", "Seat guests")}
+              {apptWords ? t("rsvpSeatNowTitleAppt", "Check a customer in") : t("rsvpSeatNowTitle", "Seat guests")}
             </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {chosenTable
@@ -1740,7 +1788,9 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
                   " " +
                   // A table has seats; "4 gæster" read as the party.
                   t("rsvpSeats", "seats")
-                : t("rsvpSeatWalkIn", "Seat a drop-in")}
+                : apptWords
+                  ? t("rsvpSeatWalkInAppt", "Check in a drop-in")
+                  : t("rsvpSeatWalkIn", "Seat a drop-in")}
             </p>
           </div>
           <button
@@ -1758,7 +1808,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
         {pickMode && (
           <div>
             <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              {t("rsvpSeatWalkInTable", "Table")}
+              {apptWords ? t("rsvpSeatWalkInTableAppt", "Space") : t("rsvpSeatWalkInTable", "Table")}
             </label>
             <select
               value={pickedId}
@@ -1767,22 +1817,31 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
                 setTableTouched(true);
                 setPickedId(e.target.value);
               }}
-              aria-label={t("rsvpSeatWalkInTable", "Table")}
+              aria-label={apptWords ? t("rsvpSeatWalkInTableAppt", "Space") : t("rsvpSeatWalkInTable", "Table")}
               className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             >
               {tables.length === 0 && (
-                <option value="">{t("rsvpSeatWalkInNoTables", "No tables")}</option>
+                <option value="">
+                  {apptWords ? t("rsvpSeatWalkInNoTablesAppt", "No spaces") : t("rsvpSeatWalkInNoTables", "No tables")}
+                </option>
               )}
               {/* Nothing pre-picked: the host chooses. */}
               {tables.length > 0 && pickedId === "" && (
-                <option value="" disabled>{t("rsvpSeatPickTable", "Choose a table")}</option>
+                <option value="" disabled>
+                  {apptWords ? t("rsvpSeatPickTableAppt", "Choose a space") : t("rsvpSeatPickTable", "Choose a table")}
+                </option>
               )}
               {joinedNow && (
                 <option value={JOINED_PICK}>
-                  {t("rsvpSeatJoinedOption", "{tables} · {seats} seats, pushed together", {
-                    tables: joinedNow.label,
-                    seats: joinedNow.seats,
-                  })}
+                  {apptWords
+                    ? t("rsvpSeatJoinedOptionAppt", "{tables} · {seats} places together", {
+                        tables: joinedNow.label,
+                        seats: joinedNow.seats,
+                      })
+                    : t("rsvpSeatJoinedOption", "{tables} · {seats} seats, pushed together", {
+                        tables: joinedNow.label,
+                        seats: joinedNow.seats,
+                      })}
                 </option>
               )}
               {[...tables].sort(byTableLabel).map((tb) => (
@@ -1801,7 +1860,9 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
               /* Informs, never blocks — a host may deliberately push chairs
                  together, and the stand must not argue with the room. */
               <p className="mt-1.5 text-[12px] leading-snug font-medium text-gray-700 dark:text-gray-200">
-                {t("rsvpSeatTableSmall", "That table seats {seats} — you're seating {party}.")
+                {(apptWords
+                  ? t("rsvpSeatTableSmallAppt", "That space takes {seats} — you're checking in {party}.")
+                  : t("rsvpSeatTableSmall", "That table seats {seats} — you're seating {party}."))
                   .replace("{seats}", chosenTable?.capacity_seats ?? "?")
                   .replace("{party}", party)}
               </p>
@@ -1809,9 +1870,15 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
             {/* A full room says so here, with the way forward — not a
                 pre-picked table the server then refuses. */}
             {noneFree && (
-              <div role="status" data-seat-none-free="" className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-3 py-2.5">
+              <div role="status" data-seat-none-free={noneFitsFree ? "size" : "room"} className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-3 py-2.5">
                 <p className="text-[13px] leading-snug font-medium text-gray-800 dark:text-gray-100">
-                  {t("rsvpSeatNoneFree", "No table free right now — put them on the waitlist")}
+                  {noneFitsFree
+                    ? apptWords
+                      ? t("rsvpSeatNoneFitsAppt", "No free space fits {n} — choose one yourself, or put them on the waitlist", { n: partyN })
+                      : t("rsvpSeatNoneFits", "No free table seats {n} — choose a table yourself, or put them on the waitlist", { n: partyN })
+                    : apptWords
+                      ? t("rsvpSeatNoneFreeAppt", "No space free right now — put them on the waitlist")
+                      : t("rsvpSeatNoneFree", "No table free right now — put them on the waitlist")}
                 </p>
                 {onWaitlist && (
                   <button
@@ -1829,11 +1896,11 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
         <div>
           <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             {/* The New booking and Edit sheets' own words — this one said "PERS.". */}
-            {t("rsvpPartySize", "Party size")}
+            {apptWords ? t("rsvpPartySizeAppt", "People") : t("rsvpPartySize", "Party size")}
           </label>
           {/* Was its own [1,2,3,4,5,6,8] ladder — a walk-in of 7 or 9 could
               not be typed at all. Now the one shared ladder. */}
-          <PartySizeChips value={party} onChange={setParty} t={t} />
+          <PartySizeChips value={party} onChange={setParty} t={t} apptWords={apptWords} />
         </div>
         <div>
           <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -1863,7 +1930,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
           disabled={!canSeat}
           className="w-full justify-center"
         >
-          {t("rsvpSeatNowBtn", "Seat now")}
+          {apptWords ? t("rsvpSeatActionAppt", "Check in") : t("rsvpSeatNowBtn", "Seat now")}
         </Button>
       </form>
     </div>
@@ -4907,25 +4974,41 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       return res?.data || null;
     } catch (e) {
       const code = e?.response?.data?.detail?.error;
+      const conflict = e?.response?.status === 409;
       // Chosen table just got taken (race, or the picker's 60s view was stale)
       // → honest message, never a silent double-seat.
-      if (e?.response?.status === 409 && joined && (code === "slot_unavailable" || code === "room_full")) {
-        say(
-          t("rsvpSeatTablesTaken", "Those tables are no longer free together — pick another table."),
-        );
-      } else if (e?.response?.status === 409 && code === "slot_unavailable") {
-        say(
-          t("rsvpSeatTableTaken", "That table is now taken — pick another free table."),
-        );
-      } else if (e?.response?.status === 409 && code === "table_occupied") {
-        say(
-          t("rsvpTableStillTaken", "{table} is still taken — finish the party there first, or pick another table.", {
-            table: e.response.data.detail.occupant?.table || t("rsvpTableFallback", "Table"),
-          }),
-        );
+      // A shop or a workshop hears of places and appointments, not tables
+      // and parties.
+      let msg;
+      if (conflict && joined && (code === "slot_unavailable" || code === "room_full")) {
+        msg = apptWords
+          ? t("rsvpSeatTablesTakenAppt", "Those spaces are no longer free together — pick another space.")
+          : t("rsvpSeatTablesTaken", "Those tables are no longer free together — pick another table.");
+      } else if (conflict && code === "slot_unavailable") {
+        msg = apptWords
+          ? t("rsvpSeatTableTakenAppt", "That space is now taken — pick another free space.")
+          : t("rsvpSeatTableTaken", "That table is now taken — pick another free table.");
+      } else if (conflict && code === "table_occupied") {
+        const occupant = e.response.data.detail.occupant?.table;
+        msg = apptWords
+          ? t("rsvpTableStillTakenAppt", "{table} is still taken — finish the appointment there first, or pick another space.", {
+              table: occupant || t("rsvpTableFallbackAppt", "The space"),
+            })
+          : t("rsvpTableStillTaken", "{table} is still taken — finish the party there first, or pick another table.", {
+              table: occupant || t("rsvpTableFallback", "Table"),
+            });
       } else {
-        say(code || t("rsvpSeatError", "Couldn't seat the guests."));
+        msg = code || (apptWords
+          ? t("rsvpSeatErrorAppt", "Couldn't check the customer in.")
+          : t("rsvpSeatError", "Couldn't seat the guests."));
       }
+      // A 409 means the room moved under the stand — another host, another
+      // device, or a view up to 60 s old. Read the book again, so the sheet
+      // stops offering (and pre-picking) the table just refused and the
+      // header counts behind it are the room's. Before the message: the
+      // reload clears the page's error line.
+      if (conflict) await fetchBook(day);
+      say(msg);
       return null;
     } finally {
       setSeating(false);
@@ -5006,6 +5089,81 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     const id = setTimeout(() => setWalkInDone(null), 20000);
     return () => clearTimeout(id);
   }, [walkInDone]);
+
+  // The line itself — in the drop-in row, or floating where that row is not
+  // on screen. On a phone the sentence takes the whole first line and the
+  // buttons go under it: beside them it was cut to "7 gæster sat ved
+  // Bord 2…" (144 of 279 px at 360) — the second table, often across the
+  // room, never showed. It wraps; it is never cut.
+  const walkInDoneLine = (floating) =>
+    walkInDone && (
+      <div
+        className={
+          (floating ? "" : "mt-2 pt-2 border-t border-gray-100 dark:border-[rgb(var(--surface-line))] ") +
+          "flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm " +
+          (walkInDone.moved ? "text-amber-800 dark:text-amber-200" : "text-gray-700 dark:text-gray-200")
+        }
+        role="status"
+        data-walkin-done={walkInDone.moved ? "moved" : "seated"}
+      >
+        {walkInDone.moved ? (
+          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" aria-hidden />
+        ) : (
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden />
+        )}
+        {/* Named from the server's answer. Where it seated the party
+            elsewhere than asked, the line says so — and where. */}
+        <span
+          data-walkin-done-text=""
+          className="min-w-0 flex-1 basis-[calc(100%-1.5rem)] sm:basis-0 break-words leading-snug"
+        >
+          {apptWords
+            ? walkInDone.moved
+              ? walkInDone.label
+                ? t("rsvpWalkInSeatedElsewhereAppt", "Checked in at {table} — not at {asked}", {
+                    table: walkInDone.label,
+                    asked: walkInDone.asked || "—",
+                  })
+                : t("rsvpWalkInSeatedNoTableAppt", "Checked in without a space — not at {asked}", {
+                    asked: walkInDone.asked || "—",
+                  })
+              : walkInDone.size === 1
+                ? t("rsvpWalkInSeatedOneAppt", "1 person checked in at {table}", { table: walkInDone.label || "" })
+                : t("rsvpWalkInSeatedAppt", "{n} people checked in at {table}", { n: walkInDone.size, table: walkInDone.label || "" })
+            : walkInDone.moved
+            ? walkInDone.label
+              ? t("rsvpWalkInSeatedElsewhere", "Seated at {table} — not at {asked}", {
+                  table: walkInDone.label,
+                  asked: walkInDone.asked || "—",
+                })
+              : t("rsvpWalkInSeatedNoTable", "Seated without a table — not at {asked}", {
+                  asked: walkInDone.asked || "—",
+                })
+            : walkInDone.size === 1
+              ? t("rsvpWalkInSeatedOne", "1 guest seated at {table}", { table: walkInDone.label || "" })
+              : t("rsvpWalkInSeated", "{n} guests seated at {table}", { n: walkInDone.size, table: walkInDone.label || "" })}
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            const fresh = reservations.find((x) => String(x.id) === String(walkInDone.row.id));
+            openDrawer(fresh || walkInDone.row);
+            setWalkInDone(null);
+          }}
+          className="ml-auto shrink-0 h-9 px-3 rounded-lg text-xs font-semibold border border-gray-300 text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-800"
+        >
+          {apptWords ? t("rsvpWalkInChangeTableAppt", "Change space") : t("rsvpWalkInChangeTable", "Change table")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setWalkInDone(null)}
+          aria-label={t("close", "Close")}
+          className="shrink-0 h-9 w-9 inline-flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+        >
+          <X className="w-4 h-4" aria-hidden />
+        </button>
+      </div>
+    );
 
   // Take a future (phone) booking. auto_assign:true lets the backend pick a
   // table via the availability engine; a 409 room_full keeps the sheet open
@@ -5777,9 +5935,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     },
     {
       id: "tables",
-      label: t("rsvpColTable", "Table"),
+      label: apptWords ? t("rsvpColTableAppt", "Space") : t("rsvpColTable", "Table"),
       width: "w-36",
-      render: (r) => <TablesCell r={r} labelById={labelById} seatsById={seatsById} zoneById={zoneById} t={t} />,
+      render: (r) => <TablesCell r={r} labelById={labelById} seatsById={seatsById} zoneById={zoneById} t={t} apptWords={apptWords} />,
     },
   ];
   const dayHasTableRows = isProvider && reservations.some(holdsTable);
@@ -6094,10 +6252,16 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               phone cannot hold all four — it was shrink-0 on one line, so at
               360–390 px the table name went to nothing ("2 E ● Afsluttet")
               and the times ran off the card. */}
+          {/* A party at tables pushed together wraps too: on one line its
+              tables were cut ("Bord 8 + Bo…"), and the host had to open the
+              booking to see where the party went. */}
           <div
             className={
               "mt-1 flex items-center text-[12px] text-gray-500 dark:text-gray-400 tabular-nums min-w-0 " +
-              (r.status === "completed" ? "flex-wrap gap-x-2.5 gap-y-0.5" : "gap-2.5")
+              (r.status === "completed" ||
+              (["confirmed", "seated"].includes(r.status) && Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length > 1)
+                ? "flex-wrap gap-x-2.5 gap-y-0.5"
+                : "gap-2.5")
             }
             data-row-meta=""
           >
@@ -6126,7 +6290,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               const over = seats > 0 && Number(r.party_size) > seats;
               return tl
                 ? (
-                  <span className="min-w-0 truncate">
+                  <span className="min-w-0 max-w-full truncate" title={tl} data-row-tables="">
                     {tl}
                     {over && <span className="ml-1 font-medium text-gray-800 dark:text-gray-100">⚠ {r.party_size}/{seats}</span>}
                   </span>
@@ -6134,7 +6298,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 : (
                   <span className="shrink-0 inline-flex items-center gap-0.5 whitespace-nowrap text-gray-700 dark:text-gray-200">
                     <AlertTriangle className="w-3 h-3 text-gray-500 dark:text-gray-400" aria-hidden />
-                    {t("rsvpNoTableShort", "No table")}
+                    {apptWords ? t("rsvpNoTableShortAppt", "No space") : t("rsvpNoTableShort", "No table")}
                   </span>
                 );
             })()}
@@ -6364,6 +6528,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                     <span className="truncate">{label}</span>
                   </span>
                   <span className="block text-[13px] md:text-sm leading-tight tabular-nums whitespace-nowrap truncate text-gray-900 dark:text-gray-100">
+                    {/* Until the book has arrived there is no count to give:
+                        "—", as the drop-in row does — not "0 gæster" under
+                        the list's skeletons (Push 8 review). */}
+                    {!data ? (
+                      <span className="font-semibold" data-covers-unknown="">—</span>
+                    ) : (<>
                     <span className="font-semibold">
                       {apptWords
                         ? c.guests === 1
@@ -6385,6 +6555,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                           ? t("rsvpStandPartiesOne", "{n} party", { n: c.parties })
                           : t("rsvpStandParties", "{n} parties", { n: c.parties })}
                     </span>
+                    </>)}
                   </span>
                 </button>
               ))}
@@ -6658,11 +6829,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               size="lg"
               iconLeft={<Armchair className="w-4 h-4" />}
               onClick={openSeatWalkIn}
-              aria-label={t("rsvpSeatWalkIn", "Seat a drop-in")}
+              aria-label={apptWords ? t("rsvpSeatWalkInAppt", "Check in a drop-in") : t("rsvpSeatWalkIn", "Seat a drop-in")}
               className={PHONE_ACTION}
             >
               <span className="sm:hidden">{t("rsvpSeatWalkInShort", "Drop-in")}</span>
-              <span className="hidden sm:inline">{t("rsvpSeatWalkIn", "Seat a drop-in")}</span>
+              <span className="hidden sm:inline">
+                {apptWords ? t("rsvpSeatWalkInAppt", "Check in a drop-in") : t("rsvpSeatWalkIn", "Seat a drop-in")}
+              </span>
             </Button>
           )}
           <Button
@@ -6709,7 +6882,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               <div className="md:mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
                 {walkIns.some((o) => !o.freeNow && o.at)
                   ? t("rsvpWalkInAboutHow", "approx. = worked out from the bookings' end times")
-                  : t("rsvpWalkInHint", "Tap the number of guests")}
+                  : apptWords
+                    ? t("rsvpWalkInHintAppt", "Tap the number of people")
+                    : t("rsvpWalkInHint", "Tap the number of guests")}
               </div>
             </div>
             <div className="grid grid-cols-3 md:grid-cols-6 gap-2 flex-1 min-w-0" data-walkin-grid>
@@ -6721,7 +6896,27 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 // One guest is "1 gæst", never "1 gæster" (a screen reader read
                 // the plural on the first button).
                 const one = sizeLabel === "1";
-                const aria = o.unknown
+                // A shop or a workshop: people, places, "tjek ind" — the
+                // buttons were named "1 gæst: intet bord ledigt nu …".
+                const aria = apptWords
+                  ? o.unknown
+                    ? one
+                      ? t("rsvpWalkInPickAriaOneAppt", "1 person: choose a space")
+                      : t("rsvpWalkInPickAriaAppt", "{n} people: choose a space", { n: sizeLabel })
+                    : o.freeNow
+                    ? sizeLabel.endsWith("+")
+                      ? t("rsvpWalkInSheetAriaAppt", "{n} people: a space is free now — choose the number and space", { n: sizeLabel })
+                      : one
+                        ? t("rsvpWalkInSeatAriaOneAppt", "1 person: check in now at {table}", { table: o.label || "" })
+                        : t("rsvpWalkInSeatAriaAppt", "{n} people: check in now at {table}", { n: sizeLabel, table: o.label || "" })
+                    : atText
+                      ? one
+                        ? t("rsvpWalkInWaitAriaOneAppt", "1 person: no space free now, approx. {time} — add to the waitlist", { time: atText })
+                        : t("rsvpWalkInWaitAriaAppt", "{n} people: no space free now, approx. {time} — add to the waitlist", { n: sizeLabel, time: atText })
+                      : one
+                        ? t("rsvpWalkInWlAriaOneAppt", "1 person: no space free now — add to the waitlist")
+                        : t("rsvpWalkInWlAriaAppt", "{n} people: no space free now — add to the waitlist", { n: sizeLabel })
+                  : o.unknown
                   ? one
                     ? t("rsvpWalkInPickAriaOne", "1 guest: choose a table")
                     : t("rsvpWalkInPickAria", "{n} guests: choose a table", { n: sizeLabel })
@@ -6773,58 +6968,21 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               })}
             </div>
           </div>
-          {walkInDone && (
-            <div
-              className={
-                "mt-2 pt-2 border-t border-gray-100 dark:border-[rgb(var(--surface-line))] flex items-center gap-2 text-sm " +
-                (walkInDone.moved ? "text-amber-800 dark:text-amber-200" : "text-gray-700 dark:text-gray-200")
-              }
-              role="status"
-              data-walkin-done={walkInDone.moved ? "moved" : "seated"}
-            >
-              {walkInDone.moved ? (
-                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" aria-hidden />
-              ) : (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden />
-              )}
-              {/* Named from the server's answer. Where it seated the party
-                  elsewhere than asked, the line says so — and where. */}
-              <span className={walkInDone.moved ? "min-w-0" : "min-w-0 truncate"}>
-                {walkInDone.moved
-                  ? walkInDone.label
-                    ? t("rsvpWalkInSeatedElsewhere", "Seated at {table} — not at {asked}", {
-                        table: walkInDone.label,
-                        asked: walkInDone.asked || "—",
-                      })
-                    : t("rsvpWalkInSeatedNoTable", "Seated without a table — not at {asked}", {
-                        asked: walkInDone.asked || "—",
-                      })
-                  : walkInDone.size === 1
-                    ? t("rsvpWalkInSeatedOne", "1 guest seated at {table}", { table: walkInDone.label || "" })
-                    : t("rsvpWalkInSeated", "{n} guests seated at {table}", { n: walkInDone.size, table: walkInDone.label || "" })}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  const fresh = reservations.find((x) => String(x.id) === String(walkInDone.row.id));
-                  openDrawer(fresh || walkInDone.row);
-                  setWalkInDone(null);
-                }}
-                className="ml-auto shrink-0 h-9 px-3 rounded-lg text-xs font-semibold border border-gray-300 text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-800"
-              >
-                {t("rsvpWalkInChangeTable", "Change table")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setWalkInDone(null)}
-                aria-label={t("close", "Close")}
-                className="shrink-0 h-9 w-9 inline-flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-              >
-                <X className="w-4 h-4" aria-hidden />
-              </button>
-            </div>
-          )}
+          {walkInDoneLine(false)}
         </section>
+      )}
+      {/* Where the drop-in row is not on screen — the book page, the stand's
+          Plan lens — a seat from the header's sheet still says where the
+          party went: the same line, floating over the foot of the page (in
+          the flow it would push the fitted room down for its 20 s). */}
+      {walkInDone && !(walkIns && view !== "plan") && createPortal(
+        <div
+          data-walkin-done-float=""
+          className="fixed z-50 left-1/2 -translate-x-1/2 bottom-[calc(env(safe-area-inset-bottom)+72px)] md:bottom-5 w-[calc(100%-2rem)] max-w-md rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] bg-white dark:bg-[rgb(var(--surface-raised))] shadow-lg px-3 py-2.5"
+        >
+          {walkInDoneLine(true)}
+        </div>,
+        document.body,
       )}
 
       {/* Cockpit — the day's vitals, as ONE slim strip above the room.
@@ -6886,7 +7044,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               isProvider
                 ? t("rsvpSeatedHelperProvider", "in the salon")
               : apptWords
-                ? t("rsvpSeatedHelperAppt", "customers")
+                // One is one: "Her nu 1 kunde" — it read "1 / kunder" under
+                // the header's "Tjekket ind 1 kunde".
+                ? seatedGuests === 1
+                  ? t("rsvpSeatedHelperApptOne", "customer")
+                  : t("rsvpSeatedHelperAppt", "customers")
               : seatedCount === 0
                 ? t("rsvpSeatedHelper", "in the room")
                 : [
@@ -7369,6 +7531,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           seatingFor={seatingFor}
           error={seatError}
           onWaitlist={waitlistFromSheet}
+          apptWords={apptWords}
         />,
         document.body,
       )}

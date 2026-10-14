@@ -34,6 +34,14 @@ describe("slotNote", () => {
     expect(slotNote(1, t)).toBe("Sidste bord");
   });
 
+  // Push 8 review: a salon, a shop or a workshop books a time, not a table.
+  it("calls one time the last time where appointments are booked", () => {
+    expect(slotNote(1, t, { apptWords: true })).toBe("Sidste tid");
+    expect(slotNote(2, t, { apptWords: true })).toBe("2 tilbage");
+    expect(slotNote(undefined, t, { apptWords: true })).toBe("");
+    expect(slotNote(1, t, { apptWords: false })).toBe("Sidste bord");
+  });
+
   it("counts down only inside the scarce band", () => {
     expect(slotNote(2, t)).toBe("2 tilbage");
     expect(slotNote(SLOT_SCARCE_AT, t)).toBe(`${SLOT_SCARCE_AT} tilbage`);

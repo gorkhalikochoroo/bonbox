@@ -16,8 +16,15 @@
  *   9. One guest is "1 gæst" / "1 guest" in the drop-in buttons' names.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within, configure } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+
+// Push 8 review: on a loaded machine (load average 200–800) five of these
+// timed out — "Timed out in waitFor" (1 s default) and "Test timed out in
+// 5000ms" — while the file alone passed 19/19; a test here takes 4–6 s under
+// load. The waits are for the page, not for a deadline the page must meet.
+vi.setConfig({ testTimeout: 30000 });
+configure({ asyncUtilTimeout: 5000 });
 
 const lang = vi.hoisted(() => ({ code: "en" }));
 vi.mock("../services/api", () => ({
@@ -400,5 +407,228 @@ describe("9 · one guest is one guest", () => {
       expect(da[k], k).not.toMatch(/1 gæster/);
       expect(en[k], k).toMatch(/1 guest\b/);
     }
+  });
+});
+
+/* ─── Push 8 review round (13 Oct 2026) ────────────────────────────────────
+ *
+ *   3. The line after a joined seat was cut on a phone ("7 gæster sat ved
+ *      Bord 2…": 144 of 279 px at 360) — the second table, often across the
+ *      room, never showed; seated list rows cut theirs too ("Bord 8 + Bo…").
+ *      It wraps now, never cut. (jsdom cannot measure: the classes that make
+ *      it wrap are what is pinned; the layout was checked in a browser.)
+ *   3. A seat from the header's sheet where the drop-in row is not on screen
+ *      (the book page, the stand's Floor view) said nothing: the same line
+ *      floats over the foot of the page there.
+ *   4/5. Free tables that are all too small for the party is not "no table
+ *      free right now": the sheet says no free table seats them.
+ *   5. After a 409 the sheet reads the room again: the refused table is
+ *      marked taken and no longer picked.
+ */
+const classesOf = (el) => el.className.split(/\s+/);
+
+describe("3 · the line names every table, on a phone too (review)", () => {
+  const JOINABLE = [
+    ...RESOURCES,
+    table("51", 4, { combinable: true }),
+    table("52", 2, { combinable: true }),
+  ];
+  it("wraps — never truncates — and its buttons go under it on a phone", async () => {
+    mockApi({}, { resources: JOINABLE });
+    renderStand();
+    await waitFor(async () => expect((await sizeButton(6)).textContent).toContain("Free now"));
+    fireEvent.click(await sizeButton(6));
+    const dialog = await screen.findByRole("dialog", { name: "Seat guests" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
+    const text = await waitFor(() => {
+      const el = document.querySelector("[data-walkin-done-text]");
+      expect(el).not.toBeNull();
+      return el;
+    });
+    expect(text.textContent).toBe("6 guests seated at 51 + 52");
+    expect(classesOf(text)).not.toContain("truncate");
+    expect(classesOf(text)).toEqual(expect.arrayContaining(["break-words", "flex-1", "min-w-0"]));
+    // Below sm the sentence takes the first line beside its icon; the buttons wrap under it.
+    expect(classesOf(text)).toEqual(expect.arrayContaining(["basis-[calc(100%-1.5rem)]", "sm:basis-0"]));
+    const line = text.closest("[data-walkin-done]");
+    expect(classesOf(line)).toContain("flex-wrap");
+    // On the stand's List view it sits in the drop-in row, not floating.
+    expect(line.closest("[data-walkin-done-float]")).toBeNull();
+    expect(line.closest('section[aria-labelledby="rsvp-walkin-title"]')).not.toBeNull();
+  });
+
+  it("a party at tables pushed together keeps all of them on its list row", async () => {
+    renderStand();
+    await waitFor(() => expect(compactRowOf("Selskab Kragh")).toBeTruthy());
+    const meta = compactRowOf("Selskab Kragh").querySelector("[data-row-meta]");
+    expect(classesOf(meta)).toContain("flex-wrap");
+    const tables = meta.querySelector("[data-row-tables]");
+    expect(tables.textContent).toBe("31 + 32 + 33");
+    expect(tables.getAttribute("title")).toBe("31 + 32 + 33");
+    expect(classesOf(tables)).toContain("max-w-full");
+    // A party at one table keeps its one line.
+    expect(classesOf(compactRowOf("Birk").querySelector("[data-row-meta]"))).not.toContain("flex-wrap");
+  });
+});
+
+describe("3 · where the drop-in row is not on screen, the line floats (review)", () => {
+  const seatFromHeader = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Seat a drop-in" }));
+    const dialog = await screen.findByRole("dialog", { name: "Seat guests" });
+    await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "Table" })).toHaveValue("41"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    return screen.findByText("2 guests seated at 41");
+  };
+
+  it("on the book page (/reservations)", async () => {
+    renderStand("/reservations");
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith("/reservations/book", expect.anything()));
+    expect(document.querySelector("[data-walkin-grid]")).toBeNull();
+    const said = await seatFromHeader();
+    const float = said.closest("[data-walkin-done-float]");
+    expect(float).not.toBeNull();
+    expect(classesOf(float)).toContain("fixed");
+    expect(said.closest("[data-walkin-done]").dataset.walkinDone).toBe("seated");
+    // Change table opens the booking and the line goes.
+    fireEvent.click(within(float).getByRole("button", { name: "Change table" }));
+    await waitFor(() => expect(document.querySelector("[data-walkin-done-float]")).toBeNull());
+  });
+
+  it("on the stand's Floor view", async () => {
+    renderStand();
+    await sizeButton(1);
+    fireEvent.click(screen.getAllByRole("tab", { name: "Floor" })[0]);
+    await waitFor(() => expect(document.querySelector("[data-walkin-grid]")).toBeNull());
+    const said = await seatFromHeader();
+    expect(said.closest("[data-walkin-done-float]")).not.toBeNull();
+  });
+});
+
+describe("4/5 · free tables, none big enough (review)", () => {
+  // An empty room: two four-tops and a two-top, none joinable, no bookings.
+  const EMPTY = [table("1", 4), table("2", 4), table("3", 2)];
+  const openFor = async (n) => {
+    mockApi({}, { book: [], resources: EMPTY });
+    renderStand();
+    await sizeButton(1);
+    fireEvent.click(screen.getByRole("button", { name: lang.code === "da" ? da.rsvpSeatWalkIn : "Seat a drop-in" }));
+    const dialog = await screen.findByRole("dialog", { name: lang.code === "da" ? da.rsvpSeatNowTitle : "Seat guests" });
+    fireEvent.click(within(dialog).getByRole("button", { name: lang.code === "da" ? `${n} gæster` : `${n} guests` }));
+    return dialog;
+  };
+
+  it("an empty room and a party of ten: no free table seats ten — not 'no table free'", async () => {
+    const dialog = await openFor(10);
+    await waitFor(() => expect(within(dialog).getByText("No free table seats 10 — choose a table yourself, or put them on the waitlist")).toBeInTheDocument());
+    expect(within(dialog).queryByText("No table free right now — put them on the waitlist")).toBeNull();
+    expect(dialog.querySelector("[data-seat-none-free]").getAttribute("data-seat-none-free")).toBe("size");
+    // Nothing is picked for them; the host may pick by hand, and is told the size.
+    const sel = within(dialog).getByRole("combobox", { name: "Table" });
+    expect(sel).toHaveValue("");
+    expect(within(dialog).getByRole("button", { name: "Seat now" })).toBeDisabled();
+    fireEvent.change(sel, { target: { value: "1" } });
+    expect(within(dialog).getByText("That table seats 4 — you're seating 10.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Seat now" })).not.toBeDisabled();
+    // The waitlist stays one tap away.
+    expect(within(dialog).getByRole("button", { name: "Add to waitlist" })).toBeInTheDocument();
+  });
+
+  it("in Danish", async () => {
+    lang.code = "da";
+    const dialog = await openFor(10);
+    await waitFor(() => expect(within(dialog).getByText("Intet ledigt bord har plads til 10 — vælg et bord selv, eller sæt dem på ventelisten")).toBeInTheDocument());
+    expect(within(dialog).queryByText(da.rsvpSeatNoneFree)).toBeNull();
+  });
+
+  it("a party a free table fits gets that table, and no message", async () => {
+    const dialog = await openFor(4);
+    await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "Table" })).toHaveValue("1"));
+    expect(dialog.querySelector("[data-seat-none-free]")).toBeNull();
+  });
+
+  it("a full room still says no table is free", async () => {
+    const ROOM = [table("1", 2), table("2", 2), table("4", 4)];
+    const FULL = [
+      row("s1", "Anders", "1", "seated", "18:30", "20:00", 2, { seated_at: z("18:30") }),
+      row("s2", "Drop-in", "2", "seated", "18:40", "20:10", 2, { seated_at: z("18:40") }),
+      row("s4", "Berg", "4", "seated", "18:20", "20:20", 4, { seated_at: z("18:20") }),
+    ];
+    mockApi({}, { book: FULL, resources: ROOM });
+    renderStand();
+    await sizeButton(1);
+    fireEvent.click(screen.getByRole("button", { name: "Seat a drop-in" }));
+    const dialog = await screen.findByRole("dialog", { name: "Seat guests" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "8 guests" }));
+    await waitFor(() => expect(within(dialog).getByText("No table free right now — put them on the waitlist")).toBeInTheDocument());
+    expect(dialog.querySelector("[data-seat-none-free]").getAttribute("data-seat-none-free")).toBe("room");
+  });
+
+  it("every new key has real Danish and English", () => {
+    expect(da.rsvpSeatNoneFits).toMatch(/^Intet ledigt bord har plads til \{n\}/);
+    expect(en.rsvpSeatNoneFits).toMatch(/^No free table seats \{n\}/);
+  });
+});
+
+describe("5 · after a 409 the sheet reads the room again (review)", () => {
+  const HOLM = row("x", "Holm", "41", "seated", "19:00", "20:30", 2, { seated_at: z("19:00") });
+  // Another host seats a party at 41 while the sheet is open: the server
+  // refuses this seat, and from then on the book holds Holm at 41.
+  const raced = () => {
+    let taken = false;
+    mockApi({
+      "/reservations/book": () => Promise.resolve({
+        data: { date: DAY, reservations: taken ? [...BOOK, HOLM] : BOOK, summary: { total: 0, covers: 0, by_status: {} } },
+      }),
+    });
+    api.post.mockImplementation(() => {
+      taken = true;
+      return Promise.reject({ response: { status: 409, data: { detail: { error: "table_occupied", occupant: { table: "41", name: "Holm" } } } } });
+    });
+  };
+  const bookReads = () => api.get.mock.calls.filter(([u]) => u === "/reservations/book").length;
+
+  it.each([["pre-picked", false], ["picked by hand", true]])(
+    "the refused table (%s) is marked taken and no longer picked; the refusal stays in the sheet",
+    async (_label, byHand) => {
+      raced();
+      renderStand();
+      await sizeButton(1);
+      fireEvent.click(screen.getByRole("button", { name: "Seat a drop-in" }));
+      const dialog = await screen.findByRole("dialog", { name: "Seat guests" });
+      const sel = within(dialog).getByRole("combobox", { name: "Table" });
+      await waitFor(() => expect(sel).toHaveValue("41"));
+      if (byHand) fireEvent.change(sel, { target: { value: "41" } });
+      const before = bookReads();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
+      const alert = await within(dialog).findByRole("alert");
+      expect(alert.textContent).toBe("41 is still taken — finish the party there first, or pick another table.");
+      expect(bookReads()).toBeGreaterThan(before);
+      await waitFor(() => expect(within(dialog).getByRole("option", { name: /^41 · 2 seats — occupied$/ })).toBeDisabled());
+      await waitFor(() => expect(sel).toHaveValue(""));
+      expect(within(dialog).getByRole("button", { name: "Seat now" })).toBeDisabled();
+      // Still said in the sheet, and only there.
+      expect(screen.queryAllByText("41 is still taken — finish the party there first, or pick another table.")).toHaveLength(1);
+      expect(api.post).toHaveBeenCalledTimes(1);
+    },
+  );
+});
+
+describe("6 · the covers give no count before the book is in (review)", () => {
+  it("'—', never '0 guests', while the book loads; the counts once it has arrived", async () => {
+    let arrive;
+    mockApi({ "/reservations/book": () => new Promise((resolve) => { arrive = resolve; }) });
+    renderStand();
+    await waitFor(() => expect(document.querySelector('[data-covers="seated"]')).not.toBeNull());
+    await waitFor(() => expect(typeof arrive).toBe("function"));
+    for (const k of ["seated", "expected", "finished"]) {
+      const cell = document.querySelector(`[data-covers="${k}"]`);
+      expect(cell.querySelector("[data-covers-unknown]")).not.toBeNull();
+      expect(cell.textContent).not.toMatch(/\b0 guests?\b/);
+    }
+    arrive({ data: { date: DAY, reservations: BOOK, summary: { total: BOOK.length, covers: 0, by_status: {} } } });
+    await waitFor(() => expect(document.querySelector("[data-covers-unknown]")).toBeNull());
+    expect(document.querySelector('[data-covers="seated"]').textContent).toMatch(/\d+ guests/);
+    expect(document.querySelector('[data-covers="finished"]').textContent).toMatch(/\d+ guests/);
   });
 });
