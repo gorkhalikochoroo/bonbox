@@ -525,7 +525,9 @@ export const NAV_MANIFEST = [
     pillar: "inventory",
     requiresModule: "bar_pour",
     frequency: "daily",
-    surfaces: ["sidebar"],
+    // On the phone's Mere sheet too, beside Vinkort: a bar owner's daily tool
+    // was only in the ≡ drawer, and Mere showed Vinkort alone under LAGER.
+    surfaces: ["sidebar", "more"],
   },
   {
     // Wine list — STRICTER UNION GATE (panel-flagged drift fix). Both the

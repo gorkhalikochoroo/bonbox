@@ -46,6 +46,16 @@ describe("a fresh bar: Lager dormant, bar modules on", () => {
     expect(stock.items).toEqual(expect.arrayContaining(["/bar", "/wine-list"]));
   });
 
+  // Push 8 review: on a phone Mere showed Vinkort alone under LAGER — the
+  // bar's daily tool was only in the ≡ drawer.
+  it("…and on the phone's Mere sheet, both of them", () => {
+    const more = NAV_MANIFEST.filter((d) => d.surfaces.includes("more"));
+    const shown = filterDestinations(more, ctxFor()).map((d) => d.to);
+    expect(shown).toEqual(expect.arrayContaining(["/bar", "/wine-list"]));
+    // Still gated by its module.
+    expect(filterDestinations(more, ctxFor({ modules: [] })).map((d) => d.to)).not.toContain("/bar");
+  });
+
   it("the dormant pillar's own page still drops to its Sæt op tile (unchanged)", () => {
     const shown = tos(ctxFor());
     expect(shown).not.toContain("/inventory");
