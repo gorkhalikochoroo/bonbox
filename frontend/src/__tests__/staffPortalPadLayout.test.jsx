@@ -424,8 +424,10 @@ describe("iPad (pad): sidebar, wide column, form sheets", () => {
     await mount();
     fireEvent.click(screen.getByTitle("Rediger profil"));
     const dialog = await screen.findByRole("dialog");
-    // z-[70] (round 4): above the cookie banner (z-60).
-    expect(phoneTokens(dialog)).toBe("fixed inset-0 z-[70] flex flex-col justify-end m-0");
+    // z-[70] (round 4): above the cookie banner (z-60). pt- (1.6 build 23,
+    // round 2): with the keyboard up the sheet stops at the status bar, so its
+    // title and close X are never drawn under the clock in the edge-to-edge app.
+    expect(phoneTokens(dialog)).toBe("fixed inset-0 z-[70] flex flex-col justify-end pt-[env(safe-area-inset-top)] m-0");
     expect(tokens(dialog)).toEqual(expect.arrayContaining(["pad:items-center", "pad:justify-center"]));
     const panel = dialog.querySelector(".rounded-t-2xl");
     expect(tokens(panel)).toEqual(expect.arrayContaining(["pad:rounded-[24px]", "pad:max-w-[560px]"]));
@@ -578,9 +580,11 @@ describe("sheets on iPad are form sheets; on a phone they are the bottom sheets 
     const unprefixed = (el) => tokens(el).filter((c) => !c.includes(":")).join(" ");
     expect(unprefixed(dialog)).toBe("relative w-full bg-white");
     // z-[70] (round 4): above the cookie banner, like every portal sheet.
-    expect(unprefixed(dialog.parentElement)).toBe("fixed inset-0 z-[70] flex items-end m-0");
+    // pt-: it rides the keyboard, so it stops at the status bar (build 23 r2).
+    expect(unprefixed(dialog.parentElement)).toBe("fixed inset-0 z-[70] flex items-end pt-[env(safe-area-inset-top)] m-0");
     expect(dialog.getAttribute("style")).toContain("border-radius: 22px 22px 0 0");
-    expect(dialog.getAttribute("style")).toContain("padding-bottom: calc(16px + env(safe-area-inset-bottom))");
+    // The home-indicator inset only while the keyboard is down (--kb-h unset).
+    expect(dialog.getAttribute("style")).toContain("padding-bottom: max(16px, calc(16px + env(safe-area-inset-bottom) - var(--kb-h, 0px)))");
     // A sideways phone (≥ 640 wide, < 600 tall — never tablet:) gets exactly
     // origin/main's centred 384 px card: the only sm: tokens are main's.
     expect(tokens(dialog).filter((c) => c.startsWith("sm:"))).toEqual(["sm:max-w-sm"]);

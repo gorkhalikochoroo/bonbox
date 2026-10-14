@@ -75,6 +75,11 @@ export default function JoinPage() {
   // second top gap, and in the edge-to-edge Vagtplan app a page that could be
   // dragged up and stay there. Drop the body inset while it is mounted, the
   // same switch StaffPortalPage uses. In a browser tab env() is 0: no change.
+  // The switch also drops index.css's cookie-banner bottom pad (body:not(
+  // .portal-shell)), so the wrapper pads its own bottom by --bb-consent-h, like
+  // AuthShell: on a small phone the card re-centres above the banner, or the
+  // page scrolls Tilslut clear of it. Unset (the app never shows the banner)
+  // → 1.5rem, as before.
   useEffect(() => {
     document.body.classList.add("portal-shell");
     return () => document.body.classList.remove("portal-shell");
@@ -140,7 +145,7 @@ export default function JoinPage() {
        while everything behind it had gone dark-and-green. Same surface as the
        Schedule hero: 152deg gradient, radius 22, bloom off the top-right. */
     <div
-      className="relative min-h-[100dvh] text-gray-900 flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))]"
+      className="relative min-h-[100dvh] text-gray-900 flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[calc(1.5rem+var(--bb-consent-h,0px))]"
       style={{ background: "#f5f7fb", ...(kb > 0 ? { minHeight: `calc(100dvh - ${kb}px)` } : {}) }}
     >
       <div className="w-full max-w-xs tablet:max-w-[380px] pad:max-w-[420px]">

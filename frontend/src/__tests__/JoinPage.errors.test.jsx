@@ -151,7 +151,12 @@ describe("/join chrome", () => {
     mount();
     expect(document.body.classList.contains("portal-shell")).toBe(true);
     const input = screen.getByLabelText(/Tilslutningskode|Join code|kode/i);
-    expect(input.closest("form").parentElement.parentElement.className).toContain("pt-[max(1.5rem,env(safe-area-inset-top))]");
+    const wrapper = input.closest("form").parentElement.parentElement;
+    expect(wrapper.className).toContain("pt-[max(1.5rem,env(safe-area-inset-top))]");
+    // portal-shell also switches off index.css's cookie-banner bottom pad, so
+    // the wrapper pads by the banner itself: on a small phone Tilslut stays
+    // reachable above it (unset in the app → 1.5rem, as before).
+    expect(wrapper.className).toContain("pb-[calc(1.5rem+var(--bb-consent-h,0px))]");
     // Joining navigates away (here to a stand-in route): the switch goes with it.
     fireEvent.change(input, { target: { value: "K7P2QM" } });
     await act(async () => { fireEvent.submit(input.closest("form")); });

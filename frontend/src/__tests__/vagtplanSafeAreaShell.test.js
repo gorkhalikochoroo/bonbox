@@ -88,6 +88,49 @@ describe("the staff portal owns its insets in CSS", () => {
   });
 });
 
+describe("sheets that ride the keyboard stop at the status bar (build 23, round 2)", () => {
+  const SRC = read("src/pages/StaffPortalPage.jsx");
+
+  it("the profile and new-group overlays pad their top by the inset; the phone keeps the home-indicator pad only while the keyboard is down", () => {
+    // With the keyboard up the overlay leaves 0..(screen − keyboard) for the
+    // sheet; the profile panel (a scroller) shrank to fill it from y = 0 and its
+    // title and close X sat under the clock, where the X could not be tapped.
+    expect(SRC).toContain('const SHEET_KB_TOP = "pt-[env(safe-area-inset-top)]";');
+    expect(SRC).toContain("flex flex-col justify-end ${SHEET_KB_TOP} ${PAD_SHEET_OVERLAY} ${PAD_SHEET_KB}");
+    expect(SRC).toContain("tablet:items-end ${SHEET_KB_TOP} ${PAD_SHEET_OVERLAY} ${PAD_SHEET_KB}");
+    // Every overlay that rides the keyboard (KB_LIFT_STYLE) carries the top stop.
+    const lifted = SRC.split("\n").filter((l) => l.includes("style={KB_LIFT_STYLE}"));
+    expect(lifted.length).toBe(2);
+    for (const l of lifted) expect(l).toContain("${SHEET_KB_TOP}");
+    expect(SRC).toContain("pb-[max(1rem,calc(env(safe-area-inset-bottom)_-_var(--kb-h,0px)))]");
+    expect(SRC).toContain('paddingBottom: "max(16px, calc(16px + env(safe-area-inset-bottom) - var(--kb-h, 0px)))"');
+  });
+});
+
+describe("iPad windows: the staff app's own bridge controller (build 23, round 2)", () => {
+  const APP = "ios-scheduler/App/App";
+  const swift = read(`${APP}/VagtplanBridgeViewController.swift`);
+
+  it("SceneDelegate roots the window in VagtplanBridgeViewController, and the target compiles the file", () => {
+    expect(read(`${APP}/SceneDelegate.swift`)).toContain("window?.rootViewController = VagtplanBridgeViewController()");
+    const pbx = read("ios-scheduler/App/App.xcodeproj/project.pbxproj");
+    expect(pbx).toContain("/* VagtplanBridgeViewController.swift in Sources */,");
+    expect(pbx).toMatch(/path = VagtplanBridgeViewController\.swift;/);
+  });
+
+  it("keeps the webview at y = 0 (the StatusBar plugin pushed it 22 pt down in a floating window)", () => {
+    expect(swift).toContain("override func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView");
+    expect(swift).toContain("FullBleedWebView(frame: frame, configuration: configuration)");
+    expect(swift).toMatch(/if pinned\.origin\.y > 0 {\s*pinned\.size\.height \+= pinned\.origin\.y\s*pinned\.origin\.y = 0/);
+  });
+
+  it("grows the top safe area to clear the window controls, measured on the window so it cannot feed back", () => {
+    expect(swift).toContain("guard #available(iOS 26.0, *), let window = view.window else { return }");
+    expect(swift).toContain("window.edgeInsets(for: .safeArea(cornerAdaptation: .vertical)).top");
+    expect(swift).toContain("additionalSafeAreaInsets.top = extra");
+  });
+});
+
 describe("the COMMITTED staff bundle carries both inset rules", () => {
   const css = assets(".css");
   const js = assets(".js");
@@ -99,6 +142,11 @@ describe("the COMMITTED staff bundle carries both inset rules", () => {
 
   it("and the tab bar's home-indicator padding", () => {
     expect(css).toContain("pb-\\[max\\(0\\.5rem\\,env\\(safe-area-inset-bottom\\)\\)\\]{padding-bottom:max(.5rem, env(safe-area-inset-bottom))}");
+  });
+
+  it("and the round-2 sheet rules: the keyboard-down-only bottom pad", () => {
+    expect(css).toContain(".pb-\\[max\\(1rem\\,calc\\(env\\(safe-area-inset-bottom\\)_-_var\\(--kb-h\\,0px\\)\\)\\)\\]{padding-bottom:max(1rem, calc(env(safe-area-inset-bottom) - var(--kb-h,0px)))}");
+    expect(js).toContain("max(16px, calc(16px + env(safe-area-inset-bottom) - var(--kb-h, 0px)))");
   });
 
   it("index.html in the bundle keeps viewport-fit=cover", () => {

@@ -92,6 +92,13 @@ function SheetTitle({ children, onClose }) {
 // (KB_LIFT_STYLE). Inline beat pad:p-8's bottom, so the centred sheet sat
 // 16 px low; this restores the 2rem and still lifts with the keyboard.
 const PAD_SHEET_KB = "pad:pb-[calc(2rem+var(--kb-h,0px))]!";
+// …and their top stops at the status bar. The keyboard lift leaves the sheet
+// 0..(screen − keyboard) to fit in; the profile panel is a scroller (min-height
+// 0), so it shrank to fill that from y = 0 and its title and close X went
+// under the clock in the edge-to-edge app (Vagtplan 1.6 (23)) — the X could
+// not be tapped there. At rest it changes nothing: a 90dvh sheet already ends
+// below the inset. iPad's pad:p-8 still wins on pad:.
+const SHEET_KB_TOP = "pt-[env(safe-area-inset-top)]";
 // tablet: (Split View 1/2–2/3, ≈507–694 px): still the phone bottom sheet, but
 // as wide as the 512 px phone column it opens over, not edge to edge.
 const PAD_SHEET_PANEL = "tablet:max-w-lg tablet:mx-auto pad:max-w-[520px] pad:rounded-[24px]! pad:pb-[20px]! pad:shadow-[0_40px_90px_-30px_rgba(8,14,22,.6)]";
@@ -5067,7 +5074,7 @@ function NewGroupSheet({ token, onClose, onCreated }) {
        • an iPad (pad:): a centred 384 px form sheet, rounded all round;
        • a sideways phone (≥ 640 wide, < 600 tall — never tablet:): the
          centred 384 px card it always was (origin/main's sm: classes). */
-    <div className={`fixed inset-0 ${SHEET_Z} flex items-end sm:items-center sm:justify-center tablet:items-end ${PAD_SHEET_OVERLAY} ${PAD_SHEET_KB}`} style={KB_LIFT_STYLE}>
+    <div className={`fixed inset-0 ${SHEET_Z} flex items-end sm:items-center sm:justify-center tablet:items-end ${SHEET_KB_TOP} ${PAD_SHEET_OVERLAY} ${PAD_SHEET_KB}`} style={KB_LIFT_STYLE}>
       <div className={`absolute inset-0 bg-gray-900/40 ${PAD_DIM}`} onClick={onClose} aria-hidden />
       <div
         ref={panelRef}
@@ -5077,7 +5084,10 @@ function NewGroupSheet({ token, onClose, onCreated }) {
         className="relative w-full sm:max-w-sm bg-white tablet:max-w-lg tablet:mx-auto pad:max-w-sm pad:rounded-[22px]! pad:pb-4! pad:shadow-[0_40px_90px_-30px_rgba(8,14,22,.6)]"
         style={{
           borderRadius: "22px 22px 0 0",
-          paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
+          // The home-indicator inset only while the keyboard is down: with it
+          // up (--kb-h, native only) the keyboard covers the indicator, and
+          // the 34 pt stacked a white band between Create and the keys.
+          paddingBottom: "max(16px, calc(16px + env(safe-area-inset-bottom) - var(--kb-h, 0px)))",
         }}
       >
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
@@ -9258,7 +9268,7 @@ export default function StaffPortalPage() {
             behind it. As an overlay it has its own scroll + a tap-out backdrop
             and never disturbs the main scroll. */}
         {showEmailEdit && createPortal((
-          <div className={`fixed inset-0 ${SHEET_Z} flex flex-col justify-end ${PAD_SHEET_OVERLAY} ${PAD_SHEET_KB}`} role="dialog" aria-modal="true" style={KB_LIFT_STYLE}>
+          <div className={`fixed inset-0 ${SHEET_Z} flex flex-col justify-end ${SHEET_KB_TOP} ${PAD_SHEET_OVERLAY} ${PAD_SHEET_KB}`} role="dialog" aria-modal="true" style={KB_LIFT_STYLE}>
             <button
               type="button"
               aria-label={t("close", "Close")}
@@ -9282,7 +9292,7 @@ export default function StaffPortalPage() {
                   <X className="w-5 h-5" strokeWidth={2} aria-hidden />
                 </button>
               </div>
-              <div className="px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3 pad:px-6 pad:pb-6">
+              <div className="px-4 py-4 pb-[max(1rem,calc(env(safe-area-inset-bottom)_-_var(--kb-h,0px)))] space-y-3 pad:px-6 pad:pb-6">
               {/* Profile photo — staff pick a photo; the owner sees it too. */}
               <div
                 className="relative flex items-center overflow-hidden"

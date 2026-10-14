@@ -15,7 +15,8 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = scene as? UIWindowScene else { return }
 
         window = UIWindow(windowScene: windowScene)
-        window?.rootViewController = CAPBridgeViewController()
+        // Capacitor's bridge, kept edge to edge in iPad windows (see the file).
+        window?.rootViewController = VagtplanBridgeViewController()
         window?.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)

@@ -63,10 +63,21 @@ const config: CapacitorConfig = {
     // pads by env(safe-area-inset-bottom) and reaches the bottom edge.
     // Measurements and before/after shots: bonbox-lab-state/vagtplan-inset.
     //
-    // (2026-09-03 the staff app moved to "automatic" because on iOS 26.4 the
-    // header once drew under the clock with env(safe-area-inset-top) = 0. With
-    // this setup the iOS 27 simulator reported 62 pt (iPhone 18 Pro) and 32 pt
-    // (iPad Air 11) on every one of 8 cold launches — but that is a simulator,
+    // iPad windows (floating / tiled): the StatusBar plugin re-frames the
+    // webview after every resize and pushed it 22 pt down over a black strip,
+    // and the window controls sat on the header title. The staff app's root
+    // controller handles both natively — ios-scheduler/App/App/
+    // VagtplanBridgeViewController.swift. The owner app (ios/) runs the same
+    // plugin and has no such controller yet.
+    //
+    // (2026-09-03 the staff app moved to "automatic" after the header drew
+    // under the clock on iOS 26.4. That commit (a5151072) put it down to
+    // env(safe-area-inset-top) being 0, but the bundle it was seen on
+    // (b8952a40) had no padding rule for the header at all: da18b84a, that
+    // morning, had glued the class so Tailwind never emitted it. The missing
+    // rule explains the symptom by itself; env() = 0 on iOS 26.4 was never
+    // shown. With this setup the iOS 27 simulator reported 62 pt (iPhone 18
+    // Pro) and 32 pt (iPad Air 11) on every cold launch — still a simulator,
     // so look at the header under the clock on a real phone before release.)
     contentInset: "never",
     allowsLinkPreview: false,
