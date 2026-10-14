@@ -128,17 +128,19 @@ export default function JoinPage() {
       className="relative min-h-[100dvh] text-gray-900 flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))]"
       style={{ background: "#f5f7fb", ...(kb > 0 ? { minHeight: `calc(100dvh - ${kb}px)` } : {}) }}
     >
-      <div className="w-full max-w-xs pad:max-w-[420px]">
+      <div className="w-full max-w-xs tablet:max-w-[380px] pad:max-w-[420px]">
         {/* DA / EN before joining: a staffer who does not read Danish on a
             Danish-locale phone can switch here. Only the language — the
             first-run default is unchanged.
             It lives INSIDE the card column but is absolutely positioned against
             the full-screen wrapper (this column is not positioned), so on a
-            phone it sits in the top-right corner exactly as before. On an iPad
-            (pad:) it turns static and sits just above the card's right edge —
-            the screen corner was ~500 px from the card on a 13" iPad. */}
+            phone it sits in the top-right corner exactly as before. In any
+            iPad window (tablet: — Split View 1/2 and up, and the full iPad
+            layout) it turns static and sits just above the card's right edge:
+            the window corner was ~200 px from the card in a 694 px Split View
+            and ~500 px on a 13" iPad. */}
         <div
-          className="absolute right-4 top-[max(0.75rem,env(safe-area-inset-top))] flex rounded-xl border border-gray-200 bg-white p-0.5 gap-0.5 pad:static pad:w-fit pad:ml-auto pad:mb-3"
+          className="absolute right-4 top-[max(0.75rem,env(safe-area-inset-top))] flex rounded-xl border border-gray-200 bg-white p-0.5 gap-0.5 tablet:static tablet:w-fit tablet:ml-auto tablet:mb-3"
           role="group"
           aria-label={t("portalLangLabel", "Language")}
         >
