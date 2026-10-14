@@ -34,9 +34,10 @@ from app.models.business_profile import BusinessProfile
 from app.models.inventory import InventoryItem
 from app.models.reservation import Reservation
 from app.models.user import User
+from app.services.archetype import cutoff_hour_for
 from app.services.archetype_defaults import apply_type_change, plan_type_change
 from app.services.auth import get_current_user, hash_password
-from app.services.demo_seed import clear_for_user, seed_for_user
+from app.services.demo_seed import clear_for_user, seed_choice_for_user, seed_for_user
 from app.services.pillars import (
     ACTIVATION_PILLARS,
     activated_pillars,
@@ -208,6 +209,80 @@ def test_unknown_sample_check_claims_nothing(db, monkeypatch):
     assert "reservations" in plan["pillars_stay"]
 
 
+# ─── The sample's day cutoff (Push 8 review) ────────────────────────────
+#
+# The dashboard's "Prøv med eksempeldata" on a profile with no details of the
+# owner's own is the DEFAULT seed: it writes the sample company — and its
+# night-shift cutoff, 04:00 — onto the profile. The sheet then said "Dit
+# dagsskifte kl. 04:00 bliver — du har selv valgt det", and "Anvend" kept the
+# sample's 04:00 for a shop (sales between 00 and 04 on the day before).
+
+def _fresh_with_default_seed(db, email, cutoff=None, business_type="restaurant"):
+    """A fresh owner seeded the way the dashboard seeds them when the profile
+    holds nothing of their own (own_profile False → the default seed)."""
+    u = _owner(db, email, business_type=business_type,
+               cutoff=cutoff_hour_for(business_type) if cutoff is None else cutoff)
+    assert seed_choice_for_user(db, u)["own_profile"] is False
+    res = seed_for_user(db, u)
+    assert res["ok"] is True and res["profile_kept"] is False, res
+    db.refresh(u)
+    return u
+
+
+def _cutoff(db, u):
+    p = db.query(BusinessProfile).filter(BusinessProfile.user_id == u.id).first()
+    return None if p is None else p.day_cutoff_hour
+
+
+def test_the_samples_cutoff_is_not_the_owners_choice(db):
+    u = _fresh_with_default_seed(db, "cut-sample@bonbox.test")
+    assert _cutoff(db, u) == 4                       # the sample's night shift
+    assert cutoff_hour_for("restaurant") != 4        # else there is nothing to tell
+    plan = plan_type_change(db, u, "clothing")
+    assert plan["cutoff_kept"] is None               # no "du har selv valgt det"
+    assert plan["cutoff"] == {"from": 4, "to": cutoff_hour_for("clothing")}
+    assert plan["has_changes"] is True
+
+
+def test_anvend_moves_the_samples_cutoff_and_ryd_demodata_keeps_it(db):
+    u = _fresh_with_default_seed(db, "cut-apply@bonbox.test")
+    apply_type_change(db, u, "clothing", apply_defaults=True)
+    assert _cutoff(db, u) == cutoff_hour_for("clothing")
+    assert clear_for_user(db, u)["ok"] is True
+    # The clear puts back only a cutoff that still holds the sample's 04:00.
+    assert _cutoff(db, u) in (None, cutoff_hour_for("clothing"))
+
+
+def test_an_owners_own_cutoff_under_the_sample_is_neither_claimed_nor_moved(db):
+    # The owner set 02:00 before trying the sample: the sample's 04:00 is in
+    # force, theirs comes back with "Ryd demodata". The sheet claims neither.
+    u = _fresh_with_default_seed(db, "cut-own-under@bonbox.test", cutoff=2)
+    assert _cutoff(db, u) == 4
+    plan = plan_type_change(db, u, "clothing")
+    assert plan["cutoff"] is None
+    assert plan["cutoff_kept"] is None
+    apply_type_change(db, u, "clothing", apply_defaults=True)
+    assert _cutoff(db, u) == 4
+    assert clear_for_user(db, u)["ok"] is True
+    assert _cutoff(db, u) == 2
+
+
+def test_an_owners_own_four_oclock_is_still_kept_and_said(db):
+    # Positive control: no sample — 04:00 is the owner's, and the sheet says so.
+    u = _owner(db, "cut-own@bonbox.test", business_type="restaurant", cutoff=4)
+    plan = plan_type_change(db, u, "clothing")
+    assert plan["cutoff"] is None
+    assert plan["cutoff_kept"] == 4
+
+
+def test_the_samples_cutoff_over_the_same_default_is_no_change(db):
+    # A bakery's own default is 04:00 too: seeded or not, nothing to move.
+    u = _fresh_with_default_seed(db, "cut-bakery@bonbox.test")
+    plan = plan_type_change(db, u, "bakery")
+    assert cutoff_hour_for("bakery") == 4
+    assert plan["cutoff"] is None and plan["cutoff_kept"] is None
+
+
 # ─── GET /api/activation ─────────────────────────────────────────────────
 
 def test_activation_payload_keeps_the_nav_and_adds_sample_only(client, session_factory, monkeypatch):
@@ -238,4 +313,9 @@ def test_kill_switch_claims_no_sample(client, session_factory, monkeypatch):
     assert r.status_code == 200, r.text
     body = r.json()
     assert all(body[p] is True for p in ACTIVATION_PILLARS)
-    assert body["sample_only"] == {p: False for p in ACTIVATION_PILLARS}
+    # Push 8 review: nothing was checked, so nothing is claimed either way —
+    # None ("could not tell"), not False. Beside the pillars forced True, a
+    # False read as real use (the doctrine: use is claimed only on an
+    # explicit False next to an activated pillar). This expectation was
+    # False; it changes because False made that claim without a query.
+    assert body["sample_only"] == {p: None for p in ACTIVATION_PILLARS}

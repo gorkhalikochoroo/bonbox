@@ -298,7 +298,10 @@ def apply_archetype_defaults(db: Session, user: User, *, starter_set: bool = Tru
 #
 # NEVER DESTRUCTIVE (doctrine: don't delete working stuff):
 #   • the cutoff moves only when it is still the OLD type's default — a value
-#     the owner set themselves stays;
+#     the owner set themselves stays. The sample's 04:00 ("Prøv med
+#     eksempeldata" writes it with the sample company) is not a value the
+#     owner set: it is judged by what the owner had before the seed, and the
+#     sheet never says "du har selv valgt det" for it;
 #   • modules and expense categories are only ADDED, never removed;
 #   • a pillar is hidden only when the new type's preset hides it, the old one
 #     did not, AND the owner has never used it (activated_pillars, fail-open:
@@ -311,6 +314,33 @@ def apply_archetype_defaults(db: Session, user: User, *, starter_set: bool = Tru
 
 def _starter_names(archetype_id: str) -> list[str]:
     return list(_STARTER_CATEGORIES.get(archetype_id) or [])
+
+
+def _sample_cutoff(profile) -> dict[str, Any] | None:
+    """The day cutoff on ``profile`` is the one "Prøv med eksempeldata" wrote
+    (the sample company's night-shift 04:00), not the owner's: the profile
+    carries the seeder's mark (the " · demo" stamp or its snapshot) and the
+    cutoff still holds the seeded value. Then {"owner": what the owner had
+    before the seed, or None}; else None. The same test "Ryd demodata" uses
+    to put the owner's cutoff back (demo_seed._reset_seeded_profile)."""
+    if profile is None:
+        return None
+    from app.services.demo_seed import _load_snapshot, _seeded_profile_values
+    from app.services.revisor_mail import is_demo_profile
+
+    current = getattr(profile, "day_cutoff_hour", None)
+    if current is None or int(current) != int(_seeded_profile_values()["day_cutoff_hour"]):
+        return None
+    snap = _load_snapshot(profile)
+    if snap is None and not is_demo_profile(profile):
+        return None
+    before = (snap or {}).get("fields") or {}
+    owner = before.get("day_cutoff_hour")
+    try:
+        owner = int(owner) if owner is not None else None
+    except (TypeError, ValueError):
+        owner = None
+    return {"owner": owner}
 
 
 def plan_type_change(db: Session, user: User, new_type: str | None) -> dict[str, Any]:
@@ -352,7 +382,19 @@ def plan_type_change(db: Session, user: User, new_type: str | None) -> dict[str,
         )
         current = getattr(profile, "day_cutoff_hour", None) if profile else None
         target = int(new_defaults["day_cutoff_hour"])
-        if current is None or int(current) == int(cutoff_hour_for(old_type)):
+        old_default = int(cutoff_hour_for(old_type))
+        sample = _sample_cutoff(profile)
+        if sample is not None:
+            # The sample's 04:00 is not the owner's choice ("Dit dagsskifte kl.
+            # 04:00 bliver — du har selv valgt det" read it as one). What the
+            # owner had before the seed decides: their type's default (or
+            # nothing) → the cutoff moves like any default; a value of their
+            # own → no claim and no move (the sample's stays in force until
+            # "Ryd demodata" puts theirs back).
+            owner = sample["owner"]
+            if (owner is None or int(owner) == old_default) and int(current) != target:
+                plan["cutoff"] = {"from": int(current), "to": target}
+        elif current is None or int(current) == old_default:
             if current is None or int(current) != target:
                 plan["cutoff"] = {"from": current, "to": target}
         elif int(current) != target:

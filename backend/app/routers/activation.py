@@ -114,7 +114,8 @@ def get_activation(
     those pillars rest on sample rows alone (null = could not check) — the
     business-type sheet claims "because you use it" only without them
     (archetype_defaults.plan_type_change reads the same helper). The nav reads
-    the booleans; nothing in it reads `sample_only`.
+    the booleans; nothing in it reads `sample_only`. With the kill switch off
+    nothing is checked, and every pillar's `sample_only` is null.
 
     When `enabled` is False the per-pillar booleans are all forced True (the
     frontend would treat them as activated anyway, but we make the payload
@@ -134,7 +135,11 @@ def get_activation(
         # …and every tool "used": the type gate then hides nothing (the safe
         # direction, same as the pillars above).
         payload["surfaces"] = {s: True for s in USED_SURFACES}
-        payload["sample_only"] = {p: False for p in ACTIVATION_PILLARS}
+        # Not checked: None ("could not tell"), never False — beside pillars
+        # forced True, False reads as real use (pillars.sample_only_pillars:
+        # readers claim use only on an explicit False next to an activated
+        # pillar), a claim no query was made for.
+        payload["sample_only"] = {p: None for p in ACTIVATION_PILLARS}
         payload["in_scope"] = in_scope
         payload["enabled"] = False
         return payload
