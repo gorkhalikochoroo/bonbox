@@ -35,3 +35,15 @@ export function nextShiftCountdown(shift, t) {
   const d = Math.floor(h / 24);
   return d === 1 ? t("portalCountdownTomorrow") : t("portalCountdownDays", { d });
 }
+
+/**
+ * Has this shift started? The same clock and parse as nextShiftCountdown, so
+ * the hero's eyebrow and its countdown chip can never disagree: when the chip
+ * says "I gang", the eyebrow says "Din vagt nu", not "Din næste vagt".
+ */
+export function shiftHasStarted(shift, now = Date.now()) {
+  if (!shift) return false;
+  const start = new Date(`${shift.date}T${shift.start_time || "00:00"}`);
+  if (Number.isNaN(start.getTime())) return false;
+  return start.getTime() <= now;
+}

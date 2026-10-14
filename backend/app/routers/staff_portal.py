@@ -2188,8 +2188,11 @@ def get_portal_holiday(token: str, request: Request, db: Session = Depends(get_d
     start, end = danish_holiday.ferieaar_bounds(today)
 
     # Ferie days recorded in BonBox inside this ferieår. One row per date, so a
-    # count IS the day count. Cancelled/rejected rows must not reduce the
-    # balance — only absences that actually happened.
+    # count IS the day count. "Afholdt" means taken: only absences that
+    # actually happened. So a day counts once the owner has approved it
+    # (acknowledged / covered) AND it is not in the future. A request still
+    # waiting for the owner ("pending", shown as Afventer) and approved days
+    # later in the year are not taken yet. Cancelled / declined rows never count.
     taken = (
         db.query(StaffAbsence)
         .filter(
@@ -2197,8 +2200,8 @@ def get_portal_holiday(token: str, request: Request, db: Session = Depends(get_d
             StaffAbsence.user_id == link.user_id,
             StaffAbsence.kind == "ferie",
             StaffAbsence.date >= start,
-            StaffAbsence.date <= end,
-            StaffAbsence.status != "cancelled",
+            StaffAbsence.date <= today,  # today is inside [start, end]
+            StaffAbsence.status.in_(("acknowledged", "covered")),
         )
         .count()
     )

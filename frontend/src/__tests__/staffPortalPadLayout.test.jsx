@@ -302,7 +302,9 @@ describe("phone (< 744 px wide, or a sideways phone): the shell is exactly origi
     await screen.findByText("Alle samtaler");
     const composer = screen.getByTestId("portal-chat-composer");
     expect(phoneTokens(composer)).toBe("fixed inset-x-0 z-20 glass border-t border-gray-200/70 bb-lg-composer");
-    expect(composer.getAttribute("style")).toContain("bottom: calc(3.5rem + env(safe-area-inset-bottom))");
+    // Above the tab bar — and above the cookie banner while that is up
+    // (round 4: the banner covered the whole composer in a phone browser).
+    expect(composer.getAttribute("style")).toContain("bottom: calc(3.5rem + env(safe-area-inset-bottom) + var(--bb-consent-h, 0px))");
     expect(screen.queryByTestId("portal-chat-pane")).toBeNull();
   });
 });
@@ -422,7 +424,8 @@ describe("iPad (pad): sidebar, wide column, form sheets", () => {
     await mount();
     fireEvent.click(screen.getByTitle("Rediger profil"));
     const dialog = await screen.findByRole("dialog");
-    expect(phoneTokens(dialog)).toBe("fixed inset-0 z-[60] flex flex-col justify-end m-0");
+    // z-[70] (round 4): above the cookie banner (z-60).
+    expect(phoneTokens(dialog)).toBe("fixed inset-0 z-[70] flex flex-col justify-end m-0");
     expect(tokens(dialog)).toEqual(expect.arrayContaining(["pad:items-center", "pad:justify-center"]));
     const panel = dialog.querySelector(".rounded-t-2xl");
     expect(tokens(panel)).toEqual(expect.arrayContaining(["pad:rounded-[24px]", "pad:max-w-[560px]"]));
@@ -500,7 +503,8 @@ describe("source pins for the iPad pass", () => {
     expect(body).toContain("const id = setTimeout(() => revealForUser(formRef.current), 30);");
     expect(body).not.toContain("matchesPad");
     expect(body).toContain("${REVEAL_MARGINS}");
-    expect(SRC).toContain('const REVEAL_MARGINS = "scroll-mt-24 scroll-mb-[calc(6rem+env(safe-area-inset-bottom))] pad:scroll-mt-28 pad:scroll-mb-8";');
+    // …and of the cookie banner while it is up (round 4: --bb-consent-h).
+    expect(SRC).toContain('const REVEAL_MARGINS = "scroll-mt-24 scroll-mb-[calc(6rem+env(safe-area-inset-bottom)+var(--bb-consent-h,0px))] pad:scroll-mt-28 pad:scroll-mb-[calc(2rem+var(--bb-consent-h,0px))]";');
   });
 
   it("44 px targets shrink from 640 px exactly as they did for a mouse and a sideways phone — but not in an iPad window used by touch", () => {
@@ -559,7 +563,8 @@ describe("sheets on iPad are form sheets; on a phone they are the bottom sheets 
     expect(handle.getAttribute("style")).toContain("width: 38px");
     expect(tokens(handle)).toEqual(["mx-auto", "pad:hidden"]);
     // m-0 at every size: the space-y margin no longer leaves a strip under it.
-    expect(phoneTokens(panel.parentElement)).toBe("fixed inset-0 z-50 flex items-end m-0");
+    // z-[70] (round 4): above the cookie banner (z-60), which covered it.
+    expect(phoneTokens(panel.parentElement)).toBe("fixed inset-0 z-[70] flex items-end m-0");
     expect(tokens(panel.parentElement)).toEqual(expect.arrayContaining(["pad:items-center", "pad:justify-center"]));
   });
 
@@ -573,7 +578,8 @@ describe("sheets on iPad are form sheets; on a phone they are the bottom sheets 
     // Under 640 px only the unprefixed tokens apply — exactly origin/main's.
     const unprefixed = (el) => tokens(el).filter((c) => !c.includes(":")).join(" ");
     expect(unprefixed(dialog)).toBe("relative w-full bg-white");
-    expect(unprefixed(dialog.parentElement)).toBe("fixed inset-0 z-40 flex items-end m-0");
+    // z-[70] (round 4): above the cookie banner, like every portal sheet.
+    expect(unprefixed(dialog.parentElement)).toBe("fixed inset-0 z-[70] flex items-end m-0");
     expect(dialog.getAttribute("style")).toContain("border-radius: 22px 22px 0 0");
     expect(dialog.getAttribute("style")).toContain("padding-bottom: calc(16px + env(safe-area-inset-bottom))");
     // A sideways phone (≥ 640 wide, < 600 tall — never tablet:) gets exactly
@@ -964,7 +970,8 @@ describe("smaller fixes", () => {
   });
 
   it("a day picked in the week strip is brought into view in the week's list", () => {
-    expect(SRC).toContain('revealForUser(weekListRef.current?.querySelector(`[data-week-day="${d}"]`));');
+    // …keeping the strip it was picked from on screen (round 4: a 320 px phone).
+    expect(SRC).toContain('revealForUser(weekListRef.current?.querySelector(`[data-week-day="${d}"]`), stripRef.current);');
     expect(SRC).toContain("data-week-day={d}");
   });
 

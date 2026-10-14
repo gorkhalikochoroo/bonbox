@@ -758,16 +758,25 @@ describe("iPad: copy names the device it is on", () => {
 });
 
 describe("iPad: the sidebar's count is the list's colour", () => {
-  it("green #16a34a (as a hex: index.css remaps green-* classes), not red beside green rows", async () => {
+  // Round 4 (design QA): the same Beskeder count was green in the iPad
+  // sidebar and red in the phone / Split View tab bar — it changed colour
+  // when the window was resized. Every unread count is red now: the tab
+  // badge, the header bell, the sidebar, and the thread rows beside it (so
+  // the sidebar is still the list's colour, which is what this pinned).
+  it("red — the phone badge's colour, and the thread rows' — at every window size", async () => {
     mockMatchMedia([PAD_QUERY, PAD_WIDE_QUERY]);
     await mount();
     await waitFor(() => expect(railCount()).toBe("2"));
     const row = within(nav()).getByText("Beskeder").closest("button");
     const pill = [...row.querySelectorAll('[aria-label="Ulæste beskeder"]')].find((n) => tokens(n).includes("pad:inline-flex"));
-    expect(tokens(pill)).toContain("bg-[#16a34a]");
-    expect(tokens(pill)).not.toContain("bg-red-600");
-    // The phone's icon badge stays red.
+    expect(tokens(pill)).toContain("bg-red-600");
+    expect(tokens(pill)).not.toContain("bg-[#16a34a]");
+    // The phone's icon badge is red too.
     expect(SRC).toContain('className="absolute z-10 -top-1 -right-1.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-600');
+    // And the thread rows' own counts (red-600 = #dc2626).
+    navTo("Beskeder");
+    const listPill = (await screen.findByText("Køkken + sal")).closest("button").lastElementChild;
+    expect(listPill.style.background).toMatch(/rgb\(220, 38, 38\)|#dc2626/);
   });
 });
 

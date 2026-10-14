@@ -234,10 +234,11 @@ export default function JoinPage() {
             type="submit"
             disabled={normalized.length < CODE_LEN || busy}
             className="mt-3 w-full px-4 py-3 text-sm font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-40 transition"
+            // Flat BonBox green, no glow (the calm, flat look; white text
+            // on #15803d is ~5:1, AA — the staff portal's green actions match).
             style={{
               borderRadius: 14,
-              background: "linear-gradient(180deg,#22c55e,#16a34a)",
-              boxShadow: "0 10px 22px -12px rgba(22,163,74,.95), inset 0 1px 0 rgba(255,255,255,.35)",
+              background: "#15803d",
             }}
           >
             {busy ? t("joinConnecting", "Connecting…") : t("joinConnect", "Connect")}
