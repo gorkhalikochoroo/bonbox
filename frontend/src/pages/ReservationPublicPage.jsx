@@ -657,6 +657,12 @@ export default function ReservationPublicPage() {
   // bord" (vertical-fit review, Oct 2026). Wording only; `isProvider` stays
   // the booking engine switch.
   const apptWords = !!page && speaksAppointments(page.business_type);
+  // A shop or a workshop (an appointment business that is not the salon):
+  // no kitchen, no occasion — its customers are asked no allergies and no
+  // dinner occasion, only a note (Push 8 review: a bike workshop's page
+  // offered the 14 EU food allergens "so the kitchen can plan" and
+  // "Forretningsmiddag").
+  const noteOnly = apptWords && !isProvider;
   const [behandlinger, setBehandlinger] = useState([]);
   const [behandlingId, setBehandlingId] = useState("");
   const [stylistId, setStylistId] = useState(""); // "" = Valgfri behandler
@@ -983,12 +989,16 @@ export default function ReservationPublicPage() {
     }
     setDay(initialDay);
 
-    if (Number.isFinite(qParty) && qParty >= 1) {
+    // A salon, a shop or a workshop is booked by one customer — the page
+    // does not ask how many (vertical-fit, Push 8) — so a ?party=4 link does
+    // not set a party the customer cannot see or change, and the open days
+    // (asked for one) agree with the times and the booking.
+    if (speaksAppointments(page.business_type)) {
+      setParty(1);
+    } else if (Number.isFinite(qParty) && qParty >= 1) {
       setParty(Math.min(qParty, maxParty));
     } else {
-      // A shop or a workshop is booked by one customer — like the salon, the
-      // page does not ask how many (vertical-fit, Push 8).
-      setParty(speaksAppointments(page.business_type) ? 1 : Math.min(2, maxParty));
+      setParty(Math.min(2, maxParty));
     }
     // Only seed once, when the page first loads. Subsequent user edits
     // own the state.
@@ -1264,9 +1274,11 @@ export default function ReservationPublicPage() {
   const maxParty = Number(page?.max_party_size) || 10;
   const maxAdvance = Number(page?.max_advance_days) || 60;
   const latestDay = useMemo(() => addDays(today, maxAdvance), [today, maxAdvance]);
+  // The server sends a shop or a workshop no catalogue (allergens.py); an
+  // older server still sent the food set — never shown there either.
   const allergenSet = useMemo(
-    () => (Array.isArray(page?.allergen_set) ? page.allergen_set : []),
-    [page],
+    () => (noteOnly ? [] : Array.isArray(page?.allergen_set) ? page.allergen_set : []),
+    [page, noteOnly],
   );
   // Period-grouped slots (Frokost / Eftermiddag / Aften), computed once per
   // availability response. Only non-empty groups survive.
@@ -2289,7 +2301,7 @@ export default function ReservationPublicPage() {
           )}
         </header>
 
-        <StepDots step={step} t={t} />
+        <StepDots step={step} t={t} apptWords={apptWords} />
 
         {/* ── Step 1 — (provider) behandling + behandler, then date + slot;
               (table) date + party + slot ────────────────────────────── */}
@@ -3027,10 +3039,16 @@ export default function ReservationPublicPage() {
               >
                 <span className="min-w-0 flex-1">
                   <span className="block text-[14.5px] font-semibold text-gray-900 dark:text-gray-100">
-                    {t("rsvpExtrasTitle", "Allergies, occasion or a note?")}
+                    {noteOnly
+                      ? t("rsvpExtrasTitleNote", "A note for us?")
+                      : t("rsvpExtrasTitle", "Allergies, occasion or a note?")}
                   </span>
                   <span className="block text-[12.5px] text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
-                    {extrasSummary || t("rsvpExtrasHint", "Optional — so the kitchen can plan for you")}
+                    {extrasSummary || (noteOnly
+                      ? t("rsvpExtrasHintNote", "Optional — e.g. what it is about")
+                      : isProvider
+                        ? t("rsvpExtrasHintProvider", "Optional — so we can take care of you")
+                        : t("rsvpExtrasHint", "Optional — so the kitchen can plan for you"))}
                   </span>
                 </span>
                 <ChevronDown
@@ -3053,9 +3071,13 @@ export default function ReservationPublicPage() {
                           {t("rsvpXAllergies", "Allergies or diet")}
                         </p>
                         <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mt-0.5">
-                          {t("rsvpAllergyShared", "Shared only with {venue}, so the kitchen can plan.", {
-                            venue: page.business_name,
-                          })}
+                          {isProvider
+                            ? t("rsvpAllergySharedProvider", "Shared only with {venue}, so they can take care of you.", {
+                                venue: page.business_name,
+                              })
+                            : t("rsvpAllergyShared", "Shared only with {venue}, so the kitchen can plan.", {
+                                venue: page.business_name,
+                              })}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
@@ -3107,7 +3129,9 @@ export default function ReservationPublicPage() {
                           </div>
                           <textarea
                             id="rsvp-allergy-note"
-                            aria-label={t("rsvpXAllergyDetail", "Tell the kitchen more")}
+                            aria-label={isProvider
+                              ? t("rsvpXAllergyDetailProvider", "Tell us more")
+                              : t("rsvpXAllergyDetail", "Tell the kitchen more")}
                             value={allergyNote}
                             onChange={(e) => setAllergyNote(e.target.value)}
                             placeholder={t(
@@ -3124,7 +3148,9 @@ export default function ReservationPublicPage() {
                   )}
 
                   {/* Occasion — five taps instead of a text box; tap again to
-                      clear. */}
+                      clear. Dinner occasions: not on a shop's or a workshop's
+                      page. */}
+                  {!noteOnly && (
                   <div className="space-y-2.5">
                     <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                       {t("rsvpXOccasion", "Occasion")}
@@ -3152,6 +3178,7 @@ export default function ReservationPublicPage() {
                       })}
                     </div>
                   </div>
+                  )}
 
                   <div className="space-y-2">
                     <label htmlFor="rsvp-notes" className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
@@ -3191,10 +3218,12 @@ export default function ReservationPublicPage() {
                   {t("rsvpMarketing", "Send mig nyheder og tilbud")}
                 </span>
                 <span className="block text-xs text-gray-500 dark:text-gray-400 leading-relaxed mt-0.5">
-                  {t(
-                    "rsvpMarketingHint",
-                    "Valgfrit. Du modtager altid din reservationsbekræftelse; dette dækker kun nyhedsbreve.",
-                  )}
+                  {apptWords
+                    ? t("rsvpMarketingHintAppt", "Optional — this only covers newsletters, not the confirmation of your appointment.")
+                    : t(
+                      "rsvpMarketingHint",
+                      "Valgfrit. Du modtager altid din reservationsbekræftelse; dette dækker kun nyhedsbreve.",
+                    )}
                 </span>
               </span>
               <span
@@ -3218,11 +3247,17 @@ export default function ReservationPublicPage() {
                 "only for this reservation" stopped being true the moment it
                 was. The venue is the data controller; the policy explains. */}
             <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-              {t(
-                "rsvpPrivacyVenue",
-                "Your details go to {venue} for this booking — and for news only if you switch it on.",
-                { venue: page.business_name },
-              )}{" "}
+              {apptWords
+                ? t(
+                  "rsvpPrivacyVenueAppt",
+                  "Your details go to {venue} for this appointment — and for news only if you switch it on.",
+                  { venue: page.business_name },
+                )
+                : t(
+                  "rsvpPrivacyVenue",
+                  "Your details go to {venue} for this booking — and for news only if you switch it on.",
+                  { venue: page.business_name },
+                )}{" "}
               <a
                 href="/privacy"
                 target="_blank"
@@ -3440,7 +3475,7 @@ function rovingKeyDown(e) {
 
 // ── Small presentational helpers ─────────────────────────────────────
 
-function StepDots({ step, t }) {
+function StepDots({ step, t, apptWords = false }) {
   return (
     <div
       className="flex items-center gap-1.5"
@@ -3450,7 +3485,7 @@ function StepDots({ step, t }) {
       aria-valuenow={step}
       // Read as "Step 1 of 2", not as a bare number.
       aria-valuetext={t("rsvpStepOf", "Step {n} of {total}", { n: step, total: 2 })}
-      aria-label={t("rsvpStepAria", "Reservation step")}
+      aria-label={apptWords ? t("rsvpStepAriaAppt", "Booking step") : t("rsvpStepAria", "Reservation step")}
     >
       {[1, 2].map((n) => (
         <span

@@ -43,7 +43,7 @@ from app.models.user import User
 from app.services import audit_service, reservation_service as rsvc
 from app.services import reservation_emails
 from app.services import reservation_occupancy_service as occ_service
-from app.services.allergens import allergen_set_for, sanitize_severity, sanitize_tags
+from app.services.allergens import allergen_set_for, collects_allergies, sanitize_severity, sanitize_tags
 from app.services.billing import at_cap, has_feature
 from app.services.logo_service import logo_signed_url
 from app.services.owner_language import venue_language
@@ -805,8 +805,11 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
         status="confirmed", source="public",
         occasion=payload.occasion, guest_notes=payload.guest_notes,
         allergen_tags=sanitize_tags(payload.allergen_tags, btype),
-        allergy_note=payload.allergy_note,
-        allergy_severity=sanitize_severity(payload.allergy_severity),
+        # A shop or a workshop asks no allergies (allergens.collects_allergies):
+        # a note or a severity sent anyway is health data with no purpose.
+        allergy_note=payload.allergy_note if collects_allergies(btype) else None,
+        allergy_severity=(sanitize_severity(payload.allergy_severity)
+                          if collects_allergies(btype) else None),
         idempotency_key=idempotency_key,
         purge_after=start + timedelta(days=int(settings.get("retention_days", 90))),
     )
@@ -956,8 +959,11 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
         source="public",
         occasion=payload.occasion, guest_notes=payload.guest_notes,
         allergen_tags=sanitize_tags(payload.allergen_tags, btype),
-        allergy_note=payload.allergy_note,
-        allergy_severity=sanitize_severity(payload.allergy_severity),
+        # A shop or a workshop asks no allergies (allergens.collects_allergies):
+        # a note or a severity sent anyway is health data with no purpose.
+        allergy_note=payload.allergy_note if collects_allergies(btype) else None,
+        allergy_severity=(sanitize_severity(payload.allergy_severity)
+                          if collects_allergies(btype) else None),
         idempotency_key=idempotency_key,
         purge_after=start + timedelta(days=int(settings.get("retention_days", 90))),
     )

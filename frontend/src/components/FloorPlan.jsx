@@ -78,7 +78,7 @@ function FixtureStepper({ label, value, onLess, onMore }) {
     </span>
   );
 }
-import { venueProfile } from "../config/venueProfiles";
+import { venueProfile, bookingModeFor, speaksAppointments } from "../config/venueProfiles";
 import {
   SHAPES,
   ARCHETYPES,
@@ -308,6 +308,8 @@ function TableNode({
   zoneDot = null,
   t,
   profile,
+  // A shop's or a workshop's place, not a table (FloorPlan's placeWords).
+  placeWords = false,
   editing,
   selected,
   onTap,
@@ -674,8 +676,8 @@ function TableNode({
             e.stopPropagation();
             onToggleShape(res.id);
           }}
-          title={t("rsvpPlanShapeCycle", "Skift bord-design")}
-          aria-label={t("rsvpPlanShapeCycle", "Skift bord-design")}
+          title={placeWords ? t("rsvpPlanShapeCycleAppt", "Change the space's shape") : t("rsvpPlanShapeCycle", "Skift bord-design")}
+          aria-label={placeWords ? t("rsvpPlanShapeCycleAppt", "Change the space's shape") : t("rsvpPlanShapeCycle", "Skift bord-design")}
           className="absolute left-1/2 -translate-x-1/2 -bottom-3 z-40 h-7 w-7 inline-flex items-center justify-center rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 shadow text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
         >
           <ShapeGlyph shape={shape} size={18} />
@@ -732,6 +734,10 @@ export default function FloorPlan({
   // icon, empty state, hints, zone presets). Per-resource provider overrides
   // are resolved separately, per cell, inside the render loop.
   const profile = useMemo(() => venueProfile(businessType), [businessType]);
+  // A shop or a workshop (venueProfiles.speaksAppointments, not the salon):
+  // its places are "pladser" and its customers are checked in — the legend
+  // under its room said "Sidder" (Push 8 review). The salon keeps "Sidder".
+  const placeWords = speaksAppointments(businessType) && bookingModeFor(businessType) !== "provider";
   // Seats per table, for a party sitting across several.
   const seatsByRes = useMemo(
     () => Object.fromEntries((cells || []).map((c) => [String(c.res.id), Number(c.res.capacity_seats) || 0])),
@@ -1427,11 +1433,15 @@ export default function FloorPlan({
     setAddBusy(true);
     setAddError("");
     try {
+      // A shop's or a workshop's next place is "Plads N", a table venue's
+      // "Bord N" (as quick setup names them).
+      const prefix = placeWords ? t("rsvpBulkPrefixAppt", "Space") : "Bord";
       const nums = cells.map((c) => {
-        const m = /^Bord (\d+)$/.exec((c.res.label || "").trim());
+        const label = (c.res.label || "").trim();
+        const m = label.startsWith(prefix + " ") ? /^(\d+)$/.exec(label.slice(prefix.length + 1)) : null;
         return m ? parseInt(m[1], 10) : 0;
       });
-      const label = `Bord ${Math.max(0, ...nums, cells.length) + 1}`;
+      const label = `${prefix} ${Math.max(0, ...nums, cells.length) + 1}`;
       const res = await api.post("/reservations/resources", {
         kind: "table",
         label,
@@ -1452,14 +1462,18 @@ export default function FloorPlan({
       if (onResourcesChanged) await onResourcesChanged();
     } catch (e) {
       if (e?.response?.status === 402) {
-        setAddError(t("rsvpTableCapMsg", "Table limit reached on your plan."));
+        setAddError(placeWords
+          ? t("rsvpTableCapMsgAppt", "Space limit reached on your plan.")
+          : t("rsvpTableCapMsg", "Table limit reached on your plan."));
       } else {
-        setAddError(t("rsvpAddTableErr", "Couldn't add the table."));
+        setAddError(placeWords
+          ? t("rsvpTableAddErrorAppt", "Couldn't add the space.")
+          : t("rsvpAddTableErr", "Couldn't add the table."));
       }
     } finally {
       setAddBusy(false);
     }
-  }, [cells, addSeats, currentLayout, onResourcesChanged, t]);
+  }, [cells, addSeats, currentLayout, onResourcesChanged, t, placeWords]);
 
   // Tap router (view mode): free → seat walk-in; occupied → open booking.
   const handleTap = useCallback(
@@ -1519,9 +1533,15 @@ export default function FloorPlan({
           {/* Room capacity — what fits at one seating. */}
           <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 tabular-nums">
             <Users className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" aria-hidden />
-            {t("rsvpFloorSeats", "{n} seats", { n: capacity.seats })}
+            {placeWords
+              ? t("rsvpFloorSeatsAppt", "Room for {n}", { n: capacity.seats })
+              : t("rsvpFloorSeats", "{n} seats", { n: capacity.seats })}
             <span className="text-gray-300 dark:text-gray-600" aria-hidden>·</span>
-            {t("rsvpFloorTables", "{n} tables", { n: capacity.tables })}
+            {placeWords
+              ? capacity.tables === 1
+                ? t("rsvpFloorTablesOneAppt", "1 space")
+                : t("rsvpFloorTablesAppt", "{n} spaces", { n: capacity.tables })
+              : t("rsvpFloorTables", "{n} tables", { n: capacity.tables })}
           </span>
           {editing ? (
             <span className="inline-flex items-center gap-1.5 text-gray-700 dark:text-gray-200">
@@ -1550,7 +1570,7 @@ export default function FloorPlan({
                 className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
               >
                 <Plus className="w-4 h-4" aria-hidden />
-                {t("rsvpAddTable", "Add table")}
+                {placeWords ? t("rsvpAddTableBtnAppt", "Add space") : t("rsvpAddTable", "Add table")}
               </button>
               {/* Add the room ITSELF — the bar, the door, a window, a wall.
                   Sits next to Add table because to an owner arranging their
@@ -1643,7 +1663,9 @@ export default function FloorPlan({
               {/* The free-table mark, as on the floor: white, ringed. */}
               <span className="w-2 h-2 rounded-full bg-white ring-1 ring-gray-400 dark:bg-gray-900 dark:ring-gray-500 shrink-0" aria-hidden />
               <span className="font-medium shrink-0">
-                {t("rsvpTurnFreeNow", "{n} free now", { n: turn.freeNow })}
+                {turn.freeNow === 1
+                  ? t("rsvpTurnFreeNowOne", "1 free now")
+                  : t("rsvpTurnFreeNow", "{n} free now", { n: turn.freeNow })}
               </span>
               {(turn.overdue > 0 || turn.nextAt) && (
                 <span className="text-gray-600 dark:text-gray-400 truncate min-w-0">
@@ -1657,7 +1679,7 @@ export default function FloorPlan({
             <>
               <Clock className="w-4 h-4 shrink-0" aria-hidden />
               <span className="font-medium shrink-0">
-                {t("rsvpTurnAllBusy", "All tables occupied")}
+                {placeWords ? t("rsvpTurnAllBusyAppt", "All spaces taken") : t("rsvpTurnAllBusy", "All tables occupied")}
               </span>
               {turn.overdue > 0 ? (
                 <span className="truncate min-w-0">
@@ -1707,7 +1729,7 @@ export default function FloorPlan({
             </button>
           ))}
           <Button variant="primary" size="sm" busy={addBusy} onClick={addTable} iconLeft={<Plus className="w-4 h-4" />}>
-            {t("rsvpAddTable", "Add table")}
+            {placeWords ? t("rsvpAddTableBtnAppt", "Add space") : t("rsvpAddTable", "Add table")}
           </Button>
           {addError && (
             <span className="text-sm text-red-600 dark:text-red-400">{addError}</span>
@@ -1861,6 +1883,7 @@ export default function FloorPlan({
                   shared={editing ? null : comboBadges[id] || null}
                   t={t}
                   profile={cellProfile}
+                  placeWords={placeWords}
                   editing={editing}
                   selected={isNext || activeId === id || (editing && selectedId === id)}
                   onTap={handleTap}
@@ -1921,7 +1944,7 @@ export default function FloorPlan({
         {zoneInfo.zones.map((z) => (
           <LegendItem key={z.zone} dotCls={"bg-transparent border-2 " + z.cls} label={z.zone} />
         ))}
-        <LegendItem dotCls="bg-emerald-600" label={t("rsvpTileSeated", "Seated")} />
+        <LegendItem dotCls="bg-emerald-600" label={placeWords ? t("rsvpStatusSeatedAppt", "Checked in") : t("rsvpTileSeated", "Seated")} />
         <LegendItem dotCls="bg-red-500" label={t("rsvpPlanOverdue", "Overdue")} />
         {nextBookingId != null && (
           <LegendItem dotCls="bg-transparent ring-2 ring-gray-900 dark:ring-gray-100" label={t("rsvpNextArrival", "Next arrival")} />

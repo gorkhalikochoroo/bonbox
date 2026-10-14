@@ -658,9 +658,13 @@ export default function ReservationsPage() {
             ? [
                 {
                   id: "floor",
+                  // A shop or a workshop that built places reads "Pladser":
+                  // its tab said "Borde" (Push 8 review).
                   label: isProvider
                     ? t("rsvpTabProviders", "Stylists")
-                    : t("rsvpTabFloor", "Floor"),
+                    : apptWords
+                      ? t("rsvpTabFloorAppt", "Spaces")
+                      : t("rsvpTabFloor", "Floor"),
                 },
               ]
             : []),
@@ -1708,7 +1712,11 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
   // is not "no table free": the host can see the free tables, and the
   // waitlist will not make a four-top seat ten. The sheet says what is true —
   // no free table seats them — and the host may still pick one by hand.
-  const freeNowTables = pickMode ? tables.filter((tb) => !tb.busy) : [];
+  // Free for the sitting, as bestFreeFor reads it: a table booked in 20
+  // minutes is not one the host can see standing free for this party — a
+  // full room said "no table free" to a party of two and "no free table
+  // seats 3 — choose one yourself" to a party of three (Push 8 review).
+  const freeNowTables = pickMode ? tables.filter((tb) => !tb.busy && !tb.reservedAt) : [];
   const noneFitsFree =
     noneFree &&
     freeNowTables.length > 0 &&
@@ -1786,8 +1794,9 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
                   " · " +
                   chosenTable.capacity_seats +
                   " " +
-                  // A table has seats; "4 gæster" read as the party.
-                  t("rsvpSeats", "seats")
+                  // A table has seats; "4 gæster" read as the party. One is
+                  // "1 plads", never "1 pladser".
+                  (Number(chosenTable.capacity_seats) === 1 ? t("rsvpSeatOne", "seat") : t("rsvpSeats", "seats"))
                 : apptWords
                   ? t("rsvpSeatWalkInAppt", "Check in a drop-in")
                   : t("rsvpSeatWalkIn", "Seat a drop-in")}
@@ -1847,7 +1856,9 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
               {[...tables].sort(byTableLabel).map((tb) => (
                 <option key={tb.id} value={String(tb.id)} disabled={tb.busy}>
                   {tb.label}
-                  {tb.capacity_seats ? ` · ${tb.capacity_seats} ${t("rsvpSeats", "seats")}` : ""}
+                  {tb.capacity_seats
+                    ? ` · ${tb.capacity_seats} ${Number(tb.capacity_seats) === 1 ? t("rsvpSeatOne", "seat") : t("rsvpSeats", "seats")}`
+                    : ""}
                   {tb.busy
                     ? ` — ${t("rsvpSeatWalkInBusy", "occupied")}`
                     : tb.reservedAt
@@ -2906,7 +2917,9 @@ function TimelineBarLabel({ stickyLeft, children }) {
   );
 }
 
-function TimelineView({ reservations, resources, day, t, onSelect, onStatus, openHours = null }) {
+// `checkedInWords`: a shop or a workshop — its customer is checked in at a
+// place ("Tjekket ind", "Tjek {name} ind"), never seated at a table.
+function TimelineView({ reservations, resources, day, t, onSelect, onStatus, openHours = null, checkedInWords = false }) {
   // One-tap seat from a booking bar. `justSeatedId` drives THE single ceremonial
   // beat (the ~500ms scale settle below); it self-clears so the bar returns to
   // stillness and never re-fires on a later render. The colour flip to the
@@ -3013,7 +3026,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
   const RAIL_W = 116;
   const hours = [];
   for (let m = startMin; m <= endMin; m += 60) hours.push(m);
-  const labels = statusLabels(t);
+  const labels = statusLabels(t, checkedInWords);
 
   const todayIso = serviceDayIso();
 
@@ -3088,8 +3101,10 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
     return (
       <ComingSoonView
         icon={<CalendarCheck className="w-8 h-8" />}
-        title={t("rsvpFloorEmptyTitle", "No tables yet")}
-        body={t("rsvpFloorEmptyBody", "Add tables on the Floor tab to see your room here.")}
+        title={checkedInWords ? t("rsvpFloorEmptyTitleAppt", "No spaces yet") : t("rsvpFloorEmptyTitle", "No tables yet")}
+        body={checkedInWords
+          ? t("rsvpFloorEmptyBodyAppt", "Add spaces on the Spaces tab to see them here.")
+          : t("rsvpFloorEmptyBody", "Add tables on the Floor tab to see your room here.")}
       />
     );
   }
@@ -3160,7 +3175,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
               className="shrink-0 sticky left-0 z-10 bg-gray-50 dark:bg-[rgb(var(--surface-card))] border-r border-gray-200 dark:border-[rgb(var(--surface-line))] px-2 flex flex-col justify-center"
             >
               <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate leading-tight inline-flex items-center gap-1">
-                {t("rsvpUnassignedLane", "Unassigned")}
+                {checkedInWords ? t("rsvpUnassignedLaneAppt", "No space") : t("rsvpUnassignedLane", "Unassigned")}
               </span>
               <span className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
                 {unassigned.blocks.length}
@@ -3331,10 +3346,14 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                           ev.stopPropagation();
                           seatFromBar(r);
                         }}
-                        title={t("rsvpSeatAction", "Seat")}
-                        aria-label={t("rsvpSeatNowAria", "Seat {name}", {
-                          name: r.guest_name || t("rsvpGuest", "Guest"),
-                        })}
+                        title={checkedInWords ? t("rsvpSeatActionAppt", "Check in") : t("rsvpSeatAction", "Seat")}
+                        aria-label={checkedInWords
+                          ? t("rsvpSeatNowAriaAppt", "Check {name} in", {
+                              name: r.guest_name || t("rsvpColGuestAppt", "Customer"),
+                            })
+                          : t("rsvpSeatNowAria", "Seat {name}", {
+                              name: r.guest_name || t("rsvpGuest", "Guest"),
+                            })}
                         // Top half of the bar's right end — the time line's
                         // free space. Its own surface, so a name scrolled
                         // under it (the sticky label) is cut, not overprinted.
@@ -6192,6 +6211,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
       r.allergy_note ||
       r.allergy_severity;
+    // A party at tables pushed together: its table names wrap on the row.
+    const joinedRow = Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length > 1;
     let primary = null;
     if (r.status === "requested")
       primary = { label: t("rsvpConfirmAction", "Confirm"), to: "confirmed" };
@@ -6279,7 +6300,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                         {/* A finished party keeps its table on the row (the history reads
                 which table) — but no "No table" alarm: there is nothing to fix. */}
             {((!isProvider && tableFloor) || holdsTable(r)) && r.status === "completed" && resolveTableLabel(r, labelById) && (
-              <span className="min-w-0 truncate">{resolveTableLabel(r, labelById)}</span>
+              <span className={"min-w-0 " + (joinedRow ? "max-w-full whitespace-normal break-words" : "truncate")} data-row-tables="">
+                {resolveTableLabel(r, labelById)}
+              </span>
             )}
             {((!isProvider && tableFloor) || holdsTable(r)) && ["confirmed", "seated"].includes(r.status) && (() => {
               const tl = resolveTableLabel(r, labelById);
@@ -6290,7 +6313,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               const over = seats > 0 && Number(r.party_size) > seats;
               return tl
                 ? (
-                  <span className="min-w-0 max-w-full truncate" title={tl} data-row-tables="">
+                  // Tables pushed together wrap inside the row, which wraps
+                  // too: "Vinduesbord 11 + Vind…" hid the third table, and its
+                  // title tooltip does not open on a touch screen (review).
+                  <span className={"min-w-0 max-w-full " + (joinedRow ? "whitespace-normal break-words" : "truncate")} title={tl} data-row-tables="">
                     {tl}
                     {over && <span className="ml-1 font-medium text-gray-800 dark:text-gray-100">⚠ {r.party_size}/{seats}</span>}
                   </span>
@@ -6472,8 +6498,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           renders outside the app <Layout />. A slim brand row + a Luk that
           closes the popped tab (or falls back to the full app). */}
       {standalone && (
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 pb-3 border-b border-gray-200 dark:border-gray-800">
-          <div className="flex items-center gap-2.5 min-w-0">
+        // Wraps only below md, for the covers' own row; the title takes what
+        // is left of the first line (basis 0) and truncates, so a long venue
+        // name never pushes the sound and ⋯ controls onto a row of their own
+        // (Push 8 review). From md one line, as before.
+        <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-x-3 gap-y-2 pb-3 border-b border-gray-200 dark:border-gray-800" data-stand-header="">
+          <div className="flex items-center gap-2.5 min-w-0 max-md:flex-1 max-md:basis-0" data-stand-title="">
             <span className="inline-flex items-center justify-center h-9 w-9 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-gray-900 shrink-0">
               <CalendarCheck className="w-5 h-5" aria-hidden />
             </span>
@@ -6798,7 +6828,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             ]}
             activeId={view}
             onChange={pickView}
-            ariaLabel={t("rsvpViewAria", "Reservation views")}
+            ariaLabel={apptWords ? t("rsvpViewAriaAppt", "Appointment book views") : t("rsvpViewAria", "Reservation views")}
             phone="segmented"
             className="max-sm:flex-1 max-sm:min-w-0"
           />
@@ -6978,7 +7008,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       {walkInDone && !(walkIns && view !== "plan") && createPortal(
         <div
           data-walkin-done-float=""
-          className="fixed z-50 left-1/2 -translate-x-1/2 bottom-[calc(env(safe-area-inset-bottom)+72px)] md:bottom-5 w-[calc(100%-2rem)] max-w-md rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] bg-white dark:bg-[rgb(var(--surface-raised))] shadow-lg px-3 py-2.5"
+          className="fixed z-50 left-1/2 -translate-x-1/2 bottom-[calc(env(safe-area-inset-bottom)+72px)] md:bottom-5 w-[calc(100%-2rem)] max-w-md rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] bg-white dark:bg-[rgb(var(--surface-raised))] shadow-sm px-3 py-2.5"
         >
           {walkInDoneLine(true)}
         </div>,
@@ -7450,6 +7480,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             t={t}
             onSelect={openDrawer}
             onStatus={setStatus}
+            checkedInWords={checkedInWords}
           />
         ))}
         </>
@@ -7665,6 +7696,10 @@ function FloorSection({ t, businessType }) {
   // station is a `kind:"provider"` resource bound to a StaffMember, and its
   // availability comes 100% from that staff member's published shifts.
   const isProvider = bookingModeFor(businessType) === "provider";
+  // A shop or a workshop that builds places (a fitting room, a bench, a
+  // service bay): "Pladser", counted as people — never tables, guests or
+  // parties (Push 8 review: its tab read "Borde", quick setup made "Bord 1").
+  const placeWords = speaksAppointments(businessType) && !isProvider;
   const [resources, setResources] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -7710,12 +7745,14 @@ function FloorSection({ t, businessType }) {
     } catch (e) {
       setError(
         e?.response?.data?.detail?.error ||
-          t("rsvpFloorError", "Couldn't load your floor."),
+          (placeWords
+            ? t("rsvpFloorErrorAppt", "Couldn't load your spaces.")
+            : t("rsvpFloorError", "Couldn't load your floor.")),
       );
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, placeWords]);
 
   useEffect(() => {
     fetchResources();
@@ -7888,7 +7925,9 @@ function FloorSection({ t, businessType }) {
 
   const addResource = async () => {
     if (!label.trim()) {
-      setError(t("rsvpTableLabelRequired", "Give the table a name (e.g. Table 4)."));
+      setError(placeWords
+        ? t("rsvpTableLabelRequiredAppt", "Give the space a name (e.g. Space 4).")
+        : t("rsvpTableLabelRequired", "Give the table a name (e.g. Table 4)."));
       return;
     }
     setSaving(true);
@@ -7925,7 +7964,9 @@ function FloorSection({ t, businessType }) {
       } else {
         setError(
           e?.response?.data?.detail?.error ||
-            t("rsvpTableAddError", "Couldn't add the table."),
+            (placeWords
+              ? t("rsvpTableAddErrorAppt", "Couldn't add the space.")
+              : t("rsvpTableAddError", "Couldn't add the table.")),
         );
       }
     } finally {
@@ -7961,6 +8002,9 @@ function FloorSection({ t, businessType }) {
         specs,
         zone: bulkZone.trim() || null,
         combinable: bulkCombinable,
+        // A shop's places are numbered "Plads 1, 2 …"; a table venue keeps
+        // the server's "Bord" (no prefix sent, as before).
+        ...(placeWords ? { label_prefix: t("rsvpBulkPrefixAppt", "Space") } : {}),
       });
       const created = Array.isArray(res.data?.created) ? res.data.created : [];
       setResources((prev) => [...prev, ...created]);
@@ -7976,7 +8020,10 @@ function FloorSection({ t, businessType }) {
       }
     } catch (e) {
       setError(
-        e?.response?.data?.detail?.error || t("rsvpBulkError", "Couldn't add the tables."),
+        e?.response?.data?.detail?.error ||
+          (placeWords
+            ? t("rsvpBulkErrorAppt", "Couldn't add the spaces.")
+            : t("rsvpBulkError", "Couldn't add the tables.")),
       );
     } finally {
       setBulkSaving(false);
@@ -8037,7 +8084,9 @@ function FloorSection({ t, businessType }) {
       ? t("rsvpRemoveNamedTitle", "Remove {label}?", { label })
       : isProvider
         ? t("rsvpProviderDeleteConfirm", "Remove this station?")
-        : t("rsvpTableDeleteConfirm", "Remove this table?");
+        : placeWords
+          ? t("rsvpTableDeleteConfirmAppt", "Remove this space?")
+          : t("rsvpTableDeleteConfirm", "Remove this table?");
     const message = isProvider
       ? staffName && staffName !== label
         ? t(
@@ -8049,7 +8098,19 @@ function FloorSection({ t, businessType }) {
             "rsvpProviderDeleteBody",
             "The station leaves the floor and the timeline and takes no more appointments — putting it back means setting it up again.",
           )
-      : r.zone
+      : placeWords
+        ? r.zone
+          ? t(
+              "rsvpTableDeleteBodyZoneAppt",
+              "Room for {seats}, in {zone}. The space leaves the overview and the timeline and takes no new appointments — putting it back means setting it up again.",
+              { seats, zone: r.zone },
+            )
+          : t(
+              "rsvpTableDeleteBodyAppt",
+              "Room for {seats}. The space leaves the overview and the timeline and takes no new appointments — putting it back means setting it up again.",
+              { seats },
+            )
+        : r.zone
         ? t(
             "rsvpTableDeleteBodyZone",
             "Room for {seats}, in {zone}. The table leaves the floor plan and the timeline and takes no new bookings — putting it back means setting it up again.",
@@ -8133,10 +8194,12 @@ function FloorSection({ t, businessType }) {
         </div>
       ) : (
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          {t(
-            profile.floorIntroKey,
-            "Add the tables guests can be seated at. Capacity drives which party sizes a slot can take.",
-          )}
+          {placeWords
+            ? t("rsvpFloorIntroAppt", "Add the spaces your customers can be booked into. The number of people a space takes decides how many one time can take.")
+            : t(
+              profile.floorIntroKey,
+              "Add the tables guests can be seated at. Capacity drives which party sizes a slot can take.",
+            )}
         </p>
       )}
 
@@ -8272,7 +8335,9 @@ function FloorSection({ t, businessType }) {
             {t("rsvpBulkTitle", "Quick setup")}
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {t("rsvpBulkHint", "How many tables of each size? They're created and numbered for you.")}
+            {placeWords
+              ? t("rsvpBulkHintAppt", "How many spaces, and for how many people each? They're created and numbered for you.")
+              : t("rsvpBulkHint", "How many tables of each size? They're created and numbered for you.")}
           </p>
         </div>
 
@@ -8286,7 +8351,7 @@ function FloorSection({ t, businessType }) {
                   value={row.seats}
                   onChange={(e) => setBulkRow(i, { seats: e.target.value.replace(/[^\d]/g, "").slice(0, 3) })}
                   placeholder={t("rsvpBulkSeatsPh", "Seats")}
-                  aria-label={t("rsvpBulkSeatsAria", "Seats per table")}
+                  aria-label={placeWords ? t("rsvpBulkSeatsAriaAppt", "People per space") : t("rsvpBulkSeatsAria", "Seats per table")}
                   className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
                 />
                 <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">
@@ -8368,7 +8433,11 @@ function FloorSection({ t, businessType }) {
 
         {bulkDone && (
           <p className="text-sm text-emerald-600 dark:text-emerald-400">
-            {t("rsvpBulkDone", "Added {n} tables.", { n: bulkDone.created })}
+            {placeWords
+              ? bulkDone.created === 1
+                ? t("rsvpBulkDoneOneAppt", "Added 1 space.")
+                : t("rsvpBulkDoneAppt", "Added {n} spaces.", { n: bulkDone.created })
+              : t("rsvpBulkDone", "Added {n} tables.", { n: bulkDone.created })}
             {bulkDone.capped > 0 &&
               " " + t("rsvpBulkCapped", "{n} more need a plan upgrade.", { n: bulkDone.capped })}
           </p>
@@ -8377,7 +8446,11 @@ function FloorSection({ t, businessType }) {
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm text-gray-500 dark:text-gray-400">
             {bulkTotal > 0
-              ? t("rsvpBulkTotal", "Adding {n} tables", { n: bulkTotal })
+              ? placeWords
+                ? bulkTotal === 1
+                  ? t("rsvpBulkTotalOneAppt", "Adding 1 space")
+                  : t("rsvpBulkTotalAppt", "Adding {n} spaces", { n: bulkTotal })
+                : t("rsvpBulkTotal", "Adding {n} tables", { n: bulkTotal })
               : t("rsvpBulkPickCounts", "Set how many of each")}
           </span>
           <Button
@@ -8388,7 +8461,7 @@ function FloorSection({ t, businessType }) {
             disabled={bulkTotal === 0}
             iconLeft={<Plus className="w-4 h-4" />}
           >
-            {t("rsvpBulkSubmit", "Add tables")}
+            {placeWords ? t("rsvpBulkSubmitAppt", "Add spaces") : t("rsvpBulkSubmit", "Add tables")}
           </Button>
         </div>
       </form>
@@ -8404,14 +8477,14 @@ function FloorSection({ t, businessType }) {
         className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
       >
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-          {t("rsvpAddTable", "Add a table")}
+          {placeWords ? t("rsvpAddTableAppt", "Add a space") : t("rsvpAddTable", "Add a table")}
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <input
             type="text"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder={t("rsvpTableLabelPh", "Name (e.g. Table 4)")}
+            placeholder={placeWords ? t("rsvpTableLabelPhAppt", "Name (e.g. Space 4)") : t("rsvpTableLabelPh", "Name (e.g. Table 4)")}
             maxLength={120}
             className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
           />
@@ -8448,16 +8521,18 @@ function FloorSection({ t, businessType }) {
           <span className="text-sm text-gray-700 dark:text-gray-300 leading-snug">
             {t("rsvpCombinable", "Can be combined")}
             <span className="block text-xs text-gray-400 dark:text-gray-500">
-              {t(
-                "rsvpCombinableHint",
-                "Push together with other combinable tables in the same zone to seat a bigger party.",
-              )}
+              {placeWords
+                ? t("rsvpCombinableHintAppt", "Use together with other combinable spaces in the same zone for more people at once.")
+                : t(
+                  "rsvpCombinableHint",
+                  "Push together with other combinable tables in the same zone to seat a bigger party.",
+                )}
             </span>
           </span>
         </label>
         <div className="flex justify-end">
           <Button type="submit" variant="primary" size="lg" busy={saving} iconLeft={<Plus className="w-4 h-4" />}>
-            {t("rsvpAddTableBtn", "Add table")}
+            {placeWords ? t("rsvpAddTableBtnAppt", "Add space") : t("rsvpAddTableBtn", "Add table")}
           </Button>
         </div>
       </form>
@@ -8477,7 +8552,7 @@ function FloorSection({ t, businessType }) {
           <UpgradeNudge
             intent="inline"
             tier={capMsg.upgrade_to === "pro" ? "pro" : "starter"}
-            benefit={t("rsvpTableCapBenefit", "Unlimited tables")}
+            benefit={placeWords ? t("rsvpTableCapBenefitAppt", "Unlimited spaces") : t("rsvpTableCapBenefit", "Unlimited tables")}
           />
         </div>
       )}
@@ -8620,10 +8695,12 @@ function FloorSection({ t, businessType }) {
                   type="button"
                   onClick={() => toggleCombinable(r)}
                   aria-pressed={!!r.combinable}
-                  title={t(
-                    "rsvpCombinableToggleTitle",
-                    "Combine with other combinable tables in the same zone to seat bigger parties",
-                  )}
+                  title={placeWords
+                    ? t("rsvpCombinableToggleTitleAppt", "Combine with other combinable spaces in the same zone when more people come at once")
+                    : t(
+                      "rsvpCombinableToggleTitle",
+                      "Combine with other combinable tables in the same zone to seat bigger parties",
+                    )}
                   className={
                     "h-11 px-3 inline-flex items-center gap-1.5 rounded-lg border text-xs font-medium transition-colors " +
                     (r.combinable
@@ -9576,20 +9653,26 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           {tableRules && (
           <fieldset className="sm:col-span-2 min-w-0 m-0 p-0 border-0">
             <legend className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t("rsvpTableTimes", "Table time (minutes)")}
+              {apptWords
+                ? t("rsvpTableTimesAppt", "Time per appointment (minutes)")
+                : t("rsvpTableTimes", "Table time (minutes)")}
             </legend>
             {tierDraft.length > 0 ? (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {tierDraft.map((tr, i) => (
                   <NumberField
                     key={tr.up_to}
-                    label={t("rsvpTierBand", "{from}–{to} guests", { from: i === 0 ? 1 : tierDraft[i - 1].up_to + 1, to: tr.up_to })}
+                    label={apptWords
+                      ? t("rsvpTierBandAppt", "{from}–{to} people", { from: i === 0 ? 1 : tierDraft[i - 1].up_to + 1, to: tr.up_to })
+                      : t("rsvpTierBand", "{from}–{to} guests", { from: i === 0 ? 1 : tierDraft[i - 1].up_to + 1, to: tr.up_to })}
                     value={tr.minutes}
                     onChange={(v) => setTierDraft((cur) => cur.map((x, j) => (j === i ? { ...x, minutes: v } : x)))}
                   />
                 ))}
                 <NumberField
-                  label={t("rsvpTierBigger", "{n}+ guests", { n: tierDraft[tierDraft.length - 1].up_to + 1 })}
+                  label={apptWords
+                    ? t("rsvpTierBiggerAppt", "{n}+ people", { n: tierDraft[tierDraft.length - 1].up_to + 1 })
+                    : t("rsvpTierBigger", "{n}+ guests", { n: tierDraft[tierDraft.length - 1].up_to + 1 })}
                   value={form.default_duration_min}
                   onChange={(v) => setForm((f) => ({ ...f, default_duration_min: v }))}
                   hint={
@@ -9604,7 +9687,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
               <div className="flex items-end gap-3 flex-wrap">
                 <div className="w-40">
                   <NumberField
-                    label={t("rsvpTierEvery", "Every party")}
+                    label={apptWords ? t("rsvpTierEveryAppt", "Every appointment") : t("rsvpTierEvery", "Every party")}
                     value={form.default_duration_min}
                     onChange={(v) => setForm((f) => ({ ...f, default_duration_min: v }))}
                   />
@@ -9617,28 +9700,31 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
                   }}
                   className="h-11 px-3 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
                 >
-                  {t("rsvpTierSplit", "Set by party size")}
+                  {apptWords ? t("rsvpTierSplitAppt", "Set by number of people") : t("rsvpTierSplit", "Set by party size")}
                 </button>
               </div>
             )}
             <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-              {t("rsvpTableTimesHint", "How long a table is held. New bookings, the time pickers and the floor all use these.")}
+              {apptWords
+                ? t("rsvpTableTimesHintAppt", "How long a space is held. New appointments, the time pickers and the overview all use these.")
+                : t("rsvpTableTimesHint", "How long a table is held. New bookings, the time pickers and the floor all use these.")}
             </p>
           </fieldset>
           )}
           {tableRules && (
           <NumberField
-            label={t("rsvpMaxParty", "Max party size (online)")}
-            hint={t("rsvpMaxPartyHint", "Bigger groups see 'call us'.")}
+            label={apptWords ? t("rsvpMaxPartyAppt", "Max people per appointment (online)") : t("rsvpMaxParty", "Max party size (online)")}
+            hint={apptWords ? t("rsvpMaxPartyHintAppt", "More people see 'call us'.") : t("rsvpMaxPartyHint", "Bigger groups see 'call us'.")}
             value={form.max_party_size}
             onChange={(v) => setForm((f) => ({ ...f, max_party_size: v }))}
           />
           )}
           {tableRules && (
           <NumberField
-            label={t("rsvpGroupThreshold", "Group-request from")
-            }
-            hint={t("rsvpGroupThresholdHint", "At/above this, bookings become a request you approve.")}
+            label={apptWords ? t("rsvpGroupThresholdAppt", "Request from (number of people)") : t("rsvpGroupThreshold", "Group-request from")}
+            hint={apptWords
+              ? t("rsvpGroupThresholdHintAppt", "At/above this, an appointment becomes a request you approve.")
+              : t("rsvpGroupThresholdHint", "At/above this, bookings become a request you approve.")}
             value={form.group_request_threshold}
             onChange={(v) => setForm((f) => ({ ...f, group_request_threshold: v }))}
           />
@@ -9662,7 +9748,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           />
           {tableRules && (
           <NumberField
-            label={t("rsvpPacing", "Max covers per slot")}
+            label={apptWords ? t("rsvpPacingAppt", "Max people per time") : t("rsvpPacing", "Max covers per slot")}
             hint={t("rsvpPacingHint", "Leave blank for no pacing cap.")}
             value={form.pacing_max_per_slot}
             onChange={(v) => setForm((f) => ({ ...f, pacing_max_per_slot: v }))}
@@ -9681,19 +9767,21 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
               className="mt-0.5 w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 accent-gray-900 dark:accent-gray-100 focus:ring-gray-400"
             />
             <span className="text-sm text-gray-700 dark:text-gray-300 leading-snug">
-              {t("rsvpCombineSetting", "Table combining")}
+              {apptWords ? t("rsvpCombineSettingAppt", "Combine spaces") : t("rsvpCombineSetting", "Table combining")}
               <span className="block text-xs text-gray-400 dark:text-gray-500">
-                {t(
-                  "rsvpCombineSettingHint",
-                  "Let big parties be seated across multiple combinable tables in the same zone.",
-                )}
+                {apptWords
+                  ? t("rsvpCombineSettingHintAppt", "Let more people at once use several combinable spaces in the same zone.")
+                  : t(
+                    "rsvpCombineSettingHint",
+                    "Let big parties be seated across multiple combinable tables in the same zone.",
+                  )}
               </span>
             </span>
           </label>
           {form.combine_enabled && (
             <div className="mt-3 sm:max-w-[14rem]">
               <NumberField
-                label={t("rsvpMaxComboSize", "Max tables per party")}
+                label={apptWords ? t("rsvpMaxComboSizeAppt", "Max spaces per appointment") : t("rsvpMaxComboSize", "Max tables per party")}
                 value={form.max_combo_size}
                 onChange={(v) => setForm((f) => ({ ...f, max_combo_size: v }))}
               />
@@ -9712,9 +9800,11 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
               className="mt-0.5 w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 accent-gray-900 dark:accent-gray-100 focus:ring-gray-400"
             />
             <span className="text-sm text-gray-700 dark:text-gray-300 leading-snug">
-              {t("rsvpGuestPickSetting", "Let guests choose their table")}
+              {apptWords ? t("rsvpGuestPickSettingAppt", "Let customers choose their space") : t("rsvpGuestPickSetting", "Let guests choose their table")}
               <span className="block text-xs text-gray-400 dark:text-gray-500">
-                {t("rsvpGuestPickSettingHint", "Off: the booking page auto-assigns the best free table (you keep seating control). On: guests can tap a specific table on the floor map.")}
+                {apptWords
+                  ? t("rsvpGuestPickSettingHintAppt", "Off: the booking page picks the best free space (you stay in control). On: customers can tap a specific space on the map.")
+                  : t("rsvpGuestPickSettingHint", "Off: the booking page auto-assigns the best free table (you keep seating control). On: guests can tap a specific table on the floor map.")}
               </span>
             </span>
           </label>

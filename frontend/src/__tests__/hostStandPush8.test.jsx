@@ -632,3 +632,115 @@ describe("6 · the covers give no count before the book is in (review)", () => {
     expect(document.querySelector('[data-covers="finished"]').textContent).toMatch(/\d+ guests/);
   });
 });
+
+// ── Push 8 review (round 3): the minor findings on the stand ─────────────
+
+describe("4/5 · a full room gives one message for every party size (review 3)", () => {
+  // Venue "full": 1 and 3 seated; 2 (a two-top) is free now but booked at
+  // 19:20. Party 1–2 read "No table free right now"; party 3–4 read "No free
+  // table seats 3 — choose a table yourself", as if a table stood free.
+  const ROOM = [table("1", 4), table("2", 2), table("3", 4)];
+  const FULL = [
+    row("s1", "Anders", "1", "seated", "18:30", "20:00", 4, { seated_at: z("18:30") }),
+    row("s3", "Berg", "3", "seated", "18:20", "20:20", 4, { seated_at: z("18:20") }),
+    row("r2", "Dahl", "2", "confirmed", "19:20", "20:50", 2),
+  ];
+  it.each([1, 2, 3, 4])("party %i: 'No table free right now', with the waitlist", async (n) => {
+    mockApi({}, { book: FULL, resources: ROOM });
+    renderStand();
+    await sizeButton(1);
+    fireEvent.click(screen.getByRole("button", { name: "Seat a drop-in" }));
+    const dialog = await screen.findByRole("dialog", { name: "Seat guests" });
+    fireEvent.click(within(dialog).getByRole("button", { name: n === 1 ? "1 guest" : `${n} guests` }));
+    await waitFor(() => expect(within(dialog).getByText("No table free right now — put them on the waitlist")).toBeInTheDocument());
+    expect(dialog.querySelector("[data-seat-none-free]").getAttribute("data-seat-none-free")).toBe("room");
+    expect(within(dialog).getByRole("combobox", { name: "Table" })).toHaveValue("");
+    expect(within(dialog).getByRole("button", { name: "Add to waitlist" })).toBeInTheDocument();
+  });
+});
+
+describe("2/3 · tables pushed together wrap on a phone row, never cut (review 3)", () => {
+  // At 360 "Vinduesbord 11 + Vinduesbord 12 + Terrassebord 13" read
+  // "Vinduesbord 11 + Vind…" (seated) and "… 12 …" (finished): the third
+  // table never showed, and the title tooltip does not open on a phone.
+  const LONG = [table("v11", 2, { label: "Vinduesbord 11" }), table("v12", 2, { label: "Vinduesbord 12" }), table("t13", 4, { label: "Terrassebord 13" }), table("41", 2)];
+  const joined = { combined_resource_ids: ["v11", "v12", "t13"], combined_resource_labels: ["Vinduesbord 11", "Vinduesbord 12", "Terrassebord 13"] };
+  const BOOK3 = [
+    row("j1", "Selskab Kragh", "v11", "seated", "18:30", "20:30", 8, { seated_at: z("18:30"), ...joined }),
+    row("j2", "Selskab Riis", "v11", "completed", "16:00", "17:30", 8, { seated_at: z("16:00"), completed_at: z("17:40"), ...joined }),
+  ];
+  const ALL3 = "Vinduesbord 11 + Vinduesbord 12 + Terrassebord 13";
+
+  it("a seated party: all three tables, wrapping", async () => {
+    mockApi({}, { book: BOOK3, resources: LONG });
+    renderStand();
+    await waitFor(() => expect(compactRowOf("Selskab Kragh")).toBeTruthy());
+    const tables = compactRowOf("Selskab Kragh").querySelector("[data-row-tables]");
+    expect(tables.textContent).toBe(ALL3);
+    expect(classesOf(tables)).not.toContain("truncate");
+    expect(classesOf(tables)).toEqual(expect.arrayContaining(["whitespace-normal", "break-words", "max-w-full", "min-w-0"]));
+  });
+
+  it("a finished party: all three tables, wrapping", async () => {
+    mockApi({}, { book: BOOK3, resources: LONG });
+    renderStand();
+    await waitFor(() => expect(document.querySelector('[data-covers="finished"]')).not.toBeNull());
+    fireEvent.click(document.querySelector('[data-covers="finished"]'));
+    await waitFor(() => expect(compactRowOf("Selskab Riis")).toBeTruthy());
+    const tables = compactRowOf("Selskab Riis").querySelector("[data-row-tables]");
+    expect(tables.textContent).toBe(ALL3);
+    expect(classesOf(tables)).not.toContain("truncate");
+    expect(classesOf(tables)).toEqual(expect.arrayContaining(["whitespace-normal", "break-words"]));
+  });
+
+  it("a party at one table keeps its one truncating line (unchanged)", async () => {
+    renderStand();
+    await waitFor(() => expect(compactRowOf("Birk")).toBeTruthy());
+    const tables = compactRowOf("Birk").querySelector("[data-row-tables]");
+    expect(classesOf(tables)).toContain("truncate");
+  });
+});
+
+describe("6 · the stand header keeps its controls on the title's line (review 3)", () => {
+  // "Brasserie Kongens Nytorv & Vinbar" pushed the sound and ⋯ controls onto
+  // a left-aligned row of their own at 360–414 and at 1024 × 768: the title
+  // block took its full width in a wrapping row.
+  it("the row wraps only below md, and the title takes what is left (basis 0) and truncates", async () => {
+    renderStand();
+    await waitFor(() => expect(document.querySelector("[data-stand-header]")).not.toBeNull());
+    const header = document.querySelector("[data-stand-header]");
+    expect(classesOf(header)).toEqual(expect.arrayContaining(["flex-wrap", "md:flex-nowrap"]));
+    const title = header.querySelector("[data-stand-title]");
+    expect(classesOf(title)).toEqual(expect.arrayContaining(["min-w-0", "max-md:flex-1", "max-md:basis-0"]));
+    // The covers keep their own full-width row on a phone.
+    const covers = header.querySelector('[role="group"]');
+    expect(classesOf(covers)).toEqual(expect.arrayContaining(["order-last", "basis-full", "md:order-none", "md:basis-auto"]));
+  });
+});
+
+describe("3 · the floating line carries the doctrine's light shadow (review 3)", () => {
+  it("the light shadow (shadow-sm), never a heavy one", async () => {
+    renderStand("/reservations");
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith("/reservations/book", expect.anything()));
+    fireEvent.click(await screen.findByRole("button", { name: "Seat a drop-in" }));
+    const dialog = await screen.findByRole("dialog", { name: "Seat guests" });
+    await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "Table" })).toHaveValue("41"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
+    const said = await screen.findByText("2 guests seated at 41");
+    const float = said.closest("[data-walkin-done-float]");
+    expect(classesOf(float)).toContain("shadow-sm");
+    expect(classesOf(float).some((c) => /^shadow-(lg|xl|2xl)$/.test(c))).toBe(false);
+  });
+});
+
+describe("9 · one is one on the Plan lens (review 3)", () => {
+  it("'1 ledig nu', never '1 ledige nu'", async () => {
+    lang.code = "da";
+    renderStand();
+    await sizeButton(1);
+    fireEvent.click(screen.getAllByRole("tab", { name: da.rsvpViewPlan })[0]);
+    await waitFor(() => expect(screen.getByText(da.rsvpTurnFreeNowOne)).toBeInTheDocument());
+    expect(document.body.textContent).not.toContain("1 ledige nu");
+    expect(en.rsvpTurnFreeNowOne).toBe("1 free now");
+  });
+});

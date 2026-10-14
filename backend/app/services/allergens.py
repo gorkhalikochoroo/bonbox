@@ -18,6 +18,8 @@ Reference: EU FIC Regulation 1169/2011 Annex II (the 14 food allergens).
 """
 from __future__ import annotations
 
+from app.services.archetype import archetype_id_for
+
 # The 14 allergens EU food businesses must declare (Reg. 1169/2011).
 FOOD_ALLERGENS_EU14: list[dict] = [
     {"key": "gluten", "en": "Cereals containing gluten"},
@@ -61,7 +63,8 @@ MEDICAL_ALLERGENS: list[dict] = [
 SEVERITY_LEVELS = ["preference", "intolerance", "severe"]
 
 # Which catalogue applies to which business vertical. Anything not mapped
-# falls back to the food set (restaurants are the primary market).
+# falls back to the food set (restaurants are the primary market) — except a
+# shop or a repair / service trade (the retail and services archetypes, below).
 _VERTICAL_SETS: dict[str, list[dict]] = {
     "restaurant": FOOD_ALLERGENS_EU14,
     "cafe": FOOD_ALLERGENS_EU14,
@@ -120,11 +123,33 @@ def allergen_label(key: str, lang: str = "en") -> str:
     return labels.get(k) or _LABELS["en"].get(k) or (key or "")
 
 
+# Archetypes that serve no food and treat no body: a clothing shop, a bike
+# workshop, a laundry. Their customers are asked no allergies at all — the
+# public page asked a bike workshop's customer for the 14 EU food allergens
+# "so the kitchen can plan" (Push 8 review). Health data with no purpose is
+# not collected (GDPR Art. 5(1)(c) data minimisation), so the catalogue is
+# empty and sanitize_tags drops any tag sent anyway.
+_NO_ALLERGEN_ARCHETYPES = frozenset({"retail", "services"})
+
+
 def allergen_set_for(business_type: str | None) -> list[dict]:
-    """Return the allergen catalogue for a vertical (food set as fallback)."""
+    """Return the allergen catalogue for a vertical (food set as fallback;
+    empty for a shop or a repair / service trade)."""
     if not business_type:
         return FOOD_ALLERGENS_EU14
-    return _VERTICAL_SETS.get(business_type.strip().lower(), FOOD_ALLERGENS_EU14)
+    key = business_type.strip().lower()
+    if key in _VERTICAL_SETS:
+        return _VERTICAL_SETS[key]
+    if archetype_id_for(key) in _NO_ALLERGEN_ARCHETYPES:
+        return []
+    return FOOD_ALLERGENS_EU14
+
+
+def collects_allergies(business_type: str | None) -> bool:
+    """Does this vertical ask its customers about allergies at all? False for
+    a shop or a repair / service trade: the public booking then stores no
+    allergy note or severity either (there is no catalogue to qualify)."""
+    return bool(allergen_set_for(business_type))
 
 
 def valid_keys_for(business_type: str | None) -> set[str]:
