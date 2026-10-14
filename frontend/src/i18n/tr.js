@@ -764,7 +764,7 @@ export const tr = {
   cookieBannerAria: "Çerez izni",
   cookieBannerTitle: "Çerez kullanıyoruz",
   cookieBannerBody: "BonBox, oturumunuzu açık tutmak için zorunlu çerezler kullanır. Kendi seçtiğiniz ayarlar — örneğin açık/koyu tema ve kapattığınız ipuçları — istediğiniz şeyi yapabilmesi için BonBox'a gerekli olduğundan cihazınızda saklanır; başka hiçbir amaçla kullanılmaz. İki kategori isteğe bağlıdır: Analitik (kullanım istatistikleri: hangi özelliklerin kullanıldığı — tarayıcınızın gönderdiği olaylar yalnızca siz açtıktan sonra kaydedilir) ve Pazarlama (yalnızca siz açarsanız: basılı broşürlerimizden birindeki QR koddan gelen kod, hangi broşürün bir kayda yol açtığını ölçebilmemiz için cihazınızda en fazla 30 gün saklanır). “Tümünü kabul et” ikisini de açar.",
-  cookieBannerShort: "Oturumunuzu açık tutmak ve seçtiğiniz ayarları hatırlamak için zorunlu çerezler kullanıyoruz. Analitik ve pazarlama isteğe bağlıdır ve yalnızca siz onay verirseniz kullanılır.",
+  cookieBannerShort: "Zorunlu çerezler oturumunuzu açık tutar ve ayarlarınızı hatırlar – analitik ve pazarlama yalnızca onay verirseniz.",
   suCookieMore: "Devamını oku",
   cookieAcceptAll: "Tümünü kabul et",
   cookieDeclineNonEssential: "Zorunlu olmayanları reddet",

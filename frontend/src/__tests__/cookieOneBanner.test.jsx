@@ -125,13 +125,14 @@ describe.each(["en", "da"])("the banner in %s", (lang) => {
 
 describe("the short sentence stays true to the code", () => {
   it("en: signed in + the settings you choose are necessary; Analytics and marketing only on a yes", () => {
+    // Push 9 (B1): one sentence, same facts — the banner is ~125 px on a phone.
     expect(en.cookieBannerShort).toBe(
-      "We use necessary cookies to keep you signed in and remember the settings you choose. Analytics and marketing are optional and only used if you say yes.",
+      "Necessary cookies keep you signed in and remember your settings – analytics and marketing only if you say yes.",
     );
   });
   it("da: logget ind + de indstillinger, du selv vælger, er nødvendige; Analyse og markedsføring kun ved et ja", () => {
     expect(da.cookieBannerShort).toBe(
-      "Vi bruger nødvendige cookies til at holde dig logget ind og huske de indstillinger, du selv vælger. Analyse og markedsføring er valgfrie og bruges kun, hvis du siger ja.",
+      "Nødvendige cookies holder dig logget ind og husker dine indstillinger – analyse og markedsføring kun med dit ja.",
     );
   });
   it("names the same optional categories the switches do", () => {
