@@ -1,6 +1,37 @@
 /// <reference types="vitest" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { fileURLToPath } from 'node:url'
+
+// ── The landing's boot dictionary (push 9, E) ─────────────────────
+// `virtual:bonbox-boot-dict` = { da: {...}, en: {...} } holding only the keys
+// src/lib/bootKeys.js accepts (the landing page and the cookie banner),
+// generated from src/i18n/da.js and en.js — those two stay the only place a
+// string is written. hooks/useLanguage.jsx renders the landing with it while
+// the full dictionary (~185 KB gz) is still on its way. ~13 KB gz for both.
+// Runs in dev, build and vitest alike, so a test sees what production ships.
+function bootDictionary() {
+  const VID = 'virtual:bonbox-boot-dict'
+  const RID = '\0' + VID
+  const file = (f) => new URL(f, import.meta.url)
+  return {
+    name: 'bonbox-boot-dictionary',
+    resolveId(id) {
+      if (id === VID) return RID
+    },
+    async load(id) {
+      if (id !== RID) return
+      const files = ['./src/lib/bootKeys.js', './src/i18n/da.js', './src/i18n/en.js']
+      for (const f of files) this.addWatchFile(fileURLToPath(file(f)))
+      // ?t= busts Node's module cache so dev picks up an edited dictionary.
+      const stamp = Date.now()
+      const load = (f) => import(file(f).href + '?t=' + stamp)
+      const [{ isBootKey }, { da }, { en }] = await Promise.all(files.map(load))
+      const pick = (d) => Object.fromEntries(Object.entries(d).filter(([k]) => isBootKey(k)))
+      return `export default ${JSON.stringify({ da: pick(da), en: pick(en) })};`
+    },
+  }
+}
 
 // ── Start the visitor's dictionary download with the page ─────────
 // The English and Danish dictionaries are their own chunks, loaded on
@@ -25,8 +56,16 @@ function preloadDictionary() {
           if (m) files[m[1]] = '/' + chunk.fileName
         }
         if (!files.en || !files.da) return html
+        // Push 9 (E): NOT on the landing ("/" or "/v2") for a visitor with
+        // no session — that page paints from the boot dictionary, and a
+        // 185 KB preload there only competes with the app code and fonts the
+        // first paint is waiting for. The dictionary still loads, right after
+        // the first paint (hooks/useLanguage.jsx). Same test as
+        // src/lib/landingBoot.js: the bonbox_csrf cookie or a native token.
         const script =
           '<script>(function(){try{' +
+          'var p=location.pathname.replace(/\\/+$/,"")||"/";' +
+          'if((p==="/"||p==="/v2")&&!/(?:^|;\\s*)bonbox_csrf=/.test(document.cookie)){var tk=null;try{tk=localStorage.getItem("token")}catch(e){}if(!tk)return}' +
           `var f=${JSON.stringify(files)};` +
           'var l=null;try{l=localStorage.getItem("lang")}catch(e){}' +
           'if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}' +
@@ -41,7 +80,7 @@ function preloadDictionary() {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), preloadDictionary()],
+  plugins: [react(), preloadDictionary(), bootDictionary()],
   // Force the automatic JSX runtime everywhere — production already
   // uses it via @vitejs/plugin-react, but vitest's transform pipeline
   // sometimes falls back to the classic runtime which requires

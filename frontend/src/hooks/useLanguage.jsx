@@ -2,6 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { LANGUAGES } from "../i18n/languageCatalog";
 import { loadLocale, loadedLocales, localesFor } from "../lib/localeStore";
 import { SHELL_TITLE_VALUES, browserListsDanish, shellTitle } from "../lib/shellTitles";
+import { landingFirstPaint } from "../lib/landingBoot";
+// The landing page's and cookie banner's keys in Danish and English, built
+// from i18n/da.js + en.js at build time (vite.config.js, lib/bootKeys.js).
+// ~13 KB gz. Lets the logged-out landing paint before the full dictionary
+// arrives — see the render gate below and FullDictionaryGate in App.jsx.
+import BOOT from "virtual:bonbox-boot-dict";
 
 const LanguageContext = createContext(null);
 
@@ -281,7 +287,7 @@ export function LanguageProvider({ children }) {
       !Array.isArray(maybeVars);
     const vars = thirdIsVarsObject ? maybeVars : varsFromSecond;
 
-    const hit = loaded[active]?.[key] || loaded.en?.[key];
+    const hit = loaded[active]?.[key] || BOOT[active]?.[key] || loaded.en?.[key] || BOOT.en?.[key];
     let result;
     if (hit) {
       result = hit;
@@ -323,10 +329,17 @@ export function LanguageProvider({ children }) {
   // First paint waits for the visitor's dictionary — the page is still the
   // bare shell at that point, exactly as it was while the old inline
   // dictionary downloaded. A failed download renders anyway.
-  if (!readyFor(active) && !loadFailed) return null;
+  //
+  // Push 9 (E): Danish and English may render on the BOOT dictionary while
+  // the full one downloads. `fullReady` tells the app which it has: App.jsx
+  // (FullDictionaryGate) renders only the landing on boot keys and holds
+  // every other route back until the full dictionary is in — so no app page
+  // ever shows a missing key. Other languages wait as before.
+  const fullReady = readyFor(active) || loadFailed;
+  if (!fullReady && !BOOT[active]) return null;
 
   return (
-    <LanguageContext.Provider value={{ lang: active, setLang, toggleLang, t, LANGUAGES }}>
+    <LanguageContext.Provider value={{ lang: active, setLang, toggleLang, t, LANGUAGES, fullReady }}>
       {children}
     </LanguageContext.Provider>
   );
@@ -341,8 +354,16 @@ export function useLanguage() {
 // Start downloading the visitor's dictionary as soon as this module loads —
 // in parallel with the rest of the app booting, not after its first render.
 // Placed last on purpose: detectInitialLanguage reads constants defined above.
+//
+// Except on the landing for a visitor with no session (push 9, E): that page
+// paints from BOOT, so the 185 KB dictionary waits until the provider's
+// effect asks for it — right after the first paint — instead of competing
+// with the fonts the first paint is drawing in.
 try {
-  localesFor(detectInitialLanguage().lang).forEach((code) => {
-    loadLocale(code).catch(() => { /* the provider retries and falls back */ });
-  });
+  const bootable = Boolean(BOOT[detectInitialLanguage().lang]);
+  if (!(bootable && landingFirstPaint())) {
+    localesFor(detectInitialLanguage().lang).forEach((code) => {
+      loadLocale(code).catch(() => { /* the provider retries and falls back */ });
+    });
+  }
 } catch { /* no storage available — the provider loads it on mount */ }
