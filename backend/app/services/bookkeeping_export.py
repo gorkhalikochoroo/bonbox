@@ -93,11 +93,6 @@ def _money_dot(amount) -> str:
         return "0.00"
 
 
-# moms ÷ 0,20 reconstructs the 25 % gross only to ±0,025 kr. (moms is stored
-# to the øre). A smaller "momsfri" remainder is that rounding.
-_MOMS_ROUNDING_KR = 0.025
-
-
 def _query_sales(user: User, db: Session, start: date, end: date) -> list:
     """Revenue lines for the period, per-date precedence exactly like the
     dashboard's revenue resolver: a day with a confirmed kasserapport exports
@@ -126,20 +121,19 @@ def _query_sales(user: User, db: Session, start: date, end: date) -> list:
         return sales
     close_dates = {c.date for c in closes}
     lines = [s for s in sales if s.date not in close_dates]
+    from app.services.tax_service import _get_vat_rate, close_vat_split
+    vat_rate = _get_vat_rate(user.currency or "DKK")
     for c in closes:
         gross = float(c.revenue_total or 0)
         if gross <= 0:
             continue
-        moms = float(c.moms_total) if c.moms_total is not None else None
-        # A DK close is 25 % or momsfri: the 25 % share is moms ÷ 0,20, the
-        # rest is exempt. No moms figure on the close = treat it all as 25 %.
-        taxed = gross if moms is None else min(gross, round(moms / 0.2, 2))
-        exempt = round(gross - taxed, 2)
-        # The moms is stored to the øre, so moms ÷ 0,20 can miss the gross by
-        # up to 2,5 øre. That is rounding, not momsfri revenue: it printed a
-        # "Kasserapport … (momsfri) 0,01" line for nearly every day.
-        if exempt <= _MOMS_ROUNDING_KR:
-            taxed, exempt = gross, 0.0
+        # A DK close is 25 % or momsfri: the 25 % share is what its own moms
+        # covers, the rest is exempt — the MOMS engine's own split (one rule
+        # for box A, the revisorpakke and these files). No moms figure, or
+        # moms at the standard rate within the kasserapport's rounding
+        # tolerance = all 25 % (moms ÷ 0,20 used to print a
+        # "Kasserapport … (momsfri) 0,01" line for nearly every day).
+        taxed, exempt = close_vat_split(gross, c.moms_total, vat_rate)
         day = c.date.isoformat()
         if taxed > 0.004:
             lines.append(SimpleNamespace(
@@ -298,13 +292,17 @@ def _customer_lookup(user: User, db: Session) -> dict:
 # ───────── DINERO ─────────
 
 
-def _no_input_vat(e, cats: dict) -> bool:
+def _no_input_vat(e, cats: dict, account_ccy: str | None = None) -> bool:
     """True when this expense carries no deductible købsmoms: marked exempt,
-    or a category the MOMS engine gives 0 % fradrag (løn, forsikring,
-    pension …). The exports coded every expense I25, so a revisor importing
-    the file would have booked købsmoms on wages that the angivelse — rightly
-    — never claimed."""
+    in a foreign currency (foreign VAT is not købsmoms — the MOMS engine
+    leaves it out), or a category the MOMS engine gives 0 % fradrag (løn,
+    forsikring, pension …). The exports coded every expense I25, so a revisor
+    importing the file would have booked købsmoms on wages that the
+    angivelse — rightly — never claimed."""
     if getattr(e, "is_tax_exempt", False):
+        return True
+    ccy = (getattr(e, "currency", None) or "").strip().upper()
+    if ccy and ccy != (account_ccy or "DKK").strip().upper():
         return True
     try:
         from app.services.dk_fradrag import fradrag_factor
@@ -358,7 +356,7 @@ def export_dinero(user: User, db: Session, start: date, end: date) -> bytes:
 
     fallback = 1
     for e in expenses:
-        moms = "0%" if _no_input_vat(e, cats) else "25%"
+        moms = "0%" if _no_input_vat(e, cats, user.currency) else "25%"
         cat_name = cats.get(str(e.category_id), "Other")
         desc = f"{cat_name}: {e.description}" if e.description else cat_name
         vn = getattr(e, "voucher_number", None)
@@ -424,7 +422,7 @@ def export_billy(user: User, db: Session, start: date, end: date) -> bytes:
     w.writerow(["# === EXPENSES ==="])
     w.writerow(["Bilagsnummer", "Date", "Category", "Description", "Amount", "Currency", "VAT %"])
     for e in expenses:
-        vat = "0" if _no_input_vat(e, cats) else "25"
+        vat = "0" if _no_input_vat(e, cats, user.currency) else "25"
         cat_name = cats.get(str(e.category_id), "Other")
         vn = getattr(e, "voucher_number", None)
         bilag = f"E-{e.date.year}-{vn:04d}" if vn else ""
@@ -496,7 +494,7 @@ def export_economic(user: User, db: Session, start: date, end: date) -> bytes:
 
     fallback = 1
     for e in expenses:
-        vat = "I0" if _no_input_vat(e, cats) else "I25"
+        vat = "I0" if _no_input_vat(e, cats, user.currency) else "I25"
         cat_name = cats.get(str(e.category_id), "Other")
         desc = f"{cat_name}: {e.description}" if e.description else cat_name
         vn = getattr(e, "voucher_number", None)
@@ -599,7 +597,7 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
             "", "", "", "",
         ])
     for e in expenses:
-        vat = "0" if _no_input_vat(e, cats) else default_vat_str
+        vat = "0" if _no_input_vat(e, cats, user.currency) else default_vat_str
         cat_name = cats.get(str(e.category_id), "Other")
         vn = getattr(e, "voucher_number", None)
         bilag = f"E-{e.date.year}-{vn:04d}" if vn else ""

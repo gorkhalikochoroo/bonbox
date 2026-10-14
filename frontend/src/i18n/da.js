@@ -9890,7 +9890,7 @@ export const da = {
     meFigSalesVat: "Salg med moms",
     meFigSalesNoVat: "Salg uden moms",
     meFigOutputVat: "Salgsmoms",
-    meFigPurchases: "Køb med købsmoms",
+    meFigPurchases: "Udgifter ekskl. momsfri",
     meFigInputVat: "Købsmoms",
     meFigVatDue: "Moms til betaling",
     meFigRevenue: "Omsætning inkl. moms",

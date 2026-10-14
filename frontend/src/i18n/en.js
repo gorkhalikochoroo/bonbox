@@ -10218,7 +10218,7 @@ export const en = {
     meFigSalesVat: "Sales with VAT",
     meFigSalesNoVat: "Sales without VAT",
     meFigOutputVat: "Output VAT",
-    meFigPurchases: "Purchases with VAT",
+    meFigPurchases: "Expenses excl. VAT-exempt",
     meFigInputVat: "Input VAT",
     meFigVatDue: "VAT payable",
     meFigRevenue: "Revenue incl. VAT",

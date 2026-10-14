@@ -311,9 +311,12 @@ def period_closes(db: Session, user: User, start: date, end: date) -> list[Daily
         db.query(DailyClose)
         .filter(DailyClose.user_id == user.id, DailyClose.is_deleted.isnot(True),
                 DailyClose.date >= start, DailyClose.date <= end)
-        .order_by(DailyClose.date.asc())
         .all()
     )
+    # One order on every database and time zone: two branches closing the
+    # same day came out in either order (SQLite vs Postgres), and the CSVs
+    # of two builds of the same books differed (14 Oct review).
+    rows.sort(key=lambda c: (c.date, str(c.branch_id or ""), str(c.id)))
     if is_sample_company(db, user):
         return rows
     return [c for c in rows if not _is_demo_close(c)]
@@ -418,26 +421,45 @@ def _has_bilag(e: Expense) -> bool:
     return bool((e.receipt_photo or "").strip())
 
 
-def expenses_by_category(fd: dict, expenses: list[Expense], cat_names: dict) -> list[dict]:
+def is_foreign(e: Expense, account_ccy: str | None) -> bool:
+    """A receipt in another currency than the account's: its VAT is foreign
+    VAT, never Danish købsmoms (tax_service._calc_vat, the same rule)."""
+    ccy = (getattr(e, "currency", None) or "").strip().upper()
+    return bool(ccy) and ccy != (account_ccy or "DKK").strip().upper()
+
+
+def expenses_by_category(fd: dict, expenses: list[Expense], cat_names: dict,
+                         account_ccy: str | None = "DKK") -> list[dict]:
     """Category table: the MOMS base rows from _calc_vat (gross, fradrag %,
     købsmoms — they sum to moms_af_kob), plus the expenses marked momsfri,
-    which carry no købsmoms. Counts from the rows themselves."""
+    which carry no købsmoms. A category's foreign-currency expenses are their
+    own row at 0 % (the engine's "foreign" rows). Counts from the rows
+    themselves."""
     from app.services.dk_fradrag import fradrag_reason
-    counts: dict[str, int] = {}
+    counts: dict[tuple, int] = {}
     exempt: dict[str, float] = {}
     for e in expenses:
         name = cat_names.get(e.category_id, "") or ""
-        counts[name] = counts.get(name, 0) + 1
+        key = (name, bool(not e.is_tax_exempt and is_foreign(e, account_ccy)))
+        counts[key] = counts.get(key, 0) + 1
         if e.is_tax_exempt:
             exempt[name] = exempt.get(name, 0.0) + float(e.amount or 0)
     out = []
     seen = set()
     for r in fd.get("kob_pr_kategori") or []:
         name = r.get("category") or ""
+        if r.get("foreign"):
+            out.append({
+                "category": (name or "Uden kategori") + " (udenlandsk valuta)",
+                "count": counts.get((name, True), 0),
+                "gross": round(float(r.get("gross") or 0), 2),
+                "exempt": 0.0, "fradrag_pct": 0, "reason": "foreign", "input_vat": 0.0,
+            })
+            continue
         seen.add(name)
         out.append({
             "category": name or "Uden kategori",
-            "count": counts.get(name, 0),
+            "count": counts.get((name, False), 0),
             "gross": round(float(r.get("gross") or 0) + exempt.get(name, 0.0), 2),
             "exempt": round(exempt.get(name, 0.0), 2),
             "fradrag_pct": r.get("fradrag_pct"),
@@ -448,7 +470,7 @@ def expenses_by_category(fd: dict, expenses: list[Expense], cat_names: dict) -> 
         if name in seen:
             continue
         out.append({
-            "category": name or "Uden kategori", "count": counts.get(name, 0),
+            "category": name or "Uden kategori", "count": counts.get((name, False), 0),
             "gross": round(amt, 2), "exempt": round(amt, 2),
             "fradrag_pct": 0, "reason": fradrag_reason(name), "input_vat": 0.0,
         })
@@ -902,14 +924,21 @@ def sales_lines(db: Session, user: User, start: date, end: date, days: list[dict
     """The revenue lines behind omsaetning-pr-dag, day by day, with exactly
     its rule (and the MOMS engine's): a day with locked closes → one line per
     close (split into the 25 % and the momsfri part the close's own moms
-    gives); any other day → its completed till sales that are not a
-    faktura's payment. So salg.csv sums to the package's revenue to the øre.
+    gives — tax_service.close_vat_split, the split box A uses); any other
+    day → its completed till sales that are not a faktura's payment. So
+    salg.csv sums to the package's revenue to the øre.
+
+    A close's "Bilag" is its own kasserapport number — the Bilagsnr. of its
+    row in dagsafslutninger.csv (14 Oct review: "K-2026-10-09-2" was in no
+    other file, and which branch got the "-2" changed between builds).
 
     Not here, as in the revenue and the moms: a faktura's payment (the
     faktura is in fakturaer.csv), returned and exchanged sales (only
     'completed' sales count), deleted rows, and the sales of a day whose
     close is locked (the close is that day's figure)."""
-    from app.services.bookkeeping_export import _MOMS_ROUNDING_KR
+    from app.services.daily_close_range_export import close_voucher_no
+    from app.services.tax_service import _get_vat_rate, close_vat_split
+    vat_rate = _get_vat_rate(user.currency or "DKK")
     by_day: dict[date, list] = {}
     for c in closes:
         if _is_confirmed(c):
@@ -930,14 +959,14 @@ def sales_lines(db: Session, user: User, start: date, end: date, days: list[dict
     for r in days:
         d = r["date"]
         if r["source"] == "close":
+            used_refs: set[str] = set()
             for i, c in enumerate(by_day.get(d, []), start=1):
                 gross = float(c.revenue_total or 0)
-                moms = float(c.moms_total) if c.moms_total is not None else None
-                taxed = gross if moms is None else min(gross, round(moms / 0.2, 2))
-                exempt = round(gross - taxed, 2)
-                if exempt <= _MOMS_ROUNDING_KR:
-                    taxed, exempt = gross, 0.0
-                ref = f"K-{d.isoformat()}" + (f"-{i}" if i > 1 else "")
+                taxed, exempt = close_vat_split(gross, c.moms_total, vat_rate)
+                ref = close_voucher_no(c, branch_names) or f"KR-{d.isoformat()}"
+                if ref in used_refs:   # two closes of one day, neither in a branch
+                    ref = f"{ref}-{i}"
+                used_refs.add(ref)
                 text = f"Kasserapport {d.isoformat()}"
                 bname = (branch_names or {}).get(str(c.branch_id)) if c.branch_id else None
                 if bname:
@@ -963,13 +992,19 @@ def csv_sales(lines: list[list]) -> bytes:
     return _csv(lines, ["Dato", "Bilag", "Tekst", "Beløb inkl. moms", "Moms", "Betaling"])
 
 
-def _moms_label(e: Expense, cat: str) -> str:
+FOREIGN_MOMS_DA = "Udenlandsk valuta — ingen dansk købsmoms"
+
+
+def _moms_label(e: Expense, cat: str, account_ccy: str | None = "DKK") -> str:
     """udgifter.csv 'Moms': what the revisor needs to know about the
     købsmoms of the row. Løn, pension, forsikring carry no moms at all — they
-    are never "25 % — 0 % fradrag" (minor 3)."""
+    are never "25 % — 0 % fradrag" (minor 3). A receipt in a foreign currency
+    carries foreign VAT, not købsmoms — never "25 %" (14 Oct review)."""
     from app.services.dk_fradrag import fradrag_reason
     if e.is_tax_exempt:
         return "Momsfri"
+    if is_foreign(e, account_ccy):
+        return FOREIGN_MOMS_DA
     reason = fradrag_reason(cat)
     if reason == "no_vat":
         return "Ingen moms (løn/forsikring)"
@@ -985,7 +1020,8 @@ def _moms_label(e: Expense, cat: str) -> str:
 UNREADABLE_DA = "ÅBENT PUNKT: kunne ikke hentes — se bilaget i BonBox"
 
 
-def csv_expenses(expenses: list[Expense], cat_names: dict, files: dict) -> bytes:
+def csv_expenses(expenses: list[Expense], cat_names: dict, files: dict,
+                 account_ccy: str | None = "DKK") -> bytes:
     rows = []
     for e in expenses:
         cat = cat_names.get(e.category_id, "") or ""
@@ -994,7 +1030,7 @@ def csv_expenses(expenses: list[Expense], cat_names: dict, files: dict) -> bytes
         rows.append([
             e.date.isoformat(), f"E-{e.date.year}-{vn:04d}" if vn else "",
             csv_safe((e.description or "")[:120]), csv_safe(cat), _dk_num(e.amount),
-            _pay_da(e.payment_method), _moms_label(e, cat),
+            _pay_da(e.payment_method), _moms_label(e, cat, account_ccy),
             status or ("MANGLER" if not _has_bilag(e) else UNREADABLE_DA),
             e.currency or "", _dk_num(e.original_amount) if e.original_amount is not None else "",
             f"{float(e.fx_rate):.6f}".replace(".", ",") if e.fx_rate is not None else "",
@@ -1006,13 +1042,18 @@ def csv_expenses(expenses: list[Expense], cat_names: dict, files: dict) -> bytes
 
 # ─── Summary PDF ─────────────────────────────────────────────────────────
 
+# fd["kob_med_moms"]: every booked expense not marked momsfri.
+KOB_LABEL_DA = "Udgifter inkl. moms, ekskl. momsfri (fradrag pr. kategori nedenfor)"
+
+
 def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
                       fd: dict, checklist: dict, days: list[dict], payments: list[dict],
                       categories: list[dict], closes, n_bilag: int, n_expenses: int,
                       n_bilag_unreadable: int | None = 0,
                       generated_at: datetime, doc_number: str, sample: bool = False,
                       correction: dict | None = None, n_parts: int = 1,
-                      gavekort_counter_sold: float = 0.0) -> bytes:
+                      gavekort_counter_sold: float = 0.0, has_invoices: bool = False,
+                      has_trips: bool = False) -> bytes:
     """Page 1 is the answer a revisor wants first: the figures and what is
     open. Then the detail: revenue per day, categories, gift cards, cash.
 
@@ -1147,7 +1188,10 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
             [P("Salg med moms"), P(_kr(fd["salg_med_moms"]), cell_r)],
             [P("Salg uden moms (momsfrit)"), P(_kr(fd["salg_uden_moms"]), cell_r)],
             [P("Salgsmoms"), P(_kr(fd["moms_af_salg"]), cell_r)],
-            [P("Køb med købsmoms"), P(_kr(fd["kob_med_moms"]), cell_r)],
+            # Every booked expense not marked momsfri — løn, svind and
+            # repræsentation included, at their 0 % (the category table
+            # below). It read "Køb med købsmoms" (14 Oct review).
+            [P(KOB_LABEL_DA), P(_kr(fd["kob_med_moms"]), cell_r)],
             [P("Købsmoms (efter §42-fradrag)"), P(_kr(fd["moms_af_kob"]), cell_r)],
             [P("Moms til betaling (beregnet)", cell_b), P(_kr(fd["moms_til_skat"]), cell_br)],
         ]
@@ -1155,6 +1199,33 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
         s.append(Paragraph(escape_pdf_text(
             "Vejledende — tallene er BonBox' beregning ud fra de låste dagsafslutninger, salg, "
             "fakturaer og bogførte udgifter. Indberetningen sker via revisor/TastSelv."), small))
+        # dagsafslutninger.csv states the kasserapport's own verdict per day;
+        # where that is "Salgsmoms kan ikke opgøres", say what the figures
+        # above did with the day instead (14 Oct review: the CSV said "cannot
+        # be stated" for 15 closes the moms above includes).
+        from app.services.kasserapport_claims import moms_is_unknown
+        locked = [c for c in closes if _is_confirmed(c)]
+        no_moms = [c for c in locked if c.moms_total is None]
+        if no_moms:
+            pct = int(round(float(fd.get("vat_rate") or 0.25) * 100))
+            n = len(no_moms)
+            s.append(Paragraph(escape_pdf_text(
+                f"{n} {'dagsafslutning' if n == 1 else 'dagsafslutninger'} uden momsbeløb "
+                f"({_kr(sum(float(c.revenue_total or 0) for c in no_moms))} i omsætning) står i "
+                "dagsafslutninger.csv som «Salgsmoms kan ikke opgøres». Salgsmomsen ovenfor regner "
+                f"{pct}/{100 + pct} af deres omsætning — tjek beløbet mod Z-bonen."), small))
+        unsure = [c for c in locked if c.moms_total is not None and moms_is_unknown(c)]
+        if unsure:
+            n = len(unsure)
+            s.append(Paragraph(escape_pdf_text(
+                f"{n} {'dagsafslutning' if n == 1 else 'dagsafslutninger'} har et momsbeløb, "
+                "kasserapporten ikke kan bekræfte («Salgsmoms kan ikke opgøres» i "
+                "dagsafslutninger.csv). Salgsmomsen ovenfor bruger det gemte beløb."), small))
+        foreign_total = float(fd.get("foreign_expenses_total") or 0)
+        if foreign_total:
+            s.append(Paragraph(escape_pdf_text(
+                f"Udgifter i udenlandsk valuta ({_kr(foreign_total)}) er med i udgifterne, men "
+                "uden dansk købsmoms: udenlandsk moms trækkes ikke fra på momsangivelsen."), small))
 
         # ── Key figures ──
         s.append(Paragraph("NØGLETAL", sect))
@@ -1301,9 +1372,14 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
         s.append(Spacer(1, 4 * mm))
         parts_txt = (f" Pakken er delt i {n_parts} ZIP-filer (del 1 har denne oversigt, alle "
                      "CSV-filer og de første bilag)." if n_parts > 1 else "")
+        # Every CSV that IS in the package — fakturaer and kørsel were left
+        # out of this list even when the ZIP held them (14 Oct review).
+        csv_names = ["omsætning pr. dag", "dagsafslutninger", "salg", "udgifter"]
+        csv_names += (["fakturaer"] if has_invoices else []) + ["gavekort"]
+        csv_names += (["kørsel"] if has_trips else []) + ["momsoversigt"]
         s.append(KeepTogether([Paragraph(escape_pdf_text(
-            "Pakken indeholder også CSV-filer (omsætning pr. dag, dagsafslutninger, salg, udgifter, "
-            "gavekort og momsoversigt — alle i dansk Excel-format: semikolon og decimalkomma) og "
+            "Pakken indeholder også CSV-filer (" + ", ".join(csv_names[:-1]) + " og "
+            + csv_names[-1] + " — alle i dansk Excel-format: semikolon og decimalkomma) og "
             "alle bilag under bilag/ med bilag-oversigt.csv. manifest.txt har SHA-256 for hver fil."
             + parts_txt), small)]))
         return s
@@ -1424,8 +1500,8 @@ def _safe_name(value: str) -> str:
 # A phone photo of a receipt is 3–5 MB; 150 of them make a month no link can
 # carry. In the package a photo is stored at 1600 px on the long edge as a
 # JPEG at quality 75 — a receipt's smallest print stays readable (proven in
-# tests/test_revisor_package_m8.py) at a tenth of the size. The original stays
-# in BonBox; PDFs and small images are untouched.
+# tests/test_revisor_package_review2.py, test_M8_*) at a tenth of the size.
+# The original stays in BonBox; PDFs and small images are untouched.
 BILAG_LONG_EDGE = 1600
 BILAG_JPEG_QUALITY = 75
 _REENCODE_FROM_BYTES = 400 * 1024
@@ -1511,7 +1587,7 @@ FIGURE_LABELS_DA = {
     "salg_med_moms": "Salg med moms",
     "salg_uden_moms": "Salg uden moms",
     "moms_af_salg": "Salgsmoms",
-    "kob_med_moms": "Køb med købsmoms",
+    "kob_med_moms": "Udgifter ekskl. momsfri",
     "moms_af_kob": "Købsmoms",
     "moms_til_skat": "Moms til betaling",
     "omsaetning": "Omsætning inkl. moms",
@@ -1522,10 +1598,25 @@ FIGURE_LABELS_DA = {
 _COUNT_FIGURES = {"antal_udgifter", "udgifter_med_bilag"}
 
 
-def package_figures(fd: dict, days: list[dict], expenses) -> dict:
+def category_rows(db: Session, user: User, fd: dict, expenses) -> list[dict]:
+    """The summary PDF's category table (expenses_by_category), for a caller
+    that has no category names at hand."""
+    cat_names = dict(
+        db.query(ExpenseCategory.id, ExpenseCategory.name)
+        .filter(ExpenseCategory.user_id == user.id).all()
+    )
+    return expenses_by_category(fd, expenses, cat_names, user.currency or "DKK")
+
+
+def package_figures(fd: dict, days: list[dict], expenses,
+                    categories: list[dict] | None = None) -> dict:
     """The figures a package states — fingerprinted on the send row, so a
-    change after the send shows (M7)."""
-    return {
+    change after the send shows (M7). Besides the totals, every row the PDF
+    prints a money figure in: each category's amount and købsmoms, each
+    day's revenue. Moving an expense to a category with the same fradrag, or
+    revenue to another day, left every total the same and the change went
+    unseen (14 Oct review)."""
+    out = {
         "salg_med_moms": round(float(fd.get("salg_med_moms") or 0), 2),
         "salg_uden_moms": round(float(fd.get("salg_uden_moms") or 0), 2),
         "moms_af_salg": round(float(fd.get("moms_af_salg") or 0), 2),
@@ -1537,6 +1628,14 @@ def package_figures(fd: dict, days: list[dict], expenses) -> dict:
         "antal_udgifter": len(expenses),
         "udgifter_med_bilag": sum(1 for e in expenses if _has_bilag(e)),
     }
+    if categories is not None:
+        out["kategorier"] = {
+            c["category"]: [round(float(c["gross"] or 0), 2), round(float(c["input_vat"] or 0), 2)]
+            for c in categories
+        }
+    out["dage"] = {r["date"].isoformat(): round(float(r["amount"]), 2)
+                   for r in days if round(float(r["amount"]), 2)}
+    return out
 
 
 def figures_fingerprint(figures: dict) -> str:
@@ -1544,7 +1643,36 @@ def figures_fingerprint(figures: dict) -> str:
                           .encode("utf-8")).hexdigest()
 
 
+def _detail_changes(before: dict, after: dict) -> list[dict]:
+    """Per-category and per-day changes — only against a sent package that
+    recorded them (an older one compares its totals alone)."""
+    out = []
+    if isinstance(before.get("kategorier"), dict) and isinstance(after.get("kategorier"), dict):
+        b_c, a_c = before["kategorier"], after["kategorier"]
+        for name in sorted(set(b_c) | set(a_c)):
+            b = b_c.get(name) or [0.0, 0.0]
+            a = a_c.get(name) or [0.0, 0.0]
+            for i, (kind, label) in enumerate((("category_gross", "Udgifter"),
+                                                ("category_vat", "Købsmoms"))):
+                if round(float(b[i]), 2) != round(float(a[i]), 2):
+                    out.append({"key": f"{kind}:{name}", "kind": kind, "name": name,
+                                "label_da": f"{label} — {name}",
+                                "before": round(float(b[i]), 2), "after": round(float(a[i]), 2)})
+    if isinstance(before.get("dage"), dict) and isinstance(after.get("dage"), dict):
+        b_d, a_d = before["dage"], after["dage"]
+        for iso in sorted(set(b_d) | set(a_d)):
+            b, a = round(float(b_d.get(iso) or 0), 2), round(float(a_d.get(iso) or 0), 2)
+            if b != a:
+                out.append({"key": f"day_revenue:{iso}", "kind": "day_revenue", "name": iso,
+                            "label_da": f"Omsætning {dk_date(date.fromisoformat(iso))}",
+                            "before": b, "after": a})
+    return out
+
+
 def figure_changes(before: dict | None, after: dict) -> list[dict]:
+    """What differs between a sent package's figures and today's: the
+    totals first, then the category rows and the days. Empty = the package
+    states the same figures (the RETTELSE test)."""
     before = before or {}
     out = []
     for k, label in FIGURE_LABELS_DA.items():
@@ -1554,7 +1682,16 @@ def figure_changes(before: dict | None, after: dict) -> list[dict]:
         if (round(float(b), 2) if k not in _COUNT_FIGURES else int(b)) != \
                 (round(float(a), 2) if k not in _COUNT_FIGURES else int(a)):
             out.append({"key": k, "label_da": label, "before": b, "after": a})
-    return out
+    return out + _detail_changes(before, after)
+
+
+def sent_figures(row) -> dict:
+    """The figures recorded on a send row ({} when unreadable)."""
+    try:
+        v = json.loads(getattr(row, "figures_json", None) or "{}")
+        return v if isinstance(v, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def _fig_text(key: str, v) -> str:
@@ -1582,7 +1719,8 @@ def fradrag_label(c: dict) -> str:
     if c["gross"] and c["gross"] == c["exempt"]:
         return "momsfri"
     return {"no_vat": "ingen moms", "no_purchase": "ikke et køb",
-            "s42_zero": "0 % (§42)", "s42_quarter": "25 % (§42)"}.get(
+            "s42_zero": "0 % (§42)", "s42_quarter": "25 % (§42)",
+            "foreign": "0 % (udenl.)"}.get(
         c.get("reason"), f"{c['fradrag_pct']} %")
 
 
@@ -1717,27 +1855,26 @@ def _build_into(db, user, start, end, *, parts, kind, now, include_bilag, split_
                                 unreadable=unreadable if include_bilag else None)
     days = revenue_by_day(db, user, start, end, closes)
     payments = payment_methods(db, user, start, end, closes)
-    categories = expenses_by_category(fd, expenses, cat_names)
-    figures = package_figures(fd, days, expenses)
+    categories = expenses_by_category(fd, expenses, cat_names, user.currency or "DKK")
+    figures = package_figures(fd, days, expenses, categories)
     fp = figures_fingerprint(figures)
     correction = None
-    if prior_send is not None and getattr(prior_send, "figures_fp", None) \
-            and prior_send.figures_fp != fp:
-        try:
-            before = json.loads(prior_send.figures_json or "{}")
-        except Exception:  # noqa: BLE001
-            before = {}
+    changes = (figure_changes(sent_figures(prior_send), figures)
+               if prior_send is not None and getattr(prior_send, "figures_fp", None) else [])
+    if changes:
         sent = prior_send.sent_at or prior_send.updated_at or prior_send.created_at
         correction = {
             "replaces": link_local_date(user, sent) if sent else None,
             "recipient": prior_send.recipient,
-            "changes": figure_changes(before, figures),
+            "changes": changes,
         }
     doc_number = doc_number_for(start, end)
     biz = business_name(profile, user)
     label = period_label(start, end, kind)
     label_file = period_file_label(start, end, kind)
     sample = is_sample_company(db, user)
+    has_invoices = bool(_query_invoices(user, db, start, end))
+    trips = _query_mileage(user, db, start, end)
     try:
         from app.services.gavekort_moms import period_facts
         counter_sold = round(sum(float(v or 0) for v in
@@ -1755,6 +1892,7 @@ def _build_into(db, user, start, end, *, parts, kind, now, include_bilag, split_
         n_bilag_unreadable=len(unreadable) if include_bilag else None,
         n_expenses=len(expenses), generated_at=now, doc_number=doc_number, sample=sample,
         correction=correction, n_parts=n_parts, gavekort_counter_sold=counter_sold,
+        has_invoices=has_invoices, has_trips=bool(trips),
     )
     pdf_name = f"Oversigt_{label_file}.pdf"
 
@@ -1778,7 +1916,7 @@ def _build_into(db, user, start, end, *, parts, kind, now, include_bilag, split_
         ("omsaetning-pr-dag.csv", csv_revenue_by_day(days, closes)),
         ("dagsafslutninger.csv", closes_csv),
         ("salg.csv", csv_sales(lines)),
-        ("udgifter.csv", csv_expenses(expenses, cat_names, file_of)),
+        ("udgifter.csv", csv_expenses(expenses, cat_names, file_of, user.currency or "DKK")),
         ("gavekort.csv", _danish_excel(export_gavekort_ledger(user, db, start, end),
                                        _GAVEKORT_HEADER, texts=(
                                            ("(se MOMS-angivelsens PDF, afsnit D4)",
@@ -1786,11 +1924,9 @@ def _build_into(db, user, start, end, *, parts, kind, now, include_bilag, split_
         ("moms-oversigt.csv", _danish_excel(export_moms_summary(user, db, start, end),
                                             _MOMS_HEADER)),
     ]
-    has_invoices = bool(_query_invoices(user, db, start, end))
     if has_invoices:
         files.append(("fakturaer.csv", _danish_excel(export_faktura(user, db, start, end),
                                                      _FAKTURA_HEADER, _FAKTURA_VALUES)))
-    trips = _query_mileage(user, db, start, end)
     if trips:
         files.append(("koersel.csv", _danish_excel(export_mileage(user, db, start, end),
                                                    _KOERSEL_HEADER, {"TOTAL": "I alt"})))
@@ -1895,8 +2031,8 @@ def _readme(*, biz, sample, label, start, end, doc_number, now, user, pdf_name, 
         "      gavekort, kassedifferencer, omsætning pr. dag og åbne punkter.",
         "  omsaetning-pr-dag.csv  Én række pr. dag: låst dagsafslutning eller salg.",
         "  dagsafslutninger.csv   Alle dagsafslutninger; kun låste er talt med i totalen.",
-        "  salg.csv               Omsætningen linje for linje (K-dato = dagsafslutning,",
-        "                         S- = salg) — se AFSTEMNING.",
+        "  salg.csv               Omsætningen linje for linje (KR- = dagsafslutningens",
+        "                         bilagsnr. som i dagsafslutninger.csv, S- = salg) — se AFSTEMNING.",
         "  udgifter.csv           Bogførte udgifter med bilagsnr., moms/§42-fradrag og bilagsfil.",
         "  gavekort.csv           Gavekort solgt, brugt og annulleret + momssummerne.",
         "  moms-oversigt.csv      Periodens momstal — samme beregning som momsangivelsen.",

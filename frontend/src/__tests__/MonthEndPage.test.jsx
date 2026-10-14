@@ -247,6 +247,23 @@ describe("Månedsafslutning — after the package went (12 Oct review M7, minor 
     expect(post.mock.calls[0][1]).toMatchObject({ resend: true, key: expect.stringMatching(/^me-/) });
   });
 
+  it("a changed category row or day is named, never shown as its raw key (14 Oct review)", async () => {
+    get.mockImplementation(() => Promise.resolve({ data: SENT({
+      sent_package: { sent_on: "2026-11-03", recipient: "pia@revisorhuset.dk", trigger: "manual", status: "sent",
+        changed: true, changes: [
+          { key: "category_vat:Kontorartikler", kind: "category_vat", name: "Kontorartikler", before: 266.67, after: 933.34 },
+          { key: "category_gross:Varekøb", kind: "category_gross", name: "Varekøb", before: 9000, after: 5666.67 },
+          { key: "day_revenue:2026-10-09", kind: "day_revenue", name: "2026-10-09", before: 5000, after: 0 },
+        ] },
+    }) }));
+    renderPage();
+    const box = await screen.findByTestId("me-sent-package");
+    expect(box).toHaveTextContent(/meFigInputVat — Kontorartikler/);
+    expect(box).toHaveTextContent(/meFigExpenses — Varekøb/);
+    expect(box).toHaveTextContent(/meFigRevenue/);
+    expect(box.textContent).not.toMatch(/category_vat:|category_gross:|day_revenue:/);
+  });
+
   it("re-sending an unchanged period asks first, and a 'no' sends nothing", async () => {
     get.mockImplementation(() => Promise.resolve({ data: SENT() }));
     confirmFn.mockImplementationOnce(async () => false);

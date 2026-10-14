@@ -119,6 +119,30 @@ def _dedup_key(start: date, end: date) -> str:
     return f"sched:{start.isoformat()}:{end.isoformat()}"
 
 
+def _period_lock_key(user_id, start: date, end: date) -> int:
+    import hashlib
+    raw = f"revisor_package:{user_id}:{start.isoformat()}:{end.isoformat()}".encode("utf-8")
+    return int.from_bytes(hashlib.sha256(raw).digest()[:8], "big", signed=True)
+
+
+def lock_period(db: Session, user_id, start: date, end: date) -> None:
+    """Serialise "has this period gone out?" + the claim, per owner and
+    period, across workers and the Send tap. Postgres: a transaction-level
+    advisory lock, released by the commit that writes the claim (or by any
+    rollback). The schedule's 'sched:…' and a tap's 'manual:…' are
+    different dedup keys, so the UNIQUE constraint alone let both pass the
+    check before either claimed — and the revisor got the package twice
+    (14 Oct review). The caller checks AFTER taking the lock, and commits
+    nothing between this and its claim. SQLite (tests, local) serialises
+    writers itself and has no advisory locks: a no-op there."""
+    from sqlalchemy import text
+    bind = db.get_bind()
+    if getattr(getattr(bind, "dialect", None), "name", "") != "postgresql":
+        return
+    db.execute(text("SELECT pg_advisory_xact_lock(:k)"),
+               {"k": _period_lock_key(user_id, start, end)})
+
+
 def period_over_at(end: date, tz, cutoff_hour: int | None) -> datetime:
     """Naive UTC moment the period's last business day ended (the next
     calendar day at the owner's cutoff hour)."""
@@ -300,7 +324,17 @@ def run_revisor_package_schedule(
                         db.commit()
                     continue
 
-                # Claim the period — exactly one claimer wins.
+                # Claim the period — exactly one claimer wins. Under the
+                # period lock, check again: a Send tap may have claimed it
+                # while the blocker above was being worked out (14 Oct
+                # review); the lock is held until the claim is committed.
+                lock_period(db, user.id, start, end)
+                fresh = (db.query(R.status, R.attempts)
+                         .filter(R.user_id == user.id, R.dedup_key == key).first())
+                if (fresh is not None and fresh[0] in ("sent", "claimed")) \
+                        or manual_send_after_end(db, user.id, start, end, zone, cutoff):
+                    db.rollback()
+                    continue
                 if row is None:
                     row = R(user_id=user.id, period_kind=kind, period_start=start,
                             period_end=end, send_trigger="scheduled", recipient=recipient,

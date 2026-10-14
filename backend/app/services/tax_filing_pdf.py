@@ -226,19 +226,15 @@ def compute_filing_data(
     # ── Section A — Salg (Sales) ─────────────────────────────
     # sales_total is gross when prices_include_moms (B2C), net otherwise (B2B).
     # output_vat is the MOMS portion of sales.
-    # salg_med_moms = gross TAXABLE revenue (sales_total - exempt_sales)
-    # salg_uden_moms = exempt/zero-rated revenue. Pulled from `_calc_vat`'s
-    #   `exempt_sales` (added 2026-05-24): sum of Sale rows where
-    #   `is_tax_exempt=true` PLUS Invoice rows where `moms_total=0`
-    #   (EU reverse-charge, exports, §13 nr.17 events, gift cards, etc.).
-    #   Before that fix, `salg_uden_moms` was hardcoded to 0.0 — any user
-    #   with exempt sales had them SILENTLY DROPPED from the SKAT angivelse.
-    #
-    # 2026-05-28 — second fix (audit a26d37c R3): `salg_med_moms` was using
-    # `sales_total` directly, which still INCLUDES `exempt_sales`. That
-    # double-counted: e.g. 100k taxable + 20k exempt showed 120k on "Salg med
-    # moms" AND 20k on "Salg uden moms" = 140k. Sum-doesn't-equal-parts.
-    # Now uses the dedicated `taxable_sales` field (sales_total - exempt_sales).
+    # salg_med_moms = _calc_vat's `taxable_sales`: sales_total minus the
+    #   exempt revenue that is INSIDE sales_total — the zero-moms fakturaer
+    #   and the closes' momsfri part (close_vat_split). Momsfri till sales
+    #   never entered sales_total, so they are not taken off again (12 Oct
+    #   review M5; the closes' part: 14 Oct review).
+    # salg_uden_moms = _calc_vat's `exempt_sales`: momsfri Sale rows + zero-
+    #   moms Invoice rows (EU reverse-charge, exports, §13 nr.17 events …) +
+    #   the closes' momsfri part. (Before 2026-05-24 it was hardcoded to 0.0
+    #   and exempt sales were SILENTLY DROPPED from the angivelse.)
     salg_med_moms = vat.get("taxable_sales", vat["sales_total"] - vat.get("exempt_sales", 0.0))
     salg_uden_moms = vat.get("exempt_sales", 0.0)
     moms_af_salg = vat["output_vat"]
@@ -295,6 +291,12 @@ def compute_filing_data(
         "pos_revenue_from_sales": vat.get("pos_revenue_from_sales", vat["pos_revenue"]),
         "pos_revenue_from_closes": vat.get("pos_revenue_from_closes", 0.0),
         "invoice_revenue": vat["invoice_revenue"],
+        # The exempt revenue inside the sources above — D2 takes it off, so
+        # its rows add up to "Salg med moms" (14 Oct review).
+        "invoice_exempt_sales": vat.get("invoice_exempt_sales", 0.0),
+        "close_exempt_sales": vat.get("close_exempt_sales", 0.0),
+        # Foreign-currency expenses: in kob_med_moms, no købsmoms.
+        "foreign_expenses_total": vat.get("foreign_expenses_total", 0.0),
         # Bogføringsloven §9 stk. 2 — per-date variance between close
         # and Sale rows on the same date. Empty list = clean; non-empty
         # = the revisor sees a "Bemærkninger" section before signature.
@@ -900,6 +902,22 @@ def _rebuild_filing_story(
             Paragraph("Gavekort brugt i omsætningen ovenfor (moms betalt ved salg)" if is_danish
                       else "Gift cards used in the revenue above (VAT paid at sale)", val),
             Paragraph("−" + _money_dk(_spv_in_rev, currency), val_r)])
+    # The exempt revenue inside the rows above is in "Salg uden moms", not in
+    # the Sum: taken off here, so the rows add up to it (14 Oct review — a
+    # 0 % faktura of 4.000 kr. made the rows 4.000 kr. more than the Sum).
+    _ex_rows = []
+    _close_ex = float(data.get("close_exempt_sales") or 0)
+    _inv_ex = float(data.get("invoice_exempt_sales") or 0)
+    if _close_ex:
+        _ex_rows.append([
+            Paragraph("Heraf uden moms i dagsafslutningerne (efter deres egen moms)" if is_danish
+                      else "Of which without VAT in the daily closes (by their own VAT)", val),
+            Paragraph("−" + _money_dk(_close_ex, currency), val_r)])
+    if _inv_ex:
+        _ex_rows.append([
+            Paragraph("Heraf fakturaer uden moms" if is_danish
+                      else "Of which invoices without VAT", val),
+            Paragraph("−" + _money_dk(_inv_ex, currency), val_r)])
     if is_danish:
         story.append(Paragraph("D2 · KILDER", section_title))
         src_rows = [
@@ -909,6 +927,7 @@ def _rebuild_filing_story(
              Paragraph(_money_dk(_pos_from_closes, currency), val_r)],
             [Paragraph("Fakturasalg", val),
              Paragraph(_money_dk(data["invoice_revenue"], currency), val_r)],
+            *_ex_rows,
             *_gk_src_rows,
             [Paragraph("Sum (= Salg med moms)", val_b),
              Paragraph(_money_dk(data["salg_med_moms"], currency), val_br)],
@@ -926,6 +945,7 @@ def _rebuild_filing_story(
              Paragraph(_money_dk(_pos_from_closes, currency), val_r)],
             [Paragraph("Invoice sales", val),
              Paragraph(_money_dk(data["invoice_revenue"], currency), val_r)],
+            *_ex_rows,
             *_gk_src_rows,
             [Paragraph("Sum (= taxable sales)", val_b),
              Paragraph(_money_dk(data["salg_med_moms"], currency), val_br)],

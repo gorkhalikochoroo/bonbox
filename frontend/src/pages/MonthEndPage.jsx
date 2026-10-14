@@ -257,7 +257,7 @@ export default function MonthEndPage() {
     salg_med_moms: t("meFigSalesVat", "Sales with VAT"),
     salg_uden_moms: t("meFigSalesNoVat", "Sales without VAT"),
     moms_af_salg: t("meFigOutputVat", "Output VAT"),
-    kob_med_moms: t("meFigPurchases", "Purchases with VAT"),
+    kob_med_moms: t("meFigPurchases", "Expenses excl. VAT-exempt"),
     moms_af_kob: t("meFigInputVat", "Input VAT"),
     moms_til_skat: t("meFigVatDue", "VAT payable"),
     omsaetning: t("meFigRevenue", "Revenue incl. VAT"),
@@ -265,6 +265,14 @@ export default function MonthEndPage() {
     antal_udgifter: t("meFigExpenseCount", "Number of expenses"),
     udgifter_med_bilag: t("meFigWithReceipt", "Expenses with a receipt"),
   }[k] || k);
+  // A changed category row or day (server: revisor_package._detail_changes)
+  // names its category or date beside the figure's own label.
+  const changeLabel = (c) => {
+    if (c.kind === "category_vat") return `${figLabel("moms_af_kob")} — ${c.name}`;
+    if (c.kind === "category_gross") return `${figLabel("udgifter")} — ${c.name}`;
+    if (c.kind === "day_revenue") return `${figLabel("omsaetning")} ${formatDateClear(c.name)}`;
+    return figLabel(c.key);
+  };
   const figValue = (k, v) => (COUNT_FIGURES.has(k) ? String(v) : formatOwnerMoney(v, currency, { decimals: 2 }));
   const schedule = data?.send?.schedule || "never";
   const lowerFirst = (x) => (x ? x.charAt(0).toLowerCase() + x.slice(1) : x);
@@ -474,7 +482,7 @@ export default function MonthEndPage() {
                 </p>
                 <ul className="mt-0.5 text-xs space-y-0.5">
                   {(sentPkg.changes || []).map((c) => (
-                    <li key={c.key}>{figLabel(c.key)}: {figValue(c.key, c.before)} → {figValue(c.key, c.after)}</li>
+                    <li key={c.key}>{changeLabel(c)}: {figValue(c.key, c.before)} → {figValue(c.key, c.after)}</li>
                   ))}
                 </ul>
                 <p className="text-xs mt-1">

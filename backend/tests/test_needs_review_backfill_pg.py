@@ -91,3 +91,62 @@ def test_two_boots_never_send_an_approved_receipt_back_to_the_queue():
             "SELECT count(*) FROM data_backfills WHERE name = 'expenses_needs_review_to_pending_v1'"
         )).scalar() == 1
     db.close()
+
+
+def test_receipts_an_old_boot_sent_back_are_restored_once():
+    """14 Oct re-review: the fix above stops new reverts, but a receipt the
+    old every-boot UPDATE had already sent back stayed in the queue — out of
+    the MOMS — until its owner approved it a second time. Its bilagsnummer
+    proves the first approval (the inbox never allocates one); a one-shot
+    repair puts it back, marker removed. Nothing else moves, and a later boot
+    changes nothing."""
+    import app.main as m
+    from sqlalchemy import text
+    from app.database import SessionLocal
+    from app.models.expense import Expense, ExpenseCategory
+    from app.models.user import User
+
+    try:
+        m._scheduler.shutdown(wait=False)
+    except Exception:  # noqa: BLE001
+        pass
+    m._init_db()
+    db = SessionLocal()
+    u = User(email=f"rs-{uuid.uuid4().hex[:6]}@cafe.dk", password_hash="x", business_name="RS",
+             business_type="cafe", currency="DKK", plan="starter", email_verified=True)
+    db.add(u); db.commit(); db.refresh(u)
+    c_ = ExpenseCategory(user_id=u.id, name="Varekøb"); db.add(c_); db.commit(); db.refresh(c_)
+
+    def _e(desc, status, vn, **kw):
+        return Expense(user_id=u.id, category_id=c_.id, date=date(2026, 9, 20), amount=100,
+                       description=desc, payment_method="card", status=status,
+                       voucher_number=vn, receipt_source="scan", **kw)
+    reverted = _e("Netto [needs review]", "pending", 41)           # approved, then sent back
+    draft = _e("Kiosk [needs review]", "pending", None)            # never approved
+    smart = _e("Faktura 77 fra Hørkram", "pending", 42)            # a smart-import draft
+    gone = _e("Bilka [needs review]", "pending", 43, is_deleted=True)
+    db.add_all([reverted, draft, smart, gone]); db.commit()
+    with m.engine.begin() as c:
+        c.execute(text("DELETE FROM data_backfills "
+                       "WHERE name = 'expenses_needs_review_restore_approved_v1'"))
+
+    m._run_migrations()                                            # the boot that repairs
+    db.expire_all()
+    row = db.get(Expense, reverted.id)
+    assert (row.status, row.description, row.voucher_number) == ("approved", "Netto", 41)
+    assert db.get(Expense, draft.id).status == "pending"
+    assert db.get(Expense, smart.id).status == "pending"
+    assert db.get(Expense, gone.id).status == "pending"
+
+    # Once: a receipt in the same state later is the owner's to approve.
+    late = _e("Rema [needs review]", "pending", 44)
+    db.add(late); db.commit()
+    m._run_migrations()
+    m._run_migrations()
+    db.expire_all()
+    assert db.get(Expense, late.id).status == "pending"
+    with m.engine.connect() as c:
+        assert c.execute(text(
+            "SELECT count(*) FROM data_backfills "
+            "WHERE name = 'expenses_needs_review_restore_approved_v1'")).scalar() == 1
+    db.close()

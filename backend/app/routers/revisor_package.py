@@ -247,16 +247,15 @@ def sent_package_state(db: Session, user: User, s: date, e: date, *, fd=None, cl
         closes = closes if closes is not None else rp.period_closes(db, user, s, e)
         expenses = expenses if expenses is not None else rp.expense_rows(db, user, s, e)
         days = rp.revenue_by_day(db, user, s, e, closes)
-        now_fig = rp.package_figures(fd, days, expenses)
-        changed = rp.figures_fingerprint(now_fig) != with_fp.figures_fp
-        if changed:
-            import json as _json
-            try:
-                before = _json.loads(with_fp.figures_json or "{}")
-            except Exception:  # noqa: BLE001
-                before = {}
-            changes = [{"key": c["key"], "before": c["before"], "after": c["after"]}
-                       for c in rp.figure_changes(before, now_fig)]
+        now_fig = rp.package_figures(fd, days, expenses, rp.category_rows(db, user, fd, expenses))
+        # Changed = the package would state a different figure: a total, a
+        # category row or a day (the same comparison the RETTELSE lists).
+        changes = [
+            {"key": c["key"], "before": c["before"], "after": c["after"],
+             **({"kind": c["kind"], "name": c["name"]} if c.get("kind") else {})}
+            for c in rp.figure_changes(rp.sent_figures(with_fp), now_fig)
+        ]
+        changed = bool(changes)
     return {
         "sent_on": rp.link_local_date(user, last.sent_at or last.created_at),
         "recipient": last.recipient, "trigger": last.send_trigger,
@@ -330,11 +329,27 @@ def send_now(
     # The finished period already went out (or may have): send again only
     # when the owner confirmed it — and when its figures changed since, the
     # new package says RETTELSE (minor 8, M7).
-    from app.jobs.revisor_package_job import final_sends, period_sends
+    from app.jobs.revisor_package_job import final_sends, lock_period, period_sends
     zone, cutoff = _zone_and_cutoff(db, user)
+    # From this check to the claim's commit, the period is locked (Postgres):
+    # the schedule's check-and-claim cannot interleave with it, and neither
+    # can a second tap with another key (14 Oct review). Nothing is committed
+    # in between; an answer below ends the request, which rolls back.
+    lock_period(db, user.id, s, e)
     earlier = [r for r in period_sends(db, user.id, s, e) if r.dedup_key != dedup]
     prior_send = next((r for r in final_sends(db, user.id, s, e, zone, cutoff)
                        if r.dedup_key != dedup and r.figures_fp), None)
+    in_progress = HTTPException(status_code=409, detail={
+        "code": "in_progress", "message": "This package is being sent right now.",
+        "message_da": "Pakken er ved at blive sendt.",
+    })
+    from app.jobs.revisor_package_job import STALE_CLAIM
+    if any(r.status == "claimed" and utc_now() - (r.updated_at or r.created_at) <= STALE_CLAIM
+           for r in earlier):
+        # Another send of this period is under way (the schedule, or a tap
+        # on another device) — even a confirmed re-send waits for it. (A
+        # claim older than that may have gone out: it counts as sent.)
+        raise in_progress
     if earlier and not body.resend:
         last = earlier[0]
         on = rp.link_local_date(user, last.sent_at or last.created_at)
@@ -353,10 +368,6 @@ def send_now(
         row = (db.query(RevisorPackageSend)
                .filter(RevisorPackageSend.user_id == user.id, RevisorPackageSend.dedup_key == dedup)
                .first())
-    in_progress = HTTPException(status_code=409, detail={
-        "code": "in_progress", "message": "This package is being sent right now.",
-        "message_da": "Pakken er ved at blive sendt.",
-    })
     if row is None:
         row = RevisorPackageSend(
             user_id=user.id, period_kind=rp.period_kind_of(s, e), period_start=s, period_end=e,

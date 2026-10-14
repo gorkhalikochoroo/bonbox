@@ -395,6 +395,27 @@ _migrations = [
      WHERE status = 'approved' AND voucher_number IS NULL
        AND description LIKE '%[needs review]%'
        AND EXISTS (SELECT 1 FROM first_run)""",
+    # Repair — ONCE: the receipts the old every-boot UPDATE already sent
+    # back. Each was approved by its owner (an inbox draft gets its
+    # bilagsnummer only at approval, _promote_to_approved; the inbox — the
+    # only writer of the marker — never allocates one), then flipped back to
+    # pending by a deploy: out of the MOMS until approved a second time
+    # (14 Oct review). They return to approved with the marker removed, as
+    # an approval today leaves them. A draft that never had a bilagsnummer
+    # is not touched; the same data_backfills one-statement guard.
+    """WITH first_run AS (
+        INSERT INTO data_backfills (name) VALUES ('expenses_needs_review_restore_approved_v1')
+        ON CONFLICT (name) DO NOTHING
+        RETURNING name
+    )
+    UPDATE expenses
+       SET status = 'approved',
+           description = COALESCE(NULLIF(TRIM(REPLACE(REPLACE(
+               description, ' [needs review]', ''), '[needs review]', '')), ''), description)
+     WHERE status = 'pending' AND voucher_number IS NOT NULL
+       AND is_deleted IS NOT TRUE
+       AND description LIKE '%[needs review]%'
+       AND EXISTS (SELECT 1 FROM first_run)""",
     # Error log — observability without external dependencies (Sentry alternative)
     """CREATE TABLE IF NOT EXISTS error_logs (
         id VARCHAR(36) PRIMARY KEY,

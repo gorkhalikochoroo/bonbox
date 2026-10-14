@@ -355,7 +355,7 @@ def closes_to_csv_bytes(
 
     if sorted_closes:
         t = period_totals(closes)
-        tot_label = totals_label(t["n_confirmed"], DA)
+        tot_label = totals_label(t["n_confirmed"], DA, t["n_confirmed_days"])
         if t["n_drafts"]:
             tot_label += (
                 f" ({t['n_drafts']} {'kladde' if t['n_drafts'] == 1 else 'kladder'} ikke medregnet)"
@@ -430,8 +430,16 @@ def readiness_text(c, currency: str = "DKK") -> str:
         return ""
 
 
-def totals_label(n: int, danish: bool) -> str:
-    """'I alt — 26 låste dage' (it read 'I alt (låste) (26)')."""
+def totals_label(n: int, danish: bool, n_days: int | None = None) -> str:
+    """'I alt — 26 låste dage' (it read 'I alt (låste) (26)'). `n` counts
+    locked closes; when two branches closed the same day there are more
+    closes than days, and the label says both (14 Oct review: '27 låste
+    dage' over 27 closes on 26 days)."""
+    if n_days is not None and n_days != n:
+        if danish:
+            return (f"I alt — {n} låste dagsafslutninger på "
+                    f"{n_days} {'dag' if n_days == 1 else 'dage'}")
+        return f"Total — {n} locked closes on {n_days} {'day' if n_days == 1 else 'days'}"
     if danish:
         return f"I alt — {n} {'låst dag' if n == 1 else 'låste dage'}"
     return f"Total — {n} locked {'day' if n == 1 else 'days'}"
@@ -697,6 +705,7 @@ def period_totals(closes) -> dict:
         "confirmed": confirmed,
         "drafts": drafts,
         "n_confirmed": len(confirmed),
+        "n_confirmed_days": len({c.date for c in confirmed}),
         "n_drafts": len(drafts),
         "n_demo": n_demo,
         "moms_unknown_count": len(moms_unknown),
@@ -1423,7 +1432,7 @@ def build_daily_close_range_pdf(
 
         table_data.append([
             # "I alt — 26 låste dage", across the Dato and Bilag columns.
-            Paragraph(totals_label(n_conf, DA), tot_left), "",
+            Paragraph(totals_label(n_conf, DA, len({c.date for c in confirmed})), tot_left), "",
             _tot(_fmt(total_revenue)),
             # The KPI band four inches above this row already renders "—" for
             # exactly this quantity. Printing a confident (and understated)
@@ -2140,7 +2149,7 @@ def build_daily_close_range_xlsx(
         last = len(sorted_closes) + 1
         totals_row = last + 1
         s_letter = get_column_letter(STATUS_COL)
-        label = totals_label(totals["n_confirmed"], DA)
+        label = totals_label(totals["n_confirmed"], DA, totals.get("n_confirmed_days"))
         s2.cell(row=totals_row, column=1, value=label).font = bold
         fill = PatternFill(start_color="D1FAE5", end_color="D1FAE5", fill_type="solid")
         sum_cols = list(range(4, 18)) + list(range(cat_col_start, len(H) + 1))
