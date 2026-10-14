@@ -14,6 +14,9 @@ import { useNavigate } from "react-router-dom";
 import { ArrowRight, KeyRound, AlertCircle, CloudOff, Clock } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
+// The iPad layout (tablet: / pad: / pad-wide:) and the keyboard focus ring —
+// the staff portal's own stylesheet; the owner app never loads it.
+import "../styles/staffPortal.css";
 import { useKeyboardReveal } from "../hooks/useKeyboardReveal";
 import { haptic } from "../utils/haptics"; // no-op on web; physical buzz in the iOS shell
 
@@ -128,31 +131,38 @@ export default function JoinPage() {
       className="relative min-h-[100dvh] text-gray-900 flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))]"
       style={{ background: "#f5f7fb", ...(kb > 0 ? { minHeight: `calc(100dvh - ${kb}px)` } : {}) }}
     >
-      {/* DA / EN before joining: a staffer who does not read Danish on a
-          Danish-locale phone can switch here. Only the language — the
-          first-run default is unchanged. */}
-      <div
-        className="absolute right-4 top-[max(0.75rem,env(safe-area-inset-top))] flex rounded-xl border border-gray-200 bg-white p-0.5 gap-0.5"
-        role="group"
-        aria-label={t("portalLangLabel", "Language")}
-      >
-        {["da", "en"].map((code) => (
-          <button
-            key={code}
-            type="button"
-            onClick={() => setLang(code)}
-            aria-pressed={lang === code}
-            className={`min-w-[44px] min-h-[40px] px-2.5 rounded-[10px] text-[12px] font-bold uppercase transition active:scale-[0.98] ${
-              lang === code ? "bg-gray-900 text-white" : "bg-white text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            {code === "da" ? "DA" : "EN"}
-          </button>
-        ))}
-      </div>
-      <div className="w-full max-w-xs">
+      <div className="w-full max-w-xs tablet:max-w-[380px] pad:max-w-[420px]">
+        {/* DA / EN before joining: a staffer who does not read Danish on a
+            Danish-locale phone can switch here. Only the language — the
+            first-run default is unchanged.
+            It lives INSIDE the card column but is absolutely positioned against
+            the full-screen wrapper (this column is not positioned), so on a
+            phone it sits in the top-right corner exactly as before. In any
+            iPad window (tablet: — Split View 1/2 and up, and the full iPad
+            layout) it turns static and sits just above the card's right edge:
+            the window corner was ~200 px from the card in a 694 px Split View
+            and ~500 px on a 13" iPad. */}
         <div
-          className="relative overflow-hidden text-center"
+          className="absolute right-4 top-[max(0.75rem,env(safe-area-inset-top))] flex rounded-xl border border-gray-200 bg-white p-0.5 gap-0.5 tablet:static tablet:w-fit tablet:ml-auto tablet:mb-3"
+          role="group"
+          aria-label={t("portalLangLabel", "Language")}
+        >
+          {["da", "en"].map((code) => (
+            <button
+              key={code}
+              type="button"
+              onClick={() => setLang(code)}
+              aria-pressed={lang === code}
+              className={`min-w-[44px] min-h-[40px] px-2.5 rounded-[10px] text-[12px] font-bold uppercase transition active:scale-[0.98] ${
+                lang === code ? "bg-gray-900 text-white" : "bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {code === "da" ? "DA" : "EN"}
+            </button>
+          ))}
+        </div>
+        <div
+          className="relative overflow-hidden text-center pad:px-10! pad:pt-9! pad:pb-8!"
           style={{
             borderRadius: 22,
             padding: "26px 20px 22px",
@@ -180,18 +190,18 @@ export default function JoinPage() {
               <KeyRound className="w-6 h-6" strokeWidth={2} aria-hidden style={{ color: "#4ade80" }} />
             </div>
             <h1
-              className="text-white"
+              className="text-white pad:text-[26px]!"
               style={{ font: "700 21px/1.12 var(--font-display)", letterSpacing: "-0.03em" }}
             >
               {t("joinTitle", "Connect to your workplace")}
             </h1>
-            <p className="mt-1.5" style={{ font: "400 12.5px/1.45 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
+            <p className="mt-1.5 pad:text-[14px]!" style={{ font: "400 12.5px/1.45 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
               {t("joinSubtitle", "Enter the 6-character code your manager gave you.")}
             </p>
           </div>
         </div>
 
-        <form onSubmit={submit} className="mt-3.5 rounded-2xl bg-white border border-gray-200/70 card-glossy p-4">
+        <form onSubmit={submit} className="mt-3.5 rounded-2xl bg-white border border-gray-200/70 card-glossy p-4 pad:p-6">
           <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5 block">
             {t("joinCodeLabel", "Join code")}
           </label>
@@ -224,10 +234,11 @@ export default function JoinPage() {
             type="submit"
             disabled={normalized.length < CODE_LEN || busy}
             className="mt-3 w-full px-4 py-3 text-sm font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-40 transition"
+            // Flat BonBox green, no glow (the calm, flat look; white text
+            // on #15803d is ~5:1, AA — the staff portal's green actions match).
             style={{
               borderRadius: 14,
-              background: "linear-gradient(180deg,#22c55e,#16a34a)",
-              boxShadow: "0 10px 22px -12px rgba(22,163,74,.95), inset 0 1px 0 rgba(255,255,255,.35)",
+              background: "#15803d",
             }}
           >
             {busy ? t("joinConnecting", "Connecting…") : t("joinConnect", "Connect")}
@@ -241,7 +252,7 @@ export default function JoinPage() {
         </form>
 
         {/* gray-500 at 12px: the 11px gray-400 measured ~2.4:1 on #f5f7fb. */}
-        <p className="text-center text-[12px] text-gray-500 mt-4">
+        <p className="text-center text-[12px] text-gray-500 mt-4 pad:text-[13.5px]">
           {t("joinTapHint", "Got a link instead? Just tap it — no code needed.")}
         </p>
       </div>

@@ -363,9 +363,15 @@ export default function CookieConsent() {
       return undefined;
     }
     const el = bannerRef.current;
+    // From the banner's own height and the offset this component chose for
+    // it — never from where the banner happens to be on screen at that
+    // instant. Read from the rect, a write that ran before the banner had
+    // moved up onto the tab bar measured the bar's height into the footprint,
+    // so --bb-consent-h came out 200 or 138 px for the same banner from one
+    // load to the next.
+    const bottomGap = place.wide ? (place.clear > 0 ? 16 : 24) : 0;
     const write = () => {
-      const r = el.getBoundingClientRect();
-      const h = r.height > 0 ? Math.max(0, Math.ceil(window.innerHeight - r.top - place.clear)) : 0;
+      const h = el.offsetHeight > 0 ? Math.ceil(el.offsetHeight + bottomGap) : 0;
       root.style.setProperty("--bb-consent-h", `${h}px`);
     };
     write();
@@ -473,7 +479,10 @@ export default function CookieConsent() {
         role="dialog"
         aria-label={t("cookieBannerAria") || "Cookie consent"}
         data-cookie-consent="banner"
-        className="fixed z-[60] inset-x-0 md:inset-x-auto md:left-6 md:w-[420px] md:max-w-[calc(100vw-3rem)] motion-safe:animate-[bbFade_180ms_ease-out]"
+        // --bb-consent-left: a page with a left sidebar (the staff portal on
+        // an iPad) sets it so the banner starts right of the sidebar instead
+        // of straddling its edge. Unset everywhere else → 0 → as before.
+        className="fixed z-[60] inset-x-0 left-[var(--bb-consent-left,0px)] md:inset-x-auto md:left-[calc(1.5rem+var(--bb-consent-left,0px))] md:w-[420px] md:max-w-[calc(100vw-3rem-var(--bb-consent-left,0px))] motion-safe:animate-[bbFade_180ms_ease-out]"
         style={{ bottom: `${bottom}px` }}
       >
         <div

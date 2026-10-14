@@ -68,6 +68,11 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* The staff portal's iPad variants (tablet: / pad: / pad-wide:) are NOT
+   declared here: they live in src/styles/staffPortal.css, which only the
+   staff portal loads, so no owner page downloads the iPad layout. A pad:
+   class is simply unknown to this file and emits nothing. */
+
 /* Restore the hand-cursor on clickable controls.
    Tailwind v4 reverted to the W3C-spec default of cursor:default for
    buttons — technically correct, but every user expects a hand on

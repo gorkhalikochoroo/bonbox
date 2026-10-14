@@ -211,7 +211,10 @@ describe("placement", () => {
     window.matchMedia = vi.fn(() => ({ matches: true, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} }));
     let banner = await openAt("/");
     expect(banner.style.bottom).toBe("24px");
-    expect(banner.className).toMatch(/md:left-6/);
+    // 24 px (1.5rem) off the left edge — plus a sidebar's width when the page
+    // has one (the staff portal on an iPad sets --bb-consent-left); unset it
+    // is 0, exactly the old md:left-6.
+    expect(banner.className).toMatch(/md:left-\[calc\(1\.5rem\+var\(--bb-consent-left,0px\)\)\]/);
     expect(banner.className).toMatch(/md:w-\[420px\]/);
     cleanup();
     localStorage.clear();
@@ -229,7 +232,10 @@ describe("placement", () => {
 describe("the page pads for the banner (--bb-consent-h)", () => {
   it("the bars the banner sits on, and the desktop '+', are marked", () => {
     expect(read("components/MobileBottomNav.jsx")).toContain('data-bb-consent-clear=""');
-    expect(read("pages/StaffPortalPage.jsx")).toContain('<nav data-bb-consent-clear=""');
+    // The portal's tab bar is marked on a phone; on an iPad (usePadLayout) the
+    // same <nav> is a full-height LEFT sidebar, which the banner must not
+    // measure as a bottom bar — staffPortalPadLayout.test.jsx renders both.
+    expect(read("pages/StaffPortalPage.jsx")).toContain('data-bb-consent-clear={isPad ? undefined : ""}');
     expect(read("components/QuickAdd.jsx")).toContain('data-bb-consent-clear=""');
   });
   it("body pads by it on a phone (not on AuthShell pages, which pad themselves, nor the portal)", () => {
@@ -241,6 +247,32 @@ describe("the page pads for the banner (--bb-consent-h)", () => {
   it("the staff portal's own scroller pads by it", () => {
     expect(read("pages/StaffPortalPage.jsx")).toContain('paddingBottom: "calc(6rem + var(--bb-consent-h, 0px))"');
   });
+  it("the footprint comes from the banner's height and the gap it was given — not from where it sits mid-move", async () => {
+    // A rect-based read taken before the banner moved up onto the bar counted
+    // the bar into the footprint: 200 px or 138 px for one banner, run to run.
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get() { return this.getAttribute?.("data-cookie-consent") === "banner" ? 200 : 0; },
+    });
+    const realRect = Element.prototype.getBoundingClientRect;
+    // Wherever the rect claims the banner is, the answer must not move.
+    Element.prototype.getBoundingClientRect = function () {
+      return this.getAttribute?.("data-cookie-consent") === "banner"
+        ? { top: 10, bottom: 210, height: 200, left: 0, right: 390, width: 390 }
+        : realRect.call(this);
+    };
+    try {
+      await openAt("/dashboard", { extra: <nav data-bb-consent-clear="" data-testid="bar" />, beforeOpen: () => {
+        document.querySelector('[data-testid="bar"]').getBoundingClientRect = rect(window.innerHeight - 64, 64);
+      } });
+      expect(document.documentElement.style.getPropertyValue("--bb-consent-h")).toBe("200px");
+    } finally {
+      Element.prototype.getBoundingClientRect = realRect;
+      if (desc) Object.defineProperty(HTMLElement.prototype, "offsetHeight", desc);
+    }
+  });
+
   it("every route publishes it while the banner is up and clears it once answered", async () => {
     const banner = await openAt("/");
     expect(document.documentElement.style.getPropertyValue("--bb-consent-h")).toMatch(/^\d+px$/);
