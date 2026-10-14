@@ -3324,7 +3324,7 @@ export const da = {
     pricingStartTrial: "Start 14-dages gratis prøve",
     pricingBadgeFreeTrial: "🎁 14 dage gratis · Intet kort krævet",
     pricingBadgeFreeTrialPopular: "🎁 14 dage gratis · Intet kort krævet",
-    pricingTierFree: "Free",
+    pricingTierFree: "Gratis",
     pricingTierStarter: "Starter",
     pricingTierPro: "Pro",
     pricingTaglineFree: "Luk dagen, hver dag. Gratis.",
