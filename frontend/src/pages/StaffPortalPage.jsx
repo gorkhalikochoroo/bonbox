@@ -17,7 +17,7 @@ import { RefreshCw, CloudOff, ServerCrash, Link2Off, KeyRound, Download, FileTex
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
-import { formatHoursMinutes, formatHours, hoursUnit } from "../utils/hours";
+import { formatHoursMinutes, formatHours } from "../utils/hours";
 import { sectionFor } from "../config/roleSections";
 import { errText } from "../utils/errText";
 import { isNativeApp } from "../utils/platform";
@@ -1647,24 +1647,33 @@ function firstName(name) {
  * every shift, not only the hero's next one. Previously "who am I on with?"
  * was answerable for exactly one day; a staffer looking at Friday got nothing.
  *
- * Rules preserved verbatim from the strip: same date only (defense-in-depth —
- * never widen past the one date the staffer is already trusted to see), own row
- * excluded structurally by matching start/end/role since the client has no
- * staff_id, dedupe by staff_id, and multi-location scoping where a shift with a
- * location only sees that location while a shift without one sees everyone.
+ * Rules preserved from the strip: same date only (defense-in-depth — never
+ * widen past the one date the staffer is already trusted to see), dedupe by
+ * staff_id, and multi-location scoping where a shift with a location only sees
+ * that location while a shift without one sees everyone.
+ *
+ * The staffer's OWN rows are left out by NAME — the client has no staff_id of
+ * its own, but /team-schedule and the portal's staff_name are the same
+ * StaffMember.name. It used to match start/end/role instead, which dropped
+ * every colleague on exactly the same hours (role is empty on most shifts):
+ * a whole team on one shift read "you are on your own". By name, a split day's
+ * second shift is not listed as a colleague either. Without a name (never in
+ * the app, but defensively) it falls back to the old structural match.
  */
-function matesForShift(teamShifts, shift) {
+function matesForShift(teamShifts, shift, myName = "") {
   if (!shift || !Array.isArray(teamShifts)) return [];
   const myBranch = shift.branch_name || null;
+  const me = (myName || "").trim();
   const seen = new Set();
   const mates = [];
   for (const s of teamShifts) {
     if (s.date !== shift.date) continue;
     if (myBranch && s.branch_name && s.branch_name !== myBranch) continue;
-    const isMine =
-      s.start_time === shift.start_time &&
-      s.end_time === shift.end_time &&
-      (s.role || "") === (shift.role_on_shift || "");
+    const isMine = me
+      ? (s.staff_name || "").trim() === me
+      : s.start_time === shift.start_time &&
+        s.end_time === shift.end_time &&
+        (s.role || "") === (shift.role_on_shift || "");
     if (isMine) continue;
     const id = s.staff_id ?? `${s.staff_name}|${s.start_time}|${s.end_time}`;
     if (seen.has(id)) continue;
@@ -1674,19 +1683,19 @@ function matesForShift(teamShifts, shift) {
   return mates;
 }
 
-function WhosOnStrip({ teamShifts, nextShift }) {
+function WhosOnStrip({ teamShifts, nextShift, staffName }) {
   const { t } = useLanguage();
 
   if (!nextShift) return null;
 
-  // Same date only; exclude YOUR OWN row structurally (no staff_id on the
-  // client) by matching start/end/role; dedupe by staff_id.
+  // Same date only; exclude YOUR OWN rows (by name — see matesForShift);
+  // dedupe by staff_id.
   // Multi-location (S4): when MY shift has a location, "who am I on with?"
   // means MY floor — scope to teammates at the same location (or with no
   // location, which belongs everywhere). A shift with no location keeps the
   // whole-team view, so single-venue tenants see zero change.
   const myBranch = nextShift.branch_name || null;
-  const mates = matesForShift(teamShifts, nextShift);
+  const mates = matesForShift(teamShifts, nextShift, staffName);
 
   const CAP = 6;
   const shown = mates.slice(0, CAP);
@@ -1862,7 +1871,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts, businessType }
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, businessType, coversByShift, onShiftsChanged, allShifts, calendarKey, schedState = "ok", onRetrySchedule, staffRole, focusDate }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, businessType, coversByShift, onShiftsChanged, allShifts, calendarKey, schedState = "ok", onRetrySchedule, staffRole, focusDate }) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -2442,7 +2451,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 gray-900, built for this surface). Who's-on is a property of this
                 next shift, so it belongs here, not floating on the gray page.
                 Renders nothing on a solo shift. */}
-            {token && <WhosOnStrip teamShifts={teamShifts || []} nextShift={nextShift} />}
+            {token && <WhosOnStrip teamShifts={teamShifts || []} nextShift={nextShift} staffName={staffName} />}
           </>
         ) : schedState === "loading" ? (
           /* Not answered yet — a placeholder, never "no shift". Saying
@@ -2733,7 +2742,12 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             the week arrays. `shifts.find()` used to keep only the first, so a
             double shift showed one and the week total under-counted it. */}
         {(() => {
-          const daysWithShifts = weekDays.filter((d) => (d.all || []).length);
+          // A free day picked in the strip gets a line of its own, in date
+          // order — "fri / ingen vagt" — so the tap answers something. It
+          // used to darken the cell and nothing else: on an iPad the list
+          // sits right beside the strip and visibly did not respond.
+          const pickedFree = weekDays.find((d) => d.date === expandedDate && !(d.all || []).length);
+          const daysWithShifts = weekDays.filter((d) => (d.all || []).length || d === pickedFree);
           if (!daysWithShifts.length) return null;
           return (
             <div ref={weekListRef} style={{ marginTop: 16 }} className="border-t border-[#f1f5f9] pt-1">
@@ -2774,6 +2788,16 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                       )}
                     </div>
 
+                    {!all.length && (
+                      <div className="flex items-center gap-2.5 mt-2" data-testid="portal-week-free-day">
+                        <span className="w-1.5 h-5 rounded-full shrink-0 bg-[#e2e8f0]" aria-hidden />
+                        <span className="text-[13px] text-gray-500 pad:text-[15px]">
+                          {isUnavailDay(d)
+                            ? t("portalWeekDayOffCantWork", "Day off — you marked it can't work")
+                            : t("portalWeekDayOff", "Day off — no shift")}
+                        </span>
+                      </div>
+                    )}
                     {all.map((fs) => (
                       /* pad: the hours sit on the TIME line (items-start), not
                          centred on the whole block — with a "Med …" line under
@@ -2821,7 +2845,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                               //   future + none  -> say alone (we KNOW)
                               //   past           -> say nothing (we do not)
                               if (fs.date < today) return null;
-                              const mates = matesForShift(teamShifts, fs);
+                              const mates = matesForShift(teamShifts, fs, staffName);
                               if (!mates.length) {
                                 return (
                                   <div className="text-[11px] text-gray-400 truncate mt-0.5 pad:text-[12.5px]">
@@ -2992,11 +3016,15 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
  * staffer gets a sentence instead of a 400 — but the SERVER is the gate. This
  * is a courtesy, never the check.
  */
-function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
+function PeriodSheet({ initial, current, anchorMonth, onClose, onApply }) {
   const { t, lang } = useLanguage();
   const todayISO = new Date().toLocaleDateString("sv-SE");
-  const [from, setFrom] = useState(initial?.start || "");
-  const [to, setTo] = useState(initial?.end || "");
+  // Opens on the period on screen — the chosen window, else the pay period
+  // the hours above are for — so its cycle is the highlighted one and the
+  // two dates say where you are. It used to open blank: none of 1.–31. /
+  // 15.–14. / 16.–15. lit while "1. okt. – 31. okt." was the active range.
+  const [from, setFrom] = useState(initial?.start || current?.start || "");
+  const [to, setTo] = useState(initial?.end || current?.end || "");
 
   const iso = (d) => d.toLocaleDateString("sv-SE");
   const anchor = anchorMonth ? new Date(`${anchorMonth}T00:00:00`) : new Date();
@@ -3117,7 +3145,9 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
         <button
           type="button"
           disabled={!ready}
-          onClick={() => onApply({ start: from, end: to })}
+          // Still the pay period it opened on: stay on it (no custom range,
+          // so the permit tile and the default stay as they were).
+          onClick={() => onApply(!initial && current && from === current.start && to === current.end ? null : { start: from, end: to })}
           className="w-full"
           style={{
             marginTop: 16, padding: "14px 0", borderRadius: 16,
@@ -3302,6 +3332,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       {customOpen && (
         <PeriodSheet
           initial={range}
+          current={data.period_start && data.period_end ? { start: data.period_start, end: data.period_end } : null}
           anchorMonth={data.period_start}
           onClose={() => setCustomOpen(false)}
           onApply={(r) => { setRange(r); setCustomOpen(false); }}
@@ -3484,9 +3515,11 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
               {t("portalHoursByWeek", "By week")}
             </span>
             <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>
+              {/* The unit as a word: a lone "t" in the corner read as a
+                  stray character, not as "hours". */}
               {weekBars.truncated
                 ? t("portalHoursLastNWeeks", "last {n} weeks").split("{n}").join(String(weekBars.length))
-                : hoursUnit(lang)}
+                : t("portalHoursChartUnit", "hours")}
             </span>
           </div>
           <div className="flex items-end" style={{ marginTop: 16, gap: 9, height: 104 }}>
@@ -3768,7 +3801,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
       reload();
     } catch (err) {
       haptic.warning();
-      setClaimErr(errText(err, t("portalGaClaimFailed", "Couldn't take the shift. Try again.")));
+      setClaimErr(giveawayClaimErrText(err, t, lang, t("portalGaClaimFailed", "Couldn't take the shift. Try again.")));
       fetchInbox(); // it may have just been taken — refresh the pool
     } finally {
       setClaimBusy(null);
@@ -3926,6 +3959,44 @@ function swapErrText(err, t, fallback) {
       : t("portalSwapClashSelf", "You already work at that time that day — this swap would put you on two shifts at once.");
   }
   return errText(err, fallback);
+}
+
+/** Taking a colleague's give-away (POST /give-aways/{id}/claim) is refused
+    with the server's plain ENGLISH sentence (422, detail: str) — a Danish
+    screen printed "Taking this shift would put you over your weekly limit
+    (37.5 of 37 hours)." Each refusal claim_giveaway can raise
+    (shift_swap_service.py) is said in the staffer's language here, numbers
+    included; StaffPortalPage.ipadRound3.test.jsx checks these sentences exist
+    in the service, so a reworded one fails a test instead of leaking. An
+    unknown sentence is shown as-is only to an English reader; anyone else
+    gets the caller's own line. */
+const GA_CLAIM_REFUSALS = [
+  [/^Give-away not found\.?$/i, "portalGaErrGone", "This shift is no longer up for grabs."],
+  [/^This shift has already been taken\.?$/i, "portalGaErrTaken", "A colleague has just taken this shift."],
+  [/^You can't take your own shift/i, "portalGaErrOwn", "That's your own shift — withdraw it instead."],
+  [/^The shift has changed since it was offered/i, "portalGaErrChanged", "The shift has changed since it was offered — ask your colleague to offer it again."],
+  [/^This shift is already in the past\.?$/i, "portalGaErrPast", "This shift is already over."],
+  [/^You already work an overlapping shift that day\.?$/i, "portalGaErrOverlap", "You already work at that time that day."],
+];
+const GA_CLAIM_WEEKLY = /over your weekly limit \(([\d.]+) of ([\d.]+) hours\)/i;
+function giveawayClaimErrText(err, t, lang, fallback) {
+  const d = err?.response?.data?.detail;
+  const msg = (typeof d === "string" ? d : typeof d?.message === "string" ? d.message : "").trim();
+  if (msg) {
+    const wk = GA_CLAIM_WEEKLY.exec(msg);
+    if (wk) {
+      return t("portalGaErrWeekly", "Taking it would put you over your weekly limit ({h} of {cap} hours).", {
+        h: fmtPortalHours(wk[1], lang),
+        cap: fmtPortalHours(wk[2], lang),
+      });
+    }
+    const hit = GA_CLAIM_REFUSALS.find(([re]) => re.test(msg));
+    if (hit) return t(hit[1], hit[2]);
+    return lang === "en" ? msg : fallback;
+  }
+  // No sentence from the server (offline, a 5xx): the caller's own line,
+  // never axios's English "Network Error".
+  return fallback;
 }
 
 function fmtSwapDay(iso, lang) {
@@ -4609,7 +4680,10 @@ function formatTimeAgo(dateStr, lang, t) {
     card, not just a badge — a badge alone is invisible in a hurried glance. */
 function ThreadRow({ thread, onOpen, active = false }) {
   const { t, lang } = useLanguage();
-  const unread = thread.unread || 0;
+  // The thread open beside the list (iPad master-detail) is being read on
+  // screen: a message that lands in it is read by the pane's next poll, so it
+  // never shows as unread here — and the Beskeder count leaves it out too.
+  const unread = active ? 0 : thread.unread || 0;
   const isGroup = thread.kind === "group";
   const name = thread.title || t("staffChatOwnerLabel", "Manager");
   const preview = thread.last_body
@@ -4865,7 +4939,7 @@ function NewGroupSheet({ token, onClose, onCreated }) {
 
 /** The conversation list. Search filters on name AND last message, which is
     what people actually remember — "the one about Friday", not a name. */
-function ThreadListView({ token, onOpen, onRead, activeId = null, refreshTick = 0, hidden = false, creating: creatingProp, onCreatingChange }) {
+function ThreadListView({ token, onOpen, takeCountTicket, activeId = null, refreshTick = 0, hidden = false, creating: creatingProp, onCreatingChange }) {
   const { t } = useLanguage();
   const [threads, setThreads] = useState(null);
   const [query, setQuery] = useState("");
@@ -4874,16 +4948,29 @@ function ThreadListView({ token, onOpen, onRead, activeId = null, refreshTick = 
   const [creatingOwn, setCreatingOwn] = useState(false);
   const creating = creatingProp ?? creatingOwn;
   const setCreating = onCreatingChange ?? setCreatingOwn;
+  // Read when the answer lands, not when the request left: the open thread
+  // may have changed in between.
+  const activeRef = useRef(activeId);
+  useEffect(() => { activeRef.current = activeId; }, [activeId]);
 
+  // The list is the Beskeder count while it is on screen: the server's own
+  // per-thread numbers, summed (what /chat/unread adds up too), less the
+  // thread open beside it. Reading the list marks nothing read, so it never
+  // writes a 0 it did not count. The ticket is taken when the request leaves
+  // (see StaffPortalPage).
   const load = useCallback(() => {
+    const applyCount = takeCountTicket?.();
     portalApi
       .get(`/portal/${token}/chat/threads`)
       .then((res) => {
-        setThreads(res.data.threads || []);
-        onRead?.();
+        const list = res.data.threads || [];
+        setThreads(list);
+        applyCount?.(
+          list.reduce((n, th) => n + (th.thread_id === activeRef.current ? 0 : th.unread || 0), 0),
+        );
       })
       .catch(() => setThreads((prev) => prev || []));
-  }, [token, onRead]);
+  }, [token, takeCountTicket]);
 
   // `hidden`: an iPad keeps this list mounted behind a full-screen thread (so
   // a rotation finds its search and sheet intact). Hidden, it does not poll;
@@ -4905,7 +4992,7 @@ function ThreadListView({ token, onOpen, onRead, activeId = null, refreshTick = 
     if (refreshTick === seenTick.current) return;
     seenTick.current = refreshTick;
     if (!hidden) load();
-  }, [refreshTick]); // eslint-disable-line react-hooks/exhaustive-deps -- load is re-created with onRead; only an ask should re-read
+  }, [refreshTick]); // eslint-disable-line react-hooks/exhaustive-deps -- only an ask should re-read, not a new load
 
   const q = query.trim().toLowerCase();
   const shown = (threads || []).filter(
@@ -4990,12 +5077,22 @@ function ThreadListView({ token, onOpen, onRead, activeId = null, refreshTick = 
 
 /** One open conversation. Same bubbles and composer for the owner thread and
     for a group — the only difference is that a group names who spoke. */
-function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, pane = false, split = false }) {
+function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, pane = false, split = false, drafts = null }) {
   const { t, lang } = useLanguage();
   const confirm = useConfirm();
   const [meta, setMeta] = useState(thread);
   const [messages, setMessages] = useState(null);
-  const [text, setText] = useState("");
+  // The unsent text is kept per conversation by MessagesTab (`drafts`), so
+  // tapping the next thread in the iPad list — or going back to the list on
+  // a phone — and returning finds it where it was. This view is still
+  // remounted per thread (key), so one thread's text never shows in another.
+  const [text, setTextState] = useState(() => drafts?.get(thread.thread_id) || "");
+  const setText = useCallback((v) => {
+    setTextState(v);
+    if (!drafts) return;
+    if (v) drafts.set(thread.thread_id, v);
+    else drafts.delete(thread.thread_id);
+  }, [drafts, thread.thread_id]);
   const [sending, setSending] = useState(false);
   const picker = usePhotoPicker();
   const scrollRef = useRef(null);
@@ -5010,6 +5107,44 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
   }, [kb]);
   const threadId = thread.thread_id;
   const isGroup = (meta?.kind || thread.kind) === "group";
+
+  // The composer grows with what is typed, up to its max-height (then it
+  // scrolls inside itself): it was one 42–44 px line, so a second line was
+  // cut off at the pill's edge (Slide Over) and five lines showed two.
+  // `grow` = px above the one-line height; the phone stream above the fixed
+  // composer gives that much room back, so its last message is not covered.
+  const taRef = useRef(null);
+  const [grow, setGrow] = useState(0);
+  const fitComposer = useCallback(() => {
+    const el = taRef.current;
+    if (!el || typeof window === "undefined") return;
+    el.style.height = "auto";
+    const cs = window.getComputedStyle(el);
+    const px = (v) => parseFloat(v) || 0;
+    const padY = px(cs.paddingTop) + px(cs.paddingBottom);
+    const border = px(cs.borderTopWidth) + px(cs.borderBottomWidth);
+    const lineH = px(cs.lineHeight) || 21.6;
+    const maxH = px(cs.maxHeight) || Infinity;
+    // One line, exactly as rows={1} drew it (≥ the 42 / 44 px minimum).
+    const oneLine = Math.max(px(cs.minHeight), lineH + padY + border);
+    const content = (el.scrollHeight || 0) - padY;
+    const lines = Math.max(1, Math.round(content / lineH));
+    const want = lines > 1 ? Math.min(maxH, el.scrollHeight + border) : oneLine;
+    el.style.height = `${want}px`;
+    const g = lines > 1 ? Math.max(0, Math.round(want - oneLine)) : 0;
+    setGrow((prev) => (prev === g ? prev : g));
+  }, []);
+  useLayoutEffect(() => { fitComposer(); }, [text, pane, fitComposer]);
+  useEffect(() => {
+    // The stream just gave room to a taller composer: keep the newest in sight.
+    const el = scrollRef.current;
+    if (el && grow > 0) el.scrollTop = el.scrollHeight;
+  }, [grow]);
+  // A rotation or a Split View resize re-wraps the same text.
+  useEffect(() => {
+    window.addEventListener("resize", fitComposer);
+    return () => window.removeEventListener("resize", fitComposer);
+  }, [fitComposer]);
 
   const load = useCallback(
     (markRead = true) => {
@@ -5117,7 +5252,14 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
     }
   };
 
-  const memberCount = (meta?.member_ids || []).length;
+  // A group's size: the thread's own read (member_ids) once it is in, else
+  // the list row's member_count, which is on screen from the first frame.
+  // Unknown (a group just created, before its first read) says nothing —
+  // never "Din leder", which is the DIRECT thread's line.
+  const memberCount = (meta?.member_ids || []).length || Number(meta?.member_count) || 0;
+  const subline = isGroup
+    ? (memberCount ? t("staffChatMemberCount", "{n} people").replace("{n}", String(memberCount)) : "")
+    : t("staffChatDirectSub", "Your manager");
   const heading = isGroup
     ? meta?.title || t("staffChatGroup", "Group")
     : restaurantName || t("staffChatOwnerLabel", "Manager");
@@ -5187,10 +5329,10 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
           {heading}
         </h2>
         )}
+        {/* An unknown group size keeps the line (a no-break space), so the
+            header does not jump when the count arrives. */}
         <p style={{ marginTop: 3, font: pane ? "400 12.5px/1.2 var(--font-text)" : "400 11px/1 var(--font-text)", color: pane ? "#64748b" : "#94a3b8" }}>
-          {isGroup && memberCount
-            ? t("staffChatMemberCount", "{n} people").replace("{n}", String(memberCount))
-            : t("staffChatDirectSub", "Your manager")}
+          {subline || "\u00a0"}
         </p>
       </div>
 
@@ -5204,7 +5346,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
               WebkitMaskImage: "linear-gradient(to bottom, transparent 0, #000 14px)",
               maskImage: "linear-gradient(to bottom, transparent 0, #000 14px)",
             }
-          : { maxHeight: kb > 0 ? `calc(100vh - 20rem - ${kb}px)` : "calc(100vh - 20rem)", gap: 9 }}
+          : { maxHeight: `calc(100vh - 20rem - ${kb + grow}px)`, gap: 9 }}
       >
         {messages === null ? (
           <div className="space-y-2 animate-pulse">
@@ -5296,7 +5438,10 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
                     {m.body}
                   </div>
                 )}
-                <span style={{ font: pane ? "500 11.5px/1 var(--font-text)" : "500 9.5px/1 var(--font-text)", color: pane ? "#94a3b8" : "#cbd5e1", padding: "0 4px", marginTop: 4 }}>
+                {/* Phone layout (also Split View and Slide Over): 10.5 px in
+                    #94a3b8 — it was 9.5 px #cbd5e1 on #f5f7fb (1.4:1), next
+                    to invisible. The iPad pane keeps its 11.5 px. */}
+                <span style={{ font: pane ? "500 11.5px/1 var(--font-text)" : "500 10.5px/1 var(--font-text)", color: "#94a3b8", padding: "0 4px", marginTop: 4 }}>
                   {m._failed
                     ? t("staffChatFailed", "Not sent — tap to retry")
                     : m.created_at
@@ -5324,12 +5469,14 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
           <div className={pane ? "pb-3 flex items-end gap-2" : "pb-2 flex items-end gap-1.5"}>
             <AttachButton picker={picker} label={t("staffChatAddPhoto", "Add photo")} />
             <textarea
+              ref={taRef}
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={onKeyDown}
               rows={1}
               placeholder={t("staffChatPlaceholder", "Write a message…")}
-              className="flex-1 resize-none max-h-28 bg-white outline-none placeholder:text-[#94a3b8] pad:min-h-11!"
+              data-testid="portal-chat-input"
+              className="flex-1 resize-none max-h-28 bg-white outline-none placeholder:text-[#94a3b8] pad:min-h-11! pad:max-h-44"
               style={{
                 // 16px, not 12.5: iOS zooms the page on focus of any field
                 // under 16px — and this inline font beat index.css's
@@ -5337,7 +5484,9 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
                 // STAYED zoomed after the keyboard closed, clipping Send and
                 // the tab bar until a force-quit. Padding trimmed so the pill
                 // keeps its 42px height.
-                minHeight: 42, padding: "10px 15px", borderRadius: 999,
+                // Once it grows past one line the pill's full round would
+                // clip the text at the corners, so it rounds like a card.
+                minHeight: 42, padding: "10px 15px", borderRadius: grow > 0 ? 20 : 999,
                 border: "1px solid #e2e8f0",
                 font: "400 16px/1.35 var(--font-text)", color: "#0f172a",
               }}
@@ -5372,9 +5521,13 @@ function paneHeight(kb = 0) {
   return `calc(100dvh - var(--portal-head-h, 6.5rem) - 5rem - var(--bb-consent-h, 0px) - ${kb}px)`;
 }
 
-function MessagesTab({ token, restaurantName, onRead }) {
+function MessagesTab({ token, restaurantName, takeCountTicket, refreshCount }) {
   const { t } = useLanguage();
   const [open, setOpen] = useState(null);
+  // Unsent text per conversation, for as long as Beskeder is open (see
+  // Conversation). One Map for the tab's life, written in place: typing must
+  // not re-render this tab.
+  const [drafts] = useState(() => new Map());
   // iPad: `pad` puts the conversation in a bounded card with its composer
   // inside it; `split` (pad-wide) keeps the thread list beside it —
   // master-detail, like Mail and Messages on iPad. A phone gets neither and
@@ -5393,13 +5546,15 @@ function MessagesTab({ token, restaurantName, onRead }) {
   const refreshList = useCallback(() => setListTick((n) => n + 1), []);
   const firstReadRef = useRef(null);
   const openId = open?.thread_id ?? null;
+  // Master-detail: the list beside the thread is the Beskeder count (it
+  // leaves the open thread out), so a conversation read only has to bring
+  // the list up to date the first time — its own 8 s poll does the rest.
   const onPaneRead = useCallback(() => {
-    onRead?.();
     if (openId && firstReadRef.current !== openId) {
       firstReadRef.current = openId;
       refreshList();
     }
-  }, [onRead, openId, refreshList]);
+  }, [openId, refreshList]);
 
   // ONE tree for every layout. Rotating an iPad across the pad-wide
   // breakpoint, or resizing a Split View window, changes only classes here:
@@ -5427,7 +5582,7 @@ function MessagesTab({ token, restaurantName, onRead }) {
           <ThreadListView
             token={token}
             onOpen={setOpen}
-            onRead={onRead}
+            takeCountTicket={takeCountTicket}
             activeId={split ? openId : null}
             refreshTick={listTick}
             hidden={!listShown}
@@ -5444,9 +5599,14 @@ function MessagesTab({ token, restaurantName, onRead }) {
           restaurantName={restaurantName}
           onBack={() => setOpen(null)}
           onLeft={() => { setOpen(null); if (split) refreshList(); }}
-          onRead={split ? onPaneRead : onRead}
+          // One conversation full-screen (a phone, an iPad in portrait): the
+          // list is not reading, so the count is read right after each
+          // conversation read — after, so it never counts what that read
+          // just cleared.
+          onRead={split ? onPaneRead : refreshCount}
           pane={pad}
           split={split}
+          drafts={drafts}
         />
       ) : split ? (
         // Nothing is opened on its own: opening a thread marks it read, and
@@ -6170,7 +6330,10 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
   const iso = (d) => d.toLocaleDateString("sv-SE");
   const todayISO = new Date().toLocaleDateString("sv-SE");
   const range = `${days[0].toLocaleDateString(localeFor(lang), { day: "numeric", month: "short" })} – ${days[6].toLocaleDateString(localeFor(lang), { day: "numeric", month: "short" })}`;
-  const markedThisWeek = days.filter((d) => oneOffByDate[iso(d)]).length;
+  // A day the weekly rule covers IS marked (the strip draws it red with the
+  // Repeat icon), so it counts — "Intet markeret i denne uge" under a red
+  // Monday contradicted the strip right above it.
+  const markedThisWeek = days.filter((d) => oneOffByDate[iso(d)] || recurringSet.has((d.getDay() + 6) % 7)).length;
 
   return (
     <div
@@ -7201,7 +7364,9 @@ function StaffPushOptIn({ token }) {
   if (iosNotInstalled) {
     return (
       <div className="rounded-lg bg-white border border-gray-200 p-3 text-[11px] text-gray-500 leading-relaxed">
-        <div className="font-semibold text-gray-700 mb-1 inline-flex items-center gap-1.5">
+        {/* flex, not inline-flex: as an inline box the bold title ran straight
+            into the hint on the same line, on a raised baseline. */}
+        <div className="font-semibold text-gray-700 mb-1 flex items-center gap-1.5" data-testid="staff-push-install-title">
           <Smartphone className="w-4 h-4" strokeWidth={2} aria-hidden />
           {t("staffPushIosInstallTitle", "Get push notifications")}
         </div>
@@ -7530,16 +7695,43 @@ export default function StaffPortalPage() {
   // null = whatever the owner's pay-period config says (the default the staffer
   // is paid on). Non-null = a window the staffer chose themselves.
   const [hoursRange, setHoursRange] = useState(null);
-  // Unread owner→staff chat messages — drives the "Beskeder" nav badge.
+  // Unread chat messages across every conversation — the "Beskeder" count
+  // (the phone tab badge, the iPad sidebar row).
+  //
+  // ONE source of truth: the server's count. It used to have two writers
+  // with opposite answers — the 8 s /chat/unread poll wrote the server's
+  // number, and every thread-list read wrote 0 although reading the list
+  // marks nothing read. Whichever answer landed last won, so the badge
+  // blinked on and off (and on an iPad sat at 0 beside rows still showing
+  // "1"). Now every write is the server's number, and the newest READ wins:
+  // each read takes a ticket when it is SENT, and its answer is dropped if a
+  // newer read went out after it (a slow poll can never overwrite what a
+  // later conversation read found).
+  //
+  // Who reads it:
+  //   • away from Beskeder — the cheap /chat/unread poll (25 s);
+  //   • on Beskeder — the screen itself: the thread list's own read (the
+  //     same per-thread numbers, summed; the thread open beside it counts as
+  //     read), or, with one conversation full-screen, a count read right
+  //     after each conversation read (so it never counts what that read just
+  //     cleared).
+  // Every function here is stable for the page's life — both chat views
+  // list them as dependencies of their load().
   const [chatUnread, setChatUnread] = useState(0);
-  // ONE function for the page's life. An inline arrow was a new function on
-  // every render, and both chat views list onRead as a dependency of their
-  // load(): each parent render re-created load, which re-ran their effects —
-  // an immediate refetch and a restarted interval. With the 8 s unread poll
-  // setting 1 and this setting 0, the cycle never stopped (≈26 requests per
-  // 32 s in an iPad split view; 12 thread reads where a 6 s poll makes ≈5 on
-  // a phone).
-  const onChatRead = useCallback(() => setChatUnread(0), []);
+  const chatTicketRef = useRef(0);
+  const takeChatTicket = useCallback(() => {
+    const mine = ++chatTicketRef.current;
+    return (n) => {
+      if (mine === chatTicketRef.current) setChatUnread(Math.max(0, Number(n) || 0));
+    };
+  }, []);
+  const refreshChatUnread = useCallback(() => {
+    const apply = takeChatTicket();
+    portalApi
+      .get(`/portal/${token}/chat/unread`)
+      .then((res) => apply(res.data?.unread || 0))
+      .catch(() => {});
+  }, [token, takeChatTicket]);
 
   // ─── Live-sync (Phase 1: dependency-free freshness) ──────────────────────
   // lastSynced — stamped when the SCHEDULE GET resolves. Drives the header
@@ -8020,28 +8212,18 @@ export default function StaffPortalPage() {
   // shortcut. "tips" is no longer in the deep-link allow-list above, so such a
   // link already resolves to "schedule" — no special handling needed.
 
-  // 2c. Chat unread badge — poll the cheap count endpoint so the "Beskeder"
-  // nav dot lights up when the owner writes. While the Messages tab is open
-  // the server marks read on each fetch, so we just hold the badge at 0.
+  // 2c. Chat unread count — away from Beskeder, poll the cheap count endpoint
+  // so the "Beskeder" badge lights up when someone writes. On Beskeder the
+  // screen reads it itself (MessagesTab), at the moments it can change.
   useEffect(() => {
-    if (!(pinVerified && info)) return;
-    let cancelled = false;
+    if (!(pinVerified && info) || tab === "messages") return undefined;
     const poll = () => {
-      if (document.visibilityState !== "visible") return;
-      portalApi
-        .get(`/portal/${token}/chat/unread`)
-        .then((res) => {
-          if (!cancelled) setChatUnread(res.data?.unread || 0);
-        })
-        .catch(() => {});
+      if (document.visibilityState === "visible") refreshChatUnread();
     };
     poll();
-    const id = setInterval(poll, tab === "messages" ? 8000 : 25000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [pinVerified, info, tab, token]);
+    const id = setInterval(poll, 25000);
+    return () => clearInterval(id);
+  }, [pinVerified, info, tab, refreshChatUnread]);
 
   // 2e. Realtime stream (Phase 2) — instant push the moment the owner
   // publishes: on a "schedule_published" nudge we refetch immediately
@@ -8906,7 +9088,8 @@ export default function StaffPortalPage() {
           <MessagesTab
             token={token}
             restaurantName={info?.restaurant_name}
-            onRead={onChatRead}
+            takeCountTicket={takeChatTicket}
+            refreshCount={refreshChatUnread}
           />
         )}
         {tab === "swaps" && (
@@ -9012,7 +9195,10 @@ export default function StaffPortalPage() {
                     strokeWidth={active ? 2.25 : 2}
                     aria-hidden
                   />
-                  {item.key === "messages" && chatUnread > 0 && (
+                  {/* Phone: no badge on the tab you are on — the list right
+                      under it carries each conversation's count (as on
+                      origin/main, where the badge was held at 0 there). */}
+                  {item.key === "messages" && chatUnread > 0 && !active && (
                     <span
                       className="absolute z-10 -top-1 -right-1.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-600 text-white text-[9px] font-bold leading-[14px] text-center pad:hidden"
                       aria-label={t("staffChatUnreadBadge", "Unread messages")}
@@ -9025,7 +9211,9 @@ export default function StaffPortalPage() {
                   {t(item.labelKey, item.labelFallback)}
                 </span>
                 {/* iPad: the count sits at the row's end, readable, the way a
-                    sidebar carries it. Not rendered on a phone. */}
+                    sidebar carries it — on the Beskeder row too while it is
+                    open, beside the list it sums (Mail's Inbox count does the
+                    same). Not rendered on a phone. */}
                 {isPad && item.key === "messages" && chatUnread > 0 && (
                   <RailCount n={chatUnread} label={t("staffChatUnreadBadge", "Unread messages")} />
                 )}

@@ -761,10 +761,14 @@ describe("the chat views are not refetched by every parent render (onRead is one
     expect(threadCalls()).toBe(1);
   });
 
-  it("the source keeps it that way", () => {
-    expect(SRC).toContain("const onChatRead = useCallback(() => setChatUnread(0), []);");
-    expect(SRC).toContain("onRead={onChatRead}");
-    expect(SRC).not.toContain("onRead={() => setChatUnread(0)}");
+  it("the source keeps it that way: the count functions handed to the chat views are stable for the page's life", () => {
+    // (The count itself — one source of truth, no blinking — is pinned in
+    // StaffPortalPage.ipadRound3.test.jsx.)
+    expect(SRC).toContain("const takeChatTicket = useCallback(() => {");
+    expect(SRC).toMatch(/const refreshChatUnread = useCallback\(\(\) => \{[\s\S]*?\}, \[token, takeChatTicket\]\);/);
+    expect(SRC).toContain("takeCountTicket={takeChatTicket}");
+    expect(SRC).toContain("refreshCount={refreshChatUnread}");
+    expect(SRC).not.toMatch(/(onRead|takeCountTicket|refreshCount)=\{\(\) =>/);
   });
 });
 
