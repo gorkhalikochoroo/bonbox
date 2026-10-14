@@ -6,9 +6,11 @@ import { useCallback, useSyncExternalStore } from "react";
  *
  * ONE definition, used twice:
  *   • CSS — the `tablet:`, `pad:` and `pad-wide:` Tailwind variants in
- *     index.css (`@custom-variant`). They MUST say exactly what TABLET_QUERY,
- *     PAD_QUERY and PAD_WIDE_QUERY say; src/__tests__/staffPortalPadLayout.test.jsx
- *     reads index.css and fails if they drift apart.
+ *     src/styles/staffPortal.css (`@custom-variant`) — the staff portal's own
+ *     stylesheet, so no owner page downloads the iPad layout. They MUST say
+ *     exactly what TABLET_QUERY, PAD_QUERY and PAD_WIDE_QUERY say;
+ *     src/__tests__/staffPortalPadLayout.test.jsx reads that file and fails if
+ *     they drift apart.
  *   • JS — usePadLayout(), for the few decisions CSS cannot make (the
  *     Messages master-detail split, the cookie banner's bar measurement, and
  *     keeping the user's place when the layout changes under them).

@@ -128,7 +128,7 @@ const { PAD_QUERY, PAD_WIDE_QUERY } = await import("../lib/padLayout");
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(HERE, "..", "pages", "StaffPortalPage.jsx"), "utf8");
-const CSS = readFileSync(join(HERE, "..", "index.css"), "utf8");
+const CSS = readFileSync(join(HERE, "..", "styles", "staffPortal.css"), "utf8");
 const SWAP_SERVICE = readFileSync(join(HERE, "..", "..", "..", "backend", "app", "services", "shift_swap_service.py"), "utf8");
 
 /** Pretend to be an iPad: `which` = which pad queries match. */
@@ -788,9 +788,10 @@ describe("iPad + hardware keyboard", () => {
 
   it("every portal control draws a focus ring for the keyboard (beats focus:outline-none; never on a tap)", () => {
     expect(CSS).toMatch(/body:has\(\[data-portal-scroller\]\) :is\(button, a\[href\], summary, \[role="button"\], \[role="switch"\], \[role="tab"\]\):focus-visible \{\s*outline: 2px solid #16a34a;\s*outline-offset: 2px;/);
-    // Unlayered: not inside an @layer block.
-    const at = CSS.indexOf("body:has([data-portal-scroller])");
-    expect(CSS.slice(0, at).lastIndexOf("@layer")).toBeLessThan(CSS.slice(0, at).lastIndexOf("}"));
+    // Unlayered: at the top level of the staff stylesheet, inside no block
+    // (staffPortalCss.test.js checks the BUILT output the same way).
+    const before = CSS.slice(0, CSS.indexOf("body:has([data-portal-scroller])")).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect((before.match(/\{/g) || []).length).toBe((before.match(/\}/g) || []).length);
   });
 });
 

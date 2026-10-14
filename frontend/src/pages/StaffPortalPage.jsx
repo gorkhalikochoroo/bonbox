@@ -17,6 +17,9 @@ import { RefreshCw, CloudOff, ServerCrash, Link2Off, KeyRound, Download, FileTex
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
+// The iPad layout (tablet: / pad: / pad-wide:) and the keyboard focus ring —
+// the staff portal's own stylesheet; the owner app never loads it.
+import "../styles/staffPortal.css";
 import { formatHoursMinutes, formatHours } from "../utils/hours";
 import { sectionFor } from "../config/roleSections";
 import { errText } from "../utils/errText";

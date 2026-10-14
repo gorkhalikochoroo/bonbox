@@ -4,7 +4,8 @@
  * what it rendered before.
  *
  * How the two layouts are told apart:
- *   • CSS: the `pad:` / `pad-wide:` Tailwind variants (index.css). jsdom does
+ *   • CSS: the `pad:` / `pad-wide:` Tailwind variants (src/styles/staffPortal.css
+ *     — the staff portal's own stylesheet; index.css no longer has them). jsdom does
  *     not evaluate media queries, so on that side we pin the CLASSES: every
  *     iPad decision is a pad:-prefixed token, and the phone tokens of each
  *     shell element are byte-for-byte the ones origin/main shipped.
@@ -82,7 +83,8 @@ const { PAD_QUERY, PAD_WIDE_QUERY, TABLET_QUERY, usePadLayout, matchesPad } = aw
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(HERE, "..", "pages", "StaffPortalPage.jsx"), "utf8");
-const CSS = readFileSync(join(HERE, "..", "index.css"), "utf8");
+const CSS = readFileSync(join(HERE, "..", "styles", "staffPortal.css"), "utf8");
+const INDEX_CSS = readFileSync(join(HERE, "..", "index.css"), "utf8");
 const JOIN_SRC = readFileSync(join(HERE, "..", "pages", "JoinPage.jsx"), "utf8");
 
 /** The phone half of a class list: every token that is NOT an iPad token
@@ -183,7 +185,9 @@ afterEach(() => {
 
 // ─── One definition of "iPad" ─────────────────────────────────────────────
 describe("the pad breakpoint is one definition, in CSS and JS alike", () => {
-  it("index.css declares exactly the queries padLayout.js exports — range syntax, narrowest first", () => {
+  it("the staff portal's stylesheet (and only it) declares exactly the queries padLayout.js exports — range syntax, narrowest first", () => {
+    // Not in the global stylesheet every owner page loads.
+    expect(INDEX_CSS).not.toMatch(/@custom-variant (tablet|pad|pad-wide) /);
     expect(TABLET_QUERY).toBe("(width >= 480px) and (height >= 600px)");
     expect(PAD_QUERY).toBe("(width >= 744px) and (height >= 600px)");
     expect(PAD_WIDE_QUERY).toBe("(width >= 1100px) and (height >= 600px)");
@@ -624,9 +628,11 @@ describe("type on iPad is raised per surface (no global scaling); the phone size
     expect(strip).toContain('className="tabular-nums pad:text-[15.5px]!"');
   });
 
-  it("no global zoom crept in: index.css sets no root font-size or zoom inside the pad queries", () => {
-    expect(CSS).not.toMatch(/@media[^{]*744px[^{]*\{[^}]*(font-size|zoom)/);
-    expect(CSS).not.toMatch(/html\s*\{[^}]*zoom/);
+  it("no global zoom crept in: neither stylesheet sets a root font-size or zoom inside the pad queries", () => {
+    for (const css of [CSS, INDEX_CSS]) {
+      expect(css).not.toMatch(/@media[^{]*744px[^{]*\{[^}]*(font-size|zoom)/);
+      expect(css).not.toMatch(/html\s*\{[^}]*zoom/);
+    }
   });
 });
 

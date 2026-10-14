@@ -1,0 +1,41 @@
+/* The staff portal's own stylesheet — BonBox Vagtplan and /s/<token>.
+   Imported by the two pages that use it, StaffPortalPage and JoinPage (both
+   lazy chunks, so it always loads after index.css). The owner app never
+   loads it.
+
+   The iPad layout: the `tablet:`, `pad:` and `pad-wide:` variants are
+   declared HERE and nowhere else. They must say exactly what TABLET_QUERY,
+   PAD_QUERY and PAD_WIDE_QUERY say in src/lib/padLayout.js — a test reads
+   both. The height floor keeps a sideways phone (≤ 440 px tall) on the phone
+   layout. Range syntax on purpose (see padLayout.js). Declared narrowest
+   first, so a pad: rule is emitted after — and beats — a tablet: rule for the
+   same property; all three come after every core variant (sm:, md:, …), as
+   they did inside index.css.
+
+   Tailwind emits every class it finds in the two pages; the build keeps only
+   the variant rules (and the theme variables they use) —
+   scripts/postcss-staff-portal-css.js. The un-prefixed classes come from
+   index.css, as for every other page. */
+@layer properties, theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "../pages/StaffPortalPage.jsx";
+@source "../pages/JoinPage.jsx";
+
+@custom-variant tablet (@media (width >= 480px) and (height >= 600px));
+@custom-variant pad (@media (width >= 744px) and (height >= 600px));
+@custom-variant pad-wide (@media (width >= 1100px) and (height >= 600px));
+
+/* A visible KEYBOARD focus ring on every portal control. An iPad with a Magic
+   Keyboard tabs through the portal like a Mac, and the primary buttons
+   (Stempl ud, Jeg har set det, Meld syg) and the week cells showed nothing —
+   `focus:outline-none`, or an inline box-shadow that beat a ring.
+   :focus-visible only, so a tap never draws it; text fields keep their own
+   focus border (they match :focus-visible on a tap too). Unlayered on purpose,
+   so it beats the layered `focus:outline-none` utilities. BonBox green: 3.3:1
+   on white, 5:1 on the dark hero. Sheets render in a portal outside the
+   scroller, hence :has() on body. */
+body:has([data-portal-scroller]) :is(button, a[href], summary, [role="button"], [role="switch"], [role="tab"]):focus-visible {
+  outline: 2px solid #16a34a;
+  outline-offset: 2px;
+}

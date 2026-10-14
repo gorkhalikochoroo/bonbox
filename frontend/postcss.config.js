@@ -1,4 +1,6 @@
 import { fileURLToPath } from "node:url";
+import tailwindcss from "@tailwindcss/postcss";
+import staffPortalCss from "./scripts/postcss-staff-portal-css.js";
 
 /* Tailwind v4 has no tailwind.config.js here — `@import "tailwindcss"` in
    src/index.css turns on AUTOMATIC source detection, and `base` is the only
@@ -25,9 +27,11 @@ import { fileURLToPath } from "node:url";
    import.meta.url rather than "./src" so it holds no matter which directory
    the build is invoked from. */
 export default {
-  plugins: {
-    "@tailwindcss/postcss": {
-      base: fileURLToPath(new URL("./src", import.meta.url)),
-    },
-  },
+  plugins: [
+    tailwindcss({ base: fileURLToPath(new URL("./src", import.meta.url)) }),
+    // After Tailwind: trims src/styles/staffPortal.css to the staff portal's
+    // own (iPad-variant) rules — see the plugin. Every other file passes
+    // through untouched.
+    staffPortalCss(),
+  ],
 };

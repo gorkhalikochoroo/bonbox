@@ -14,6 +14,9 @@ import { useNavigate } from "react-router-dom";
 import { ArrowRight, KeyRound, AlertCircle, CloudOff, Clock } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
+// The iPad layout (tablet: / pad: / pad-wide:) and the keyboard focus ring —
+// the staff portal's own stylesheet; the owner app never loads it.
+import "../styles/staffPortal.css";
 import { useKeyboardReveal } from "../hooks/useKeyboardReveal";
 import { haptic } from "../utils/haptics"; // no-op on web; physical buzz in the iOS shell
 
