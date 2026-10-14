@@ -2,6 +2,15 @@ import React from "react";
 import { BatteryFull } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
 import { dateLocale } from "../../../utils/dateFormat";
+import { formatHours, formatHoursNumber } from "../../../utils/hours";
+import DemoTag from "./DemoTag";
+import {
+  DEMO_PHONE_PERSON,
+  DEMO_ROTA,
+  nextShiftFor,
+  todayIndex,
+  weekDates,
+} from "./demoData";
 
 /**
  * PhoneFanV2 — the three-phone 3D fan from the "staff" section of the
@@ -14,6 +23,13 @@ import { dateLocale } from "../../../utils/dateFormat";
  * The .bb-float keyframe already lives in index.css; data-anim="1" is what
  * the global prefers-reduced-motion rule keys off, so every animated
  * wrapper carries it.
+ *
+ * Push 9 (B4, A5): the phones show Alma Rasmussen from the demo rota
+ * (./demoData) — the same two shifts the week builder below gives her, in
+ * the CURRENT week, with her next shift worked out from today. They used to
+ * show a frozen "Fri 31 Jul", shifts nobody on the builder had, and kroner
+ * ("≈ 1.812 kr. before tax") the staff app does not show: Vagtplan shows
+ * hours and exports them as CSV; it is not a payslip.
  */
 
 const SHADOW_SIDE = "shadow-[0_30px_56px_-28px_rgba(15,23,42,0.50)]";
@@ -97,10 +113,31 @@ function SectionLabel({ children, className = "" }) {
 }
 
 export default function PhoneFanV2() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
 
   const venue = t("landingV2.phones.venue", "Bistro Nørrebro");
   const live = t("landingV2.phones.live", "Live");
+
+  // Alma's week, from the one demo rota.
+  const now = new Date();
+  const person = DEMO_ROTA.find((p) => p.name === DEMO_PHONE_PERSON);
+  const days = weekDates(now);
+  const today = todayIndex(now);
+  const shiftDays = Object.keys(person.shifts).map(Number).sort((a, b) => a - b);
+  const weekHours = shiftDays.reduce((a, d) => a + person.shifts[d].hours, 0);
+  const next = nextShiftFor(DEMO_PHONE_PERSON, now);
+  const dept = (key) => t(`landingV2.schedule.dept.${key}`, key);
+  const fmt = (d, opts) => {
+    try {
+      return new Intl.DateTimeFormat(dateLocale(), opts).format(d).replace(/\.$/, "");
+    } catch {
+      return "";
+    }
+  };
+  const cap = (x) => (x ? x.charAt(0).toUpperCase() + x.slice(1) : x);
+  const dayLabel = (d) => `${cap(fmt(d, { weekday: "short" }))} ${fmt(d, { day: "numeric", month: "short" })}`;
+  const short = (hhmm) => hhmm.replace(/:00$/, "");
+  const weekRange = `${fmt(days[0], { day: "numeric", month: "short" })} – ${fmt(days[6], { day: "numeric", month: "short" })}`;
 
   const tabs = [
     { id: "schedule", label: t("landingV2.phones.tabSchedule", "Schedule") },
@@ -112,15 +149,21 @@ export default function PhoneFanV2() {
     { id: "hours", label: t("landingV2.phones.tabHours", "Hours") },
   ];
 
-  const week = [
-    { key: "mon", letter: t("landingV2.phones.dayMon", "M"), date: "27", state: "today" },
-    { key: "tue", letter: t("landingV2.phones.dayTue", "T"), date: "28", state: "off" },
-    { key: "wed", letter: t("landingV2.phones.dayWed", "W"), date: "29", state: "off" },
-    { key: "thu", letter: t("landingV2.phones.dayThu", "T"), date: "30", state: "off" },
-    { key: "fri", letter: t("landingV2.phones.dayFri", "F"), date: "31", state: "shift" },
-    { key: "sat", letter: t("landingV2.phones.daySat", "S"), date: "1", state: "shift" },
-    { key: "sun", letter: t("landingV2.phones.daySun", "S"), date: "2", state: "off" },
+  const letters = [
+    ["mon", t("landingV2.phones.dayMon", "M")],
+    ["tue", t("landingV2.phones.dayTue", "T")],
+    ["wed", t("landingV2.phones.dayWed", "W")],
+    ["thu", t("landingV2.phones.dayThu", "T")],
+    ["fri", t("landingV2.phones.dayFri", "F")],
+    ["sat", t("landingV2.phones.daySat", "S")],
+    ["sun", t("landingV2.phones.daySun", "S")],
   ];
+  const week = letters.map(([key, letter], i) => ({
+    key,
+    letter,
+    date: String(days[i].getDate()),
+    state: person.shifts[i] ? "shift" : i === today ? "today" : "off",
+  }));
 
   const dayCell = {
     today: "text-[12px] font-semibold py-[5px] rounded-[7px]",
@@ -129,6 +172,8 @@ export default function PhoneFanV2() {
   };
 
   return (
+    <div className="flex flex-col items-center">
+    <DemoTag className="mb-1" />
     <div
       className="flex items-center justify-center pt-5 pb-2"
       style={{ perspective: "2000px" }}
@@ -203,13 +248,17 @@ export default function PhoneFanV2() {
               {t("landingV2.phones.nextShiftLabel", "Your next shift")}
             </div>
             <div className="font-display text-[19px] font-bold tracking-[-0.02em]">
-              {t("landingV2.phones.nextShiftWhen", "Fri 31 Jul · 16–23")}
+              {next
+                ? `${dayLabel(next.date)} · ${short(next.shift.from)}–${short(next.shift.to)}`
+                : ""}
             </div>
             <div className="text-[12px] text-slate-400 mt-[5px]">
-              {t(
-                "landingV2.phones.nextShiftMeta",
-                "Floor · 6.25 h · with Alma and Aksel"
-              )}
+              {next
+                ? t("landingV2.phones.nextShiftMeta", "{dept} · {hours}", {
+                    dept: dept(next.shift.dept),
+                    hours: formatHours(next.shift.hours, { lang, decimals: 2 }),
+                  })
+                : ""}
             </div>
           </div>
 
@@ -219,28 +268,9 @@ export default function PhoneFanV2() {
                 {t("landingV2.phones.thisWeek", "This week")}
               </SectionLabel>
               <span className="text-[11.5px] text-slate-500">
-                {/* Was the frozen string "27 Jul – 2 Aug", so the phone
-                    mock-up showed a week that ended two months ago. Same
-                    defect HeroV2 already fixed for its greeting date and
-                    BookingCardV2 for its date chips — this was the third
-                    copy. Monday to Sunday of the CURRENT week. */}
-                {(() => {
-                  try {
-                    const loc = dateLocale();
-                    const now = new Date();
-                    const mon = new Date(now);
-                    mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-                    const sun = new Date(mon);
-                    sun.setDate(mon.getDate() + 6);
-                    const f = (d) =>
-                      new Intl.DateTimeFormat(loc, { day: "numeric", month: "short" })
-                        .format(d)
-                        .replace(/\.$/, "");
-                    return `${f(mon)} – ${f(sun)}`;
-                  } catch {
-                    return t("landingV2.phones.thisWeek", "This week");
-                  }
-                })()}
+                {/* Monday to Sunday of the CURRENT week (it was a frozen
+                    "27 Jul – 2 Aug"). */}
+                {weekRange}
               </span>
             </div>
             <div className="grid grid-cols-7 gap-1 text-center">
@@ -254,10 +284,10 @@ export default function PhoneFanV2() {
               ))}
             </div>
             <div className="mt-3 pt-[11px] border-t border-slate-200 text-[11.5px] text-slate-500">
-              {t(
-                "landingV2.phones.weekTotal",
-                "12.5 h · 2 shifts · ≈ 1.812 kr"
-              )}
+              {t("landingV2.phones.weekTotal", "{hours} · {n} shifts", {
+                hours: formatHours(weekHours, { lang, decimals: 2 }),
+                n: shiftDays.length,
+              })}
             </div>
           </div>
 
@@ -287,7 +317,7 @@ export default function PhoneFanV2() {
             />
             <div className="px-3.5">
               <div className="text-[11.5px] text-slate-500 mb-2.5">
-                {t("landingV2.phones.hoursPeriod", "Period: 1 Jul – 31 Jul")}
+                {t("landingV2.phones.hoursPeriod", "Period: {range}", { range: weekRange })}
               </div>
               <div className="grid grid-cols-2 gap-[9px] mb-4">
                 <div className="border border-slate-200 rounded-xl px-[13px] py-3">
@@ -295,7 +325,7 @@ export default function PhoneFanV2() {
                     {t("landingV2.phones.rosteredHours", "Rostered hours")}
                   </div>
                   <div className="font-display text-[21px] font-bold tracking-[-0.02em]">
-                    12.5
+                    {formatHoursNumber(weekHours, lang, 2)}
                   </div>
                 </div>
                 <div className="border border-slate-200 rounded-xl px-[13px] py-3">
@@ -303,7 +333,7 @@ export default function PhoneFanV2() {
                     {t("landingV2.phones.shiftsCount", "Shifts")}
                   </div>
                   <div className="font-display text-[21px] font-bold tracking-[-0.02em]">
-                    2
+                    {shiftDays.length}
                   </div>
                 </div>
               </div>
@@ -312,32 +342,26 @@ export default function PhoneFanV2() {
                 {t("landingV2.phones.yourShifts", "Your shifts")}
               </SectionLabel>
               <div className="border border-slate-200 rounded-xl overflow-hidden mb-4">
-                <div className="flex justify-between gap-2.5 px-[13px] py-3 border-b border-slate-100 text-[12px]">
-                  <span>
-                    {t(
-                      "landingV2.phones.shiftOne",
-                      "Fri 31 Jul · 16:00–23:00"
-                    )}
-                  </span>
-                  <span className="text-slate-500">
-                    {t("landingV2.phones.shiftLength", "6.25 h")}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-2.5 px-[13px] py-3 text-[12px]">
-                  <span>
-                    {t("landingV2.phones.shiftTwo", "Sat 1 Aug · 16:00–23:00")}
-                  </span>
-                  <span className="text-slate-500">
-                    {t("landingV2.phones.shiftLength", "6.25 h")}
-                  </span>
-                </div>
+                {shiftDays.map((d, i) => (
+                  <div
+                    key={d}
+                    className={`flex justify-between gap-2.5 px-[13px] py-3 text-[12px] ${i < shiftDays.length - 1 ? "border-b border-slate-100" : ""}`}
+                  >
+                    <span>
+                      {dayLabel(days[d])} · {person.shifts[d].from}–{person.shifts[d].to}
+                    </span>
+                    <span className="text-slate-500">
+                      {formatHours(person.shifts[d].hours, { lang, decimals: 2 })}
+                    </span>
+                  </div>
+                ))}
               </div>
               {/* slate-500 like the mock's other "kr." / hours text: 4.76:1 on
                   the white phone (slate-400 was 2.63:1 — release gate R-b). */}
               <div className="text-[11.5px] text-slate-500 mb-4">
                 {t(
                   "landingV2.phones.hoursEstimate",
-                  "Estimate · ≈ 1.812 kr. before tax"
+                  "From the published rota · export as CSV"
                 )}
               </div>
             </div>
@@ -345,6 +369,7 @@ export default function PhoneFanV2() {
           </PhoneShell>
         </div>
       </div>
+    </div>
     </div>
   );
 }

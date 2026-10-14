@@ -1,6 +1,7 @@
 import { Check } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
 import { ART_GAVEKORT, CELL, TEXT, WIDE, WIDE_PY } from "./fluid";
+import DemoTag from "./DemoTag";
 
 /**
  * Landing v2 — "Gavekort" section.
@@ -10,10 +11,16 @@ import { ART_GAVEKORT, CELL, TEXT, WIDE, WIDE_PY } from "./fluid";
  * 1600px perspective — a white "gavekort sold" receipt behind, and the
  * printed charcoal gavekort in front.
  *
- * Fix-list #3 applied: the legal identity on the printed card is the
- * registered business (DukaanAI v/Manoz Chaudhary), not the product name,
- * and the address carries the floor/door "4. 3.". BonBox stays as the brand
- * line only.
+ * Push 9 (A6): the printed card is the DEMO VENUE'S card — Bistro Nørrebro,
+ * its initials, its city — the way the real printed gavekort carries the
+ * owner's own name and CVR (backend services/gavekort_pdf.py). It used to
+ * carry BonBox and BonBox's own company name and CVR (DukaanAI v/Manoz
+ * Chaudhary, CVR 46417321), which read as if BonBox issued the venue's gift
+ * cards. No CVR is printed on the demo: an invented number could be someone
+ * else's company. The MOMS row ("MPV") is unchanged — it is with the owner's
+ * revisor (push 9 packet).
+ * Below 768px the two card drawings are hidden; the copy and the four facts
+ * stay. They render unchanged from 768px.
  *
  * Palette note: the charcoal/cream landing colours that have no token
  * (#A8A196, #2A2620, #7C766B, #5F5A52, #F5F1E8 as a *text* colour) are
@@ -64,7 +71,7 @@ export default function GavekortV2() {
       aria-labelledby="gavekort-heading"
       className="border-t border-slate-200 bg-charcoal text-[#F5F1E8]"
     >
-      <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] ${WIDE} ${WIDE_PY}`}>
+      <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] max-sm:py-10 ${WIDE} ${WIDE_PY}`}>
         <div className="grid grid-cols-1 items-center gap-10 min-[1041px]:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] min-[1041px]:gap-[clamp(36px,5vw,64px)] min-[1441px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] min-[1441px]:gap-[calc(64px*var(--lx))]">
           {/* ── Left: copy + spec table ─────────────────────────── */}
           <div className={TEXT}>
@@ -77,14 +84,14 @@ export default function GavekortV2() {
             >
               {t("landingV2.gavekort.title", "Print it, or just send the code.")}
             </h2>
-            <p className="mb-7 max-w-[42ch] text-[17px] leading-[1.55] text-[#A8A196]">
+            <p className="max-w-[42ch] text-[17px] leading-[1.55] text-[#A8A196] md:mb-7">
               {t(
                 "landingV2.gavekort.body",
                 "Sell a gavekort in three taps — 100 to 1.000 kr., paid by card, MobilePay or cash. The guest gets a QR on their phone; you can print the physical card across the counter. Same balance behind both."
               )}
             </p>
 
-            <dl className="grid gap-0 border-t border-[#2A2620]">
+            <dl className="grid gap-0 border-t border-[#2A2620] max-md:hidden">
               {specs.map((spec, i) => (
                 <div
                   key={spec.key}
@@ -107,7 +114,8 @@ export default function GavekortV2() {
               1440px. Above that the cards grow slower than the column, so
               the copy takes more of the row (1.5fr / 1fr) and the cards
               still fill theirs. */}
-          <div className={`flex items-center justify-center py-4 ${CELL}`}>
+          <div className={`flex flex-col items-center justify-center gap-4 py-4 max-md:hidden ${CELL}`}>
+            <DemoTag tone="dark" />
             <div className={`relative h-[300px] w-[430px] origin-center [perspective:1600px] max-[620px]:origin-top max-[620px]:scale-[0.72] max-[620px]:-mb-[84px] ${ART_GAVEKORT}`}>
               {/* Behind: the sale that produced the gavekort */}
               <div
@@ -144,18 +152,14 @@ export default function GavekortV2() {
                       aria-hidden="true"
                       className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[7px] border border-[rgba(201,169,97,0.55)] font-display text-[10px] font-bold text-gold"
                     >
-                      BO
+                      BN
                     </span>
                     <div>
                       <div className="font-display text-[13.5px] font-bold tracking-[-0.01em] text-[#F5F1E8]">
-                        {t("landingV2.gavekort.card.brand", "BonBox")}
+                        {t("landingV2.gavekort.card.venue", "Bistro Nørrebro")}
                       </div>
-                      {/* Fix #3 — registered business, verified against CVR */}
                       <div className="text-[9px] text-[#7C766B]">
-                        {t(
-                          "landingV2.gavekort.card.issuer",
-                          "DukaanAI v/Manoz Chaudhary"
-                        )}
+                        {t("landingV2.gavekort.card.address", "København")}
                       </div>
                     </div>
                   </div>
@@ -186,18 +190,8 @@ export default function GavekortV2() {
                     <div className="font-display text-[14px] font-semibold tracking-[0.12em] text-[#F5F1E8]">
                       {t("landingV2.gavekort.card.code", "GK-EGU8-DAL2-0")}
                     </div>
-                    {/* Fix #3 — full registered address incl. floor/door */}
                     <div className="mt-[5px] text-[8px] leading-[1.5] tracking-[0.06em] text-[#5F5A52]">
-                      {t(
-                        "landingV2.gavekort.card.address",
-                        "København"
-                      )}
-                    </div>
-                    <div className="text-[8px] leading-[1.5] tracking-[0.06em] text-[#5F5A52]">
-                      {t(
-                        "landingV2.gavekort.card.cvr",
-                        "CVR 46417321 · Ingen udløbsdato"
-                      )}
+                      {t("landingV2.gavekort.card.noExpiry", "No expiry date")}
                     </div>
                   </div>
 

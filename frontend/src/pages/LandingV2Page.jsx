@@ -38,6 +38,7 @@ import AiPanelV2 from "../components/landing/v2/AiPanelV2";
 import GavekortV2 from "../components/landing/v2/GavekortV2";
 import PricingV2 from "../components/landing/v2/PricingV2";
 import FooterV2 from "../components/landing/v2/FooterV2";
+import ReservationsIntroV2 from "../components/landing/v2/ReservationsIntroV2";
 import {
   ART_BOOKING,
   ART_FAN,
@@ -61,7 +62,7 @@ function Band({ id, tone = "white", children }) {
   return (
     <section id={id} className={`${bg} border-t border-slate-200`}>
       <div
-        className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] ${WIDE} ${WIDE_PY}`}
+        className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] max-sm:py-10 ${WIDE} ${WIDE_PY}`}
       >
         {children}
       </div>
@@ -91,12 +92,18 @@ export default function LandingV2Page() {
           1.1x (card) and 1.3x (plan) the type scale; past that they lay out
           wider and still fill the column (the plan drops its 600px cap,
           it is drawn in percentages). See components/landing/v2/fluid.js. */}
+      {/* Push 9: the band now says what it is (ReservationsIntroV2) — the
+          hero's second button used to land here on an unlabelled widget.
+          Below 768px the floor plan is hidden (it is a 600px drawing; on a
+          phone it overlapped its own booking bubble and added a screen); the
+          booking card, which a guest actually uses on a phone, stays. */}
       <Band id="reservations" tone="slate">
+        <ReservationsIntroV2 />
         <div className="grid items-center gap-[clamp(36px,5vw,56px)] min-[1041px]:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] min-[1441px]:gap-[calc(56px*var(--lx))]">
           <div className={`${CELL} ${ART_BOOKING}`}>
             <BookingCardV2 />
           </div>
-          <div className={`flex justify-center ${CELL} ${ART_FLOOR} min-[1041px]:[&>*]:max-w-none`}>
+          <div className={`flex justify-center max-md:hidden ${CELL} ${ART_FLOOR} min-[1041px]:[&>*]:max-w-none`}>
             <FloorPlan />
           </div>
         </div>
@@ -120,11 +127,15 @@ export default function LandingV2Page() {
               wide in a column that kept growing. Now it is zoomed to its
               column: ~0.6 at 1041px, ~0.9 at 1440px, ~1.5 at 2560 (fluid.js).
               Zoom rather than scale so the band's height follows the fan. */}
-          <div className={`flex justify-center ${CELL} ${ART_FAN}`}>
+          {/* Push 9 (D): below 768px the phone mock-up and the week builder
+              are hidden — the copy beside them says what the app does, and
+              the builder is a 820px-wide grid a phone could only scroll
+              sideways. Both render unchanged from 768px. */}
+          <div className={`flex justify-center max-md:hidden ${CELL} ${ART_FAN}`}>
             <PhoneFanV2 />
           </div>
         </div>
-        <div className={`mt-14 ${TEXT}`}><ScheduleGridV2 /></div>
+        <div className={`mt-14 max-md:hidden ${TEXT}`}><ScheduleGridV2 /></div>
       </Band>
 
       {/* Self-contained: #access */}

@@ -1,5 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import AppStoreLink from "./AppStoreLink";
+import DemoTag from "./DemoTag";
 import { ART_HERO_CARD, CELL, TEXT, WIDE } from "./fluid";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../../../hooks/useLanguage";
@@ -8,8 +9,20 @@ import {
   formatFrist,
   formatPeriod,
   nextMomsDeadline,
-  weeklySetAside,
 } from "../../../utils/nextMomsDeadline";
+import {
+  DEMO_MARGIN_PCT,
+  DEMO_MOMS,
+  DEMO_MONTH,
+  DEMO_WEEK,
+  DEMO_WEEK_DELTA_PCT,
+  DEMO_YESTERDAY,
+  demoMonthSlices,
+  formatKr,
+  onShiftToday,
+  yesterday,
+} from "./demoData";
+import { FOUNDING_LIMIT, FROM_PRICE, momsNoteKey } from "./pricing";
 
 /**
  * Landing v2 — hero section (#top).
@@ -17,79 +30,80 @@ import {
  * Two equal columns from 1041px, a single column below. Above that the
  * card is drawn at its column's width and the page grows with the screen
  * (see ./fluid.js).
- * Left: badge, headline, lead, two pill CTAs, trust row.
- * Right: a static demo of the owner dashboard. Every figure is a fixed
- * demo value — no data fetching — and the figures tie out:
- *   223.022 − 40.718 = 182.304   and   182.304 / 223.022 ≈ 82 % margin.
+ * Left: headline, audience, lead, two pill CTAs, the price line, trust row.
+ * Right: a static demo of the owner dashboard, labelled as a demo.
+ *
+ * PUSH 9 (landing review, 15 Oct 2026):
+ *  - The figures come from ./demoData — one bistro, one month, one week —
+ *    so the card agrees with the AI panel, the rota and the phones. The old
+ *    card showed an 82 % margin (revenue minus "expenses", no wages, no
+ *    MOMS); the footer now takes MOMS, goods, wages and running costs off
+ *    the till and shows what is left.
+ *  - Every date is today's: the alert is about yesterday's kasserapport, the
+ *    MOMS countdown is computed (utils/nextMomsDeadline), "on shift" is
+ *    whoever the demo rota has on today.
+ *  - The second CTA goes to #pricing ("Se priser"). It said "Se bordplanen"
+ *    and landed on an unlabelled booking widget.
+ *  - A plain price line sits under the CTAs, from ./pricing (the backend's
+ *    price table), and says nothing about MOMS until the owner confirms it.
+ *  - Phones: the "Lavet i København" badge (also in the footer) and the
+ *    card's quick-action buttons and third metric are hidden below sm / 861px
+ *    to shorten the page; desktop is unchanged.
  */
 export default function HeroV2() {
   const { t, lang } = useLanguage();
 
-  // The MOMS card had the countdown TYPED IN: "MOMS · H1 2026 · in 36 days"
-  // beside "~88.777 kr. due 1 Sept 2026". Read on 6 September 2026 that is a
-  // frist five days GONE, called 36 days away — and 36 days from that day is
-  // 12 October, so the card contradicted itself as well as the calendar. On the
-  // card that demonstrates the MOMS countdown, to a Danish owner who knows the
-  // fristerne by heart.
-  //
-  // Exactly the failure the greeting date above was already fixed for; this
-  // card sits four lines below it and was missed. Computed for the same reason:
-  // a hardcoded date in a countdown ages into a lie by construction, and
-  // rolling it forward by hand only resets the clock on the next one.
-  //
-  // The kroner stay invented — a mockup may show made-up money; it may not
-  // show a date that has passed.
+  // The countdown is computed (see utils/nextMomsDeadline: a typed-in
+  // countdown ages into a lie). The amount is the demo bistro's half-year.
   const moms = nextMomsDeadline();
-  // The invented bill the mockup shows. Kept as ONE constant so the weekly
-  // set-aside beside it is derived from the same figure, not a second guess.
-  const MOMS_DEMO_KR = 88777;
+  const now = new Date();
 
-  // The card greets the visitor with "Good morning" over a date. That date was
-  // the hardcoded string "Monday, 27 July 2026", so the preview aged into a
-  // screenshot of a product nobody had touched in weeks — and it would only
-  // get worse. The FIGURES are demo data and the figcaption says so; the date
-  // is the frame around them, and today's date is the honest frame.
-  // Not memoised on purpose: dateLocale() reads the stored language rather
-  // than taking it as an argument, so a memo keyed on `lang` looks like an
-  // unused dependency to the linter and a memo keyed on [] would freeze the
-  // date in the old language when the visitor switches. One Intl format per
-  // render of a hero card costs nothing.
-  const heroDate = (() => {
+  // Today's date frames the demo (it used to be a frozen "Monday, 27 July").
+  // Not memoised: dateLocale() reads the stored language, see the booking card.
+  const fmt = (opts, d = now) => {
     try {
-      return new Intl.DateTimeFormat(dateLocale(), {
-        weekday: "long",
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      }).format(new Date());
+      return new Intl.DateTimeFormat(dateLocale(), opts).format(d);
     } catch {
-      // A bad locale must never take the hero down.
       return "";
     }
-  })();
+  };
+  const heroDate = fmt({ weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const y = yesterday(now);
+  const alertDate = `${String(y.getDate()).padStart(2, "0")}/${String(y.getMonth() + 1).padStart(2, "0")}`;
+
+  const shift = onShiftToday(now);
+  const roleLabel = shift
+    ? t(`landingV2.schedule.role.${shift.person.role}`, shift.person.role)
+    : "";
+
+  const slices = demoMonthSlices();
+  const costs = DEMO_MONTH.revenue - DEMO_MONTH.profit;
+  const momsNote = momsNoteKey();
 
   const eyebrow =
     "text-[12px] min-[861px]:text-[9.5px] font-semibold uppercase tracking-[0.14em] text-slate-400";
   const metricLabel =
     "mb-2 text-[12px] min-[861px]:text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-400";
   const metricValue =
-    "font-display text-[26px] font-bold tracking-[-0.02em] tabular-nums";
+    "font-display text-[24px] min-[861px]:text-[26px] font-bold tracking-[-0.02em] tabular-nums";
   const metricUnit = "text-[14px] font-medium text-slate-500";
-  const cardCell = "px-4 py-[18px]";
+  const cardCell = "px-4 py-[16px] min-[861px]:py-[18px]";
 
   return (
     <section id="top" className="bg-slate-50">
       {/* Wide screens (./fluid.js): 5% gutters; above 1440px the padding,
           the gap and the copy grow with the type scale. 3vw is 43.2px at
           1440. Equal columns: the card fills its half. */}
-      <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] pt-[clamp(24px,3vw,52px)] pb-[clamp(40px,5vw,64px)] ${WIDE} min-[1441px]:pt-[calc(43.2px*var(--lx))] min-[1441px]:pb-[calc(64px*var(--lx))]`}>
+      <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] pt-[clamp(20px,3vw,52px)] pb-[clamp(32px,5vw,64px)] ${WIDE} min-[1441px]:pt-[calc(43.2px*var(--lx))] min-[1441px]:pb-[calc(64px*var(--lx))]`}>
       <div className="grid grid-cols-1 items-center gap-10 min-[1041px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] min-[1041px]:gap-[clamp(40px,5vw,68px)] min-[1441px]:gap-[calc(68px*var(--lx))]">
         {/* ── Left column ───────────────────────────────────────────── */}
         <div className={TEXT}>
-          {/* Badge + the owner app, as peers. The App Store link wraps to its
-              own line rather than squeezing the badge on a narrow screen. */}
-          <div className="mb-6 flex flex-wrap items-center gap-2.5">
-            <span className="inline-flex items-center gap-2 rounded-full bg-bb-green-tint py-[6px] pl-[10px] pr-[13px] text-[12.5px] font-semibold text-bb-green-dark">
+          {/* Badge + the owner app, as peers. The badge is hidden on a phone
+              (the footer carries "Lavet i København" too); the app link is
+              the App Store on iPhone and desktop and the web app on Android,
+              where there is no BonBox app. */}
+          <div className="mb-5 flex flex-wrap items-center gap-2.5 sm:mb-6">
+            <span className="hidden items-center gap-2 rounded-full bg-bb-green-tint py-[6px] pl-[10px] pr-[13px] text-[12.5px] font-semibold text-bb-green-dark sm:inline-flex">
               <span
                 aria-hidden="true"
                 className="inline-block h-1.5 w-1.5 rounded-full bg-bb-green-bright"
@@ -100,48 +114,65 @@ export default function HeroV2() {
               size="md"
               href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960"
               label={t("landingV2.appStore.dailyClose", "BonBox on the App Store")}
+              webHref="/register"
+              webLabel={t("landingV2.webApp.owner", "BonBox in your browser")}
             />
           </div>
 
-          <h1 className="m-0 mb-5 font-display text-[clamp(36px,4.7vw,56px)] font-extrabold leading-[1.03] tracking-[-0.033em] text-balance text-slate-900">
-            {t("landingV2HeroTitle", "The back office your business actually runs on.")}
+          {/* The outcome, then who it is for — one heading, two lines. */}
+          <h1 className="m-0 mb-5 font-display text-[clamp(32px,4.7vw,56px)] font-extrabold leading-[1.04] tracking-[-0.033em] text-balance text-slate-900">
+            {t("landingV2HeroTitle", "The till, the rota and MOMS — under control.")}
+            <span className="mt-3 block text-[clamp(19px,2vw,24px)] font-semibold leading-[1.25] tracking-[-0.015em] text-slate-600">
+              {t("landingV2HeroAudience", "For cafés, restaurants, bars and salons.")}
+            </span>
           </h1>
 
           {/* 47ch on a phone. From 1041px the column sets the measure, so
               the lead runs up to the card instead of stopping short of it. */}
-          <p className="m-0 mb-7 max-w-[47ch] text-[18.5px] leading-[1.5] text-slate-600 text-pretty min-[1041px]:max-w-none">
+          <p className="m-0 mb-6 max-w-[47ch] text-[17px] leading-[1.5] text-slate-600 text-pretty sm:mb-7 sm:text-[18.5px] min-[1041px]:max-w-none">
             {t(
               "landingV2HeroLead",
-              "Daily close, reservations, schedule, timer & løn, stock and MOMS. For restaurants, bars, bistros, shops and anyone else closing a till in Denmark. One login for the owner, one app for the staff, one bill.",
+              "Today's kasserapport, bookings, the rota, hours, stock and MOMS in one place. One login for the owner, the rota on every staff phone, one bill.",
             )}
           </p>
 
-          <div className="mb-[26px] flex flex-wrap items-center gap-[14px]">
+          <div className="mb-3 flex flex-wrap items-center gap-[14px]">
             {/* Goes to /register, not #pricing. The primary CTA used to
                 scroll to the pricing table, so the one button most likely to
                 be clicked never reached a signup form. */}
             <Link
               to="/register"
+              data-testid="hero-cta-primary"
               className="rounded-full bg-slate-900 px-[26px] py-[14px] text-[15.5px] font-medium text-white transition-colors duration-150 ease-out hover:bg-bb-green"
             >
               {t("landingV2HeroCtaPrimary", "Free trial")}
             </Link>
             <a
-              href="#reservations"
+              href="#pricing"
               className="rounded-full border border-slate-200 bg-white px-6 py-[13px] text-[15.5px] font-medium text-slate-900 transition-colors duration-150 ease-out hover:border-slate-400"
             >
-              {t("landingV2HeroCtaSecondary", "See the floor plan")}
+              {t("landingV2HeroCtaSecondary", "See pricing")}
             </a>
           </div>
 
-          <div className="flex flex-wrap gap-x-[22px] gap-y-2 text-[13.5px] text-slate-500">
+          {/* The price, in plain words, right under the button (B2). */}
+          <p data-testid="hero-price-line" className="m-0 mb-[22px] text-[13.5px] leading-[1.45] text-slate-600">
+            {t(
+              "landingV2HeroPriceLine",
+              "14 days free · no card · then the free plan, or from {price} kr./mo (first {n} businesses)",
+              { price: FROM_PRICE, n: FOUNDING_LIMIT },
+            )}
+            {momsNote ? ` ${t(momsNote)}` : ""}
+          </p>
+
+          <div className="flex flex-wrap gap-x-[22px] gap-y-1 text-[13px] leading-[1.45] text-slate-500 sm:gap-y-1.5 sm:text-[13.5px]">
             <span>
-              {t("landingV2HeroTrustArchive", "Each kasserapport as a PDF, ready to keep for 5 years")}
+              {t("landingV2HeroTrustArchive", "Each kasserapport as a PDF, for you to keep for 5 years")}
             </span>
             <span>
               {t(
                 "landingV2HeroTrustHosting",
-                "Database in Ireland, receipts read in the US",
+                "Database in Ireland · every provider named in the privacy policy",
               )}
             </span>
             <span>{t("landingV2HeroTrustNoCut", "No cut of your revenue")}</span>
@@ -165,53 +196,56 @@ export default function HeroV2() {
           </figcaption>
 
           {/* Greeting header */}
-          <div className="flex flex-col items-stretch gap-3 border-b border-slate-200 px-[22px] pt-[18px] pb-4 min-[861px]:flex-row min-[861px]:items-start min-[861px]:justify-between min-[861px]:gap-[14px]">
-            <div>
-              <div className={`${eyebrow} mb-1 tracking-[0.15em]`}>
-                {t("landingV2HeroCardEyebrow", "Home")}
+          <div className="flex flex-col items-stretch gap-3 border-b border-slate-200 px-[22px] pt-[16px] pb-[14px] min-[861px]:flex-row min-[861px]:items-start min-[861px]:justify-between min-[861px]:gap-[14px] min-[861px]:pt-[18px] min-[861px]:pb-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className={`${eyebrow} mb-1 tracking-[0.15em]`}>
+                  {t("landingV2HeroCardEyebrow", "Home")}
+                </div>
+                <div className="font-display text-[23px] font-bold tracking-[-0.026em] text-slate-900">
+                  {t("landingV2HeroCardGreeting", "Good morning")}
+                </div>
+                <div className="mt-0.5 text-[12.5px] text-slate-500">{heroDate}</div>
               </div>
-              <div className="font-display text-[23px] font-bold tracking-[-0.026em] text-slate-900">
-                {t("landingV2HeroCardGreeting", "Good morning")}
-              </div>
-              <div className="mt-0.5 text-[12.5px] text-slate-500">
-                {heroDate || t("landingV2HeroCardDate", "Monday, 27 July 2026")}
-              </div>
+              <DemoTag className="mt-0.5 min-[861px]:hidden" />
             </div>
-            <div className="flex flex-none gap-2">
-              <span className="whitespace-nowrap rounded-full bg-slate-900 px-[13px] py-2 text-[12.5px] font-medium text-white">
-                {t("landingV2HeroCardQuickSale", "+ Quick Sale")}
-              </span>
-              <span className="whitespace-nowrap rounded-full border border-slate-200 px-[13px] py-2 text-[12.5px] font-medium text-slate-900">
-                {t("landingV2HeroCardSnapReceipt", "Snap receipt")}
-              </span>
+            <div className="hidden flex-none flex-col items-end gap-2 min-[861px]:flex">
+              <DemoTag />
+              <div className="flex gap-2">
+                <span className="whitespace-nowrap rounded-full bg-slate-900 px-[13px] py-2 text-[12.5px] font-medium text-white">
+                  {t("landingV2HeroCardQuickSale", "+ Quick Sale")}
+                </span>
+                <span className="whitespace-nowrap rounded-full border border-slate-200 px-[13px] py-2 text-[12.5px] font-medium text-slate-900">
+                  {t("landingV2HeroCardSnapReceipt", "Snap receipt")}
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Needs you now */}
+          {/* Needs you now — yesterday's kasserapport, with a partial
+              payment split that genuinely does not tie out (the shape the
+              detector produces; a Z-report-only close is never flagged). */}
           <div className="border-b border-slate-200 px-[22px] py-[14px]">
             <div className={`${eyebrow} mb-2`}>
               {t("landingV2HeroCardNeedsYouNow", "Needs you now")}
             </div>
-            <div className="flex items-center gap-[11px]">
+            <div className="flex flex-wrap items-center gap-x-[11px] gap-y-1.5">
               <span
                 aria-hidden="true"
                 className="h-2 w-2 flex-none rounded-full bg-red-500"
               />
-              <span className="flex-1 text-[14px] leading-[1.4] text-slate-900">
-                {/* The figures are a DEMO, but the shape of the claim has to
-                    be one the product can actually produce. It used to read
-                    "you took 0,00 kr. in payments" — which was the shipped
-                    behaviour at the time, and was a false alarm: a Z-report-only
-                    close records no payment split, so nothing can be reconciled.
-                    The detector no longer says that, so the landing page must
-                    not either; a partial split that genuinely does not tie out
-                    is the real version of this alert. */}
+              <span className="min-w-0 flex-1 text-[14px] leading-[1.4] text-slate-900">
                 {t(
                   "landingV2HeroCardAlert",
-                  "The 20/07 kasserapport doesn't tie out — you took 18.430,00 kr. in payments but booked 24.022,00 kr. in sales",
+                  "The {date} kasserapport doesn't tie out — you took {paid} kr. in payments but booked {booked} kr. in sales",
+                  {
+                    date: alertDate,
+                    paid: `${formatKr(DEMO_YESTERDAY.payments)},00`,
+                    booked: `${formatKr(DEMO_YESTERDAY.revenue)},00`,
+                  },
                 )}
               </span>
-              <span className="flex flex-none items-center whitespace-nowrap text-[13px] font-semibold text-slate-900">
+              <span className="flex flex-none items-center whitespace-nowrap text-[13px] font-semibold text-slate-900 max-sm:basis-full max-sm:pl-[19px]">
                 {t("landingV2HeroCardAlertAction", "Review")}
                 <ChevronRight
                   aria-hidden="true"
@@ -223,44 +257,43 @@ export default function HeroV2() {
             </div>
           </div>
 
-          {/* Metric strip */}
+          {/* Metric strip — yesterday, last week, last month. The month is
+              hidden below 861px: the footer under it carries the month. */}
           <div className="grid grid-cols-2 min-[861px]:grid-cols-3">
-            <div
-              className={`${cardCell} border-r border-slate-200`}
-            >
+            <div className={`${cardCell} border-r border-slate-200`}>
               <div className={metricLabel}>
-                {t("landingV2HeroCardRevenueLabel", "Revenue so far")}
+                {t("landingV2HeroCardYesterdayLabel", "Yesterday")}
               </div>
               <div className={metricValue}>
-                6.240<span className={metricUnit}> {t("landingV2HeroKr", "kr.")}</span>
-              </div>
-              <div className="mt-[3px] text-[12.5px] text-slate-500">
-                {t("landingV2HeroCardSalesToday", "18 sales today")}
-              </div>
-            </div>
-            <div
-              className={`${cardCell} border-slate-200 min-[861px]:border-t-0 min-[861px]:border-r`}
-            >
-              <div className={metricLabel}>
-                {t("landingV2HeroCardWeekLabel", "This week")}
-              </div>
-              <div className={metricValue}>
-                41.180<span className={metricUnit}> {t("landingV2HeroKr", "kr.")}</span>
-              </div>
-              <div className="mt-[3px] text-[12.5px] font-medium text-bb-green">
-                {t("landingV2HeroCardWeekDelta", "+12% vs last week")}
-              </div>
-            </div>
-            <div className={`${cardCell} col-span-2 border-t border-slate-200 min-[861px]:col-span-1 min-[861px]:border-t-0`}>
-              <div className={metricLabel}>
-                {t("landingV2HeroCardMonthLabel", "This month")}
-              </div>
-              <div className={metricValue}>
-                223.022
+                {formatKr(DEMO_YESTERDAY.revenue)}
                 <span className={metricUnit}> {t("landingV2HeroKr", "kr.")}</span>
               </div>
               <div className="mt-[3px] text-[12.5px] text-slate-500">
-                {t("landingV2HeroCardMargin", "82% margin")}
+                {t("landingV2HeroCardSales", "{n} sales", { n: DEMO_YESTERDAY.sales })}
+              </div>
+            </div>
+            <div className={`${cardCell} border-slate-200 min-[861px]:border-r`}>
+              <div className={metricLabel}>
+                {t("landingV2HeroCardLastWeekLabel", "Last week")}
+              </div>
+              <div className={metricValue}>
+                {formatKr(DEMO_WEEK.last)}
+                <span className={metricUnit}> {t("landingV2HeroKr", "kr.")}</span>
+              </div>
+              <div className="mt-[3px] text-[12.5px] font-medium text-bb-green">
+                {t("landingV2HeroCardLastWeekDelta", "{pct} % up on the week before", { pct: DEMO_WEEK_DELTA_PCT })}
+              </div>
+            </div>
+            <div className={`${cardCell} hidden min-[861px]:block`}>
+              <div className={metricLabel}>
+                {t("landingV2HeroCardLastMonthLabel", "Last month")}
+              </div>
+              <div className={metricValue}>
+                {formatKr(DEMO_MONTH.revenue)}
+                <span className={metricUnit}> {t("landingV2HeroKr", "kr.")}</span>
+              </div>
+              <div className="mt-[3px] text-[12.5px] text-slate-500">
+                {t("landingV2HeroCardLastMonthSub", "through the till, incl. MOMS")}
               </div>
             </div>
           </div>
@@ -269,19 +302,21 @@ export default function HeroV2() {
           <div className="mx-[18px] my-4 flex items-center justify-between gap-[14px] rounded-xl border border-slate-200 px-4 py-[14px]">
             <div>
               <div className={`${eyebrow} mb-[5px]`}>
-                {(t("landingV2HeroCardMomsEyebrow", "MOMS · {period} · in {days} days") || "")
-                  .replace("{period}", formatPeriod(moms, lang))
-                  .replace("{days}", String(moms.daysUntil))}
+                {t("landingV2HeroCardMomsEyebrow", "MOMS · {period} · in {days} days", {
+                  period: formatPeriod(moms, lang),
+                  days: moms.daysUntil,
+                })}
               </div>
               <div className="text-[15px] font-semibold text-slate-900">
-                {(t(
-                  "landingV2HeroCardMomsSetAside",
-                  "Set aside ~{weekly} kr./week to cover MOMS",
-                ) || "").replace("{weekly}", weeklySetAside(MOMS_DEMO_KR, moms.daysUntil))}
+                {t("landingV2HeroCardMomsSetAside", "Set aside ~{weekly} kr./week to cover MOMS", {
+                  weekly: formatKr(DEMO_MOMS.weekly),
+                })}
               </div>
               <div className="mt-[3px] text-[12.5px] text-slate-500">
-                {(t("landingV2HeroCardMomsDue", "~88.777 kr. due {frist}") || "")
-                  .replace("{frist}", formatFrist(moms.date, lang))}
+                {t("landingV2HeroCardMomsDue", "~{amount} kr. due {frist}", {
+                  amount: formatKr(DEMO_MOMS.halfYear),
+                  frist: formatFrist(moms.date, lang),
+                })}
               </div>
             </div>
             <ChevronRight
@@ -292,19 +327,26 @@ export default function HeroV2() {
             />
           </div>
 
-          {/* On shift. Below sm the eyebrow takes its own line (5px over the
+          {/* On shift (hidden below 480px to keep the phone page short — the
+              staff section below covers the rota). Below sm the eyebrow takes its own line (5px over the
               name, like the MOMS card's eyebrow): beside it, Inter left the
               name ~113px at 390 and split "16:00–" / "23:00" over 4 lines.
               With the eyebrow out of the way the role fits whole (nowrap),
-              so a narrow phone breaks after the name, never inside the time. */}
-          <div className="mx-[18px] mb-4 flex flex-wrap items-center gap-x-3 gap-y-[5px] rounded-xl border border-slate-200 px-4 py-[14px] sm:flex-nowrap">
+              so a narrow phone breaks after the name, never inside the time.
+              Whoever the demo rota (./demoData) has on today. */}
+          {shift && (
+          <div className="mx-[18px] mb-4 hidden flex-wrap items-center gap-x-3 gap-y-[5px] rounded-xl border border-slate-200 px-4 py-[14px] min-[480px]:flex sm:flex-nowrap">
             <span className={`${eyebrow} flex-none basis-full sm:basis-auto`}>
               {t("landingV2HeroCardOnShift", "On shift")}
             </span>
             <span className="min-w-0 flex-1 text-[14.5px] text-slate-900">
-              {t("landingV2HeroCardOnShiftName", "Agnes Kristensen")} ·{" "}
+              {shift.person.name} ·{" "}
               <span className="whitespace-nowrap text-slate-500">
-                {t("landingV2HeroCardOnShiftRole", "server, 16:00–23:00")}
+                {t("landingV2HeroCardOnShiftRole", "{role}, {from}–{to}", {
+                  role: roleLabel,
+                  from: shift.shift.from,
+                  to: shift.shift.to,
+                })}
               </span>
             </span>
             <span className="ml-auto flex items-center whitespace-nowrap text-[13px] font-semibold text-slate-900">
@@ -317,33 +359,41 @@ export default function HeroV2() {
               />
             </span>
           </div>
+          )}
 
-          {/* Profit footer */}
+          {/* Profit footer — last month's till, with MOMS, goods, wages and
+              running costs taken off; what is left is coloured. */}
           <div className="border-t border-slate-200 bg-slate-50 px-[22px] pt-4 pb-[18px]">
-            <div className="mb-[11px] flex flex-wrap items-baseline gap-2.5">
+            <div className="mb-[11px] flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
               <span className="text-[13px] text-slate-500">
-                {t("landingV2HeroCardProfitLabel", "Profit this month")}
+                {t("landingV2HeroCardProfitLastMonthLabel", "Profit last month")}
               </span>
               <span className="font-display text-[20px] font-bold tracking-[-0.02em] tabular-nums text-slate-900">
-                {t("landingV2HeroCardProfitValue", "182.304 kr.")}
+                {formatKr(DEMO_MONTH.profit)} {t("landingV2HeroKr", "kr.")}
               </span>
-              <span className="text-[12.5px] font-semibold text-bb-green">
-                {t("landingV2HeroCardProfitDelta", "+94% vs. Jun")}
+              <span className="text-[12.5px] font-semibold text-bb-green-dark">
+                {t("landingV2HeroCardProfitShare", "{pct} % of revenue ex MOMS", { pct: DEMO_MARGIN_PCT })}
               </span>
             </div>
             <div
               aria-hidden="true"
               className="flex h-2.5 overflow-hidden rounded-full"
             >
-              <span className="bg-red-500" style={{ width: "18%" }} />
-              <span className="bg-bb-green" style={{ width: "82%" }} />
+              {slices.map((s) => (
+                <span key={s.key} className={s.cls} style={{ width: `${s.pct.toFixed(1)}%` }} />
+              ))}
             </div>
-            <div className="mt-[9px] flex justify-between gap-3 text-[12px] tabular-nums">
-              <span className="text-red-700">
-                {t("landingV2HeroCardExpensesLegend", "40.718 kr. to expenses")}
+            <div className="mt-[9px] flex flex-wrap justify-between gap-x-3 gap-y-1 text-[12px] tabular-nums">
+              <span className="text-slate-600">
+                {t("landingV2HeroCardCostsLegend", "{costs} kr. to MOMS, goods, wages and running costs", {
+                  costs: formatKr(costs),
+                })}
               </span>
               <span className="text-bb-green-dark">
-                {t("landingV2HeroCardYoursLegend", "182.304 kr. is yours")}
+                {t("landingV2HeroCardLeftLegend", "{profit} kr. left of {revenue} kr.", {
+                  profit: formatKr(DEMO_MONTH.profit),
+                  revenue: formatKr(DEMO_MONTH.revenue),
+                })}
               </span>
             </div>
           </div>

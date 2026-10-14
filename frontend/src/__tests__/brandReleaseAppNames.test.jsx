@@ -84,7 +84,8 @@ describe("landing: the staff block says Vagtplan", () => {
     expect(text).toContain("BonBox Vagtplan · iPhone");
     expect(screen.getByRole("link", { name: "Vagtplan i App Store" }).getAttribute("href")).toBe(STAFF_STORE);
     expect(text).toContain("Personalet åbner Vagtplan");
-    expect(text).toContain("kan se i appen, når en af deres vagter bliver ændret");
+    // Push 9 (A5): "i appen" dropped — on Android Vagtplan is the browser.
+    expect(text).toContain("kan se, når en af deres vagter bliver ændret");
     expect(text).not.toMatch(/Scheduler|i samme øjeblik/);
   });
 

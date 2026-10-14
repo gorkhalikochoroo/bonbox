@@ -1,6 +1,8 @@
 import { Send, Sparkles, TrendingUp, X } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
 import { ART_CHAT, CELL, TEXT, WIDE, WIDE_PY } from "./fluid";
+import DemoTag from "./DemoTag";
+import { DEMO_WEEK, DEMO_WEEK_DELTA_PCT, formatKr } from "./demoData";
 
 /**
  * Landing v2 — "BonBox AI" section.
@@ -15,6 +17,11 @@ import { ART_CHAT, CELL, TEXT, WIDE, WIDE_PY } from "./fluid";
  * "shall I add it as a reminder?" — the copilot has no MOMS tool and cannot set
  * reminders. The panel is a picture of a conversation, so its glyph controls
  * are decorative (aria-hidden) rather than focusable no-op buttons.
+ *
+ * Push 9: the answer quotes the demo bistro's last week from ./demoData —
+ * the same 62.480 kr. and +6 % the hero card shows — and the panel carries a
+ * visible demo label. Below 768px the chat mock-up is hidden (the copy and
+ * the example questions beside it stay); it renders unchanged from 768px.
  */
 export default function AiPanelV2() {
   const { t } = useLanguage();
@@ -32,7 +39,7 @@ export default function AiPanelV2() {
       aria-labelledby="ai-heading"
       className="border-t border-slate-200 bg-white"
     >
-      <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] ${WIDE} ${WIDE_PY}`}>
+      <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] max-sm:py-10 ${WIDE} ${WIDE_PY}`}>
         {/* From 1041px the chat is drawn at its column's width (./fluid.js),
             but never above 1.1x the type scale, so its 14px bubbles stay
             smaller than the 17px copy beside it (at 1fr / 0.86fr, and with
@@ -60,14 +67,14 @@ export default function AiPanelV2() {
               )}
             </h2>
 
-            <p className="mb-[26px] max-w-[46ch] text-[17px] text-slate-600 min-[1041px]:max-w-none">
+            <p className="max-w-[46ch] text-[17px] text-slate-600 md:mb-[26px] min-[1041px]:max-w-none">
               {t(
                 "landingV2.ai.body",
                 "The copilot sits on top of your real data — revenue, expenses, inventory, credit, waste and staff. It quotes figures from your business, and says so when it doesn't have enough to answer."
               )}
             </p>
 
-            <div className="flex flex-wrap gap-[9px]">
+            <div className="flex flex-wrap gap-[9px] max-md:hidden">
               {chips.map((chip) => (
                 <span
                   key={chip}
@@ -80,7 +87,8 @@ export default function AiPanelV2() {
           </div>
 
           {/* Right column — chat panel mock */}
-          <div className={`flex justify-center ${CELL}`}>
+          <div className={`flex flex-col items-center gap-3 max-md:hidden ${CELL}`}>
+            <DemoTag />
             <figure
               aria-label={t(
                 "landingV2.ai.panelLabel",
@@ -133,11 +141,12 @@ export default function AiPanelV2() {
                 <p className="rounded-[14px] bg-chat-bubble px-[15px] py-[14px] text-[14px] leading-[1.5] text-slate-300">
                   {t("landingV2.ai.answerPre", "Revenue came to ")}
                   <strong className="font-semibold text-slate-50">
-                    {t("landingV2.ai.answerAmount", "62.480 kr.")}
+                    {formatKr(DEMO_WEEK.last)} {t("landingV2.ai.metricUnit", "kr.")}
                   </strong>
                   {t(
                     "landingV2.ai.answerPost",
-                    " — 6% up on the week before. Friday was the best day, and waste fell to 1.2% of purchases.",
+                    " — {pct} % up on the week before. Friday was the best day, and waste fell to 1.2 % of purchases.",
+                    { pct: DEMO_WEEK_DELTA_PCT },
                   )}
                 </p>
 
@@ -148,14 +157,14 @@ export default function AiPanelV2() {
                       {t("landingV2.ai.metricLabel", "Revenue last week")}
                     </div>
                     <div className="font-display text-[24px] font-bold tracking-[-0.02em] tabular-nums text-slate-900">
-                      {t("landingV2.ai.metricValue", "62.480")}
+                      {formatKr(DEMO_WEEK.last)}
                       <span className="text-[13px] font-medium text-slate-500">
                         {" "}
                         {t("landingV2.ai.metricUnit", "kr.")}
                       </span>
                     </div>
                     <div className="mt-0.5 text-[12px] text-slate-500">
-                      {t("landingV2.ai.metricSub", "+6% on the week before")}
+                      {t("landingV2.ai.metricSub", "{pct} % up on the week before", { pct: DEMO_WEEK_DELTA_PCT })}
                     </div>
                   </div>
 
