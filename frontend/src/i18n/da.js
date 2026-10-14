@@ -10213,4 +10213,20 @@ export const da = {
     rsvpCancelledByVenueBodyAppt: "Beklager — vi har måttet aflyse din aftale. Ring til os, eller book en anden dag.",
     rsvpDoneBodyAppt: "Denne aftale er afsluttet.",
     rsvpCancelOrChangeAppt: "Aflys tiden",
+    // Push 8 review, round 5 — a shop's or a workshop's request switch, its
+    // request hint on the public page, its Spaces and Indsigt words, and an
+    // older allergy note that can only be removed.
+    rsvpApproveOnlineAppt: "Godkend online-aftaler selv",
+    rsvpApproveOnlineHintAppt: "Til: hver tid, der bookes online, kommer ind som en forespørgsel, og tiden holdes først, når du bekræfter den. Fra: den bekræftes med det samme.",
+    rsvpGroupWishedTimeHintAppt: "Alle aftaler sendes som en forespørgsel — vælg det tidspunkt, du ønsker, så bekræfter vi det.",
+    rsvpInsKpiUtilAppt: "Pladsudnyttelse",
+    rsvpInsKpiUtilHelpAppt: "af pladstimer",
+    rsvpTableSeatsPhAppt: "Personer",
+    rsvpPeopleUnitAppt: "pers.",
+    rsvpTableSeatsAriaAppt: "Personer på {label}",
+    rsvpEditOldAllergyAppt: "Allergi fra en ældre booking",
+    rsvpEditOldAllergyHintAppt: "Vi spørger ikke længere om allergier her. Du kan fjerne den.",
+    rsvpEditOldAllergyRemoveAppt: "Fjern",
+    rsvpEditOldAllergyRemovedAppt: "Fjernes, når du gemmer.",
+    rsvpEditOldAllergyUndoAppt: "Fortryd",
 };

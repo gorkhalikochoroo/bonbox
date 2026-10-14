@@ -2621,11 +2621,19 @@ export default function ReservationPublicPage() {
               </h2>
               {groupRequest && slotGroups.length > 0 && (
                 <p className="-mt-1 mb-3 text-[13px] leading-snug text-gray-500 dark:text-gray-400">
-                  {t(
-                    "rsvpGroupWishedTimeHint",
-                    "Parties of {n} are sent as a request — pick the time you'd like and we'll confirm it.",
-                    { n: party },
-                  )}
+                  {/* A salon, a shop or a workshop books one person, so a
+                      request there means every appointment is one (its owner
+                      approves each) — not "Selskaber på 1 … I ønsker". */}
+                  {apptWords
+                    ? t(
+                      "rsvpGroupWishedTimeHintAppt",
+                      "Every appointment is sent as a request — pick the time you'd like and we'll confirm it.",
+                    )
+                    : t(
+                      "rsvpGroupWishedTimeHint",
+                      "Parties of {n} are sent as a request — pick the time you'd like and we'll confirm it.",
+                      { n: party },
+                    )}
                 </p>
               )}
               {isProvider && !behandlingId ? (

@@ -1465,7 +1465,8 @@ function ReservationDrawer({
                     const small = Number(tb.capacity_seats) < Number(r.party_size);
                     return (
                       <option key={tb.id} value={id} disabled={taken}>
-                        {tb.label} · {tb.capacity_seats} {t("rsvpSeats", "seats")}
+                        {/* One is one: "Plads 1 · 1 plads", as the sheets say. */}
+                        {tb.label} · {tb.capacity_seats} {Number(tb.capacity_seats) === 1 ? t("rsvpSeatOne", "seat") : t("rsvpSeats", "seats")}
                         {taken ? ` · ${t("rsvpTableTakenShort", "taken")}` : small ? ` · ${t("rsvpTableTooSmallShort", "too small")}` : ""}
                       </option>
                     );
@@ -2068,6 +2069,11 @@ function EditBookingSheet({
   const initialSeverity = r.allergy_severity || "";
   const [allergyNote, setAllergyNote] = useState(initialAllergy);
   const [severity, setSeverity] = useState(initialSeverity);
+  // A shop or a workshop: the server stores no allergy, so an older note can
+  // only go — and then all of it (note and severity) goes. Typing in the old
+  // field silently erased the note and left a bare "Alvorlig" (Push 8 review).
+  const oldAllergyOnly = noAllergy && !!(initialAllergy || initialSeverity);
+  const [oldAllergyRemoved, setOldAllergyRemoved] = useState(false);
   const severities = [
     { v: "", label: t("rsvpSevNone", "Ingen") },
     { v: "preference", label: t("rsvpSevPreference", "Præference") },
@@ -2091,8 +2097,15 @@ function EditBookingSheet({
     // unchanged would mark a pending AI allergy suggestion "confirmed"
     // as a side effect of editing a phone number — deciding something
     // the host never looked at.
-    if (allergyNote.trim() !== initialAllergy) body.allergy_note = allergyNote.trim();
-    if (severity !== initialSeverity) body.allergy_severity = severity;
+    if (oldAllergyOnly) {
+      if (oldAllergyRemoved) {
+        body.allergy_note = "";
+        body.allergy_severity = "";
+      }
+    } else {
+      if (allergyNote.trim() !== initialAllergy) body.allergy_note = allergyNote.trim();
+      if (severity !== initialSeverity) body.allergy_severity = severity;
+    }
     if (note.trim() !== initialNote) body.guest_notes = note.trim();
     if (allowOverflow) body.allow_overflow = true;
     onSubmit(body, { time });
@@ -2196,7 +2209,39 @@ function EditBookingSheet({
               : t("rsvpNewNotePh", "Birthday, high chair, window table…")}
             className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent" />
         </div>
-        {(!noAllergy || initialAllergy || initialSeverity) && (
+        {oldAllergyOnly && (
+        <div data-old-allergy="">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            {t("rsvpEditOldAllergyAppt", "Allergy from an older booking")}
+          </p>
+          {oldAllergyRemoved ? (
+            <div className="mt-1.5 flex items-center justify-between gap-3 min-h-[44px]">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                {t("rsvpEditOldAllergyRemovedAppt", "Removed when you save.")}
+              </p>
+              <Button variant="ghost" size="md" onClick={() => setOldAllergyRemoved(false)}>
+                {t("rsvpEditOldAllergyUndoAppt", "Undo")}
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-1.5 flex items-center justify-between gap-3 min-h-[44px]">
+              <p className="min-w-0 text-sm text-gray-900 dark:text-gray-100 break-words">
+                {[
+                  initialAllergy,
+                  severities.find((sv) => sv.v && sv.v === initialSeverity)?.label,
+                ].filter(Boolean).join(" · ")}
+              </p>
+              <Button variant="secondary" size="md" onClick={() => setOldAllergyRemoved(true)}>
+                {t("rsvpEditOldAllergyRemoveAppt", "Remove")}
+              </Button>
+            </div>
+          )}
+          <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
+            {t("rsvpEditOldAllergyHintAppt", "We no longer ask about allergies here. You can remove it.")}
+          </p>
+        </div>
+        )}
+        {!noAllergy && (
         <div>
           <label htmlFor="eb-allergy" className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             {t("rsvpNewAllergy", "Allergy (optional)")}
@@ -6621,9 +6666,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                           ? t("rsvpStandGuestsOne", "{n} guest", { n: c.guests })
                           : t("rsvpStandGuests", "{n} guests", { n: c.guests })}
                     </span>
-                    {/* The parties ride along from md up; a phone cell has room
-                        for the guests alone. */}
-                    <span className="hidden md:inline text-gray-500 dark:text-gray-400">
+                    {/* The parties ride along from lg up; a phone cell has room
+                        for the guests alone, and so has an iPad in portrait
+                        (768–1023): there the cell truncates, and it cut the
+                        parties to "13 gæster · 3 …" (Push 8 review). */}
+                    <span data-covers-parties="" className="hidden lg:inline text-gray-500 dark:text-gray-400">
                       {" · "}
                       {apptWords
                         ? c.parties === 1
@@ -8401,12 +8448,12 @@ function FloorSection({ t, businessType }) {
                   inputMode="numeric"
                   value={row.seats}
                   onChange={(e) => setBulkRow(i, { seats: e.target.value.replace(/[^\d]/g, "").slice(0, 3) })}
-                  placeholder={t("rsvpBulkSeatsPh", "Seats")}
+                  placeholder={placeWords ? t("rsvpTableSeatsPhAppt", "People") : t("rsvpBulkSeatsPh", "Seats")}
                   aria-label={placeWords ? t("rsvpBulkSeatsAriaAppt", "People per space") : t("rsvpBulkSeatsAria", "Seats per table")}
                   className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
                 />
                 <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">
-                  {t("rsvpSeatsShort", "pax")}
+                  {placeWords ? t("rsvpPeopleUnitAppt", "people") : t("rsvpSeatsShort", "pax")}
                 </span>
               </div>
               <span className="text-gray-400 text-sm shrink-0">×</span>
@@ -8545,11 +8592,13 @@ function FloorSection({ t, businessType }) {
               inputMode="numeric"
               value={seats}
               onChange={(e) => setSeats(e.target.value.replace(/[^\d]/g, "").slice(0, 3))}
-              placeholder={t("rsvpTableSeatsPh", "Seats")}
+              placeholder={placeWords ? t("rsvpTableSeatsPhAppt", "People") : t("rsvpTableSeatsPh", "Seats")}
               className="w-full h-11 pl-3 pr-12 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
-              {t("rsvpSeats", "seats")}
+              {/* A shop's place holds people, not seats (en: "seats" was
+                  QA's last English restaurant word on its Spaces tab). */}
+              {placeWords ? t("rsvpPeopleUnitAppt", "people") : t("rsvpSeats", "seats")}
             </span>
           </div>
           <input
@@ -8771,11 +8820,13 @@ function FloorSection({ t, businessType }) {
                       const v = e.target.value.replace(/[^\d]/g, "");
                       if (v && parseInt(v, 10) !== r.capacity_seats) saveSeats(r, v);
                     }}
-                    aria-label={t("rsvpTableSeatsAria", "Seats at {label}", { label: r.label })}
+                    aria-label={placeWords
+                      ? t("rsvpTableSeatsAriaAppt", "People at {label}", { label: r.label })
+                      : t("rsvpTableSeatsAria", "Seats at {label}", { label: r.label })}
                     className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
                   />
                   <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">
-                    {t("rsvpSeatsShort", "pax")}
+                    {placeWords ? t("rsvpPeopleUnitAppt", "people") : t("rsvpSeatsShort", "pax")}
                   </span>
                 </div>
                 <button
@@ -9091,6 +9142,15 @@ function BehandlingerSection({ t }) {
 // onlineNotReady (Push 7): the venue has nothing the availability engine can
 // book — a shop or a workshop with no table and no behandler (see the parent).
 // Online booking is then not offered as working, and nothing says "live".
+
+// The public page books one person on a shop or a workshop, so its request
+// rule is on or off: on when the stored threshold is set and at most 1 —
+// the server's is_group_request(settings, 1).
+function requestsEveryOnline(v) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n !== 0 && n <= 1;
+}
+
 function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = false }) {
   // SettingsSection only mounts after the parent's `if (!isReady) return null`
   // gate, so entitlements are already settled here — reading hasFeature is
@@ -9114,6 +9174,16 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   // A shop or a workshop: its public page books one person, always
   // (ReservationPublicPage: speaksAppointments → party 1, no picker).
   const onlineBooksOne = apptWords && !isProvider;
+  // The request rule as loaded. On a one-person page the number can only do
+  // one thing: at 1, EVERY online booking is a request the owner approves
+  // (reservation_service.is_group_request: threshold and 1 >= threshold).
+  // Base offered that number to a shop with tables, and a stored 1 still
+  // applies — so the shop keeps a switch for it (Push 8 review, round 5).
+  const [loadedRequestFrom, setLoadedRequestFrom] = useState("");
+  // A shop without tables never had the number; it gets the switch only to
+  // see and undo a stored 1 — and keeps it for the visit once shown, so it
+  // does not vanish the moment the owner saves it off.
+  const [requestSwitchSeen, setRequestSwitchSeen] = useState(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -9173,6 +9243,8 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
         ? Math.max(Number(s.default_duration_min) || 0, lastTier)
         : s.default_duration_min;
     loadedDurationRef.current = effDefault ?? "";
+    setLoadedRequestFrom(s.group_request_threshold ?? "");
+    if (requestsEveryOnline(s.group_request_threshold)) setRequestSwitchSeen(true);
     setForm({
       max_party_size: s.max_party_size ?? "",
       group_request_threshold: s.group_request_threshold ?? "",
@@ -9787,6 +9859,35 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
             value={form.group_request_threshold}
             onChange={(v) => setForm((f) => ({ ...f, group_request_threshold: v }))}
           />
+          )}
+          {onlineBooksOne && (tableRules || requestSwitchSeen) && (
+          <label data-approve-online="" className="sm:col-span-2 flex items-start gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={requestsEveryOnline(form.group_request_threshold)}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setForm((f) => ({
+                  ...f,
+                  // Off: back to the number it had, or the server's default
+                  // (8, reservation_service.DEFAULT_SETTINGS) — either way a
+                  // one-person booking is confirmed straight away.
+                  group_request_threshold: on
+                    ? "1"
+                    : requestsEveryOnline(loadedRequestFrom) || loadedRequestFrom === ""
+                      ? "8"
+                      : String(loadedRequestFrom),
+                }));
+              }}
+              className="mt-0.5 w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 accent-gray-900 dark:accent-gray-100 focus:ring-gray-400"
+            />
+            <span className="text-sm text-gray-700 dark:text-gray-300 leading-snug">
+              {t("rsvpApproveOnlineAppt", "Approve online appointments yourself")}
+              <span className="block text-xs text-gray-400 dark:text-gray-500">
+                {t("rsvpApproveOnlineHintAppt", "On: every time booked online arrives as a request, and the time is held only when you confirm it. Off: it is confirmed straight away.")}
+              </span>
+            </span>
+          </label>
           )}
           <NumberField
             label={apptWords

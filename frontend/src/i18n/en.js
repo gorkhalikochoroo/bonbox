@@ -10539,4 +10539,20 @@ export const en = {
     rsvpCancelledByVenueBodyAppt: "Sorry — we've had to cancel your appointment. Call us, or book another day.",
     rsvpDoneBodyAppt: "This appointment is closed.",
     rsvpCancelOrChangeAppt: "Cancel this appointment",
+    // Push 8 review, round 5 — a shop's or a workshop's request switch, its
+    // request hint on the public page, its Spaces and Insights words, and an
+    // older allergy note that can only be removed.
+    rsvpApproveOnlineAppt: "Approve online appointments yourself",
+    rsvpApproveOnlineHintAppt: "On: every time booked online arrives as a request, and the time is held only when you confirm it. Off: it is confirmed straight away.",
+    rsvpGroupWishedTimeHintAppt: "Every appointment is sent as a request — pick the time you'd like and we'll confirm it.",
+    rsvpInsKpiUtilAppt: "Space utilization",
+    rsvpInsKpiUtilHelpAppt: "of space-hours",
+    rsvpTableSeatsPhAppt: "People",
+    rsvpPeopleUnitAppt: "people",
+    rsvpTableSeatsAriaAppt: "People at {label}",
+    rsvpEditOldAllergyAppt: "Allergy from an older booking",
+    rsvpEditOldAllergyHintAppt: "We no longer ask about allergies here. You can remove it.",
+    rsvpEditOldAllergyRemoveAppt: "Remove",
+    rsvpEditOldAllergyRemovedAppt: "Removed when you save.",
+    rsvpEditOldAllergyUndoAppt: "Undo",
 };

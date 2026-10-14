@@ -323,7 +323,7 @@ describe("5 · a full room and the header sheet", () => {
 });
 
 describe("6 · the header covers on a phone", () => {
-  it("are a compact row of three below md, not hidden; the parties ride along from md up", async () => {
+  it("are a compact row of three below md, not hidden; the parties ride along from lg up", async () => {
     renderStand();
     await waitFor(() => expect(document.querySelector('[data-covers="seated"]')).not.toBeNull());
     const group = document.querySelector('[data-covers="seated"]').parentElement;
@@ -336,7 +336,10 @@ describe("6 · the header covers on a phone", () => {
     expect(btn.textContent).toContain("4 guests");
     // The innermost span carrying " · 1 party" (document order: outer first).
     const parties = [...btn.querySelectorAll("span")].filter((s) => s.textContent.includes("1 party")).pop();
-    expect(parties.className).toMatch(/(^|\s)hidden md:inline(\s|$)/);
+    // From lg, not md (round 5): an iPad in portrait (768–1023) truncated the
+    // cell to "13 gæster · 3 …"; the guests alone fit there.
+    expect(parties.className).toMatch(/(^|\s)hidden lg:inline(\s|$)/);
+    expect(parties.className).not.toMatch(/(^|\s)md:inline(\s|$)/);
   });
 });
 

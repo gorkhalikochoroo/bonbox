@@ -988,12 +988,18 @@ export default function InsightsSection({ t, zones = [] }) {
               implies a fabricated number. Provisional values are muted. */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard
-              label={isSalon ? t("rsvpInsChairUtil", "Chair use") : t("rsvpInsKpiUtil", "Seat utilization")}
+              label={isSalon
+                ? t("rsvpInsChairUtil", "Chair use")
+                : appt
+                  ? t("rsvpInsKpiUtilAppt", "Space utilization")
+                  : t("rsvpInsKpiUtil", "Seat utilization")}
               value={kpiValue(isShown(util.confidence) ? fmtPct(util.seat_hour_pct) : "—", util.confidence)}
               helper={
                 isSalon
                   ? t("rsvpInsKpiUtilHelpSalon", "of chair-hours")
-                  : t("rsvpInsKpiUtilHelp", "of seat-hours")
+                  : appt
+                    ? t("rsvpInsKpiUtilHelpAppt", "of space-hours")
+                    : t("rsvpInsKpiUtilHelp", "of seat-hours")
               }
             />
             <StatCard

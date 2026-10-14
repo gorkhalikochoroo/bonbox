@@ -276,6 +276,17 @@ describe("8 · the counter screen's ⋯ menu", () => {
 });
 
 describe("8 · 'Book en tid' on a workshop: a place, and no allergy", () => {
+  // Midday, pinned (round 5): between 00:00 and 06:00 the form's default day
+  // is the 06:00 business day (yesterday), the sheet asked "Det tidspunkt er
+  // allerede gået. Book alligevel?" and posted nothing — a release gate run
+  // at night went red. Only Date is faked; the timers stay real.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 14, 12, 0, 0));
+    rows = bookRows();
+  });
+  afterEach(() => vi.useRealTimers());
+
   const openForm = async (type) => {
     renderOwner("/reservations", type);
     await settle(16);
@@ -468,7 +479,9 @@ describe("the round-4 words have real Danish and English, with no restaurant wor
     ].includes(k)));
 
   it("every one of them", () => {
-    expect(KEYS.length).toBe(44);
+    // 46 since round 5: rsvpInsKpiUtilAppt / rsvpInsKpiUtilHelpAppt ("Space
+    // utilization · of space-hours" — the English Indsigt said "seat").
+    expect(KEYS.length).toBe(46);
     for (const k of KEYS) {
       expect(en[k], k).toBeTruthy();
       // The words, not the placeholders' names ("{tables}").

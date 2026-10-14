@@ -2502,6 +2502,13 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
         # which doubles as the "clear it" path when the host empties the field.
         r.allergy_severity = sanitize_severity(payload.allergy_severity) if asks_allergies else None
         allergy_touched = True
+    if payload.allergy_note is not None and not asks_allergies:
+        # Touching an older note there can only clear it — and then the whole
+        # allergy goes with it: the note went, but its "Alvorlig" and its
+        # tags stayed, and the drawer showed a bare "Alvorlig" with no
+        # allergen (Push 8 review).
+        r.allergy_severity = None
+        r.allergen_tags = []
 
     # A human entry IS the confirmed record. Without this the host types the
     # allergy the guest just phoned in and the row keeps nagging "muligt: X —
