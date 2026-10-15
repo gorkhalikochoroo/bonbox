@@ -19,8 +19,8 @@ import DemoTag from "./DemoTag";
  * cards. No CVR is printed on the demo: an invented number could be someone
  * else's company. The MOMS row ("MPV") is unchanged — it is with the owner's
  * revisor (push 9 packet).
- * Below 768px the two card drawings are hidden; the copy and the four facts
- * stay. They render unchanged from 768px.
+ * Below 640px (sm) the two card drawings and the four-fact table are hidden;
+ * the copy stays. They render unchanged from 640px.
  *
  * Palette note: the charcoal/cream landing colours that have no token
  * (#A8A196, #2A2620, #7C766B, #5F5A52, #F5F1E8 as a *text* colour) are
@@ -84,14 +84,14 @@ export default function GavekortV2() {
             >
               {t("landingV2.gavekort.title", "Print it, or just send the code.")}
             </h2>
-            <p className="max-w-[42ch] text-[17px] leading-[1.55] text-[#A8A196] md:mb-7">
+            <p className="max-w-[42ch] text-[17px] leading-[1.55] text-[#A8A196] sm:mb-7">
               {t(
                 "landingV2.gavekort.body",
                 "Sell a gavekort in three taps — 100 to 1.000 kr., paid by card, MobilePay or cash. The guest gets a QR on their phone; you can print the physical card across the counter. Same balance behind both."
               )}
             </p>
 
-            <dl className="grid gap-0 border-t border-[#2A2620] max-md:hidden">
+            <dl className="grid gap-0 border-t border-[#2A2620] max-sm:hidden">
               {specs.map((spec, i) => (
                 <div
                   key={spec.key}
@@ -114,7 +114,7 @@ export default function GavekortV2() {
               1440px. Above that the cards grow slower than the column, so
               the copy takes more of the row (1.5fr / 1fr) and the cards
               still fill theirs. */}
-          <div className={`flex flex-col items-center justify-center gap-4 py-4 max-md:hidden ${CELL}`}>
+          <div className={`flex flex-col items-center justify-center gap-4 py-4 max-sm:hidden ${CELL}`}>
             <DemoTag tone="dark" />
             <div className={`relative h-[300px] w-[430px] origin-center [perspective:1600px] max-[620px]:origin-top max-[620px]:scale-[0.72] max-[620px]:-mb-[84px] ${ART_GAVEKORT}`}>
               {/* Behind: the sale that produced the gavekort */}

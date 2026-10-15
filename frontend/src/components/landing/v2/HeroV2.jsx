@@ -17,12 +17,13 @@ import {
   DEMO_WEEK,
   DEMO_WEEK_DELTA_PCT,
   DEMO_YESTERDAY,
+  demoMomsWeekly,
   demoMonthSlices,
   formatKr,
   onShiftToday,
   yesterday,
 } from "./demoData";
-import { FOUNDING_LIMIT, FROM_PRICE, momsNoteKey } from "./pricing";
+import { FROM_PRICE, momsNoteKey } from "./pricing";
 
 /**
  * Landing v2 — hero section (#top).
@@ -54,8 +55,13 @@ export default function HeroV2() {
   const { t, lang } = useLanguage();
 
   // The countdown is computed (see utils/nextMomsDeadline: a typed-in
-  // countdown ages into a lie). The amount is the demo bistro's half-year.
+  // countdown ages into a lie). The amount is the demo bistro's half-year,
+  // and the weekly set-aside is worked out from the days left exactly the
+  // way the product's own card does it (demoMomsWeekly) — a fixed weekly
+  // figure stopped adding up as the date moved. Inside the last week the
+  // product says the amount is due instead of a weekly rate; so does this.
   const moms = nextMomsDeadline();
+  const momsWeekly = demoMomsWeekly(moms.daysUntil);
   const now = new Date();
 
   // Today's date frames the demo (it used to be a frozen "Monday, 27 July").
@@ -97,12 +103,16 @@ export default function HeroV2() {
       <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] pt-[clamp(20px,3vw,52px)] pb-[clamp(32px,5vw,64px)] ${WIDE} min-[1441px]:pt-[calc(43.2px*var(--lx))] min-[1441px]:pb-[calc(64px*var(--lx))]`}>
       <div className="grid grid-cols-1 items-center gap-10 min-[1041px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] min-[1041px]:gap-[clamp(40px,5vw,68px)] min-[1441px]:gap-[calc(68px*var(--lx))]">
         {/* ── Left column ───────────────────────────────────────────── */}
-        <div className={TEXT}>
+        <div className={`max-sm:flex max-sm:flex-col ${TEXT}`}>
           {/* Badge + the owner app, as peers. The badge is hidden on a phone
               (the footer carries "Lavet i København" too); the app link is
               the App Store on iPhone and desktop and the web app on Android,
-              where there is no BonBox app. */}
-          <div className="mb-5 flex flex-wrap items-center gap-2.5 sm:mb-6">
+              where there is no BonBox app. On a phone the row moves under
+              the trust line (order-last): the headline, the button and the
+              price come first, and on a 360 px Android phone with Chrome's
+              bars the price line clears the cookie banner (push 9 review —
+              it sat under the banner's top edge at 360 x 668). */}
+          <div className="mb-5 flex flex-wrap items-center gap-2.5 max-sm:order-last max-sm:mb-0 max-sm:mt-5 sm:mb-6">
             <span className="hidden items-center gap-2 rounded-full bg-bb-green-tint py-[6px] pl-[10px] pr-[13px] text-[12.5px] font-semibold text-bb-green-dark sm:inline-flex">
               <span
                 aria-hidden="true"
@@ -159,20 +169,20 @@ export default function HeroV2() {
           <p data-testid="hero-price-line" className="m-0 mb-[22px] text-[13.5px] leading-[1.45] text-slate-600">
             {t(
               "landingV2HeroPriceLine",
-              "14 days free · no card · then the free plan, or from {price} kr./mo (first {n} businesses)",
-              { price: FROM_PRICE, n: FOUNDING_LIMIT },
+              "14 days free · no card · then the free plan, or from {price} kr./mo",
+              { price: FROM_PRICE },
             )}
             {momsNote ? ` ${t(momsNote)}` : ""}
           </p>
 
           <div className="flex flex-wrap gap-x-[22px] gap-y-1 text-[13px] leading-[1.45] text-slate-500 sm:gap-y-1.5 sm:text-[13.5px]">
             <span>
-              {t("landingV2HeroTrustArchive", "Each kasserapport as a PDF, for you to keep for 5 years")}
+              {t("landingV2HeroTrustArchive", "Each kasserapport as a PDF – you keep them for 5 years")}
             </span>
             <span>
               {t(
                 "landingV2HeroTrustHosting",
-                "Database in Ireland · every provider named in the privacy policy",
+                "Database in Ireland · providers listed in the privacy policy",
               )}
             </span>
             <span>{t("landingV2HeroTrustNoCut", "No cut of your revenue")}</span>
@@ -245,7 +255,9 @@ export default function HeroV2() {
                   },
                 )}
               </span>
-              <span className="flex flex-none items-center whitespace-nowrap text-[13px] font-semibold text-slate-900 max-sm:basis-full max-sm:pl-[19px]">
+              {/* Part of the picture, not a link (there is nothing to open on
+                  a demo): quiet text, so it does not read as a control. */}
+              <span className="flex flex-none items-center whitespace-nowrap text-[13px] font-medium text-slate-500 max-sm:basis-full max-sm:pl-[19px]">
                 {t("landingV2HeroCardAlertAction", "Review")}
                 <ChevronRight
                   aria-hidden="true"
@@ -307,17 +319,28 @@ export default function HeroV2() {
                   days: moms.daysUntil,
                 })}
               </div>
-              <div className="text-[15px] font-semibold text-slate-900">
-                {t("landingV2HeroCardMomsSetAside", "Set aside ~{weekly} kr./week to cover MOMS", {
-                  weekly: formatKr(DEMO_MOMS.weekly),
-                })}
-              </div>
-              <div className="mt-[3px] text-[12.5px] text-slate-500">
-                {t("landingV2HeroCardMomsDue", "~{amount} kr. due {frist}", {
-                  amount: formatKr(DEMO_MOMS.halfYear),
-                  frist: formatFrist(moms.date, lang),
-                })}
-              </div>
+              {momsWeekly ? (
+                <>
+                  <div data-testid="hero-moms-weekly" className="text-[15px] font-semibold text-slate-900">
+                    {t("landingV2HeroCardMomsSetAside", "Set aside ~{weekly} kr./week to cover MOMS", {
+                      weekly: formatKr(momsWeekly),
+                    })}
+                  </div>
+                  <div className="mt-[3px] text-[12.5px] text-slate-500">
+                    {t("landingV2HeroCardMomsDue", "~{amount} kr. due {frist}", {
+                      amount: formatKr(DEMO_MOMS.halfYear),
+                      frist: formatFrist(moms.date, lang),
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div data-testid="hero-moms-due" className="text-[15px] font-semibold text-slate-900">
+                  {t("landingV2HeroCardMomsDue", "~{amount} kr. due {frist}", {
+                    amount: formatKr(DEMO_MOMS.halfYear),
+                    frist: formatFrist(moms.date, lang),
+                  })}
+                </div>
+              )}
             </div>
             <ChevronRight
               aria-hidden="true"
@@ -349,7 +372,7 @@ export default function HeroV2() {
                 })}
               </span>
             </span>
-            <span className="ml-auto flex items-center whitespace-nowrap text-[13px] font-semibold text-slate-900">
+            <span className="ml-auto flex items-center whitespace-nowrap text-[13px] font-medium text-slate-500">
               {t("landingV2HeroCardScheduleAction", "Vagtplan")}
               <ChevronRight
                 aria-hidden="true"

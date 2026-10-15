@@ -54,6 +54,7 @@ const DANISH_GRAMMAR =
 const DELIBERATE = new Map([
   ["landingV2BookingCtaDa", "the key name says Da — it is the Danish CTA by design"],
   ["landingV2BookingTimeLabelDa", "same — the key name says Da"],
+  ["landingV2BookingDemoDoneDa", "same — the Danish booking card's answer to its demo Book button (push 9 review)"],
 ]);
 
 describe("no Danish sentence sits in the English slot", () => {

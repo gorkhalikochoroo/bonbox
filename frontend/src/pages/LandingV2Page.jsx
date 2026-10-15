@@ -94,7 +94,7 @@ export default function LandingV2Page() {
           it is drawn in percentages). See components/landing/v2/fluid.js. */}
       {/* Push 9: the band now says what it is (ReservationsIntroV2) — the
           hero's second button used to land here on an unlabelled widget.
-          Below 768px the floor plan is hidden (it is a 600px drawing; on a
+          Below 640px (sm) the floor plan is hidden (it is a 600px drawing; on a
           phone it overlapped its own booking bubble and added a screen); the
           booking card, which a guest actually uses on a phone, stays. */}
       <Band id="reservations" tone="slate">
@@ -103,7 +103,7 @@ export default function LandingV2Page() {
           <div className={`${CELL} ${ART_BOOKING}`}>
             <BookingCardV2 />
           </div>
-          <div className={`flex justify-center max-md:hidden ${CELL} ${ART_FLOOR} min-[1041px]:[&>*]:max-w-none`}>
+          <div className={`flex justify-center max-sm:hidden ${CELL} ${ART_FLOOR} min-[1041px]:[&>*]:max-w-none`}>
             <FloorPlan />
           </div>
         </div>
@@ -127,15 +127,16 @@ export default function LandingV2Page() {
               wide in a column that kept growing. Now it is zoomed to its
               column: ~0.6 at 1041px, ~0.9 at 1440px, ~1.5 at 2560 (fluid.js).
               Zoom rather than scale so the band's height follows the fan. */}
-          {/* Push 9 (D): below 768px the phone mock-up and the week builder
+          {/* Push 9 (D): below 640px (sm) the phone mock-up and the week builder
               are hidden — the copy beside them says what the app does, and
               the builder is a 820px-wide grid a phone could only scroll
-              sideways. Both render unchanged from 768px. */}
-          <div className={`flex justify-center max-md:hidden ${CELL} ${ART_FAN}`}>
+              sideways. Both render unchanged from 640px, so an iPad mini in
+              portrait (744) or a phone on its side keeps them. */}
+          <div className={`flex justify-center max-sm:hidden ${CELL} ${ART_FAN}`}>
             <PhoneFanV2 />
           </div>
         </div>
-        <div className={`mt-14 max-md:hidden ${TEXT}`}><ScheduleGridV2 /></div>
+        <div className={`mt-14 max-sm:hidden ${TEXT}`}><ScheduleGridV2 /></div>
       </Band>
 
       {/* Self-contained: #access */}

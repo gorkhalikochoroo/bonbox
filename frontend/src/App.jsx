@@ -100,7 +100,7 @@ function GuestPage({ children }) {
 // first paint and the page (it was slate-50 on both). Dark unchanged.
 function PageLoader() {
   return (
-    <div className="min-h-screen flex items-center justify-center dark:bg-gray-900">
+    <div data-testid="page-loader" className="min-h-screen flex items-center justify-center dark:bg-gray-900">
       <div className="text-center">
         <svg className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-3" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
@@ -694,13 +694,16 @@ export function PublicOrDashboard() {
  * Push 9 (E): hooks/useLanguage may render on the small BOOT dictionary (the
  * landing's and the cookie banner's keys) before the full one has arrived.
  * Only the landing is allowed to paint on it; every other route waits for
- * the full dictionary here — renders nothing, exactly as the provider did
- * before — so no app page can show a missing key or an English fallback.
+ * the full dictionary here, so no app page can show a missing key or an
+ * English fallback. It waits behind the same spinner a lazy page shows, not
+ * a blank screen: a visitor who taps "Prøv gratis" the moment the landing
+ * paints on a slow phone used to stare at an empty white page for up to
+ * ~2 s while the dictionary finished (push 9 review, Fast 3G + 4x CPU).
  */
 export function FullDictionaryGate({ children }) {
   const { fullReady } = useLanguage();
   const { pathname } = useLocation();
-  if (fullReady === false && !isLandingPath(pathname)) return null;
+  if (fullReady === false && !isLandingPath(pathname)) return <PageLoader />;
   return children;
 }
 

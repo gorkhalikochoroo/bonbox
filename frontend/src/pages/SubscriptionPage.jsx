@@ -15,6 +15,7 @@ import { errText } from "../utils/errText";
 import { Button, Card } from "../components/ui";
 import { CalendarClock } from "lucide-react";
 import { cancelDateLabel } from "../utils/subscriptionCancel";
+import { FOUNDING_LIMIT, PLAN_PRICES } from "../lib/planPrices";
 
 /**
  * isNative — running inside Capacitor (iOS or Android).
@@ -50,9 +51,9 @@ const isNative =
 // /api/public/founder-rate-status endpoint (Task #89 P2-2) — same
 // source the landing-page FounderRatePill uses, so the count on the
 // pricing page and the count on the marketing site can never drift.
-// FOUNDING_LIMIT is the visual fallback when the endpoint hasn't
-// loaded yet; the real `max_slots` arrives from the backend.
-const FOUNDING_LIMIT = 100;
+// FOUNDING_LIMIT (lib/planPrices, shared with the landing and UpgradeNudge)
+// is the visual fallback when the endpoint hasn't loaded yet; the real
+// `max_slots` arrives from the backend.
 
 /**
  * Build the pricing tiers from the i18n dictionary so every visible string
@@ -99,6 +100,10 @@ const buildTiers = (t) => [
       { text: t("featFreeMomsCountdown", "MOMS countdown — see when SKAT is due + estimated amount") || "MOMS countdown — see when SKAT is due + estimated amount" },
       { text: t("featFreeReceiptOCR10", "Receipt OCR — snap a photo, we fill the expense (10 / month)") || "Receipt OCR — snap a photo, we fill the expense (10 / month)" },
       { text: t("featFreeClose", "Daily close") || "Daily close" },
+      // Two tills summed in the daily close — every plan (owner decision,
+      // 18 Sep 2026: closing correctly is not a Pro feature). Pro's
+      // featProMultiTerm below is the per-terminal report, not the sum.
+      { text: t("featFreeTillsSummed", "Two tills? Their Z-reports are added together into the day's kasserapport") },
       { text: t("featFreeSalesExp", "Sales & expenses logging") || "Sales & expenses logging" },
       { text: t("featFreeHistory7", "7 days of export history") || "7 days of export history" },
       { text: t("featFreeExportManual", "Download Excel / PDF / CSV manually") || "Download Excel / PDF / CSV manually" },
@@ -116,8 +121,8 @@ const buildTiers = (t) => [
     tagline:
       t("pricingTaglineStarter") ||
       "For the café or shop that closes every night.",
-    price_monthly: 199,
-    founding_price: 129,
+    price_monthly: PLAN_PRICES.starter.regular,
+    founding_price: PLAN_PRICES.starter.founding,
     founding_limit: FOUNDING_LIMIT,
     cta: t("pricingUpgradeStarter") || "Upgrade to Starter",
     // Anonymous CTA: just "Sign up free". The 14-day trial we offer is
@@ -190,8 +195,8 @@ const buildTiers = (t) => [
     tagline:
       t("pricingTaglinePro") ||
       "For 2-3 locations — more branches, more seats, higher limits, white-label, priority support.",
-    price_monthly: 349,
-    founding_price: 249,
+    price_monthly: PLAN_PRICES.pro.regular,
+    founding_price: PLAN_PRICES.pro.founding,
     founding_limit: FOUNDING_LIMIT,
     cta: t("pricingUpgradePro") || "Upgrade to Pro",
     cta_unauth: t("pricingStartTrial") || "Start 14-day free trial",
@@ -1035,7 +1040,11 @@ export default function SubscriptionPage() {
                   and the landing page already dropped the same claims for that
                   reason (markedsføringsloven: a claim must be documentable). */}
 
-              {/* Price block — founding rate big + bold, regular strikethrough */}
+              {/* Price block — founding rate big + bold, then the regular
+                  price said as what comes AFTER the first 100. Never struck
+                  through: nobody has ever paid 199 / 349, so a crossed-out
+                  "before" price would claim a reduction that never happened
+                  (push 9, A2 — the landing says it the same way). */}
               <div className="mt-5">
                 {isFounding ? (
                   <>
@@ -1048,8 +1057,11 @@ export default function SubscriptionPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-gray-400 dark:text-gray-500 line-through">
-                        {price} {t("pricingDkkPerMonth", "DKK / mo") || "DKK / mo"}
+                      <span data-testid={`plan-then-${tier.id}`} className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+                        {t("pricingAfterFounding", "After the first {n}: {price} kr./mo", {
+                          n: tier.founding_limit || FOUNDING_LIMIT,
+                          price,
+                        })}
                       </span>
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
                         {t("pricingFirst100Chip", "First 100") || "First 100"}

@@ -90,8 +90,8 @@ afterEach(() => {
 
 describe("A1 — BonBox is not the archive", () => {
   it("the hero says the owner keeps the PDFs (da, en, tr)", () => {
-    expect(da.landingV2HeroTrustArchive).toBe("Kasserapporter som PDF, som du selv gemmer i 5 år");
-    expect(en.landingV2HeroTrustArchive).toBe("Each kasserapport as a PDF, for you to keep for 5 years");
+    expect(da.landingV2HeroTrustArchive).toBe("Kasserapporter som PDF – du gemmer dem selv i 5 år");
+    expect(en.landingV2HeroTrustArchive).toBe("Each kasserapport as a PDF – you keep them for 5 years");
     expect(tr.landingV2HeroTrustArchive).toContain("kendin saklarsın");
   });
 
@@ -126,7 +126,7 @@ describe("A2 — no struck-through prices; the founding offer said as it is", ()
     const { container } = renderIn("da", <PricingV2 />);
     expect(container.querySelector(".line-through")).toBeNull();
     expect(container.querySelector("s, del, strike")).toBeNull();
-    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("129 kr./md., låst for de første 100 virksomheder — derefter 199 kr./md.");
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("129 kr./md. for de første 100 virksomheder — derefter 199 kr./md.");
     expect(screen.getByTestId("price-then-starter").textContent).toBe("Efter de første 100: 199 kr./md.");
     expect(screen.getByTestId("price-then-pro").textContent).toBe("Efter de første 100: 349 kr./md.");
   });
@@ -191,12 +191,38 @@ describe("A5 — only what the product does", () => {
     expect(en["landingV2.modules.hours.title"]).toBe("Hours");
   });
 
-  it("summing two tills is on the Free card; Pro is the multi-location report", () => {
+  it("summing two tills is on the Free card; Pro names its two real features", () => {
     expect(da["landingV2.pricing.free.f8"]).toMatch(/Z-bonerne lægges sammen/);
-    expect(en["landingV2.pricing.pro.f2"]).not.toMatch(/terminal/i);
-    expect(da["landingV2.pricing.pro.f2"]).not.toMatch(/terminal/i);
+    // Pro (review, 15 Oct): the PDF + Excel close is the MULTI-TERMINAL one
+    // (one kasserapport listing each POS terminal); the view across
+    // locations is on screen only. Never "one kasserapport across your
+    // locations — PDF and Excel", which no feature does.
+    expect(da["landingV2.pricing.pro.f2"]).toMatch(/POS-terminaler.*PDF og Excel/);
+    expect(en["landingV2.pricing.pro.f2"]).toMatch(/POS terminals.*PDF and Excel/);
+    expect(da["landingV2.pricing.pro.f9"]).toMatch(/afdelinger.*skærm/);
+    expect(en["landingV2.pricing.pro.f9"]).toMatch(/location.*screen/);
+    for (const d of [da, en, tr]) {
+      for (const k of ["landingV2.pricing.pro.f2", "landingV2.pricing.pro.f9"]) {
+        expect(d[k], k).not.toMatch(/afdelinger.*(PDF|Excel)|locations.*(PDF|Excel)|şubeler.*(PDF|Excel)/i);
+      }
+    }
     renderIn("da", <PricingV2 />);
     expect(screen.getByText(da["landingV2.pricing.free.f8"]).closest("#plan-free-features")).not.toBeNull();
+    expect(screen.getByText(da["landingV2.pricing.pro.f2"]).closest("#plan-pro-features")).not.toBeNull();
+    expect(screen.getByText(da["landingV2.pricing.pro.f9"]).closest("#plan-pro-features")).not.toBeNull();
+  });
+
+  it("the code backs the Pro wording: multi-terminal close renders PDF + Excel; the cross-location roll-up renders neither", () => {
+    const kr = fs.readFileSync(path.join(SRC, "../../backend/app/routers/kasserapport.py"), "utf8");
+    for (const route of ["/close-pdf", "/close-excel"]) {
+      const at = kr.indexOf(`"${route}"`);
+      expect(at, route).toBeGreaterThan(-1);
+      expect(kr.slice(at, at + 4000), route).toMatch(/enforce_feature\(user, "multi_terminal_close"\)/);
+    }
+    const branch = fs.readFileSync(path.join(SRC, "../../backend/app/routers/branch.py"), "utf8");
+    expect(branch).toMatch(/enforce_feature\(current_user, "multi_branch_dashboard"\)/);
+    expect(branch).not.toMatch(/pdf|excel|xlsx/i);
+    expect(read("pages/ConsolidatedClosePage.jsx")).not.toMatch(/\.pdf|xlsx|excel|saveFile/i);
   });
 
   it("Android: no App Store button — the web app instead (owner and staff)", () => {
@@ -251,8 +277,11 @@ describe("B2/B3 — the price under the button; the second button goes to pricin
   it("one plain price line under the CTAs, from pricing.js", () => {
     renderIn("da", <HeroV2 />);
     expect(screen.getByTestId("hero-price-line").textContent).toBe(
-      `14 dage gratis · intet kort · derefter gratis-planen eller fra ${FROM_PRICE} kr./md. (de første ${FOUNDING_LIMIT} virksomheder)`,
+      `14 dage gratis · intet kort · derefter gratisplanen eller fra ${FROM_PRICE} kr./md.`,
     );
+    // The condition on the founding price is in the pricing headline (one tap away).
+    expect(da["landingV2.pricing.headline"]).toContain("for de første {n} virksomheder");
+    expect(FOUNDING_LIMIT).toBe(100);
     const second = screen.getByRole("link", { name: "Se priser" });
     expect(second.getAttribute("href")).toBe("#pricing");
     expect(screen.queryByText("Se bordplanen")).toBeNull();
@@ -276,10 +305,11 @@ describe("B4 — one demo business, labelled as a demo", () => {
     expect(DEMO_WEEK_DELTA_PCT).toBe(Math.round((DEMO_WEEK.last / DEMO_WEEK.before - 1) * 100));
   });
 
-  it("the rota totals are derived: 8 shifts, 52,75 t, ≈ 9.123 kr., 18 %", () => {
-    expect(rotaTotals()).toEqual({ hours: 52.75, wage: 9123, shifts: 8 });
-    expect(rotaLabourPct()).toBe(18);
-    expect(DEMO_ROTA).toHaveLength(4);
+  it("the rota totals are derived: 15 shifts, 82 t, ≈ 14.650 kr., 29 % (under the 30 % target)", () => {
+    expect(rotaTotals()).toEqual({ hours: 82, wage: 14650, shifts: 15 });
+    expect(rotaLabourPct()).toBe(29);
+    expect(rotaLabourPct()).toBeLessThan(30); // the line is green: under target
+    expect(DEMO_ROTA).toHaveLength(5);
   });
 
   it("the hero and the AI panel quote the same last week", () => {

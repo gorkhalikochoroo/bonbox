@@ -152,8 +152,9 @@ describe("(f) landing and (g) login — the new sentences", () => {
     expect(da["landingV2.pricing.free.f1"]).toBe("Daglig lukning: tag et billede af Z-bonen, BonBox fylder tallene ud");
     expect(en["landingV2.pricing.free.f1"]).toBe("Daily close: take a photo of the Z-report and BonBox fills in the figures");
     // Push 9 (A1): the owner keeps them — BonBox is not the archive (Terms § 4).
-    expect(da.landingV2HeroTrustArchive).toBe("Kasserapporter som PDF, som du selv gemmer i 5\u00a0år");
-    expect(en.landingV2HeroTrustArchive).toBe("Each kasserapport as a PDF, for you to keep for 5\u00a0years");
+    // Review round: same fact, plainer Danish (no double "som").
+    expect(da.landingV2HeroTrustArchive).toBe("Kasserapporter som PDF – du gemmer dem selv i 5\u00a0år");
+    expect(en.landingV2HeroTrustArchive).toBe("Each kasserapport as a PDF – you keep them for 5\u00a0years");
     expect(da.loginGoogleHintNative).toBe("Tilmeldt med Google på web? Tryk på “Glemt?” ved adgangskoden ovenfor for at sætte en app-adgangskode.");
     expect(en.loginGoogleHintNative).toBe("Signed up with Google on the web? Tap “Forgot?” next to the password above to set an app password.");
     // (R-c round 2: only what the client knows — no answer, and it retries.)

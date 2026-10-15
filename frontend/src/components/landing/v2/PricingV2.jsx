@@ -34,8 +34,15 @@ import { FOUNDING_LIMIT, PLAN_PRICES, momsNoteKey } from "./pricing";
  *       the owner sets the basis.
  *  A5 — adding several tills together into one kasserapport is FREE (owner
  *       decision, 18 Sep; the daily close sums tills on every plan). It is
- *       now on the Free card; Pro keeps the multi-location combined report
- *       (multi_terminal_close in billing.py), worded as that.
+ *       now on the Free card. Pro names its two real features, each worded
+ *       as what it is: the multi-terminal close (billing.py
+ *       multi_terminal_close — /daily-close/multi, a kasserapport that lists
+ *       each POS terminal, as PDF and Excel: kasserapport.py /close-pdf and
+ *       /close-excel) and the combined view across locations
+ *       (multi_branch_dashboard — /branches?tab=consolidated, on screen
+ *       only; it has no PDF or Excel). An earlier wording merged the two
+ *       into "one combined kasserapport across your locations — PDF and
+ *       Excel", which no feature does.
  *  C  — Danish page: "Gratis", not "Free"; "aflæsning af bilag", not
  *       "OCR"; "en fil fra din netbank", not "bank-CSV".
  *  D  — below 621px each card's feature list folds behind a "Se alt i
@@ -132,7 +139,7 @@ export default function PricingV2() {
             >
               {t(
                 "landingV2.pricing.headline",
-                "{founding} kr./mo, locked for the first {n} businesses — then {regular} kr./mo.",
+                "{founding} kr./mo for the first {n} businesses — then {regular} kr./mo.",
                 { founding: PLAN_PRICES.starter.founding, regular: PLAN_PRICES.starter.regular, n: FOUNDING_LIMIT },
               )}
             </h2>
@@ -258,7 +265,7 @@ export default function PricingV2() {
                 {PLAN_PRICES.starter.founding}
               </span>
               <span className="text-sm text-slate-500">
-                {t("landingV2.pricing.perMonth", "DKK / mo")}
+                {t("landingV2.pricing.perMonth", "kr./mo")}
               </span>
               <span className="rounded-full bg-slate-100 px-[9px] py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-slate-600">
                 {t("landingV2.pricing.starter.foundingTag", "First 100")}
@@ -323,7 +330,7 @@ export default function PricingV2() {
               <Feature>
                 {t(
                   "landingV2.pricing.starter.f5",
-                  "Schedule autopilot — forecast, weather and the 11-hour rest rule"
+                  "Schedule autopilot — forecast, weather and the 11-hour and 48-hour rules"
                 )}
               </Feature>
               <Feature>
@@ -376,7 +383,7 @@ export default function PricingV2() {
                 {PLAN_PRICES.pro.founding}
               </span>
               <span className="text-sm text-slate-500">
-                {t("landingV2.pricing.perMonth", "DKK / mo")}
+                {t("landingV2.pricing.perMonth", "kr./mo")}
               </span>
               {/* Pro's 249 is rationed exactly like Starter's 129 — both come
                   from the founding Stripe price, granted only while
@@ -424,7 +431,13 @@ export default function PricingV2() {
               <Feature>
                 {t(
                   "landingV2.pricing.pro.f2",
-                  "One combined kasserapport across your locations — PDF and Excel"
+                  "Several POS terminals: one kasserapport with each terminal listed — PDF and Excel"
+                )}
+              </Feature>
+              <Feature>
+                {t(
+                  "landingV2.pricing.pro.f9",
+                  "Every location's close added up on one screen"
                 )}
               </Feature>
               <Feature>
@@ -456,7 +469,7 @@ export default function PricingV2() {
         <div className="mt-6 text-sm text-slate-500">
           {t(
             "landingV2.pricing.footnote",
-            "No card. Cancel the same day. Prices are per business, and you see the exact amount at checkout before you confirm. No lock-in, no setup fee, and never a percentage of what you take."
+            "The trial needs no card. Cancel any time – it takes effect at the end of the month you have paid for. Prices are per business, and you see the exact amount at checkout before you confirm. No lock-in, no setup fee, and never a percentage of what you take."
           )}
         </div>
       </div>

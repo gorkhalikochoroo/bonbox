@@ -22,7 +22,7 @@ import {
  * screen-reader caption that says what it is, and a visible demo label.
  *
  * Push 9: the week is the CURRENT week (it was frozen at week 31, 27 Jul –
- * 2 Aug), the four people and their shifts come from the one demo rota
+ * 2 Aug), the people and their shifts come from the one demo rota
  * (./demoData) the phones and the hero use too, and the day, role and
  * department names are dictionary keys (the Danish page printed MON/TUE and
  * Kitchen/Bar/Floor). The footer says "estimated wage cost" — no
@@ -30,9 +30,12 @@ import {
  * the two rules it actually checks: the 11-hour rest and the 48-hour week
  * (backend services/schedule_autopilot.py).
  *
- * Sums are derived, never typed: 8 shifts, 52,75 t, ≈ 9.123 kr., 18 % of the
- * week's expected revenue ex MOMS. Hours are printed through utils/hours, so
- * a Danish visitor reads "6,25 t" and an English one "6.25 h".
+ * Sums are derived, never typed: five people, a cook and a server every
+ * evening, 15 shifts, 82 t, ≈ 14.650 kr., 29 % of the week's expected revenue
+ * ex MOMS (target 30 %). Hours are printed through utils/hours, so a Danish
+ * visitor reads "6,25 t" and an English one "6.25 h" — with the same number
+ * of decimals on a shift, a row total and the week total, so one row never
+ * shows 18,75 beside 18,8.
  */
 
 const DEPARTMENTS = {
@@ -47,7 +50,8 @@ const GRID = "grid grid-cols-[168px_repeat(7,minmax(0,1fr))_74px]";
 
 export default function ScheduleGridV2() {
   const { t, lang } = useLanguage();
-  // Per-shift and contract figures keep two decimals (6.25); row totals one.
+  // Up to two decimals everywhere (6.25), trailing zeros dropped (utils/hours):
+  // shifts, contracts, row totals and the week total round the same way.
   const hrs = (v, decimals = 2) => formatHours(v, { lang, decimals });
 
   const draft = t("landingV2.schedule.draftBadge", "DRAFT");
@@ -86,7 +90,7 @@ export default function ScheduleGridV2() {
         <figcaption className="sr-only">
           {t(
             "landingV2.schedule.caption",
-            "Preview of the BonBox schedule builder: a draft week for four staff, with hours and wage estimates."
+            "Preview of the BonBox schedule builder: a draft week for five staff, with hours and wage estimates."
           )}
         </figcaption>
 
@@ -240,7 +244,7 @@ export default function ScheduleGridV2() {
                 })}
 
                 <div className="border-l border-slate-100 px-2.5 py-3.5 text-right font-display text-[15px] font-bold tracking-[-0.01em] text-slate-900">
-                  {hrs(Object.values(row.shifts).reduce((a, x) => a + x.hours, 0), 1)}
+                  {hrs(Object.values(row.shifts).reduce((a, x) => a + x.hours, 0))}
                 </div>
               </div>
             ))}
@@ -250,7 +254,7 @@ export default function ScheduleGridV2() {
         {/* Footer totals */}
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 border-t border-slate-200 bg-slate-50 px-[18px] py-3.5 text-[13px] text-slate-500">
           <span>
-            <strong className="font-semibold text-slate-900">{hrs(totals.hours, 1)}</strong>{" "}
+            <strong className="font-semibold text-slate-900">{hrs(totals.hours)}</strong>{" "}
             {t("landingV2.schedule.totalRostered", "rostered")}
           </span>
           <span>
@@ -260,7 +264,7 @@ export default function ScheduleGridV2() {
           <span className="font-medium text-bb-green">
             {t(
               "landingV2.schedule.totalLabour",
-              "{pct} % of the week's expected sales so far — target 30 %",
+              "{pct} % of the week's expected sales — target 30 %",
               { pct: rotaLabourPct() },
             )}
           </span>

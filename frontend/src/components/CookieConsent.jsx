@@ -448,16 +448,20 @@ export default function CookieConsent() {
   // Accept and Decline: one class, so they can never drift apart in size or
   // weight. Two lines fit inside the 44 px when a language runs long.
   const choice =
-    "min-h-11 px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 " +
+    "relative min-h-11 px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 " +
     "text-[14px] leading-[18px] font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 " +
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 transition-colors duration-150";
   const textBtn =
-    "inline-flex items-center min-h-11 px-1 text-[13px] font-medium text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 " +
+    "relative inline-flex items-center min-h-11 px-1 text-[13px] font-medium text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 " +
     "hover:text-gray-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 rounded-sm";
   // "Læs mere" runs inline at the end of the sentence (an inline link in a
-  // sentence is exempt from the 24/44 px target-size rule, WCAG 2.5.8).
+  // sentence is exempt from the 24/44 px target-size rule, WCAG 2.5.8). It
+  // still gets a 44 px tall hit area: an invisible ::after reaching 14 px
+  // above and below the 16 px line box, so the layout does not move. The
+  // choice buttons and Tilpas are `relative` and come later in the DOM, so
+  // where the two areas meet the button wins the tap.
   const inlineLink =
-    "font-medium text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 " +
+    "relative after:absolute after:-inset-x-1 after:-inset-y-[14px] after:content-[''] font-medium text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 " +
     "hover:text-gray-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 rounded-sm";
 
   return (

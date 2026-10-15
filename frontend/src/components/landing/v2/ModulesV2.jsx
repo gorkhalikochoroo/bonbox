@@ -107,12 +107,12 @@ export default function ModulesV2() {
               {t("landingV2.modules.eyebrow", "What's inside")}
             </div>
 
-            <h2 className="mb-6 font-display text-[clamp(28px,3.1vw,40px)] font-bold leading-[1.06] tracking-[-0.028em] md:mb-3 min-[1041px]:mb-0">
+            <h2 className="mb-6 font-display text-[clamp(28px,3.1vw,40px)] font-bold leading-[1.06] tracking-[-0.028em] sm:mb-3 min-[1041px]:mb-0">
               {t("landingV2.modules.heading", "Six jobs. One system.")}
             </h2>
           </div>
 
-          <p className="mb-11 max-w-[58ch] text-[17px] text-slate-600 max-md:hidden min-[1041px]:mb-0 min-[1041px]:max-w-none">
+          <p className="mb-11 max-w-[58ch] text-[17px] text-slate-600 max-sm:hidden min-[1041px]:mb-0 min-[1041px]:max-w-none">
             {t(
               "landingV2.modules.intro",
               "Most places run a POS, a booking site, a spreadsheet for the rota and a shoebox for receipts. BonBox is the layer that ties the evening together."

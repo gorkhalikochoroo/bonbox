@@ -50,8 +50,8 @@ export default function StaffCopyV2() {
         )}
       </h2>
 
-      {/* Below 768px the four rows under it carry the same facts (push 9, D). */}
-      <p className="mb-[30px] max-w-[46ch] text-[17px] text-slate-600 max-md:hidden">
+      {/* Below 640px (sm) the four rows under it carry the same facts (push 9, D). */}
+      <p className="mb-[30px] max-w-[46ch] text-[17px] text-slate-600 max-sm:hidden">
         {t(
           "landingV2.staff.body",
           "Staff open Vagtplan and their week is right there — no login hassle, no clutter. They mark when they can’t work, request holiday, and can see when one of their shifts changes."

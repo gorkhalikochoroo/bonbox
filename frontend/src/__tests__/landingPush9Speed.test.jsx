@@ -116,7 +116,7 @@ describe("App: only the landing paints on boot keys; it does not wait for /auth/
     return { ...app, LanguageProvider };
   }
 
-  it("FullDictionaryGate: the landing renders, any other route waits", async () => {
+  it("FullDictionaryGate: the landing renders, any other route waits behind the spinner", async () => {
     const { FullDictionaryGate, LanguageProvider } = await loadApp({ fullReady: false, auth: { user: null, loading: false } });
     const at = (p) =>
       render(
@@ -131,6 +131,9 @@ describe("App: only the landing paints on boot keys; it does not wait for /auth/
     cleanup();
     at("/login");
     expect(screen.queryByTestId("page")).toBeNull();
+    // ...behind the spinner, never a blank white page (push 9 review: a fast
+    // tap on "Prøv gratis" on a slow phone showed #root empty for ~2 s).
+    expect(screen.getByTestId("page-loader")).toBeTruthy();
     vi.doUnmock("../hooks/useLanguage");
     vi.doUnmock("../hooks/useAuth");
   });

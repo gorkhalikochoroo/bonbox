@@ -10,12 +10,13 @@
  * da/en copy (joinFailure below).
  */
 import { useEffect, useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, KeyRound, AlertCircle, CloudOff, Clock } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { useKeyboardReveal } from "../hooks/useKeyboardReveal";
 import { haptic } from "../utils/haptics"; // no-op on web; physical buzz in the iOS shell
+import { isNativeApp } from "../utils/platform";
 
 const CODE_LEN = 6;
 const UNKNOWN_CODE_EN =
@@ -244,6 +245,23 @@ export default function JoinPage() {
         <p className="text-center text-[12px] text-gray-500 mt-4">
           {t("joinTapHint", "Got a link instead? Just tap it — no code needed.")}
         </p>
+
+        {/* The way out for an OWNER (push 9 review): on Android the landing's
+            "Vagtplan i browseren" pill lands here, and an owner looking at
+            BonBox has no code — this page was a dead end for them. Web only:
+            the Vagtplan app (scheduler build) and the native shell open on
+            this page for staff, and they must not offer an owner signup. */}
+        {import.meta.env.VITE_APP_MODE !== "scheduler" && !isNativeApp() && (
+          <p data-testid="join-owner-line" className="text-center text-[12.5px] text-gray-600 mt-3">
+            {t("joinOwnerPrompt", "Own a business and want to try BonBox?")}{" "}
+            <Link
+              to="/register"
+              className="inline-flex min-h-11 items-center font-semibold text-gray-900 underline underline-offset-4 decoration-gray-400 hover:decoration-gray-900"
+            >
+              {t("joinOwnerLink", "Create an account")}
+            </Link>
+          </p>
+        )}
       </div>
     </div>
   );

@@ -12,8 +12,9 @@ import { TEXT, WIDE, WIDE_PY } from "./fluid";
  * US", which the privacy policy does not claim. The staff row no longer
  * promises a "payslip estimate": staff see their shifts and hours; BonBox
  * does not do payroll.
- * Phone (below 621px): role and detail sit side by side in a narrow first
- * column, so the five rows stay short.
+ * Phone (below 621px): the role sits over its detail and the detail takes
+ * the full width (push 9 review: beside a 92px role column the five rows ran
+ * 786-873 px, the densest block on the phone page). All five rows stay.
  */
 export default function AccessV2() {
   const { t } = useLanguage();
@@ -72,7 +73,7 @@ export default function AccessV2() {
             widens faster than its type grows (./fluid.js) its longest line
             ends up to a word short of the column. At 64 that pushed the
             empty space before the rows past 7% of the screen near 2000px. */}
-        <div className="grid grid-cols-1 gap-6 md:gap-10 min-[1041px]:grid-cols-[minmax(0,0.66fr)_minmax(0,1.34fr)] min-[1041px]:gap-[clamp(32px,3.34vw,48px)] min-[1441px]:gap-[calc(48px*var(--lx))]">
+        <div className="grid grid-cols-1 gap-6 sm:gap-10 min-[1041px]:grid-cols-[minmax(0,0.66fr)_minmax(0,1.34fr)] min-[1041px]:gap-[clamp(32px,3.34vw,48px)] min-[1441px]:gap-[calc(48px*var(--lx))]">
           <div className={TEXT}>
             <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
               {t("landingV2.access.eyebrow", "Access")}
@@ -86,7 +87,7 @@ export default function AccessV2() {
             {/* 34ch on a phone. From 1041px it runs to the rows beside it
                 (0.66fr / 1.34fr, was 0.74 / 1.26): capped at 34ch it left
                 ~250px empty before the rows at 1920px. */}
-            <p className="max-w-[34ch] text-[16.5px] text-slate-600 max-md:hidden min-[1041px]:max-w-none">
+            <p className="max-w-[34ch] text-[16.5px] text-slate-600 max-sm:hidden min-[1041px]:max-w-none">
               {t(
                 "landingV2.access.body",
                 "Revenue belongs to the owner. The person locking up doesn't need to see it to do their job."
@@ -98,7 +99,7 @@ export default function AccessV2() {
             {rows.map((row, i) => (
               <div
                 key={row.key}
-                className={`grid grid-cols-[150px_1fr] gap-6 border-t border-slate-200 py-5 max-[620px]:grid-cols-[92px_minmax(0,1fr)] max-[620px]:gap-3 max-[620px]:py-3.5 ${
+                className={`grid grid-cols-[150px_1fr] gap-6 border-t border-slate-200 py-5 max-[620px]:grid-cols-1 max-[620px]:gap-0.5 max-[620px]:py-3 ${
                   i === rows.length - 1 ? "border-b border-slate-200" : ""
                 }`}
               >

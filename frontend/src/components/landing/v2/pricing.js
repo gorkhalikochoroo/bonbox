@@ -1,26 +1,13 @@
 /**
- * The plan prices the landing page prints — ONE place, mirrored from the
- * backend (push 9, A2/A3).
+ * The plan prices the landing page prints (push 9, A2/A3).
  *
- * Source of truth: backend/app/config.py PLAN_PRICES_DKK and
- * FOUNDING_MEMBER_LIMIT (the display mirror of the four Stripe Prices; the
- * charge itself always comes from the Stripe Price at checkout). A test
- * (landingPush9Claims) reads config.py and fails if these drift apart.
- *
- * The founding price is a real offer, not a sale: the first 100 paying
- * businesses get it and keep it while the subscription stays active (Terms,
- * "Stifterpris"). So the page states it as "129 kr./md. for the first 100 —
- * then 199 kr./md.", never as a struck-through "was 199" that nobody paid.
+ * The numbers live in lib/planPrices.js — ONE module shared with the in-app
+ * plan page and the upgrade nudges, held to backend config.py
+ * PLAN_PRICES_DKK and FOUNDING_MEMBER_LIMIT by a test (landingPush9Claims).
+ * The founding price is stated as "129 kr./md. for the first 100 — then 199
+ * kr./md.", never as a struck-through "was 199" that nobody paid.
  */
-export const FOUNDING_LIMIT = 100;
-
-export const PLAN_PRICES = {
-  starter: { regular: 199, founding: 129 },
-  pro: { regular: 349, founding: 249 },
-};
-
-/** The lowest paid price a new business can get today (the price line). */
-export const FROM_PRICE = PLAN_PRICES.starter.founding;
+export { FOUNDING_LIMIT, FROM_PRICE, PLAN_PRICES } from "../../../lib/planPrices";
 
 /**
  * MOMS on our own prices — NOT KNOWN from the code (push 9, A3).

@@ -20,8 +20,9 @@ import { DEMO_WEEK, DEMO_WEEK_DELTA_PCT, formatKr } from "./demoData";
  *
  * Push 9: the answer quotes the demo bistro's last week from ./demoData —
  * the same 62.480 kr. and +6 % the hero card shows — and the panel carries a
- * visible demo label. Below 768px the chat mock-up is hidden (the copy and
- * the example questions beside it stay); it renders unchanged from 768px.
+ * visible demo label. Below 640px (sm) the chat mock-up and the example
+ * questions are hidden (the copy stays); they render unchanged from 640px —
+ * an iPad mini in portrait (744) or a phone on its side keeps them.
  */
 export default function AiPanelV2() {
   const { t } = useLanguage();
@@ -67,14 +68,14 @@ export default function AiPanelV2() {
               )}
             </h2>
 
-            <p className="max-w-[46ch] text-[17px] text-slate-600 md:mb-[26px] min-[1041px]:max-w-none">
+            <p className="max-w-[46ch] text-[17px] text-slate-600 sm:mb-[26px] min-[1041px]:max-w-none">
               {t(
                 "landingV2.ai.body",
                 "The copilot sits on top of your real data — revenue, expenses, inventory, credit, waste and staff. It quotes figures from your business, and says so when it doesn't have enough to answer."
               )}
             </p>
 
-            <div className="flex flex-wrap gap-[9px] max-md:hidden">
+            <div className="flex flex-wrap gap-[9px] max-sm:hidden">
               {chips.map((chip) => (
                 <span
                   key={chip}
@@ -87,7 +88,7 @@ export default function AiPanelV2() {
           </div>
 
           {/* Right column — chat panel mock */}
-          <div className={`flex flex-col items-center gap-3 max-md:hidden ${CELL}`}>
+          <div className={`flex flex-col items-center gap-3 max-sm:hidden ${CELL}`}>
             <DemoTag />
             <figure
               aria-label={t(

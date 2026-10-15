@@ -126,8 +126,10 @@ describe.each(["en", "da"])("the banner in %s", (lang) => {
 describe("the short sentence stays true to the code", () => {
   it("en: signed in + the settings you choose are necessary; Analytics and marketing only on a yes", () => {
     // Push 9 (B1): one sentence, same facts — the banner is ~125 px on a phone.
+    // Review round: a few words shorter in English, so the English banner is
+    // as short as the Danish one at 360 px (it was 149 px vs 131).
     expect(en.cookieBannerShort).toBe(
-      "Necessary cookies keep you signed in and remember your settings – analytics and marketing only if you say yes.",
+      "Necessary cookies keep you signed in and save your settings – analytics and marketing only if you agree.",
     );
   });
   it("da: logget ind + de indstillinger, du selv vælger, er nødvendige; Analyse og markedsføring kun ved et ja", () => {

@@ -50,6 +50,14 @@ export default function BookingCardV2() {
   const [dateIdx, setDateIdx] = useState(0);
   const [party, setParty] = useState(2);
   const [time, setTime] = useState("19:00");
+  // The footer button is part of the demo, so it answers like one: a tap says
+  // plainly that this is an example and nothing was booked (it did nothing at
+  // all before — a button with no answer is a dead end). Any new choice
+  // clears it.
+  const [booked, setBooked] = useState(false);
+  useEffect(() => {
+    setBooked(false);
+  }, [dateIdx, party, time, cardLang]);
 
   const da = cardLang === "da";
 
@@ -104,13 +112,17 @@ export default function BookingCardV2() {
         partyLabel: t("landingV2BookingPartyLabelDa", "Antal gæster"),
         timeLabel: t("landingV2BookingTimeLabelDa", "Vælg et tidspunkt"),
         service: t("landingV2BookingServiceDa", "Aften"),
-        cta: t("landingV2BookingCtaDa", "Book {time} til {party}", {
+        cta: t("landingV2BookingCtaDa", "Book bord kl. {time} til {party} pers.", {
           time,
           party,
         }),
         note: t(
           "landingV2BookingNoteDa",
           "Ingen konto nødvendig · Gratis afbestilling",
+        ),
+        done: t(
+          "landingV2BookingDemoDoneDa",
+          "Eksempel – der er ikke booket noget. Sådan bekræfter gæsten bordet på din bookingside.",
         ),
       }
     : {
@@ -126,6 +138,10 @@ export default function BookingCardV2() {
         note: t(
           "landingV2BookingNote",
           "No account needed · Free cancellation",
+        ),
+        done: t(
+          "landingV2BookingDemoDone",
+          "Example – nothing was booked. This is how a guest confirms on your booking page.",
         ),
       };
 
@@ -247,11 +263,15 @@ export default function BookingCardV2() {
       {/* Footer */}
       <button
         type="button"
+        data-testid="booking-demo-cta"
+        onClick={() => setBooked(true)}
         className="mb-2.5 w-full rounded-xl bg-slate-900 py-[13px] text-center text-[14.5px] font-medium text-white"
       >
         {copy.cta}
       </button>
-      <div className="text-center text-[12px] text-slate-500">{copy.note}</div>
+      <div data-testid="booking-demo-note" aria-live="polite" className="text-center text-[12px] text-slate-500">
+        {booked ? copy.done : copy.note}
+      </div>
     </div>
   );
 }
