@@ -226,19 +226,15 @@ def compute_filing_data(
     # ── Section A — Salg (Sales) ─────────────────────────────
     # sales_total is gross when prices_include_moms (B2C), net otherwise (B2B).
     # output_vat is the MOMS portion of sales.
-    # salg_med_moms = gross TAXABLE revenue (sales_total - exempt_sales)
-    # salg_uden_moms = exempt/zero-rated revenue. Pulled from `_calc_vat`'s
-    #   `exempt_sales` (added 2026-05-24): sum of Sale rows where
-    #   `is_tax_exempt=true` PLUS Invoice rows where `moms_total=0`
-    #   (EU reverse-charge, exports, §13 nr.17 events, gift cards, etc.).
-    #   Before that fix, `salg_uden_moms` was hardcoded to 0.0 — any user
-    #   with exempt sales had them SILENTLY DROPPED from the SKAT angivelse.
-    #
-    # 2026-05-28 — second fix (audit a26d37c R3): `salg_med_moms` was using
-    # `sales_total` directly, which still INCLUDES `exempt_sales`. That
-    # double-counted: e.g. 100k taxable + 20k exempt showed 120k on "Salg med
-    # moms" AND 20k on "Salg uden moms" = 140k. Sum-doesn't-equal-parts.
-    # Now uses the dedicated `taxable_sales` field (sales_total - exempt_sales).
+    # salg_med_moms = _calc_vat's `taxable_sales`: sales_total minus the
+    #   exempt revenue that is INSIDE sales_total — the zero-moms fakturaer
+    #   and the closes' momsfri part (close_vat_split). Momsfri till sales
+    #   never entered sales_total, so they are not taken off again (12 Oct
+    #   review M5; the closes' part: 14 Oct review).
+    # salg_uden_moms = _calc_vat's `exempt_sales`: momsfri Sale rows + zero-
+    #   moms Invoice rows (EU reverse-charge, exports, §13 nr.17 events …) +
+    #   the closes' momsfri part. (Before 2026-05-24 it was hardcoded to 0.0
+    #   and exempt sales were SILENTLY DROPPED from the angivelse.)
     salg_med_moms = vat.get("taxable_sales", vat["sales_total"] - vat.get("exempt_sales", 0.0))
     salg_uden_moms = vat.get("exempt_sales", 0.0)
     moms_af_salg = vat["output_vat"]
@@ -274,6 +270,9 @@ def compute_filing_data(
         # Section B
         "kob_med_moms": kob_med_moms,
         "moms_af_kob": moms_af_kob,
+        # moms_af_kob split per expense category by _calc_vat itself
+        # ([{category, gross, fradrag_pct, input_vat}], sums to moms_af_kob).
+        "kob_pr_kategori": vat.get("input_vat_by_category", []),
         # Section C
         "moms_til_skat": moms_til_skat,
         # Section D
@@ -292,6 +291,12 @@ def compute_filing_data(
         "pos_revenue_from_sales": vat.get("pos_revenue_from_sales", vat["pos_revenue"]),
         "pos_revenue_from_closes": vat.get("pos_revenue_from_closes", 0.0),
         "invoice_revenue": vat["invoice_revenue"],
+        # The exempt revenue inside the sources above — D2 takes it off, so
+        # its rows add up to "Salg med moms" (14 Oct review).
+        "invoice_exempt_sales": vat.get("invoice_exempt_sales", 0.0),
+        "close_exempt_sales": vat.get("close_exempt_sales", 0.0),
+        # Foreign-currency expenses: in kob_med_moms, no købsmoms.
+        "foreign_expenses_total": vat.get("foreign_expenses_total", 0.0),
         # Bogføringsloven §9 stk. 2 — per-date variance between close
         # and Sale rows on the same date. Empty list = clean; non-empty
         # = the revisor sees a "Bemærkninger" section before signature.
@@ -506,6 +511,53 @@ def build_moms_filing_pdf(
     return buf2.getvalue()
 
 
+# The momsangivelse's own wording for section D3 (§9 variance) and D4
+# (gavekort checks). The revisor package prints the SAME sentences — one
+# source, so the two documents can never word one fact two ways.
+VARIANCE_D3_TITLE_DA = "D3 · BEMÆRKNINGER (Bogføringsloven §9 stk. 2)"
+VARIANCE_D3_INTRO_DA = ("Kasserapport og POS-salg afviger på følgende datoer. "
+                        "Afstem før indberetning til SKAT.")
+GAVEKORT_D4_TITLE_DA = "D4 · GAVEKORT-INDLØSNING"
+GAVEKORT_D4_INTRO_DA = (
+    "Gavekort på følgende datoer skal tjekkes før indberetning. "
+    "Flerformål (MPV): MOMS afregnes ved indløsning — måltidet skal være "
+    "bogført som salg. Enkeltformål (SPV): MOMS er afregnet ved salget — "
+    "måltidet må ikke tælles med igen. BonBox har ikke ændret tallene; "
+    "spørg din revisor, hvis du er i tvivl."
+)
+GAVEKORT_NOTES_DA = {
+    "unmatched_redemption": "Intet salg/dagsafslutning fundet",
+    "tender_short": "Mindre end indløst i dagsafslutningen",
+    "unverified_redemption": "Dagsafslutningen har ingen gavekort-betaling — tjek at måltidet er med",
+    "sale_short": "Dagens salg dækker ikke det indløste beløb",
+    "spv_check_double": "Enkeltformål: MOMS betalt ved salg — er måltidet også i omsætningen? Så tælles det to gange",
+    "sold_in_revenue": "Gavekort solgt i dag — er beløbet også i omsætningen? Så tælles det to gange",
+    "sold_unchecked": "Gavekort solgt i dag — BonBox kan ikke se, om beløbet er i omsætningen",
+    "spv_taken_out_uncertain": "Enkeltformål: måltidet er taget ud af momsen, men dagens betalinger går ikke op — tjek at måltidet er i omsætningen",
+    "bank_maybe_gavekort": "Bankbetaling bogført som salg har beløbet fra en online gavekort-bestilling — er det gavekortet?",
+    "free_card": "Gratis/sponsor-gavekort — ingen MOMS ved udstedelse; revisor vurderer brugen",
+    "spv_voided": "Enkeltformål annulleret — MOMS fra salget er bevaret; fik kunden pengene tilbage, spørg revisor",
+}
+GAVEKORT_NOTES_EN = {
+    "unmatched_redemption": "No sale/daily close found",
+    "tender_short": "Less than redeemed in the close",
+    "unverified_redemption": "The daily close has no gift card payment — check the meal is included",
+    "sale_short": "The day's sales do not cover the amount redeemed",
+    "spv_check_double": "Single-purpose: VAT paid at sale — is the meal also in revenue? Then it is counted twice",
+    "sold_in_revenue": "A gift card sold today — is the amount also in revenue? Then it is counted twice",
+    "sold_unchecked": "A gift card sold today — BonBox can't see whether it is in revenue",
+    "spv_taken_out_uncertain": "Single-purpose: the meal was taken out of the VAT, but the day's payments don't add up — check the meal is in revenue",
+    "bank_maybe_gavekort": "A bank payment booked as a sale has the amount of an online gift card order — is it the card?",
+    "free_card": "Free/sponsor gift card — no VAT when given; the revisor judges its use",
+    "spv_voided": "Single-purpose voided — VAT from the sale is kept; if the buyer was refunded, ask your revisor",
+}
+
+
+def gavekort_warning_amount(w: dict):
+    """The amount D4 prints for a gavekort check (redeemed / sold / amount)."""
+    return w.get("redeemed", w.get("sold", w.get("amount", 0)))
+
+
 def _gavekort_redemption_section(
     data: dict, *, is_danish: bool, currency: str, section_title, val, val_b, val_r, mm_unit,
 ) -> list:
@@ -532,15 +584,11 @@ def _gavekort_redemption_section(
     out: list = [Spacer(1, 4 * mm_unit)]
     if is_danish:
         out.append(Paragraph(
-            "D4 · GAVEKORT-INDLØSNING",
+            GAVEKORT_D4_TITLE_DA,
             ParagraphStyle("gkt", parent=section_title, textColor=GK_AMBER),
         ))
         out.append(Paragraph(
-            "Gavekort på følgende datoer skal tjekkes før indberetning. "
-            "Flerformål (MPV): MOMS afregnes ved indløsning — måltidet skal være "
-            "bogført som salg. Enkeltformål (SPV): MOMS er afregnet ved salget — "
-            "måltidet må ikke tælles med igen. BonBox har ikke ændret tallene; "
-            "spørg din revisor, hvis du er i tvivl.",
+            GAVEKORT_D4_INTRO_DA,
             ParagraphStyle("gkd", parent=val, textColor=GK_AMBER, leading=12),
         ))
         gk_header = ["Dato", "Gavekort", "Bemærkning"]
@@ -558,39 +606,13 @@ def _gavekort_redemption_section(
             ParagraphStyle("gkd", parent=val, textColor=GK_AMBER, leading=12),
         ))
         gk_header = ["Date", "Gift card", "Note"]
-    _gk_note_dk = {
-        "unmatched_redemption": "Intet salg/dagsafslutning fundet",
-        "tender_short": "Mindre end indløst i dagsafslutningen",
-        "unverified_redemption": "Dagsafslutningen har ingen gavekort-betaling — tjek at måltidet er med",
-        "sale_short": "Dagens salg dækker ikke det indløste beløb",
-        "spv_check_double": "Enkeltformål: MOMS betalt ved salg — er måltidet også i omsætningen? Så tælles det to gange",
-        "sold_in_revenue": "Gavekort solgt i dag — er beløbet også i omsætningen? Så tælles det to gange",
-        "sold_unchecked": "Gavekort solgt i dag — BonBox kan ikke se, om beløbet er i omsætningen",
-        "spv_taken_out_uncertain": "Enkeltformål: måltidet er taget ud af momsen, men dagens betalinger går ikke op — tjek at måltidet er i omsætningen",
-        "bank_maybe_gavekort": "Bankbetaling bogført som salg har beløbet fra en online gavekort-bestilling — er det gavekortet?",
-        "free_card": "Gratis/sponsor-gavekort — ingen MOMS ved udstedelse; revisor vurderer brugen",
-        "spv_voided": "Enkeltformål annulleret — MOMS fra salget er bevaret; fik kunden pengene tilbage, spørg revisor",
-    }
-    _gk_note_en = {
-        "unmatched_redemption": "No sale/daily close found",
-        "tender_short": "Less than redeemed in the close",
-        "unverified_redemption": "The daily close has no gift card payment — check the meal is included",
-        "sale_short": "The day's sales do not cover the amount redeemed",
-        "spv_check_double": "Single-purpose: VAT paid at sale — is the meal also in revenue? Then it is counted twice",
-        "sold_in_revenue": "A gift card sold today — is the amount also in revenue? Then it is counted twice",
-        "sold_unchecked": "A gift card sold today — BonBox can't see whether it is in revenue",
-        "spv_taken_out_uncertain": "Single-purpose: the meal was taken out of the VAT, but the day's payments don't add up — check the meal is in revenue",
-        "bank_maybe_gavekort": "A bank payment booked as a sale has the amount of an online gift card order — is it the card?",
-        "free_card": "Free/sponsor gift card — no VAT when given; the revisor judges its use",
-        "spv_voided": "Single-purpose voided — VAT from the sale is kept; if the buyer was refunded, ask your revisor",
-    }
     gk_rows = [[Paragraph(h, val_b) for h in gk_header]]
     for w in _gk:
-        note_map = _gk_note_dk if is_danish else _gk_note_en
+        note_map = GAVEKORT_NOTES_DA if is_danish else GAVEKORT_NOTES_EN
         note = note_map.get(w.get("status", ""), w.get("status", ""))
         gk_rows.append([
             Paragraph(str(w.get("date", "")), val),
-            Paragraph(_money_dk(w.get("redeemed", w.get("sold", w.get("amount", 0))), currency), val_r),
+            Paragraph(_money_dk(gavekort_warning_amount(w), currency), val_r),
             Paragraph(note, ParagraphStyle("gkr", parent=val, textColor=GK_AMBER)),
         ])
     tgk = Table(gk_rows, colWidths=[28 * mm_unit, 46 * mm_unit, 92 * mm_unit])
@@ -880,6 +902,22 @@ def _rebuild_filing_story(
             Paragraph("Gavekort brugt i omsætningen ovenfor (moms betalt ved salg)" if is_danish
                       else "Gift cards used in the revenue above (VAT paid at sale)", val),
             Paragraph("−" + _money_dk(_spv_in_rev, currency), val_r)])
+    # The exempt revenue inside the rows above is in "Salg uden moms", not in
+    # the Sum: taken off here, so the rows add up to it (14 Oct review — a
+    # 0 % faktura of 4.000 kr. made the rows 4.000 kr. more than the Sum).
+    _ex_rows = []
+    _close_ex = float(data.get("close_exempt_sales") or 0)
+    _inv_ex = float(data.get("invoice_exempt_sales") or 0)
+    if _close_ex:
+        _ex_rows.append([
+            Paragraph("Heraf uden moms i dagsafslutningerne (efter deres egen moms)" if is_danish
+                      else "Of which without VAT in the daily closes (by their own VAT)", val),
+            Paragraph("−" + _money_dk(_close_ex, currency), val_r)])
+    if _inv_ex:
+        _ex_rows.append([
+            Paragraph("Heraf fakturaer uden moms" if is_danish
+                      else "Of which invoices without VAT", val),
+            Paragraph("−" + _money_dk(_inv_ex, currency), val_r)])
     if is_danish:
         story.append(Paragraph("D2 · KILDER", section_title))
         src_rows = [
@@ -889,6 +927,7 @@ def _rebuild_filing_story(
              Paragraph(_money_dk(_pos_from_closes, currency), val_r)],
             [Paragraph("Fakturasalg", val),
              Paragraph(_money_dk(data["invoice_revenue"], currency), val_r)],
+            *_ex_rows,
             *_gk_src_rows,
             [Paragraph("Sum (= Salg med moms)", val_b),
              Paragraph(_money_dk(data["salg_med_moms"], currency), val_br)],
@@ -906,6 +945,7 @@ def _rebuild_filing_story(
              Paragraph(_money_dk(_pos_from_closes, currency), val_r)],
             [Paragraph("Invoice sales", val),
              Paragraph(_money_dk(data["invoice_revenue"], currency), val_r)],
+            *_ex_rows,
             *_gk_src_rows,
             [Paragraph("Sum (= taxable sales)", val_b),
              Paragraph(_money_dk(data["salg_med_moms"], currency), val_br)],
@@ -936,12 +976,11 @@ def _rebuild_filing_story(
         story.append(Spacer(1, 4 * _mm))
         if is_danish:
             story.append(Paragraph(
-                "D3 · BEMÆRKNINGER (Bogføringsloven §9 stk. 2)",
+                VARIANCE_D3_TITLE_DA,
                 ParagraphStyle("vt2", parent=section_title, textColor=_AMBER),
             ))
             story.append(Paragraph(
-                "Kasserapport og POS-salg afviger på følgende datoer. "
-                "Afstem før indberetning til SKAT.",
+                VARIANCE_D3_INTRO_DA,
                 ParagraphStyle("vd2", parent=val, textColor=_AMBER, leading=12),
             ))
             _v_header = ["Dato", "Kasserapport", "POS-salg", "Forskel"]

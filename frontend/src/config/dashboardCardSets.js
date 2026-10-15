@@ -190,6 +190,11 @@ export function deriveActivations(ctx, archetype) {
     hasOutstandingInvoices: overdueCount > 0,
     hasUpcomingCompliance: complianceDays <= 30,
     isMonthEnd: daysToMonthEnd <= 5,
+    // The month-end banner's own window: the last days of a month (heads-up)
+    // AND the first five of the next (send last month). `isMonthEnd` alone
+    // never reached the "do it now" phase. Day-of-month comes from the same
+    // ctx.now as daysToMonthEnd.
+    isMonthEndWindow: daysToMonthEnd <= 4 || (ctx?.now?.dayOfMonth ?? 99) <= 5,
     // Only mark first-run when summary is LOADED and confirms zero sales AND
     // zero activity of any kind. DashboardPage passes totalSales = -1 during
     // cold-start fetch — that prevents the "Welcome to BonBox" screen flicker
@@ -283,12 +288,15 @@ export const DASHBOARD_CARD_SET = {
       renderIf: (ctx) => !!ctx?.activations?.hasOutstandingInvoices,
     },
 
-    // Month-end revisor pack — last 5 days of month, Starter+.
+    // Month-end: the last days of a month and the first five of the next →
+    // Månedsafslutning (what is open + the revisor package). Every plan: the
+    // checklist and the package download are free; only BonBox SENDING it
+    // is Starter+, and that page says so. (The old gate read a feature key,
+    // "send_to_revisor", that exists on no plan — the banner never showed.)
     {
       id: "monthEnd",
       component: "MonthEndBundleBanner",
-      renderIf: (ctx) =>
-        !!ctx?.activations?.isMonthEnd && ctx?.has?.("send_to_revisor"),
+      renderIf: (ctx) => !!ctx?.activations?.isMonthEndWindow,
     },
 
     // KPI row + AccountantHours widget — side-by-side on lg, stacks on <lg.

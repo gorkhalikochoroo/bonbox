@@ -99,3 +99,25 @@ def fradrag_factor(category_name) -> float:
     if any(k in n for k in _QUARTER_FRADRAG):
         return 0.25
     return 1.0
+
+
+def fradrag_reason(category_name) -> str:
+    """WHY fradrag_factor gives what it gives — the label a revisor reads:
+      "no_purchase"  svind/spild: not a purchase at all (0 %)
+      "no_vat"       løn, pension, forsikring: no moms to deduct (0 %)
+      "s42_zero"     repræsentation: moms paid, §42 stk. 1 allows none (0 %)
+      "s42_quarter"  restaurant/hotel i erhverv: §42 stk. 2 (25 %)
+      "full"         everything else (100 %)
+    Same rule order as fradrag_factor, so the two can never disagree."""
+    n = (category_name or "").strip().lower()
+    if not n:
+        return "full"
+    if any(k in n for k in _NO_PURCHASE_FRADRAG):
+        return "no_purchase"
+    if any(k in n for k in _NO_VAT_SUPPLY):
+        return "no_vat"
+    if any(k in n for k in _ZERO_FRADRAG):
+        return "s42_zero"
+    if any(k in n for k in _QUARTER_FRADRAG):
+        return "s42_quarter"
+    return "full"

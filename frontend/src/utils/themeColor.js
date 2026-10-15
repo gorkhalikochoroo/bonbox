@@ -60,7 +60,7 @@ export const PAPER_PATHS = Object.freeze([
   "/workshop", "/wine-list", "/bar", "/workshop/new-job", "/recently-deleted", "/profile", "/personal",
   "/khata", "/faktura", "/faktura/review", "/customers", "/mileage", "/loans", "/imports", "/bank-import",
   "/payment-imports", "/budgets", "/team", "/staff/schedule", "/staff/hours", "/staff/time-registration",
-  "/staff/tips", "/staff/payroll", "/more", "/subscription", "/bookkeeping-export", "/insights",
+  "/staff/tips", "/staff/payroll", "/more", "/subscription", "/bookkeeping-export", "/month-end", "/insights",
   "/daily-report", "/channel-settings", "/connections", "/accountant/clients",
   "/admin", "/admin/training", "/admin/support",
 ]);

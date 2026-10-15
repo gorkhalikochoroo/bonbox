@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Camera, ImageIcon, Search, Info, Check, ChevronDown } from "lucide-react";
 import Modal from "./Modal";
@@ -12,6 +12,7 @@ import { localIso } from "../utils/dateFormat";
 import { displayCurrency, formatOwnerMoney, parseMoneyInput, moneyLocale, moneyExample } from "../utils/currency";
 import { useAuth } from "../hooks/useAuth";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
+import BilagMatchPanel from "./BilagMatchPanel";
 
 /**
  * ReceiptCapture — supports both sale and expense mode.
@@ -53,6 +54,12 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   // with nothing saved.
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
+  // Photo-later matching (expense mode): typed expenses without a bilag this
+  // receipt may belong to. "Knyt til eksisterende udgift" staples the photo
+  // onto one of them instead of saving a second expense.
+  const [matches, setMatches] = useState([]);
+  const [matchDismissed, setMatchDismissed] = useState(false);
+  const [linkingId, setLinkingId] = useState(null);
   const [preview, setPreview] = useState(null);
   const [success, setSuccess] = useState("");
   const [desc, setDesc] = useState("");
@@ -391,7 +398,54 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     setTimeout(() => { setSuccess(""); closeModal(); }, 2000);
   };
 
+  // Ask once the receipt has an amount and a date (read, or typed by the
+  // owner). Foreign receipts have no account-currency amount to match.
+  useEffect(() => {
+    if (!isExpense || !result?.filepath || matchDismissed || isForeign) { setMatches([]); return undefined; }
+    if (!(amountNum > 0) || !parsedDate) { setMatches([]); return undefined; }
+    let alive = true;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.get("/expenses/bilag-matches", {
+          params: { amount: amountNum, date: parsedDate, vendor: result?.suggested_vendor || desc || undefined },
+        });
+        if (alive) setMatches(res.data?.candidates || []);
+      } catch {
+        // No answer is not "no match": keep whatever offer was on screen.
+      }
+    }, 300);
+    return () => { alive = false; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isExpense, result?.filepath, matchDismissed, isForeign, amountNum, parsedDate]);
+
+  const linkToExisting = async (c) => {
+    setLinkingId(c.id);
+    setSaveError("");
+    try {
+      await api.post(`/expenses/${c.id}/link-bilag`, {
+        receipt_photo: result.filepath,
+        vendor: result?.suggested_vendor || null,
+        // Never a foreign receipt's VAT (the match only runs for an
+        // account-currency receipt; belt and braces).
+        vat_amount: isForeign ? null : (result?.vat_amount ?? null),
+        vat_rate: isForeign ? null : (result?.vat_rate ?? null),
+      });
+      trackEvent("receipt_linked_to_typed_expense", mode, `${c.day_diff}d`);
+      setSuccess(t("bilagMatchLinked", "Receipt attached to {desc} ({date})", { desc: c.description || "", date: c.date }));
+      window.dispatchEvent(new Event("bonbox-data-changed"));
+      onSaved?.();
+      setTimeout(() => { setSuccess(""); closeModal(); }, 1800);
+    } catch (err) {
+      const d = err?.response?.data?.detail;
+      setSaveError((d && typeof d === "object" && (d.message_da || d.message)) || (typeof d === "string" ? d : t("bilagMatchFailed", "Couldn't attach the receipt — try again.")));
+    } finally {
+      setLinkingId(null);
+    }
+  };
+
   const closeModal = () => {
+    setMatches([]);
+    setMatchDismissed(false);
     setOpen(false);
     setResult(null);
     setPreview(null);
@@ -959,6 +1013,16 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                     it on screen while the rest scrolls under it.
                     No transform here on purpose (transform on a sticky
                     child inside a touch scroller causes the iOS wobble). */}
+                {isExpense && matches.length > 0 && (
+                  <BilagMatchPanel
+                    candidates={matches}
+                    receiptAmount={amountNum}
+                    currency={accountCcy}
+                    busyId={linkingId}
+                    onLink={linkToExisting}
+                    onNew={() => setMatchDismissed(true)}
+                  />
+                )}
                 <div className="sticky bottom-0 -mx-1 px-1 pt-2 pb-1 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700">
                   {saveError && (
                     <div

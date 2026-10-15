@@ -632,6 +632,22 @@ export const NAV_MANIFEST = [
     surfaces: ["sidebar", "more"],
     aliases: ["accountant", "revisor", "export", "bookkeeping"],
   },
+  {
+    // Månedsafslutning — the period checklist (days without a close, bilag
+    // missing, cash differences …) and the revisor package. Owner-only like
+    // Reports/Tax (the API prefix is in the member read deny-list). Off the
+    // sidebar on purpose (no new rail row — C12 declutter): reached from
+    // "Send til revisor", the month-end dashboard banner, More and ⌘K.
+    to: "/month-end",
+    icon: "ClipboardCheck",
+    labelKey: "navMonthEnd",
+    group: "reports",
+    pillar: null,
+    ownerOnly: true,
+    frequency: "rare",
+    surfaces: ["more", "search"],
+    aliases: ["month-end", "månedsafslutning", "maanedsafslutning", "revisorpakke", "revisor package", "bilag", "closing"],
+  },
 
   // ─── STAFF ──────────────────────────────────────────────────────────
   // EMPTY BY DESIGN (Sep 2026). Both staff rows — Vagtplan (job 3) and

@@ -771,14 +771,21 @@ def _ingest_attachment(
         description = (f"From {subject}" if subject else "From email inbox")[:220]
     description += " [needs review]" if not high_conf else " [from inbox]"
 
+    # The date printed on the receipt, or — when it could not be read — the
+    # day the mail came in, marked "guessed" so the queue asks (the dato
+    # blocker): a forwarded receipt is often weeks old, and a guessed date is
+    # the wrong MOMS period and the wrong voucher year.
     expense_date: date
+    date_guessed = False
     if isinstance(parsed_date, str):
         try:
             expense_date = datetime.strptime(parsed_date[:10], "%Y-%m-%d").date()
         except ValueError:
             expense_date = em.received_at.date()
+            date_guessed = True
     else:
         expense_date = em.received_at.date()
+        date_guessed = True
 
     # Amount — keep blank (0) for low-conf so the owner is forced to
     # eyeball before confirming. Stored as 0 + needs-review marker in
@@ -792,6 +799,18 @@ def _ingest_attachment(
     else:
         amount_dec = None
 
+    # A DRAFT in the Godkend-kø, like every other machine-read receipt
+    # (Scan bunke, supplier-invoice import). It used to be created with no
+    # status, so the model default 'approved' booked it straight into MOMS —
+    # unseen, with a hard-coded "card" method, at 0 kr. when the read was
+    # unsure, and as a second copy of any expense the owner had already typed
+    # (duplicate fradrag). As a draft it stays out of every money total until
+    # the owner approves it, gets its bilagsnummer at approval, and the queue
+    # can offer "Knyt til eksisterende udgift" when it matches a typed row.
+    # The method is the receipt's own when it printed one — never invented.
+    _pm = str((extracted or {}).get("payment_method") or "").strip().lower() if extracted else ""
+    _pm = {"kontant": "cash", "kort": "card", "dankort": "card"}.get(_pm, _pm)
+    from app.services.vendor_identity import canonical_vendor_key
     expense = Expense(
         id=uuid.uuid4(),
         user_id=user.id,
@@ -799,9 +818,13 @@ def _ingest_attachment(
         date=expense_date,
         amount=amount_dec if amount_dec is not None else 0,
         description=description,
-        payment_method="card",
+        payment_method=_pm if _pm in ("cash", "card", "mobilepay") else None,
         notes=f"Auto-drafted from inbox email {em.id}. SHA256 {sha[:16]}…",
         receipt_photo=storage_path,
+        receipt_source="scan",
+        status="pending",
+        date_source="guessed" if date_guessed else None,
+        vendor_key=canonical_vendor_key(vendor) if vendor else None,
         reference_id=f"inbox_{em.id}_{intake.id}",
     )
     db.add(expense)

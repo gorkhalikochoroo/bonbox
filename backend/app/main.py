@@ -132,6 +132,7 @@ from app.routers import reservation_insights as reservation_insights_router
 from app.routers import public_reservations as public_reservations_router
 from app.routers import stand_link as stand_link_router
 from app.routers import public_gavekort as public_gavekort_router
+from app.routers import revisor_package as revisor_package_router
 from app.routers import gavekort as gavekort_router
 # Onboarding — business-archetype detection (keyword fast-path → AI fallback)
 from app.routers import onboarding as onboarding_router
@@ -368,9 +369,53 @@ _migrations = [
     # taps Godkend. DEFAULT 'approved' keeps all existing rows live (numbers
     # byte-identical). The exclusion is enforced in app/services/expense_status.py.
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS status VARCHAR(12) DEFAULT 'approved'",
-    # Backfill: any inbox-captured '[needs review]' row becomes a pending draft
-    # (idempotent — only flips approved→pending for unreviewed rows).
-    "UPDATE expenses SET status = 'pending' WHERE status = 'approved' AND description LIKE '%[needs review]%'",
+    # Backfill: an inbox-captured '[needs review]' row booked before the
+    # Godkend-kø existed becomes a pending draft — ONCE.
+    #
+    # It used to be a bare UPDATE in this list, so it ran on EVERY boot: an
+    # owner approved such a receipt, and the next deploy sent it back to the
+    # queue (out of the MOMS again) — proven on PG16, 12 Oct review M6. Now:
+    #   • a row in data_backfills marks it done; the INSERT … ON CONFLICT DO
+    #     NOTHING and the UPDATE are ONE statement, so the flip happens only
+    #     on the boot that writes the mark (two instances booting at once:
+    #     one wins the INSERT, the other updates nothing);
+    #   • a row with a bilagsnummer was approved by its owner (the number is
+    #     allocated at approval) and is never touched;
+    #   • approving now also removes the marker (expenses._promote_to_approved).
+    """CREATE TABLE IF NOT EXISTS data_backfills (
+        name VARCHAR(80) PRIMARY KEY,
+        applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    """WITH first_run AS (
+        INSERT INTO data_backfills (name) VALUES ('expenses_needs_review_to_pending_v1')
+        ON CONFLICT (name) DO NOTHING
+        RETURNING name
+    )
+    UPDATE expenses SET status = 'pending'
+     WHERE status = 'approved' AND voucher_number IS NULL
+       AND description LIKE '%[needs review]%'
+       AND EXISTS (SELECT 1 FROM first_run)""",
+    # Repair — ONCE: the receipts the old every-boot UPDATE already sent
+    # back. Each was approved by its owner (an inbox draft gets its
+    # bilagsnummer only at approval, _promote_to_approved; the inbox — the
+    # only writer of the marker — never allocates one), then flipped back to
+    # pending by a deploy: out of the MOMS until approved a second time
+    # (14 Oct review). They return to approved with the marker removed, as
+    # an approval today leaves them. A draft that never had a bilagsnummer
+    # is not touched; the same data_backfills one-statement guard.
+    """WITH first_run AS (
+        INSERT INTO data_backfills (name) VALUES ('expenses_needs_review_restore_approved_v1')
+        ON CONFLICT (name) DO NOTHING
+        RETURNING name
+    )
+    UPDATE expenses
+       SET status = 'approved',
+           description = COALESCE(NULLIF(TRIM(REPLACE(REPLACE(
+               description, ' [needs review]', ''), '[needs review]', '')), ''), description)
+     WHERE status = 'pending' AND voucher_number IS NOT NULL
+       AND is_deleted IS NOT TRUE
+       AND description LIKE '%[needs review]%'
+       AND EXISTS (SELECT 1 FROM first_run)""",
     # Error log — observability without external dependencies (Sentry alternative)
     """CREATE TABLE IF NOT EXISTS error_logs (
         id VARCHAR(36) PRIMARY KEY,
@@ -2740,6 +2785,56 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_account_claim_tickets_user_id ON account_claim_tickets (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_account_claim_tickets_token_hash ON account_claim_tickets (token_hash)",
+    # ── Migration (2026-10-12): revisor package — schedule + send ledger ──
+    # business_profiles: the owner's "Send revisorpakke" choice (NULL = off)
+    # and when it was turned on. Nullable, no default, no backfill — every
+    # existing owner reads "off", exactly as before.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS revisor_package_schedule VARCHAR(10)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS revisor_package_schedule_at TIMESTAMP",
+    # Net-new table backing app/models/revisor_package.py (one row per package
+    # e-mailed for a period). Additive; create_all() builds it first, this is
+    # the create_all-bypassed net with create_all's types (GUID → VARCHAR(36)).
+    # The UNIQUE (user_id, dedup_key) is the once-per-period-per-recipient
+    # guarantee of the scheduled send.
+    """CREATE TABLE IF NOT EXISTS revisor_package_sends (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        period_kind VARCHAR(10) NOT NULL,
+        period_start DATE NOT NULL,
+        period_end DATE NOT NULL,
+        send_trigger VARCHAR(10) NOT NULL,
+        recipient VARCHAR(255),
+        recipient_fp VARCHAR(16),
+        dedup_key VARCHAR(80),
+        status VARCHAR(12) NOT NULL,
+        skip_reason VARCHAR(40),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        storage_key TEXT,
+        zip_sha256 VARCHAR(64),
+        zip_size INTEGER,
+        n_bilag INTEGER,
+        open_items INTEGER,
+        link_expires_at TIMESTAMP,
+        error VARCHAR(120),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP,
+        sent_at TIMESTAMP,
+        purged_at TIMESTAMP,
+        parts_json TEXT,
+        figures_json TEXT,
+        figures_fp VARCHAR(64),
+        is_correction BOOLEAN NOT NULL DEFAULT FALSE,
+        CONSTRAINT ux_revisor_package_dedup UNIQUE (user_id, dedup_key)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_revisor_package_sends_user_id ON revisor_package_sends (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_revisor_package_user_period ON revisor_package_sends (user_id, period_start, period_end)",
+    # 12 Oct review: split packages (M8) and the sent figures' fingerprint
+    # (M7). Nullable / defaulted — rows written before read as one part, no
+    # fingerprint, not a correction.
+    "ALTER TABLE revisor_package_sends ADD COLUMN IF NOT EXISTS parts_json TEXT",
+    "ALTER TABLE revisor_package_sends ADD COLUMN IF NOT EXISTS figures_json TEXT",
+    "ALTER TABLE revisor_package_sends ADD COLUMN IF NOT EXISTS figures_fp VARCHAR(64)",
+    "ALTER TABLE revisor_package_sends ADD COLUMN IF NOT EXISTS is_correction BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 
@@ -3450,6 +3545,13 @@ def _run_migrations():
             # shipped with the PG ALTER only, so every BusinessProfile query
             # 500'd on a dev DB from before it (release gate, 9 Oct).
             ok += _add("business_profiles", "timereg_period_json", "TEXT")
+            # Mirror of the revisor package schedule (2026-10-12).
+            ok += _add("business_profiles", "revisor_package_schedule", "VARCHAR(10)")
+            ok += _add("business_profiles", "revisor_package_schedule_at", "TIMESTAMP")
+            ok += _add("revisor_package_sends", "parts_json", "TEXT")
+            ok += _add("revisor_package_sends", "figures_json", "TEXT")
+            ok += _add("revisor_package_sends", "figures_fp", "VARCHAR(64)")
+            ok += _add("revisor_package_sends", "is_correction", "BOOLEAN NOT NULL DEFAULT 0")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
@@ -4829,6 +4931,11 @@ _MEMBER_READ_DENY_PREFIXES = (
     # A member's own-data request goes through the owner, who is the
     # controller of that data.
     "/api/auth/export-data",
+    # The revisor package IS the books for a period: every sale, every expense
+    # with its bilag photo, the MOMS figures and the gift-card ledger, as one
+    # ZIP — and the month-end checklist names the cash differences. Owner-only,
+    # like /api/exports and /api/reports beside it.
+    "/api/revisor-package",
     # The same kr ÷ hours division, in a router the wage round did not look at.
     # /api/staffing/logs returns labor_cost + total_hours + staff_count per day,
     # and on any day logged with one person on, that division IS their exact
@@ -5724,6 +5831,15 @@ app.include_router(
     prefix="/api/public/gavekort",
     tags=["Public Gavekort"],
 )
+# Revisorpakke + Månedsafslutning (owner-only: the prefix is in
+# _MEMBER_READ_DENY_PREFIXES) and the revisor's signed 14-day download link
+# (no auth — the HMAC token names the send, the send names the stored ZIP).
+app.include_router(revisor_package_router.router, prefix="/api/revisor-package", tags=["Revisor package"])
+app.include_router(
+    revisor_package_router.public_router,
+    prefix="/api/public/revisor-package",
+    tags=["Public Revisor package"],
+)
 # Door-scan + visitor's web-ticket page (signed URL). Same no-prefix
 # pattern as public_events_router because the routes (`/api/tickets/*`
 # + `/t/{ticket_id}`) live at distinct path roots.
@@ -6335,6 +6451,23 @@ try:
         register_backup_job(_scheduler)
     except Exception as _backup_job_err:  # noqa: BLE001
         print(f"Scheduler warning: nightly backup job not registered: {_backup_job_err}")
+    # Scheduled revisor packages (Settings → "Send revisorpakke") — hourly at
+    # :20 (JOB_MINUTE), because the due moment is 07:00 — or the hour after
+    # the owner's day cutoff — in each OWNER's time zone (Monday for the week
+    # before, the 3rd for the month before). Once per period is enforced by
+    # the ledger's UNIQUE dedup_key, not by the scheduler. Own try so it can
+    # never cost the other jobs.
+    try:
+        from app.jobs.revisor_package_job import JOB_MINUTE, run_revisor_package_schedule
+        _scheduler.add_job(
+            run_revisor_package_schedule,
+            trigger=CronTrigger(minute=JOB_MINUTE),
+            id="revisor_package_schedule",
+            name="Scheduled revisor packages (weekly / monthly)",
+            replace_existing=True,
+        )
+    except Exception as e:
+        print(f"Scheduler revisor_package warning: {e}")
     # Ops triage + operator alerts (R-i, OPS-04) — every 15 min: groups new
     # error_logs rows (500s, raised 5xx, JOB, WEBHOOK) and sends ONE capped,
     # deduplicated, customer-data-free digest (services/ops_alert.py).
@@ -6355,7 +6488,8 @@ try:
           "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30), "
           "recurring expenses (04:00), daily brief push (06:00), daily brief email (06:30), "
           "aiia sync (03:30), mobilepay sync (03:45), frontend monitor (5m), "
-          "nightly backup (04:20 UTC, off unless BACKUP_* set), abuse monitor (2m)")
+          "nightly backup (04:20 UTC, off unless BACKUP_* set), abuse monitor (2m), "
+          "revisor packages (hourly :20)")
 
     # Scheduler shutdown migrated to the `lifespan` context manager
     # near the FastAPI() constructor. It checks globals() for the

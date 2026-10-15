@@ -684,12 +684,13 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # broken or like a put-down. Locked state surfaces the upsell
         # copy "Sparer revisoren timer fra Starter" instead.
         "accountant_hours_widget": False,
-        # `accountant_month_end_bundle` — Pro-only one-click revisor
-        # package at month-end. Positioned now via the Pro pricing-card
-        # tagline; the actual bundle feature is Manoj's follow-up build
-        # under this same flag. False on every tier today means the
-        # feature is dark until Manoj flips it — no half-built surface
-        # leaks to a user.
+        # `accountant_month_end_bundle` — BonBox e-mails the revisor package
+        # (summary PDF + a signed 14-day link to the ZIP with CSVs and every
+        # bilag) to the saved revisor: "Send pakken" on Månedsafslutning and
+        # the weekly / monthly schedule (routers/revisor_package.py,
+        # jobs/revisor_package_job.py). It gates SENDING only: the package
+        # itself downloads on every tier (accountant-grade artifacts are the
+        # same at any tier), so a Free owner mails it from their own inbox.
         "accountant_month_end_bundle": False,
         # 2026-05-24 — Receipt-forwarding email inbox (v0.1). Universal
         # like Smart Scan auto-routing: every owner gets the alias and
@@ -834,7 +835,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "smart_scan_batch": True,          # Starter+ — batch upload multiple docs
         "smart_scan_pdf_direct": True,     # 2026-07-12 — opened to Starter+ (all-features doctrine)
         "accountant_hours_widget": True,   # Starter+ — the time-saved tracker
-        "accountant_month_end_bundle": True,  # 2026-07-12 — opened to Starter+ (positioned, build pending)
+        "accountant_month_end_bundle": True,  # revisor package sent by BonBox (manual + schedule) — Starter+
         "multi_tier_tickets": True,        # Starter+ — adult/student/family pricing
         "cross_event_analytics": True,     # 2026-07-12 — opened to Starter+ (all-features doctrine)
         "reservations": True,              # Starter = full reservations
@@ -951,7 +952,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "smart_scan_batch": True,          # Starter+ — same as Starter, included
         "smart_scan_pdf_direct": True,     # Pro killer — drag PDFs in without photo
         "accountant_hours_widget": True,   # Starter+ — time-saved tracker
-        "accountant_month_end_bundle": True,  # Pro killer — one-click revisor pack
+        "accountant_month_end_bundle": True,  # revisor package sent by BonBox (manual + schedule)
         "multi_tier_tickets": True,        # Starter+ — same on Pro
         "cross_event_analytics": True,     # Pro killer for kulturarrangører
         "reservations": True,              # Pro = full reservations

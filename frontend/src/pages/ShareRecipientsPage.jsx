@@ -4,6 +4,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
 import { FadeIn } from "../components/AnimationKit";
 import { errText } from "../utils/errText";
+import RevisorPackageSchedule from "../components/RevisorPackageSchedule";
 
 /**
  * Share recipients settings — owners configure where their daily-close
@@ -162,6 +163,12 @@ export default function ShareRecipientsPage() {
           )}
         </div>
       </FadeIn>
+
+      {/* Settings → "Send revisorpakke": the weekly / monthly package to the
+          revisor (owner-only API; the card hides itself if it can't load). */}
+      <div className="mt-5 mb-6">
+        <RevisorPackageSchedule />
+      </div>
 
       {editing && (
         <FadeIn>

@@ -34,6 +34,7 @@ from app.utils.csv_safe import csv_safe  # neutralize CSV formula-injection in f
 
 from app.models.business_profile import BusinessProfile
 from app.models.expense import Expense, ExpenseCategory
+from app.services.expense_status import not_pending
 from app.models.sale import Sale
 from app.models.daily_close import DailyClose
 from app.models.user import User
@@ -120,15 +121,19 @@ def _query_sales(user: User, db: Session, start: date, end: date) -> list:
         return sales
     close_dates = {c.date for c in closes}
     lines = [s for s in sales if s.date not in close_dates]
+    from app.services.tax_service import _get_vat_rate, close_vat_split
+    vat_rate = _get_vat_rate(user.currency or "DKK")
     for c in closes:
         gross = float(c.revenue_total or 0)
         if gross <= 0:
             continue
-        moms = float(c.moms_total) if c.moms_total is not None else None
-        # A DK close is 25 % or momsfri: the 25 % share is moms ÷ 0,20, the
-        # rest is exempt. No moms figure on the close = treat it all as 25 %.
-        taxed = gross if moms is None else min(gross, round(moms / 0.2, 2))
-        exempt = round(gross - taxed, 2)
+        # A DK close is 25 % or momsfri: the 25 % share is what its own moms
+        # covers, the rest is exempt — the MOMS engine's own split (one rule
+        # for box A, the revisorpakke and these files). No moms figure, or
+        # moms at the standard rate within the kasserapport's rounding
+        # tolerance = all 25 % (moms ÷ 0,20 used to print a
+        # "Kasserapport … (momsfri) 0,01" line for nearly every day).
+        taxed, exempt = close_vat_split(gross, c.moms_total, vat_rate)
         day = c.date.isoformat()
         if taxed > 0.004:
             lines.append(SimpleNamespace(
@@ -183,7 +188,13 @@ def _query_sale_rows(user: User, db: Session, start: date, end: date) -> list[Sa
 
 
 def _query_expenses(user: User, db: Session, start: date, end: date) -> list[Expense]:
-    """Inner-layer query — graceful fallback for missing is_personal column."""
+    """Inner-layer query — graceful fallback for missing is_personal column.
+
+    Booked expenses only: a Godkend-kø draft (status 'pending') is a machine
+    read nobody has approved. The MOMS summary in the same bundle
+    (compute_filing_data) never counted one, so every line-item file listed
+    drafts — "Mangler beløb" rows at 0,00 and OCR guesses — that its own
+    moms-summary.csv left out (expense_status.not_pending is the one gate)."""
     try:
         return (
             db.query(Expense)
@@ -193,6 +204,7 @@ def _query_expenses(user: User, db: Session, start: date, end: date) -> list[Exp
                 Expense.date <= end,
                 Expense.is_deleted.isnot(True),
                 Expense.is_personal == False,  # noqa: E712
+                not_pending(),
             )
             .order_by(Expense.date.asc())
             .all()
@@ -207,6 +219,7 @@ def _query_expenses(user: User, db: Session, start: date, end: date) -> list[Exp
                     Expense.date >= start,
                     Expense.date <= end,
                     Expense.is_deleted.isnot(True),
+                    not_pending(),
                 )
                 .order_by(Expense.date.asc())
                 .all()
@@ -279,13 +292,17 @@ def _customer_lookup(user: User, db: Session) -> dict:
 # ───────── DINERO ─────────
 
 
-def _no_input_vat(e, cats: dict) -> bool:
+def _no_input_vat(e, cats: dict, account_ccy: str | None = None) -> bool:
     """True when this expense carries no deductible købsmoms: marked exempt,
-    or a category the MOMS engine gives 0 % fradrag (løn, forsikring,
-    pension …). The exports coded every expense I25, so a revisor importing
-    the file would have booked købsmoms on wages that the angivelse — rightly
-    — never claimed."""
+    in a foreign currency (foreign VAT is not købsmoms — the MOMS engine
+    leaves it out), or a category the MOMS engine gives 0 % fradrag (løn,
+    forsikring, pension …). The exports coded every expense I25, so a revisor
+    importing the file would have booked købsmoms on wages that the
+    angivelse — rightly — never claimed."""
     if getattr(e, "is_tax_exempt", False):
+        return True
+    ccy = (getattr(e, "currency", None) or "").strip().upper()
+    if ccy and ccy != (account_ccy or "DKK").strip().upper():
         return True
     try:
         from app.services.dk_fradrag import fradrag_factor
@@ -339,7 +356,7 @@ def export_dinero(user: User, db: Session, start: date, end: date) -> bytes:
 
     fallback = 1
     for e in expenses:
-        moms = "0%" if _no_input_vat(e, cats) else "25%"
+        moms = "0%" if _no_input_vat(e, cats, user.currency) else "25%"
         cat_name = cats.get(str(e.category_id), "Other")
         desc = f"{cat_name}: {e.description}" if e.description else cat_name
         vn = getattr(e, "voucher_number", None)
@@ -405,7 +422,7 @@ def export_billy(user: User, db: Session, start: date, end: date) -> bytes:
     w.writerow(["# === EXPENSES ==="])
     w.writerow(["Bilagsnummer", "Date", "Category", "Description", "Amount", "Currency", "VAT %"])
     for e in expenses:
-        vat = "0" if _no_input_vat(e, cats) else "25"
+        vat = "0" if _no_input_vat(e, cats, user.currency) else "25"
         cat_name = cats.get(str(e.category_id), "Other")
         vn = getattr(e, "voucher_number", None)
         bilag = f"E-{e.date.year}-{vn:04d}" if vn else ""
@@ -477,7 +494,7 @@ def export_economic(user: User, db: Session, start: date, end: date) -> bytes:
 
     fallback = 1
     for e in expenses:
-        vat = "I0" if _no_input_vat(e, cats) else "I25"
+        vat = "I0" if _no_input_vat(e, cats, user.currency) else "I25"
         cat_name = cats.get(str(e.category_id), "Other")
         desc = f"{cat_name}: {e.description}" if e.description else cat_name
         vn = getattr(e, "voucher_number", None)
@@ -580,7 +597,7 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
             "", "", "", "",
         ])
     for e in expenses:
-        vat = "0" if _no_input_vat(e, cats) else default_vat_str
+        vat = "0" if _no_input_vat(e, cats, user.currency) else default_vat_str
         cat_name = cats.get(str(e.category_id), "Other")
         vn = getattr(e, "voucher_number", None)
         bilag = f"E-{e.date.year}-{vn:04d}" if vn else ""
@@ -1132,14 +1149,18 @@ FORMATS = {
         ),
     },
     "bundle": {
-        "label": "Monthly bundle (ZIP — everything)",
+        # Not "Revisorpakke": that name is the period package (services/
+        # revisor_package.py, Månedsafslutning) — one thing per name (12 Oct
+        # review, minor 12). This is the import files for bookkeeping software.
+        "label": "Bookkeeping files (ZIP — for import)",
         "ext": "zip",
         "mime": "application/zip",
         "exporter": export_bundle,
         "instructions": (
             "Everything in one ZIP: sales+expenses (Dinero format), faktura "
-            "register, mileage log, and a README. The monthly handoff your "
-            "revisor needs — one attachment, four files, clear import order."
+            "register, mileage log, MOMS summary, gavekort ledger, a README "
+            "and a manifest with SHA-256 checksums — one attachment, clear "
+            "import order."
         ),
     },
 }

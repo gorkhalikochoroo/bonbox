@@ -773,7 +773,11 @@ def monthly_report_pdf(
     # never the gross. Margin is suppressed when no expenses are recorded
     # (revenue-as-profit at "100% margin" is a lie).
     revenue_excl_vat = total_revenue - float(_fd["moms_af_omsaetning"])
-    net_profit = revenue_excl_vat - total_expenses
+    # Expenses ex the købsmoms that is deducted, as /custom-pdf and the Reports
+    # screen (/overview) do: subtracting them INCL. moms from revenue EX moms
+    # printed a Resultat lower by exactly the købsmoms, so the Dashboard's
+    # "Download PDF" and the Reports tab disagreed for the same month.
+    net_profit = revenue_excl_vat - (total_expenses - float(input_vat or 0))
     has_expenses = total_expenses > 0
     margin = round((net_profit / revenue_excl_vat) * 100, 1) if (has_expenses and revenue_excl_vat > 0) else None
 

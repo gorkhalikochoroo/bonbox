@@ -9,7 +9,7 @@ import logging
 from datetime import date, datetime, time, timedelta
 from dateutil.relativedelta import relativedelta
 
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.models.user import User
@@ -221,6 +221,91 @@ def _resolve_frequency(user, config: dict) -> str:
     return config.get("default_frequency", "quarterly")
 
 
+def close_vat_split(gross, moms, vat_rate: float) -> tuple[float, float]:
+    """(taxed, momsfri) gross of ONE confirmed close, from its own moms.
+
+    A DK close is standard-rated or momsfri: the standard-rated part is the
+    gross whose moms the close states (moms × (1 + rate) / rate), the rest
+    carried no moms. One rule for the MOMS engine's box A, the revisorpakke's
+    salg.csv and the bookkeeping exports' close lines — they printed the same
+    close two ways (14 Oct review: a 5.000 kr. close with 900 kr. moms was
+    4.500 + 500 momsfri in salg.csv and 5.000 in "Salg med moms").
+
+    The whole gross is taxed when the close states no moms (the engine takes
+    the moms out by formula), when its moms is the standard rate within the
+    kasserapport's own tolerance (moms_kr_tolerance: a Z-bon's per-line
+    rounding is not momsfri revenue), when it is above it, or when gross or
+    moms is negative (a figure to check, never a split)."""
+    g = round(float(gross or 0), 2)
+    if moms is None or vat_rate is None or vat_rate <= 0 or g <= 0:
+        return g, 0.0
+    m = float(moms)
+    if m < 0:
+        return g, 0.0
+    from app.services.kasserapport_claims import moms_kr_tolerance
+    std = g * vat_rate / (1 + vat_rate)
+    if m >= std - moms_kr_tolerance(g - std):
+        return g, 0.0
+    taxed = round(min(g, m * (1 + vat_rate) / vat_rate), 2)
+    return taxed, round(g - taxed, 2)
+
+
+def _split_input_vat_by_category(cat_rows, input_vat_total: float, vat_rate: float,
+                                 prices_include_moms: bool) -> list[dict]:
+    """The deductible købsmoms of `_calc_vat`, split per expense category.
+
+    `cat_rows` are _calc_vat's own (category name, gross) rows. Each row's
+    exact share is gross × §42 fradrag factor × the rate formula input_vat
+    uses. The shares are rounded by LARGEST REMAINDER: every row is cut to
+    the øre below, and the øre still missing to `input_vat_total` go one each
+    to the rows with the largest cut-off fractions. So the column sums to the
+    figure on the angivelse exactly, and every row is within one øre of its
+    exact share — a row whose share is a whole øre amount (12.500 kr. husleje
+    → 2.500,00) is never moved to absorb another row's rounding."""
+    from decimal import Decimal, ROUND_FLOOR, localcontext
+
+    rate = Decimal(str(vat_rate or 0))
+    with localcontext() as ctx:
+        ctx.prec = 34
+        if rate <= 0:
+            k = Decimal(0)
+        elif prices_include_moms:
+            k = rate / (1 + rate)
+        else:
+            k = rate
+        rows: list[dict] = []
+        for name, total in cat_rows or []:
+            gross = Decimal(str(float(total or 0)))
+            factor = fradrag_factor(name or "")
+            exact_ore = gross * Decimal(str(factor)) * k * 100
+            floor_ore = int(exact_ore.to_integral_value(rounding=ROUND_FLOOR))
+            rows.append({
+                "category": name or "",
+                "gross": round(float(gross), 2),
+                "fradrag_pct": int(round(factor * 100)),
+                "_floor": floor_ore,
+                "_rem": exact_ore - floor_ore,
+                "_exact": exact_ore,
+            })
+    if rows:
+        target = int(round(float(input_vat_total or 0) * 100))
+        missing = target - sum(r["_floor"] for r in rows)
+        # Largest fraction first; ties: the larger amount, then the name.
+        order = sorted(rows, key=lambda r: (-r["_rem"], -abs(r["_exact"]), r["category"]))
+        if missing >= 0:
+            for i in range(missing):
+                order[i % len(order)]["_floor"] += 1
+        else:  # float noise in input_vat_total — take from the smallest fractions
+            for i in range(-missing):
+                order[-1 - (i % len(order))]["_floor"] -= 1
+    out = [{
+        "category": r["category"], "gross": r["gross"], "fradrag_pct": r["fradrag_pct"],
+        "input_vat": r["_floor"] / 100,
+    } for r in rows]
+    out.sort(key=lambda r: (-r["gross"], r["category"]))
+    return out
+
+
 def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
               vat_rate: float, prices_include_moms: bool = True) -> dict:
     """
@@ -310,6 +395,9 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     closes_draft_count = 0
     closes_manual_count = 0
     close_revenue_ex_moms_total = 0.0
+    # The momsfri part of the closes, by their own moms (close_vat_split):
+    # in sales_total with the close, but not "Salg med moms".
+    close_exempt_total = 0.0
     # Track close revenue per date for Bogføringsloven §9 stk. 2 variance
     # detection below — when a close exists AND Sale rows exist on the
     # same date with materially different totals, a revisor needs to see
@@ -335,6 +423,7 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
             # — preserve owner / OCR intent. Avoids the formula
             # over-counting when the owner has manually entered MOMS.
             close_pos_moms += float(moms)
+            close_exempt_total += close_vat_split(rev_f, moms, vat_rate)[1]
         elif rev_f > 0 and vat_rate > 0:
             # No explicit MOMS — extract via the gross formula.
             #
@@ -403,16 +492,35 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     # on §42-limited categories. Unknown categories stay 100% (never under-
     # claim a normal expense). Single source: this feeds `input_vat`, which
     # both the on-screen breakdown and build_moms_filing_pdf consume.
-    _fradrag_cat_rows = (
+    #
+    # Only expenses in the account currency carry købsmoms. A receipt in a
+    # foreign currency (Expense.currency set, and not the account's) holds
+    # foreign VAT, which is never deducted on the MOMS-angivelse (it is
+    # reclaimed through the foreign refund scheme; an EU reverse-charge
+    # purchase nets to 0) — the rule the expense router already applies to
+    # the receipt's own VAT figure. 14 Oct review: a 100 EUR Varekøb (746 kr.)
+    # was deducted as 149,20 kr. Danish købsmoms. Foreign expenses stay in
+    # expenses_total (they are costs) and get their own 0 % category rows.
+    acct_ccy = str(
+        db.query(User.currency).filter(User.id == user_id).scalar() or "DKK"
+    ).strip().upper()
+    _is_foreign = and_(Expense.currency.isnot(None), Expense.currency != "",
+                       func.upper(Expense.currency) != acct_ccy)
+    _cat_base = (
         db.query(ExpenseCategory.name, func.coalesce(func.sum(Expense.amount), 0))
         .select_from(Expense)
         .outerjoin(ExpenseCategory, ExpenseCategory.id == Expense.category_id)
         .filter(Expense.user_id == user_id, Expense.date >= start_date, Expense.date < end_date,
                 Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True),
                 Expense.is_tax_exempt.isnot(True), not_pending())
+    )
+    _fradrag_cat_rows = (
+        _cat_base.filter(or_(Expense.currency.is_(None), ~_is_foreign))
         .group_by(ExpenseCategory.name)
         .all()
     )
+    _foreign_cat_rows = _cat_base.filter(_is_foreign).group_by(ExpenseCategory.name).all()
+    foreign_expenses_total = round(sum(float(t or 0) for _n, t in _foreign_cat_rows), 2)
     deductible_expense_base = sum(
         float(total) * fradrag_factor(name) for name, total in _fradrag_cat_rows
     )
@@ -425,9 +533,9 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     # 2026-05-24 (salg_uden_moms was hardcoded to 0.0 regardless of
     # actual exempt revenue).
     #
-    # Closes don't expose an is_tax_exempt flag — assume all close
-    # revenue is taxable. Owners with material exempt revenue should
-    # be using the Sale + faktura paths anyway (those carry the flag).
+    # Closes carry no is_tax_exempt flag: their momsfri part is what their
+    # own moms leaves untaxed (close_vat_split, summed in the close loop) —
+    # 0 for a close at the standard rate or with no moms figure.
     pos_exempt_q = (
         db.query(func.coalesce(func.sum(Sale.amount), 0))
         .filter(Sale.user_id == user_id, Sale.date >= start_date, Sale.date < end_date,
@@ -446,19 +554,18 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
                 Invoice.moms_total == 0)
         .scalar()
     )
-    exempt_sales = round(pos_exempt_total + invoice_exempt_total, 2)
+    close_exempt_total = round(close_exempt_total, 2)
+    exempt_sales = round(pos_exempt_total + invoice_exempt_total + close_exempt_total, 2)
 
     # Exempt Sales that fall ON a confirmed-close date are EXCLUDED from both
     # pos_sale_total and pos_exempt_total above (close.revenue_total supersedes
-    # Sale rows on those dates, and a close carries no exempt breakdown).
-    # Consequence: exempt till activity on a close day is folded into that
-    # close's fully-taxable total — overstating box A ("Salg med moms") and
-    # understating "Salg uden moms" for the day. We can't safely re-split it
-    # (the close total may or may not already include these Sales, and a blind
-    # re-derive would risk a worse reconciliation bug), so we MEASURE it and
-    # expose it; the filing PDF surfaces a review note when it's material so a
-    # revisor can adjust. Honest > silently wrong. Typically 0 (cafés/
-    # restaurants have no exempt revenue), so the common path is unaffected.
+    # Sale rows on those dates). The close's own moms decides how much of it
+    # is momsfri (close_exempt_total above): a close whose moms leaves the
+    # momsfri till sales untaxed puts them in "Salg uden moms"; a close whose
+    # moms is the standard rate of its whole gross keeps them in box A. This
+    # figure only MEASURES the momsfri Sale rows on close days — returned for
+    # the API; no report prints it (14 Oct review: the comment said the
+    # filing PDF showed a note; nothing ever did).
     exempt_on_close_dates = 0.0
     if close_dates:
         exempt_on_close_dates = round(float(
@@ -487,6 +594,23 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         pos_sale_vat = pos_sale_total * vat_rate
         input_vat = round(deductible_expense_base * vat_rate, 2)
 
+    # Købsmoms per expense category — the SAME rows (_fradrag_cat_rows), the
+    # SAME §42 factor and the SAME formula as input_vat above, so the revisor
+    # package's category table is this engine's own breakdown, never a second
+    # calculation. Split by largest remainder (_split_input_vat_by_category):
+    # every row is within an øre of its exact share and the rows sum to
+    # input_vat exactly. Foreign-currency expenses follow as their own rows
+    # ("foreign": True) at 0 % — so the rows' gross still sums to
+    # expenses_total.
+    input_vat_by_category = _split_input_vat_by_category(
+        _fradrag_cat_rows, input_vat, vat_rate, prices_include_moms,
+    ) + [
+        {"category": name or "", "gross": round(float(total or 0), 2), "fradrag_pct": 0,
+         "input_vat": 0.0, "foreign": True}
+        for name, total in _foreign_cat_rows
+    ]
+    input_vat_by_category.sort(key=lambda r: (-r["gross"], r["category"], bool(r.get("foreign"))))
+
     pos_output_vat = round(pos_sale_vat + close_pos_moms, 2)
 
     # Total POS revenue across both streams (Sale on non-close dates +
@@ -498,10 +622,11 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     output_vat = round(pos_output_vat + invoice_moms, 2)
 
     # Total revenue: POS gross + Invoice gross (which already includes moms).
-    # NB: `sales_total` INCLUDES `exempt_sales` — these are the gross top-line
-    # revenue across both taxable + exempt streams. Use `taxable_sales` below
-    # (sales_total - exempt_sales) when the consumer wants the "Salg med moms"
-    # number for the SKAT MOMS-angivelse "row A: taxable sales" line.
+    # NB: `sales_total` includes the zero-moms INVOICES (part of exempt_sales)
+    # but not the momsfri POS sales (pos_sale_total leaves them out; they are
+    # in exempt_sales / "Salg uden moms"). Use `taxable_sales` below when the
+    # consumer wants the "Salg med moms" number for the SKAT MOMS-angivelse
+    # "row A: taxable sales" line.
     sales_total = round(pos_total + invoice_total_gross, 2)
 
     # SKAT MOMS-angivelse box A ("Salg med moms") = taxable sales only.
@@ -510,7 +635,19 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     # exempt revenue (it appeared on both "Salg med moms" AND "Salg uden
     # moms" rows, breaking the sum). Surface a dedicated `taxable_sales`
     # field so the PDF + downstream callers can land the right number.
-    taxable_sales = round(max(sales_total - exempt_sales, 0.0), 2)
+    #
+    # Only the exempt revenue that is INSIDE sales_total comes off it: the
+    # zero-moms invoices (invoice_total_gross holds them). Momsfri POS sales
+    # never entered sales_total — pos_sale_total above leaves them out — so
+    # subtracting all of exempt_sales took them off a second time: a day with
+    # 1.000 kr. taxable and 200 kr. momsfri till sales put 800 kr. in box A.
+    # (12 Oct review M5. The moms itself was always right: it is computed
+    # from the taxable streams, never from this box.)
+    #
+    # The momsfri part of the closes (close_vat_split) is inside sales_total
+    # too, with its close — so it comes off as well (14 Oct review).
+    exempt_in_sales_total = round(invoice_exempt_total + close_exempt_total, 2)
+    taxable_sales = round(max(sales_total - exempt_in_sales_total, 0.0), 2)
 
     # ─── Bogføringsloven §9 stk. 2 — per-date variance detection
     #
@@ -879,7 +1016,7 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     if spv_sold or spv_in_revenue:
         output_vat = round(output_vat + spv_sold_vat - spv_in_revenue_vat, 2)
         sales_total = round(sales_total + spv_sold - spv_in_revenue, 2)
-        taxable_sales = round(max(sales_total - exempt_sales, 0.0), 2)
+        taxable_sales = round(max(sales_total - exempt_in_sales_total, 0.0), 2)
 
     return {
         "sales_total": sales_total,
@@ -903,12 +1040,20 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         "invoice_revenue": round(invoice_total_gross, 2),
         "expenses_total": round(expenses_total, 2),
         "exempt_sales": exempt_sales,
-        # Exempt Sales on confirmed-close dates currently treated as taxable
-        # (folded into close.revenue_total). >0 ⇒ box A may be overstated and
-        # the filing PDF shows a review note. Usually 0.
+        # The parts of exempt_sales, for the momsangivelse's D2 rows: zero-
+        # moms fakturaer and the closes' momsfri part (both inside
+        # sales_total; the momsfri till sales never were).
+        "invoice_exempt_sales": round(invoice_exempt_total, 2),
+        "close_exempt_sales": close_exempt_total,
+        # Expenses in a foreign currency: in expenses_total, no købsmoms.
+        "foreign_expenses_total": foreign_expenses_total,
+        # Momsfri Sale rows on confirmed-close dates (measured only — the
+        # close's own moms decides box A; see close_exempt_sales). Usually 0.
         "exempt_on_close_dates": exempt_on_close_dates,
         "output_vat": output_vat,
         "input_vat": input_vat,
+        # [{category, gross, fradrag_pct, input_vat}] — sums to input_vat.
+        "input_vat_by_category": input_vat_by_category,
         "vat_payable": round(output_vat - input_vat, 2),
         # Bogføringsloven §9 stk. 2 — per-date variance warnings.
         # Empty list = no material variance to flag (or no overlap
