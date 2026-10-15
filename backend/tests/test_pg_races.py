@@ -225,11 +225,19 @@ def _reset_limits():
 
 
 def _user():
+    # last_seen_at is stamped NOW: get_current_user writes the stamp, with its
+    # own COMMIT before the route runs, when it is missing or 5+ minutes old
+    # (services/last_seen.py, 11 Oct). The "pre_commit" gate fires at a
+    # racer's FIRST commit, so on a fresh account it stopped the racer at that
+    # stamp, before the route had read or locked the day, and the interleaving
+    # named in the test never ran ((f) failed from 3de3c55b; found 15 Oct).
+    # Stamped here, a racer's first commit is its route's own.
     s = SessionLocal()
     u = User(
         email=f"race-{uuid.uuid4().hex[:12]}@cafe.dk", password_hash=hash_password("deleteMeNow1"),
         business_name="Race Café", business_type="restaurant", currency="DKK",
         created_at=utc_now() - timedelta(days=2), email_verified=True,
+        last_seen_at=utc_now(),
     )
     s.add(u)
     s.commit()
@@ -370,6 +378,27 @@ def _interleave(first, point, second):
 def _no_500(*rs):
     for r in rs:
         assert r.status_code != 500, r.text[:400]
+
+
+# ═══ (0) the harness: "pre_commit" stops a save at its own commit ═════════
+def test_0_pre_commit_gate_stops_a_save_at_the_routes_own_commit():
+    """On a fresh account the save's first COMMIT must be the route's: by
+    then it has written the day. A commit before the route (the last-seen
+    stamp in get_current_user) would stop it before it read or locked the
+    day, and every "pre_commit" interleaving here would test nothing."""
+    uid = _user(); day = _new_day()
+    reached, release = G.arm("S", "pre_commit")
+    t = Run(_post, "S", uid, _body(day, 4444)); t.start()
+    try:
+        assert reached.wait(10), "S never reached pre_commit"
+        seen = [s for r, s in list(G.seen) if r == "S"]
+    finally:
+        release.set()
+        t.join(30)
+    assert t.err is None, t.err
+    wrote = [s for s in seen if s.startswith(("INSERT INTO daily_closes", "UPDATE daily_closes"))]
+    assert wrote, f"S stopped at a commit before its save wrote the day: {seen}"
+    assert t.res.status_code == 200, t.res.text[:200]
 
 
 # ═══ (a) two draft saves, same base, same moment ═════════════════════════
