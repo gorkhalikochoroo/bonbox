@@ -9,4 +9,4 @@ Disallow: /cashbook
 Disallow: /profile
 Disallow: /recently-deleted
 
-Sitemap: https://bonbox.dk/sitemap.xml
+Sitemap: https://www.bonbox.dk/sitemap.xml
