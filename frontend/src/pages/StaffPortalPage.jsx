@@ -12,6 +12,7 @@ import GeofenceDial from "../components/GeofenceDial";
 import { nextShiftCountdown, shiftHasStarted } from "../utils/nextShiftCountdown";
 import { overlapsOwnShift } from "../utils/overlapsOwnShift";
 import { swapDoubleBooks } from "../utils/swapClash";
+import { portalSyncIssue } from "../utils/portalSyncIssue";
 import { saveFile } from "../utils/download";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
@@ -125,6 +126,13 @@ const PAD_CLOSE_44 = "pad:w-11 pad:h-11 pad:-my-2.5 pad:-mr-2.5";
 // (tablet: ≥ 480 × 600) used with a finger keeps the full 44 px; a sideways
 // phone is under 600 tall, so it is untouched.
 const TOUCH_TABLET_44 = "tablet:pointer-coarse:min-w-[44px]! tablet:pointer-coarse:min-h-[44px]!";
+// The header's two round controls — the Nyt bell and the profile avatar —
+// share ONE shell: a 40 px circle (the phone's compact-control size) with a
+// hairline and no shadow; the ::before widens the hit area to 44 × 44. The
+// min-h-0! matters: index.css gives every button a 44 px min-height on a
+// touch screen, which turned both 36/33 px circles into 44 px tall pills and
+// made the header row 44 tall.
+const HEAD_CIRCLE = "relative w-10 h-10 min-h-0! rounded-full border flex items-center justify-center transition active:scale-[0.98] before:absolute before:-inset-0.5 before:content-['']";
 
 // ─── The staffer's place ─────────────────────────────────────────────────
 // What they are working with right now: the last thing they tapped or focused
@@ -8631,6 +8639,10 @@ export default function StaffPortalPage() {
     url: token ? `${portalApi.defaults?.baseURL || ""}/portal/${token}/stream` : null,
     onPublished: onStreamPublished,
   });
+  // The header's freshness word — null while healthy (see portalSyncIssue).
+  // Re-evaluated on the ~15 s freshness tick, so a poll that stops answering
+  // turns into "Tap to refresh" without a new fetch.
+  const syncIssue = portalSyncIssue({ isOnline, liveConnected, lastSynced, loading: schedState === "loading" });
 
   // 2b. Refetch triggers — keep the schedule fresh without any realtime deps.
   // All gated on pinVerified && info, all cleaned up on unmount.
@@ -9058,30 +9070,28 @@ export default function StaffPortalPage() {
             {info?.restaurant_name && (
               <div style={{ marginTop: 5, font: "500 12px/1 var(--font-text)", letterSpacing: "0.005em", color: "#64748b" }}>
                 {info.restaurant_name}
-                {/* Live/offline moves here off the chip slot, which the
-                    department switcher now owns. Only ever states what is
-                    true: "Live" needs the stream actually open. */}
-                {pinVerified && info && (
+                {/* Freshness, only when there is a problem (portalSyncIssue):
+                    healthy says nothing — the green "Live" read as a status
+                    of the café, not of the data. "Offline" / "Tap to
+                    refresh" in amber (attention, ≈ 5:1 on the header), and the
+                    tap still re-reads. The button is a full 44 × 44 box on
+                    every size; the negative margins keep it on the 12 px
+                    line, so the header is the same height with or without
+                    it (it used to grow 32 px on a phone: the coarse-pointer
+                    44 px min-height stretched the line). */}
+                {pinVerified && info && syncIssue && (
                   <>
                     {" · "}
                     <button
                       type="button"
                       onClick={() => { loadData(); loadHours(); }}
-                      // A word-sized target in a text line: the ::before
-                      // widens the hit area to 44px without moving the line.
-                      // iPad: the button itself is ≥ 44 × 44 (left-aligned, so
-                      // the word does not move; the negative margins keep the
-                      // 12 px line).
-                      className="relative before:absolute before:-inset-x-3 before:-inset-y-3 before:content-[''] pad:inline-flex pad:items-center pad:justify-start pad:min-w-[44px] pad:min-h-[44px] pad:-my-4"
-                      style={{ color: liveConnected && isOnline ? "#16a34a" : "#94a3b8" }}
+                      data-testid="portal-sync-status"
+                      className="relative inline-flex items-center justify-start min-w-[44px] min-h-[44px] -my-4"
+                      style={{ color: "#b45309" }}
                     >
-                      {!isOnline
-                        ? t("portalOffline")
-                        : liveConnected
-                          ? t("portalLive")
-                          : lastSynced && Date.now() - lastSynced.getTime() < 45000
-                            ? t("portalSynced")
-                            : t("portalTapToRefresh", "Tap to refresh")}
+                      {syncIssue === "offline"
+                        ? t("portalOffline", "Offline")
+                        : t("portalTapToRefresh", "Tap to refresh")}
                     </button>
                   </>
                 )}
@@ -9098,7 +9108,8 @@ export default function StaffPortalPage() {
               aria-current={tab === "alerts" ? "page" : undefined}
               // iPad: Nyt is a row in the sidebar (with its count), so the
               // header has no bell there — and nothing in it moves.
-              className={`relative w-9 h-9 rounded-full border flex items-center justify-center transition active:scale-[0.98] before:absolute before:-inset-2 before:content-[''] pad:hidden ${
+              // Same shell as the avatar beside it (HEAD_CIRCLE).
+              className={`${HEAD_CIRCLE} pad:hidden ${
                 tab === "alerts"
                   ? "bg-gray-900 border-gray-900 text-white"
                   : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
@@ -9143,16 +9154,15 @@ export default function StaffPortalPage() {
             <button
               onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setAddressInput(info?.address || ""); setPostalInput(info?.postal_code || ""); setCityInput(info?.city || ""); setEmailMsg(""); setEmailStatus(null); }}
               // overflow-hidden lives on the INNER circle: on the button it clipped
-              // the -inset-2 ::before, so the hit area was the 33px circle.
-              // iPad: a real 44 px avatar (the 33 px phone circle relied on
-              // the ::before for its hit area), initials at 15 px.
-              className="relative rounded-full flex items-center justify-center active:scale-[0.98] transition before:absolute before:-inset-2 before:content-[''] pad:w-11! pad:h-11! pad:text-[15px]!"
-              style={{
-                width: 33, height: 33, flex: "none",
-                background: "linear-gradient(150deg,#1e293b,#0f172a)", color: "#fff",
-                font: "700 12.5px/1 var(--font-text)", letterSpacing: "0.01em",
-                boxShadow: "0 4px 12px -6px rgba(15,23,42,.8), inset 0 1px 0 rgba(255,255,255,.18)",
-              }}
+              // the ::before, so the hit area was the circle itself.
+              // The bell's shell (HEAD_CIRCLE): the same 40 px circle, the
+              // same hairline, no drop shadow — it was a dark 33 px disc
+              // with a heavy shadow (and, on a phone, a 33 × 44 pill: the
+              // coarse-pointer min-height stretched it), so it looked like
+              // it floated next to a light bell. Initials stay, in ink.
+              // iPad: a 44 px avatar, initials at 15 px.
+              className={`${HEAD_CIRCLE} bg-white border-gray-200 text-[#334155] hover:bg-gray-50 pad:w-11! pad:h-11! pad:text-[15px]!`}
+              style={{ flex: "none", font: "600 13px/1 var(--font-text)", letterSpacing: "0.01em" }}
               title={t("portalEditContact", "Edit profile")}
             >
               <span className="w-full h-full rounded-full overflow-hidden flex items-center justify-center">

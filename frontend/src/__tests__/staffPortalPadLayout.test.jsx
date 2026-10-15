@@ -284,7 +284,9 @@ describe("phone (< 744 px wide, or a sideways phone): the shell is exactly origi
     // The phone keeps its five-tab bar (the extra rows are display:none) and
     // its header bell, which an iPad hides.
     const headerBell = document.querySelector('button[aria-label="Nyt"]');
-    expect(phoneTokens(headerBell)).toContain("w-9 h-9 rounded-full");
+    // Build 24: the bell and the avatar share one 40 px shell (HEAD_CIRCLE);
+    // min-h-0! stops the touch-screen 44 px min-height stretching it into a pill.
+    expect(phoneTokens(headerBell)).toContain("w-10 h-10 min-h-0! rounded-full");
     expect(tokens(headerBell)).toContain("pad:hidden");
   });
 
@@ -522,8 +524,10 @@ describe("source pins for the iPad pass", () => {
     // New group's ×, the install card's chevron and ×: same box, same spot.
     expect(SRC).toContain("pad:w-11 pad:h-11 pad:p-0 pad:flex pad:items-center pad:justify-center pad:-mr-[13px]");
     expect((SRC.match(/p-3 -m-2 text-gray-400 hover:text-gray-600 active:opacity-60 shrink-0 pad:p-\[14px\] pad:-m-\[10px\]/g) || []).length).toBe(2);
-    // The header's Live / Synced link: a ≥ 44 px box on its 12 px line.
-    expect(SRC).toContain("pad:inline-flex pad:items-center pad:justify-start pad:min-w-[44px] pad:min-h-[44px] pad:-my-4");
+    // The header's freshness word (Offline / Tap to refresh — build 24 shows
+    // it only on a problem): a ≥ 44 px box on its 12 px line, on every size
+    // now, not only iPad (on a phone the line grew to 44 px).
+    expect(SRC).toContain('className="relative inline-flex items-center justify-start min-w-[44px] min-h-[44px] -my-4"');
   });
 
   it("every bottom sheet carries the pad form-sheet classes; New group keeps its own sm: card (only it)", () => {

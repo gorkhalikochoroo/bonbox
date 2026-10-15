@@ -237,8 +237,11 @@ describe("Answering a swap the server already settled", () => {
 describe("Header pill — 'Offline' recovers without relaunching the app", () => {
   it("a stale 'offline' is cleared by the next schedule answer", async () => {
     await mount("da");
-    const pill = () => document.querySelector("h1").parentElement.querySelector("button");
-    await waitFor(() => expect(pill().textContent).toBe("Synket"));
+    // Build 24: the header says nothing while all is well (it said "Synket" /
+    // "Live"); the word appears only on a problem.
+    const pill = () => screen.queryByTestId("portal-sync-status");
+    await waitFor(() => expect(get.mock.calls.some(([u]) => u.startsWith(`/portal/${TOK}/schedule`))).toBe(true));
+    await waitFor(() => expect(pill()).toBeNull());
 
     // The web view reported offline while the phone slept; on wake the
     // 'online' event never comes and navigator.onLine is still stale.
@@ -253,7 +256,7 @@ describe("Header pill — 'Offline' recovers without relaunching the app", () =>
       await waitFor(() =>
         expect(get.mock.calls.filter(([u]) => u.startsWith(`/portal/${TOK}/schedule`)).length).toBeGreaterThan(before),
       );
-      await waitFor(() => expect(pill().textContent).not.toBe("Offline"));
+      await waitFor(() => expect(pill()).toBeNull());
     } finally {
       if (desc) Object.defineProperty(window.navigator, "onLine", desc);
       else delete window.navigator.onLine;
