@@ -13,6 +13,7 @@ import { nextShiftCountdown, shiftHasStarted } from "../utils/nextShiftCountdown
 import { overlapsOwnShift } from "../utils/overlapsOwnShift";
 import { swapDoubleBooks } from "../utils/swapClash";
 import { portalSyncIssue } from "../utils/portalSyncIssue";
+import { sickCallDefaultDate } from "../utils/sickCallDefaultDate";
 import { saveFile } from "../utils/download";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
@@ -133,6 +134,14 @@ const TOUCH_TABLET_44 = "tablet:pointer-coarse:min-w-[44px]! tablet:pointer-coar
 // touch screen, which turned both 36/33 px circles into 44 px tall pills and
 // made the header row 44 tall.
 const HEAD_CIRCLE = "relative w-10 h-10 min-h-0! rounded-full border flex items-center justify-center transition active:scale-[0.98] before:absolute before:-inset-0.5 before:content-['']";
+// A native date field that fits its box on iOS WebKit (DateField's recipe,
+// shared by every date input in the portal). The control has an intrinsic
+// minimum width wider than a phone card, so `width: 100%` was ignored: the
+// Meld syg date ran past its card's edge on an iPhone and an iPad in
+// portrait, and the Timer period sheet's two dates ran into each other and
+// off the sheet. min-width 0 + border-box + no native appearance lets the box
+// decide; text-left keeps the value where the other fields start theirs.
+const DATE_FIT_STYLE = { minWidth: 0, maxWidth: "100%", boxSizing: "border-box", WebkitAppearance: "none", appearance: "none" };
 
 // ─── The staffer's place ─────────────────────────────────────────────────
 // What they are working with right now: the last thing they tapped or focused
@@ -1199,7 +1208,12 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
   const { t, lang } = useLanguage();
   const [open, setOpen] = useState(autoOpen);
   const todayIso = useState(() => toLocalISO(new Date()))[0];
-  const [date, setDate] = useState(todayIso);
+  // Starts on the day you would actually miss: today if you work today, else
+  // your next shift (inside the form's 14-day window), else today. It always
+  // said today, so someone off today calling in for tomorrow's shift had to
+  // find and change the date first — and a missed change filed the
+  // sygemelding on a day they were not working.
+  const [date, setDate] = useState(() => sickCallDefaultDate(upcomingShifts, todayIso, toLocalISO(addDaysToDate(new Date(), 14))));
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -1308,7 +1322,9 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
           min={toLocalISO(addDaysToDate(new Date(), -14))}
           max={maxIso}
           onChange={(e) => setDate(e.target.value)}
-          className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-amber-500/40 pad:min-h-11"
+          data-testid="portal-sick-date"
+          className="block w-full min-h-[44px] px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 text-left outline-none focus:border-amber-500/40 pad:min-h-11"
+          style={DATE_FIT_STYLE}
         />
         {matchingShift && (
           <div className="mt-1 text-[11px] text-gray-500">
@@ -3296,11 +3312,11 @@ function PeriodSheet({ initial, current, anchorMonth, onClose, onApply }) {
           <label style={{ flex: 1, minWidth: 0 }}>
             <span className="pad:text-[11px]!" style={cap}>{t("portalHoursFrom", "From")}</span>
             {/* iPad: 44 px (the inline padding drew 42). */}
-            <input type="date" value={from} min={floorISO} max={todayISO} onChange={(e) => setFrom(e.target.value)} style={field} className="pad:min-h-11" />
+            <input type="date" value={from} min={floorISO} max={todayISO} onChange={(e) => setFrom(e.target.value)} style={{ ...field, ...DATE_FIT_STYLE }} className="block text-left min-h-[44px] pad:min-h-11" data-testid="portal-hours-from" />
           </label>
           <label style={{ flex: 1, minWidth: 0 }}>
             <span className="pad:text-[11px]!" style={cap}>{t("portalHoursTo", "To")}</span>
-            <input type="date" value={to} min={from || floorISO} onChange={(e) => setTo(e.target.value)} style={field} className="pad:min-h-11" />
+            <input type="date" value={to} min={from || floorISO} onChange={(e) => setTo(e.target.value)} style={{ ...field, ...DATE_FIT_STYLE }} className="block text-left min-h-[44px] pad:min-h-11" data-testid="portal-hours-to" />
           </label>
         </div>
         {problem && (
@@ -6200,7 +6216,7 @@ function DateField({ label, value, onChange, min, max, testId }) {
           onChange={(e) => onChange(e.target.value)}
           data-testid={testId}
           className="block w-full min-h-[44px] px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 text-left outline-none focus:border-gray-900/30"
-          style={{ minWidth: 0, maxWidth: "100%", boxSizing: "border-box", WebkitAppearance: "none", appearance: "none" }}
+          style={DATE_FIT_STYLE}
         />
         {showHint && (
           <span aria-hidden className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-gray-400">
