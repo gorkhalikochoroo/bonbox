@@ -42,7 +42,7 @@ import {
 import api from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
 import { useEntitlements } from "../../hooks/useEntitlements";
-import { bookingModeFor } from "../../config/venueProfiles";
+import { bookingModeFor, speaksAppointments } from "../../config/venueProfiles";
 import { formatKr } from "../../utils/currency";
 import StatCard from "../ui/StatCard";
 import Chip from "../ui/Chip";
@@ -133,17 +133,19 @@ function rampStep(covers, max) {
   return 4;
 }
 
-function dayPartLabel(dp, t) {
+// `appt`: a salon, a shop or a workshop (venueProfiles.speaksAppointments)
+// has no lunch or dinner service — its day parts are times of day.
+function dayPartLabel(dp, t, appt = false) {
   // Static keys (no template literal) so the i18n grep verifies en+da.
   switch (dp) {
     case "Morning":
       return t("rsvpInsPartMorning", "Morning");
     case "Lunch":
-      return t("rsvpInsPartLunch", "Lunch");
+      return appt ? t("rsvpInsPartLunchAppt", "Midday") : t("rsvpInsPartLunch", "Lunch");
     case "Afternoon":
       return t("rsvpInsPartAfternoon", "Afternoon");
     case "Dinner":
-      return t("rsvpInsPartDinner", "Dinner");
+      return appt ? t("rsvpInsPartDinnerAppt", "Evening") : t("rsvpInsPartDinner", "Dinner");
     case "Late":
       return t("rsvpInsPartLate", "Late");
     default:
@@ -172,7 +174,8 @@ function weekdayLabel(wd, t) {
   }
 }
 
-function HeatmapCard({ heatmap, t }) {
+// `appt`: the counts are customers, not guests or covers (Push 8 review).
+function HeatmapCard({ heatmap, t, appt = false }) {
   // The active cell (for the tap popover): "wdIdx-dayPart" or null.
   const [active, setActive] = useState(null);
 
@@ -206,13 +209,16 @@ function HeatmapCard({ heatmap, t }) {
   }, [heatmap.cells]);
 
   const provisional = heatmap.confidence === "provisional";
+  const coversWord = appt ? t("rsvpInsCoversWordAppt", "customers") : t("rsvpInsCoversWord", "covers");
 
   return (
     <Card>
       <Card.Header
         icon={<CalendarCheck className="w-4 h-4" aria-hidden />}
         title={t("rsvpInsHeatmapTitle", "When you're busy")}
-        subtitle={t("rsvpInsHeatmapSub", "Booked guests by day and time")}
+        subtitle={appt
+          ? t("rsvpInsHeatmapSubAppt", "Booked customers by day and time")
+          : t("rsvpInsHeatmapSub", "Booked guests by day and time")}
         action={<ConfidenceChip confidence={heatmap.confidence} t={t} />}
       />
 
@@ -231,7 +237,7 @@ function HeatmapCard({ heatmap, t }) {
                 key={dp}
                 className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 text-center truncate px-0.5"
               >
-                {dayPartLabel(dp, t)}
+                {dayPartLabel(dp, t, appt)}
               </div>
             ))}
           </div>
@@ -274,7 +280,7 @@ function HeatmapCard({ heatmap, t }) {
                         key={dp}
                         className={cls}
                         title={t("rsvpInsCellNoData", "Not enough data")}
-                        aria-label={`${weekdayLabel(wd, t)} ${dayPartLabel(dp, t)} · ${t("rsvpInsCellNoData", "Not enough data")}`}
+                        aria-label={`${weekdayLabel(wd, t)} ${dayPartLabel(dp, t, appt)} · ${t("rsvpInsCellNoData", "Not enough data")}`}
                       >
                         —
                       </div>
@@ -287,7 +293,7 @@ function HeatmapCard({ heatmap, t }) {
                       type="button"
                       onClick={() => setActive(isActive ? null : key)}
                       className={cls + " focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"}
-                      aria-label={`${weekdayLabel(wd, t)} ${dayPartLabel(dp, t)} · ${covers} ${t("rsvpInsCoversWord", "covers")}`}
+                      aria-label={`${weekdayLabel(wd, t)} ${dayPartLabel(dp, t, appt)} · ${covers} ${coversWord}`}
                     >
                       {fmtInt(covers)}
                       {isActive && (
@@ -295,8 +301,8 @@ function HeatmapCard({ heatmap, t }) {
                           role="status"
                           className="absolute z-20 bottom-[calc(100%+6px)] left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[11px] font-medium px-2.5 py-1.5 shadow-sm pointer-events-none"
                         >
-                          {weekdayLabel(wd, t)} {dayPartLabel(dp, t)} · {fmtInt(covers)}{" "}
-                          {t("rsvpInsCoversWord", "covers")}
+                          {weekdayLabel(wd, t)} {dayPartLabel(dp, t, appt)} · {fmtInt(covers)}{" "}
+                          {coversWord}
                         </span>
                       )}
                     </button>
@@ -318,7 +324,7 @@ function HeatmapCard({ heatmap, t }) {
           <span className="text-[10px] text-gray-400 dark:text-gray-500">{t("rsvpInsLegendMore", "More")}</span>
         </div>
         <span className="text-[10px] text-gray-400 dark:text-gray-500">
-          {t("rsvpInsBookedBasis", "Based on booked guests")}
+          {appt ? t("rsvpInsBookedBasisAppt", "Based on booked customers") : t("rsvpInsBookedBasis", "Based on booked guests")}
         </span>
       </div>
     </Card>
@@ -328,7 +334,9 @@ function HeatmapCard({ heatmap, t }) {
 // ─── Party-size fit ─────────────────────────────────────────────────────────
 // Demand (booked party sizes) vs supply (table capacities) as paired gray
 // bars per bin. Confident = gray-900 demand bar; provisional = gray-400.
-function PartySizeCard({ data, t }) {
+// `places`: a shop or a workshop — people against its places, never party
+// sizes against tables (Push 8 review).
+function PartySizeCard({ data, t, places = false }) {
   const provisional = data.confidence === "provisional";
   const party = data.party_histogram || [];
   const cap = data.capacity_histogram || [];
@@ -347,8 +355,10 @@ function PartySizeCard({ data, t }) {
     <Card>
       <Card.Header
         icon={<Users className="w-4 h-4" aria-hidden />}
-        title={t("rsvpInsPartyTitle", "Party-size fit")}
-        subtitle={t("rsvpInsPartySub", "Booked party sizes vs your table sizes")}
+        title={places ? t("rsvpInsPartyTitleAppt", "People vs your spaces") : t("rsvpInsPartyTitle", "Party-size fit")}
+        subtitle={places
+          ? t("rsvpInsPartySubAppt", "How many people were booked vs how many your spaces take")
+          : t("rsvpInsPartySub", "Booked party sizes vs your table sizes")}
         action={<ConfidenceChip confidence={data.confidence} t={t} />}
       />
       <div className="space-y-3">
@@ -360,13 +370,22 @@ function PartySizeCard({ data, t }) {
             <div key={b.bin} className="space-y-1">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-medium text-gray-700 dark:text-gray-300 tabular-nums">
-                  {b.bin} {t("rsvpInsGuestsWord", "guests")}
+                  {b.bin} {places ? t("rsvpInsPeopleWordAppt", "people") : t("rsvpInsGuestsWord", "guests")}
                 </span>
                 <span className="text-gray-400 dark:text-gray-500 tabular-nums">
-                  {t("rsvpInsPartyRow", "{booked} booked · {tables} tables", {
-                    booked: b.count,
-                    tables: capCount,
-                  })}
+                  {/* One is one: "1 booket · 1 bord" — never "1 bookede · 3
+                      borde" (Push 8 review). */}
+                  {(b.count === 1
+                    ? t("rsvpInsBookedOne", "{n} booked", { n: b.count })
+                    : t("rsvpInsBooked", "{n} booked", { n: b.count })) +
+                    " · " +
+                    (places
+                      ? capCount === 1
+                        ? t("rsvpInsSpacesOne", "{n} space", { n: capCount })
+                        : t("rsvpInsSpaces", "{n} spaces", { n: capCount })
+                      : capCount === 1
+                        ? t("rsvpInsTablesOne", "{n} table", { n: capCount })
+                        : t("rsvpInsTables", "{n} tables", { n: capCount }))}
                 </span>
               </div>
               {/* Demand bar (filled) over a supply track (outline). */}
@@ -393,11 +412,11 @@ function PartySizeCard({ data, t }) {
       <div className="flex items-center gap-4 mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
         <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
           <span className={"w-3 h-2 rounded-sm " + demandBar} aria-hidden />
-          {t("rsvpInsPartyDemand", "Bookings")}
+          {places ? t("rsvpInsPartyDemandAppt", "Appointments") : t("rsvpInsPartyDemand", "Bookings")}
         </span>
         <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
           <span className="w-3 h-2 rounded-sm bg-gray-300 dark:bg-gray-600" aria-hidden />
-          {t("rsvpInsPartySupply", "Tables")}
+          {places ? t("rsvpInsPartySupplyAppt", "Spaces") : t("rsvpInsPartySupply", "Tables")}
         </span>
       </div>
     </Card>
@@ -425,7 +444,7 @@ function SourceIcon({ src }) {
   return <Phone className="w-3.5 h-3.5" aria-hidden />;
 }
 
-function SourceMixCard({ data, t }) {
+function SourceMixCard({ data, t, appt = false }) {
   const provisional = data.confidence === "provisional";
   const sources = data.sources || [];
   const bar = provisional ? "bg-gray-400 dark:bg-gray-500" : "bg-gray-900 dark:bg-gray-100";
@@ -434,8 +453,8 @@ function SourceMixCard({ data, t }) {
     <Card>
       <Card.Header
         icon={<BarChart3 className="w-4 h-4" aria-hidden />}
-        title={t("rsvpInsSourceTitle", "Where bookings come from")}
-        subtitle={t("rsvpInsSourceSub", "Share of bookings by channel")}
+        title={appt ? t("rsvpInsSourceTitleAppt", "Where appointments come from") : t("rsvpInsSourceTitle", "Where bookings come from")}
+        subtitle={appt ? t("rsvpInsSourceSubAppt", "Share of appointments by channel") : t("rsvpInsSourceSub", "Share of bookings by channel")}
         action={<ConfidenceChip confidence={data.confidence} t={t} />}
       />
       <div className="space-y-3">
@@ -486,7 +505,7 @@ function leadBucketLabel(b, t) {
   }
 }
 
-function NoShowCard({ data, t, smsHref }) {
+function NoShowCard({ data, t, smsHref, appt = false }) {
   const provisional = data.confidence === "provisional";
   const rows = (data.by_lead_time || []).filter((r) => isShown(r.confidence));
   // A "high" no-show rate earns the one amber accent (sparingly): ≥ 15% overall.
@@ -497,7 +516,9 @@ function NoShowCard({ data, t, smsHref }) {
       <Card.Header
         icon={<AlertTriangle className="w-4 h-4" aria-hidden />}
         title={t("rsvpInsNoShowTitle", "No-shows")}
-        subtitle={t("rsvpInsNoShowSub", "Booked guests who didn't turn up")}
+        subtitle={appt
+          ? t("rsvpInsNoShowSubAppt", "Booked customers who didn't turn up")
+          : t("rsvpInsNoShowSub", "Booked guests who didn't turn up")}
         action={<ConfidenceChip confidence={data.confidence} t={t} />}
       />
 
@@ -516,10 +537,15 @@ function NoShowCard({ data, t, smsHref }) {
           {fmtRatePct(data.rate)}
         </span>
         <span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums">
-          {t("rsvpInsNoShowOf", "{n} of {d} bookings", {
-            n: fmtInt(data.no_shows),
-            d: fmtInt(data.denominator),
-          })}
+          {appt
+            ? t("rsvpInsNoShowOfAppt", "{n} of {d} appointments", {
+              n: fmtInt(data.no_shows),
+              d: fmtInt(data.denominator),
+            })
+            : t("rsvpInsNoShowOf", "{n} of {d} bookings", {
+              n: fmtInt(data.no_shows),
+              d: fmtInt(data.denominator),
+            })}
         </span>
       </div>
 
@@ -577,18 +603,26 @@ function NoShowCard({ data, t, smsHref }) {
 // the kr line renders ONLY when the backend supplies a real value (kr != null)
 // — otherwise an honest nudge to add guest counts. kr is GROSS (incl. moms);
 // the label says so. Emerald is the one positive accent (only when confident).
-function RecoveredCard({ data, t }) {
+function RecoveredCard({ data, t, appt = false }) {
   const provisional = data.confidence === "provisional";
   const covers = data.recovered_covers || 0;
   const bookings = data.recovered_bookings || 0;
   const hasKr = data.kr != null;
 
-  const coversLabel =
-    covers === 1
+  // A shop's or a workshop's customers are checked in from the waitlist,
+  // never seated guests (Push 8 review).
+  const coversLabel = appt
+    ? covers === 1
+      ? t("rsvpInsRecoveredGuestOneAppt", "customer recovered")
+      : t("rsvpInsRecoveredGuestsAppt", "customers recovered")
+    : covers === 1
       ? t("rsvpInsRecoveredGuestOne", "guest recovered")
       : t("rsvpInsRecoveredGuests", "guests recovered");
-  const fromLabel =
-    bookings === 1
+  const fromLabel = appt
+    ? bookings === 1
+      ? t("rsvpInsRecoveredFromOneAppt", "from {n} appointment checked in", { n: fmtInt(bookings) })
+      : t("rsvpInsRecoveredFromAppt", "from {n} appointments checked in", { n: fmtInt(bookings) })
+    : bookings === 1
       ? t("rsvpInsRecoveredFromOne", "from {n} seated reservation", { n: fmtInt(bookings) })
       : t("rsvpInsRecoveredFrom", "from {n} seated reservations", { n: fmtInt(bookings) });
 
@@ -597,7 +631,9 @@ function RecoveredCard({ data, t }) {
       <Card.Header
         icon={<HeartHandshake className="w-4 h-4" aria-hidden />}
         title={t("rsvpInsRecoveredTitle", "Recovered by the waitlist")}
-        subtitle={t("rsvpInsRecoveredSub", "Guests seated from the Venteliste")}
+        subtitle={appt
+          ? t("rsvpInsRecoveredSubAppt", "Customers checked in from the waitlist")
+          : t("rsvpInsRecoveredSub", "Guests seated from the Venteliste")}
         action={<ConfidenceChip confidence={data.confidence} t={t} />}
       />
 
@@ -627,19 +663,25 @@ function RecoveredCard({ data, t }) {
             {data.avg_cover != null && (
               <>
                 {" · "}
-                {t("rsvpInsRecoveredAvg", "your avg {kr}/guest", {
-                  kr: formatKr(data.avg_cover, { decimals: 0 }),
-                })}
+                {appt
+                  ? t("rsvpInsRecoveredAvgAppt", "your avg {kr}/customer", {
+                    kr: formatKr(data.avg_cover, { decimals: 0 }),
+                  })
+                  : t("rsvpInsRecoveredAvg", "your avg {kr}/guest", {
+                    kr: formatKr(data.avg_cover, { decimals: 0 }),
+                  })}
               </>
             )}
           </p>
         </div>
       ) : (
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          {t(
-            "rsvpInsRecoveredNoKr",
-            "Add guest counts to your sales to see recovered revenue.",
-          )}
+          {appt
+            ? t("rsvpInsRecoveredNoKrAppt", "Add customer counts to your sales to see recovered revenue.")
+            : t(
+              "rsvpInsRecoveredNoKr",
+              "Add guest counts to your sales to see recovered revenue.",
+            )}
         </p>
       )}
     </Card>
@@ -654,7 +696,8 @@ function RecoveredCard({ data, t }) {
    not follow the Period filter above: it is always the last 12 months.
    Deliberately plain — three columns, a quiet second line only when there
    were no-shows or online bookings, no chart. */
-export function MonthlyCard({ t }) {
+// `appt`: appointments and customers, never reservations and guests.
+export function MonthlyCard({ t, appt = false }) {
   const { lang } = useLanguage();
   // null = not answered yet. A failed load sets `failed` and says so — it
   // never becomes an empty record, which would read as "no bookings".
@@ -690,12 +733,14 @@ export function MonthlyCard({ t }) {
       <Card.Header
         icon={<CalendarRange className="w-4 h-4" aria-hidden />}
         title={t("rsvpMonthlyTitle", "Month by month")}
-        subtitle={t("rsvpMonthlySub", "Bookings and guests per month")}
+        subtitle={appt
+          ? t("rsvpMonthlySubAppt", "Appointments and customers per month")
+          : t("rsvpMonthlySub", "Bookings and guests per month")}
       />
       <div className={cols + " pb-1.5 text-[11px] text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-[rgb(var(--surface-line))]"}>
         <span>{t("rsvpMonthlyMonth", "Month")}</span>
-        <span className="text-right">{t("rsvpMonthlyBookings", "Bookings")}</span>
-        <span className="text-right">{t("rsvpMonthlyGuests", "Guests")}</span>
+        <span className="text-right">{appt ? t("rsvpMonthlyBookingsAppt", "Appointments") : t("rsvpMonthlyBookings", "Bookings")}</span>
+        <span className="text-right">{appt ? t("rsvpMonthlyGuestsAppt", "Customers") : t("rsvpMonthlyGuests", "Guests")}</span>
       </div>
       <ul className="divide-y divide-gray-100 dark:divide-[rgb(var(--surface-line))]">
         {months.map((m) => {
@@ -728,7 +773,7 @@ export function MonthlyCard({ t }) {
   );
 }
 
-function ForecastBlock({ forecast, forecastLocked, t }) {
+function ForecastBlock({ forecast, forecastLocked, t, appt = false }) {
   // This component takes `t` as a PROP and calls no hook of its own, so the
   // plan cannot be read from an outer scope — it needs its own hook call.
   // reservation_insights has been a Starter feature since the tier-doctrine
@@ -740,7 +785,9 @@ function ForecastBlock({ forecast, forecastLocked, t }) {
       <UpgradeNudge
         intent="card"
         tier={forecastPlan}
-        benefit={t("rsvpInsForecastUpsell", "See next week's expected guests — plan staff and stock ahead.")}
+        benefit={appt
+          ? t("rsvpInsForecastUpsellAppt", "See next week's expected customers — plan staff and stock ahead.")
+          : t("rsvpInsForecastUpsell", "See next week's expected guests — plan staff and stock ahead.")}
         ctaLabel={t("rsvpInsForecastCta", "See plans")}
       />
     );
@@ -754,7 +801,9 @@ function ForecastBlock({ forecast, forecastLocked, t }) {
           title={t("rsvpInsForecastTitle", "Next 7 days")}
         />
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          {t("rsvpInsForecastThin", "Not enough data yet — your forecast appears once a few weeks of bookings build up.")}
+          {appt
+            ? t("rsvpInsForecastThinAppt", "Not enough data yet — your forecast appears once a few weeks of appointments build up.")
+            : t("rsvpInsForecastThin", "Not enough data yet — your forecast appears once a few weeks of bookings build up.")}
         </p>
       </Card>
     );
@@ -772,7 +821,7 @@ function ForecastBlock({ forecast, forecastLocked, t }) {
       <Card.Header
         icon={<TrendingUp className="w-4 h-4" aria-hidden />}
         title={t("rsvpInsForecastTitle", "Next 7 days")}
-        subtitle={t("rsvpInsForecastSub", "Expected guests")}
+        subtitle={appt ? t("rsvpInsForecastSubAppt", "Expected customers") : t("rsvpInsForecastSub", "Expected guests")}
       />
       <ul className="divide-y divide-gray-100 dark:divide-gray-800">
         {days.map((d) => (
@@ -786,7 +835,7 @@ function ForecastBlock({ forecast, forecastLocked, t }) {
             <span className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">
               {fmtInt(d.predicted_covers)}{" "}
               <span className="text-xs font-normal text-gray-400 dark:text-gray-500">
-                {t("rsvpInsGuestsWord", "guests")}
+                {appt ? t("rsvpInsCoversWordAppt", "customers") : t("rsvpInsGuestsWord", "guests")}
               </span>
             </span>
           </li>
@@ -808,6 +857,12 @@ export default function InsightsSection({ t, zones = [] }) {
   // with the rest of the reservations page. Pure label/visibility reframe — the
   // metrics are unchanged. Non-provider verticals are byte-identical.
   const isSalon = bookingModeFor(user?.business_type) === "provider";
+  // The words (venueProfiles.speaksAppointments): a salon, a shop and a repair
+  // trade count appointments and customers — "Bookede gæster", "Hvor
+  // reservationer kommer fra" and "Reservationer og gæster pr. måned" were
+  // read by a bike workshop (Push 8 review). Labels only; the metrics are
+  // unchanged, and a restaurant, a café and a bar read every word as before.
+  const appt = speaksAppointments(user?.business_type);
   const [range, setRange] = useState("4w");
   const [zone, setZone] = useState("all");
   const [data, setData] = useState(null);
@@ -928,7 +983,9 @@ export default function InsightsSection({ t, zones = [] }) {
             {t("rsvpInsCollectingTitle", "Collecting data — insights appear soon")}
           </p>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-sm mx-auto">
-            {t("rsvpInsCollectingBody", "As bookings come in, you'll see when you're busy, your no-show rate, and more here.")}
+            {appt
+              ? t("rsvpInsCollectingBodyAppt", "As appointments come in, you'll see when you're busy, your no-show rate, and more here.")
+              : t("rsvpInsCollectingBody", "As bookings come in, you'll see when you're busy, your no-show rate, and more here.")}
           </p>
         </div>
       ) : (
@@ -938,12 +995,18 @@ export default function InsightsSection({ t, zones = [] }) {
               implies a fabricated number. Provisional values are muted. */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard
-              label={isSalon ? t("rsvpInsChairUtil", "Chair use") : t("rsvpInsKpiUtil", "Seat utilization")}
+              label={isSalon
+                ? t("rsvpInsChairUtil", "Chair use")
+                : appt
+                  ? t("rsvpInsKpiUtilAppt", "Space utilization")
+                  : t("rsvpInsKpiUtil", "Seat utilization")}
               value={kpiValue(isShown(util.confidence) ? fmtPct(util.seat_hour_pct) : "—", util.confidence)}
               helper={
                 isSalon
                   ? t("rsvpInsKpiUtilHelpSalon", "of chair-hours")
-                  : t("rsvpInsKpiUtilHelp", "of seat-hours")
+                  : appt
+                    ? t("rsvpInsKpiUtilHelpAppt", "of space-hours")
+                    : t("rsvpInsKpiUtilHelp", "of seat-hours")
               }
             />
             <StatCard
@@ -956,9 +1019,9 @@ export default function InsightsSection({ t, zones = [] }) {
               }
             />
             <StatCard
-              label={t("rsvpInsKpiCovers", "Booked guests")}
+              label={appt ? t("rsvpInsKpiCoversAppt", "Booked customers") : t("rsvpInsKpiCovers", "Booked guests")}
               value={kpiValue(isShown(util.confidence) ? fmtInt(util.booked_covers) : "—", util.confidence)}
-              helper={t("rsvpInsBookedBasis", "Based on booked guests")}
+              helper={appt ? t("rsvpInsBookedBasisAppt", "Based on booked customers") : t("rsvpInsBookedBasis", "Based on booked guests")}
             />
             <StatCard
               label={t("rsvpInsKpiOnline", "Online share")}
@@ -966,30 +1029,30 @@ export default function InsightsSection({ t, zones = [] }) {
                 isShown(sourceMix.confidence) && onlineShare != null ? fmtRatePct(onlineShare) : "—",
                 sourceMix.confidence,
               )}
-              helper={t("rsvpInsKpiOnlineHelp", "of guests")}
+              helper={appt ? t("rsvpInsKpiOnlineHelpAppt", "of customers") : t("rsvpInsKpiOnlineHelp", "of guests")}
             />
           </div>
 
           {/* SIGNATURE heatmap. */}
-          {isShown(heatmap.confidence) && <HeatmapCard heatmap={heatmap} t={t} />}
+          {isShown(heatmap.confidence) && <HeatmapCard heatmap={heatmap} t={t} appt={appt} />}
 
           {/* Secondary cards — each self-hides on its own confidence. */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {isShown(recovered.confidence) && <RecoveredCard data={recovered} t={t} />}
+            {isShown(recovered.confidence) && <RecoveredCard data={recovered} t={t} appt={appt} />}
             {/* Party-size fit is meaningless for a salon (always party-of-1) — hide it. */}
-            {!isSalon && isShown(partyFit.confidence) && <PartySizeCard data={partyFit} t={t} />}
-            {isShown(sourceMix.confidence) && <SourceMixCard data={sourceMix} t={t} />}
-            {isShown(noShow.confidence) && <NoShowCard data={noShow} t={t} smsHref={smsHref} />}
+            {!isSalon && isShown(partyFit.confidence) && <PartySizeCard data={partyFit} t={t} places={appt} />}
+            {isShown(sourceMix.confidence) && <SourceMixCard data={sourceMix} t={t} appt={appt} />}
+            {isShown(noShow.confidence) && <NoShowCard data={noShow} t={t} smsHref={smsHref} appt={appt} />}
           </div>
 
           {/* Pro forecast block (present → list, locked → nudge, null → calm). */}
-          <ForecastBlock forecast={forecast} forecastLocked={forecastLocked} t={t} />
+          <ForecastBlock forecast={forecast} forecastLocked={forecastLocked} t={t} appt={appt} />
         </>
       )}
 
       {/* The record — outside the loading/collecting states above on purpose:
           counts need no confidence, and the Period filter doesn't apply. */}
-      <MonthlyCard t={t} />
+      <MonthlyCard t={t} appt={appt} />
     </div>
   );
 }

@@ -149,7 +149,10 @@ const CHIP_FOCUS = "focus-visible:ring-gray-900! dark:focus-visible:ring-gray-10
 // every time of the chosen service is on screen. Opens on the service holding
 // the picked time, else dinner, else the first. A dot marks the service that
 // holds the pick when another one is open.
-function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t }) {
+// `apptWords`: a salon, a shop or a workshop — its scarce slot is the last
+// TIME, never the last table. (Its groups are the day's parts, not meals:
+// groupSlots; with no "dinner" among them the grid opens on the first.)
+function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords = false }) {
   const groupOf = (s) => groups.find((g) => g.slots.includes(s))?.key || null;
   const fallback = groupOf(slot) || (groups.some((g) => g.key === "dinner") ? "dinner" : groups[0]?.key);
   const [tab, setTab] = useState(fallback);
@@ -163,7 +166,7 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t }) {
   // it is. A note that is the same everywhere is noise; show none.
   const allCounts = groups.flatMap((g) => g.slots.map((x) => slotRemaining[x])).filter((v) => v != null);
   const uniform = allCounts.length > 0 && allCounts.every((v) => v === allCounts[0]);
-  const noteFor = (x) => (uniform ? null : slotNote(slotRemaining[x], t));
+  const noteFor = (x) => (uniform ? null : slotNote(slotRemaining[x], t, { apptWords }));
   const withNotes = current.slots.some((x) => noteFor(x));
   return (
     <div className={loading ? "opacity-50 pointer-events-none transition-opacity duration-200" : "transition-opacity duration-200"}>
@@ -371,8 +374,10 @@ function capFirst(text) {
   return v ? v[0].toLocaleUpperCase() + v.slice(1) : v;
 }
 
-// "1 gæst" / "2 gæster" — the plural key alone produced "1 gæster".
-function partyLabel(n, t) {
+// "1 gæst" / "2 gæster" — the plural key alone produced "1 gæster". A business
+// booked for a time (a salon, a shop, a workshop) counts people: "1 person".
+function partyLabel(n, t, appt = false) {
+  if (appt) return Number(n) === 1 ? t("rsvpPersonOne", "1 person") : t("rsvpPersonN", "{n} people", { n });
   return Number(n) === 1 ? t("rsvpPartyOne", "1 guest") : t("rsvpPartyN", "{n} guests", { n });
 }
 
@@ -451,19 +456,28 @@ const SLOT_GROUP_DEFS = [
   { key: "afternoon", labelKey: "rsvpGroupAfternoon", test: (h) => h >= 15 && h < 17 },
   { key: "dinner", labelKey: "rsvpGroupDinner", test: (h) => h >= 17 },
 ];
+// A salon, a shop or a workshop books a time, not a meal: the day's parts —
+// Formiddag (before 12), Eftermiddag (12–17), Aften (17 and later). Its
+// customers met "Frokost" over 02:00–14:45 (QA item 8, Push 8 review).
+const APPT_SLOT_GROUP_DEFS = [
+  { key: "morning", labelKey: "rsvpGroupMorning", test: (h) => h < 12 },
+  { key: "afternoon", labelKey: "rsvpGroupAfternoon", test: (h) => h >= 12 && h < 17 },
+  { key: "evening", labelKey: "rsvpGroupEvening", test: (h) => h >= 17 },
+];
 
-function groupSlots(slots) {
-  const buckets = { lunch: [], afternoon: [], dinner: [] };
+function groupSlots(slots, apptWords = false) {
+  const defs = apptWords ? APPT_SLOT_GROUP_DEFS : SLOT_GROUP_DEFS;
+  const buckets = Object.fromEntries(defs.map((g) => [g.key, []]));
   for (const s of slots) {
     // Defensive parse — only well-formed "HH:MM" strings are bucketed.
     const m = /^(\d{1,2}):(\d{2})$/.exec(String(s));
     if (!m) continue;
     const hour = parseInt(m[1], 10);
     if (Number.isNaN(hour)) continue;
-    const def = SLOT_GROUP_DEFS.find((g) => g.test(hour));
+    const def = defs.find((g) => g.test(hour));
     if (def) buckets[def.key].push(s);
   }
-  return SLOT_GROUP_DEFS.map((g) => ({
+  return defs.map((g) => ({
     key: g.key,
     labelKey: g.labelKey,
     slots: buckets[g.key],
@@ -643,6 +657,12 @@ export default function ReservationPublicPage() {
   // bord" (vertical-fit review, Oct 2026). Wording only; `isProvider` stays
   // the booking engine switch.
   const apptWords = !!page && speaksAppointments(page.business_type);
+  // A shop or a workshop (an appointment business that is not the salon):
+  // no kitchen, no occasion — its customers are asked no allergies and no
+  // dinner occasion, only a note (Push 8 review: a bike workshop's page
+  // offered the 14 EU food allergens "so the kitchen can plan" and
+  // "Forretningsmiddag").
+  const noteOnly = apptWords && !isProvider;
   const [behandlinger, setBehandlinger] = useState([]);
   const [behandlingId, setBehandlingId] = useState("");
   const [stylistId, setStylistId] = useState(""); // "" = Valgfri behandler
@@ -969,7 +989,13 @@ export default function ReservationPublicPage() {
     }
     setDay(initialDay);
 
-    if (Number.isFinite(qParty) && qParty >= 1) {
+    // A salon, a shop or a workshop is booked by one customer — the page
+    // does not ask how many (vertical-fit, Push 8) — so a ?party=4 link does
+    // not set a party the customer cannot see or change, and the open days
+    // (asked for one) agree with the times and the booking.
+    if (speaksAppointments(page.business_type)) {
+      setParty(1);
+    } else if (Number.isFinite(qParty) && qParty >= 1) {
       setParty(Math.min(qParty, maxParty));
     } else {
       setParty(Math.min(2, maxParty));
@@ -994,7 +1020,8 @@ export default function ReservationPublicPage() {
     let alive = true;
     api
       .get(`/public/reservations/${slug}/availability-summary`, {
-        params: { from: today, days: 14, party: isProvider ? 1 : (party || 2) },
+        // One person for a salon, a shop or a workshop — as the page asks.
+        params: { from: today, days: 14, party: isProvider || apptWords ? 1 : (party || 2) },
       })
       .then((res) => {
         if (!alive) return;
@@ -1018,7 +1045,7 @@ export default function ReservationPublicPage() {
       alive = false;
     };
     // re-run when party changes (open days depend on party size)
-  }, [page, slug, isProvider, party, today]);
+  }, [page, slug, isProvider, apptWords, party, today]);
 
   // ── Per-venue document title + OG tags ────────────────────────────
   // A diner's browser tab should read the RESTAURANT, not the app default
@@ -1045,7 +1072,11 @@ export default function ReservationPublicPage() {
         : resultStatus === "cancelled" && liveOutcome === "declined"
         ? t("rsvpDocTitleDeclined", "Request not confirmed · {venue}", { venue })
         : resultStatus === "cancelled" || resultStatus === "no_show"
-        ? t("rsvpDocTitleCancelled", "Booking cancelled · {venue}", { venue })
+        // A time, not a reservation, for a salon, a shop or a workshop
+        // (Push 8 review: "Reservation aflyst · Cykelværkstedet Amager").
+        ? (apptWords
+          ? t("rsvpDocTitleCancelledAppt", "Appointment cancelled · {venue}", { venue })
+          : t("rsvpDocTitleCancelled", "Booking cancelled · {venue}", { venue }))
         : resultStatus === "requested"
           ? t("rsvpDocTitleRequest", "Request received · {venue}", { venue })
           : apptWords
@@ -1247,13 +1278,15 @@ export default function ReservationPublicPage() {
   const maxParty = Number(page?.max_party_size) || 10;
   const maxAdvance = Number(page?.max_advance_days) || 60;
   const latestDay = useMemo(() => addDays(today, maxAdvance), [today, maxAdvance]);
+  // The server sends a shop or a workshop no catalogue (allergens.py); an
+  // older server still sent the food set — never shown there either.
   const allergenSet = useMemo(
-    () => (Array.isArray(page?.allergen_set) ? page.allergen_set : []),
-    [page],
+    () => (noteOnly ? [] : Array.isArray(page?.allergen_set) ? page.allergen_set : []),
+    [page, noteOnly],
   );
   // Period-grouped slots (Frokost / Eftermiddag / Aften), computed once per
   // availability response. Only non-empty groups survive.
-  const slotGroups = useMemo(() => groupSlots(slots), [slots]);
+  const slotGroups = useMemo(() => groupSlots(slots, apptWords), [slots, apptWords]);
   // Provider recap pieces: the chosen behandling (name + duration) and the
   // pinned behandler's name (empty = Valgfri behandler).
   const chosenBehandling = useMemo(
@@ -1569,7 +1602,9 @@ export default function ReservationPublicPage() {
             destructive: true,
           }
         : {
-            title: t("rsvpCancelConfirmTitle", "Aflys reservationen?"),
+            title: apptWords
+              ? t("rsvpCancelConfirmTitleAppt", "Cancel the appointment?")
+              : t("rsvpCancelConfirmTitle", "Aflys reservationen?"),
             message: apptWords
               ? t("rsvpCancelConfirmBodyProvider", "The time is freed right away, and this can't be undone. You're welcome to book again.")
               : t(
@@ -1577,7 +1612,9 @@ export default function ReservationPublicPage() {
                 "Bordet bliver frigivet med det samme, og du kan ikke fortryde. Du er velkommen til at booke igen.",
               ),
             confirmLabel: t("rsvpCancelConfirmYes", "Ja, aflys"),
-            cancelLabel: t("rsvpCancelConfirmNo", "Behold reservationen"),
+            cancelLabel: apptWords
+              ? t("rsvpCancelConfirmNoAppt", "Keep the appointment")
+              : t("rsvpCancelConfirmNo", "Behold reservationen"),
             destructive: true,
           },
     );
@@ -1821,16 +1858,22 @@ export default function ReservationPublicPage() {
       HeroIcon = XCircle;
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
-      title = t("rsvpCancelledTitle", "Reservation aflyst");
-      body = t(
-        "rsvpCancelledByVenueBody",
-        "Sorry — we've had to cancel your reservation. Call us, or book another day.",
-      );
+      title = apptWords
+        ? t("rsvpCancelledTitleAppt", "Appointment cancelled")
+        : t("rsvpCancelledTitle", "Reservation aflyst");
+      body = apptWords
+        ? t("rsvpCancelledByVenueBodyAppt", "Sorry — we've had to cancel your appointment. Call us, or book another day.")
+        : t(
+          "rsvpCancelledByVenueBody",
+          "Sorry — we've had to cancel your reservation. Call us, or book another day.",
+        );
     } else if (isCancelled) {
       HeroIcon = XCircle;
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
-      title = t("rsvpCancelledTitle", "Reservation aflyst");
+      title = apptWords
+        ? t("rsvpCancelledTitleAppt", "Appointment cancelled")
+        : t("rsvpCancelledTitle", "Reservation aflyst");
       body = apptWords
         ? t("rsvpCancelledBodyProvider", "Your appointment is cancelled and the time is freed. You're welcome to book again.")
         : t(
@@ -1841,7 +1884,9 @@ export default function ReservationPublicPage() {
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
       title = t("rsvpDoneTitle", "Tak for besøget");
-      body = t("rsvpDoneBody", "Denne reservation er afsluttet.");
+      body = apptWords
+        ? t("rsvpDoneBodyAppt", "This appointment is closed.")
+        : t("rsvpDoneBody", "Denne reservation er afsluttet.");
     }
 
     // Human-friendly reference code — first 8 chars of the UUID, upper-cased,
@@ -1906,7 +1951,10 @@ export default function ReservationPublicPage() {
         ? chosenBehandling
           ? { k: "svc", label: t("rsvpColBehandling", "Service"), value: chosenBehandling.name }
           : null
-        : { k: "party", label: t("rsvpRowGuests", "Guests"), value: String(rParty) },
+        : apptWords
+          // One customer is the booking; more than one is worth a line.
+          ? Number(rParty) > 1 ? { k: "party", label: t("rsvpRowPeople", "People"), value: String(rParty) } : null
+          : { k: "party", label: t("rsvpRowGuests", "Guests"), value: String(rParty) },
       isProvider
         ? { k: "who", label: t("rsvpColBehandler", "Stylist"), value: chosenStylistName || t("rsvpBookValgfri", "Any stylist") }
         : null,
@@ -2138,7 +2186,9 @@ export default function ReservationPublicPage() {
               >
                 {isRequest
                   ? t("rsvpWithdrawRequest", "Withdraw request")
-                  : t("rsvpCancelOrChange", "Cancel this booking")}
+                  : apptWords
+                    ? t("rsvpCancelOrChangeAppt", "Cancel this appointment")
+                    : t("rsvpCancelOrChange", "Cancel this booking")}
               </Button>
               {cancelError && (
                 <p role="alert" className="text-xs text-red-600 dark:text-red-400">
@@ -2269,7 +2319,7 @@ export default function ReservationPublicPage() {
           )}
         </header>
 
-        <StepDots step={step} t={t} />
+        <StepDots step={step} t={t} apptWords={apptWords} />
 
         {/* ── Step 1 — (provider) behandling + behandler, then date + slot;
               (table) date + party + slot ────────────────────────────── */}
@@ -2356,8 +2406,11 @@ export default function ReservationPublicPage() {
               </>
             )}
             {/* Party size — TABLE venues only. A salon tidsbestilling is one
-                customer; the behandling sets the length, not party size. */}
-            {!isProvider && (
+                customer; the behandling sets the length, not party size. A
+                shop or a workshop is booked by one customer too: "Antal
+                gæster" 1–10 asked a tøjbutik's customer a restaurant's
+                question (Push 8). */}
+            {!apptWords && (
               <div>
                 <h2 className={SECTION_TITLE + " mb-2.5"}>
                   {t("rsvpPartySize", "Antal gæster")}
@@ -2568,11 +2621,19 @@ export default function ReservationPublicPage() {
               </h2>
               {groupRequest && slotGroups.length > 0 && (
                 <p className="-mt-1 mb-3 text-[13px] leading-snug text-gray-500 dark:text-gray-400">
-                  {t(
-                    "rsvpGroupWishedTimeHint",
-                    "Parties of {n} are sent as a request — pick the time you'd like and we'll confirm it.",
-                    { n: party },
-                  )}
+                  {/* A salon, a shop or a workshop books one person, so a
+                      request there means every appointment is one (its owner
+                      approves each) — not "Selskaber på 1 … I ønsker". */}
+                  {apptWords
+                    ? t(
+                      "rsvpGroupWishedTimeHintAppt",
+                      "Every appointment is sent as a request — pick the time you'd like and we'll confirm it.",
+                    )
+                    : t(
+                      "rsvpGroupWishedTimeHint",
+                      "Parties of {n} are sent as a request — pick the time you'd like and we'll confirm it.",
+                      { n: party },
+                    )}
                 </p>
               )}
               {isProvider && !behandlingId ? (
@@ -2697,6 +2758,7 @@ export default function ReservationPublicPage() {
                     // the new ones arrive — no flash of placeholders, no jump.
                     loading={slotsLoading}
                     t={t}
+                    apptWords={apptWords}
                   />
                 )}
             </div>
@@ -2802,7 +2864,7 @@ export default function ReservationPublicPage() {
                   <span className="block text-gray-500 dark:text-gray-400">
                     {[
                       slot || null,
-                      partyLabel(party, t),
+                      partyLabel(party, t, apptWords),
                       !groupRequest && selectedTable
                         ? floor.find((x) => String(x.id) === String(selectedTable))?.label || null
                         : null,
@@ -3003,10 +3065,16 @@ export default function ReservationPublicPage() {
               >
                 <span className="min-w-0 flex-1">
                   <span className="block text-[14.5px] font-semibold text-gray-900 dark:text-gray-100">
-                    {t("rsvpExtrasTitle", "Allergies, occasion or a note?")}
+                    {noteOnly
+                      ? t("rsvpExtrasTitleNote", "A note for us?")
+                      : t("rsvpExtrasTitle", "Allergies, occasion or a note?")}
                   </span>
                   <span className="block text-[12.5px] text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
-                    {extrasSummary || t("rsvpExtrasHint", "Optional — so the kitchen can plan for you")}
+                    {extrasSummary || (noteOnly
+                      ? t("rsvpExtrasHintNote", "Optional — e.g. what it is about")
+                      : isProvider
+                        ? t("rsvpExtrasHintProvider", "Optional — so we can take care of you")
+                        : t("rsvpExtrasHint", "Optional — so the kitchen can plan for you"))}
                   </span>
                 </span>
                 <ChevronDown
@@ -3029,9 +3097,13 @@ export default function ReservationPublicPage() {
                           {t("rsvpXAllergies", "Allergies or diet")}
                         </p>
                         <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mt-0.5">
-                          {t("rsvpAllergyShared", "Shared only with {venue}, so the kitchen can plan.", {
-                            venue: page.business_name,
-                          })}
+                          {isProvider
+                            ? t("rsvpAllergySharedProvider", "Shared only with {venue}, so they can take care of you.", {
+                                venue: page.business_name,
+                              })
+                            : t("rsvpAllergyShared", "Shared only with {venue}, so the kitchen can plan.", {
+                                venue: page.business_name,
+                              })}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
@@ -3083,7 +3155,9 @@ export default function ReservationPublicPage() {
                           </div>
                           <textarea
                             id="rsvp-allergy-note"
-                            aria-label={t("rsvpXAllergyDetail", "Tell the kitchen more")}
+                            aria-label={isProvider
+                              ? t("rsvpXAllergyDetailProvider", "Tell us more")
+                              : t("rsvpXAllergyDetail", "Tell the kitchen more")}
                             value={allergyNote}
                             onChange={(e) => setAllergyNote(e.target.value)}
                             placeholder={t(
@@ -3100,7 +3174,9 @@ export default function ReservationPublicPage() {
                   )}
 
                   {/* Occasion — five taps instead of a text box; tap again to
-                      clear. */}
+                      clear. Dinner occasions: not on a shop's or a workshop's
+                      page. */}
+                  {!noteOnly && (
                   <div className="space-y-2.5">
                     <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                       {t("rsvpXOccasion", "Occasion")}
@@ -3128,6 +3204,7 @@ export default function ReservationPublicPage() {
                       })}
                     </div>
                   </div>
+                  )}
 
                   <div className="space-y-2">
                     <label htmlFor="rsvp-notes" className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
@@ -3167,10 +3244,12 @@ export default function ReservationPublicPage() {
                   {t("rsvpMarketing", "Send mig nyheder og tilbud")}
                 </span>
                 <span className="block text-xs text-gray-500 dark:text-gray-400 leading-relaxed mt-0.5">
-                  {t(
-                    "rsvpMarketingHint",
-                    "Valgfrit. Du modtager altid din reservationsbekræftelse; dette dækker kun nyhedsbreve.",
-                  )}
+                  {apptWords
+                    ? t("rsvpMarketingHintAppt", "Optional — this only covers newsletters, not the confirmation of your appointment.")
+                    : t(
+                      "rsvpMarketingHint",
+                      "Valgfrit. Du modtager altid din reservationsbekræftelse; dette dækker kun nyhedsbreve.",
+                    )}
                 </span>
               </span>
               <span
@@ -3194,11 +3273,17 @@ export default function ReservationPublicPage() {
                 "only for this reservation" stopped being true the moment it
                 was. The venue is the data controller; the policy explains. */}
             <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-              {t(
-                "rsvpPrivacyVenue",
-                "Your details go to {venue} for this booking — and for news only if you switch it on.",
-                { venue: page.business_name },
-              )}{" "}
+              {apptWords
+                ? t(
+                  "rsvpPrivacyVenueAppt",
+                  "Your details go to {venue} for this appointment — and for news only if you switch it on.",
+                  { venue: page.business_name },
+                )
+                : t(
+                  "rsvpPrivacyVenue",
+                  "Your details go to {venue} for this booking — and for news only if you switch it on.",
+                  { venue: page.business_name },
+                )}{" "}
               <a
                 href="/privacy"
                 target="_blank"
@@ -3261,11 +3346,11 @@ export default function ReservationPublicPage() {
                   <p className="text-[12.5px] text-gray-500 dark:text-gray-400 truncate">
                     {groupRequest
                         ? t("rsvpGroupTimeNote", "{party} · request", {
-                            party: partyLabel(party, t),
+                            party: partyLabel(party, t, apptWords),
                           })
                         : isProvider && chosenBehandling
                           ? chosenBehandling.name
-                          : partyLabel(party, t)}
+                          : partyLabel(party, t, apptWords)}
                   </p>
                 </div>
                 {/* Never a dead grey block: until a time is picked the button
@@ -3416,7 +3501,7 @@ function rovingKeyDown(e) {
 
 // ── Small presentational helpers ─────────────────────────────────────
 
-function StepDots({ step, t }) {
+function StepDots({ step, t, apptWords = false }) {
   return (
     <div
       className="flex items-center gap-1.5"
@@ -3426,7 +3511,7 @@ function StepDots({ step, t }) {
       aria-valuenow={step}
       // Read as "Step 1 of 2", not as a bare number.
       aria-valuetext={t("rsvpStepOf", "Step {n} of {total}", { n: step, total: 2 })}
-      aria-label={t("rsvpStepAria", "Reservation step")}
+      aria-label={apptWords ? t("rsvpStepAriaAppt", "Booking step") : t("rsvpStepAria", "Reservation step")}
     >
       {[1, 2].map((n) => (
         <span

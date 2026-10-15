@@ -43,7 +43,7 @@ from app.models.user import User
 from app.services import audit_service, reservation_service as rsvc
 from app.services import reservation_emails
 from app.services import reservation_occupancy_service as occ_service
-from app.services.allergens import allergen_set_for, sanitize_severity, sanitize_tags
+from app.services.allergens import allergen_set_for, collects_allergies, sanitize_severity, sanitize_tags
 from app.services.billing import at_cap, has_feature
 from app.services.logo_service import logo_signed_url
 from app.services.owner_language import venue_language
@@ -333,7 +333,9 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         # business phone on the profile. Owner sets it in Reservations → Settings.
         "phone": settings.get("contact_phone") or getattr(profile, "phone", None),
         "allergen_set": allergen_set_for(btype),
-        "max_party_size": settings.get("max_party_size"),
+        # The ceiling as the engine applies it (None = no limit): a stored 0
+        # is "no limit" on every path (rsvc.online_party_ceiling).
+        "max_party_size": rsvc.online_party_ceiling(settings),
         "group_request_threshold": settings.get("group_request_threshold"),
         "guest_can_pick_table": bool(settings.get("guest_can_pick_table")),
         "max_advance_days": settings.get("max_advance_days"),
@@ -805,8 +807,11 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
         status="confirmed", source="public",
         occasion=payload.occasion, guest_notes=payload.guest_notes,
         allergen_tags=sanitize_tags(payload.allergen_tags, btype),
-        allergy_note=payload.allergy_note,
-        allergy_severity=sanitize_severity(payload.allergy_severity),
+        # A shop or a workshop asks no allergies (allergens.collects_allergies):
+        # a note or a severity sent anyway is health data with no purpose.
+        allergy_note=payload.allergy_note if collects_allergies(btype) else None,
+        allergy_severity=(sanitize_severity(payload.allergy_severity)
+                          if collects_allergies(btype) else None),
         idempotency_key=idempotency_key,
         purge_after=start + timedelta(days=int(settings.get("retention_days", 90))),
     )
@@ -882,8 +887,8 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     max_advance = int(settings.get("max_advance_days", 60))
     if start.date() < today or start.date() > today + timedelta(days=max_advance):
         raise HTTPException(status_code=422, detail={"error": "date_out_of_range"})
-    max_party = settings.get("max_party_size")
-    if max_party and payload.party_size > max_party:
+    max_party = rsvc.online_party_ceiling(settings)
+    if max_party is not None and payload.party_size > max_party:
         raise HTTPException(status_code=409, detail={"error": "party_too_large"})
 
     # L7 — owner's monthly cap → generic 409 (no tier leak to the visitor).
@@ -956,8 +961,11 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
         source="public",
         occasion=payload.occasion, guest_notes=payload.guest_notes,
         allergen_tags=sanitize_tags(payload.allergen_tags, btype),
-        allergy_note=payload.allergy_note,
-        allergy_severity=sanitize_severity(payload.allergy_severity),
+        # A shop or a workshop asks no allergies (allergens.collects_allergies):
+        # a note or a severity sent anyway is health data with no purpose.
+        allergy_note=payload.allergy_note if collects_allergies(btype) else None,
+        allergy_severity=(sanitize_severity(payload.allergy_severity)
+                          if collects_allergies(btype) else None),
         idempotency_key=idempotency_key,
         purge_after=start + timedelta(days=int(settings.get("retention_days", 90))),
     )

@@ -78,7 +78,7 @@ function FixtureStepper({ label, value, onLess, onMore }) {
     </span>
   );
 }
-import { venueProfile } from "../config/venueProfiles";
+import { venueProfile, bookingModeFor, speaksAppointments } from "../config/venueProfiles";
 import {
   SHAPES,
   ARCHETYPES,
@@ -90,7 +90,7 @@ import {
   TableMark,
   ShapeGlyph,
 } from "../config/tableArchetypes";
-import { fitRoom, roomMinWidth } from "../utils/floorFit";
+import { fitRoom, roomMinWidth, tableFootprint } from "../utils/floorFit";
 import { comboLinks } from "../utils/hostStand";
 import { zoneTones } from "../utils/zoneColors";
 import { lateMinutes, overdueMinutes, overByText } from "../utils/serviceClock";
@@ -300,10 +300,16 @@ function TableNode({
   nowMs,
   // Seats of all the tables a combined party sits at (null when single).
   comboSeats = null,
+  // A combined party whose tables do not stand together (no band joins them):
+  // { letter, others } — the same small letter on each of its tables, and the
+  // other tables' names for the title / screen reader. null otherwise.
+  shared = null,
   // The table's zone ring (same hue as the list and the timeline), or null.
   zoneDot = null,
   t,
   profile,
+  // A shop's or a workshop's place, not a table (FloorPlan's placeWords).
+  placeWords = false,
   editing,
   selected,
   onTap,
@@ -528,7 +534,8 @@ function TableNode({
           " · " +
           seats +
           (status === "overdue" ? " · " + t("rsvpPlanOverdue", "Overdue") : "") +
-          (sub ? " · " + sub : "")
+          (sub ? " · " + sub : "") +
+          (shared ? " · " + t("rsvpPlanSharedWith", "Shared with {tables}", { tables: shared.others }) : "")
         }
         title={res.label + (sub ? " · " + sub : "")}
         className={
@@ -617,7 +624,9 @@ function TableNode({
               </>
             ) : (
               <>
-                <Users className="w-3 h-3 opacity-70" aria-hidden />
+                {/* On a two-top the shared letter takes the people icon's
+                    room, so the seat line stays inside the table. */}
+                {!(combined && shared && innerW < 58) && <Users className="w-3 h-3 opacity-70" aria-hidden />}
                 <span className="text-[13px] tabular-nums">
                   {/* A party across tables counts every table's seats: 12 at
                       Bord 5 + 6 read "12/6" and "12/8", as if over-full. */}
@@ -625,7 +634,19 @@ function TableNode({
                     ? `${partySize}/${comboSeats || seats}`
                     : seats}
                 </span>
-                {combined && <Link2 className="w-3 h-3 opacity-70 ml-0.5" aria-hidden />}
+                {combined && !shared && <Link2 className="w-3 h-3 opacity-70 ml-0.5" aria-hidden />}
+                {/* Joined to tables across the room: no band there, so each
+                    of the party's tables carries the same small letter. */}
+                {combined && shared && (
+                  <span
+                    data-combo-badge={shared.letter}
+                    title={t("rsvpPlanSharedWith", "Shared with {tables}", { tables: shared.others })}
+                    className="ml-0.5 inline-flex items-center gap-px rounded-full px-1 text-[10px] font-semibold leading-[14px] bg-white/90 text-gray-900 dark:bg-gray-900/85 dark:text-gray-100"
+                  >
+                    <Link2 className="w-2.5 h-2.5" aria-hidden />
+                    {shared.letter}
+                  </span>
+                )}
               </>
             )}
           </span>
@@ -655,8 +676,8 @@ function TableNode({
             e.stopPropagation();
             onToggleShape(res.id);
           }}
-          title={t("rsvpPlanShapeCycle", "Skift bord-design")}
-          aria-label={t("rsvpPlanShapeCycle", "Skift bord-design")}
+          title={placeWords ? t("rsvpPlanShapeCycleAppt", "Change the space's shape") : t("rsvpPlanShapeCycle", "Skift bord-design")}
+          aria-label={placeWords ? t("rsvpPlanShapeCycleAppt", "Change the space's shape") : t("rsvpPlanShapeCycle", "Skift bord-design")}
           className="absolute left-1/2 -translate-x-1/2 -bottom-3 z-40 h-7 w-7 inline-flex items-center justify-center rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 shadow text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
         >
           <ShapeGlyph shape={shape} size={18} />
@@ -713,6 +734,10 @@ export default function FloorPlan({
   // icon, empty state, hints, zone presets). Per-resource provider overrides
   // are resolved separately, per cell, inside the render loop.
   const profile = useMemo(() => venueProfile(businessType), [businessType]);
+  // A shop or a workshop (venueProfiles.speaksAppointments, not the salon):
+  // its places are "pladser" and its customers are checked in — the legend
+  // under its room said "Sidder" (Push 8 review). The salon keeps "Sidder".
+  const placeWords = speaksAppointments(businessType) && bookingModeFor(businessType) !== "provider";
   // Seats per table, for a party sitting across several.
   const seatsByRes = useMemo(
     () => Object.fromEntries((cells || []).map((c) => [String(c.res.id), Number(c.res.capacity_seats) || 0])),
@@ -989,6 +1014,42 @@ export default function FloorPlan({
         : fitRoom(cells, layout, canvasSize, shownFixtures),
     [editing, cells, layout, canvasSize, shownFixtures],
   );
+
+  // Combined parties on the floor (view mode): the links between their
+  // tables, each marked `near` when the two stand together (comboLinks), and
+  // for a party a band cannot join — tables across the room — the same
+  // letter on each of its tables (A, B … in the order the floor names them).
+  const { comboGroups, comboBadges } = useMemo(() => {
+    const none = { comboGroups: [], comboBadges: {} };
+    if (editing) return none;
+    const combos = cells.filter((c) => c.combined && c.booking?.reservation).map((c) => c.booking.reservation);
+    if (combos.length === 0) return none;
+    const posById = {};
+    const labelById = {};
+    for (const c of cells) {
+      const id = String(c.res.id);
+      const saved = layout[id] || { pos_x: 50, pos_y: 50 };
+      const p = fitted.pos[id] ? { ...saved, ...fitted.pos[id] } : saved;
+      const fp = tableFootprint(c.res, p, fitted.scale || 1);
+      posById[id] = { x: Number(p.pos_x), y: Number(p.pos_y), hw: fp.hw, hh: fp.hh };
+      labelById[id] = String(c.res.label || id);
+    }
+    const room = canvasSize.w > 0 && canvasSize.h > 0 ? canvasSize : null;
+    const groups = comboLinks(combos, posById, room ? room.w / room.h : 1.6, { room });
+    const byName = (a, b) => a.localeCompare(b, "da", { numeric: true, sensitivity: "base" });
+    const apart = groups
+      .filter((g) => !g.linked)
+      .map((g) => ({ ...g, names: g.ids.map((id) => labelById[id]).sort(byName) }))
+      .sort((a, b) => byName(a.names[0], b.names[0]));
+    const badges = {};
+    apart.forEach((g, i) => {
+      const letter = String.fromCharCode(65 + (i % 26));
+      for (const id of g.ids) {
+        badges[id] = { letter, others: g.names.filter((n) => n !== labelById[id]).join(" + ") };
+      }
+    });
+    return { comboGroups: groups, comboBadges: badges };
+  }, [editing, cells, layout, fitted, canvasSize]);
 
   // Zones: a hollow ring on each zoned table + the legend — a drawn area
   // mislabelled the room (equal bands put "VINDUE" over Indendørs tables; a
@@ -1372,11 +1433,15 @@ export default function FloorPlan({
     setAddBusy(true);
     setAddError("");
     try {
+      // A shop's or a workshop's next place is "Plads N", a table venue's
+      // "Bord N" (as quick setup names them).
+      const prefix = placeWords ? t("rsvpBulkPrefixAppt", "Space") : "Bord";
       const nums = cells.map((c) => {
-        const m = /^Bord (\d+)$/.exec((c.res.label || "").trim());
+        const label = (c.res.label || "").trim();
+        const m = label.startsWith(prefix + " ") ? /^(\d+)$/.exec(label.slice(prefix.length + 1)) : null;
         return m ? parseInt(m[1], 10) : 0;
       });
-      const label = `Bord ${Math.max(0, ...nums, cells.length) + 1}`;
+      const label = `${prefix} ${Math.max(0, ...nums, cells.length) + 1}`;
       const res = await api.post("/reservations/resources", {
         kind: "table",
         label,
@@ -1397,14 +1462,18 @@ export default function FloorPlan({
       if (onResourcesChanged) await onResourcesChanged();
     } catch (e) {
       if (e?.response?.status === 402) {
-        setAddError(t("rsvpTableCapMsg", "Table limit reached on your plan."));
+        setAddError(placeWords
+          ? t("rsvpTableCapMsgAppt", "Space limit reached on your plan.")
+          : t("rsvpTableCapMsg", "Table limit reached on your plan."));
       } else {
-        setAddError(t("rsvpAddTableErr", "Couldn't add the table."));
+        setAddError(placeWords
+          ? t("rsvpTableAddErrorAppt", "Couldn't add the space.")
+          : t("rsvpAddTableErr", "Couldn't add the table."));
       }
     } finally {
       setAddBusy(false);
     }
-  }, [cells, addSeats, currentLayout, onResourcesChanged, t]);
+  }, [cells, addSeats, currentLayout, onResourcesChanged, t, placeWords]);
 
   // Tap router (view mode): free → seat walk-in; occupied → open booking.
   const handleTap = useCallback(
@@ -1464,9 +1533,15 @@ export default function FloorPlan({
           {/* Room capacity — what fits at one seating. */}
           <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 tabular-nums">
             <Users className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" aria-hidden />
-            {t("rsvpFloorSeats", "{n} seats", { n: capacity.seats })}
+            {placeWords
+              ? t("rsvpFloorSeatsAppt", "Room for {n}", { n: capacity.seats })
+              : t("rsvpFloorSeats", "{n} seats", { n: capacity.seats })}
             <span className="text-gray-300 dark:text-gray-600" aria-hidden>·</span>
-            {t("rsvpFloorTables", "{n} tables", { n: capacity.tables })}
+            {placeWords
+              ? capacity.tables === 1
+                ? t("rsvpFloorTablesOneAppt", "1 space")
+                : t("rsvpFloorTablesAppt", "{n} spaces", { n: capacity.tables })
+              : t("rsvpFloorTables", "{n} tables", { n: capacity.tables })}
           </span>
           {editing ? (
             <span className="inline-flex items-center gap-1.5 text-gray-700 dark:text-gray-200">
@@ -1495,7 +1570,7 @@ export default function FloorPlan({
                 className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
               >
                 <Plus className="w-4 h-4" aria-hidden />
-                {t("rsvpAddTable", "Add table")}
+                {placeWords ? t("rsvpAddTableBtnAppt", "Add space") : t("rsvpAddTable", "Add table")}
               </button>
               {/* Add the room ITSELF — the bar, the door, a window, a wall.
                   Sits next to Add table because to an owner arranging their
@@ -1588,7 +1663,9 @@ export default function FloorPlan({
               {/* The free-table mark, as on the floor: white, ringed. */}
               <span className="w-2 h-2 rounded-full bg-white ring-1 ring-gray-400 dark:bg-gray-900 dark:ring-gray-500 shrink-0" aria-hidden />
               <span className="font-medium shrink-0">
-                {t("rsvpTurnFreeNow", "{n} free now", { n: turn.freeNow })}
+                {turn.freeNow === 1
+                  ? t("rsvpTurnFreeNowOne", "1 free now")
+                  : t("rsvpTurnFreeNow", "{n} free now", { n: turn.freeNow })}
               </span>
               {(turn.overdue > 0 || turn.nextAt) && (
                 <span className="text-gray-600 dark:text-gray-400 truncate min-w-0">
@@ -1602,7 +1679,7 @@ export default function FloorPlan({
             <>
               <Clock className="w-4 h-4 shrink-0" aria-hidden />
               <span className="font-medium shrink-0">
-                {t("rsvpTurnAllBusy", "All tables occupied")}
+                {placeWords ? t("rsvpTurnAllBusyAppt", "All spaces taken") : t("rsvpTurnAllBusy", "All tables occupied")}
               </span>
               {turn.overdue > 0 ? (
                 <span className="truncate min-w-0">
@@ -1652,7 +1729,7 @@ export default function FloorPlan({
             </button>
           ))}
           <Button variant="primary" size="sm" busy={addBusy} onClick={addTable} iconLeft={<Plus className="w-4 h-4" />}>
-            {t("rsvpAddTable", "Add table")}
+            {placeWords ? t("rsvpAddTableBtnAppt", "Add space") : t("rsvpAddTable", "Add table")}
           </Button>
           {addError && (
             <span className="text-sm text-red-600 dark:text-red-400">{addError}</span>
@@ -1729,18 +1806,12 @@ export default function FloorPlan({
               only draws a band between their centres (the shortest chain
               over those positions — no geometry invented), under the tables,
               in the party's status colour: emerald seated, sky confirmed,
-              amber a request. Not while arranging the room. */}
+              amber a request. Only between tables that stand together
+              (comboLinks `near`): a band from wall to wall read as one long
+              table across the room — those tables carry a shared letter
+              instead (comboBadges). Not while arranging the room. */}
           {!editing && (() => {
-            const combos = cells.filter((c) => c.combined && c.booking?.reservation).map((c) => c.booking.reservation);
-            if (combos.length === 0) return null;
-            const posById = {};
-            for (const c of cells) {
-              const id = String(c.res.id);
-              const saved = layout[id] || { pos_x: 50, pos_y: 50 };
-              const p = fitted.pos[id] ? { ...saved, ...fitted.pos[id] } : saved;
-              posById[id] = { x: Number(p.pos_x), y: Number(p.pos_y) };
-            }
-            const groups = comboLinks(combos, posById);
+            const groups = comboGroups.filter((g) => g.edges.some((e) => e[2]));
             if (groups.length === 0) return null;
             const width = Math.max(8, Math.round(22 * (fitted.scale || 1)));
             return (
@@ -1752,7 +1823,7 @@ export default function FloorPlan({
                 data-combo-links={groups.length}
               >
                 {groups.map((g) =>
-                  g.edges.map(([a, b]) => (
+                  g.edges.filter((e) => e[2]).map(([a, b]) => (
                     <line
                       key={`${g.id}-${a.id}-${b.id}`}
                       data-combo-edge={`${a.id}:${b.id}`}
@@ -1809,8 +1880,10 @@ export default function FloorPlan({
                       ? c.booking.reservation.combined_resource_ids.reduce((sum, rid) => sum + (seatsByRes[String(rid)] || 0), 0) || null
                       : null
                   }
+                  shared={editing ? null : comboBadges[id] || null}
                   t={t}
                   profile={cellProfile}
+                  placeWords={placeWords}
                   editing={editing}
                   selected={isNext || activeId === id || (editing && selectedId === id)}
                   onTap={handleTap}
@@ -1871,7 +1944,7 @@ export default function FloorPlan({
         {zoneInfo.zones.map((z) => (
           <LegendItem key={z.zone} dotCls={"bg-transparent border-2 " + z.cls} label={z.zone} />
         ))}
-        <LegendItem dotCls="bg-emerald-600" label={t("rsvpTileSeated", "Seated")} />
+        <LegendItem dotCls="bg-emerald-600" label={placeWords ? t("rsvpStatusSeatedAppt", "Checked in") : t("rsvpTileSeated", "Seated")} />
         <LegendItem dotCls="bg-red-500" label={t("rsvpPlanOverdue", "Overdue")} />
         {nextBookingId != null && (
           <LegendItem dotCls="bg-transparent ring-2 ring-gray-900 dark:ring-gray-100" label={t("rsvpNextArrival", "Next arrival")} />

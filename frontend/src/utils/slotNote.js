@@ -23,11 +23,17 @@ export const SLOT_SCARCE_AT = 3;
 /**
  * @param {number|undefined} remaining single tables still free for this slot
  * @param {(key: string, fallback: string) => string} t
+ * @param {{apptWords?: boolean}} [opts] a shop, a workshop or a salon
+ *   (venueProfiles.speaksAppointments) books a time, not a table: its last
+ *   one is "Sidste tid". Its customers read "Sidste bord" under the times
+ *   (QA item 8, Push 8 review).
  * @returns {string} the note, or "" when there is nothing honest to say
  */
-export function slotNote(remaining, t) {
+export function slotNote(remaining, t, { apptWords = false } = {}) {
   if (typeof remaining !== "number" || !Number.isFinite(remaining)) return "";
-  if (remaining === 1) return t("rsvpSlotLastTable", "Sidste bord");
+  if (remaining === 1) {
+    return apptWords ? t("rsvpSlotLastTime", "Sidste tid") : t("rsvpSlotLastTable", "Sidste bord");
+  }
   if (remaining > 1 && remaining <= SLOT_SCARCE_AT) {
     return t("rsvpSlotNLeft", "{n} tilbage").replace("{n}", String(remaining));
   }

@@ -525,7 +525,9 @@ export const NAV_MANIFEST = [
     pillar: "inventory",
     requiresModule: "bar_pour",
     frequency: "daily",
-    surfaces: ["sidebar"],
+    // On the phone's Mere sheet too, beside Vinkort: a bar owner's daily tool
+    // was only in the ≡ drawer, and Mere showed Vinkort alone under LAGER.
+    surfaces: ["sidebar", "more"],
   },
   {
     // Wine list — STRICTER UNION GATE (panel-flagged drift fix). Both the
@@ -1023,7 +1025,10 @@ export function relevantPillarsForArchetype(archetypeId) {
  * (vertical-fit review, Oct 2026): an entry passes it when its module is
  * switched on (requiresModule / requiresAnyModule — the owner picked it on
  * /modules, e.g. "Andet" with Værksted), or when its `keepWhenUsed` tool has
- * real rows (a salon that logs waste keeps Madspild).
+ * real rows (a salon that logs waste keeps Madspild). Nor does the ACTIVATION
+ * axis (Push 8): a switched-on module's entry stays in the nav while its
+ * pillar is dormant — a fresh bar's Bar & skænk and Vinkort under an unused
+ * Lager.
  *
  * Outcome per axis:
  *   • RELEVANCE  (hiddenPillars)            → HIDE (dropped from result)
@@ -1172,12 +1177,21 @@ export function filterDestinations(items, ctx = {}) {
 
   const activated = activatedPillars instanceof Set ? activatedPillars : null;
   const relevantSet = relevantPillarsForArchetype(archetypeId);
-  const passesActivation = (pillar) => {
+  const passesActivation = (item) => {
+    const pillar = item.pillar;
     if (!activationEnabled || !isInScope) return true; // firewall: today's nav
     if (!pillar) return true;                           // spine — never gated
     if (!relevantSet.has(pillar)) return true;          // irrelevant — not a tile
     if (!activated) return true;                        // fail-open (no Set yet)
-    return activated.has(pillar);                       // hide only if dormant
+    if (activated.has(pillar)) return true;             // in use
+    // A module switched on in /modules always shows — the owner chose it
+    // (the vertical-fit rule passesType applies, here for the ACTIVATION
+    // axis too). A fresh bar's "Bar & skænk" and "Vinkort" sat under a
+    // dormant Lager and had no menu entry anywhere (Push 8 QA). The module
+    // gate already passed above, so reaching here means it is on.
+    if ((item.requiresModule || item.requiresAnyModule)
+      && passesModule(item.requiresModule, item.requiresAnyModule)) return true;
+    return false;                                       // dormant → "Sæt op"
   };
 
   const out = [];
@@ -1198,8 +1212,9 @@ export function filterDestinations(items, ctx = {}) {
       out.push({ ...item, labelKey: labelKeyFor(item, archetypeId), locked: true });
       continue;
     }
-    // ACTIVATION — only non-locked, relevant, dormant, in-scope pillars drop.
-    if (!passesActivation(item.pillar)) continue;
+    // ACTIVATION — only non-locked, relevant, dormant, in-scope pillars drop
+    // (a switched-on module's entry never does).
+    if (!passesActivation(item)) continue;
     out.push({ ...item, labelKey: labelKeyFor(item, archetypeId), locked: false });
   }
   return out;

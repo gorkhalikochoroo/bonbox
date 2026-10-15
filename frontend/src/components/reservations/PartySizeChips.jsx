@@ -14,8 +14,14 @@ import { useState } from "react";
 
 const PARTY_SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-export default function PartySizeChips({ value, onChange, t }) {
+// `apptWords`: a business that books customers for a time (a salon, a shop, a
+// workshop) counts PEOPLE, not guests — "2 personer", never "2 gæster".
+export default function PartySizeChips({ value, onChange, t, apptWords = false }) {
   const n = parseInt(value, 10);
+  const nameOf = (k) =>
+    apptWords
+      ? k === 1 ? t("rsvpPersonOne", "1 person") : t("rsvpPersonN", "{n} people", { n: k })
+      : k === 1 ? t("rsvpPartyOne", "1 guest") : t("rsvpPartyN", "{n} guests", { n: k });
   const [other, setOther] = useState("");
   const parsed = (v) => {
     const x = parseInt(v, 10);
@@ -43,7 +49,7 @@ export default function PartySizeChips({ value, onChange, t }) {
             type="button"
             onClick={() => onChange(String(s))}
             aria-pressed={on}
-            aria-label={s === 1 ? t("rsvpPartyOne", "1 guest") : t("rsvpPartyN", "{n} guests", { n: s })}
+            aria-label={nameOf(s)}
             className={chipClass(on)}
           >
             {s}
@@ -55,7 +61,7 @@ export default function PartySizeChips({ value, onChange, t }) {
           type="button"
           onClick={() => onChange(String(n))}
           aria-pressed="true"
-          aria-label={t("rsvpPartyN", "{n} guests", { n })}
+          aria-label={nameOf(n)}
           className={chipClass(true)}
         >
           {n}
@@ -64,7 +70,9 @@ export default function PartySizeChips({ value, onChange, t }) {
       {/* 11+ could not be entered at all, although the backend takes 1–100.
           A small number box for the big table. */}
       <label className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
-        <span className="sr-only">{t("rsvpPartyOther", "Other number of guests")}</span>
+        <span className="sr-only">
+          {apptWords ? t("rsvpPartyOtherAppt", "Other number of people") : t("rsvpPartyOther", "Other number of guests")}
+        </span>
         {/* No min/max on the box: a "9" typed here met the browser's own
             "must be at least 11" bubble (in English) and Save did nothing.
             The number is checked here, and a ladder number lands on its chip. */}

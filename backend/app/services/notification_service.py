@@ -860,6 +860,28 @@ def send_single_shift_notification(
     db.commit()
 
 
+def _speaks_appointments(owner, reservation=None) -> bool:
+    """A time booked by a customer, not a table: any booking at a salon, a
+    shop or a repair trade, or a booking with a service (a treatment)."""
+    if reservation is not None and getattr(reservation, "service_name", None):
+        return True
+    try:
+        from app.services.reservation_emails import speaks_appointments
+        return speaks_appointments(getattr(owner, "business_type", None))
+    except Exception:  # noqa: BLE001 — a word must never block a push
+        return False
+
+
+def _party_words(n, *, da: bool, appointment: bool) -> str:
+    """"4 pers" in Danish; in English "1 guest" / "4 guests", or "1 person" /
+    "4 people" at an appointment venue — never "1 guests"."""
+    if da:
+        return f"{n} pers"
+    if appointment:
+        return f"{n} person" if n == 1 else f"{n} people"
+    return f"{n} guest" if n == 1 else f"{n} guests"
+
+
 def notify_owner_new_reservation(db: Session, owner, reservation, *, cancelled: bool = False) -> dict:
     """Best-effort push to the OWNER's devices when a guest books via the
     public /r/<slug> link — the "ping when a table is booked" the host
@@ -888,18 +910,29 @@ def notify_owner_new_reservation(db: Session, owner, reservation, *, cancelled: 
     when = reservation.starts_at.strftime("%d/%m %H:%M") if reservation.starts_at else ""
     is_request = reservation.status == "requested"
     da = owner_lang(owner) == "da"
-    party = f"{reservation.party_size} pers" if da else f"{reservation.party_size} guests"
+    # A salon, a shop or a repair trade books a customer for a time, as its
+    # mails say (reservation_emails.speaks_appointments); a booking with a
+    # service is a treatment. Its owner reads "aftale" / "tiden", never
+    # "Reservation" and "bord frigivet" (Push 8 review).
+    appt = _speaks_appointments(owner, reservation)
+    party = _party_words(reservation.party_size, da=da, appointment=appt)
     if cancelled:
         # Guest cancelled online — tell the owner the table is free again
         # (NOT "Ny reservation", which would be misleading). Same tag, so
         # this push replaces the earlier booking ping on the lock screen.
-        title = "BonBox · Reservation aflyst" if da else "BonBox · Reservation cancelled"
-        body_text = f"{party} · {when} — " + ("bord frigivet" if da else "table free again")
+        if appt:
+            title = "BonBox · Aftale aflyst" if da else "BonBox · Appointment cancelled"
+            body_text = f"{party} · {when} — " + ("tiden er ledig igen" if da else "the time is free again")
+        else:
+            title = "BonBox · Reservation aflyst" if da else "BonBox · Reservation cancelled"
+            body_text = f"{party} · {when} — " + ("bord frigivet" if da else "table free again")
     else:
         if da:
-            title = "BonBox · Ny forespørgsel" if is_request else "BonBox · Ny reservation"
+            title = ("BonBox · Ny forespørgsel" if is_request
+                     else "BonBox · Ny aftale" if appt else "BonBox · Ny reservation")
         else:
-            title = "BonBox · New request" if is_request else "BonBox · New reservation"
+            title = ("BonBox · New request" if is_request
+                     else "BonBox · New appointment" if appt else "BonBox · New reservation")
         body_text = f"{party} · {when}"
         if is_request:
             body_text += " — afventer svar" if da else " — waiting for your answer"
@@ -1015,16 +1048,20 @@ def notify_owner_freed_table(
 
     navn = (str(top_match.get("guest_name") or "").strip().split(" ") or [""])[0]
     n = top_match.get("party_size")
+    # A shop's or a workshop's freed place is a free TIME (Push 8 review).
+    appt = _speaks_appointments(owner, freed_reservation)
     if owner_lang(owner) == "da":
-        title = "BonBox · Bord frigivet"
+        title = "BonBox · Tid ledig" if appt else "BonBox · Bord frigivet"
         if navn:
             body_text = f"{navn} ({n} pers) passer — tryk for at tilbyde"
         else:
             body_text = f"{n} pers på ventelisten passer — tryk for at tilbyde"
     else:
-        title = "BonBox · Table freed"
+        title = "BonBox · Time free" if appt else "BonBox · Table freed"
         if navn:
-            body_text = f"{navn} ({n} guests) fits — tap to offer it"
+            body_text = f"{navn} ({_party_words(n, da=False, appointment=appt)}) fits — tap to offer it"
+        elif appt:
+            body_text = f"{_party_words(n, da=False, appointment=True)} on the waitlist — tap to offer the time"
         else:
             body_text = f"A party of {n} on the waitlist fits — tap to offer it"
     # Distinct tag from the create/cancel ping (bonbox-reservation-<id>) so the

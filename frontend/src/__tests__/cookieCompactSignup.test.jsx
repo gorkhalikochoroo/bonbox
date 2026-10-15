@@ -92,9 +92,13 @@ describe("everywhere else it is the same banner (12 Oct 2026)", () => {
 });
 
 describe("the auth shell pads for it", () => {
-  it("AuthShell's frame reads --bb-consent-h", () => {
+  it("AuthShell's frame reads --bb-consent-h (where the banner can sit over the form — Push 8)", () => {
     const src = fs.readFileSync(path.join(SRC, "components/auth/AuthUI.jsx"), "utf8");
-    expect(src).toContain('paddingBottom: "var(--bb-consent-h, 0px)"');
+    expect(src).toContain("max-lg:pb-[var(--bb-consent-h,0px)]");
+    // Push 8 review: the lone column pads at every width again (from 1288 px
+    // the card sat over /login's footer with no room to scroll it clear), and
+    // from lg the frame grows by the same height, so the form is not lifted.
+    expect(src).toContain("pb-[var(--bb-consent-h,0px)] lg:min-h-[calc(100dvh+var(--bb-consent-h,0px))]");
   });
   it("every page with the compact banner is drawn in AuthShell (so it pads)", () => {
     for (const page of ["RegisterPage", "LoginPage", "VerifyEmailPage", "ForgotPasswordPage"]) {

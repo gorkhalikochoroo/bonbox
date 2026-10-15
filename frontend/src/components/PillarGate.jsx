@@ -32,8 +32,10 @@
  * tier-flicker doctrine in useEntitlements).
  */
 import { useState } from "react";
+import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { usePillars } from "../hooks/usePillars";
+import { speaksAppointments } from "../config/venueProfiles";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { Button, Card, Icon } from "./ui";
 
@@ -53,6 +55,7 @@ const PILLAR_META = {
 
 export default function PillarGate({ pillar, children }) {
   const { t } = useLanguage();
+  const { user } = useAuth();
   const { hiddenPillars, isReady, setPillarHidden } = usePillars();
   const { show: showUndo, ToastUI } = useUndoToast();
   const [enabling, setEnabling] = useState(false);
@@ -66,6 +69,12 @@ export default function PillarGate({ pillar, children }) {
   if (!hiddenPillars.has(pillar)) return children;
 
   const meta = PILLAR_META[pillar] || PILLAR_META.insights;
+  // A salon, a shop or a repair trade books customers for a time: its menu
+  // says "Tidsbestilling" (navManifest APPOINTMENT_LABELS), so the gate does
+  // too — it said "Reservationer er slået fra" under that menu entry.
+  const appt = pillar === "reservations" && speaksAppointments(user?.business_type);
+  const titleKey = appt ? "pillarGateReservationsTitleAppt" : meta.titleKey;
+  const bodyKey = appt ? "pillarGateReservationsBodyAppt" : meta.bodyKey;
 
   const enable = async () => {
     setError("");
@@ -99,10 +108,10 @@ export default function PillarGate({ pillar, children }) {
             <Icon name={meta.icon} className="h-6 w-6" />
           </div>
           <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            {t(meta.titleKey)}
+            {t(titleKey)}
           </h1>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            {t(meta.bodyKey)}
+            {t(bodyKey)}
           </p>
           {error && (
             <p className="mt-3 text-sm text-red-600 dark:text-red-400" role="alert">

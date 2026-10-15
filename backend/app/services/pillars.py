@@ -416,6 +416,96 @@ def activated_pillars(db: Session, user: User) -> dict[str, bool]:
     return result
 
 
+# ─── Sample data is not use (Oct 2026) ──────────────────────────────────
+#
+# "Prøv med eksempeldata" (services/demo_seed.seed_for_user) writes stock and
+# tonight's bookings carrying its markers: an InventoryItem name ending
+# " · demo", a Reservation idempotency_key "demo-<user>-<n>". activated_pillars
+# counts those rows, and that is deliberate: an owner exploring the sample sees
+# Lager and Reservationer in the nav, and the nav must not change under them
+# (nor drop for everyone exploring it the day this ships).
+#
+# But a pillar whose ONLY rows are the sample's is not a pillar the owner uses.
+# The business-type sheet said "Bliver, fordi du bruger det: Reservationer"
+# over sample bookings alone. That is a second question, so it gets its own
+# signal instead of a quiet change to the first: sample_only_pillars().
+#
+# Three outcomes per pillar, never two (a boolean would erase "couldn't
+# check"): True = every usage row is sample data; False = there is real use,
+# or no row at all to judge (the seeder writes no events and no staff, so
+# those two are always False); None = the check failed. Readers claim use
+# only on an explicit False next to an activated pillar.
+_DEMO_INVENTORY_SUFFIX = "% · demo"   # demo_seed._seed_inventory
+_DEMO_RESERVATION_KEY = "demo-%"      # demo_seed._seed_reservations
+
+
+def sample_only_pillars(db: Session, user: User) -> dict[str, bool | None]:
+    """Per pillar: are the rows that activate it ONLY sample data?
+
+    ``{inventory, reservations, events, staff}`` — see the block above for
+    the three outcomes. Same contract as activated_pillars otherwise:
+    tenant-scoped, read-only, each signal in its own try/except.
+
+      • inventory    — InventoryItem rows exist and every one is a sample row.
+      • reservations — no switched-on booking page (reservations_enabled or a
+                       reservation_slug: the owner's own setup), live
+                       Reservation rows exist, and every one is a sample row.
+    """
+    from sqlalchemy import or_
+
+    result: dict[str, bool | None] = {"events": False, "staff": False}
+
+    try:
+        from app.models.inventory import InventoryItem
+        base = db.query(InventoryItem.id).filter(InventoryItem.user_id == user.id)
+        any_row = base.first() is not None
+        real_row = (
+            base.filter(or_(
+                InventoryItem.name.is_(None),
+                ~InventoryItem.name.like(_DEMO_INVENTORY_SUFFIX),
+            )).first()
+        ) is not None
+        result["inventory"] = bool(any_row and not real_row)
+    except Exception:  # noqa: BLE001 — unknown, never a claim either way
+        result["inventory"] = None
+
+    try:
+        from app.models.business_profile import BusinessProfile
+        from app.models.reservation import Reservation
+        profile = (
+            db.query(BusinessProfile)
+            .filter(BusinessProfile.user_id == user.id)
+            .first()
+        )
+        own_setup = bool(
+            profile
+            and (
+                bool(getattr(profile, "reservations_enabled", False))
+                or (getattr(profile, "reservation_slug", None) or "").strip()
+            )
+        )
+        if own_setup:
+            result["reservations"] = False
+        else:
+            # The same live rows activated_pillars counts.
+            live = db.query(Reservation.id).filter(
+                Reservation.user_id == user.id,
+                Reservation.is_deleted.is_(False),
+            )
+            any_row = live.first() is not None
+            real_row = (
+                live.filter(or_(
+                    Reservation.idempotency_key.is_(None),
+                    ~Reservation.idempotency_key.like(_DEMO_RESERVATION_KEY),
+                )).first()
+            ) is not None
+            result["reservations"] = bool(any_row and not real_row)
+    except Exception:  # noqa: BLE001
+        result["reservations"] = None
+
+    return result
+
+
 # ─── Per-TOOL usage (Oct 2026) ──────────────────────────────────────────
 #
 # The nav's business-type gate hides a few tools from types they rarely fit —

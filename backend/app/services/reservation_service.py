@@ -86,6 +86,23 @@ def load_settings(profile: BusinessProfile | None) -> dict:
     return merged
 
 
+def online_party_ceiling(settings: dict) -> int | None:
+    """max_party_size as every path applies it: a whole number of 1 or more,
+    or None — no online ceiling. A stored 0 (or blank, negative or junk) is
+    "no limit": the create path (`if max_party and ...`) and the public page
+    (`Number(max) || 10`) always read it so, while the engine alone read 0 as
+    "nobody fits" and a shop's page offered no day and no time — with the
+    field hidden from its settings, so the owner could not change it either
+    (Push 8 review). The ONE reading — availability, the day strip, the group
+    grid and the create path all ask this."""
+    raw = settings.get("max_party_size")
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 1 else None
+
+
 def build_config(settings: dict) -> AvailabilityConfig:
     return AvailabilityConfig(
         slot_granularity_min=int(settings.get("slot_granularity_min", 15)),
@@ -94,7 +111,7 @@ def build_config(settings: dict) -> AvailabilityConfig:
         turn_time_tiers=settings.get("turn_time_tiers") or [],
         default_duration_min=int(settings.get("default_duration_min", 90)),
         lead_time_min=int(settings.get("lead_time_min", 0)),
-        max_party_size=settings.get("max_party_size"),
+        max_party_size=online_party_ceiling(settings),
         combine_enabled=bool(settings.get("combine_enabled", True)),
         max_combo_size=int(settings.get("max_combo_size", 3) or 3),
     )

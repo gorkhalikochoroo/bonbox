@@ -188,6 +188,25 @@ describe("7 · shops and workshops speak appointments", () => {
     expect(ariaText()).not.toMatch(BORD);
   });
 
+  // Push 8 review: the counter tile read "Her nu / 1 / kunder" under the
+  // header's "Tjekket ind 1 kunde" — one is one there too.
+  it.each(["clothing", "workshop"])("%s: one customer in reads '1 kunde', two read 'kunder'", async (type) => {
+    rows = bookRows();
+    renderOwner("/reservations", type);
+    await settle(14);
+    const tile = () => screen.getByText(da.rsvpSeatedNowAppt).closest("button");
+    expect(tile().textContent).toBe(`${da.rsvpSeatedNowAppt}1${da.rsvpSeatedHelperApptOne}`);
+    expect(da.rsvpSeatedHelperApptOne).toBe("kunde");
+    cleanup();
+    const now = new Date();
+    rows = [...bookRows(), { id: "b3", guest_name: "Holm", party_size: 1, status: "seated", resource_id: null,
+      combined_resource_ids: null, starts_at: localIso(new Date(now.getTime() - 10 * 60000)),
+      ends_at: localIso(new Date(now.getTime() + 50 * 60000)), source: "manual" }];
+    renderOwner("/reservations", type);
+    await settle(14);
+    expect(tile().textContent).toBe(`${da.rsvpSeatedNowAppt}2${da.rsvpSeatedHelperAppt}`);
+  });
+
   it("a salon's book has no 'bord' either", async () => {
     resources = [{ id: "r2", kind: "provider", label: "Mia", staff_id: "s1", is_active: true }];
     rows = bookRows();
@@ -237,5 +256,53 @@ describe("7 · shops and workshops speak appointments", () => {
     expect(document.title).toBe("Book tid · Butik Nord");
     expect(pageText()).not.toMatch(BORD);
     expect(ariaText()).not.toMatch(BORD);
+  });
+
+  // Push 8 review (QA item 8, public page): a workshop's customers read
+  // "Sidste bord" under the times, and the first tab was "Frokost" over
+  // 02:00–14:45. A time is the last TIME; the day's parts are not meals.
+  const publicWithTimes = (type) => {
+    h.get.mockImplementation((url) => {
+      if (url === "/public/reservations/shop") {
+        return Promise.resolve({ data: { business_name: "Butik Nord", business_type: type, max_party_size: 10, max_advance_days: 60, lead_time_min: 0, language: "da" } });
+      }
+      if (url === "/public/reservations/shop/availability-summary") return Promise.resolve({ data: { next_open_day: null, days: [] } });
+      if (url === "/public/reservations/shop/availability") {
+        return Promise.resolve({ data: {
+          slots: ["02:00", "02:15", "09:00", "13:00", "15:30", "18:00", "18:15"],
+          slot_remaining: { "02:00": 1, "02:15": 2, "09:00": 5, "13:00": 5, "15:30": 5, "18:00": 1, "18:15": 5 },
+        } });
+      }
+      return Promise.resolve({ data: { slots: [] } });
+    });
+    return render(
+      <MemoryRouter initialEntries={["/r/shop"]}>
+        <Routes><Route path="/r/:slug" element={<ReservationPublicPage />} /></Routes>
+      </MemoryRouter>,
+    );
+  };
+  const tabNames = () => [...document.querySelectorAll(`[role="group"][aria-label="${da.rsvpPickTime}"] button`)].map((b) => b.textContent.trim());
+
+  it.each(["workshop", "clothing"])("%s public page: 'Sidste tid' under a time, and the day's parts, not 'Frokost'", async (type) => {
+    publicWithTimes(type);
+    await settle(16);
+    expect(screen.getByRole("radio", { name: /02:00/ })).toBeInTheDocument();
+    expect(tabNames()).toEqual([da.rsvpGroupMorning, da.rsvpGroupAfternoon, da.rsvpGroupEvening]);
+    expect(tabNames()).not.toContain(da.rsvpGroupLunch);
+    // Opens on the first part of the day (02:00 is in it), with the note.
+    expect(screen.getAllByText(da.rsvpSlotLastTime).length).toBeGreaterThan(0);
+    expect(pageText()).not.toContain(da.rsvpSlotLastTable);
+    expect(pageText()).not.toMatch(BORD);
+    expect(ariaText()).not.toMatch(BORD);
+    expect(da.rsvpSlotLastTime).toBe("Sidste tid");
+    expect(da.rsvpGroupMorning).toBe("Formiddag");
+  });
+
+  it("a restaurant's public page keeps 'Sidste bord' and its meals (control)", async () => {
+    publicWithTimes("restaurant");
+    await settle(16);
+    expect(tabNames()).toEqual([da.rsvpGroupLunch, da.rsvpGroupAfternoon, da.rsvpGroupDinner]);
+    // Opens on dinner: 18:00 is the last table there.
+    expect(screen.getAllByText(da.rsvpSlotLastTable).length).toBeGreaterThan(0);
   });
 });

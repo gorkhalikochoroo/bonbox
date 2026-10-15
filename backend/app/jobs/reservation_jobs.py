@@ -34,6 +34,23 @@ logger = logging.getLogger(__name__)
 _REMINDERS_PER_MAILBOX_PER_DAY = 3
 
 
+def reminder_sms_text(r, owner, *, biz: str, when: str, phone: str | None) -> str:
+    """The day-before SMS, in Danish. A salon, a shop or a repair trade books
+    a customer for a time (reservation_emails.speaks_appointments), and a
+    booking with a service is a treatment: theirs reads "din aftale", never
+    "bord til 1" (Push 8 review: a bike workshop's customer was reminded of
+    "bord til 1 hos Cykelværkstedet Amager"). A restaurant's is unchanged."""
+    from app.services.reservation_emails import speaks_appointments
+
+    phone_line = f" Ring {phone} for ændringer." if phone else ""
+    appointment = bool(getattr(r, "service_name", None)) or speaks_appointments(
+        getattr(owner, "business_type", None)
+    )
+    if appointment:
+        return f"Påmindelse: din aftale hos {biz} {when}.{phone_line} Vi ses!"
+    return f"Påmindelse: bord til {r.party_size} hos {biz} {when}.{phone_line} Vi ses!"
+
+
 def _month_start(now):
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -133,13 +150,9 @@ def send_reservation_reminders() -> int:
                         ) or 0
                         sms_used[r.user_id] = int(prior)
                     if not at_cap(owner, "sms_reminders_per_month", sms_used[r.user_id]):
-                        phone_line = (
-                            f" Ring {profile.phone} for ændringer."
-                            if getattr(profile, "phone", None) else ""
-                        )
-                        text = (
-                            f"Påmindelse: bord til {r.party_size} hos {biz} {when}."
-                            f"{phone_line} Vi ses!"
+                        text = reminder_sms_text(
+                            r, owner, biz=biz, when=when,
+                            phone=getattr(profile, "phone", None),
                         )
                         outcome = sms_service.send_sms(
                             to=r.guest_phone, text=text,

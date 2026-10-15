@@ -347,8 +347,11 @@ function ScanButton({ onResult }) {
   return (
     <>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFile} />
+      {/* White text needs a dark ground: on bg-gray-50 the button was a
+          blank pill in light mode (Push 8 review — Vinkort is on a fresh
+          bar's menu now). The same dark button the app's banners use. */}
       <button onClick={() => fileRef.current?.click()} disabled={scanning}
-        className="px-4 py-2 bg-gray-50 dark:bg-gray-800/50 text-white rounded-xl text-sm font-semibold transition disabled:opacity-60 flex items-center gap-1.5">
+        className="px-4 py-2 bg-gray-900 hover:bg-gray-700 dark:bg-gray-600 dark:hover:bg-gray-500 text-white rounded-xl text-sm font-semibold transition disabled:opacity-60 flex items-center gap-1.5">
         {scanning ? (
           <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> {t("wineReading", "Reading...")}</>
         ) : (
