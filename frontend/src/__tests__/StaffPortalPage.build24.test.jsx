@@ -54,6 +54,7 @@ let openImpl;
 let threadImpl;
 let notificationsImpl;
 let live = false;
+let kbLift = 0;
 
 const get = vi.fn((url) => {
   if (url === `/portal/${TOK}`) {
@@ -87,6 +88,7 @@ vi.mock("../hooks/useNativePush", () => ({
   NATIVE_PUSH_TOKEN_KEY: "bonbox_apns_token",
 }));
 vi.mock("../hooks/usePortalStream", () => ({ usePortalStream: () => live }));
+vi.mock("../hooks/useKeyboardLift", () => ({ useKeyboardLift: () => kbLift }));
 vi.mock("../utils/haptics", () => ({ haptic: Object.assign(vi.fn(), { warning: vi.fn(), success: vi.fn(), error: vi.fn(), light: vi.fn() }) }));
 vi.mock("../utils/camera", () => ({ capturePhoto: vi.fn() }));
 
@@ -126,6 +128,7 @@ const OWN = [
 beforeEach(() => {
   localStorage.clear();
   live = false;
+  kbLift = 0;
   get.mockClear();
   post.mockClear();
   scheduleImpl = () => ok({ shifts: OWN });
@@ -423,6 +426,38 @@ describe("Beskeder conversation on a phone", () => {
     await screen.findByText("Besked 13");
     await act(async () => { window.dispatchEvent(new Event("resize")); });
     await waitFor(() => expect(stream.style.maxHeight).toBe(`${726 - 208 - 2}px`));
+  });
+
+  it("C2: opening the keyboard after reading back lands on the newest — on the re-measured, shorter stream", async () => {
+    threadImpl = () => ok({ kind: "direct", messages: MSGS.map((m) => ({ ...m })) });
+    const realRect = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function rect() {
+      const id = this.getAttribute && this.getAttribute("data-testid");
+      if (id === "portal-chat-stream") return { top: 208, bottom: 708, left: 0, right: 402, width: 402, height: 500, x: 0, y: 208 };
+      // The composer rides on the keyboard.
+      if (id === "portal-chat-composer") { const t = 726 - kbLift; return { top: t, bottom: t + 58, left: 0, right: 402, width: 402, height: 58, x: 0, y: t }; }
+      return realRect.call(this);
+    });
+    const stream = await openThread();
+    await screen.findByText("Besked 13");
+    // A stream that lays out like the real one: its height is its max-height,
+    // and scrollTop clamps to the bottom.
+    const H = 1400;
+    const client = () => parseInt(stream.style.maxHeight, 10) || 500;
+    let top = 0;
+    Object.defineProperty(stream, "scrollHeight", { configurable: true, get: () => H });
+    Object.defineProperty(stream, "clientHeight", { configurable: true, get: client });
+    Object.defineProperty(stream, "scrollTop", { configurable: true, get: () => top, set: (v) => { top = Math.max(0, Math.min(v, H - client())); } });
+    await act(async () => { window.dispatchEvent(new Event("resize")); });
+    await waitFor(() => expect(stream.style.maxHeight).toBe("516px"));
+    // Reading back.
+    top = 200;
+    await act(async () => { fireEvent.scroll(stream); });
+    // Tap the field: the keyboard (300 px) comes up; any re-render reads it.
+    kbLift = 300;
+    await act(async () => { fireEvent.change(screen.getByTestId("portal-chat-input"), { target: { value: "H" } }); });
+    await waitFor(() => expect(stream.style.maxHeight).toBe(`${426 - 208 - 2}px`));
+    await waitFor(() => expect(top).toBe(H - (426 - 208 - 2)));
   });
 
   it("C2: someone reading back is not pulled to the bottom by the 6 s re-read; at the bottom, new messages still pin", async () => {

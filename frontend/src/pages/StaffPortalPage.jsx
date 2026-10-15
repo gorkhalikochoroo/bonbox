@@ -5416,6 +5416,9 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
   const [sending, setSending] = useState(false);
   const picker = usePhotoPicker();
   const scrollRef = useRef(null);
+  // Is the staffer at the newest message? Kept by onStreamScroll; read by
+  // the pin below (a re-read only follows the newest while they are there).
+  const stickRef = useRef(true);
   // px the on-screen keyboard covers (web: visual viewport; Scheduler app:
   // the Keyboard plugin). The composer is position:fixed, and the shell's
   // Keyboard resize mode is "body", which never moves a fixed bar — so it sat
@@ -5423,7 +5426,13 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
   const kb = useKeyboardLift();
   useEffect(() => {
     // Keyboard up → keep the newest message in sight above the composer.
-    if (kb > 0 && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    // Re-stick too: on a phone the stream is re-measured shorter right after
+    // (streamMax), and the pin that follows must land on the new bottom even
+    // if the staffer had scrolled up to read before tapping the field.
+    if (kb > 0 && scrollRef.current) {
+      stickRef.current = true;
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
   }, [kb]);
   const threadId = thread.thread_id;
   const isGroup = (meta?.kind || thread.kind) === "group";
@@ -5458,7 +5467,10 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
   useEffect(() => {
     // The stream just gave room to a taller composer: keep the newest in sight.
     const el = scrollRef.current;
-    if (el && grow > 0) el.scrollTop = el.scrollHeight;
+    if (el && grow > 0) {
+      stickRef.current = true;
+      el.scrollTop = el.scrollHeight;
+    }
   }, [grow]);
   // A rotation or a Split View resize re-wraps the same text.
   useEffect(() => {
@@ -5503,7 +5515,6 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
   }, [pane, fitStream]);
   // Phone: is anything scrolled under the title bar? Drives its hairline.
   // Both layouts: is the staffer at the newest message (stickRef)?
-  const stickRef = useRef(true);
   const [streamUnder, setStreamUnder] = useState(false);
   const onStreamScroll = useCallback(() => {
     const el = scrollRef.current;
