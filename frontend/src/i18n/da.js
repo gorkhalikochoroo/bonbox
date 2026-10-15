@@ -10110,6 +10110,7 @@ export const da = {
     meSendConfirmCta: "Send alligevel",
     meSent: "Sendt til {email}. Linket virker til og med {date}.",
     meSendFailed: "Pakken kunne ikke sendes lige nu. Du kan stadig hente den.",
+    meSendTooMany: "Du har prøvet at sende mange gange på kort tid. Vent et minut, og prøv igen.",
     meDownloadFailed: "Pakken kunne ikke laves — prøv en kortere periode.",
     meNoRevisor: "Gem din revisors e-mail for at sende den fra BonBox.",
     meSendLocked: "BonBox sender pakken for dig fra Starter — du kan altid hente den og sende den selv.",

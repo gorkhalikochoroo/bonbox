@@ -84,6 +84,11 @@ function sendErrorText(err, t, lang) {
     const msg = lang === "da" ? (d.message_da || d.message) : (d.message || d.message_da);
     if (msg) return msg;
   }
+  // The limiter's answer carries no words of ours: never show axios's
+  // "Request failed with status code 429" (Push 8 gate).
+  if (err?.response?.status === 429) {
+    return t("meSendTooMany", "You've tried to send several times in a short while. Wait a minute and try again.");
+  }
   return errText(err, t("meSendFailed", "The package couldn't be sent right now. You can still download it."));
 }
 
@@ -219,9 +224,13 @@ export default function MonthEndPage() {
     setNotice(null);
     if (!sendKey.current) sendKey.current = `me-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     try {
+      // No automatic retries either (Push 8 gate): the server answers 503
+      // when mail or storage is down, and the interceptor replayed the POST
+      // four more times over ~27 s — five package builds, a spinner, then
+      // the limiter. One tap, one try; the next tap reuses the key.
       const res = await api.post("/revisor-package/send", {
         start: period.start, end: period.end, key: sendKey.current, resend: !!sp,
-      }, { timeout: 120000 });
+      }, { timeout: 120000, _noRetry: true });
       setNotice({
         severity: "success",
         text: t("meSent", "Sent to {email}. The link works until {date}.", {
@@ -251,6 +260,10 @@ export default function MonthEndPage() {
   // no_revisor / plan have their own lines; daily_cap is only a "tomorrow".
   const sendBlocker = ["email_unverified", "claim_question_open", "opted_out", "demo_recipient",
     "demo_identity", "demo_in_period", "daily_cap"].includes(data?.send?.blocker) ? data.send.blocker : null;
+  // The server refuses what the page already names (Push 8 gate): the send
+  // on any of these, the ZIP and the PDF on sample rows under the owner's
+  // own name (422 demo_in_period). Not offered, so no second warning stacks.
+  const downloadBlocked = sendBlocker === "demo_in_period";
   const last = (data?.last_sends || []).find((s) => s.status === "sent");
   const sentPkg = data?.sent_package || null;
   const figLabel = (k) => ({
@@ -378,9 +391,11 @@ export default function MonthEndPage() {
           </div>
         ) : (
           <>
-            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+            {/* Wraps on a phone: the status line ran off the card at 360 px
+                (it was shrink-0 on one line; Push 8 gate). */}
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-3 border-b border-gray-100 dark:border-gray-800" data-testid="me-checklist-head">
               {openCount > 0 ? (
-                <p className="text-sm font-semibold text-amber-800 dark:text-amber-300" data-testid="me-open-count">
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 whitespace-nowrap" data-testid="me-open-count">
                   {t("meOpenCount", "{n} open", { n: openCount })}
                 </p>
               ) : (
@@ -389,7 +404,7 @@ export default function MonthEndPage() {
                   {allClearText}
                 </p>
               )}
-              <p className="text-xs text-gray-500 dark:text-gray-400 shrink-0" data-testid="me-checked-until">
+              <p className="text-xs text-gray-500 dark:text-gray-400 min-w-0" data-testid="me-checked-until">
                 {periodOver
                   ? t("meCheckedUntil", "Checked up to and including {date}.", { date: formatDateClear(checkedUntil) })
                   : checkedUntil
@@ -493,15 +508,15 @@ export default function MonthEndPage() {
           </div>
         )}
         <div className="mt-4 flex flex-col sm:flex-row gap-2">
-          <Button variant="secondary" onClick={() => download("zip")} busy={downloading === "zip"} disabled={!!downloading || sending || !validCustom}
+          <Button variant="secondary" onClick={() => download("zip")} busy={downloading === "zip"} disabled={!!downloading || sending || !validCustom || downloadBlocked}
             iconLeft={downloading !== "zip" && <Download size={14} aria-hidden="true" />}>
             {t("meDownloadZip", "Download package (ZIP)")}
           </Button>
-          <Button variant="ghost" onClick={() => download("pdf")} busy={downloading === "pdf"} disabled={!!downloading || sending || !validCustom}>
+          <Button variant="ghost" onClick={() => download("pdf")} busy={downloading === "pdf"} disabled={!!downloading || sending || !validCustom || downloadBlocked}>
             {t("meDownloadPdf", "Summary (PDF)")}
           </Button>
           {entitled && revisorEmail && (
-            <Button variant="accent" onClick={send} busy={sending} disabled={sending || !!downloading || !data || !validCustom}
+            <Button variant="accent" onClick={send} busy={sending} disabled={sending || !!downloading || !data || !validCustom || !!sendBlocker}
               iconLeft={!sending && <Send size={14} aria-hidden="true" />} className="sm:ml-auto">
               {sentPkg?.changed ? t("meSendCorrected", "Send corrected package")
                 : sentPkg ? t("meSendAgain", "Send again")
@@ -521,7 +536,8 @@ export default function MonthEndPage() {
         )}
         {/* Say BEFORE the tap what would stop the mail (an unconfirmed owner
             e-mail, the revisor's opt-out, sample data …) — the download works
-            either way. */}
+            either way, except over sample rows under the owner's own name
+            (demo_in_period: the server makes no document from those). */}
         {entitled && revisorEmail && sendBlocker && (
           <p className="mt-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 px-3 py-2 text-xs text-amber-900 dark:text-amber-200" role="status" data-testid="me-send-blocker">
             {/* Nothing is queued from this page — the schedule card's "it goes

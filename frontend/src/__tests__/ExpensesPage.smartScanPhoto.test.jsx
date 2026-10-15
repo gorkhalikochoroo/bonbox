@@ -10,7 +10,7 @@
  *
  * Strings are asserted by key (t echoes the key).
  */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -134,5 +134,30 @@ describe("Smart skan → Udgifter", () => {
     const [, form] = post.mock.calls.find(([u]) => u === "/expenses/e1/attach-receipt");
     expect(form.get("file")).toBe(photo);
     expect(container.querySelector('[data-testid="exp-scan-photo-kept"]')).toBeNull();
+  });
+
+  // Push 8 gate: "Tilføj" stayed live under the photo-later offer and booked
+  // the purchase a second time (two expenses, the input VAT twice).
+  it("'Tilføj' waits while 'Knyt til eksisterende udgift' is offered", async () => {
+    get.mockImplementation((url) => {
+      if (url === "/expenses/categories") return Promise.resolve({ data: [{ id: "cat1", name: "Råvarer" }] });
+      if (url === "/expenses/bilag-matches") {
+        return Promise.resolve({ data: { candidates: [{
+          id: "typed1", date: "2026-10-12", amount: 226.45, description: "Bilka",
+          category_name: "Råvarer", day_diff: 0, amount_diff: 0, same_vendor: true,
+        }], count: 1 } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    holdScanPhoto(new File(["jpeg"], "kvittering_bilka.jpg", { type: "image/jpeg" }), "/expenses");
+    renderFromScan({ vendor: "Bilka", amount: 226.45, date: null });
+    const panel = await screen.findByTestId("bilag-match-panel", {}, { timeout: 3000 });
+    const add = screen.getAllByRole("button").find((b) => b.textContent.trim() === "add");
+    expect(add).toBeDisabled();
+    fireEvent.click(add);
+    expect(post.mock.calls.some(([u]) => u === "/expenses")).toBe(false);
+    fireEvent.click(within(panel).getByText("bilagMatchNew"));
+    await waitFor(() => expect(screen.queryByTestId("bilag-match-panel")).toBeNull());
+    await waitFor(() => expect(add).not.toBeDisabled());
   });
 });

@@ -5,6 +5,8 @@ the photo was stored:
 
   storage  a Supabase signed URL (…/object/sign/<bucket>/<key>?token=…), or
            the bare key '<user_id>/<kind>/<sha>.<ext>' when signing failed
+           (a forwarded inbox bilag keeps its own type, gif and tiff too —
+           inbox_service._EXT_BY_MIME)
   local    'uploads/receipts/<user_id>_<epoch>_<hex8>.jpg' — the dev / no-
            storage fallback of receipt_ocr.save_receipt_photo_ex
   inbox    'uploads/receipts/<sha256>.enc' — a forwarded e-mail attachment,
@@ -22,7 +24,7 @@ import re
 from urllib.parse import unquote
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-_KEY_RE = re.compile(rf"^(?P<uid>{_UUID})/(?P<kind>[a-z_]{{2,40}})/[0-9a-f]{{16,64}}\.(?:jpg|jpeg|png|webp|heic|pdf)$")
+_KEY_RE = re.compile(rf"^(?P<uid>{_UUID})/(?P<kind>[a-z_]{{2,40}})/[0-9a-f]{{16,64}}\.(?:jpg|jpeg|png|webp|heic|pdf|gif|tiff)$")
 _LOCAL_RE = re.compile(rf"^uploads/receipts/(?P<uid>{_UUID})_\d{{1,12}}_[0-9a-f]{{8}}\.jpg$")
 _INBOX_RE = re.compile(r"^uploads/receipts/[0-9a-f]{64}\.enc$")
 _URL_MARKERS = ("/object/sign/", "/object/public/", "/object/authenticated/", "/object/")

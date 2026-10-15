@@ -1594,6 +1594,10 @@ export default function ExpensesPage() {
             // its own comment calls "2-15s on a Render cold start", and
             // a second tap posted the expense again.
             busy={submitting}
+            // While "Knyt til eksisterende udgift" is offered, "Tilføj" would
+            // book the purchase a second time (Push 8 gate): the owner picks
+            // one of the offer's two answers first.
+            disabled={scanPhotoHeld && scanMatches.length > 0}
             extras={
               <>
                 {/* The Smart skan photo rides along as this expense's bilag. */}
@@ -1997,11 +2001,18 @@ export default function ExpensesPage() {
         <ReceiptCapture
           mode="expense"
           onClose={() => setReceiptOpen(false)}
-          onSaved={() => {
+          onSaved={(info) => {
             setReceiptOpen(false);
             fetchData();
-            setSuccess(t("expenseAddedFromReceipt", "Expense added from receipt"));
-            setTimeout(() => setSuccess(""), 2000);
+            // "Knyt til eksisterende udgift" added nothing: say where the
+            // bilag went, the same line the Smart skan link shows.
+            const linked = info?.linked;
+            setSuccess(linked
+              ? t("bilagMatchLinked", "Receipt attached to {desc} ({date})", {
+                desc: linked.description || linked.category_name || "", date: formatDateClear(linked.date),
+              })
+              : t("expenseAddedFromReceipt", "Expense added from receipt"));
+            setTimeout(() => setSuccess(""), linked ? 4000 : 2000);
           }}
         />
       )}

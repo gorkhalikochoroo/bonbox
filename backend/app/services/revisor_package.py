@@ -220,6 +220,11 @@ def _sniff_ext(data: bytes) -> str:
         return "webp"
     if data[4:8] == b"ftyp":
         return "heic"
+    # A forwarded inbox bilag may be a GIF or a TIFF (inbox_service._EXT_BY_MIME).
+    if data[:4] == b"GIF8":
+        return "gif"
+    if data[:4] in (b"II*\x00", b"MM\x00*"):
+        return "tiff"
     return "bin"
 
 

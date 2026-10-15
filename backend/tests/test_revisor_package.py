@@ -550,6 +550,43 @@ def test_the_download_is_streamed_and_identical_to_the_build(client, db, store):
     assert set(names) == set(z.namelist()) - {"manifest.txt"}
 
 
+def test_a_forwarded_gif_or_tiff_bilag_is_handed_to_the_revisor(db, store):
+    """Push 8 gate (composition of p8-backend-fixes and revisor-reports): a
+    forwarded image/gif or image/tiff bilag is stored durably under
+    <uid>/inbox_receipt/<sha>.gif|.tiff. The package must read it, name it
+    by its own type and not list it as an open item."""
+    from app.services.inbox_service import persist_attachment_blob, sha256_hex
+    u = _owner(db)
+    raa = _cat(db, u, "Råvarer")
+    files = {
+        "gif": (b"GIF89a\x01\x00\x01\x00\x80\x00\x00" + b"kvittering-gif", "image/gif"),
+        "tiff": (b"II*\x00\x08\x00\x00\x00" + b"kvittering-tif", "image/tiff"),
+        "tiff-mm": (b"MM\x00*\x00\x00\x00\x08" + b"kvittering-mm", "image/tiff"),
+    }
+    rows = []
+    for i, (label, (data, ctype)) in enumerate(files.items()):
+        # The real producer, so the key is the one production writes.
+        key = persist_attachment_blob(data, sha256_hex(data), user_id=u.id, content_type=ctype)
+        assert key in store.blobs and "/inbox_receipt/" in key
+        rows.append(Expense(user_id=u.id, category_id=raa.id, date=date(2026, 9, 5 + i),
+                            amount=100 + i, description=f"Leverandør {label}",
+                            payment_method="card", receipt_photo=key))
+    db.add_all(rows); db.commit()
+    unreadable = next(i for i in rp.build_checklist(db, u, *SEP)["items"]
+                      if i["key"] == "bilag_unreadable")
+    assert unreadable["count"] == 0
+    b = rp.build_package(db, u, *SEP, now=NOW)
+    try:
+        z = zipfile.ZipFile(io.BytesIO(b.zip_bytes))
+        bilag = sorted(n for n in z.namelist() if n.startswith("bilag/"))
+        assert [n.rsplit(".", 1)[1] for n in bilag] == ["gif", "tiff", "tiff"], bilag
+        assert z.read(bilag[0]) == files["gif"][0]
+        udg = z.read("udgifter.csv").decode("utf-8-sig")
+        assert rp.UNREADABLE_DA not in udg
+    finally:
+        b.close()
+
+
 def test_the_sample_company_package_agrees_with_itself(db, store):
     """Still the demo seeder's sample company: every figure is the sample's,
     the package shows them (marked EKSEMPELDATA) — never 0 kr. revenue beside

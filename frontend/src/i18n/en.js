@@ -10438,6 +10438,7 @@ export const en = {
     meSendConfirmCta: "Send anyway",
     meSent: "Sent to {email}. The link works until {date}.",
     meSendFailed: "The package couldn't be sent right now. You can still download it.",
+    meSendTooMany: "You've tried to send several times in a short while. Wait a minute and try again.",
     meDownloadFailed: "The package couldn't be made — try a shorter period.",
     meNoRevisor: "Save your revisor's e-mail to send it from BonBox.",
     meSendLocked: "BonBox sends the package for you from Starter — you can always download it and send it yourself.",

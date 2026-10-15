@@ -77,5 +77,48 @@ describe("ReceiptCapture — Knyt til eksisterende udgift", () => {
     }));
     expect(post.mock.calls.some(([u]) => u === "/expenses")).toBe(false);
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    // The page is told the photo went onto the typed expense — nothing was
+    // added (Push 8 gate: Udgifter said "Udgift tilføjet fra kvittering").
+    expect(onSaved).toHaveBeenCalledWith({
+      linked: expect.objectContaining({ id: "typed1", description: "Netto", date: "2026-10-03" }),
+    });
+  });
+
+  // Push 8 gate: the pinned footer covered the offer at 390 px while
+  // "Tilføj udgift" stayed live and booked the purchase a second time.
+  it("while the offer is open it sits in the pinned footer and 'Tilføj udgift' waits for an answer", async () => {
+    post.mockImplementation((url) => {
+      if (url === "/expenses/upload-receipt") {
+        return Promise.resolve({ data: {
+          filepath: "uploads/receipts/u1_1_abc.jpg", suggested_amount: 129.95,
+          suggested_vendor: "Netto", suggested_date: "2026-10-04", suggested_currency: "DKK",
+          suggested_payment_method: "card",
+          vat_amount: 25.99, vat_rate: 0.25, all_amounts_found: [], ocr_available: true,
+          amount_check: { confident: true },
+        } });
+      }
+      return Promise.resolve({ data: { id: "new1" } });
+    });
+    render(
+      <MemoryRouter><ReceiptCapture mode="expense" onClose={() => {}} onSaved={vi.fn()} /></MemoryRouter>,
+    );
+    const input = await waitFor(() => {
+      const el = document.querySelector('input[type="file"]');
+      if (!el) throw new Error("no file input yet");
+      return el;
+    });
+    fireEvent.change(input, { target: { files: [new File(["jpeg"], "netto.jpg", { type: "image/jpeg" })] } });
+    const panel = await screen.findByTestId("bilag-match-panel", {}, { timeout: 3000 });
+    const add = screen.getByText("addExpense").closest("button");
+    // The same pinned footer as the primary: nothing covers the offer.
+    expect(panel.closest(".sticky")).not.toBeNull();
+    expect(panel.closest(".sticky")).toBe(add.closest(".sticky"));
+    expect(add).toBeDisabled();
+    fireEvent.click(add);
+    expect(post.mock.calls.some(([u]) => u === "/expenses")).toBe(false);
+    // "Nej, det er en ny udgift" → the offer goes and the save is live again.
+    fireEvent.click(within(panel).getByText("bilagMatchNew"));
+    await waitFor(() => expect(screen.queryByTestId("bilag-match-panel")).toBeNull());
+    await waitFor(() => expect(screen.getByText("addExpense").closest("button")).not.toBeDisabled());
   });
 });

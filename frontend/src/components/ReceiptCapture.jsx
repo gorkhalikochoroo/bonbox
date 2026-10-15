@@ -21,7 +21,8 @@ import BilagMatchPanel from "./BilagMatchPanel";
  *  - mode: "sale" (default) | "expense"
  *  - onSaleCreated: callback after sale is logged (sale mode)
  *  - onClose: callback to close externally (expense mode)
- *  - onSaved: callback after expense/sale is saved (expense mode)
+ *  - onSaved: callback after expense/sale is saved (expense mode); called
+ *    with { linked: candidate } when the photo went onto an existing expense
  */
 export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, onSaved }) {
   const { t } = useLanguage();
@@ -159,6 +160,8 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   // whose date we could not read has no MOMS period and no voucher year.
   const fxBlocked = isForeign && (fxConverted == null);
   const dateMissing = Boolean(isExpense && !parsedDate);
+  // "Knyt til eksisterende udgift" is on screen: link it, or say it is new.
+  const matchOffered = isExpense && matches.length > 0;
 
   const uploadEndpoint = isExpense ? "/expenses/upload-receipt" : "/sales/upload-receipt";
 
@@ -433,7 +436,10 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
       trackEvent("receipt_linked_to_typed_expense", mode, `${c.day_diff}d`);
       setSuccess(t("bilagMatchLinked", "Receipt attached to {desc} ({date})", { desc: c.description || "", date: c.date }));
       window.dispatchEvent(new Event("bonbox-data-changed"));
-      onSaved?.();
+      // Tell the page WHAT happened: nothing was added, the bilag went onto
+      // an expense the owner had typed (Push 8 gate — the page said
+      // "Udgift tilføjet fra kvittering").
+      onSaved?.({ linked: c });
       setTimeout(() => { setSuccess(""); closeModal(); }, 1800);
     } catch (err) {
       const d = err?.response?.data?.detail;
@@ -1012,18 +1018,26 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                     nothing hinting you had to scroll for it. Sticky keeps
                     it on screen while the rest scrolls under it.
                     No transform here on purpose (transform on a sticky
-                    child inside a touch scroller causes the iOS wobble). */}
-                {isExpense && matches.length > 0 && (
-                  <BilagMatchPanel
-                    candidates={matches}
-                    receiptAmount={amountNum}
-                    currency={accountCcy}
-                    busyId={linkingId}
-                    onLink={linkToExisting}
-                    onNew={() => setMatchDismissed(true)}
-                  />
-                )}
+                    child inside a touch scroller causes the iOS wobble).
+                    The photo-later offer rides in it (Push 8 gate): placed
+                    above it in the scroll, the offer's "Knyt til
+                    eksisterende udgift" sat under this footer at 390 px,
+                    while "Tilføj udgift" stayed live and booked the purchase
+                    a second time. While the offer is open the owner picks
+                    one of its two answers first. */}
                 <div className="sticky bottom-0 -mx-1 px-1 pt-2 pb-1 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700">
+                  {matchOffered && (
+                    <div className="mb-2">
+                      <BilagMatchPanel
+                        candidates={matches}
+                        receiptAmount={amountNum}
+                        currency={accountCcy}
+                        busyId={linkingId}
+                        onLink={linkToExisting}
+                        onNew={() => setMatchDismissed(true)}
+                      />
+                    </div>
+                  )}
                   {saveError && (
                     <div
                       role="alert"
@@ -1039,6 +1053,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                       !amount || saving
                       || (isExpense && !method)
                       || fxBlocked || dateMissing
+                      || matchOffered
                     }
                     className="w-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 py-3.5 rounded-xl hover:bg-gray-700 dark:hover:bg-white transition font-semibold disabled:opacity-40"
                   >
