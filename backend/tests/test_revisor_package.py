@@ -728,3 +728,63 @@ def test_a_bilag_is_named_after_its_own_row_not_the_first_name_the_supplier_was_
     assert "bilag/2026-10-10_Hoerkram-Foodservice_1250,00.jpg" in names, names
     assert not [n for n in names if n.startswith("bilag/") and "-sep_" in n]
     b.close()
+
+
+def test_a_revisor_file_prints_the_owners_danish_never_bonboxs_english(db, store):
+    """Push 8 gate round 3 (two minors). Bankimport stores its built-in
+    categories by their English names — the owner picks 'El, vand og varme'
+    and the row is saved as "Utilities" — and the inbox tags a forwarded
+    bilag's text "[from inbox]". Both reached the revisor: the PDF's category
+    table, udgifter.csv, bilag-oversigt.csv and the bilag file name
+    (…_Netto-from-inbox_89,00). The files now print the owner's Danish. It is
+    display only: the MOMS engine, the fradrag rule and the fingerprint of a
+    sent package keep the stored name."""
+    from pypdf import PdfReader
+    u = _owner(db)
+    util = _cat(db, u, "Utilities")
+    raa = _cat(db, u, "Råvarer")
+    data = b"\xff\xd8\xff\xe0" + b"netto-bon"
+    key = f"{u.id}/expense/{hashlib.sha256(data).hexdigest()}.jpg"
+    store.put(key, data)
+    db.add_all([
+        Expense(user_id=u.id, category_id=util.id, date=date(2026, 10, 11), amount=1875,
+                description="Elregning Ørsted", payment_method="bank_transfer",
+                reference_id="bank_danske_bank_0123456789ab"),
+        Expense(user_id=u.id, category_id=raa.id, date=date(2026, 10, 17), amount=89,
+                description="Netto [from inbox]", payment_method="card", receipt_photo=key),
+        Expense(user_id=u.id, category_id=raa.id, date=date(2026, 10, 20), amount=45,
+                description="Bager [needs review]", payment_method="card", status="pending",
+                receipt_photo=key),
+    ])
+    db.commit()
+    oct_ = (date(2026, 10, 1), date(2026, 10, 31))
+    items = {i["key"]: i for i in rp.build_checklist(db, u, *oct_)["items"]}
+    assert [r["description"] for r in items["drafts_pending"]["rows"]] == ["Bager"]
+    assert [r["description"] for r in items["bilag_missing"]["rows"]] == ["Elregning Ørsted"]
+    b = rp.build_package(db, u, *oct_, now=datetime(2026, 11, 2, 9, 0))
+    try:
+        z = zipfile.ZipFile(io.BytesIO(b.zip_bytes))
+        udg = z.read("udgifter.csv").decode("utf-8-sig")
+        assert "Utilities" not in udg and "from inbox" not in udg, udg
+        rows = {r[2]: r for r in list(csv.reader(io.StringIO(udg), delimiter=";"))[1:]}
+        assert rows["Elregning Ørsted"][3] == "El, vand og varme"
+        assert rows["Elregning Ørsted"][6] == "25 %"          # the fradrag rule is unchanged
+        assert rows["Netto"][3] == "Råvarer"
+        idx = z.read("bilag-oversigt.csv").decode("utf-8-sig")
+        assert "from inbox" not in idx and "Utilities" not in idx, idx
+        assert "bilag/2026-10-17_Netto_89,00.jpg" in z.namelist(), z.namelist()
+        text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(b.summary_pdf)).pages)
+        assert "El, vand og varme" in text and "Utilities" not in text
+        # Display only: the figures a sent package is compared against keep
+        # the stored name, so nothing already sent reads as changed.
+        assert "Utilities" in b.figures["kategorier"], b.figures["kategorier"]
+    finally:
+        b.close()
+    # A correction names the category in Danish too (RETTELSE lines).
+    ch = rp.figure_changes({"kategorier": {"Utilities": [0.0, 0.0]}},
+                           {"kategorier": {"Utilities": [1875.0, 375.0]}})
+    assert [c["label_da"] for c in ch] == ["Udgifter — El, vand og varme",
+                                           "Købsmoms — El, vand og varme"]
+    assert {c["key"] for c in ch} == {"category_gross:Utilities", "category_vat:Utilities"}
+    assert rp.category_da("Utilities (udenlandsk valuta)") == "El, vand og varme (udenlandsk valuta)"
+    assert rp.category_da("Kontorartikler") == "Kontorartikler"   # the owner's own words as typed

@@ -326,6 +326,16 @@ export default function MonthEndPage() {
     bank_unmatched: t("meHintBank", "Outgoing lines from your bank import with no matching expense."),
     gavekort_checks: t("meHintGavekort", "The same checks as on the MOMS page and in the momsangivelse (section D4)."),
   }[it.key]);
+  // A row with its own text: the text is what a phone shortens, never the
+  // amount after it (Push 8 gate r3: '… Elregning Ørsted · 1.87…').
+  // Same rows as rowText's "date · text · amount" branch; null for the rest.
+  const rowParts = (it, r) => {
+    const own = it.key === "cash_differences" || it.key === "sales_variance"
+      || (it.key === "gavekort_checks" && r.amount != null);
+    if (own || r.description == null) return null;
+    const d = r.date ? formatDateClear(r.date) : "";
+    return [`${d} · ${r.description}`, ` · ${formatOwnerMoney(r.amount, currency, { decimals: 2 })}`];
+  };
   const rowText = (it, r) => {
     const d = r.date ? formatDateClear(r.date) : "";
     if (it.key === "cash_differences") return `${d} · ${formatOwnerMoney(r.difference, currency, { decimals: 2 })}`;
@@ -380,11 +390,11 @@ export default function MonthEndPage() {
           <div className="flex items-center gap-2">
             <label className="sr-only" htmlFor="me-from">{t("fromDate", "From")}</label>
             <input id="me-from" type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm" />
+              className="px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 dark:[color-scheme:dark]" />
             <span className="text-gray-400">–</span>
             <label className="sr-only" htmlFor="me-to">{t("toDate", "To")}</label>
             <input id="me-to" type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm" />
+              className="px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 dark:[color-scheme:dark]" />
           </div>
         )}
       </div>
@@ -448,7 +458,19 @@ export default function MonthEndPage() {
                           <>
                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{itemHint(it)}</p>
                             <ul className="mt-1.5 text-xs text-gray-700 dark:text-gray-300 space-y-0.5">
-                              {rows.slice(0, 5).map((r, i) => <li key={r.id || r.date || i} className="truncate">{rowText(it, r)}</li>)}
+                              {rows.slice(0, 5).map((r, i) => {
+                                const parts = rowParts(it, r);
+                                return parts ? (
+                                  <li key={r.id || r.date || i} className="flex min-w-0">
+                                    <span className="truncate min-w-0">{parts[0]}</span>
+                                    <span className="shrink-0 whitespace-pre tabular-nums">{parts[1]}</span>
+                                  </li>
+                                ) : (
+                                  // No text to shorten: the line wraps, so an amount
+                                  // in it is never cut.
+                                  <li key={r.id || r.date || i} className="break-words">{rowText(it, r)}</li>
+                                );
+                              })}
                               {rows.length > 5 && <li className="text-gray-500">{t("meMore", "+{n} more", { n: rows.length - 5 })}</li>}
                             </ul>
                             {it.key === "closes_missing" && !it.open_days_configured && (

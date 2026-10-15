@@ -17,7 +17,7 @@
  * so the interceptor that replayed the send is the one under test.
  * Strings are asserted by key (t echoes the key).
  */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AxiosError } from "axios";
@@ -43,6 +43,7 @@ vi.mock("../hooks/useConfirm", () => ({ useConfirm: () => confirmFn }));
 
 const api = (await import("../services/api")).default;
 const MonthEndPage = (await import("../pages/MonthEndPage")).default;
+const RevisorPackageSchedule = (await import("../components/RevisorPackageSchedule")).default;
 
 const CHECKLIST = (send = {}) => ({
   period: { start: "2026-09-01", end: "2026-09-30", kind: "month", label: "september 2026" },
@@ -56,6 +57,7 @@ const CHECKLIST = (send = {}) => ({
 const sent = [];
 let checklist = CHECKLIST();
 let sendReply = null;
+let settings = null;
 const origAdapter = api.defaults.adapter;
 
 const ok = (config, data = {}) => ({ data, status: 200, statusText: "OK", headers: {}, config, request: {} });
@@ -68,12 +70,14 @@ beforeEach(() => {
   sent.length = 0;
   checklist = CHECKLIST();
   sendReply = null;
+  settings = null;
   confirmFn.mockClear();
   localStorage.clear();
   api.defaults.adapter = async (config) => {
     const method = (config.method || "get").toUpperCase();
     sent.push({ method, url: config.url });
     if (config.url === "/revisor-package/checklist") return ok(config, checklist);
+    if (config.url === "/revisor-package/settings" && settings) return ok(config, settings);
     if (method === "POST" && config.url === "/revisor-package/send") return sendReply(config);
     return ok(config, {});
   };
@@ -252,5 +256,90 @@ describe("one open item is singular in Danish", () => {
     renderPage();
     expect(await screen.findByTestId("me-open-count")).toHaveTextContent("meOpenCount:2");
     expect(screen.getByText("meSendOpenWarn:2")).toBeInTheDocument();
+  });
+});
+
+// ── Push 8 gate, round 3 ─────────────────────────────────────────────
+//  MAJOR  The schedule card in dark mode: the revisor's e-mail input had no
+//         text colour (black on the gray-900 card, 1.18:1), and the radios
+//         were accent-gray-900 only, so the chosen schedule was the dark,
+//         hollow-looking dot and the others the white ones. The Custom
+//         period's date inputs on Månedsafslutning had the same missing
+//         colour.
+//  MINOR  An open-item row was one truncated line "date · text · amount",
+//         so a phone cut the amount — the fact the owner needs.
+
+describe("the schedule card can be read in dark mode", () => {
+  it("the revisor's e-mail has its own colour, and the chosen schedule is the light dot", async () => {
+    settings = { schedule: "monthly", entitled: true, revisor_email: "qa4.revisor@gmail.com",
+      next: null, blocker: null, last_sends: [] };
+    render(<MemoryRouter><RevisorPackageSchedule /></MemoryRouter>);
+    const email = await screen.findByLabelText("rpsRevisorEmail");
+    expect(email).toHaveValue("qa4.revisor@gmail.com");
+    expect(email.className).toMatch(/(^|\s)text-gray-[7-9]00(\s|$)/);
+    expect(email.className).toMatch(/(^|\s)dark:text-(gray-(100|200)|white)(\s|$)/);
+    const radios = screen.getAllByRole("radio");
+    expect(radios).toHaveLength(3);
+    expect(screen.getByDisplayValue("monthly")).toBeChecked();
+    for (const r of radios) {
+      expect(r.className).toMatch(/(^|\s)accent-gray-900(\s|$)/);          // light: unchanged
+      expect(r.className).toMatch(/(^|\s)dark:accent-(gray-(100|200)|white)(\s|$)/);
+      // Unchosen radios render dark on the dark card, not as white dots.
+      expect(r.className).toMatch(/(^|\s)dark:\[color-scheme:dark\](\s|$)/);
+    }
+  });
+
+  it("Månedsafslutning's own date inputs carry a colour for light and dark", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("tab", { name: "mePeriodCustom" }));
+    for (const id of ["me-from", "me-to"]) {
+      const input = document.getElementById(id);
+      expect(input.className).toMatch(/(^|\s)text-gray-[7-9]00(\s|$)/);
+      expect(input.className).toMatch(/(^|\s)dark:text-(gray-(100|200)|white)(\s|$)/);
+      expect(input.className).toMatch(/(^|\s)dark:\[color-scheme:dark\](\s|$)/);
+    }
+  });
+});
+
+describe("a phone never cuts the kroner off an open-item row", () => {
+  const rowsChecklist = () => ({
+    ...CHECKLIST(),
+    open_count: 3,
+    items: [
+      { key: "bilag_missing", count: 1, applicable: true, amount: 1875,
+        rows: [{ id: "e1", date: "2026-09-11", description: "Elregning Ørsted kvartalsafregning", amount: 1875 }],
+        link: "/expenses" },
+      { key: "bank_unmatched", count: 1, applicable: true,
+        rows: [{ id: "b1", date: "2026-09-12", description: "Hørkram Foodservice faktura 88812", amount: 1234.5 }],
+        link: "/imports?tab=bank" },
+      { key: "sales_variance", count: 1, applicable: true,
+        rows: [{ date: "2026-09-07", close_revenue: 5000, sale_sum: 300, delta: 4700, delta_pct: 94, direction: "close_high" }],
+        link: "/daily-close?date=2026-09-07" },
+    ],
+  });
+
+  it("the text is what gets shortened; the amount sits beside it, whole", async () => {
+    checklist = rowsChecklist();
+    renderPage();
+    for (const [key, text, kr] of [["bilag_missing", /Elregning Ørsted/, /1\.875,00/],
+                                    ["bank_unmatched", /Hørkram Foodservice/, /1\.234,50/]]) {
+      const item = await screen.findByTestId(`me-item-${key}`);
+      const amount = within(item).getByText(kr);
+      // One truncated line cut the amount ('… Elregning Ørsted · 1.87…').
+      expect(amount.closest(".truncate"), key).toBeNull();
+      expect(amount.className, key).toMatch(/(^|\s)shrink-0(\s|$)/);
+      const desc = within(item).getByText(text);
+      expect(desc.className, key).toMatch(/(^|\s)truncate(\s|$)/);
+      expect(desc.textContent, key).not.toMatch(kr);
+      // The row still reads "date · text · amount".
+      expect(desc.closest("li").textContent, key).toMatch(/· .+ · 1\.\d{3},\d{2}/);
+    }
+  });
+
+  it("a row with amounts in its sentence wraps instead of being cut", async () => {
+    checklist = rowsChecklist();
+    renderPage();
+    const item = await screen.findByTestId("me-item-sales_variance");
+    expect(within(item).getByText(/meVarianceRow/).closest(".truncate")).toBeNull();
   });
 });

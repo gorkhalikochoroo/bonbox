@@ -3863,9 +3863,10 @@ export const en = {
     bankReconStarterRequiredNative: "Auto-reconcile isn't part of your current plan.",
     bankReconCouldNotLoad: "Could not load suggestions",
     bankReconConfirmFailed: "Confirm failed",
-    bankReconConfirmedToast: "{n} confirmed ({inv} fakturaer marked paid, {exp} expenses linked)",
+    bankReconConfirmedToast: "{n} confirmed (fakturaer marked paid: {inv}, expenses linked: {exp})",
     bankReconHighSelectedToast: "{n} high-confidence matches selected",
     bankReconIssues: "{n} issues:",
+    bankReconIssuesOne: "{n} issue:",
     // ── Bar Pour page (vertical-module dedicated surface) ──────────
     bar: "Bar",
     barPageTitle: "Bar Pour",

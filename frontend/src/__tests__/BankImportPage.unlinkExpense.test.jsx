@@ -182,3 +182,79 @@ describe("bank reconcile — a refused link reads in the owner's language", () =
     expect(en.bankReconErrBankLineLinkedElsewhere).toMatch(/undo that link first/);
   });
 });
+
+// Push 8 gate round 3 (minor): two bank lines suggested the same expense and
+// the owner confirmed both. The server linked one and refused the other, but
+// the toast counted the matches the page had sent ("1 bekræftet (0 fakturaer
+// markeret betalt, 2 udgifter linket)") and the panel said "1 problemer:".
+describe("bank reconcile — the result says what the server did", () => {
+  const SAME_TARGET = {
+    import_id: "danske_bank",
+    counts: { high: 2, medium: 0, low: 0, none: 0 },
+    transactions: ["bank-3", "bank-4"].map((id, i) => ({
+      txn_id: id, txn_type: "expense", date: `2026-10-1${i + 1}`, amount: 312.5,
+      description: i ? "Bager H kort" : "BAGER HANSEN", already_matched: false,
+      suggestions: [{ txn_id: id, target_type: "expense", target_id: "exp-7",
+                      target_label: "Bager Hansen", confidence: "high",
+                      amount_diff: 0, date_diff_days: i, reason: "same amount" }],
+    })),
+  };
+  const answer = (data) => (url) => {
+    if (String(url).startsWith("/bank-import/preview")) return Promise.resolve({ data: PREVIEW });
+    if (String(url).startsWith("/bank-import/confirm")) return Promise.resolve({ data: { imported: 1, skipped: 0, errors: [] } });
+    return Promise.resolve({ data });
+  };
+  const refusedOne = {
+    confirmed: 1, skipped: 0,
+    errors: ["expense target exp-7 is already linked to another bank line"],
+    error_codes: ["expense_paid_by_another_bank_line"],
+  };
+
+  beforeEach(() => {
+    get.mockImplementation((url) => Promise.resolve({
+      data: String(url).includes("/suggestions") ? SAME_TARGET : [],
+    }));
+  });
+
+  it("one of two links refused: the toast counts the one linked; one problem is singular", async () => {
+    post.mockImplementation(answer({ ...refusedOne, invoices_marked_paid: 0, expenses_linked: 1 }));
+    await openReconcile();
+    fireEvent.click(await screen.findByRole("button", { name: /^bankReconConfirmN/ }));
+    expect(await screen.findByText("bankReconConfirmedToast:1|0|1")).toBeTruthy();
+    expect(screen.queryByText("bankReconConfirmedToast:1|0|2")).toBeNull();
+    expect(screen.getByText("bankReconIssuesOne:1")).toBeTruthy();
+    expect(screen.queryByText(/^bankReconIssues:/)).toBeNull();
+    expect(screen.getByText("bankReconErrExpensePaidByAnotherBankLine")).toBeTruthy();
+  });
+
+  it("two problems keep the plural", async () => {
+    post.mockImplementation(answer({
+      confirmed: 0, skipped: 0, invoices_marked_paid: 0, expenses_linked: 0,
+      errors: ["a", "b"], error_codes: ["", ""],
+    }));
+    await openReconcile();
+    fireEvent.click(await screen.findByRole("button", { name: /^bankReconConfirmN/ }));
+    expect(await screen.findByText("bankReconIssues:2")).toBeTruthy();
+    expect(screen.getByText("bankReconConfirmedToast:0|0|0")).toBeTruthy();
+  });
+
+  it("an older server without the counts claims no more than it confirmed", async () => {
+    post.mockImplementation(answer(refusedOne));
+    await openReconcile();
+    fireEvent.click(await screen.findByRole("button", { name: /^bankReconConfirmN/ }));
+    expect(await screen.findByText(/^bankReconConfirmedToast:1\|/)).toBeTruthy();
+    expect(screen.queryByText("bankReconConfirmedToast:1|0|2")).toBeNull();
+  });
+
+  it("copy: one problem, and counts that read for any number, in both languages", () => {
+    expect(da.bankReconIssuesOne).toBe("{n} problem:");
+    expect(en.bankReconIssuesOne).toBe("{n} issue:");
+    // "1 udgifter linket" was wrong Danish for any count of 1.
+    for (const s of [da.bankReconConfirmedToast, en.bankReconConfirmedToast]) {
+      expect(s).toMatch(/\{n\}/);
+      expect(s).not.toMatch(/\{inv\} \w|\{exp\} \w/);
+    }
+    expect(da.bankReconConfirmedToast).toMatch(/udgifter linket: \{exp\}/);
+    expect(en.bankReconConfirmedToast).toMatch(/expenses linked: \{exp\}/);
+  });
+});

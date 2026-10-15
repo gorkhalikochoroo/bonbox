@@ -678,15 +678,20 @@ def confirm_matches(
     User dependency + per-row ownership re-check (defense-in-depth).
 
     Returns: {"confirmed": N, "skipped": N, "errors": [str, ...],
-              "error_codes": [str, ...]}
+              "error_codes": [str, ...], "invoices_marked_paid": N,
+              "expenses_linked": N}
     error_codes is aligned 1:1 with errors: a stable code for the link
     guards the page words in Danish and English (ERROR_CODES), "" for
-    every other message.
+    every other message. invoices_marked_paid / expenses_linked count what
+    was applied (an unlink is neither): the page says what happened, never
+    what it asked for (Push 8 gate round 3).
 
     Caller (router) commits the transaction after this returns.
     """
     confirmed = 0
     skipped = 0
+    invoices_marked_paid = 0
+    expenses_linked = 0
     errors: list[str] = []
     coded: dict[int, str] = {}  # index in errors -> ERROR_CODES entry
 
@@ -783,6 +788,7 @@ def confirm_matches(
                     ip_address=ip_address,
                 )
                 confirmed += 1
+                invoices_marked_paid += 1
                 continue
 
             if target_type == "expense" and action in ("link", "unlink"):
@@ -879,6 +885,7 @@ def confirm_matches(
                     ip_address=ip_address,
                 )
                 confirmed += 1
+                expenses_linked += 1
                 continue
 
             errors.append(
@@ -897,4 +904,6 @@ def confirm_matches(
             continue
 
     return {"confirmed": confirmed, "skipped": skipped, "errors": errors,
-            "error_codes": [coded.get(i, "") for i in range(len(errors))]}
+            "error_codes": [coded.get(i, "") for i in range(len(errors))],
+            "invoices_marked_paid": invoices_marked_paid,
+            "expenses_linked": expenses_linked}

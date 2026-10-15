@@ -150,3 +150,7 @@ class BankReconcileConfirmResponse(BaseModel):
     # Aligned 1:1 with errors: a link guard's code (bank_reconciliation.
     # ERROR_CODES), which the page words in da/en; "" for any other message.
     error_codes: list[str] = Field(default_factory=list)
+    # What was applied, by kind (an unlink is neither): the page's toast
+    # says these, never the count of matches it sent (Push 8 gate round 3).
+    invoices_marked_paid: int = 0
+    expenses_linked: int = 0

@@ -379,8 +379,12 @@ export default function BankImportPage() {
         { matches },
       );
       setReconcileResult(res.data);
-      const inv = matches.filter((m) => m.target_type === "invoice").length;
-      const exp = matches.filter((m) => m.target_type === "expense").length;
+      // What the server applied, never what was sent: a refused link was
+      // still counted as linked (Push 8 gate r3). An older server without
+      // the counts: no kind is claimed more often than anything was confirmed.
+      const confirmedN = Number(res.data.confirmed) || 0;
+      const inv = res.data.invoices_marked_paid ?? Math.min(confirmedN, matches.filter((m) => m.target_type === "invoice").length);
+      const exp = res.data.expenses_linked ?? Math.min(confirmedN, matches.filter((m) => m.target_type === "expense").length);
       showToast(
         t("bankReconConfirmedToast", { n: res.data.confirmed, inv, exp }),
         res.data.errors?.length ? "warning" : "success",
@@ -1043,7 +1047,9 @@ export default function BankImportPage() {
 
             {reconcileResult && reconcileResult.errors?.length > 0 && (
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/60 rounded-lg px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
-                <strong>{t("bankReconIssues", { n: reconcileResult.errors.length })}</strong>
+                <strong>{reconcileResult.errors.length === 1
+                  ? t("bankReconIssuesOne", { n: 1 })
+                  : t("bankReconIssues", { n: reconcileResult.errors.length })}</strong>
                 <ul className="list-disc list-inside mt-1">
                   {reconcileResult.errors.slice(0, 5).map((e, i) => {
                     // A link guard comes with a code (error_codes, aligned

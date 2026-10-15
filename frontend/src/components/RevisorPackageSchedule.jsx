@@ -153,7 +153,10 @@ export default function RevisorPackageSchedule() {
                       value={o.value}
                       checked={active}
                       onChange={() => choose(o.value)}
-                      className="mt-1 accent-gray-900"
+                      // Dark: the chosen dot is the light one and the others
+                      // render dark — accent-gray-900 alone made the choice
+                      // read backwards on the dark card (Push 8 gate r3).
+                      className="mt-1 accent-gray-900 dark:accent-gray-100 dark:[color-scheme:dark]"
                     />
                     <span className="min-w-0">
                       <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">{t(o.labelKey, o.label)}</span>
@@ -176,7 +179,7 @@ export default function RevisorPackageSchedule() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="revisor@firma.dk"
-                className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm"
+                className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100"
                 autoComplete="email"
               />
               {email.trim().toLowerCase() !== (data.revisor_email || "") && (

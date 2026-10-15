@@ -398,3 +398,34 @@ def test_every_guard_code_has_da_and_en_on_the_page():
     for key in mapping.values():
         assert _re.search(rf'^\s+{key}: "', da, _re.M), key
         assert _re.search(rf'^\s+{key}: "', en, _re.M), key
+
+
+def test_the_page_is_told_what_was_linked_not_what_it_asked_for(client, factory):
+    """Push 8 gate round 3 (minor): two bank lines suggest the same expense
+    and the owner confirms both. The server links one and refuses the other
+    (one payment, one link), but the page counted the matches it had sent:
+    "1 bekræftet (0 fakturaer markeret betalt, 2 udgifter linket)". The answer
+    now carries how many expenses were linked and invoices marked paid."""
+    s = factory()
+    u, receipt, bank = _pair(s)
+    cat = s.query(ExpenseCategory).filter(ExpenseCategory.user_id == u.id).first()
+    other_bank = _exp(s, u, cat, 1250, bank=True, desc="Bager H kort")
+    uid, bid, oid, rid = u.id, bank.id, other_bank.id, receipt.id
+    s.close()
+    headers = {"Authorization": f"Bearer {create_access_token(str(uid))}"}
+    both = {"matches": [
+        {"txn_id": str(bid), "target_type": "expense", "target_id": str(rid), "action": "link"},
+        {"txn_id": str(oid), "target_type": "expense", "target_id": str(rid), "action": "link"},
+    ]}
+    r = client.post("/api/bank-import/latest/confirm-matches", headers=headers, json=both)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["confirmed"] == 1 and body["error_codes"] == ["expense_paid_by_another_bank_line"]
+    assert body["expenses_linked"] == 1 and body["invoices_marked_paid"] == 0, body
+    # Sent again: the first is already linked (skipped), the second refused.
+    again = client.post("/api/bank-import/latest/confirm-matches", headers=headers, json=both).json()
+    assert again["confirmed"] == 0 and again["expenses_linked"] == 0, again
+    # An undo is not a link.
+    undo = client.post("/api/bank-import/latest/confirm-matches", headers=headers, json={"matches": [
+        {"txn_id": str(bid), "target_type": "expense", "target_id": str(rid), "action": "unlink"}]}).json()
+    assert undo["confirmed"] == 1 and undo["expenses_linked"] == 0, undo

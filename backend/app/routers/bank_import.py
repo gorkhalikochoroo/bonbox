@@ -522,4 +522,6 @@ def confirm_match_batch(
         skipped=result["skipped"],
         errors=result["errors"],
         error_codes=result.get("error_codes", []),
+        invoices_marked_paid=result.get("invoices_marked_paid", 0),
+        expenses_linked=result.get("expenses_linked", 0),
     )

@@ -434,6 +434,40 @@ def is_foreign(e: Expense, account_ccy: str | None) -> bool:
     return bool(ccy) and ccy != (account_ccy or "DKK").strip().upper()
 
 
+# Bankimport stores its built-in categories by their English names
+# (BankImportPage sends the default names as-is and translates only the
+# option text), so the owner's 'El, vand og varme' is saved as "Utilities".
+# A revisor file is Danish only (Push 8 gate round 3): it prints the words
+# the owner chose — the same Danish BankImportPage shows. Display only: the
+# MOMS engine, the fradrag rule and a sent package's fingerprint keep the
+# stored name. Any other name is the owner's own and prints as typed.
+_BUILTIN_CATEGORY_DA = {
+    "Other": "Andet", "Sales": "Salg", "Ingredients": "Råvarer", "Rent": "Husleje",
+    "Wages": "Løn", "Utilities": "El, vand og varme", "Supplies": "Forbrugsvarer",
+    "Transport": "Transport", "Insurance": "Forsikring", "Subscriptions": "Abonnementer",
+    "Equipment": "Udstyr", "Marketing": "Markedsføring",
+}
+_FOREIGN_ROW_SUFFIX = " (udenlandsk valuta)"
+
+
+def category_da(name: str | None) -> str:
+    n = (name or "").strip()
+    if n.endswith(_FOREIGN_ROW_SUFFIX):
+        return category_da(n[: -len(_FOREIGN_ROW_SUFFIX)]) + _FOREIGN_ROW_SUFFIX
+    return _BUILTIN_CATEGORY_DA.get(n, n)
+
+
+# BonBox's own markers in an expense's text: the inbox appends "[from
+# inbox]" to a forwarded bilag (and "[needs review]" to an unsure read, which
+# approving removes). English system tags, never the owner's words: a
+# revisor file leaves them out (Push 8 gate round 3).
+_SYSTEM_TAG_RE = re.compile(r"\s*\[(?:from inbox|needs review)\]", re.IGNORECASE)
+
+
+def revisor_text(text: str | None) -> str:
+    return _SYSTEM_TAG_RE.sub("", text or "").strip()
+
+
 def expenses_by_category(fd: dict, expenses: list[Expense], cat_names: dict,
                          account_ccy: str | None = "DKK") -> list[dict]:
     """Category table: the MOMS base rows from _calc_vat (gross, fradrag %,
@@ -560,7 +594,7 @@ def build_checklist(db: Session, user: User, start: date, end: date, *,
     items.append({
         "key": "bilag_missing", "count": len(no_bilag), "applicable": True,
         "amount": round(sum(float(e.amount or 0) for e in no_bilag), 2),
-        "rows": [{"id": str(e.id), "date": iso(e.date), "description": e.description,
+        "rows": [{"id": str(e.id), "date": iso(e.date), "description": revisor_text(e.description),
                   "amount": float(e.amount or 0)} for e in no_bilag],
         "link": f"/expenses?bilag=missing&from={iso(start)}&to={iso(end)}",
     })
@@ -573,7 +607,7 @@ def build_checklist(db: Session, user: User, start: date, end: date, *,
     bad = list(unreadable) if fetched else unreadable_without_download(db, user, expenses)
     items.append({
         "key": "bilag_unreadable", "count": len(bad), "applicable": True,
-        "rows": [{"id": str(e.id), "date": iso(e.date), "description": e.description,
+        "rows": [{"id": str(e.id), "date": iso(e.date), "description": revisor_text(e.description),
                   "amount": float(e.amount or 0)} for e in bad],
         "link": f"/expenses?from={iso(start)}&to={iso(end)}",
     })
@@ -589,7 +623,7 @@ def build_checklist(db: Session, user: User, start: date, end: date, *,
     items.append({
         "key": "drafts_pending", "count": len(drafts), "applicable": True,
         "amount": round(sum(float(e.amount or 0) for e in drafts), 2),
-        "rows": [{"id": str(e.id), "date": iso(e.date), "description": e.description,
+        "rows": [{"id": str(e.id), "date": iso(e.date), "description": revisor_text(e.description),
                   "amount": float(e.amount or 0)} for e in drafts],
         "link": "/expenses",
     })
@@ -631,7 +665,7 @@ def build_checklist(db: Session, user: User, start: date, end: date, *,
     )
     items.append({
         "key": "bank_unmatched", "count": len(bank_rows), "applicable": uses_bank,
-        "rows": [{"id": str(e.id), "date": iso(e.date), "description": e.description,
+        "rows": [{"id": str(e.id), "date": iso(e.date), "description": revisor_text(e.description),
                   "amount": float(e.amount or 0)} for e in bank_rows],
         "link": "/imports?tab=bank",
     })
@@ -1035,7 +1069,7 @@ def csv_expenses(expenses: list[Expense], cat_names: dict, files: dict,
         status = files.get(e.id)
         rows.append([
             e.date.isoformat(), f"E-{e.date.year}-{vn:04d}" if vn else "",
-            csv_safe((e.description or "")[:120]), csv_safe(cat), _dk_num(e.amount),
+            csv_safe(revisor_text(e.description)[:120]), csv_safe(category_da(cat)), _dk_num(e.amount),
             _pay_da(e.payment_method), _moms_label(e, cat, account_ccy),
             status or ("MANGLER" if not _has_bilag(e) else UNREADABLE_DA),
             e.currency or "", _dk_num(e.original_amount) if e.original_amount is not None else "",
@@ -1280,7 +1314,7 @@ def build_summary_pdf(*, user: User, profile, start: date, end: date, kind: str,
         ct = [[P("Kategori", cell_b), P("Antal", cell_br), P("Beløb inkl. moms", cell_br),
                P("Fradrag", cell_br), P("Købsmoms", cell_br)]]
         for c in categories:
-            ct.append([P(c["category"]), P(str(c["count"]), cell_r), P(_kr(c["gross"]), cell_r),
+            ct.append([P(category_da(c["category"])), P(str(c["count"]), cell_r), P(_kr(c["gross"]), cell_r),
                        P(fradrag_label(c), cell_r), P(_kr(c["input_vat"]), cell_r)])
         ct.append([P("I alt", cell_b), P(str(sum(c["count"] for c in categories)), cell_br),
                    P(_kr(sum(c["gross"] for c in categories)), cell_br), P("", cell_r),
@@ -1587,15 +1621,16 @@ def bilag_label(e: Expense, cat: str, suppliers: dict) -> str:
     The row's own text wins when it names that same supplier (it folds to
     the row's vendor_key): the learned name is the first one the owner ever
     typed, so "Husleje andel sep" named the October rent bilag after
-    September (Push 8 gate)."""
+    September (Push 8 gate). BonBox's own tags ("[from inbox]") and an
+    English built-in category never name a file (gate round 3)."""
     if getattr(e, "vendor_key", None):
-        own = (e.description or "").strip()
+        own = revisor_text(e.description)
         if own and canonical_vendor_key(own) == e.vendor_key:
             return own
-        name = suppliers.get(e.vendor_key)
+        name = revisor_text(suppliers.get(e.vendor_key))
         if name:
             return name
-    return e.description or cat
+    return revisor_text(e.description) or category_da(cat)
 
 
 # ─── What was sent: the figures, and whether they changed afterwards ─────
@@ -1672,8 +1707,10 @@ def _detail_changes(before: dict, after: dict) -> list[dict]:
             for i, (kind, label) in enumerate((("category_gross", "Udgifter"),
                                                 ("category_vat", "Købsmoms"))):
                 if round(float(b[i]), 2) != round(float(a[i]), 2):
-                    out.append({"key": f"{kind}:{name}", "kind": kind, "name": name,
-                                "label_da": f"{label} — {name}",
+                    # The key keeps the stored name; what is read (the
+                    # page, the RETTELSE lines) is Danish (gate round 3).
+                    out.append({"key": f"{kind}:{name}", "kind": kind, "name": category_da(name),
+                                "label_da": f"{label} — {category_da(name)}",
                                 "before": round(float(b[i]), 2), "after": round(float(a[i]), 2)})
     if isinstance(before.get("dage"), dict) and isinstance(after.get("dage"), dict):
         b_d, a_d = before["dage"], after["dage"]
@@ -1832,8 +1869,8 @@ def _build_into(db, user, start, end, *, parts, kind, now, include_bilag, split_
             continue
         cat = cat_names.get(e.category_id, "") or ""
         vn = f"E-{e.date.year}-{e.voucher_number:04d}" if e.voucher_number else ""
-        row_base = [e.date.isoformat(), csv_safe(e.description or ""), _dk_num(e.amount), vn,
-                    csv_safe(cat)]
+        row_base = [e.date.isoformat(), csv_safe(revisor_text(e.description)), _dk_num(e.amount), vn,
+                    csv_safe(category_da(cat))]
         loaded = load_bilag(user.id, e.receipt_photo, db=db) if include_bilag else None
         if loaded is None:
             if include_bilag:
