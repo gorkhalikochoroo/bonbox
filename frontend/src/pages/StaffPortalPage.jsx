@@ -5425,6 +5425,53 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
     return () => window.removeEventListener("resize", fitComposer);
   }, [fitComposer]);
 
+  // Phone: the stream fills the room between the title bar and the fixed
+  // composer — measured, not guessed. `calc(100vh − 20rem)` ran ~100 px past
+  // the composer on an iPhone (and past it again with the keyboard up), so
+  // the newest message — the one the view pins to — sat under the composer
+  // and the tab bar. The top is taken with the page at rest (the scroller's
+  // own scroll added back), the bottom is the composer's top edge (less
+  // 2 px for rounding), which already follows the keyboard, a growing text
+  // and pending photos. The iPad pane is a flex card and needs none of this.
+  const composerRef = useRef(null);
+  const [streamMax, setStreamMax] = useState(null);
+  const fitStream = useCallback(() => {
+    if (pane || typeof window === "undefined") return;
+    const s = scrollRef.current;
+    const c = composerRef.current;
+    if (!s || !c) return;
+    const top = s.getBoundingClientRect().top + (s.closest("[data-portal-scroller]")?.scrollTop || 0);
+    const bottom = c.getBoundingClientRect().top;
+    if (!(bottom > top)) return; // nothing laid out (jsdom) — keep the fallback
+    const next = Math.max(120, Math.floor(bottom - top - 2));
+    setStreamMax((prev) => (prev === next ? prev : next));
+  }, [pane]);
+  useLayoutEffect(() => { fitStream(); }, [fitStream, kb, grow, messages]);
+  useEffect(() => {
+    if (pane) return undefined;
+    window.addEventListener("resize", fitStream);
+    let ro = null;
+    try {
+      ro = new ResizeObserver(() => fitStream());
+      if (composerRef.current) ro.observe(composerRef.current);
+    } catch { /* no ResizeObserver: resize + keyboard still refit */ }
+    return () => {
+      window.removeEventListener("resize", fitStream);
+      try { ro && ro.disconnect(); } catch { /* noop */ }
+    };
+  }, [pane, fitStream]);
+  // Phone: is anything scrolled under the title bar? Drives its hairline.
+  // Both layouts: is the staffer at the newest message (stickRef)?
+  const stickRef = useRef(true);
+  const [streamUnder, setStreamUnder] = useState(false);
+  const onStreamScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+    const under = el.scrollTop > 1;
+    setStreamUnder((prev) => (prev === under ? prev : under));
+  }, []);
+
   const load = useCallback(
     (markRead = true) => {
       portalApi
@@ -5447,11 +5494,16 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
     return () => clearInterval(id);
   }, [load]);
 
-  // Keep pinned to the newest message.
+  // Keep pinned to the newest message — while the staffer is AT the newest
+  // (stickRef, kept by onStreamScroll). The 6 s re-read hands over a new
+  // array every time, so this used to pull someone who had scrolled up to
+  // read back down to the bottom every 6 s. Sending re-sticks. Also re-pins
+  // when the phone stream's measured height changes (streamMax), which lands
+  // after the first pin.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [messages, streamMax]);
 
   const send = async () => {
     const body = text.trim();
@@ -5472,6 +5524,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
       created_at: new Date().toISOString(),
       _pending: true,
     };
+    stickRef.current = true;
     setMessages((prev) => [...(prev || []), optimistic]);
     setText("");
     picker.clear();
@@ -5547,7 +5600,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
     <button
       type="button"
       onClick={leave}
-      className={pane ? "min-h-[44px] px-1" : undefined}
+      className={pane ? "min-h-[44px] px-1" : "min-h-[44px] -my-4"}
       style={{ font: pane ? "600 13px/1 var(--font-text)" : "600 11.5px/1 var(--font-text)", color: "#94a3b8" }}
     >
       {t("staffChatLeave", "Leave")}
@@ -5601,15 +5654,22 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
       ) : (
         <>
           {/* pane: the top row is always 44 px — the back link and the Leave
-              button are 44 px tall. */}
+              button are 44 px tall.
+              Phone: the row is the 12 px line of its words. The two buttons
+              are still 44 px tall (the touch-screen minimum), but negative
+              margins keep them from stretching the row — that stretch was
+              most of the empty band between the page header and "Alle
+              samtaler". -mt-1 takes the content column's 16 px top padding
+              down to 12. */}
           <div
-            className={pane ? "flex items-center justify-between min-h-[44px]" : "flex items-center justify-between"}
-            style={pane ? { padding: "10px 20px 0" } : { padding: "2px 0 12px" }}
+            className={pane ? "flex items-center justify-between min-h-[44px]" : "flex items-center justify-between -mt-1"}
+            style={pane ? { padding: "10px 20px 0" } : undefined}
+            data-testid={pane ? undefined : "portal-chat-back-row"}
           >
             <button
               type="button"
               onClick={onBack}
-              className={pane ? "flex items-center min-h-[44px]" : "flex items-center"}
+              className={pane ? "flex items-center min-h-[44px]" : "flex items-center min-h-[44px] -my-4"}
               style={{ gap: 7, font: pane ? "600 13.5px/1 var(--font-text)" : "600 12px/1 var(--font-text)", color: "#16a34a" }}
             >
               <ChevronLeft className="w-[14px] h-[14px]" strokeWidth={2.4} aria-hidden />
@@ -5621,8 +5681,18 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
           {/* pane: a real hairline under the header (#e8edf3 — the #f1f5f9 one
               vanished against the #f8fafc stream), and the stream fades in under
               it instead of slicing a bubble or a sender name in half. */}
+          {/* Phone: the title is a bar, edge to edge on the page's own solid
+              background, with the pane's hairline under it — shown only
+              while messages are scrolled under it, so a short thread stays
+              a clean page. The stream below fades in under the hairline;
+              before, a bubble was sliced in half right under "Din leder"
+              and looked cut off. */}
           <div
-            style={pane ? { padding: "4px 20px 12px", borderBottom: "1px solid #e8edf3" } : { marginBottom: 10 }}
+            data-testid={pane ? undefined : "portal-chat-title-bar"}
+            className={pane ? undefined : "-mx-4 px-4 transition-[border-color] duration-200"}
+            style={pane
+              ? { padding: "4px 20px 12px", borderBottom: "1px solid #e8edf3" }
+              : { paddingTop: 12, paddingBottom: 10, background: "#f5f7fb", borderBottom: `1px solid ${streamUnder ? "#e8edf3" : "transparent"}` }}
           >
             <h2 className={`font-display font-bold tracking-[-0.02em] leading-[1.2] text-gray-900 ${pane ? "text-[17px]" : "text-[15px]"}`}>
               {heading}
@@ -5632,17 +5702,31 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
         </>
       )}
 
-      {/* Message stream */}
+      {/* Message stream. Phone: exactly as tall as the room between the
+          title bar and the composer (measured — fitStream), so the newest
+          message rests ABOVE the composer instead of under it and the tab
+          bar; the old 100vh − 20rem guess ran ~100 px past the composer. */}
       <div
         ref={scrollRef}
-        className={pane ? "flex flex-col overflow-y-auto overscroll-contain flex-1 min-h-0" : "flex flex-col overflow-y-auto"}
+        onScroll={onStreamScroll}
+        data-testid={pane ? undefined : "portal-chat-stream"}
+        className={pane ? "flex flex-col overflow-y-auto overscroll-contain flex-1 min-h-0" : "flex flex-col overflow-y-auto overscroll-contain"}
         style={pane
           ? {
               gap: 10, padding: "16px 20px", background: "#f8fafc",
               WebkitMaskImage: "linear-gradient(to bottom, transparent 0, #000 14px)",
               maskImage: "linear-gradient(to bottom, transparent 0, #000 14px)",
             }
-          : { maxHeight: `calc(100vh - 20rem - ${kb + grow}px)`, gap: 9 }}
+          : {
+              maxHeight: streamMax != null ? `${streamMax}px` : `calc(100vh - 20rem - ${kb + grow}px)`,
+              gap: 9, paddingTop: 10, paddingBottom: 10,
+              // Fades at both ends: under the title bar's hairline, and just
+              // above the composer, so a bubble passing either edge softens
+              // out instead of being sliced. At rest the 10 px paddings keep
+              // the first and the newest message clear of both fades.
+              WebkitMaskImage: "linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%)",
+              maskImage: "linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%)",
+            }}
       >
         {messages === null ? (
           <div className="space-y-2 animate-pulse">
@@ -5756,6 +5840,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, p
           (--bb-consent-h; the banner sits on the tab bar too, and covered the
           whole composer). */}
       <div
+        ref={composerRef}
         data-testid="portal-chat-composer"
         data-kb-skip=""
         className={pane
