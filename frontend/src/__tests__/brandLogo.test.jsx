@@ -152,7 +152,7 @@ describe("the icon files the HTML and the manifests point at", () => {
     // The b is drawn separately for 16 and 32 px. An SVG link would win in
     // Firefox and scale the 32 px drawing down to a soft 16 px tab icon.
     expect(hrefs.map((h) => h.split("?")[0])).toEqual([
-      "/favicon.ico", "/favicon-32.png", "/favicon-16.png", "/icon-192.png", "/apple-touch-icon.png",
+      "/favicon.ico", "/favicon-96.png", "/favicon-48.png", "/favicon-32.png", "/favicon-16.png", "/icon-192.png", "/apple-touch-icon.png",
     ]);
     expect(html).not.toMatch(/<link rel="icon" type="image\/svg\+xml"/);
     expect(html).toMatch(/<link rel="icon" href="\/favicon\.ico\?v=3" sizes="16x16 32x32" \/>/);
