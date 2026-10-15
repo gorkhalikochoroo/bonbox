@@ -1035,6 +1035,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                         busyId={linkingId}
                         onLink={linkToExisting}
                         onNew={() => setMatchDismissed(true)}
+                        scrollList
                       />
                     </div>
                   )}

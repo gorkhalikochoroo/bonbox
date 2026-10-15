@@ -105,6 +105,12 @@ def checklist(
     out["send"] = {
         "entitled": has_feature(user, "accountant_month_end_bundle"),
         "blocker": rp.send_blocker(db, user, profile, s, e),
+        # The ZIP and the PDF have their own wall (_demo_fence: sample rows
+        # under the owner's own name). Said on its own, because a send
+        # blocker that comes first (sample revisor, opt-out, plan …) hid it
+        # and the page offered a download the server refuses (Push 8 gate).
+        "download_blocker": ("demo_in_period"
+                             if rm.demo_rows_under_own_identity(db, user, profile, s, e) else None),
         "revisor_email": rm.saved_revisor_address(profile) or None,
         # The owner's "Send revisorpakke" choice, so the page says it is on.
         "schedule": sched if sched in rp.SCHEDULES else "never",

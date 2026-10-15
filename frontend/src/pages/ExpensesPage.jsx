@@ -70,7 +70,7 @@ import PageShell from "../components/ui/PageShell";
 import DataTable from "../components/ui/DataTable";
 import FilterBar from "../components/ui/FilterBar";
 import { SkeletonPulse } from "../components/BonBoxPolishKit";
-import { Camera, Pencil, Trash2, ChevronDown, ChevronUp, Receipt, ChevronRight, Layers } from "lucide-react";
+import { Camera, Pencil, Trash2, ChevronDown, ChevronUp, Receipt, ChevronRight, Layers, CircleCheck } from "lucide-react";
 
 const QUICK_AMOUNTS = [100, 500, 1000];
 
@@ -542,6 +542,17 @@ export default function ExpensesPage() {
   const [scanMatches, setScanMatches] = useState([]);
   const [scanMatchDismissed, setScanMatchDismissed] = useState(false);
   const [scanLinkingId, setScanLinkingId] = useState(null);
+  // "Bilaget er knyttet til …" where the owner tapped "Knyt": in the page-top
+  // banner it sat ~490 px above a phone owner scrolled down at the expanded
+  // form, and was gone before they saw it (Push 8 gate).
+  const [scanLinkedMsg, setScanLinkedMsg] = useState("");
+  const scanLinkedRef = useRef(null);
+  useEffect(() => {
+    if (!scanLinkedMsg) return undefined;
+    scanLinkedRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    const id = setTimeout(() => setScanLinkedMsg(""), 6000);
+    return () => clearTimeout(id);
+  }, [scanLinkedMsg]);
   const scanReadRef = useRef(null);
   useEffect(() => {
     const st = location.state;
@@ -649,10 +660,9 @@ export default function ExpensesPage() {
       setExpDate(bizToday());
       fetchData();
       window.dispatchEvent(new Event("bonbox-data-changed"));
-      setSuccess(t("bilagMatchLinked", "Receipt attached to {desc} ({date})", {
+      setScanLinkedMsg(t("bilagMatchLinked", "Receipt attached to {desc} ({date})", {
         desc: c.description || c.category_name || "", date: formatDateClear(c.date),
       }));
-      setTimeout(() => setSuccess(""), 4000);
     } catch (err) {
       const d = err?.response?.data?.detail;
       setError((d && typeof d === "object" && (d.message_da || d.message)) || errText(err, t("bilagMatchFailed", "Couldn't attach the receipt — try again.")));
@@ -1600,6 +1610,17 @@ export default function ExpensesPage() {
             disabled={scanPhotoHeld && scanMatches.length > 0}
             extras={
               <>
+                {scanLinkedMsg && (
+                  <p
+                    ref={scanLinkedRef}
+                    role="status"
+                    data-testid="exp-scan-linked"
+                    className="flex items-center gap-1.5 text-[13px] font-medium text-emerald-700 dark:text-emerald-300"
+                  >
+                    <CircleCheck size={14} strokeWidth={1.75} aria-hidden="true" className="shrink-0" />
+                    {scanLinkedMsg}
+                  </p>
+                )}
                 {/* The Smart skan photo rides along as this expense's bilag. */}
                 {scanPhotoHeld && (
                   <p className="flex items-center gap-1.5 text-[12px] text-gray-600 dark:text-gray-300" data-testid="exp-scan-photo-kept">

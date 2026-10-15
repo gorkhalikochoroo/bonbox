@@ -64,6 +64,7 @@ from app.models.sale import Sale
 from app.models.user import User
 from app.services.bonbox_pdf_kit import compose_business_address, escape_pdf_text, money_dk
 from app.services.expense_status import not_pending
+from app.services.vendor_identity import canonical_vendor_key
 from app.utils.csv_safe import csv_safe
 from app.utils.time import utc_now
 
@@ -1563,9 +1564,12 @@ def supplier_names(db: Session, user: User, expenses) -> dict:
         return {}
     try:
         from app.models.vendor_profile import VendorProfile
+        # Ordered, so the same package names its files the same way every
+        # time (a vendor has one row per learned field/value).
         rows = (db.query(VendorProfile.vendor_key, VendorProfile.display_name)
                 .filter(VendorProfile.user_id == user.id, VendorProfile.vendor_key.in_(list(keys)),
                         VendorProfile.display_name.isnot(None))
+                .order_by(VendorProfile.created_at.asc(), VendorProfile.id.asc())
                 .all())
     except Exception:  # noqa: BLE001
         return {}
@@ -1578,8 +1582,16 @@ def supplier_names(db: Session, user: User, expenses) -> dict:
 
 def bilag_label(e: Expense, cat: str, suppliers: dict) -> str:
     """Supplier when BonBox knows it, else the expense's text, else the
-    category: 2026-10-03_Hoerkram_2345,67.jpg."""
+    category: 2026-10-03_Hoerkram_2345,67.jpg.
+
+    The row's own text wins when it names that same supplier (it folds to
+    the row's vendor_key): the learned name is the first one the owner ever
+    typed, so "Husleje andel sep" named the October rent bilag after
+    September (Push 8 gate)."""
     if getattr(e, "vendor_key", None):
+        own = (e.description or "").strip()
+        if own and canonical_vendor_key(own) == e.vendor_key:
+            return own
         name = suppliers.get(e.vendor_key)
         if name:
             return name

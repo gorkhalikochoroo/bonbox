@@ -121,4 +121,36 @@ describe("ReceiptCapture — Knyt til eksisterende udgift", () => {
     await waitFor(() => expect(screen.queryByTestId("bilag-match-panel")).toBeNull());
     await waitFor(() => expect(screen.getByText("addExpense").closest("button")).not.toBeDisabled());
   });
+
+  // Push 8 gate, round 2: with 2+ candidates the pinned offer grew to 554 px
+  // of a 613 px scroller at 360x740 and covered the amount and date the
+  // owner was checking. The list scrolls inside a cap; the title and
+  // "Nej, det er en ny udgift" stay in view.
+  it("with several candidates the list scrolls inside a cap and 'Nej' stays outside it", async () => {
+    get.mockImplementation((url) => {
+      if (url === "/expenses/bilag-matches") {
+        return Promise.resolve({ data: { candidates: [12, 13, 14].map((d) => ({
+          id: `typed${d}`, date: `2026-10-${d}`, amount: 450, description: "Hørkram",
+          category_name: "Råvarer", day_diff: 1, amount_diff: 0, same_vendor: false,
+        })), count: 3 } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    render(
+      <MemoryRouter><ReceiptCapture mode="expense" onClose={() => {}} onSaved={vi.fn()} /></MemoryRouter>,
+    );
+    const input = await waitFor(() => {
+      const el = document.querySelector('input[type="file"]');
+      if (!el) throw new Error("no file input yet");
+      return el;
+    });
+    fireEvent.change(input, { target: { files: [new File(["jpeg"], "hk.jpg", { type: "image/jpeg" })] } });
+    const panel = await screen.findByTestId("bilag-match-panel", {}, { timeout: 3000 });
+    const list = within(panel).getByTestId("bilag-match-list");
+    expect(within(list).getAllByText("bilagMatchLink")).toHaveLength(3);
+    expect(list.className).toMatch(/(^|\s)max-h-\[\d+d?vh\](\s|$)/);
+    expect(list.className).toMatch(/(^|\s)overflow-y-auto(\s|$)/);
+    const no = within(panel).getByText("bilagMatchNew");
+    expect(list.contains(no)).toBe(false);
+  });
 });

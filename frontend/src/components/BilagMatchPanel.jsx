@@ -21,6 +21,11 @@ import { formatDateClear } from "../utils/dateFormat";
  *   onLink(c)    — link to candidate c
  *   onNew()      — optional: "no, it's a new expense"
  *   compact      — the queue's tighter row variant
+ *   scrollList   — cap the candidate list and scroll inside it, for a host
+ *                  that pins the panel (ReceiptCapture's footer): with 2+
+ *                  candidates the uncapped panel covered the amount and date
+ *                  the owner was checking (Push 8 gate). Title and "Nej, det
+ *                  er en ny udgift" stay in view.
  */
 export default function BilagMatchPanel({
   candidates = [],
@@ -30,6 +35,7 @@ export default function BilagMatchPanel({
   onLink,
   onNew = null,
   compact = false,
+  scrollList = false,
 }) {
   const { t } = useLanguage();
   if (!candidates.length) return null;
@@ -55,7 +61,10 @@ export default function BilagMatchPanel({
           )}
         </div>
       </div>
-      <ul className="mt-2.5 space-y-2">
+      <ul
+        className={`mt-2.5 space-y-2${scrollList ? " max-h-[18vh] overflow-y-auto overscroll-contain" : ""}`}
+        data-testid="bilag-match-list"
+      >
         {candidates.map((c) => {
           const diff = receiptAmount != null && Math.abs(Number(receiptAmount) - Number(c.amount)) >= 0.005;
           return (

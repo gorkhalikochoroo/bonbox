@@ -170,3 +170,87 @@ describe("the checklist head fits a 360 px phone", () => {
     expect(screen.getByTestId("me-open-count").className).toMatch(/(^|\s)whitespace-nowrap(\s|$)/);
   });
 });
+
+// ── Push 8 gate, round 2 ─────────────────────────────────────────────
+
+describe("the download wall is said even when another blocker comes first", () => {
+  // Sample rows under the owner's own name: the server refuses the ZIP and
+  // the PDF (422 demo_in_period) whatever stops the mail. The send blocker
+  // named only the first wall (sample revisor, opt-out), the downloads stayed
+  // live, and the refusal stacked a second warning after the tap.
+  it.each(["demo_recipient", "opted_out"])("%s + sample rows: ZIP and PDF are off, and the page says why", async (blocker) => {
+    checklist = CHECKLIST({ blocker, download_blocker: "demo_in_period" });
+    renderPage();
+    expect(await screen.findByTestId("me-send-blocker")).toHaveTextContent(`rpsBlocked_${blocker}`);
+    expect(screen.getByTestId("me-download-blocker")).toHaveTextContent("rpsBlocked_demo_in_period");
+    expect(button("meDownloadZip")).toBeDisabled();
+    expect(button("meDownloadPdf")).toBeDisabled();
+    expect(button("meSend")).toBeDisabled();
+  });
+
+  it("on a plan without sending, the download wall still has its line", async () => {
+    checklist = CHECKLIST({ entitled: false, blocker: "plan", download_blocker: "demo_in_period" });
+    renderPage();
+    expect(await screen.findByTestId("me-download-blocker")).toHaveTextContent("rpsBlocked_demo_in_period");
+    expect(button("meDownloadZip")).toBeDisabled();
+    expect(button("meDownloadPdf")).toBeDisabled();
+  });
+
+  it("demo_in_period as the send blocker is said once", async () => {
+    checklist = CHECKLIST({ blocker: "demo_in_period", download_blocker: "demo_in_period" });
+    renderPage();
+    expect(await screen.findByTestId("me-send-blocker")).toHaveTextContent("rpsBlocked_demo_in_period");
+    expect(screen.queryByTestId("me-download-blocker")).toBeNull();
+    expect(button("meDownloadZip")).toBeDisabled();
+  });
+
+  it("no sample rows: the download stays live under any other blocker", async () => {
+    checklist = CHECKLIST({ blocker: "opted_out", download_blocker: null });
+    renderPage();
+    await screen.findByTestId("me-send-blocker");
+    expect(screen.queryByTestId("me-download-blocker")).toBeNull();
+    expect(button("meDownloadZip")).not.toBeDisabled();
+    expect(button("meDownloadPdf")).not.toBeDisabled();
+  });
+});
+
+const withOpen = (n) => ({
+  ...CHECKLIST(),
+  open_count: n,
+  items: [{ key: "bilag_missing", count: n, applicable: true, amount: 450 * n,
+    rows: Array.from({ length: n }, (_, i) => ({ id: `e${i}`, date: "2026-09-1" + i, amount: 450, description: "Hørkram" })),
+    link: "/expenses" }],
+});
+
+describe("the 'Ret' button can be read in dark mode", () => {
+  it("carries its own text colour for light and dark", async () => {
+    checklist = withOpen(2);
+    renderPage();
+    const fix = (await screen.findByText("meFix")).closest("a");
+    // No colour class: it inherited black and sat black on the gray-900 card.
+    expect(fix.className).toMatch(/(^|\s)text-gray-[5-9]00(\s|$)/);
+    expect(fix.className).toMatch(/(^|\s)dark:text-(gray-(100|200|300)|white)(\s|$)/);
+  });
+});
+
+describe("one open item is singular in Danish", () => {
+  it("1 open: 'åbent punkt' and 'punkt er åbent' — head, card and the send confirm", async () => {
+    checklist = withOpen(1);
+    renderPage();
+    expect(await screen.findByTestId("me-open-count")).toHaveTextContent("meOpenCountOne:1");
+    expect(screen.getByText("meSendOpenWarnOne:1")).toBeInTheDocument();
+    expect(screen.queryByText(/^meSendOpenWarn:/)).toBeNull();
+    confirmFn.mockImplementationOnce(async () => false);
+    fireEvent.click(button("meSend"));
+    await waitFor(() => expect(confirmFn).toHaveBeenCalled());
+    expect(confirmFn.mock.calls[0][0].message).toBe("meSendOpenWarnOne:1");
+    expect(posts()).toHaveLength(0);
+  });
+
+  it("2 or more keep the plural", async () => {
+    checklist = withOpen(2);
+    renderPage();
+    expect(await screen.findByTestId("me-open-count")).toHaveTextContent("meOpenCount:2");
+    expect(screen.getByText("meSendOpenWarn:2")).toBeInTheDocument();
+  });
+});

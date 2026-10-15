@@ -136,6 +136,10 @@ export default function MonthEndPage() {
   const data = q.data;
   const items = (data?.items || []).filter((i) => i.applicable || i.key === "closes_missing");
   const openCount = data?.open_count ?? 0;
+  // One open item is "1 punkt er åbent", never "1 punkter er åbne" (Push 8 gate).
+  const openWarnText = openCount === 1
+    ? t("meSendOpenWarnOne", "{n} item is open. The e-mail lists it, so your revisor knows the period isn't finished.", { n: openCount })
+    : t("meSendOpenWarn", "{n} items are open. The e-mail lists them, so your revisor knows the period isn't finished.", { n: openCount });
   // Say no more than was checked (the PDF and the mail follow the same
   // rules, revisor_package.checklist_status): "every day is locked" only
   // when BonBox checks this owner's closes, "so far" while the period runs.
@@ -215,7 +219,7 @@ export default function MonthEndPage() {
     if (openCount > 0) {
       const ok = await confirm({
         title: t("meSendConfirmTitle", "Send with open items?"),
-        message: t("meSendOpenWarn", "{n} items are open. The e-mail lists them, so your revisor knows the period isn't finished.", { n: openCount }),
+        message: openWarnText,
         confirmLabel: t("meSendConfirmCta", "Send anyway"),
       });
       if (!ok) return;
@@ -263,7 +267,11 @@ export default function MonthEndPage() {
   // The server refuses what the page already names (Push 8 gate): the send
   // on any of these, the ZIP and the PDF on sample rows under the owner's
   // own name (422 demo_in_period). Not offered, so no second warning stacks.
-  const downloadBlocked = sendBlocker === "demo_in_period";
+  // The download wall is its own field: a send blocker that comes first
+  // (sample revisor, opt-out, plan …) hid it (round 2). An older server
+  // without the field still answers through the send blocker.
+  const downloadBlocked = data?.send?.download_blocker === "demo_in_period" || sendBlocker === "demo_in_period";
+  const sendBlockerShown = !!(entitled && revisorEmail && sendBlocker);
   const last = (data?.last_sends || []).find((s) => s.status === "sent");
   const sentPkg = data?.sent_package || null;
   const figLabel = (k) => ({
@@ -396,7 +404,9 @@ export default function MonthEndPage() {
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-3 border-b border-gray-100 dark:border-gray-800" data-testid="me-checklist-head">
               {openCount > 0 ? (
                 <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 whitespace-nowrap" data-testid="me-open-count">
-                  {t("meOpenCount", "{n} open", { n: openCount })}
+                  {openCount === 1
+                    ? t("meOpenCountOne", "{n} open item", { n: openCount })
+                    : t("meOpenCount", "{n} open", { n: openCount })}
                 </p>
               ) : (
                 <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300 inline-flex items-center gap-1.5">
@@ -451,7 +461,7 @@ export default function MonthEndPage() {
                         ) : null}
                       </div>
                       {open && (
-                        <Link to={it.link} className="shrink-0 self-center text-sm font-medium px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <Link to={it.link} className="shrink-0 self-center text-sm font-medium text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
                           {t("meFix", "Fix")}
                         </Link>
                       )}
@@ -531,7 +541,7 @@ export default function MonthEndPage() {
         )}
         {entitled && revisorEmail && openCount > 0 && (
           <p className="text-xs text-amber-800 dark:text-amber-300 mt-1">
-            {t("meSendOpenWarn", "{n} items are open. The e-mail lists them, so your revisor knows the period isn't finished.", { n: openCount })}
+            {openWarnText}
           </p>
         )}
         {/* Say BEFORE the tap what would stop the mail (an unconfirmed owner
@@ -545,6 +555,13 @@ export default function MonthEndPage() {
             {sendBlocker === "daily_cap"
               ? t("meBlocked_daily_cap", "Today's limit for mail to your revisor is reached — send it tomorrow, or download it and send it yourself.")
               : t(`rpsBlocked_${sendBlocker}`, sendBlocker)}
+          </p>
+        )}
+        {/* Why ZIP and PDF are off, when the line above names something else
+            (or there is no line): sample rows under the owner's own name. */}
+        {downloadBlocked && !(sendBlockerShown && sendBlocker === "demo_in_period") && (
+          <p className="mt-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 px-3 py-2 text-xs text-amber-900 dark:text-amber-200" role="status" data-testid="me-download-blocker">
+            {t("rpsBlocked_demo_in_period", "The period holds sample data — clear it on Profile first.")}
           </p>
         )}
         {entitled && !revisorEmail && data && (

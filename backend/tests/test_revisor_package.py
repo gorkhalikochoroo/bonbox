@@ -668,3 +668,63 @@ def test_standalone_summary_counts_bilag_without_reading_them(db, store):
     # 2 of the 4 booked business expenses carry a bilag (the draft and the
     # personal row are not booked business expenses).
     assert "2 af 4" in text.replace("\n", " ")
+
+
+# ── Push 8 gate, round 2 ─────────────────────────────────────────────
+
+def test_the_checklist_names_the_download_wall_when_another_blocker_comes_first(client, db, store):
+    """Sample rows under the owner's own name stop the ZIP and the PDF
+    (422 demo_in_period). A send blocker that comes first (opt-out, plan)
+    hid that, so the page offered a download the server refuses."""
+    from app.services import revisor_mail as rm
+    q = {"start": "2026-09-01", "end": "2026-09-30"}
+    opted = _owner(db)
+    p = db.query(BusinessProfile).filter(BusinessProfile.user_id == opted.id).one()
+    rm.record_opt_out(p, rm.address_fingerprint("pia@revisorhuset.dk"))
+    free = _owner(db, plan="free")
+    for u in (opted, free):
+        db.add(DailyClose(user_id=u.id, date=date(2026, 9, 2), revenue_total=1, status="confirmed",
+                          notes="sample · demo"))
+    db.commit()
+    for u, blocker in ((opted, "opted_out"), (free, "plan")):
+        _as(u)
+        send = client.get("/api/revisor-package/checklist", params=q).json()["send"]
+        assert send["blocker"] == blocker
+        assert send["download_blocker"] == "demo_in_period"
+        r = client.get("/api/revisor-package/download", params=q)
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "demo_in_period"
+    # No sample rows: nothing stops the download.
+    clean = _owner(db)
+    _seed_september(db, clean, store)
+    _as(clean)
+    assert client.get("/api/revisor-package/checklist", params=q).json()["send"]["download_blocker"] is None
+
+
+def test_a_bilag_is_named_after_its_own_row_not_the_first_name_the_supplier_was_learned_by(db, store):
+    """The learned supplier name is the first one the owner typed ("Husleje
+    andel sep"), so the October rent bilag was called …Husleje-andel-sep…
+    while udgifter.csv said "Husleje andel"."""
+    from app.models.vendor_profile import VendorProfile
+    u = _owner(db)
+    cat = _cat(db, u, "Husleje")
+    for vk, learned, field, value in (
+        ("husleje andel", "Husleje andel sep", "category_name", "Husleje"),
+        ("husleje andel", "Husleje andel", "payment_method", "bank_transfer"),
+        ("horkram foodservice", "Hørkram Foodservice sep", "category_name", "Varekøb"),
+        ("horkram foodservice", "Hørkram Foodservice", "payment_method", "card"),
+    ):
+        db.add(VendorProfile(user_id=u.id, vendor_key=vk, display_name=learned, field=field, value=value))
+    for d, desc, vk, amount in ((date(2026, 10, 3), "Husleje andel", "husleje andel", 2200),
+                                (date(2026, 10, 10), "Hørkram Foodservice", "horkram foodservice", 1250)):
+        data = b"\xff\xd8\xff\xe0" + desc.encode()
+        key = f"{u.id}/expense/{hashlib.sha256(data).hexdigest()}.jpg"
+        store.put(key, data)
+        db.add(Expense(user_id=u.id, category_id=cat.id, date=d, amount=amount, description=desc,
+                       payment_method="card", receipt_photo=key, vendor_key=vk))
+    db.commit()
+    b = rp.build_package(db, u, date(2026, 10, 1), date(2026, 10, 31), now=datetime(2026, 11, 2, 9, 0))
+    names = zipfile.ZipFile(io.BytesIO(b.zip_bytes)).namelist()
+    assert "bilag/2026-10-03_Husleje-andel_2200,00.jpg" in names, names
+    assert "bilag/2026-10-10_Hoerkram-Foodservice_1250,00.jpg" in names, names
+    assert not [n for n in names if n.startswith("bilag/") and "-sep_" in n]
+    b.close()

@@ -160,4 +160,38 @@ describe("Smart skan → Udgifter", () => {
     await waitFor(() => expect(screen.queryByTestId("bilag-match-panel")).toBeNull());
     await waitFor(() => expect(add).not.toBeDisabled());
   });
+
+  // Push 8 gate, round 2: after "Knyt til eksisterende udgift" the line
+  // "Bilaget er knyttet til …" went to the page-top banner, ~490 px above a
+  // phone owner scrolled down at the form, and was gone after 4 s. It now
+  // shows in the form, where the offer was.
+  it("says where the bilag went inside the form, where the offer was", async () => {
+    get.mockImplementation((url) => {
+      if (url === "/expenses/categories") return Promise.resolve({ data: [{ id: "cat1", name: "Råvarer" }] });
+      if (url === "/expenses/bilag-matches") {
+        return Promise.resolve({ data: { candidates: [{
+          id: "typed1", date: "2026-10-10", amount: 1250, description: "Hørkram Foodservice",
+          category_name: "Råvarer", day_diff: 0, amount_diff: 0, same_vendor: true,
+        }], count: 1 } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    holdScanPhoto(new File(["jpeg"], "kvittering_hk.jpg", { type: "image/jpeg" }), "/expenses");
+    renderFromScan({ vendor: "Hørkram", amount: 1250, date: "2026-10-10" });
+    const panel = await screen.findByTestId("bilag-match-panel", {}, { timeout: 3000 });
+    const form = panel.closest("form");
+    expect(form).not.toBeNull();
+    fireEvent.click(within(panel).getByText("bilagMatchLinkOne"));
+    await waitFor(() =>
+      expect(post.mock.calls.some(([u]) => u === "/expenses/typed1/attach-receipt")).toBe(true),
+    );
+    const { formatDateClear } = await import("../utils/dateFormat");
+    const text = `bilagMatchLinked:Hørkram Foodservice|${formatDateClear("2026-10-10")}`;
+    const line = await screen.findByTestId("exp-scan-linked");
+    expect(line).toHaveTextContent(text);
+    expect(line).toHaveAttribute("role", "status");
+    expect(form.contains(line)).toBe(true);
+    // Said once — not a second copy in the page-top banner.
+    expect(screen.getAllByText(text)).toHaveLength(1);
+  });
 });
