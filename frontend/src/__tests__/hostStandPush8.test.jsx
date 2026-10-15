@@ -307,8 +307,17 @@ describe("5 · a full room and the header sheet", () => {
     expect(within(dialog).getByRole("button", { name: da.rsvpWlAdd })).toBeInTheDocument();
   });
 
+  // Expectation changed (Push 8 review, round 6): this test used to pick 3,
+  // booked at 19.20 — inside the sitting, so the server refuses it every
+  // time, and "now taken" was the wrong reason. Such a table is no longer a
+  // choice (see "a table booked inside the sitting" below). The guarantee
+  // tested here is the same: a 409 for a table the host chose — a race, 3
+  // free in the book on screen — is said inside the sheet.
   it("a 409 for a table the host chose shows inside the sheet, and the sheet stays open", async () => {
-    full();
+    mockApi({}, {
+      book: FULL.map((r) => (r.id === "r3" ? { ...r, starts_at: at("21:00"), ends_at: at("22:30") } : r)),
+      resources: ROOM,
+    });
     api.post.mockImplementation(() => Promise.reject({ response: { status: 409, data: { detail: { error: "slot_unavailable" } } } }));
     const dialog = await openHeaderSheet();
     fireEvent.change(within(dialog).getByRole("combobox", { name: "Table" }), { target: { value: "3" } });
@@ -319,6 +328,105 @@ describe("5 · a full room and the header sheet", () => {
     expect(screen.getByRole("dialog", { name: "Seat guests" })).toBeInTheDocument();
     // Not on the page behind it.
     expect(screen.queryAllByText("That table is now taken — pick another free table.")).toHaveLength(1);
+  });
+});
+
+describe("5 · a table booked inside the sitting is no choice (review 6)", () => {
+  // The reviewer's room: 1, 2 and 4 seated; 3 booked at 19.20 and 5 at
+  // 19.10 — free now, not for a 90-minute sitting. The sheet listed them as
+  // choices, "Seat now" lit up under "No table free right now", and the
+  // server's refusal (409 slot_unavailable) said "now taken" at an empty
+  // table: a loop.
+  const ROOM = [table("1", 2), table("2", 2), table("3", 2), table("4", 4), table("5", 4)];
+  const FULL = [
+    row("s1", "Anders", "1", "seated", "18:30", "20:00", 2, { seated_at: z("18:30") }),
+    row("s2", "Drop-in", "2", "seated", "18:40", "20:10", 2, { seated_at: z("18:40") }),
+    row("s4", "Berg", "4", "seated", "18:20", "20:20", 4, { seated_at: z("18:20") }),
+    row("r3", "Krog", "3", "confirmed", "19:20", "20:50", 2),
+    row("r5", "Sø", "5", "confirmed", "19:10", "21:10", 4),
+  ];
+  const openHeaderSheet = async (path) => {
+    renderStand(path);
+    await sizeButton(1);
+    fireEvent.click(screen.getByRole("button", { name: "Seat a drop-in" }));
+    return screen.findByRole("dialog", { name: "Seat guests" });
+  };
+
+  it("3 and 5 are listed with their time but cannot be picked; nothing can be seated", async () => {
+    mockApi({}, { book: FULL, resources: ROOM });
+    const dialog = await openHeaderSheet();
+    const sel = within(dialog).getByRole("combobox", { name: "Table" });
+    const opt3 = within(dialog).getByRole("option", { name: /^3 · 2 seats — reserved 19\.20$/ });
+    const opt5 = within(dialog).getByRole("option", { name: /^5 · 4 seats — reserved 19\.10$/ });
+    await waitFor(() => expect(opt3).toBeDisabled());
+    expect(opt5).toBeDisabled();
+    expect(within(dialog).getByText("No table free right now — put them on the waitlist")).toBeInTheDocument();
+    // Even forced by script, the pick does not stand and nothing is sent.
+    fireEvent.change(sel, { target: { value: "3" } });
+    await waitFor(() => expect(sel).toHaveValue(""));
+    expect(within(dialog).getByRole("button", { name: "Seat now" })).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("a table booked after the sitting stays a choice, its time said", async () => {
+    // 3 booked at 20.40: a 90-minute sitting from 19.00 ends 20.30.
+    mockApi({}, {
+      book: FULL.map((r) => (r.id === "r3" ? { ...r, starts_at: at("20:40"), ends_at: at("22:10") } : r)),
+      resources: ROOM,
+    });
+    const dialog = await openHeaderSheet();
+    const sel = within(dialog).getByRole("combobox", { name: "Table" });
+    // The rule seats them there, and the sheet pre-picks it.
+    await waitFor(() => expect(sel).toHaveValue("3"));
+    expect(within(dialog).getByRole("option", { name: /^3 · 2 seats — reserved 20\.40$/ })).not.toBeDisabled();
+    expect(within(dialog).getByRole("option", { name: /^5 · 4 seats — reserved 19\.10$/ })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Seat now" })).not.toBeDisabled();
+    // Six guests sit 120 minutes — to 21.00, past 3's booking: 3 gives way.
+    fireEvent.click(within(dialog).getByRole("button", { name: "6 guests" }));
+    await waitFor(() => expect(within(dialog).getByRole("option", { name: /^3 · 2 seats — reserved 20\.40$/ })).toBeDisabled());
+    await waitFor(() => expect(sel).toHaveValue(""));
+  });
+
+  it("before the rules are in, a refusal names the booking, not a race", async () => {
+    mockApi({ "/reservations/booking-rules": () => Promise.reject({ response: { status: 404 } }) }, { book: FULL, resources: ROOM });
+    api.post.mockImplementation(() => Promise.reject({ response: { status: 409, data: { detail: { error: "slot_unavailable" } } } }));
+    const dialog = await openHeaderSheet("/stand/tok-door-1");
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Table" }), { target: { value: "3" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toBe(
+      "3 is reserved at 19.20 and isn't free for the whole sitting — pick another table, or put them on the waitlist.",
+    );
+    expect(alert.textContent).not.toContain("now taken");
+  });
+
+  it("in Danish", async () => {
+    lang.code = "da";
+    mockApi({ "/reservations/booking-rules": () => Promise.reject({ response: { status: 404 } }) }, { book: FULL, resources: ROOM });
+    api.post.mockImplementation(() => Promise.reject({ response: { status: 409, data: { detail: { error: "slot_unavailable" } } } }));
+    renderStand("/stand/tok-door-1");
+    await sizeButton(1);
+    fireEvent.click(screen.getByRole("button", { name: da.rsvpSeatWalkIn }));
+    const dialog = await screen.findByRole("dialog", { name: da.rsvpSeatNowTitle });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: da.rsvpSeatWalkInTable }), { target: { value: "3" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: da.rsvpSeatNowBtn }));
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toBe(
+      "3 er reserveret kl. 19.20 og er ikke ledig hele siddetiden — vælg et andet bord, eller sæt dem på ventelisten.",
+    );
+  });
+
+  it("the new keys have real Danish and English", () => {
+    for (const k of ["rsvpSeatTableBookedSoon", "rsvpSeatTableBookedSoonAppt"]) {
+      expect(da[k], k).toMatch(/\{table\}.*\{time\}/);
+      expect(en[k], k).toMatch(/\{table\}.*\{time\}/);
+      expect(da[k]).not.toBe(en[k]);
+    }
+    const words = (k, dict) => dict[k].replace(/\{\w+\}/g, "");
+    expect(words("rsvpSeatTableBookedSoonAppt", da)).not.toMatch(/bord|gæst|ventelist/i);
+    expect(words("rsvpSeatTableBookedSoonAppt", en)).not.toMatch(/table|guest|sitting|waitlist/i);
   });
 });
 

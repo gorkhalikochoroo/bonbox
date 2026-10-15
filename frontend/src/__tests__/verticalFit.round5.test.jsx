@@ -314,15 +314,18 @@ describe("an older allergy note on a shop's booking can only be removed — all 
 });
 
 describe("one place is one place in the drawer's picker", () => {
-  it("workshop: 'Plads 1 · 1 plads', never '1 pladser'", async () => {
+  // Expectation changed (Push 8 review, round 6): a shop's place holds
+  // people, as its Spaces tab says — "Plads 3 · 2 pladser" read as a place of
+  // two places, and English said "1 seat". One is still one: never "1 pladser".
+  it("workshop: 'Plads 1 · 1 pers.', never '1 pladser' or '1 plads'", async () => {
     renderOwner("/reservations", "workshop");
     await settle(16);
     const row = [...document.querySelectorAll('[role="button"][data-status], tr')].find((el) => el.textContent.includes("Peter Hansen"));
     await act(async () => { fireEvent.click(row); });
     await settle(4);
     const options = [...document.querySelectorAll("#rsvp-drawer-table option")].map((o) => o.textContent);
-    expect(options).toContain("Plads 1 · 1 plads");
-    expect(options.join(" | ")).not.toMatch(/\b1 pladser/);
+    expect(options).toContain("Plads 1 · 1 pers.");
+    expect(options.join(" | ")).not.toMatch(/\b\d+ pladser?\b/);
   });
 
   it("a four-top still reads 'pladser'", async () => {
@@ -334,6 +337,182 @@ describe("one place is one place in the drawer's picker", () => {
     await settle(4);
     const options = [...document.querySelectorAll("#rsvp-drawer-table option")].map((o) => o.textContent);
     expect(options).toContain("Bord 1 · 4 pladser");
+  });
+});
+
+// ── Push 8 review, round 6 ────────────────────────────────────────────────
+
+const openDrawerOf = async (type, name = "Peter Hansen") => {
+  renderOwner("/reservations", type);
+  await settle(16);
+  const row = [...document.querySelectorAll('[role="button"][data-status], tr')].find((el) => el.textContent.includes(name));
+  await act(async () => { fireEvent.click(row); });
+  await settle(4);
+};
+
+describe("a shop's place picker counts people, as its Spaces tab does (review 6)", () => {
+  beforeEach(() => { resources = [place("p1", "Plads 1", 1), place("p2", "Plads 2", 2), place("p3", "Plads 3", 2)]; });
+
+  it.each(["workshop", "clothing"])("%s, Danish drawer: 'Plads 3 · 2 pers.', no place counted in places", async (type) => {
+    await openDrawerOf(type);
+    const options = [...document.querySelectorAll("#rsvp-drawer-table option")].map((o) => o.textContent);
+    expect(options).toContain("Plads 1 · 1 pers.");
+    expect(options).toContain("Plads 3 · 2 pers.");
+    expect(options.join(" | ")).not.toMatch(/\b\d+ pladser?\b/);
+  });
+
+  it("workshop, English drawer and check-in sheet: '1 person', '2 people' — never 'seat'", async () => {
+    h.lang = "en";
+    await openDrawerOf("workshop");
+    const options = [...document.querySelectorAll("#rsvp-drawer-table option")].map((o) => o.textContent);
+    expect(options).toContain("Plads 1 · 1 person");
+    expect(options.some((o) => o.startsWith("Plads 3 · 2 people"))).toBe(true);
+    expect(options.join(" | ")).not.toMatch(/\bseats?\b/i);
+    cleanup();
+
+    h.lang = "en";
+    renderOwner("/reservations/stand", "workshop");
+    await settle(16);
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: en.rsvpSeatWalkInAppt })[0]); });
+    await settle(4);
+    const dialog = screen.getByRole("dialog", { name: en.rsvpSeatNowTitleAppt });
+    const opts = within(dialog).getAllByRole("option").map((o) => o.textContent);
+    expect(opts.some((o) => o.startsWith("Plads 1 · 1 person"))).toBe(true);
+    expect(opts.some((o) => o.startsWith("Plads 3 · 2 people"))).toBe(true);
+    expect(dialog.textContent).not.toMatch(/\bseats?\b/i);
+  });
+
+  it("a restaurant's tables keep their seats (unchanged)", async () => {
+    resources = [place("p1", "Bord 1", 1), place("p2", "Bord 2", 4)];
+    await openDrawerOf("restaurant");
+    const options = [...document.querySelectorAll("#rsvp-drawer-table option")].map((o) => o.textContent);
+    expect(options).toContain("Bord 1 · 1 plads");
+    expect(options.some((o) => o.startsWith("Bord 2 · 4 pladser"))).toBe(true);
+  });
+
+  it("the new unit has real Danish and English", () => {
+    expect(da.rsvpPersonUnitAppt).toBe("pers.");
+    expect(en.rsvpPersonUnitAppt).toBe("person");
+  });
+});
+
+describe("an older allergy stored only as tags on a shop's booking can be removed (review 6)", () => {
+  const patched = () => h.patch.mock.calls.filter(([u]) => u === "/reservations/reservations/b1").map(([, b]) => b);
+  const openEdit = async (type) => {
+    await openDrawerOf(type);
+    await act(async () => { fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: da.rsvpEditAction })); });
+    await settle(4);
+    return screen.getByRole("dialog", { name: type === "restaurant" ? da.rsvpEditTitle : da.rsvpEditTitleAppt });
+  };
+  const tagsOnly = () => { rows = [{ ...bookRows()[0], allergen_tags: ["nuts"], allergy_note: null, allergy_severity: null }]; };
+
+  it.each(["workshop", "clothing"])("%s: 'Trænødder' shows in the sheet, and 'Fjern' then save clears the tags too", async (type) => {
+    tagsOnly();
+    const sheet = await openEdit(type);
+    const old = sheet.querySelector("[data-old-allergy]");
+    expect(old, "the old-allergy block").not.toBeNull();
+    expect(old.textContent).toContain(da.allergen_nuts);
+    expect(sheet.querySelector("#eb-allergy")).toBeNull();
+    await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: da.rsvpEditOldAllergyRemoveAppt })); });
+    await act(async () => { fireEvent.submit(sheet.querySelector("form")); });
+    await settle(4);
+    const body = patched().at(-1);
+    expect(body.allergen_tags).toEqual([]);
+    expect(body.allergy_note).toBe("");
+    expect(body.allergy_severity).toBe("");
+  });
+
+  it("workshop: saving something else leaves the tags alone", async () => {
+    tagsOnly();
+    const sheet = await openEdit("workshop");
+    fireEvent.change(within(sheet).getByDisplayValue("Peter Hansen"), { target: { value: "Peter H. Hansen" } });
+    await act(async () => { fireEvent.submit(sheet.querySelector("form")); });
+    await settle(4);
+    const body = patched().at(-1);
+    expect(body).not.toHaveProperty("allergen_tags");
+    expect(body).not.toHaveProperty("allergy_note");
+  });
+
+  it("tags, note and severity together read as one line", async () => {
+    rows = [{ ...bookRows()[0], allergen_tags: ["nuts"], allergy_note: "også mandler", allergy_severity: "severe" }];
+    const sheet = await openEdit("workshop");
+    expect(sheet.querySelector("[data-old-allergy]").textContent)
+      .toContain(`${da.allergen_nuts} · også mandler · ${da.rsvpSevSevere}`);
+  });
+
+  it("a restaurant's booking with tags keeps its editable field (unchanged)", async () => {
+    resources = [place("p2", "Bord 2", 4)];
+    tagsOnly();
+    const sheet = await openEdit("restaurant");
+    expect(sheet.querySelector("[data-old-allergy]")).toBeNull();
+    expect(sheet.querySelector("#eb-allergy")).not.toBeNull();
+  });
+});
+
+describe("Indsigt: one booked is one, one table is one (review 6)", () => {
+  const PARTY_FIT = {
+    confidence: "confident",
+    party_histogram: [{ bin: "1-2", count: 4 }, { bin: "3-4", count: 1 }, { bin: "5-6", count: 1 }],
+    capacity_histogram: [{ bin: "1-2", count: 1 }, { bin: "3-4", count: 3 }, { bin: "5-6", count: 0 }],
+  };
+  const renderFit = (type, lang) => {
+    h.lang = lang;
+    h.user = { id: "u1", business_type: type, business_name: "Restaurant Vandkunsten", role: "owner" };
+    h.get.mockImplementation((url) => {
+      if (url === "/reservations/insights") {
+        return Promise.resolve({ data: {
+          utilization: { confidence: "insufficient" }, heatmap: { confidence: "insufficient" },
+          no_show_rate: { confidence: "insufficient" }, source_mix: { confidence: "insufficient" },
+          party_size_fit: PARTY_FIT, recovered: { confidence: "insufficient" }, forecast: { days: [] }, forecast_locked: false,
+        } });
+      }
+      if (url === "/reservations/monthly") return Promise.resolve({ data: { months: [] } });
+      return Promise.resolve({ data: {} });
+    });
+    const dict = lang === "en" ? en : da;
+    const t = (k, fb, vars) => {
+      const v = typeof fb === "object" && fb ? fb : vars;
+      let s = dict[k] ?? (typeof fb === "string" ? fb : k);
+      if (v) s = s.replace(/\{(\w+)\}/g, (m, n) => (v[n] !== undefined ? String(v[n]) : m));
+      return s;
+    };
+    return render(<MemoryRouter><InsightsSection t={t} /></MemoryRouter>);
+  };
+
+  it("restaurant, Danish: '1 booket · 3 borde', '4 bookede · 1 bord' — never '1 bookede'", async () => {
+    renderFit("restaurant", "da");
+    await settle(16);
+    const text = document.body.textContent;
+    expect(text).toContain("4 bookede · 1 bord");
+    expect(text).toContain("1 booket · 3 borde");
+    expect(text).toContain("1 booket · 0 borde");
+    // Cells run together in textContent ("1 bordeReservationer"): no \b at the end.
+    expect(text).not.toMatch(/(^|\D)1 (bookede|borde)/);
+  });
+
+  it("restaurant, English: '1 booked · 1 table'", async () => {
+    renderFit("restaurant", "en");
+    await settle(16);
+    const text = document.body.textContent;
+    expect(text).toContain("4 booked · 1 table");
+    expect(text).toContain("1 booked · 3 tables");
+    expect(text).not.toMatch(/(^|\D)1 tables/);
+  });
+
+  it("workshop, Danish: places — '4 bookede · 1 plads', '1 booket · 3 pladser'", async () => {
+    renderFit("workshop", "da");
+    await settle(16);
+    const text = document.body.textContent;
+    expect(text).toContain("4 bookede · 1 plads");
+    expect(text).toContain("1 booket · 3 pladser");
+    expect(text).not.toMatch(/(^|\D)1 pladser|\d+ bord/);
+  });
+
+  it("the new keys have real Danish and English", () => {
+    for (const k of ["rsvpInsBookedOne", "rsvpInsBooked", "rsvpInsTablesOne", "rsvpInsTables", "rsvpInsSpacesOne", "rsvpInsSpaces"]) {
+      expect(da[k], k).toMatch(/^\{n\} \S/);
+      expect(en[k], k).toMatch(/^\{n\} \S/);
+    }
   });
 });
 

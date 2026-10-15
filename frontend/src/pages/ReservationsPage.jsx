@@ -107,7 +107,7 @@ import FloorPlan from "../components/FloorPlan";
 import { deriveFloorState, fmtTime } from "../utils/floorState";
 import {
   WALK_IN_SIZES, walkInOptions, closeMsFor, coverCounts, stayMinutes, bySeatedTime, comboRules, seatingNow,
-  tablesOf, sameTables, stampIso,
+  tablesOf, sameTables, stampIso, bookedWithinSitting,
 } from "../utils/hostStand";
 import InsightsSection from "../components/reservations/InsightsSection";
 import WaitlistSection from "../components/reservations/WaitlistSection";
@@ -1465,8 +1465,9 @@ function ReservationDrawer({
                     const small = Number(tb.capacity_seats) < Number(r.party_size);
                     return (
                       <option key={tb.id} value={id} disabled={taken}>
-                        {/* One is one: "Plads 1 · 1 plads", as the sheets say. */}
-                        {tb.label} · {tb.capacity_seats} {Number(tb.capacity_seats) === 1 ? t("rsvpSeatOne", "seat") : t("rsvpSeats", "seats")}
+                        {/* One is one: "Bord 1 · 1 plads", as the sheets say; a
+                            shop's place counts people ("Plads 1 · 1 pers."). */}
+                        {tb.label} · {tb.capacity_seats} {capacityWord(t, tb.capacity_seats, apptWords)}
                         {taken ? ` · ${t("rsvpTableTakenShort", "taken")}` : small ? ` · ${t("rsvpTableTooSmallShort", "too small")}` : ""}
                       </option>
                     );
@@ -1627,7 +1628,17 @@ const JOINED_PICK = "__joined";
 // a customer in at a place, counted as people — "Tjek en kunde ind", "Plads",
 // "Antal personer". It read "Sæt gæster til bords / BORD / ANTAL GÆSTER" (QA
 // item 8, Push 8 review). The restaurant's words are untouched.
-function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialParty = null, seatingFor = null, error = "", onWaitlist = null, apptWords = false }) {
+// A place's capacity in words: a table has seats ("2 pladser"); a shop's or a
+// workshop's place holds people, as its Spaces tab says ("2 pers."). "Plads 3
+// · 2 pladser" read as a place of two places, and English said "1 seat" on a
+// workshop (Push 8 review). One is one: "1 plads", "1 person".
+function capacityWord(t, n, apptWords) {
+  const one = Number(n) === 1;
+  if (apptWords) return one ? t("rsvpPersonUnitAppt", "person") : t("rsvpPeopleUnitAppt", "people");
+  return one ? t("rsvpSeatOne", "seat") : t("rsvpSeats", "seats");
+}
+
+function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialParty = null, seatingFor = null, bookedWithin = null, error = "", onWaitlist = null, apptWords = false }) {
   const pickMode = table === SEAT_WALK_IN_PICK;
   useEscToClose(onClose, busy);
   const dialogRef = useSheetFocus();
@@ -1657,6 +1668,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
           String(Math.min(2, Number(table?.capacity_seats) || 2) || 2),
   );
   const [name, setName] = useState("");
+  const capacityUnit = (n) => capacityWord(t, n, apptWords);
   // Once the host picks a table by hand, stop moving it under them.
   const [tableTouched, setTableTouched] = useState(false);
 
@@ -1697,6 +1709,15 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
     [rulesKnown, seatingFor],
   );
   const seatingNowFor = useMemo(() => ruleFor(partyN), [ruleFor, partyN]);
+  // A table booked inside this party's sitting (the start, ms) — the server
+  // refuses every seat there (409 slot_unavailable). It was listed as a
+  // choice ("Bord 2 — reserveret 00.37"), "Sæt til bords" lit up under "Ingen
+  // ledige borde", and the refusal said the table had just been taken: a
+  // loop (Push 8 review). With the rules in, such a table cannot be picked.
+  const clashAt = useCallback(
+    (tb) => (rulesKnown && typeof bookedWithin === "function" && tb && !tb.busy ? bookedWithin(tb.id, partyN) : null),
+    [rulesKnown, bookedWithin, partyN],
+  );
   const joinedNow = seatingNowFor && seatingNowFor.tableIds.length > 1 ? seatingNowFor : null;
   const autoPick = useCallback(
     (n) => {
@@ -1722,7 +1743,11 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
   // minutes is not one the host can see standing free for this party — a
   // full room said "no table free" to a party of two and "no free table
   // seats 3 — choose one yourself" to a party of three (Push 8 review).
-  const freeNowTables = pickMode ? tables.filter((tb) => !tb.busy && !tb.reservedAt) : [];
+  // With the rules in: free for this party's whole sitting, as the picker
+  // offers them.
+  const freeNowTables = pickMode
+    ? tables.filter((tb) => !tb.busy && (rulesKnown && typeof bookedWithin === "function" ? clashAt(tb) == null : !tb.reservedAt))
+    : [];
   const noneFitsFree =
     noneFree &&
     freeNowTables.length > 0 &&
@@ -1733,12 +1758,13 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
   );
 
   // A hand-picked table that is now taken — the book was read again after the
-  // server refused it (409): another host seated someone there.
+  // server refused it (409): another host seated someone there. Or one that
+  // is no longer free for the whole sitting: more guests came, a longer one.
   const pickedTaken =
     pickMode &&
     pickedId !== "" &&
     pickedId !== JOINED_PICK &&
-    !!tables.find((tb) => String(tb.id) === String(pickedId) && tb.busy);
+    !!tables.find((tb) => String(tb.id) === String(pickedId) && (tb.busy || clashAt(tb) != null));
 
   // Re-suggest as the party changes, and keep the pick valid if a table frees
   // up or fills on the 60s tick. Never overrides a hand-picked table — unless
@@ -1769,7 +1795,9 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
     !!chosenTable &&
     (Number(chosenTable.capacity_seats) || 0) < (Number(party) || 0);
   if (!table) return null;
-  const canSeat = pickMode ? !!chosenTable && !chosenTable.busy : true;
+  const canSeat = pickMode
+    ? !!chosenTable && !chosenTable.busy && (chosenTable.id === JOINED_PICK || clashAt(chosenTable) == null)
+    : true;
   const seat = () => {
     if (busy || !canSeat || !chosenTable) return;
     onSeat({
@@ -1801,8 +1829,8 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
                   chosenTable.capacity_seats +
                   " " +
                   // A table has seats; "4 gæster" read as the party. One is
-                  // "1 plads", never "1 pladser".
-                  (Number(chosenTable.capacity_seats) === 1 ? t("rsvpSeatOne", "seat") : t("rsvpSeats", "seats"))
+                  // "1 plads", never "1 pladser". A shop's place: people.
+                  capacityUnit(chosenTable.capacity_seats)
                 : apptWords
                   ? t("rsvpSeatWalkInAppt", "Check in a drop-in")
                   : t("rsvpSeatWalkIn", "Seat a drop-in")}
@@ -1859,19 +1887,24 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
                       })}
                 </option>
               )}
-              {[...tables].sort(byTableLabel).map((tb) => (
-                <option key={tb.id} value={String(tb.id)} disabled={tb.busy}>
+              {[...tables].sort(byTableLabel).map((tb) => {
+                // Booked inside this party's sitting: said, and not a choice.
+                const clash = clashAt(tb);
+                const reservedAt = clash != null ? clash : tb.reservedAt;
+                return (
+                <option key={tb.id} value={String(tb.id)} disabled={tb.busy || clash != null} data-clash={clash != null ? "" : undefined}>
                   {tb.label}
                   {tb.capacity_seats
-                    ? ` · ${tb.capacity_seats} ${Number(tb.capacity_seats) === 1 ? t("rsvpSeatOne", "seat") : t("rsvpSeats", "seats")}`
+                    ? ` · ${tb.capacity_seats} ${capacityUnit(tb.capacity_seats)}`
                     : ""}
                   {tb.busy
                     ? ` — ${t("rsvpSeatWalkInBusy", "occupied")}`
-                    : tb.reservedAt
-                      ? ` — ${t("rsvpSeatWalkInReserved", "reserved {time}", { time: new Date(tb.reservedAt).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" }) })}`
+                    : reservedAt
+                      ? ` — ${t("rsvpSeatWalkInReserved", "reserved {time}", { time: new Date(reservedAt).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" }) })}`
                       : ""}
                 </option>
-              ))}
+                );
+              })}
             </select>
             {tableTooSmall && (
               /* Informs, never blocks — a host may deliberately push chairs
@@ -2070,9 +2103,13 @@ function EditBookingSheet({
   const [allergyNote, setAllergyNote] = useState(initialAllergy);
   const [severity, setSeverity] = useState(initialSeverity);
   // A shop or a workshop: the server stores no allergy, so an older note can
-  // only go — and then all of it (note and severity) goes. Typing in the old
-  // field silently erased the note and left a bare "Alvorlig" (Push 8 review).
-  const oldAllergyOnly = noAllergy && !!(initialAllergy || initialSeverity);
+  // only go — and then all of it (note, severity and tags) goes. Typing in
+  // the old field silently erased the note and left a bare "Alvorlig" (Push 8
+  // review). Tags count too: a workshop's public page once offered the 14 EU
+  // food allergens, so "Nødder" ticked with no note showed in the drawer with
+  // no way to remove it (Push 8 review, round 6).
+  const initialTags = Array.isArray(r.allergen_tags) ? r.allergen_tags : [];
+  const oldAllergyOnly = noAllergy && !!(initialAllergy || initialSeverity || initialTags.length > 0);
   const [oldAllergyRemoved, setOldAllergyRemoved] = useState(false);
   const severities = [
     { v: "", label: t("rsvpSevNone", "Ingen") },
@@ -2101,6 +2138,7 @@ function EditBookingSheet({
       if (oldAllergyRemoved) {
         body.allergy_note = "";
         body.allergy_severity = "";
+        body.allergen_tags = [];
       }
     } else {
       if (allergyNote.trim() !== initialAllergy) body.allergy_note = allergyNote.trim();
@@ -2227,6 +2265,7 @@ function EditBookingSheet({
             <div className="mt-1.5 flex items-center justify-between gap-3 min-h-[44px]">
               <p className="min-w-0 text-sm text-gray-900 dark:text-gray-100 break-words">
                 {[
+                  initialTags.map((k) => t(`allergen_${k}`, k)).join(", "),
                   initialAllergy,
                   severities.find((sv) => sv.v && sv.v === initialSeverity)?.label,
                 ].filter(Boolean).join(" · ")}
@@ -5078,6 +5117,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     } catch (e) {
       const code = e?.response?.data?.detail?.error;
       const conflict = e?.response?.status === 409;
+      // One table, standing free, with a booking inside the party's sitting
+      // in the book the host was looking at: that booking is the refusal.
+      const bookedTable = !joined && resource_id
+        ? assignableTables.find((x) => String(x.id) === String(resource_id))
+        : null;
+      const bookedAt = bookedTable && !walkInTables.find((x) => x.id === String(resource_id) && x.busy)
+        ? bookedWithinSitting(bookedTable, reservations, Date.now(), sittingMinutes(party_size, bookingRules))
+        : null;
+      const bookedLabel = bookedTable?.label || "";
       // Chosen table just got taken (race, or the picker's 60s view was stale)
       // → honest message, never a silent double-seat.
       // A shop or a workshop hears of places and appointments, not tables
@@ -5087,6 +5135,17 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         msg = apptWords
           ? t("rsvpSeatTablesTakenAppt", "Those spaces are no longer free together — pick another space.")
           : t("rsvpSeatTablesTaken", "Those tables are no longer free together — pick another table.");
+      } else if (conflict && code === "slot_unavailable" && bookedAt != null) {
+        // Not taken: a booking lands inside their sitting. "Bordet er nu
+        // optaget" sent the host round a loop at an empty table (Push 8
+        // review).
+        const vars = {
+          table: bookedLabel,
+          time: new Date(bookedAt).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" }),
+        };
+        msg = apptWords
+          ? t("rsvpSeatTableBookedSoonAppt", "{table} is booked at {time} and isn't free for the whole visit — pick another space.", vars)
+          : t("rsvpSeatTableBookedSoon", "{table} is reserved at {time} and isn't free for the whole sitting — pick another table, or put them on the waitlist.", vars);
       } else if (conflict && code === "slot_unavailable") {
         msg = apptWords
           ? t("rsvpSeatTableTakenAppt", "That space is now taken — pick another free space.")
@@ -5833,6 +5892,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         combine: joinNow,
       });
   }, [rulesLoaded, tableFloor, joinNow, reservations, assignableTables, nowTs, bookingRules]);
+  // …and which table a booking claims inside n guests' sitting (its start,
+  // ms): the sheet does not offer it, as the server would refuse the seat.
+  const bookedWithinFor = useMemo(() => {
+    if (!rulesLoaded || !tableFloor) return null;
+    return (tableId, n) => {
+      const tb = assignableTables.find((x) => String(x.id) === String(tableId));
+      return tb ? bookedWithinSitting(tb, reservations, nowTs, sittingMinutes(n, bookingRules)) : null;
+    };
+  }, [rulesLoaded, tableFloor, reservations, assignableTables, nowTs, bookingRules]);
   // One canonical seat count: the booking engine's own venue total. Fall back
   // to the raw reduce ONLY when an older API doesn't return the field.
   const totalCapacity = useMemo(
@@ -6617,11 +6685,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               the phone stand had no Forventet or Afsluttet count at all. */}
           {showStandNow && (
             <div
-              // From lg (the door iPad, 1024 × 768) the counts keep their full
-              // width and the venue name gives way, as on 7a631c0f — "3
-              // selska…" was cut there. At 768–1023 the cells may truncate:
-              // there the row did not fit and ran under the sound chip and ⋯.
-              className="order-last basis-full grid grid-cols-3 gap-1 min-w-0 md:order-none md:basis-auto md:flex md:items-stretch lg:shrink-0"
+              // From md the counts keep their full width and the venue name
+              // gives way, as on 7a631c0f from lg — "3 selska…" was cut on
+              // the door iPad. At 768–1023 the cells carry the guests alone
+              // (the parties ride from lg), so they fit whole beside the sound
+              // chip and ⋯; shrinking there cut "10 gæ…" and "Tjekket …" on
+              // an iPad in portrait while the title kept the room (Push 8
+              // review). min-w-0 is the phone grid's.
+              className="order-last basis-full grid grid-cols-3 gap-1 min-w-0 md:order-none md:basis-auto md:flex md:items-stretch md:shrink-0"
               data-stand-covers=""
               role="group"
               aria-label={apptWords ? t("rsvpStandCoversAriaAppt", "Customers today") : t("rsvpStandCoversAria", "Guests today")}
@@ -6668,8 +6739,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                     </span>
                     {/* The parties ride along from lg up; a phone cell has room
                         for the guests alone, and so has an iPad in portrait
-                        (768–1023): there the cell truncates, and it cut the
-                        parties to "13 gæster · 3 …" (Push 8 review). */}
+                        (768–1023): with them the row did not fit there, and
+                        it cut them to "13 gæster · 3 …" (Push 8 review). */}
                     <span data-covers-parties="" className="hidden lg:inline text-gray-500 dark:text-gray-400">
                       {" · "}
                       {apptWords
@@ -7657,6 +7728,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           onClose={() => { setSeatTarget(null); setSeatParty(null); setSeatError(""); }}
           initialParty={seatParty}
           seatingFor={seatingFor}
+          bookedWithin={bookedWithinFor}
           error={seatError}
           onWaitlist={waitlistFromSheet}
           apptWords={apptWords}

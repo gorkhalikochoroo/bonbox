@@ -333,7 +333,9 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         # business phone on the profile. Owner sets it in Reservations → Settings.
         "phone": settings.get("contact_phone") or getattr(profile, "phone", None),
         "allergen_set": allergen_set_for(btype),
-        "max_party_size": settings.get("max_party_size"),
+        # The ceiling as the engine applies it (None = no limit): a stored 0
+        # is "no limit" on every path (rsvc.online_party_ceiling).
+        "max_party_size": rsvc.online_party_ceiling(settings),
         "group_request_threshold": settings.get("group_request_threshold"),
         "guest_can_pick_table": bool(settings.get("guest_can_pick_table")),
         "max_advance_days": settings.get("max_advance_days"),
@@ -885,8 +887,8 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     max_advance = int(settings.get("max_advance_days", 60))
     if start.date() < today or start.date() > today + timedelta(days=max_advance):
         raise HTTPException(status_code=422, detail={"error": "date_out_of_range"})
-    max_party = settings.get("max_party_size")
-    if max_party and payload.party_size > max_party:
+    max_party = rsvc.online_party_ceiling(settings)
+    if max_party is not None and payload.party_size > max_party:
         raise HTTPException(status_code=409, detail={"error": "party_too_large"})
 
     # L7 — owner's monthly cap → generic 409 (no tier leak to the visitor).

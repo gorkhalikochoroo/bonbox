@@ -354,17 +354,21 @@ describe("8 · a workshop's Plan and Tidslinje", () => {
   });
 });
 
-describe("9 · a one-person place is '1 plads' in the check-in sheet (review 3)", () => {
-  it("the options say '1 plads', never '1 pladser'", async () => {
+// Expectation changed (Push 8 review, round 6): the number counts people,
+// as the Spaces tab says ("2 pers.") — "Plads 2 · 2 pladser" read as a place
+// of two places. One is still one, and never "1 pladser".
+describe("9 · a one-person place is '1 pers.' in the check-in sheet (review 3, 6)", () => {
+  it("the options say '1 pers.' and '2 pers.', never '1 pladser'", async () => {
     renderOwner("/reservations/stand", "workshop");
     await settle(16);
     await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: da.rsvpSeatWalkInAppt })[0]); });
     await settle(4);
     const dialog = screen.getByRole("dialog", { name: da.rsvpSeatNowTitleAppt });
     const opts = within(dialog).getAllByRole("option").map((o) => o.textContent);
-    expect(opts.some((o) => o.startsWith("Plads 1 · 1 plads"))).toBe(true);
-    expect(opts.some((o) => o.startsWith("Plads 2 · 2 pladser"))).toBe(true);
+    expect(opts.some((o) => o.startsWith("Plads 1 · 1 pers."))).toBe(true);
+    expect(opts.some((o) => o.startsWith("Plads 2 · 2 pers."))).toBe(true);
     expect(opts.join(" | ")).not.toContain("1 pladser");
+    expect(opts.join(" | ")).not.toMatch(/\b\d+ pladser?\b/);
     expect(en.rsvpSeatOne).toBe("seat");
   });
 });

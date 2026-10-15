@@ -103,6 +103,26 @@ export function tableFreeAt(table, reservations, nowMs, sittingMin) {
   return null;
 }
 
+/**
+ * The booking that keeps a free table from a party sitting down NOW for a
+ * whole sitting of `sittingMin` minutes: the start (ms) of the first one that
+ * begins inside that sitting — null when none does, and null when the
+ * table's holds cannot be read (holdsOn: then the server is the judge).
+ * A party seated there now, or a booking already running, is the caller's
+ * "busy", not this.
+ *
+ * The seat sheet offered "Bord 2 — reserveret 00.37" as a choice for a
+ * 90-minute sitting at 23.50; the server refused every tap (409
+ * slot_unavailable) and the sheet blamed a race (Push 8 review).
+ */
+export function bookedWithinSitting(table, reservations, nowMs, sittingMin) {
+  const spans = holdsOn(table, reservations, nowMs);
+  if (spans == null) return null;
+  const end = nowMs + minutes(sittingMin);
+  const starts = spans.map(([s]) => s).filter((s) => s > nowMs && s < end);
+  return starts.length ? Math.min(...starts) : null;
+}
+
 // ── Joining tables: the booking engine's own rule ───────────────────────
 // A port of availability_engine.find_combo, NOT a second opinion: the door
 // may only call a set of tables "free" when the engine would seat a party

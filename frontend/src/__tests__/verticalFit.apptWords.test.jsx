@@ -381,14 +381,25 @@ describe("a checked-in customer keeps the place's name on a phone row (review mi
 });
 
 describe("the door iPad's stand header keeps its counts whole (review minor)", () => {
-  it("from lg the covers do not shrink — the venue name gives way, as on 7a631c0f", async () => {
+  // Expectation changed (Push 8 review, round 6): "lg:shrink-0" became
+  // "md:shrink-0". Letting the cells shrink at 768–1023 cut the counts
+  // themselves on an iPad in portrait ("10 gæ…", "Tjekket …") while the venue
+  // subtitle kept the room. md:shrink-0 holds from lg up too, so the door
+  // iPad's guarantee is unchanged.
+  it("from md the covers do not shrink — the venue name gives way, as on 7a631c0f", async () => {
     renderOwner("/reservations/stand", "restaurant");
     await settle(16);
     const covers = document.querySelector("[data-stand-covers]");
     expect(covers).not.toBeNull();
-    expect(covers.className.split(/\s+/)).toContain("lg:shrink-0");
-    // 768–1023 keep round 3's truncation (the row ran under the controls there).
-    expect(covers.className.split(/\s+/)).toContain("min-w-0");
+    const cls = covers.className.split(/\s+/);
+    expect(cls).toContain("md:shrink-0");
+    // Nothing lets them shrink again at some breakpoint above.
+    expect(cls.filter((c) => /(^|:)shrink(-|$)/.test(c) && c !== "md:shrink-0")).toEqual([]);
+    // Below lg a cell carries the guests alone — what lets it stay whole there.
+    const parties = covers.querySelector("[data-covers-parties]");
+    expect(parties.className.split(/\s+/)).toEqual(expect.arrayContaining(["hidden", "lg:inline"]));
+    // The phone's grid of three keeps its min-w-0.
+    expect(cls).toContain("min-w-0");
     expect(document.querySelector("[data-stand-title]").className).toMatch(/(^|\s)min-w-0(\s|$)/);
   });
 });

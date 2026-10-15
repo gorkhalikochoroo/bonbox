@@ -373,12 +373,19 @@ function PartySizeCard({ data, t, places = false }) {
                   {b.bin} {places ? t("rsvpInsPeopleWordAppt", "people") : t("rsvpInsGuestsWord", "guests")}
                 </span>
                 <span className="text-gray-400 dark:text-gray-500 tabular-nums">
-                  {places
-                    ? t("rsvpInsPartyRowAppt", "{booked} booked · {tables} spaces", { booked: b.count, tables: capCount })
-                    : t("rsvpInsPartyRow", "{booked} booked · {tables} tables", {
-                      booked: b.count,
-                      tables: capCount,
-                    })}
+                  {/* One is one: "1 booket · 1 bord" — never "1 bookede · 3
+                      borde" (Push 8 review). */}
+                  {(b.count === 1
+                    ? t("rsvpInsBookedOne", "{n} booked", { n: b.count })
+                    : t("rsvpInsBooked", "{n} booked", { n: b.count })) +
+                    " · " +
+                    (places
+                      ? capCount === 1
+                        ? t("rsvpInsSpacesOne", "{n} space", { n: capCount })
+                        : t("rsvpInsSpaces", "{n} spaces", { n: capCount })
+                      : capCount === 1
+                        ? t("rsvpInsTablesOne", "{n} table", { n: capCount })
+                        : t("rsvpInsTables", "{n} tables", { n: capCount }))}
                 </span>
               </div>
               {/* Demand bar (filled) over a supply track (outline). */}
