@@ -725,6 +725,8 @@ RESERVED_SLUGS = frozenset({
     # them as a root link the SPA route then shadowed. Guarded by
     # tests/test_public_slug_danish_letters.py against App.jsx.
     "accept-invite", "getting-started", "stand", "v2", "weekly-report", "wine-list",
+    # Månedsafslutning's page (revisor-reports, Push 8): same guard.
+    "month-end",
     # existing public prefixes
     "r", "g", "e", "s", "t", "portal",
     # generic / infra — reserved for the platform

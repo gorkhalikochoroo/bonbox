@@ -322,6 +322,16 @@ def test_smart_scan_attach_link_mode(client, db):
 
 # ── E-mail inbox: a draft, not a booked expense ──────────────────────
 
+def _stored_inbox_key(plain, sha, *, user_id, content_type):
+    """Stands in for inbox_service.persist_attachment_blob without writing a
+    file: same signature and the same key the real one returns since Push 8
+    (<user_id>/inbox_receipt/<sha>.<ext>, services/storage.py) — not the
+    pre-Push-8 uploads/receipts/<sha>.enc disk path."""
+    from app.services.inbox_service import INBOX_STORAGE_KIND, attachment_ext
+    from app.services.storage import compose_key
+    return compose_key(user_id, INBOX_STORAGE_KIND, sha, attachment_ext(content_type))
+
+
 def test_inbox_receipt_lands_as_a_draft_out_of_moms(db):
     from app.models.email_message import EmailMessage
     from app.routers import inbox as inbox_router
@@ -338,7 +348,7 @@ def test_inbox_receipt_lands_as_a_draft_out_of_moms(db):
         "extracted_data": {"vendor": "Hørkram", "amount": 432.50, "date": "2026-05-20"},
     }
     orig_persist = inbox_router.persist_attachment_blob
-    inbox_router.persist_attachment_blob = lambda plain, sha: f"uploads/receipts/{sha}.enc"
+    inbox_router.persist_attachment_blob = _stored_inbox_key
     try:
         import base64
         out = inbox_router._ingest_attachment(db, u, em, {
@@ -368,7 +378,7 @@ def _ingest(db, u, extracted, received=datetime(2026, 5, 21, 9, 0)):
     db.add(em); db.commit()
     orig, orig_persist = sss.route_and_extract, inbox_router.persist_attachment_blob
     sss.route_and_extract = lambda *a, **k: {"confidence": 0.95, "extracted_data": extracted}
-    inbox_router.persist_attachment_blob = lambda plain, sha: f"uploads/receipts/{sha}.enc"
+    inbox_router.persist_attachment_blob = _stored_inbox_key
     try:
         out = inbox_router._ingest_attachment(db, u, em, {
             "Name": "r.pdf", "ContentType": "application/pdf",
