@@ -67,3 +67,20 @@ export function swapDoubleBooks({ fromShift, toShift, ownShifts = [], teamShifts
 
   return null;
 }
+
+/**
+ * Is the colleague's shift the SAME shift as yours — same day, same start,
+ * same end? Trading it changes nothing for either of you (you would work the
+ * very hours you gave away), so the picker does not offer it. Times compare
+ * on their HH:MM, so "17:00" and "17:00:00" are the same.
+ */
+export function sameShiftTimes(a, b) {
+  if (!a || !b) return false;
+  const hm = (v) => {
+    const m = HHMM.exec(String(v || ""));
+    return m ? `${m[1].padStart(2, "0")}:${m[2]}` : null;
+  };
+  const day = (v) => String(v || "").slice(0, 10);
+  const [as, ae, bs, be] = [hm(a.start_time), hm(a.end_time), hm(b.start_time), hm(b.end_time)];
+  return !!as && !!ae && day(a.date) !== "" && day(a.date) === day(b.date) && as === bs && ae === be;
+}

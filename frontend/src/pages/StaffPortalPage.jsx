@@ -11,7 +11,7 @@ import { recordReading, restoreReading, quietReading } from "../lib/readingPlace
 import GeofenceDial from "../components/GeofenceDial";
 import { nextShiftCountdown, shiftHasStarted } from "../utils/nextShiftCountdown";
 import { overlapsOwnShift } from "../utils/overlapsOwnShift";
-import { swapDoubleBooks } from "../utils/swapClash";
+import { swapDoubleBooks, sameShiftTimes } from "../utils/swapClash";
 import { portalSyncIssue } from "../utils/portalSyncIssue";
 import { sickCallDefaultDate } from "../utils/sickCallDefaultDate";
 import { saveFile } from "../utils/download";
@@ -1989,10 +1989,19 @@ function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts, businessType }
       </div>
       {msg && <div className="text-[12px] text-gray-600 mb-2">{msg}</div>}
       <div className="space-y-2">
-        {rows.map((o) => (
+        {rows.map((o) => {
+          // Same pre-tap verdict Swaps gives. Finding out you clash AFTER
+          // committing is the version that wastes a tap — and "Tag den" used
+          // to stay a dark, ready button beside "Overlapper dig", so the tap
+          // was offered anyway and only the server said no.
+          const clash = overlapsOwnShift(o.date, `${o.start_time}–${o.end_time}`, ownShifts);
+          return (
           <div
             key={o.id}
-            className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5"
+            data-testid="portal-open-shift"
+            className={`flex items-center justify-between gap-3 rounded-xl border bg-gray-50 px-3 py-2.5 ${clash ? "" : "border-gray-100"}`}
+            // The same soft red edge as a blocked row on Bytte.
+            style={clash ? { borderColor: "rgba(239,68,68,.28)" } : undefined}
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-[14px] font-semibold text-gray-900">
@@ -2001,9 +2010,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts, businessType }
               </div>
               <div className="text-[13px] text-gray-500 tabular-nums mt-0.5">
                 {o.start_time}–{o.end_time}
-                {/* Same pre-tap verdict Swaps gives. Finding out you clash
-                    AFTER committing is the version that wastes a tap. */}
-                {overlapsOwnShift(o.date, `${o.start_time}–${o.end_time}`, ownShifts) && (
+                {clash && (
                   <span className="ml-1.5 text-red-600 font-semibold">· {t("portalGaOverlaps", "Overlaps you")}</span>
                 )}
                 {/* Multi-location S5: WHERE the hole is — a colleague sees
@@ -2014,16 +2021,27 @@ function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts, businessType }
               </div>
             </div>
             <button
-              onClick={() => claim(o.id)}
+              type="button"
+              // Overlapping: visibly unavailable — "Blokeret" on a pale chip,
+              // as on Bytte's "Vagter til salg" — and a tap only says why.
+              // aria-disabled (not disabled) so the reason is still one tap
+              // away and a screen reader hears the state.
+              onClick={() => (clash
+                ? setMsg(t("portalGaBlockedWhy", "You already work then — that's why this one is blocked."))
+                : claim(o.id))}
               disabled={claiming === o.id}
+              aria-disabled={clash || undefined}
               // hover: a trackpad / mouse sees it respond, as every other
               // gray-900 action in the portal (Accepter, Gem) does.
-              className="shrink-0 inline-flex items-center justify-center min-h-[44px] rounded-xl bg-gray-900 text-white text-[13px] font-medium px-4 hover:bg-gray-700 active:scale-95 transition disabled:opacity-60"
+              className={clash
+                ? "shrink-0 inline-flex items-center justify-center min-h-[44px] rounded-xl bg-[#f1f5f9] text-gray-400 text-[13px] font-medium px-4 cursor-not-allowed"
+                : "shrink-0 inline-flex items-center justify-center min-h-[44px] rounded-xl bg-gray-900 text-white text-[13px] font-medium px-4 hover:bg-gray-700 active:scale-95 transition disabled:opacity-60"}
             >
-              {claiming === o.id ? "…" : t("portalOpenClaim", "Take it")}
+              {claiming === o.id ? "…" : clash ? t("portalGaBlocked", "Blocked") : t("portalOpenClaim", "Take it")}
             </button>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -4528,8 +4546,11 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
   // self-swap. Server rejects but UI catches it earlier.
   const ownStaffId = teamShifts.find((s) => s.shift_id === fromShiftId)?.staff_id;
   const fromShift = upcomingOwn.find((s) => s.id === fromShiftId) || null;
+  // …nor a colleague's shift that IS yours in all but name — same day, same
+  // hours: the trade would change nothing for either of you. Left out of the
+  // list (and of the count below, which is about double bookings).
   const teammateShifts = teamShifts.filter(
-    (s) => s.shift_id !== fromShiftId && s.staff_id !== ownStaffId,
+    (s) => s.shift_id !== fromShiftId && s.staff_id !== ownStaffId && !sameShiftTimes(fromShift, s),
   );
   // Never offer a trade that would put either of you on two shifts at once —
   // an accept executes it immediately. The server refuses it too (409); this
@@ -4611,7 +4632,11 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
           </select>
           {hiddenForOverlap > 0 && (
             <p data-testid="swap-hidden-overlap" className="mt-1.5 text-[11px] text-gray-500 leading-snug">
-              {t("portalSwapHiddenOverlap", "{n} hidden — they would put you or your colleague on two shifts at once.")
+              {/* Plain words, not "N hidden — … two shifts at once" (staff
+                  read it as jargon), with a real singular. */}
+              {(hiddenForOverlap === 1
+                ? t("portalSwapHiddenOverlapOne", "1 shift isn't shown because one of you would then have two shifts at the same time.")
+                : t("portalSwapHiddenOverlap", "{n} shifts aren't shown because one of you would then have two shifts at the same time."))
                 .split("{n}").join(String(hiddenForOverlap))}
             </p>
           )}
