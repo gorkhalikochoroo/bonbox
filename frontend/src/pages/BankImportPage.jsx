@@ -79,6 +79,15 @@ const BANK_CAT_KEYS = {
   Marketing: "opsBankCatMarketing",
 };
 
+// Bank reconcile link guards (backend bank_reconciliation.ERROR_CODES) →
+// the sentence the owner reads. The server's English text stays for logs.
+const RECON_ERROR_KEYS = {
+  not_a_bank_line: "bankReconErrNotABankLine",
+  target_is_a_bank_line: "bankReconErrTargetIsABankLine",
+  bank_line_linked_elsewhere: "bankReconErrBankLineLinkedElsewhere",
+  expense_paid_by_another_bank_line: "bankReconErrExpensePaidByAnotherBankLine",
+};
+
 export default function BankImportPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
@@ -378,6 +387,27 @@ export default function BankImportPage() {
         4000,
       );
       // Refresh suggestions — confirmed rows drop out of the list.
+      await loadSuggestions(importId);
+    } catch (err) {
+      setError(errText(err, t("bankReconConfirmFailed")));
+    }
+    setLoading(false);
+  };
+
+  // Undo an expense link: the bank line counts in the totals again (the
+  // server keeps both rows either way — a link never deletes anything).
+  const unlinkExpense = async (txn) => {
+    if (!suggestions || !txn?.linked_target_id) return;
+    setLoading(true);
+    setError("");
+    try {
+      const importId = suggestions.import_id || "latest";
+      const res = await api.post(
+        `/bank-import/${encodeURIComponent(importId)}/confirm-matches`,
+        { matches: [{ txn_id: txn.txn_id, target_type: "expense",
+                      target_id: txn.linked_target_id, action: "unlink" }] },
+      );
+      if (res.data?.confirmed) showToast(t("bankReconUnlinkedToast"), "success", 4000);
       await loadSuggestions(importId);
     } catch (err) {
       setError(errText(err, t("bankReconConfirmFailed")));
@@ -947,8 +977,21 @@ export default function BankImportPage() {
                       </div>
                     </div>
 
-                    {/* Suggestions + action */}
-                    {txn.suggestions.length === 0 ? (
+                    {/* Suggestions + action. A bank line already linked to the
+                        expense it paid is counted once — named here, with an
+                        undo, never re-offered. */}
+                    {txn.linked_target_id ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2" data-testid="bank-recon-linked">
+                        <span className="text-xs text-gray-600 dark:text-gray-300">
+                          {/* An expense with no description reads "Koblet til udgift",
+                              never "Koblet til  — …". */}
+                          {t("bankReconLinkedTo", { label: txn.linked_target_label || t("bankReconRowExpense") })}
+                        </span>
+                        <Button variant="ghost" size="sm" onClick={() => unlinkExpense(txn)} disabled={loading}>
+                          {t("bankReconUnlink")}
+                        </Button>
+                      </div>
+                    ) : txn.suggestions.length === 0 ? (
                       <div className="text-xs text-gray-500 dark:text-gray-400 italic">
                         {t("bankReconNoMatch")}
                       </div>
@@ -1002,9 +1045,15 @@ export default function BankImportPage() {
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/60 rounded-lg px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
                 <strong>{t("bankReconIssues", { n: reconcileResult.errors.length })}</strong>
                 <ul className="list-disc list-inside mt-1">
-                  {reconcileResult.errors.slice(0, 5).map((e, i) => (
-                    <li key={i}>{e}</li>
-                  ))}
+                  {reconcileResult.errors.slice(0, 5).map((e, i) => {
+                    // A link guard comes with a code (error_codes, aligned
+                    // with errors) and is worded in the owner's language;
+                    // any other message is shown as the server sent it.
+                    const code = reconcileResult.error_codes?.[i];
+                    const key = code && Object.prototype.hasOwnProperty.call(RECON_ERROR_KEYS, code)
+                      ? RECON_ERROR_KEYS[code] : null;
+                    return <li key={i}>{key ? t(key) : e}</li>;
+                  })}
                 </ul>
               </div>
             )}

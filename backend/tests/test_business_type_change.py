@@ -182,6 +182,9 @@ def test_old_spelling_maps_on_merge(db, monkeypatch):
 def test_backfill_renames_in_place_and_never_adds(session_factory):
     s = session_factory()
     trial = _user(s, "a@bonbox.test", business_type="bar", enabled_modules="pour,wine,competitor", trial_days=10)
+    pro = _user(s, "p@bonbox.test", business_type="bar", enabled_modules="pour,wine,competitor")
+    pro.plan = "pro"  # a non-Stripe grant: honoured, unlimited modules
+    s.commit()
     b = _user(s, "b@bonbox.test", business_type="cafe", enabled_modules="competitor,weather")
     c = _user(s, "c@bonbox.test", business_type="bar", enabled_modules="bar_pour")  # saved on /modules
     d = _user(s, "d@bonbox.test", business_type="bar", enabled_modules=None)
@@ -191,7 +194,11 @@ def test_backfill_renames_in_place_and_never_adds(session_factory):
     s.expire_all()
     rows = {u.email: u.enabled_modules for u in s.query(User).all()}
     # Renamed where the old spelling stood — nothing appended beside it.
-    assert rows[trial.email] == "bar_pour,wine_sommelier,competitor"
+    assert rows[pro.email] == "bar_pour,wine_sommelier,competitor"
+    # A live trial counts with the Free cap at boot (Push 8, M1): two old ids
+    # would be two real modules, so the row stays as it was — the answer the
+    # boot gives after the trial too, whatever the deploy date.
+    assert rows[trial.email] == "pour,wine,competitor"
     assert rows[b.email] == "competitor,weather"
     assert rows[c.email] == "bar_pour"
     assert rows[d.email] is None

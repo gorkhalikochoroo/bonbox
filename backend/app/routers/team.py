@@ -65,7 +65,7 @@ import uuid
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -817,6 +817,7 @@ def accept_invite(
     token: str,
     body: AcceptInviteRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ):
     """Public — invitee sets their own password.
@@ -833,8 +834,9 @@ def accept_invite(
          the legacy flow + re-invited).
       7. Audit-log team.invite_accepted.
 
-    Returns the same Token shape as /auth/login (access_token + user)
-    so the frontend can complete the flow without a second round-trip.
+    Returns the same Token shape as /auth/login (access_token + user) and
+    sets the same session + CSRF cookies, so the member is signed in on the
+    web without a second round-trip.
     """
     if not token or len(token) < _INVITE_TOKEN_MIN_LEN:
         raise HTTPException(404, "Invite not found")
@@ -888,13 +890,20 @@ def accept_invite(
     db.commit()
     db.refresh(invitee)
 
-    # Issue a session token so the invitee lands logged-in. Same shape
-    # as /auth/login.
+    # Sign the invitee in exactly as /auth/login does: the same token, the
+    # same HttpOnly session cookie + CSRF cookie (_set_auth_cookie, scoped
+    # per host). Returning only the token left the web app — which rides on
+    # the cookie; only the native app keeps the token — without a session:
+    # the page's hard navigation to /dashboard landed the new member on
+    # /login (Push 8). A locked invitee never gets here (refused above,
+    # before anything is written or minted).
+    from app.routers.auth import _set_auth_cookie
     from app.services.auth import create_access_token
     from app.schemas.auth import Token, UserResponse
     from app.services.last_seen import touch_last_seen
     touch_last_seen(db, invitee, force=True)  # signed in now (services/last_seen.py)
     jwt_token = create_access_token(str(invitee.id), invitee.token_version)
+    _set_auth_cookie(response, jwt_token, request)
     return Token(access_token=jwt_token, user=UserResponse.model_validate(invitee))
 
 

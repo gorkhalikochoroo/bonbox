@@ -2835,6 +2835,16 @@ _migrations = [
     "ALTER TABLE revisor_package_sends ADD COLUMN IF NOT EXISTS figures_json TEXT",
     "ALTER TABLE revisor_package_sends ADD COLUMN IF NOT EXISTS figures_fp VARCHAR(64)",
     "ALTER TABLE revisor_package_sends ADD COLUMN IF NOT EXISTS is_correction BOOLEAN NOT NULL DEFAULT FALSE",
+    # ── Migration (2026-10-12, Push 8): expenses.linked_expense_id ──
+    # Mirrors app/models/expense.py:Expense.linked_expense_id. A bank line the
+    # owner linked in bank reconcile to the expense it paid; the shared money
+    # gate (services/expense_status.not_pending) leaves it out of totals and
+    # købsmoms while linked, so the purchase counts once. VARCHAR(36) = the
+    # GUID() type; no FK on purpose — a gone target simply makes the bank line
+    # count again (the gate checks the target is live). Nullable, no default,
+    # no backfill (an old "[linked:…]" note is left as it was): a
+    # metadata-only ADD COLUMN under the 5 s lock_timeout.
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS linked_expense_id VARCHAR(36)",
 ]
 
 
@@ -3536,6 +3546,8 @@ def _run_migrations():
             ok += _add("users", "last_seen_at", "TIMESTAMP")
             # Mirror of users.subscription_cancel_at (2026-10-12).
             ok += _add("users", "subscription_cancel_at", "TIMESTAMP")
+            # Mirror of expenses.linked_expense_id (2026-10-12, Push 8).
+            ok += _add("expenses", "linked_expense_id", "VARCHAR(36)")
             # Mirror of reservations.completed_at (2026-10-12).
             ok += _add("reservations", "completed_at", "TIMESTAMP")
             # Mirror of the accountant_grants invite-mail columns (2026-10-08).
@@ -4175,30 +4187,23 @@ def _init_db():
     # Vertical fit (Oct 2026), two small data fixes, every boot, idempotent:
     #  • the bar's old module spellings ("pour"/"wine", which no gate reads)
     #    are RENAMED in place to bar_pour / wine_sommelier — never added beside
-    #    them, and never past the plan's module cap (a Free bar after its trial
-    #    keeps what it had); archetype_defaults.rename_legacy_module_ids;
+    #    them, and never past the module cap (a live trial counts as Free, so
+    #    the answer does not depend on the deploy date);
+    #    archetype_defaults.rename_legacy_module_ids;
     #  • a team member's business_type follows its owner's (it was copied at
     #    invite and never updated, so a type change left the manager on the
     #    old type's nav); archetype_defaults.align_member_business_types.
     # Python, not the SQL list: the cap is a per-account plan answer
-    # (billing.get_cap). Fail-soft: a miss leaves the rows as they were.
+    # (billing.get_cap). Each fix runs in its own session and try, under a
+    # 3 s lock_timeout on Postgres, writes only rows still as it read them,
+    # and logs an error's type name only (Push 8 review). Fail-soft: a miss
+    # leaves the rows as they were for the next boot.
     try:
-        from app.services.archetype_defaults import (
-            align_member_business_types,
-            rename_legacy_module_ids,
-        )
+        from app.services.archetype_defaults import run_vertical_fit_boot_fixes
         from app.database import SessionLocal
-        with SessionLocal() as vf_db:
-            vf_modules = rename_legacy_module_ids(vf_db)
-            vf_members = align_member_business_types(vf_db)
-        if vf_modules.get("renamed") or vf_modules.get("kept") or vf_members:
-            print(
-                f"Vertical-fit backfill: {vf_modules.get('renamed', 0)} module CSVs renamed, "
-                f"{vf_modules.get('kept', 0)} kept (over the plan's cap), "
-                f"{vf_members} member types aligned"
-            )
+        run_vertical_fit_boot_fixes(SessionLocal)
     except Exception as e:
-        print(f"Vertical-fit backfill warning: {e}")
+        print(f"Vertical-fit backfill skipped: {type(e).__name__}")
     _db_ready.set()
     print("DB init complete — ready to serve requests")
 

@@ -56,6 +56,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import func as sa_func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -1673,17 +1674,37 @@ def _validate_llm_output(
 # Layer 6 — public entry point: cache, generate, return
 # ─────────────────────────────────────────────────────────────────
 
+def _savepoint(db: Session):
+    """db.begin_nested() with the caller's transaction really open first.
+    pysqlite opens a transaction lazily, at the first write: a SAVEPOINT
+    issued before it starts the transaction itself and its RELEASE commits
+    it (stripe_billing._savepoint_in_open_transaction has the long story).
+    Postgres opens the transaction at the first statement — no change there."""
+    conn = db.connection()
+    if conn.dialect.name == "sqlite":
+        raw = conn.connection.dbapi_connection
+        if raw is not None and not raw.in_transaction:
+            conn.exec_driver_sql("BEGIN")
+    return db.begin_nested()
+
+
 def get_or_create_brief(
     user: User,
     db: Session,
     *,
     force_refresh: bool = False,
+    _after_race: bool = False,
 ) -> dict:
     """Return today's brief for the user. Generates it on first call;
     subsequent calls within the same day return the cached row.
 
     force_refresh=True regenerates — gated by REFRESH_CAP_BY_PLAN. If the
     user is over their cap, the cached brief is returned with no refresh.
+
+    Two first-of-day calls (the dashboard and the morning job, two tabs) may
+    both find no row and both generate: the one whose INSERT loses the
+    UNIQUE(user_id, brief_date) race serves the winner's row, as a cache hit
+    (`_after_race` is that second, reading pass — internal).
     """
     today = date.today()
 
@@ -1843,7 +1864,24 @@ def get_or_create_brief(
             output_tokens=out_tok or None,
             refresh_count=0,
         )
-        db.add(row)
+        # Another first-of-day call may have stored today's row since the
+        # read above (both found none, both generated). Its INSERT won the
+        # unique key and this one answered 500. The INSERT runs in a
+        # SAVEPOINT, so only it is undone — never the caller's other work —
+        # and the stored row is served, as every later visit will see it.
+        try:
+            with _savepoint(db):
+                db.add(row)
+                db.flush()
+        except IntegrityError:
+            stored = (
+                db.query(DailyBrief.id)
+                .filter(DailyBrief.user_id == user.id, DailyBrief.brief_date == today)
+                .first()
+            )
+            if stored is None or _after_race:
+                raise  # no row to serve: the conflict was not the brief's own key
+            return get_or_create_brief(user, db, _after_race=True)
     else:
         row.payload_json = payload_json
         row.tier = tier

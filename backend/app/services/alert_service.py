@@ -6,6 +6,9 @@ from sqlalchemy.orm import Session
 from app.models.expense import Expense, ExpenseCategory
 from app.models.user import User
 from app.services.brand_mark import BRAND_MARK_IMG
+# The shared money gate: no unapproved draft, and no bank line linked to the
+# expense it paid — a linked purchase is one spend, not a spike (Push 8).
+from app.services.expense_status import not_pending
 
 
 def get_display_currency(currency: str) -> str:
@@ -35,6 +38,7 @@ def detect_expense_alerts(user: User, db: Session) -> list[dict]:
                 Expense.date <= today,
                 Expense.is_personal.isnot(True),
                 Expense.is_deleted.isnot(True),
+                not_pending(),
             )
             .scalar()
         )
@@ -56,6 +60,7 @@ def detect_expense_alerts(user: User, db: Session) -> list[dict]:
                     Expense.date < w_end,
                     Expense.is_personal.isnot(True),
                     Expense.is_deleted.isnot(True),
+                    not_pending(),
                 )
                 .scalar()
             )
@@ -87,6 +92,7 @@ def detect_expense_alerts(user: User, db: Session) -> list[dict]:
             Expense.date >= today - timedelta(days=30),
             Expense.is_personal.isnot(True),
             Expense.is_deleted.isnot(True),
+            not_pending(),
         )
         .scalar()
     )
@@ -100,6 +106,7 @@ def detect_expense_alerts(user: User, db: Session) -> list[dict]:
                 Expense.amount > daily_avg * 2,
                 Expense.is_personal.isnot(True),
                 Expense.is_deleted.isnot(True),
+                not_pending(),
             )
             .all()
         )

@@ -33,6 +33,13 @@ import BonBoxMark from "../components/BonBoxMark";
  *     elsewhere we still let them accept (they may be onboarding a
  *     second device).
  */
+// Team roles (routers/team.py) → the word the sentence uses.
+const ROLE_WORD_KEYS = {
+  manager: "taiRoleManager",
+  cashier: "taiRoleCashier",
+  viewer: "taiRoleViewer",
+};
+
 export default function TeamAcceptInvitePage() {
   const { token } = useParams();
   const navigate = useNavigate();
@@ -145,7 +152,14 @@ export default function TeamAcceptInvitePage() {
     }
   };
 
-  const roleLabel = (invite?.role || linkRole || t("taiDefaultRole", "team member")).replace(/_/g, " ");
+  // The role, in the page's language. The raw id was printed into the
+  // sentence ("Du er blevet inviteret som Manager"); an id we have no word
+  // for reads "teammedlem" / "team member", never the id itself. A viewer's
+  // seat is access, not a title: "inviteret med læseadgang".
+  const role = (invite?.role || linkRole || "").toLowerCase();
+  const roleWordKey = ROLE_WORD_KEYS[role];
+  const roleLabel = roleWordKey ? t(roleWordKey) : t("taiDefaultRole", "team member");
+  const invitedLead = role === "viewer" ? t("taiInvitedWith") : t("taiInvitedAs", "You've been invited as a");
   const ownerName = invite?.owner_business_name || "BonBox";
 
   return (
@@ -180,7 +194,7 @@ export default function TeamAcceptInvitePage() {
               {t("taiJoin", "Join")} {ownerName}
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-300 mb-6 leading-relaxed">
-              {t("taiInvitedAs", "You've been invited as a")} <span className="font-semibold capitalize">{roleLabel}</span>.
+              {invitedLead} <span className="font-semibold">{roleLabel}</span>.
               {" "}{t("taiChoosePassword", "Choose a password to finish setting up your account.")}
               {invite?.email && (
                 <span className="block mt-1 text-xs text-gray-500">{t("taiAccountEmail", "Account email:")} {invite.email}</span>

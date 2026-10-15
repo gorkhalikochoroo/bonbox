@@ -24,6 +24,20 @@ def slugify(value: str | None, fallback: str = "s") -> str:
     return s or fallback
 
 
+def public_slug(value: str | None, fallback: str, max_len: int) -> str:
+    """URL slug for a NEW public link — the booking page (bonbox.dk/<slug>),
+    the gavekort shop, an event page. Lowercase ASCII with the letters
+    transliterated rather than dropped: æ→ae, ø→oe, å→aa, and é/è→e, ü→u,
+    ö→o, ä→a and the rest via NFKD (see slugify). Every minter used to strip
+    anything outside a-z0-9, so "Café Mirabelle" became caf-mirabelle and
+    "Cykelværkstedet" cykelv-rkstedet.
+
+    Only for a slug being MINTED. A slug already stored is a published URL —
+    on posters, QR codes, Google profiles — and is never recomputed."""
+    s = slugify(value, fallback="")[:max_len].strip("-")
+    return s or fallback
+
+
 def portal_path(token: str, business_name: str | None,
                 staff_name: str | None = None) -> str:
     """Relative staff-portal path with cosmetic, named prefixes:

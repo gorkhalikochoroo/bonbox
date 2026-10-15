@@ -42,7 +42,9 @@ export const THEME_COLOR = Object.freeze({ light: "#f6f4ec", dark: "#1f2937", pa
  *   - the paper auth screens (AuthShell is bg-bb-paper): /login, /register,
  *     /forgot-password, /verify-email; and /contact, which draws on the body;
  *   - /staff/schedule/stand, the schedule wall screen: no chrome, but it draws
- *     on the body like the in-app schedule.
+ *     on the body like the in-app schedule;
+ *   - /staff, Vagtplan's short address: it only redirects, to the schedule or
+ *     to /login, both paper.
  * NOT here (white, by being absent): "/", /v2, /join, /onboarding,
  * /getting-started (gray-50 full-screen), /login/magic, /login/claim, legal,
  * /reservations/stand and /stand/<token> (the host stand's own gray-50 page),
@@ -52,7 +54,7 @@ export const THEME_COLOR = Object.freeze({ light: "#f6f4ec", dark: "#1f2937", pa
  * Keep equal to index.html's pre-paint copy (same test).
  */
 export const PAPER_PATHS = Object.freeze([
-  "/login", "/register", "/forgot-password", "/verify-email", "/contact", "/staff/schedule/stand",
+  "/login", "/register", "/forgot-password", "/verify-email", "/contact", "/staff/schedule/stand", "/staff",
   "/dashboard", "/sales", "/events", "/reservations", "/gavekort", "/scan", "/expenses", "/inventory",
   "/staffing", "/weather", "/waste", "/weekly-report", "/vat-report", "/reports", "/feedback", "/cashbook",
   "/cashflow", "/tax", "/pricing", "/retention", "/expiry", "/competitors", "/branches", "/outlets",

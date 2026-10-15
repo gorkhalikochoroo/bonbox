@@ -308,11 +308,19 @@ def _profile(db: Session, user: User) -> BusinessProfile | None:
 
 def _allocate_slug(db: Session, base: str) -> str:
     import random
-    raw = re.sub(r"[^a-z0-9]+", "-", (base or "booking").lower()).strip("-")[:50] or "booking"
+    from app.utils.text import public_slug
+    # Danish letters transliterated, not dropped ("Café Mirabelle" →
+    # cafe-mirabelle, was caf-mirabelle). New slugs only: every caller mints
+    # one solely when the profile has none, and a stored slug is never redone.
+    raw = public_slug(base, "booking", 50)
     rng = random.SystemRandom()
     alphabet = "abcdefghjkmnpqrstuvwxyz23456789"
-    # First try the bare slug, then with suffixes.
+    # First try the bare slug, then with suffixes. A reserved word (an app
+    # route such as /staff, a public prefix, a platform word) is never handed
+    # out as a root link: "Staff" gets staff-xxxx, never bonbox.dk/staff.
     for cand in [raw] + [f"{raw}-{''.join(rng.choices(alphabet, k=4))}" for _ in range(4)]:
+        if cand in RESERVED_SLUGS:
+            continue
         exists = (
             db.query(BusinessProfile)
             .filter(BusinessProfile.reservation_slug == cand)
@@ -713,6 +721,10 @@ RESERVED_SLUGS = frozenset({
     "sales", "scan", "share-recipients", "staff", "staffing", "subscription",
     "tax", "team", "terminals", "terms", "vat-report", "verify-email", "waste",
     "weather", "workshop", "accountant",
+    # top-level routes that were missing here (Push 8): a venue could claim
+    # them as a root link the SPA route then shadowed. Guarded by
+    # tests/test_public_slug_danish_letters.py against App.jsx.
+    "accept-invite", "getting-started", "stand", "v2", "weekly-report", "wine-list",
     # existing public prefixes
     "r", "g", "e", "s", "t", "portal",
     # generic / infra — reserved for the platform
@@ -745,7 +757,9 @@ def set_slug(payload: SlugUpdate, db: Session = Depends(get_db), user: User = De
     profile = _profile(db, user)
     if profile is None:
         raise HTTPException(status_code=400, detail={"error": "no_profile"})
-    desired = re.sub(r"[^a-z0-9]+", "-", payload.slug.lower()).strip("-")[:60]
+    # The same letters as a minted slug: "Smørrebrød" → smoerrebroed.
+    from app.utils.text import slugify
+    desired = slugify(payload.slug, fallback="")[:60].strip("-")
     if not desired:
         raise HTTPException(status_code=422, detail={"error": "invalid_slug"})
     # A root vanity slug can't be an app-route / reserved word (it would be

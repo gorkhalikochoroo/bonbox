@@ -760,14 +760,13 @@ def _allocate_slug(db: Session, event: Event) -> str:
     caller surfaces a friendly Danish error.
     """
     import random
-    import re
+    from app.utils.text import public_slug
 
     alphabet = "abcdefghjkmnpqrstuvwxyz23456789"
-    # Slugify the event name.
-    raw = re.sub(r"[^a-z0-9]+", "-", (event.name or "event").lower()).strip("-")
-    # Cap the base at 60 chars so the full slug (base + dash + 4 chars)
-    # stays well under the column's 80-char limit.
-    base = raw[:60] or "event"
+    # Slugify the event name — letters transliterated, not dropped
+    # (utils/text.public_slug). Cap the base at 60 chars so the full slug
+    # (base + dash + 4 chars) stays well under the column's 80-char limit.
+    base = public_slug(event.name, "event", 60)
     rng = random.SystemRandom()
     for _ in range(3):
         suffix = "".join(rng.choices(alphabet, k=4))

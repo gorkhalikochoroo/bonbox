@@ -513,8 +513,9 @@ def _allocate_gavekort_slug(db: Session, base: str) -> str:
     """slug from the business name, deduped with a short random suffix.
     Mirrors reservations._allocate_slug but on the gavekort_slug column."""
     import random
-    import re
-    raw = re.sub(r"[^a-z0-9]+", "-", (base or "gavekort").lower()).strip("-")[:50] or "gavekort"
+    from app.utils.text import public_slug
+    # Letters transliterated, not dropped (utils/text.public_slug).
+    raw = public_slug(base, "gavekort", 50)
     rng = random.SystemRandom()
     alphabet = "abcdefghjkmnpqrstuvwxyz23456789"
     for cand in [raw] + [f"{raw}-{''.join(rng.choices(alphabet, k=4))}" for _ in range(5)]:

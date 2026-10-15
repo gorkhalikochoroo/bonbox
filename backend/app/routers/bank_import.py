@@ -441,7 +441,9 @@ def list_match_suggestions(
     counts = {"high": 0, "medium": 0, "low": 0, "none": 0}
     txns_out: list[TransactionWithSuggestions] = []
     for r in rows:
-        if not r.suggestions:
+        if r.already_matched:
+            pass  # linked already (counted once): neither a match nor a "none"
+        elif not r.suggestions:
             counts["none"] += 1
         else:
             counts[r.suggestions[0].confidence] += 1
@@ -452,6 +454,8 @@ def list_match_suggestions(
             amount=r.amount,
             description=r.description,
             already_matched=r.already_matched,
+            linked_target_id=r.linked_target_id,
+            linked_target_label=r.linked_target_label,
             suggestions=[
                 MatchSuggestionSchema(
                     txn_id=s.txn_id,
@@ -517,4 +521,5 @@ def confirm_match_batch(
         confirmed=result["confirmed"],
         skipped=result["skipped"],
         errors=result["errors"],
+        error_codes=result.get("error_codes", []),
     )

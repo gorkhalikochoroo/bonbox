@@ -68,6 +68,10 @@ ALLOWED_KINDS = {
     # (services/revisor_package.py). A COPY of the books, not a source
     # document — removed when its link expires, and on erasure (below).
     "revisor_package",
+    # A bilag forwarded to the owner's inbox address (services/inbox_service).
+    # Was written to the web instance's own disk, which Render wipes on every
+    # deploy (Push 8). In ERASURE_PURGE_KINDS below too — see the note there.
+    "inbox_receipt",
 }
 
 
@@ -80,9 +84,10 @@ def compose_key(user_id, kind: str, sha: str, ext: str = "jpg") -> str:
     if not sha or not all(c in "0123456789abcdef" for c in sha.lower()):
         raise ValueError("sha must be lowercase hex")
     # Extension is enum-like.
-    # "pdf" added for staff_document — everything else here is an image.
+    # "pdf" added for staff_document — everything else here is an image
+    # ("gif" / "tiff": a forwarded inbox bilag keeps its own type).
     # "zip" for revisor_package only (checked below).
-    if ext not in {"jpg", "jpeg", "png", "webp", "heic", "pdf", "zip"}:
+    if ext not in {"jpg", "jpeg", "png", "webp", "heic", "pdf", "gif", "tiff", "zip"}:
         raise ValueError(f"Unsupported ext: {ext!r}")
     if (ext == "zip") != (kind == "revisor_package"):
         raise ValueError(f"ext {ext!r} not allowed for kind {kind!r}")
@@ -417,6 +422,14 @@ ERASURE_PURGE_KINDS = frozenset({
     # contract under employment law), that is a separate decision and belongs
     # in ACCOUNTING_RETENTION_KINDS, not here by omission.
     "staff_document",
+    # A forwarded inbox bilag (Push 8): purged with the account, as asked when
+    # it moved off the instance disk. NB an approved one is the source
+    # document of an expense — whether it should instead be KEPT like
+    # "expense" receipts (Bogføringsloven §10; main.py Migration 016 notes
+    # inbox rows that produced an entry are kept 5 years) is a retention
+    # decision for the owner: moving it means adding it to the kept set the
+    # privacy policy names (tests/test_privacy_matches_code.py).
+    "inbox_receipt",
     # RETIRED FEATURE (reservation room-plan background photo — removed as unused).
     # Nothing writes this kind any more, but the entry is kept in BOTH lists on
     # purpose: purge_user_blobs skips kinds absent from ALLOWED_KINDS, so dropping

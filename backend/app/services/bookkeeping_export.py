@@ -194,7 +194,12 @@ def _query_expenses(user: User, db: Session, start: date, end: date) -> list[Exp
     read nobody has approved. The MOMS summary in the same bundle
     (compute_filing_data) never counted one, so every line-item file listed
     drafts — "Mangler beløb" rows at 0,00 and OCR guesses — that its own
-    moms-summary.csv left out (expense_status.not_pending is the one gate)."""
+    moms-summary.csv left out (expense_status.not_pending is the one gate).
+
+    The same gate leaves out a bank line linked in bank reconcile to the
+    expense it paid (expense_status.not_linked_duplicate, part of
+    not_pending): the MOMS filing counts that purchase once, and the books
+    handed to the revisor must too."""
     try:
         return (
             db.query(Expense)
