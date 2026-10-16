@@ -8308,6 +8308,7 @@ export const da = {
     dashFirstRunStep3Cta: "Scan kvittering",
     dashComplianceNextLabel: "Næste frist",
     dashComplianceInDays: "om {n} dage",
+    dashUpdatedMinAgo: "Opdateret for {n} min. siden",
     dashComplianceMomsLabel: "MOMS-indberetning",
     dashComplianceKvartalLabel: "kvartalsregnskab",
     dashComplianceLoenLabel: "lønseddel",

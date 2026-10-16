@@ -8589,6 +8589,7 @@ export const en = {
     dashFirstRunStep3Cta: "Snap a receipt",
     dashComplianceNextLabel: "Next deadline",
     dashComplianceInDays: "in {n} days",
+    dashUpdatedMinAgo: "Updated {n} min ago",
     dashComplianceMomsLabel: "MOMS filing",
     dashComplianceKvartalLabel: "quarterly accounts",
     dashComplianceLoenLabel: "lønseddel",

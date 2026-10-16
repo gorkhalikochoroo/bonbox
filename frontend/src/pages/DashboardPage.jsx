@@ -30,6 +30,12 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import api from "../services/api";
 import { onApiIdle } from "../services/apiActivity";
+import {
+  readDashboard,
+  writeDashboard,
+  cacheGeneration,
+  STALE_NOTE_AFTER_MS,
+} from "../lib/swrCache";
 import { saveFile } from "../utils/download";
 import { PageHeader, Button, UpgradeNudge } from "../components/ui";
 import PageShell from "../components/ui/PageShell";
@@ -200,8 +206,36 @@ function computeDaysToMonthEnd(now = new Date()) {
    ═══════════════════════════════════════════════════════════ */
 
 // The longest the dashboard waits for its cards' own requests after the main
-// batch has landed, before showing itself anyway.
-const REVEAL_CAP_MS = 1200;
+// batch has landed, before showing itself anyway. Was 1200 ms; the money is
+// what the owner opened Home for, so it now waits at most a beat for the
+// cards that are about to land (I, speed push 15 Oct). Cards that answer
+// later do not push the page: the slow ones sit below the money, and the
+// fast ones above it are in long before the batch (it is the slowest call).
+const REVEAL_CAP_MS = 350;
+
+/** Apply a /dashboard/batch answer to the page's state setters. */
+function applyBatchTo(data, set) {
+  if (!data || typeof data !== "object") return;
+  if (data.summary) set.summary(data.summary);
+  if (data.monthly) set.monthly(data.monthly);
+  if (data.latest_sales) set.lastSale(data.latest_sales);
+  if (data.inventory) set.inventory(data.inventory);
+  set.inventoryReorder(Array.isArray(data.inventory_reorder) ? data.inventory_reorder : []);
+  if (data.top_sellers) set.topSellers(data.top_sellers);
+  if (data.action_items) set.actionItems(data.action_items);
+  if (data.week_comparison) set.weekComparison(data.week_comparison);
+  if (data.payment_breakdown) set.paymentBreakdown(data.payment_breakdown);
+  if (data.outstanding_invoices) set.outstandingInvoices(data.outstanding_invoices);
+  if (data.growth_signals) set.growthSignals(data.growth_signals);
+  if (data.profile) set.profile(data.profile);
+  // The next MOMS frist rides in the batch (A). The KEY being present means
+  // the server answered — null included (an invited seat, a currency with no
+  // MOMS calendar) — so it is taken as given, never patched from elsewhere.
+  if ("moms_date" in data) {
+    set.momsDate(data.moms_date || null);
+    set.momsDays(data.moms_countdown_days ?? null);
+  }
+}
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -211,25 +245,43 @@ export default function DashboardPage() {
   const { showToast, ToastContainer } = useToast();
   const entitlements = useEntitlements();
 
+  // ── Last answer, kept across navigation (K, speed push 15 Oct) ──
+  // Coming back to Home drew a wall of skeletons and waited for the whole
+  // batch again. lib/swrCache keeps the last /dashboard/batch answer IN MEMORY
+  // for this owner (never another account's, never on a shared device, gone
+  // after any write, logout or a new business day); Home draws it at once and
+  // refreshes it quietly underneath. A first visit finds nothing and loads as
+  // before.
+  const [cached] = useState(() => readDashboard(businessTodayIso(cutoffHourFor(user?.business_type))));
+  const c0 = cached?.data || null;
+  // How old the kept copy on screen is, in whole minutes — only when it is a
+  // few minutes old or more; drives the quiet "Opdateret for N min. siden".
+  // Cleared the moment fresh figures land.
+  const [staleMinutes, setStaleMinutes] = useState(() =>
+    cached && cached.ageMs >= STALE_NOTE_AFTER_MS ? Math.floor(cached.ageMs / 60000) : null,
+  );
+
   // ── State ──
-  const [summary, setSummary] = useState(null);
-  const [monthlyData, setMonthlyData] = useState(null);
-  const [lastSale, setLastSale] = useState(null);
-  const [inventoryItems, setInventoryItems] = useState([]);
+  const [summary, setSummary] = useState(c0?.summary || null);
+  const [monthlyData, setMonthlyData] = useState(c0?.monthly || null);
+  const [lastSale, setLastSale] = useState(c0?.latest_sales || null);
+  const [inventoryItems, setInventoryItems] = useState(c0?.inventory || []);
   // The COMPLETE flagged set from /dashboard/batch, kept apart from the 50-row
   // display sample above. Starts empty and only ever holds what the backend
   // sent: an older backend omits the key, and the card must then say nothing
   // rather than re-derive an answer from the sample.
-  const [inventoryReorder, setInventoryReorder] = useState([]);
-  const [topSellers, setTopSellers] = useState([]);
-  const [actionItems, setActionItems] = useState([]);
-  const [weekComparison, setWeekComparison] = useState(null);
-  const [paymentBreakdown, setPaymentBreakdown] = useState([]);
-  const [outstandingInvoices, setOutstandingInvoices] = useState([]);
-  const [growthSignals, setGrowthSignals] = useState([]);
-  const [profile, setProfile] = useState(null);
-  const [momsCountdownDays, setMomsCountdownDays] = useState(null);
-  const [momsDate, setMomsDate] = useState(null);
+  const [inventoryReorder, setInventoryReorder] = useState(
+    Array.isArray(c0?.inventory_reorder) ? c0.inventory_reorder : [],
+  );
+  const [topSellers, setTopSellers] = useState(c0?.top_sellers || []);
+  const [actionItems, setActionItems] = useState(c0?.action_items || []);
+  const [weekComparison, setWeekComparison] = useState(c0?.week_comparison || null);
+  const [paymentBreakdown, setPaymentBreakdown] = useState(c0?.payment_breakdown || []);
+  const [outstandingInvoices, setOutstandingInvoices] = useState(c0?.outstanding_invoices || []);
+  const [growthSignals, setGrowthSignals] = useState(c0?.growth_signals || []);
+  const [profile, setProfile] = useState(c0?.profile || null);
+  const [momsCountdownDays, setMomsCountdownDays] = useState(c0?.moms_countdown_days ?? null);
+  const [momsDate, setMomsDate] = useState(c0?.moms_date || null);
   // Bumped after every dashboard data refresh (fetchAll). Cards that own their
   // own fetch (e.g. ComplianceCountdownCard → /cashflow/forecast) read this off
   // ctx and re-fetch when it changes, so they don't go stale after a Quick Sale.
@@ -256,7 +308,7 @@ export default function DashboardPage() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [smartSaleOpen, setSmartSaleOpen] = useState(false);
   const [overflowOpen, setOverflowOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!c0);
   // Revealed once, never re-hidden. The page's cards fetch their own data
   // (the Needs-you queue, banners, the brief, accountant hours …); shown the
   // moment the main batch landed, each one then arrived on its own and pushed
@@ -264,7 +316,8 @@ export default function DashboardPage() {
   // "poor". Now the whole page mounts straight away BEHIND the skeleton, so
   // every card fetches in parallel with the batch, and it is shown in one go
   // when the requests have settled — or after REVEAL_CAP_MS, whichever first.
-  const [revealed, setRevealed] = useState(false);
+  // With a kept copy (K) there is nothing to wait for: shown straight away.
+  const [revealed, setRevealed] = useState(!!c0);
 
   // Click-outside for the overflow menu.
   const overflowRef = useRef(null);
@@ -295,32 +348,49 @@ export default function DashboardPage() {
   });
 
   // ── Data fetching (single batch call — same as the previous version) ──
-  const fetchAll = async () => {
+  //
+  // `bumpCards`: after the batch, tell the cards that fetch their own data
+  // (the MOMS foresight hero, tonight's-close check) to fetch again. NOT on
+  // the first load (B, speed push 15 Oct): those cards mount with the page
+  // and are already fetching — the bump made every first open ask
+  // /cashflow/forecast, /business and /daily-close twice. Every later refresh
+  // (Quick sale, a receipt, pull-to-refresh, any bonbox-data-changed such as
+  // locking tonight's close) still bumps, exactly as before.
+  const loadDashboard = async ({ bumpCards }) => {
+    const gen = cacheGeneration();
+    // The BUSINESS day's month: at 00:15 on the 1st the day still being
+    // traded is the 30th, and a calendar month read "Denne måned 0 kr."
+    // next to "I dag 124 kr.".
+    const businessDay = businessTodayIso(cutoffRef.current);
+    let momsAnswered = false;
     try {
       setLoading(true);
-      // The BUSINESS day's month: at 00:15 on the 1st the day still being
-      // traded is the 30th, and a calendar month read "Denne måned 0 kr."
-      // next to "I dag 124 kr.".
-      const now = new Date(`${businessTodayIso(cutoffRef.current)}T12:00:00`);
+      const now = new Date(`${businessDay}T12:00:00`);
       const { data } = await api.get("/dashboard/batch", {
-        params: { month: now.getMonth() + 1, year: now.getFullYear() },
+        // weather=0: Home shows no weather, so it never waits on Open-Meteo (G).
+        params: { month: now.getMonth() + 1, year: now.getFullYear(), weather: 0 },
       });
-      if (data.summary) setSummary(data.summary);
-      if (data.monthly) setMonthlyData(data.monthly);
-      if (data.latest_sales) setLastSale(data.latest_sales);
-      if (data.inventory) setInventoryItems(data.inventory);
-      setInventoryReorder(Array.isArray(data.inventory_reorder) ? data.inventory_reorder : []);
-      if (data.top_sellers) setTopSellers(data.top_sellers);
-      if (data.action_items) setActionItems(data.action_items);
-      if (data.week_comparison) setWeekComparison(data.week_comparison);
-      if (data.payment_breakdown) setPaymentBreakdown(data.payment_breakdown);
-      if (data.outstanding_invoices) setOutstandingInvoices(data.outstanding_invoices);
-      if (data.growth_signals) setGrowthSignals(data.growth_signals);
-      if (data.profile) setProfile(data.profile);
-      if (data.moms_countdown_days != null) setMomsCountdownDays(data.moms_countdown_days);
-      if (data.moms_date) setMomsDate(data.moms_date);
+      applyBatchTo(data, {
+        summary: setSummary,
+        monthly: setMonthlyData,
+        lastSale: setLastSale,
+        inventory: setInventoryItems,
+        inventoryReorder: setInventoryReorder,
+        topSellers: setTopSellers,
+        actionItems: setActionItems,
+        weekComparison: setWeekComparison,
+        paymentBreakdown: setPaymentBreakdown,
+        outstandingInvoices: setOutstandingInvoices,
+        growthSignals: setGrowthSignals,
+        profile: setProfile,
+        momsDate: setMomsDate,
+        momsDays: setMomsCountdownDays,
+      });
+      momsAnswered = !!data && typeof data === "object" && "moms_date" in data;
+      writeDashboard(businessDay, data, gen);
+      setStaleMinutes(null);
       // Signal self-fetching cards (foresight hero) to re-pull after this refresh.
-      setRefreshNonce((n) => n + 1);
+      if (bumpCards) setRefreshNonce((n) => n + 1);
     } catch {
       // batch failed — per-endpoint fallbacks (same defensive pattern
       // as the previous DashboardPage version)
@@ -328,38 +398,44 @@ export default function DashboardPage() {
       api.get("/dashboard/top-sellers").then((r) => setTopSellers(r.data)).catch(() => {});
       api.get("/dashboard/action-items").then((r) => setActionItems(r.data)).catch(() => {});
     }
+    // The page is shown on the batch alone (A). The MOMS frist used to be read
+    // off /tax/overview — the whole tax calculation — and the page waited for
+    // it; the batch now carries the date (backend next_moms_deadline, held
+    // equal to the Tax page by test_dashboard_moms_date.py).
+    setLoading(false);
 
-    // MOMS countdown lives on /tax/overview (not in /dashboard/batch).
-    // Always runs — independent of batch success.
-    // Response shape (verified 2026-05-25 against api.bonbox.dk):
-    //   upcoming_deadlines: [{ deadline: "2026-09-01", days_until: 99,
-    //                          period_label, estimated_amount, ... }]
-    // No `type` field — the endpoint only returns MOMS/VAT deadlines so
-    // the first entry IS the next MOMS deadline.
-    try {
-      const taxRes = await api.get("/tax/overview");
-      const deadlines = taxRes?.data?.upcoming_deadlines || [];
-      const next = deadlines[0];
-      if (next?.deadline && next?.days_until != null) {
-        setMomsCountdownDays(Number(next.days_until));
-        setMomsDate(next.deadline);
-      }
-    } catch {
-      // /tax/overview unavailable — KpiStrip will hide the tile cleanly
-    }
-
-    try {
-      // no-op preserved so the surrounding finally still fires
-    } finally {
-      setLoading(false);
+    if (!momsAnswered) {
+      // An older backend without moms_date, or the batch failed: ask the Tax
+      // page's endpoint, in the background — it never holds the page.
+      // Response shape (verified 2026-05-25 against api.bonbox.dk):
+      //   upcoming_deadlines: [{ deadline: "2026-09-01", days_until: 99,
+      //                          period_label, estimated_amount, ... }]
+      // No `type` field — the endpoint only returns MOMS/VAT deadlines so
+      // the first entry IS the next MOMS deadline.
+      api.get("/tax/overview").then((taxRes) => {
+        const deadlines = taxRes?.data?.upcoming_deadlines || [];
+        const next = deadlines[0];
+        if (next?.deadline && next?.days_until != null) {
+          setMomsCountdownDays(Number(next.days_until));
+          setMomsDate(next.deadline);
+        }
+      }).catch(() => {
+        // /tax/overview unavailable — KpiStrip will hide the tile cleanly
+      });
     }
   };
+  // Every caller outside the first load is a refresh after something changed.
+  const fetchAll = () => loadDashboard({ bumpCards: true });
 
+  // Registered once on mount, as before (the listener reads the latest
+  // business-day cutoff through cutoffRef).
   useEffect(() => {
-    fetchAll();
+    // First load, or the quiet refresh under a kept copy (K).
+    loadDashboard({ bumpCards: false });
     const onDataChanged = () => fetchAll();
     window.addEventListener("bonbox-data-changed", onDataChanged);
     return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Has tonight's kasserapport been locked? ─────────────────────────
@@ -941,6 +1017,15 @@ export default function DashboardPage() {
     );
   }
 
+  // A kept copy older than a few minutes says so, quietly, in the header's
+  // eyebrow (one line that is always there — no layout jump when it goes).
+  // The refresh underneath replaces the copy and the note with it (K).
+  const homeEyebrow = (
+    staleMinutes != null
+      ? `${t("home", "HOME")} · ${t("dashUpdatedMinAgo", "Updated {n} min ago").replace("{n}", String(staleMinutes))}`
+      : t("home", "HOME")
+  ).toUpperCase();
+
   // ── Steady-state: the full persona-aware 3-zone dashboard ──
   return (
     <>
@@ -964,7 +1049,7 @@ export default function DashboardPage() {
         />
 
         <PageHeader
-          eyebrow={t("home", "HOME").toUpperCase()}
+          eyebrow={homeEyebrow}
           title={greetingTitle}
           subtitle={new Date().toLocaleDateString(dateLocale(), {
             weekday: "long",
