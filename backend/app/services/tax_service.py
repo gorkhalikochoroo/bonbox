@@ -1239,6 +1239,40 @@ def _payroll_deadlines(count: int = 3) -> list[dict]:
     return out
 
 
+def next_moms_deadline(user: User) -> dict | None:
+    """The next MOMS/VAT frist, exactly as get_tax_overview lists it FIRST in
+    `upcoming_deadlines` — deadline, days_until and period label — without any
+    of the money it computes next to it.
+
+    Pure date math (no database): the same currency → config fallback, the
+    same _resolve_frequency, the same _get_next_deadlines(count=4)[0] and the
+    same `date.today()` as get_tax_overview. /dashboard/batch sends this so
+    Home no longer waits on the whole tax calculation (93-114 queries, 2-2.5 s
+    in production) just to print a date. tests/test_dashboard_moms_date.py
+    holds the two answers equal, so the Home countdown and the Tax page can
+    never name different days.
+
+    None when the currency has no MOMS calendar (get_tax_overview then lists
+    no deadlines either, and the countdown hides).
+    """
+    currency = user.currency or "DKK"
+    config = TAX_CONFIG.get(currency)
+    if not config:
+        # get_tax_overview's fallback config has no frequencies, so
+        # _get_next_deadlines answers [] — no frist to show.
+        return None
+    frequency = _resolve_frequency(user, config)
+    deadlines = _get_next_deadlines(currency, frequency=frequency, count=4)
+    if not deadlines:
+        return None
+    dl = deadlines[0]
+    return {
+        "deadline": str(dl["deadline"]),
+        "days_until": (dl["deadline"] - date.today()).days,
+        "period_label": dl["period_label"],
+    }
+
+
 def get_tax_overview(user: User, db: Session) -> dict:
     """
     Full tax autopilot overview:

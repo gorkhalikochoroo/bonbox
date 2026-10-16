@@ -183,6 +183,11 @@ def get_dashboard_batch(
     period: str = Query("month", pattern="^(day|week|month|year)$"),
     year: Optional[int] = Query(None, ge=2000, le=2100),
     month: Optional[int] = Query(None, ge=1, le=12),
+    # Home shows no weather; only the Reports forecast tab does. Home sends
+    # weather=0 so an Open-Meteo cache miss (up to 2.5 s timeout) can never
+    # sit in front of the money card. Default stays on for every other
+    # caller (ReportsPage, older clients).
+    weather: bool = Query(True),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -987,13 +992,14 @@ def get_dashboard_batch(
     # pressure (DB session was previously pinned for the full HTTP
     # round trip). Defensive shape — never blocks the rest of /batch.
     weather_data = None
-    try:
-        weather_data = _fetch_weather_cached(
-            getattr(user, "latitude", None),
-            getattr(user, "longitude", None),
-        )
-    except Exception as exc:
-        logger.warning("Batch: weather fetch failed: %s", exc)
+    if weather:
+        try:
+            weather_data = _fetch_weather_cached(
+                getattr(user, "latitude", None),
+                getattr(user, "longitude", None),
+            )
+        except Exception as exc:
+            logger.warning("Batch: weather fetch failed: %s", exc)
 
     # ── 14. STAFFING FORECAST (optional) ─────────────────────────
     staffing_forecast = None
@@ -1067,8 +1073,30 @@ def get_dashboard_batch(
     except Exception as exc:
         logger.warning("Batch: budget summary failed: %s", exc)
 
+    # ── 16. NEXT MOMS FRIST (pure date math) ─────────────────────
+    # Home's MOMS countdown used to wait for /tax/overview — the whole tax
+    # calculation (93-114 queries, 2-2.5 s in production) — to read one date
+    # off it, and the page stayed behind its skeleton until it had. The date
+    # is calendar arithmetic, so it rides here, from the same helper the Tax
+    # page's first deadline comes from (test_dashboard_moms_date.py).
+    # Withheld (null) exactly where /api/tax is: an invited seat and a
+    # curtained shared device get 403 there (member_read_guard /
+    # shared_device_pin_gate), so they never saw the countdown — they still
+    # don't. Null, with the key present, also tells a new client "the server
+    # answered; don't fall back to /tax/overview".
+    moms_next = None
+    if not (getattr(user, "_is_member_view", False) or getattr(user, "_shared_device_locked", False)):
+        try:
+            from app.services.tax_service import next_moms_deadline
+            moms_next = next_moms_deadline(user)
+        except Exception as exc:  # noqa: BLE001 — a date must never break /batch
+            logger.warning("Batch: next MOMS deadline failed: %s", exc)
+
     # ── ASSEMBLE RESPONSE ────────────────────────────────────────
     return {
+        "moms_date": moms_next["deadline"] if moms_next else None,
+        "moms_countdown_days": moms_next["days_until"] if moms_next else None,
+        "moms_period_label": moms_next["period_label"] if moms_next else None,
         "summary": summary,
         "monthly": monthly,
         "latest_sales": latest_sales,
