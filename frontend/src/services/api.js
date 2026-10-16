@@ -312,23 +312,37 @@ api.interceptors.request.use((config) => {
   if (!Object.prototype.hasOwnProperty.call(config, "_bbAuthAtSend")) config._bbAuthAtSend = token || null;
   // Tell the backend whether we're inside a Capacitor native shell so it can
   // apply iOS-IAP-compliance rules to billing endpoints. Web requests get "web".
+  //
+  // ON THE WEB, ONLY ON WRITES (E, speed push 15 Oct). A custom header turns
+  // a cross-origin GET from bonbox.dk to api.bonbox.dk into a "non-simple"
+  // request, and the browser then sends an OPTIONS preflight first — one
+  // extra round trip per read, 33 of them on a cold Home open. Nothing on
+  // the server reads either header on a read: the platform header is read by
+  // the Stripe checkout POST only (routers/billing.py), and CSRF is checked
+  // on POST/PUT/PATCH/DELETE only (main.py csrf_protect returns early for
+  // GET/HEAD/OPTIONS). So a web GET goes without them and needs no preflight;
+  // every write still carries both. The native shell is unchanged: its
+  // bearer token is itself a non-simple header, so it gains nothing here.
+  const method = String(config.method || "get").toLowerCase();
+  const isRead = method === "get" || method === "head";
   let isNative = false;
   try {
     if (window.Capacitor?.isNativePlatform?.()) {
       isNative = true;
       config.headers["X-BonBox-Platform"] = window.Capacitor.getPlatform?.() || "native";
-    } else {
+    } else if (!isRead) {
       config.headers["X-BonBox-Platform"] = "web";
     }
   } catch (_) {
-    config.headers["X-BonBox-Platform"] = "web";
+    if (!isRead) config.headers["X-BonBox-Platform"] = "web";
   }
   // CSRF: web sessions echo the bonbox_csrf cookie back as X-CSRF-Token. The
   // backend rejects state-changing cookie-auth requests where the header is
   // missing or doesn't match the cookie. Native shells skip this — they
   // authenticate via Authorization: Bearer, which the backend treats as
   // already CSRF-safe (the bearer token isn't auto-attached cross-origin).
-  if (!isNative) {
+  // Writes only (see above): a read is never CSRF-checked.
+  if (!isNative && !isRead) {
     const csrf = _readCookie("bonbox_csrf");
     if (csrf) config.headers["X-CSRF-Token"] = csrf;
   }
