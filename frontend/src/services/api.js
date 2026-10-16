@@ -3,6 +3,7 @@ import { getRevealProof, setRevealProof, triggerDeviceLock } from "./deviceShare
 import { platform } from "../utils/platform";
 import { standRewrite } from "./standAuth";
 import { requestStarted, requestSettled } from "./apiActivity";
+import { cacheGeneration, rememberGet, noteWrite, invalidateCache } from "../lib/swrCache";
 
 // The one prod origin. A native Capacitor shell (iOS/Android) has NO other
 // backend it could ever talk to — it ships pre-built and always points here.
@@ -54,6 +55,9 @@ api.interceptors.request.use((config) => {
   if (!config._bbCounted) {
     config._bbCounted = true;
     requestStarted();
+    // The cache generation this request started in (lib/swrCache): an answer
+    // to a request sent before a write is never stored after it.
+    config._bbGen = cacheGeneration();
   }
   return config;
 });
@@ -63,8 +67,22 @@ const settle = (config) => {
     requestSettled();
   }
 };
+// Home's stale-while-revalidate memory (lib/swrCache): a GET's answer is kept
+// for the few read-only paths Home's cards fire; any successful write (bar
+// telemetry) throws the whole copy away. Never lets a cache problem touch
+// the response itself.
+const noteAnswer = (res) => {
+  try {
+    const config = res?.config || {};
+    const method = String(config.method || "get").toLowerCase();
+    if (method === "get") rememberGet(config.url, config.params, res.data, config._bbGen);
+    else if (method !== "head" && method !== "options") noteWrite(config.url);
+  } catch {
+    /* the cache is a convenience — never a failure */
+  }
+};
 api.interceptors.response.use(
-  (res) => { settle(res?.config); return res; },
+  (res) => { settle(res?.config); noteAnswer(res); return res; },
   (err) => { settle(err?.config); return Promise.reject(err); },
 );
 
@@ -414,6 +432,9 @@ api.interceptors.response.use(
       try { setRevealProof(null); triggerDeviceLock(); } catch { /* no-op */ }
     }
     if (err.response?.status === 401) {
+      // Whoever this session was, Home's copy of their figures is not to be
+      // drawn again (lib/swrCache).
+      try { invalidateCache(); } catch { /* never fails the request */ }
       const { redirect, wipeToken } = on401(window.location.pathname, err.config?.url || "");
       if (redirect) {
         localStorage.removeItem("token");

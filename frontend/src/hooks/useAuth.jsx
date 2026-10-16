@@ -7,6 +7,7 @@ import { withTermsAcceptance } from "../legal/terms";
 import { verifyWallSkipsRole } from "../utils/verifyWallRole";
 import { forgetSessionVerifySkip } from "../utils/verifySkip";
 import { setQueueAccount } from "../utils/dailyCloseQueue";
+import { accountKeyFor, setCacheAccount } from "../lib/swrCache";
 
 const AuthContext = createContext(null);
 
@@ -42,6 +43,11 @@ const VERIFICATION_GRACE_DATE = "2026-04-13T00:00:00";
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Home's in-memory copy of the figures belongs to ONE account
+  // (lib/swrCache): a different signed-in user — or none — empties it first.
+  const cacheKey = accountKeyFor(user);
+  useEffect(() => { setCacheAccount(cacheKey); }, [cacheKey]);
 
   useEffect(() => {
     const native = isNativeShell();
@@ -201,6 +207,9 @@ export function AuthProvider({ children }) {
     // picked (filed under it, every close of the next account was refused).
     setQueueAccount(null);
     try { localStorage.removeItem("bonbox_branch"); } catch { /* storage blocked: nothing kept */ }
+    // Nor this account's figures on Home (lib/swrCache) — emptied now, not on
+    // the next render.
+    setCacheAccount(null);
     setUser(null);
   };
 

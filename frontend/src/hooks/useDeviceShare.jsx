@@ -22,6 +22,7 @@ import {
   setRevealProof,
   registerDeviceLockHandler,
 } from "../services/deviceShare";
+import { setSharedDevice } from "../lib/swrCache";
 
 const IDLE_RELOCK_MS = 5 * 60 * 1000; // re-curtain after 5 min of no activity
 
@@ -37,6 +38,10 @@ export function DeviceShareProvider({ children }) {
   const [enabled, setEnabled] = useState(false);
   const [hasPin, setHasPin] = useState(false);
   const [locked, setLocked] = useState(false);
+  // Whether /status actually answered. A failed probe leaves `enabled` false
+  // (fail-soft, above) — but "could not check" must not count as "not shared"
+  // for Home's in-memory copy of the figures (lib/swrCache).
+  const [probeOk, setProbeOk] = useState(false);
   const idleTimer = useRef(null);
 
   // The device PIN is the OWNER's own control. A delegated member/accountant
@@ -52,16 +57,26 @@ export function DeviceShareProvider({ children }) {
       setHasPin(!!data.has_pin);
       // At load a shared device has no in-memory proof yet → curtain is up.
       setLocked(!!data.locked);
+      setProbeOk(true);
     } catch {
       // Fail-soft: treat as not-shared so we never brick the app on a status
       // hiccup (the backend gate still protects the actual data).
       setEnabled(false); setHasPin(false); setLocked(false);
+      setProbeOk(false);
     } finally {
       setReady(true);
     }
   }, [isOwnerSession]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Home keeps its last figures in memory only on a device known NOT to be
+  // shared (lib/swrCache): a copy taken with the curtain lifted must never be
+  // drawn under a lowered one. The curtain only exists for an owner session;
+  // any other session cannot lift it, so it has nothing to leak.
+  useEffect(() => {
+    setSharedDevice(isOwnerSession ? (!ready || !probeOk || enabled) : false);
+  }, [isOwnerSession, ready, probeOk, enabled]);
 
   const clearIdle = useCallback(() => {
     if (idleTimer.current) { clearTimeout(idleTimer.current); idleTimer.current = null; }
