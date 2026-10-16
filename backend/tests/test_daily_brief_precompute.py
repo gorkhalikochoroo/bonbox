@@ -217,9 +217,33 @@ def test_business_day_guard_reads_the_venue_cutoff(monkeypatch, cutoff, hour, ex
     assert job._business_day_has_begun(user, date(2026, 10, 15)) is False
 
 
+_PROBE = """
+import json
+import app.main as m
+j = m._scheduler.get_job("daily_brief_precompute")
+f = {x.name: str(x) for x in j.trigger.fields} if j else {}
+print("RESULT=" + json.dumps({"found": j is not None, "hour": f.get("hour"), "minute": f.get("minute"),
+                              "func": getattr(getattr(j, "func", None), "__name__", None),
+                              "grace": getattr(j, "misfire_grace_time", None),
+                              "coalesce": getattr(j, "coalesce", None)}))
+m._scheduler.shutdown(wait=False)
+"""
+
+
 def test_the_job_is_scheduled_in_the_morning():
-    import app.main as m
-    j = m._scheduler.get_job("daily_brief_precompute")
-    assert j is not None
-    fields = {f.name: str(f) for f in j.trigger.fields}
-    assert fields["hour"] == "4-7" and fields["minute"] == "5"
+    # A fresh interpreter, like tests/test_scheduler_ops.py: in a full run any
+    # earlier `with TestClient(app)` shuts the in-process scheduler down at
+    # lifespan exit, which empties its job store.
+    import json
+    import os
+    import subprocess
+    import sys
+
+    backend = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out = subprocess.run([sys.executable, "-c", _PROBE], cwd=backend, capture_output=True,
+                         text=True, timeout=180, env=dict(os.environ))
+    line = next((ln for ln in out.stdout.splitlines() if ln.startswith("RESULT=")), None)
+    assert line is not None, out.stdout[-2000:] + out.stderr[-2000:]
+    got = json.loads(line[len("RESULT="):])
+    assert got == {"found": True, "hour": "4-7", "minute": "5", "func": "precompute_daily_briefs",
+                   "grace": 3600, "coalesce": True}
