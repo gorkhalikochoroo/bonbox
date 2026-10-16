@@ -8,7 +8,8 @@
  *     Scheduler" and "Daily Close" (as an app name) are gone from everything a
  *     person reads. The App Store URLs keep their ids (and their old slugs —
  *     Apple redirects by id).
- *   • Versions: owner 2.2, staff 1.5. Build numbers stay with the CI scripts.
+ *   • Versions: owner 2.3 (was 2.2 at the rename), staff 1.5. Build numbers
+ *     stay with the CI scripts.
  *   • Danish permission prompts (da.lproj) next to the English ones (en.lproj)
  *     for both apps, registered in each Xcode project.
  *   • The staff app ships a COMMITTED web bundle: the rename is only real once
@@ -219,11 +220,11 @@ describe("staff app (ios-scheduler): Vagtplan on the home screen and in all four
   });
 });
 
-describe("versions: owner 2.2, staff 1.5 (build numbers untouched, CI-driven)", () => {
+describe("versions: owner 2.3, staff 1.5 (build numbers untouched, CI-driven)", () => {
   it("MARKETING_VERSION in both configurations of each project", () => {
     const owner = read("ios/App/App.xcodeproj/project.pbxproj");
     const staff = read("ios-scheduler/App/App.xcodeproj/project.pbxproj");
-    expect(owner.match(/MARKETING_VERSION = [\d.]+;/g)).toEqual(["MARKETING_VERSION = 2.2;", "MARKETING_VERSION = 2.2;"]);
+    expect(owner.match(/MARKETING_VERSION = [\d.]+;/g)).toEqual(["MARKETING_VERSION = 2.3;", "MARKETING_VERSION = 2.3;"]);
     expect(staff.match(/MARKETING_VERSION = [\d.]+;/g)).toEqual(["MARKETING_VERSION = 1.5;", "MARKETING_VERSION = 1.5;"]);
   });
 });
