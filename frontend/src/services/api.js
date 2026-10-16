@@ -428,4 +428,64 @@ api.interceptors.response.use(
   }
 );
 
+// ── One request for identical reads in flight (B, speed push 15 Oct) ──
+// Home's cards ask some of the same questions at the same moment: /business
+// (tonight's-close check + the connections card), /email/preferences (the
+// brief + the connections card), /branches/list twice in the iOS app. While
+// an identical GET is still on its way, a second caller joins it instead of
+// sending another. Identical means: same path, same params, same signed-in
+// credential, plain JSON (no custom headers, no abort signal, no blob).
+// Each joiner gets its OWN copy of the answer, so a caller that sorts or
+// edits what it got cannot change what another caller sees. Once the answer
+// is in, the next call asks the server again — this is not a cache.
+const _inflightGets = new Map();
+const _sendGet = api.get.bind(api);
+
+function _deepCopy(data) {
+  try {
+    return typeof structuredClone === "function"
+      ? structuredClone(data)
+      : JSON.parse(JSON.stringify(data));
+  } catch {
+    return data;
+  }
+}
+
+function _getKey(url, config) {
+  if (config && (config.headers || config.signal || config.cancelToken || config.adapter)) return null;
+  if (config && config.responseType && config.responseType !== "json") return null;
+  const params = config && config.params;
+  let p = "";
+  if (params && typeof params === "object") {
+    p = Object.keys(params).sort().map((k) => `${k}=${String(params[k])}`).join("&");
+  } else if (params != null) {
+    return null;
+  }
+  return `${String(url)}?${p}|${tokenSubject(storedToken()) || "cookie"}|${config && config._noRetry ? 1 : 0}`;
+}
+
+api.get = (url, config) => {
+  const key = _getKey(url, config);
+  if (!key) return _sendGet(url, config);
+  const running = _inflightGets.get(key);
+  if (running) {
+    running.joiners += 1;
+    // Each joiner gets a copy of the answer as it ARRIVED (snapshot below),
+    // never the object the first caller may already have changed.
+    return running.promise.then((res) => ({ ...res, data: _deepCopy(running.snapshot) }));
+  }
+  const entry = { promise: null, joiners: 0, snapshot: undefined };
+  const p = _sendGet(url, config);
+  entry.promise = p;
+  _inflightGets.set(key, entry);
+  // Registered before the first caller's own handler, so it runs first: the
+  // pristine answer is kept for the joiners (copied only if there are any).
+  const done = () => { if (_inflightGets.get(key) === entry) _inflightGets.delete(key); };
+  p.then((res) => {
+    if (entry.joiners > 0) entry.snapshot = _deepCopy(res && res.data);
+    done();
+  }, done);
+  return p;
+};
+
 export default api;
