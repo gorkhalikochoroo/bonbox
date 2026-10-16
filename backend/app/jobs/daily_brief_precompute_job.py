@@ -8,7 +8,7 @@ owners with a device or an email subscription, and only from 08:00 local.
 
 What it does: every hour from 04:05 to 07:05 UTC (06:05-09:05 Copenhagen in
 summer, 05:05-08:05 in winter) it calls the SAME get_or_create_brief the
-dashboard calls, for owners who opened Home recently and have no brief for
+dashboard calls, for owners who are using BonBox and have no brief for
 today yet. The dashboard then serves the stored row (a cache hit). Nothing
 about the brief itself changes: same facts, same LLM layer and validation,
 same deterministic fallback, same one-row-per-owner-per-day key.
@@ -19,10 +19,16 @@ before):
     the venue's own day_cutoff_hour) and the server's date is the owner's
     local date. A brief written at 05:30 local would describe the wrong day:
     "yesterday's close missing" would ask about the day before yesterday.
-  • Only owners who opened Home in the last ACTIVE_DAYS days (a DailyBrief
-    row exists) — no AI call for dormant accounts; never a locked account,
-    never an invited seat or a revisor login (the brief row is the owner's:
-    see get_or_create_brief's restricted-seat rule).
+  • Only owners who are actually here: their OWN session was seen in the last
+    ACTIVE_DAYS days (users.last_seen_at — stamped by get_current_user and
+    sign-in, services/last_seen.py; this job never stamps it) AND who use the
+    brief (a DailyBrief row in the same window). The row alone is not enough:
+    this job writes one every morning, so it would count its own work as the
+    owner opening Home and keep a dormant account in for ever (rev-0, 16 Oct:
+    20 of 20 mornings after a single Home open). No AI call for dormant
+    accounts; never a locked account, never an invited seat or a revisor login
+    (the brief row is the owner's: see get_or_create_brief's restricted-seat
+    rule).
   • Never twice: an existing row for today is left alone (no refresh, so no
     refresh cap is touched).
   • One owner's failure never stops the rest; rolled back, logged by id only.
@@ -35,7 +41,7 @@ errors} — counts only (no names, no figures) for the log and the tests.
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Callable
 
 from sqlalchemy.orm import Session
@@ -83,9 +89,14 @@ def precompute_daily_briefs(
             uid for (uid,) in db.query(DailyBrief.user_id)
             .filter(DailyBrief.brief_date == today).all()
         }
+        # Naive UTC, like the column (services/last_seen.py). From midnight
+        # ACTIVE_DAYS days back, so the window is whole days.
+        seen_since = datetime.combine(today - timedelta(days=ACTIVE_DAYS), time.min)
         users = (
             db.query(User)
             .filter(User.id.in_(db.query(recent.c.user_id)),
+                    User.last_seen_at.isnot(None),
+                    User.last_seen_at >= seen_since,
                     User.is_locked.is_(False))
             .order_by(User.id)
             .all()

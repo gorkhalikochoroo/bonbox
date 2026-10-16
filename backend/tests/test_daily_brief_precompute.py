@@ -9,6 +9,8 @@ Pinned here — behaviour AND the safety rules:
     is a cache hit (no second generation, no second AI call);
   • a dormant account, a locked account, an invited seat and a revisor login
     get nothing (no AI cost, no row that is not the owner's);
+  • an owner who stops opening BonBox drops out after ACTIVE_DAYS — the job's
+    own rows never count as the owner being there (rev-0, 16 Oct);
   • an existing row for today is never regenerated (refresh cap untouched);
   • nothing is written before the owner's business day has rolled over;
   • one owner's failure never stops the run;
@@ -64,11 +66,15 @@ def rolled_over(monkeypatch):
     monkeypatch.setattr(job, "_business_day_has_begun", lambda user, today: True)
 
 
-def _user(factory, *, role="owner", locked=False, recent_brief=True, email=None):
+def _user(factory, *, role="owner", locked=False, recent_brief=True, seen=True, email=None):
+    """`seen`: the owner's own session was here yesterday (users.last_seen_at,
+    stamped by get_current_user — services/last_seen.py)."""
     s = factory()
     u = User(email=email or f"{uuid.uuid4().hex[:8]}@bonbox.test", password_hash="x",
              business_name="Bon Café", business_type="cafe", currency="DKK",
-             role=role, email_verified=True, is_locked=locked)
+             role=role, email_verified=True, is_locked=locked,
+             last_seen_at=(datetime.combine(TODAY - timedelta(days=1), datetime.min.time())
+                           + timedelta(hours=9)) if seen else None)
     s.add(u)
     s.commit()
     if recent_brief:
@@ -128,6 +134,58 @@ def test_dormant_locked_member_and_revisor_get_nothing(factory, llm_calls, rolle
     for uid in [dormant, locked, *seats]:
         assert _rows(factory, uid) == []
     assert llm_calls == []
+
+
+def test_the_jobs_own_rows_never_keep_an_owner_in(factory, llm_calls, rolled_over):
+    # A brief row in the window (written by this job, or the push/email jobs)
+    # but the owner's own session has not been here for ACTIVE_DAYS: nothing.
+    gone = _user(factory, seen=False)
+    out = job.precompute_daily_briefs(factory, today=TODAY)
+    assert out["candidates"] == 0 and out["generated"] == 0
+    assert _rows(factory, gone) == []
+    assert llm_calls == []
+
+
+def test_owner_who_stops_opening_bonbox_drops_out_after_active_days(factory, llm_calls,
+                                                                    rolled_over, monkeypatch):
+    """20 mornings; the owner opened Home on day 0 only (rev-0's simulation:
+    before the fix the job generated on 20 of 20 days, its own row each
+    morning standing in for "opened Home recently")."""
+    d0 = date(2026, 11, 2)
+    s = factory()
+    u = User(email=f"{uuid.uuid4().hex[:8]}@bonbox.test", password_hash="x",
+             business_name="Dormant", business_type="cafe", currency="DKK", role="owner",
+             email_verified=True, is_locked=False,
+             last_seen_at=datetime.combine(d0, datetime.min.time()) + timedelta(hours=10))
+    s.add(u)
+    s.commit()
+    # Day 0's Home open wrote day 0's brief.
+    s.add(DailyBrief(user_id=u.id, brief_date=d0, payload_json=json.dumps({"headline": "x"}),
+                     tier="free", refresh_count=0))
+    s.commit()
+    uid = u.id
+    s.close()
+
+    generated_days = []
+    for i in range(1, 21):
+        day = d0 + timedelta(days=i)
+
+        class _D(date):
+            @classmethod
+            def today(cls, _day=day):
+                return _day
+
+        monkeypatch.setattr(brief_mod, "date", _D)   # get_or_create_brief keys the row on date.today()
+        if job.precompute_daily_briefs(factory, today=day)["generated"]:
+            generated_days.append(i)
+
+    assert generated_days == list(range(1, job.ACTIVE_DAYS + 1))
+    assert len(llm_calls) == job.ACTIVE_DAYS
+    s = factory()
+    try:
+        assert s.query(DailyBrief).filter(DailyBrief.user_id == uid).count() == 1 + job.ACTIVE_DAYS
+    finally:
+        s.close()
 
 
 def test_existing_row_is_never_regenerated(factory, llm_calls, rolled_over):

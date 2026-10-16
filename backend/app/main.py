@@ -6402,8 +6402,9 @@ try:
     # Speed push (C, 15 Oct) — write the morning brief BEFORE the owner opens
     # Home, so the first open of the day is a cache hit instead of ~116
     # queries + the AI polish. Hourly 04:05-07:05 UTC; each run only touches
-    # owners whose business day has rolled over (DK 06:00 cutoff) and who
-    # opened Home in the last week, and never regenerates an existing row.
+    # owners whose business day has rolled over (DK 06:00 cutoff), whose own
+    # session was seen in the last week (users.last_seen_at) and who use the
+    # brief, and never regenerates an existing row.
     # The push (06:00) and email (06:30) jobs then reuse the same row.
     # On-demand generation stays as the fallback. See
     # jobs/daily_brief_precompute_job.py. Own try: never costs the others.
