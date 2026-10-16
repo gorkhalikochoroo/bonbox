@@ -1,7 +1,47 @@
 <!doctype html>
 <html lang="da">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="UTF-8" /><script>(function(){try{var f={"da":"/assets/da-BU4RKqrN.js","en":"/assets/en-BMmOkyxN.js"};var l=null;try{l=localStorage.getItem("lang")}catch(e){}if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}var h=l==="da"?f.da:f.en;var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)}catch(e){}})()</script>
+    <!-- Start the session check while the page is still parsing (speed push,
+         15 Oct). AuthProvider used to send GET /auth/me only once the whole
+         app bundle had downloaded and run — on a phone over 4G a second,
+         serial wait before Home could even ask for its figures. This sends
+         the SAME request now and parks it on window.__bbBootMe; AuthProvider
+         takes it over only when it is exactly what it would have sent
+         (hooks/useAuth.jsx bootProbe), else probes as before.
+
+         Web only, Home only, cookie sessions only:
+           • never in the native app shell (Capacitor) — it signs in with a
+             bearer token this request does not carry;
+           • only on / and /dashboard, where the answer decides what to draw;
+           • not when an old bearer token is stored — the app sends that one.
+         A plain credentialed GET with no custom header is a CORS "simple"
+         request: no preflight round trip. -->
+    <script>
+      (function () {
+        try {
+          if (window.Capacitor || location.protocol === "capacitor:") return;
+          var p = location.pathname.replace(/\/+$/, "") || "/";
+          if (p !== "/" && p !== "/dashboard") return;
+          try { if (localStorage.getItem("token")) return; } catch (e) { return; }
+          var base = "https://api.bonbox.dk/api";
+          if (!base) return;
+          if (base.charAt(0) === "%") {
+            // No build-time API URL: the same host rule services/api.js uses.
+            var h = location.hostname;
+            if (h !== "bonbox.dk" && !/\.bonbox\.dk$/.test(h)) return;
+            base = "https://api.bonbox.dk/api";
+          }
+          var url = base.replace(/\/+$/, "") + "/auth/me";
+          var pr = fetch(url, { credentials: "include" }).then(function (r) {
+            if (!r.ok) { var e = new Error("auth " + r.status); e.response = { status: r.status }; throw e; }
+            return r.json().then(function (d) { return { data: d }; });
+          });
+          pr.catch(function () {});
+          window.__bbBootMe = { url: url, promise: pr };
+        } catch (e) {}
+      })();
+    </script>
     <!-- Chrome decides whether to offer/auto-apply translation from the STATIC
          shell, long before React mounts. The shell ships lang="da" because
          Denmark is the market and that is what crawlers index — but a returning
@@ -310,7 +350,7 @@
     </script>
 
     <title>BonBox — Bagkontoret din virksomhed faktisk kører på</title>
-    <script type="module" crossorigin src="/assets/index-DjdIny5C.js"></script>
+    <script type="module" crossorigin src="/assets/index-m27uKTnk.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-COnpUsM8.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-react-BUHZeGuk.js">
     <link rel="modulepreload" crossorigin href="/assets/dist-CXO7fBfF.js">
@@ -351,26 +391,26 @@
     <link rel="modulepreload" crossorigin href="/assets/x-jbpByaGN.js">
     <link rel="modulepreload" crossorigin href="/assets/Icon-D2HLcxyE.js">
     <link rel="modulepreload" crossorigin href="/assets/Card-BViS5faX.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-LB9J_xfU.js">
-    <link rel="modulepreload" crossorigin href="/assets/CookieConsent-CYta8kt9.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-CZMZwpwj.js">
+    <link rel="modulepreload" crossorigin href="/assets/CookieConsent-yq26hcuJ.js">
     <link rel="modulepreload" crossorigin href="/assets/currency-B89A5Idu.js">
     <link rel="modulepreload" crossorigin href="/assets/Amount-C-nATzUo.js">
     <link rel="modulepreload" crossorigin href="/assets/Button-BAVtAjH6.js">
-    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-BzbACUF0.js">
+    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-Ck6qQfNA.js">
     <link rel="modulepreload" crossorigin href="/assets/navManifest-UEHZlArX.js">
     <link rel="modulepreload" crossorigin href="/assets/axios-MlJ7qYYv.js">
     <link rel="modulepreload" crossorigin href="/assets/platform-DXzmFqsj.js">
-    <link rel="modulepreload" crossorigin href="/assets/api-Ctd8stLq.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEventLog-B-AFBPdA.js">
+    <link rel="modulepreload" crossorigin href="/assets/api-BI-X9yVe.js">
+    <link rel="modulepreload" crossorigin href="/assets/useEventLog-ChYunngA.js">
     <link rel="modulepreload" crossorigin href="/assets/terms-GFI20Ek6.js">
     <link rel="modulepreload" crossorigin href="/assets/errText-COJAKLWR.js">
-    <link rel="modulepreload" crossorigin href="/assets/useAuth-BRObu8wI.js">
-    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-B7jI_gOc.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-CHZeuiT2.js">
+    <link rel="modulepreload" crossorigin href="/assets/useAuth-BJbQiUWr.js">
+    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-DN_bH-aG.js">
+    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-EoOYyuP7.js">
     <link rel="modulepreload" crossorigin href="/assets/guestSurface-C-71uN2a.js">
     <link rel="modulepreload" crossorigin href="/assets/liveAlertKinds-T1mCRl_O.js">
     <link rel="stylesheet" crossorigin href="/assets/index-0acBXe_9.css">
-  <script>(function(){try{var f={"da":"/assets/da-WeivgDOV.js","en":"/assets/en-CUw0Yp0_.js"};var l=null;try{l=localStorage.getItem("lang")}catch(e){}if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}var h=l==="da"?f.da:f.en;var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)}catch(e){}})()</script></head>
+  </head>
   <body>
     <script>
       // Force light mode by default — only honor "dark" if the user explicitly
