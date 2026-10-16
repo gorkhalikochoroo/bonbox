@@ -12,7 +12,10 @@
  *   I  The page shows as soon as the batch is in; a slow card does not hold
  *      it back.
  *   K  Back on Home: the last answer is drawn at once (no skeleton) and
- *      refreshed quietly; never across accounts; an old copy says so.
+ *      refreshed quietly; never across accounts; an old copy says so. A
+ *      close-based venue's first tile is "Sidste lukning" from the first
+ *      frame (never "I dag indtil nu 0 kr." until /daily-close answers), and
+ *      no receipt-scan sheet opens by itself (rev-1/rev-2, 16 Oct).
  */
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -29,15 +32,28 @@ import {
 const get = vi.fn();
 const post = vi.fn(() => Promise.resolve({ data: {} }));
 
-vi.mock("../services/api", () => ({
-  default: {
-    get: (...a) => get(...a),
-    post: (...a) => post(...a),
-    put: vi.fn(() => Promise.resolve({ data: {} })),
-    patch: vi.fn(() => Promise.resolve({ data: {} })),
-    delete: vi.fn(() => Promise.resolve({ data: {} })),
-  },
-}));
+// GETs go through lib/swrCache exactly as services/api.js sends them there
+// (rememberGet in the generation the request started in — the real client's
+// wiring is pinned in swrCacheApiWiring.test.js), so a card's kept answer is
+// what the real app would keep.
+vi.mock("../services/api", async () => {
+  const sc = await import("../lib/swrCache");
+  return {
+    default: {
+      get: (url, config) => {
+        const gen = sc.cacheGeneration();
+        return Promise.resolve(get(url, config)).then((res) => {
+          sc.rememberGet(url, config?.params, res?.data, gen);
+          return res;
+        });
+      },
+      post: (...a) => post(...a),
+      put: vi.fn(() => Promise.resolve({ data: {} })),
+      patch: vi.fn(() => Promise.resolve({ data: {} })),
+      delete: vi.fn(() => Promise.resolve({ data: {} })),
+    },
+  };
+});
 
 let currentUser = { id: 1, role: "owner", email: "ejer@mirabelle.dk", business_name: "Mirabelle", business_type: "cafe", currency: "DKK" };
 vi.mock("../hooks/useAuth", () => ({
@@ -73,14 +89,14 @@ function batch(extra = {}) {
 
 let slow = null; // a card request the test holds open
 
-function mockApi({ batchData = batch(), hold = null } = {}) {
+function mockApi({ batchData = batch(), hold = null, closes = [] } = {}) {
   get.mockImplementation((url) => {
     if (url === "/dashboard/batch") return Promise.resolve({ data: batchData });
     if (url === "/tax/overview") {
       return Promise.resolve({ data: { upcoming_deadlines: [{ deadline: "2026-12-01", days_until: 46 }] } });
     }
     if (url === "/business") return Promise.resolve({ data: { day_cutoff_hour: 6 } });
-    if (url === "/daily-close") return Promise.resolve({ data: [] });
+    if (url === "/daily-close") return Promise.resolve({ data: closes });
     if (hold && url === hold) return new Promise((resolve) => { slow = resolve; });
     if (url === "/cashflow/forecast") return Promise.resolve({ data: { foresight: null } });
     return Promise.resolve({ data: [] });
@@ -270,5 +286,96 @@ describe("K — back on Home is instant, never across accounts", () => {
     } finally {
       Date.now = realNow;
     }
+  });
+
+  // ── rev-1 / rev-2 (16 Oct) — a close-based venue coming back to Home ──
+  // Yesterday's locked kasserapport: the figure the first tile is about.
+  const yesterdayIso = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  const CLOSES = () => [{ id: "c1", date: yesterdayIso(), status: "confirmed", revenue_total: 20653 }];
+  const scanSheet = () => document.querySelector('[role="dialog"][aria-label="Skan udgiftsbon"]');
+  const lastCloseTile = () => screen.queryAllByText((_, el) => /20\.653/.test(el?.textContent || "") && el.children.length === 0).length > 0;
+  const todaySoFar = () => screen.queryAllByText("I dag indtil nu").length > 0;
+
+  const firstVisit = async (closes = CLOSES()) => {
+    ownerCache();
+    mockApi({ closes });
+    const first = mount();
+    await waitFor(() => expect(moneyShown()).toBe(true));
+    await waitFor(() => expect(lastCloseTile()).toBe(closes.length > 0));
+    first.unmount();
+  };
+
+  it("no receipt-scan sheet opens by itself — first visit or back on Home", async () => {
+    await firstVisit();
+    expect(scanSheet()).toBeNull();
+    get.mockImplementation((url) => (url === "/dashboard/batch" ? new Promise(() => {}) : Promise.resolve({ data: [] })));
+    mount();
+    expect(moneyShown()).toBe(true); // the kept copy is on screen…
+    expect(scanSheet()).toBeNull(); // …and no sheet over it
+    await new Promise((r) => setTimeout(r, 50));
+    expect(scanSheet()).toBeNull();
+    expect(document.body.style.overflow).not.toBe("hidden");
+    // The scan is one tap away instead: its button opens the sheet.
+    await act(async () => { screen.getByRole("button", { name: /Skan udgiftsbon/ }).click(); });
+    await waitFor(() => expect(scanSheet()).not.toBeNull());
+  });
+
+  it("the first tile is 'Sidste lukning' from the first frame — never 'I dag indtil nu' in between", async () => {
+    await firstVisit();
+    // Back on Home; the server is slow — nothing has answered yet.
+    get.mockImplementation(() => new Promise(() => {}));
+    mount();
+    expect(lastCloseTile()).toBe(true);
+    expect(todaySoFar()).toBe(false);
+    expect(screen.getAllByText("Sidste lukning").length).toBeGreaterThan(0);
+  });
+
+  it("offline: the kept close list stays when the re-check fails", async () => {
+    await firstVisit();
+    get.mockImplementation((url) => (
+      url === "/dashboard/batch" ? new Promise(() => {}) : Promise.reject(new Error("Network Error"))
+    ));
+    mount();
+    await waitFor(() => expect(calls("/daily-close").length).toBeGreaterThanOrEqual(2));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(lastCloseTile()).toBe(true);
+    expect(todaySoFar()).toBe(false);
+  });
+
+  it("with no kept close list, the tile waits as 'Sidste lukning —', not today's 4.200 kr.", async () => {
+    await firstVisit();
+    // The kept close list is gone (say its request never answered on the
+    // first visit), the kept batch is not: /daily-close is still out.
+    __resetSwrCacheForTests();
+    ownerCache();
+    const { writeDashboard, cacheGeneration } = await import("../lib/swrCache");
+    const { businessTodayIso } = await import("../utils/dateFormat");
+    const { cutoffHourFor } = await import("../config/archetypes");
+    writeDashboard(businessTodayIso(cutoffHourFor(currentUser.business_type)), batch(), cacheGeneration(),
+      undefined, accountKeyFor(currentUser));
+    let answerCloses;
+    get.mockImplementation((url) => {
+      if (url === "/daily-close") return new Promise((r) => { answerCloses = r; });
+      if (url === "/dashboard/batch") return new Promise(() => {});
+      return Promise.resolve({ data: [] });
+    });
+    mount();
+    expect(moneyShown()).toBe(true);
+    expect(todaySoFar()).toBe(false);
+    expect(screen.getAllByText("Sidste lukning").length).toBeGreaterThan(0);
+    await waitFor(() => expect(typeof answerCloses).toBe("function"));
+    await act(async () => { answerCloses({ data: CLOSES() }); });
+    await waitFor(() => expect(lastCloseTile()).toBe(true));
+  });
+
+  it("an answered list with no confirmed close still shows today (unchanged)", async () => {
+    await firstVisit([]);
+    get.mockImplementation((url) => (url === "/dashboard/batch" ? new Promise(() => {}) : Promise.resolve({ data: [] })));
+    mount();
+    await waitFor(() => expect(todaySoFar()).toBe(true));
   });
 });

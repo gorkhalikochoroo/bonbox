@@ -35,6 +35,7 @@ import {
   readDashboard,
   writeDashboard,
   cacheGeneration,
+  peekGet,
   STALE_NOTE_AFTER_MS,
 } from "../lib/swrCache";
 import { saveFile } from "../utils/download";
@@ -238,6 +239,15 @@ function applyBatchTo(data, set) {
   }
 }
 
+// The closes Home asks for: the two calendar days the current business day
+// can be (see the effect below). localDaysAgo, not `Date.now() - 86_400_000`:
+// a calendar-day step is DST-exact, and this window has to be right on the
+// two nights a year the Danish day is 23 or 25 hours long. Shared by the
+// fetch and the kept-copy lookup, so both name the same request.
+function closeWindow() {
+  return { from: localDaysAgo(1), to: localIso() };
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -301,7 +311,32 @@ export default function DashboardPage() {
   // and "failed" are NOT "the day is still open". A card that nags an owner
   // to close a day they already closed, because a request 403'd or timed
   // out, is the same defect wearing the opposite sign.
-  const [closeCutoffHour, setCloseCutoffHour] = useState(() => cutoffHourFor(user?.business_type));
+  //
+  // Under a kept copy (K) the close list and the cutoff come back with it
+  // (lib/swrCache keeps /daily-close and /business): without them the first
+  // tile of a close-based venue drew "I dag indtil nu 0 kr." for a moment on
+  // every return to Home, then "Sidste lukning" once /daily-close answered
+  // (rev-1/rev-2, 16 Oct). Only with a kept batch, and only the SAME window
+  // the effect below asks for — a new calendar day finds no copy.
+  const [closeSeed] = useState(() => {
+    if (!c0) return null;
+    const rows = peekGet("/daily-close", closeWindow());
+    if (!Array.isArray(rows)) return null;
+    const biz = peekGet("/business");
+    return {
+      rows,
+      cutoff: biz && typeof biz === "object"
+        ? resolveCutoffHour(biz.day_cutoff_hour, cutoffHourFor(user?.business_type))
+        : null,
+    };
+  });
+  // The kept list may stand in for a failed FIRST re-check (offline, a
+  // dropped request) — exactly as the kept batch does. Never for a re-check
+  // after a change (refreshNonce): then "could not check" is the answer.
+  const closeSeedRef = useRef(!!closeSeed);
+  const [closeCutoffHour, setCloseCutoffHour] = useState(
+    () => closeSeed?.cutoff ?? cutoffHourFor(user?.business_type),
+  );
   // fetchAll runs from a mount-time listener; a ref keeps it on the latest
   // cutoff without re-registering the listener.
   const cutoffRef = useRef(closeCutoffHour);
@@ -310,8 +345,8 @@ export default function DashboardPage() {
   // when the answer lands (lib/swrCache refuses to keep it for another).
   const accountRef = useRef(myCacheKey);
   accountRef.current = myCacheKey;
-  const [closeRows, setCloseRows] = useState([]);
-  const [closeListState, setCloseListState] = useState("loading"); // loading | ok | failed
+  const [closeRows, setCloseRows] = useState(() => closeSeed?.rows || []);
+  const [closeListState, setCloseListState] = useState(closeSeed ? "ok" : "loading"); // loading | ok | failed
   const [saleModal, setSaleModal] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [smartSaleOpen, setSmartSaleOpen] = useState(false);
@@ -462,21 +497,21 @@ export default function DashboardPage() {
   // A failed cutoff lookup degrades to the archetype default (food_service /
   // bar → 6, else 0) rather than blocking the answer. A failed CLOSE lookup
   // does not degrade to anything — it is reported as "failed", because the
-  // whole point of this state is that "I could not check" is not "no".
+  // whole point of this state is that "I could not check" is not "no". The
+  // one exception is the first re-check under a kept copy (K): the kept list
+  // — same window, same owner, no write since — stays, as the kept batch does.
   // Re-runs on refreshNonce, which fetchAll bumps, so locking a close and
   // firing bonbox-data-changed updates Home without a reload.
   useEffect(() => {
     let cancelled = false;
-    const to = localIso();
-    // localDaysAgo, not `Date.now() - 86_400_000`: a calendar-day step is
-    // DST-exact, and this window has to be right on the two nights a year
-    // the Danish day is 23 or 25 hours long.
-    const from = localDaysAgo(1);
+    const { from, to } = closeWindow();
+    const keptMayStand = closeSeedRef.current && refreshNonce === 0;
     Promise.allSettled([
       api.get("/business"),
       api.get("/daily-close", { params: { from, to } }),
     ]).then(([biz, closes]) => {
       if (cancelled) return;
+      closeSeedRef.current = false; // the first re-check has answered
       if (biz.status === "fulfilled") {
         setCloseCutoffHour(
           resolveCutoffHour(biz.value?.data?.day_cutoff_hour, cutoffHourFor(user?.business_type)),
@@ -485,6 +520,9 @@ export default function DashboardPage() {
       if (closes.status === "fulfilled" && Array.isArray(closes.value?.data)) {
         setCloseRows(closes.value.data);
         setCloseListState("ok");
+      } else if (keptMayStand) {
+        // The kept list (same window, same owner, no write since) stays on
+        // screen, like the kept batch above it.
       } else {
         setCloseRows([]);
         setCloseListState("failed");
@@ -913,14 +951,20 @@ export default function DashboardPage() {
           <Button variant="main" onClick={() => navigate("/daily-close")}>
             {t("closeTheDayCta", "Close the day")}
           </Button>
-          <ReceiptCapture mode="expense" onSaved={fetchAll} />
+          {/* `trigger`: a button that opens the scan, closed until tapped.
+              Without it expense mode opens on mount — right for the
+              Expenses page, which mounts it on demand, but here it opened
+              by itself on every return to Home under a kept copy (rev-2,
+              16 Oct). Keyed apart from the sale scan below so a scan begun
+              in one mode never carries into the other. */}
+          <ReceiptCapture key="scan-expense" mode="expense" trigger onSaved={fetchAll} />
         </>
       ) : (
         <>
           <Button variant="main" onClick={() => setSaleModal(true)}>
             + {t("quickSale", "Quick sale")}
           </Button>
-          <ReceiptCapture onSaleCreated={fetchAll} />
+          <ReceiptCapture key="scan-sale" onSaleCreated={fetchAll} />
         </>
       )}
       <div className="relative" ref={overflowRef}>

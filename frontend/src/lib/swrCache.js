@@ -25,7 +25,8 @@
  *
  * When it is thrown away
  *   • Any successful write through the API client (POST/PUT/PATCH/DELETE —
- *     services/api.js), except the telemetry pings in WRITE_IGNORE, and every
+ *     services/api.js), except the telemetry pings and read-only POSTs in
+ *     WRITE_IGNORE, and every
  *     `bonbox-data-changed` event (the app's freshness bus). After the owner
  *     changes anything, Home waits for the server again rather than drawing
  *     figures from before the change.
@@ -55,10 +56,22 @@ export const GET_ALLOW = new Set([
   "/accountant-savings/current-month",
   "/staff/today",
   "/output-channels",
+  // Home's own close check (DashboardPage): the first tile of a close-based
+  // venue is "Sidste lukning" from this list. Not kept, a return to Home drew
+  // "I dag indtil nu 0 kr." until it answered (rev-1/rev-2, 16 Oct).
+  "/daily-close",
 ]);
 
-// Writes that change no figure Home shows: analytics and crash beacons.
-const WRITE_IGNORE = [/^\/event-log(\/|$)/, /^\/diagnostics\/client-error/];
+// POSTs that change no figure Home shows: analytics and crash beacons, and
+// the Stock page's reorder plan — a read sent as a POST (routers/inventory.py
+// "produce reorder plan (read-only)"; it writes only an audit-log line). It
+// emptied the copy on every visit to Lager, so the way back to Home was the
+// one return that still waited behind skeletons (rev-1, 16 Oct).
+const WRITE_IGNORE = [
+  /^\/event-log(\/|$)/,
+  /^\/diagnostics\/client-error/,
+  /^\/inventory\/autopilot\/suggest$/,
+];
 
 const STAFF_ROLES = new Set(["manager", "cashier", "viewer"]);
 

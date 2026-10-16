@@ -103,10 +103,26 @@ export default function KpiStrip({
     ctx?.compliance?.nextDeadline?.label ||
     t("dashComplianceNextLabel", "Next deadline");
 
+  // A close-based venue whose close list has not answered yet (or could not
+  // be read): the tile it will show is "Last close", so it says that, with
+  // an honest dash — never "Today so far 0 kr." for the moment in between
+  // (rev-1/rev-2, 16 Oct: drawn on every return to Home under a kept copy).
+  // Only an answered list with no confirmed close falls back to today.
+  const closeStatus = ctx?.dailyCloseStatus;
+  const lastClosePending =
+    !!ctx?.summary?.uses_daily_close &&
+    !ctx?.summary?.lastClose &&
+    (closeStatus === "loading" || closeStatus === "failed");
+
   // Render each requested tile in order. Unknown tile ids are skipped
   // silently — easier to ship a tier-trimmed variant later.
   const tileSpecs = {
-    today: ctx?.summary?.uses_daily_close && ctx?.summary?.lastClose ? {
+    today: lastClosePending ? {
+      label: t("kpiLastClose", "Last close"),
+      value: <Amount value={null} currency={ctx?.currency} />,
+      helper: null,
+      accent: "neutral",
+    } : ctx?.summary?.uses_daily_close && ctx?.summary?.lastClose ? {
       // Close-based venue: "today" is 0 until the night's close, every day.
       // The last locked kasserapport is the figure the owner is asking for.
       label: t("kpiLastClose", "Last close"),

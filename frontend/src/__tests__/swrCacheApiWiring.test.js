@@ -46,6 +46,21 @@ describe("Home's in-memory copy (lib/swrCache) through the API client", () => {
     expect(peekGet("/staff/today")).toBeUndefined();
   });
 
+  it("the Stock page's reorder plan (a read-only POST) does not; sending the order does", async () => {
+    signIn();
+    writeDashboard("2026-10-16", { summary: {} }, cacheGeneration());
+    await api.post("/inventory/autopilot/suggest", { days_ahead: 7 });
+    expect(readDashboard("2026-10-16")).not.toBeNull();
+    await api.post("/inventory/autopilot/apply", { items: [] });
+    expect(readDashboard("2026-10-16")).toBeNull();
+  });
+
+  it("remembers Home's close list under the window it asked for", async () => {
+    signIn();
+    await api.get("/daily-close", { params: { from: "2026-10-15", to: "2026-10-16" } });
+    expect(peekGet("/daily-close", { from: "2026-10-15", to: "2026-10-16" })).toEqual({ ok: true, findings: ["x"] });
+  });
+
   it("a telemetry ping does not", async () => {
     signIn();
     writeDashboard("2026-10-16", { summary: {} }, cacheGeneration());

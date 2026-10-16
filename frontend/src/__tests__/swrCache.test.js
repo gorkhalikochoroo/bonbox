@@ -121,6 +121,17 @@ describe("when the copy is not the truth any more", () => {
     expect(readDashboard(DAY)).toBeNull();
   });
 
+  it("the Stock page's reorder plan (a read sent as a POST) keeps it; sending the order does not", () => {
+    // rev-1, 16 Oct: /inventory/autopilot/suggest is read-only (an audit line
+    // only) but emptied the copy on every visit to Lager.
+    signIn(OWNER_A);
+    writeDashboard(DAY, { summary: {} }, cacheGeneration());
+    noteWrite("/inventory/autopilot/suggest");
+    expect(readDashboard(DAY)).not.toBeNull();
+    noteWrite("/inventory/autopilot/apply");
+    expect(readDashboard(DAY)).toBeNull();
+  });
+
   it("the freshness bus throws it away", () => {
     signIn(OWNER_A);
     writeDashboard(DAY, { summary: {} }, cacheGeneration());
@@ -164,6 +175,20 @@ describe("the cards' GETs", () => {
     expect(peekGet("/diagnostics/needs-you", { skip: "x" })).toEqual({ findings: [1] });
     expect(peekGet("/diagnostics/needs-you", {})).toBeUndefined();
     expect(peekGet("/sales")).toBeUndefined();
+  });
+
+  it("keeps Home's close list, keyed by its window (rev-1/rev-2, 16 Oct)", () => {
+    signIn(OWNER_A);
+    const rows = [{ date: "2026-10-15", status: "confirmed", revenue_total: 20653 }];
+    rememberGet("/daily-close", { from: "2026-10-15", to: "2026-10-16" }, rows, cacheGeneration());
+    expect(peekGet("/daily-close", { to: "2026-10-16", from: "2026-10-15" })).toEqual(rows);
+    // Another day's window is another request: no copy.
+    expect(peekGet("/daily-close", { from: "2026-10-16", to: "2026-10-17" })).toBeUndefined();
+    // Not one close (a sub-path), and gone after any write.
+    rememberGet("/daily-close/abc", undefined, { id: "abc" }, cacheGeneration());
+    expect(peekGet("/daily-close/abc")).toBeUndefined();
+    noteWrite("/daily-close");
+    expect(peekGet("/daily-close", { from: "2026-10-15", to: "2026-10-16" })).toBeUndefined();
   });
 
   it("params order does not matter, and an empty params object equals none", () => {

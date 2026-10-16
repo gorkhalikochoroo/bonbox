@@ -23,12 +23,17 @@ import BilagMatchPanel from "./BilagMatchPanel";
  *  - onClose: callback to close externally (expense mode)
  *  - onSaved: callback after expense/sale is saved (expense mode); called
  *    with { linked: candidate } when the photo went onto an existing expense
+ *  - trigger: expense mode only — render a "Skan udgiftsbon" button and stay
+ *    closed until it is tapped. Without it, expense mode opens on mount (the
+ *    Expenses page mounts it on demand). Sale mode always has its button.
  */
-export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, onSaved }) {
+export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, onSaved, trigger = false }) {
   const { t } = useLanguage();
   const { user } = useAuth();
   const isExpense = mode === "expense";
-  const [open, setOpen] = useState(isExpense); // auto-open in expense mode
+  const showTrigger = !isExpense || !!trigger;
+  // Auto-open only in expense mode WITHOUT a trigger (mounted on demand).
+  const [open, setOpen] = useState(isExpense && !trigger);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState(null);
   const [amount, setAmount] = useState("");
@@ -475,14 +480,16 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
 
   return (
     <>
-      {/* Only show the trigger button in sale mode */}
-      {!isExpense && (
+      {/* The trigger button: always in sale mode; in expense mode only when
+          asked for (`trigger`) — otherwise the caller opened us on demand. */}
+      {showTrigger && (
         <button
+          type="button"
           onClick={() => setOpen(true)}
           className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 transition shadow-sm"
         >
           <Camera size={16} />
-          {t("snapReceipt")}
+          {isExpense ? t("scanExpenseReceipt", "Scan expense receipt") : t("snapReceipt")}
         </button>
       )}
 
