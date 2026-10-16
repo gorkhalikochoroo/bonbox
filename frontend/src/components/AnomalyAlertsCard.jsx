@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "../services/api";
+import { peekGet } from "../lib/swrCache";
 import { useLanguage } from "../hooks/useLanguage";
 
 /**
@@ -25,8 +26,13 @@ function dotColor(severity) {
 
 export default function AnomalyAlertsCard() {
   const { t } = useLanguage();
-  const [alerts, setAlerts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Back on Home: the last answer is drawn at once, then refreshed underneath
+  // (lib/swrCache — owner, this account, memory only).
+  const [alerts, setAlerts] = useState(() => {
+    const kept = peekGet("/dashboard/anomalies");
+    return Array.isArray(kept?.alerts) ? kept.alerts : [];
+  });
+  const [loading, setLoading] = useState(() => peekGet("/dashboard/anomalies") == null);
   const [expanded, setExpanded] = useState(false);
   const [dismissing, setDismissing] = useState(new Set());
 

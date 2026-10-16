@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
+import { peekGet } from "../lib/swrCache";
 import { Icon } from "./ui";
 import { useLanguage } from "../hooks/useLanguage";
 
@@ -66,8 +67,10 @@ function _buildShareText(brief) {
 
 export default function DailyBriefCard() {
   const { t } = useLanguage();
-  const [brief, setBrief] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Back on Home: today's brief as last fetched is drawn at once, then
+  // refreshed underneath (lib/swrCache — owner, this account, memory only).
+  const [brief, setBrief] = useState(() => peekGet("/dashboard/daily-brief") ?? null);
+  const [loading, setLoading] = useState(() => peekGet("/dashboard/daily-brief") == null);
   const [refreshing, setRefreshing] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [shareToast, setShareToast] = useState("");
@@ -76,7 +79,10 @@ export default function DailyBriefCard() {
   // ("Arrives in your inbox at 8 am"). If OFF, we show a one-tap
   // enable link. The pref is fetched once on mount; the optimistic
   // toggle below mutates locally + PATCHes.
-  const [briefEmailEnabled, setBriefEmailEnabled] = useState(null);
+  const [briefEmailEnabled, setBriefEmailEnabled] = useState(() => {
+    const kept = peekGet("/email/preferences");
+    return kept ? (kept.daily_brief_email_enabled ?? true) : null;
+  });
   const [briefPrefBusy, setBriefPrefBusy] = useState(false);
 
   // Respect the user's choice to dismiss for the day before we even fetch

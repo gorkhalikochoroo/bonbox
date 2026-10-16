@@ -46,6 +46,7 @@
  */
 import { useEffect, useState } from "react";
 import api from "../services/api";
+import { peekGet } from "../lib/swrCache";
 import { Card, Icon, UpgradeNudge } from "./ui";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
@@ -241,8 +242,10 @@ function _dismissThisMonth() {
 export default function AccountantHoursWidget() {
   const { t } = useLanguage();
   const { hasFeature, isReady: entReady } = useEntitlements();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Back on Home: last month-to-date answer drawn at once, refreshed
+  // underneath (lib/swrCache — owner, this account, memory only).
+  const [data, setData] = useState(() => peekGet("/accountant-savings/current-month") ?? null);
+  const [loading, setLoading] = useState(() => peekGet("/accountant-savings/current-month") == null);
   const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState(() => _isDismissedThisMonth());
 

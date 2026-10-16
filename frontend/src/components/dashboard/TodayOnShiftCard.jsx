@@ -27,6 +27,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Calendar, ChevronRight } from "lucide-react";
 import api from "../../services/api";
+import { peekGet } from "../../lib/swrCache";
 import { useLanguage } from "../../hooks/useLanguage";
 import { useAuth } from "../../hooks/useAuth";
 import { Card } from "../ui";
@@ -36,8 +37,15 @@ import { SECTION_LABEL_KEY, SECTION_LABEL_FALLBACK } from "../../config/schedule
 export default function TodayOnShiftCard() {
   const { t } = useLanguage();
   const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [shifts, setShifts] = useState([]);
+  // Back on Home: the last roster answer is drawn at once, then refreshed
+  // underneath (lib/swrCache — owner, this account, memory only).
+  const [loading, setLoading] = useState(() => peekGet("/staff/today") == null);
+  const [shifts, setShifts] = useState(() => {
+    const kept = peekGet("/staff/today");
+    const arr = Array.isArray(kept?.shifts) ? [...kept.shifts] : [];
+    arr.sort((a, b) => String(a.start_time || "").localeCompare(b.start_time || ""));
+    return arr;
+  });
   const [error, setError] = useState(false);
 
   const fetchShifts = useCallback(async () => {

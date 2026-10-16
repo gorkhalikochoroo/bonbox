@@ -17,6 +17,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
+import { peekGet } from "../lib/swrCache";
 import { useLanguage } from "../hooks/useLanguage";
 import { Icon } from "./ui";
 import { revisorAddress } from "../utils/closeEmail";
@@ -42,10 +43,19 @@ function _dismissFor(days = 30) {
 
 export default function ConnectionsProgressCard() {
   const { t } = useLanguage();
-  const [profile, setProfile] = useState(null);
-  const [grants, setGrants] = useState(null);
-  const [prefs, setPrefs] = useState(null);
-  const [loaded, setLoaded] = useState(false);
+  // Back on Home: drawn at once from the last three answers when all three
+  // are kept, then refreshed underneath (lib/swrCache — owner, this account,
+  // memory only). Any one missing → loads as before.
+  const [kept] = useState(() => {
+    const p = peekGet("/business");
+    const g = peekGet("/accountants/grants");
+    const e = peekGet("/email/preferences");
+    return p !== undefined && g !== undefined && e !== undefined ? { p, g: g || [], e } : null;
+  });
+  const [profile, setProfile] = useState(kept ? kept.p : null);
+  const [grants, setGrants] = useState(kept ? kept.g : null);
+  const [prefs, setPrefs] = useState(kept ? kept.e : null);
+  const [loaded, setLoaded] = useState(!!kept);
   const [hidden, setHidden] = useState(() => _isDismissed());
 
   useEffect(() => {

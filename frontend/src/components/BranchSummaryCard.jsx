@@ -36,6 +36,7 @@
  */
 import { useEffect, useState } from "react";
 import api from "../services/api";
+import { peekGet } from "../lib/swrCache";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
@@ -48,8 +49,10 @@ export default function BranchSummaryCard() {
   const { user } = useAuth();
   const { setBranchId, branchId: activeBranchId } = useBranch();
   const currency = displayCurrency(user?.currency);
-  const [summary, setSummary] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Back on Home: the last answer is drawn at once, then refreshed underneath
+  // (lib/swrCache — owner, this account, memory only).
+  const [summary, setSummary] = useState(() => peekGet("/branches/summary") ?? null);
+  const [loading, setLoading] = useState(() => peekGet("/branches/summary") == null);
 
   useEffect(() => {
     let alive = true;

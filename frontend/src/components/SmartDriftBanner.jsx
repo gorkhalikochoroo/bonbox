@@ -27,6 +27,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
+import { peekGet } from "../lib/swrCache";
 import { useLanguage } from "../hooks/useLanguage";
 import { useSmartTelemetry } from "../hooks/useSmartTelemetry";
 import { errText } from "../utils/errText";
@@ -36,7 +37,9 @@ export default function SmartDriftBanner() {
   const { t } = useLanguage();
   const { track } = useSmartTelemetry();
   const navigate = useNavigate();
-  const [findings, setFindings] = useState([]);
+  // Back on Home: the last answer is drawn at once, then refreshed underneath
+  // (lib/swrCache — owner, this account, memory only).
+  const [findings, setFindings] = useState(() => peekGet("/smart-drift")?.findings || []);
   const [busy, setBusy] = useState({});  // { id: "applying" | "dismissing" }
   const [error, setError] = useState("");
 

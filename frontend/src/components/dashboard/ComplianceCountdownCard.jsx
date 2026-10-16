@@ -34,6 +34,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import api from "../../services/api";
+import { peekGet } from "../../lib/swrCache";
 import { useLanguage } from "../../hooks/useLanguage";
 import { formatKr, isMoneyRejected, parseMoneyInput } from "../../utils/currency";
 import MoneyField from "../ui/MoneyField";
@@ -128,7 +129,9 @@ export default function ComplianceCountdownCard({
   const { t } = useLanguage();
   const [fallback, setFallback] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [foresight, setForesight] = useState(null);
+  // Back on Home: the last foresight answer is drawn at once, then refreshed
+  // underneath (lib/swrCache — owner, this account, memory only).
+  const [foresight, setForesight] = useState(() => peekGet("/cashflow/forecast")?.foresight || null);
   const [balanceOpen, setBalanceOpen] = useState(false);
   // Local bump: after the owner saves their balance, re-pull foresight so the
   // card flips to the real verdict without a page reload.

@@ -14,6 +14,7 @@
  */
 import { useEffect, useState } from "react";
 import api from "../services/api";
+import { peekGet } from "../lib/swrCache";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
 import { useAuth } from "../hooks/useAuth";
@@ -28,7 +29,9 @@ export default function DemoActiveBanner() {
   // refuses their POST /demo/clear (403 read_only). They get the label — this
   // is sample data — and no button that cannot work (review fix, 9 Oct).
   const canClear = !!user && String(user.role || "owner").toLowerCase() === "owner";
-  const [hasDemo, setHasDemo] = useState(false);
+  // Back on Home: the last answer is drawn at once, then refreshed underneath
+  // (lib/swrCache — owner, this account, memory only).
+  const [hasDemo, setHasDemo] = useState(() => !!peekGet("/demo/status", { scope: "has_demo" })?.has_demo);
   const [clearing, setClearing] = useState(false);
   const [clearError, setClearError] = useState("");
 

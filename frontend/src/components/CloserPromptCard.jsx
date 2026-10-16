@@ -1,6 +1,7 @@
 import { Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
+import { peekGet } from "../lib/swrCache";
 import { useLanguage } from "../hooks/useLanguage";
 
 /**
@@ -34,7 +35,12 @@ const DISMISS_KEY = "bonbox.closerPrompt.dismissed";
 
 export default function CloserPromptCard({ user }) {
   const { t } = useLanguage();
-  const [recipients, setRecipients] = useState(null); // null = loading
+  // null = loading. Back on Home: the last answer is drawn at once, then
+  // refreshed underneath (lib/swrCache — owner, this account, memory only).
+  const [recipients, setRecipients] = useState(() => {
+    const kept = peekGet("/output-channels");
+    return Array.isArray(kept) ? kept : null;
+  });
   const [stage, setStage] = useState("intro"); // intro | form | done
   const [closerName, setCloserName] = useState("");
   const [closerEmail, setCloserEmail] = useState("");

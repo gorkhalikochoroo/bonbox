@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, CalendarCheck, Landmark, FileClock, Scale, CalendarX, ChevronRight, X } from "lucide-react";
 import api from "../services/api";
+import { peekGet } from "../lib/swrCache";
 import { useLanguage } from "../hooks/useLanguage";
 import { formatKr } from "../utils/currency";
 import { formatDateClear } from "../utils/dateFormat";
@@ -162,12 +163,17 @@ const SEVERITY_DOT = {
 export default function NeedsYouQueue() {
   const { t } = useLanguage();
   const navigate = useNavigate();
-  const [findings, setFindings] = useState([]);
   const [dismissed, setDismissed] = useState(loadDismissed);
 
   // Refetch when the dated skip-set changes: dismissing the worst
   // unreconciled close immediately surfaces the next-worst one.
   const skip = skipParamFor(dismissed);
+  // Back on Home: the last answer is drawn at once, then refreshed
+  // underneath (lib/swrCache — owner, this account, memory only).
+  const [findings, setFindings] = useState(() => {
+    const kept = peekGet("/diagnostics/needs-you", skip ? { skip } : {});
+    return Array.isArray(kept?.findings) ? kept.findings : [];
+  });
   useEffect(() => {
     let alive = true;
     api
