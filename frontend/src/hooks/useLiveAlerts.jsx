@@ -48,6 +48,7 @@ import api from "../services/api";
 import { useAuth } from "./useAuth";
 import { useLanguage } from "./useLanguage";
 import { playCancel, playChime, playUrgent, prepareSoundWhenIdle, unlockSound } from "../utils/sound";
+import { onApiIdle } from "../services/apiActivity";
 import { useGuestSurface } from "../lib/guestSurface";
 import { RESERVATIONS_CHANGED_EVENT, alertSoundFor } from "../lib/liveAlertKinds";
 
@@ -161,8 +162,15 @@ export function LiveAlertsProvider({ children }) {
     window.addEventListener("keydown", onGesture);
     // The clips are built while the browser is idle, not inside the first
     // tap after an app load (it froze that tap for 0,3–0,7 s at 4x CPU).
-    const cancelPrepare = prepareSoundWhenIdle();
+    // And not while the page is still assembling either (G, speed push
+    // 15 Oct): the build starts only once the app's requests have been quiet
+    // for a second — after Home's figures are in — so the synthesis (one
+    // idle slot per clip, ~60 ms each at 4x CPU) never competes with them.
+    // A tap before then still builds and primes them (unlockSound).
+    let cancelPrepare = () => {};
+    const stopWaiting = onApiIdle(() => { cancelPrepare = prepareSoundWhenIdle(); }, 1000);
     return () => {
+      stopWaiting();
       cancelPrepare();
       window.removeEventListener("pointerdown", onGesture);
       window.removeEventListener("keydown", onGesture);
