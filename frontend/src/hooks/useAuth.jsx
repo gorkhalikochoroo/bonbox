@@ -37,6 +37,38 @@ function isNativeShell() {
   try { return !!window.Capacitor?.isNativePlatform?.(); } catch { return false; }
 }
 
+// ── Start-up (D, speed push) ────────────────────────────────────────────
+// index.html may have started GET /auth/me at parse time (window.__bbBootMe:
+// { url, promise }). Used once, and only when it is the very request the
+// provider would send now: web (a native shell authenticates with a bearer
+// the boot probe does not carry — taking its 401 would sign the phone out),
+// no stored bearer, the same URL.
+function bootProbe(native, legacyToken) {
+  try {
+    if (native || legacyToken || typeof window === "undefined") return null;
+    const boot = window.__bbBootMe;
+    window.__bbBootMe = null;
+    if (!boot || !boot.promise || typeof boot.promise.then !== "function") return null;
+    const base = String(api.defaults?.baseURL || "").replace(/\/+$/, "");
+    if (!base || boot.url !== `${base}/auth/me`) return null;
+    return boot.promise;
+  } catch {
+    return null;
+  }
+}
+
+// "This browser had a signed-in owner last time" — lets App.jsx fetch the
+// app shell and Home's code alongside the session check on the next start,
+// instead of after it. A hint, not a credential: it unlocks nothing, and it is
+// cleared on sign-out and whenever the session check fails.
+const HAD_SESSION_KEY = "bb_had_session";
+function markHadSession(on) {
+  try {
+    if (on) localStorage.setItem(HAD_SESSION_KEY, "1");
+    else localStorage.removeItem(HAD_SESSION_KEY);
+  } catch { /* storage blocked — the hint is only a head start */ }
+}
+
 // Grace date: users created before this date are not forced to verify email
 const VERIFICATION_GRACE_DATE = "2026-04-13T00:00:00";
 
@@ -47,7 +79,11 @@ export function AuthProvider({ children }) {
   // Home's in-memory copy of the figures belongs to ONE account
   // (lib/swrCache): a different signed-in user — or none — empties it first.
   const cacheKey = accountKeyFor(user);
+  const signedIn = !!user;
   useEffect(() => { setCacheAccount(cacheKey); }, [cacheKey]);
+  // A sign-in by any route (password, Google, Apple, magic link) leaves the
+  // start-up hint for next time; sign-out and a failed check clear it.
+  useEffect(() => { if (signedIn) markHadSession(true); }, [signedIn]);
 
   useEffect(() => {
     const native = isNativeShell();
@@ -67,10 +103,17 @@ export function AuthProvider({ children }) {
     // marketing copy stays hidden behind a spinner.  Treat 503 the
     // same as 401: "we don't know who you are yet — show the landing
     // and let the user act".
-    api
-      .get("/auth/me", { _noRetry: true })
+    //
+    // D (speed push): on the web, index.html starts this same probe while the
+    // page is still parsing — before the app bundle has even downloaded —
+    // and leaves it on window.__bbBootMe. Take it over when it is exactly the
+    // request this line would send: web, no bearer token (the boot probe
+    // carries the cookie only), and the same URL. Anything else probes here
+    // as before. Either way the answer is handled by the lines below.
+    (bootProbe(native, legacyToken) || api.get("/auth/me", { _noRetry: true }))
       .then((res) => {
         setUser(res.data);
+        markHadSession(true);
         // One-time migration: once cookie auth is confirmed working on web,
         // drop the legacy bearer token so XSS can't read it.
         if (!native && legacyToken) {
@@ -82,6 +125,7 @@ export function AuthProvider({ children }) {
         // Stale localStorage token (if any) gets cleared so we don't
         // keep retrying with bad credentials on the next route.
         try { localStorage.removeItem("token"); } catch {}
+        markHadSession(false);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -210,6 +254,7 @@ export function AuthProvider({ children }) {
     // Nor this account's figures on Home (lib/swrCache) — emptied now, not on
     // the next render.
     setCacheAccount(null);
+    markHadSession(false);
     setUser(null);
   };
 

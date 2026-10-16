@@ -33,7 +33,15 @@ function preloadDictionary() {
           'var h=l==="da"?f.da:f.en;' +
           'var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)' +
           '}catch(e){}})()</script>'
-        return html.replace('</head>', script + '</head>')
+        // Right after <meta charset>, ahead of the stylesheet and the entry
+        // script (speed push, 15 Oct): a parser-inserted inline script waits
+        // for every stylesheet ABOVE it, so at the end of <head> the
+        // dictionary download only began once the CSS had arrived — measured
+        // starting with the entry script instead of alongside it.
+        const charset = '<meta charset="UTF-8" />'
+        return html.includes(charset)
+          ? html.replace(charset, charset + script)
+          : html.replace('</head>', script + '</head>')
       },
     },
   }

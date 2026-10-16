@@ -364,6 +364,27 @@ const CookiePolicyPage = lazyRetry(() => import("./pages/CookiePolicyPage"));
 const Layout = lazyRetry(() => import("./components/Layout"));
 const ForgotPasswordPage = lazyRetry(() => import("./pages/ForgotPasswordPage"));
 const DashboardPage = lazyRetry(() => import("./pages/DashboardPage"));
+// D (speed push, 15 Oct) — a returning owner opening Home: start fetching the
+// app shell and Home's own code NOW, alongside the session check, instead of
+// after it has answered (on a phone over 4G that was a second serial wait).
+// The hint is set by AuthProvider after a good session check and cleared on
+// sign-out or a failed check (hooks/useAuth.jsx, HAD_SESSION_KEY). It unlocks
+// nothing — the routes still wait for /auth/me — and a wrong guess costs one
+// spare download of code the browser caches anyway. Not in the Vagtplan app.
+if (import.meta.env.VITE_APP_MODE !== "scheduler") {
+  try {
+    if (
+      typeof window !== "undefined" &&
+      window.localStorage.getItem("bb_had_session") === "1" &&
+      /^\/(dashboard\/?)?$/.test(window.location.pathname)
+    ) {
+      import("./components/Layout").catch(() => {});
+      import("./pages/DashboardPage").catch(() => {});
+    }
+  } catch {
+    /* storage blocked — no head start, nothing else changes */
+  }
+}
 const SalesPage = lazyRetry(() => import("./pages/SalesPage"));
 const ExpensesPage = lazyRetry(() => import("./pages/ExpensesPage"));
 const InventoryPage = lazyRetry(() => import("./pages/InventoryPage"));
