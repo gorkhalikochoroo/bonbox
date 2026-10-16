@@ -86,6 +86,34 @@ function severityFor(daysAway) {
   return { iconClass: "text-gray-500 dark:text-gray-400", textClass: "text-gray-700 dark:text-gray-300" };
 }
 
+// The MOMS period in words, for the "no figures yet" line (M): "3. kvartal",
+// "1. halvår", else the months themselves.
+function monthName(iso) {
+  try {
+    return new Date(`${iso}T12:00:00`).toLocaleDateString(dateLocale(), { month: "long" });
+  } catch {
+    return iso || "";
+  }
+}
+
+function momsPeriodWords(t, moms, deadline) {
+  const start = moms?.period_start;
+  const end = moms?.period_end;
+  if (!start) return { period: "", months: "" };
+  const months = end && end.slice(0, 7) !== start.slice(0, 7)
+    ? `${monthName(start)}–${monthName(end)}`
+    : monthName(start);
+  const m = Number(String(start).slice(5, 7));
+  const freq = deadline?.frequency;
+  let period = months;
+  if (freq === "quarterly" && m >= 1) {
+    period = t("fsPeriodQuarter", "Q{q}").replace("{q}", String(Math.floor((m - 1) / 3) + 1));
+  } else if (freq === "half_yearly" && m >= 1) {
+    period = t("fsPeriodHalf", "H{h}").replace("{h}", m <= 6 ? "1" : "2");
+  }
+  return { period, months };
+}
+
 // "in {n} days" / overdue / today / tomorrow — reuses the existing MOMS keys.
 function daysPhrase(t, days) {
   if (days == null || Number.isNaN(Number(days))) return "";
@@ -214,6 +242,71 @@ export default function ComplianceCountdownCard({
     const { Icon, tone, headline } = verdictConfig(t, fs.verdict);
     const dl = fs.deadline || {};
     const moms = fs.moms || {};
+
+    // ── NO FIGURES FOR THE PERIOD (M, 15 Oct) ───────────────────────────
+    // With nothing entered for the period, the range is 0 / 0 and the card
+    // used to say "Forventet MOMS ~0 kr. · forfald 1. dec." — zero booked
+    // read as zero owed, understating a tax bill. The server now says when
+    // it holds NO money data for the period (moms.has_data === false); the
+    // card then says so and points at where the figures go in. No verdict,
+    // no amount, no balance prompt: none of them mean anything yet. An older
+    // server sends no has_data, and the card reads as before.
+    if (moms.has_data === false) {
+      const { period, months } = momsPeriodWords(t, moms, dl);
+      const where = ctx?.summary?.uses_daily_close ? "/daily-close" : "/sales";
+      const noFiguresHeadline = t("fsNoFiguresHeadline", "BonBox has no figures for {period} yet")
+        .replace("{period}", period);
+      const noFiguresDetail = t("fsNoFiguresDetail", "Enter or scan {months} — MOMS is due {date}")
+        .replace("{months}", months)
+        .replace("{date}", fmtDate(dl.date));
+      return (
+        <Link
+          to={where}
+          className={
+            "w-full text-left block rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] " +
+            "bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 " +
+            "hover:shadow-sm transition-shadow dark:hover:bg-[rgb(var(--surface-raised))] dark:transition-colors group " +
+            "focus-visible:outline-none focus-visible:ring-2 " +
+            "focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
+            "focus-visible:ring-offset-1 " +
+            (className || "")
+          }
+          data-component="ComplianceCountdownCard"
+          data-foresight-verdict="NO_FIGURES"
+          aria-label={`${noFiguresHeadline}. ${noFiguresDetail}`}
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className={
+                "shrink-0 inline-flex items-center justify-center " +
+                "w-9 h-9 rounded-full bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] " +
+                "border border-gray-200 dark:border-[rgb(var(--surface-line))]"
+              }
+              aria-hidden="true"
+            >
+              <AlertTriangle size={18} strokeWidth={2} className={TONE.warn} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">
+                {`MOMS${dl.period_label ? " · " + dl.period_label : ""} · ${daysPhrase(t, dl.days_until)}`}
+              </p>
+              <p className="text-base font-semibold text-gray-900 dark:text-gray-100 leading-snug" data-testid="fs-no-figures">
+                {noFiguresHeadline}
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5 leading-snug">
+                {noFiguresDetail}
+              </p>
+            </div>
+            <ArrowRight
+              size={18}
+              strokeWidth={2}
+              className="shrink-0 mt-1 text-gray-300 dark:text-gray-400 group-hover:text-gray-400 dark:group-hover:text-gray-200 transition-colors"
+              aria-hidden="true"
+            />
+          </div>
+        </Link>
+      );
+    }
     const action = fs.action || null;
     const noBalance = fs.verdict === "INSUFFICIENT_DATA";
 
