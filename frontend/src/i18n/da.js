@@ -6545,7 +6545,6 @@ export const da = {
     "landingV2.modules.money.title": "Økonomi",
     "landingV2.modules.money.body": "MOMS-nedtælling, fakturaer, aflæsning af bilag, gavekort og udgifter — samlet ét sted, klar til at sende til din revisor.",
     "landingV2.phones.venue": "Bistro Nørrebro",
-    "landingV2.phones.live": "Live",
     "landingV2.phones.tabSchedule": "Vagtplan",
     "landingV2.phones.tabAvailability": "Tilgængelighed",
     "landingV2.phones.tabSwaps": "Bytte",

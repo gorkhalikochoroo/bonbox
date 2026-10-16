@@ -63,22 +63,15 @@ function StatusBar() {
   );
 }
 
-function ScreenHeader({ title, venue, live }) {
+// No green "Live" pill beside the title: Vagtplan 1.6 took that word out of
+// the staff app, and this mockup shows the app as it is (15 Oct 2026).
+function ScreenHeader({ title, venue }) {
   return (
-    <div className="flex items-start justify-between gap-2.5 px-[18px] pt-2 pb-3.5">
-      <div>
-        <div className="font-display text-[19px] font-bold tracking-[-0.02em]">
-          {title}
-        </div>
-        <div className="text-[11.5px] text-slate-400">{venue}</div>
+    <div className="px-[18px] pt-2 pb-3.5">
+      <div className="font-display text-[19px] font-bold tracking-[-0.02em]">
+        {title}
       </div>
-      <span className="inline-flex items-center gap-[5px] bg-bb-green-tint text-bb-green-dark text-[10.5px] font-semibold px-[9px] py-1 rounded-full">
-        <span
-          aria-hidden="true"
-          className="inline-block w-[5px] h-[5px] rounded-full bg-bb-green-bright"
-        />
-        {live}
-      </span>
+      <div className="text-[11.5px] text-slate-400">{venue}</div>
     </div>
   );
 }
@@ -116,7 +109,6 @@ export default function PhoneFanV2() {
   const { t, lang } = useLanguage();
 
   const venue = t("landingV2.phones.venue", "Bistro Nørrebro");
-  const live = t("landingV2.phones.live", "Live");
 
   // Alma's week, from the one demo rota.
   const now = new Date();
@@ -196,7 +188,6 @@ export default function PhoneFanV2() {
             <ScreenHeader
               title={t("landingV2.phones.availabilityTitle", "Availability")}
               venue={venue}
-              live={live}
             />
             <div className="px-3.5">
               <SectionLabel className="mb-2">
@@ -240,7 +231,6 @@ export default function PhoneFanV2() {
           <ScreenHeader
             title={t("landingV2.phones.scheduleTitle", "My schedule")}
             venue={venue}
-            live={live}
           />
 
           <div className="mx-3.5 mb-3 bg-slate-900 text-white rounded-[14px] px-4 py-[15px]">
@@ -313,7 +303,6 @@ export default function PhoneFanV2() {
             <ScreenHeader
               title={t("landingV2.phones.hoursTitle", "My hours")}
               venue={venue}
-              live={live}
             />
             <div className="px-3.5">
               <div className="text-[11.5px] text-slate-500 mb-2.5">

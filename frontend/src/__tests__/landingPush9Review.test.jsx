@@ -16,6 +16,8 @@
  *      Book button answers; /join has a way out for an owner; the landing's
  *      phone cut-down stops at 640 px; the cookie banner's "Læs mere" has a
  *      44 px hit area; Danish copy names the product's own modules.
+ *  15 Oct  The landing's staff-app phones carry no green "Live" pill:
+ *      Vagtplan 1.6 took that word out of the app the mockup shows.
  */
 import fs from "fs";
 import path from "path";
@@ -45,6 +47,7 @@ const UpgradeNudge = (await import("../components/ui/UpgradeNudge")).default;
 const HeroV2 = (await import("../components/landing/v2/HeroV2")).default;
 const BookingCardV2 = (await import("../components/landing/v2/BookingCardV2")).default;
 const ScheduleGridV2 = (await import("../components/landing/v2/ScheduleGridV2")).default;
+const PhoneFanV2 = (await import("../components/landing/v2/PhoneFanV2")).default;
 const JoinPage = (await import("../pages/JoinPage")).default;
 const demo = await import("../components/landing/v2/demoData");
 const { nextMomsDeadline } = await import("../utils/nextMomsDeadline");
@@ -328,5 +331,20 @@ describe("copy — plain Danish, one claim per fact", () => {
     expect(en["landingV2.pricing.perMonth"]).toBe("kr./mo");
     expect(da["landingV2.pricing.thenPrice"]).toMatch(/kr\.\/md\.$/);
     expect(en["landingV2.pricing.thenPrice"]).toMatch(/kr\.\/mo$/);
+  });
+});
+
+describe("15 Oct — the staff-app phones show Vagtplan as it is now", () => {
+  it.each(["da", "en"])("no green 'Live' pill on any of the three phones (%s)", (lang) => {
+    const { container } = renderIn(lang, <PhoneFanV2 />);
+    expect(container.textContent).not.toMatch(/\bLive\b/);
+    expect(container.querySelector(".bg-bb-green-bright")).toBeNull();
+    // the three screens still name themselves and the demo venue
+    expect(container.textContent).toContain(lang === "da" ? da["landingV2.phones.scheduleTitle"] : en["landingV2.phones.scheduleTitle"]);
+  });
+
+  it("the word is gone from the source and the dictionaries, not just hidden", () => {
+    expect(read("components/landing/v2/PhoneFanV2.jsx")).not.toMatch(/phones\.live/);
+    for (const d of [da, en, tr]) expect(d["landingV2.phones.live"]).toBeUndefined();
   });
 });

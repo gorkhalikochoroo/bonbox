@@ -6752,7 +6752,6 @@ export const en = {
     "landingV2.modules.money.title": "Money",
     "landingV2.modules.money.body": "MOMS countdown, invoices, receipt reading, gavekort and expenses — in one place, ready to send to your revisor.",
     "landingV2.phones.venue": "Bistro Nørrebro",
-    "landingV2.phones.live": "Live",
     "landingV2.phones.tabSchedule": "Schedule",
     "landingV2.phones.tabAvailability": "Availability",
     "landingV2.phones.tabSwaps": "Swaps",

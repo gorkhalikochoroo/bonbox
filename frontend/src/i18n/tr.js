@@ -5086,7 +5086,6 @@ export const tr = {
   "landingV2.modules.money.title": "Para",
   "landingV2.modules.money.body": "MOMS geri sayımı, faturalar, fiş okuma, gavekort ve giderler — tek yerde, revisor'una göndermeye hazır.",
   "landingV2.phones.venue": "Bistro Nørrebro",
-  "landingV2.phones.live": "Canlı",
   "landingV2.phones.tabSchedule": "Plan",
   "landingV2.phones.tabAvailability": "Uygunluk",
   "landingV2.phones.tabSwaps": "Değişim",
