@@ -78,9 +78,13 @@ export function AuthProvider({ children }) {
 
   // Home's in-memory copy of the figures belongs to ONE account
   // (lib/swrCache): a different signed-in user — or none — empties it first.
+  // Said HERE, during this provider's render, not in an effect: a page that
+  // mounts in the same render as a new user (it renders after this line,
+  // before any effect runs) must already find the copy emptied.
+  // Idempotent: the same key twice changes nothing.
   const cacheKey = accountKeyFor(user);
   const signedIn = !!user;
-  useEffect(() => { setCacheAccount(cacheKey); }, [cacheKey]);
+  setCacheAccount(cacheKey);
   // A sign-in by any route (password, Google, Apple, magic link) leaves the
   // start-up hint for next time; sign-out and a failed check clear it.
   useEffect(() => { if (signedIn) markHadSession(true); }, [signedIn]);

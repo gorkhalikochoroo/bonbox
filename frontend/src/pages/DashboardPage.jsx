@@ -31,6 +31,7 @@ import { useEntitlements } from "../hooks/useEntitlements";
 import api from "../services/api";
 import { onApiIdle } from "../services/apiActivity";
 import {
+  accountKeyFor,
   readDashboard,
   writeDashboard,
   cacheGeneration,
@@ -252,7 +253,10 @@ export default function DashboardPage() {
   // after any write, logout or a new business day); Home draws it at once and
   // refreshes it quietly underneath. A first visit finds nothing and loads as
   // before.
-  const [cached] = useState(() => readDashboard(businessTodayIso(cutoffHourFor(user?.business_type))));
+  const myCacheKey = accountKeyFor(user);
+  const [cached] = useState(() =>
+    readDashboard(businessTodayIso(cutoffHourFor(user?.business_type)), undefined, myCacheKey),
+  );
   const c0 = cached?.data || null;
   // How old the kept copy on screen is, in whole minutes — only when it is a
   // few minutes old or more; drives the quiet "Opdateret for N min. siden".
@@ -302,6 +306,10 @@ export default function DashboardPage() {
   // cutoff without re-registering the listener.
   const cutoffRef = useRef(closeCutoffHour);
   cutoffRef.current = closeCutoffHour;
+  // Whose figures a batch answer is: the account this page was rendered for
+  // when the answer lands (lib/swrCache refuses to keep it for another).
+  const accountRef = useRef(myCacheKey);
+  accountRef.current = myCacheKey;
   const [closeRows, setCloseRows] = useState([]);
   const [closeListState, setCloseListState] = useState("loading"); // loading | ok | failed
   const [saleModal, setSaleModal] = useState(false);
@@ -387,7 +395,7 @@ export default function DashboardPage() {
         momsDays: setMomsCountdownDays,
       });
       momsAnswered = !!data && typeof data === "object" && "moms_date" in data;
-      writeDashboard(businessDay, data, gen);
+      writeDashboard(businessDay, data, gen, undefined, accountRef.current);
       setStaleMinutes(null);
       // Signal self-fetching cards (foresight hero) to re-pull after this refresh.
       if (bumpCards) setRefreshNonce((n) => n + 1);

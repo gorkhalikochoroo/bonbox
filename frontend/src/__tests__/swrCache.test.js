@@ -85,6 +85,23 @@ describe("never another account's figures", () => {
     expect(readDashboard(DAY)).toBeNull();
   });
 
+  it("the caller's own account key must match too (a second, independent check)", () => {
+    signIn(OWNER_A);
+    expect(writeDashboard(DAY, { summary: {} }, cacheGeneration(), Date.now(), "b|owner")).toBe(false);
+    writeDashboard(DAY, { summary: { a: 1 } }, cacheGeneration(), Date.now(), "a|owner");
+    expect(readDashboard(DAY, Date.now(), "b|owner")).toBeNull();
+    expect(readDashboard(DAY, Date.now(), "a|owner").data.summary.a).toBe(1);
+  });
+
+  it("AuthProvider names the account during its render, before any child renders", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { dirname, join } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "hooks", "useAuth.jsx"), "utf8");
+    expect(src).toMatch(/\n  setCacheAccount\(cacheKey\);\n/);
+    expect(src).not.toMatch(/useEffect\(\(\) => \{ setCacheAccount/);
+  });
+
   it("a seat signing in on the same device gets nothing", () => {
     signIn(OWNER_A);
     writeDashboard(DAY, { summary: {} }, cacheGeneration());

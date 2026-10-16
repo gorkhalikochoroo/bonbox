@@ -112,16 +112,20 @@ export function cacheGeneration() {
 
 // ── /dashboard/batch ────────────────────────────────────────────────────
 
-export function readDashboard(businessDay, now = Date.now()) {
+/** `account` (optional): the caller's own accountKeyFor(user); a mismatch
+ *  with the cache's account draws nothing — a second, independent check. */
+export function readDashboard(businessDay, now = Date.now(), account = undefined) {
   if (!_usable() || !_dashboard) return null;
   if (_dashboard.account !== _account) return null;
+  if (account !== undefined && account !== _account) return null;
   if (_dashboard.businessDay !== businessDay) return null;
   if (now - _dashboard.at > MAX_AGE_MS) return null;
   return { data: _dashboard.data, at: _dashboard.at, ageMs: now - _dashboard.at };
 }
 
-export function writeDashboard(businessDay, data, gen, now = Date.now()) {
+export function writeDashboard(businessDay, data, gen, now = Date.now(), account = undefined) {
   if (!_usable() || gen !== _gen || !data || typeof data !== "object") return false;
+  if (account !== undefined && account !== _account) return false;
   _dashboard = { account: _account, businessDay, at: now, data };
   return true;
 }
