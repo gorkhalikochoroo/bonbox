@@ -51,6 +51,9 @@ export function DeviceShareProvider({ children }) {
 
   const refresh = useCallback(async () => {
     if (!isOwnerSession) { setReady(true); return; }
+    // A new owner session: not known to be unshared until /status answers
+    // for IT (lib/swrCache stays off until then).
+    setProbeOk(false);
     try {
       const { data } = await api.get("/auth/device-pin/status");
       setEnabled(!!data.shared);
