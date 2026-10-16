@@ -99,10 +99,11 @@ def app_scheduler():
     return json.loads(line[len("RESULT="):])
 
 
-def test_importing_the_app_starts_the_scheduler_with_23_jobs(app_scheduler):
-    # 23 since the hourly revisor package schedule (jobs/revisor_package_job).
+def test_importing_the_app_starts_the_scheduler_with_24_jobs(app_scheduler):
+    # 23 since the hourly revisor package schedule (jobs/revisor_package_job);
+    # 24 since the morning Daily Brief precompute (jobs/daily_brief_precompute_job).
     assert app_scheduler["running"] is True
-    assert app_scheduler["jobs"] == 23
+    assert app_scheduler["jobs"] == 24
 
 
 def test_every_job_has_misfire_grace_and_coalesce(app_scheduler):

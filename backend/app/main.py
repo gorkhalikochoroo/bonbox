@@ -6399,6 +6399,25 @@ try:
         name="Daily Brief morning push",
         replace_existing=True,
     )
+    # Speed push (C, 15 Oct) — write the morning brief BEFORE the owner opens
+    # Home, so the first open of the day is a cache hit instead of ~116
+    # queries + the AI polish. Hourly 04:05-07:05 UTC; each run only touches
+    # owners whose business day has rolled over (DK 06:00 cutoff) and who
+    # opened Home in the last week, and never regenerates an existing row.
+    # The push (06:00) and email (06:30) jobs then reuse the same row.
+    # On-demand generation stays as the fallback. See
+    # jobs/daily_brief_precompute_job.py. Own try: never costs the others.
+    try:
+        from app.jobs.daily_brief_precompute_job import precompute_daily_briefs
+        _scheduler.add_job(
+            precompute_daily_briefs,
+            trigger=CronTrigger(hour="4-7", minute=5),
+            id="daily_brief_precompute",
+            name="Daily Brief morning precompute",
+            replace_existing=True,
+        )
+    except Exception as e:
+        print(f"Scheduler daily_brief_precompute warning: {e}")
     # Expiry chain Phase 1 — daily 06:15 UTC scan. Sits BETWEEN the
     # brief push (06:00 UTC) and email (06:30 UTC) so a Pro owner with
     # an expiring item gets the brief push first, the dedicated
@@ -6494,7 +6513,7 @@ try:
           "recurring expenses (04:00), daily brief push (06:00), daily brief email (06:30), "
           "aiia sync (03:30), mobilepay sync (03:45), frontend monitor (5m), "
           "nightly backup (04:20 UTC, off unless BACKUP_* set), abuse monitor (2m), "
-          "revisor packages (hourly :20)")
+          "revisor packages (hourly :20), daily brief precompute (04:05-07:05 UTC hourly)")
 
     # Scheduler shutdown migrated to the `lifespan` context manager
     # near the FastAPI() constructor. It checks globals() for the
