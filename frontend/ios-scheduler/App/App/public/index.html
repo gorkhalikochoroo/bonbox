@@ -106,7 +106,14 @@
          token in /s/<token> can't leak to a third party. (Browser default,
          pinned explicitly as defence-in-depth.) -->
     <meta name="referrer" content="strict-origin-when-cross-origin" />
-    <meta name="description" content="Dagens lukning, bordbestilling, vagtplan, timer og løn, lager og MOMS. Til restauranter, barer, bistroer, butikker og alle andre, der lukker en kasse i Danmark. Ét login til ejeren, én app til personalet, én regning." />
+    <!-- Search snippet, social previews (og/twitter) and the JSON-LD below say
+         what the landing's hero says (push 9): no payroll wording (BonBox
+         tracks hours and exports them; it does not run payroll), no promise
+         of a staff app on every phone (there is no Android app), the same
+         audience as the headline. Push 8's one-www-address, da/en-only,
+         no-free-price rules still hold. __tests__/landingPush9Review.test.jsx
+         and __tests__/seoHead.test.js read this file. -->
+    <meta name="description" content="Dagens kasserapport, bookinger, vagtplan, timer, lager og MOMS samlet ét sted. Til caféer, restauranter, barer og saloner. Ét login til ejeren og én regning." />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="BonBox" />
@@ -274,7 +281,7 @@
          picture. og-image-v2.png stays in public/ for pages that already
          reference it. -->
     <meta property="og:title" content="BonBox — Bagkontoret din virksomhed faktisk kører på" />
-    <meta property="og:description" content="Dagens lukning, bordbestilling, vagtplan, timer og løn, lager og MOMS. Til restauranter, barer, bistroer, butikker og alle andre, der lukker en kasse i Danmark. Ét login til ejeren, én app til personalet, én regning." />
+    <meta property="og:description" content="Dagens kasserapport, bookinger, vagtplan, timer, lager og MOMS samlet ét sted. Til caféer, restauranter, barer og saloner. Ét login til ejeren og én regning." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://www.bonbox.dk/" />
     <meta property="og:image" content="https://www.bonbox.dk/og-image-v3.png" />
@@ -288,10 +295,10 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="https://www.bonbox.dk/og-image-v3.png" />
     <meta name="twitter:title" content="BonBox — Bagkontoret din virksomhed faktisk kører på" />
-    <meta name="twitter:description" content="Dagens lukning, bordbestilling, vagtplan, timer og løn, lager og MOMS. Til restauranter, barer, bistroer, butikker og alle andre, der lukker en kasse i Danmark. Ét login til ejeren, én app til personalet, én regning." />
+    <meta name="twitter:description" content="Dagens kasserapport, bookinger, vagtplan, timer, lager og MOMS samlet ét sted. Til caféer, restauranter, barer og saloner. Ét login til ejeren og én regning." />
 
     <!-- SEO extras -->
-    <meta name="keywords" content="kasserapport, dagens lukning, MOMS-frist, faktura, bilagsscanning, lønseddel, vagtplan, bordbestilling, café software, restaurant software, bogføring Danmark, Bogføringsloven, BonBox" />
+    <meta name="keywords" content="kasserapport, dagens lukning, MOMS-frist, faktura, bilagsscanning, vagtplan, timeregistrering, bordbestilling, café software, restaurant software, Bogføringsloven, BonBox" />
     <meta name="author" content="BonBox" />
     <link rel="canonical" href="https://www.bonbox.dk/" />
 
@@ -301,7 +308,7 @@
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
       "name": "BonBox",
-      "description": "Bagkontoret din virksomhed faktisk kører på. Dagens lukning, bordbestilling, vagtplan, timer og løn, lager og MOMS — til restauranter, barer, bistroer, butikker og alle andre, der lukker en kasse i Danmark.",
+      "description": "Styr på kassen, vagterne og MOMS. Dagens kasserapport, bookinger, vagtplan, timer, lager og MOMS samlet ét sted — til caféer, restauranter, barer og saloner.",
       "url": "https://www.bonbox.dk/",
       "applicationCategory": "BusinessApplication",
       "operatingSystem": "Web, iOS",
@@ -310,9 +317,10 @@
     </script>
 
     <title>BonBox — Bagkontoret din virksomhed faktisk kører på</title>
-    <script type="module" crossorigin src="/assets/index-DjdIny5C.js"></script>
+    <script type="module" crossorigin src="/assets/index-DCva1MRZ.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-COnpUsM8.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-react-BUHZeGuk.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-qisLtnnc.js">
     <link rel="modulepreload" crossorigin href="/assets/dist-CXO7fBfF.js">
     <link rel="modulepreload" crossorigin href="/assets/createLucideIcon-BeWY0psp.js">
     <link rel="modulepreload" crossorigin href="/assets/shopping-bag-BaKipm5K.js">
@@ -351,26 +359,26 @@
     <link rel="modulepreload" crossorigin href="/assets/x-jbpByaGN.js">
     <link rel="modulepreload" crossorigin href="/assets/Icon-D2HLcxyE.js">
     <link rel="modulepreload" crossorigin href="/assets/Card-BViS5faX.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-LB9J_xfU.js">
-    <link rel="modulepreload" crossorigin href="/assets/CookieConsent-CYta8kt9.js">
-    <link rel="modulepreload" crossorigin href="/assets/currency-B89A5Idu.js">
-    <link rel="modulepreload" crossorigin href="/assets/Amount-C-nATzUo.js">
+    <link rel="modulepreload" crossorigin href="/assets/CookieConsent-BPfLHgQN.js">
+    <link rel="modulepreload" crossorigin href="/assets/currency-CkDS3_QP.js">
+    <link rel="modulepreload" crossorigin href="/assets/Amount-DkOOKSMQ.js">
     <link rel="modulepreload" crossorigin href="/assets/Button-BAVtAjH6.js">
-    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-BzbACUF0.js">
-    <link rel="modulepreload" crossorigin href="/assets/navManifest-UEHZlArX.js">
+    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-BUrXO6wA.js">
     <link rel="modulepreload" crossorigin href="/assets/axios-MlJ7qYYv.js">
     <link rel="modulepreload" crossorigin href="/assets/platform-DXzmFqsj.js">
     <link rel="modulepreload" crossorigin href="/assets/api-Ctd8stLq.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEventLog-B-AFBPdA.js">
+    <link rel="modulepreload" crossorigin href="/assets/useEventLog-CTyCbeEI.js">
     <link rel="modulepreload" crossorigin href="/assets/terms-GFI20Ek6.js">
     <link rel="modulepreload" crossorigin href="/assets/errText-COJAKLWR.js">
-    <link rel="modulepreload" crossorigin href="/assets/useAuth-BRObu8wI.js">
-    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-B7jI_gOc.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-CHZeuiT2.js">
+    <link rel="modulepreload" crossorigin href="/assets/useAuth-CT9ZvS5f.js">
+    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-Wqtzcuf6.js">
+    <link rel="modulepreload" crossorigin href="/assets/UpgradeNudge-fwzAhfZ7.js">
+    <link rel="modulepreload" crossorigin href="/assets/navManifest-UEHZlArX.js">
+    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-C2nVEFhH.js">
     <link rel="modulepreload" crossorigin href="/assets/guestSurface-C-71uN2a.js">
     <link rel="modulepreload" crossorigin href="/assets/liveAlertKinds-T1mCRl_O.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-0acBXe_9.css">
-  <script>(function(){try{var f={"da":"/assets/da-WeivgDOV.js","en":"/assets/en-CUw0Yp0_.js"};var l=null;try{l=localStorage.getItem("lang")}catch(e){}if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}var h=l==="da"?f.da:f.en;var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)}catch(e){}})()</script></head>
+    <link rel="stylesheet" crossorigin href="/assets/index-Brv94Pvf.css">
+  <script>(function(){try{var p=location.pathname.replace(/\/+$/,"")||"/";if((p==="/"||p==="/v2")&&!/(?:^|;\s*)bonbox_csrf=/.test(document.cookie)){var tk=null;try{tk=localStorage.getItem("token")}catch(e){}if(!tk)return}var f={"da":"/assets/da-CsS7EQax.js","en":"/assets/en-BWFy_1FB.js"};var l=null;try{l=localStorage.getItem("lang")}catch(e){}if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}var h=l==="da"?f.da:f.en;var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)}catch(e){}})()</script></head>
   <body>
     <script>
       // Force light mode by default — only honor "dark" if the user explicitly
