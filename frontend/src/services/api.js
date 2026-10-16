@@ -71,19 +71,29 @@ const settle = (config) => {
 // for the few read-only paths Home's cards fire; any successful write (bar
 // telemetry) throws the whole copy away. Never lets a cache problem touch
 // the response itself.
+const isWrite = (config) => {
+  const m = String((config && config.method) || "get").toLowerCase();
+  return m !== "get" && m !== "head" && m !== "options";
+};
 const noteAnswer = (res) => {
   try {
     const config = res?.config || {};
     const method = String(config.method || "get").toLowerCase();
     if (method === "get") rememberGet(config.url, config.params, res.data, config._bbGen);
-    else if (method !== "head" && method !== "options") noteWrite(config.url);
+    else if (isWrite(config)) noteWrite(config.url);
   } catch {
     /* the cache is a convenience — never a failure */
   }
 };
+// A write that has answered (either way) ends every join: a read asked for
+// after it must be a NEW request, never the answer to one sent before it
+// (the in-flight join below, B).
+const endJoinsOnWrite = (config) => {
+  try { if (isWrite(config)) forgetInflightGets(); } catch { /* never fails the request */ }
+};
 api.interceptors.response.use(
-  (res) => { settle(res?.config); noteAnswer(res); return res; },
-  (err) => { settle(err?.config); return Promise.reject(err); },
+  (res) => { settle(res?.config); endJoinsOnWrite(res?.config); noteAnswer(res); return res; },
+  (err) => { settle(err?.config); endJoinsOnWrite(err?.config); return Promise.reject(err); },
 );
 
 /**
@@ -461,6 +471,10 @@ api.interceptors.response.use(
 // is in, the next call asks the server again — this is not a cache.
 const _inflightGets = new Map();
 const _sendGet = api.get.bind(api);
+// Hoisted declaration: the response interceptor above calls this.
+function forgetInflightGets() {
+  _inflightGets.clear();
+}
 
 function _deepCopy(data) {
   try {

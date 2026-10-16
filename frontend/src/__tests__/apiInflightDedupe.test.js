@@ -120,6 +120,19 @@ describe("identical GETs in flight", () => {
     await Promise.all([a, b]);
   });
 
+  it("a read asked for after a write has answered is a new request, never joined to one sent before it", async () => {
+    const before = api.get("/dashboard/batch");          // sent before the write
+    const write = api.post("/sales", { amount: 100 });
+    await tick();
+    release.splice(1, 1)[0]();                           // the write answers first
+    await write;
+    const after = api.get("/dashboard/batch");           // asked for after the write
+    await tick();
+    expect(sent.filter((x) => x.startsWith("get /dashboard/batch"))).toHaveLength(2);
+    await flush();
+    await Promise.all([before, after]);
+  });
+
   it("a failure reaches every caller", async () => {
     api.defaults.adapter = () => Promise.reject(Object.assign(new Error("nope"), { response: { status: 404 } }));
     const a = api.get("/business", { _noRetry: true });
