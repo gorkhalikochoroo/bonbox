@@ -133,24 +133,27 @@ function _path(url) {
 }
 
 function _key(url, params) {
-  const p = params && typeof params === "object"
-    ? Object.keys(params).sort().map((k) => `${k}=${String(params[k])}`).join("&")
+  if (params != null && Object.prototype.toString.call(params) !== "[object Object]") return null;
+  const p = params
+    ? Object.keys(params).sort().map((k) => `${k}=${JSON.stringify(params[k])}`).join("&")
     : "";
   return `${_path(url)}?${p}`;
 }
 
 /** The last answer this account got for GET url+params, or undefined. */
 export function peekGet(url, params, now = Date.now()) {
-  if (!_usable() || !GET_ALLOW.has(_path(url))) return undefined;
-  const e = _gets.get(_key(url, params));
+  const key = _key(url, params);
+  if (!_usable() || !key || !GET_ALLOW.has(_path(url))) return undefined;
+  const e = _gets.get(key);
   if (!e || e.account !== _account || now - e.at > MAX_AGE_MS) return undefined;
   return e.data;
 }
 
 /** services/api.js: a GET answered. Stored only for allow-listed paths. */
 export function rememberGet(url, params, data, gen, now = Date.now()) {
-  if (!_usable() || gen !== _gen || !GET_ALLOW.has(_path(url))) return;
-  _gets.set(_key(url, params), { account: _account, at: now, data });
+  const key = _key(url, params);
+  if (!_usable() || gen !== _gen || !key || !GET_ALLOW.has(_path(url))) return;
+  _gets.set(key, { account: _account, at: now, data });
 }
 
 /** services/api.js: a write answered. Anything but telemetry throws the cache away. */

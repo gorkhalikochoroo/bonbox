@@ -477,10 +477,11 @@ function _getKey(url, config) {
   if (config && config.responseType && config.responseType !== "json") return null;
   const params = config && config.params;
   let p = "";
-  if (params && typeof params === "object") {
-    p = Object.keys(params).sort().map((k) => `${k}=${String(params[k])}`).join("&");
-  } else if (params != null) {
-    return null;
+  if (params != null) {
+    // Plain objects only (a URLSearchParams or a class instance is never
+    // joined); values compared as JSON, so ["1,2"] and [1, 2] never collide.
+    if (Object.prototype.toString.call(params) !== "[object Object]") return null;
+    p = Object.keys(params).sort().map((k) => `${k}=${JSON.stringify(params[k])}`).join("&");
   }
   return `${String(url)}?${p}|${tokenSubject(storedToken()) || "cookie"}|${config && config._noRetry ? 1 : 0}`;
 }

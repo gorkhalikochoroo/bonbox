@@ -96,6 +96,19 @@ describe("identical GETs in flight", () => {
     await Promise.all(calls);
   });
 
+  it("params that are not a plain object, or that differ only in type, are never joined", async () => {
+    const calls = [
+      api.get("/daily-close", { params: new URLSearchParams({ from: "a" }) }),
+      api.get("/daily-close", { params: new URLSearchParams({ from: "b" }) }),
+      api.get("/x", { params: { ids: [1, 2] } }),
+      api.get("/x", { params: { ids: ["1,2"] } }),
+    ];
+    await tick();
+    expect(sent).toHaveLength(4);
+    await flush();
+    await Promise.all(calls);
+  });
+
   it("a different signed-in credential is never joined", async () => {
     localStorage.setItem("token", "aaa.eyJzdWIiOiJvd25lci1hIn0.sig");
     const a = api.get("/business");
