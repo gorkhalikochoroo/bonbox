@@ -103,6 +103,52 @@ def _first_data_day(user, db, period_start, realized_end):
         return None
 
 
+def _period_has_data(user, db, period_start, realized_end):
+    """Whether the account holds ANY money data dated inside
+    [period_start, realized_end]: a confirmed close, a sale, an expense or a
+    sent faktura — the rows the MOMS figure is built from (the same four
+    sources as _first_data_day).
+
+    Why (M, 15 Oct): with no data at all for the period, the MOMS range is
+    0 / 0 and the card said "Forventet MOMS ~0 kr. · forfald 1. dec." — a new
+    signup, a quarterly owner whose quarter is over, told their bill is
+    nothing. Zero booked is not zero owed; the card must say BonBox has no
+    figures yet.
+
+    True on any doubt (no session, a failed lookup): then the card keeps its
+    old wording rather than claiming data is missing. Only ever asked when
+    the realized MOMS is 0 — any booked MOMS already proves there is data —
+    so an active owner pays no extra query."""
+    if db is None:
+        return True
+    try:
+        from app.models.daily_close import DailyClose
+        from app.models.expense import Expense
+        from app.models.invoice import Invoice
+        from app.models.sale import Sale
+
+        checks = (
+            db.query(DailyClose.id).filter(
+                DailyClose.user_id == user.id, DailyClose.is_deleted.isnot(True),
+                DailyClose.status == "confirmed",
+                DailyClose.date >= period_start, DailyClose.date <= realized_end),
+            db.query(Sale.id).filter(
+                Sale.user_id == user.id, Sale.is_deleted.isnot(True),
+                Sale.date >= period_start, Sale.date <= realized_end),
+            db.query(Expense.id).filter(
+                Expense.user_id == user.id, Expense.is_deleted.isnot(True),
+                Expense.date >= period_start, Expense.date <= realized_end),
+            db.query(Invoice.id).filter(
+                Invoice.user_id == user.id,
+                Invoice.status.in_(("sent", "paid", "overdue", "credited")),
+                Invoice.issue_date >= period_start, Invoice.issue_date <= realized_end),
+        )
+        return any(q.first() is not None for q in checks)
+    except Exception:  # noqa: BLE001 — never raise; doubt keeps the old wording
+        logger.exception("foresight: period data lookup failed")
+        return True
+
+
 def _moms_range_split(user, db, period_start, period_end, as_of, data_start=None):
     """MOMS realized over (period_start → as_of) + a run-rate projection of the
     not-yet-elapsed remainder. Negative (refund) periods clamp to 0 — a refund
@@ -190,6 +236,11 @@ def build_foresight_payload(user, db, *, as_of, bank_balance=None, reserved=Deci
     # figure ("BonBox har kun tal fra 11. sep. — MOMS for 1. jul.–10. sep. er
     # ikke med"). An established account never gets this (data_start is None).
     data_from = data_start.isoformat() if (data_start and data_start > _p_start) else None
+    # No figures at all for the period → the card says so instead of "~0 kr."
+    # (see _period_has_data). Booked MOMS proves data; only a zero asks.
+    has_data = True if realized > 0 else _period_has_data(
+        user, db, _p_start, min(as_of, deadline_info["period_end"]),
+    )
     recurring = detect_recurring_outflows(user, db, as_of=as_of, horizon_end=deadline)
 
     inputs = fs.ForesightInputs(
@@ -246,6 +297,11 @@ def build_foresight_payload(user, db, *, as_of, bank_balance=None, reserved=Deci
             # before is not in the figure. The card prints a one-line caveat.
             "period_start": _p_start.isoformat(),
             "data_from": data_from,
+            # False only when BonBox holds NO money data for the period so far:
+            # the figure above is then "no figures", not "0 kr." — the card
+            # asks the owner to enter or scan the period instead.
+            "period_end": deadline_info["period_end"].isoformat(),
+            "has_data": has_data,
         },
         "balance": {
             "starting": _f(cone.mid.starting_balance),
