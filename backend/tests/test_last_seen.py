@@ -444,6 +444,14 @@ def test_the_sqlite_mirror_adds_the_column_and_a_second_boot_is_a_no_op(tmp_path
 
 
 def test_the_gdpr_export_carries_last_seen(client, db):
+    # /export-data is limited to 3/minute per address by the auth router's own
+    # limiter, which conftest does not reset (it resets the app-wide ones).
+    # Run right after tests/test_gdpr_export_complete.py in one process — as a
+    # 2-shard split can order them — the bucket is already full and this got
+    # 429 (reproduced on f3809de8 too). Start from an empty bucket, as
+    # tests/test_terms_notice.py does.
+    from app.routers.auth import limiter as _auth_limiter
+    _auth_limiter.reset()
     u = _user(db)
     r = client.get("/api/auth/export-data", headers=_bearer(u))
     assert r.status_code == 200, r.text
