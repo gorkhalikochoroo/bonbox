@@ -7581,7 +7581,7 @@ export function ScheduleGrid({
               <DraggableShiftBlock shift={shift} member={member} dateIso={toISO(date)}>
                 <div
                   title={conflictTitle}
-                  className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(isDraft)} border-l-[3px] ${roleBar(shiftCat, showRowDot)} ${conflict ? "ring-2 ring-red-400 dark:ring-red-500" : ""}`}
+                  className={`w-full max-w-[11.5rem] mx-auto text-left rounded-lg pl-2.5 pr-2 py-1 leading-tight bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(isDraft)} border-l-[3px] ${roleBar(shiftCat, showRowDot)} ${conflict ? "ring-2 ring-red-400 dark:ring-red-500" : ""}`}
                 >
                   {conflictLabel && (
                     <div className="text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">
@@ -7608,8 +7608,15 @@ export function ScheduleGrid({
                       </span>
                     )}
                     <ShiftMarkers shift={shift} published={!isDraft} t={t} />
+                    {/* Kladde rides on line 2 (two lines, not three) — but only
+                        when line 2 is just the hours. With a role chip or a note
+                        icon it keeps its own line, or that longer line widens
+                        its whole day column in the auto-sized table. */}
+                    {isDraft && !(shift.role_on_shift && catFor(shift.role_on_shift) !== catFor(member.role)) && !String(shift.notes || "").trim() && (
+                      <span className="ml-1.5 align-middle"><DraftPill t={t} /></span>
+                    )}
                   </div>
-                  {isDraft && (
+                  {isDraft && ((shift.role_on_shift && catFor(shift.role_on_shift) !== catFor(member.role)) || String(shift.notes || "").trim()) && (
                     <div className="mt-0.5">
                       <DraftPill t={t} />
                     </div>
@@ -7642,7 +7649,7 @@ export function ScheduleGrid({
                           fravær — it carries the same ring and word. */}
                       <div
                         title={conflictTitle}
-                        className={`text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(exDraft)} border-l-[3px] ${roleBar(exCat, showRowDot)} ${conflict ? "ring-2 ring-red-400 dark:ring-red-500" : ""}`}
+                        className={`w-full max-w-[11.5rem] mx-auto text-left rounded-lg pl-2.5 pr-2 py-1 leading-tight bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(exDraft)} border-l-[3px] ${roleBar(exCat, showRowDot)} ${conflict ? "ring-2 ring-red-400 dark:ring-red-500" : ""}`}
                       >
                         {conflictLabel && (
                           <div className="text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">
@@ -7655,8 +7662,11 @@ export function ScheduleGrid({
                         <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                           {formatShiftHours(exHrs, lang)}
                           <ShiftMarkers shift={ex} published={!exDraft} t={t} />
+                          {exDraft && !String(ex.notes || "").trim() && (
+                            <span className="ml-1.5 align-middle"><DraftPill t={t} /></span>
+                          )}
                         </div>
-                        {exDraft && (
+                        {exDraft && String(ex.notes || "").trim() && (
                           <div className="mt-0.5">
                             <DraftPill t={t} />
                           </div>
