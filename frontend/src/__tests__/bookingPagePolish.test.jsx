@@ -97,10 +97,45 @@ describe("MonthCalendar", () => {
     expect(day(28).className).not.toContain("line-through");
     expect(day(28).querySelector('[data-mark="dot"]')).toBeNull();
     expect(day(28).getAttribute("aria-label")).toMatch(/— by phone only$/);
-    const legend = screen.getByTestId("calendar-legend").textContent;
+    const legendBox = screen.getByTestId("calendar-legend");
+    const legend = legendBox.textContent;
     expect(legend).toContain("closed");
     expect(legend).toContain("full");
     expect(legend).toContain("by phone");
+    // The legend's by-phone sample is the mark the grid draws: the same pale
+    // disc, and a past day (plain pale digits) does not wear it.
+    const disc = (cls) => cls.split(/\s+/).filter((c) => /^(dark:)?bg-gray-/.test(c)).sort().join(" ");
+    const sample = legendBox.querySelector('[data-mark="muted"]');
+    expect(sample).toBeTruthy();
+    expect(disc(day(28).className)).toBe(disc(sample.className));
+    expect(disc(day(26).className)).not.toBe(disc(sample.className));
+  });
+
+  it("a month with marks AND days past max names the marks, not the window (one line at 375px)", () => {
+    const marks = { "2026-09-28": "muted", "2026-09-29": "strike" };
+    render(
+      <MonthCalendar
+        value="2026-09-27"
+        min="2026-09-27"
+        max="2026-09-29"
+        isClosed={(iso) => (iso in marks ? true : undefined)}
+        markOf={(iso) => marks[iso] || null}
+        onPick={vi.fn()}
+        locale="en-GB"
+        labels={{
+          ...labels,
+          stateOf: () => "x",
+          notYet: () => "booking opens later",
+          legend: { strike: "closed", dot: "full", muted: "by phone", beyond: "Book up to 2 days ahead" },
+        }}
+      />,
+    );
+    const legend = screen.getByTestId("calendar-legend").textContent;
+    expect(legend).toContain("closed");
+    expect(legend).toContain("by phone");
+    expect(legend).not.toContain("Book up to");
+    // The day past max still says why in its aria.
+    expect(screen.getByRole("button", { name: /\b30 September — booking opens later$/ }).disabled).toBe(true);
   });
 
   it("the legend lists only the marks present in the visible month, and the window only past max", () => {

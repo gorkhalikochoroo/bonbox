@@ -23,13 +23,16 @@ const monthIndex = ({ y, m }) => y * 12 + m;
  * Optional, all additive (booking push p1) — without them a closed day is
  * struck through and its aria says `labels.closed`, exactly as before:
  *   • `markOf(iso)` → "strike" | "dot" | "muted" | null, how a closed day
- *     looks: struck (closed), a small dot (full), plain disabled (by phone).
- *     Other unbookable days look like any disabled day; the aria says why.
+ *     looks: struck (closed), a small dot (full), a pale disc behind the
+ *     digit (by phone). Other unbookable days look like any disabled day;
+ *     the aria says why.
  *   • `labels.stateOf(iso)` → the aria word for a closed day.
  *   • `labels.notYet(iso)` → the aria words for a day past `max`.
  *   • `labels.legend` = { strike, dot, muted, beyond } → a legend under the
  *     grid naming only the marks this month shows, and `beyond` only when the
- *     month holds days past `max`.
+ *     month holds days past `max` and no mark entry shows (three marks plus
+ *     the window wrapped to two lines at 375px; the disabled days past max
+ *     carry their own aria).
  */
 export default function MonthCalendar({ value, min, max, isClosed, markOf, onPick, locale, labels }) {
   // `labels`: { prev, next, closed } — screen-reader words for the arrows and
@@ -66,7 +69,7 @@ export default function MonthCalendar({ value, min, max, isClosed, markOf, onPic
     ? (() => {
         const shown = new Set(cells.filter(Boolean).map(markFor).filter(Boolean));
         const items = ["strike", "dot", "muted"].filter((m) => shown.has(m) && labels.legend[m]);
-        const beyond = !!(max && labels.legend.beyond && cells.some((iso) => iso && iso > max));
+        const beyond = !items.length && !!(max && labels.legend.beyond && cells.some((iso) => iso && iso > max));
         return items.length || beyond ? { items, beyond } : null;
       })()
     : null;
@@ -135,9 +138,13 @@ export default function MonthCalendar({ value, min, max, isClosed, markOf, onPic
                 "transition-[background-color,color,box-shadow] duration-200 ease-out",
                 selected
                   ? "bg-gray-900 text-white font-semibold dark:bg-white dark:text-gray-900"
-                  : disabled
-                    ? "text-gray-300 dark:text-gray-600 cursor-not-allowed" + (strike ? " line-through" : "")
-                    : "text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800",
+                  : mark === "muted"
+                    // By phone: the pale disc the legend shows — plain pale
+                    // digits looked like the past days around them.
+                    ? "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500 cursor-not-allowed"
+                    : disabled
+                      ? "text-gray-300 dark:text-gray-600 cursor-not-allowed" + (strike ? " line-through" : "")
+                      : "text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800",
                 isToday && !selected ? "ring-1 ring-inset ring-gray-300 dark:ring-gray-600 font-semibold" : "",
               ].join(" ")}
             >
@@ -162,13 +169,14 @@ export default function MonthCalendar({ value, min, max, isClosed, markOf, onPic
           {legend.items.map((m) => (
             <span key={m} className="inline-flex items-center gap-1.5">
               {/* Samples, not digits (a struck "8" read as a count): a strike
-                  line, the dot, and a pale disc for a plain disabled day. */}
+                  line, the dot, and the by-phone day's pale disc — the same
+                  classes the grid draws it with. */}
               {m === "dot" ? (
                 <span aria-hidden="true" className="w-1 h-1 rounded-full bg-gray-500 dark:bg-gray-400" />
               ) : m === "strike" ? (
                 <span aria-hidden="true" className="w-3 h-px bg-gray-400 dark:bg-gray-500" />
               ) : (
-                <span aria-hidden="true" className="w-2 h-2 rounded-full bg-gray-200 dark:bg-gray-700" />
+                <span aria-hidden="true" data-mark="muted" className="w-3.5 h-3.5 rounded-full bg-gray-100 dark:bg-gray-800" />
               )}
               {labels.legend[m]}
             </span>
