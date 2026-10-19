@@ -12,6 +12,9 @@
  *     shell + Home code alongside the check.
  *   • The dictionary preload is written right after <meta charset>, ahead of
  *     the stylesheet (vite.config.js).
+ *   • On "/" (Push 9's landing) only with the bonbox_csrf cookie: a prospect
+ *     with no sign of a session puts nothing on the network ahead of the
+ *     landing's first paint (push 9, E) — AuthProvider checks as before.
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -25,7 +28,7 @@ const bootScript = [...page.matchAll(/<script>([\s\S]*?)<\/script>/g)]
   .map((m) => m[1])
   .find((x) => x.includes("__bbBootMe"));
 
-function runBoot({ path = "/dashboard", capacitor = false, token = null, apiUrl = "https://api.bonbox.dk/api" } = {}) {
+function runBoot({ path = "/dashboard", capacitor = false, token = null, apiUrl = "https://api.bonbox.dk/api", cookie = "lang=da; bonbox_csrf=abc" } = {}) {
   const fetched = [];
   const fakeFetch = (url, opts) => {
     fetched.push({ url, opts });
@@ -35,7 +38,7 @@ function runBoot({ path = "/dashboard", capacitor = false, token = null, apiUrl 
   const fakeLocation = { pathname: path, protocol: "https:", hostname: "www.bonbox.dk" };
   const store = { getItem: (k) => (k === "token" ? token : null) };
   const src = bootScript.replace("%VITE_API_URL%", apiUrl);
-  new Function("window", "location", "localStorage", "fetch", src)(fakeWindow, fakeLocation, store, fakeFetch);
+  new Function("window", "location", "localStorage", "fetch", "document", src)(fakeWindow, fakeLocation, store, fakeFetch, { cookie });
   return { fetched, boot: fakeWindow.__bbBootMe };
 }
 
@@ -66,12 +69,30 @@ describe("index.html — the session check starts at parse time", () => {
     expect(runBoot({ path }).fetched).toHaveLength(0);
   });
 
+  it.each(["", "lang=da", "xbonbox_csrf=1"])("not on the landing without the bonbox_csrf cookie (cookie %j)", (cookie) => {
+    expect(runBoot({ path: "/", cookie }).fetched).toHaveLength(0);
+    expect(runBoot({ path: "/", cookie }).boot).toBeUndefined();
+  });
+
+  it("on /dashboard it does not need the cookie (an app route waits for the answer anyway)", () => {
+    expect(runBoot({ path: "/dashboard", cookie: "" }).fetched).toHaveLength(1);
+  });
+
+  it("uses the same cookie test as lib/landingBoot.js and the dictionary preload", () => {
+    const boot = readFileSync(join(SRC, "lib", "landingBoot.js"), "utf8");
+    const cfg = readFileSync(join(SRC, "..", "vite.config.js"), "utf8");
+    expect(boot).toContain("/(?:^|;\\s*)bonbox_csrf=/");
+    expect(cfg).toContain("/(?:^|;\\\\s*)bonbox_csrf=/");
+    expect(bootScript).toContain("/(?:^|;\\s*)bonbox_csrf=/.test(document.cookie)");
+  });
+
   it("a failed check rejects (401 → the app shows the landing, as before)", async () => {
     const fakeWindow = {};
     const src = bootScript.replace("%VITE_API_URL%", "https://api.bonbox.dk/api");
-    new Function("window", "location", "localStorage", "fetch", src)(
+    new Function("window", "location", "localStorage", "fetch", "document", src)(
       fakeWindow, { pathname: "/", protocol: "https:", hostname: "www.bonbox.dk" },
       { getItem: () => null }, () => Promise.resolve({ ok: false, status: 401 }),
+      { cookie: "bonbox_csrf=expired-session" },
     );
     await expect(fakeWindow.__bbBootMe.promise).rejects.toMatchObject({ response: { status: 401 } });
   });
