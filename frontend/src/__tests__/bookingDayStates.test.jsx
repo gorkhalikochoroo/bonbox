@@ -666,7 +666,8 @@ describe("party sizes on a phone", () => {
     const chips = within(group).getAllByRole("radio");
     expect(chips).toHaveLength(10);
     expect(group.className).toMatch(/(^|\s)grid(\s|$)/);
-    expect(group.className).not.toContain("overflow-x-auto");
+    // A whole class: the short-screen variant (step 2) may carry it.
+    expect(group.className).not.toMatch(/(^|\s)overflow-x-auto(\s|$)/);
     expect(group.style.getPropertyValue("--party-cols-phone")).toBe("5");
     for (const c of chips) {
       expect(c.className).toContain("h-10!");
@@ -679,6 +680,32 @@ describe("party sizes on a phone", () => {
     expect(chips[5].getAttribute("aria-checked")).toBe("true");
   });
 
+  it("a short phone screen keeps one swipe row on the standalone page only (fold ladder step 2)", async () => {
+    // jsdom evaluates no media query: the classes are the contract. Under
+    // max-sm + max-height 700px the grid becomes the swipe row at 40px.
+    const SHORT = "max-sm:[@media(max-height:700px)]:";
+    routes();
+    renderAt();
+    await settle();
+    let group = await screen.findByRole("radiogroup", { name: da.rsvpPartySize });
+    expect(group.className).toMatch(/(^|\s)grid(\s|$)/);
+    for (const c of [`${SHORT}flex`, `${SHORT}overflow-x-auto`, `${SHORT}snap-x`]) expect(group.className).toContain(c);
+    for (const chip of within(group).getAllByRole("radio")) {
+      expect(chip.className).toContain(`${SHORT}shrink-0`);
+      expect(chip.className).toContain(`${SHORT}w-[max(2.5rem,calc((100vw-4.5rem)/7.5))]`);
+      expect(chip.className).toContain("h-10!");
+      expect(chip.className).toContain("min-h-0!");
+    }
+    cleanup();
+    // The embed frame is content-sized: it keeps the grid on every screen.
+    routes();
+    renderAt("/r/x?embed=1");
+    await settle();
+    group = await screen.findByRole("radiogroup", { name: da.rsvpPartySize });
+    expect(group.className).not.toContain(SHORT);
+    for (const chip of within(group).getAllByRole("radio")) expect(chip.className).not.toContain(SHORT);
+  });
+
   it.each([
     [7, "7"],
     [8, "4"],
@@ -688,7 +715,8 @@ describe("party sizes on a phone", () => {
     await settle();
     const group = await screen.findByRole("radiogroup", { name: da.rsvpPartySize });
     expect(group.style.getPropertyValue("--party-cols-phone")).toBe(cols);
-    expect(group.className).not.toContain("overflow-x-auto");
+    // A whole class: the short-screen variant (step 2) may carry it.
+    expect(group.className).not.toMatch(/(^|\s)overflow-x-auto(\s|$)/);
   });
 
   it("a ceiling above 10 keeps the swipe row", async () => {

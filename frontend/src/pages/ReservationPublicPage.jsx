@@ -383,14 +383,31 @@ const PARTY_GRID =
 // the bottom button stay hidden while paused (nothing there leads anywhere).
 const PAUSED_HIDES_PICKERS = true;
 
-// The phone fold ladder, step 1 (spec p1 §3.4.10 / owner Q5). Measured on
-// 19 Oct with touch emulation: two rows of party chips put the first time row
-// 4px above the bottom bar at 375×667 (the gate is ≥ 8). Phone only: the
-// step-1 gaps 24 → 20px, the party heading 10 → 8px and the chip gap 6 → 4px
-// (PARTY_GRID) give back 12px. Never a chip under 40px. Step 2 (a single
-// swipe row on short screens) was not needed. To undo: "space-y-6" / "mb-2.5".
+// The phone fold ladder (spec p1 §3.4.10 / owner Q5), measured with touch
+// emulation, gate: first time row ≥ 8px above the bottom bar.
+// Step 1: two rows of party chips put the first time row 4px above the bar at
+// 375×667. Phone only: the step-1 gaps 24 → 20px, the party heading 10 → 8px
+// and the chip gap 6 → 4px (PARTY_GRID) give back 12px. To undo: "space-y-6"
+// / "mb-2.5".
+// Step 2: the live house bistro's header is two rows taller than the first
+// fixture (its address "Carl Th. Dreyers Vej 244, 2500 Valby" wraps the phone
+// under it, and "Bistro Nørrebro (demo)" takes two lines): −16px at 375×667
+// after step 1. So on a SHORT phone screen (≤ 700px tall, below sm) the 1–10
+// grid is today's single swipe row instead, at 40px — standalone only (the
+// embed frame is content-sized). Taller phones keep the two-row grid. To undo:
+// drop PARTY_SHORT_RAIL / PARTY_CHIP_SHORT_RAIL. Never a chip under 40px.
 const STEP1_SPACING = "space-y-6 max-sm:space-y-5";
 const PARTY_TITLE_GAP = "mb-2.5 max-sm:mb-2";
+// (Whole class names, so Tailwind sees them: the RAIL look, under the query.)
+const PARTY_SHORT_RAIL =
+  "max-sm:[@media(max-height:700px)]:flex max-sm:[@media(max-height:700px)]:gap-2 " +
+  "max-sm:[@media(max-height:700px)]:overflow-x-auto max-sm:[@media(max-height:700px)]:snap-x " +
+  "max-sm:[@media(max-height:700px)]:-mx-4 max-sm:[@media(max-height:700px)]:px-4 " +
+  "max-sm:[@media(max-height:700px)]:scroll-px-4 max-sm:[@media(max-height:700px)]:pb-1 " +
+  "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+const PARTY_CHIP_SHORT_RAIL =
+  "max-sm:[@media(max-height:700px)]:shrink-0 max-sm:[@media(max-height:700px)]:snap-start " +
+  "max-sm:[@media(max-height:700px)]:w-[max(2.5rem,calc((100vw-4.5rem)/7.5))]";
 
 // The "Other date" month grid — ONE render for the embed's inline copy and the
 // phone/desktop sheet, so the two can never drift. It marks only what the
@@ -2645,8 +2662,12 @@ export default function ReservationPublicPage() {
                     these chips are 40px (h-10! + min-h-0!, which releases the
                     coarse-pointer 44px floor) and the fold is measured, not
                     assumed (spec p1 §6: first time row ≥ 8px above the bar at
-                    375×667, 390×844, 402×874). A ceiling above 10 keeps the
-                    single swipe row (owner Q3). Digits stay 15px to match the
+                    375×667, 390×844, 402×874). On a short phone screen
+                    (≤ 700px tall) the standalone page keeps the single swipe
+                    row instead (fold ladder step 2, owner Q5: the live
+                    bistro's two-row header left the times 16px under the
+                    bar). A ceiling above 10 keeps the single swipe row
+                    (owner Q3). Digits stay 15px to match the
                     time digits right below (owner Q6a). From sm up: rows of
                     equal length (5 + 5, not 7 + 3), as before. */}
                 <div
@@ -2660,7 +2681,7 @@ export default function ReservationPublicPage() {
                   }}
                   className={
                     partyGrid
-                      ? PARTY_GRID
+                      ? PARTY_GRID + (isEmbed ? "" : " " + PARTY_SHORT_RAIL)
                       : RAIL + " sm:grid sm:grid-cols-[repeat(var(--party-cols),minmax(0,1fr))] sm:gap-1.5"
                   }
                 >
@@ -2681,7 +2702,8 @@ export default function ReservationPublicPage() {
                       // chip always sits at the edge and says the row goes on.
                       className={
                         partyGrid
-                          ? "w-full px-0 h-10! min-h-0! tabular-nums text-[15px] duration-200 ease-out rounded-xl! " + CHIP_FOCUS
+                          ? "w-full px-0 h-10! min-h-0! tabular-nums text-[15px] duration-200 ease-out rounded-xl! " +
+                            (isEmbed ? "" : PARTY_CHIP_SHORT_RAIL + " ") + CHIP_FOCUS
                           : "shrink-0 w-[max(2.5rem,calc((100vw-4.5rem)/7.5))] sm:w-auto h-10! min-h-0! snap-start tabular-nums text-[15px] duration-200 ease-out rounded-xl! " + CHIP_FOCUS
                       }
                     >
