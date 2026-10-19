@@ -63,6 +63,19 @@ import { venueMonogram } from "../utils/venueMonogram";
 import { contactState } from "../utils/guestContact";
 import { rescueDay } from "../utils/bookingDay";
 import { capFirst, dateLocale, fmtDayLabel, fmtDayShort } from "../utils/guestLocale";
+import {
+  ariaWord,
+  bookAheadText,
+  bookingOpensAria,
+  calendarLegend,
+  chipWord,
+  markOfReason,
+  maxAdvanceOf,
+  noneBookableText,
+  partyColsPhone,
+  railLength,
+  reasonSentence,
+} from "../utils/dayState";
 import { useKeyboardInset } from "../hooks/useKeyboardInset";
 import { useLanguage } from "../hooks/useLanguage";
 import { loadLocale, loadedLocales } from "../lib/localeStore";
@@ -143,6 +156,15 @@ const FOCUS =
   "focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-950";
 // The same, for the shared Chip primitive (its own ring is the faint one).
 const CHIP_FOCUS = "focus-visible:ring-gray-900! dark:focus-visible:ring-gray-100! focus-visible:ring-offset-2!";
+
+// "Ring til os: {phone}" where a day can't be booked online (the paused panel,
+// a party online can't seat, nothing open). 40px / 13px, the 27 Sep phone
+// rule. min-h-0! releases the global (pointer: coarse) 44px floor in
+// index.css — that rule sits outside Tailwind's layers, so h-10 alone renders
+// 44px on a real phone.
+const TEL_ACTION =
+  "inline-flex items-center justify-center gap-2 h-10 min-h-0! px-4 rounded-lg text-[13px] font-medium " +
+  "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200 " + FOCUS;
 
 // The day's times: a segmented control for the services (Frokost /
 // Eftermiddag / Aften) and that service's times four across. As horizontal
@@ -249,8 +271,12 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords =
 // Weekday / date / month stacked in a compact card. The one-line
 // "Man. 28. Sep." chips fit two and a half days on a phone; these fit five.
 // Danish short forms carry dots ("man.", "28.", "sep.") — stripped here.
-function DateStrip({ today, dayMap, value, onPick, t, lang }) {
-  const rail = Array.from({ length: 14 }, (_, i) => addDays(today, i));
+// The strip ends at the booking window (at most 14 days). An unbookable day
+// is disabled and its bottom word says why — "lukket" only for a day the
+// venue's hours say closed; "fuldt", "kun tlf.", "for sent"; anything the
+// page can't name keeps the month name (utils/dayState.js).
+function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = false, value, onPick, t, lang }) {
+  const rail = Array.from({ length: railLength(maxAdvance) }, (_, i) => addDays(today, i));
   // A day picked in the calendar beyond the rail joins it at the end — the
   // row stays in date order, and the effect below scrolls it into view.
   const days = value && value > rail[rail.length - 1] ? [...rail, value] : rail;
@@ -278,13 +304,16 @@ function DateStrip({ today, dayMap, value, onPick, t, lang }) {
     <div
       ref={railRef}
       role="radiogroup"
-      aria-label={t("rsvpPickDate", "Vælg dato")}
+      aria-label={t("rsvpPickDate", "Pick a date")}
       onKeyDown={rovingKeyDown}
       className={RAIL + " relative sm:grid sm:grid-cols-7 sm:gap-1.5"}
     >
       {days.map((iso, idx) => {
         const known = dayMap && iso in dayMap;
         const closed = known && dayMap[iso] === false;
+        // Why it is closed: null reasons (summary not in, or failed) → no word.
+        const reason = reasons ? reasons[iso] : null;
+        const word = closed ? chipWord(reason, t) : null;
         const active = value === iso;
         const quiet = active ? "text-white/75 dark:text-gray-500" : "text-gray-500 dark:text-gray-400";
         return (
@@ -297,15 +326,15 @@ function DateStrip({ today, dayMap, value, onPick, t, lang }) {
             role="radio"
             aria-checked={active}
             tabIndex={active || (!days.includes(value) && idx === 0) ? 0 : -1}
-            aria-label={closed ? `${full(iso)} — ${t("rsvpDayClosed", "lukket")}` : full(iso)}
+            aria-label={closed ? `${full(iso)} — ${ariaWord(reason, t, { party, apptWords })}` : full(iso)}
             className={[
               // Width from the screen, like the party chips: 5½ across, so a
               // half day always sits at the edge (at 390 the 6th was cut by
               // 2px — nothing said the row went on).
               "shrink-0 snap-start w-[max(3.25rem,calc((100vw-3.5rem)/5.5))] sm:w-auto h-[68px] rounded-xl border " + FOCUS,
-              // A day picked beyond the 14-day row stands apart from it, so
+              // A day picked beyond the row stands apart from it, so
               // "Lør 10 okt · Tors 15 okt" never reads as consecutive days.
-              idx === 14 ? "ml-4 sm:ml-0 sm:col-start-1" : "",
+              idx === rail.length ? "ml-4 sm:ml-0 sm:col-start-1" : "",
               "transition-[background-color,border-color,color] duration-200 ease-out",
               "flex flex-col items-center justify-center gap-1",
               active
@@ -321,12 +350,60 @@ function DateStrip({ today, dayMap, value, onPick, t, lang }) {
               {part(iso, { day: "numeric" })}
             </span>
             <span className={"text-[11px] leading-none " + quiet}>
-              {/* rsvpDayClosed — the chip word. rsvpClosed is the page <h1>. */}
-              {closed ? t("rsvpDayClosed", "lukket") : part(iso, { month: "short" }).replace(/^Sept$/, "Sep")}
+              {/* The state word (rsvpDayClosed / rsvpDayFull / …, utils/dayState.js),
+                  else the month. rsvpClosed is the page <h1>, not this. */}
+              {word || part(iso, { month: "short" }).replace(/^Sept$/, "Sep")}
             </span>
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// Party sizes 1–10 on a phone: `--party-cols-phone` columns (partyColsPhone),
+// from sm up the existing `--party-cols` rows.
+const PARTY_GRID =
+  "grid gap-1.5 grid-cols-[repeat(var(--party-cols-phone),minmax(0,1fr))] " +
+  "sm:grid-cols-[repeat(var(--party-cols),minmax(0,1fr))]";
+
+// The "Other date" month grid — ONE render for the embed's inline copy and the
+// phone/desktop sheet, so the two can never drift. It marks only what the
+// page already knows (the 14-day summary): struck = closed, a dot = full,
+// plain disabled = by phone; the aria says why and the legend names only the
+// marks the month shows. No request of its own.
+function DateCalendar({ value, min, max, dayMap, reasons, maxAdvance, party, apptWords, t, lang, onPick, onClose }) {
+  return (
+    // Padding on an inner box: the sheet sets its own side padding inline
+    // (safe-area insets), which beats a class.
+    <div className="px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+      <div className="flex items-center justify-between mb-2">
+        <p className={SECTION_TITLE}>{t("rsvpPickDate", "Pick a date")}</p>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t("close", "Close")}
+          className="-mr-2 w-10 h-10 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+        >
+          <X className="w-5 h-5" aria-hidden="true" />
+        </button>
+      </div>
+      <MonthCalendar
+        value={value}
+        min={min}
+        max={max}
+        isClosed={(iso) => (dayMap && iso in dayMap ? dayMap[iso] === false : undefined)}
+        markOf={reasons ? (iso) => markOfReason(reasons[iso]) : undefined}
+        onPick={onPick}
+        locale={dateLocale(lang)}
+        labels={{
+          prev: t("rsvpPrevMonth", "Previous month"),
+          next: t("rsvpNextMonth", "Next month"),
+          stateOf: (iso) => ariaWord(reasons ? reasons[iso] : null, t, { party, apptWords }),
+          notYet: (iso) => bookingOpensAria(iso, t, { maxAdvance, lang }),
+          legend: calendarLegend(t, maxAdvance),
+        }}
+      />
     </div>
   );
 }
@@ -601,6 +678,21 @@ export default function ReservationPublicPage() {
   // premature "no times"). nextOpenDay drives the "closed today" nudge.
   const [dayMap, setDayMap] = useState(null);
   const [nextOpenDay, setNextOpenDay] = useState(null);
+  // Why each of those days can't be booked: { iso: reason | null }, from the
+  // same summary. null = unknown (not in yet, or the summary failed) — the
+  // page then names nothing and never says "lukket" (utils/dayState.js).
+  const [dayReasons, setDayReasons] = useState(null);
+  // The selected day's reason from /availability or /provider-availability,
+  // keyed {key: "day|party|behandlingId|stylistId", reason}: a late answer for
+  // another day or party can never show its reason here (build plan C5 —
+  // p2 and p4 add their fields to this one object).
+  const [availMeta, setAvailMeta] = useState(null);
+  // Online booking is paused (the venue can't take online bookings now — the
+  // server says "not_accepting" and never why). Set by the summary,
+  // /availability, /provider-availability or a 409; it stays for the rest of
+  // the visit. Step 1 then shows ONE calm panel with the phone instead of
+  // pickers and a "Pick a time" button with nowhere to go (owner Q2).
+  const [paused, setPaused] = useState(false);
 
   // ── Salon (provider) booking state (S3b) ─────────────────────────
   // A provider venue reorders step 1 to behandling → behandler → dato → tid.
@@ -935,7 +1027,8 @@ export default function ReservationPublicPage() {
     if (!page) return;
     const qDay = searchParams.get("d");
     const qParty = parseInt(searchParams.get("party") || "", 10);
-    const maxAdvance = Number(page.max_advance_days) || 60;
+    // The backend's reading: a stored 0 = today only (never "|| 60").
+    const maxAdvance = maxAdvanceOf(page.max_advance_days);
     const maxParty = Number(page.max_party_size) || 10;
 
     // Validate the query day is within [today, today+maxAdvance].
@@ -985,7 +1078,16 @@ export default function ReservationPublicPage() {
         const list = Array.isArray(res.data?.days) ? res.data.days : [];
         const map = Object.fromEntries(list.map((d) => [d.date, !!d.has_slots]));
         setDayMap(map);
+        setDayReasons(Object.fromEntries(list.map((d) => [d.date, d.has_slots ? null : d.reason || null])));
         setNextOpenDay(res.data?.next_open_day || null);
+        // Paused: the explicit top-level flag, or (an older server) every day
+        // "not_accepting". A failed summary never pauses the page.
+        if (
+          res.data?.closed_reason === "not_accepting" ||
+          (list.length > 0 && list.every((d) => d.reason === "not_accepting"))
+        ) {
+          setPaused(true);
+        }
         // Only rescue a day the summary KNOWS is closed. A date picked in the
         // calendar (or a ?d= link) beyond the summary's 14 days is not in the
         // map at all — it used to be treated as closed and silently swapped
@@ -995,6 +1097,8 @@ export default function ReservationPublicPage() {
       .catch(() => {
         if (alive) {
           setDayMap(null);
+          // Unknown, never {}: a failed summary must not invent a state.
+          setDayReasons(null);
           setNextOpenDay(null);
         }
       });
@@ -1101,6 +1205,7 @@ export default function ReservationPublicPage() {
       if (!isProvider && !forParty) return;
       setSlotsLoading(true);
       setSlotsError("");
+      const metaKey = `${forDay}|${forParty}|${forBehandling || ""}|${forStylist || ""}`;
       // The pick survives a party change when that time is still offered
       // (design spec); a new DAY clears it before this runs (effect below).
       const keepIfOffered = (list) => setSlot((cur) => (cur && list.includes(cur) ? cur : ""));
@@ -1133,6 +1238,11 @@ export default function ReservationPublicPage() {
           // A stylist chair is not a table — "2 left" would be meaningless.
           setSlotRemaining({});
           setGroupRequest(false);
+          setAvailMeta({ key: metaKey, reason: res.data?.reason || "" });
+          // A capped salon is paused too (it used to be offered times the
+          // create path then refused).
+          setClosedReason(res.data?.closed_reason || "");
+          if (res.data?.closed_reason === "not_accepting") setPaused(true);
         } else {
           const res = await api.get(`/public/reservations/${slug}/availability`, {
             params: { day: forDay, party: forParty },
@@ -1146,6 +1256,7 @@ export default function ReservationPublicPage() {
               : {},
           );
           setGroupRequest(!!res.data?.group_request);
+          setAvailMeta({ key: metaKey, reason: res.data?.reason || "" });
           // The venue is at its monthly booking ceiling — every time we could
           // show would be refused by the create endpoint. Say so HERE, at the
           // top of the flow, instead of letting the guest pick a table and type
@@ -1153,12 +1264,14 @@ export default function ReservationPublicPage() {
           // additive; when the server doesn't send it we clear the state and
           // behave exactly as before.
           setClosedReason(res.data?.closed_reason || "");
+          if (res.data?.closed_reason === "not_accepting") setPaused(true);
         }
       } catch {
         setSlots([]);
         setSlot("");
         setGroupRequest(false);
         setClosedReason("");
+        setAvailMeta(null);
         // A flag, translated where it is shown. This callback used to depend
         // on `t` for the message, so switching DA/EN re-created it, re-ran
         // the fetch and wiped the time the guest had picked — on step 2 that
@@ -1233,8 +1346,17 @@ export default function ReservationPublicPage() {
 
   // ── Derived ──────────────────────────────────────────────────────
   const maxParty = Number(page?.max_party_size) || 10;
-  const maxAdvance = Number(page?.max_advance_days) || 60;
+  // ONE reading of max_advance_days, the backend's: 0 = today only, missing
+  // or junk = 60 (utils/dayState.js). The ?d= check above uses the same.
+  const maxAdvance = maxAdvanceOf(page?.max_advance_days);
   const latestDay = useMemo(() => addDays(today, maxAdvance), [today, maxAdvance]);
+  const rail = railLength(maxAdvance);
+  // The selected day's reason: the keyed /availability answer when it is for
+  // THIS selection and names one, else the summary's, else unknown.
+  const selKey = `${day}|${party}|${behandlingId || ""}|${stylistId || ""}`;
+  const dayReason =
+    (availMeta && availMeta.key === selKey && availMeta.reason) ||
+    (dayReasons ? dayReasons[day] || null : null);
   // The server sends a shop or a workshop no catalogue (allergens.py); an
   // older server still sent the food set — never shown there either.
   const allergenSet = useMemo(
@@ -1274,6 +1396,11 @@ export default function ReservationPublicPage() {
     for (let i = 1; i <= maxParty; i += 1) list.push(i);
     return list;
   }, [maxParty]);
+  // 1–10 as a grid on a phone; a ceiling above 10 keeps the swipe row (owner Q3).
+  const partyGrid = partyOptions.length <= 10;
+  // Step 1 while paused: one panel, no pickers, no bottom bar.
+  const pausedStep1 = paused && step === 1;
+  const sentenceCtx = { party, apptWords, day, today, maxAdvance, lang };
 
   function toggleAllergen(key) {
     setAllergenTags((prev) =>
@@ -1437,6 +1564,9 @@ export default function ReservationPublicPage() {
           idempotencyKey.current = null;
           backToChoices();
           setSubmitError(lostRaceCode);
+          // One panel ("paused while you were booking"), not the amber box on
+          // top of a second, near-identical message.
+          setPaused(true);
         } else {
           setSubmitError(lostRaceCode);
         }
@@ -2162,6 +2292,27 @@ export default function ReservationPublicPage() {
     );
   }
 
+  // The "Other date" calendar, rendered inline (embed) or in a sheet.
+  const calendar = (
+    <DateCalendar
+      value={day}
+      min={today}
+      max={latestDay}
+      dayMap={dayMap}
+      reasons={dayReasons}
+      maxAdvance={maxAdvance}
+      party={party}
+      apptWords={apptWords}
+      t={t}
+      lang={lang}
+      onPick={(iso) => {
+        setDay(iso);
+        setShowDateInput(false);
+      }}
+      onClose={() => setShowDateInput(false)}
+    />
+  );
+
   // ── Main wizard ────────────────────────────────────────────────────
   return (
     <div
@@ -2169,7 +2320,7 @@ export default function ReservationPublicPage() {
         // Tablet/desktop: the booking sits on a card over a quiet ground,
         // instead of a narrow column floating on a white page. Not when
         // embedded — the host site is the ground there.
-        isEmbed ? "" : "pb-32 sm:pt-10 sm:pb-12 sm:bg-gray-50 sm:dark:bg-gray-950"
+        isEmbed ? "" : (pausedStep1 ? "pb-12" : "pb-32") + " sm:pt-10 sm:pb-12 sm:bg-gray-50 sm:dark:bg-gray-950"
       }`}
     >
       <div
@@ -2266,7 +2417,9 @@ export default function ReservationPublicPage() {
               As plain grey body text it read as legalese and was skipped; on a
               quiet strip with a green check it reads as reassurance. The strip
               itself is neutral: the green is spent on the one main action. */}
-          {step === 1 && (
+          {/* Not while online booking is paused: it advertises a booking
+              that isn't possible right now. */}
+          {step === 1 && !paused && (
             <div className="flex items-center gap-2 rounded-xl bg-gray-50 dark:bg-white/5 px-3.5 py-2">
               <Check className="w-4 h-4 shrink-0 text-bb-green" aria-hidden />
               <p className="text-[13px] font-medium leading-snug text-gray-700 dark:text-gray-300">
@@ -2276,11 +2429,41 @@ export default function ReservationPublicPage() {
           )}
         </header>
 
-        <StepDots step={step} t={t} apptWords={apptWords} />
+        {/* No steps to show while paused: there is no flow. */}
+        {!pausedStep1 && <StepDots step={step} t={t} apptWords={apptWords} />}
 
         {/* ── Step 1 — (provider) behandling + behandler, then date + slot;
               (table) date + party + slot ────────────────────────────── */}
-        {step === 1 && (
+        {pausedStep1 && (
+          // Online booking is paused (owner Q2): one calm panel, the venue's
+          // phone as the only way on. No pickers, no strip, no calendar, no
+          // times and no bottom button — nothing that leads nowhere. Never
+          // "full", never a plan word. Grey, not amber: nothing went wrong.
+          <section
+            ref={stepFocusRef}
+            tabIndex={-1}
+            role="status"
+            data-testid="rsvp-paused"
+            className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-white/5 px-4 py-4 space-y-3 outline-none"
+          >
+            <p className="text-[15px] font-medium leading-snug text-gray-700 dark:text-gray-300">
+              {submitError === "not_accepting"
+                ? t("rsvpErrClosed", "Online booking was paused while you were booking.")
+                : t("rsvpNotAcceptingOnline", "Online booking is paused right now.")}
+            </p>
+            {telHref(page.phone) ? (
+              <a href={telHref(page.phone)} className={TEL_ACTION}>
+                <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
+                <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: page.phone })}</span>
+              </a>
+            ) : (
+              <p className="text-[13px] text-gray-500 dark:text-gray-400">
+                {t("rsvpContactVenueDirect", "Contact the venue directly to book.")}
+              </p>
+            )}
+          </section>
+        )}
+        {step === 1 && !paused && (
           <section
             ref={stepFocusRef}
             tabIndex={-1}
@@ -2370,24 +2553,34 @@ export default function ReservationPublicPage() {
             {!apptWords && (
               <div>
                 <h2 className={SECTION_TITLE + " mb-2.5"}>
-                  {t("rsvpPartySize", "Antal gæster")}
+                  {t("rsvpPartySize", "Party size")}
                 </h2>
-                {/* HORIZONTAL RAIL, not a grid. As a 5-across grid this was two
-                    stacked rows that pushed the time slots — the thing the guest
-                    actually came to choose — below the fold on a phone. A rail
-                    keeps party size to one line, and the common answers (1–4)
-                    are visible without scrolling it at all.
-                    -mx-4 px-4 lets the row bleed to the screen edge so the last
-                    chip is visibly cut off, which is what tells a thumb there is
-                    more to swipe. */}
+                {/* Party sizes 1–10 on a phone: a static grid of two rows of
+                    five (partyColsPhone: one row up to 7, then 4+4, 5+4, 5+5),
+                    so 8–10 — the group sizes — are visible without a swipe.
+                    The 1 Aug rail (26ca4e98) existed because the old two-row
+                    grid of 44px chips pushed the first time below the fold;
+                    these chips are 40px (h-10! + min-h-0!, which releases the
+                    coarse-pointer 44px floor) and the fold is measured, not
+                    assumed (spec p1 §6: first time row ≥ 8px above the bar at
+                    375×667, 390×844, 402×874). A ceiling above 10 keeps the
+                    single swipe row (owner Q3). Digits stay 15px to match the
+                    time digits right below (owner Q6a). From sm up: rows of
+                    equal length (5 + 5, not 7 + 3), as before. */}
                 <div
                   ref={partyRailRef}
                   role="radiogroup"
-                  aria-label={t("rsvpPartySize", "Antal gæster")}
+                  aria-label={t("rsvpPartySize", "Party size")}
                   onKeyDown={rovingKeyDown}
-                  // From sm up: rows of equal length (5 + 5, not 7 + 3).
-                  style={{ "--party-cols": partyOptions.length <= 8 ? partyOptions.length : Math.ceil(partyOptions.length / 2) }}
-                  className={RAIL + " sm:grid sm:grid-cols-[repeat(var(--party-cols),minmax(0,1fr))] sm:gap-1.5"}
+                  style={{
+                    "--party-cols": partyOptions.length <= 8 ? partyOptions.length : Math.ceil(partyOptions.length / 2),
+                    "--party-cols-phone": partyColsPhone(partyOptions.length),
+                  }}
+                  className={
+                    partyGrid
+                      ? PARTY_GRID
+                      : RAIL + " sm:grid sm:grid-cols-[repeat(var(--party-cols),minmax(0,1fr))] sm:gap-1.5"
+                  }
                 >
                   {partyOptions.map((n) => (
                     <Chip
@@ -2400,11 +2593,14 @@ export default function ReservationPublicPage() {
                       aria-checked={party === n}
                       aria-pressed={undefined}
                       tabIndex={party === n ? 0 : -1}
-                      // Width from the screen: 7½ chips across, so a half chip
-                      // always sits at the edge. At 44px a 375px phone showed
-                      // exactly 1–7 and hid 8–10 — the group sizes — with
-                      // nothing to say the row went on.
-                      className={"shrink-0 w-[max(2.5rem,calc((100vw-4.5rem)/7.5))] sm:w-auto h-11 snap-start tabular-nums text-[15px] duration-200 ease-out rounded-xl! " + CHIP_FOCUS}
+                      // Grid: 40px, never 44. Rail (a ceiling above 10): width
+                      // from the screen, 7½ chips across, so a half chip always
+                      // sits at the edge and says the row goes on.
+                      className={
+                        partyGrid
+                          ? "w-full px-0 h-10! min-h-0! tabular-nums text-[15px] duration-200 ease-out rounded-xl! " + CHIP_FOCUS
+                          : "shrink-0 w-[max(2.5rem,calc((100vw-4.5rem)/7.5))] sm:w-auto h-11 snap-start tabular-nums text-[15px] duration-200 ease-out rounded-xl! " + CHIP_FOCUS
+                      }
                     >
                       {n}
                     </Chip>
@@ -2426,7 +2622,7 @@ export default function ReservationPublicPage() {
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5">
                     {telHref(page.phone) ? (
                       <>
-                        {t("rsvpPartyOverMaxCall", "Er I mere end {n}? Ring til os", {
+                        {t("rsvpPartyOverMaxCall", "More than {n} of you? Give us a call", {
                           n: maxParty,
                         })}{" "}
                         <a
@@ -2439,7 +2635,7 @@ export default function ReservationPublicPage() {
                     ) : (
                       t(
                         "rsvpPartyOverMaxNote",
-                        "Er I mere end {n}? Skriv det præcise antal i beskedfeltet på næste trin.",
+                        "More than {n} of you? Put the exact number in the message field on the next step.",
                         { n: maxParty },
                       )
                     )}
@@ -2452,24 +2648,44 @@ export default function ReservationPublicPage() {
             <div>
               <div className="flex items-center justify-between mb-2.5">
                 <h2 className={SECTION_TITLE}>
-                  {t("rsvpPickDate", "Vælg dato")}
+                  {t("rsvpPickDate", "Pick a date")}
                 </h2>
-                {/* Quiet escape hatch for a far-out date, revealed on demand so
-                    the native field never clutters the default clean strip. */}
-                <button
-                  type="button"
-                  onClick={() => setShowDateInput((v) => !v)}
-                  aria-expanded={showDateInput}
-                  // -my-3: keeps its 44pt touch target without making this
-                  // header row taller than the other two questions'.
-                  className={"-my-3 inline-flex items-center gap-1 rounded-md text-[13px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors " + FOCUS}
-                >
-                  <Calendar size={13} strokeWidth={1.75} aria-hidden="true" />
-                  {t("rsvpOtherDate", "Anden dato")}
-                </button>
+                {rail < 14 ? (
+                  // The whole booking window is on the strip, so a calendar
+                  // would add nothing: say how far ahead instead. Same row,
+                  // zero extra height.
+                  <span data-testid="rsvp-book-ahead" className="text-[13px] text-gray-500 dark:text-gray-400">
+                    {bookAheadText(maxAdvance, t)}
+                  </span>
+                ) : (
+                  // Quiet escape hatch for a far-out date, revealed on demand so
+                  // the calendar never clutters the default clean strip.
+                  <button
+                    type="button"
+                    onClick={() => setShowDateInput((v) => !v)}
+                    aria-expanded={showDateInput}
+                    // -my-3: keeps its 44pt touch target without making this
+                    // header row taller than the other two questions'.
+                    className={"-my-3 inline-flex items-center gap-1 rounded-md text-[13px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors " + FOCUS}
+                  >
+                    <Calendar size={13} strokeWidth={1.75} aria-hidden="true" />
+                    {t("rsvpOtherDate", "Other date")}
+                  </button>
+                )}
               </div>
-              {/* One-tap date strip (closed days disabled) — the primary picker. */}
-              <DateStrip today={today} dayMap={dayMap} value={day} onPick={setDay} t={t} lang={lang} />
+              {/* One-tap date strip (unbookable days disabled, with the reason) — the primary picker. */}
+              <DateStrip
+                today={today}
+                dayMap={dayMap}
+                reasons={dayReasons}
+                maxAdvance={maxAdvance}
+                party={party}
+                apptWords={apptWords}
+                value={day}
+                onPick={setDay}
+                t={t}
+                lang={lang}
+              />
               {/* A later date: the page's own month grid in a sheet. The
                   native date field looked different on every phone and could
                   not show which days the place is closed. */}
@@ -2478,76 +2694,16 @@ export default function ReservationPublicPage() {
                 // place. A sheet is fixed to the bottom of the iframe, which is
                 // as tall as the widget — far below what the guest can see.
                 <div className="mt-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-                  {/* Padding on an inner box: the sheet sets its own side
-                      padding inline (safe-area insets), which beats a class. */}
-                  <div className="px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className={SECTION_TITLE}>{t("rsvpPickDate", "Vælg dato")}</p>
-                    <button
-                      type="button"
-                      onClick={() => setShowDateInput(false)}
-                      aria-label={t("close", "Close")}
-                      className="-mr-2 w-10 h-10 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
-                    >
-                      <X className="w-5 h-5" aria-hidden="true" />
-                    </button>
-                  </div>
-                  <MonthCalendar
-                    value={day}
-                    min={today}
-                    max={latestDay}
-                    isClosed={(iso) => (dayMap && iso in dayMap ? dayMap[iso] === false : undefined)}
-                    onPick={(iso) => {
-                      setDay(iso);
-                      setShowDateInput(false);
-                    }}
-                    locale={dateLocale(lang)}
-                    labels={{
-                      prev: t("rsvpPrevMonth", "Previous month"),
-                      next: t("rsvpNextMonth", "Next month"),
-                      closed: t("rsvpDayClosed", "lukket"),
-                    }}
-                  />
-                  </div>
+                  {calendar}
                 </div>
               )}
               {showDateInput && !isEmbed && (
                 <Sheet
                   onClose={() => setShowDateInput(false)}
-                  ariaLabel={t("rsvpPickDate", "Vælg dato")}
+                  ariaLabel={t("rsvpPickDate", "Pick a date")}
                   panelClassName="bg-white dark:bg-gray-900 sm:max-w-sm"
                 >
-                  {/* Padding on an inner box: the sheet sets its own side
-                      padding inline (safe-area insets), which beats a class. */}
-                  <div className="px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className={SECTION_TITLE}>{t("rsvpPickDate", "Vælg dato")}</p>
-                    <button
-                      type="button"
-                      onClick={() => setShowDateInput(false)}
-                      aria-label={t("close", "Close")}
-                      className="-mr-2 w-10 h-10 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
-                    >
-                      <X className="w-5 h-5" aria-hidden="true" />
-                    </button>
-                  </div>
-                  <MonthCalendar
-                    value={day}
-                    min={today}
-                    max={latestDay}
-                    isClosed={(iso) => (dayMap && iso in dayMap ? dayMap[iso] === false : undefined)}
-                    onPick={(iso) => {
-                      setDay(iso);
-                      setShowDateInput(false);
-                    }}
-                    locale={dateLocale(lang)}
-                    labels={{
-                      prev: t("rsvpPrevMonth", "Previous month"),
-                      next: t("rsvpNextMonth", "Next month"),
-                      closed: t("rsvpDayClosed", "lukket"),
-                    }}
-                  />
-                  </div>
+                  {calendar}
                 </Sheet>
               )}
             </div>
@@ -2636,7 +2792,7 @@ export default function ReservationPublicPage() {
                     <p className="text-sm text-gray-600 dark:text-gray-300">
                       {t(
                         "rsvpNotAcceptingOnline",
-                        "Stedet tager ikke imod flere online reservationer lige nu.",
+                        "Online booking is paused right now.",
                       )}
                     </p>
                     {telHref(page.phone) && (
@@ -2646,7 +2802,7 @@ export default function ReservationPublicPage() {
                       >
                         <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
                         <span>
-                          {t("rsvpNoSlotsCall", "Ring til os: {phone}", {
+                          {t("rsvpNoSlotsCall", "Call us: {phone}", {
                             phone: page.phone,
                           })}
                         </span>
@@ -2665,40 +2821,86 @@ export default function ReservationPublicPage() {
                         />
                       ))}
                     </div>
-                  ) : nextOpenDay && nextOpenDay !== day ? (
-                    // Closed this day but open later — NEVER a dead-end. One tap
-                    // to the next open day (fixes the "closed today" bounce).
+                  ) : dayReason === "no_fit" ? (
+                    // Online can't seat THIS party (above the online maximum,
+                    // no table or combination seats it, or the sitting is
+                    // longer than the day's hours): a call, never "lukket".
+                    // The jump only when a later day is open — a party-wide
+                    // no_fit has none.
                     <div className="space-y-3">
                       <p className="text-sm text-gray-600 dark:text-gray-300">
-                        {t("rsvpClosedTodayOpenSoon", "Lukket denne dag. Næste ledige: {day}", {
-                          day: fmtDayLabel(nextOpenDay, lang),
-                        })}
+                        {reasonSentence("no_fit", t, sentenceCtx)}
+                      </p>
+                      {telHref(page.phone) ? (
+                        <div className="space-y-1.5">
+                          <p className="text-[13px] text-gray-500 dark:text-gray-400">
+                            {t("rsvpNoFitCallHint", "We're happy to sort it out by phone.")}
+                          </p>
+                          <a href={telHref(page.phone)} className={TEL_ACTION}>
+                            <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
+                            <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: page.phone })}</span>
+                          </a>
+                        </div>
+                      ) : (
+                        <p className="text-[13px] text-gray-500 dark:text-gray-400">
+                          {t("rsvpContactVenueDirect", "Contact the venue directly to book.")}
+                        </p>
+                      )}
+                      {nextOpenDay && nextOpenDay > day && (
+                        <Button size="lg" onClick={() => setDay(nextOpenDay)}>
+                          {t("rsvpJumpNextOpen", "Show {day}", { day: fmtDayLabel(nextOpenDay, lang) })}
+                        </Button>
+                      )}
+                    </div>
+                  ) : nextOpenDay && nextOpenDay > day ? (
+                    // Not bookable this day but open later — NEVER a dead end.
+                    // The real reason ("Fuldt booket til 2 gæster denne dag.")
+                    // or the neutral line, then one tap to the next open day.
+                    // Only forward: a calendar pick beyond the summary has an
+                    // EARLIER next open day, and a jump back would be odd.
+                    <div className="space-y-3">
+                      <p className="text-sm text-gray-600 dark:text-gray-300">
+                        {(reasonSentence(dayReason, t, sentenceCtx) || t("rsvpNoSlotsDay", "No available times on this day.")) +
+                          " " +
+                          t("rsvpNextOpenDay", "Next available day: {day}", { day: fmtDayLabel(nextOpenDay, lang) })}
                       </p>
                       <Button size="lg" onClick={() => setDay(nextOpenDay)}>
-                        {t("rsvpJumpNextOpen", "Vis {day}", { day: fmtDayLabel(nextOpenDay, lang) })}
+                        {t("rsvpJumpNextOpen", "Show {day}", { day: fmtDayLabel(nextOpenDay, lang) })}
                       </Button>
                     </div>
                   ) : (
-                    // Genuinely nothing bookable in the window → honest phone
-                    // fallback (a real <a href="tel:">, dials on tap).
+                    // Nothing open later in the window → the honest line and
+                    // the phone (a real <a href="tel:">, dials on tap). The
+                    // window line counts the strip's days, never a flat 14.
                     <div className="space-y-3">
                       <p className="text-sm text-gray-500 dark:text-gray-400">
                         {nextOpenDay
-                          ? t("rsvpNoSlotsDay", "Ingen ledige tider denne dag.")
-                          : t("rsvpFullOrClosedWeek", "Ingen ledige tider de næste 14 dage.")}
+                          ? reasonSentence(dayReason, t, sentenceCtx) || t("rsvpNoSlotsDay", "No available times on this day.")
+                          : [
+                              ["closed", "full", "too_late"].includes(dayReason) ? reasonSentence(dayReason, t, sentenceCtx) : null,
+                              noneBookableText(rail, t),
+                            ].filter(Boolean).join(" ")}
                       </p>
                       {telHref(page.phone) && (
-                        <a
-                          href={telHref(page.phone)}
-                          className="inline-flex items-center justify-center gap-2 h-11 px-5 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
-                        >
+                        <a href={telHref(page.phone)} className={TEL_ACTION}>
                           <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-                          <span>
-                            {t("rsvpNoSlotsCall", "Ring til os: {phone}", {
-                              phone: page.phone,
-                            })}
-                          </span>
+                          <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: page.phone })}</span>
                         </a>
+                      )}
+                      {/* Later days may exist past the strip: the calendar,
+                          as a quiet text button (inline in the embed, where
+                          nothing scrolls the host page). */}
+                      {!nextOpenDay && rail === 14 && maxAdvance >= 14 && (
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => setShowDateInput(true)}
+                            className={"inline-flex items-center gap-1.5 h-10 min-h-0! rounded-md text-[13px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors " + FOCUS}
+                          >
+                            <Calendar size={13} strokeWidth={1.75} aria-hidden="true" />
+                            {t("rsvpOtherDate", "Other date")}
+                          </button>
+                        </div>
                       )}
                     </div>
                   )
@@ -3272,6 +3474,7 @@ export default function ReservationPublicPage() {
             Embedded (?embed=1): `sticky` so it flows with the content-sized
             widget — it settles under the form in a short frame and pins to the
             frame bottom while scrolling a tall one, never detaching. */}
+        {!pausedStep1 && (
         <div
           ref={barRef}
           className={
@@ -3376,6 +3579,7 @@ export default function ReservationPublicPage() {
             )}
           </div>
         </div>
+        )}
       </div>
     </div>
   );
@@ -3556,7 +3760,7 @@ function submitErrorMessage(code, t) {
     case "not_accepting":
       return t(
         "rsvpErrClosed",
-        "Stedet tager ikke imod flere reservationer lige nu.",
+        "Online booking was paused while you were booking.",
       );
     case "invalid_email":
       return t("rsvpEmailCheck", "Check your email — e.g. anna@example.com");
