@@ -161,15 +161,14 @@ export default function MonthCalendar({ value, min, max, isClosed, markOf, onPic
         >
           {legend.items.map((m) => (
             <span key={m} className="inline-flex items-center gap-1.5">
+              {/* Samples, not digits (a struck "8" read as a count): a strike
+                  line, the dot, and a pale disc for a plain disabled day. */}
               {m === "dot" ? (
                 <span aria-hidden="true" className="w-1 h-1 rounded-full bg-gray-500 dark:bg-gray-400" />
+              ) : m === "strike" ? (
+                <span aria-hidden="true" className="w-3 h-px bg-gray-400 dark:bg-gray-500" />
               ) : (
-                <span
-                  aria-hidden="true"
-                  className={"text-[13px] tabular-nums text-gray-300 dark:text-gray-600" + (m === "strike" ? " line-through" : "")}
-                >
-                  8
-                </span>
+                <span aria-hidden="true" className="w-2 h-2 rounded-full bg-gray-200 dark:bg-gray-700" />
               )}
               {labels.legend[m]}
             </span>

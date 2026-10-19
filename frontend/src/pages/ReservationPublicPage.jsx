@@ -364,8 +364,17 @@ function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = fals
 // Party sizes 1–10 on a phone: `--party-cols-phone` columns (partyColsPhone),
 // from sm up the existing `--party-cols` rows.
 const PARTY_GRID =
-  "grid gap-1.5 grid-cols-[repeat(var(--party-cols-phone),minmax(0,1fr))] " +
+  "grid gap-1 sm:gap-1.5 grid-cols-[repeat(var(--party-cols-phone),minmax(0,1fr))] " +
   "sm:grid-cols-[repeat(var(--party-cols),minmax(0,1fr))]";
+
+// The phone fold ladder, step 1 (spec p1 §3.4.10 / owner Q5). Measured on
+// 19 Oct with touch emulation: two rows of party chips put the first time row
+// 4px above the bottom bar at 375×667 (the gate is ≥ 8). Phone only: the
+// step-1 gaps 24 → 20px, the party heading 10 → 8px and the chip gap 6 → 4px
+// (PARTY_GRID) give back 12px. Never a chip under 40px. Step 2 (a single
+// swipe row on short screens) was not needed. To undo: "space-y-6" / "mb-2.5".
+const STEP1_SPACING = "space-y-6 max-sm:space-y-5";
+const PARTY_TITLE_GAP = "mb-2.5 max-sm:mb-2";
 
 // The "Other date" month grid — ONE render for the embed's inline copy and the
 // phone/desktop sheet, so the two can never drift. It marks only what the
@@ -2468,7 +2477,7 @@ export default function ReservationPublicPage() {
             ref={stepFocusRef}
             tabIndex={-1}
             aria-label={apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
-            className="space-y-6 outline-none motion-safe:animate-[fadeIn_0.35s_ease-out]"
+            className={STEP1_SPACING + " outline-none motion-safe:animate-[fadeIn_0.35s_ease-out]"}
           >
             {/* Provider (salon): behandling → behandler come FIRST. The chosen
                 behandling drives slot length (server-resolved); behandler
@@ -2552,7 +2561,7 @@ export default function ReservationPublicPage() {
                 question (Push 8). */}
             {!apptWords && (
               <div>
-                <h2 className={SECTION_TITLE + " mb-2.5"}>
+                <h2 className={SECTION_TITLE + " " + PARTY_TITLE_GAP}>
                   {t("rsvpPartySize", "Party size")}
                 </h2>
                 {/* Party sizes 1–10 on a phone: a static grid of two rows of
