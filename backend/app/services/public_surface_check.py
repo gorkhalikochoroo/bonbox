@@ -32,10 +32,13 @@ def check_slug(db, *, profile, owner, now) -> dict:
     detail: dict = {}
 
     # dead_on_arrival — 0 availability for the whole horizon (real defect).
+    # with_reasons=False: this reads only has_slots / next_open_day, so the
+    # per-day reason classification (guest page only) costs it nothing.
     try:
         summary = rsvc.summarize_days(
             db, profile=profile, user_id=owner.id, start_date=now.date(),
             days=_HORIZON_DAYS, party_size=_PROBE_PARTY, now=now,
+            with_reasons=False,
         )
         open_days = sum(1 for d in summary["days"] if d["has_slots"])
         detail["open_days_count"] = open_days

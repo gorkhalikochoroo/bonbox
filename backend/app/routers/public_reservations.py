@@ -11,7 +11,8 @@ Multi-barrier: L1 no auth (identity = idempotency key + booking-token JWT)
 rate limits · L5 fail-soft · L6 IDOR-safe 404 on token mismatch · L7
 PLAN_CAPS fail-closed (owner's monthly cap → generic 409, never a tier
 leak to the visitor) · L8 audit · L9 410 when reservations disabled · L10
-honest "no availability".
+honest "no availability": a per-day `reason` names why a day is unbookable
+(reservation_service.DAY_REASONS); never a plan or tier word.
 
 NOTE: no `from __future__ import annotations` (FastAPI body-resolver, see
 public_bookings.py).
@@ -363,15 +364,18 @@ def availability(request: Request, slug: str = Path(...),
     today = _now_local().date()
     max_advance = int(settings.get("max_advance_days", 60))
     if target < today or target > today + timedelta(days=max_advance):
-        return {"date": day, "party_size": party, "slots": [], "group_request": False}
+        return {"date": day, "party_size": party, "slots": [], "group_request": False,
+                "reason": rsvc.window_reason(target, today, max_advance)}
 
     # At the monthly ceiling the answer is "closed", not a list of times the
     # create endpoint is about to refuse. `closed_reason` is additive — an
     # older client sees an empty `slots` array and renders its normal
-    # no-availability state, which is already the honest outcome.
+    # no-availability state, which is already the honest outcome. `reason`
+    # (additive, only when `slots` is empty) speaks the day-strip vocabulary.
     if _at_month_cap(db, owner):
         return {"date": day, "party_size": party, "slots": [],
-                "group_request": False, "closed_reason": "not_accepting"}
+                "group_request": False, "closed_reason": "not_accepting",
+                "reason": "not_accepting"}
 
     group_request = rsvc.is_group_request(settings, party)
     if group_request:
@@ -385,13 +389,19 @@ def availability(request: Request, slug: str = Path(...),
             db, profile=profile, user_id=owner.id, day=target,
             party_size=party, now=_now_local(),
         )
-        return {
+        body = {
             "date": day,
             "party_size": party,
             "group_request": True,
             "slots": [s.strftime("%H:%M") for s in grid],
             "slot_remaining": {},
         }
+        if not grid:
+            body["reason"] = rsvc.empty_day_reason(
+                db, profile=profile, user_id=owner.id, day=target,
+                party_size=party, now=_now_local(), settings=settings,
+            )
+        return body
 
     slots = rsvc.available_slots(
         db, profile=profile, user_id=owner.id, day=target,
@@ -406,13 +416,21 @@ def availability(request: Request, slug: str = Path(...),
         db, profile=profile, user_id=owner.id, day=target,
         party_size=party, now=_now_local(),
     )
-    return {
+    body = {
         "date": day,
         "party_size": party,
         "group_request": group_request,
         "slots": [s.strftime("%H:%M") for s in slots],
         "slot_remaining": remaining,
     }
+    # Only an empty day carries a reason; a day with times is byte-identical
+    # to before. A failed classification reads "closed_or_full" (neutral).
+    if not slots:
+        body["reason"] = rsvc.empty_day_reason(
+            db, profile=profile, user_id=owner.id, day=target,
+            party_size=party, now=_now_local(), settings=settings,
+        )
+    return body
 
 
 @router.get("/{slug}/availability-summary")
@@ -436,9 +454,12 @@ def availability_summary(request: Request, slug: str = Path(...),
     # Same rule as /availability: at the ceiling every in-window day is closed,
     # and next_open_day is None so the date strip's auto-advance stops instead
     # of walking the whole horizon looking for an evening that cannot exist.
+    # The top-level `closed_reason` (the name /availability already uses) lets
+    # the page show one "paused" panel instead of a strip of dead days.
     if _at_month_cap(db, owner):
         return {
             "from": base.isoformat(), "party_size": party, "next_open_day": None,
+            "closed_reason": "not_accepting",
             "days": [
                 {"date": (base + timedelta(days=i)).isoformat(),
                  "has_slots": False, "reason": "not_accepting"}
@@ -571,7 +592,13 @@ def provider_availability(request: Request, slug: str = Path(...),
     empty = {"date": day, "behandling_id": behandling_id,
              "duration_min": duration, "slots": []}
     if target < today or target > today + timedelta(days=max_advance):
-        return empty
+        return {**empty, "reason": rsvc.window_reason(target, today, max_advance)}
+    # The monthly ceiling, as on the table path: a capped salon was still
+    # offered times here, and the create endpoint then refused the booking
+    # (409) after the guest had typed their details. Under the cap nothing
+    # changes, and a billing error fails open (_at_month_cap).
+    if _at_month_cap(db, owner):
+        return {**empty, "closed_reason": "not_accepting", "reason": "not_accepting"}
 
     slots = rsvc.available_provider_slots(
         db, profile=profile, user_id=owner.id, day=target,

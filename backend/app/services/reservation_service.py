@@ -22,7 +22,7 @@ from app.models.reservation_occupancy import ReservationOccupancy
 from app.models.staff import Schedule
 from app.services.availability_engine import (
     AvailabilityConfig, BusyInterval, ResourceView, TimeWindow,
-    combinable_zone_overflow, compute_slots, find_slot_resource,
+    assign_seats, combinable_zone_overflow, compute_slots, find_slot_resource,
     find_slot_resources, time_grid, turn_time_minutes,
 )
 
@@ -142,6 +142,35 @@ def hours_declared(profile: BusinessProfile | None, settings: dict) -> bool:
     return False
 
 
+def _day_spec(profile: BusinessProfile | None, settings: dict,
+              key: str) -> tuple[object | None, str | None]:
+    """The raw hours spec that decides weekday `key` ("mon".."sun"), and the
+    source it came from: `(spec, "booking" | "opening")`, or `(None, None)`
+    when neither source names the day (or the Profile hours are unreadable).
+
+    The ONE precedence rule — restaurant_windows() builds its window from it,
+    and the day-reason classifier asks it whether "lukket" is a claim the
+    venue made (build plan C1):
+      1. `booking_hours` in reservation settings, when it holds a truthy value
+         for the day (the owner's "we take bookings Mon 17-23, Tue closed");
+      2. else the business's `operating_hours_json` (the Profile hours).
+    The spec is returned raw ("closed", "17:00-23:00", or anything an older
+    client stored); parsing stays in restaurant_windows."""
+    bh = settings.get("booking_hours")
+    if isinstance(bh, dict) and bh.get(key):
+        return bh.get(key), "booking"
+    raw = getattr(profile, "operating_hours_json", None) if profile else None
+    if raw:
+        try:
+            hours = json.loads(raw)
+        except (ValueError, TypeError):
+            return None, None
+        spec = hours.get(key) if isinstance(hours, dict) else None
+        if spec is not None:
+            return spec, "opening"
+    return None, None
+
+
 def restaurant_windows(profile: BusinessProfile | None, day: date,
                        settings: dict) -> list[TimeWindow]:
     """The day's open window for bookings. Source precedence:
@@ -155,24 +184,7 @@ def restaurant_windows(profile: BusinessProfile | None, day: date,
     hours the moment it added its first table: a café closing at 17:00 and
     shut on Mondays took bookings for Monday at 21:00.
     Closes past midnight roll to the next day (e.g. '18:00-02:00')."""
-    key = _WEEKDAY_KEYS[day.weekday()]
-    spec = None
-
-    # 1. Reservation-specific booking hours win (owner sets them in Settings).
-    bh = settings.get("booking_hours")
-    if isinstance(bh, dict) and bh.get(key):
-        spec = bh.get(key)
-
-    # 2. Else fall back to the business's operating hours.
-    if spec is None:
-        raw = getattr(profile, "operating_hours_json", None) if profile else None
-        if raw:
-            try:
-                hours = json.loads(raw)
-                spec = hours.get(key) if isinstance(hours, dict) else None
-            except (ValueError, TypeError):
-                spec = None
-
+    spec, _source = _day_spec(profile, settings, _WEEKDAY_KEYS[day.weekday()])
     if spec is None or spec == "closed" or "-" not in str(spec):
         return []
     open_s, close_s = str(spec).split("-")[:2]
@@ -241,6 +253,13 @@ def provider_windows(db: Session, user_id, resource, day: date,
         )
         .all()
     )
+    return _shift_windows(day, shifts)
+
+
+def _shift_windows(day: date, shifts) -> list[TimeWindow]:
+    """Published Schedule rows → the day's windows (a close ≤ open rolls to
+    the next day). Shared by provider_windows and the day-reason batch below,
+    so the two can never parse a shift differently."""
     out: list[TimeWindow] = []
     for s in shifts:
         o, c = _parse_hhmm(s.start_time or ""), _parse_hhmm(s.end_time or "")
@@ -251,6 +270,43 @@ def provider_windows(db: Session, user_id, resource, day: date,
                 end += timedelta(days=1)
             out.append(TimeWindow(start=start, end=end))
     return out
+
+
+def _batched_provider_windows(db: Session, user_id, resources, start: date,
+                              end: date, settings: dict):
+    """provider_windows for every day in [start, end], from ONE Schedule
+    query instead of one per provider per day. Returns `fn(resource, day)`
+    with provider_windows' exact rules (self-chair → booking hours; employed
+    stylist → published shifts; neither → []). Used only to NAME an empty
+    day's reason — the open/closed answer still comes from available_slots."""
+    staff_ids = [r.staff_id for r in resources
+                 if r.kind == "provider" and r.staff_id
+                 and not getattr(r, "follows_opening_hours", False)]
+    by_day: dict = {}
+    if staff_ids:
+        rows = (
+            db.query(Schedule)
+            .filter(
+                Schedule.user_id == user_id,
+                Schedule.staff_id.in_(staff_ids),
+                Schedule.date >= start,
+                Schedule.date <= end,
+                Schedule.status == "published",
+            )
+            .all()
+        )
+        for row in rows:
+            by_day.setdefault((row.staff_id, row.date), []).append(row)
+
+    def windows_for(resource, day: date) -> list[TimeWindow]:
+        if getattr(resource, "follows_opening_hours", False):
+            return _opening_hours_windows(settings, day)
+        staff_id = getattr(resource, "staff_id", None)
+        if not staff_id:
+            return []
+        return _shift_windows(day, by_day.get((staff_id, day), []))
+
+    return windows_for
 
 
 def active_resources(db: Session, user_id) -> list[BookableResource]:
@@ -438,16 +494,149 @@ def group_request_slots(db: Session, *, profile: BusinessProfile, user_id, day: 
                                 config=config, now=now)))
 
 
+# ── Why a day offers no online time ─────────────────────────────────────
+# A closed set: the guest page maps each reason to its own words. Never a
+# plan, tier or cap word — "not_accepting" (the monthly cap, set by the
+# router) is deliberately generic.
+DAY_REASONS = ("past", "not_yet_bookable", "not_accepting", "closed",
+               "no_times", "no_fit", "too_late", "full")
+# "Reason unknown": emitted only when classification fails or is skipped (the
+# surface monitor asks for no reasons). The page reads it as neutral.
+LEGACY_REASON = "closed_or_full"
+# Which hours source may make a day read "closed" ("lukket") on the guest page.
+# Default (build plan C1, owner question Q4): only the Profile opening hours.
+# A day closed only by the Reservations booking hours reads the neutral
+# "no_times". Owner's alternative ("Lukket" for both): add "booking" here.
+CLOSED_DAY_SOURCES = ("opening",)
+
+
+def window_reason(day: date, today: date, max_advance: int) -> str | None:
+    """`past` / `not_yet_bookable` for a day outside the booking window, else
+    None. The same window every public endpoint applies (max_advance read as
+    int(settings.get("max_advance_days", 60)), so a stored 0 = today only)."""
+    if day < today:
+        return "past"
+    if day > today + timedelta(days=max_advance):
+        return "not_yet_bookable"
+    return None
+
+
+def _closed_by_declaration(profile: BusinessProfile | None, settings: dict,
+                           day: date) -> bool:
+    """True only when the venue literally declared this weekday "closed" in a
+    source listed in CLOSED_DAY_SOURCES. No hours, an undeclared weekday or an
+    unreadable value is not a claim, so it can never read "lukket"."""
+    spec, source = _day_spec(profile, settings, _WEEKDAY_KEYS[day.weekday()])
+    return spec == "closed" and source in CLOSED_DAY_SOURCES
+
+
+def classify_empty_day(db: Session, *, profile: BusinessProfile, user_id, day: date,
+                       party_size: int, now: datetime, settings: dict | None = None,
+                       resources: list | None = None,
+                       windows_for=None) -> str:
+    """Why (day, party) has no online time — one of DAY_REASONS.
+
+    PRECONDITION: the call the guest sees (available_slots /
+    group_request_slots) returned [] for this day and party. This never
+    decides whether a day is open; it only names why it isn't. The first true
+    reason wins, in a fixed order — the party-wide, clock-free reasons
+    (ceiling, nothing seats the party) come BEFORE too_late, so a party of 6
+    at a venue of 4-tops reads "by phone" tonight too, never "too late"
+    (which would promise that tomorrow works).
+
+    `windows_for(resource, day)` (optional) replaces provider_windows with a
+    batched lookup (summarize_days loads every shift in its range once)."""
+    settings = settings if settings is not None else load_settings(profile)
+    config = build_config(settings)
+    resources = resources if resources is not None else active_resources(db, user_id)
+    if windows_for is None:
+        def windows_for(p, d):
+            return provider_windows(db, user_id, p, d, settings)
+    tables = [r for r in resources if r.kind != "provider"]
+    providers = [r for r in resources if r.kind == "provider"]
+    group = is_group_request(settings, party_size)
+    declared = restaurant_windows(profile, day, settings)   # the venue's own hours
+
+    def shut() -> str:
+        return "closed" if _closed_by_declaration(profile, settings, day) else "no_times"
+
+    # 1. Nothing online could seat anyone (no resources, or a group request
+    #    at a venue without tables): a call when the venue is open that day.
+    if not tables and (group or not providers):
+        return "no_fit" if declared else shut()
+    # 2. No bookable window this day (a salon's chair hours / published shift,
+    #    or the venue's hours).
+    t_win = declared if tables else []
+    p_win = [] if group else [(p, windows_for(p, day)) for p in providers]
+    if not t_win and not any(ws for _, ws in p_win):
+        return "no_times" if declared else shut()
+    # 3. Above the online ceiling (party-wide, clock-free).
+    if config.max_party_size is not None and party_size > config.max_party_size:
+        return "no_fit"
+    # 4. Nothing seats the party even on an empty floor (party-wide, clock-free).
+    #    A group request holds no table, so any table venue "fits" it.
+    t_dur = turn_time_minutes(party_size, config)
+    p_dur = int(settings.get("default_service_duration_min", 60))   # as available_slots
+    t0 = datetime.combine(day, time(12, 0))
+    viable: list[tuple[list, int]] = []
+    if t_win and (group or assign_seats(party_size, t0, t0 + timedelta(minutes=t_dur),
+                                        _views(tables), [], config) is not None):
+        viable.append((t_win, t_dur))
+    for p, ws in p_win:
+        if ws and assign_seats(party_size, t0, t0 + timedelta(minutes=p_dur),
+                               _views([p]), [], config) is not None:
+            viable.append((ws, p_dur))
+    if not viable:
+        return "no_fit"
+
+    # 5. The sitting is longer than every window that day.
+    def any_start(at: datetime | None) -> bool:
+        return any(next(time_grid(windows=ws, duration_min=d, config=config, now=at), None)
+                   is not None for ws, d in viable)
+
+    if not any_start(None):
+        return "no_fit"
+    # 6. Starts exist, but every one is inside the lead time.
+    if not any_start(now):
+        return "too_late"
+    # 7. A group grid with starts would have produced slots: unreachable.
+    if group:
+        logger.warning("day reason: unreachable group branch for owner %s on %s",
+                       user_id, day)
+        return LEGACY_REASON
+    # Bookings, or the owner's own pacing cap, hold every remaining start.
+    return "full"
+
+
+def empty_day_reason(db: Session, **kw) -> str:
+    """classify_empty_day that can never break its caller: naming a reason
+    must never close a day or fail a request. Any error → logged +
+    LEGACY_REASON (the page reads it as neutral)."""
+    try:
+        return classify_empty_day(db, **kw)
+    except Exception:  # noqa: BLE001 — a reason is a label, never a gate
+        logger.warning("day reason failed for owner %s on %s",
+                       kw.get("user_id"), kw.get("day"), exc_info=True)
+        return LEGACY_REASON
+
+
 def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
                    start_date: date, days: int, party_size: int,
-                   now: datetime) -> dict:
+                   now: datetime, with_reasons: bool = True) -> dict:
     """Per-day open/closed overview for the public date strip + the public-surface
     monitor. Calls the SAME available_slots() a diner actually sees (or, for a
     group request, the same group_request_slots() /availability offers), so the
-    strip can never disagree with reality. Days in the past or beyond the advance
-    window are 'out_of_window' (not offerable). Returns:
+    strip can never disagree with reality. Returns:
         {'next_open_day': iso|None, 'group_request': bool,
          'days': [{'date', 'has_slots', 'reason'}]}
+    `reason` is None on a day with times, else one of DAY_REASONS: `past` /
+    `not_yet_bookable` outside the advance window; for an empty in-window day
+    `closed` (declared closed in the Profile hours), `no_times`, `no_fit`,
+    `too_late` or `full` (see classify_empty_day). `has_slots` and
+    `next_open_day` are computed first, exactly as before — a reason never
+    changes them. With `with_reasons=False` (the monitor, which reads only
+    has_slots / next_open_day) an empty in-window day reads LEGACY_REASON and
+    nothing extra runs; a classification error also reads LEGACY_REASON.
     ONE source of truth for 'is this booking page dead' — shared so the customer
     UX and the auto-diagnosis can't diverge."""
     settings = load_settings(profile)
@@ -457,12 +646,25 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
     # the owner's call, not the strip's. Counting tables here marked every day
     # "closed" for exactly the parties that were only ever asking.
     group = is_group_request(settings, party_size)
+    # Loaded once for the classifier, and only when reasons are asked for:
+    # the resources, and (lazily, at the first empty day) every published
+    # shift in the range in one query — a salon pays no query per stylist per
+    # empty day.
+    resources = None
+    windows_for = None
+    if with_reasons:
+        try:
+            resources = active_resources(db, user_id)
+        except Exception:  # noqa: BLE001 — the classifier reloads and fails safe
+            resources = None
+    shifts_loaded = False
     out: list[dict] = []
     first_open = None
     for i in range(days):
         d = start_date + timedelta(days=i)
-        if d < today or d > today + timedelta(days=max_advance):
-            out.append({"date": d.isoformat(), "has_slots": False, "reason": "out_of_window"})
+        outside = window_reason(d, today, max_advance)
+        if outside:
+            out.append({"date": d.isoformat(), "has_slots": False, "reason": outside})
             continue
         if group:
             slots = group_request_slots(
@@ -475,8 +677,27 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
                 party_size=party_size, now=now,
             )
         has = len(slots) > 0
-        out.append({"date": d.isoformat(), "has_slots": has,
-                    "reason": None if has else "closed_or_full"})
+        if has:
+            reason = None
+        elif with_reasons:
+            if not shifts_loaded and resources is not None:
+                shifts_loaded = True
+                if any(r.kind == "provider" for r in resources):
+                    try:
+                        windows_for = _batched_provider_windows(
+                            db, user_id, resources, d,
+                            start_date + timedelta(days=days - 1), settings,
+                        )
+                    except Exception:  # noqa: BLE001 — per-day queries instead
+                        windows_for = None
+            reason = empty_day_reason(
+                db, profile=profile, user_id=user_id, day=d,
+                party_size=party_size, now=now, settings=settings,
+                resources=resources, windows_for=windows_for,
+            )
+        else:
+            reason = LEGACY_REASON
+        out.append({"date": d.isoformat(), "has_slots": has, "reason": reason})
         if has and first_open is None:
             first_open = d.isoformat()
     return {"next_open_day": first_open, "group_request": group, "days": out}
