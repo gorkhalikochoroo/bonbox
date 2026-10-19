@@ -5791,7 +5791,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     api.get(`/public/reservations/${publicPage.slug}/availability-summary`, {
       params: { from: serviceDayIso(), days: 14, party: 1 },
     })
-      .then((r) => { if (alive) setNoBookableTimes(Array.isArray(r.data?.days) && !r.data?.next_open_day); })
+      // Not at the monthly cap: "no bookable time" would be false there — the
+      // shifts are fine, online booking is paused (its own monitor code).
+      .then((r) => { if (alive) setNoBookableTimes(Array.isArray(r.data?.days) && !r.data?.next_open_day && r.data?.closed_reason !== "not_accepting"); })
       .catch(() => { if (alive) setNoBookableTimes(false); });
     return () => { alive = false; };
   }, [isProvider, standalone, salonNeedsSetup, publicPage, providerStations.length]);

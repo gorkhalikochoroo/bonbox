@@ -167,6 +167,22 @@ describe("Aftaler — a live page with no bookable time says so", () => {
     expect(screen.getByText(da.rsvpProviderNoTimesTitle)).toBeInTheDocument();
   });
 
+  it("says nothing when online booking is paused (the cap is not a missing shift)", async () => {
+    // Booking push p1: at the monthly cap every day is "not_accepting" and
+    // next_open_day is null — "no bookable time" would send the owner hunting
+    // for unpublished shifts that are fine.
+    resources = [station];
+    routes({ "/public/reservations/saks/availability-summary": {
+      next_open_day: null, closed_reason: "not_accepting",
+      days: [{ date: "x", has_slots: false, reason: "not_accepting" }],
+    } });
+    renderOwner("/reservations");
+    await screen.findByText(da.rsvpCoversProvider);
+    await settle();
+    expect(h.get).toHaveBeenCalledWith("/public/reservations/saks/availability-summary", expect.anything());
+    expect(screen.queryByTestId("salon-no-bookable-times")).toBeNull();
+  });
+
   it("says nothing when the page is bookable, and the book speaks appointments", async () => {
     resources = [station];
     routes({ "/public/reservations/saks/availability-summary": { next_open_day: "2026-10-13", days: [] } });
