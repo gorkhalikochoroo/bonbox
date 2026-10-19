@@ -14,6 +14,12 @@
            • never in the native app shell (Capacitor) — it signs in with a
              bearer token this request does not carry;
            • only on / and /dashboard, where the answer decides what to draw;
+           • on / only when the bonbox_csrf cookie says a session may exist.
+             Push 9 (E) paints the logged-out landing without waiting for
+             /auth/me and keeps the dictionary preload off it; a prospect's
+             check is not needed for that paint, so it is not started ahead
+             of it. Same cookie test as src/lib/landingBoot.js and the
+             preload. A prospect gets AuthProvider's own check, as on Push 9;
            • not when an old bearer token is stored — the app sends that one.
          A plain credentialed GET with no custom header is a CORS "simple"
          request: no preflight round trip. -->
@@ -23,6 +29,7 @@
           if (window.Capacitor || location.protocol === "capacitor:") return;
           var p = location.pathname.replace(/\/+$/, "") || "/";
           if (p !== "/" && p !== "/dashboard") return;
+          if (p === "/" && !/(?:^|;\s*)bonbox_csrf=/.test(document.cookie)) return;
           try { if (localStorage.getItem("token")) return; } catch (e) { return; }
           var base = "https://api.bonbox.dk/api";
           if (!base) return;
@@ -357,7 +364,7 @@
     </script>
 
     <title>BonBox — Bagkontoret din virksomhed faktisk kører på</title>
-    <script type="module" crossorigin src="/assets/index-Dov1_8rn.js"></script>
+    <script type="module" crossorigin src="/assets/index-BDPjyur8.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-COnpUsM8.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-react-BUHZeGuk.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-BcdF0Q62.js">
