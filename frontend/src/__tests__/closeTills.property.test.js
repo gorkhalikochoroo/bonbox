@@ -344,11 +344,19 @@ const REPLAY = Number(globalThis.process?.env?.TILLS_SEED || 0);
 describe("closeTills — random days (property)", () => {
   const SEQUENCES = 4000;
   const STEPS = 35;
-  it(`${SEQUENCES} random sequences of ${STEPS} steps keep every invariant after every step`, () => {
+  it(`${SEQUENCES} random sequences of ${STEPS} steps keep every invariant after every step`, async () => {
     let scansSeen = 0;
     for (let seed = REPLAY || 1; seed <= (REPLAY || SEQUENCES); seed++) {
       const end = runSequence(seed, STEPS);
       scansSeen += end.entries.filter((e) => e.origin === TILL_SCAN).length;
+      // Hand the worker's event loop back every 100 sequences (~1.5 s on a
+      // GitHub runner). Run in one go, the 4,000 took 57-59 s there, and the
+      // file passed 60 s without the loop turning once; vitest's worker
+      // waits at most 60 s for its progress update to be acknowledged, so
+      // the job went red with every test green ('[vitest-worker]: Timeout
+      // calling "onTaskUpdate"', exactly the runs where this file took
+      // > 60 s). Same seeds, same steps, same checks — only the pauses.
+      if (seed % 100 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
     }
     // The generator really builds multi-till days, not just empty ones.
     expect(scansSeen).toBeGreaterThan(SEQUENCES);
