@@ -147,6 +147,11 @@ describe("the date strip says why a day can't be booked", () => {
     expect(shut.textContent).toContain("lukket");
     expect(shut.getAttribute("aria-label")).toBe(`${dayLabel(plus(1))} — lukket`);
     expect(chipFor(radios, plus(2)).disabled).toBe(false);
+    // The state word is the message: no opacity on it, or on the chip.
+    const word = [...full.querySelectorAll("span")].find((x) => x.textContent === "fuldt");
+    expect(word.className).not.toContain("opacity-45");
+    expect(word.className).toContain("text-gray-500");
+    expect(full.className).not.toContain("opacity-45");
   });
 
   it("en: too late, by phone, closed", async () => {
@@ -331,6 +336,53 @@ describe("paused online booking: one panel, nothing that leads nowhere", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("a salon paused by /provider-availability alone shows the panel", async () => {
+    // The summary is open; the chair's own answer says paused. Without the
+    // salon branch's setPaused the page fell into the old in-place line.
+    routes({
+      page: { ...PAGE, business_type: "salon", providers: [{ id: "r1", name: "Mia" }] },
+      sum: () => summary([]),
+      prov: () => ({ slots: [], closed_reason: "not_accepting", reason: "not_accepting" }),
+    });
+    renderAt();
+    await settle(14);
+    await screen.findByTestId("rsvp-paused");
+    expect(document.getElementById("rsvp-behandling")).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("the panel takes focus when it replaces the chip the guest tapped", async () => {
+    let pauseNext = false;
+    routes({
+      avail: () => (pauseNext
+        ? { slots: [], closed_reason: "not_accepting", reason: "not_accepting" }
+        : { slots: ["19:00"] }),
+    });
+    // jsdom's hasFocus() turns false once the focused node is removed; a
+    // real tab the guest is using keeps it.
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    renderAt();
+    await settle();
+    const party = screen.getByRole("radiogroup", { name: da.rsvpPartySize });
+    const four = within(party).getByRole("radio", { name: "4 gæster" });
+    four.focus();
+    pauseNext = true;
+    fireEvent.click(four);
+    await settle();
+    const panel = await screen.findByTestId("rsvp-paused");
+    expect(document.activeElement).toBe(panel);
+    cleanup();
+
+    // An embed that loads paused while the host page has focus never takes it.
+    hasFocus.mockReturnValue(false);
+    routes({ sum: paused });
+    renderAt("/r/x?embed=1");
+    await settle();
+    await screen.findByTestId("rsvp-paused");
+    expect(document.activeElement).toBe(document.body);
+    hasFocus.mockRestore();
+  });
+
   it("capped salon shows the paused panel", async () => {
     routes({
       page: { ...PAGE, business_type: "salon", providers: [{ id: "r1", name: "Mia" }] },
@@ -358,6 +410,8 @@ describe("the time area names the reason and offers the next step", () => {
     expect(tel.className).toContain("h-10");
     expect(tel.className).toContain("min-h-0!");
     expect(tel.className).toContain("text-[13px]");
+    // A quiet bordered button, not indented ghost text (no hover on touch).
+    expect(tel.className).toMatch(/(^|\s)border(\s|$)/);
     expect(screen.queryByRole("button", { name: /^Vis / })).toBeNull();
     cleanup();
 
@@ -395,9 +449,49 @@ describe("the time area names the reason and offers the next step", () => {
     });
     renderAt();
     await settle();
-    await screen.findByText(/Ingen ledige tider de næste 8 dage\./);
+    // The header's number and the window line's are the same 7.
+    await screen.findByText(/Ingen ledige tider i dag eller de næste 7 dage\./);
+    expect(screen.getByTestId("rsvp-book-ahead").textContent).toBe("Book op til 7 dage frem");
+    expect(pageText()).not.toMatch(/8 dage/);
     expect(pageText()).not.toMatch(/14 dage/);
     expect(screen.getByRole("link", { name: /Ring til os/ }).className).toContain("min-h-0!");
+  });
+
+  it("a today-only window never says 'i dag' twice", async () => {
+    routes({
+      page: { ...PAGE, max_advance_days: 0 },
+      sum: () => summary(["too_late", ...Array(13).fill("not_yet_bookable")]),
+      avail: () => ({ slots: [], reason: "too_late" }),
+    });
+    renderAt();
+    await settle();
+    const line = await screen.findByText(da.rsvpReasonTooLate);
+    expect(line.textContent).toBe(da.rsvpReasonTooLate);
+    expect(pageText()).not.toContain(da.rsvpNoneBookableToday);
+  });
+
+  it("max_advance_days 13 fits the strip: book-ahead, no calendar", async () => {
+    routes({ page: { ...PAGE, max_advance_days: 13 } });
+    renderAt();
+    await settle();
+    expect(await dateRadios()).toHaveLength(14);
+    expect(screen.getByTestId("rsvp-book-ahead").textContent).toBe("Book op til 13 dage frem");
+    expect(screen.queryByRole("button", { name: da.rsvpOtherDate })).toBeNull();
+  });
+
+  it("the reason is read out: it sits in the time area's live region, the times do not", async () => {
+    routes({ avail: (p) => (Number(p.party) === 7 ? { slots: [], reason: "no_fit" } : { slots: ["19:00"] }) });
+    renderAt();
+    await settle();
+    const live = screen.getByTestId("rsvp-times-status");
+    expect(live.getAttribute("aria-live")).toBe("polite");
+    expect(live.contains(await screen.findByRole("radio", { name: "19:00" }))).toBe(false);
+    const party = screen.getByRole("radiogroup", { name: da.rsvpPartySize });
+    fireEvent.click(within(party).getByRole("radio", { name: "7 gæster" }));
+    await settle();
+    // The same region element, still there, now holds the sentence.
+    expect(screen.getByTestId("rsvp-times-status")).toBe(live);
+    expect(live.textContent).toContain("Vi kan ikke finde et bord til 7 online.");
   });
 
   it("nothing open in 14 days offers another date", async () => {
@@ -413,6 +507,32 @@ describe("the time area names the reason and offers the next step", () => {
     await settle(2);
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(screen.getByRole("button", { name: da.rsvpNextMonth })).toBeTruthy();
+  });
+
+  it("embed: 'Anden dato' in the empty time area opens the calendar right under it", async () => {
+    routes({
+      sum: () => summary(Array(14).fill("full")),
+      avail: () => ({ slots: [], reason: "full" }),
+    });
+    renderAt("/r/x?embed=1");
+    await settle();
+    await screen.findByText(`Fuldt booket til 2 gæster denne dag. ${da.rsvpFullOrClosedWeek}`);
+    const times = document.getElementById("rsvp-times").parentElement;
+    const btn = within(times).getByRole("button", { name: da.rsvpOtherDate });
+    fireEvent.click(btn);
+    await settle(2);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const here = screen.getByTestId("rsvp-calendar-at-empty");
+    expect(btn.parentElement.contains(here)).toBe(true);
+    expect(within(here).getByRole("button", { name: da.rsvpNextMonth })).toBeTruthy();
+    // Exactly one calendar: none under the strip.
+    expect(screen.getAllByRole("button", { name: da.rsvpNextMonth })).toHaveLength(1);
+    // The header's "Anden dato" moves it back under the strip.
+    const header = screen.getAllByRole("button", { name: da.rsvpOtherDate }).find((b) => !times.contains(b));
+    fireEvent.click(header);
+    await settle(2);
+    expect(screen.queryByTestId("rsvp-calendar-at-empty")).toBeNull();
+    expect(screen.getAllByRole("button", { name: da.rsvpNextMonth })).toHaveLength(1);
   });
 
   it('salon: a stylist with no time never reads "Lukket"', async () => {
@@ -432,6 +552,22 @@ describe("the time area names the reason and offers the next step", () => {
     await screen.findByText(da.rsvpNoSlotsDay);
     expect(pageText()).not.toMatch(/lukket/i);
     expect(screen.queryByRole("button", { name: /^Vis / })).toBeNull();
+  });
+
+  it("salon whose summary failed: no claim about the other days", async () => {
+    routes({
+      page: { ...PAGE, business_type: "salon", providers: [{ id: "r1", name: "Mia" }] },
+      sum: () => Promise.reject(new Error("Network Error")),
+      prov: () => ({ slots: [] }),
+    });
+    renderAt();
+    await settle(14);
+    await screen.findByText(da.rsvpNoSlotsDay);
+    expect(pageText()).not.toMatch(/14 dage/);
+    expect(pageText()).not.toMatch(/næste/i);
+    const times = document.getElementById("rsvp-times").parentElement;
+    expect(within(times).queryByRole("button", { name: da.rsvpOtherDate })).toBeNull();
+    expect(within(times).getByRole("link", { name: /Ring til os/ })).toBeTruthy();
   });
 
   it.each([
@@ -479,8 +615,11 @@ describe("the time area names the reason and offers the next step", () => {
     await settle();
     expect(pageText()).not.toMatch(/bord til 7/);
     expect(pageText()).not.toMatch(/Vi kan ikke finde et bord/);
+    // The late answer wrote nothing: party 2's free 19:00 is still offered.
+    expect(screen.getByRole("radio", { name: "19:00" })).toBeTruthy();
+    expect(pageText()).not.toContain(da.rsvpNoSlotsDay);
     // Positive control: the same answer for the party ON screen does show.
-    h.get.mockImplementation((url, cfg) => {
+    h.get.mockImplementation((url) => {
       if (url === "/public/reservations/x/availability") return Promise.resolve({ data: { slots: [], reason: "no_fit" } });
       if (url === "/public/reservations/x/availability-summary") return Promise.resolve({ data: summary() });
       return Promise.resolve({ data: url === "/public/reservations/x" ? PAGE : {} });
@@ -488,6 +627,33 @@ describe("the time area names the reason and offers the next step", () => {
     fireEvent.click(within(party).getByRole("radio", { name: "7 gæster" }));
     await settle();
     expect(await screen.findByText("Vi kan ikke finde et bord til 7 online.")).toBeTruthy();
+  });
+});
+
+describe("the strip's words belong to the party on screen", () => {
+  it("a party change shows no old party's words while the new summary loads", async () => {
+    let releaseTwo;
+    routes({
+      sum: (p) =>
+        Number(p.party) === 7
+          ? summary(Array(14).fill("no_fit"))
+          : new Promise((r) => { releaseTwo = () => r({ data: summary(["full"]) }); }),
+      avail: (p) => (Number(p.party) === 7 ? { slots: [], reason: "no_fit" } : { slots: ["19:00"] }),
+    });
+    renderAt("/r/x?party=7");
+    await settle();
+    await waitFor(() => expect(ariaText()).toContain("bord til 7 kun via telefon"));
+    const party = screen.getByRole("radiogroup", { name: da.rsvpPartySize });
+    fireEvent.click(within(party).getByRole("radio", { name: "2 gæster" }));
+    await settle();
+    await waitFor(() => expect(releaseTwo).toBeTypeOf("function"));
+    // Party 2's summary is not in: no "kun tlf.", never "bord til 2 kun via telefon".
+    const strip = (await dateRadios()).map((r) => r.textContent).join(" ");
+    expect(strip).not.toContain("kun tlf.");
+    expect(ariaText()).not.toMatch(/kun via telefon/);
+    await act(async () => { releaseTwo(); });
+    await settle();
+    expect(chipFor(await dateRadios(), TODAY).textContent).toContain("fuldt");
   });
 });
 
@@ -531,7 +697,12 @@ describe("party sizes on a phone", () => {
     await settle();
     const group = await screen.findByRole("radiogroup", { name: da.rsvpPartySize });
     expect(group.className).toContain("overflow-x-auto");
-    expect(within(group).getAllByRole("radio")[0].className).toContain("h-11");
+    // 40px, never 44 (owner Q6): the rail chips release the coarse floor too.
+    for (const c of within(group).getAllByRole("radio")) {
+      expect(c.className).toContain("h-10!");
+      expect(c.className).toContain("min-h-0!");
+      expect(c.className).not.toMatch(/(^|\s)h-11(\s|$)/);
+    }
   });
 
   it("group and phone rules survive the grid", async () => {

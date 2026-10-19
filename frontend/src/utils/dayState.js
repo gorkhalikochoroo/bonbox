@@ -40,7 +40,8 @@ export const WORDS = {
   rsvpNoFitCallHint: "We're happy to sort it out by phone.",
   rsvpContactVenueDirect: "Contact the venue directly to book.",
   rsvpNextOpenDay: "Next available day: {day}",
-  rsvpNoneBookableN: "No available times in the next {n} days.",
+  rsvpNoneBookableN: "No available times today or in the next {n} days.",
+  rsvpNoneBookableOne: "No available times today or tomorrow.",
   rsvpNoneBookableToday: "No available times today.",
   rsvpBookAheadN: "Book up to {n} days ahead",
   rsvpBookAheadOne: "Book up to 1 day ahead",
@@ -182,11 +183,16 @@ export function bookAheadText(n, t) {
   return key === "rsvpBookAheadN" ? say(t, key, { n }) : say(t, key);
 }
 
-// "No available times in the next N days" for a strip of N days.
-export function noneBookableText(n, t) {
-  if (n >= 14) return say(t, "rsvpFullOrClosedWeek");
-  if (n <= 1) return say(t, "rsvpNoneBookableToday");
-  return say(t, "rsvpNoneBookableN", { n });
+// The window line for a booking window of today + `maxAdvance` days, in the
+// header's own number: "Book op til 7 dage frem" over "Ingen ledige tider i
+// dag eller de næste 7 dage." (it used to say 8 — the strip's chip count — on
+// the same screen). A window of 14+ days fills the 14-day strip, which is
+// what that line counts.
+export function noneBookableText(maxAdvance, t) {
+  if (maxAdvance >= 14) return say(t, "rsvpFullOrClosedWeek");
+  if (maxAdvance <= 0) return say(t, "rsvpNoneBookableToday");
+  if (maxAdvance === 1) return say(t, "rsvpNoneBookableOne");
+  return say(t, "rsvpNoneBookableN", { n: maxAdvance });
 }
 
 // The calendar legend words (MonthCalendar `labels.legend`).

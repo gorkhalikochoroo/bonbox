@@ -161,10 +161,13 @@ const CHIP_FOCUS = "focus-visible:ring-gray-900! dark:focus-visible:ring-gray-10
 // a party online can't seat, nothing open). 40px / 13px, the 27 Sep phone
 // rule. min-h-0! releases the global (pointer: coarse) 44px floor in
 // index.css — that rule sits outside Tailwind's layers, so h-10 alone renders
-// 44px on a real phone.
+// 44px on a real phone. A quiet bordered button, its edge on the text's edge:
+// as a borderless ghost it sat 16px in from the sentence above and, with no
+// hover on a phone, read as indented text, not as the one way on.
 const TEL_ACTION =
   "inline-flex items-center justify-center gap-2 h-10 min-h-0! px-4 rounded-lg text-[13px] font-medium " +
-  "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200 " + FOCUS;
+  "border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 " +
+  "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors duration-200 " + FOCUS;
 
 // The day's times: a segmented control for the services (Frokost /
 // Eftermiddag / Aften) and that service's times four across. As horizontal
@@ -339,17 +342,22 @@ function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = fals
               "flex flex-col items-center justify-center gap-1",
               active
                 ? "border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900"
-                : "border-gray-200 bg-white text-gray-900 hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100",
-              closed ? "opacity-45 cursor-not-allowed" : "",
+                : closed
+                  ? "border-gray-100 bg-white text-gray-900 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100"
+                  : "border-gray-200 bg-white text-gray-900 hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100",
+              closed ? "cursor-not-allowed" : "",
             ].join(" ")}
           >
-            <span className={"text-[11px] font-medium leading-none capitalize " + quiet}>
+            {/* A disabled day fades its weekday and digit; its state word
+                ("fuldt", "kun tlf.") is the message, so it stays at gray-500
+                (≈ 4.8:1) — under the chip-wide opacity-45 it read ≈ 1.9:1. */}
+            <span className={"text-[11px] font-medium leading-none capitalize " + quiet + (closed ? " opacity-45" : "")}>
               {part(iso, { weekday: "short" })}
             </span>
-            <span className="text-lg font-semibold leading-none tabular-nums">
+            <span className={"text-lg font-semibold leading-none tabular-nums" + (closed ? " opacity-45" : "")}>
               {part(iso, { day: "numeric" })}
             </span>
-            <span className={"text-[11px] leading-none " + quiet}>
+            <span className={"text-[11px] leading-none " + quiet + (closed && !word ? " opacity-45" : "")}>
               {/* The state word (rsvpDayClosed / rsvpDayFull / …, utils/dayState.js),
                   else the month. rsvpClosed is the page <h1>, not this. */}
               {word || part(iso, { month: "short" }).replace(/^Sept$/, "Sep")}
@@ -366,6 +374,14 @@ function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = fals
 const PARTY_GRID =
   "grid gap-1 sm:gap-1.5 grid-cols-[repeat(var(--party-cols-phone),minmax(0,1fr))] " +
   "sm:grid-cols-[repeat(var(--party-cols),minmax(0,1fr))]";
+
+// Owner question Q2, online booking paused (the monthly limit): the default
+// hides the pickers and shows ONE calm panel with the phone. The owner's
+// alternative — the greyed date strip above the same message — is this one
+// constant set to false: step 1 then renders as usual and the time area
+// says "paused" with the phone. Either way the trust line, the step dots and
+// the bottom button stay hidden while paused (nothing there leads anywhere).
+const PAUSED_HIDES_PICKERS = true;
 
 // The phone fold ladder, step 1 (spec p1 §3.4.10 / owner Q5). Measured on
 // 19 Oct with touch emulation: two rows of party chips put the first time row
@@ -662,6 +678,12 @@ export default function ReservationPublicPage() {
   // quiet escape hatch for a far-out date, revealed on demand so it never
   // clutters the default view (premium via subtraction).
   const [showDateInput, setShowDateInput] = useState(false);
+  // Where the embed draws its inline calendar: under the date strip ("header"
+  // — the "Anden dato" next to the date heading), or right under the "Anden
+  // dato" in the empty time area ("empty"). Opened from down there, a calendar
+  // under the strip appeared ~300px above the tap, in a frame that never
+  // scrolls, and the button jumped down by its height.
+  const [calendarAt, setCalendarAt] = useState("header");
 
   // Availability for the current day+party.
   const [slots, setSlots] = useState([]);
@@ -687,10 +709,13 @@ export default function ReservationPublicPage() {
   // premature "no times"). nextOpenDay drives the "closed today" nudge.
   const [dayMap, setDayMap] = useState(null);
   const [nextOpenDay, setNextOpenDay] = useState(null);
-  // Why each of those days can't be booked: { iso: reason | null }, from the
-  // same summary. null = unknown (not in yet, or the summary failed) — the
-  // page then names nothing and never says "lukket" (utils/dayState.js).
-  const [dayReasons, setDayReasons] = useState(null);
+  // Why each of those days can't be booked, from the same summary, keyed by
+  // the party it was asked for: {party, reasons: {iso: reason | null}}. Read
+  // through `dayReasons` below, which is null (unknown) while the summary for
+  // THIS party is not in — the old party's "kun tlf." never sits under the
+  // new party's number during a refetch. null = not in yet, or the summary
+  // failed: the page then names nothing and never says "lukket".
+  const [reasonsFor, setReasonsFor] = useState(null);
   // The selected day's reason from /availability or /provider-availability,
   // keyed {key: "day|party|behandlingId|stylistId", reason}: a late answer for
   // another day or party can never show its reason here (build plan C5 —
@@ -1074,20 +1099,24 @@ export default function ReservationPublicPage() {
   // but the week does, we jump to the next open day — killing the dead-end where
   // "closed today" showed "No available times" with no way forward. Fail-soft:
   // on error dayMap stays null and the single-day flow + phone fallback still run.
+  // One person for a salon, a shop or a workshop — as the page asks.
+  const summaryParty = isProvider || apptWords ? 1 : (party || 2);
   useEffect(() => {
     if (!page) return;
     let alive = true;
     api
       .get(`/public/reservations/${slug}/availability-summary`, {
-        // One person for a salon, a shop or a workshop — as the page asks.
-        params: { from: today, days: 14, party: isProvider || apptWords ? 1 : (party || 2) },
+        params: { from: today, days: 14, party: summaryParty },
       })
       .then((res) => {
         if (!alive) return;
         const list = Array.isArray(res.data?.days) ? res.data.days : [];
         const map = Object.fromEntries(list.map((d) => [d.date, !!d.has_slots]));
         setDayMap(map);
-        setDayReasons(Object.fromEntries(list.map((d) => [d.date, d.has_slots ? null : d.reason || null])));
+        setReasonsFor({
+          party: summaryParty,
+          reasons: Object.fromEntries(list.map((d) => [d.date, d.has_slots ? null : d.reason || null])),
+        });
         setNextOpenDay(res.data?.next_open_day || null);
         // Paused: the explicit top-level flag, or (an older server) every day
         // "not_accepting". A failed summary never pauses the page.
@@ -1107,7 +1136,7 @@ export default function ReservationPublicPage() {
         if (alive) {
           setDayMap(null);
           // Unknown, never {}: a failed summary must not invent a state.
-          setDayReasons(null);
+          setReasonsFor(null);
           setNextOpenDay(null);
         }
       });
@@ -1115,7 +1144,8 @@ export default function ReservationPublicPage() {
       alive = false;
     };
     // re-run when party changes (open days depend on party size)
-  }, [page, slug, isProvider, apptWords, party, today]);
+  }, [page, slug, summaryParty, today]);
+  const dayReasons = reasonsFor && reasonsFor.party === summaryParty ? reasonsFor.reasons : null;
 
   // ── Per-venue document title + OG tags ────────────────────────────
   // A diner's browser tab should read the RESTAURANT, not the app default
@@ -1200,18 +1230,29 @@ export default function ReservationPublicPage() {
   // start times into the same chip grid the table flow uses. The server
   // re-resolves duration + the (pinned or Valgfri) behandler at booking time
   // from behandling_id/stylist_id/time, so the raw slot ids aren't needed here.
+  // Only the LATEST /availability request may write the time area. A late
+  // answer for the previous party or day used to overwrite the slots, the
+  // pick, the scarcity counts and closed_reason: party 2's free 19:00
+  // vanished under "Ingen ledige tider denne dag." when party 7's answer
+  // came in last (build plan C5). A paused answer still pauses — it is
+  // venue-wide, so true whatever selection it was asked for.
+  const availSeq = useRef(0);
   const fetchAvailability = useCallback(
     async (forDay, forParty, forBehandling, forStylist) => {
       if (!forDay) return;
       // Provider needs a behandling chosen first; until then, no slots.
       if (isProvider && !forBehandling) {
+        availSeq.current += 1;   // any answer still in flight is stale now
         setSlots([]);
         setSlotRemaining({});
         setGroupRequest(false);
         setSlot("");
+        setSlotsLoading(false);
         return;
       }
       if (!isProvider && !forParty) return;
+      const seq = ++availSeq.current;
+      const stale = () => seq !== availSeq.current;
       setSlotsLoading(true);
       setSlotsError("");
       const metaKey = `${forDay}|${forParty}|${forBehandling || ""}|${forStylist || ""}`;
@@ -1230,6 +1271,10 @@ export default function ReservationPublicPage() {
               },
             },
           );
+          if (stale()) {
+            if (res.data?.closed_reason === "not_accepting") setPaused(true);
+            return;
+          }
           const raw = Array.isArray(res.data?.slots) ? res.data.slots : [];
           // The grid shows distinct HH:MM start times across all behandlere
           // (or just the pinned one); the server picks/rechecks the behandler.
@@ -1256,6 +1301,10 @@ export default function ReservationPublicPage() {
           const res = await api.get(`/public/reservations/${slug}/availability`, {
             params: { day: forDay, party: forParty },
           });
+          if (stale()) {
+            if (res.data?.closed_reason === "not_accepting") setPaused(true);
+            return;
+          }
           const list = Array.isArray(res.data?.slots) ? res.data.slots : [];
           setSlots(list);
           keepIfOffered(list);
@@ -1276,6 +1325,7 @@ export default function ReservationPublicPage() {
           if (res.data?.closed_reason === "not_accepting") setPaused(true);
         }
       } catch {
+        if (stale()) return;
         setSlots([]);
         setSlot("");
         setGroupRequest(false);
@@ -1287,7 +1337,8 @@ export default function ReservationPublicPage() {
         // left a grey Confirm button with no way to tell why.
         setSlotsError("load_failed");
       } finally {
-        setSlotsLoading(false);
+        // An old request never ends a newer one's loading state.
+        if (!stale()) setSlotsLoading(false);
       }
     },
     [slug, isProvider],
@@ -1407,8 +1458,30 @@ export default function ReservationPublicPage() {
   }, [maxParty]);
   // 1–10 as a grid on a phone; a ceiling above 10 keeps the swipe row (owner Q3).
   const partyGrid = partyOptions.length <= 10;
-  // Step 1 while paused: one panel, no pickers, no bottom bar.
+  // Step 1 while paused: no bottom bar, no step dots, no trust line; and
+  // (owner Q2 default) one panel instead of the pickers.
   const pausedStep1 = paused && step === 1;
+  const pausedPanel = pausedStep1 && PAUSED_HIDES_PICKERS;
+  // The time grid shows exactly when none of the time area's messages does
+  // (the chain in the time area renders those inside its live region).
+  const timesShowGrid =
+    !(isProvider && !behandlingId) && !slotsError && closedReason !== "not_accepting" && !paused &&
+    slotGroups.length > 0;
+
+  // The paused panel can replace step 1 after the guest tapped a date or a
+  // party (an /availability answer says "not_accepting"): the focused chip
+  // unmounts and focus would fall to <body>. Move it to the panel, but only
+  // while this document has focus — on an embed's first load the host page
+  // keeps it.
+  useEffect(() => {
+    if (!pausedPanel) return;
+    try {
+      const lost = !document.activeElement || document.activeElement === document.body;
+      if (lost && document.hasFocus()) stepFocusRef.current?.focus?.({ preventScroll: true });
+    } catch {
+      /* noop */
+    }
+  }, [pausedPanel]);
   const sentenceCtx = { party, apptWords, day, today, maxAdvance, lang };
 
   function toggleAllergen(key) {
@@ -2443,7 +2516,7 @@ export default function ReservationPublicPage() {
 
         {/* ── Step 1 — (provider) behandling + behandler, then date + slot;
               (table) date + party + slot ────────────────────────────── */}
-        {pausedStep1 && (
+        {pausedPanel && (
           // Online booking is paused (owner Q2): one calm panel, the venue's
           // phone as the only way on. No pickers, no strip, no calendar, no
           // times and no bottom button — nothing that leads nowhere. Never
@@ -2472,7 +2545,7 @@ export default function ReservationPublicPage() {
             )}
           </section>
         )}
-        {step === 1 && !paused && (
+        {step === 1 && !pausedPanel && (
           <section
             ref={stepFocusRef}
             tabIndex={-1}
@@ -2602,13 +2675,14 @@ export default function ReservationPublicPage() {
                       aria-checked={party === n}
                       aria-pressed={undefined}
                       tabIndex={party === n ? 0 : -1}
-                      // Grid: 40px, never 44. Rail (a ceiling above 10): width
-                      // from the screen, 7½ chips across, so a half chip always
-                      // sits at the edge and says the row goes on.
+                      // 40px, never 44, grid and rail alike (min-h-0! releases
+                      // the coarse-pointer 44px floor). Rail (a ceiling above
+                      // 10): width from the screen, 7½ chips across, so a half
+                      // chip always sits at the edge and says the row goes on.
                       className={
                         partyGrid
                           ? "w-full px-0 h-10! min-h-0! tabular-nums text-[15px] duration-200 ease-out rounded-xl! " + CHIP_FOCUS
-                          : "shrink-0 w-[max(2.5rem,calc((100vw-4.5rem)/7.5))] sm:w-auto h-11 snap-start tabular-nums text-[15px] duration-200 ease-out rounded-xl! " + CHIP_FOCUS
+                          : "shrink-0 w-[max(2.5rem,calc((100vw-4.5rem)/7.5))] sm:w-auto h-10! min-h-0! snap-start tabular-nums text-[15px] duration-200 ease-out rounded-xl! " + CHIP_FOCUS
                       }
                     >
                       {n}
@@ -2659,10 +2733,11 @@ export default function ReservationPublicPage() {
                 <h2 className={SECTION_TITLE}>
                   {t("rsvpPickDate", "Pick a date")}
                 </h2>
-                {rail < 14 ? (
-                  // The whole booking window is on the strip, so a calendar
-                  // would add nothing: say how far ahead instead. Same row,
-                  // zero extra height.
+                {maxAdvance < 14 ? (
+                  // The whole booking window is on the strip (the last
+                  // bookable day, today + maxAdvance, is its last chip), so a
+                  // calendar would add nothing: say how far ahead instead.
+                  // Same row, zero extra height.
                   <span data-testid="rsvp-book-ahead" className="text-[13px] text-gray-500 dark:text-gray-400">
                     {bookAheadText(maxAdvance, t)}
                   </span>
@@ -2671,8 +2746,11 @@ export default function ReservationPublicPage() {
                   // the calendar never clutters the default clean strip.
                   <button
                     type="button"
-                    onClick={() => setShowDateInput((v) => !v)}
-                    aria-expanded={showDateInput}
+                    onClick={() => {
+                      setCalendarAt("header");
+                      setShowDateInput((v) => !(v && calendarAt === "header"));
+                    }}
+                    aria-expanded={showDateInput && (!isEmbed || calendarAt === "header")}
                     // -my-3: keeps its 44pt touch target without making this
                     // header row taller than the other two questions'.
                     className={"-my-3 inline-flex items-center gap-1 rounded-md text-[13px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors " + FOCUS}
@@ -2698,7 +2776,7 @@ export default function ReservationPublicPage() {
               {/* A later date: the page's own month grid in a sheet. The
                   native date field looked different on every phone and could
                   not show which days the place is closed. */}
-              {showDateInput && isEmbed && (
+              {showDateInput && isEmbed && calendarAt === "header" && (
                 // Embedded on the restaurant's own site: the calendar opens in
                 // place. A sheet is fixed to the bottom of the iframe, which is
                 // as tall as the widget — far below what the guest can see.
@@ -2758,6 +2836,13 @@ export default function ReservationPublicPage() {
                     )}
                 </p>
               )}
+              {/* The time area's words sit in ONE live region that is always
+                  there, so "Vi kan ikke finde et bord til 7 online." is read
+                  out when it replaces the times (a region inserted with its
+                  text already in it is not reliably announced). The grid of
+                  times renders outside it: a new day must not read out 20
+                  times. */}
+              <div aria-live="polite" data-testid="rsvp-times-status">
               {isProvider && !behandlingId ? (
                 // Provider: no behandling chosen yet → don't imply "no times".
                 <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -2790,7 +2875,7 @@ export default function ReservationPublicPage() {
                     {t("rsvpRetry", "Try again")}
                   </Button>
                 </div>
-              ) : closedReason === "not_accepting" ? (
+              ) : closedReason === "not_accepting" || paused ? (
                   // The venue is at its monthly ceiling, so NO date works. This
                   // sits above the slotGroups branch on purpose: the branches
                   // below offer "next open day" and a 14-day hunt, and sending
@@ -2829,6 +2914,22 @@ export default function ReservationPublicPage() {
                           className="animate-pulse h-11 rounded-lg bg-gray-100 dark:bg-gray-800"
                         />
                       ))}
+                    </div>
+                  ) : isProvider && dayMap === null && dayReason !== "no_fit" ? (
+                    // A salon whose 14-day overview is not in (still loading,
+                    // or it failed): THIS day has no time, and that is all
+                    // the page knows. No "de næste 14 dage", no next day, no
+                    // "Anden dato" here — nothing checked the other days.
+                    <div className="space-y-3">
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {reasonSentence(dayReason, t, sentenceCtx) || t("rsvpNoSlotsDay", "No available times on this day.")}
+                      </p>
+                      {telHref(page.phone) && (
+                        <a href={telHref(page.phone)} className={TEL_ACTION}>
+                          <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
+                          <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: page.phone })}</span>
+                        </a>
+                      )}
                     </div>
                   ) : dayReason === "no_fit" ? (
                     // Online can't seat THIS party (above the online maximum,
@@ -2880,15 +2981,21 @@ export default function ReservationPublicPage() {
                   ) : (
                     // Nothing open later in the window → the honest line and
                     // the phone (a real <a href="tel:">, dials on tap). The
-                    // window line counts the strip's days, never a flat 14.
+                    // window line names the header's own number ("Book op til
+                    // 7 dage frem" → "… i dag eller de næste 7 dage"), never a
+                    // flat 14, and is left out when it would only repeat the
+                    // reason ("for sent … i dag" on a today-only window).
                     <div className="space-y-3">
                       <p className="text-sm text-gray-500 dark:text-gray-400">
                         {nextOpenDay
                           ? reasonSentence(dayReason, t, sentenceCtx) || t("rsvpNoSlotsDay", "No available times on this day.")
-                          : [
-                              ["closed", "full", "too_late"].includes(dayReason) ? reasonSentence(dayReason, t, sentenceCtx) : null,
-                              noneBookableText(rail, t),
-                            ].filter(Boolean).join(" ")}
+                          : (() => {
+                              const why = ["closed", "full", "too_late"].includes(dayReason)
+                                ? reasonSentence(dayReason, t, sentenceCtx)
+                                : null;
+                              const window = why && maxAdvance <= 0 ? null : noneBookableText(maxAdvance, t);
+                              return [why, window].filter(Boolean).join(" ");
+                            })()}
                       </p>
                       {telHref(page.phone) && (
                         <a href={telHref(page.phone)} className={TEL_ACTION}>
@@ -2903,17 +3010,33 @@ export default function ReservationPublicPage() {
                         <div>
                           <button
                             type="button"
-                            onClick={() => setShowDateInput(true)}
+                            onClick={() => {
+                              setCalendarAt("empty");
+                              setShowDateInput(true);
+                            }}
+                            aria-expanded={showDateInput && (!isEmbed || calendarAt === "empty")}
                             className={"inline-flex items-center gap-1.5 h-10 min-h-0! rounded-md text-[13px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors " + FOCUS}
                           >
                             <Calendar size={13} strokeWidth={1.75} aria-hidden="true" />
                             {t("rsvpOtherDate", "Other date")}
                           </button>
+                          {/* The embed draws the calendar HERE, under the tap
+                              (the frame never scrolls to the strip). */}
+                          {showDateInput && isEmbed && calendarAt === "empty" && (
+                            <div
+                              data-testid="rsvp-calendar-at-empty"
+                              className="mt-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
+                            >
+                              {calendar}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
                   )
-                ) : (
+                ) : null}
+              </div>
+              {timesShowGrid && (
                   <TimeGrid
                     groups={slotGroups}
                     slot={slot}
@@ -2928,7 +3051,7 @@ export default function ReservationPublicPage() {
                     t={t}
                     apptWords={apptWords}
                   />
-                )}
+              )}
             </div>
             {/* ── Pick your table on the 2D floor (matches the owner room) ──
                 Honesty gate #1 (+ grandfather): TABLE venues (dining/bar) show the

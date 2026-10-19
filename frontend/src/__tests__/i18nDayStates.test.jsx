@@ -19,8 +19,14 @@ const NEW_KEYS = [
   "rsvpBookingOpensAria", "rsvpReasonClosed", "rsvpReasonFull", "rsvpReasonFullAppt",
   "rsvpReasonTooLate", "rsvpReasonNoFit", "rsvpReasonNoFitAppt", "rsvpReasonNotYet",
   "rsvpNoFitCallHint", "rsvpContactVenueDirect", "rsvpNextOpenDay", "rsvpNoneBookableN",
-  "rsvpNoneBookableToday", "rsvpBookAheadN", "rsvpBookAheadOne", "rsvpBookAheadToday",
+  "rsvpNoneBookableToday", "rsvpNoneBookableOne", "rsvpBookAheadN", "rsvpBookAheadOne",
+  "rsvpBookAheadToday",
 ];
+// Keys the page reaches only through dayState.js's say(t, key): the key is a
+// variable there, so i18n-parity.cjs and check-i18n-keys.cjs (which match a
+// literal t("k")) can't see them. Every WORDS key is checked here instead.
+// The only keys allowed to read the same in both languages:
+const SAME_IN_BOTH = new Set([]);
 
 describe("day-state words", () => {
   it("every new key has real Danish and English, and they differ", () => {
@@ -72,5 +78,17 @@ describe("day-state words", () => {
 
   it("dayState.js falls back to the en.js value, verbatim", () => {
     for (const [k, v] of Object.entries(WORDS)) expect(v, k).toBe(en[k]);
+  });
+
+  it("every key dayState.js can say has real Danish, not the English fallback", () => {
+    // A future WORDS key missing from da.js would pass every repo guard and
+    // show English to Danish guests; this is the guard for say(t, key).
+    for (const k of Object.keys(WORDS)) {
+      expect(typeof da[k], k).toBe("string");
+      expect(da[k].trim(), k).not.toBe("");
+      if (!SAME_IN_BOTH.has(k)) expect(da[k], k).not.toBe(en[k]);
+      const vars = (x) => (x.match(/\{\w+\}/g) || []).sort().join(",");
+      expect(vars(da[k]), k).toBe(vars(en[k]));
+    }
   });
 });

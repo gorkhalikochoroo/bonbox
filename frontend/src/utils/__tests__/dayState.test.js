@@ -134,9 +134,14 @@ describe("the booking window", () => {
     expect(bookAheadText(0, t)).toBe("Today only");
   });
 
-  it("noneBookableText counts the strip's days, never a flat 14 under 14", () => {
+  it("noneBookableText names the header's own number, never a flat 14 under 14", () => {
+    // "Book up to 7 days ahead" and the window line say the same 7.
+    expect(noneBookableText(60, t)).toBe("No available times in the next 14 days.");
     expect(noneBookableText(14, t)).toBe("No available times in the next 14 days.");
-    expect(noneBookableText(8, t)).toBe("No available times in the next 8 days.");
-    expect(noneBookableText(1, t)).toBe("No available times today.");
+    expect(noneBookableText(13, t)).toBe("No available times today or in the next 13 days.");
+    expect(noneBookableText(7, t)).toBe("No available times today or in the next 7 days.");
+    expect(bookAheadText(7, t)).toBe("Book up to 7 days ahead");
+    expect(noneBookableText(1, t)).toBe("No available times today or tomorrow.");
+    expect(noneBookableText(0, t)).toBe("No available times today.");
   });
 });
