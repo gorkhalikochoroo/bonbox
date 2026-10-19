@@ -416,15 +416,22 @@ describe("the time area names the reason and offers the next step", () => {
   });
 
   it('salon: a stylist with no time never reads "Lukket"', async () => {
+    // Both days open per the summary; the stylist has no time tomorrow for
+    // this behandling. The old page said "Lukket denne dag. Næste ledige:
+    // <today>" — closed, and a jump backwards.
     routes({
       page: { ...PAGE, business_type: "salon", providers: [{ id: "r1", name: "Mia" }] },
       sum: () => summary([]),
-      prov: () => ({ slots: [] }),
+      prov: (p) => (p.day === TODAY ? { slots: [{ start: `${TODAY}T10:00:00`, resource_id: "r1", staff_id: null, duration_min: 45 }] } : { slots: [] }),
     });
     renderAt();
     await settle(14);
+    await screen.findByRole("radio", { name: "10:00" });
+    fireEvent.click(chipFor(await dateRadios(), plus(1)));
+    await settle(6);
     await screen.findByText(da.rsvpNoSlotsDay);
     expect(pageText()).not.toMatch(/lukket/i);
+    expect(screen.queryByRole("button", { name: /^Vis / })).toBeNull();
   });
 
   it.each([
@@ -445,6 +452,9 @@ describe("the time area names the reason and offers the next step", () => {
       renderAt();
       await settle(14);
       if (via === "avail") await screen.findByText(new RegExp(sentence.replace(/[.]/g, "\\.")));
+      // The strip names each state in appointment words ("kun via telefon").
+      await waitFor(() => expect(ariaText()).toContain(`${dayLabel(plus(2))} — ${da.rsvpDayPhoneAriaAppt}`));
+      expect(ariaText()).toContain(`${dayLabel(plus(1))} — ${da.rsvpDayFullAria}`);
       expect(pageText()).not.toMatch(tableWords);
       expect(ariaText()).not.toMatch(tableWords);
       cleanup();
@@ -469,6 +479,15 @@ describe("the time area names the reason and offers the next step", () => {
     await settle();
     expect(pageText()).not.toMatch(/bord til 7/);
     expect(pageText()).not.toMatch(/Vi kan ikke finde et bord/);
+    // Positive control: the same answer for the party ON screen does show.
+    h.get.mockImplementation((url, cfg) => {
+      if (url === "/public/reservations/x/availability") return Promise.resolve({ data: { slots: [], reason: "no_fit" } });
+      if (url === "/public/reservations/x/availability-summary") return Promise.resolve({ data: summary() });
+      return Promise.resolve({ data: url === "/public/reservations/x" ? PAGE : {} });
+    });
+    fireEvent.click(within(party).getByRole("radio", { name: "7 gæster" }));
+    await settle();
+    expect(await screen.findByText("Vi kan ikke finde et bord til 7 online.")).toBeTruthy();
   });
 });
 
