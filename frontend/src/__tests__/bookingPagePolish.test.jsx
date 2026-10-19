@@ -64,6 +64,92 @@ describe("MonthCalendar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next month" }));
     expect(screen.getByText("October 2026")).toBeTruthy();
   });
+
+  it("marks closed / full / by-phone days its own way and names only the marks it shows", () => {
+    // Booking push p1: struck = closed, a dot = full, plain disabled = by phone.
+    const marks = { "2026-09-28": "muted", "2026-09-29": "strike", "2026-09-30": "dot" };
+    const words = { strike: "closed", dot: "fully booked", muted: "by phone only" };
+    render(
+      <MonthCalendar
+        value="2026-09-27"
+        min="2026-09-27"
+        max="2026-10-27"
+        isClosed={(iso) => (iso in marks ? true : undefined)}
+        markOf={(iso) => marks[iso] || null}
+        onPick={vi.fn()}
+        locale="en-GB"
+        labels={{
+          ...labels,
+          stateOf: (iso) => words[marks[iso]],
+          notYet: () => "booking opens later",
+          legend: { strike: "closed", dot: "full", muted: "by phone", beyond: "Book up to 30 days ahead" },
+        }}
+      />,
+    );
+    const day = (n, m = "September") => screen.getByRole("button", { name: new RegExp(`\\b${n} ${m}`) });
+    expect(day(29).className).toContain("line-through");
+    expect(day(29).getAttribute("aria-label")).toMatch(/— closed$/);
+    expect(day(30).disabled).toBe(true);
+    expect(day(30).className).not.toContain("line-through");
+    expect(day(30).querySelector('[data-mark="dot"]')).toBeTruthy();
+    expect(day(30).getAttribute("aria-label")).toMatch(/— fully booked$/);
+    expect(day(28).disabled).toBe(true);
+    expect(day(28).className).not.toContain("line-through");
+    expect(day(28).querySelector('[data-mark="dot"]')).toBeNull();
+    expect(day(28).getAttribute("aria-label")).toMatch(/— by phone only$/);
+    const legend = screen.getByTestId("calendar-legend").textContent;
+    expect(legend).toContain("closed");
+    expect(legend).toContain("full");
+    expect(legend).toContain("by phone");
+  });
+
+  it("the legend lists only the marks present in the visible month, and the window only past max", () => {
+    const marks = { "2026-09-29": "strike", "2026-09-30": "dot" };
+    render(
+      <MonthCalendar
+        value="2026-09-28"
+        min="2026-09-27"
+        max="2026-10-27"
+        isClosed={(iso) => (iso in marks ? true : undefined)}
+        markOf={(iso) => marks[iso] || null}
+        onPick={vi.fn()}
+        locale="en-GB"
+        labels={{
+          ...labels,
+          stateOf: () => "x",
+          notYet: () => "booking opens later",
+          legend: { strike: "closed", dot: "full", muted: "by phone", beyond: "Book up to 30 days ahead" },
+        }}
+      />,
+    );
+    const legend = () => screen.queryByTestId("calendar-legend");
+    expect(legend().textContent).toContain("closed");
+    expect(legend().textContent).toContain("full");
+    expect(legend().textContent).not.toContain("by phone");
+    expect(legend().textContent).not.toContain("Book up to"); // September holds no day past max
+    fireEvent.click(screen.getByRole("button", { name: "Next month" }));
+    // October: no marked day, but 28–31 Oct lie past max → only the window line.
+    expect(legend().textContent).toBe("Book up to 30 days ahead");
+    expect(screen.getByRole("button", { name: /\b30 October — booking opens later$/ }).disabled).toBe(true);
+  });
+
+  it("without the new props a closed day looks and reads as before", () => {
+    render(
+      <MonthCalendar
+        value="2026-09-28"
+        min="2026-09-27"
+        max="2026-10-27"
+        isClosed={(iso) => (iso === "2026-09-29" ? true : undefined)}
+        onPick={vi.fn()}
+        locale="en-GB"
+        labels={{ ...labels, closed: "closed" }}
+      />,
+    );
+    const d = screen.getByRole("button", { name: /\b29 September/ });
+    expect(d.className).toContain("line-through");
+    expect(d.getAttribute("aria-label")).toMatch(/— closed$/);
+    expect(screen.queryByTestId("calendar-legend")).toBeNull();
+  });
 });
 
 describe("cookie banner on guest pages", () => {

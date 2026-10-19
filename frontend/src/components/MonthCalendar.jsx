@@ -19,10 +19,21 @@ const monthIndex = ({ y, m }) => y * 12 + m;
  * `isClosed(iso)` answers true / false, or undefined when the venue's
  * open-days overview does not reach that far — unknown days stay pickable,
  * and the time list then says whether the place is open.
+ *
+ * Optional, all additive (booking push p1) — without them a closed day is
+ * struck through and its aria says `labels.closed`, exactly as before:
+ *   • `markOf(iso)` → "strike" | "dot" | "muted" | null, how a closed day
+ *     looks: struck (closed), a small dot (full), plain disabled (by phone).
+ *     Other unbookable days look like any disabled day; the aria says why.
+ *   • `labels.stateOf(iso)` → the aria word for a closed day.
+ *   • `labels.notYet(iso)` → the aria words for a day past `max`.
+ *   • `labels.legend` = { strike, dot, muted, beyond } → a legend under the
+ *     grid naming only the marks this month shows, and `beyond` only when the
+ *     month holds days past `max`.
  */
-export default function MonthCalendar({ value, min, max, isClosed, onPick, locale, labels }) {
+export default function MonthCalendar({ value, min, max, isClosed, markOf, onPick, locale, labels }) {
   // `labels`: { prev, next, closed } — screen-reader words for the arrows and
-  // for a day the venue is closed.
+  // for a day the venue is closed (+ the optional stateOf / notYet / legend).
   const [cursor, setCursor] = useState(() => monthOf(value && value >= min ? value : min));
   const first = monthOf(min);
   const last = monthOf(max || min);
@@ -48,6 +59,17 @@ export default function MonthCalendar({ value, min, max, isClosed, onPick, local
     [locale],
   );
   const title = new Date(cursor.y, cursor.m, 1).toLocaleDateString(locale, { month: "long", year: "numeric" });
+  const isOut = (iso) => iso < min || (max && iso > max);
+  const markFor = (iso) => (markOf && !isOut(iso) && isClosed?.(iso) === true ? markOf(iso) || null : null);
+  // The legend names only what this month shows — no key for a mark nobody sees.
+  const legend = labels.legend
+    ? (() => {
+        const shown = new Set(cells.filter(Boolean).map(markFor).filter(Boolean));
+        const items = ["strike", "dot", "muted"].filter((m) => shown.has(m) && labels.legend[m]);
+        const beyond = !!(max && labels.legend.beyond && cells.some((iso) => iso && iso > max));
+        return items.length || beyond ? { items, beyond } : null;
+      })()
+    : null;
   const step = (delta) =>
     setCursor(({ y, m }) => {
       const n = y * 12 + m + delta;
@@ -83,11 +105,17 @@ export default function MonthCalendar({ value, min, max, isClosed, onPick, local
         ))}
         {cells.map((iso, i) => {
           if (!iso) return <span key={`lead-${i}`} />;
-          const out = iso < min || (max && iso > max);
+          const out = isOut(iso);
           const closed = !out && isClosed?.(iso) === true;
           const disabled = out || closed;
           const selected = iso === value;
           const isToday = iso === today;
+          const mark = markFor(iso);
+          // Without markOf every closed day is struck, as before.
+          const strike = closed && (markOf ? mark === "strike" : true);
+          const stateWord = closed ? (labels.stateOf?.(iso) || labels.closed) : null;
+          const notYet = max && iso > max && labels.notYet ? labels.notYet(iso) : null;
+          const suffix = stateWord || notYet;
           return (
             <button
               key={iso}
@@ -100,24 +128,55 @@ export default function MonthCalendar({ value, min, max, isClosed, onPick, local
                   weekday: "long",
                   day: "numeric",
                   month: "long",
-                }) + (closed && labels.closed ? ` — ${labels.closed}` : "")
+                }) + (suffix ? ` — ${suffix}` : "")
               }
               className={[
-                "mx-auto w-11 h-11 rounded-full text-sm tabular-nums",
+                "relative mx-auto w-11 h-11 rounded-full text-sm tabular-nums",
                 "transition-[background-color,color,box-shadow] duration-200 ease-out",
                 selected
                   ? "bg-gray-900 text-white font-semibold dark:bg-white dark:text-gray-900"
                   : disabled
-                    ? "text-gray-300 dark:text-gray-600 cursor-not-allowed" + (closed ? " line-through" : "")
+                    ? "text-gray-300 dark:text-gray-600 cursor-not-allowed" + (strike ? " line-through" : "")
                     : "text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800",
                 isToday && !selected ? "ring-1 ring-inset ring-gray-300 dark:ring-gray-600 font-semibold" : "",
               ].join(" ")}
             >
               {Number(iso.slice(8))}
+              {mark === "dot" && !selected && (
+                // gray-500 on white ≈ 4.8:1 — a meaningful mark, above 3:1.
+                <span
+                  data-mark="dot"
+                  aria-hidden="true"
+                  className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-gray-500 dark:bg-gray-400"
+                />
+              )}
             </button>
           );
         })}
       </div>
+      {legend && (
+        <div
+          data-testid="calendar-legend"
+          className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-gray-500 dark:text-gray-400"
+        >
+          {legend.items.map((m) => (
+            <span key={m} className="inline-flex items-center gap-1.5">
+              {m === "dot" ? (
+                <span aria-hidden="true" className="w-1 h-1 rounded-full bg-gray-500 dark:bg-gray-400" />
+              ) : (
+                <span
+                  aria-hidden="true"
+                  className={"text-[13px] tabular-nums text-gray-300 dark:text-gray-600" + (m === "strike" ? " line-through" : "")}
+                >
+                  8
+                </span>
+              )}
+              {labels.legend[m]}
+            </span>
+          ))}
+          {legend.beyond && <span>{labels.legend.beyond}</span>}
+        </div>
+      )}
     </div>
   );
 }
