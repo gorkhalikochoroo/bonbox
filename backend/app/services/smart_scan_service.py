@@ -180,7 +180,13 @@ def _extract_for(doc_type: str, image_bytes: bytes, tmp_path: str) -> dict | Non
     if doc_type == "z_report":
         try:
             from app.services.receipt_ocr import parse_z_report
-            return parse_z_report(tmp_path) or None
+            parsed = parse_z_report(tmp_path) or None
+            # An unread kasserapport carries no figures: a failed read, so
+            # the destination opens its bare form (and the inbox marks it
+            # for review) — never an empty dict that looks like a read.
+            if parsed and parsed.get("z_report_unread"):
+                return None
+            return parsed
         except Exception as e:  # noqa: BLE001
             logger.warning("[SmartScan] z_report extract failed: %s", e)
             return None

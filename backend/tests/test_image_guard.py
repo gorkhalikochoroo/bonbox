@@ -245,6 +245,36 @@ def test_a_real_jpeg_still_goes_through_the_z_report_scan(db, as_user, local_rec
     assert len(seen) == 1
 
 
+def test_an_unread_kasserapport_is_a_422_with_the_owner_sentence(db, as_user, local_receipts, monkeypatch):
+    """19 Oct 2026: when the Z-report reader finds no reliable total the
+    route answers 422 with the da sentence asking for the bottom of the
+    report — never a guessed figure, and the card adds no till."""
+    u = _owner(db)
+    as_user(u)
+    monkeypatch.setattr(daily_close_router, "parse_z_report", lambda p: receipt_ocr._z_report_unread("no_total"))
+    r = _post(
+        "/api/daily-close/scan-report",
+        files={"file": ("z.jpg", _img("JPEG"), "image/jpeg")},
+        headers=_ip(),
+    )
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"] == daily_close_router._Z_UNREAD_MSG["da"]
+    assert "revenue_total" not in r.text
+
+
+def test_a_reader_outage_is_a_422_that_says_try_again(db, as_user, local_receipts, monkeypatch):
+    u = _owner(db)
+    as_user(u)
+    monkeypatch.setattr(daily_close_router, "parse_z_report", lambda p: receipt_ocr._z_report_unread("unavailable"))
+    r = _post(
+        "/api/daily-close/scan-report",
+        files={"file": ("z.jpg", _img("JPEG"), "image/jpeg")},
+        headers=_ip(),
+    )
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"] == daily_close_router._Z_UNAVAILABLE_MSG["da"]
+
+
 # ─── R-d fix-up: a decode-canvas ceiling (uploads decode in parallel) ──
 
 def _canvas(fmt: str, size: tuple[int, int], **kw) -> bytes:
