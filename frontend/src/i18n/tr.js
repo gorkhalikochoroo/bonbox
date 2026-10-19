@@ -2902,7 +2902,7 @@ export const tr = {
   rsvpGuestLabel: "Ad",
   rsvpErrSlot: "Üzgünüz — bu saat az önce doldu. Lütfen başka bir saat seç.",
   rsvpErrParty: "Grup online rezervasyon için fazla büyük — doğrudan mekanla iletişime geç.",
-  rsvpErrClosed: "Mekan şu anda başka rezervasyon almıyor.",
+  rsvpErrClosed: "Çevrimiçi rezervasyon, siz rezervasyon yaparken duraklatıldı.",
   rsvpErrGeneric: "Bir şeyler ters gitti. Lütfen biraz sonra tekrar dene.",
   rsvpStepAria: "Rezervasyon adımı",
   rsvpSlugPh: "cafe-mocca",
