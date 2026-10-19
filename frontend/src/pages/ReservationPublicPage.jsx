@@ -62,6 +62,7 @@ import { forceLightTheme } from "../utils/themeColor";
 import { venueMonogram } from "../utils/venueMonogram";
 import { contactState } from "../utils/guestContact";
 import { rescueDay } from "../utils/bookingDay";
+import { capFirst, dateLocale, fmtDayLabel, fmtDayShort } from "../utils/guestLocale";
 import { useKeyboardInset } from "../hooks/useKeyboardInset";
 import { useLanguage } from "../hooks/useLanguage";
 import { loadLocale, loadedLocales } from "../lib/localeStore";
@@ -341,38 +342,8 @@ function hhmmOf(iso) {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// Pretty DK date for the header / success screen: "lørdag 13. juni".
-// Dates followed the venue's language even after the guest switched to
-// English: the page read "Pick a date" over a strip of "Søn. 26. Jul.".
-// Weekday and month names are UI chrome, so they translate — unlike the
-// DK terminology lock (MOMS, revisor, kasserapport), which never does.
-//
-// en-GB, not en-US: day-before-month matches how the rest of this page
-// and every Danish guest reads a date.
-const DATE_LOCALES = { da: "da-DK", en: "en-GB" };
-
-function dateLocale(lang) {
-  return DATE_LOCALES[lang] || "da-DK";
-}
-
-// "Fre. 2. okt." / "Fri 2 Oct" — the bottom bar's compact date. en-GB writes
-// September as "Sept" while every other month is three letters; "Sep" keeps
-// the rhythm.
-function fmtDayShort(isoStr, lang) {
-  if (!isoStr) return "";
-  try {
-    return new Date(`${isoStr}T00:00:00`)
-      .toLocaleDateString(dateLocale(lang), { weekday: "short", day: "numeric", month: "short" })
-      .replace(/\bSept\b/, "Sep");
-  } catch {
-    return isoStr;
-  }
-}
-
-function capFirst(text) {
-  const v = String(text || "");
-  return v ? v[0].toLocaleUpperCase() + v.slice(1) : v;
-}
+// Date words (dateLocale, fmtDayShort, fmtDayLabel, capFirst) live in
+// utils/guestLocale.js.
 
 // "1 gæst" / "2 gæster" — the plural key alone produced "1 gæster". A business
 // booked for a time (a salon, a shop, a workshop) counts people: "1 person".
@@ -393,20 +364,6 @@ const TORN_EDGE = `polygon(0% 0%, 100% 0%, ${Array.from({ length: 31 }, (_, i) =
   const j = 31 - i;
   return `${(j * 3.125).toFixed(3)}% ${j % 2 ? 100 : 0}%`;
 }).join(", ")}, 0% 0%)`;
-
-function fmtDayLabel(isoStr, lang) {
-  if (!isoStr) return "";
-  try {
-    const d = new Date(`${isoStr}T00:00:00`);
-    return d.toLocaleDateString(dateLocale(lang), {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-    });
-  } catch {
-    return isoStr;
-  }
-}
 
 // ── Venue identity tile ────────────────────────────────────────────
 // The owner's uploaded brand logo (the SAME logo used on their invoices),
