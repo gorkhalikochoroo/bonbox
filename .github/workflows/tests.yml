@@ -28,7 +28,12 @@ jobs:
   backend:
     name: backend (pytest)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # 40, not 25: the suite itself takes ~19-24 min on a runner (16 Oct:
+    # 18.8 and 23.6 min green), so 25 cut runs off at 25:14 before pytest
+    # could finish (16 Oct twice, 17 Oct, 19 Oct) and left the commit with
+    # no backend verdict. 40 leaves room for the suite to grow; a hung run
+    # still stops.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -99,9 +104,28 @@ jobs:
       - name: Install
         working-directory: frontend
         run: npm ci --no-audit --no-fund
+      # The job used to fail with every test green: "Tests 5890 passed
+      # (5890) · Errors 1 error", the error being vitest's own worker->main
+      # progress call timing out (`[vitest-worker]: Timeout calling
+      # "onTaskUpdate"`, birpc's fixed 60 s; 3 of 8 frontend jobs 16-19 Oct).
+      # Cause: closeTills.property.test.js ran 4,000 sequences without the
+      # worker's event loop turning once; the job failed exactly when that
+      # file took > 60 s (60.3/60.7/61.1 s red; 27.7-59.8 s green). That test
+      # now yields every 100 sequences. As a net for the next such test, the
+      # step keeps vitest's exit code and hands it, with the JSON report and
+      # the log, to scripts/vitest-ci-verdict.mjs, which turns a failure into
+      # a pass ONLY when every test finished green and that timeout is the
+      # sole error — any failing test, any other unhandled error, a missing
+      # or partial report still fails. A tolerated run carries a ::warning::.
+      # The rule is pinned in src/__tests__/vitestCiVerdict.test.js.
       - name: vitest
         working-directory: frontend
-        run: npx vitest run
+        shell: bash
+        run: |
+          set +e
+          npx vitest run --reporter=default --reporter=json --outputFile.json=vitest-report.json 2>&1 | tee vitest.log
+          code=${PIPESTATUS[0]}
+          node scripts/vitest-ci-verdict.mjs vitest-report.json vitest.log "$code"
       - name: Build
         working-directory: frontend
         # The pre-commit hook builds too, but a hook can be skipped with

@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 .vercel
 dist-scheduler
+# CI (tests.yml): the vitest step writes its JSON report here (vitest.log is *.log)
+vitest-report.json
