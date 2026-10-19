@@ -27,47 +27,50 @@
  * Never:
  *   "Upgrade required" / "This feature is locked" / "Premium only"
  *
- * Pricing: shows the FOUNDING rate by default since that's what
- * early users see. Strikethrough on regular rate so they see the
- * discount. Once the founding window closes (first 100 customers)
- * we'll flip the default.
+ * Pricing: shows the FOUNDING rate, since that is what a new business
+ * pays today, and then the regular rate as what comes AFTER the first 100
+ * ("Efter de første 100: 199 kr./md."). Never struck through: nobody has
+ * ever paid 199 / 349, so a crossed-out "before" price would claim a
+ * reduction that never happened (push 9, A2 — the landing and the plan page
+ * say it the same way, from lib/planPrices).
  */
 import React, { useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useEntitlements } from "../../hooks/useEntitlements";
+import { useLanguage } from "../../hooks/useLanguage";
+import { FOUNDING_LIMIT, PLAN_PRICES } from "../../lib/planPrices";
 import { isNativeApp } from "../../utils/platform";
 // Direct import (not the ./index barrel) — the barrel imports UpgradeNudge,
 // so going through it would create a cycle.
 import Icon from "./Icon";
 
 // ─── Tier prices (founding rates leading) ─────────────────────────
-// Single source of truth — sync with backend/app/services/billing.py
-// STRIPE prices. DKK-denominated, shown as "kr." (da-DK); localization
-// is handled at render time if/when other currencies launch.
-const TIER_LABELS = {
-  starter: {
-    name: "Starter",
-    founding: "129 kr./md",
-    regular: "199 kr./md",
-    badge: "Founding rate · First 100",
-  },
-  pro: {
-    name: "Pro",
-    founding: "249 kr./md",
-    regular: "349 kr./md",
-    badge: "Founding rate · First 100",
-  },
-};
+// The numbers come from lib/planPrices (held to backend config.py
+// PLAN_PRICES_DKK by a test); the words are dictionary keys. DKK-denominated.
+const TIER_NAMES = { starter: "Starter", pro: "Pro" };
 
-function PriceTag({ tier }) {
-  const t = TIER_LABELS[tier] || TIER_LABELS.starter;
+function tierMetaFor(tier, t) {
+  const id = PLAN_PRICES[tier] ? tier : "starter";
+  const p = PLAN_PRICES[id];
+  return {
+    name: TIER_NAMES[id],
+    founding: t("upgradePricePerMonth", "{price} kr./mo", { price: p.founding }),
+    then: t("pricingAfterFounding", "After the first {n}: {price} kr./mo", {
+      n: FOUNDING_LIMIT,
+      price: p.regular,
+    }),
+    badge: t("upgradeFoundingBadge", "Founding price · first {n}", { n: FOUNDING_LIMIT }),
+  };
+}
+
+function PriceTag({ tierMeta }) {
   return (
-    <span className="inline-flex items-center gap-1.5">
+    <span className="inline-flex flex-col items-start gap-0.5" data-testid="upgrade-price">
       <span className="font-semibold text-gray-900 dark:text-gray-100">
-        {t.founding}
+        {tierMeta.founding}
       </span>
-      <span className="line-through text-gray-400 text-[11px]">
-        {t.regular}
+      <span className="text-gray-500 dark:text-gray-400 text-[11px] tabular-nums">
+        {tierMeta.then}
       </span>
     </span>
   );
@@ -104,7 +107,8 @@ export default function UpgradeNudge({
   feature = null,  // optional — when set, self-gate on entitlements (see above)
 }) {
   const navigate = useNavigate();
-  const tierMeta = TIER_LABELS[tier] || TIER_LABELS.starter;
+  const { t } = useLanguage();
+  const tierMeta = tierMetaFor(tier, t);
 
   // One glyph resolver: Lucide `iconName` wins, then the legacy emoji
   // string, else nothing — keeps all three intents consistent.
@@ -134,10 +138,10 @@ export default function UpgradeNudge({
   // ── App Store compliance (Apple Guideline 3.1.1) ────────────────────
   // The native app must carry NO upgrade/purchase surface at all — that
   // includes the tier NAME ("Included on Pro / Starter"), the price block
-  // (TIER_LABELS / PriceTag), and any /subscription CTA. Approach (a) for
+  // (tierMetaFor / PriceTag), and any /subscription CTA. Approach (a) for
   // iOS is to HIDE gated features outright, so the nudge has nothing to
-  // say: render null. This also guarantees TIER_LABELS / PriceTag are never
-  // reached on native. Web keeps the full nudge (price + CTA) unchanged.
+  // say: render null. This also guarantees the price (PriceTag) is never
+  // rendered on native. Web keeps the full nudge (price + CTA) unchanged.
   if (isNativeApp()) return null;
 
   const handleClick = (e) => {
@@ -210,7 +214,7 @@ export default function UpgradeNudge({
           </div>
         </div>
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <PriceTag tier={tier} />
+          <PriceTag tierMeta={tierMeta} />
           <Link
             to={cta}
             onClick={handleClick}
@@ -233,10 +237,10 @@ export default function UpgradeNudge({
     ctaLabel={ctaLabel}
     cta={cta}
     handleClick={handleClick}
-    tier={tier}
     tierMeta={tierMeta}
     className={className}
     navigate={navigate}
+    maybeLater={t("upgradeMaybeLater", "Maybe later")}
   />;
 }
 
@@ -246,7 +250,7 @@ export default function UpgradeNudge({
  *  WEB ONLY. The parent <UpgradeNudge> returns null on native (Apple 3.1.1),
  *  so this dialog — which shows the tier name, price (PriceTag) and a
  *  /subscription CTA — is never rendered inside the iOS app. */
-function UpgradeNudgeDialog({ glyph, benefit, ctaLabel, cta, handleClick, tier, tierMeta, className, navigate }) {
+function UpgradeNudgeDialog({ glyph, benefit, ctaLabel, cta, handleClick, tierMeta, className, navigate, maybeLater }) {
   const dialogRef = useRef(null);
   const previousActiveElementRef = useRef(null);
 
@@ -302,8 +306,8 @@ function UpgradeNudgeDialog({ glyph, benefit, ctaLabel, cta, handleClick, tier, 
         <h4 id="upgrade-nudge-title" className="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1 mb-2">
           {benefit}
         </h4>
-        <div className="mb-5">
-          <PriceTag tier={tier} />
+        <div className="mb-5 flex justify-center">
+          <PriceTag tierMeta={tierMeta} />
         </div>
         <Link
           to={cta}
@@ -317,7 +321,7 @@ function UpgradeNudgeDialog({ glyph, benefit, ctaLabel, cta, handleClick, tier, 
           onClick={() => navigate(-1)}
           className="mt-3 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg px-1"
         >
-          Maybe later
+          {maybeLater}
         </button>
       </div>
     </div>

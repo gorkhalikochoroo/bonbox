@@ -391,10 +391,16 @@ describe("B3: the buying page is monthly only — no Annual toggle, no '-20%', n
         expect(text).not.toContain(gone);
       }
       expect(screen.queryByRole("button", { name: /Årlig|Annual|Månedlig|Monthly/ })).toBeNull();
-      // The struck-through regular price is the monthly one (never 159 / 279).
-      const struck = [...container.querySelectorAll(".line-through")].map((n) => n.textContent);
-      expect(struck.some((s) => s.startsWith("199"))).toBe(true);
-      expect(struck.some((s) => s.startsWith("349"))).toBe(true);
+      // The regular price is the monthly one (never 159 / 279), said as what
+      // comes after the first 100 — never struck through (push 9 review: a
+      // crossed-out "before" price nobody ever paid, A2).
+      expect(container.querySelector(".line-through")).toBeNull();
+      expect(screen.getByTestId("plan-then-starter").textContent).toBe(
+        lang === "da" ? "Efter de første 100: 199 kr./md." : "After the first 100: 199 kr./mo",
+      );
+      expect(screen.getByTestId("plan-then-pro").textContent).toBe(
+        lang === "da" ? "Efter de første 100: 349 kr./md." : "After the first 100: 349 kr./mo",
+      );
       expect(text).not.toMatch(/\b(159|279)\b/);
       expect(screen.getByText(lang === "da" ? "Hvad du får på hver plan." : "What you get on each tier.")).toBeTruthy();
     });

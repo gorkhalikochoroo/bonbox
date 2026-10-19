@@ -24,6 +24,7 @@
  * finished plan rather than a blank one.
  */
 import { useLanguage } from "../../hooks/useLanguage";
+import DemoTag from "./v2/DemoTag";
 
 /** left/top/width/height are % of the floor; seats are laid out per side. */
 const TABLES = [
@@ -111,11 +112,12 @@ export default function FloorPlan() {
       {/* Header rail above the plan */}
       <div className="flex items-center justify-between gap-3 mb-2.5">
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-          {t("landingPlanEyebrow", "Plan · Bistro Nørrebro · stueplan")}
+          {t("landingPlanEyebrow", "Plan · Bistro Nørrebro · ground floor")}
         </span>
-        <span className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600">
-          {t("landingPlanDrag", "Træk for at flytte")}
-        </span>
+        {/* Push 9 (B4): the visible demo label. It replaces "Træk for at
+            flytte", which promised a drag this drawing does not do (the real
+            floor plan in the app does). */}
+        <DemoTag className="shrink-0" />
       </div>
 
       {/* Frame — the slate body IS the wall poché; inset:8px leaves 8px walls */}
@@ -159,7 +161,7 @@ export default function FloorPlan() {
             className="absolute text-[8.5px] font-semibold uppercase tracking-[0.18em] text-slate-500"
             style={{ left: "5%", top: 4 }}
           >
-            {t("landingPlanWindow", "Vindue")}
+            {t("landingPlanWindow", "Window")}
           </span>
 
           {/* Entrance — opening, door leaf, and a swing arc */}
@@ -181,7 +183,7 @@ export default function FloorPlan() {
             className="absolute text-[8.5px] font-semibold uppercase tracking-[0.18em] text-slate-500"
             style={{ left: "21%", bottom: 6 }}
           >
-            {t("landingPlanEntrance", "Indgang")}
+            {t("landingPlanEntrance", "Entrance")}
           </span>
 
           {/* Bar counter — a solid object, so it extrudes like the walls */}
@@ -261,10 +263,10 @@ export default function FloorPlan() {
         >
           <span className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-900">
             <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#F59E0B" }} />
-            {t("landingPlanBooking", "Bord 3 · 19:00 · 2 gæster")}
+            {t("landingPlanBooking", "Bord 3 · 19:00 · 2 guests")}
           </span>
           <span className="block text-[11px] text-slate-500">
-            {t("landingPlanBookingSub", "Booket online, sat automatisk")}
+            {t("landingPlanBookingSub", "Booked online, seated automatically")}
           </span>
         </div>
       </div>
@@ -274,22 +276,22 @@ export default function FloorPlan() {
         <span className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
           <span className="flex items-center gap-1.5">
             <i className="h-2 w-2 rounded-full" style={{ background: "#22C55E" }} />
-            {t("landingPlanFree", "Ledigt")}
+            {t("landingPlanFree", "Free")}
           </span>
           <span className="flex items-center gap-1.5">
             <i className="h-2 w-2 rounded-full" style={{ background: "#F59E0B" }} />
-            {t("landingPlanUpcoming", "På vej")}
+            {t("landingPlanUpcoming", "Upcoming")}
           </span>
           <span className="flex items-center gap-1.5">
             <i className="h-2 w-2 rounded-full" style={{ background: "#0F172A" }} />
-            {t("landingPlanSeated", "Sat")}
+            {t("landingPlanSeated", "Seated")}
           </span>
           <span className="flex items-center gap-1.5">
             <i className="h-2 w-2 rounded-full border-2" style={{ borderColor: "#22C55E" }} />
-            {t("landingPlanNext", "Din næste booking")}
+            {t("landingPlanNext", "Your next booking")}
           </span>
         </span>
-        <span className="tabular-nums">{t("landingPlanCount", "28 pladser · 8 borde")}</span>
+        <span className="tabular-nums">{t("landingPlanCount", "28 seats · 8 tables")}</span>
       </div>
     </div>
   );

@@ -19,13 +19,40 @@
  * under (pointer: coarse), so the small variant is finger-safe on a phone
  * without carrying desktop padding it does not need.
  */
-import { ArrowUpRight, Smartphone } from "lucide-react";
+import { ArrowUpRight, Globe, Smartphone } from "lucide-react";
+import { Link } from "react-router-dom";
+import { isAndroidBrowser } from "./platform";
 
-export default function AppStoreLink({ href, label, size = "sm" }) {
+/**
+ * Android (push 9, A5): see ./platform.js. On Android the pill points at the
+ * web app (webHref) instead of a store the visitor cannot use.
+ */
+export default function AppStoreLink({ href, label, size = "sm", webHref, webLabel }) {
   const big = size === "md";
+  if (webHref && webLabel && isAndroidBrowser()) {
+    return (
+      <Link
+        to={webHref}
+        data-platform-link="web"
+        className={
+          "inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white font-medium text-slate-900 transition-colors duration-150 hover:border-slate-400 " +
+          (big ? "px-[14px] py-[7px] text-[13px]" : "px-[11px] py-[5px] text-[12px]")
+        }
+      >
+        <Globe
+          size={big ? 14 : 13}
+          strokeWidth={1.9}
+          aria-hidden="true"
+          className="flex-none text-slate-500"
+        />
+        {webLabel}
+      </Link>
+    );
+  }
   return (
     <a
       href={href}
+      data-platform-link="app-store"
       target="_blank"
       rel="noopener noreferrer"
       className={

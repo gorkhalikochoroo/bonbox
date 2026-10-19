@@ -151,8 +151,10 @@ describe("(f) landing and (g) login — the new sentences", () => {
   it("say exactly what was put to Manoj (da + en)", () => {
     expect(da["landingV2.pricing.free.f1"]).toBe("Daglig lukning: tag et billede af Z-bonen, BonBox fylder tallene ud");
     expect(en["landingV2.pricing.free.f1"]).toBe("Daily close: take a photo of the Z-report and BonBox fills in the figures");
-    expect(da.landingV2HeroTrustArchive).toBe("Kasserapporter som PDF, klar til at gemme i 5 år");
-    expect(en.landingV2HeroTrustArchive).toBe("Each kasserapport as a PDF, ready to keep for 5 years");
+    // Push 9 (A1): the owner keeps them — BonBox is not the archive (Terms § 4).
+    // Review round: same fact, plainer Danish (no double "som").
+    expect(da.landingV2HeroTrustArchive).toBe("Kasserapporter som PDF – du gemmer dem selv i 5\u00a0år");
+    expect(en.landingV2HeroTrustArchive).toBe("Each kasserapport as a PDF – you keep them for 5\u00a0years");
     expect(da.loginGoogleHintNative).toBe("Tilmeldt med Google på web? Tryk på “Glemt?” ved adgangskoden ovenfor for at sætte en app-adgangskode.");
     expect(en.loginGoogleHintNative).toBe("Signed up with Google on the web? Tap “Forgot?” next to the password above to set an app password.");
     // (R-c round 2: only what the client knows — no answer, and it retries.)
@@ -178,7 +180,7 @@ describe("(f) landing and (g) login — the new sentences", () => {
 
   it("Turkish is offered — its pack carries the new sentences (never an English line in a Turkish hero, Free card, login or register)", () => {
     expect(ALL_LANGUAGES.find((l) => l.code === "tr")?.offered).toBe(true);
-    expect(tr.landingV2HeroTrustArchive).toBe("Her kasserapport PDF olarak, 5 yıl saklamaya hazır");
+    expect(tr.landingV2HeroTrustArchive).toBe("Her kasserapport PDF olarak — 5\u00a0yıl boyunca kendin saklarsın");
     expect(tr["landingV2.pricing.free.f1"]).toBe("Günlük kapanış: Z-raporunun fotoğrafını çek, BonBox rakamları doldurur");
     expect(tr.loginWarmingUp).toBe("BonBox'a şu anda ulaşılamıyor — yeniden deneniyor.");
     expect(tr.loginGoogleHintNative).toBe("Web'de Google ile mi kaydoldun? Uygulama şifresi belirlemek için yukarıda şifrenin yanındaki “Unuttun mu?”ya dokun.");

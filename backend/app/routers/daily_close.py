@@ -4464,6 +4464,18 @@ def prefill_daily_close(
 
 # ─── POST — scan Z-report image ───
 
+# Shown when the kasserapport reader finds no reliable total on a photo.
+_Z_UNREAD_MSG = {
+    "da": "Vi kunne ikke finde kasserapportens total på billedet. Tag et billede af den del af rapporten, hvor Total og MOMS står — eller indtast tallene selv.",
+    "en": "We couldn't find the kasserapport's total in the photo. Take a photo of the part of the report where the Total and MOMS are printed — or type the numbers in yourself.",
+}
+# The reader itself could not run (Claude unavailable): the photo is fine.
+_Z_UNAVAILABLE_MSG = {
+    "da": "Kasserapport-læseren svarer ikke lige nu. Prøv igen om lidt — eller indtast tallene selv.",
+    "en": "The kasserapport reader isn't answering right now. Try again shortly — or type the numbers in yourself.",
+}
+
+
 @router.post("/scan-report")
 # Tightened 2026-05-28 with the Opus 4.7 OCR upgrade — now ~5x cost
 # per call, so the per-IP burst limit drops AND a daily ceiling is
@@ -4567,6 +4579,12 @@ def scan_z_report(
 
         # Parse the Z-report
         parsed = parse_z_report(local_path)
+    # No reliable total on the photo: say so and ask for the part with the
+    # totals — never a guessed figure (receipt_ocr.parse_z_report). 422, so
+    # the card shows this sentence and no till is added to the day.
+    if parsed.get("z_report_unread"):
+        msgs = _Z_UNAVAILABLE_MSG if parsed.get("unread_reason") == "unavailable" else _Z_UNREAD_MSG
+        raise HTTPException(status_code=422, detail=msgs.get(owner_lang(user), msgs["da"]))
     parsed["image_url"] = image_url
 
     # When the specialized Z-report extractor ran, package the rich

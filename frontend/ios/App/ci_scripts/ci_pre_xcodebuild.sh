@@ -84,7 +84,21 @@ NEW_BUILD=$((LAST_MANUAL + CI_BUILD_NUMBER))
 #
 # 1051 (11 Oct 2026): Apple has seen 1049 (Xcode Cloud, 2.1, failed) and
 # owner 2.2 is archived by hand as 1050, so Xcode Cloud must land above it.
-MIN_BUILD=1051
+#
+# 1054 (13 Oct 2026): App Review rejected 2.2 (1052) — launch crash on
+# iPadOS 27 (no UIScene lifecycle). The fixed 2.2 is archived by hand as
+# 1053 (pbxproj), so Xcode Cloud must land above 1053.
+#
+# 1055 (16 Oct 2026): owner 2.3 (Push 8 + Push 9 web bundle, same UIScene
+# fix) is archived by hand as 1054 (pbxproj), so Xcode Cloud must land
+# above 1054.
+#
+# 1057 (17 Oct 2026): Xcode Cloud built 2.2 (1054) and 2.2 (1055) from main
+# after Push 9 and the card push (both refused: the 2.2 train is closed).
+# main is now owner 2.4 with the UIScene fix (2.3 is in App Review, hand
+# archived as 1054); hand archives of 2.4 start at 1056, so CI lands at or
+# above 1057.
+MIN_BUILD=1057
 if [ "$NEW_BUILD" -lt "$MIN_BUILD" ]; then
     echo "   (NEW_BUILD $NEW_BUILD below floor — clamping up to $MIN_BUILD)"
     NEW_BUILD=$MIN_BUILD

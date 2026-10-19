@@ -460,92 +460,142 @@ def test_parse_z_report_skips_mindee_when_classifier_says_z_report(
     assert result["tips"] == -1000.00
 
 
-def test_parse_z_report_falls_back_to_mindee_for_receipts(
+def test_parse_z_report_reads_a_receipt_classified_photo_with_the_z_reader_only(
     monkeypatch, sample_jpeg
 ):
-    """When the classifier returns 'receipt' the Mindee → Claude chain
-    runs (existing behaviour preserved)."""
+    """19 Oct 2026: on the kasserapport route a photo the classifier calls
+    'receipt' (e.g. the top half of a long slip, or a screen photo) is still
+    read ONLY by the Z-report reader. Mindee, the generic receipt reader and
+    OCR + regex never run, so no generic-reader or regex figure can become
+    the day's revenue. (Replaces the old 'falls back to Mindee' expectation.)"""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test_key")
     monkeypatch.setenv("MINDEE_API_KEY", "test_key")
-
-    mindee_called = {"n": 0}
-    z_called = {"n": 0}
-
-    def fake_mindee_extract(image_path, **kwargs):
-        mindee_called["n"] += 1
-        return {
-            "vendor": "Random Café",
-            "date": "2026-05-24",
-            "total": 247.50,
-            "currency": "DKK",
-            "vat_amount": 49.50,
-            "vat_rate": 0.25,
-            "line_items": [],
-            "confidence": {"vendor": 0.9, "date": 0.9, "total": 0.95, "overall": 0.92},
-            "notes": None,
-            "_provider": "mindee",
-        }
+    calls = {"z": 0, "mindee": 0, "generic": 0, "ocr": 0}
 
     def fake_z_extract(image_path):
-        z_called["n"] += 1
+        calls["z"] += 1
         return None
 
-    def fake_classify(image_path):
-        return "receipt"
+    def fake_mindee(image_path, **kwargs):
+        calls["mindee"] += 1
+        return {"total": 247.50, "confidence": {"total": 0.95, "overall": 0.92}}
+
+    def fake_generic(image_path, **kwargs):
+        calls["generic"] += 1
+        return {"total": 247.50, "confidence": {"total": 0.95, "overall": 0.92}}
+
+    def fake_ocr(p):
+        calls["ocr"] += 1
+        return "1012 - Vin\nTotal: 1012\nTotal 247,50"
 
     from app.services import claude_vision_ocr, mindee_ocr
-    monkeypatch.setattr(mindee_ocr, "extract_receipt_data", fake_mindee_extract)
     monkeypatch.setattr(claude_vision_ocr, "extract_z_report_data", fake_z_extract)
-    monkeypatch.setattr(claude_vision_ocr, "classify_document_type", fake_classify)
-
-    # Disable raw OCR text path so we exercise the Mindee branch
-    monkeypatch.setattr("app.services.receipt_ocr._ocrspace_ocr", lambda p: "")
-    monkeypatch.setattr("app.services.receipt_ocr._google_vision_ocr", lambda p: "")
+    monkeypatch.setattr(claude_vision_ocr, "classify_document_type", lambda p: "receipt")
+    monkeypatch.setattr(claude_vision_ocr, "extract_receipt_data", fake_generic)
+    monkeypatch.setattr(mindee_ocr, "extract_receipt_data", fake_mindee)
+    monkeypatch.setattr("app.services.receipt_ocr._ocrspace_ocr", fake_ocr)
+    monkeypatch.setattr("app.services.receipt_ocr._google_vision_ocr", fake_ocr)
 
     from app.services.receipt_ocr import parse_z_report
     result = parse_z_report(sample_jpeg)
 
-    # Z-report extractor MUST NOT be called for receipt-typed docs
-    assert z_called["n"] == 0
-    assert mindee_called["n"] == 1
-    # Mindee total flows through the legacy receipt path → revenue_total
-    assert result["revenue_total"] == 247.50
+    assert calls == {"z": 1, "mindee": 0, "generic": 0, "ocr": 0}
+    assert result["z_report_unread"] is True
+    assert result["unread_reason"] == "no_total"
+    assert result["revenue_total"] is None
+    assert result["moms_total"] is None
+    assert result["payments"] == {"cash": None, "card": None, "mobilepay": None}
 
 
-def test_parse_z_report_falls_back_when_z_extractor_fails(
+def test_parse_z_report_never_guesses_when_the_z_reader_finds_no_total(
     monkeypatch, sample_jpeg
 ):
-    """When classifier says z_report but the specialized extractor
-    returns None (e.g. SDK error mid-call), parse_z_report falls back to
-    the legacy Mindee → Claude chain rather than failing the request."""
+    """The Z-report reader returned nothing usable (no summary block, low
+    confidence or an API error). The old chain fell through to OCR + regex,
+    which took the group code '1012' as the day's total on a real slip. Now
+    the result is the honest unread shape and OCR is never asked."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test_key")
-    monkeypatch.setenv("MINDEE_API_KEY", "test_key")
+    ocr_calls = {"n": 0}
 
-    def fake_z_extract(image_path):
-        return None  # specialized extractor failed
+    def fake_ocr(p):
+        ocr_calls["n"] += 1
+        return "1012 - Menuer Drikkevare\nTotal: 17.990,00\nTotal 1012"
 
-    def fake_mindee_extract(image_path, **kwargs):
-        return None
-
-    def fake_claude_receipt(image_path, **kwargs):
-        return None
-
-    def fake_classify(image_path):
-        return "z_report"
-
-    from app.services import claude_vision_ocr, mindee_ocr
-    monkeypatch.setattr(claude_vision_ocr, "extract_z_report_data", fake_z_extract)
-    monkeypatch.setattr(claude_vision_ocr, "extract_receipt_data", fake_claude_receipt)
-    monkeypatch.setattr(claude_vision_ocr, "classify_document_type", fake_classify)
-    monkeypatch.setattr(mindee_ocr, "extract_receipt_data", fake_mindee_extract)
-    monkeypatch.setattr("app.services.receipt_ocr._ocrspace_ocr", lambda p: "")
-    monkeypatch.setattr("app.services.receipt_ocr._google_vision_ocr", lambda p: "")
+    from app.services import claude_vision_ocr
+    monkeypatch.setattr(claude_vision_ocr, "extract_z_report_data", lambda p: None)
+    monkeypatch.setattr(claude_vision_ocr, "classify_document_type", lambda p: "z_report")
+    monkeypatch.setattr("app.services.receipt_ocr._ocrspace_ocr", fake_ocr)
+    monkeypatch.setattr("app.services.receipt_ocr._google_vision_ocr", fake_ocr)
 
     from app.services.receipt_ocr import parse_z_report
     result = parse_z_report(sample_jpeg)
 
-    # Returns the no-text fallback shape (ocr_available=False) rather
-    # than crashing. The user falls back to manual entry — annoying but
-    # honest.
+    assert ocr_calls["n"] == 0
+    assert result["z_report_unread"] is True
     assert result["ocr_available"] is False
     assert result["revenue_total"] is None
+    assert result["tips"] is None
+
+
+def test_parse_z_report_low_confidence_read_is_unread_not_a_number(
+    monkeypatch, sample_jpeg
+):
+    """A Z-report read under the confidence floor is not used and not
+    replaced by a guess."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test_key")
+    from app.services import claude_vision_ocr
+    monkeypatch.setattr(claude_vision_ocr, "classify_document_type", lambda p: "z_report")
+    monkeypatch.setattr(
+        claude_vision_ocr, "extract_z_report_data",
+        lambda p: {"revenue_total": 1012.0, "confidence": {"overall": 0.2}},
+    )
+    monkeypatch.setattr("app.services.receipt_ocr._ocrspace_ocr", lambda p: pytest.fail("OCR must not run"))
+    monkeypatch.setattr("app.services.receipt_ocr._google_vision_ocr", lambda p: pytest.fail("OCR must not run"))
+
+    from app.services.receipt_ocr import parse_z_report
+    result = parse_z_report(sample_jpeg)
+    assert result["z_report_unread"] is True
+    assert result["revenue_total"] is None
+
+
+def test_parse_z_report_says_unavailable_when_the_reader_cannot_run(monkeypatch, sample_jpeg):
+    """No API key (or an API error): the photo is not the problem, so the
+    unread reason is 'unavailable' — the route then says 'try again
+    shortly' instead of asking for another photo."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    try:
+        from app.config import settings
+        settings.ANTHROPIC_API_KEY = ""
+    except Exception:
+        pass
+    monkeypatch.setattr("app.services.receipt_ocr._ocrspace_ocr", lambda p: pytest.fail("OCR must not run"))
+    monkeypatch.setattr("app.services.receipt_ocr._google_vision_ocr", lambda p: pytest.fail("OCR must not run"))
+    from app.services.receipt_ocr import parse_z_report
+    result = parse_z_report(sample_jpeg)
+    assert result["z_report_unread"] is True
+    assert result["unread_reason"] == "unavailable"
+    assert result["revenue_total"] is None
+
+
+def test_parse_z_report_says_unavailable_on_an_api_error(monkeypatch, sample_jpeg):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test_key")
+
+    class _Boom:
+        def __init__(self, *a, **k):
+            self.messages = self
+
+        def create(self, *a, **k):
+            raise RuntimeError("overloaded")
+
+    from app.services import claude_vision_ocr
+    monkeypatch.setattr(claude_vision_ocr, "anthropic_client", lambda *a, **k: _Boom())
+    from app.services.receipt_ocr import parse_z_report
+    result = parse_z_report(sample_jpeg)
+    assert result["z_report_unread"] is True
+    assert result["unread_reason"] == "unavailable"
+
+
+def test_smart_scan_treats_an_unread_kasserapport_as_a_failed_read(monkeypatch, tmp_path):
+    from app.services import receipt_ocr, smart_scan_service
+    monkeypatch.setattr(receipt_ocr, "parse_z_report", lambda p: receipt_ocr._z_report_unread("no_total"))
+    assert smart_scan_service._extract_for("z_report", b"", str(tmp_path / "x.jpg")) is None

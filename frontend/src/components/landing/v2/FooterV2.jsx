@@ -27,6 +27,11 @@
  *  3. The legal links are real <Link>s, not anchors, so /terms and /privacy
  *     route in-app instead of reloading the bundle.
  *
+ *  4. CONTACT (push 9, A4). A Kontakt link to /contact and the company
+ *     address contact@bonbox.dk — the same address /contact, the Terms and
+ *     the privacy policy give (ContactPage SUPPORT_EMAIL). The footer had no
+ *     way to reach a person at all.
+ *
  * The Danish document names (Handelsbetingelser, Privatlivspolitik) stay
  * Danish in every language: they are the names of specific Danish-law
  * documents, not UI chrome.
@@ -51,6 +56,10 @@ const LEGAL_LINES = [
   "DukaanAI v/Manoz Chaudhary",
   "CVR 46417321",
 ];
+
+// Same address as pages/ContactPage.jsx SUPPORT_EMAIL (a test keeps the two
+// equal). Not copy — an address.
+const CONTACT_EMAIL = "contact@bonbox.dk";
 
 const LINK_CLASS =
   "text-slate-600 transition-colors duration-150 hover:text-slate-900";
@@ -80,6 +89,10 @@ export default function FooterV2() {
     // (R-c round 2 — no "Databehandleraftale" link until a real DPA ships:
     // it opened the privacy policy, which is not a data processing
     // agreement. Nothing stands in its place.)
+    {
+      to: "/contact",
+      label: t("landingV2.footer.contact", "Contact"),
+    },
   ];
 
   return (
@@ -106,6 +119,13 @@ export default function FooterV2() {
                 {line}
               </span>
             ))}
+            <a
+              href={`mailto:${CONTACT_EMAIL}`}
+              data-testid="footer-email"
+              className="mt-1 inline-flex min-h-11 items-center text-slate-700 underline decoration-slate-300 underline-offset-4 transition-colors duration-150 hover:text-slate-900 min-[621px]:min-h-0"
+            >
+              {CONTACT_EMAIL}
+            </a>
           </address>
         </div>
 

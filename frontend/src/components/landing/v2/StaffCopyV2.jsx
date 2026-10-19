@@ -30,25 +30,31 @@ export default function StaffCopyV2() {
     <div className={`max-w-[58ch] min-[1041px]:max-w-none ${TEXT}`}>
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-          {t("landingV2.staff.eyebrow", "BonBox Vagtplan · iPhone")}
+          {t("landingV2.staff.eyebrow", "BonBox Vagtplan · iPhone and browser")}
         </span>
+        {/* Push 9 (A5): there is no Android app. On Android the pill opens
+            the web version (/join — the staff join-code page), which is the
+            same Vagtplan in the phone's browser. */}
         <AppStoreLink
           href="https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793"
           label={t("landingV2.appStore.scheduler", "Vagtplan on the App Store")}
+          webHref="/join"
+          webLabel={t("landingV2.webApp.staff", "Vagtplan in the browser")}
         />
       </div>
 
       <h2 className="mb-4 font-display text-[clamp(28px,3.1vw,40px)] font-bold leading-[1.06] tracking-[-0.028em] text-slate-900">
         {t(
           "landingV2.staff.title",
-          "Your team gets their own app. Not a group chat."
+          "Your team gets their own rota on their phone. Not a group chat."
         )}
       </h2>
 
-      <p className="mb-[30px] max-w-[46ch] text-[17px] text-slate-600">
+      {/* Below 640px (sm) the four rows under it carry the same facts (push 9, D). */}
+      <p className="mb-[30px] max-w-[46ch] text-[17px] text-slate-600 max-sm:hidden">
         {t(
           "landingV2.staff.body",
-          "Staff open Vagtplan and their week is right there — no login hassle, no clutter. They mark when they can’t work, request holiday, and see in the app when one of their shifts changes."
+          "Staff open Vagtplan and their week is right there — no login hassle, no clutter. They mark when they can’t work, request holiday, and can see when one of their shifts changes."
         )}
       </p>
 
@@ -56,7 +62,7 @@ export default function StaffCopyV2() {
         {rows.map((row, i) => (
           <div
             key={row}
-            className={`flex gap-[14px] py-[14px] ${
+            className={`flex gap-[14px] py-3 sm:py-[14px] ${
               i < rows.length - 1 ? "border-b border-slate-200" : ""
             }`}
           >

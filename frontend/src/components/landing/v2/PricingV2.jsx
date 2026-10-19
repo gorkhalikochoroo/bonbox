@@ -1,7 +1,9 @@
-import { Check } from "lucide-react";
+import { useState } from "react";
+import { Check, ChevronDown } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../../../hooks/useLanguage";
 import { TEXT_CHILDREN, WIDE, WIDE_PY } from "./fluid";
+import { FOUNDING_LIMIT, PLAN_PRICES, momsNoteKey } from "./pricing";
 
 /**
  * Landing v2 — "Pricing" section.
@@ -19,6 +21,33 @@ import { TEXT_CHILDREN, WIDE, WIDE_PY } from "./fluid";
  *       2026 — terms draft [TIL AFKLARING: momsstatus]). The footnote only
  *       says the exact amount is shown at checkout, which is true either way.
  *  #9 — no "bookkeeping system" / "digital bogføring" wording anywhere.
+ *
+ * Push 9 (landing review, 15 Oct 2026):
+ *  A2 — no struck-through "before" prices. 199 and 349 were printed crossed
+ *       out beside 129 and 249 as if they had been reduced; nobody ever paid
+ *       them. The founding offer is stated as what it is: "129 kr./md. for
+ *       the first 100 — then 199 kr./md." Every number comes from ./pricing,
+ *       which a test holds to backend config.py PLAN_PRICES_DKK.
+ *  A3 — MOMS on the price is still unknown from the code (see ./pricing:
+ *       PRICE_MOMS_BASIS). The footnote keeps saying the exact amount is
+ *       shown at checkout; the "ekskl./inkl. moms" line appears only once
+ *       the owner sets the basis.
+ *  A5 — adding several tills together into one kasserapport is FREE (owner
+ *       decision, 18 Sep; the daily close sums tills on every plan). It is
+ *       now on the Free card. Pro names its two real features, each worded
+ *       as what it is: the multi-terminal close (billing.py
+ *       multi_terminal_close — /daily-close/multi, a kasserapport that lists
+ *       each POS terminal, as PDF and Excel: kasserapport.py /close-pdf and
+ *       /close-excel) and the combined view across locations
+ *       (multi_branch_dashboard — /branches?tab=consolidated, on screen
+ *       only; it has no PDF or Excel). An earlier wording merged the two
+ *       into "one combined kasserapport across your locations — PDF and
+ *       Excel", which no feature does.
+ *  C  — Danish page: "Gratis", not "Free"; "aflæsning af bilag", not
+ *       "OCR"; "en fil fra din netbank", not "bank-CSV".
+ *  D  — below 621px each card's feature list folds behind a "Se alt i
+ *       planen" button (always open from 621px), so the three plans fit in
+ *       about two screens on a phone. Nothing is removed.
  */
 
 function Feature({ children }) {
@@ -35,13 +64,50 @@ function Feature({ children }) {
   );
 }
 
+/**
+ * The feature list. On a phone (below 621px) it starts folded behind a "See
+ * everything in the plan" button; from 621px the button is hidden and the
+ * list always shows (CSS only, so desktop never depends on the state). The
+ * list stays in the DOM either way.
+ */
+function Features({ id, summary, children }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((v) => !v)}
+        className="mb-2 flex min-h-11 w-full items-center justify-between gap-2 border-t border-slate-100 pt-2 text-left text-[14px] font-medium text-slate-900 min-[621px]:hidden"
+      >
+        {open ? summary.less : summary.more}
+        <ChevronDown
+          size={16}
+          strokeWidth={1.75}
+          aria-hidden="true"
+          className={`flex-none text-slate-400 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      <div id={id} className={open ? "" : "max-[620px]:hidden"}>
+        {children}
+      </div>
+    </>
+  );
+}
+
 export default function PricingV2() {
   const { t } = useLanguage();
+  const momsNote = momsNoteKey();
+  const summary = {
+    more: t("landingV2.pricing.showFeatures", "See everything in the plan"),
+    less: t("landingV2.pricing.hideFeatures", "Show less"),
+  };
 
   const eyebrow =
     "text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400";
   const position =
-    "font-display text-[19px] font-semibold leading-[1.3] tracking-[-0.015em] text-slate-900 min-h-[2.6em] mb-[22px]";
+    "font-display text-[17px] sm:text-[19px] font-semibold leading-[1.3] tracking-[-0.015em] text-slate-900 sm:min-h-[2.6em] mb-4 sm:mb-[22px]";
   const featureList =
     "grid gap-[11px] text-[14.5px] leading-[1.45] text-slate-700";
   const trialNote =
@@ -49,7 +115,7 @@ export default function PricingV2() {
   const plusLabel =
     "text-[13.5px] font-semibold text-slate-900 mb-[14px]";
   const ctaBase =
-    "block rounded-xl px-5 text-center text-[15px] font-medium mb-6 transition-colors duration-150";
+    "block rounded-xl px-5 text-center text-[15px] font-medium mb-3 sm:mb-6 transition-colors duration-150";
 
   return (
     <section
@@ -57,7 +123,7 @@ export default function PricingV2() {
       aria-labelledby="pricing-heading"
       className="border-t border-slate-200 bg-white"
     >
-      <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] ${WIDE} ${WIDE_PY} ${TEXT_CHILDREN}`}>
+      <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)] max-sm:py-10 ${WIDE} ${WIDE_PY} ${TEXT_CHILDREN}`}>
         {/* From 1041px: headline over the first two plan columns, the
             subhead over the third, so the header spans the band like the
             plans below it (it stopped at 54ch with the rest of the row
@@ -73,21 +139,22 @@ export default function PricingV2() {
             >
               {t(
                 "landingV2.pricing.headline",
-                "129 kr/month — for the first 100 businesses."
+                "{founding} kr./mo for the first {n} businesses — then {regular} kr./mo.",
+                { founding: PLAN_PRICES.starter.founding, regular: PLAN_PRICES.starter.regular, n: FOUNDING_LIMIT },
               )}
             </h2>
           </div>
           <p className="text-[17px] text-slate-600">
-            {t(
-              "landingV2.pricing.subhead",
-              "You keep that price as long as your subscription stays active. 199 kr after that."
+            {t("landingV2.pricing.subhead",
+              "The founding price stays as long as your subscription stays active without a break."
             )}
+            {momsNote ? ` ${t(momsNote)}` : ""}
           </p>
         </div>
 
-        <div className="grid grid-cols-3 items-start gap-5 max-[980px]:grid-cols-1">
+        <div className="grid grid-cols-3 items-start gap-4 sm:gap-5 max-[980px]:grid-cols-1">
           {/* ---------------------------------------------------------- Free */}
-          <div className="order-2 rounded-2xl border border-slate-200 bg-white px-[26px] pb-[30px] pt-7 min-[981px]:order-none">
+          <div className="order-2 rounded-2xl border border-slate-200 bg-white px-5 pb-4 pt-5 sm:px-[26px] sm:pb-[30px] sm:pt-7 min-[981px]:order-none">
             <div className={`${eyebrow} mb-[14px]`}>
               {t("landingV2.pricing.free.name", "Free")}
             </div>
@@ -116,6 +183,7 @@ export default function PricingV2() {
             >
               {t("landingV2.pricing.free.cta", "Start free")}
             </Link>
+            <Features id="plan-free-features" summary={summary}>
             <div
               className={`${featureList} border-t border-slate-100 pt-5`}
             >
@@ -137,8 +205,15 @@ export default function PricingV2() {
                   "MOMS countdown — when SKAT is due, and roughly how much"
                 )}
               </Feature>
+              {/* Several tills added together — every plan (push 9, A5). */}
               <Feature>
-                {t("landingV2.pricing.free.f4", "Receipt OCR, 10 a month")}
+                {t(
+                  "landingV2.pricing.free.f8",
+                  "Two tills? Their Z-reports are added together into the day's kasserapport"
+                )}
+              </Feature>
+              <Feature>
+                {t("landingV2.pricing.free.f4", "Receipt reading, 10 a month")}
               </Feature>
               <Feature>
                 {t("landingV2.pricing.free.f5", "Sales & expense logging")}
@@ -163,11 +238,12 @@ export default function PricingV2() {
                 )}
               </Feature>
             </div>
+            </Features>
           </div>
 
           {/* ------------------------------------------------------- Starter */}
           <div
-            className="order-1 rounded-2xl border-[1.5px] border-bb-green bg-white px-[26px] pb-[30px] pt-7 min-[981px]:order-none"
+            className="order-1 rounded-2xl border-[1.5px] border-bb-green bg-white px-5 pb-4 pt-5 sm:px-[26px] sm:pb-[30px] sm:pt-7 min-[981px]:order-none"
             style={{ boxShadow: "0 16px 36px -22px rgba(22,163,74,0.40)" }}
           >
             <div className="mb-[14px] flex items-center justify-between gap-2.5">
@@ -181,22 +257,27 @@ export default function PricingV2() {
             <div className={position}>
               {t(
                 "landingV2.pricing.starter.position",
-                "For sending fakturaer and matching payments from your bank CSV."
+                "For sending invoices and matching payments against your netbank."
               )}
             </div>
-            <div className="mb-[14px] flex flex-wrap items-baseline gap-2">
+            <div className="mb-1 flex flex-wrap items-baseline gap-2">
               <span className="font-display text-[44px] font-extrabold tracking-[-0.03em] tabular-nums text-slate-900">
-                129
+                {PLAN_PRICES.starter.founding}
               </span>
               <span className="text-sm text-slate-500">
-                {t("landingV2.pricing.perMonth", "DKK / mo")}
-              </span>
-              <span className="text-[13.5px] tabular-nums text-slate-400 line-through">
-                199
+                {t("landingV2.pricing.perMonth", "kr./mo")}
               </span>
               <span className="rounded-full bg-slate-100 px-[9px] py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-slate-600">
                 {t("landingV2.pricing.starter.foundingTag", "First 100")}
               </span>
+            </div>
+            {/* The regular price, said as what comes after — never struck
+                through (push 9, A2). */}
+            <div data-testid="price-then-starter" className="mb-[14px] text-[13.5px] tabular-nums text-slate-600">
+              {t("landingV2.pricing.thenPrice", "After the first {n}: {price} kr./mo", {
+                price: PLAN_PRICES.starter.regular,
+                n: FOUNDING_LIMIT,
+              })}
             </div>
             <div className={trialNote}>
               {t(
@@ -217,6 +298,7 @@ export default function PricingV2() {
             >
               {t("landingV2.pricing.starter.cta", "Start on Starter")}
             </Link>
+            <Features id="plan-starter-features" summary={summary}>
             <div className={plusLabel}>
               {t(
                 "landingV2.pricing.starter.plus",
@@ -233,11 +315,11 @@ export default function PricingV2() {
               <Feature>
                 {t(
                   "landingV2.pricing.starter.f2",
-                  "Bank reconciliation from a netbank CSV"
+                  "Bank reconciliation from a file exported from your netbank"
                 )}
               </Feature>
               <Feature>
-                {t("landingV2.pricing.starter.f3", "Receipt OCR, 300 a month")}
+                {t("landingV2.pricing.starter.f3", "Receipt reading, 300 a month")}
               </Feature>
               <Feature>
                 {t(
@@ -248,7 +330,7 @@ export default function PricingV2() {
               <Feature>
                 {t(
                   "landingV2.pricing.starter.f5",
-                  "Schedule autopilot — forecast, weather and the 11-hour rest rule"
+                  "Schedule autopilot — forecast, weather and the 11-hour and 48-hour rules"
                 )}
               </Feature>
               <Feature>
@@ -282,10 +364,11 @@ export default function PricingV2() {
                 )}
               </Feature>
             </div>
+            </Features>
           </div>
 
           {/* ----------------------------------------------------------- Pro */}
-          <div className="order-2 rounded-2xl border border-slate-200 bg-white px-[26px] pb-[30px] pt-7 min-[981px]:order-none">
+          <div className="order-2 rounded-2xl border border-slate-200 bg-white px-5 pb-4 pt-5 sm:px-[26px] sm:pb-[30px] sm:pt-7 min-[981px]:order-none">
             <div className={`${eyebrow} mb-[14px]`}>
               {t("landingV2.pricing.pro.name", "Pro")}
             </div>
@@ -295,15 +378,12 @@ export default function PricingV2() {
                 "For running several places from one login, under your own brand."
               )}
             </div>
-            <div className="mb-[14px] flex flex-wrap items-baseline gap-2">
+            <div className="mb-1 flex flex-wrap items-baseline gap-2">
               <span className="font-display text-[38px] font-extrabold tracking-[-0.03em] tabular-nums text-slate-900">
-                249
+                {PLAN_PRICES.pro.founding}
               </span>
               <span className="text-sm text-slate-500">
-                {t("landingV2.pricing.perMonth", "DKK / mo")}
-              </span>
-              <span className="text-[13.5px] tabular-nums text-slate-400 line-through">
-                349
+                {t("landingV2.pricing.perMonth", "kr./mo")}
               </span>
               {/* Pro's 249 is rationed exactly like Starter's 129 — both come
                   from the founding Stripe price, granted only while
@@ -316,6 +396,12 @@ export default function PricingV2() {
               <span className="rounded-full bg-slate-100 px-[9px] py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-slate-600">
                 {t("landingV2.pricing.starter.foundingTag", "First 100")}
               </span>
+            </div>
+            <div data-testid="price-then-pro" className="mb-[14px] text-[13.5px] tabular-nums text-slate-600">
+              {t("landingV2.pricing.thenPrice", "After the first {n}: {price} kr./mo", {
+                price: PLAN_PRICES.pro.regular,
+                n: FOUNDING_LIMIT,
+              })}
             </div>
             <div className={trialNote}>
               {t(
@@ -334,6 +420,7 @@ export default function PricingV2() {
             >
               {t("landingV2.pricing.pro.cta", "Start on Pro")}
             </Link>
+            <Features id="plan-pro-features" summary={summary}>
             <div className={plusLabel}>
               {t("landingV2.pricing.pro.plus", "Everything in Starter, plus:")}
             </div>
@@ -344,14 +431,20 @@ export default function PricingV2() {
               <Feature>
                 {t(
                   "landingV2.pricing.pro.f2",
-                  "Multi-terminal close — every Z-report into one PDF"
+                  "Several POS terminals: one kasserapport with each terminal listed — PDF and Excel"
+                )}
+              </Feature>
+              <Feature>
+                {t(
+                  "landingV2.pricing.pro.f9",
+                  "Every location's close added up on one screen"
                 )}
               </Feature>
               <Feature>
                 {t("landingV2.pricing.pro.f3", "Faktura, unlimited")}
               </Feature>
               <Feature>
-                {t("landingV2.pricing.pro.f4", "Receipt OCR, 1.000 a month")}
+                {t("landingV2.pricing.pro.f4", "Receipt reading, 1.000 a month")}
               </Feature>
               <Feature>
                 {t(
@@ -369,13 +462,14 @@ export default function PricingV2() {
                 {t("landingV2.pricing.pro.f7", "Priority email support")}
               </Feature>
             </div>
+            </Features>
           </div>
         </div>
 
         <div className="mt-6 text-sm text-slate-500">
           {t(
             "landingV2.pricing.footnote",
-            "No card. Cancel the same day. Prices are per business, and you see the exact amount at checkout before you confirm. No lock-in, no setup fee, and never a percentage of what you take."
+            "The trial needs no card. Cancel any time – it takes effect at the end of the month you have paid for. Prices are per business, and you see the exact amount at checkout before you confirm. No lock-in, no setup fee, and never a percentage of what you take."
           )}
         </div>
       </div>

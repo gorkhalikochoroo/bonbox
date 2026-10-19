@@ -448,11 +448,20 @@ export default function CookieConsent() {
   // Accept and Decline: one class, so they can never drift apart in size or
   // weight. Two lines fit inside the 44 px when a language runs long.
   const choice =
-    "min-h-11 px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 " +
+    "relative min-h-11 px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 " +
     "text-[14px] leading-[18px] font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 " +
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 transition-colors duration-150";
   const textBtn =
-    "inline-flex items-center min-h-11 px-1 text-[13px] font-medium text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 " +
+    "relative inline-flex items-center min-h-11 px-1 text-[13px] font-medium text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 " +
+    "hover:text-gray-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 rounded-sm";
+  // "Læs mere" runs inline at the end of the sentence (an inline link in a
+  // sentence is exempt from the 24/44 px target-size rule, WCAG 2.5.8). It
+  // still gets a 44 px tall hit area: an invisible ::after reaching 14 px
+  // above and below the 16 px line box, so the layout does not move. The
+  // choice buttons and Tilpas are `relative` and come later in the DOM, so
+  // where the two areas meet the button wins the tap.
+  const inlineLink =
+    "relative after:absolute after:-inset-x-1 after:-inset-y-[14px] after:content-[''] font-medium text-gray-700 dark:text-gray-300 underline underline-offset-4 decoration-gray-400 " +
     "hover:text-gray-900 dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 rounded-sm";
 
   return (
@@ -481,27 +490,39 @@ export default function CookieConsent() {
           style={edgePad ? { paddingBottom: "env(safe-area-inset-bottom, 0px)" } : undefined}
         >
           {!drawer ? (
-            <div className="px-4 pt-3.5 pb-1 md:px-5 md:pt-4">
-              <p className="text-[15px] font-semibold leading-5 text-gray-900 dark:text-white">
-                {t("cookieBannerTitle") || "We use cookies"}
+            // Push 9 (B1): on a phone the banner is ONE sentence with "Læs
+            // mere" inline, "Tilpas" beside it, and the two equal choices
+            // under it — about 125 px at 360 and 390 wide (it was ~200-220
+            // and covered the hero's "Prøv gratis" on a 360 x 780 phone).
+            // The title shows from md up, where the card has room for it.
+            // Tilpas keeps its 44 px tap target; the negative margin only
+            // stops it from making the text row 44 px tall.
+            <div className="px-4 pt-2.5 pb-2.5 md:px-5 md:pt-4 md:pb-4">
+              <p className="hidden text-[15px] font-semibold leading-5 text-gray-900 dark:text-white md:block">
+                {t("cookieBannerTitle", "We use cookies")}
               </p>
-              <p id="cookie-banner-short" className="mt-1 text-[13px] leading-[19px] text-gray-600 dark:text-gray-300">
-                {t("cookieBannerShort")}
-              </p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button type="button" onClick={acceptAll} className={choice}>
-                  {t("cookieAcceptAll") || "Accept all"}
-                </button>
-                <button type="button" onClick={declineAll} className={choice}>
-                  {t("cookieDeclineNonEssential") || "Decline non-essential"}
-                </button>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <Link to="/cookies" className={textBtn}>
-                  {t("suCookieMore")}
-                </Link>
-                <button type="button" onClick={() => setDrawer(true)} className={textBtn}>
-                  {t("cookieCustomize") || "Customize"}
+              {/* A two-column grid: the sentence with Tilpas beside it, the
+                  two choices under both. Tilpas comes LAST in the DOM — the
+                  sentence, then the two equal choices, then Customize — so
+                  keyboard and screen-reader order reach the answer first; the
+                  grid only places it top-right. */}
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 md:mt-1">
+                <p className="col-start-1 row-start-1 text-[13px] leading-[18px] text-gray-600 dark:text-gray-300">
+                  <span id="cookie-banner-short">{t("cookieBannerShort")}</span>{" "}
+                  <Link to="/cookies" className={inlineLink}>
+                    {t("suCookieMore")}
+                  </Link>
+                </p>
+                <div className="col-span-2 row-start-2 mt-2.5 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={acceptAll} className={choice}>
+                    {t("cookieAcceptAll", "Accept all")}
+                  </button>
+                  <button type="button" onClick={declineAll} className={choice}>
+                    {t("cookieDeclineNonEssential", "Decline non-essential")}
+                  </button>
+                </div>
+                <button type="button" onClick={() => setDrawer(true)} className={`${textBtn} col-start-2 row-start-1 -my-2.5 self-start`}>
+                  {t("cookieCustomize", "Customize")}
                 </button>
               </div>
             </div>

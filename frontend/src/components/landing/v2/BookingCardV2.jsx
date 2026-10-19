@@ -22,6 +22,7 @@
 import { useEffect, useState } from "react";
 import { useLanguage } from "../../../hooks/useLanguage";
 import { dateLocale } from "../../../utils/dateFormat";
+import DemoTag from "./DemoTag";
 
 /** Chip geometry differs per group in the design: 12 / 14 / 13 px inline. */
 const CHIP_BASE =
@@ -49,6 +50,14 @@ export default function BookingCardV2() {
   const [dateIdx, setDateIdx] = useState(0);
   const [party, setParty] = useState(2);
   const [time, setTime] = useState("19:00");
+  // The footer button is part of the demo, so it answers like one: a tap says
+  // plainly that this is an example and nothing was booked (it did nothing at
+  // all before — a button with no answer is a dead end). Any new choice
+  // clears it.
+  const [booked, setBooked] = useState(false);
+  useEffect(() => {
+    setBooked(false);
+  }, [dateIdx, party, time, cardLang]);
 
   const da = cardLang === "da";
 
@@ -103,13 +112,17 @@ export default function BookingCardV2() {
         partyLabel: t("landingV2BookingPartyLabelDa", "Antal gæster"),
         timeLabel: t("landingV2BookingTimeLabelDa", "Vælg et tidspunkt"),
         service: t("landingV2BookingServiceDa", "Aften"),
-        cta: t("landingV2BookingCtaDa", "Book {time} til {party}", {
+        cta: t("landingV2BookingCtaDa", "Book bord kl. {time} til {party} pers.", {
           time,
           party,
         }),
         note: t(
           "landingV2BookingNoteDa",
           "Ingen konto nødvendig · Gratis afbestilling",
+        ),
+        done: t(
+          "landingV2BookingDemoDoneDa",
+          "Eksempel – der er ikke booket noget. Sådan bekræfter gæsten bordet på din bookingside.",
         ),
       }
     : {
@@ -126,17 +139,22 @@ export default function BookingCardV2() {
           "landingV2BookingNote",
           "No account needed · Free cancellation",
         ),
+        done: t(
+          "landingV2BookingDemoDone",
+          "Example – nothing was booked. This is how a guest confirms on your booking page.",
+        ),
       };
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white px-5 pt-5 pb-[18px] shadow-[0_16px_36px_-24px_rgba(15,23,42,0.35)]">
-      {/* Venue header */}
+      {/* Venue header — the demo bistro's own initials (it read "BO", which
+          looked like BonBox's mark on a venue's page). */}
       <div className="mb-[18px] flex items-center gap-3">
         <span
           aria-hidden="true"
           className="flex h-10 w-10 flex-none items-center justify-center rounded-[11px] bg-slate-900 font-display text-sm font-bold text-white"
         >
-          BO
+          BN
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-[11px] min-[1041px]:text-[9.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
@@ -145,6 +163,8 @@ export default function BookingCardV2() {
           <div className="truncate font-display text-[17px] font-bold tracking-[-0.02em] text-slate-900">
             {t("landingV2BookingVenue", "Bistro Nørrebro")}
           </div>
+          {/* Push 9 (B4): a visible demo label, not only a screen-reader one. */}
+          <DemoTag className="mt-1" />
         </div>
         <div
           className="flex gap-2 text-[11.5px] font-semibold"
@@ -243,11 +263,15 @@ export default function BookingCardV2() {
       {/* Footer */}
       <button
         type="button"
+        data-testid="booking-demo-cta"
+        onClick={() => setBooked(true)}
         className="mb-2.5 w-full rounded-xl bg-slate-900 py-[13px] text-center text-[14.5px] font-medium text-white"
       >
         {copy.cta}
       </button>
-      <div className="text-center text-[12px] text-slate-500">{copy.note}</div>
+      <div data-testid="booking-demo-note" aria-live="polite" className="text-center text-[12px] text-slate-500">
+        {booked ? copy.done : copy.note}
+      </div>
     </div>
   );
 }

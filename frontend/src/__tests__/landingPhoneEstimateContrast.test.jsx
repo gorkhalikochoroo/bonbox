@@ -26,7 +26,8 @@ const SLATE = { "text-slate-400": "#94a3b8", "text-slate-500": "#64748b", "text-
 describe("landing phone mock — the estimate line is readable", () => {
   it("is ≥ 4.5:1 on the white phone (not slate-400)", () => {
     render(<PhoneFanV2 />);
-    const line = screen.getByText("Estimate · ≈ 1.812 kr. before tax");
+    // Push 9: the line no longer quotes kroner the staff app does not show.
+    const line = screen.getByText("From the published rota · export as CSV");
     const cls = [...line.classList].find((c) => SLATE[c]);
     expect(cls).toBeTruthy();
     expect(cls).not.toBe("text-slate-400");

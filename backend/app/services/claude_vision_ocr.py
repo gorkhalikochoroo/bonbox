@@ -1054,6 +1054,15 @@ def _validate_z_report_extraction(data: Any) -> dict | None:
     return out
 
 
+# Why the last extract_z_report_data call in this context returned None:
+# "unavailable" (no SDK / no key / the API call failed) or "no_total" (the
+# photo was read but held no usable total). The kasserapport route uses it
+# to tell the owner "try again shortly" apart from "photograph the part
+# with the totals" (receipt_ocr.parse_z_report).
+import contextvars as _contextvars
+Z_READ_FAILURE: "_contextvars.ContextVar[str | None]" = _contextvars.ContextVar("z_read_failure", default=None)
+
+
 def extract_z_report_data(image_path: str) -> dict | None:
     """Extract Danish kasserapport (Z-report) structured data via Claude Vision.
 
@@ -1068,7 +1077,9 @@ def extract_z_report_data(image_path: str) -> dict | None:
 
     Returns:
       Dict with the spec'd shape (see Part A of the spec), or None on
-      any failure. Never raises — caller's fallback chain runs on None.
+      any failure (the reason is left in Z_READ_FAILURE). Never raises.
+      There is no fallback reader: on None the kasserapport route asks
+      the owner instead of guessing (receipt_ocr.parse_z_report).
     """
     start = time.perf_counter()
 
@@ -1076,7 +1087,8 @@ def extract_z_report_data(image_path: str) -> dict | None:
     try:
         import anthropic  # noqa: F401 — SDK availability check; the client comes from ai_limits
     except ImportError:
-        logger.warning("[Claude Z-Report] anthropic SDK not installed — falling back")
+        logger.warning("[Claude Z-Report] anthropic SDK not installed")
+        Z_READ_FAILURE.set("unavailable")
         return None
 
     api_key: str | None = None
@@ -1088,12 +1100,14 @@ def extract_z_report_data(image_path: str) -> dict | None:
     if not api_key:
         api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip() or None
     if not api_key:
-        logger.warning("[Claude Z-Report] ANTHROPIC_API_KEY not set — falling back")
+        logger.warning("[Claude Z-Report] ANTHROPIC_API_KEY not set")
+        Z_READ_FAILURE.set("unavailable")
         return None
 
     # ── Image prep ───────────────────────────────────────────────────
     b64 = _image_to_base64_jpeg_for_vision(image_path)
     if not b64:
+        Z_READ_FAILURE.set("no_total")
         return None
 
     # ── Model + system prompt ────────────────────────────────────────
@@ -1146,6 +1160,7 @@ def extract_z_report_data(image_path: str) -> dict | None:
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("[Claude Z-Report] call failed: %s: %s", type(e).__name__, e)
+        Z_READ_FAILURE.set("unavailable")
         return None
 
     # ── Extract tool_use block ───────────────────────────────────────
@@ -1162,12 +1177,14 @@ def extract_z_report_data(image_path: str) -> dict | None:
         ]
         first_text = " ".join(text_blocks)[:200] if text_blocks else "(empty)"
         logger.warning("[Claude Z-Report] no tool_use in response: %s", first_text)
+        Z_READ_FAILURE.set("no_total")
         return None
 
     # ── Validate ─────────────────────────────────────────────────────
     validated = _validate_z_report_extraction(tool_input)
     if validated is None:
         logger.warning("[Claude Z-Report] response validation failed")
+        Z_READ_FAILURE.set("no_total")
         return None
 
     # ── Cost + timing log ────────────────────────────────────────────

@@ -21,6 +21,7 @@ import { ConfirmProvider } from "./hooks/useConfirm";
 import { ToastProvider } from "./hooks/useToast";
 import { useThemeColorSync } from "./hooks/useThemeColorSync";
 import LandingV2Page from "./pages/LandingV2Page";
+import { isLandingPath, mightBeSignedIn } from "./lib/landingBoot";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AlertTriangle } from "lucide-react";
 import Button from "./components/ui/Button";
@@ -99,7 +100,7 @@ function GuestPage({ children }) {
 // first paint and the page (it was slate-50 on both). Dark unchanged.
 function PageLoader() {
   return (
-    <div className="min-h-screen flex items-center justify-center dark:bg-gray-900">
+    <div data-testid="page-loader" className="min-h-screen flex items-center justify-center dark:bg-gray-900">
       <div className="text-center">
         <svg className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-3" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
@@ -673,7 +674,7 @@ export function VerifyEmailRoute() {
   return <VerifyEmailPage sendOnArrival={sendOnArrival} />;
 }
 
-function PublicOrDashboard() {
+export function PublicOrDashboard() {
   const { user, loading } = useAuth();
   // BonBox Vagtplan (dk.bonbox.scheduler) — the staff App Store app shell. It boots straight into
   // the staff surface: the saved portal if this phone has connected before,
@@ -685,10 +686,16 @@ function PublicOrDashboard() {
     try { savedPortal = localStorage.getItem("bonbox_portal_token"); } catch { /* private mode */ }
     return <Navigate to={savedPortal ? `/s/${savedPortal}` : "/join"} replace />;
   }
-  if (loading) return <PageLoader />;
-  if (user) return <Navigate to={homeFor(user)} />;
   // On native iOS, skip the marketing landing page (no third-party platform references, native feel)
   const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
+  // Push 9 (E): while /auth/me is still answering, a visitor with no sign of
+  // a session (no bonbox_csrf cookie, no native token — lib/landingBoot) gets
+  // the landing straight away instead of a spinner. That call is a CORS
+  // preflight plus a request — over a second on a slow phone — and it held
+  // back the whole front door. If it does find a session, the redirect below
+  // still happens; the landing just showed for that moment.
+  if (loading) return mightBeSignedIn() || isNative ? <PageLoader /> : <LandingV2Page />;
+  if (user) return <Navigate to={homeFor(user)} />;
   if (isNative) return <Navigate to="/login" />;
   // The bare domain ALWAYS shows the marketing landing for a logged-out visitor
   // — prospect or the logged-out owner. We deliberately do NOT auto-redirect or
@@ -702,6 +709,23 @@ function PublicOrDashboard() {
   // It shipped behind /v2 first so it could be compared against the old page;
   // /v2 stays as an alias so any link already shared keeps working.
   return <LandingV2Page />;
+}
+
+/**
+ * Push 9 (E): hooks/useLanguage may render on the small BOOT dictionary (the
+ * landing's and the cookie banner's keys) before the full one has arrived.
+ * Only the landing is allowed to paint on it; every other route waits for
+ * the full dictionary here, so no app page can show a missing key or an
+ * English fallback. It waits behind the same spinner a lazy page shows, not
+ * a blank screen: a visitor who taps "Prøv gratis" the moment the landing
+ * paints on a slow phone used to stare at an empty white page for up to
+ * ~2 s while the dictionary finished (push 9 review, Fast 3G + 4x CPU).
+ */
+export function FullDictionaryGate({ children }) {
+  const { fullReady } = useLanguage();
+  const { pathname } = useLocation();
+  if (fullReady === false && !isLandingPath(pathname)) return <PageLoader />;
+  return children;
 }
 
 function AppRoutes() {
@@ -1135,6 +1159,7 @@ function AppInner() {
                           for accountant/logged-out); renders the global toast layer and
                           feeds the NotificationCenter bell. */}
                       <LiveAlertsProvider>
+                        <FullDictionaryGate>
                         <AppRoutes />
                         {/* Cookie consent renders on top of any route, including landing/
                             login/register where pre-auth visitors must see it.
@@ -1143,6 +1168,7 @@ function AppInner() {
                         <CookieConsentBoundary>
                           <CookieConsent />
                         </CookieConsentBoundary>
+                        </FullDictionaryGate>
                       </LiveAlertsProvider>
                     </BranchProvider>
                   </ActivationProvider>

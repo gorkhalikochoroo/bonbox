@@ -446,24 +446,33 @@ def _try_claude(image_path: str, currency_hint: str = "DKK") -> dict | None:
     return result
 
 
-def _try_claude_z_report(image_path: str) -> dict | None:
-    """Call the Z-report-specialized Claude extractor. Returns its result
-    if overall confidence ≥ _CLAUDE_MIN_USE_OVERALL, else None so the
-    caller falls back to Mindee → Claude generic → regex. Never raises.
+def _try_claude_z_report(image_path: str) -> tuple[dict | None, str | None]:
+    """Run the Z-report-specialised Claude extractor.
+
+    Returns (result, None) when the read is usable (overall confidence at
+    or above _CLAUDE_MIN_USE_OVERALL), else (None, reason) with reason
+    "unavailable" (the reader could not run: no SDK/key, API error) or
+    "no_total" (the photo was read but gave no usable total, or the read
+    was under the confidence floor). Never raises.
     """
     try:
         from app.services import claude_vision_ocr
-        result = claude_vision_ocr.extract_z_report_data(image_path)
+        token = claude_vision_ocr.Z_READ_FAILURE.set(None)
+        try:
+            result = claude_vision_ocr.extract_z_report_data(image_path)
+            reason = claude_vision_ocr.Z_READ_FAILURE.get()
+        finally:
+            claude_vision_ocr.Z_READ_FAILURE.reset(token)
     except Exception as e:  # noqa: BLE001
-        print(f"[OCR] Claude Z-Report call raised, falling back: {e}")
-        return None
+        print(f"[OCR] Claude Z-Report call raised: {e}")
+        return None, "unavailable"
     if not result or not isinstance(result.get("confidence"), dict):
-        return None
+        return None, (reason or "no_total")
     overall = float(result["confidence"].get("overall", 0.0))
     if overall < _CLAUDE_MIN_USE_OVERALL:
-        print(f"[OCR] Claude Z-Report low confidence {overall:.2f} (< {_CLAUDE_MIN_USE_OVERALL}), falling back")
-        return None
-    return result
+        print(f"[OCR] Claude Z-Report low confidence {overall:.2f} (< {_CLAUDE_MIN_USE_OVERALL}); not used")
+        return None, "no_total"
+    return result, None
 
 
 def _classify_doc(image_path: str) -> str:
@@ -601,188 +610,49 @@ def _z_report_to_legacy_shape(z: dict) -> dict:
     }
 
 
-def parse_z_report(image_path: str) -> dict:
-    """Parse a Z-report / kasserapport image using OCR and extract structured fields.
-
-    Returns dict with revenue breakdown, payment methods, tips, MOMS, and totals.
-
-    OCR chain (May 2026):
-      0. Doc-type classifier (cheap Haiku) — routes Z-reports to the
-         specialized extractor before spending money on Mindee (which
-         can't parse them anyway).
-      1. Z-report path:     Claude Z-Report specialized extractor.
-      1. Receipt/unknown:   Mindee Receipt API (primary, ~$0.04, free ≤250/mo).
-      2. Receipt fallback:  Claude Vision generic receipt (~$0.003).
-      3. OCR.space + regex
-      4. Google Vision + regex
-      5. None → ocr_available=False (manual entry)
-
-    Z-reports are non-standard cash-register prints. The classifier
-    short-circuits the Mindee call (which can't parse them) and routes
-    straight to the specialized Claude extractor that knows the
-    kasserapport structure (per-clerk earnings, cash denomination
-    counts, payment-method breakdown).
-    """
-    # ── Layer 0 — doc-type classifier (cheap Haiku) ──────────────────
-    doc_type = _classify_doc(image_path)
-
-    # ── Layer 1a — Z-report specialized path ─────────────────────────
-    # Skip Mindee entirely when the classifier says z_report — Mindee
-    # has no schema for kasserapports and just returns garbage we'd
-    # have to discard. Goes straight to the specialized Claude extractor.
-    if doc_type == "z_report":
-        z_result = _try_claude_z_report(image_path)
-        if z_result is not None:
-            return _z_report_to_legacy_shape(z_result)
-        # Specialized extractor failed → fall through to the legacy
-        # generic-receipt chain below as a safety net. Better to
-        # return SOMETHING than nothing.
-
-    # ── Layer 1b — Mindee (primary for non-Z documents) ─────────────
-    structured = _try_mindee(image_path)
-    # ── Layer 2 — Claude Vision (smart fallback) ────────────────────
-    if structured is None:
-        structured = _try_claude(image_path)
-
-    # For Z-reports, the structured extractor returns the receipt total
-    # which is functionally the revenue_total. Categories (food / drinks /
-    # takeaway) and payment split aren't part of the standard schema so
-    # they stay None — the OCR + regex layer below picks them up if it
-    # can. Z-report extraction is hybrid: structured layer for the
-    # headline number, regex for the split.
-    structured_revenue_total: float | None = None
-    structured_overall: float = 0.0
-    if structured and isinstance(structured.get("confidence"), dict):
-        structured_overall = float(structured["confidence"].get("overall", 0.0))
-        structured_revenue_total = structured.get("total")
-
-    # ── Layer 3/4 — OCR + regex (existing) ──────────────────────────
-    raw_text = _ocrspace_ocr(image_path)
-    if not raw_text:
-        raw_text = _google_vision_ocr(image_path)
-
-    if not raw_text:
-        # No raw text — if the structured layer got SOMETHING usable, return
-        # its result so the user doesn't see "OCR unavailable" when in fact
-        # it worked.
-        if structured_revenue_total is not None:
-            return {
-                "revenue": {"food": None, "drinks": None, "takeaway": None},
-                "payments": {"cash": None, "card": None, "mobilepay": None},
-                "tips": None,
-                "moms_total": structured.get("vat_amount") if structured else None,
-                "revenue_total": structured_revenue_total,
-                "raw_text": "",
-                "ocr_available": True,
-                "confidence": _confidence_to_bucket(structured_overall),
-                "confidence_per_field": structured["confidence"] if structured else {},
-                "claude_notes": structured.get("notes") if structured else None,
-                "_provider": structured.get("_provider") if structured else None,
-            }
-        return {
-            "revenue": {"food": None, "drinks": None, "takeaway": None},
-            "payments": {"cash": None, "card": None, "mobilepay": None},
-            "tips": None,
-            "moms_total": None,
-            "revenue_total": None,
-            "raw_text": "",
-            "ocr_available": False,
-            "confidence": "low",
-        }
-
-    lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
-
-    # ── Revenue categories ──
-    food = _find_amount_near_keyword(
-        lines, r"(?:mad|food|spisning|køkken|kitchen)"
-    )
-    drinks = _find_amount_near_keyword(
-        lines, r"(?:drikkevarer|drinks|bar|drikke|beverages)"
-    )
-    takeaway = _find_amount_near_keyword(
-        lines, r"(?:takeaway|udbringning|take\s*away|delivery)"
-    )
-
-    # ── Payment methods ──
-    cash = _find_amount_near_keyword(
-        lines, r"(?:kontant|cash)"
-    )
-    card = _find_amount_near_keyword(
-        lines, r"(?:dankort|kort|card|visa|mastercard|credit|debit)"
-    )
-    mobilepay = _find_amount_near_keyword(
-        lines, r"(?:mobilepay|mobile\s*pay|swipp)"
-    )
-
-    # ── Tips ──
-    tips = _find_amount_near_keyword(
-        lines, r"(?:drikkepenge|tips?|gratuity)"
-    )
-
-    # ── MOMS / VAT ──
-    moms_total = _find_amount_near_keyword(
-        lines, r"(?:moms|vat|heraf\s*moms|moms\s*25\s*%)"
-    )
-
-    # ── Total revenue ──
-    revenue_total = _find_amount_near_keyword(
-        lines, r"(?:total|i\s*alt|sum|omsætning|omsaetning|grand\s*total)"
-    )
-
-    # ── Merge structured-layer results — structured wins on headline total ──
-    # Both Mindee and Claude return real per-field confidence; we trust
-    # the total when ≥ 0.85 — overriding the regex pick which can hit on
-    # a subtotal line. MOMS likewise. The category + payment split stays
-    # with the regex extractor since neither structured schema breaks
-    # those out for Z-reports.
-    if structured and isinstance(structured.get("confidence"), dict):
-        total_conf = float(structured["confidence"].get("total", 0.0))
-        vat_conf = float(structured["confidence"].get("vat_amount", 0.0))
-        if structured.get("total") is not None and total_conf >= 0.85:
-            revenue_total = structured["total"]
-        if structured.get("vat_amount") is not None and vat_conf >= 0.85:
-            moms_total = structured["vat_amount"]
-
-    # ── Confidence calculation ──
-    # If the structured layer returned a usable overall, prefer its
-    # self-report — bucketed via _confidence_to_bucket. Otherwise fall
-    # back to the legacy "how many fields did regex find" proxy.
-    if structured_overall >= _CLAUDE_MIN_USE_OVERALL:
-        confidence = _confidence_to_bucket(structured_overall)
-    else:
-        fields_found = sum(1 for v in [food, drinks, takeaway, cash, card, mobilepay, tips, moms_total, revenue_total] if v is not None)
-        if fields_found >= 3:
-            confidence = "high"
-        elif fields_found >= 1:
-            confidence = "medium"
-        else:
-            confidence = "low"
-
+def _z_report_unread(reason: str = "no_total") -> dict:
+    """The kasserapport could not be read reliably. No figure is guessed:
+    every money field is None, ``z_report_unread`` tells the route to ask
+    the owner, and ``unread_reason`` says what to ask: "no_total" (take a
+    photo of the part with Total and MOMS, or type it) or "unavailable"
+    (the reader is not answering — try again shortly, or type it)."""
     return {
-        "revenue": {
-            "food": food,
-            "drinks": drinks,
-            "takeaway": takeaway,
-        },
-        "payments": {
-            "cash": cash,
-            "card": card,
-            "mobilepay": mobilepay,
-        },
-        "tips": tips,
-        "moms_total": moms_total,
-        "revenue_total": revenue_total,
-        "raw_text": raw_text[:1000],
-        "ocr_available": True,
-        "confidence": confidence,
-        # Per-field confidence + structured-layer free-text notes —
-        # frontend can use these to render "verify this" hints on
-        # ambiguous fields. Existing callers ignore unknown keys so
-        # this is back-compat.
-        "confidence_per_field": structured["confidence"] if (structured and isinstance(structured.get("confidence"), dict)) else {},
-        "claude_notes": structured.get("notes") if structured else None,
-        "_provider": structured.get("_provider") if structured else None,
+        "revenue": {"food": None, "drinks": None, "takeaway": None},
+        "payments": {"cash": None, "card": None, "mobilepay": None},
+        "tips": None,
+        "moms_total": None,
+        "revenue_total": None,
+        "raw_text": "",
+        "ocr_available": False,
+        "confidence": "low",
+        "z_report_unread": True,
+        "unread_reason": reason if reason in ("no_total", "unavailable") else "no_total",
     }
+
+
+def parse_z_report(image_path: str) -> dict:
+    """Read a Z-report / kasserapport photo with the Claude Z-report reader.
+
+    Only the specialised Claude Z-report extractor reads a kasserapport.
+    When it finds no reliable total (no summary block on the photo, low
+    confidence, or the API is down) the result is ``_z_report_unread`` —
+    never a number guessed by a generic receipt reader or the OCR + regex
+    text matcher.
+
+    Why (19 Oct 2026): the old chain fell through to Mindee, the generic
+    receipt reader and OCR.space / Google Vision + keyword regex. On a real
+    two-photo kasserapport the regex took a group code ("1012") as the
+    day's total, and a "same till?" answer could then drop ~24.000 kr. from
+    the close. A kasserapport is the day's revenue and MOMS basis: an
+    honest "photograph the bottom with the totals, or type it" beats a
+    plausible wrong figure. No document-type classifier runs first: this is
+    the kasserapport route, so the Z-report reader reads every photo.
+    """
+    z_result, reason = _try_claude_z_report(image_path)
+    if z_result is not None:
+        return _z_report_to_legacy_shape(z_result)
+    print(f"[OCR] Z-report unread ({reason}); no fallback guess")
+    return _z_report_unread(reason or "no_total")
 
 
 def extract_amount_from_image(image_path: str) -> dict:
