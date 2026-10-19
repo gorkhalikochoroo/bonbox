@@ -81,6 +81,18 @@ _SALON = {
     "retention_days": 90,
 }
 _SALON_OPEN = {k: "09:00-17:00" for k in ("tue", "wed", "thu", "fri", "sat")}
+
+
+def _owner_card(open_days: dict) -> dict:
+    """booking_hours exactly as the owner UI saves them: serializeBookingHours
+    (ReservationsPage.jsx) writes ALL seven weekdays, a closed day as
+    "closed" — for the restaurant "Åbningstider (booking)" card and for the
+    salon quick-setup alike. A partial dict never occurs in real data."""
+    return {k: open_days.get(k, "closed") for k in rsvc._WEEKDAY_KEYS}
+
+
+# A salon week as the quick-setup saves it: Tue-Sat 09-17, Mon + Sun closed.
+_SALON_WEEK = _owner_card(_SALON_OPEN)
 # Words a guest-facing body must never carry: a plan, a tier, a cap, or "full"
 # for a venue that is only paused.
 _PLAN_WORDS = ("plan", "tier", "free", "limit", "upgrade", "full", "cap")
@@ -296,6 +308,47 @@ def test_pacing_cap_reads_full(db):
     assert _reason(s, TUE) == "full"
 
 
+def test_paced_day_reason_is_the_one_q1_switch(db, monkeypatch):
+    # Default (Q1): a paced evening reads "full" (test_pacing_cap_reads_full).
+    assert rsvc.PACED_DAY_REASON == "full"
+    paced_owner, paced_profile, (t1, _t2) = _venue(
+        db, settings={"pacing_max_per_slot": 1, "pacing_window_min": 240})
+    _occupy(db, paced_owner, t1, datetime(2030, 1, 8, 20, 30), datetime(2030, 1, 8, 22, 0))
+    booked_owner, booked_profile, (b1,) = _venue(
+        db, tables=((4, False, None),),
+        settings={"pacing_max_per_slot": 1, "pacing_window_min": 240})
+    _occupy(db, booked_owner, b1, *_evening(TUE))
+    # The owner's alternative ("kun tlf." for a paced night) is one constant:
+    # only pacing flips; a night bookings fill stays "full".
+    monkeypatch.setattr(rsvc, "PACED_DAY_REASON", "no_fit")
+    paced = _summary(db, paced_owner, paced_profile)
+    assert _day(paced, TUE)["has_slots"] is False
+    assert _reason(paced, TUE) == "no_fit"
+    assert _reason(_summary(db, booked_owner, booked_profile), TUE) == "full"
+    # No pacing at all: the extra pass never runs.
+    calls = []
+    monkeypatch.setattr(rsvc, "busy_for_day",
+                        lambda *a, **k: calls.append(a) or [])
+    plain_owner, plain_profile, (p1,) = _venue(db, tables=((4, False, None),))
+    assert rsvc._held_by_pacing(
+        db, user_id=plain_owner.id, day=TUE, party_size=2, now=NOW,
+        config=rsvc.build_config(rsvc.load_settings(plain_profile)), tables=[p1],
+        t_win=rsvc.restaurant_windows(plain_profile, TUE, rsvc.load_settings(plain_profile)),
+        p_win=[], p_dur=0) is False
+    assert calls == []
+
+
+def test_a_junk_salon_duration_never_breaks_a_table_venue(db):
+    # default_service_duration_min is a salon setting the owner save does not
+    # validate; a table venue never reads it, so its days still have reasons.
+    owner, profile, (t1, t2) = _venue(db, settings={"default_service_duration_min": ""})
+    for t in (t1, t2):
+        _occupy(db, owner, t, *_evening(TUE))
+    s = _summary(db, owner, profile)
+    assert _reason(s, TUE) == "full"
+    assert _reason(s, SUN) == "closed"
+
+
 def test_party_no_table_seats_is_no_fit_on_every_open_day(db):
     owner, profile, _ = _venue(db, settings={"combine_enabled": False,
                                              "group_request_threshold": 8})
@@ -409,11 +462,60 @@ def test_no_hours_declared_is_never_closed(db):
 def test_a_day_closed_only_by_booking_hours_is_not_lukket(db):
     # Profile hours open Wednesday, the Reservations booking hours close it:
     # neutral, never "lukket" (C1 — the hours list says "Ingen bordbestilling").
-    owner, profile, _ = _venue(db, settings={"booking_hours": {"wed": "closed"}})
+    # The booking hours in the shape the owner's card saves: all seven days,
+    # here Wednesday and Sunday "closed".
+    week = _owner_card({k: "17:00-22:00" for k in ("mon", "tue", "thu", "fri", "sat")})
+    owner, profile, _ = _venue(db, settings={"booking_hours": week})
     s = _summary(db, owner, profile)
     assert _day(s, WED)["has_slots"] is False
     assert _reason(s, WED) == "no_times"
-    assert _reason(s, SUN) == "closed"          # still the Profile hours' word
+    assert _reason(s, SUN) == "closed"          # the Profile hours say closed too
+
+
+def test_lukket_survives_the_owner_saving_the_booking_hours_card(db):
+    # The owner UI writes "closed" for every closed weekday, so once the card
+    # is saved the booking hours decide each day. A day BOTH sources close
+    # must still read "lukket" (Q4: "Lukket appears only where your Profile
+    # hours say closed") — for a restaurant and for a salon.
+    week = _owner_card({k: "17:00-22:00" for k in ("mon", "tue", "wed", "thu", "fri", "sat")})
+    owner, profile, _ = _venue(db, settings={"booking_hours": week})
+    s = _summary(db, owner, profile)
+    assert _reason(s, SUN) == "closed"
+    assert _day(s, TUE)["has_slots"] is True
+
+    s_owner, s_profile = _salon(db, settings={"booking_hours": _SALON_WEEK},
+                                hours={**_SALON_OPEN, "mon": "closed", "sun": "closed"})
+    _self_chair(db, s_owner)
+    s2 = _summary(db, s_owner, s_profile, party=1)
+    assert _reason(s2, NEXT_MON) == "closed"
+    assert _reason(s2, SUN) == "closed"
+    assert _day(s2, TUE)["has_slots"] is True
+
+    # A day the booking hours OPEN never reads "lukket", whatever the Profile
+    # hours say: it has a window, so it is never asked.
+    open_sun = _owner_card({k: "17:00-22:00" for k in rsvc._WEEKDAY_KEYS})
+    o3, p3, (t1, t2) = _venue(db, settings={"booking_hours": open_sun})
+    for t in (t1, t2):
+        _occupy(db, o3, t, *_evening(SUN))
+    assert _reason(_summary(db, o3, p3), SUN) == "full"
+
+    # A solo salon with no Profile hours at all: its "closed" days are the
+    # booking hours' alone, so neutral under the Q4 default (an owner call).
+    solo_owner, solo_profile = _salon(db, settings={"booking_hours": _SALON_WEEK})
+    _self_chair(db, solo_owner)
+    s4 = _summary(db, solo_owner, solo_profile, party=1)
+    assert _reason(s4, NEXT_MON) == "no_times"
+    assert _reason(s4, SUN) == "no_times"
+
+
+def test_closed_day_sources_is_the_one_q4_switch(db, monkeypatch):
+    # Owner's Q4 alternative ("Lukket" everywhere): one constant.
+    week = _owner_card({k: "17:00-22:00" for k in ("mon", "tue", "thu", "fri", "sat")})
+    owner, profile, _ = _venue(db, settings={"booking_hours": week})
+    monkeypatch.setattr(rsvc, "CLOSED_DAY_SOURCES", ("opening", "booking"))
+    s = _summary(db, owner, profile)
+    assert _reason(s, WED) == "closed"
+    assert _reason(s, SUN) == "closed"
 
 
 def test_an_undeclared_weekday_is_never_closed(db):
@@ -426,7 +528,7 @@ def test_an_undeclared_weekday_is_never_closed(db):
 
 def test_salon_day_reasons(db):
     # A self-chair follows the booking hours; Monday is closed in the Profile hours.
-    owner, profile = _salon(db, settings={"booking_hours": _SALON_OPEN},
+    owner, profile = _salon(db, settings={"booking_hours": _SALON_WEEK},
                             hours={**_SALON_OPEN, "mon": "closed", "sun": "closed"})
     _self_chair(db, owner)
     s = _summary(db, owner, profile, party=1)
@@ -464,7 +566,7 @@ def _golden_matrix(db) -> list[tuple]:
                    settings={"pacing_max_per_slot": 1, "pacing_window_min": 240})
     _occupy(db, paced[0], paced[2][0], datetime(2030, 1, 8, 20, 30),
             datetime(2030, 1, 8, 22, 0))
-    s_owner, s_profile = _salon(db, settings={"booking_hours": _SALON_OPEN})
+    s_owner, s_profile = _salon(db, settings={"booking_hours": _SALON_WEEK})
     _self_chair(db, s_owner)
     return [
         ("p2", g[0], g[1], 2),
@@ -548,6 +650,45 @@ def test_classifier_failure_never_changes_open_days(db, client, monkeypatch, cap
     assert a.status_code == 200
     assert a.json()["slots"] == []
     assert a.json()["reason"] == rsvc.LEGACY_REASON
+
+
+def test_a_db_error_in_a_reason_rolls_the_read_back(db, monkeypatch, caplog):
+    # On Postgres a failed SELECT aborts the transaction, and the next day's
+    # available_slots() in the same summary would then fail the request. A
+    # DB error inside a reason rolls the session back; a Python error does not.
+    from sqlalchemy.exc import OperationalError
+    owner, profile, (t1, t2) = _venue(db)
+    for t in (t1, t2):
+        _occupy(db, owner, t, *_evening(TUE))
+    rollbacks = []
+    real_rollback = db.rollback
+    monkeypatch.setattr(db, "rollback", lambda: (rollbacks.append(1), real_rollback())[1])
+
+    def db_boom(*a, **k):
+        raise OperationalError("SELECT 1", {}, Exception("statement timeout"))
+
+    monkeypatch.setattr(rsvc, "classify_empty_day", db_boom)
+    s = _summary(db, owner, profile, start=MON, days=8)
+    assert (_open(s), s["next_open_day"]) == (
+        [False, False, True, True, True, True, False, True], "2030-01-09")
+    assert rollbacks, "a DB error inside a day reason must roll the read back"
+    assert _reason(s, TUE) == rsvc.LEGACY_REASON
+
+    rollbacks.clear()
+
+    def py_boom(*a, **k):
+        raise RuntimeError("not the database")
+
+    monkeypatch.setattr(rsvc, "classify_empty_day", py_boom)
+    caplog.set_level(logging.WARNING, logger="app.services.reservation_service")
+    caplog.clear()
+    _summary(db, owner, profile, start=MON, days=8)
+    assert rollbacks == []
+    # Two empty in-window days (Tue booked out, Sun closed) failed: ONE
+    # traceback for the request, then a count — never one per day.
+    with_trace = [r for r in caplog.records if r.exc_info]
+    assert len(with_trace) == 1
+    assert any("failed on 1 more days" in r.getMessage() for r in caplog.records)
 
 
 def test_monitor_asks_for_no_reasons(db, monkeypatch):

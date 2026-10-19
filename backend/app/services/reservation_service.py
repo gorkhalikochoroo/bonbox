@@ -8,10 +8,12 @@ The pure maths live in availability_engine.py; this layer is the glue.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 from datetime import date, datetime, time, timedelta
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.behandling import Behandling
@@ -159,16 +161,23 @@ def _day_spec(profile: BusinessProfile | None, settings: dict,
     bh = settings.get("booking_hours")
     if isinstance(bh, dict) and bh.get(key):
         return bh.get(key), "booking"
-    raw = getattr(profile, "operating_hours_json", None) if profile else None
-    if raw:
-        try:
-            hours = json.loads(raw)
-        except (ValueError, TypeError):
-            return None, None
-        spec = hours.get(key) if isinstance(hours, dict) else None
-        if spec is not None:
-            return spec, "opening"
+    spec = _opening_hours_spec(profile, key)
+    if spec is not None:
+        return spec, "opening"
     return None, None
+
+
+def _opening_hours_spec(profile: BusinessProfile | None, key: str) -> object | None:
+    """The Profile hours' (operating_hours_json) raw spec for weekday `key`,
+    or None: no hours, the day not named, or JSON nobody can read."""
+    raw = getattr(profile, "operating_hours_json", None) if profile else None
+    if not raw:
+        return None
+    try:
+        hours = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    return hours.get(key) if isinstance(hours, dict) else None
 
 
 def restaurant_windows(profile: BusinessProfile | None, day: date,
@@ -503,11 +512,19 @@ DAY_REASONS = ("past", "not_yet_bookable", "not_accepting", "closed",
 # "Reason unknown": emitted only when classification fails or is skipped (the
 # surface monitor asks for no reasons). The page reads it as neutral.
 LEGACY_REASON = "closed_or_full"
-# Which hours source may make a day read "closed" ("lukket") on the guest page.
-# Default (build plan C1, owner question Q4): only the Profile opening hours.
-# A day closed only by the Reservations booking hours reads the neutral
-# "no_times". Owner's alternative ("Lukket" for both): add "booking" here.
+# Which hours source may make a day with no window read "closed" ("lukket")
+# on the guest page. Default (build plan C1, owner question Q4): the Profile
+# opening hours say "closed" that weekday. A day closed only by the
+# Reservations booking hours reads the neutral "no_times". Owner's
+# alternative ("Lukket" for both): CLOSED_DAY_SOURCES = ("opening", "booking").
 CLOSED_DAY_SOURCES = ("opening",)
+# What a day reads when bookings hold none of its starts and only the owner's
+# own pacing cap ("max covers per slot") does. Default (owner question Q1):
+# "full" — full by the owner's own rule, and the rule is not explained.
+# Owner's alternative ("kun tlf."): PACED_DAY_REASON = "no_fit". Only when it
+# differs from "full" does the classifier spend the extra pass that tells
+# pacing from bookings (_held_by_pacing), so the default costs nothing.
+PACED_DAY_REASON = "full"
 
 
 def window_reason(day: date, today: date, max_advance: int) -> str | None:
@@ -523,11 +540,48 @@ def window_reason(day: date, today: date, max_advance: int) -> str | None:
 
 def _closed_by_declaration(profile: BusinessProfile | None, settings: dict,
                            day: date) -> bool:
-    """True only when the venue literally declared this weekday "closed" in a
-    source listed in CLOSED_DAY_SOURCES. No hours, an undeclared weekday or an
-    unreadable value is not a claim, so it can never read "lukket"."""
-    spec, source = _day_spec(profile, settings, _WEEKDAY_KEYS[day.weekday()])
-    return spec == "closed" and source in CLOSED_DAY_SOURCES
+    """True only when a source listed in CLOSED_DAY_SOURCES literally says
+    this weekday is "closed". The caller asks only for a day with no window
+    (restaurant_windows() is empty), so "lukket" never sits on a day the
+    booking hours open.
+
+    Each source is read for itself, never through _day_spec's precedence.
+    The owner's "Åbningstider (booking)" card and the salon quick-setup save
+    all seven weekdays (serializeBookingHours), closed days as "closed", so
+    once saved the booking hours DECIDE every weekday. Asking only the
+    deciding source made "lukket" unreachable for every salon and for every
+    venue that had saved that card, even where the Profile hours say closed
+    too. No hours, an undeclared weekday or an unreadable value is not a
+    claim, so it can never read "lukket". The hours list (booking push p3)
+    asks this same function, so the list and the strip agree."""
+    key = _WEEKDAY_KEYS[day.weekday()]
+    if "opening" in CLOSED_DAY_SOURCES and _opening_hours_spec(profile, key) == "closed":
+        return True
+    if "booking" in CLOSED_DAY_SOURCES:
+        bh = settings.get("booking_hours")
+        if isinstance(bh, dict) and bh.get(key) == "closed":
+            return True
+    return False
+
+
+def _held_by_pacing(db: Session, *, user_id, day: date, party_size: int,
+                    now: datetime, config: AvailabilityConfig, tables: list,
+                    t_win: list, p_win: list, p_dur: int) -> bool:
+    """Would a start after the lead time be free with the pacing cap off?
+    Then pacing, not bookings, holds the day (owner question Q1). The same
+    engine pass available_slots() runs, on the same windows and busy list,
+    with only pacing_max_per_slot cleared."""
+    if not config.pacing_max_per_slot:
+        return False
+    free = dataclasses.replace(config, pacing_max_per_slot=None)
+    busy = busy_for_day(db, user_id, day)
+    if t_win and tables and compute_slots(
+            windows=t_win, resources=_views(tables), busy=busy,
+            party_size=party_size, config=free, now=now):
+        return True
+    return any(ws and compute_slots(
+        windows=ws, resources=_views([p]), busy=busy, party_size=party_size,
+        config=free, now=now, duration_min=p_dur) for p, ws in p_win)
 
 
 def classify_empty_day(db: Session, *, profile: BusinessProfile, user_id, day: date,
@@ -576,7 +630,9 @@ def classify_empty_day(db: Session, *, profile: BusinessProfile, user_id, day: d
     # 4. Nothing seats the party even on an empty floor (party-wide, clock-free).
     #    A group request holds no table, so any table venue "fits" it.
     t_dur = turn_time_minutes(party_size, config)
-    p_dur = int(settings.get("default_service_duration_min", 60))   # as available_slots
+    # A salon setting: read only when there are chairs (as available_slots),
+    # so a junk value stored on a table venue can't fail its every day.
+    p_dur = int(settings.get("default_service_duration_min", 60)) if providers else 0
     t0 = datetime.combine(day, time(12, 0))
     viable: list[tuple[list, int]] = []
     if t_win and (group or assign_seats(party_size, t0, t0 + timedelta(minutes=t_dur),
@@ -605,19 +661,49 @@ def classify_empty_day(db: Session, *, profile: BusinessProfile, user_id, day: d
                        user_id, day)
         return LEGACY_REASON
     # Bookings, or the owner's own pacing cap, hold every remaining start.
+    # Both read "full" unless the owner chose otherwise for pacing (Q1).
+    if PACED_DAY_REASON != "full" and _held_by_pacing(
+            db, user_id=user_id, day=day, party_size=party_size, now=now,
+            config=config, tables=tables, t_win=t_win, p_win=p_win, p_dur=p_dur):
+        return PACED_DAY_REASON
     return "full"
+
+
+def _release_failed_read(db: Session, exc: BaseException) -> None:
+    """After a DB error inside a day reason, roll the session back so the
+    caller's next query runs. On Postgres a failed SELECT aborts the whole
+    transaction ("current transaction is aborted"), so the next day's
+    available_slots() in the same summary would fail the request with a 500.
+    Every caller is a public GET (/availability, /provider-availability,
+    /availability-summary) that has written nothing, so the rollback loses
+    nothing; loaded rows reload on their next read. A Python error leaves
+    the transaction alone."""
+    if not isinstance(exc, SQLAlchemyError):
+        return
+    try:
+        db.rollback()
+    except Exception:  # noqa: BLE001 — the caller's next query reports it
+        logger.warning("day reason: rollback after a failed read failed", exc_info=True)
+
+
+def _classify_safely(db: Session, kw: dict) -> tuple[str, BaseException | None]:
+    try:
+        return classify_empty_day(db, **kw), None
+    except Exception as exc:  # noqa: BLE001 — a reason is a label, never a gate
+        _release_failed_read(db, exc)
+        return LEGACY_REASON, exc
 
 
 def empty_day_reason(db: Session, **kw) -> str:
     """classify_empty_day that can never break its caller: naming a reason
     must never close a day or fail a request. Any error → logged +
-    LEGACY_REASON (the page reads it as neutral)."""
-    try:
-        return classify_empty_day(db, **kw)
-    except Exception:  # noqa: BLE001 — a reason is a label, never a gate
+    LEGACY_REASON (the page reads it as neutral); a DB error also rolls the
+    read back (_release_failed_read)."""
+    reason, exc = _classify_safely(db, kw)
+    if exc is not None:
         logger.warning("day reason failed for owner %s on %s",
-                       kw.get("user_id"), kw.get("day"), exc_info=True)
-        return LEGACY_REASON
+                       kw.get("user_id"), kw.get("day"), exc_info=exc)
+    return reason
 
 
 def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
@@ -655,9 +741,13 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
     if with_reasons:
         try:
             resources = active_resources(db, user_id)
-        except Exception:  # noqa: BLE001 — the classifier reloads and fails safe
+        except Exception as exc:  # noqa: BLE001 — the classifier reloads and fails safe
+            _release_failed_read(db, exc)
             resources = None
     shifts_loaded = False
+    # One traceback per request, then a count: this is a public endpoint
+    # (60/min), and one broken setting would otherwise log up to 30 a call.
+    failed: list = []
     out: list[dict] = []
     first_open = None
     for i in range(days):
@@ -688,18 +778,27 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
                             db, user_id, resources, d,
                             start_date + timedelta(days=days - 1), settings,
                         )
-                    except Exception:  # noqa: BLE001 — per-day queries instead
+                    except Exception as exc:  # noqa: BLE001 — per-day queries instead
+                        _release_failed_read(db, exc)
                         windows_for = None
-            reason = empty_day_reason(
-                db, profile=profile, user_id=user_id, day=d,
+            reason, exc = _classify_safely(db, dict(
+                profile=profile, user_id=user_id, day=d,
                 party_size=party_size, now=now, settings=settings,
                 resources=resources, windows_for=windows_for,
-            )
+            ))
+            if exc is not None:
+                if not failed:
+                    logger.warning("day reason failed for owner %s on %s",
+                                   user_id, d, exc_info=exc)
+                failed.append(d)
         else:
             reason = LEGACY_REASON
         out.append({"date": d.isoformat(), "has_slots": has, "reason": reason})
         if has and first_open is None:
             first_open = d.isoformat()
+    if len(failed) > 1:
+        logger.warning("day reasons failed on %d more days for owner %s (first %s)",
+                       len(failed) - 1, user_id, failed[0])
     return {"next_open_day": first_open, "group_request": group, "days": out}
 
 
