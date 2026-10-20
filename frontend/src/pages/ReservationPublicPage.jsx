@@ -2675,6 +2675,9 @@ export default function ReservationPublicPage() {
       <div
         className={
           "max-w-md mx-auto px-4 sm:px-6 pt-5 sm:pt-8 space-y-5 " +
+          // In the grid, auto margins would size the card to its content
+          // (it widened as the strip and the times arrived: a layout shift).
+          (wide ? "w-full " : "") +
           (isEmbed
             ? ""
             : "sm:rounded-xl sm:border sm:border-gray-200 sm:bg-white sm:shadow-sm dark:sm:border-gray-800 dark:sm:bg-gray-900")
