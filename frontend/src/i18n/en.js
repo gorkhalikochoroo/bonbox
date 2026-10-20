@@ -2255,6 +2255,21 @@ export const en = {
     // a real tidsbestilling end-to-end, the honesty gate is met. DK terms stay
     // Danish in EN: "Book en tid".
     rsvpBookATime: "Book an appointment",
+    // ── The venue's opening hours on the guest page (booking push p3). The
+    //    week as the booking engine reads it; "Closed" only where the Profile
+    //    hours say closed, else "No table bookings" (Q4).
+    rsvpVenueHoursOpening: "Opening hours",
+    rsvpVenueHoursTodayLabel: "Opening hours today",
+    rsvpVenueHoursTodayTag: "Today",
+    rsvpVenueHoursClosed: "Closed",
+    rsvpVenueHoursNoBooking: "No table bookings",
+    rsvpVenueHoursNoBookingAppt: "No appointments",
+    rsvpVenueHoursShowAll: "See all days",
+    // A venue with no name: never "null", never "BonBox".
+    rsvpAllergySharedUnnamed: "Shared only with the venue, so the kitchen can plan.",
+    rsvpAllergySharedProviderUnnamed: "Shared only with the venue, so they can take care of you.",
+    rsvpPrivacyVenueUnnamed: "Your details go to the venue for this booking — and for news only if you switch it on.",
+    rsvpPrivacyVenueApptUnnamed: "Your details go to the venue for this appointment — and for news only if you switch it on.",
     rsvpTrustLine: "No account needed · Free cancellation",
     // ── Salon booking (S3b) — behandling → behandler → dato → tid ──────
     // DK terminology lock: behandling/behandler/tidsbestilling stay Danish in

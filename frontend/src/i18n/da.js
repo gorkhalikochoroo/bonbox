@@ -2205,6 +2205,21 @@ export const da = {
     //    førstehåndsindtryk. Uformelt "du", 24-timers tid, man-først. ──
     rsvpBookATable: "Book et bord",
     rsvpBookATime: "Book en tid",
+    // ── Stedets åbningstider på gæstesiden (booking push p3). Ugen, som
+    //    bookingmotoren læser den; "Lukket" kun hvor Profilens åbningstider
+    //    siger lukket, ellers "Ingen bordbestilling" (Q4).
+    rsvpVenueHoursOpening: "Åbningstider",
+    rsvpVenueHoursTodayLabel: "Åbningstider i dag",
+    rsvpVenueHoursTodayTag: "I dag",
+    rsvpVenueHoursClosed: "Lukket",
+    rsvpVenueHoursNoBooking: "Ingen bordbestilling",
+    rsvpVenueHoursNoBookingAppt: "Ingen tidsbestilling",
+    rsvpVenueHoursShowAll: "Se alle dage",
+    // Et sted uden navn: aldrig "null", aldrig "BonBox".
+    rsvpAllergySharedUnnamed: "Deles kun med stedet, så køkkenet kan tage hensyn.",
+    rsvpAllergySharedProviderUnnamed: "Deles kun med stedet, så de kan tage hensyn til dig.",
+    rsvpPrivacyVenueUnnamed: "Dine oplysninger går til stedet til denne reservation — og kun til nyheder, hvis du slår det til.",
+    rsvpPrivacyVenueApptUnnamed: "Dine oplysninger går til stedet til denne aftale — og kun til nyheder, hvis du slår det til.",
     // ── Salon-booking (S3b) — behandling → behandler → dato → tid ──────
     rsvpPublicPickBehandling: "Vælg behandling",
     rsvpPublicPickBehandler: "Vælg behandler",
