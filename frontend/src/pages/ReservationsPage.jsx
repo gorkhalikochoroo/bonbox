@@ -304,6 +304,30 @@ function parseBookingHours(bh) {
   }
   return out;
 }
+// What the hours card shows on load (booking push p3): what the TABLE
+// engine books. A weekday the booking hours don't set is booked on the
+// Profile opening hours (reservation_service.restaurant_windows), and the
+// server's `open_hours` is that week — so when the venue has declared hours,
+// such a day shows its real hours (or closed) instead of the 11–22
+// suggestion the engine never books. Days the booking hours set read as
+// before. A fresh account (nothing declared) keeps the suggestions and its
+// "Ikke gemt endnu" banner. Never for a salon: its self-chair reads only the
+// booking hours, so Profile hours there would show times nobody can book.
+// Nothing is saved until the owner presses Gem.
+function cardBookingHours(bh, { openHours, hoursDeclared, isProvider } = {}) {
+  const out = parseBookingHours(bh);
+  if (isProvider || hoursDeclared !== true || !openHours || typeof openHours !== "object") return out;
+  if (!DAY_KEYS.some((k) => Array.isArray(openHours[k]) && openHours[k].length > 0)) return out;
+  DAY_KEYS.forEach((k) => {
+    if (bh && typeof bh === "object" && bh[k]) return; // the booking hours decide it
+    const w = openHours[k];
+    if (!Array.isArray(w)) return;
+    out[k] = w.length === 0
+      ? { closed: true, open: "11:00", close: "22:00" }
+      : { closed: false, open: w[0][0] || "11:00", close: w[0][1] || "22:00" };
+  });
+  return out;
+}
 function serializeBookingHours(hours) {
   const out = {};
   DAY_KEYS.forEach((k) => {
@@ -9297,6 +9321,11 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   // Opening / booking hours, per weekday. Owner-settable so slots come from
   // when they actually open — not a hard-coded default.
   const [hours, setHours] = useState(() => defaultBookingHours());
+  // applyData is a stable callback; it reads the venue mode from here.
+  const isProviderRef = useRef(isProvider);
+  useEffect(() => {
+    isProviderRef.current = isProvider;
+  }, [isProvider]);
   const [savingHours, setSavingHours] = useState(false);
   const [hoursSaved, setHoursSaved] = useState(false);
 
@@ -9337,7 +9366,11 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
       enabled: !!s.sms_reminders,
       sender: s.sms_sender ?? "",
     });
-    setHours(parseBookingHours(s.booking_hours));
+    setHours(cardBookingHours(s.booking_hours, {
+      openHours: d?.open_hours,
+      hoursDeclared: d?.hours_declared,
+      isProvider: isProviderRef.current,
+    }));
   }, []);
 
   const fetchSettings = useCallback(async () => {
