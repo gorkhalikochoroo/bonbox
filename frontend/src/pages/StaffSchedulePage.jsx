@@ -66,7 +66,10 @@ import { expectedWeekLabor } from "../utils/weekLaborPct";
 import { preSaveWarnings, minutesToDayTime, shiftSpan } from "../utils/shiftRules";
 import { roleName } from "../utils/roleNames";
 import { FadeIn } from "../components/AnimationKit";
-import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } from "../components/ui";
+import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed, PHONE_H40, PHONE_CTRL } from "../components/ui";
+// Phone toolbar button: 40px, 13px label, 6px side padding — the five week
+// actions fit ONE row down to a 360px phone (icons hidden there, see below).
+const TOOL_PHONE = PHONE_CTRL + " max-sm:px-1.5";
 // THE modal container. ShiftModal used to hand-roll a vertically-centred card
 // with no max-height and no internal scroller. It fit a 390×844 portrait phone
 // with room to spare — so state the failure accurately: it broke wherever the
@@ -2915,7 +2918,13 @@ export default function StaffSchedulePage() {
     // column at every width is what lets `order` move them; legend and
     // templates stay above the grid on a wide screen, where they are one line.
     <div className="p-4 sm:p-6 max-w-7xl 2xl:max-w-[1728px] mx-auto flex flex-col gap-6 max-md:gap-4">
+      {/* Phone: "Vagtplan" and Messages on one row; the generic description
+          is hidden there (Reservations already does the same). The column's
+          16px gap is the only space under it. */}
       <PageHeader
+        phoneRow
+        phoneQuiet
+        className="max-sm:mb-0"
         title={t("staffSchedule", "Staff Schedule")}
         subtitle={t("staffScheduleDesc", "Plan weekly shifts, manage staff, and track labor costs.")}
         actions={
@@ -2929,7 +2938,7 @@ export default function StaffSchedulePage() {
           <button
             onClick={() => setChatOpen(true)}
             title={t("ownerChatTitle", "Messages")}
-            className="relative inline-flex items-center gap-1.5 px-3 h-9 rounded-lg text-sm font-medium bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 transition"
+            className={"relative inline-flex items-center gap-1.5 px-3 h-9 rounded-lg text-sm font-medium bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 transition " + PHONE_H40}
           >
             <Icon name="MessageSquare" size={14} />
             <span>{t("navMessages", "Messages")}</span>
@@ -2967,10 +2976,10 @@ export default function StaffSchedulePage() {
 
       {/* Week navigation + actions */}
       <FadeIn delay={0.05}>
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 max-sm:p-3">
           {/* Stacked until lg: side by side at 768–1024 the five actions ran
               past the screen edge (x 754–896 on a 768 tablet). */}
-          <div className="flex flex-col 2xl:flex-row items-center justify-between gap-4">
+          <div className="flex flex-col 2xl:flex-row items-center justify-between gap-4 max-sm:gap-3">
             {/* Week nav — on a phone the arrows lose their word labels and the
                 date label flexes into whatever is left. With the words shown,
                 Previous (~100pt) + the 220pt label + Next (~80pt) + gaps came
@@ -2988,7 +2997,7 @@ export default function StaffSchedulePage() {
                 size="sm"
                 onClick={goToPrevWeek}
                 aria-label={t("schedPrevWeek", "Previous")}
-                className="max-sm:h-10 max-sm:min-w-[40px]"
+                className="max-sm:h-10 max-sm:min-w-[40px] max-sm:min-h-0!"
               >
                 {"\u2190"}<span className="hidden lg:inline"> {t("schedPrevWeek", "Previous")}</span>
               </Button>
@@ -3002,7 +3011,7 @@ export default function StaffSchedulePage() {
               <button
                 onClick={goToCurrentWeek}
                 title={t("schedGoToThisWeek", "Go to this week")}
-                className="px-4 py-2 rounded-lg text-sm bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] border border-gray-200 dark:border-gray-700 flex-1 sm:flex-none min-w-0 sm:min-w-[220px] text-center hover:bg-gray-100 dark:hover:bg-[rgb(var(--surface-raised))] transition"
+                className="px-4 py-2 rounded-lg text-sm bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] border border-gray-200 dark:border-gray-700 flex-1 sm:flex-none min-w-0 sm:min-w-[220px] text-center hover:bg-gray-100 dark:hover:bg-[rgb(var(--surface-raised))] transition max-sm:h-10 max-sm:min-h-0! max-sm:py-0"
               >
                 <span className="font-semibold text-gray-900 dark:text-gray-100">
                   {formatWeekLabel(weekStart, lang, t)}
@@ -3017,7 +3026,7 @@ export default function StaffSchedulePage() {
                 size="sm"
                 onClick={goToNextWeek}
                 aria-label={t("schedNextWeek", "Next")}
-                className="max-sm:h-10 max-sm:min-w-[40px]"
+                className="max-sm:h-10 max-sm:min-w-[40px] max-sm:min-h-0!"
               >
                 <span className="hidden lg:inline">{t("schedNextWeek", "Next")} </span>{"\u2192"}
               </Button>
@@ -3062,7 +3071,12 @@ export default function StaffSchedulePage() {
                 position. And the row WRAPS on a phone instead of scrolling, so
                 the five that remain are all on screen and all tappable. From
                 sm: up nothing changes — it was already flex-wrap there. */}
-            <div className="flex items-center gap-2 flex-wrap [&>*]:shrink-0 justify-start lg:justify-end w-full lg:w-auto">
+            {/* Phone: one row, no scroll — 6px gaps, text-only short labels
+                (the decorative icons hide below sm:; the busy spinner and the
+                "Published ✓" tick stay), and the buttons grow to fill the row
+                so its edges line up with the card. flex-wrap stays as the
+                safety net. */}
+            <div className="flex items-center gap-2 flex-wrap [&>*]:shrink-0 justify-start lg:justify-end w-full lg:w-auto max-sm:gap-1.5 max-sm:[&>*]:grow">
               {/* Secondary, not primary. The week has exactly ONE headline
                   action — Udgiv — and a toolbar with three gray-900 buttons
                   tells the owner nothing about which of them finishes the job. */}
@@ -3070,7 +3084,8 @@ export default function StaffSchedulePage() {
                 variant="secondary"
                 size="sm"
                 onClick={() => setShiftModal({ staffId: null, date: defaultAddDate(), shift: null })}
-                iconLeft={<Icon name="Plus" size={14} />}
+                className={TOOL_PHONE}
+                iconLeft={<Icon name="Plus" size={14} className="max-sm:hidden" />}
                 title={t("schedAddShiftTitle", "Add shift")}
               >
                 <span className="hidden sm:inline">{t("schedAddShift", "Add Shift")}</span>
@@ -3082,8 +3097,9 @@ export default function StaffSchedulePage() {
                 onClick={handleCopyLastWeek}
                 disabled={copying}
                 busy={copying}
+                className={TOOL_PHONE}
                 title={t("schedCopyLastWeekTitle", "Copy last week's schedule")}
-                iconLeft={!copying && <Icon name="Copy" size={14} />}
+                iconLeft={!copying && <Icon name="Copy" size={14} className="max-sm:hidden" />}
               >
                 {copying
                   ? "…"
@@ -3102,7 +3118,8 @@ export default function StaffSchedulePage() {
                 onClick={handleRunAutopilot}
                 disabled={autopilotLoading}
                 busy={autopilotLoading}
-                iconLeft={!autopilotLoading && <Icon name="Sparkles" size={14} />}
+                className={TOOL_PHONE}
+                iconLeft={!autopilotLoading && <Icon name="Sparkles" size={14} className="max-sm:hidden" />}
                 title={t(
                   "autopilotTitle",
                   "Let BonBox propose next week's schedule from your data"
@@ -3144,6 +3161,7 @@ export default function StaffSchedulePage() {
                 onClick={requestPublish}
                 disabled={publishing || loading || draftCount == null || shifts.length === 0}
                 busy={publishing}
+                className={TOOL_PHONE}
                 title={loading
                   ? t("schedPublishWeekTitle", "Publish week")
                   : draftCount == null
@@ -3207,7 +3225,8 @@ export default function StaffSchedulePage() {
                 // and its title says why, rather than a chooser of nothing.
                 disabled={sharing || emailing || exporting || activeStaff.length === 0}
                 busy={sharing || emailing || exporting}
-                iconLeft={!(sharing || emailing || exporting) && <Icon name="Share2" size={14} />}
+                className={TOOL_PHONE}
+                iconLeft={!(sharing || emailing || exporting) && <Icon name="Share2" size={14} className="max-sm:hidden" />}
                 title={activeStaff.length === 0
                   ? t("schedShareNeedsStaff")
                   : t("schedHandoffTitle", "Choose how this week reaches your staff")}
@@ -3263,7 +3282,7 @@ export default function StaffSchedulePage() {
                   fixes it: the team list, where every row has "Invitér". */}
           {portalReach && portalReach.staff > 0 && (
             !team ? null : team.joined > 0 ? (
-              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-gray-500 dark:text-gray-400">
+              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-gray-500 dark:text-gray-400 max-sm:mt-1 max-sm:text-[13px]">
                 {/* No leading icon: a 14px Lucide "Smartphone" is a bare rounded
                     rectangle at this size and read as a missing-glyph box rather
                     than an icon. */}
@@ -3284,14 +3303,14 @@ export default function StaffSchedulePage() {
                   <button
                     type="button"
                     onClick={() => openTeamPanel()}
-                    className="font-medium text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white underline-offset-2 hover:underline transition-colors"
+                    className={"font-medium text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white underline-offset-2 hover:underline transition-colors " + PHONE_H40}
                   >
                     {t("scheduleStaffSeeWho")}
                   </button>
                 </span>
               </div>
             ) : (
-              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-amber-700 dark:text-amber-400">
+              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-amber-700 dark:text-amber-400 max-sm:mt-1 max-sm:text-[13px]">
                 <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-500" aria-hidden="true" />
                 <span>
                   {t("scheduleStaffNoneOpened")}
@@ -3301,7 +3320,7 @@ export default function StaffSchedulePage() {
                   <button
                     type="button"
                     onClick={() => openTeamPanel()}
-                    className="font-semibold underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-300 transition-colors"
+                    className={"font-semibold underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-300 transition-colors " + PHONE_H40}
                   >
                     {t("scheduleStaffInviteThem")}
                   </button>
@@ -3519,9 +3538,12 @@ export default function StaffSchedulePage() {
       {/* An empty week says so where the shifts would be, with the one-tap way
           to fill it — the copy button sat in the toolbar above. */}
       {!loading && !loadFailed && activeStaff.length > 0 && shifts.length === 0 && (
-        <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-600 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-gray-700 dark:text-gray-300">{t("schedEmptyWeekBody", "No shifts this week yet.")}</p>
+        // Phone: one 54px row — the short sentence (the week is in the
+        // navigator just above) and its own 40px action, 6px inside the edge.
+        <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-600 px-4 py-3 flex flex-wrap items-center justify-between gap-3 max-sm:flex-nowrap max-sm:gap-2 max-sm:py-1.5 max-sm:pl-4 max-sm:pr-1.5">
+          <p className="text-sm text-gray-700 dark:text-gray-300 max-sm:text-[13px] max-sm:min-w-0"><span className="sm:hidden">{t("schedEmptyWeekShort")}</span><span className="max-sm:hidden">{t("schedEmptyWeekBody", "No shifts this week yet.")}</span></p>
           <Button size="sm" variant="secondary" onClick={handleCopyLastWeek} disabled={copying} busy={copying}
+            className={PHONE_CTRL + " max-sm:px-3 max-sm:shrink-0"}
             iconLeft={<Icon name="Copy" size={14} />}>
             {t("schedCopyLastWeekInline", "Copy last week")}
           </Button>
@@ -7094,7 +7116,7 @@ function OpenShiftsPanel({ weekStart, t }) {
   }, [rows]);
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 px-5 py-4 mt-4">
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 px-5 py-4 mt-4 max-sm:mt-0">
       <div className="flex items-center justify-between mb-3 gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
@@ -7109,7 +7131,7 @@ function OpenShiftsPanel({ weekStart, t }) {
             {t("openShiftsSubtitle", "Slots anyone can pick up — first to take it, gets it.")}
           </p>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => setShowCreate(true)} className="shrink-0">
+        <Button variant="secondary" size="sm" onClick={() => setShowCreate(true)} className={"shrink-0 " + PHONE_CTRL}>
           <Plus className="w-4 h-4" />
           {t("openShiftAdd", "Open shift")}
         </Button>
@@ -7129,7 +7151,7 @@ function OpenShiftsPanel({ weekStart, t }) {
            and "we couldn't ask" are different weeks. */
         <LoadFailed onRetry={openQ.reload} />
       ) : rows.length === 0 ? (
-        <p className="text-xs text-gray-400 dark:text-gray-500 py-1.5">
+        <p className="text-xs text-gray-400 dark:text-gray-500 py-1.5 max-sm:text-[13px] max-sm:text-gray-500 max-sm:dark:text-gray-400">
           {t("openShiftsEmpty", "No open shifts this week.")}
         </p>
       ) : (

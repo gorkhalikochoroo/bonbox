@@ -101,7 +101,7 @@ export default function ScheduleConfirmationCard() {
   return (
     <div
       role="status"
-      className={`rounded-xl border px-4 py-2.5 mb-4 flex items-center gap-3 text-sm ${toneClass}`}
+      className={`rounded-xl border px-4 py-2.5 mb-4 max-sm:mb-0 flex items-center gap-3 text-sm ${toneClass}`}
     >
       <span className="text-base shrink-0" aria-hidden>{icon}</span>
       <span className="flex-1 min-w-0">{message}</span>
