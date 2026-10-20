@@ -4564,6 +4564,7 @@ export const en = {
     shpResolvePos: "{i} of {n}",
     schedEmptyWeekBody: "No shifts this week yet.",
     schedCopyLastWeekInline: "Copy last week",
+    schedEmptyWeekShort: "No shifts yet.",
     publishNobodyReachable: "None of these staff has an email or phone on file — only those who've turned on notifications in their portal get a push. Share their portal links after publishing.",
     publishNobodyReachableNoPush: "None of these staff has an email or phone on file — they only see the change in their portal. Share their portal links after publishing.",
     rsvpNoTableBeforeClose: "No table is free for the whole sitting before closing — pick an earlier time.",
@@ -5001,6 +5002,9 @@ export const en = {
     loadTemplate: "Load Template", stockItems: "Stock Items", searchItems: "Search items...",
     totalItems: "Total Items", freshItems: "Fresh Items", categories: "Categories",
     priced: "Priced", stockCost: "Stock Cost", potentialRevenue: "Potential Revenue",
+    invKpiItemsShort: "Items",
+    invKpiLowShort: "Low stock",
+    invKpiFreshShort: "Fresh items",
     potentialProfit: "Potential Profit", avgMargin: "Avg Margin",
     invested: "invested", ifAllSold: "if all sold", itemsPriced: "items priced",
     filteredBy: "Filtered by", showAll: "Show all", minStock: "Min Stock",
@@ -9040,6 +9044,7 @@ export const en = {
     plNoExpensesTitle: "No expenses logged this month",
     plNoExpensesCta: "Add expenses to see your real profit →",
     liveRevenueMonth: "This month",
+    kpiWeekShort: "This week",
     revenueTrendMonthSoFar: "This month so far: {amt}",
     revenueTrendUnlockBenefit: "See your full 90-day trend — you have sales on {n} days",
     revenueTrendUnlockCta: "See plans",
@@ -9055,6 +9060,7 @@ export const en = {
     todayOnShiftViewPlan: "Schedule",
     todayOnShiftEmpty: "No shifts today — add one to the schedule.",
     todayOnShiftEmptyCta: "Open schedule",
+    todayOnShiftNone: "No shifts today",
     // Task #204 P2.7 — Apply / Snooze CTAs on Smart Pricing + Staffing.
     // Inline "Apply X kr" wording uses {price} + {currency} placeholders
     // so we never bake DKK-only copy into the strings.
