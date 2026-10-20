@@ -961,3 +961,65 @@ def test_receipt_outcome_booking_cancelled_by_the_venue(client, db, outbox):
     assert _lookup(client, b)["outcome"] == "cancelled_by_venue"
     assert "owner_cancelled" not in json.dumps(_lookup(client, b))
 
+
+
+# ── booking push p3: the demo seeder's sample contact never reaches a guest ──
+# A seeded account that adds a table goes live with the sample company's
+# street ("Vestergade 1") and a phone that rings a stranger ("+45 33 11 22
+# 33"). The page withholds them (venue_identity.public_venue_contact); every
+# guest and owner mail reads the same function, per field, so what the owner
+# corrected — or typed on the reservations side — still shows.
+
+_SAMPLE_CONTACT = ("Vestergade 1", "33 11 22 33", "4533112233")
+
+
+def _seeded_venue(db, *, contact_phone=None, name="Café Nord"):
+    from app.services.demo_seed import _seeded_profile_values
+    settings = {k: v for k, v in _SETTINGS.items() if k != "contact_phone"}
+    if contact_phone:
+        settings["contact_phone"] = contact_phone
+    owner, profile = _venue(db, settings=settings, name=name)
+    for k, v in _seeded_profile_values().items():
+        setattr(profile, k, v)
+    profile.cvr_verified_source = "cvrapi.dk · demo"
+    profile.cvr_verified_at = utc_now()
+    db.commit(); db.refresh(profile)
+    return owner, profile
+
+
+@pytest.mark.parametrize("lang", ["da", "en"])
+def test_seeded_sample_contact_never_reaches_guest_mail(client, db, outbox, lang):
+    # 1. A seeded venue: the confirmation (real public flow) and the venue's
+    #    cancel mail (the one that prints the phone) carry no sample contact.
+    owner, profile = _seeded_venue(db)
+    assert _book(client, profile.reservation_slug, lang=lang,
+                 guest_email="a@example.com").status_code == 200
+    r = _booking(db, owner, lang=lang, email="b@example.com")
+    assert _status(client, owner, r, "cancelled", cancel_reason="owner_cancelled").status_code == 200
+    seeded_mail = _to(outbox, "a@example.com") + _to(outbox, "b@example.com")
+    assert len(seeded_mail) == 2
+    for m in outbox:                      # guest AND owner mail
+        for sample in _SAMPLE_CONTACT:
+            assert sample not in m["html"], (sample, m["subject"])
+    v = mail.venue_context(owner, profile, guest_lang=lang)
+    assert v.phone is None and v.address is None
+
+    # 2. The reservations "call us" number is the owner's own: it shows.
+    owner2, _ = _seeded_venue(db, contact_phone="+45 20 20 20 20")
+    r2 = _booking(db, owner2, lang=lang, email="c@example.com")
+    assert _status(client, owner2, r2, "cancelled", cancel_reason="owner_cancelled").status_code == 200
+    (cancel2,) = _to(outbox, "c@example.com")
+    assert 'href="tel:+4520202020"' in cancel2["html"]
+
+    # 3. A real venue keeps its phone and address in the mail.
+    owner3, profile3 = _venue(db)
+    profile3.address = "Nørregade 5"
+    db.commit()
+    assert _book(client, profile3.reservation_slug, lang=lang,
+                 guest_email="d@example.com").status_code == 200
+    (confirm3,) = _to(outbox, "d@example.com")
+    assert "Nørregade 5" in confirm3["html"]
+    r3 = _booking(db, owner3, lang=lang, email="e@example.com")
+    assert _status(client, owner3, r3, "cancelled", cancel_reason="owner_cancelled").status_code == 200
+    (cancel3,) = _to(outbox, "e@example.com")
+    assert 'href="tel:+4512345678"' in cancel3["html"]

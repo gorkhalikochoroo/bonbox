@@ -43,6 +43,7 @@ from app.models.staff import StaffMember
 from app.models.user import User
 from app.services import audit_service, reservation_service as rsvc
 from app.services import reservation_emails
+from app.services import venue_identity
 from app.services import reservation_occupancy_service as occ_service
 from app.services.allergens import allergen_set_for, collects_allergies, sanitize_severity, sanitize_tags
 from app.services.billing import at_cap, has_feature
@@ -305,14 +306,15 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         {"id": str(r.id), "name": (staff_name or r.label or "Behandler")}
         for r, staff_name in _provider_rows
     ]
+    contact = venue_identity.public_venue_contact(owner, profile, settings)
     return {
-        # Consumer-facing venue name: prefer the owner's editable trading name
-        # (Profile → business_name — what they manage and expect guests to see),
-        # then the CVR/legal company_name as a fallback. The legal name stays on
-        # invoices / revisor documents, not the public booking page.
-        "business_name": getattr(owner, "business_name", None)
-            or getattr(profile, "company_name", None)
-            or "BonBox",
+        # Consumer-facing venue name (venue_identity.public_venue_name): the
+        # owner's trading name (Profile → business_name), then the company
+        # name, whitespace-collapsed. Never our product name and never the
+        # demo seeder's sample company: None = no usable name, and the page
+        # words a nameless venue itself ("Book et bord"). It used to fall back
+        # to "BonBox" — our name on the restaurant's page.
+        "business_name": venue_identity.public_venue_name(owner, profile),
         # The owner's own brand logo (same one used on invoices/kasserapport) so
         # the public booking page carries their identity, not just initials. A
         # short-lived SIGNED url — never the storage key. None if unset / storage
@@ -323,16 +325,16 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         # Provider stations (salon stylists) for the public "book with <behandler>"
         # picker. PII-safe: only public label + resource id. [] for table venues.
         "providers": providers,
-        "city": getattr(profile, "city", None),
-        # public_address wins when set. `address` is the BOOKKEEPING address —
-        # it prints on invoices and the kasserapport — and for a home-run venue
-        # it carries a floor and door number that has no business being served
-        # to anonymous visitors. Unset for most venues, so this is a no-op there.
-        "address": (getattr(profile, "public_address", None)
-                    or getattr(profile, "address", None)),
-        # Reservation-specific "call us" number wins; falls back to the
-        # business phone on the profile. Owner sets it in Reservations → Settings.
-        "phone": settings.get("contact_phone") or getattr(profile, "phone", None),
+        # Where it is and how to call (venue_identity.public_venue_contact):
+        # public_address wins over the BOOKKEEPING address (which prints on
+        # invoices and, for a home-run venue, carries a floor and door number
+        # that has no business being served to anonymous visitors); the
+        # reservations "call us" number wins over the Profile phone. The demo
+        # seeder's sample street, city and phone (a stranger's number) are
+        # withheld while the identity is the demo's, field by field.
+        "city": contact["city"],
+        "address": contact["address"],
+        "phone": contact["phone"],
         "allergen_set": allergen_set_for(btype),
         # The ceiling as the engine applies it (None = no limit): a stored 0
         # is "no limit" on every path (rsvc.online_party_ceiling).
@@ -345,7 +347,23 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         # only on a genuine DK signal (owner_language.venue_language). The
         # guest can still switch; guest emails fall back to the same language.
         "language": venue_language(profile, owner),
+        # The venue's week as the booking engine reads it (rsvc.public_week):
+        # None when no single weekly claim is true (a salon on stylist
+        # shifts, tables and chairs together, no resource) or nothing is
+        # declared. Opening hours only — no bookability claim (the date strip
+        # owns that), and nothing about plans or caps.
+        "hours": _safe_week(db, owner, profile, settings),
     }
+
+
+def _safe_week(db: Session, owner: User, profile: BusinessProfile, settings: dict):
+    """rsvc.public_week, fail-soft: a read error gives NO claim (None), never
+    "closed all week" and never a 500 for the whole page."""
+    try:
+        return rsvc.public_week(profile, settings, rsvc.active_resources(db, owner.id))
+    except Exception:  # noqa: BLE001 — the hours list is context, never a 500
+        logger.warning("public hours failed for owner %s", getattr(owner, "id", None), exc_info=True)
+        return None
 
 
 @router.get("/{slug}/availability")

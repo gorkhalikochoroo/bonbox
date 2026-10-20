@@ -15,11 +15,12 @@ FALSE-ALARM DOCTRINE (the whole point — the operator must never be cried wolf)
     After the page auto-advances to the next open day, "closed today" resolves
     itself, so it must never alarm; the 14-day-all-empty threshold guarantees
     that structurally, not by heuristic.
-  • stale_meta reads the NAME the page resolves from (owner.business_name or
-    profile.company_name) — the SPA always serves the app-default <title>, so
+  • stale_meta reads the NAME the page resolves (venue_identity
+    .public_venue_name) — the SPA always serves the app-default <title>, so
     scraping the HTML would false-alarm on 100% of slugs forever.
 """
 from app.services import reservation_service as rsvc
+from app.services import venue_identity
 
 _HORIZON_DAYS = 14
 _PROBE_PARTY = 2
@@ -48,14 +49,24 @@ def check_slug(db, *, profile, owner, now) -> dict:
     except Exception as e:  # inconclusive — do NOT flag on our own probe error
         detail["dead_check_error"] = str(e)[:160]
 
-    # stale_meta — the venue name resolves to empty or the app default, so the
-    # tab/link preview falls back to "BonBox — The AI manager …". Data-source
-    # read only (never scrapes the SPA HTML — see doctrine above).
-    biz = (getattr(owner, "business_name", None)
-           or getattr(profile, "company_name", None) or "").strip()
-    detail["resolved_name"] = biz
-    if not biz or biz.lower() == "bonbox":
-        codes.append("stale_meta")
+    # stale_meta — the venue has no name a guest may see: the page then reads
+    # "Book et bord" and the tab carries no venue. The SAME function the page
+    # resolves its name with (venue_identity.public_venue_name: never our
+    # product name, never the demo sample company), so the monitor and the
+    # page can never disagree. `public_name` is what the page shows;
+    # `resolved_name` keeps the raw name so the operator sees WHY one was
+    # dropped. Data-source read only (never scrapes the SPA HTML — see
+    # doctrine above). Its own guard: a failed read is "couldn't check",
+    # never a flag.
+    try:
+        detail["resolved_name"] = (getattr(owner, "business_name", None)
+                                   or getattr(profile, "company_name", None) or "").strip()
+        name = venue_identity.public_venue_name(owner, profile)
+        detail["public_name"] = name
+        if name is None:
+            codes.append("stale_meta")
+    except Exception as e:  # inconclusive — never flag on our own probe error
+        detail["name_check_error"] = str(e)[:160]
 
     # monthly_cap_reached — the page is alive and the calendar is open, but the
     # create endpoint refuses every booking because the venue is at its plan's

@@ -303,20 +303,32 @@ def venue_context(owner, profile, *, guest_lang: str | None = None) -> Venue:
     name = (getattr(owner, "business_name", None)
             or getattr(profile, "company_name", None) or "BonBox")
     phone = None
-    if profile is not None:
-        # The reservation "call us" number wins, as on the public page.
-        try:
-            from app.services import reservation_service as rsvc
-            phone = rsvc.load_settings(profile).get("contact_phone")
-        except Exception:  # noqa: BLE001
-            phone = None
-        phone = phone or getattr(profile, "phone", None)
-    # public_address first: `address` is the bookkeeping address and may carry
-    # a floor and door that were never meant for guests (same rule as the page).
     address = None
     if profile is not None:
-        address = (getattr(profile, "public_address", None)
-                   or getattr(profile, "address", None))
+        from app.services import venue_identity
+        # The reservation settings, loaded ONCE for every value read from
+        # them here (build plan C13); {} when they can't be read.
+        try:
+            from app.services import reservation_service as rsvc
+            settings = rsvc.load_settings(profile)
+        except Exception:  # noqa: BLE001
+            settings = {}
+        # Phone and address as the public page shows them (the same function):
+        # the reservation "call us" number wins, public_address wins over the
+        # bookkeeping address (which may carry a floor and door that were
+        # never meant for guests), and the demo seeder's sample phone and
+        # street are withheld while the identity is the demo's. Its own
+        # guard: a failure retries with no settings — the Profile values,
+        # still fenced — and never touches another value read here.
+        try:
+            contact = venue_identity.public_venue_contact(owner, profile, settings)
+        except Exception:  # noqa: BLE001
+            try:
+                contact = venue_identity.public_venue_contact(owner, profile, {})
+            except Exception:  # noqa: BLE001 — a mail is never lost to this
+                contact = {}
+        phone = contact.get("phone")
+        address = contact.get("address")
     return Venue(
         name=str(name).strip() or "BonBox",
         phone=(" ".join(str(phone).split()) or None) if phone else None,
