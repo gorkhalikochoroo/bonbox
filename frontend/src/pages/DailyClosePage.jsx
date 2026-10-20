@@ -7489,7 +7489,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               : isPaymentsOnly(existingForDate)
                 ? t("dcDayHasDraftBodyPaymentsOnly", "Saved with only payments of {amount} — continue it, or start over, which deletes it.", { amount: formatOwnerMoney(paymentsOf(existingForDate), currency, { decimals: oreDecimals(paymentsOf(existingForDate)) }) })
                 : t("dcDayHasDraftBody", "Saved at {amount} — continue it, or start over, which deletes it.", { amount: formatOwnerMoney(existingForDate.revenue_total ?? 0, currency, { decimals: oreDecimals(existingForDate.revenue_total) }) })}
-            <div className="mt-3 flex flex-wrap gap-2">
+            {/* Phone: the two never share a row here (~230px against
+                213–228), so they stack full width — primary first — instead
+                of sitting ragged at their natural widths. */}
+            <div className="mt-3 flex flex-wrap gap-2 max-sm:grid max-sm:grid-cols-1">
               {existingLocked ? (
 <>
                 <Button size="md" variant="secondary" onClick={() => onShowHistory?.(existingForDate?.id)}>{t("dcOpenHistory", "Open History")}</Button>
