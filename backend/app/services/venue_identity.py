@@ -2,8 +2,9 @@
 
 The ONE place that decides the venue's public name and contact, read by the
 public booking page (routers/public_reservations.public_page), every guest
-and owner reservation mail (reservation_emails.venue_context) and the public
-surface monitor (public_surface_check), so the three can never disagree.
+and owner reservation mail (reservation_emails.venue_context), the day-before
+reminder SMS (jobs/reservation_jobs._sms_identity) and the public surface
+monitor (public_surface_check), so they can never disagree.
 
 Two rules, both "never claim an identity that isn't the venue's":
   * the name is never our own product name and never the demo seeder's
@@ -24,10 +25,16 @@ object (the monitor's) never raises here for a missing attribute.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 # Our product name, as the surface monitor's stale_meta has always defined it.
 _PRODUCT_NAME = "bonbox"
+# What may follow our name and still be our name, not a venue's: a company
+# form, a demo or test label, a domain ending ("BonBox ApS", "BonBox Demo",
+# "bonbox.dk"). Compared on the letters and digits alone, so punctuation,
+# spacing, zero-width characters and full-width letters change nothing.
+_PRODUCT_SUFFIXES = ("", "aps", "as", "ivs", "demo", "test", "dk")
 
 
 def _collapse(value: Any) -> str:
@@ -35,7 +42,8 @@ def _collapse(value: Any) -> str:
 
 
 def _is_product_name(name: str) -> bool:
-    return name.casefold() == _PRODUCT_NAME
+    letters = re.sub(r"[^0-9a-z]", "", unicodedata.normalize("NFKC", name).casefold())
+    return letters.startswith(_PRODUCT_NAME) and letters[len(_PRODUCT_NAME):] in _PRODUCT_SUFFIXES
 
 
 def public_venue_name(owner: Any, profile: Any) -> str | None:
@@ -65,10 +73,22 @@ def _digits(value: Any) -> str:
     return re.sub(r"\D", "", str(value or ""))
 
 
-def _seeded_phone_digits() -> str:
+def _dk_national(value: Any) -> str:
+    """The digits without a Danish country prefix: "+45 33 11 22 33",
+    "0045 33 11 22 33" and "33 11 22 33" are one number (a CVR refresh or an
+    owner's re-type can drop the +45)."""
+    d = _digits(value)
+    if d.startswith("0045") and len(d) >= 12:
+        return d[4:]
+    if d.startswith("45") and len(d) >= 10:
+        return d[2:]
+    return d
+
+
+def _seeded_phone_national() -> str:
     # Lazy: demo_seed imports half the app (as archetype_defaults does).
     from app.services.demo_seed import _seeded_profile_values
-    return _digits(_seeded_profile_values()["phone"])
+    return _dk_national(_seeded_profile_values()["phone"])
 
 
 def public_venue_contact(owner: Any, profile: Any, settings: dict | None) -> dict:
@@ -91,7 +111,7 @@ def public_venue_contact(owner: Any, profile: Any, settings: dict | None) -> dic
     phone = settings.get("contact_phone") or None
     if not phone:
         phone = getattr(profile, "phone", None) or None
-        if phone and demo and _digits(phone) == _seeded_phone_digits():
+        if phone and demo and _dk_national(phone) == _seeded_phone_national():
             phone = None
 
     address = getattr(profile, "public_address", None) or None

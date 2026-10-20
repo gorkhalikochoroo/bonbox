@@ -306,7 +306,7 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         {"id": str(r.id), "name": (staff_name or r.label or "Behandler")}
         for r, staff_name in _provider_rows
     ]
-    contact = venue_identity.public_venue_contact(owner, profile, settings)
+    name, contact = _safe_identity(owner, profile, settings)
     return {
         # Consumer-facing venue name (venue_identity.public_venue_name): the
         # owner's trading name (Profile → business_name), then the company
@@ -314,7 +314,7 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         # demo seeder's sample company: None = no usable name, and the page
         # words a nameless venue itself ("Book et bord"). It used to fall back
         # to "BonBox" — our name on the restaurant's page.
-        "business_name": venue_identity.public_venue_name(owner, profile),
+        "business_name": name,
         # The owner's own brand logo (same one used on invoices/kasserapport) so
         # the public booking page carries their identity, not just initials. A
         # short-lived SIGNED url — never the storage key. None if unset / storage
@@ -354,6 +354,19 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         # owns that), and nothing about plans or caps.
         "hours": _safe_week(db, owner, profile, settings),
     }
+
+
+def _safe_identity(owner: User, profile: BusinessProfile, settings: dict):
+    """(name, contact) from venue_identity, fail-closed: a read error gives a
+    nameless venue with no address, city or phone — never the raw (possibly
+    seeded) values and never a 500 for the whole page. The page still loads
+    with "Book et bord" and its times."""
+    try:
+        return (venue_identity.public_venue_name(owner, profile),
+                venue_identity.public_venue_contact(owner, profile, settings))
+    except Exception:  # noqa: BLE001 — identity is context, never a 500
+        logger.warning("public identity failed for owner %s", getattr(owner, "id", None), exc_info=True)
+        return None, {"address": None, "city": None, "phone": None}
 
 
 def _safe_week(db: Session, owner: User, profile: BusinessProfile, settings: dict):

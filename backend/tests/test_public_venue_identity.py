@@ -260,6 +260,27 @@ def test_page_hours_fail_soft(client, db, monkeypatch):
     assert body["phone"] == "+45 20 20 20 20"
 
 
+@pytest.mark.parametrize("broken", ["public_venue_contact", "public_venue_name"])
+def test_page_identity_fail_closed(client, db, monkeypatch, broken):
+    """An error in venue_identity (or what it imports) never 500s the
+    booking page: no name, no address, city or phone (fail closed — never
+    the raw, possibly seeded values), and the rest of the page still loads."""
+    from app.services import venue_identity
+    _, profile = _venue(db, profile_hours=_all_week("10:00-22:00"),
+                        profile_fields={"phone": "+45 20 20 20 20", "city": "Aarhus",
+                                        "address": "Nørregade 5"})
+
+    def _boom(*a, **k):
+        raise RuntimeError("identity read failed")
+
+    monkeypatch.setattr(venue_identity, broken, _boom)
+    body = _page(client, profile)
+    assert body["business_name"] is None
+    assert body["phone"] is None and body["address"] is None and body["city"] is None
+    assert body["hours"]["days"]["mon"] == {"windows": [["10:00", "22:00"]], "by": "opening"}
+    assert set(body) >= _OLD_KEYS | {"hours"}
+
+
 # ── C1: the list and the strip read one closed-day rule ─────────────────
 
 def test_hours_list_and_strip_agree_on_a_closed_day(client, db):
@@ -367,6 +388,27 @@ def test_page_name_skips_our_product_name(client, db, owner_name, company, expec
     assert _page(client, profile)["business_name"] == expected
 
 
+@pytest.mark.parametrize("owner_name", [
+    "BonBox ApS", "BonBox.", "BonBox Demo", "Bonbox demo", "bonbox.dk",
+    "Bon-Box", "BonBox\u200b", "\uff22\uff4f\uff4e\uff22\uff4f\uff58",
+])
+def test_page_name_skips_our_product_name_in_any_spelling(client, db, owner_name):
+    """Our name with a company form, a demo label, punctuation, a zero-width
+    or full-width letter is still our name (the house demo is the likely
+    carrier). The company name is used when it is real; else no name."""
+    _, profile = _venue(db, business_name=owner_name, company_name="Café Nord ApS")
+    assert _page(client, profile)["business_name"] == "Café Nord ApS"
+    _, p2 = _venue(db, business_name=owner_name, company_name="")
+    assert _page(client, p2)["business_name"] is None
+
+
+def test_page_name_keeps_a_venue_name_that_only_starts_like_ours(client, db):
+    _, profile = _venue(db, business_name="Bonbonnière", company_name="")
+    assert _page(client, profile)["business_name"] == "Bonbonnière"
+    _, p2 = _venue(db, business_name="BonBox Café", company_name="")
+    assert _page(client, p2)["business_name"] == "BonBox Café"
+
+
 def test_page_name_collapses_whitespace(client, db):
     _, profile = _venue(db, business_name="   ", company_name="Café  Nord")
     assert _page(client, profile)["business_name"] == "Café Nord"
@@ -392,6 +434,16 @@ def test_page_hides_seeded_sample_identity(client, db):
     assert body2["address"] == "Nørregade 5"
     assert "33 11 22 33" not in json.dumps(body, ensure_ascii=False)
     assert "Vestergade" not in json.dumps(body, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("phone", ["33 11 22 33", "0045 33 11 22 33", "+45 33112233", "4533112233"])
+def test_page_hides_the_seeded_phone_in_any_dk_form(client, db, phone):
+    """A CVR refresh or a re-type that drops the +45 is still the stranger's
+    number on a tagged demo profile; on a real venue the same digits show."""
+    _, profile = _venue(db, profile_fields=_seeded(phone=phone))
+    assert _page(client, profile)["phone"] is None
+    _, real = _venue(db, profile_fields={"phone": phone})
+    assert _page(client, real)["phone"] == phone
 
 
 def test_tagged_profile_keeps_what_the_owner_corrected(client, db):
@@ -507,21 +559,37 @@ def test_surface_check_name_error_is_inconclusive(monkeypatch):
 
 # ── 22: one week for the owner card, the stand, the pickers and the page ─
 
-@pytest.mark.parametrize("profile_hours,booking_hours", [
-    ({**_all_week("10:00-22:00"), "sun": "closed"}, None),                 # Profile only
-    (None, {**_all_week("17:00-23:00"), "mon": "closed"}),                 # booking only
-    (_all_week("10:00-22:00"), {"fri": "17:00-23:30", "sat": "closed"}),   # mixed per day
-    ({"fri": "18:00-02:00", "sat": "18:00-02:00"}, None),                  # past midnight
-    ({"mon": "nonsense", "tue": "10-12"}, {"wed": "abc"}),                 # unparseable
-    (None, None),                                                          # nothing
+def _week(**days) -> dict:
+    """A literal week: every weekday [] (closed / no window) unless given."""
+    return {k: days.get(k, []) for k in WEEK}
+
+
+_TEN = [["10:00", "22:00"]]
+_FIVE = [["17:00", "23:00"]]
+
+
+@pytest.mark.parametrize("profile_hours,booking_hours,expected", [
+    ({**_all_week("10:00-22:00"), "sun": "closed"}, None,                   # Profile only
+     _week(mon=_TEN, tue=_TEN, wed=_TEN, thu=_TEN, fri=_TEN, sat=_TEN)),
+    (None, {**_all_week("17:00-23:00"), "mon": "closed"},                   # booking only
+     _week(tue=_FIVE, wed=_FIVE, thu=_FIVE, fri=_FIVE, sat=_FIVE, sun=_FIVE)),
+    (_all_week("10:00-22:00"), {"fri": "17:00-23:30", "sat": "closed"},     # mixed per day
+     _week(mon=_TEN, tue=_TEN, wed=_TEN, thu=_TEN, fri=[["17:00", "23:30"]], sun=_TEN)),
+    ({"fri": "18:00-02:00", "sat": "18:00-02:00"}, None,                    # past midnight
+     _week(fri=[["18:00", "02:00"]], sat=[["18:00", "02:00"]])),
+    ({"mon": "nonsense", "tue": "10-12"}, {"wed": "abc"}, _week()),         # unparseable
+    (None, None, _week()),                                                  # nothing
 ])
-def test_week_windows_is_the_owner_and_stand_week(db, profile_hours, booking_hours):
+def test_week_windows_is_the_owner_and_stand_week(db, profile_hours, booking_hours, expected):
+    """Pinned to literal weeks (a changed window fails here, not only in the
+    engine's own tests), and the owner card / stand read the same week."""
     from app.routers import reservations as owner_routes
     owner, profile = _venue(db, profile_hours=profile_hours, booking_hours=booking_hours)
     settings = rsvc.load_settings(profile)
     week = rsvc.week_windows(profile, settings)
     assert list(week) == list(WEEK)
-    assert owner_routes._open_hours_by_weekday(profile, settings, owner) == week
+    assert week == expected
+    assert owner_routes._open_hours_by_weekday(profile, settings, owner) == expected
     for i, key in enumerate(WEEK):
-        assert week[key] == _fmt(rsvc.restaurant_windows(
-            profile, _REF_MONDAY + timedelta(days=i), settings)), key
+        assert _fmt(rsvc.restaurant_windows(
+            profile, _REF_MONDAY + timedelta(days=i), settings)) == expected[key], key
