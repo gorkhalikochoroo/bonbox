@@ -51,6 +51,26 @@ def reminder_sms_text(r, owner, *, biz: str, when: str, phone: str | None) -> st
     return f"Påmindelse: bord til {r.party_size} hos {biz} {when}.{phone_line} Vi ses!"
 
 
+def _sms_identity(owner, profile, settings) -> tuple[str, str | None]:
+    """(name, phone) for the reminder SMS, as the booking page and the guest
+    mails show them (venue_identity): the trading name, then the company
+    name, never our product name or the demo seeder's sample company; the
+    reservations "call us" number, then the Profile phone, never the seeded
+    sample phone (a stranger's number). Each read has its own guard, so a
+    reminder is never lost to it: no name reads "BonBox" (the known nameless
+    gap, as in the mails), no phone drops the "Ring ..." line."""
+    from app.services import venue_identity
+    try:
+        name = venue_identity.public_venue_name(owner, profile)
+    except Exception:  # noqa: BLE001
+        name = None
+    try:
+        phone = venue_identity.public_venue_contact(owner, profile, settings).get("phone")
+    except Exception:  # noqa: BLE001
+        phone = None
+    return name or "BonBox", phone
+
+
 def _month_start(now):
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -118,13 +138,9 @@ def send_reservation_reminders() -> int:
                 local_horizon = local_now + timedelta(hours=36)
                 if not (local_now < r.starts_at <= local_horizon):
                     continue
-                biz = (
-                    getattr(owner, "business_name", None)
-                    or getattr(profile, "company_name", None)
-                    or "BonBox"
-                )
                 when = r.starts_at.strftime("%d/%m %H:%M")
                 settings = rsvc.load_settings(profile)
+                biz, venue_phone = _sms_identity(owner, profile, settings)
 
                 channel = None
                 outcome = {"ok": False}
@@ -151,8 +167,7 @@ def send_reservation_reminders() -> int:
                         sms_used[r.user_id] = int(prior)
                     if not at_cap(owner, "sms_reminders_per_month", sms_used[r.user_id]):
                         text = reminder_sms_text(
-                            r, owner, biz=biz, when=when,
-                            phone=getattr(profile, "phone", None),
+                            r, owner, biz=biz, when=when, phone=venue_phone,
                         )
                         outcome = sms_service.send_sms(
                             to=r.guest_phone, text=text,

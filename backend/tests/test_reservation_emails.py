@@ -1023,3 +1023,51 @@ def test_seeded_sample_contact_never_reaches_guest_mail(client, db, outbox, lang
     assert _status(client, owner3, r3, "cancelled", cancel_reason="owner_cancelled").status_code == 200
     (cancel3,) = _to(outbox, "e@example.com")
     assert 'href="tel:+4512345678"' in cancel3["html"]
+
+
+# ── booking push p3 fix round: the mail names the venue as the page does ──
+# venue_context reads venue_identity.public_venue_name, so our product name
+# and the demo seeder's sample company never become the venue in a subject,
+# a sign-off or the "på vegne af" footer. A venue with NO usable name still
+# reads "BonBox" in mail (known gap; nameless wording per template is its
+# own follow-up) — the surface monitor flags exactly those (stale_meta).
+
+@pytest.mark.parametrize("lang", ["da", "en"])
+def test_mail_names_the_company_when_the_account_name_is_ours(client, db, outbox, lang):
+    owner, profile = _venue(db, name="Café Nord")
+    owner.business_name = "BonBox"
+    db.commit()
+    assert _book(client, profile.reservation_slug, lang=lang).status_code == 200
+    (guest,) = _to(outbox, GUEST)
+    assert guest["subject"].startswith("Café Nord — "), guest["subject"]
+    assert "<strong>Café Nord</strong>" in guest["html"]
+    assert ("på vegne af Café Nord." if lang == "da" else "on behalf of Café Nord.") in guest["html"]
+    for m in outbox:
+        assert not re.search(r"\bBonBox\b —", m["subject"]), m["subject"]
+        assert "hos BonBox" not in m["html"] and "på vegne af BonBox" not in m["html"]
+
+
+@pytest.mark.parametrize("lang", ["da", "en"])
+def test_mail_never_carries_the_sample_company_name(client, db, outbox, lang):
+    # A tagged demo profile whose account name is still the sample company.
+    owner, profile = _seeded_venue(db, name="Mirabelle ApS")
+    assert owner.business_name == "Mirabelle ApS"
+    assert _book(client, profile.reservation_slug, lang=lang).status_code == 200
+    r = _booking(db, owner, lang=lang, email="b@example.com")
+    assert _status(client, owner, r, "cancelled", cancel_reason="owner_cancelled").status_code == 200
+    assert len(outbox) >= 3                    # guest + owner confirmation, venue cancel
+    for m in outbox:
+        assert "Mirabelle" not in m["subject"] and "Mirabelle" not in m["html"], m["subject"]
+
+
+def test_mail_keeps_a_real_venues_profile_phone(client, db, outbox):
+    # Not the demo, no reservations "call us" number: the Profile phone shows
+    # — even one with the sample's digits (the fence is the demo's only).
+    settings = {k: v for k, v in _SETTINGS.items() if k != "contact_phone"}
+    owner, profile = _venue(db, settings=settings, name="Café Syd")
+    profile.phone = "+45 33 11 22 33"
+    db.commit()
+    r = _booking(db, owner, email="f@example.com")
+    assert _status(client, owner, r, "cancelled", cancel_reason="owner_cancelled").status_code == 200
+    (cancel,) = _to(outbox, "f@example.com")
+    assert 'href="tel:+4533112233"' in cancel["html"]

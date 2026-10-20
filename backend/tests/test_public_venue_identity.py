@@ -593,3 +593,79 @@ def test_week_windows_is_the_owner_and_stand_week(db, profile_hours, booking_hou
     for i, key in enumerate(WEEK):
         assert _fmt(rsvc.restaurant_windows(
             profile, _REF_MONDAY + timedelta(days=i), settings)) == expected[key], key
+
+
+# ── the day-before reminder SMS reads the same identity ─────────────────
+
+@pytest.fixture
+def texts(db, monkeypatch) -> list:
+    """Run the reminder job on the test session with an SMS provider that
+    captures instead of sending (no real SMS ever leaves a test)."""
+    import app.jobs.reservation_jobs as jobs
+    import app.services.billing as billing
+    import app.services.sms_service as sms
+
+    monkeypatch.setattr(jobs, "SessionLocal", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    monkeypatch.setattr(sms, "sms_configured", lambda: True)
+    monkeypatch.setattr(billing, "has_feature", lambda *a, **k: True)
+    monkeypatch.setattr(billing, "at_cap", lambda *a, **k: False)
+    box: list = []
+
+    def _send(*, to, text, sender=None):
+        box.append(text)
+        return {"ok": True}
+
+    monkeypatch.setattr(sms, "send_sms", _send)
+    return box
+
+
+def _remind(db, owner) -> None:
+    from app.models.reservation import Reservation
+    from app.jobs.reservation_jobs import send_reservation_reminders
+    start = (datetime.now() + timedelta(hours=20)).replace(second=0, microsecond=0)
+    db.add(Reservation(user_id=owner.id, starts_at=start, ends_at=start + timedelta(minutes=90),
+                       party_size=2, guest_name="Sofie", guest_phone="+4512345678",
+                       status="confirmed"))
+    db.commit()
+    send_reservation_reminders()
+
+
+def test_reminder_sms_never_carries_the_seeded_sample_identity(db, texts):
+    # A tagged demo profile whose account name is still the sample company:
+    # neither the stranger's phone nor the sample company reaches the guest.
+    owner, _ = _venue(db, business_name="Mirabelle ApS", company_name=None,
+                      settings_extra={"sms_reminders": True}, profile_fields=_seeded())
+    _remind(db, owner)
+    assert len(texts) == 1, texts
+    assert "33 11 22 33" not in texts[0] and "Mirabelle" not in texts[0], texts[0]
+    assert " Ring " not in texts[0]
+
+    # The reservations "call us" number is the owner's own: it shows, as on
+    # the page and in the mails, and the owner's own name is used.
+    owner2, _ = _venue(db, business_name="Café Nord", company_name=None,
+                       settings_extra={"sms_reminders": True, "contact_phone": "+45 20 20 20 20"},
+                       profile_fields=_seeded())
+    _remind(db, owner2)
+    assert "hos Café Nord " in texts[1] and "Ring +45 20 20 20 20 for ændringer." in texts[1], texts[1]
+
+    # A real venue keeps its Profile phone, even with the sample's digits.
+    owner3, _ = _venue(db, business_name="Café Syd", company_name=None,
+                       settings_extra={"sms_reminders": True},
+                       profile_fields={"phone": "+45 33 11 22 33"})
+    _remind(db, owner3)
+    assert "hos Café Syd " in texts[2] and "Ring +45 33 11 22 33 for ændringer." in texts[2], texts[2]
+
+
+def test_reminder_sms_survives_an_identity_error(db, texts, monkeypatch):
+    from app.services import venue_identity
+
+    def _boom(*a, **k):
+        raise RuntimeError("identity read failed")
+
+    monkeypatch.setattr(venue_identity, "public_venue_contact", _boom)
+    owner, _ = _venue(db, business_name="Café Nord", settings_extra={"sms_reminders": True},
+                      profile_fields={"phone": "+45 20 30 40 50"})
+    _remind(db, owner)
+    assert len(texts) == 1 and "hos Café Nord " in texts[0], texts
+    assert " Ring " not in texts[0]          # fail closed: no phone, never a lost reminder

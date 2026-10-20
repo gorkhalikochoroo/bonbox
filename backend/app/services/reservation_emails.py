@@ -300,12 +300,21 @@ def public_booking_url(profile, *, lang: str | None = None) -> str | None:
 
 
 def venue_context(owner, profile, *, guest_lang: str | None = None) -> Venue:
-    name = (getattr(owner, "business_name", None)
-            or getattr(profile, "company_name", None) or "BonBox")
+    from app.services import venue_identity
+    # The venue's name as the public page shows it (the same function): the
+    # trading name, then the company name, never our product name and never
+    # the demo seeder's sample company. Its own guard. A venue with no usable
+    # name still reads "BonBox" here (subject, sign-off; the footer then says
+    # only "Sendt via BonBox."): a known gap with its own follow-up, nameless
+    # wording per template in DA and EN.
+    try:
+        name = venue_identity.public_venue_name(owner, profile)
+    except Exception:  # noqa: BLE001 — a mail is never lost to this
+        name = None
+    name = name or "BonBox"
     phone = None
     address = None
     if profile is not None:
-        from app.services import venue_identity
         # The reservation settings, loaded ONCE for every value read from
         # them here (build plan C13); {} when they can't be read.
         try:
