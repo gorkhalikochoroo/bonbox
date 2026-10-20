@@ -42,3 +42,6 @@ export { default as LoadFailed } from "./LoadFailed";
 export { default as StatCard } from "./StatCard";
 export { default as TabPills } from "./TabPills";
 export { default as UpgradeNudge } from "./UpgradeNudge";
+// Phone-only (< 640px) class tokens: PHONE_H40, PHONE_CTRL, PHONE_ICON40,
+// PHONE_STRIP, PHONE_EMPTY_LINE.
+export * from "./phone";

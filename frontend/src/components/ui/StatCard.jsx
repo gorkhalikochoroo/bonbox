@@ -41,6 +41,16 @@
  * lifting; helper is 11.5px gray-500. `tabular-nums` keeps the digits
  * aligned across a row of tiles — critical for "scan the row" patterns.
  *
+ * Phone strip (< 640px only; sm: and up is the tile above, unchanged):
+ *   `strip` — the tile becomes one CELL of a strip card: no own border,
+ *   radius or surface, hairline dividers drawn as a right/bottom 1px shadow
+ *   (the grid wraps them in one card with PHONE_STRIP, whose overflow-hidden
+ *   clips the outer edge — the StatStrip trick), 8px cell padding, a 12px
+ *   sentence-case one-line label and an 18px value on a 24px line, no
+ *   chevron. Values share a top line because every label is one line.
+ *   `shortLabel` — a phone-only label for a full label wider than its cell
+ *   (rendered in a sm:hidden span; the full label keeps a max-sm:hidden span).
+ *
  * Usage:
  *   <StatCard label="Revenue today" value="12,480 DKK" helper="vs 9,830 yest." />
  *   <StatCard label="MOMS owed" value="3,120" accent="critical" helper="Due 24 May" />
@@ -78,26 +88,43 @@ export default function StatCard({
   // grid without touching tablet/desktop. Default false → byte-identical
   // to the original classes for every existing caller.
   dense = false,
+  // Phone strip cell (see the header). Default false → byte-identical.
+  strip = false,
+  // Phone-only label; null → the full label everywhere (byte-identical).
+  shortLabel = null,
 }) {
   const valueClass = ACCENT_VALUE_CLASS[accent] || ACCENT_VALUE_CLASS.neutral;
   const isClickable = typeof onClick === "function";
 
   // Dense scale is mobile-only: the sm: breakpoint always lands back on the
   // canonical px-4 py-3.5 / 26px so tablet + desktop stay pixel-identical.
-  const padClass = dense ? "px-3 py-2.5 sm:px-4 sm:py-3.5" : "px-4 py-3.5";
+  // `strip` takes precedence over `dense`: 8px cells, the same sm: restore.
+  const padClass = strip ? "px-2 py-2 sm:px-4 sm:py-3.5"
+    : dense ? "px-3 py-2.5 sm:px-4 sm:py-3.5" : "px-4 py-3.5";
   // Non-dense steps down on a phone too, and returns to 26px from sm: up.
   // Dense stays a notch smaller than default on mobile (20 vs 22), so the two
   // scales keep their relationship instead of collapsing into each other.
-  const valueSizeClass = dense
+  // strip: 18px on a 24px line on a phone (StatStrip's value); from sm: the
+  // same 26px leading-tight as every tile (leading-tight sets --tw-leading,
+  // which text-lg's line-height defers to).
+  const valueSizeClass = strip
+    ? "text-lg max-sm:leading-6 sm:text-[26px]"
+    : dense
     ? "text-[20px] sm:text-[26px]"
     : "text-[22px] sm:text-[26px]";
 
   // Label class shifts to gray-900 when selected — quiet but unambiguous
   // active state. Stays gray-400 in the default + non-selected hover state
   // so a row of tiles still reads as a single block.
-  const labelClass = selected
+  const labelClass = (selected
     ? "text-[11px] font-semibold uppercase tracking-wider text-gray-900 dark:text-gray-100"
-    : "text-[11px] font-semibold uppercase tracking-wider text-gray-400";
+    : "text-[11px] font-semibold uppercase tracking-wider text-gray-400") +
+    // Strip cell on a phone: 12px sentence case, one line. Gray-500 (the
+    // Amount token tier, 4.8:1) — the base gray-400 measured ~2.4:1 on a card.
+    (strip
+      ? " max-sm:min-w-0 max-sm:truncate max-sm:normal-case max-sm:tracking-normal max-sm:text-xs max-sm:font-medium" +
+        (selected ? "" : " max-sm:text-gray-500 max-sm:dark:text-gray-400")
+      : "");
 
   // Surface chrome — base for both static + clickable variants. The
   // selected state pulls in a 1px gray-900 ring + the quieter rung,
@@ -106,7 +133,15 @@ export default function StatCard({
     "rounded-xl border text-left transition " + padClass + " " +
     (selected
       ? "ring-1 ring-gray-900 dark:ring-gray-100 bg-[rgb(var(--surface-subtle))] border-[rgb(var(--surface-line-strong))] "
-      : "bg-[rgb(var(--surface-card))] border-[rgb(var(--surface-line))] ");
+      : "bg-[rgb(var(--surface-card))] border-[rgb(var(--surface-line))] ") +
+    // Strip cell: flat, with right + bottom hairlines the strip clips at its
+    // outer edge (StatStrip.jsx). Ring and shadow compose, so a selected cell
+    // keeps both.
+    (strip
+      ? "max-sm:rounded-none max-sm:border-0 " +
+        "max-sm:shadow-[1px_0_0_0_rgb(var(--surface-line)),0_1px_0_0_rgb(var(--surface-line))] " +
+        (selected ? "max-sm:ring-inset " : "max-sm:bg-transparent ")
+      : "");
   // Clickable-only chrome — hover surface + focus-visible ring. The
   // hover presses the tile half a rung down (the same surface the selected
   // state uses) rather than tinting it, so it stays in the calm palette —
@@ -119,7 +154,10 @@ export default function StatCard({
   const clickableChrome = isClickable
     ? "cursor-pointer hover:bg-[rgb(var(--surface-subtle))] hover:border-[rgb(var(--surface-line-strong))] " +
       "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
-      "focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--surface-card))] active:scale-[0.99] "
+      "focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--surface-card))] active:scale-[0.99] " +
+      // A strip cell's focus ring stays inside the strip, and the cell does
+      // not shrink away from its hairlines on tap.
+      (strip ? "max-sm:focus-visible:ring-inset max-sm:focus-visible:ring-offset-0 max-sm:active:scale-100 " : "")
     : "";
 
   // Chevron — ChevronDown when the tile expands an inline panel
@@ -138,14 +176,19 @@ export default function StatCard({
           number down and the row's figures landed on different baselines — the
           ragged look. Tiles are wide enough not to wrap from sm: up, so the
           reservation is phone-only and desktop stays pixel-identical. */}
-      <div className="flex items-start justify-between gap-2 min-h-[2.125rem] sm:min-h-0">
-        <p className={labelClass}>{label}</p>
+      <div className={"flex items-start justify-between gap-2 min-h-[2.125rem] sm:min-h-0" + (strip ? " max-sm:min-h-0" : "")}>
+        <p className={labelClass}>
+          {shortLabel
+            ? <><span className="sm:hidden">{shortLabel}</span><span className="max-sm:hidden">{label}</span></>
+            : label}
+        </p>
         {isClickable && (
           <Chevron
             size={12}
             className={
               "text-gray-400 dark:text-gray-500 transition-transform shrink-0 " +
-              chevronRotation
+              chevronRotation +
+              (strip ? " max-sm:hidden" : "")
             }
             aria-hidden="true"
           />

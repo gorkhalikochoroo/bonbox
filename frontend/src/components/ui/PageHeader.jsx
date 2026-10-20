@@ -21,7 +21,20 @@
  *   • Actions slot — right-aligned on sm+, stacks under H1 on mobile.
  *     Typically 1 primary <Button> + 1 secondary (download, share, etc).
  *   • Bottom margin: 24px (mobile) → 32px (sm+) so the section that
- *     follows breathes without feeling disconnected.
+ *     follows breathes without feeling disconnected. A caller in a flex/grid
+ *     `gap` parent passes className="max-sm:mb-0" (the gap alone spaces it);
+ *     in a `space-y` parent it passes "max-sm:mb-4" (its own margin wins).
+ *
+ * Phone-only opt-ins (< 640px; all false = byte-identical output, and
+ * nothing changes from sm: up):
+ *   • phoneRow    — title and actions share one row (title left, action right).
+ *   • phoneQuiet  — hide a boilerplate eyebrow + subtitle on a phone. Never
+ *                   for an eyebrow/subtitle that carries status or data.
+ *   • phoneCorner — the header becomes the positioning box for a corner
+ *                   action on the eyebrow line (the eyebrow keeps 40px clear
+ *                   on its right). Needs a visible eyebrow; the caller pins
+ *                   its corner action with
+ *                   `max-sm:absolute max-sm:-top-3 max-sm:-right-2`.
  *
  * Usage:
  *   <PageHeader
@@ -44,6 +57,9 @@ export default function PageHeader({
   subtitle = null,
   actions = null,
   className = "",
+  phoneRow = false,
+  phoneQuiet = false,
+  phoneCorner = false,
 }) {
   return (
     <header
@@ -51,7 +67,10 @@ export default function PageHeader({
         // Side by side from lg: at 768 a title next to two or three buttons
         // wrapped to four lines ("God morgen, Testcafé (lokal)").
         "mb-6 sm:mb-8 flex flex-col lg:flex-row lg:items-end " +
-        "sm:justify-between gap-3 sm:gap-4 " + className
+        "sm:justify-between gap-3 sm:gap-4 " +
+        (phoneRow ? "max-sm:flex-row max-sm:items-center max-sm:justify-between " : "") +
+        (phoneCorner ? "max-sm:relative " : "") +
+        className
       }
     >
       <div className="min-w-0">
@@ -62,7 +81,7 @@ export default function PageHeader({
           // page became paper on 12 Oct 2026 — gray-400 measured 2.36:1 there;
           // gray-400 dark, unchanged). Reusing this rhythm anchors the
           // page in the same visual hierarchy as the nav it sits under.
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1.5">
+          <p className={"text-[11px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-1.5" + (phoneQuiet ? " max-sm:hidden" : "") + (phoneCorner ? " max-sm:pr-10" : "")}>
             {eyebrow}
           </p>
         )}
@@ -91,7 +110,7 @@ export default function PageHeader({
           {title}
         </h1>
         {subtitle && (
-          <p className="text-[14px] text-gray-600 dark:text-gray-400 mt-1 leading-relaxed">
+          <p className={"text-[14px] text-gray-600 dark:text-gray-400 mt-1 leading-relaxed" + (phoneQuiet ? " max-sm:hidden" : "")}>
             {subtitle}
           </p>
         )}
