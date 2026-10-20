@@ -549,7 +549,8 @@ function VenueBadge({ logoUrl, name, size = "md" }) {
 //   layout "column" — the desktop venue column (≥ 1024px, never framed).
 // A venue with no usable name (business_name null) gets no eyebrow and the
 // plain "Book et bord" / "Book en tid" as its heading — never "BonBox",
-// never a blank. `paused` hides the trust line in both layouts (C3).
+// never a blank. `paused` hides the trust line in both layouts (C3), and
+// the "Book et bord" eyebrow too: nothing can be booked online right now.
 // The card's hours item follows PHONE_HOURS_ITEM (utils/venueHours, Q5).
 function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout = "card", isEmbed = false, todayIso, paused = false }) {
   const [hoursOpen, setHoursOpen] = useState(false);
@@ -557,6 +558,7 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
   const bookWords = apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table");
   const showHours = !isEmbed && hasVenueWeek(page.hours);
   const cardHours = showHours && PHONE_HOURS_ITEM;
+  const eyebrow = !!name && !paused;
   const where = page.address || page.city;
   const map = mapsHref(page.address, page.city);
   const tel = telHref(page.phone);
@@ -598,12 +600,14 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
     // ground the column stands on. The hours are always open.
     return (
       <div className="space-y-6">
-        <div className="flex items-start justify-between gap-4">
+        {/* The language pill sits beside the tile, not at the column's far
+            edge, where it floated in the gutter next to the card. */}
+        <div className="flex items-center gap-4">
           <VenueBadge logoUrl={page.logo_url} name={name} size="lg" />
           <LangPill lang={lang} setLang={setLang} />
         </div>
         <div className="space-y-1.5">
-          {name && (
+          {eyebrow && (
             <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">{bookWords}</p>
           )}
           <h1 className="text-[30px] leading-[1.1] font-semibold tracking-tight text-gray-900 dark:text-gray-100 break-words">
@@ -631,12 +635,15 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
 
   return (
     <header className="space-y-3">
-      <div className="flex items-start gap-3">
+      {/* Top-aligned for a name (a two-line name starts at the tile's top);
+          centred when the heading is one line with no eyebrow over it (a
+          nameless or paused venue), so it doesn't hug the tile's top edge. */}
+      <div className={"flex gap-3 " + (eyebrow ? "items-start" : "items-center")}>
         {/* Identity tile — the owner's uploaded brand logo when they have
             one, else a typographic monogram derived from the name. */}
         <VenueBadge logoUrl={page.logo_url} name={name} />
         <div className="min-w-0 flex-1">
-          {name && (
+          {eyebrow && (
             <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">{bookWords}</p>
           )}
           <h1
@@ -1403,7 +1410,7 @@ export default function ReservationPublicPage() {
                 ? t("rsvpDocTitleRequest", "Request received · {venue}", { venue })
                 : apptWords
                   ? t("rsvpDocTitleBookedProvider", "Appointment confirmed · {venue}", { venue })
-                  : t("rsvpDocTitleBooked", "Table booked · {venue}", { venue }))
+                  : t("rsvpDocTitleBooked", "Reservation confirmed · {venue}", { venue }))
       : (!showsBooking
         ? (apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table"))
         : withdrawn
@@ -2059,6 +2066,27 @@ export default function ReservationPublicPage() {
 
   // ── Renders ───────────────────────────────────────────────────────
   if (loading) {
+    const loadingWord = t("rsvpLoading", "Loading…");
+    if (wide) {
+      // The desktop skeleton stands in the loaded page's own two-column
+      // frame (the venue column, the card on the right), so the layout
+      // doesn't jump from one centred column to two when the page arrives.
+      return (
+        <div key="loading" className={`${rootMinH} bg-gray-50 dark:bg-gray-950 pt-10 pb-12`}>
+          <div className="grid grid-cols-[minmax(0,1fr)_28rem] gap-12 max-w-5xl mx-auto px-8 items-start">
+            <div className="pt-8 space-y-6" aria-hidden="true">
+              <div className="animate-pulse rounded-xl bg-gray-200/70 dark:bg-gray-800 w-16 h-16" />
+              <div className="animate-pulse rounded-lg bg-gray-200/70 dark:bg-gray-800 h-8 w-2/3" />
+            </div>
+            <div className="w-full rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 px-6 py-8 space-y-4">
+              <div className="animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800 h-8 w-2/3" />
+              <div className="animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800 h-32" />
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center pt-4">{loadingWord}</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       // Keyed: React must not reuse this centred node for the loaded page's
       // wrapper (on a desktop that reuse moved it ~290px, a layout shift).
@@ -2067,7 +2095,7 @@ export default function ReservationPublicPage() {
           <div className="animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800 h-8 w-2/3" />
           <div className="animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800 h-32" />
           <p className="text-sm text-gray-500 dark:text-gray-400 text-center pt-4">
-            {t("rsvpLoading", "Henter…")}
+            {loadingWord}
           </p>
         </div>
       </div>
@@ -2673,8 +2701,15 @@ export default function ReservationPublicPage() {
       }`}
     >
       <div className={wide ? "grid grid-cols-[minmax(0,1fr)_28rem] gap-12 max-w-5xl mx-auto px-8 items-start" : "contents"}>
-      {wide && <aside className="sticky top-10 self-start pt-8">{venueHeader("column")}</aside>}
-      <div
+      {/* The venue column is the page's banner (the phone card's identity
+          is a <header> too) and the card is its main region, so a screen
+          reader's landmark list reads venue, then booking. */}
+      {wide && (
+        <header data-testid="rsvp-venue-column" className="sticky top-10 self-start pt-8">
+          {venueHeader("column")}
+        </header>
+      )}
+      <main
         className={
           "max-w-md mx-auto px-4 sm:px-6 pt-5 sm:pt-8 space-y-5 " +
           // In the grid, auto margins would size the card to its content
@@ -3914,7 +3949,7 @@ export default function ReservationPublicPage() {
           </div>
         </div>
         )}
-      </div>
+      </main>
       </div>
     </div>
   );

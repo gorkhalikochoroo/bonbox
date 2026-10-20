@@ -65,7 +65,7 @@ export function VenueHoursList({ hours, todayIso, lang, t, apptWords = false, va
           {caption}
         </h2>
       ) : (
-        <p id={captionId} className="text-[12px] text-gray-500 dark:text-gray-400">
+        <p id={captionId} className="text-[13px] text-gray-500 dark:text-gray-400">
           {caption}
         </p>
       )}

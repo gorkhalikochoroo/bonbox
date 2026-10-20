@@ -115,6 +115,8 @@ const rowsOf = (root) => [...root.querySelectorAll("dl > div")].map((row) => ({
   dd: row.querySelector("dd").textContent.trim(),
   current: row.getAttribute("aria-current"),
 }));
+// The desktop venue column (a <header>: the page's banner landmark).
+const venueColumn = () => document.querySelector('[data-testid="rsvp-venue-column"]');
 const stubWide = () => {
   window.matchMedia = vi.fn((q) => ({
     matches: /min-width:\s*1024px/.test(q), media: q,
@@ -146,6 +148,17 @@ afterEach(() => {
 });
 
 describe("the phone card: hours fold into the address row", () => {
+  it("(card) a named venue's identity row is top-aligned, the inline caption is 13px", async () => {
+    routes();
+    renderAt();
+    await settle();
+    expect(document.querySelector("header").firstElementChild.className).toMatch(/items-start/);
+    await act(async () => { fireEvent.click(hoursButton()); });
+    const caption = document.getElementById("rsvp-venue-hours-caption");
+    expect(caption.className).toMatch(/text-\[13px\]/);
+    expect(caption.className).not.toMatch(/text-\[12px\]/);
+  });
+
   it("(card) collapsed by default, today's hours in the row, the week on a tap", async () => {
     routes();
     renderAt();
@@ -251,7 +264,7 @@ describe("embed and framed pages stay compact", () => {
     routes();
     renderAt("/r/x?embed=1");
     await settle();
-    expect(document.querySelector("aside")).toBeNull();
+    expect(venueColumn()).toBeNull();
     expect(hoursButton()).toBeNull();
     expect(pageText()).not.toContain("Åbningstider");
     expect(document.querySelectorAll("h1")).toHaveLength(1);
@@ -263,7 +276,7 @@ describe("embed and framed pages stay compact", () => {
     routes();
     renderAt();
     await settle();
-    expect(document.querySelector("aside")).toBeNull();
+    expect(venueColumn()).toBeNull();
     expect(document.querySelector("header h1").textContent).toBe("Bistro Nørrebro");
   });
 });
@@ -274,22 +287,64 @@ describe("desktop: the venue on the left, the booking on the right", () => {
     routes();
     renderAt();
     await settle();
-    const aside = document.querySelector("aside");
-    expect(aside).not.toBeNull();
-    expect(within(aside).getByRole("heading", { level: 1 }).textContent).toBe("Bistro Nørrebro");
-    expect(within(aside).getByRole("heading", { level: 2 }).textContent).toBe("Åbningstider");
-    expect(rowsOf(aside).map((r) => r.dd)).toEqual(["17:00–22:00", "17:00–23:00", "Lukket"]);
-    expect(aside.querySelector("button[aria-controls]")).toBeNull();
-    expect(within(aside).getByRole("link", { name: /12 34 56 78/ })).toBeTruthy();
-    expect(aside.textContent).toContain(da.rsvpTrustLine);
+    const col = venueColumn();
+    expect(col).not.toBeNull();
+    expect(within(col).getByRole("heading", { level: 1 }).textContent).toBe("Bistro Nørrebro");
+    expect(within(col).getByRole("heading", { level: 2 }).textContent).toBe("Åbningstider");
+    expect(rowsOf(col).map((r) => r.dd)).toEqual(["17:00–22:00", "17:00–23:00", "Lukket"]);
+    expect(col.querySelector("button[aria-controls]")).toBeNull();
+    expect(within(col).getByRole("link", { name: /12 34 56 78/ })).toBeTruthy();
+    expect(col.textContent).toContain(da.rsvpTrustLine);
     expect(document.querySelectorAll("h1")).toHaveLength(1);
-    expect(document.querySelector("header")).toBeNull();
+    // One header (the column); the card does not render its own.
+    expect(document.querySelectorAll("header")).toHaveLength(1);
     // The card keeps the flow: step dots and the time chips.
-    const card = aside.nextElementSibling;
+    const card = col.nextElementSibling;
+    expect(card.tagName).toBe("MAIN");
+    expect(card.querySelector("header")).toBeNull();
     expect(within(card).getByRole("progressbar")).toBeTruthy();
     expect(within(card).getAllByRole("radio").some((r) => r.textContent.trim() === "19:00")).toBe(true);
     // The logo box is reserved even before an image exists (no layout shift).
-    expect(aside.querySelector(".w-16.h-16")).not.toBeNull();
+    expect(col.querySelector(".w-16.h-16")).not.toBeNull();
+  });
+
+  it("(column) landmarks: the venue is the banner, the booking the main region, no complementary", async () => {
+    stubWide();
+    routes();
+    renderAt();
+    await settle();
+    expect(document.querySelector("aside")).toBeNull();
+    expect(screen.queryByRole("complementary")).toBeNull();
+    const banner = screen.getByRole("banner");
+    expect(banner).toBe(venueColumn());
+    expect(within(banner).getByRole("heading", { level: 1 }).textContent).toBe("Bistro Nørrebro");
+    const main = screen.getByRole("main");
+    expect(within(main).getAllByRole("radio").some((r) => r.textContent.trim() === "19:00")).toBe(true);
+    // The language pill sits beside the tile, not at the column's far edge.
+    const tileRow = banner.querySelector(".w-16.h-16").parentElement;
+    expect(within(tileRow).getByRole("group", { name: /Sprog/ })).toBeTruthy();
+    expect(tileRow.className).not.toMatch(/justify-between/);
+  });
+
+  it("(card) the phone card is the main region with the venue's header inside it", async () => {
+    routes();
+    renderAt();
+    await settle();
+    const main = screen.getByRole("main");
+    expect(main.querySelector("header h1").textContent).toBe("Bistro Nørrebro");
+    expect(document.querySelector("aside")).toBeNull();
+  });
+
+  it("(column) the loading skeleton already stands in two columns", async () => {
+    stubWide();
+    routes({ pageResponse: () => new Promise(() => {}) });
+    renderAt();
+    await settle(2);
+    const grid = document.querySelector(".grid.max-w-5xl");
+    expect(grid).not.toBeNull();
+    expect(grid.children).toHaveLength(2);
+    expect(grid.textContent).toContain(da.rsvpLoading);
+    expect(venueColumn()).toBeNull();
   });
 
   it("(column) the column stays on step 2, the card's header does not come back", async () => {
@@ -300,7 +355,7 @@ describe("desktop: the venue on the left, the booking on the right", () => {
     await act(async () => { fireEvent.click(screen.getAllByRole("radio").find((r) => r.textContent.trim() === "19:00")); });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Fortsæt/ })); });
     await settle(4);
-    expect(document.querySelector("aside h1").textContent).toBe("Bistro Nørrebro");
+    expect(venueColumn().querySelector("h1").textContent).toBe("Bistro Nørrebro");
     expect(document.querySelectorAll("h1")).toHaveLength(1);
   });
 
@@ -312,12 +367,12 @@ describe("desktop: the venue on the left, the booking on the right", () => {
     try {
       renderAt();
       await settle(2);
-      expect(document.querySelector("aside")).toBeNull();
+      expect(venueColumn()).toBeNull();
       await act(async () => { resolvePage({ data: PAGE }); });
       await settle();
       const said = spy.mock.calls.map((c) => c.map(String).join(" ")).join("\n");
       expect(said).not.toMatch(/Rendered more hooks|change in the order of Hooks|Rendered fewer hooks/);
-      expect(document.querySelector("aside h1").textContent).toBe("Bistro Nørrebro");
+      expect(venueColumn().querySelector("h1").textContent).toBe("Bistro Nørrebro");
     } finally {
       spy.mockRestore();
     }
@@ -329,11 +384,25 @@ describe("desktop: the venue on the left, the booking on the right", () => {
     renderAt();
     await settle();
     await screen.findByTestId("rsvp-paused");
-    const aside = document.querySelector("aside");
-    expect(aside).not.toBeNull();
+    const col = venueColumn();
+    expect(col).not.toBeNull();
     expect(pageText()).not.toContain(da.rsvpTrustLine);
     expect(screen.queryByRole("progressbar")).toBeNull();
-    expect(aside.textContent).toContain("Åbningstider");
+    expect(col.textContent).toContain("Åbningstider");
+    // No "Book et bord" eyebrow over the name while nothing can be booked.
+    expect(col.querySelector("h1").textContent).toBe("Bistro Nørrebro");
+    expect(col.textContent).not.toContain(da.rsvpBookATable);
+  });
+
+  it("(card) paused: no eyebrow either, the name stays and centres on the tile", async () => {
+    routes({ sum: () => summary({ closedReason: "not_accepting", reasons: Array(14).fill("not_accepting") }) });
+    renderAt();
+    await settle();
+    await screen.findByTestId("rsvp-paused");
+    const header = document.querySelector("header");
+    expect(header.querySelector("h1").textContent).toBe("Bistro Nørrebro");
+    expect(header.textContent).not.toContain(da.rsvpBookATable);
+    expect(header.firstElementChild.className).toMatch(/items-center/);
   });
 });
 
@@ -345,8 +414,11 @@ describe("a nameless venue never reads BonBox or null", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Book et bord");
     expect(document.title).toBe("Book et bord");
     expect(document.title).not.toMatch(/BonBox/);
-    // The eyebrow would repeat the heading: none.
+    // The eyebrow would repeat the heading: none. The one-line heading
+    // centres on the tile instead of hugging its top edge; a named venue's
+    // row stays top-aligned (a two-line name starts at the tile's top).
     expect(pageText().match(/Book et bord/g)).toHaveLength(1);
+    expect(document.querySelector("header").firstElementChild.className).toMatch(/items-center/);
 
     await act(async () => { fireEvent.click(screen.getAllByRole("radio").find((r) => r.textContent.trim() === "19:00")); });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Fortsæt/ })); });
