@@ -660,7 +660,13 @@ export default function ReservationsPage() {
           // Rides the brand token, so dark mode gets its own lighter green.
           : "p-4 md:p-8 max-w-5xl xl:max-w-[1400px] 2xl:max-w-[1728px] mx-auto space-y-4 sm:space-y-6 " +
             "bg-no-repeat bg-[radial-gradient(65%_24rem_at_50%_0%,rgb(var(--brand-green-accent)/0.14),transparent_70%)] " +
-            "dark:bg-[radial-gradient(65%_24rem_at_50%_0%,rgb(var(--brand-green-accent)/0.08),transparent_70%)]"
+            "dark:bg-[radial-gradient(65%_24rem_at_50%_0%,rgb(var(--brand-green-accent)/0.08),transparent_70%)]" +
+            // Phone: the same light, shortened so it fades out at the tabs
+            // (0.7 × 10rem = 112px) instead of running 384px down behind the
+            // stepper and the stats. Compound dark: — `dark:` is emitted after
+            // `max-sm:` (index.css custom variant).
+            " max-sm:bg-[radial-gradient(65%_10rem_at_50%_0%,rgb(var(--brand-green-accent)/0.14),transparent_70%)]" +
+            " max-sm:dark:bg-[radial-gradient(65%_10rem_at_50%_0%,rgb(var(--brand-green-accent)/0.08),transparent_70%)]"
       }
     >
       {/* BookSection's own standalone wrapper already sets full-bleed padding
