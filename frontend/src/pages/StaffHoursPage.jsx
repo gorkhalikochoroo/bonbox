@@ -14,7 +14,7 @@ import { errText } from "../utils/errText";
 import { useConfirm } from "../hooks/useConfirm";
 import { useAsyncData } from "../hooks/useAsyncData";
 import { FadeIn, TabContent, AnimatedList, AnimatedListItem, AnimatePresence } from "../components/AnimationKit";
-import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner, LoadFailed, Amount } from "../components/ui";
+import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner, LoadFailed, Amount, PHONE_ICON40 } from "../components/ui";
 import WagePrivacyNotice from "../components/WagePrivacyNotice";
 import { useDeviceShare } from "../hooks/useDeviceShare";
 import { readViewedPeriod, writeViewedPeriod } from "../utils/viewedPeriod";
@@ -604,7 +604,12 @@ export default function StaffHoursPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto space-y-4 sm:space-y-6">
+      {/* Phone: the eyebrow and the generic subtitle are hidden (the tab row
+          above already says where the owner is); the H1 stays. space-y
+          parent, so its own margin is set to the 16px gap. */}
       <PageHeader
+        phoneQuiet
+        className="max-sm:mb-4"
         eyebrow={t("shpEyebrow", "STAFF")}
         title={t("staffHours", "Staff Hours")}
         subtitle={t("staffHoursSubtitle", "Track working hours, clock in/out, and confirm schedules.")}
@@ -918,10 +923,12 @@ function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, on
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-      {/* Row: prev · period label (tap to reframe) · next */}
-      <div className="p-3 sm:p-4 flex items-center justify-between gap-2">
+      {/* Row: prev · period label (tap to reframe) · next. Phone: one slim
+          ‹ label › row — 40×40 arrows, a 40px 14px label, a 4px inset. */}
+      <div className="p-3 sm:p-4 flex items-center justify-between gap-2 max-sm:p-1 max-sm:gap-1">
         <Button
           variant="ghost" size="sm" onClick={onPrev} disabled={loading}
+          className={PHONE_ICON40}
           title={t("periodPrev", "Previous period")}
           iconLeft={
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -937,14 +944,14 @@ function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, on
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="min-w-0 flex-1 mx-1 rounded-lg px-2 py-1 text-center hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+          className="min-w-0 flex-1 mx-1 rounded-lg px-2 py-1 text-center hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 max-sm:h-10 max-sm:min-h-0! max-sm:py-0 max-sm:mx-0"
           title={t("hovFrameChange", "Change period")}
         >
           {loading ? (
             <div className="h-5 w-40 mx-auto bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
           ) : (
             <span className="inline-flex items-center gap-1.5 justify-center min-w-0">
-              <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+              <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
                 {fmtPeriod(from, to)}
               </span>
               <Icon name="CalendarClock" size={14} className="text-gray-400 shrink-0" />
@@ -954,6 +961,7 @@ function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, on
 
         <Button
           variant="ghost" size="sm" onClick={onNext} disabled={loading}
+          className={PHONE_ICON40}
           title={t("periodNext", "Next period")}
           iconRight={
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -970,7 +978,7 @@ function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, on
           "Denne periode" under "1. sep. – 30. sep." read as "September is the
           current period" — it now says where it goes. */}
       {!loading && !isCurrent && onCurrent && (
-        <div className="px-3 sm:px-4 pb-3 sm:pb-4 -mt-2 flex justify-center">
+        <div className="px-3 sm:px-4 pb-3 sm:pb-4 -mt-2 flex justify-center max-sm:mt-0 max-sm:pb-1">
           <button
             type="button"
             onClick={onCurrent}
