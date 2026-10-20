@@ -87,9 +87,19 @@ function ConfidenceBadge({ level }) {
 
 // ── Status flag warning banners ──────────────────────────────────────
 
-function StatusFlagsBanner({ flags }) {
+// The CVR lookup returns status flags as an array, but the saved profile
+// stores them pipe-joined ("no_vat|protected"), and Profile seeds `selected`
+// from the saved profile. Accept both, so a saved flag never crashes Profile.
+export function toFlagList(value) {
+  if (Array.isArray(value)) return value.filter((f) => typeof f === "string" && f);
+  if (typeof value === "string") return value.split("|").map((f) => f.trim()).filter(Boolean);
+  return [];
+}
+
+function StatusFlagsBanner({ flags: rawFlags }) {
   const { t } = useLanguage();
-  if (!flags || flags.length === 0) return null;
+  const flags = toFlagList(rawFlags);
+  if (flags.length === 0) return null;
   // Status flag titles are intentionally kept in Danish — these are
   // the canonical CVR register terms (konkurs/ophørt/beskyttet navn/
   // ikke MOMS-registreret) and Danish business owners recognize them
@@ -380,7 +390,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
         // Verification trail — passed through if present
         dawa_address_id: selected?.dawa_address_id || dawa?.id || null,
         vat_registered: selected?.vat_registered ?? null,
-        status_flags: (selected?.status_flags || []).join("|") || null,
+        status_flags: toFlagList(selected?.status_flags).join("|") || null,
       };
       const res = await api.put("/business", payload);
       setSaved(true);
