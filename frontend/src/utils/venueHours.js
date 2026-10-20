@@ -13,6 +13,12 @@ import { capFirst, dateLocale } from "./guestLocale";
 
 export const WEEK_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
+// Owner question Q5 (the fold ladder, build plan C2): the one-tap hours item
+// in the phone/tablet card's address row, and the week it opens. false holds
+// that item back (if a phone fold measurement ever fails) and changes
+// nothing else: the desktop column keeps its list.
+export const PHONE_HOURS_ITEM = true;
+
 // getDay() order (0 = Sunday) → our Monday-first keys.
 const BY_GET_DAY = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
@@ -27,13 +33,20 @@ export function todayKey(iso) {
   return Number.isNaN(n) ? null : BY_GET_DAY[n];
 }
 
+// Two days read the same: equal windows, and — only for a day with no
+// window — the same source, since that is where the source picks the word
+// ("Lukket" or "Ingen bordbestilling"). On an open day the source shows
+// nothing, so Monday's Profile 17–22 and Tuesday's booking 17–22 are one row.
 function sameDay(a, b) {
-  return !!a && !!b && a.by === b.by && JSON.stringify(a.windows || []) === JSON.stringify(b.windows || []);
+  if (!a || !b) return false;
+  const wa = a.windows || [];
+  if (JSON.stringify(wa) !== JSON.stringify(b.windows || [])) return false;
+  return wa.length > 0 || a.by === b.by;
 }
 
-// [{ from, to, day }]: consecutive weekdays with the same windows and the
-// same source merge into one row, Monday first. A null day breaks a run and
-// yields no row; Sunday never wraps into Monday.
+// [{ from, to, day }]: consecutive weekdays that read the same (sameDay)
+// merge into one row, Monday first. A null day breaks a run and yields no
+// row; Sunday never wraps into Monday.
 export function groupWeek(days) {
   const out = [];
   if (!days || typeof days !== "object") return out;

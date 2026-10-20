@@ -25,10 +25,10 @@ const DINNER = [["17:00", "22:00"]];
 const LATE = [["17:00", "23:00"]];
 
 describe("groupWeek", () => {
-  it("merges consecutive days with equal windows and source, a null day breaks the run, Sunday never wraps into Monday", () => {
+  it("merges consecutive days with equal windows, a null day breaks the run, Sunday never wraps into Monday", () => {
     const days = {
       mon: D(DINNER), tue: D(DINNER), wed: null, thu: D(DINNER),
-      fri: D(LATE), sat: D(LATE, "booking"), sun: D(DINNER),
+      fri: D(LATE), sat: D([["12:00", "23:00"]], "booking"), sun: D(DINNER),
     };
     const g = groupWeek(days);
     expect(g.map((x) => [x.from, x.to])).toEqual([
@@ -44,6 +44,18 @@ describe("groupWeek", () => {
     expect(groupWeek(all)).toEqual([{ from: "mon", to: "sun", day: D(DINNER) }]);
     expect(groupWeek(Object.fromEntries(WEEK_KEYS.map((k) => [k, null])))).toEqual([]);
     expect(groupWeek(null)).toEqual([]);
+  });
+
+  it("open days with equal windows merge whatever their source (a partial booking-hours card)", () => {
+    const g = groupWeek({
+      mon: D(DINNER, "opening"), tue: D(DINNER, "booking"), wed: D(DINNER, "opening"),
+      thu: D(DINNER, "opening"), fri: null, sat: null, sun: null,
+    });
+    expect(g.map((x) => [x.from, x.to])).toEqual([["mon", "thu"]]);
+    const t = (k, fb) => da[k] ?? fb;
+    expect(g.map((x) => `${dayRangeLabel(x, "da")} ${windowsLabel(x.day.windows) || emptyWord(x.day.by, false, t)}`))
+      .toEqual(["Mandag–torsdag 17:00–22:00"]);
+    expect(dayRangeLabel(g[0], "en")).toBe("Monday–Thursday");
   });
 
   it("closed days merge only with closed days of the same source", () => {

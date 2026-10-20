@@ -88,7 +88,7 @@ import Sheet from "../components/ui/Sheet";
 import MonthCalendar from "../components/MonthCalendar";
 import PublicFloorMap from "../components/PublicFloorMap";
 import { VenueHoursList, VenueHoursToggle } from "../components/VenueHours";
-import { hasVenueWeek } from "../utils/venueHours";
+import { PHONE_HOURS_ITEM, hasVenueWeek } from "../utils/venueHours";
 import { bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
 
 // ── Severity ladder ────────────────────────────────────────────────
@@ -550,11 +550,13 @@ function VenueBadge({ logoUrl, name, size = "md" }) {
 // A venue with no usable name (business_name null) gets no eyebrow and the
 // plain "Book et bord" / "Book en tid" as its heading — never "BonBox",
 // never a blank. `paused` hides the trust line in both layouts (C3).
+// The card's hours item follows PHONE_HOURS_ITEM (utils/venueHours, Q5).
 function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout = "card", isEmbed = false, todayIso, paused = false }) {
   const [hoursOpen, setHoursOpen] = useState(false);
   const name = page.business_name || null;
   const bookWords = apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table");
   const showHours = !isEmbed && hasVenueWeek(page.hours);
+  const cardHours = showHours && PHONE_HOURS_ITEM;
   const where = page.address || page.city;
   const map = mapsHref(page.address, page.city);
   const tel = telHref(page.phone);
@@ -666,13 +668,13 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
           second line — the row never grows past the two-line shape the
           19 Oct walk measured (fold budget). Step 1 only — on the details
           step the form starts high. Not in the embed: compact as before. */}
-      {step === 1 && (where || tel || showHours) && (
+      {step === 1 && (where || tel || cardHours) && (
         <div className="flex flex-wrap items-center gap-x-4 text-[13px] text-gray-500 dark:text-gray-400">
           {addressItem()}
-          {(tel || showHours) && (
+          {(tel || cardHours) && (
             <span className="inline-flex flex-wrap items-center gap-x-4">
               {phoneItem()}
-              {showHours && (
+              {cardHours && (
                 <VenueHoursToggle
                   hours={page.hours}
                   todayIso={todayIso}
@@ -687,7 +689,7 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
           )}
         </div>
       )}
-      {step === 1 && showHours && hoursOpen && (
+      {step === 1 && cardHours && hoursOpen && (
         <VenueHoursList hours={page.hours} todayIso={todayIso} lang={lang} t={t} apptWords={apptWords} variant="inline" id="rsvp-venue-hours" />
       )}
 
