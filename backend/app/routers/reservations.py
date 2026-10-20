@@ -554,20 +554,15 @@ _WEEKDAY_KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
 def _open_hours_by_weekday(profile, settings, user) -> dict:
-    """{"mon": [["11:30", "22:00"]], "tue": [], ...} for the coming week.
-    An empty list is a closed day; a missing key means it could not be read."""
-    out: dict = {}
+    """{"mon": [["11:30", "22:00"]], "tue": [], ...}, every weekday.
+    An empty list is a closed day; an empty dict means it could not be read.
+    The same week the guest page's hours list is built from
+    (rsvc.week_windows), so the owner card, the pickers, the stand and the
+    page share one function. `user` stays for the call sites."""
     try:
-        start = business_today_local(user)
-        for i in range(7):
-            d = start + timedelta(days=i)
-            out[_WEEKDAY_KEYS[d.weekday()]] = [
-                [w.start.strftime("%H:%M"), w.end.strftime("%H:%M")]
-                for w in rsvc.restaurant_windows(profile, d, settings)
-            ]
+        return rsvc.week_windows(profile, settings)
     except Exception:  # noqa: BLE001 — context for the pickers, never a 500
         return {}
-    return out
 
 
 @router.get("/settings")

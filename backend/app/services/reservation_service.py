@@ -208,6 +208,95 @@ def restaurant_windows(profile: BusinessProfile | None, day: date,
     return [TimeWindow(start=start, end=end)]
 
 
+# A fixed Monday. restaurant_windows() and _opening_hours_windows() read only
+# the weekday of the day they are given, so the week they build from it is
+# every week (no clock, no time zone).
+_REFERENCE_MONDAY = date(2026, 1, 5)
+
+
+def _hhmm_pairs(windows: list[TimeWindow]) -> list[list[str]]:
+    return [[w.start.strftime("%H:%M"), w.end.strftime("%H:%M")] for w in windows]
+
+
+def week_windows(profile: BusinessProfile | None, settings: dict) -> dict:
+    """{"mon": [["17:00", "22:00"]], "tue": [], ..., "sun": [...]}: the table
+    engine's bookable window for each weekday, Monday first, straight from
+    restaurant_windows(). An empty list is a day with no window (closed,
+    undeclared or unreadable — the engine books nothing). A close earlier
+    than the open runs past midnight (["18:00", "02:00"]).
+
+    The ONE week the owner's hours card, the booking pickers, the host stand
+    (reservations._open_hours_by_weekday) and the guest page's hours list
+    (public_week) read, so they can never disagree."""
+    return {
+        key: _hhmm_pairs(restaurant_windows(profile, _REFERENCE_MONDAY + timedelta(days=i), settings))
+        for i, key in enumerate(_WEEKDAY_KEYS)
+    }
+
+
+def public_week(profile: BusinessProfile | None, settings: dict,
+                resources: list) -> dict | None:
+    """The venue's week as the booking engine reads it, for the guest page
+    (booking push p3). None when no single weekly claim is true, or nothing
+    is declared. Never invented, never "closed" for a day nobody declared.
+
+        {"days": {"mon": {"windows": [["17:00", "22:00"]], "by": "booking" | "opening"} | None,
+                  ..., "sun": ...}}
+
+    Chosen per resource kind, exactly as available_slots() picks windows:
+      * tables only: each weekday from restaurant_windows() (the booking
+        hours when set for that day, else the Profile hours);
+      * providers only, every one a self-chair (follows_opening_hours): the
+        booking hours only (_opening_hours_windows) — never the Profile hours;
+      * a provider on stylist shifts (or a legacy row), tables and providers
+        together, or no active resource: None. Shifts add or remove any day,
+        and one weekly claim cannot hold for two engines.
+
+    A day with a window: `by` is the source that opened it. A windowless day
+    is listed only where the venue made a claim, and `by` then reads the
+    SAME closed-day rule as the date strip (_closed_by_declaration /
+    CLOSED_DAY_SOURCES, build plan C1), so the list and the strip never
+    disagree:
+      * "opening" — the strip says "lukket" (default: the Profile hours say
+        closed that weekday) → the page writes "Lukket";
+      * "booking" — closed for bookings only (the booking hours say closed,
+        the strip is neutral) → "Ingen bordbestilling" / "Ingen tidsbestilling".
+    An undeclared weekday or an unreadable value is None (no row): "not
+    declared" is never merged into "closed"."""
+    if not resources:
+        return None
+    tables = [r for r in resources if getattr(r, "kind", None) != "provider"]
+    providers = [r for r in resources if getattr(r, "kind", None) == "provider"]
+    if tables and providers:
+        return None
+    if providers and not all(getattr(p, "follows_opening_hours", False) for p in providers):
+        return None
+
+    bh = settings.get("booking_hours")
+    week = week_windows(profile, settings) if tables else None
+    days: dict = {}
+    for i, key in enumerate(_WEEKDAY_KEYS):
+        ref = _REFERENCE_MONDAY + timedelta(days=i)
+        if tables:
+            spec, by = _day_spec(profile, settings, key)
+            windows = week[key]
+        else:
+            spec = bh.get(key) if isinstance(bh, dict) else None
+            by = "booking" if spec else None
+            windows = _hhmm_pairs(_opening_hours_windows(settings, ref)) if spec else []
+        if windows:
+            days[key] = {"windows": windows, "by": by}
+        elif _closed_by_declaration(profile, settings, ref):
+            days[key] = {"windows": [], "by": "opening"}
+        elif spec == "closed":
+            days[key] = {"windows": [], "by": "booking"}
+        else:
+            days[key] = None
+    if not any(d and d["windows"] for d in days.values()):
+        return None
+    return {"days": days}
+
+
 def _opening_hours_windows(settings: dict, day: date) -> list[TimeWindow]:
     """Owner "self-chair" availability = the CONFIRMED weekly opening hours
     (the `booking_hours` settings key), fail-closed.
