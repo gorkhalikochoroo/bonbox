@@ -69,9 +69,10 @@ personal data — counts and error kinds only, details stay behind
   • RECOVERED — one note when a run succeeds after an alert.
 
 Single run: a process lock plus, on Postgres, pg_try_advisory_xact_lock held
-by an open transaction for the whole run (the pooler is in transaction mode,
-so a session-level lock would not survive; a transaction-scoped one does and
-is released if the process dies). The run heartbeats that connection and
+by an open transaction for the whole run (a transaction-scoped lock is right
+in either Supavisor mode — production is session mode, :5432 — and is
+released if the process dies; a session-level one would not survive
+transaction mode). The run heartbeats that connection and
 aborts if it is lost.
 """
 from __future__ import annotations

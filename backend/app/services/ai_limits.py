@@ -21,7 +21,7 @@ late behind a 4 s call). Three guards live here:
    language) — never a silent drop. Given the route's DB session, the slot
    first hands its pooled connection back (``release_db_connection``), so
    a request waiting for a slot — or holding one through a 30–60 s model
-   call — does not also pin one of the pool's 15 connections.
+   call — does not also pin one of the pool's 7 connections.
 3. ``counted_use()`` — the count-based plan caps (Free: 10 smart scans a
    day, ...) count a row that the route writes AFTER the paid read. While
    the routes ran on the event loop that check → read → write was atomic;

@@ -3718,14 +3718,17 @@ is_prod = settings.ENVIRONMENT == "production"
 #: decodes, PDF / XLSX builds, every DB query) runs on these threads, and
 #: production is ONE process on 1 CPU / 2 GB (Render 1c-2g since 10 Oct).
 #: Why 32:
-#:   * 15 for DB work: the Postgres pool holds 15 connections (5 + 10
-#:     overflow), and each query is mostly a network wait (Render Frankfurt
-#:     -> Supabase eu-west-1), so 15 requests overlap usefully; a 16th DB
-#:     request only queues for a connection;
+#:   * DB work: the Postgres pool holds 7 connections since 20 Oct
+#:     (app.database.DEPLOY_SAFE_PEAK, so two instances fit under the
+#:     session pooler's 15 during a deploy; 32 was chosen when it held 15),
+#:     and each query is mostly a network wait (Render Frankfurt -> Supabase
+#:     eu-west-1), so 7 requests overlap usefully; an 8th DB request queues
+#:     for a connection, holding a thread while it waits;
 #:   * 4 for the photo reads in their 30-60 s vendor call
 #:     (VISION_MAX_CONCURRENT) — they hand their connection back first, so
-#:     they come on top of the 15;
-#:   * 13 of headroom for the waits that hold a thread without doing DB work:
+#:     they come on top of the pool;
+#:   * the rest (13 when chosen, 21 now) is headroom for the waits that
+#:     hold a thread without doing DB work:
 #:     reads queueing for a vision slot (up to 10 s each), file and streaming
 #:     responses, the webhooks and the Copilot loop handed to the threadpool,
 #:     so a burst of photo uploads cannot starve the saves and logins;

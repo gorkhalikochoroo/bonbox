@@ -562,7 +562,7 @@ def test_the_lifespan_bounds_the_threadpool_on_the_serving_loop(monkeypatch):
             return anyio.to_thread.current_default_thread_limiter().total_tokens
 
     inside = anyio.run(run)  # a fresh loop starts at anyio's default (40 in anyio 4)
-    # 32 on 1 CPU / 2 GB: 15 pooled DB connections + 3 vision calls + 14 for waits (main.py).
+    # 32 on 1 CPU / 2 GB: 7 pooled DB connections (15 when chosen) + vision calls + waits (main.py).
     assert inside == main.THREADPOOL_TOKENS == 32
 
 
