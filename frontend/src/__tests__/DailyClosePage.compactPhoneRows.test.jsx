@@ -21,6 +21,17 @@
  *
  * jsdom has no media queries, so (1) asserts the classes, and the measured
  * phone heights are in bonbox-lab-state/gate-dc-compact-phone/.
+ *
+ * Fix round 1 (review): at 360/375 px the names broke inside a word
+ * ("Drikkepeng|e", "Bankoverførs|el", "Antal medarbejder|e") because the name
+ * was allowed to shrink below its longest word beside a box that could not
+ * shrink. The contract is now the other way round: the name never goes below
+ * its longest word, the box gives way (9rem down to 7rem) and, when even that
+ * does not fit, drops under the name on the right. A word is only ever broken
+ * when it is wider than the whole row. jsdom cannot lay that out, so these
+ * tests pin the classes that make it so, and fix1/wrap_gate.mjs in the gate
+ * folder lays the real DOM out in Chromium at 320-412 px for every venue type
+ * in da and en and fails on any mid-word break.
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -121,9 +132,22 @@ const expectCompactRow = (input, { group = true } = {}) => {
   expect(label, `label for ${input.id}`).not.toBeNull();
   // Label and box are in ONE row on a phone.
   expect(tokens(row)).toEqual(expect.arrayContaining(["max-sm:flex", "max-sm:flex-wrap", "max-sm:items-center", "max-sm:px-3"]));
-  expect(tokens(label)).toEqual(expect.arrayContaining(["max-sm:flex-1", "max-sm:min-w-0", "max-sm:wrap-anywhere", "max-sm:[&>svg]:shrink-0"]));
-  // The box: fixed width on the right, 40 px, text still 16 px (iOS zoom).
-  expect(tokens(input)).toEqual(expect.arrayContaining(["max-sm:w-36", "max-sm:shrink-0", "max-sm:h-10", "max-sm:py-0"]));
+  // The name may not shrink below its longest word (no min-w-0, no
+  // wrap-anywhere: both let "Bankoverførsel" split at 360 px); it is capped
+  // at the row so one giant custom word cannot push the page sideways.
+  expect(tokens(label)).toEqual(expect.arrayContaining(["max-sm:flex-1", "max-sm:max-w-full", "max-sm:[&>svg]:shrink-0"]));
+  expect(tokens(label).filter((c) => /min-w-0|wrap-anywhere|break-all/.test(c))).toEqual([]);
+  // The name's text is its own phone-only box: it breaks a word only when the
+  // word alone is wider than the row (overflow-wrap: break-word keeps the
+  // longest word as the label's minimum width).
+  const text = Array.from(label.children).find((c) => c.tagName === "SPAN");
+  expect(text, `name text of ${input.id}`).not.toBeNull();
+  expect(tokens(text)).toEqual(["max-sm:min-w-0", "max-sm:break-words"]);
+  // The box: 9rem on the right, giving way to 7rem before a name is cut, and
+  // dropping under the name (still on the right) when even that won't fit.
+  // 40 px tall, text still 16 px (iOS zoom).
+  expect(tokens(input)).toEqual(expect.arrayContaining(["max-sm:basis-28", "max-sm:grow", "max-sm:min-w-28", "max-sm:max-w-36", "max-sm:ml-auto", "max-sm:h-10", "max-sm:py-0"]));
+  expect(tokens(input)).not.toContain("max-sm:shrink-0");
   expect(input.className).toContain("text-[16px]");
   // MoneyField's wrapper steps out of the way on a phone, so its error line
   // is a full-width line under the row, not a column under the box.
@@ -154,6 +178,7 @@ describe("phone: a close step's amounts are receipt lines (layout only)", () => 
       expect(phoneOnly(tokens(label).filter((c) => !LABEL_CLASS.split(" ").includes(c)))).toBe(true);
       expect(phoneOnly(tokens(input).filter((c) => !INPUT_CLASS.split(" ").includes(c) && !c.startsWith("aria-[")))).toBe(true);
       expect(phoneOnly(tokens(input.parentElement))).toBe(true);
+      expect(phoneOnly(tokens(Array.from(label.children).find((c) => c.tagName === "SPAN")))).toBe(true);
     }
     expect(groups.size).toBe(1);
     const [group] = groups;
@@ -181,8 +206,16 @@ describe("phone: a close step's amounts are receipt lines (layout only)", () => 
     expect(rowOf(counted).parentElement).toBe(rowOf(float).parentElement);
     // The float row was already a row at every width: that stays.
     expect(tokens(rowOf(float))).toEqual(expect.arrayContaining(["flex", "items-center", "justify-between", "gap-3"]));
-    // The count's hint is long: on a phone it may end in "…" rather than be cut.
-    expect(tokens(counted)).toEqual(expect.arrayContaining(["max-sm:text-ellipsis", "max-sm:placeholder:text-[13px]"]));
+    // The float has no icon: on a phone its name starts where the count's
+    // name starts after its icon (14 px icon + 4 px), not under the icon.
+    const floatLabel = container.querySelector('label[for="cash-float"]');
+    expect(floatLabel.querySelector("svg")).toBeNull();
+    expect(tokens(floatLabel)).toContain("max-sm:pl-[18px]");
+    expect(tokens(container.querySelector('label[for="cash-counted"]'))).not.toContain("max-sm:pl-[18px]");
+    // The count's hint is long: on a phone it gets 4 px more room on the left
+    // ("Count your drawer..." is 125 px at 13 px; the right padding, where the
+    // amounts line up, stays) and ends in "…" rather than being cut.
+    expect(tokens(counted)).toEqual(expect.arrayContaining(["max-sm:pl-1", "max-sm:text-ellipsis", "max-sm:placeholder:text-[13px]"]));
 
     await toStep(container, "#dc-tips-total");
     const tips = container.querySelector("#dc-tips-total");
@@ -190,7 +223,11 @@ describe("phone: a close step's amounts are receipt lines (layout only)", () => 
     expectCompactRow(tips);
     expectCompactRow(staff);
     expect(rowOf(tips).parentElement).toBe(rowOf(staff).parentElement);
-    expect(tokens(staff)).toEqual(expect.arrayContaining(["max-sm:text-ellipsis", "max-sm:placeholder:text-[13px]"]));
+    // "Hvor mange ansatte i aften?" (172 px) cannot fit a 9rem box: cut to
+    // "Hvor mange ansa…" it read as broken. On a phone the hint is not shown
+    // (the attribute is unchanged; the label beside it says what to type).
+    expect(tokens(staff)).toContain("max-sm:placeholder:text-transparent");
+    expect(tokens(staff)).not.toContain("max-sm:text-ellipsis");
   });
 
   it("an unreadable amount: the error is still on the box, and on a phone it takes its own full line", async () => {
@@ -345,25 +382,44 @@ describe("the scan card's boxes on a phone", () => {
       expect(tokens(row)).toEqual(expect.arrayContaining(["max-sm:flex-row", "max-sm:flex-wrap", "max-sm:items-center"]));
       // Desktop row classes kept as they were.
       expect(tokens(row)).toEqual(expect.arrayContaining(["flex", "flex-col", "items-stretch", "gap-1", "sm:flex-row", "sm:items-center", "sm:gap-3"]));
-      expect(tokens(input)).toEqual(expect.arrayContaining(["max-sm:w-36", "max-sm:shrink-0", "max-sm:h-10"]));
+      // The same giving-way box as the steps.
+      expect(tokens(input)).toEqual(expect.arrayContaining(["max-sm:basis-28", "max-sm:grow", "max-sm:min-w-28", "max-sm:max-w-36", "max-sm:ml-auto", "max-sm:h-10"]));
+      expect(tokens(input)).not.toContain("max-sm:shrink-0");
       expect(input.className.startsWith(INPUT_CLASS)).toBe(true);
       expect(tokens(input.parentElement)).toEqual(["flex-1", "min-w-0", "max-sm:contents"]);
-      // The name may wrap on a phone instead of being cut to "Mo…".
+      // The name may wrap on a phone instead of being cut to "Mo…" — at its
+      // spaces: the name column is never narrower than its longest word.
       const name = row.firstElementChild;
-      expect(tokens(name)).toEqual(expect.arrayContaining(["max-sm:flex-1", "max-sm:grid", "max-sm:[&>*:nth-child(n+4)]:col-start-3", "sm:w-52", "flex"]));
+      expect(tokens(name)).toEqual(expect.arrayContaining(["max-sm:flex-1", "max-sm:min-w-auto", "max-sm:max-w-full", "max-sm:grid", "max-sm:grid-cols-[auto_auto_minmax(min-content,1fr)]", "max-sm:gap-x-1", "max-sm:[&>*:nth-child(n+4)]:col-start-3", "sm:w-52", "flex"]));
+      // minmax(0,1fr) let the column shrink to ~59 px at 360 px: "Drikkevar|er".
+      expect(name.className).not.toContain("minmax(0");
       // ✓/— , icon, name — the badge (if any) is the 4th child: under the name.
       expect(name.children[2].className).toContain("truncate");
-      expect(tokens(name.querySelector(".truncate"))).toEqual(expect.arrayContaining(["max-sm:whitespace-normal", "max-sm:break-words"]));
+      // A custom word wider than the row breaks instead of running out of the card.
+      expect(tokens(name.querySelector(".truncate"))).toEqual(expect.arrayContaining(["max-sm:whitespace-normal", "max-sm:break-words", "max-sm:max-w-[calc(100vw-10rem)]"]));
     }
-    // A missing revenue line keeps its amber box and its hint.
+    // A missing revenue line keeps its amber tint and its hint. (Its
+    // border-amber-300 is outranked by inputClass's border-gray-200 in the
+    // built CSS — it never showed, before this change either; the tint and
+    // the "mangler" badge are what mark the line. Separate fix: it touches
+    // desktop.) On a phone the box keeps its full 9rem and 4 px more room on
+    // the left, so "indtast faktisk beløb" (124 px at 13 px) is never cut: when
+    // the name is long the box drops under it instead.
     const drinks = container.querySelector("#scan-rev-drinks");
     expect(drinks.className).toContain("border-amber-300");
     expect(drinks.className).toContain("bg-amber-50/30");
+    expect(tokens(drinks)).toEqual(expect.arrayContaining(["max-sm:min-w-36", "max-sm:pl-1"]));
+    expect(tokens(container.querySelector("#scan-rev-food"))).not.toContain("max-sm:min-w-36");
     expect(drinks.getAttribute("placeholder")).toBe("enterActualAmount");
-    // The total: same box, 40 px on a phone.
+    // The total: same box, 40 px on a phone; at 320 px it gives way too
+    // instead of running 2 px out of the card.
     const total = container.querySelector("#scan-total");
     expect(tokens(total)).toEqual(expect.arrayContaining(["max-sm:h-10", "font-semibold"]));
     expect(total.className.startsWith(INPUT_CLASS)).toBe(true);
+    expect(tokens(total.parentElement)).toEqual(["w-40", "shrink-0", "max-sm:w-36", "max-sm:shrink", "max-sm:min-w-28"]);
+    // ...but only once its name is down to its longest word (the name starts
+    // from 0 and grows), so at 360-412 px the total box stays 9rem like the lines.
+    expect(tokens(container.querySelector('label[for="scan-total"]'))).toEqual(["text-[14px]", "font-semibold", "text-gray-900", "dark:text-white", "max-sm:basis-0", "max-sm:grow"]);
     // Typing on the card still lands in its box.
     fireEvent.change(drinks, { target: { value: "12.830" } });
     expect(container.querySelector("#scan-rev-drinks").value).toBe("12.830");

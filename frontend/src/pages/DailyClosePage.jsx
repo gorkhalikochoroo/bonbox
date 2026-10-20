@@ -1838,26 +1838,55 @@ function CardMoneyField({ value, onChange, onBlur, locale, ...rest }) {
 const PHONE_GROUP = "sm:space-y-4 max-sm:rounded-xl max-sm:border max-sm:border-gray-200 max-sm:dark:border-gray-700 max-sm:divide-y max-sm:divide-gray-100 max-sm:dark:divide-gray-700";
 const PHONE_ROW = "max-sm:flex max-sm:flex-wrap max-sm:items-center max-sm:gap-x-3 max-sm:px-3 max-sm:py-1.5 max-sm:[&_[role=alert]]:basis-full max-sm:[&_[role=alert]]:text-right";
 // The icon stays beside a name that wraps to two lines ("Byttepenge (bliver
-// i skuffen)"), and one long word (a custom category) breaks rather than
-// pushing the box out of the row: anywhere, not break-word, because a flex
-// line's text is sized by its longest word. (Not hyphens-auto: it split
-// "func-tions" in names that wrap fine at their spaces.) The icon never
-// shrinks for it.
-const PHONE_LABEL = "max-sm:flex-1 max-sm:min-w-0 max-sm:flex max-sm:items-center max-sm:wrap-anywhere max-sm:[&>svg]:shrink-0";
+// i skuffen)"). A name wraps at its spaces and NEVER inside a word: the label
+// keeps flex's min-width:auto, so it is never narrower than its longest word
+// ("Bankoverførsel", "medarbejdere") — with min-w-0 + wrap-anywhere a 9rem
+// box squeezed those to "Bankoverførs|el" at 360 px. The BOX gives way
+// instead (PHONE_BOX). The text sits in its own box (PHONE_LABEL_TEXT) so
+// that a custom word wider than the whole row still breaks (break-word, as a
+// last resort) rather than pushing the page sideways: max-w-full caps the
+// label at the row. (Not hyphens-auto: it split "func-tions" in names that
+// wrap fine at their spaces.) The icon never shrinks for it.
+const PHONE_LABEL = "max-sm:flex-1 max-sm:max-w-full max-sm:flex max-sm:items-center max-sm:[&>svg]:shrink-0";
+const PHONE_LABEL_TEXT = "max-sm:min-w-0 max-sm:break-words";
 const PHONE_BOX_WRAP = "max-sm:contents";
-const PHONE_BOX = "max-sm:w-36 max-sm:shrink-0 max-sm:h-10 max-sm:py-0 max-sm:px-3";
-// A box whose hint is a sentence ("Hvor mange ansatte i aften?"): in a 9rem
-// box it ends in "…" at label size rather than being cut off mid-word.
-const PHONE_BOX_LONG_HINT = "max-sm:text-ellipsis max-sm:placeholder:text-[13px]";
+// 9rem on the right; when the name's longest word needs the room it gives way
+// down to 7rem (still fits "123.456,50" at 16 px), and when even that does not
+// fit it drops to a line of its own under the name — still on the right
+// (ml-auto) — rather than a word being cut. (A flex line breaks on the 7rem
+// basis; growing to 9rem happens after.)
+const PHONE_BOX = "max-sm:basis-28 max-sm:grow max-sm:min-w-28 max-sm:max-w-36 max-sm:ml-auto max-sm:h-10 max-sm:py-0 max-sm:px-3";
+// A box whose hint is a sentence ("Count your drawer...", 125 px at 13 px):
+// 4 px more room on the left (the right padding, where the amounts line up,
+// stays) and "…" at label size rather than being cut off mid-word.
+const PHONE_BOX_LONG_HINT = "max-sm:pl-1 max-sm:text-ellipsis max-sm:placeholder:text-[13px]";
+// A hint no 9rem box can hold ("Hvor mange ansatte i aften?", 172 px): cut to
+// "Hvor mange ansa…" it read as broken, so on a phone it is not shown — the
+// attribute stays, and the label beside the box says what goes in it.
+const PHONE_BOX_HIDE_HINT = "max-sm:placeholder:text-transparent";
 // The scan card's lines (already rows from sm up): the same box on a phone.
 // The name is a small grid there — the ✓/— and the icon, then the name, which
 // may wrap rather than be cut to "Mo…" beside a 9rem box, and its "aflæst" /
 // "mangler" badge on a second line under the name (children 4+). As a
 // wrapping flex line the badge and the name each fell to a line of their own.
+// Same rule as the steps: the name column is minmax(min-content,1fr), so the
+// grid — and the name span, whose min-w-0 is undone on a phone — is never
+// narrower than the name's longest word; minmax(0,1fr) let it shrink to
+// ~59 px at 360 px ("Drikkevar|er"). (A plain 1fr does not do it: Chrome sizes
+// that column by the text's min-w-0 / overflow-hidden minimum, i.e. 0.) The
+// box gives way or drops under it. 4 px gaps, as between an entry line's icon
+// and its name. The text is capped at the screen less the card's chrome
+// (10rem) so a custom word wider than the whole row breaks (break-words)
+// rather than running out of the card.
 const SCAN_PHONE_ROW = "max-sm:flex-row max-sm:flex-wrap max-sm:items-center max-sm:gap-x-3 max-sm:gap-y-0 max-sm:[&_[role=alert]]:basis-full max-sm:[&_[role=alert]]:text-right";
-const SCAN_PHONE_NAME = "max-sm:flex-1 max-sm:grid max-sm:grid-cols-[auto_auto_minmax(0,1fr)] max-sm:gap-x-1.5 max-sm:gap-y-0.5 max-sm:text-[13px] max-sm:[&>*:nth-child(n+4)]:col-start-3 max-sm:[&>*:nth-child(n+4)]:justify-self-start";
-const SCAN_PHONE_NAME_TEXT = "max-sm:whitespace-normal max-sm:break-words";
+const SCAN_PHONE_NAME = "max-sm:flex-1 max-sm:min-w-auto max-sm:max-w-full max-sm:grid max-sm:grid-cols-[auto_auto_minmax(min-content,1fr)] max-sm:gap-x-1 max-sm:gap-y-0.5 max-sm:text-[13px] max-sm:[&>*:nth-child(n+4)]:col-start-3 max-sm:[&>*:nth-child(n+4)]:justify-self-start";
+const SCAN_PHONE_NAME_TEXT = "max-sm:whitespace-normal max-sm:break-words max-sm:max-w-[calc(100vw-10rem)]";
 const SCAN_PHONE_BOX_WRAP = "flex-1 min-w-0 max-sm:contents";
+// A "missing" line's box keeps its full 9rem on a phone (and the long-hint
+// room on the left), so "indtast faktisk beløb" / "enter actual amount"
+// (124 / 122 px at 13 px) is never cut: when the name is long the box drops
+// under it instead of shrinking.
+const SCAN_PHONE_MISSING_BOX = "max-sm:min-w-36";
 
 /** One amount line of a close step: label (icon + name) and its box. From
  *  sm up the label sits over the full-width box as it always has; below sm
@@ -1866,7 +1895,7 @@ function CompactAmountRow({ htmlFor, icon, label, labelClassName, className = ""
   return (
     <div className={className ? `${className} ${PHONE_ROW}` : PHONE_ROW}>
       <label htmlFor={htmlFor} className={`${labelClassName} ${PHONE_LABEL}`}>
-        {icon && <><Icon name={icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> </>}{label}
+        {icon && <><Icon name={icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> </>}<span className={PHONE_LABEL_TEXT}>{label}</span>
       </label>
       {children}
     </div>
@@ -8106,7 +8135,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       // wrapper has to carry the growth or the box collapses.
                       // (On a phone it steps aside: the box sits in the row itself.)
                       wrapperClassName={SCAN_PHONE_BOX_WRAP}
-                      className={`${inputClass} ${PHONE_BOX} ${PHONE_BOX_LONG_HINT} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
+                      className={`${inputClass} ${PHONE_BOX} ${PHONE_BOX_LONG_HINT} ${isEmpty ? `border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10 ${SCAN_PHONE_MISSING_BOX}` : ""}`}
                       value={asBox(val)}
                       placeholder={isEmpty ? t("enterActualAmount", "enter actual amount") : ""}
                       onChange={e => act(typeIntoForm, `revenue.${c.key}`, e.target.value)} />
@@ -8133,7 +8162,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   the strict parser; an unreadable entry blocks the save. */}
               {(scanResult.revenue_total || scanResult.revenue_total_text != null) && (<>
                 <div className="flex items-center justify-between gap-3 pt-2 border-t border-gray-200 dark:border-gray-600">
-                  <label htmlFor="scan-total" className="text-[14px] font-semibold text-gray-900 dark:text-white">
+                  {/* On a phone the name takes what the 9rem box leaves (down
+                      to its longest word); only then does the box give way —
+                      at 320 px it ran 2 px out of the card. */}
+                  <label htmlFor="scan-total" className="text-[14px] font-semibold text-gray-900 dark:text-white max-sm:basis-0 max-sm:grow">
                     {t("totalRevenue")}
                   </label>
                   {/* The total this card SAVES. Categories raised past the
@@ -8143,7 +8175,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   <CardMoneyField
                     id="scan-total"
                     locale={mLocale}
-                    wrapperClassName="w-40 shrink-0 max-sm:w-36"
+                    wrapperClassName="w-40 shrink-0 max-sm:w-36 max-sm:shrink max-sm:min-w-28"
                     className={`${inputClass} font-semibold max-sm:h-10 max-sm:py-0 max-sm:px-3`}
                     value={scanResult.revenue_total_text ?? asBox(cardSaveTotal > 0 ? cardSaveTotal : scanResult.revenue_total)}
                     // The printed figure is kept once the owner types over it
@@ -9101,7 +9133,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 aria-describedby={[isMoneyRejected(drawerCount, mLocale) ? "cash-counted-err" : null, cashCountedNegative ? "dc-drawer-below-float" : null].filter(Boolean).join(" ") || undefined} />
             </CompactAmountRow>
             {/* Already a row at every width; on a phone it joins the count's card. */}
-            <CompactAmountRow className="flex items-center justify-between gap-3" htmlFor="cash-float" labelClassName={labelClass} label={t("dcCashFloat", "Float (stays in the drawer)")}>
+            <CompactAmountRow className="flex items-center justify-between gap-3" htmlFor="cash-float" labelClassName={`${labelClass} max-sm:pl-[18px]`} label={t("dcCashFloat", "Float (stays in the drawer)")}>
               <MoneyField id="cash-float" locale={mLocale} placeholder="0" wrapperClassName={`w-36 shrink-0 ${PHONE_BOX_WRAP}`}
                 className={`w-full h-11 px-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-[16px] tabular-nums ${PHONE_BOX}`}
                 value={cashFloat} onChange={e => onFloatChange(e.target.value)}
@@ -9172,7 +9204,7 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 }} />
             </CompactAmountRow>
             <CompactAmountRow htmlFor="dc-staff-count" labelClassName={labelClass} icon="Users" label={t("staffCountLabel", "Staff Count")}>
-              <input id="dc-staff-count" type="number" inputMode="numeric" placeholder={businessDate !== businessTodayIso(cutoffHour) ? t("dcStaffCountPromptPast", "How many staff that day?") : t("staffCountPrompt")} className={`${inputClass} ${PHONE_BOX} ${PHONE_BOX_LONG_HINT}`}
+              <input id="dc-staff-count" type="number" inputMode="numeric" placeholder={businessDate !== businessTodayIso(cutoffHour) ? t("dcStaffCountPromptPast", "How many staff that day?") : t("staffCountPrompt")} className={`${inputClass} ${PHONE_BOX} ${PHONE_BOX_HIDE_HINT}`}
                 value={staffCount} onChange={e => setStaffCount(e.target.value)} />
             </CompactAmountRow>
             </div>
