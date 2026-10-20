@@ -253,7 +253,7 @@ export default function DailyBriefCard() {
 
   if (loading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700/60 p-6 sm:p-7 animate-pulse">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700/60 p-5 sm:p-7 animate-pulse">
         <div className="h-3 w-40 bg-gray-100 dark:bg-gray-700 rounded mb-4" />
         <div className="h-5 w-3/4 bg-gray-100 dark:bg-gray-700 rounded mb-3" />
         <div className="h-3 w-2/3 bg-gray-100 dark:bg-gray-700 rounded mb-2" />
@@ -281,7 +281,7 @@ export default function DailyBriefCard() {
   const headlineCta = _safeCtaPath(brief.headline_cta_url);
 
   return (
-    <div className="bg-white dark:bg-[rgb(var(--surface-card))] rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] p-6 sm:p-7">
+    <div className="bg-white dark:bg-[rgb(var(--surface-card))] rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] p-5 sm:p-7">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex items-start gap-3 min-w-0">
           <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] flex items-center justify-center shrink-0 mt-0.5 text-gray-700 dark:text-gray-300">

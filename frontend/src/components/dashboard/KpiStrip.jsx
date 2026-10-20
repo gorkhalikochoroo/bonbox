@@ -31,7 +31,7 @@
  */
 import React from "react";
 import { TrendingUp, TrendingDown, Minus, Calendar } from "lucide-react";
-import { StatCard, Amount } from "../ui";
+import { StatCard, Amount, PHONE_STRIP } from "../ui";
 import { formatDateClear } from "../../utils/dateFormat";
 import { useLanguage } from "../../hooks/useLanguage";
 
@@ -82,7 +82,9 @@ function DeltaIndicator({ pct, label }) {
         <span>{word}</span>
       </span>
       {label && (
-        <span className="text-gray-500 dark:text-gray-400">{label}</span>
+        // Phone: the strip cell is ~98px; "↓ Ned ift. sidste uge" is ~118.
+        // The arrow + word stay; the comparison stays for screen readers.
+        <span className="text-gray-500 dark:text-gray-400 max-sm:sr-only">{label}</span>
       )}
     </span>
   );
@@ -119,19 +121,19 @@ export default function KpiStrip({
   const tileSpecs = {
     today: lastClosePending ? {
       label: t("kpiLastClose", "Last close"),
-      value: <Amount value={null} currency={ctx?.currency} />,
+      value: <Amount value={null} currency={ctx?.currency} className="max-sm:flex-wrap" />,
       helper: null,
       accent: "neutral",
     } : ctx?.summary?.uses_daily_close && ctx?.summary?.lastClose ? {
       // Close-based venue: "today" is 0 until the night's close, every day.
       // The last locked kasserapport is the figure the owner is asking for.
       label: t("kpiLastClose", "Last close"),
-      value: <Amount value={ctx.summary.lastClose.revenue_total} currency={ctx?.currency} />,
+      value: <Amount value={ctx.summary.lastClose.revenue_total} currency={ctx?.currency} className="max-sm:flex-wrap" />,
       helper: formatDateClear(String(ctx.summary.lastClose.date).slice(0, 10)),
       accent: "neutral",
     } : {
       label: t("liveRevenueToday", "Revenue today"),
-      value: <Amount value={ctx?.summary?.todayRevenue} currency={ctx?.currency} />,
+      value: <Amount value={ctx?.summary?.todayRevenue} currency={ctx?.currency} className="max-sm:flex-wrap" />,
       helper: showDelta ? (
         <DeltaIndicator
           pct={todayDelta}
@@ -142,7 +144,9 @@ export default function KpiStrip({
     },
     week: {
       label: t("liveRevenueWeek", "Revenue this week"),
-      value: <Amount value={ctx?.summary?.weekRevenue} currency={ctx?.currency} />,
+      // The one label wider than a 360px phone's strip cell (107 / 137px vs 93).
+      shortLabel: t("kpiWeekShort"),
+      value: <Amount value={ctx?.summary?.weekRevenue} currency={ctx?.currency} className="max-sm:flex-wrap" />,
       helper: showDelta ? (
         <DeltaIndicator
           pct={weekDelta}
@@ -156,7 +160,7 @@ export default function KpiStrip({
     // often, and the natural today → week → month progression.
     month: {
       label: t("liveRevenueMonth", "This month"),
-      value: <Amount value={ctx?.summary?.month_revenue} currency={ctx?.currency} />,
+      value: <Amount value={ctx?.summary?.month_revenue} currency={ctx?.currency} className="max-sm:flex-wrap" />,
       helper: null,
       accent: "neutral",
     },
@@ -205,6 +209,12 @@ export default function KpiStrip({
     </span>
   );
 
+  // Phone: ONE strip card, all tiles across (3 on Home), hairline cells —
+  // the StatStrip look. A long month wraps its "kr." under the figure
+  // (Amount max-sm:flex-wrap) instead of overflowing the cell.
+  const shown = tiles.filter((id) => tileSpecs[id]);
+  const PHONE_COLS = { 1: "max-sm:grid-cols-1", 2: "max-sm:grid-cols-2", 4: "max-sm:grid-cols-2" };
+
   return (
     <div
       className={
@@ -212,18 +222,17 @@ export default function KpiStrip({
         // 640px upward, so the tiles stretched instead of the strip gaining
         // density on a wide screen. auto-fit sizes to whatever fits, and
         // min(100%,220px) keeps a single tile from overflowing a phone.
-        // Phone: two dense tiles per row (three stacked slabs pushed the
-        // profit answer off the first screen); the odd last tile spans both.
-        "grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3 max-sm:grid-cols-2 max-sm:gap-2 " +
+        // Phone: one strip card (see `shown` above); three stacked slabs
+        // pushed the profit answer off the first screen.
+        "grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3 " +
+        (PHONE_COLS[shown.length] || "max-sm:grid-cols-3") + " " + PHONE_STRIP + " " +
         (className || "")
       }
       data-zone="1"
       data-component="KpiStrip"
     >
-      {tiles.map((id, i) => {
+      {shown.map((id) => {
         const spec = tileSpecs[id];
-        if (!spec) return null;
-        const lastOdd = tiles.length % 2 === 1 && i === tiles.length - 1;
         return (
           <StatCard
             key={id}
@@ -232,7 +241,8 @@ export default function KpiStrip({
             helper={spec.helper}
             accent={spec.accent}
             dense
-            className={lastOdd ? "max-sm:col-span-2" : ""}
+            strip
+            shortLabel={spec.shortLabel}
           />
         );
       })}

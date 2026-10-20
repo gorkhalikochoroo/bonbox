@@ -39,7 +39,7 @@ import {
   STALE_NOTE_AFTER_MS,
 } from "../lib/swrCache";
 import { saveFile } from "../utils/download";
-import { PageHeader, Button, UpgradeNudge } from "../components/ui";
+import { PageHeader, Button, UpgradeNudge, PHONE_ICON40 } from "../components/ui";
 import PageShell from "../components/ui/PageShell";
 import { trackEvent } from "../hooks/useEventLog";
 import {
@@ -926,7 +926,10 @@ export default function DashboardPage() {
         <div className="space-y-6">
           {/* Zone 1 skeleton: DailyBrief + 3-tile KPI strip */}
           <SkeletonCard />
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3">
+          {/* Phone: the KPI strip is one 3-across card, so its skeleton is one
+              strip-high block (SkeletonCard's own chrome). */}
+          <div className="sm:hidden h-[76px] rounded-xl border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" />
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3 max-sm:hidden">
             <SkeletonCard />
             <SkeletonCard />
             <SkeletonCard />
@@ -967,9 +970,14 @@ export default function DashboardPage() {
           <ReceiptCapture key="scan-sale" onSaleCreated={fetchAll} />
         </>
       )}
-      <div className="relative" ref={overflowRef}>
+      {/* Phone: the "…" sits in the header's top-right corner on the
+          eyebrow line (PageHeader phoneCorner) instead of wrapping onto a row
+          of its own under the two main actions. Still last in the DOM, so it
+          is still focused last; its menu still anchors to this wrapper. */}
+      <div className="relative max-sm:absolute max-sm:-top-3 max-sm:-right-2" ref={overflowRef}>
         <Button
           variant="ghost"
+          className={PHONE_ICON40}
           onClick={() => setOverflowOpen((v) => !v)}
           aria-label={t("moreActions", "More actions")}
           aria-haspopup="menu"
@@ -1063,6 +1071,7 @@ export default function DashboardPage() {
           eyebrow={t("home", "HOME").toUpperCase()}
           title={greetingTitle}
           actions={headerActions}
+          phoneCorner
         />
         <FirstRunCollapsedDashboard user={user} />
       </PageShell>
@@ -1110,6 +1119,7 @@ export default function DashboardPage() {
             year: "numeric",
           })}
           actions={headerActions}
+          phoneCorner
         />
 
         {/* The read-only "Skal ses nu" queue — the few things that need the

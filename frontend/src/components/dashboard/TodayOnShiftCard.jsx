@@ -30,7 +30,7 @@ import api from "../../services/api";
 import { peekGet } from "../../lib/swrCache";
 import { useLanguage } from "../../hooks/useLanguage";
 import { useAuth } from "../../hooks/useAuth";
-import { Card } from "../ui";
+import { Card, PHONE_CTRL } from "../ui";
 import { sectionFor } from "../../config/roleSections";
 import { SECTION_LABEL_KEY, SECTION_LABEL_FALLBACK } from "../../config/scheduleSectionColors";
 
@@ -101,21 +101,29 @@ export default function TodayOnShiftCard() {
 
   return (
     <Card>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
+      {/* Phone, no shifts: the card is its header — "No shifts today" as the
+          title's second line, and the 40px "Schedule ›" link as its one action
+          (the body's "Open schedule" went to the same /staff/schedule). */}
+      <div className={"flex items-center justify-between max-sm:gap-3 " + (hasShifts ? "mb-3" : "mb-3 max-sm:mb-0")}>
+        <div className="flex items-center gap-2 max-sm:min-w-0">
           <Calendar
             size={16}
             strokeWidth={1.75}
             className="text-gray-500 dark:text-gray-400"
             aria-hidden="true"
           />
-          <h3 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
-            {t("todayOnShiftTitle") || "Today on shift"}
-          </h3>
+          <div className="max-sm:min-w-0">
+            <h3 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
+              {t("todayOnShiftTitle") || "Today on shift"}
+            </h3>
+            {!hasShifts && (
+              <p className="sm:hidden text-[13px] text-gray-500 dark:text-gray-400">{t("todayOnShiftNone")}</p>
+            )}
+          </div>
         </div>
         <Link
           to="/staff/schedule"
-          className="inline-flex items-center gap-0.5 text-[12px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded px-1"
+          className={"inline-flex items-center gap-0.5 text-[12px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded px-1 max-sm:shrink-0 " + PHONE_CTRL}
         >
           {t("todayOnShiftViewPlan") || "Vagtplan"}
           <ChevronRight size={14} aria-hidden="true" />
@@ -185,7 +193,7 @@ export default function TodayOnShiftCard() {
           );
         })()
       ) : (
-        <div className="text-sm text-gray-500 dark:text-gray-400">
+        <div className="text-sm text-gray-500 dark:text-gray-400 max-sm:hidden">
           {t("todayOnShiftEmpty") ||
             "Ingen vagter i dag — føj en til vagtplanen"}{" "}
           <Link
