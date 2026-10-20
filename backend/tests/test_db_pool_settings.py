@@ -3,7 +3,9 @@
 Production reaches Supabase through Supavisor in SESSION mode
 (aws-1-eu-west-1.pooler.supabase.com:5432). In session mode every open client
 connection holds a slot, and the pooler admits at most its Pool Size of them
-for the whole project: 15. A zero-downtime deploy on Render boots the NEW
+for the whole project. 15 is the Pool Size this code must fit (the design
+floor; the live value was raised to 30 during the 20 Oct incident). A
+zero-downtime deploy on Render boots the NEW
 instance while the OLD one keeps serving, and the new one must pass
 /api/health/ready (a SELECT 1 through its own pool) before the cutover — so
 for one deploy window TWO processes hold connections at once.
@@ -18,6 +20,15 @@ overlapping instances stays within 15 — written with the literal numbers, so
 editing a constant cannot make the guard pass by itself. 7 kept warm, no
 overflow: old + new = 14 of 15.
 """
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.exc import TimeoutError as PoolTimeout
@@ -26,7 +37,8 @@ from sqlalchemy.pool import QueuePool
 import app.database as database
 from app.database import postgres_engine_kwargs
 
-# Supavisor session mode, Pool Size of the production project (20 Oct).
+# Supavisor session mode: the Pool Size this code must fit. The design floor,
+# not the live value (raised to 30 during the 20 Oct incident).
 SESSION_POOLER_CLIENT_CAP = 15
 # Old + new instance during a Render zero-downtime deploy.
 INSTANCES_DURING_DEPLOY = 2
@@ -106,4 +118,152 @@ def test_a_burst_never_opens_more_than_the_peak():
     finally:
         for c in held:
             c.close()
+        eng.dispose()
+
+
+# ─── The engine the app really builds, and that it is the only one ─────
+#
+# The tests above pin postgres_engine_kwargs(). These pin what the app does
+# with it: the module-level engine has the same pool, no other engine or raw
+# DBAPI connection exists in app/, and one process runs per instance — the
+# x2 above counts processes.
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+APP_DIR = BACKEND_DIR / "app"
+
+
+def test_the_app_engine_on_postgres_has_the_deploy_safe_pool():
+    """Import app.database with a Postgres URL in a fresh process (create_engine
+    is lazy: nothing connects) and read the pool of the engine the app uses."""
+    code = (
+        "import app.database as d; p = d.engine.pool; "
+        "print(type(p).__name__, p.size(), p._max_overflow, p._timeout, p._pre_ping)"
+    )
+    env = {**os.environ, "DATABASE_URL": "postgresql://u:p@127.0.0.1:1/x"}
+    out = subprocess.run(
+        [sys.executable, "-c", code], cwd=BACKEND_DIR, env=env,
+        capture_output=True, text=True, timeout=120,
+    )
+    assert out.returncode == 0, out.stderr[-2000:]
+    kind, size, overflow, timeout, pre_ping = out.stdout.split()[-5:]
+    assert kind == "QueuePool"
+    assert int(size) + int(overflow) <= 7, f"app engine peak {size}+{overflow} > 7"
+    assert (int(size), int(overflow), float(timeout), pre_ping) == (7, 0, 30.0, "True")
+
+
+def test_app_database_is_the_only_place_that_builds_an_engine():
+    """A second engine (or a raw psycopg2 connection) would have its own pool
+    or socket on top of the 7 and break old + new <= 15 silently."""
+    offenders = []
+    for path in sorted(APP_DIR.rglob("*.py")):
+        rel = path.relative_to(BACKEND_DIR).as_posix()
+        src = path.read_text(encoding="utf-8")
+        for pat in (r"\bcreate_engine\(", r"\bcreate_async_engine\(",
+                    r"\bengine_from_config\(", r"\bpsycopg2?\.connect\("):
+            for m in re.finditer(pat, src):
+                if rel == "app/database.py" and pat == r"\bcreate_engine\(":
+                    continue
+                line = src.count("\n", 0, m.start()) + 1
+                offenders.append(f"{rel}:{line}")
+    assert offenders == []
+    db_src = (APP_DIR / "database.py").read_text(encoding="utf-8")
+    # The SQLite branch (tests / local) and the Postgres branch: one engine.
+    assert len(re.findall(r"\bcreate_engine\(", db_src)) == 2
+
+
+def test_one_uvicorn_process_per_instance():
+    """The x2 counts processes. uvicorn reads --workers, else $WEB_CONCURRENCY:
+    neither may appear in the start command or the Blueprint, and the
+    Blueprint may not scale to more instances. (The Render dashboard's own
+    env vars are not in the repo: WEB_CONCURRENCY must stay unset there.)"""
+    render = (BACKEND_DIR / "render.yaml").read_text(encoding="utf-8")
+    procfile = (BACKEND_DIR / "Procfile").read_text(encoding="utf-8")
+    starts = re.findall(r"^\s*startCommand:\s*(.+)$", render, flags=re.M)
+    assert len(starts) == 1, starts
+    for cmd in (starts[0], procfile):
+        assert "uvicorn app.main:app" in cmd
+        assert "--workers" not in cmd and "gunicorn" not in cmd, cmd
+    for key in ("numInstances", "scaling", "minInstances", "maxInstances",
+                "WEB_CONCURRENCY"):
+        assert key not in render, f"render.yaml sets {key}"
+
+
+# ─── A gate refusal must not wait for an 8th connection ─────────────────
+#
+# billing._record_gate_refusal (behind enforce_feature / enforce_cap) writes
+# its SecurityEvent through a SECOND session while the refusing request still
+# holds its own connection. With 7 such requests at once every connection is
+# held and each waited for one more: all stalled for the full pool_timeout.
+
+def _pool_engine(tmp_path, timeout: float):
+    from app.models.security_event import SecurityEvent
+    from sqlalchemy.orm import sessionmaker
+
+    kw = postgres_engine_kwargs()
+    eng = create_engine(
+        f"sqlite:///{tmp_path / 'pool.db'}", poolclass=QueuePool,
+        pool_size=kw["pool_size"], max_overflow=kw["max_overflow"],
+        pool_timeout=timeout, connect_args={"check_same_thread": False},
+    )
+    SecurityEvent.__table__.create(eng)
+    return eng, sessionmaker(bind=eng, autoflush=False, autocommit=False)
+
+
+def test_gate_refusals_holding_every_connection_do_not_stall(tmp_path, monkeypatch):
+    from sqlalchemy import text
+    from app.services import billing
+
+    eng, factory = _pool_engine(tmp_path, timeout=2)
+    monkeypatch.setattr(database, "SessionLocal", factory)
+    peak = _peak(postgres_engine_kwargs())
+    all_held = threading.Barrier(peak)
+    took, errors = [], []
+
+    def gated_request():
+        try:
+            req_db = factory()
+            req_db.execute(text("SELECT 1"))  # the request's own connection
+            all_held.wait(timeout=10)
+            t0 = time.perf_counter()
+            billing._record_gate_refusal(
+                SimpleNamespace(id=None), "gate_refused.test", {"feature": "test"})
+            took.append(time.perf_counter() - t0)
+            req_db.close()
+        except Exception as exc:  # noqa: BLE001
+            errors.append(repr(exc))
+
+    threads = [threading.Thread(target=gated_request) for _ in range(peak)]
+    try:
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+        assert errors == []
+        assert len(took) == peak
+        assert max(took) < 1.0, (
+            f"slowest refusal {max(took):.2f}s: it waited for an 8th connection")
+    finally:
+        eng.dispose()
+
+
+def test_gate_refusal_row_still_written_when_the_pool_has_room(tmp_path, monkeypatch):
+    from sqlalchemy import text
+    from app.models.security_event import SecurityEvent
+    from app.services import billing
+
+    eng, factory = _pool_engine(tmp_path, timeout=2)
+    monkeypatch.setattr(database, "SessionLocal", factory)
+    req_db = factory()
+    try:
+        req_db.execute(text("SELECT 1"))  # the request holds 1 of 7
+        billing._record_gate_refusal(
+            SimpleNamespace(id=None), "gate_refused.test", {"feature": "test"})
+        check = factory()
+        try:
+            rows = check.query(SecurityEvent).filter_by(event_type="gate_refused.test").count()
+        finally:
+            check.close()
+        assert rows == 1
+    finally:
+        req_db.close()
         eng.dispose()

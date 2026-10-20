@@ -6604,7 +6604,9 @@ def health_db():
 # traffic to a dead app. The probe is cached ~15s so Render's frequent polling
 # costs at most one pool checkout per window, in either state.
 _READY_PROBE_TTL_S = 15.0
-_ready_probe = {"ts": 0.0, "ok": True}
+# "ok" starts False: a poll that arrives while the FIRST probe is still
+# running answers 503, never an unproven 200 (see health_ready).
+_ready_probe = {"ts": 0.0, "ok": False}
 
 
 def _ready_db_probe() -> bool:
@@ -6678,8 +6680,12 @@ async def health_ready():
     if now - _ready_probe["ts"] > _READY_PROBE_TTL_S:
         from starlette.concurrency import run_in_threadpool as _run_in_threadpool
 
-        _ready_probe["ok"] = await _run_in_threadpool(_ready_db_probe)
+        # Single flight: stamp BEFORE the await, so polls that arrive while
+        # this probe waits (up to pool_timeout, 30 s, on a saturated pool)
+        # answer from the last result instead of each starting another probe
+        # that takes a worker thread and a place in the pool queue.
         _ready_probe["ts"] = now
+        _ready_probe["ok"] = await _run_in_threadpool(_ready_db_probe)
     if not _ready_probe["ok"]:
         return JSONResponse(
             status_code=503,
