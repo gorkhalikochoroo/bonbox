@@ -63,6 +63,7 @@ import { venueMonogram } from "../utils/venueMonogram";
 import { contactState } from "../utils/guestContact";
 import { rescueDay } from "../utils/bookingDay";
 import { capFirst, dateLocale, fmtDayLabel, fmtDayShort } from "../utils/guestLocale";
+import { isFramed } from "../utils/framed";
 import {
   ariaWord,
   bookAheadText,
@@ -77,6 +78,7 @@ import {
   reasonSentence,
 } from "../utils/dayState";
 import { useKeyboardInset } from "../hooks/useKeyboardInset";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useLanguage } from "../hooks/useLanguage";
 import { loadLocale, loadedLocales } from "../lib/localeStore";
 import Button from "../components/ui/Button";
@@ -85,6 +87,8 @@ import Input from "../components/ui/Input";
 import Sheet from "../components/ui/Sheet";
 import MonthCalendar from "../components/MonthCalendar";
 import PublicFloorMap from "../components/PublicFloorMap";
+import { VenueHoursList, VenueHoursToggle } from "../components/VenueHours";
+import { hasVenueWeek } from "../utils/venueHours";
 import { bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
 
 // ── Severity ladder ────────────────────────────────────────────────
@@ -490,14 +494,26 @@ const TORN_EDGE = `polygon(0% 0%, 100% 0%, ${Array.from({ length: 31 }, (_, i) =
 // typographic monogram when there's no logo — or if the image fails to load /
 // the url has expired — so the header is never empty. The logo sits on a light
 // tile (logos often carry transparency and need light contrast).
+const BADGE_SIZES = {
+  sm: { box: "w-8 h-8 rounded-[10px] text-[12px]", px: 32, icon: 14 },
+  md: { box: "w-11 h-11 rounded-xl text-[15px]", px: 44, icon: 18 },
+  // The desktop venue column.
+  lg: { box: "w-16 h-16 rounded-2xl text-[20px]", px: 64, icon: 24 },
+};
+
 function VenueBadge({ logoUrl, name, size = "md" }) {
   const [broken, setBroken] = useState(false);
-  const box = size === "sm" ? "w-8 h-8 rounded-[10px] text-[12px]" : "w-11 h-11 rounded-xl text-[15px]";
+  // Each size reserves its box (CSS and the img's width/height), so a logo
+  // that arrives late never moves the header.
+  const { box, px, icon } = BADGE_SIZES[size] || BADGE_SIZES.md;
   if (logoUrl && !broken) {
     return (
       <img
         src={logoUrl}
         alt=""
+        width={px}
+        height={px}
+        decoding="async"
         onError={() => setBroken(true)}
         className={`shrink-0 ${box} object-contain bg-white ring-1 ring-gray-200 dark:ring-gray-700 p-1`}
       />
@@ -508,14 +524,187 @@ function VenueBadge({ logoUrl, name, size = "md" }) {
   // the green trust strip and the green button — three greens before the
   // guest had chosen anything. It stays the VENUE's monogram, never BonBox's
   // own mark — this is the restaurant's page, and wearing our logo on it
-  // would be claiming their identity.
+  // would be claiming their identity. A venue with no usable name gets a
+  // quiet calendar mark instead of a stray "·".
+  const monogram = name ? venueMonogram(name) : "";
   return (
     <div
       className={`shrink-0 ${box} bg-gray-100 text-gray-800 ring-1 ring-inset ring-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:ring-gray-700 flex items-center justify-center font-semibold tracking-tight select-none`}
       aria-hidden="true"
     >
-      {venueMonogram(name)}
+      {monogram && monogram !== "·" ? monogram : (
+        <Calendar size={icon} strokeWidth={1.75} className="text-gray-500 dark:text-gray-400" aria-hidden="true" />
+      )}
     </div>
+  );
+}
+
+// ── Venue header (booking push p3) ─────────────────────────────────
+// Who the guest is booking with: the identity tile, the venue's name, where
+// it is, how to call, the trust line and the opening hours. Module scope,
+// like every subcomponent here, so a tap on a chip never remounts it (the
+// badge keeps its broken-image state, the language pill its focus) and the
+// hours item keeps its open state.
+//   layout "card"   — the phone/tablet card header (and the embed).
+//   layout "column" — the desktop venue column (≥ 1024px, never framed).
+// A venue with no usable name (business_name null) gets no eyebrow and the
+// plain "Book et bord" / "Book en tid" as its heading — never "BonBox",
+// never a blank. `paused` hides the trust line in both layouts (C3).
+function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout = "card", isEmbed = false, todayIso, paused = false }) {
+  const [hoursOpen, setHoursOpen] = useState(false);
+  const name = page.business_name || null;
+  const bookWords = apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table");
+  const showHours = !isEmbed && hasVenueWeek(page.hours);
+  const where = page.address || page.city;
+  const map = mapsHref(page.address, page.city);
+  const tel = telHref(page.phone);
+  const linkCls = "hover:text-gray-900 dark:hover:text-gray-100 transition-colors duration-200";
+
+  // The address: opens the map. min-h-8! (32pt): the global 44pt touch rule
+  // sits outside Tailwind's layers, so only the important form beats it.
+  // With a long address the number wraps under it, and two 44pt rows left a
+  // loose gap.
+  const addressItem = () => {
+    if (!where) return null;
+    const inner = (
+      <>
+        <MapPin size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
+        <span className="truncate">{where}</span>
+      </>
+    );
+    const cls = "inline-flex items-center gap-1.5 max-w-full min-w-0 min-h-8! rounded-md " + FOCUS;
+    return map ? (
+      <a href={map} target="_blank" rel="noopener noreferrer" className={cls + " " + linkCls}>{inner}</a>
+    ) : (
+      <span className={cls}>{inner}</span>
+    );
+  };
+  // Owner's contact number — tappable "call us" for big groups or
+  // questions. tel: built from digits via encodeURIComponent.
+  const phoneItem = () =>
+    tel && (
+      <a href={tel} className={"inline-flex items-center gap-1.5 min-h-8! rounded-md " + linkCls + " " + FOCUS}>
+        <Phone size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
+        <span className="tabular-nums whitespace-nowrap">{page.phone}</span>
+      </a>
+    );
+  const trustText = t("rsvpTrustLine", "No account needed · Free cancellation");
+
+  if (layout === "column") {
+    // The desktop venue column: the same facts, given room. The trust line
+    // is a plain row here — the card's grey strip would vanish on the grey
+    // ground the column stands on. The hours are always open.
+    return (
+      <div className="space-y-6">
+        <div className="flex items-start justify-between gap-4">
+          <VenueBadge logoUrl={page.logo_url} name={name} size="lg" />
+          <LangPill lang={lang} setLang={setLang} />
+        </div>
+        <div className="space-y-1.5">
+          {name && (
+            <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">{bookWords}</p>
+          )}
+          <h1 className="text-[30px] leading-[1.1] font-semibold tracking-tight text-gray-900 dark:text-gray-100 break-words">
+            {name || bookWords}
+          </h1>
+        </div>
+        {(where || tel || !paused) && (
+          <div className="flex flex-col items-start text-[13px] text-gray-500 dark:text-gray-400">
+            {addressItem()}
+            {phoneItem()}
+            {!paused && (
+              <p className="inline-flex items-center gap-1.5 min-h-8 font-medium text-gray-700 dark:text-gray-300">
+                <Check className="w-3.5 h-3.5 shrink-0 text-bb-green" aria-hidden />
+                <span>{trustText}</span>
+              </p>
+            )}
+          </div>
+        )}
+        {showHours && (
+          <VenueHoursList hours={page.hours} todayIso={todayIso} lang={lang} t={t} apptWords={apptWords} variant="panel" id="rsvp-venue-hours-week" />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <header className="space-y-3">
+      <div className="flex items-start gap-3">
+        {/* Identity tile — the owner's uploaded brand logo when they have
+            one, else a typographic monogram derived from the name. */}
+        <VenueBadge logoUrl={page.logo_url} name={name} />
+        <div className="min-w-0 flex-1">
+          {name && (
+            <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">{bookWords}</p>
+          )}
+          <h1
+            className={
+              "font-semibold tracking-tight text-gray-900 dark:text-gray-100 leading-[1.1] line-clamp-2 " +
+              (step === 1 ? "text-[22px]" : "text-lg")
+            }
+          >
+            {name || bookWords}
+          </h1>
+        </div>
+        {/* The page adopts the venue's own language, which is right for
+            the guests who live nearby and wrong for everyone else. A
+            tourist booking a Copenhagen table had no way out of Danish:
+            the app's language control lives behind the login, and this
+            page carries none. Two words, no flags — a flag is a country,
+            not a language. Choosing here also clears the auto-pick, so
+            the choice survives through to the confirmation. */}
+        <LangPill lang={lang} setLang={setLang} />
+      </div>
+
+      {/* Where it is, how to reach it and when it is open — one quiet row.
+          As two text rows each 44pt touch target left a gap between the
+          address and the number; as bordered pills they were the loudest
+          thing in the header. Here they keep a 32pt target but read as the
+          light detail they are: the address opens the map, the number
+          dials, the hours open the week. The phone and the hours share one
+          wrapping group, so a long address wraps them together onto ONE
+          second line — the row never grows past the two-line shape the
+          19 Oct walk measured (fold budget). Step 1 only — on the details
+          step the form starts high. Not in the embed: compact as before. */}
+      {step === 1 && (where || tel || showHours) && (
+        <div className="flex flex-wrap items-center gap-x-4 text-[13px] text-gray-500 dark:text-gray-400">
+          {addressItem()}
+          {(tel || showHours) && (
+            <span className="inline-flex flex-wrap items-center gap-x-4">
+              {phoneItem()}
+              {showHours && (
+                <VenueHoursToggle
+                  hours={page.hours}
+                  todayIso={todayIso}
+                  t={t}
+                  apptWords={apptWords}
+                  open={hoursOpen}
+                  onToggle={() => setHoursOpen((v) => !v)}
+                  focusClass={FOCUS}
+                />
+              )}
+            </span>
+          )}
+        </div>
+      )}
+      {step === 1 && showHours && hoursOpen && (
+        <VenueHoursList hours={page.hours} todayIso={todayIso} lang={lang} t={t} apptWords={apptWords} variant="inline" id="rsvp-venue-hours" />
+      )}
+
+      {/* The two objections a stranger has before booking — "do I need an
+          account?" and "am I locked in?" — answered before they scroll.
+          As plain grey body text it read as legalese and was skipped; on a
+          quiet strip with a green check it reads as reassurance. The strip
+          itself is neutral: the green is spent on the one main action. */}
+      {/* Not while online booking is paused: it advertises a booking
+          that isn't possible right now. */}
+      {step === 1 && !paused && (
+        <div className="flex items-center gap-2 rounded-xl bg-gray-50 dark:bg-white/5 px-3.5 py-2">
+          <Check className="w-4 h-4 shrink-0 text-bb-green" aria-hidden />
+          <p className="text-[13px] font-medium leading-snug text-gray-700 dark:text-gray-300">{trustText}</p>
+        </div>
+      )}
+    </header>
   );
 }
 
@@ -627,6 +816,13 @@ export default function ReservationPublicPage() {
   // identical — the flow is the same, just framed.
   const isEmbed = searchParams.get("embed") === "1";
   const rootMinH = isEmbed ? "" : "min-h-screen";
+  // Desktop (≥ 1024px): the venue in a column beside the booking card. Never
+  // in the embed or inside someone else's frame (the page can be framed
+  // without ?embed=1). Read here, above every early return, so the hook
+  // order never changes between the loading and the loaded render.
+  const framed = useMemo(() => isFramed(), []);
+  const wideQuery = useMediaQuery("(min-width: 1024px)");
+  const wide = wideQuery && !isEmbed && !framed;
 
   // Embedded = always LIGHT, whatever theme this browser stored: the frame
   // sits in the owner's (light) website, and the owner's dark-mode preview of
@@ -1172,33 +1368,55 @@ export default function ReservationPublicPage() {
   // default until we add SSR/prerender. Still worth it for the tab + trust.
   const resultStatus = liveStatus || result?.status || null;
   useEffect(() => {
-    if (!page?.business_name) return;
+    if (!page) return;
     const prev = document.title;
-    const venue = page.business_name;
+    // null = the venue has no name a guest may see (never "BonBox"): the
+    // same states then read without a venue, so the tab never falls back
+    // to the app's own shell title.
+    const venue = page.business_name || null;
     // Once booked, the tab says what happened — a guest switching back to it
     // should not read "Book a table" over a finished booking.
     // A link still loading or no longer resolving is not a booking yet.
     const showsBooking = !!result && linkState !== "loading" && linkState !== "failed";
+    const withdrawn = resultStatus === "cancelled" && (liveOutcome === "withdrawn" || cancelledFrom === "requested");
+    const declined = resultStatus === "cancelled" && liveOutcome === "declined";
+    const cancelled = resultStatus === "cancelled" || resultStatus === "no_show";
     // A salon books a time, not a table (vertical-fit audit, Oct 2026).
-    const title = !showsBooking
-      ? (apptWords
-        ? t("rsvpDocTitleProvider", "Book an appointment · {venue}", { venue })
-        : t("rsvpDocTitle", "Book bord · {venue}", { venue }))
-      : resultStatus === "cancelled" && (liveOutcome === "withdrawn" || cancelledFrom === "requested")
-        ? t("rsvpDocTitleWithdrawn", "Request withdrawn · {venue}", { venue })
-        : resultStatus === "cancelled" && liveOutcome === "declined"
-        ? t("rsvpDocTitleDeclined", "Request not confirmed · {venue}", { venue })
-        : resultStatus === "cancelled" || resultStatus === "no_show"
-        // A time, not a reservation, for a salon, a shop or a workshop
-        // (Push 8 review: "Reservation aflyst · Cykelværkstedet Amager").
+    const title = venue
+      ? (!showsBooking
         ? (apptWords
-          ? t("rsvpDocTitleCancelledAppt", "Appointment cancelled · {venue}", { venue })
-          : t("rsvpDocTitleCancelled", "Booking cancelled · {venue}", { venue }))
-        : resultStatus === "requested"
-          ? t("rsvpDocTitleRequest", "Request received · {venue}", { venue })
-          : apptWords
-            ? t("rsvpDocTitleBookedProvider", "Appointment confirmed · {venue}", { venue })
-            : t("rsvpDocTitleBooked", "Table booked · {venue}", { venue });
+          ? t("rsvpDocTitleProvider", "Book an appointment · {venue}", { venue })
+          : t("rsvpDocTitle", "Book a table · {venue}", { venue }))
+        : withdrawn
+          ? t("rsvpDocTitleWithdrawn", "Request withdrawn · {venue}", { venue })
+          : declined
+            ? t("rsvpDocTitleDeclined", "Request not confirmed · {venue}", { venue })
+            : cancelled
+              // A time, not a reservation, for a salon, a shop or a workshop
+              // (Push 8 review: "Reservation aflyst · Cykelværkstedet Amager").
+              ? (apptWords
+                ? t("rsvpDocTitleCancelledAppt", "Appointment cancelled · {venue}", { venue })
+                : t("rsvpDocTitleCancelled", "Booking cancelled · {venue}", { venue }))
+              : resultStatus === "requested"
+                ? t("rsvpDocTitleRequest", "Request received · {venue}", { venue })
+                : apptWords
+                  ? t("rsvpDocTitleBookedProvider", "Appointment confirmed · {venue}", { venue })
+                  : t("rsvpDocTitleBooked", "Table booked · {venue}", { venue }))
+      : (!showsBooking
+        ? (apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table"))
+        : withdrawn
+          ? t("rsvpWithdrawnTitle", "Request withdrawn")
+          : declined
+            ? t("rsvpDeclinedTitle", "We couldn't confirm your request")
+            : cancelled
+              ? (apptWords
+                ? t("rsvpCancelledTitleAppt", "Appointment cancelled")
+                : t("rsvpCancelledTitle", "Reservation cancelled"))
+              : resultStatus === "requested"
+                ? t("rsvpRequestTitle", "Request received")
+                : apptWords
+                  ? t("rsvpConfirmedTitleProvider", "Appointment confirmed")
+                  : t("rsvpConfirmedTitle", "Reservation confirmed"));
     document.title = title;
     const setMeta = (prop, val) => {
       let m = document.querySelector(`meta[property="${prop}"]`);
@@ -1210,9 +1428,11 @@ export default function ReservationPublicPage() {
       m.setAttribute("content", val);
     };
     setMeta("og:title", title);
-    setMeta("og:description", apptWords
-      ? t("rsvpOgDescProvider", "Book an appointment at {venue}.", { venue: page.business_name })
-      : t("rsvpOgDesc", "Reservér bord hos {venue}.", { venue: page.business_name }));
+    setMeta("og:description", !venue
+      ? title
+      : apptWords
+        ? t("rsvpOgDescProvider", "Book an appointment at {venue}.", { venue })
+        : t("rsvpOgDesc", "Reserve a table at {venue}.", { venue }));
     try { setMeta("og:url", window.location.href); } catch { /* noop */ }
     return () => { document.title = prev; };
   }, [page, t, result, resultStatus, linkState, cancelledFrom, liveOutcome, isProvider, apptWords]);
@@ -1838,7 +2058,9 @@ export default function ReservationPublicPage() {
   // ── Renders ───────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className={`${rootMinH} bg-white dark:bg-gray-950 px-4 py-12`}>
+      // Keyed: React must not reuse this centred node for the loaded page's
+      // wrapper (on a desktop that reuse moved it ~290px, a layout shift).
+      <div key="loading" className={`${rootMinH} bg-white dark:bg-gray-950 px-4 py-12`}>
         <div className="max-w-md mx-auto space-y-4">
           <div className="animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800 h-8 w-2/3" />
           <div className="animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800 h-32" />
@@ -2219,7 +2441,12 @@ export default function ReservationPublicPage() {
               <div className="flex items-center gap-3">
                 <VenueBadge logoUrl={page.logo_url} name={page.business_name} size="sm" />
                 <p className="min-w-0 flex-1 text-[17px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 truncate">
-                  {page.business_name}
+                  {/* A nameless venue: the same words the calendar file uses,
+                      so the receipt and the calendar agree. */}
+                  {page.business_name ||
+                    (apptWords
+                      ? t("rsvpIcsSummaryNoVenueProvider", "Appointment")
+                      : t("rsvpIcsSummaryNoVenue", "Table reservation"))}
                 </p>
                 {/* A cancelled / withdrawn / declined receipt must not look like a
                     live booking at a glance — it's stamped, and the rows dim. */}
@@ -2413,6 +2640,27 @@ export default function ReservationPublicPage() {
   );
 
   // ── Main wizard ────────────────────────────────────────────────────
+  // One wrapper element at every width; only its classes change. Below
+  // 1024px (and in a frame, and in the embed) it is `display: contents`, so
+  // the card lays out exactly as before; from 1024px it is a two-column grid
+  // with the venue column on the left. The card keeps its child slot either
+  // way, so it is never remounted when a window or an iPad split view
+  // crosses the breakpoint (DateStrip refs, focus and step state survive),
+  // and there is exactly one h1 at any width.
+  const venueHeader = (layout) => (
+    <VenueHeader
+      page={page}
+      t={t}
+      lang={lang}
+      setLang={setLang}
+      apptWords={apptWords}
+      step={step}
+      layout={layout}
+      isEmbed={isEmbed}
+      todayIso={today}
+      paused={paused}
+    />
+  );
   return (
     <div
       className={`${rootMinH} bg-white dark:bg-gray-950 ${
@@ -2422,6 +2670,8 @@ export default function ReservationPublicPage() {
         isEmbed ? "" : (pausedStep1 ? "pb-12" : "pb-32") + " sm:pt-10 sm:pb-12 sm:bg-gray-50 sm:dark:bg-gray-950"
       }`}
     >
+      <div className={wide ? "grid grid-cols-[minmax(0,1fr)_28rem] gap-12 max-w-5xl mx-auto px-8 items-start" : "contents"}>
+      {wide && <aside className="sticky top-10 self-start pt-8">{venueHeader("column")}</aside>}
       <div
         className={
           "max-w-md mx-auto px-4 sm:px-6 pt-5 sm:pt-8 space-y-5 " +
@@ -2432,101 +2682,9 @@ export default function ReservationPublicPage() {
       >
         {/* ── Venue identity (brand logo or typographic monogram) ──
             Identity tile + eyebrow + venue name H1 + location row with a
-            quiet right-aligned tappable phone. One trust line underneath. */}
-        <header className="space-y-3">
-          <div className="flex items-start gap-3">
-            {/* Identity tile — the owner's uploaded brand logo when they have
-                one, else a typographic monogram derived from the name. */}
-            <VenueBadge logoUrl={page.logo_url} name={page.business_name} />
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                {apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
-              </p>
-              <h1
-                className={
-                  "font-semibold tracking-tight text-gray-900 dark:text-gray-100 leading-[1.1] line-clamp-2 " +
-                  (step === 1 ? "text-[22px]" : "text-lg")
-                }
-              >
-                {page.business_name}
-              </h1>
-            </div>
-            {/* The page adopts the venue's own language, which is right for
-                the guests who live nearby and wrong for everyone else. A
-                tourist booking a Copenhagen table had no way out of Danish:
-                the app's language control lives behind the login, and this
-                page carries none. Two words, no flags — a flag is a country,
-                not a language. Choosing here also clears the auto-pick, so
-                the choice survives through to the confirmation. */}
-            <LangPill lang={lang} setLang={setLang} />
-          </div>
-
-          {/* Where it is and how to reach it — one quiet line of two links.
-              As two text rows each 44pt touch target left a gap between the
-              address and the number; as bordered pills they were the loudest
-              thing in the header. Here they keep the 44pt target (global
-              touch rule) but read as the light detail they are: the address
-              opens the map, the number dials. A long address wraps the number
-              under it. Step 1 only — on the details step the form starts high. */}
-          {step === 1 && (page.city || page.address || telHref(page.phone)) && (
-            <div className="flex flex-wrap items-center gap-x-4 text-[13px] text-gray-500 dark:text-gray-400">
-              {(page.address || page.city) && (() => {
-                const where = page.address || page.city;
-                const map = mapsHref(page.address, page.city);
-                const inner = (
-                  <>
-                    <MapPin size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
-                    <span className="truncate">{where}</span>
-                  </>
-                );
-                // min-h-8! (32pt): the global 44pt touch rule sits outside
-                // Tailwind's layers, so only the important form beats it. With
-                // a long address the number wraps under it, and two 44pt rows
-                // left a loose gap.
-                const cls = "inline-flex items-center gap-1.5 max-w-full min-w-0 min-h-8! rounded-md " + FOCUS;
-                return map ? (
-                  <a
-                    href={map}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cls + " hover:text-gray-900 dark:hover:text-gray-100 transition-colors duration-200"}
-                  >
-                    {inner}
-                  </a>
-                ) : (
-                  <span className={cls}>{inner}</span>
-                );
-              })()}
-              {/* Owner's contact number — tappable "call us" for big groups or
-                  questions. tel: built from digits via encodeURIComponent. */}
-              {telHref(page.phone) && (
-                <a
-                  href={telHref(page.phone)}
-                  className={"inline-flex items-center gap-1.5 min-h-8! rounded-md hover:text-gray-900 dark:hover:text-gray-100 transition-colors duration-200 " + FOCUS}
-                >
-                  <Phone size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
-                  <span className="tabular-nums whitespace-nowrap">{page.phone}</span>
-                </a>
-              )}
-            </div>
-          )}
-
-          {/* The two objections a stranger has before booking — "do I need an
-              account?" and "am I locked in?" — answered before they scroll.
-              As plain grey body text it read as legalese and was skipped; on a
-              quiet strip with a green check it reads as reassurance. The strip
-              itself is neutral: the green is spent on the one main action. */}
-          {/* Not while online booking is paused: it advertises a booking
-              that isn't possible right now. */}
-          {step === 1 && !paused && (
-            <div className="flex items-center gap-2 rounded-xl bg-gray-50 dark:bg-white/5 px-3.5 py-2">
-              <Check className="w-4 h-4 shrink-0 text-bb-green" aria-hidden />
-              <p className="text-[13px] font-medium leading-snug text-gray-700 dark:text-gray-300">
-                {t("rsvpTrustLine", "No account needed · Free cancellation")}
-              </p>
-            </div>
-          )}
-        </header>
+            quiet tappable phone and the opening hours. One trust line
+            underneath. On a wide screen it lives in the column instead. */}
+        {!wide && venueHeader("card")}
 
         {/* No steps to show while paused: there is no flow. */}
         {!pausedStep1 && <StepDots step={step} t={t} apptWords={apptWords} />}
@@ -3410,13 +3568,18 @@ export default function ReservationPublicPage() {
                           {t("rsvpXAllergies", "Allergies or diet")}
                         </p>
                         <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mt-0.5">
-                          {isProvider
-                            ? t("rsvpAllergySharedProvider", "Shared only with {venue}, so they can take care of you.", {
-                                venue: page.business_name,
-                              })
-                            : t("rsvpAllergyShared", "Shared only with {venue}, so the kitchen can plan.", {
-                                venue: page.business_name,
-                              })}
+                          {/* A venue with no name reads "the venue" — never "null". */}
+                          {!page.business_name
+                            ? (isProvider
+                              ? t("rsvpAllergySharedProviderUnnamed", "Shared only with the venue, so they can take care of you.")
+                              : t("rsvpAllergySharedUnnamed", "Shared only with the venue, so the kitchen can plan."))
+                            : isProvider
+                              ? t("rsvpAllergySharedProvider", "Shared only with {venue}, so they can take care of you.", {
+                                  venue: page.business_name,
+                                })
+                              : t("rsvpAllergyShared", "Shared only with {venue}, so the kitchen can plan.", {
+                                  venue: page.business_name,
+                                })}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
@@ -3586,17 +3749,29 @@ export default function ReservationPublicPage() {
                 "only for this reservation" stopped being true the moment it
                 was. The venue is the data controller; the policy explains. */}
             <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-              {apptWords
-                ? t(
-                  "rsvpPrivacyVenueAppt",
-                  "Your details go to {venue} for this appointment — and for news only if you switch it on.",
-                  { venue: page.business_name },
-                )
-                : t(
-                  "rsvpPrivacyVenue",
-                  "Your details go to {venue} for this booking — and for news only if you switch it on.",
-                  { venue: page.business_name },
-                )}{" "}
+              {/* The data controller by name — or "the venue" when it has
+                  none, never "null". */}
+              {!page.business_name
+                ? (apptWords
+                  ? t(
+                    "rsvpPrivacyVenueApptUnnamed",
+                    "Your details go to the venue for this appointment — and for news only if you switch it on.",
+                  )
+                  : t(
+                    "rsvpPrivacyVenueUnnamed",
+                    "Your details go to the venue for this booking — and for news only if you switch it on.",
+                  ))
+                : apptWords
+                  ? t(
+                    "rsvpPrivacyVenueAppt",
+                    "Your details go to {venue} for this appointment — and for news only if you switch it on.",
+                    { venue: page.business_name },
+                  )
+                  : t(
+                    "rsvpPrivacyVenue",
+                    "Your details go to {venue} for this booking — and for news only if you switch it on.",
+                    { venue: page.business_name },
+                  )}{" "}
               <a
                 href="/privacy"
                 target="_blank"
@@ -3734,6 +3909,7 @@ export default function ReservationPublicPage() {
           </div>
         </div>
         )}
+      </div>
       </div>
     </div>
   );
