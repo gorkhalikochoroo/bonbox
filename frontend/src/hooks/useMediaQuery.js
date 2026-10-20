@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 // Does a CSS media query match right now? Subscribes to the query's own
 // change event, so the answer follows a window or an iPad split view that
@@ -7,11 +7,18 @@ import { useCallback, useSyncExternalStore } from "react";
 //
 // Without matchMedia (jsdom, a very old browser) the answer is false, as it
 // is on the server.
+//
+// One MediaQueryList per query (useMemo): getSnapshot runs on every render
+// of the page — every keystroke in the guest form — and reads its .matches
+// instead of building and evaluating a new list each time.
 export function useMediaQuery(query) {
+  const mql = useMemo(
+    () => (typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia(query) : null),
+    [query],
+  );
   const subscribe = useCallback(
     (onChange) => {
-      if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
-      const mql = window.matchMedia(query);
+      if (!mql) return () => {};
       if (typeof mql.addEventListener === "function") {
         mql.addEventListener("change", onChange);
         return () => mql.removeEventListener("change", onChange);
@@ -20,9 +27,8 @@ export function useMediaQuery(query) {
       mql.addListener?.(onChange);
       return () => mql.removeListener?.(onChange);
     },
-    [query],
+    [mql],
   );
-  const getSnapshot = () =>
-    typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;
+  const getSnapshot = () => !!mql && !!mql.matches;
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
