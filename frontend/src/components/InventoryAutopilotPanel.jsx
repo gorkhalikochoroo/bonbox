@@ -40,7 +40,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
-import { Button, Card, UpgradeNudge, Icon } from "./ui";
+import { Button, Card, UpgradeNudge, Icon, PHONE_EMPTY_LINE } from "./ui";
 
 
 // ─── Urgency styling — three tiers ────────────────────────────────────
@@ -599,7 +599,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
           </div>
 
           {visibleSuppliers.length === 0 ? (
-            <div className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+            <div className={"px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400 " + PHONE_EMPTY_LINE}>
               {t(
                 "inventoryAutopilotEmpty",
                 "Your stock looks healthy — BonBox flags items before they run out.",
@@ -636,9 +636,10 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
           </div>
         </>
       ) : (
-        <div className="px-4 py-8 text-center">
-          <Icon name="Package" size={36} className="mx-auto text-gray-400 mb-3" />
-          <p className="text-sm text-gray-600 dark:text-gray-300">
+        // Phone: one line, icon inline; the card header's Refresh is the action.
+        <div className={"px-4 py-8 text-center " + PHONE_EMPTY_LINE}>
+          <Icon name="Package" size={36} className="mx-auto text-gray-400 mb-3 max-sm:shrink-0 max-sm:mx-0 max-sm:mb-0 max-sm:w-4 max-sm:h-4" />
+          <p className="text-sm text-gray-600 dark:text-gray-300 max-sm:text-[13px]">
             {t("inventoryAutopilotEmptyState", "Refresh to see what to reorder.")}
           </p>
         </div>

@@ -35,6 +35,7 @@ import { errText } from "../utils/errText";
 import { INVENTORY_TEMPLATES, categoryLabel } from "../config/inventoryTemplates";
 import {
   Button, PageHeader, StatCard, SectionBanner, TabPills, Icon, Amount, LoadFailed,
+  PHONE_STRIP,
 } from "../components/ui";
 import { SkeletonCard } from "../components/BonBoxPolishKit";
 import { saveFile } from "../utils/download";
@@ -645,9 +646,12 @@ export default function InventoryPage() {
   })[(user?.business_type || "").toLowerCase()] || "Lager";
 
   return (
-    <div className="p-4 sm:p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6 max-sm:space-y-4">
       <FadeIn>
+        {/* Phone: 16px between cards. The header's own margin collapses
+            through FadeIn, so it is set to the same 16. */}
         <PageHeader
+          className="max-sm:mb-4"
           title={heroTitle}
           actions={
             <>
@@ -1002,8 +1006,13 @@ export default function InventoryPage() {
               body={t("invStockStale", "These numbers are from the last check that worked.")}
             />
           )}
-        <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {/* Phone: one strip card, 3 + 2 cells (6-col grid, spans 2/2/2 then
+            3/3); the cells stay buttons that open their panel. */}
+        <div className={"grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-5 gap-3 max-sm:grid-cols-6 " + PHONE_STRIP}>
           <StatCard
+            strip
+            className="max-sm:col-span-2"
+            shortLabel={t("invKpiItemsShort")}
             label={t("totalItems")}
             value={items.length}
             onClick={() => setExpandedStat(expandedStat === "total" ? null : "total")}
@@ -1012,6 +1021,9 @@ export default function InventoryPage() {
             ariaControls="inventory-stat-panel"
           />
           <StatCard
+            strip
+            className="max-sm:col-span-2"
+            shortLabel={t("invKpiLowShort")}
             label={t("lowStock")}
             // Its own feed, its own third state: "—" when we could not ask.
             // A 0 here is the tile version of "all well stocked", and this
@@ -1026,6 +1038,9 @@ export default function InventoryPage() {
             ariaControls="inventory-stat-panel"
           />
           <StatCard
+            strip
+            className="max-sm:col-span-2"
+            shortLabel={t("invKpiFreshShort")}
             label={t("freshItems")}
             value={perishableCount}
             onClick={() => setExpandedStat(expandedStat === "fresh" ? null : "fresh")}
@@ -1034,6 +1049,8 @@ export default function InventoryPage() {
             ariaControls="inventory-stat-panel"
           />
           <StatCard
+            strip
+            className="max-sm:col-span-3"
             label={t("categories")}
             value={categoriesQ.failed && categories.length === 0 ? "—" : categories.length}
             onClick={() => setExpandedStat(expandedStat === "categories" ? null : "categories")}
@@ -1042,6 +1059,8 @@ export default function InventoryPage() {
             ariaControls="inventory-stat-panel"
           />
           <StatCard
+            strip
+            className="max-sm:col-span-3"
             label={t("priced")}
             value={`${stats.itemsWithMargin}/${items.length}`}
             // Warn accent when 5+ items are still un-priced — owner
@@ -1439,7 +1458,7 @@ export default function InventoryPage() {
       )}
 
       {/* Add item form */}
-      <div className="bg-white dark:bg-[rgb(var(--surface-card))] p-6 rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))]">
+      <div className="bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))]">
         <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{t("addItem")}</h2>
         <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 [&>*]:min-w-0">
           <input type="text" placeholder={t("itemName")} value={form.name}
