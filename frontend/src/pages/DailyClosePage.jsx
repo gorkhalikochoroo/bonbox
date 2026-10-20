@@ -1820,6 +1820,59 @@ function CardMoneyField({ value, onChange, onBlur, locale, ...rest }) {
   );
 }
 
+/* ─── A close step's amount lines on a phone (20 Oct 2026) ──────────────────
+   "why do we have these much gap boxes and long in mob view": below sm every
+   amount was its label on a line of its own over a full-width 50 px box,
+   16 px from the next — five payment methods took 434 px of the screen. On a
+   phone it is now a receipt line: the name on the left, a 40 px box on the
+   right, and one step's lines in one card with hairlines between them.
+   Every class added here is max-sm:, or sm: where it puts back the 16 px the
+   step's own space-y-4 gave the lines before they were grouped — so from
+   640 px up the page renders exactly as before (SCAN_PHONE_BOX_WRAP keeps the
+   wrapper's own flex-1 min-w-0). The box keeps its 16 px text: iOS
+   Safari zooms into a focused field below 16 px. Ids, labels, placeholders,
+   inputMode and every handler stay the caller's: this is layout only.
+   On a phone MoneyField's wrapper is display:contents, so its "can't read
+   that amount" line wraps to a full-width line under the row instead of a
+   three-line column under a 9rem box. */
+const PHONE_GROUP = "sm:space-y-4 max-sm:rounded-xl max-sm:border max-sm:border-gray-200 max-sm:dark:border-gray-700 max-sm:divide-y max-sm:divide-gray-100 max-sm:dark:divide-gray-700";
+const PHONE_ROW = "max-sm:flex max-sm:flex-wrap max-sm:items-center max-sm:gap-x-3 max-sm:px-3 max-sm:py-1.5 max-sm:[&_[role=alert]]:basis-full max-sm:[&_[role=alert]]:text-right";
+// The icon stays beside a name that wraps to two lines ("Byttepenge (bliver
+// i skuffen)"), and one long word (a custom category) breaks rather than
+// pushing the box out of the row: anywhere, not break-word, because a flex
+// line's text is sized by its longest word. (Not hyphens-auto: it split
+// "func-tions" in names that wrap fine at their spaces.) The icon never
+// shrinks for it.
+const PHONE_LABEL = "max-sm:flex-1 max-sm:min-w-0 max-sm:flex max-sm:items-center max-sm:wrap-anywhere max-sm:[&>svg]:shrink-0";
+const PHONE_BOX_WRAP = "max-sm:contents";
+const PHONE_BOX = "max-sm:w-36 max-sm:shrink-0 max-sm:h-10 max-sm:py-0 max-sm:px-3";
+// A box whose hint is a sentence ("Hvor mange ansatte i aften?"): in a 9rem
+// box it ends in "…" at label size rather than being cut off mid-word.
+const PHONE_BOX_LONG_HINT = "max-sm:text-ellipsis max-sm:placeholder:text-[13px]";
+// The scan card's lines (already rows from sm up): the same box on a phone.
+// The name is a small grid there — the ✓/— and the icon, then the name, which
+// may wrap rather than be cut to "Mo…" beside a 9rem box, and its "aflæst" /
+// "mangler" badge on a second line under the name (children 4+). As a
+// wrapping flex line the badge and the name each fell to a line of their own.
+const SCAN_PHONE_ROW = "max-sm:flex-row max-sm:flex-wrap max-sm:items-center max-sm:gap-x-3 max-sm:gap-y-0 max-sm:[&_[role=alert]]:basis-full max-sm:[&_[role=alert]]:text-right";
+const SCAN_PHONE_NAME = "max-sm:flex-1 max-sm:grid max-sm:grid-cols-[auto_auto_minmax(0,1fr)] max-sm:gap-x-1.5 max-sm:gap-y-0.5 max-sm:text-[13px] max-sm:[&>*:nth-child(n+4)]:col-start-3 max-sm:[&>*:nth-child(n+4)]:justify-self-start";
+const SCAN_PHONE_NAME_TEXT = "max-sm:whitespace-normal max-sm:break-words";
+const SCAN_PHONE_BOX_WRAP = "flex-1 min-w-0 max-sm:contents";
+
+/** One amount line of a close step: label (icon + name) and its box. From
+ *  sm up the label sits over the full-width box as it always has; below sm
+ *  they share one row (see PHONE_ROW). The box is the caller's child. */
+function CompactAmountRow({ htmlFor, icon, label, labelClassName, className = "", children }) {
+  return (
+    <div className={className ? `${className} ${PHONE_ROW}` : PHONE_ROW}>
+      <label htmlFor={htmlFor} className={`${labelClassName} ${PHONE_LABEL}`}>
+        {icon && <><Icon name={icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> </>}{label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
 /** A close row's day key, the way the form keys what it files: "date|branch". */
 const closeRowKey = (dc) => `${String(dc?.date || "").slice(0, 10)}|${dc?.branch_id || ""}`;
 /** A draft body as the server stores its total (the backend's override rule). */
@@ -8028,12 +8081,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 const val = scanResult.revenue?.[c.key];
                 const isEmpty = !val && !scanRevComplete && cardIsRead && !cardOwnTill;
                 return (
-                  <div key={c.key} className="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3">
+                  <div key={c.key} className={`flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3 ${SCAN_PHONE_ROW}`}>
                     {/* Icons and badges keep their size; the label gives way. In the
                         fixed-width column a "missing" row squeezed its icons to 0px. */}
-                    <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
+                    <span className={`text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300 ${SCAN_PHONE_NAME}`}>
                       {val ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-500 dark:text-gray-400 shrink-0">—</span>}
-                      <Icon name={c.icon} size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{catLabel(t, c)}</span>
+                      <Icon name={c.icon} size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className={`min-w-0 truncate ${SCAN_PHONE_NAME_TEXT}`}>{catLabel(t, c)}</span>
                       {readOnCard(`revenue.${c.key}`, val) && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                       {isEmpty && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
@@ -8051,8 +8104,9 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       locale={mLocale}
                       // The field IS the flex child of the row above, so the
                       // wrapper has to carry the growth or the box collapses.
-                      wrapperClassName="flex-1 min-w-0"
-                      className={`${inputClass} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
+                      // (On a phone it steps aside: the box sits in the row itself.)
+                      wrapperClassName={SCAN_PHONE_BOX_WRAP}
+                      className={`${inputClass} ${PHONE_BOX} ${PHONE_BOX_LONG_HINT} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
                       value={asBox(val)}
                       placeholder={isEmpty ? t("enterActualAmount", "enter actual amount") : ""}
                       onChange={e => act(typeIntoForm, `revenue.${c.key}`, e.target.value)} />
@@ -8089,8 +8143,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                   <CardMoneyField
                     id="scan-total"
                     locale={mLocale}
-                    wrapperClassName="w-40 shrink-0"
-                    className={`${inputClass} font-semibold`}
+                    wrapperClassName="w-40 shrink-0 max-sm:w-36"
+                    className={`${inputClass} font-semibold max-sm:h-10 max-sm:py-0 max-sm:px-3`}
                     value={scanResult.revenue_total_text ?? asBox(cardSaveTotal > 0 ? cardSaveTotal : scanResult.revenue_total)}
                     // The printed figure is kept once the owner types over it
                     // (bon_total): the card says how far the saved total is
@@ -8208,12 +8262,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
               {defaultPayMethods.map(m => {
                 const val = scanResult.payments?.[m.key];
                 return (
-                  <div key={m.key} className="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3">
+                  <div key={m.key} className={`flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3 ${SCAN_PHONE_ROW}`}>
                     {/* Icons and badges keep their size; the label gives way. In the
                         fixed-width column a "missing" row squeezed its icons to 0px. */}
-                    <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
+                    <span className={`text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300 ${SCAN_PHONE_NAME}`}>
                       {val ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-500 dark:text-gray-400 shrink-0">—</span>}
-                      <Icon name={m.icon} size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{catLabel(t, m)}</span>
+                      <Icon name={m.icon} size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className={`min-w-0 truncate ${SCAN_PHONE_NAME_TEXT}`}>{catLabel(t, m)}</span>
                       {readOnCard(`payments.${m.key}`, val) && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                     </span>
                     {/* Raw string kept, same reason as the revenue field above. */}
@@ -8222,8 +8276,8 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                       locale={mLocale}
                       // The field IS the flex child of the row above, so the
                       // wrapper has to carry the growth or the box collapses.
-                      wrapperClassName="flex-1 min-w-0"
-                      className={inputClass}
+                      wrapperClassName={SCAN_PHONE_BOX_WRAP}
+                      className={`${inputClass} ${PHONE_BOX}`}
                       value={asBox(val)}
                       placeholder=""
                       onChange={e => act(typeIntoForm, `payments.${m.key}`, e.target.value)} />
@@ -8282,19 +8336,19 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             {/* Tips — only for types that have tips */}
             {config.hasTips && (
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-              <div className="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3">
+              <div className={`flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:gap-3 ${SCAN_PHONE_ROW}`}>
                 {/* Most Z-bons carry no tips line, so an unread one is not
                     "missing" — it is simply not on the receipt. */}
-                <span className="text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300">
+                <span className={`text-sm sm:w-52 sm:shrink-0 flex items-center gap-2 min-w-0 dark:text-gray-300 ${SCAN_PHONE_NAME}`}>
                   {scanResult.tips ? <Icon name="Check" size={14} className="text-emerald-600 shrink-0" /> : <span className="text-gray-500 dark:text-gray-400 shrink-0">—</span>}
-                  <Icon name="Coins" size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className="min-w-0 truncate">{t("tipsLabel", "Tips")}</span>
+                  <Icon name="Coins" size={14} className="shrink-0 text-gray-500 dark:text-gray-400" /> <span className={`min-w-0 truncate ${SCAN_PHONE_NAME_TEXT}`}>{t("tipsLabel", "Tips")}</span>
                   {readOnCard("tips", scanResult.tips) && <span className="shrink-0 text-[11px] font-medium px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">{t("scanBadgeRead", "read")}</span>}
                 </span>
                 {/* Raw string kept, same reason as the revenue field above. */}
                 <CardMoneyField
                   locale={mLocale}
-                  wrapperClassName="flex-1 min-w-0"
-                  className={inputClass}
+                  wrapperClassName={SCAN_PHONE_BOX_WRAP}
+                  className={`${inputClass} ${PHONE_BOX} ${PHONE_BOX_LONG_HINT}`}
                   value={asBox(scanResult.tips)}
                   placeholder={!scanResult.tips ? t("dcNotOnReceipt", "not on the receipt") : ""}
                   onChange={e => act(typeIntoForm, "tips", e.target.value)} />
@@ -8900,10 +8954,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                 {t("dcSplitFirstTime", "We'll suggest a split once you've closed a few days.")}
               </div>
             )}
+            {revCats.length > 0 && (
+            <div className={PHONE_GROUP}>
             {revCats.map(cat => (
-              <div key={cat.key}>
-                <label htmlFor={`dc-rev-${cat.key}`} className={labelClass}><Icon name={cat.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, cat)}</label>
-                <MoneyField id={`dc-rev-${cat.key}`} locale={mLocale} placeholder="0" className={inputClass}
+              <CompactAmountRow key={cat.key} htmlFor={`dc-rev-${cat.key}`} labelClassName={labelClass} icon={cat.icon} label={catLabel(t, cat)}>
+                <MoneyField id={`dc-rev-${cat.key}`} locale={mLocale} placeholder="0" className={`${inputClass} ${PHONE_BOX}`} wrapperClassName={PHONE_BOX_WRAP}
                   value={revAmounts[cat.key] || ""}
                   onChange={e => {
                     boxFillEpochRef.current += 1;
@@ -8911,8 +8966,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     setRevAmounts(next);
                     typeInForm(`revenue.${cat.key}`, e.target.value, { rev: next });
                   }} />
-              </div>
+              </CompactAmountRow>
             ))}
+            </div>
+            )}
             <div className="flex gap-2">
               <input type="text" placeholder={t("addCategory", "Add category...")} className="flex-1 min-w-0 h-11 px-4 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-[13px]"
                 value={customRevName} onChange={e => setCustomRevName(e.target.value)}
@@ -8944,10 +9001,11 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         {/* ─── STEP: Payments ─── */}
         {currentStepId === "payments" && (
           <div className="space-y-4">
+            {payMethods.length > 0 && (
+            <div className={PHONE_GROUP}>
             {payMethods.map(m => (
-              <div key={m.key}>
-                <label htmlFor={`dc-pay-${m.key}`} className={labelClass}><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}</label>
-                <MoneyField id={`dc-pay-${m.key}`} locale={mLocale} placeholder="0" className={inputClass}
+              <CompactAmountRow key={m.key} htmlFor={`dc-pay-${m.key}`} labelClassName={labelClass} icon={m.icon} label={catLabel(t, m)}>
+                <MoneyField id={`dc-pay-${m.key}`} locale={mLocale} placeholder="0" className={`${inputClass} ${PHONE_BOX}`} wrapperClassName={PHONE_BOX_WRAP}
                   value={payAmounts[m.key] || ""}
                   onChange={e => {
                     boxFillEpochRef.current += 1;
@@ -8955,8 +9013,10 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
                     setPayAmounts(next);
                     typeInForm(`payments.${m.key}`, e.target.value, { pay: next });
                   }} />
-              </div>
+              </CompactAmountRow>
             ))}
+            </div>
+            )}
             <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{t("paymentTotal")}</span>
@@ -9030,23 +9090,24 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
             <SectionBanner severity="info" icon="Info">
               {t("dcCashCountIntro", "Count everything in the drawer. We take the float off and compare the rest with today's cash sales.")}
             </SectionBanner>
-            <div>
-              <label htmlFor="cash-counted" className={labelClass}><Icon name="Banknote" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("dcDrawerCounted", "Counted in the drawer")}</label>
+            <div className={PHONE_GROUP}>
+            <CompactAmountRow htmlFor="cash-counted" labelClassName={labelClass} icon="Banknote" label={t("dcDrawerCounted", "Counted in the drawer")}>
               {/* Below the float: the count (and the float beside it) is the
                   red field the lock step points back to — the hint below said
                   so in red while both boxes stayed gray. */}
-              <MoneyField id="cash-counted" locale={mLocale} placeholder={t("countYourDrawer")} className={inputClass}
+              <MoneyField id="cash-counted" locale={mLocale} placeholder={t("countYourDrawer")} className={`${inputClass} ${PHONE_BOX} ${PHONE_BOX_LONG_HINT}`} wrapperClassName={PHONE_BOX_WRAP}
                 value={drawerCount} onChange={e => onDrawerChange(e.target.value)}
                 aria-invalid={cashCountedNegative || isMoneyRejected(drawerCount, mLocale) || undefined}
                 aria-describedby={[isMoneyRejected(drawerCount, mLocale) ? "cash-counted-err" : null, cashCountedNegative ? "dc-drawer-below-float" : null].filter(Boolean).join(" ") || undefined} />
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <label htmlFor="cash-float" className={labelClass}>{t("dcCashFloat", "Float (stays in the drawer)")}</label>
-              <MoneyField id="cash-float" locale={mLocale} placeholder="0" wrapperClassName="w-36 shrink-0"
-                className="w-full h-11 px-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-[16px] tabular-nums"
+            </CompactAmountRow>
+            {/* Already a row at every width; on a phone it joins the count's card. */}
+            <CompactAmountRow className="flex items-center justify-between gap-3" htmlFor="cash-float" labelClassName={labelClass} label={t("dcCashFloat", "Float (stays in the drawer)")}>
+              <MoneyField id="cash-float" locale={mLocale} placeholder="0" wrapperClassName={`w-36 shrink-0 ${PHONE_BOX_WRAP}`}
+                className={`w-full h-11 px-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-[16px] tabular-nums ${PHONE_BOX}`}
                 value={cashFloat} onChange={e => onFloatChange(e.target.value)}
                 aria-invalid={cashCountedNegative || isMoneyRejected(cashFloat, mLocale) || undefined}
                 aria-describedby={[isMoneyRejected(cashFloat, mLocale) ? "cash-float-err" : null, cashCountedNegative ? "dc-drawer-below-float" : null].filter(Boolean).join(" ") || undefined} />
+            </CompactAmountRow>
             </div>
             <div className="rounded-xl bg-gray-50 dark:bg-gray-700/50 px-4 py-3 space-y-1.5 tabular-nums">
               <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300">
@@ -9102,18 +9163,18 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
         {/* ─── STEP: Tips (only for types with tips) ─── */}
         {currentStepId === "tips" && (
           <div className="space-y-4">
-            <div>
-              <label htmlFor="dc-tips-total" className={labelClass}><Icon name="Coins" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("totalTipsLabel", "Total Tips")}</label>
-              <MoneyField id="dc-tips-total" locale={mLocale} placeholder="0" className={inputClass}
+            <div className={PHONE_GROUP}>
+            <CompactAmountRow htmlFor="dc-tips-total" labelClassName={labelClass} icon="Coins" label={t("totalTipsLabel", "Total Tips")}>
+              <MoneyField id="dc-tips-total" locale={mLocale} placeholder="0" className={`${inputClass} ${PHONE_BOX}`} wrapperClassName={PHONE_BOX_WRAP}
                 value={tipsTotal} onChange={e => {
                   setTipsTotal(e.target.value);
                   if (config.hasTips) typeInForm("tips", e.target.value, { tips: e.target.value });
                 }} />
-            </div>
-            <div>
-              <label htmlFor="dc-staff-count" className={labelClass}><Icon name="Users" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("staffCountLabel", "Staff Count")}</label>
-              <input id="dc-staff-count" type="number" inputMode="numeric" placeholder={businessDate !== businessTodayIso(cutoffHour) ? t("dcStaffCountPromptPast", "How many staff that day?") : t("staffCountPrompt")} className={inputClass}
+            </CompactAmountRow>
+            <CompactAmountRow htmlFor="dc-staff-count" labelClassName={labelClass} icon="Users" label={t("staffCountLabel", "Staff Count")}>
+              <input id="dc-staff-count" type="number" inputMode="numeric" placeholder={businessDate !== businessTodayIso(cutoffHour) ? t("dcStaffCountPromptPast", "How many staff that day?") : t("staffCountPrompt")} className={`${inputClass} ${PHONE_BOX} ${PHONE_BOX_LONG_HINT}`}
                 value={staffCount} onChange={e => setStaffCount(e.target.value)} />
+            </CompactAmountRow>
             </div>
             {tipsPP !== null && (
               <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 text-center">
