@@ -5,7 +5,7 @@ import { useAuth } from "../hooks/useAuth";
 import { archetypeIdFor } from "../config/archetypes";
 import { localIso } from "../utils/dateFormat";
 import { formatOwnerMoney } from "../utils/currency";
-import { StatCard, SectionBanner } from "./ui";
+import { StatCard, SectionBanner, PHONE_STRIP } from "./ui";
 
 // Auto-refresh interval for the live KPI tiles. 5s is the sweet spot
 // for a busy shift — fast enough that the owner feels the numbers
@@ -302,8 +302,11 @@ export default function LiveKpisToday({ eventId = null } = {}) {
 
   return (
     <section aria-label={t("liveKpisLabel") || "Live KPIs today"} className="space-y-3">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {/* Phone: one strip card, 2 × 2 hairline cells (StatCard `strip`)
+          instead of four slabs; sm: and up unchanged. */}
+      <div className={"grid grid-cols-2 sm:grid-cols-4 gap-3 " + PHONE_STRIP}>
         <StatCard
+          strip
           label={t("liveRevenueToday") || "Revenue so far"}
           // `moneyFmt` returns the formatted value with its own unit
           // ("15.000 kr.", or the code for a non-DKK account), so we never
@@ -312,6 +315,7 @@ export default function LiveKpisToday({ eventId = null } = {}) {
           helper={isEmpty ? (t("liveNoDataYet") || "No sales yet today") : null}
         />
         <StatCard
+          strip
           label={t("liveOrdersToday") || "Orders"}
           value={countFmt(orders)}
           helper={
@@ -323,6 +327,7 @@ export default function LiveKpisToday({ eventId = null } = {}) {
           }
         />
         <StatCard
+          strip
           // Guests at a café or a bar; customers at a salon, a shop or a
           // workshop (vertical-fit audit, Oct 2026).
           label={["food_service", "bar"].includes(archetypeIdFor(user?.business_type))
@@ -334,6 +339,7 @@ export default function LiveKpisToday({ eventId = null } = {}) {
             : null}
         />
         <StatCard
+          strip
           label={t("liveTopPayment") || "Top payment"}
           value={dominantTender ? moneyFmt(dominantTender.amount) : "—"}
           helper={dominantTender ? dominantTender.label : (t("liveNoPaymentsYet") || "—")}

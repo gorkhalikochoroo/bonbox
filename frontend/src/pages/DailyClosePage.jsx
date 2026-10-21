@@ -7469,8 +7469,12 @@ function CloseForm({ businessProfile = null, currency, t, branchType, branchId, 
   // A day moved to (or another branch picked, or a draft loaded): what Start
   // forfra said about another day is not said here any more.
   useEffect(() => { setStartOverFailed(null); }, [businessDate, branchId]);
+  // Phone: no bottom margin when the banner is the card's last child (the
+  // draft question blocks the scan step under it): mb-4 + the card's 20px
+  // padding left 36px of blank under the yellow box. With a sibling after it
+  // the 16px stays.
   const existingBannerEl = existingBlocks && !conflictHere ? (
-          <div ref={existingBannerBoxRef} className="mb-4">
+          <div ref={existingBannerBoxRef} className="mb-4 max-sm:last:mb-0">
           <SectionBanner
             severity={existingLocked ? "info" : "warn"}
             icon={existingLocked ? "Lock" : "FileText"}

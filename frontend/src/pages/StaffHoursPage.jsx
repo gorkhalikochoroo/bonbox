@@ -14,7 +14,7 @@ import { errText } from "../utils/errText";
 import { useConfirm } from "../hooks/useConfirm";
 import { useAsyncData } from "../hooks/useAsyncData";
 import { FadeIn, TabContent, AnimatedList, AnimatedListItem, AnimatePresence } from "../components/AnimationKit";
-import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner, LoadFailed, Amount, PHONE_ICON40 } from "../components/ui";
+import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner, LoadFailed, Amount, PHONE_ICON40, PHONE_STRIP } from "../components/ui";
 import WagePrivacyNotice from "../components/WagePrivacyNotice";
 import { useDeviceShare } from "../hooks/useDeviceShare";
 import { readViewedPeriod, writeViewedPeriod } from "../utils/viewedPeriod";
@@ -1398,21 +1398,27 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
       )}
       <NarrativeBanner lines={overview.narrative} severity={overview.banner_severity} currencyCode={currency} inProgress={!period.is_complete} needsAnswer={needsAnswer} />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Phone: one strip card, 2 × 2 hairline cells (StatCard `strip`,
+          which takes precedence over `dense` on a phone) — the Home and
+          Lager look; sm: and up unchanged. */}
+      <div className={"grid grid-cols-2 lg:grid-cols-4 gap-3 " + PHONE_STRIP}>
         <StatCard
           dense
+          strip
           label={t("hovTileHours", "Hours")}
           value={formatHours(hours.actual_total, { lang, decimals: 2 })}
           helper={hoursHelper}
         />
         <StatCard
           dense
+          strip
           label={isPayrollCost ? t("hovTileCostTotal", "Total labour cost") : t("hovTileCost", "Labor cost")}
           value={costValue}
           helper={costHelper}
         />
         <StatCard
           dense
+          strip
           label={t("hovTileLaborPct", "Labor %")}
           value={pctValue}
           accent={pctAccent}
@@ -1420,6 +1426,7 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
         />
         <StatCard
           dense
+          strip
           label={t("hovTileLimits", "Overtime & limits")}
           value={limVal}
           accent={limAccent}
