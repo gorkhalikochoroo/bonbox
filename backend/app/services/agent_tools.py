@@ -15,7 +15,8 @@ So no tool returns a phone number or an e-mail address (Push 3, Manoj,
 address or a CPR number (21 Oct 2026). The router also strips every key that
 names a phone number, an e-mail address, a home address or a CPR number (by
 substring — phone, email, telefon, tlf, mobil..., address, adresse,
-personnummer — and "cpr" only as a whole word, so basic_profit stays; a
+personnummer, personnr — "addr" and "cpr" only as a whole word or, for
+cpr, at the end of a one-word key (staffcpr), so basic_profit stays; a
 payment method like "mobilepay" and the keys of payment_split /
 role_breakdown stay too; routers/agent.py, strip_contact_fields) from every
 result before it leaves the server, in case a future tool adds one.

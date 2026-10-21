@@ -656,8 +656,9 @@ def test_no_real_tool_key_is_stripped_by_the_rule():
 # future tool adds, so it never reaches Anthropic (/privacy). Keys with
 # "address", "adresse" or "personnummer" in them are stripped by substring.
 # "cpr" is stripped only as a WHOLE WORD of the key: as a substring it would
-# also hide basic_profit, specific_product and graphic_print — figures the
-# Copilot shows (the F1 class of bug, like the MobilePay one above).
+# also hide keys such as basic_profit, specific_product or graphic_print,
+# which a future tool could return (the F1 class of bug, like the MobilePay
+# one above). No tool returns any key with c-p-r in it today.
 #
 # The model is also told these fields are left out on purpose. Without that,
 # "what's Hari's number?" gets "I don't have a number for Hari", which reads
@@ -681,6 +682,25 @@ PRIVACY_PROMPT_LINE = (
     "- Tool results leave out phone numbers, email addresses and home addresses on purpose "
     "(privacy). If the owner asks for one, say the assistant isn't given contact details and "
     "point them to the Khata or Staff page. Never say it isn't on file.\n"
+)
+
+
+# Review round (21 Oct 2026): one-word CPR keys, short forms of personnummer
+# and "addr" got through. A key that ENDS in cpr (+ a number word) is
+# stripped; "addr" only as a whole word, because as a substring it would hit
+# add_rate / add_revenue ("addrate").
+STRIPPED_JOINED_CPR_AND_SHORT_FORMS = (
+    "staffcpr", "kundecpr", "employeecpr", "medarbejdercpr", "staffcprnr", "staffCPRnr", "staffcpr2",
+    "cprnum", "CPRNUM", "cprid", "cprnumre", "cprnummeret",
+    "personnr", "person_nr", "personNr", "Personnr", "kunde_personnr",
+    "addr", "Addr", "home_addr", "homeAddr", "addr1",
+)
+
+# Must stay: they only contain the letters c-p-r or a-d-d-r. A naive
+# "starts with cpr" rule would hit c_price; "addr" as a substring add_rate.
+KEPT_LOOKALIKES_OF_THE_JOINED_RULES = (
+    "basicprofit", "specificproduct", "graphicprint", "basic_price", "c_price", "cPrice",
+    "cost_per_unit", "corp", "cpu", "add_rate", "add_revenue", "had_drinks",
 )
 
 
@@ -720,6 +740,21 @@ def test_every_address_and_cpr_spelling_is_stripped_at_any_depth(key):
 
 @pytest.mark.parametrize("key", KEPT_NOT_ADDRESS_OR_CPR)
 def test_names_that_only_look_like_cpr_or_address_are_kept(key):
+    raw = {key: 1250.0, "data": {"rows": [{key: "Odense"}], "nested": {key: {"total": 2}}}}
+    assert agent_router.strip_contact_fields(raw) == raw
+
+
+@pytest.mark.parametrize("key", STRIPPED_JOINED_CPR_AND_SHORT_FORMS)
+def test_one_word_cpr_keys_and_short_forms_are_stripped_at_any_depth(key):
+    assert agent_router.strip_contact_fields({key: CPR_NUMBER, "name": "A"}) == {"name": "A"}
+    raw = {"data": {"rows": [{"name": "A", key: CPR_NUMBER}],
+                    "deeper": [{"person": {key: HOME_ADDRESS, "role": "chef"}}]}}
+    assert agent_router.strip_contact_fields(raw) == {
+        "data": {"rows": [{"name": "A"}], "deeper": [{"person": {"role": "chef"}}]}}
+
+
+@pytest.mark.parametrize("key", KEPT_LOOKALIKES_OF_THE_JOINED_RULES)
+def test_lookalikes_of_the_one_word_rules_are_kept(key):
     raw = {key: 1250.0, "data": {"rows": [{key: "Odense"}], "nested": {key: {"total": 2}}}}
     assert agent_router.strip_contact_fields(raw) == raw
 

@@ -82,7 +82,8 @@ NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 # barrier: every tool result passes through strip_contact_fields() before it
 # is streamed to the page or sent back to the model as a tool_result, so a
 # future tool that adds a contact field cannot leak it. The system prompt
-# tells the model these fields are left out on purpose, so "what's Hari's
+# tells the model that phone numbers, e-mail addresses and home addresses
+# are left out on purpose (it does not name CPR numbers), so "what's Hari's
 # number?" is not answered as if no number were on file.
 #
 # Keys are matched by SUBSTRING (push-3 review round 3, G2) on the key with
@@ -103,11 +104,16 @@ NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 # mobilnummer, mobilepay_no, customer_mobilepay: a MobilePay number IS a
 # phone number) unless it is exempt under (ii).
 # 21 Oct 2026 (PR #234 port): also "address" (address, home_address,
-# homeAddress), "adresse" (adresse, hjemmeadresse) and "personnummer" by
-# substring, and "cpr" only as a WHOLE WORD (cpr, CPR, cpr_nr, cprNr,
-# CPR-nummer, cpr_number, staff_cpr). Never "cpr" as a substring: that would
-# strip basic_profit, specific_product and graphic_print, figures the
-# Copilot shows (the same class of bug as F1 below).
+# homeAddress), "adresse" (adresse, hjemmeadresse), "personnummer" and
+# "personnr" (person_nr, personNr) by substring; "addr" (addr, home_addr,
+# addr1) and "cpr" (cpr, CPR, cpr_nr, cprNr, CPR-nummer, cpr_number,
+# staff_cpr) as a WHOLE WORD; and a one-word key that ENDS in cpr, or in
+# cpr + no/nr/num/number/nummer/numre/id (staffcpr, kundecpr, cprnum,
+# cprid, cprnummeret, medarbejdercprnummer). Never "cpr" or "addr" as a
+# plain substring, and never "starts with cpr": that would strip keys such
+# as basic_profit, specific_product, graphic_print, c_price or add_rate,
+# which a future tool could return (the same class of bug as F1 below).
+# _PHONE_WORDS holds the whole-word addr and cpr spellings too.
 # Exactly two exemptions (push-3 review F1: a substring rule on "mobile"
 # dropped "mobilepay" from query_revenue's payment_split, so MobilePay revenue
 # vanished from the "By payment" line, the RevenueCard and the tool_result
@@ -121,12 +127,17 @@ NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 #        (total, count, amount, revenue, sum, share, pct, percent, fee, fees).
 _CONTACT_SUBSTRINGS = (
     "phone", "email", "telefon", "tlf", "mail", "epost", "msisdn", "whatsapp",
-    "address", "adresse", "personnummer",
+    "address", "adresse", "personnummer", "personnr",
 )
 _PHONE_WORDS = re.compile(
     r"_(?:tel(?:_?(?:no|nr))?|gsm(?:_?(?:no|nr))?|cell_?(?:number|no|nr)|mob_?(?:no|nr)"
-    r"|fax|sms_?(?:number|no|nr)|cpr(?:_?(?:no|nr|number|nummer))?)_"
+    r"|fax|sms_?(?:number|no|nr)|cpr(?:_?(?:no|nr|number|nummer))?|addr)_"
 )
+# CPR written as one word with something joined on: the key with case and
+# separators removed ENDS in cpr, or in cpr + a number word (staffcpr,
+# kundecprnr, cprnum, cprnummeret). basicprofit, specificproduct,
+# graphicprint and cprice (c_price) do not.
+_CPR_JOINED = re.compile(r"cpr(?:no|nr|num|number|nummer|numre|nummeret|id)?\d*$")
 _MOBILEPAY_FIGURE = re.compile(
     r"mobilepay(?:ments?)?|mobilepay(?:total|count|amount|revenue|sum|share|pct|percent|fees?)"
 )
@@ -154,15 +165,20 @@ def _is_contact_key(key) -> bool:
     c = _normalized_key(key)
     if "mobil" in c:
         return not _MOBILEPAY_FIGURE.fullmatch(c)
-    return any(p in c for p in _CONTACT_SUBSTRINGS) or bool(_PHONE_WORDS.search(_key_words(key)))
+    return (
+        any(p in c for p in _CONTACT_SUBSTRINGS)
+        or bool(_PHONE_WORDS.search(_key_words(key)))
+        or bool(_CPR_JOINED.search(c))
+    )
 
 
 def strip_contact_fields(value, _keep_keys: bool = False):
     """A copy of `value` without any dict key that names a phone number, an
     e-mail address, a home address or a CPR number (phone / email / mail /
-    e-post / telefon / tlf / mobil... / address / adresse / personnummer in
-    the key, any case, any separators; tel / gsm / fax / cpr ... as a whole
-    word, so basic_profit and specific_product stay), at any depth. Names,
+    e-post / telefon / tlf / mobil... / address / adresse / personnummer /
+    personnr in the key, any case, any separators; tel / gsm / fax / addr /
+    cpr ... as a whole word, and a key that ends in cpr (+ nr, number ...),
+    so basic_profit and specific_product stay), at any depth. Names,
     figures, shifts and the payment method
     (mobilepay, mobile_pay, mobilepay_total ...) are kept, and so are the
     keys of payment_split and role_breakdown when their value is a figure."""
