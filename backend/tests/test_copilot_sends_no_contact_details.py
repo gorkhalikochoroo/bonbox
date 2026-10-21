@@ -681,7 +681,7 @@ KEPT_NOT_ADDRESS_OR_CPR = (
 PRIVACY_PROMPT_LINE = (
     "- Tool results leave out phone numbers, email addresses and home addresses on purpose "
     "(privacy). If the owner asks for one, say the assistant isn't given contact details and "
-    "point them to the Khata or Staff page. Never say it isn't on file.\n"
+    "point them to the Team, Reservations or Customers page. Never say it isn't on file.\n"
 )
 
 

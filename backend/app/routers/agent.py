@@ -1045,7 +1045,7 @@ def _claude_chat(req: ChatRequest, db, user):
         "- NEVER guess or make up numbers.\n"
         "- Tool results leave out phone numbers, email addresses and home addresses on purpose "
         "(privacy). If the owner asks for one, say the assistant isn't given contact details and "
-        "point them to the Khata or Staff page. Never say it isn't on file.\n\n"
+        "point them to the Team, Reservations or Customers page. Never say it isn't on file.\n\n"
 
         "## Response style\n"
         "- If something looks good, celebrate it briefly.\n"
