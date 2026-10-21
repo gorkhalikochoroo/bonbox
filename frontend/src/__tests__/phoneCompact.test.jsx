@@ -11,7 +11,13 @@
  *   2. Nothing was removed: the controls, ids, aria, handlers and texts of
  *      every touched file are still there (counts pinned against origin/main
  *      d6a27b72, comments ignored), and the merged/hidden texts stay in the DOM.
- *   3. The 6 new phone labels exist in English AND Danish, as real keys.
+ *   3. The 6 new phone labels exist in English AND Danish, as real keys
+ *      (and in Turkish, the third offered language).
+ *   4. The review fix round (21 Oct 2026, later): strip text >= 13px, the
+ *      tappable strip cells keep their chevron, the week comparison is
+ *      visible, Timer + Kasserapport KPIs are strips, the Lager stock list is
+ *      one grouped list, "+ Open shift" is one line, and the rest of the
+ *      critics' cheap minors — each pinned as phone-only.
  */
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -22,6 +28,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { en } from "../i18n/en";
 import { da } from "../i18n/da";
+import { tr } from "../i18n/tr";
 
 vi.mock("../hooks/useLanguage", async () => {
   const { en: EN } = await import("../i18n/en");
@@ -39,6 +46,7 @@ const PageHeader = (await import("../components/ui/PageHeader")).default;
 const StatCard = (await import("../components/ui/StatCard")).default;
 const KpiStrip = (await import("../components/dashboard/KpiStrip")).default;
 const TodayOnShiftCard = (await import("../components/dashboard/TodayOnShiftCard")).default;
+const TabPills = (await import("../components/ui/TabPills")).default;
 const phone = await import("../components/ui/phone");
 const ui = await import("../components/ui");
 
@@ -162,7 +170,9 @@ describe("1c. StatCard: strip + shortLabel", () => {
     expect(onClick).toHaveBeenCalledTimes(1);
     const chev = b.querySelector("svg");
     expect(chev).not.toBeNull();
-    expect(toks(chev.getAttribute("class"))).toContain("max-sm:hidden");
+    // The chevron is the only sign the cell opens a panel: never hidden.
+    expect(toks(chev.getAttribute("class"))).not.toContain("max-sm:hidden");
+    expect(getComputedStyle(chev).display).not.toBe("none");
   });
 });
 
@@ -187,8 +197,13 @@ describe("1d. Home KPI strip", () => {
     expect(screen.getByText(en.liveRevenueWeek).className).toBe("max-sm:hidden");
     expect(screen.getByText(en.liveRevenueToday)).toBeInTheDocument();
     expect(screen.getByText(en.liveRevenueMonth)).toBeInTheDocument();
+    // The comparison basis is VISIBLE on a phone (its own line under the
+    // word), never sr-only: a bare "Down" does not say against what.
     const vs = screen.getByText(en.vsLastWeek);
-    expect(toks(vs.className)).toEqual(["text-gray-500", "dark:text-gray-400", "max-sm:sr-only"]);
+    expect(toks(vs.className)).toEqual(["text-gray-500", "dark:text-gray-400"]);
+    expect(vs.className).not.toMatch(/sr-only|hidden/);
+    const delta = vs.parentElement;
+    expect(toks(delta.className)).toEqual(["inline-flex", "items-center", "gap-1", "text-xs", "max-sm:flex", "max-sm:flex-col", "max-sm:items-start", "max-sm:gap-0", "max-sm:text-[13px]", "max-sm:leading-4"]);
     expect(screen.getByText(en.trendDown)).toBeInTheDocument();
   });
 
@@ -199,9 +214,17 @@ describe("1d. Home KPI strip", () => {
     for (const a of amounts) expect(toks(a.className)).toContain("max-sm:flex-wrap");
   });
 
-  it("2 and 4 tiles keep a 2-across strip", () => {
-    const two = render(<KpiStrip tiles={["today", "week"]} ctx={ctx} />).container.querySelector('[data-component="KpiStrip"]');
+  it("2 and 4 tiles keep a 2-across strip; 1 tile is one column", () => {
+    const grid = (tiles) => render(<KpiStrip tiles={tiles} ctx={ctx} />).container.querySelector('[data-component="KpiStrip"]');
+    const two = grid(["today", "week"]);
+    expect(two.children.length).toBe(2);
     expect(toks(two.className)).toContain("max-sm:grid-cols-2");
+    const four = grid(["today", "week", "month", "complianceNext"]);
+    expect(four.children.length).toBe(4);
+    expect(toks(four.className)).toContain("max-sm:grid-cols-2");
+    expect(toks(four.className)).not.toContain("max-sm:grid-cols-3");
+    const one = grid(["month"]);
+    expect(toks(one.className)).toContain("max-sm:grid-cols-1");
   });
 });
 
@@ -232,6 +255,13 @@ describe("1e. Today on shift", () => {
     const row = container.querySelector("a").parentElement;
     expect(toks(row.className)).toContain("mb-3");
     expect(toks(row.className)).not.toContain("max-sm:mb-0");
+    // Phone: the times are one right-aligned column; the "·" before the time
+    // hides there (CSS only — still in the DOM).
+    const time = screen.getByText("16:00–22:00");
+    expect(toks(time.className)).toEqual(["tabular-nums", "text-gray-600", "dark:text-gray-300", "shrink-0", "max-sm:ml-auto", "max-sm:pl-2"]);
+    const dot = time.previousElementSibling;
+    expect(dot.textContent.trim()).toBe("·");
+    expect(toks(dot.className)).toEqual(["text-gray-300", "dark:text-gray-500", "max-sm:hidden"]);
   });
 });
 
@@ -239,7 +269,7 @@ describe("1f. the page edits: every added fragment is phone-only (or sm:-restore
   // [file, exact source fragment the pass added, sm:-restored base tokens allowed]
   const FRAGMENTS = [
     ["pages/DashboardPage.jsx", 'className="relative max-sm:absolute max-sm:-top-3 max-sm:-right-2"', ["relative"]],
-    ["pages/DashboardPage.jsx", 'className="sm:hidden h-[76px] rounded-xl border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse"', "SM_HIDDEN"],
+    ["pages/DashboardPage.jsx", 'className="sm:hidden h-[94px] rounded-xl border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse"', "SM_HIDDEN"],
     ["pages/DashboardPage.jsx", 'gap-3 max-sm:hidden">', ["gap-3"]],
     ["components/dashboard/TodayOnShiftCard.jsx", '"flex items-center justify-between max-sm:gap-3 " + (hasShifts ? "mb-3" : "mb-3 max-sm:mb-0")', ["flex", "items-center", "justify-between", "mb-3"]],
     ["components/dashboard/TodayOnShiftCard.jsx", 'className="flex items-center gap-2 max-sm:min-w-0"', ["flex", "items-center", "gap-2"]],
@@ -248,23 +278,23 @@ describe("1f. the page edits: every added fragment is phone-only (or sm:-restore
     ["components/dashboard/TodayOnShiftCard.jsx", 'rounded px-1 max-sm:shrink-0 " + PHONE_CTRL', ["rounded", "px-1"]],
     ["components/dashboard/TodayOnShiftCard.jsx", '"text-sm text-gray-500 dark:text-gray-400 max-sm:hidden"', ["text-sm", "text-gray-500", "dark:text-gray-400"]],
     ["components/DailyBriefCard.jsx", "p-5 sm:p-7 animate-pulse", ["p-5", "sm:p-7", "animate-pulse"]],
-    ["components/dashboard/KpiStrip.jsx", '"text-gray-500 dark:text-gray-400 max-sm:sr-only"', ["text-gray-500", "dark:text-gray-400"]],
+    ["components/dashboard/KpiStrip.jsx", '"inline-flex items-center gap-1 text-xs max-sm:flex max-sm:flex-col max-sm:items-start max-sm:gap-0 max-sm:text-[13px] max-sm:leading-4"', ["inline-flex", "items-center", "gap-1", "text-xs"]],
     ["components/dashboard/KpiStrip.jsx", 'const PHONE_COLS = { 1: "max-sm:grid-cols-1", 2: "max-sm:grid-cols-2", 4: "max-sm:grid-cols-2" };', []],
-    ["pages/StaffSchedulePage.jsx", 'const TOOL_PHONE = PHONE_CTRL + " max-sm:px-1.5";', []],
+    ["pages/StaffSchedulePage.jsx", 'const TOOL_PHONE = PHONE_CTRL + " max-sm:px-1.5 max-sm:min-w-10";', []],
     ["pages/StaffSchedulePage.jsx", 'className="max-sm:mb-0"', []],
     ["pages/StaffSchedulePage.jsx", "dark:border-gray-700 p-4 max-sm:p-3", ["dark:border-gray-700", "p-4"]],
     ["pages/StaffSchedulePage.jsx", "justify-between gap-4 max-sm:gap-3", ["justify-between", "gap-4"]],
     ["pages/StaffSchedulePage.jsx", 'className="max-sm:h-10 max-sm:min-w-[40px] max-sm:min-h-0!"', []],
     ["pages/StaffSchedulePage.jsx", "transition max-sm:h-10 max-sm:min-h-0! max-sm:py-0", ["transition"]],
     ["pages/StaffSchedulePage.jsx", "w-full lg:w-auto max-sm:gap-1.5 max-sm:[&>*]:grow", ["w-full", "lg:w-auto"]],
-    ["pages/StaffSchedulePage.jsx", "dark:text-gray-400 max-sm:mt-1 max-sm:text-[13px]", ["dark:text-gray-400"]],
-    ["pages/StaffSchedulePage.jsx", "dark:text-amber-400 max-sm:mt-1 max-sm:text-[13px]", ["dark:text-amber-400"]],
+    ["pages/StaffSchedulePage.jsx", "dark:text-gray-400 max-sm:mt-1 max-sm:-mb-2 max-sm:text-[13px]", ["dark:text-gray-400"]],
+    ["pages/StaffSchedulePage.jsx", "dark:text-amber-400 max-sm:mt-1 max-sm:-mb-2 max-sm:text-[13px]", ["dark:text-amber-400"]],
     ["pages/StaffSchedulePage.jsx", "gap-3 max-sm:flex-nowrap max-sm:gap-2 max-sm:py-1.5 max-sm:pl-4 max-sm:pr-1.5", ["gap-3"]],
     ["pages/StaffSchedulePage.jsx", "dark:text-gray-300 max-sm:text-[13px] max-sm:min-w-0", ["dark:text-gray-300"]],
     ["pages/StaffSchedulePage.jsx", '<span className="sm:hidden">{t("schedEmptyWeekShort")}</span><span className="max-sm:hidden">{t("schedEmptyWeekBody", "No shifts this week yet.")}</span>', "SPANS"],
     ["pages/StaffSchedulePage.jsx", 'className={PHONE_CTRL + " max-sm:px-3 max-sm:shrink-0"}', []],
     ["pages/StaffSchedulePage.jsx", "px-5 py-4 mt-4 max-sm:mt-0", ["px-5", "py-4", "mt-4"]],
-    ["pages/StaffSchedulePage.jsx", 'className={"shrink-0 " + PHONE_CTRL}', ["shrink-0"]],
+    ["pages/StaffSchedulePage.jsx", 'className={"shrink-0 " + PHONE_CTRL + " max-sm:[&>span]:inline-flex max-sm:[&>span]:items-center max-sm:[&>span]:gap-1.5"}', ["shrink-0"]],
     ["pages/StaffSchedulePage.jsx", "py-1.5 max-sm:text-[13px] max-sm:text-gray-500 max-sm:dark:text-gray-400", ["py-1.5"]],
     ["components/ScheduleConfirmationCard.jsx", "py-2.5 mb-4 max-sm:mb-0 flex", ["py-2.5", "mb-4", "flex"]],
     ["pages/StaffHoursPage.jsx", 'className="max-sm:mb-4"', []],
@@ -277,13 +307,40 @@ describe("1f. the page edits: every added fragment is phone-only (or sm:-restore
     ["pages/InventoryPage.jsx", 'className="max-sm:mb-4"', []],
     ["pages/InventoryPage.jsx", 'lg:grid-cols-5 gap-3 max-sm:grid-cols-6 " + PHONE_STRIP', ["lg:grid-cols-5", "gap-3"]],
     ["pages/InventoryPage.jsx", 'className="max-sm:col-span-2"', []],
-    ["pages/InventoryPage.jsx", 'className="max-sm:col-span-3"', []],
+    ["pages/InventoryPage.jsx", 'className="max-sm:col-span-4"', []],
     ["pages/InventoryPage.jsx", "p-5 sm:p-6 rounded-xl", ["p-5", "sm:p-6", "rounded-xl"]],
     ["components/InventoryAutopilotPanel.jsx", 'dark:text-gray-400 " + PHONE_EMPTY_LINE', ["dark:text-gray-400"]],
     ["components/InventoryAutopilotPanel.jsx", '"px-4 py-8 text-center " + PHONE_EMPTY_LINE', ["px-4", "py-8", "text-center"]],
     ["components/InventoryAutopilotPanel.jsx", "mb-3 max-sm:shrink-0 max-sm:mx-0 max-sm:mb-0 max-sm:w-4 max-sm:h-4", ["mb-3"]],
     ["components/InventoryAutopilotPanel.jsx", "dark:text-gray-300 max-sm:text-[13px]", ["dark:text-gray-300"]],
     ["pages/DailyClosePage.jsx", "mt-3 flex flex-wrap gap-2 max-sm:grid max-sm:grid-cols-1", ["mt-3", "flex", "flex-wrap", "gap-2"]],
+    // ── review fix round ──
+    ["pages/StaffHoursPage.jsx", '"grid grid-cols-2 lg:grid-cols-4 gap-3 " + PHONE_STRIP', ["grid", "grid-cols-2", "lg:grid-cols-4", "gap-3"]],
+    ["components/LiveKpisToday.jsx", '"grid grid-cols-2 sm:grid-cols-4 gap-3 " + PHONE_STRIP', ["grid", "grid-cols-2", "sm:grid-cols-4", "gap-3"]],
+    ["pages/InventoryPage.jsx", '"md:hidden p-3 space-y-2" + (filtered.length > 0 ? " max-sm:p-0 max-sm:space-y-0" : "")', ["md:hidden", "p-3", "space-y-2", "(filtered.length", ">", "0"]],
+    ["pages/InventoryPage.jsx", "dark:border-gray-700 max-sm:justify-end max-sm:gap-1.5 max-sm:pt-0 max-sm:mt-2 max-sm:border-t-0", ["dark:border-gray-700"]],
+    ["pages/InventoryPage.jsx", '<span className="flex-1 max-sm:hidden" aria-hidden="true" />', ["<span", "flex-1", "aria-hidden=", "true", "/>"]],
+    ["pages/InventoryPage.jsx", "bg-red-600 max-sm:flex-none max-sm:px-3 max-sm:h-10 max-sm:min-h-0! text-white text-[12px] max-sm:text-[13px]", ["bg-red-600", "text-white", "text-[12px]"]],
+    ["pages/DailyClosePage.jsx", 'className="mb-4 max-sm:last:mb-0"', ["mb-4"]],
+    ["components/InventoryAutopilotPanel.jsx", "dark:text-gray-400 max-sm:flex-col max-sm:items-start max-sm:gap-0.5 max-sm:mb-3 max-sm:text-[13px]", ["dark:text-gray-400"]],
+    ["pages/ReservationsPage.jsx", 'className="max-sm:-mt-2"', []],
+    ["components/ui/TabPills.jsx", '"max-sm:h-10 max-sm:min-h-0! max-sm:min-w-10 max-sm:px-0 max-sm:rounded-none max-sm:text-[13px] "', []],
+    ["components/ui/TabPills.jsx", '"max-sm:flex-nowrap max-sm:gap-5 max-sm:overflow-x-auto max-sm:-mx-4 max-sm:px-4 "', []],
+    ["components/SickCallNotificationCard.jsx", "flex items-center gap-2 flex-wrap max-sm:gap-y-1", ["flex", "items-center", "gap-2", "flex-wrap"]],
+    ["components/SickCallNotificationCard.jsx", "text-gray-600 dark:text-gray-300 max-sm:order-1", ["text-gray-600", "dark:text-gray-300"]],
+    ["components/SickCallNotificationCard.jsx", "dark:text-gray-400 max-sm:order-3 max-sm:basis-full max-sm:text-[13px] max-sm:leading-snug", ["dark:text-gray-400"]],
+    ["components/SickCallNotificationCard.jsx", '<span className="sm:hidden text-gray-600 dark:text-gray-400"> · {absence.reason}</span>', "SM_HIDDEN"],
+    ["components/SickCallNotificationCard.jsx", "${statusBadge} max-sm:order-2", ["${statusBadge"]],
+    ["components/SickCallNotificationCard.jsx", "mt-1 leading-snug max-sm:hidden", ["mt-1", "leading-snug"]],
+    // ── review fix round 2 ──
+    ["components/SickCallNotificationCard.jsx", "rounded-xl p-4 sm:p-5 max-sm:p-3", ["rounded-xl", "p-4", "sm:p-5"]],
+    ["components/SickCallNotificationCard.jsx", 'className="flex items-start gap-2 mb-3 max-sm:mb-2"', ["flex", "items-start", "gap-2", "mb-3"]],
+    ["components/SickCallNotificationCard.jsx", "dark:text-amber-300/80 mt-0.5 max-sm:text-[13px]", ["dark:text-amber-300/80", "mt-0.5"]],
+    ["components/SickCallNotificationCard.jsx", 'className="space-y-2 max-sm:space-y-0"', ["space-y-2"]],
+    ["pages/StaffSchedulePage.jsx", "flex items-center gap-1.5 min-w-0 max-sm:flex-wrap max-sm:gap-y-0.5", ["flex", "items-center", "gap-1.5", "min-w-0"]],
+    ["pages/StaffSchedulePage.jsx", '<span className="truncate max-sm:overflow-visible max-sm:whitespace-normal">{roleName(member.role, t)}</span>', ["truncate", ">{roleName(member.role", "t)}</span>"]],
+    ["pages/ReservationsPage.jsx", 'className="relative h-11 max-sm:h-10 max-sm:min-h-0!', ["relative", "h-11"]],
+    ["components/ui/TabPills.jsx", '"max-sm:flex-1 max-sm:h-10 max-sm:min-h-0! max-sm:px-2 max-sm:text-[13px] max-sm:rounded-lg "', []],
   ];
   // Class-like tokens of a source fragment: split on spaces and quotes, drop
   // the JS around the strings (className=, +, ?, :, braces, CONSTANT names).
@@ -307,13 +364,18 @@ describe("1f. the page edits: every added fragment is phone-only (or sm:-restore
     expect(extra).toEqual([]);
   });
 
-  it("the Vagtplan toolbar: all five week actions use TOOL_PHONE; decorative icons hide, the tick and spinner do not", () => {
+  it("the Vagtplan toolbar: all five week actions use TOOL_PHONE (>= 40px wide); every state icon hides on a phone, the spinner does not", () => {
     const src = read("pages/StaffSchedulePage.jsx");
     expect((src.match(/className=\{TOOL_PHONE\}/g) || []).length).toBe(5);
     for (const name of ["Plus", "Copy", "Sparkles", "Share2"]) {
       expect(src).toContain(`<Icon name="${name}" size={14} className="max-sm:hidden" />`);
     }
-    expect(src).toContain('<Icon name="CheckCircle2" size={14} />');
+    // "Published" is text-only on a phone like its neighbours (the word says
+    // the state), inline so it shares their baseline; sm: and up keep the tick.
+    expect(src).toContain('<span className="inline-flex items-center gap-1 max-sm:inline">\n                    <Icon name="CheckCircle2" size={14} className="max-sm:hidden" />');
+    expect(src).not.toContain('<Icon name="CheckCircle2" size={14} />');
+    // busy={...} still renders Button's spinner (no class can hide it)
+    expect((src.match(/busy=\{(copying|autopilotLoading|publishing|sharing \|\| emailing \|\| exporting)\}/g) || []).length).toBeGreaterThanOrEqual(4);
     // the empty week's own Copy keeps its icon
     expect(src).toMatch(/max-sm:shrink-0"\}\s*iconLeft=\{<Icon name="Copy" size=\{14\} \/>\}/);
     // the pop-out stays desktop-only, as before
@@ -354,6 +416,9 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     "pages/ReservationsPage.jsx": { onClick: 85, onChange: 62, onSubmit: 11, ariaLabel: 65, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 4, role: 32, title: 26, id: 22, testid: 6, Button: 32, button: 56, Link: 4, disabled: 29, to: 4, href: 3, tKeys: 678 },
     "pages/InventoryPage.jsx": { onClick: 61, onChange: 38, onSubmit: 1, ariaLabel: 27, role: 1, title: 27, id: 7, Button: 5, button: 41, Link: 2, disabled: 3, to: 2, tKeys: 165 },
     "components/InventoryAutopilotPanel.jsx": { onClick: 5, onChange: 1, ariaLabel: 1, Button: 4, button: 1, disabled: 1, tKeys: 35 },
+    "components/LiveKpisToday.jsx": { ariaLabel: 2, title: 1, tKeys: 14 },
+    "components/SickCallNotificationCard.jsx": { onClick: 4, button: 4, disabled: 4, tKeys: 22 },
+    "components/ui/TabPills.jsx": { onClick: 1, ariaLabel: 1, role: 2, button: 1, tKeys: 0 },
     "pages/DailyClosePage.jsx": { onClick: 84, onChange: 25, ariaLabel: 5, ariaExpanded: 1, ariaPressed: 1, role: 16, title: 23, id: 22, testid: 57, Button: 44, button: 31, Link: 18, disabled: 36, to: 18, href: 2, tKeys: 573 },
   };
   const NEW_KEYS = {
@@ -383,7 +448,9 @@ describe("3. the six new phone labels", () => {
     kpiWeekShort: ["This week", "Denne uge"],
     schedEmptyWeekShort: ["No shifts yet.", "Ingen vagter endnu."],
     invKpiItemsShort: ["Items", "Varer"],
-    invKpiLowShort: ["Low stock", "Lav beholdning"],
+    // "Lav beholdning" (95px at 13px) truncated beside the chevron at 360px;
+    // "Lavt lager" is the app's own phrase (lowStockItems "Lavt lager varer").
+    invKpiLowShort: ["Low stock", "Lavt lager"],
     invKpiFreshShort: ["Fresh items", "Friskvarer"],
   };
   it.each(Object.entries(KEYS))("%s exists in en and da, with different text", (k, [e, d]) => {
@@ -399,5 +466,160 @@ describe("3. the six new phone labels", () => {
       expect(all).not.toMatch(new RegExp(`t\\("${k}"[^)]*\\)\\s*\\|\\|`));
       expect(all).not.toMatch(new RegExp(`t\\("${k}",`));
     }
+  });
+});
+
+describe("4. review fix round", () => {
+  it("strip text is never under 13px on a phone: label, helper and the money token", () => {
+    const el = render(<StatCard label="Items" value={10} helper="h" strip />).container.firstElementChild;
+    const label = el.firstElementChild.querySelector("p");
+    const value = el.children[1];
+    const helper = el.children[2];
+    expect(toks(label.className)).toEqual(expect.arrayContaining(["max-sm:text-[13px]", "max-sm:leading-4", "max-sm:truncate", "max-sm:normal-case"]));
+    expect(toks(label.className)).not.toContain("max-sm:text-xs");
+    expect(toks(helper.className)).toContain("max-sm:text-[13px]");
+    expect(toks(value.className)).toEqual(expect.arrayContaining(["max-sm:[&_[data-amount-token]]:text-[13px]", "max-sm:[&_[data-amount-token]]:leading-none"]));
+    // and all of it is phone-only
+    const plain = render(<StatCard label="Items" value={10} helper="h" />).container.firstElementChild;
+    expect(added(plain.children[2].className, helper.className).filter((t) => !isPhoneOnly(t))).toEqual([]);
+  });
+
+  it("a clickable strip cell keeps its 12px chevron beside a min-w-0 truncating label", () => {
+    const b = render(<StatCard label="Low stock" value={1} strip onClick={() => {}} expandable />).container.querySelector("button");
+    const row = b.firstElementChild;
+    expect(toks(row.className)).toEqual(expect.arrayContaining(["max-sm:items-center", "max-sm:gap-1", "max-sm:min-h-0"]));
+    const chev = row.querySelector("svg");
+    expect(chev.getAttribute("width")).toBe("12");
+    expect(toks(chev.getAttribute("class"))).toEqual(expect.arrayContaining(["text-gray-400", "dark:text-gray-500", "transition-transform", "shrink-0"]));
+    expect(toks(chev.getAttribute("class")).filter((c) => /hidden|max-sm:/.test(c))).toEqual([]);
+    expect(toks(row.querySelector("p").className)).toEqual(expect.arrayContaining(["max-sm:min-w-0", "max-sm:truncate"]));
+  });
+
+  it("Timer and Kasserapport KPIs are phone strips: the grid wears PHONE_STRIP and all four tiles are strip cells", () => {
+    for (const [file, gridFrag] of [["pages/StaffHoursPage.jsx", '"grid grid-cols-2 lg:grid-cols-4 gap-3 " + PHONE_STRIP'], ["components/LiveKpisToday.jsx", '"grid grid-cols-2 sm:grid-cols-4 gap-3 " + PHONE_STRIP']]) {
+      const src = read(file);
+      const at = src.indexOf(gridFrag);
+      expect(at, file).toBeGreaterThan(-1);
+      const block = src.slice(at, src.indexOf("</div>", at));
+      expect((block.match(/<StatCard\b/g) || []).length, file).toBe(4);
+      expect((block.match(/^\s+strip$/gm) || []).length, file).toBe(4);
+    }
+  });
+
+  it("Lager stock list: phone-only row + 40px icon-button tokens, used on every action", () => {
+    const src = read("pages/InventoryPage.jsx");
+    const row = src.match(/const PHONE_ITEM_ROW =\s*([\s\S]*?);\n/)[1].replace(/["+\n]/g, " ");
+    const btn = src.match(/const PHONE_ITEM_BTN = "([^"]+)";/)[1];
+    expect(toks(row).filter((t) => !isPhoneOnly(t))).toEqual([]);
+    expect(toks(row)).toEqual(expect.arrayContaining(["max-sm:border-x-0", "max-sm:border-t-0", "max-sm:last:border-b-0"]));
+    expect(toks(btn)).toEqual(["max-sm:flex-none", "max-sm:w-10", "max-sm:h-10", "max-sm:min-h-0!"]);
+    // Pour, Smart usage, Compare price, Edit, Delete: all five icon buttons
+    expect((src.match(/className=\{PHONE_ITEM_BTN \+ " flex-1 min-h-\[44px\]/g) || []).length).toBe(5);
+    expect(src).toContain("} ${PHONE_ITEM_ROW}`}");
+    // the two filler cells still render (desktop keeps the 5 slots), hidden on a phone
+    expect((src.match(/<span className="flex-1 max-sm:hidden" aria-hidden="true" \/>/g) || []).length).toBe(2);
+  });
+
+  it("+ Open shift: the Button's label span is an inline row on a phone (the + was on a line of its own)", async () => {
+    const Button = (await import("../components/ui/Button")).default;
+    const cls = "shrink-0 " + phone.PHONE_CTRL + " max-sm:[&>span]:inline-flex max-sm:[&>span]:items-center max-sm:[&>span]:gap-1.5";
+    const b = render(<Button variant="secondary" size="sm" className={cls}><svg data-testid="plus" />Open shift</Button>).container.querySelector("button");
+    // the svg and the text share Button's one label <span> — the child the selector targets
+    const span = b.querySelector(":scope > span");
+    expect(span.querySelector('[data-testid="plus"]')).not.toBeNull();
+    expect(span.textContent).toBe("Open shift");
+    expect(added("", cls).filter((t) => !isPhoneOnly(t))).toEqual(["shrink-0"]);
+  });
+
+  it("Reservations tabs: >= 40px wide targets and an 8px title gap, phone-only", () => {
+    const { container } = render(<TabPills tabs={[{ id: "a", label: "Borde" }, { id: "b", label: "Indsigt" }]} activeId="a" onChange={() => {}} size="lg" phone="underline" className="max-sm:-mt-2" />);
+    const list = container.querySelector('[role="tablist"]');
+    expect(toks(list.className)).toEqual(expect.arrayContaining(["max-sm:gap-5", "max-sm:-mt-2"]));
+    expect(toks(list.className)).not.toContain("max-sm:gap-6");
+    for (const tab of list.querySelectorAll("button")) expect(toks(tab.className)).toContain("max-sm:min-w-10");
+    const md = render(<TabPills tabs={[{ id: "a", label: "A" }]} activeId="a" onChange={() => {}} />).container.querySelector('[role="tablist"]');
+    expect(md.className).toBe("flex flex-wrap gap-1.5");
+  });
+
+  it("the six phone labels also exist in Turkish (offered in the picker), and the Danish low-stock label fits its cell", () => {
+    for (const k of ["todayOnShiftNone", "kpiWeekShort", "schedEmptyWeekShort", "invKpiItemsShort", "invKpiLowShort", "invKpiFreshShort"]) {
+      expect(typeof tr[k], k).toBe("string");
+      expect(tr[k].length, k).toBeGreaterThan(0);
+      expect(tr[k], k).not.toBe(en[k]);
+    }
+    // "Lav beholdning" (95px at 13px) truncated beside the chevron at 360px.
+    expect(da.invKpiLowShort).toBe("Lavt lager");
+  });
+});
+
+describe("5. base-class swaps: each is restored by sm: (desktop identical)", () => {
+  // [file, origin/main d6a27b72 fragment, phone-compact fragment]. A base token
+  // may change only where the same property is set by an sm: token in both,
+  // or where the new base equals origin's sm: value (that value now applies
+  // at every width, and from sm: up it is what applied before).
+  const SWAPS = [
+    ["components/DailyBriefCard.jsx", "border-gray-100 dark:border-gray-700/60 p-6 sm:p-7 animate-pulse", "border-gray-100 dark:border-gray-700/60 p-5 sm:p-7 animate-pulse"],
+    ["components/DailyBriefCard.jsx", 'border-[rgb(var(--surface-line))] p-6 sm:p-7">', 'border-[rgb(var(--surface-line))] p-5 sm:p-7">'],
+    ["pages/StaffHoursPage.jsx", '"text-xs sm:text-sm font-semibold text-gray-900 dark:text-gray-100 truncate"', '"text-sm font-semibold text-gray-900 dark:text-gray-100 truncate"'],
+    ["pages/InventoryPage.jsx", "dark:bg-[rgb(var(--surface-card))] p-6 rounded-xl", "dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 rounded-xl"],
+  ];
+  const prop = (t) => { const m = t.replace(/^sm:/, "").match(/^(-?(?:p[xytblr]?|m[xytblr]?|gap(?:-[xy])?|leading))-|^(text)-(?:xs|sm|base|lg|[0-9]?xl|\[\d+px\])$/); return m ? (m[1] || m[2]) : null; };
+  const violations = (o, n) => {
+    const O = toks(o.replace(/["{}>]/g, " ")), N = toks(n.replace(/["{}>]/g, " "));
+    const out = [];
+    for (const t of [...O.filter((x) => !N.includes(x)), ...N.filter((x) => !O.includes(x))]) {
+      if (isPhoneOnly(t)) continue;
+      const p = prop(t);
+      if (!p) { out.push(t); continue; }
+      const smO = O.filter((x) => x.startsWith("sm:") && prop(x) === p), smN = N.filter((x) => x.startsWith("sm:") && prop(x) === p);
+      const sameSm = smO.length > 0 && smO.every((x) => smN.includes(x));
+      const baseIsOldSm = smN.length === 0 && smO.length === 1 && N.includes(smO[0].slice(3));
+      const newSmRestoresOldBase = smN.some((x) => O.includes(x.slice(3)));
+      if (!(sameSm || baseIsOldSm || newSmRestoresOldBase)) out.push(t);
+    }
+    return out;
+  };
+  it("the rule itself rejects an unrestored swap", () => {
+    expect(violations("p-6 rounded-xl", "p-5 rounded-xl")).toEqual(["p-6", "p-5"]);
+    expect(violations("text-xs sm:text-sm", "text-base")).toEqual(["text-xs", "sm:text-sm", "text-base"]);
+    expect(violations("p-6 sm:p-7", "p-5 sm:p-7")).toEqual([]);
+  });
+  it.each(SWAPS)("%s: %s -> %s", (file, o, n) => {
+    const src = read(file);
+    expect(src.includes(n)).toBe(true);
+    expect(src.includes(o)).toBe(false);
+    expect(violations(o, n)).toEqual([]);
+  });
+});
+
+describe("6. review fix round 2: the minors finished", () => {
+  it("absence: one amber card on a phone, each absence a hairline row of it (no white card inside), phone-only", () => {
+    const src = read("components/SickCallNotificationCard.jsx");
+    const row = src.match(/const PHONE_ABSENCE_ROW =\s*([\s\S]*?);\n/)[1].replace(/["+\n]/g, " ");
+    expect(toks(row).filter((t) => !isPhoneOnly(t))).toEqual([]);
+    expect(toks(row)).toEqual(expect.arrayContaining(["max-sm:bg-transparent", "max-sm:dark:bg-transparent", "max-sm:rounded-none", "max-sm:px-0", "max-sm:border-x-0", "max-sm:border-t-0", "max-sm:last:border-b-0", "max-sm:first:pt-0", "max-sm:last:pb-0"]));
+    // the row's own chrome (sm: and up) is untouched, the phone tokens appended
+    expect(src).toContain('className={"bg-white dark:bg-gray-800/40 rounded-xl px-3 py-2.5 border border-amber-100 dark:border-amber-900/20 " + PHONE_ABSENCE_ROW}');
+  });
+
+  it("Reservations: the day stepper and the List/Floor/Timeline segments are 40px targets inside their 1px border (were 38)", () => {
+    const src = read("pages/ReservationsPage.jsx");
+    expect(src).not.toContain("max-sm:h-[38px]");
+    expect((src.match(/className="relative h-11 max-sm:h-10 max-sm:min-h-0! flex flex-col/g) || []).length).toBe(2);
+    expect(read("components/ui/TabPills.jsx")).not.toContain("max-sm:h-[38px]");
+    const { container } = render(<TabPills tabs={[{ id: "l", label: "List" }, { id: "f", label: "Floor" }, { id: "t", label: "Timeline" }]} activeId="l" onChange={() => {}} phone="segmented" />);
+    for (const tab of container.querySelectorAll('[role="tablist"] button')) {
+      expect(toks(tab.className)).toEqual(expect.arrayContaining(["max-sm:h-10", "max-sm:min-h-0!"]));
+    }
+  });
+
+  it("Lager strip: spans 2/2/2 then 2/4 on a 6-col phone grid, so row 2's divider continues row 1's first", () => {
+    const src = read("pages/InventoryPage.jsx");
+    const at = src.indexOf('max-sm:grid-cols-6 " + PHONE_STRIP');
+    const block = src.slice(at, src.indexOf("</div>", at));
+    const spans = [...block.matchAll(/className="max-sm:col-span-(\d)"/g)].map((m) => Number(m[1]));
+    expect(spans).toEqual([2, 2, 2, 2, 4]);
+    expect(spans.slice(0, 3).reduce((a, b) => a + b)).toBe(6);
+    expect(spans.slice(3).reduce((a, b) => a + b)).toBe(6);
   });
 });
