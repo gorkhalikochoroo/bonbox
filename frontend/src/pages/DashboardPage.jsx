@@ -927,8 +927,10 @@ export default function DashboardPage() {
           {/* Zone 1 skeleton: DailyBrief + 3-tile KPI strip */}
           <SkeletonCard />
           {/* Phone: the KPI strip is one 3-across card, so its skeleton is one
-              strip-high block (SkeletonCard's own chrome). */}
-          <div className="sm:hidden h-[76px] rounded-xl border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" />
+              strip-high block (SkeletonCard's own chrome). 94px = the strip
+              with its week comparison ("↓ Ned" / "ift. sidste uge"), measured
+              at 360, 375 and 390 — any venue with a week of history. */}
+          <div className="sm:hidden h-[94px] rounded-xl border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse" />
           <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3 max-sm:hidden">
             <SkeletonCard />
             <SkeletonCard />

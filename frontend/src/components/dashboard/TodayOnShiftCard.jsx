@@ -168,10 +168,13 @@ export default function TodayOnShiftCard() {
               <span className="font-medium text-gray-900 dark:text-gray-100 truncate">
                 {s.name}
               </span>
-              <span className="text-gray-300 dark:text-gray-500" aria-hidden="true">
+              {/* Phone: the times form one right-aligned column (a long name
+                  truncating pushed its time to the edge while short names kept
+                  theirs inline — a ragged column). */}
+              <span className="text-gray-300 dark:text-gray-500 max-sm:hidden" aria-hidden="true">
                 ·
               </span>
-              <span className="tabular-nums text-gray-600 dark:text-gray-300 shrink-0">
+              <span className="tabular-nums text-gray-600 dark:text-gray-300 shrink-0 max-sm:ml-auto max-sm:pl-2">
                 {s.start_time}–{s.end_time}
               </span>
             </li>

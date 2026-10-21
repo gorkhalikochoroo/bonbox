@@ -76,15 +76,16 @@ function DeltaIndicator({ pct, label }) {
         ? t("trendDown", "Down")
         : t("trendFlat", "Stable");
   return (
-    <span className="inline-flex items-center gap-1 text-xs">
+    // Phone: the strip cell is ~93–103px and "↓ Ned ift. sidste uge" is
+    // ~130 at 13px, so the comparison takes the line under the word — never
+    // hidden: a bare "Ned" does not say what it is down against.
+    <span className="inline-flex items-center gap-1 text-xs max-sm:flex max-sm:flex-col max-sm:items-start max-sm:gap-0 max-sm:text-[13px] max-sm:leading-4">
       <span className={`inline-flex items-center gap-0.5 font-medium ${colorClass}`}>
         {Arrow && <Arrow size={12} strokeWidth={2} aria-hidden="true" />}
         <span>{word}</span>
       </span>
       {label && (
-        // Phone: the strip cell is ~98px; "↓ Ned ift. sidste uge" is ~118.
-        // The arrow + word stay; the comparison stays for screen readers.
-        <span className="text-gray-500 dark:text-gray-400 max-sm:sr-only">{label}</span>
+        <span className="text-gray-500 dark:text-gray-400">{label}</span>
       )}
     </span>
   );
