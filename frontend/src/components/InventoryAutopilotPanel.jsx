@@ -576,15 +576,17 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
         <NotSetUpHero onAddSupplier={handleAddSupplier} t={t} />
       ) : suggestion ? (
         <>
-          {/* Basis chip — confidence (only with real history) + counts + weather */}
-          <div className="mb-4 flex items-center gap-3 flex-wrap text-xs text-gray-500 dark:text-gray-400">
+          {/* Basis chip — confidence (only with real history) + counts + weather.
+              Phone: one fact per line at 13px, the "•" separators hidden —
+              wrapped, they dangled at a line end ("Items flagged: 0 •"). */}
+          <div className="mb-4 flex items-center gap-3 flex-wrap text-xs text-gray-500 dark:text-gray-400 max-sm:flex-col max-sm:items-start max-sm:gap-0.5 max-sm:mb-3 max-sm:text-[13px]">
             {hasHistory && <ConfidenceBadge confidence={suggestion.confidence} t={t} />}
-            {hasHistory && <span>•</span>}
+            {hasHistory && <span className="max-sm:hidden">•</span>}
             <span>
               {t("inventoryAutopilotItemsFlagged", "Items flagged")}:{" "}
               {suggestion.items?.length || 0}
             </span>
-            <span>•</span>
+            <span className="max-sm:hidden">•</span>
             <span>
               {t("inventoryAutopilotBasisCounts", "{n} varer fulgt · {m} med forbrugshistorik")
                 .replace("{n}", String(basisTotal))
@@ -592,7 +594,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
             </span>
             {suggestion.basis?.weather_used ? (
               <>
-                <span>•</span>
+                <span className="max-sm:hidden">•</span>
                 <span>{t("inventoryAutopilotWeatherUsed", "Weather adjusted")}</span>
               </>
             ) : null}

@@ -69,6 +69,16 @@ function isPourable(it) {
   return u === "bottles" || u === "liters" || POUR_WORDS.some((w) => c.includes(w));
 }
 
+// Phone (< 640px) stock list: each item is a hairline row of ONE grouped list
+// (no card per item inside the Stock Items card), and its icon actions are
+// 40px squares at the row's right edge — the invisible spacer cells that kept
+// five equal slots (and left "Smart usage" floating among gaps) hide there.
+// From sm: up nothing changes; 640–767 keeps the cards.
+const PHONE_ITEM_ROW =
+  "max-sm:rounded-none max-sm:border-x-0 max-sm:border-t-0 max-sm:last:border-b-0 " +
+  "max-sm:border-gray-100 max-sm:dark:border-gray-700 max-sm:px-6 max-sm:py-3";
+const PHONE_ITEM_BTN = "max-sm:flex-none max-sm:w-10 max-sm:h-10 max-sm:min-h-0!";
+
 export default function InventoryPage() {
   const confirm = useConfirm();
   const { user } = useAuth();
@@ -1007,7 +1017,9 @@ export default function InventoryPage() {
             />
           )}
         {/* Phone: one strip card, 3 + 2 cells (6-col grid, spans 2/2/2 then
-            3/3); the cells stay buttons that open their panel. */}
+            2/4, so the second row's divider continues the first row's first
+            one instead of landing between two of them); the cells stay
+            buttons that open their panel. */}
         <div className={"grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-5 gap-3 max-sm:grid-cols-6 " + PHONE_STRIP}>
           <StatCard
             strip
@@ -1050,7 +1062,7 @@ export default function InventoryPage() {
           />
           <StatCard
             strip
-            className="max-sm:col-span-3"
+            className="max-sm:col-span-2"
             label={t("categories")}
             value={categoriesQ.failed && categories.length === 0 ? "—" : categories.length}
             onClick={() => setExpandedStat(expandedStat === "categories" ? null : "categories")}
@@ -1060,7 +1072,7 @@ export default function InventoryPage() {
           />
           <StatCard
             strip
-            className="max-sm:col-span-3"
+            className="max-sm:col-span-4"
             label={t("priced")}
             value={`${stats.itemsWithMargin}/${items.length}`}
             // Warn accent when 5+ items are still un-priced — owner
@@ -1842,7 +1854,11 @@ export default function InventoryPage() {
             here to avoid a parallel form). For inline editing on mobile,
             users tap Edit which drops to the table on tablet+, or the
             row can be edited on a later pass. */}
-        <div className="md:hidden p-3 space-y-2">
+        {/* Phone (max-sm: only; 640–767 keeps the cards): with items, ONE
+            grouped list inside the Stock Items card — hairline rows instead of
+            a bordered card per item. The empty/loading/failed states keep
+            their own boxed look and the 12px inset. */}
+        <div className={"md:hidden p-3 space-y-2" + (filtered.length > 0 ? " max-sm:p-0 max-sm:space-y-0" : "")}>
           {/* Same three outcomes as the table above — the phone is where a
               dropped request is likeliest, so it is the last place that may
               guess. */}
@@ -1876,7 +1892,7 @@ export default function InventoryPage() {
                   isLow
                     ? "border-red-200 dark:border-red-800"
                     : "border-gray-200 dark:border-gray-700"
-                }`}
+                } ${PHONE_ITEM_ROW}`}
               >
                 {isEditing ? (
                   /* Inline edit form on mobile — stacked fields */
@@ -2069,24 +2085,24 @@ export default function InventoryPage() {
                         on desktop. We always keep 5 cells so the layout doesn't
                         shift between rows: filler cells render an invisible
                         spacer to keep edit/delete in the same horizontal spot. */}
-                    <div className="flex items-center gap-2 pt-3 mt-3 border-t border-gray-100 dark:border-gray-700">
+                    <div className="flex items-center gap-2 pt-3 mt-3 border-t border-gray-100 dark:border-gray-700 max-sm:justify-end max-sm:gap-1.5 max-sm:pt-0 max-sm:mt-2 max-sm:border-t-0">
                       {item.pour_size > 0 ? (
                         <button
                           onClick={() => { setPourModal(item); setPourCount(1); }}
                           title={t("pour")}
                           aria-label={t("pour")}
-                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 transition"
+                          className={PHONE_ITEM_BTN + " flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 transition"}
                         >
                           <Icon name="Wine" size={18} />
                         </button>
                       ) : (
-                        <span className="flex-1" aria-hidden="true" />
+                        <span className="flex-1 max-sm:hidden" aria-hidden="true" />
                       )}
                       <button
                         onClick={() => setConsumptionModalItem(item)}
                         title={t("inventoryConsumptionTitle") || "Smart usage"}
                         aria-label={t("inventoryConsumptionTitle") || "Smart usage"}
-                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 transition"
+                        className={PHONE_ITEM_BTN + " flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 transition"}
                       >
                         <Icon name="Beaker" size={18} />
                       </button>
@@ -2095,18 +2111,18 @@ export default function InventoryPage() {
                           onClick={() => setSmartPricingItem(item)}
                           title={t("smartPricingCompareBtn") || "Compare price"}
                           aria-label={t("smartPricingCompareBtn") || "Compare price"}
-                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 transition"
+                          className={PHONE_ITEM_BTN + " flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 transition"}
                         >
                           <Icon name="Globe" size={18} />
                         </button>
                       ) : (
-                        <span className="flex-1" aria-hidden="true" />
+                        <span className="flex-1 max-sm:hidden" aria-hidden="true" />
                       )}
                       <button
                         onClick={() => startEdit(item)}
                         title={t("edit")}
                         aria-label={t("edit")}
-                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 transition"
+                        className={PHONE_ITEM_BTN + " flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 active:bg-gray-100 transition"}
                       >
                         <Icon name="Pencil" size={18} />
                       </button>
@@ -2114,7 +2130,7 @@ export default function InventoryPage() {
                         <button
                           onClick={() => deleteItem(item.id)}
                           aria-label={t("confirm") || "Confirm"}
-                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-red-600 text-white text-[12px] font-semibold hover:bg-red-700 transition"
+                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-red-600 max-sm:flex-none max-sm:px-3 max-sm:h-10 max-sm:min-h-0! text-white text-[12px] max-sm:text-[13px] font-semibold hover:bg-red-700 transition"
                         >
                           {t("confirm") || "?"}
                         </button>
@@ -2123,7 +2139,7 @@ export default function InventoryPage() {
                           onClick={() => setDeleteConfirm(item.id)}
                           title={t("delete")}
                           aria-label={t("delete")}
-                          className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400 active:bg-red-100 transition"
+                          className={PHONE_ITEM_BTN + " flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400 active:bg-red-100 transition"}
                         >
                           <Icon name="Trash2" size={18} />
                         </button>
