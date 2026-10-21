@@ -711,6 +711,9 @@ export default function ReservationsPage() {
         ariaLabel={apptWords ? t("rsvpTabsAriaAppt", "Appointment book sections") : t("rsvpTabsAria", "Reservation sections")}
         size="lg"
         phone="underline"
+        // Phone: 8px under the title row instead of the column's 16 — the
+        // tabs belong to the title (they are the page's sections).
+        className="max-sm:-mt-2"
       />
       )}
 
@@ -831,7 +834,9 @@ const PHONE_TOOL =
   "max-sm:min-h-0! max-sm:text-[13px] " +
   "max-sm:border max-sm:border-[rgb(var(--surface-line))] max-sm:bg-[rgb(var(--surface-card))] " +
   "max-sm:hover:bg-gray-50 max-sm:dark:hover:bg-gray-700";
-// Square, stretched to the height of the row it sits in (the stepper's 40px).
+// Square, stretched to the height of the row it sits in (the stepper: a 40px
+// centre and ◂ ▸ inside its 1px border, 42px in all — at 38px inside the border
+// the day arrows were 38px targets).
 const PHONE_TOOL_SQUARE = "max-sm:h-auto max-sm:w-10 max-sm:shrink-0";
 // Drop-in and New booking on a phone: equal halves of one 40px row.
 const PHONE_ACTION = "max-sm:h-10 max-sm:min-h-0! max-sm:px-3 max-sm:text-[13px]";
@@ -6918,7 +6923,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 aria-haspopup="dialog"
                 aria-expanded={dayPickerOpen}
                 aria-label={apptWords ? t("rsvpBookDayAppt", "Appointment book date") : t("rsvpBookDay", "Reservation date")}
-                className="relative h-11 max-sm:h-[38px] max-sm:min-h-0! flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] max-sm:flex-1 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+                className="relative h-11 max-sm:h-10 max-sm:min-h-0! flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] max-sm:flex-1 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
               >
                 <span className="text-[13px] font-semibold leading-none text-gray-900 dark:text-gray-100">
                   {relativeDayLabel(day, t, lang)}
@@ -6928,7 +6933,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 </span>
               </button>
             ) : (
-            <label className="relative h-11 max-sm:h-[38px] max-sm:min-h-0! flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] max-sm:flex-1 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors focus-within:ring-2 focus-within:ring-inset focus-within:ring-gray-900 dark:focus-within:ring-gray-100">
+            <label className="relative h-11 max-sm:h-10 max-sm:min-h-0! flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] max-sm:flex-1 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors focus-within:ring-2 focus-within:ring-inset focus-within:ring-gray-900 dark:focus-within:ring-gray-100">
               <span className="text-[13px] font-semibold leading-none text-gray-900 dark:text-gray-100">
                 {relativeDayLabel(day, t, lang)}
               </span>
