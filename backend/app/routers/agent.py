@@ -76,11 +76,14 @@ TOOL_MAP = {
 NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 
 # Push 3 (Manoj, 11 Oct 2026): the Copilot sends names, figures and shifts
-# to Anthropic, never a phone number or an e-mail address (/privacy says so).
+# to Anthropic, never a phone number or an e-mail address (/privacy says so),
+# and never a home address or a CPR number (21 Oct 2026, PR #234 port).
 # The tools return none (services/agent_tools.py). This is the second
 # barrier: every tool result passes through strip_contact_fields() before it
 # is streamed to the page or sent back to the model as a tool_result, so a
-# future tool that adds a contact field cannot leak it.
+# future tool that adds a contact field cannot leak it. The system prompt
+# tells the model these fields are left out on purpose, so "what's Hari's
+# number?" is not answered as if no number were on file.
 #
 # Keys are matched by SUBSTRING (push-3 review round 3, G2) on the key with
 # case and separators removed ("e-mail", "e_mail", "eMail" all read "email"),
@@ -99,6 +102,12 @@ NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 # not contact fields. Any key with "mobil" in it is a contact field (mobile,
 # mobilnummer, mobilepay_no, customer_mobilepay: a MobilePay number IS a
 # phone number) unless it is exempt under (ii).
+# 21 Oct 2026 (PR #234 port): also "address" (address, home_address,
+# homeAddress), "adresse" (adresse, hjemmeadresse) and "personnummer" by
+# substring, and "cpr" only as a WHOLE WORD (cpr, CPR, cpr_nr, cprNr,
+# CPR-nummer, cpr_number, staff_cpr). Never "cpr" as a substring: that would
+# strip basic_profit, specific_product and graphic_print, figures the
+# Copilot shows (the same class of bug as F1 below).
 # Exactly two exemptions (push-3 review F1: a substring rule on "mobile"
 # dropped "mobilepay" from query_revenue's payment_split, so MobilePay revenue
 # vanished from the "By payment" line, the RevenueCard and the tool_result
@@ -110,10 +119,13 @@ NO_PARAM_TOOLS = {"business_overview", "query_staff", "business_suggestions"}
 #   (ii) the payment method itself — the key with case and separators removed
 #        is mobilepay or mobilepayment(s) — or mobilepay + an aggregate
 #        (total, count, amount, revenue, sum, share, pct, percent, fee, fees).
-_CONTACT_SUBSTRINGS = ("phone", "email", "telefon", "tlf", "mail", "epost", "msisdn", "whatsapp")
+_CONTACT_SUBSTRINGS = (
+    "phone", "email", "telefon", "tlf", "mail", "epost", "msisdn", "whatsapp",
+    "address", "adresse", "personnummer",
+)
 _PHONE_WORDS = re.compile(
     r"_(?:tel(?:_?(?:no|nr))?|gsm(?:_?(?:no|nr))?|cell_?(?:number|no|nr)|mob_?(?:no|nr)"
-    r"|fax|sms_?(?:number|no|nr))_"
+    r"|fax|sms_?(?:number|no|nr)|cpr(?:_?(?:no|nr|number|nummer))?)_"
 )
 _MOBILEPAY_FIGURE = re.compile(
     r"mobilepay(?:ments?)?|mobilepay(?:total|count|amount|revenue|sum|share|pct|percent|fees?)"
@@ -146,10 +158,12 @@ def _is_contact_key(key) -> bool:
 
 
 def strip_contact_fields(value, _keep_keys: bool = False):
-    """A copy of `value` without any dict key that names a phone number or an
-    e-mail address (phone / email / mail / e-post / telefon / tlf / mobil...
-    in the key, any case, any separators; tel / gsm / fax ... as a whole
-    word), at any depth. Names, figures, shifts and the payment method
+    """A copy of `value` without any dict key that names a phone number, an
+    e-mail address, a home address or a CPR number (phone / email / mail /
+    e-post / telefon / tlf / mobil... / address / adresse / personnummer in
+    the key, any case, any separators; tel / gsm / fax / cpr ... as a whole
+    word, so basic_profit and specific_product stay), at any depth. Names,
+    figures, shifts and the payment method
     (mobilepay, mobile_pay, mobilepay_total ...) are kept, and so are the
     keys of payment_split and role_breakdown when their value is a figure."""
     if isinstance(value, dict):
@@ -1012,7 +1026,10 @@ def _claude_chat(req: ChatRequest, db, user):
         "- Call tools when users ask about specific data, periods, or details.\n"
         "- For general \"how's it going?\" → you already have the snapshot above, respond directly.\n"
         "- For specific queries like \"revenue this week\" or \"show expenses\" → use tools.\n"
-        "- NEVER guess or make up numbers.\n\n"
+        "- NEVER guess or make up numbers.\n"
+        "- Tool results leave out phone numbers, email addresses and home addresses on purpose "
+        "(privacy). If the owner asks for one, say the assistant isn't given contact details and "
+        "point them to the Khata or Staff page. Never say it isn't on file.\n\n"
 
         "## Response style\n"
         "- If something looks good, celebrate it briefly.\n"
@@ -1147,7 +1164,8 @@ def _claude_chat(req: ChatRequest, db, user):
                                 result = await run_in_threadpool(tool_fn, db, user.id)
                             else:
                                 result = await run_in_threadpool(tool_fn, db, user.id, **tool_input)
-                            # Never a phone number or e-mail to Anthropic.
+                            # Never a phone number, e-mail, home address or
+                            # CPR number to Anthropic.
                             result = strip_contact_fields(result)
                             yield f"event: tool_result\ndata: {json.dumps({'tool': tool_name, 'result': result})}\n\n"
                             tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": json.dumps(result)})

@@ -15,7 +15,10 @@ e-mail addresses — so this file pins:
   * end to end: what the fake Anthropic client RECEIVES in the tool_result
     holds the names but not the phone numbers or e-mails;
   * the second barrier: a tool that returns contact fields anyway (a future
-    tool) has them stripped before anything is streamed or sent.
+    tool) has them stripped before anything is streamed or sent;
+  * (21 Oct 2026, PR #234 port) home addresses and CPR numbers are stripped
+    too, "cpr" only as a whole word (basic_profit stays), and the system
+    prompt tells the model contact details are left out on purpose.
 """
 from __future__ import annotations
 
@@ -644,3 +647,110 @@ def test_no_real_tool_key_is_stripped_by_the_rule():
     assert stripped == [], stripped
     raw = {k: 1 for k in everything}
     assert agent_router.strip_contact_fields(raw) == raw
+
+
+# ─── home addresses and CPR numbers (PR #234 port, 21 Oct 2026) ─────
+#
+# Customer and staff addresses are stored, and a venue may hold a CPR number.
+# No Copilot tool returns one today; the second barrier must catch one that a
+# future tool adds, so it never reaches Anthropic (/privacy). Keys with
+# "address", "adresse" or "personnummer" in them are stripped by substring.
+# "cpr" is stripped only as a WHOLE WORD of the key: as a substring it would
+# also hide basic_profit, specific_product and graphic_print — figures the
+# Copilot shows (the F1 class of bug, like the MobilePay one above).
+#
+# The model is also told these fields are left out on purpose. Without that,
+# "what's Hari's number?" gets "I don't have a number for Hari", which reads
+# as "none on file".
+
+HOME_ADDRESS = "Testvej 99, 5000 Odense C"
+CPR_NUMBER = "010190-1234"
+
+STRIPPED_ADDRESS_AND_CPR = (
+    "Address", "address", "home_address", "homeAddress", "street_address", "adresse", "Adresse",
+    "hjemmeadresse", "kunde_adresse", "personnummer", "Personnummer", "cpr", "CPR", "cpr_number",
+    "cprNr", "CPR-nummer", "cpr_nr", "cpr_no", "cprnummer", "staff_cpr", "staffCpr",
+)
+
+# Keys that merely contain the letters c-p-r, and plain location fields.
+KEPT_NOT_ADDRESS_OR_CPR = (
+    "basic_profit", "basicProfit", "specific_product", "graphic_print", "city", "postal_code",
+)
+
+PRIVACY_PROMPT_LINE = (
+    "- Tool results leave out phone numbers, email addresses and home addresses on purpose "
+    "(privacy). If the owner asks for one, say the assistant isn't given contact details and "
+    "point them to the Khata or Staff page. Never say it isn't on file.\n"
+)
+
+
+def test_contact_fields_are_removed_at_any_depth():
+    # PR #234 test 1, against main's strip_contact_fields.
+    staff = {"staff": [{"name": "Ana", "phone": "+45 12 34 56 78", "email": "ana@example.dk", "role": "chef",
+                        "hours": 30}], "count": 1}
+    assert agent_router.strip_contact_fields(staff) == {
+        "staff": [{"name": "Ana", "role": "chef", "hours": 30}], "count": 1}
+
+    khata = [{"name": "Hari", "customer_phone": "555", "outstanding": 1200.0,
+              "entries": [{"note": "rice", "Address": "Vej 1"}]}]
+    assert agent_router.strip_contact_fields(khata) == [
+        {"name": "Hari", "outstanding": 1200.0, "entries": [{"note": "rice"}]}]
+
+    assert agent_router.strip_contact_fields({"cpr_number": "010101-1234", "E_Mail": "x", "total": 3}) == {"total": 3}
+
+
+def test_everything_else_passes_through_unchanged():
+    # PR #234 test 2, against main's strip_contact_fields.
+    result = {"revenue": 9000.0, "top_items": [{"name": "Momo", "qty": 41}], "ok": True, "note": None}
+    assert agent_router.strip_contact_fields(result) == result
+    assert agent_router.strip_contact_fields(5) == 5
+    assert agent_router.strip_contact_fields("text") == "text"
+    assert agent_router.strip_contact_fields(("a", {"b": 1})) == ["a", {"b": 1}]
+
+
+@pytest.mark.parametrize("key", STRIPPED_ADDRESS_AND_CPR)
+def test_every_address_and_cpr_spelling_is_stripped_at_any_depth(key):
+    assert agent_router.strip_contact_fields({key: HOME_ADDRESS, "name": "A"}) == {"name": "A"}
+    raw = {"data": {"rows": [{"name": "A", key: CPR_NUMBER}],
+                    "nested": {key: {"street": "Testvej 99"}, "total": 2},
+                    "deeper": [{"person": {key: HOME_ADDRESS, "role": "chef"}}]}}
+    assert agent_router.strip_contact_fields(raw) == {
+        "data": {"rows": [{"name": "A"}], "nested": {"total": 2}, "deeper": [{"person": {"role": "chef"}}]}}
+
+
+@pytest.mark.parametrize("key", KEPT_NOT_ADDRESS_OR_CPR)
+def test_names_that_only_look_like_cpr_or_address_are_kept(key):
+    raw = {key: 1250.0, "data": {"rows": [{key: "Odense"}], "nested": {key: {"total": 2}}}}
+    assert agent_router.strip_contact_fields(raw) == raw
+
+
+def test_the_model_is_told_contact_details_are_left_out_on_purpose(db, as_user, monkeypatch):
+    u = _seed(db)
+    as_user(u)
+    received, _events = _chat_with_tools(monkeypatch, [("query_staff", {})])
+    assert len(received) == 2
+    for call in received:  # both rounds: the tool request and the answer
+        system = call["system"]
+        assert isinstance(system, str), type(system)
+        assert "- NEVER guess or make up numbers.\n" + PRIVACY_PROMPT_LINE + "\n## Response style" in system
+
+
+def test_a_tool_that_returns_nested_address_and_cpr_is_stripped_before_anthropic(db, as_user, monkeypatch):
+    u = _seed(db)
+    as_user(u)
+    monkeypatch.setitem(agent_router.TOOL_MAP, "query_staff", lambda db, uid: {
+        "summary": "1 active staff members",
+        "data": {"staff": [{
+            "name": STAFF_NAME, "role": "server", "home_address": HOME_ADDRESS, "cpr_number": CPR_NUMBER,
+            "details": {"Adresse": HOME_ADDRESS, "CPR": CPR_NUMBER, "personnummer": CPR_NUMBER,
+                        "city": "Odense", "postal_code": "5000"},
+        }]},
+    })
+    received, events = _chat_with_tools(monkeypatch, [("query_staff", {})])
+    [sent] = _tool_results_sent(received)
+    assert json.loads(sent) == {"summary": "1 active staff members", "data": {"staff": [{
+        "name": STAFF_NAME, "role": "server", "details": {"city": "Odense", "postal_code": "5000"}}]}}
+    # Nothing Anthropic got, and nothing streamed to the page, holds them.
+    everything = json.dumps(received) + json.dumps(events)
+    for secret in (HOME_ADDRESS, "Testvej", CPR_NUMBER, "010190"):
+        assert secret not in everything, f"{secret!r} reached Anthropic or the stream"
