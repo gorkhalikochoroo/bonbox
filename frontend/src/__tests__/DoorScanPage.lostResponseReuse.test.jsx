@@ -164,7 +164,10 @@ beforeEach(() => {
   });
   stubProp(window, "AudioContext", { value: FakeAudioContext, writable: true });
   stubProp(HTMLMediaElement.prototype, "play", { value: () => Promise.resolve(), writable: true });
-  stubProp(HTMLMediaElement.prototype, "readyState", { get: () => 4 });
+  // Ready only once the page has really attached a stream to the preview (a
+  // stub that always said 4 hid the black-preview bug of 21 Oct; the attach
+  // contract itself is pinned in DoorScanPage.cameraLifecycle.test.jsx).
+  stubProp(HTMLMediaElement.prototype, "readyState", { get() { return this.srcObject ? 4 : 0; } });
   stubProp(HTMLVideoElement.prototype, "videoWidth", { get: () => 8 });
   stubProp(HTMLVideoElement.prototype, "videoHeight", { get: () => 8 });
   stubProp(HTMLCanvasElement.prototype, "getContext", {

@@ -327,7 +327,10 @@ describe("DoorScanPage camera — a slow camera start, readyState only once real
       expect(liveStreams()).toHaveLength(1);
       expect(videoEl().srcObject?.track.readyState).toBe("live");
 
-      // One loop: a held ticket is read and posted once.
+      // The scanner works on the camera that survived. (This read can't tell
+      // one frame loop from two: jsQR answers once and the debounce would
+      // hide a repeat. The rAF count after Stop below is what catches a
+      // second loop; it assumes nothing else on this page uses rAF.)
       qrQueue.push(QR_A);
       await waitFor(() => expect(postUrls()).toEqual([`/tickets/${TICKET_A}/scan`]), { timeout: 1500 });
 
@@ -347,4 +350,40 @@ describe("DoorScanPage camera — a slow camera start, readyState only once real
       expect(liveStreams()).toEqual([]);
     },
   );
+
+  // A cancelled start that FAILS late must stay silent too. Otherwise its
+  // error lands on the next idle screen: "camera access denied" after the
+  // host tapped Tilbage, or "camera busy" after a scan that worked.
+  const cameraFails = (i, name) =>
+    act(async () => { gum[i].reject(Object.assign(new Error(name), { name })); });
+
+  it("'Tilbage' while the camera is starting, then the permission is refused late → no stale 'access denied' banner on the next screen", async () => {
+    mount();
+    fireEvent.click(await screen.findByText(da.gkScanEyebrow));
+    fireEvent.click(await screen.findByText(da.scanBack));
+    await cameraFails(0, "NotAllowedError");
+    await sleep(50);
+
+    fireEvent.click(await screen.findByText(EVENT_A.name));
+    await screen.findByText(da.scanStart);
+    expect(screen.queryByText(da.scanCameraDeniedTitle)).toBeNull();
+    expect(screen.queryByText(da.scanCameraErrorTitle)).toBeNull();
+  });
+
+  it("double-tap Start: the second start answers, the dropped one fails late → after Stop no stale 'camera busy' banner", async () => {
+    mount();
+    fireEvent.click(await screen.findByText(EVENT_A.name));
+    const startBtn = await screen.findByText(da.scanStart);
+    fireEvent.click(startBtn);
+    fireEvent.click(startBtn);
+    await cameraAnswers(1, "current");
+    await cameraFails(0, "NotReadableError");
+    await screen.findByText(da.scanWaitingFirst);
+
+    fireEvent.click(screen.getAllByText(da.scanStop)[0]);
+    await sleep(50);
+    await screen.findByText(da.scanStart); // back on the idle screen for event A
+    expect(screen.queryByText(da.scanCameraErrorTitle)).toBeNull();
+    expect(liveStreams()).toEqual([]);
+  });
 });

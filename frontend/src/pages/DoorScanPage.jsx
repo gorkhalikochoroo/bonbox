@@ -912,6 +912,12 @@ export default function DoorScanPage() {
         return;
       }
 
+      // A ticket scan needs the event at the door. startScanner never opens a
+      // ticket scanner without one; this is the last line before the POST, so
+      // no path can check in a ticket for "any event" (the server does not
+      // check the event yet).
+      if (scanMode !== "gavekort" && !selectedEvent?.id) return;
+
       // Client-side wrong-event short-circuit (L4 optimization). Never fires in
       // gavekort mode — a gift-card scan carries no event id to match against.
       const parsed = decodeQrPayload(code.data);
@@ -968,7 +974,7 @@ export default function DoorScanPage() {
         return;
       }
       // Never two cameras: end one still held (every start button sits
-      // behind !scanning, so this is only a safety net).
+      // behind !scanning, so this is only a safety net; no test covers it).
       if (streamRef.current && streamRef.current !== stream) stopTracks(streamRef.current);
       streamRef.current = stream;
       // Normally null here: the preview <video> only mounts once scanning is
@@ -983,6 +989,8 @@ export default function DoorScanPage() {
       setScanning(true);
       lockPortrait();
       // One frame loop only: drop a frame still scheduled before starting.
+      // Safety net like the one above: no button reaches it today, and no
+      // test covers it.
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(() => {
         if (tickRef.current) tickRef.current();
