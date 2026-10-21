@@ -67,9 +67,10 @@ import { preSaveWarnings, minutesToDayTime, shiftSpan } from "../utils/shiftRule
 import { roleName } from "../utils/roleNames";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed, PHONE_H40, PHONE_CTRL } from "../components/ui";
-// Phone toolbar button: 40px, 13px label, 6px side padding — the five week
-// actions fit ONE row down to a 360px phone (icons hidden there, see below).
-const TOOL_PHONE = PHONE_CTRL + " max-sm:px-1.5";
+// Phone toolbar button: 40px, 13px label, 6px side padding, never narrower
+// than 40px (a 360px Danish "Del" beside "Ingen vagter" measured 36) — the
+// five week actions fit ONE row down to a 360px phone (icons hidden there).
+const TOOL_PHONE = PHONE_CTRL + " max-sm:px-1.5 max-sm:min-w-10";
 // THE modal container. ShiftModal used to hand-roll a vertically-centred card
 // with no max-height and no internal scroller. It fit a 390×844 portrait phone
 // with room to spare — so state the failure accurately: it broke wherever the
@@ -3189,8 +3190,10 @@ export default function StaffSchedulePage() {
                   // blank grid was a claim about shifts that don't exist.
                   <span className="text-gray-500 dark:text-gray-400">{t("schedNoShiftsYet", "No shifts")}</span>
                 ) : (
-                  <span className="inline-flex items-center gap-1">
-                    <Icon name="CheckCircle2" size={14} />
+                  // Phone: text only, like Add/Copy/Auto/Share beside it — the
+                  // word says the state; inline so it sits on their baseline.
+                  <span className="inline-flex items-center gap-1 max-sm:inline">
+                    <Icon name="CheckCircle2" size={14} className="max-sm:hidden" />
                     {t("publishedState", "Published")}
                   </span>
                 )}
@@ -3282,7 +3285,7 @@ export default function StaffSchedulePage() {
                   fixes it: the team list, where every row has "Invitér". */}
           {portalReach && portalReach.staff > 0 && (
             !team ? null : team.joined > 0 ? (
-              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-gray-500 dark:text-gray-400 max-sm:mt-1 max-sm:text-[13px]">
+              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-gray-500 dark:text-gray-400 max-sm:mt-1 max-sm:-mb-2 max-sm:text-[13px]">
                 {/* No leading icon: a 14px Lucide "Smartphone" is a bare rounded
                     rectangle at this size and read as a missing-glyph box rather
                     than an icon. */}
@@ -3310,7 +3313,7 @@ export default function StaffSchedulePage() {
                 </span>
               </div>
             ) : (
-              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-amber-700 dark:text-amber-400 max-sm:mt-1 max-sm:text-[13px]">
+              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-amber-700 dark:text-amber-400 max-sm:mt-1 max-sm:-mb-2 max-sm:text-[13px]">
                 <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-500" aria-hidden="true" />
                 <span>
                   {t("scheduleStaffNoneOpened")}
@@ -6505,8 +6508,11 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                   <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
                     {member.name}
                   </div>
-                  <div className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1.5 min-w-0">
-                    <span className="truncate">{roleName(member.role, t)}</span>
+                  {/* Phone: the role is never cut ("Barten…" beside the
+                      contract chip and a shift pill): the chip takes the next
+                      line when both do not fit. sm: and up unchanged. */}
+                  <div className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1.5 min-w-0 max-sm:flex-wrap max-sm:gap-y-0.5">
+                    <span className="truncate max-sm:overflow-visible max-sm:whitespace-normal">{roleName(member.role, t)}</span>
                     {contractLabel(member.contract_type, t) && (
                       <span className="px-1 py-px rounded bg-gray-100 dark:bg-gray-700/60 text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap flex-shrink-0">
                         {contractLabel(member.contract_type, t)}
@@ -7131,7 +7137,11 @@ function OpenShiftsPanel({ weekStart, t }) {
             {t("openShiftsSubtitle", "Slots anyone can pick up — first to take it, gets it.")}
           </p>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => setShowCreate(true)} className={"shrink-0 " + PHONE_CTRL}>
+        {/* The "+" is a child, not iconLeft: Button wraps children in one
+            <span>, where preflight's svg{display:block} put the "+" on a line
+            of its own. Phone: that span is an inline row ("+ Open shift" on
+            one 40px line); sm: and up unchanged. */}
+        <Button variant="secondary" size="sm" onClick={() => setShowCreate(true)} className={"shrink-0 " + PHONE_CTRL + " max-sm:[&>span]:inline-flex max-sm:[&>span]:items-center max-sm:[&>span]:gap-1.5"}>
           <Plus className="w-4 h-4" />
           {t("openShiftAdd", "Open shift")}
         </Button>

@@ -89,9 +89,12 @@ export default function SickCallNotificationCard({ refreshKey } = {}) {
     (a) => a.status !== "pending" && !a.replacement_staff_name && a.shift_start,
   ).length;
 
+  // Phone (< 640px): 12px inset and ONE amber card — each absence is a row of
+  // it with a hairline between rows, not a white card inside the amber one (a
+  // box in a box, 228px for one sick call). sm: and up unchanged.
   return (
-    <div className="bg-amber-50/70 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800/50 rounded-xl p-4 sm:p-5">
-      <div className="flex items-start gap-2 mb-3">
+    <div className="bg-amber-50/70 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800/50 rounded-xl p-4 sm:p-5 max-sm:p-3">
+      <div className="flex items-start gap-2 mb-3 max-sm:mb-2">
         <CalendarOff className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-300 mt-0.5" strokeWidth={2} aria-hidden />
         <div className="flex-1">
           <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
@@ -101,7 +104,7 @@ export default function SickCallNotificationCard({ refreshKey } = {}) {
               approve/decline — one the owner entered (acknowledged) only
               needs cover, and counting it as "afventer" offered buttons the
               rows don't have. */}
-          <p className="text-[12px] text-amber-700 dark:text-amber-300/80 mt-0.5">
+          <p className="text-[12px] text-amber-700 dark:text-amber-300/80 mt-0.5 max-sm:text-[13px]">
             {[
               pendingCount > 0 &&
                 t("absenceCardSubtitle", "{n} pending — approve or decline.").replace("{n}", pendingCount),
@@ -111,7 +114,7 @@ export default function SickCallNotificationCard({ refreshKey } = {}) {
           </p>
         </div>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-2 max-sm:space-y-0">
         {absences.map((a) => (
           <AbsenceRow key={a.id} absence={a} onChanged={fetchAbsences} t={t} lang={lang} />
         ))}
@@ -121,6 +124,14 @@ export default function SickCallNotificationCard({ refreshKey } = {}) {
 }
 
 
+
+// Phone row of the one amber card: no own surface, border or inset; a hairline
+// under every row but the last (the amber card's own edge closes the list).
+const PHONE_ABSENCE_ROW =
+  "max-sm:bg-transparent max-sm:dark:bg-transparent max-sm:rounded-none max-sm:px-0 " +
+  "max-sm:py-2.5 max-sm:first:pt-0 max-sm:last:pb-0 " +
+  "max-sm:border-x-0 max-sm:border-t-0 max-sm:last:border-b-0 " +
+  "max-sm:border-amber-200 max-sm:dark:border-amber-800/50";
 function AbsenceRow({ absence, onChanged, t, lang }) {
   const [showCover, setShowCover] = useState(false);
   const [candidates, setCandidates] = useState(null);
@@ -199,23 +210,30 @@ function AbsenceRow({ absence, onChanged, t, lang }) {
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800/40 rounded-xl px-3 py-2.5 border border-amber-100 dark:border-amber-900/20">
-      <div className="flex items-center gap-2 flex-wrap">
+    <div className={"bg-white dark:bg-gray-800/40 rounded-xl px-3 py-2.5 border border-amber-100 dark:border-amber-900/20 " + PHONE_ABSENCE_ROW}>
+      {/* Phone (< 640px): name · kind · status on the first line, then the
+          day, the shift and the reason as ONE 13px line — the status chip sat
+          alone on a line of its own and the reason took a third. sm: and up
+          unchanged (the phone copy of the reason is sm:hidden). */}
+      <div className="flex items-center gap-2 flex-wrap max-sm:gap-y-1">
         <span className="font-semibold text-sm text-gray-900 dark:text-gray-100">
           {absence.staff_name || t("staff") || "Staff"}
         </span>
-        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 max-sm:order-1">
           {kindLabel(absence.kind, t)}
         </span>
-        <span className="text-xs text-gray-500 dark:text-gray-400">
+        <span className="text-xs text-gray-500 dark:text-gray-400 max-sm:order-3 max-sm:basis-full max-sm:text-[13px] max-sm:leading-snug">
           {dateText}{shiftText ? ` · ${shiftText}` : ""}
+          {absence.reason && (
+            <span className="sm:hidden text-gray-600 dark:text-gray-400"> · {absence.reason}</span>
+          )}
         </span>
-        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${statusBadge}`}>
+        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${statusBadge} max-sm:order-2`}>
           {statusText}
         </span>
       </div>
       {absence.reason && (
-        <div className="text-xs text-gray-600 dark:text-gray-400 mt-1 leading-snug">
+        <div className="text-xs text-gray-600 dark:text-gray-400 mt-1 leading-snug max-sm:hidden">
           {absence.reason}
         </div>
       )}
@@ -232,6 +250,7 @@ function AbsenceRow({ absence, onChanged, t, lang }) {
         </div>
       )}
       {err && <div className="text-[11px] text-red-600 dark:text-red-400 mt-1">{err}</div>}
+      {/* Phone: the three answers are 40px with 13px labels (27-Sep rule). */}
       {!absence.replacement_staff_name && (absence.status === "pending" || absence.shift_start) && (
         <div className="flex items-center gap-2 mt-2 flex-wrap">
           {absence.status === "pending" && (
@@ -239,14 +258,14 @@ function AbsenceRow({ absence, onChanged, t, lang }) {
               <button
                 onClick={acknowledge}
                 disabled={busy}
-                className="text-xs font-semibold px-2.5 py-1 rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800/40 disabled:opacity-50 transition"
+                className="text-xs font-semibold px-2.5 py-1 rounded-md max-sm:h-10 max-sm:min-h-0! max-sm:px-3 max-sm:text-[13px] bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800/40 disabled:opacity-50 transition"
               >
                 {t("absenceApprove", "Approve")}
               </button>
               <button
                 onClick={decline}
                 disabled={busy}
-                className="text-xs font-medium px-2.5 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition"
+                className="text-xs font-medium px-2.5 py-1 rounded-md max-sm:h-10 max-sm:min-h-0! max-sm:px-3 max-sm:text-[13px] bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition"
               >
                 {t("absenceDecline", "Decline")}
               </button>
@@ -256,7 +275,7 @@ function AbsenceRow({ absence, onChanged, t, lang }) {
             <button
               onClick={openCover}
               disabled={busy}
-              className="text-xs font-medium px-2.5 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700/50 disabled:opacity-50 transition"
+              className="text-xs font-medium px-2.5 py-1 rounded-md max-sm:h-10 max-sm:min-h-0! max-sm:px-3 max-sm:text-[13px] bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700/50 disabled:opacity-50 transition"
             >
               {t("sickCallFindCover") || "Find cover"}
             </button>
