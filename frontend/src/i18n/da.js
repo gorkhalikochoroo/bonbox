@@ -4843,7 +4843,7 @@ export const da = {
     totalItems: "Antal varer", freshItems: "Friskvarer", categories: "Kategorier",
     priced: "Prissat", stockCost: "Lageromkostning", potentialRevenue: "Potentiel omsætning",
     invKpiItemsShort: "Varer",
-    invKpiLowShort: "Lav beholdning",
+    invKpiLowShort: "Lavt lager",
     invKpiFreshShort: "Friskvarer",
     potentialProfit: "Potentiel fortjeneste", avgMargin: "Gns. margin",
     invested: "investeret", ifAllSold: "hvis alt sælges", itemsPriced: "varer prissat",

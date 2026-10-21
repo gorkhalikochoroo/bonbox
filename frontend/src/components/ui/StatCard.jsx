@@ -45,9 +45,12 @@
  *   `strip` — the tile becomes one CELL of a strip card: no own border,
  *   radius or surface, hairline dividers drawn as a right/bottom 1px shadow
  *   (the grid wraps them in one card with PHONE_STRIP, whose overflow-hidden
- *   clips the outer edge — the StatStrip trick), 8px cell padding, a 12px
- *   sentence-case one-line label and an 18px value on a 24px line, no
- *   chevron. Values share a top line because every label is one line.
+ *   clips the outer edge — the StatStrip trick), 8px cell padding, a 13px
+ *   sentence-case one-line label (16px line), an 18px value on a 24px line
+ *   with a 13px money token, and a 13px helper — nothing under 13px on a
+ *   phone (27-Sep rule). A clickable cell keeps its 12px chevron beside the
+ *   label: it is the only sign the cell opens something. Values share a top
+ *   line because every label is one line.
  *   `shortLabel` — a phone-only label for a full label wider than its cell
  *   (rendered in a sm:hidden span; the full label keeps a max-sm:hidden span).
  *
@@ -107,8 +110,11 @@ export default function StatCard({
   // strip: 18px on a 24px line on a phone (StatStrip's value); from sm: the
   // same 26px leading-tight as every tile (leading-tight sets --tw-leading,
   // which text-lg's line-height defers to).
+  // The money token (Amount's "kr.", max(11px, 0.62em) = 11.2px at 18px) is
+  // 13px in a strip cell, on a 1-line box: at the inherited 24px line it
+  // baseline-shifted and grew the value line to 26px.
   const valueSizeClass = strip
-    ? "text-lg max-sm:leading-6 sm:text-[26px]"
+    ? "text-lg max-sm:leading-6 sm:text-[26px] max-sm:[&_[data-amount-token]]:text-[13px] max-sm:[&_[data-amount-token]]:leading-none"
     : dense
     ? "text-[20px] sm:text-[26px]"
     : "text-[22px] sm:text-[26px]";
@@ -119,10 +125,11 @@ export default function StatCard({
   const labelClass = (selected
     ? "text-[11px] font-semibold uppercase tracking-wider text-gray-900 dark:text-gray-100"
     : "text-[11px] font-semibold uppercase tracking-wider text-gray-400") +
-    // Strip cell on a phone: 12px sentence case, one line. Gray-500 (the
-    // Amount token tier, 4.8:1) — the base gray-400 measured ~2.4:1 on a card.
+    // Strip cell on a phone: 13px sentence case on a 16px line, one line.
+    // Gray-500 (the Amount token tier, 4.8:1) — the base gray-400 measured
+    // ~2.4:1 on a card.
     (strip
-      ? " max-sm:min-w-0 max-sm:truncate max-sm:normal-case max-sm:tracking-normal max-sm:text-xs max-sm:font-medium" +
+      ? " max-sm:min-w-0 max-sm:truncate max-sm:normal-case max-sm:tracking-normal max-sm:text-[13px] max-sm:leading-4 max-sm:font-medium" +
         (selected ? "" : " max-sm:text-gray-500 max-sm:dark:text-gray-400")
       : "");
 
@@ -176,7 +183,7 @@ export default function StatCard({
           number down and the row's figures landed on different baselines — the
           ragged look. Tiles are wide enough not to wrap from sm: up, so the
           reservation is phone-only and desktop stays pixel-identical. */}
-      <div className={"flex items-start justify-between gap-2 min-h-[2.125rem] sm:min-h-0" + (strip ? " max-sm:min-h-0" : "")}>
+      <div className={"flex items-start justify-between gap-2 min-h-[2.125rem] sm:min-h-0" + (strip ? " max-sm:min-h-0 max-sm:items-center max-sm:gap-1" : "")}>
         <p className={labelClass}>
           {shortLabel
             ? <><span className="sm:hidden">{shortLabel}</span><span className="max-sm:hidden">{label}</span></>
@@ -187,8 +194,7 @@ export default function StatCard({
             size={12}
             className={
               "text-gray-400 dark:text-gray-500 transition-transform shrink-0 " +
-              chevronRotation +
-              (strip ? " max-sm:hidden" : "")
+              chevronRotation
             }
             aria-hidden="true"
           />
@@ -206,7 +212,7 @@ export default function StatCard({
         {value}
       </p>
       {helper && (
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
+        <p className={"text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-snug" + (strip ? " max-sm:text-[13px]" : "")}>
           {helper}
         </p>
       )}

@@ -42,6 +42,8 @@
  *     background clipped inside a transparent border, not a smaller button.
  *   Both are 40px with 13px text on a phone (index.css's global 44px touch
  *   floor is released for them) — 44px pills read as slabs at phone width.
+ *   A segment is 40px INSIDE the segmented row's 1px border (a 42px row): at
+ *   38px the border ate the last 2px of every target (21 Oct 2026).
  *   Every phone class is `max-sm:`, so from sm: up the pill row renders
  *   exactly as before — tablet and desktop are unchanged by construction.
  *
@@ -55,8 +57,10 @@
 import React, { useEffect, useRef } from "react";
 
 const PHONE_ROW = {
+  // gap-5, not 6: with every tab at least 40px wide (PHONE_TAB below) the
+  // four Danish Reservations tabs still fit a 360px row without scrolling.
   underline:
-    "max-sm:flex-nowrap max-sm:gap-6 max-sm:overflow-x-auto max-sm:-mx-4 max-sm:px-4 " +
+    "max-sm:flex-nowrap max-sm:gap-5 max-sm:overflow-x-auto max-sm:-mx-4 max-sm:px-4 " +
     "max-sm:border-b max-sm:border-[rgb(var(--surface-line))] " +
     "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
   segmented:
@@ -69,7 +73,8 @@ const PHONE_ROW = {
 const PHONE_TAB = {
   underline: {
     base:
-      "max-sm:h-10 max-sm:min-h-0! max-sm:px-0 max-sm:rounded-none max-sm:text-[13px] " +
+      // min-w-10: a short label ("Borde") still gets a 40px-wide target.
+      "max-sm:h-10 max-sm:min-h-0! max-sm:min-w-10 max-sm:px-0 max-sm:rounded-none max-sm:text-[13px] " +
       "max-sm:bg-transparent max-sm:dark:bg-transparent",
     on: "max-sm:text-gray-900 max-sm:dark:text-white max-sm:shadow-[inset_0_-2px_0_0_currentColor]",
     // gray-600, not gray-500: an underline row sits on the page, which is
@@ -78,7 +83,7 @@ const PHONE_TAB = {
   },
   segmented: {
     base:
-      "max-sm:flex-1 max-sm:h-[38px] max-sm:min-h-0! max-sm:px-2 max-sm:text-[13px] max-sm:rounded-lg " +
+      "max-sm:flex-1 max-sm:h-10 max-sm:min-h-0! max-sm:px-2 max-sm:text-[13px] max-sm:rounded-lg " +
       "max-sm:border-[3px] max-sm:border-transparent max-sm:bg-clip-padding",
     on: "max-sm:text-white max-sm:dark:bg-gray-600 max-sm:dark:text-white",
     off: "max-sm:bg-transparent max-sm:dark:bg-transparent max-sm:text-gray-600 max-sm:dark:text-gray-300",
