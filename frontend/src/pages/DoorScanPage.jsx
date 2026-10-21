@@ -217,6 +217,13 @@ function unlockPortrait() {
   } catch { /* ignore */ }
 }
 
+// Switch a camera stream off (the camera light goes out). Never throws.
+function stopTracks(stream) {
+  try {
+    stream?.getTracks().forEach((tr) => tr.stop());
+  } catch { /* ignore */ }
+}
+
 // ── Camera availability detection ────────────────────────────────────
 // If the device has zero video inputs (desktop without webcam), the
 // brief says to hide the start button entirely. We probe via
@@ -588,6 +595,13 @@ export default function DoorScanPage() {
   // that answer — or the timeout — is in.
   const inFlightRef = useRef(new Set());
   const audioRef = useRef(null);
+  // The camera start answers long after the tap that began it, so it reads
+  // the mode and the chosen event from these mirrors (what the page shows
+  // NOW), not from the values its closure captured at the tap.
+  const scanModeRef = useRef(scanMode);
+  const selectedEventRef = useRef(selectedEvent);
+  useEffect(() => { scanModeRef.current = scanMode; }, [scanMode]);
+  useEffect(() => { selectedEventRef.current = selectedEvent; }, [selectedEvent]);
 
   // ── Gavekort redeem sheet ──────────────────────────────────────────
   // When a gavekort QR is scanned we open a redeem sheet (show-then-redeem).
@@ -918,7 +932,17 @@ export default function DoorScanPage() {
   }, [selectedEvent, submitScan, pushHistory, t, scanMode]);
 
   // ── Camera lifecycle ───────────────────────────────────────────────
+  // Every start takes a number; every stop (unmount included) invalidates it.
+  // getUserMedia can wait seconds on the permission prompt, and meanwhile
+  // "Start scanner", "Tilbage" and "Skift arrangement" are all still live. A
+  // start that answers after a stop or after a newer start switches its own
+  // camera off and never opens the scanner. Otherwise the camera stays on
+  // after Stop or after leaving the page, a double-tapped Start leaves a
+  // second camera and frame loop running, or a ticket scanner comes up with
+  // no event chosen and checks in tickets from any of the owner's events.
+  const startGenRef = useRef(0);
   const startScanner = useCallback(async () => {
+    const gen = ++startGenRef.current;
     setCameraError(null);
     // Audio context must be created on user gesture — this click counts.
     if (!audioRef.current) audioRef.current = makeAudioFeedback();
@@ -933,20 +957,38 @@ export default function DoorScanPage() {
         },
         audio: false,
       });
+      // A stop or a newer start came first → this camera is not wanted.
+      // Second, independent guard: a ticket scanner needs an event. If the
+      // page is in ticket mode with none chosen by the time the camera
+      // answers, whatever path led there, switch off instead of scanning.
+      const cancelled = gen !== startGenRef.current;
+      const ticketWithoutEvent = scanModeRef.current !== "gavekort" && !selectedEventRef.current;
+      if (cancelled || ticketWithoutEvent) {
+        stopTracks(stream);
+        return;
+      }
+      // Never two cameras: end one still held (every start button sits
+      // behind !scanning, so this is only a safety net).
+      if (streamRef.current && streamRef.current !== stream) stopTracks(streamRef.current);
       streamRef.current = stream;
+      // Normally null here: the preview <video> only mounts once scanning is
+      // true, and the effect below attaches the stream then.
       const video = videoRef.current;
       if (video) {
         video.srcObject = stream;
         video.setAttribute("playsinline", "true");
         await video.play().catch(() => { /* autoplay may need user gesture */ });
+        if (gen !== startGenRef.current) return; // stopped while play() was pending; stopScanner already ended the tracks
       }
       setScanning(true);
       lockPortrait();
-      // Kick off the scan loop on next tick to ensure videoRef is ready.
+      // One frame loop only: drop a frame still scheduled before starting.
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(() => {
         if (tickRef.current) tickRef.current();
       });
     } catch (err) {
+      if (gen !== startGenRef.current) return; // a cancelled start has nothing to report
       const name = err?.name || "";
       let key = "scanCameraGenericError";
       let fallback = "Kunne ikke åbne kameraet.";
@@ -965,14 +1007,13 @@ export default function DoorScanPage() {
   }, []);
 
   const stopScanner = useCallback(() => {
+    startGenRef.current += 1; // cancels a start that is still waiting for the camera
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
     if (streamRef.current) {
-      try {
-        streamRef.current.getTracks().forEach((tr) => tr.stop());
-      } catch { /* ignore */ }
+      stopTracks(streamRef.current);
       streamRef.current = null;
     }
     const video = videoRef.current;
@@ -985,6 +1026,22 @@ export default function DoorScanPage() {
     frameCountRef.current = 0;
   }, []);
 
+  // ── Attach the stream AFTER the <video> exists ─────────────────────
+  // The preview element is rendered behind `{scanning && …}`, so while
+  // startScanner runs (scanning still false) videoRef.current is null. Before
+  // this effect the element then mounted with no srcObject, readyState never
+  // reached HAVE_ENOUGH_DATA and the jsQR tick returned on every frame: black
+  // preview, no scans, no error. This runs in the commit where the node exists.
+  useEffect(() => {
+    if (!scanning) return;
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (!video || !stream || video.srcObject === stream) return;
+    video.srcObject = stream;
+    video.setAttribute("playsinline", "true");
+    video.play().catch(() => { /* autoplay may need a user gesture */ });
+  }, [scanning]);
+
   // ── Gavekort scan entry ────────────────────────────────────────────
   // Opened from the no-event landing tile. No event needed — flip into
   // gavekort mode and open the SAME camera loop; submitScan routes a gavekort
@@ -994,14 +1051,18 @@ export default function DoorScanPage() {
     setCameraError(null);
     setHistory([]);
     setScanMode("gavekort");
+    scanModeRef.current = "gavekort"; // the start below must already see gavekort mode
     startScanner();
   }, [startScanner]);
 
   // Leave gavekort mode back to the ticket landing (idle "back" action).
+  // "Tilbage" is tappable while the camera is still starting: stopScanner
+  // cancels that start, so it can't open a ticket scanner with no event.
   const exitGavekort = useCallback(() => {
+    stopScanner();
     setScanMode("ticket");
     setCameraError(null);
-  }, []);
+  }, [stopScanner]);
 
   // Stop the camera and always return to the ticket landing.
   const handleStop = useCallback(() => {
