@@ -949,22 +949,14 @@ body.modal-open {
    family sitting under gray-tinted cards. The dark ground is ladder-owned:
    one near-black (#111827) for all four themes. See the ladder block. */
 
-/* The landing page paints its own full-bleed bands on white, but body carries
-   horizontal safe-area padding (the body rule near the top of this file). On a
-   notched phone in landscape, body's own background shows through that ~44px
-   inset as a stripe down BOTH sides — visually identical to a border, and part
-   of the complaint that took five passes to pin down. Match body to the page
-   so the inset is invisible.
-
-   MUST stay below the theme rules above: `:root[data-theme="calm"] body` is
-   specificity 0,1,2 and would otherwise beat this. `:root` here brings this to
-   0,2,2 so it wins on both specificity and order, for every theme at once.
-   Dark mode is exempt — the landing page is light-only.
-   html too, since the light ground became paper (12 Oct 2026): html paints the
-   overscroll / rubber-band area, and the landing is a white page — it must not
-   show a cream band when an iPhone bounces past its top or bottom. */
-:root:not(.dark) body:has([data-page="landing"]) { background-color: #fff; }
-:root:not(.dark):has([data-page="landing"]) { background-color: #fff; }
+/* The landing's ground (22 Oct 2026, landing v6, PORT_PLAN 1.7). The old landing
+   was a white page, and two rules here painted html and body white under
+   [data-page="landing"] (body's safe-area inset and the overscroll band must
+   match the page). The v6 landing is paper with night bands: "/" and "/v2" are
+   paper routes (utils/themeColor.js PAPER_PATHS, index.html's pre-paint), and
+   its own stylesheet paints html and body paper while it is mounted, in every
+   theme (components/landing/v6/landingV6.css, `:root:has(.lp6)`). The white
+   rules are gone with the white page. */
 
 /* WHITE-PAGE GROUND (12 Oct 2026). The light ground became paper, and html +
    body paint it — including body's safe-area padding (a strip above the page
@@ -978,14 +970,10 @@ body.modal-open {
 :root.bb-page-white:not(.dark),
 :root.bb-page-white:not(.dark) body { background-color: #fff; }
 
-/* The landing header is a 66px sticky bar and html sets scroll-behavior:
-   smooth, but nothing set scroll-padding — so every in-page anchor (the
-   phone panel's entire purpose) landed with its heading tucked under the
-   bar. Scoped to the landing page and to widths where the bar is the only
-   chrome above the content. */
-@media (max-width: 859px) {
-  html:has([data-page="landing"]) { scroll-padding-top: 74px; }
-}
+/* The old landing's 66px sticky bar needed `scroll-padding-top: 74px` on html
+   under 859px. The v6 landing keeps its price anchor clear of its own bar
+   itself (#pricing scroll-margin-top in landingV6.css), so that rule left with
+   the old page (22 Oct 2026). */
 
 /* ═══════════════════════════════════════════════════════════════════════
    BRAND GREEN — BonBox identity accent  (founder decision, Sep 2026)

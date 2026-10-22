@@ -21,8 +21,9 @@ import { isGuestSurface } from "../lib/guestSurface";
  *
  * LIGHT is BonBox paper (#f6f4ec) since 12 Oct 2026, but ONLY on a route that
  * is known to draw on the paper: the owner app (every page inside <Layout />),
- * the paper auth screens and the schedule wall screen — PAPER_PATHS /
- * PAPER_PREFIXES below. Everything else is white: the landing, every guest
+ * the paper auth screens, the schedule wall screen and, since the v6 landing
+ * (22 Oct 2026), the landing itself — PAPER_PATHS / PAPER_PREFIXES below.
+ * Everything else is white: every guest
  * page (incl. the vanity /<slug> booking page, which a path list could never
  * enumerate), the staff portal, and the full-screen pages that paint their own
  * ground (the host stand, the /stand pairing screen, onboarding…). The list is
@@ -44,8 +45,13 @@ export const THEME_COLOR = Object.freeze({ light: "#f6f4ec", dark: "#1f2937", pa
  *   - /staff/schedule/stand, the schedule wall screen: no chrome, but it draws
  *     on the body like the in-app schedule;
  *   - /staff, Vagtplan's short address: it only redirects, to the schedule or
- *     to /login, both paper.
- * NOT here (white, by being absent): "/", /v2, /join, /onboarding,
+ *     to /login, both paper;
+ *   - "/" and /v2, the v6 landing (PORT_PLAN 1.7): its ground is paper with
+ *     night bands; while the story runs, its scroll engine writes the night
+ *     colour over the bar and puts paper back (components/landing/v6/engine.js).
+ *     A signed-in owner on "/" is redirected home, also paper. Both stay in
+ *     LIGHT_ONLY_PATHS: the page has no dark styling.
+ * NOT here (white, by being absent): /join, /onboarding,
  * /getting-started (gray-50 full-screen), /login/magic, /login/claim, legal,
  * /reservations/stand and /stand/<token> (the host stand's own gray-50 page),
  * /stand (its own gradient), /s/ /r/ /e/ /t/ /g/ /accept-invite/ and the
@@ -54,6 +60,7 @@ export const THEME_COLOR = Object.freeze({ light: "#f6f4ec", dark: "#1f2937", pa
  * Keep equal to index.html's pre-paint copy (same test).
  */
 export const PAPER_PATHS = Object.freeze([
+  "/", "/v2",
   "/login", "/register", "/forgot-password", "/verify-email", "/contact", "/staff/schedule/stand", "/staff",
   "/dashboard", "/sales", "/events", "/reservations", "/gavekort", "/scan", "/expenses", "/inventory",
   "/staffing", "/weather", "/waste", "/weekly-report", "/vat-report", "/reports", "/feedback", "/cashbook",
@@ -81,7 +88,8 @@ export const isWhitePagePath = (path) => !isPaperPath(path);
 
 /**
  * Routes whose page has no dark styling at all (0 `dark:` classes): the
- * landing page (/ and its /v2 alias), the staff join screen, the door-tablet
+ * landing page (/ and its /v2 alias; paper in light, and its stylesheet keeps
+ * the paper under a stored dark theme too), the staff join screen, the door-tablet
  * pairing screen and the magic-link / claim screens. Exact paths: /stand/<token>
  * is the (dark-aware) reservation book. Keep equal to index.html's copy.
  */

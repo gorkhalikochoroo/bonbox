@@ -20,7 +20,10 @@ import CookieConsent, { MARKETING_TEXT, getCookieConsent } from "../components/C
 import CookiePolicyPage from "../pages/CookiePolicyPage";
 import PrivacyPolicyPage from "../pages/PrivacyPolicyPage";
 import FooterV2 from "../components/landing/v2/FooterV2";
+import FooterV6 from "../components/landing/v6/Footer";
 import { LanguageProvider } from "../hooks/useLanguage";
+import { da } from "../i18n/da";
+import { en } from "../i18n/en";
 import {
   captureSignupRef, clearSignupRef, watchCookieConsentForSignupRef,
 } from "../utils/signupRef";
@@ -109,6 +112,19 @@ describe("landing footer", () => {
     renderWithBanner(<FooterV2 />, "en");
     fireEvent.click(screen.getByRole("button", { name: "Cookie settings" }));
     await waitFor(() => expect(screen.getAllByRole("switch")).toHaveLength(3));
+  });
+
+  // The front door since landing v6 (port step 7): its footer carries the same button (removal audit item 5).
+  it("the v6 landing footer: Cookieindstillinger reopens the drawer (da and en)", async () => {
+    const t = (code) => (k) => (code === "da" ? da : en)[k] || k;
+    for (const [code, name] of [["da", "Cookieindstillinger"], ["en", "Cookie settings"]]) {
+      acceptedAll();
+      const view = renderWithBanner(<FooterV6 t={t(code)} isAndroid={false} />, code);
+      expect(screen.queryAllByRole("switch")).toHaveLength(0);
+      fireEvent.click(screen.getByRole("button", { name }));
+      await waitFor(() => expect(screen.getAllByRole("switch")).toHaveLength(3));
+      view.unmount();
+    }
   });
 });
 

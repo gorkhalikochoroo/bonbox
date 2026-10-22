@@ -20,8 +20,7 @@ import { LanguageProvider, detectInitialLanguage, useLanguage } from "./hooks/us
 import { ConfirmProvider } from "./hooks/useConfirm";
 import { ToastProvider } from "./hooks/useToast";
 import { useThemeColorSync } from "./hooks/useThemeColorSync";
-import LandingV2Page from "./pages/LandingV2Page";
-import { isLandingPath, mightBeSignedIn } from "./lib/landingBoot";
+import { isLandingPath, landingFirstPaint, mightBeSignedIn } from "./lib/landingBoot";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AlertTriangle } from "lucide-react";
 import Button from "./components/ui/Button";
@@ -355,6 +354,19 @@ function lazyRetry(importFn) {
 // /dashboard never need to download these. Saves ~250KB in the main
 // bundle (LandingPage alone is heavy with marketing animations).
 const LandingPage = lazyRetry(() => import("./pages/LandingPage"));
+// The front door: the v6 landing (port step 7, PORT_PLAN 1.5 / 1.9). Its own lazy chunk (markup, scroll engine,
+// stylesheet, the Inter 300 file and the picture references), so app users and the iOS owner bundle no longer carry
+// the landing in the entry. A logged-out visitor on "/" or "/v2" starts the chunk with the page: index.html gets a
+// modulepreload for it (vite.config.js preloadLanding), and the import starts here, while App.jsx is evaluated,
+// before React renders. In the Vagtplan build the landing never renders ("/" goes to the portal or /join), so the
+// import is folded away at build time and the chunk is not emitted into the app; /v2 there goes to "/" as well.
+// The old landing (pages/LandingV2Page.jsx, components/landing/v2) stays in the tree, unrouted, until its own
+// clean-up release.
+const loadLanding = () => import("./pages/LandingV6Page");
+const LandingV6Page = import.meta.env.VITE_APP_MODE === "scheduler"
+  ? function SchedulerLanding() { return <Navigate to="/" replace />; }
+  : lazyRetry(loadLanding);
+if (import.meta.env.VITE_APP_MODE !== "scheduler" && landingFirstPaint()) loadLanding().catch(() => {});
 const LoginPage = lazyRetry(() => import("./pages/LoginPage"));
 const LoginMagicPage = lazyRetry(() => import("./pages/LoginMagicPage"));
 const ClaimDecisionPage = lazyRetry(() => import("./pages/ClaimDecisionPage"));
@@ -694,7 +706,7 @@ export function PublicOrDashboard() {
   // preflight plus a request — over a second on a slow phone — and it held
   // back the whole front door. If it does find a session, the redirect below
   // still happens; the landing just showed for that moment.
-  if (loading) return mightBeSignedIn() || isNative ? <PageLoader /> : <LandingV2Page />;
+  if (loading) return mightBeSignedIn() || isNative ? <PageLoader /> : <LandingRoute />;
   if (user) return <Navigate to={homeFor(user)} />;
   if (isNative) return <Navigate to="/login" />;
   // The bare domain ALWAYS shows the marketing landing for a logged-out visitor
@@ -705,10 +717,26 @@ export function PublicOrDashboard() {
   // (Previously "/" force-redirected to a saved /s/<token>, which made the bare
   // domain unreachable for anyone who'd ever tapped a staff link.)
   //
-  // The rebuilt design (design_handoff_bonbox_landing) is now the front door.
-  // It shipped behind /v2 first so it could be compared against the old page;
-  // /v2 stays as an alias so any link already shared keeps working.
-  return <LandingV2Page />;
+  // The v6 landing is the front door (port step 7). /v2, where the previous
+  // design first shipped, stays an alias so any link already shared keeps
+  // working. Both returns above and here are the same <LandingRoute />, so
+  // React keeps the one landing (and its scroll engine) mounted when /auth/me
+  // answers "no session": the engine mounts once.
+  return <LandingRoute />;
+}
+
+/**
+ * The landing behind its own Suspense boundary with no fallback: for the few
+ * ms before its lazy chunk has run, the visitor sees the paper ground the
+ * pre-paint already drew, never the app's spinner (PORT_PLAN 1.9). Used in
+ * both branches of PublicOrDashboard and on /v2.
+ */
+function LandingRoute() {
+  return (
+    <Suspense fallback={null}>
+      <LandingV6Page />
+    </Suspense>
+  );
 }
 
 /**
@@ -733,7 +761,7 @@ function AppRoutes() {
     <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/" element={<PublicOrDashboard />} />
-        <Route path="/v2" element={<LandingV2Page />} />
+        <Route path="/v2" element={<LandingRoute />} />
         <Route path="/login" element={<WithGoogleAuth><LoginPage /></WithGoogleAuth>} />
         {/* Task #61 — magic-link landing. Token in ?token=… is the only
             credential; the page POSTs to /auth/magic-link/verify on

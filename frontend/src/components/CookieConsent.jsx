@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
+import { CONSENT_CLEAR_SELECTOR, consentChangeMatters } from "../lib/consentClear";
 import { GUEST_SURFACE_EVENT, isGuestSurface } from "../lib/guestSurface";
 
 /**
@@ -206,7 +207,10 @@ function saveConsent(choices) {
 //  • Accept all and Decline non-essential: same size, same weight, side by
 //    side. "Tilpas" is a text button. No emoji, no aria-live (a dialog, not
 //    an alert), an opacity-only 180 ms fade when motion is allowed.
-const CLEAR_SELECTOR = "[data-bb-consent-clear]";
+// A page that writes on every scroll frame (the v6 landing) marks its root
+// data-bb-consent-skip; the re-measure below ignores changes inside it unless
+// they land on a marked bar (lib/consentClear.js).
+const CLEAR_SELECTOR = CONSENT_CLEAR_SELECTOR;
 const WIDE_QUERY = "(min-width: 768px)";
 
 export default function CookieConsent() {
@@ -334,7 +338,9 @@ export default function CookieConsent() {
     measure();
     let mo = null;
     try {
-      mo = new MutationObserver(schedule);
+      mo = new MutationObserver((records) => {
+        if (records.some(consentChangeMatters)) schedule();
+      });
       mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "hidden"] });
     } catch { /* no MutationObserver: resize still re-measures */ }
     try {

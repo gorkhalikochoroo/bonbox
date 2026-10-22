@@ -39,6 +39,8 @@ vi.mock("../components/landing/v6/engine", () => ({
 }));
 const platform = { android: false };
 vi.mock("../components/landing/v2/platform", () => ({ isAndroidBrowser: () => platform.android }));
+const beacon = vi.fn();
+vi.mock("../utils/reportClientError", () => ({ reportClientError: (o) => beacon(o) }));
 
 const { default: LandingV6Page } = await import("../pages/LandingV6Page");
 
@@ -233,6 +235,20 @@ describe("the engine's lifecycle around React", () => {
     expect(engine.mount.mock.calls[0][0]).toBe(root);
     unmount();
     expect(engine.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  // port step 7: a mount that fails half-way leaves the static page (engine.js item 13) and is reported, so a broken
+  // front door shows up in the super-admin error panel, not only in a visitor's console
+  it("hands the engine an onError that logs and beacons the failure (kind render)", () => {
+    show("da");
+    const opts = engine.mount.mock.calls[0][1];
+    expect(typeof opts.onError).toBe("function");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    beacon.mockClear();
+    opts.onError(new Error("no #frame"));
+    expect(beacon).toHaveBeenCalledWith({ kind: "render", message: "landing engine: no #frame" });
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
   });
 
   it("a language change re-keys: the old engine is destroyed, a new one mounts on the new root", () => {

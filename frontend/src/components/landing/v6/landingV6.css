@@ -735,7 +735,7 @@
 .lp6{position:relative;z-index:0;isolation:isolate}
 /* html and body while the page is mounted (the :has() stops matching when it unmounts): the paper ground, in light and dark,
    the prototype's body (no margin, no sideways scroll) and the scrolling it was measured with (all initial values). index.css sets html{scroll-behavior:smooth;overscroll-behavior:none} for the app
-   (the stepper's jumps must be instant, and an anchor must not glide) and, until the paper commit, scroll-padding-top:74px for the old landing's bar */
+   (the stepper's jumps must be instant, and an anchor must not glide); scroll-padding stays at its initial value (index.css's 74 px rule for the old landing's bar left with the paper commit, port step 7) */
 :root:has(.lp6){scroll-behavior:auto;scroll-padding-top:auto;overscroll-behavior:auto}
 :root:has(.lp6) body{margin:0;background:#F6F4EC;overflow-x:clip}
 /* index.css (pointer: coarse) gives every a, button and [role=button] a min-height of 44 px. The page sets its own 44 px boxes

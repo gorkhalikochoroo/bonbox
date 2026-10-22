@@ -11,10 +11,16 @@
  * root's lang says so to screen readers and translators. A language change re-keys the tree: the old engine is
  * destroyed with its DOM, the new one lays out against the new text.
  *
- * Wiring into the router (App.jsx, lazy chunk, /v2), the paper ground and the browser-bar colour hook-up, and the
- * cookie banner's observer filter (data-bb-consent-skip on the root) are port step 7. */
+ * Wiring (port step 7): App.jsx renders this page lazily on "/" (logged-out web visitor) and "/v2", inside its own
+ * Suspense with no fallback; "/" and "/v2" are paper routes (utils/themeColor.js), so the app's browser bar and the
+ * pre-paint agree with the page's paper ground, and the engine writes the night colour over it while the stage is
+ * dark. The engine's default theme-color writer is the <meta> itself, which is what the app writes too, so no
+ * setThemeColor is passed. data-bb-consent-skip on the root: the cookie banner's observer ignores the engine's
+ * per-frame writes inside it (components/CookieConsent.jsx); the bottom bar (data-bb-consent-clear) still counts.
+ * A mount that fails half-way leaves the static page and is reported through the client-error beacon. */
 import { useLayoutEffect, useRef } from "react";
 import { useLanguage } from "../hooks/useLanguage";
+import { reportClientError } from "../utils/reportClientError";
 import { isAndroidBrowser } from "../components/landing/v2/platform";
 import { mountLanding } from "../components/landing/v6/engine";
 import TopBar from "../components/landing/v6/TopBar";
@@ -29,6 +35,13 @@ import "../components/landing/v6/styles";
 // #probe = 100svh: the engine re-lays out when the small viewport changes (iOS bars, a growing frame)
 const PROBE = { position: "fixed", left: "-9px", top: "0", width: "1px", height: "100svh", pointerEvents: "none", visibility: "hidden" };
 
+/* A failed engine mount: the page stays readable (static layout), the error goes to the console and to the
+ * super-admin error panel (kind "render", one of the beacon's known kinds; deduped per session by the beacon). */
+function engineFailed(err) {
+  try { console.error("Landing engine:", err); } catch { /* no console */ }
+  reportClientError({ kind: "render", message: `landing engine: ${(err && err.message) || err}` });
+}
+
 export default function LandingV6Page() {
   const { lang, t, setLang } = useLanguage();
   const pageLang = pageLangFor(lang);
@@ -37,7 +50,7 @@ export default function LandingV6Page() {
 
 function LandingV6({ t, lang, isAndroid, onLang }) {
   const ref = useRef(null);
-  useLayoutEffect(() => mountLanding(ref.current), []);
+  useLayoutEffect(() => mountLanding(ref.current, { onError: engineFailed }), []);
   return (
     <div ref={ref} className="lp6" data-page="landing" lang={lang} data-bb-consent-skip="">
       <a className="skip" href="#main">{t("landingV6.skip")}</a>

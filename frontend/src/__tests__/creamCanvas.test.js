@@ -11,7 +11,8 @@
  *   2. dark is unchanged: ground #111827, shell = the card rung, and the paper
  *      bar repaint can never match in dark;
  *   3. the browser bar: paper in light ONLY on a known paper route (the owner
- *      app, the paper auth screens) and white everywhere else — landing, guest
+ *      app, the paper auth screens, and the v6 landing "/" + "/v2" since
+ *      22 Oct 2026) and white everywhere else — guest
  *      pages incl. the vanity /<slug>, the staff portal, the full-screen pages
  *      that paint their own ground (host stand, /stand, onboarding) — with the
  *      pre-paint deciding the same before the bundle arrives; every static
@@ -91,9 +92,15 @@ describe("1. the light ground is BonBox paper", () => {
     expect(contrast("#ffffff", PAPER)).toBeGreaterThan(contrast("#ffffff", "#f9fbfd")); // 1.10 > 1.04
   });
 
-  it("the landing page keeps its white html as well as its white body", () => {
-    expect(CSS).toMatch(/:root:not\(\.dark\) body:has\(\[data-page="landing"\]\)\s*\{\s*background-color:\s*#fff;/);
-    expect(CSS).toMatch(/:root:not\(\.dark\):has\(\[data-page="landing"\]\)\s*\{\s*background-color:\s*#fff;/);
+  // Landing v6 (22 Oct 2026, PORT_PLAN 1.7): the old landing was a white page and index.css painted html + body
+  // white under [data-page="landing"]. The v6 landing is paper: those rules (and the old bar's 74 px scroll
+  // padding) are gone, and the page's own stylesheet paints html + body paper while it is mounted, in every theme.
+  it("the landing page is paper: no white landing rule is left, the v6 stylesheet paints html and body paper", () => {
+    expect(CSS).not.toMatch(/\[data-page="landing"\]/);
+    const lp6 = read("components/landing/v6/landingV6.css").replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(lp6).toMatch(/:root:has\(\.lp6\)\{[^}]*background:#F6F4EC/);
+    expect(lp6).toMatch(/:root:has\(\.lp6\) body\{[^}]*background:#F6F4EC/);
+    expect(read("pages/LandingV6Page.jsx")).toMatch(/className="lp6" data-page="landing"/);
   });
 });
 
@@ -136,13 +143,15 @@ describe("3. the browser bar in light", () => {
   it("is paper on app pages and on the paper auth pages", () => {
     expect(THEME_COLOR.light).toBe(PAPER);
     for (const p of ["/dashboard", "/sales", "/staff/schedule", "/reservations", "/profile", "/profile/", "/login", "/register",
-      "/forgot-password", "/verify-email", "/contact", "/staff/schedule/stand", "/workshop/job/42", "/admin/support"]) {
+      "/forgot-password", "/verify-email", "/contact", "/staff/schedule/stand", "/workshop/job/42", "/admin/support",
+      // the v6 landing and its /v2 alias (22 Oct 2026)
+      "/", "/v2", "/v2/"]) {
       expect(themeColorFor(false, p), p).toBe(PAPER);
     }
   });
 
   it("is white everywhere else — the guest pages, the staff portal and the own-ground full-screen pages", () => {
-    for (const p of ["/", "/v2", "/join", "/join/", "/login/magic", "/login/claim", "/onboarding", "/getting-started",
+    for (const p of ["/join", "/join/", "/login/magic", "/login/claim", "/onboarding", "/getting-started",
       "/privacy", "/terms", "/cookies", "/s/tok", "/r/cafe", "/e/jazz", "/e/jazz/checkout", "/t/123", "/g/buy/cafe",
       "/g/tok", "/accept-invite/tok",
       // the host stand (own gray-50 page) through both doors, and the pairing screen (own gradient)
@@ -160,8 +169,9 @@ describe("3. the browser bar in light", () => {
     expect(PAPER_PREFIXES).toEqual(["/workshop/job/"]);
   });
 
-  it("every light-only page keeps the white bar in light too", () => {
-    for (const p of LIGHT_ONLY_PATHS) expect(isWhitePagePath(p), p).toBe(true);
+  it("every light-only page keeps the white bar in light too — except the landing, which is paper", () => {
+    for (const p of LIGHT_ONLY_PATHS) expect(isWhitePagePath(p), p).toBe(p !== "/" && p !== "/v2");
+    expect(LIGHT_ONLY_PATHS).toEqual(expect.arrayContaining(["/", "/v2"])); // still no dark styling
   });
 
   // The list is the APP side, so a route nobody classified would fall to white
@@ -177,7 +187,7 @@ describe("3. the browser bar in light", () => {
     const inLayout = (at) => layoutSpans.some(([a, b]) => at > a && at < b);
     const sample = (path) => path.replace(/:[A-Za-z_]+/g, "x");
     const OUTSIDE = {
-      "/": "white", "/v2": "white", "/login": "paper", "/login/magic": "white", "/login/claim": "white",
+      "/": "paper", "/v2": "paper", "/login": "paper", "/login/magic": "white", "/login/claim": "white",
       "/register": "paper", "/forgot-password": "paper", "/verify-email": "paper", "/onboarding": "white",
       "/getting-started": "white", "/contact": "paper", "/privacy": "white", "/terms": "white", "/cookies": "white",
       "/join": "white", "/s/:token": "white", "/s/:slug/:token": "white", "/s/:slug/:name/:token": "white",
@@ -264,11 +274,11 @@ describe("3b. white pages keep a white html/body in light (safe-area + overscrol
   });
 
   it("syncThemeColor marks every non-paper route (and a mounted guest page)", () => {
-    for (const p of ["/r/cafe", "/privacy", "/s/tok", "/join", "/", "/cafe-nordlys", "/stand", "/stand/abc", "/reservations/stand", "/getting-started"]) {
+    for (const p of ["/r/cafe", "/privacy", "/s/tok", "/join", "/cafe-nordlys", "/stand", "/stand/abc", "/reservations/stand", "/getting-started"]) {
       syncThemeColor(false, p);
       expect(html().classList.contains(WHITE_PAGE_CLASS), p).toBe(true);
     }
-    for (const p of ["/dashboard", "/login", "/staff/schedule/stand"]) {
+    for (const p of ["/dashboard", "/login", "/staff/schedule/stand", "/", "/v2"]) {
       syncThemeColor(false, p);
       expect(html().classList.contains(WHITE_PAGE_CLASS), p).toBe(false);
     }

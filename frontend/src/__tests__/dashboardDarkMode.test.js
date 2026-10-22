@@ -320,10 +320,12 @@ describe("the browser bar follows the theme", () => {
   });
 
   // Pages with no dark styling at all keep the white bar in dark: an owner who
-  // signs out in dark mode must not get a #1f2937 bar on the white landing page.
+  // signs out in dark mode must not get a #1f2937 bar on the landing page.
+  // (The v6 landing, 22 Oct 2026, is paper in light; in dark its scroll engine
+  // writes paper or night over this white once it has mounted.)
   const LIGHT_ONLY_PAGE = {
-    "/": "pages/LandingV2Page.jsx", // PublicOrDashboard renders LandingV2Page for a guest
-    "/v2": "pages/LandingV2Page.jsx",
+    "/": "pages/LandingV6Page.jsx", // PublicOrDashboard renders LandingV6Page for a guest (port step 7)
+    "/v2": "pages/LandingV6Page.jsx",
     "/join": "pages/JoinPage.jsx",
     "/stand": "pages/StandPairPage.jsx",
     "/login/magic": "pages/LoginMagicPage.jsx",

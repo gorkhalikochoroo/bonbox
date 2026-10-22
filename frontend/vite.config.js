@@ -86,9 +86,61 @@ function preloadDictionary() {
   }
 }
 
+// ── Start the landing's own chunk with the page (landing v6, port step 7) ──
+// The v6 landing is a lazy chunk (App.jsx loadLanding): markup, scroll engine,
+// its stylesheet and the Inter 300 file. Left to the dynamic import, its
+// download would only start once the entry had arrived and run — a second,
+// serial wait before the front door paints. For a visitor who will see it (on
+// "/" or "/v2", no bonbox_csrf cookie, no stored token, not the native app:
+// the same test as src/lib/landingBoot.js landingFirstPaint and the dictionary
+// preload above), this writes a modulepreload for the chunk (and any of its own
+// imports the page does not already preload) and a style preload for its CSS,
+// so they download alongside the entry. Everyone else skips it: a signed-in
+// owner goes home and never needs the landing. A wrong guess costs a spare
+// download, never a wrong page. Inserted right after <meta charset> (ahead of
+// the stylesheet and the entry), after the dictionary preload when that one is
+// there (PORT_PLAN 1.9).
+function preloadLanding() {
+  return {
+    name: 'bonbox-preload-landing',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        const chunks = Object.values(ctx.bundle || {})
+        const page = chunks.find((c) => c.type === 'chunk' && c.facadeModuleId &&
+          /[\\/]src[\\/]pages[\\/]LandingV6Page\.jsx$/.test(c.facadeModuleId))
+        if (!page) return html // the Vagtplan build has no landing chunk
+        const js = [page.fileName, ...(page.imports || [])]
+          .filter((f, i, all) => all.indexOf(f) === i && !html.includes('/' + f))
+          .map((f) => '/' + f)
+        const css = [...(page.viteMetadata?.importedCss || [])].map((f) => '/' + f)
+        const script =
+          '<script>(function(){try{' +
+          'if(window.Capacitor||location.protocol==="capacitor:")return;' +
+          'var p=location.pathname.replace(/\\/+$/,"")||"/";' +
+          'if(p!=="/"&&p!=="/v2")return;' +
+          'if(/(?:^|;\\s*)bonbox_csrf=/.test(document.cookie))return;' +
+          'try{if(localStorage.getItem("token"))return}catch(e){}' +
+          `var j=${JSON.stringify(js)},c=${JSON.stringify(css)},d=document.head,i,k;` +
+          'for(i=0;i<j.length;i++){k=document.createElement("link");k.rel="modulepreload";k.crossOrigin="";k.href=j[i];d.appendChild(k)}' +
+          'for(i=0;i<c.length;i++){k=document.createElement("link");k.rel="preload";k.as="style";k.crossOrigin="";k.href=c[i];d.appendChild(k)}' +
+          '}catch(e){}})()</script>'
+        const charset = '<meta charset="UTF-8" />'
+        const at = html.indexOf(charset)
+        if (at < 0) return html.replace('</head>', script + '</head>')
+        let end = at + charset.length
+        // the dictionary preload, when present, sits right after the charset: go after it
+        if (html.startsWith('<script>', end)) end = html.indexOf('</script>', end) + '</script>'.length
+        return html.slice(0, end) + script + html.slice(end)
+      },
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), preloadDictionary(), bootDictionary()],
+  plugins: [react(), preloadDictionary(), preloadLanding(), bootDictionary()],
   // Force the automatic JSX runtime everywhere — production already
   // uses it via @vitejs/plugin-react, but vitest's transform pipeline
   // sometimes falls back to the classic runtime which requires
