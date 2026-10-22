@@ -38,9 +38,9 @@ const ODD = vi.hoisted(() => ({
   prices: { starter: { regular: 211, founding: 137 }, pro: { regular: 367, founding: 263 } },
   limit: 77,
   limits: {
-    free: { team_users: 2, branches: 2, staff_members: 7, reservations_per_month: 33, z_report_scans_per_day: 5, kasse_extracts_per_day: 5, daily_close_export_days: 9 },
-    starter: { team_users: 6, branches: 1, staff_members: 61, reservations_per_month: -1, z_report_scans_per_day: 20, kasse_extracts_per_day: 40, daily_close_export_days: 31 },
-    pro: { team_users: 9, branches: 4, staff_members: 222, reservations_per_month: -1, z_report_scans_per_day: 100, kasse_extracts_per_day: 200, daily_close_export_days: 366 },
+    free: { team_users: 2, branches: 2, staff_members: 7, reservations_per_month: 33, z_report_scans_per_day: 5, kasse_extracts_per_day: 5, daily_close_export_days: 9, bookable_resources_max: 11 },
+    starter: { team_users: 6, branches: 1, staff_members: 61, reservations_per_month: -1, z_report_scans_per_day: 20, kasse_extracts_per_day: 40, daily_close_export_days: 31, bookable_resources_max: -1 },
+    pro: { team_users: 9, branches: 4, staff_members: 222, reservations_per_month: -1, z_report_scans_per_day: 100, kasse_extracts_per_day: 200, daily_close_export_days: 366, bookable_resources_max: -1 },
   },
 }));
 vi.mock("../lib/planPrices", async (importOriginal) => {
@@ -177,11 +177,20 @@ describe("prices: one source (config.py), nothing typed", () => {
     for (const k of KEYS) for (const d of [da, en]) expect([k, LIFE.test(d[k])]).toEqual([k, false]);
   });
 
+  it("the trial answer says what checkout does: no paid plan → the free plan, no charge; a paid plan picked in the trial is charged when the trial ends (fix round)", () => {
+    // stripe_billing.py carries the remaining trial days into the Stripe subscription (trial_period_days = remaining):
+    // the card is charged when the trial ends, so "no auto-charge" without the condition was not true for that owner
+    expect(backend("app/services/stripe_billing.py")).toMatch(/sub_data\["trial_period_days"\] = int\(remaining\)/);
+    expect(da["landingV6.faq.trialA"]).toBe("Har du ikke valgt en betalt plan, falder du automatisk ned til gratisplanen — intet kort, intet træk. Vælger du Starter eller Pro i prøveperioden, betaler du først, når de 14 dage er gået.");
+    expect(en["landingV6.faq.trialA"]).toBe("If you haven't chosen a paid plan, you drop to the free plan automatically — no card, no charge. If you choose Starter or Pro during the trial, you pay only once the 14 days are up.");
+    for (const d of [da, en]) expect(d["landingV6.faq.trialA"]).not.toMatch(/auto-træk|auto-charge/i);
+  });
+
   it("'14 dage gratis' is billing.py TRIAL_DAYS, in every trial line and the trial question (da + en)", () => {
     const m = backend("app/services/billing.py").match(/^TRIAL_DAYS = (\d+)$/m);
     expect(m).not.toBeNull();
     const days = Number(m[1]);
-    for (const k of ["landingV6.trial", "landingV6.trialEnd", "landingV6.trialDock", "landingV6.faq.trialQ"]) {
+    for (const k of ["landingV6.trial", "landingV6.trialEnd", "landingV6.trialDock", "landingV6.faq.trialQ", "landingV6.faq.trialA"]) {
       expect([k, da[k].match(/\d+/)[0], en[k].match(/\d+/)[0]]).toEqual([k, String(days), String(days)]);
     }
   });
@@ -197,32 +206,34 @@ describe("plan limits: the cards carry billing.py PLAN_CAPS", () => {
     expect(cards($$).map((c) => [c.name, c.lines])).toEqual([
       ["", [
         `${free.team_users} bruger, ${free.branches} afdeling, op til ${free.staff_members} medarbejdere på vagtplanen`,
-        `Reservationer, ${free.reservations_per_month} om måneden — bookingside, bordplan, venteliste`,
+        `Reservationer, ${free.reservations_per_month} om måneden, op til ${free.bookable_resources_max} borde — bookingside, bordplan, venteliste`,
         `Z-bon-aflæsning fra foto: ${free.z_report_scans_per_day} om dagen — hver dags kasserapport som PDF uden grænse`,
       ]],
       ["Starter", [`Dig + ${starter.team_users - 1} teammedlemmer med rollerettigheder, op til ${starter.staff_members} medarbejdere på vagtplanen`, "Reservationer, ubegrænset"]],
       ["Pro", [`${pro.branches} afdelinger, dig + ${pro.team_users - 1} teammedlemmer, op til ${pro.staff_members} medarbejdere på vagtplanen`, "Reservationer, ubegrænset"]],
     ]);
     expect([starter.reservations_per_month, pro.reservations_per_month]).toEqual([-1, -1]); // "ubegrænset" is true
-    // the numbers Manoj approved for the Gratis card (21 Oct)
-    expect([free.staff_members, free.reservations_per_month, free.z_report_scans_per_day]).toEqual([3, 20, 3]);
+    // the numbers Manoj approved for the Gratis card (21 Oct); the table cap (fix round, forslag) is the one create_resource enforces
+    expect([free.staff_members, free.reservations_per_month, free.z_report_scans_per_day, free.bookable_resources_max]).toEqual([3, 20, 3, 3]);
+    expect(backend("app/routers/reservations.py")).toMatch(/enforce_cap\(user, "bookable_resources_max"/);
   });
 
   it("swapped limits render swapped (da + en): every number on the cards comes from lib/planLimits.js", () => {
     S.swap = true;
     let p = show("da");
     expect(cards(p.$$).map((c) => c.lines)).toEqual([
-      ["2 bruger, 2 afdeling, op til 7 medarbejdere på vagtplanen", "Reservationer, 33 om måneden — bookingside, bordplan, venteliste", "Z-bon-aflæsning fra foto: 5 om dagen — hver dags kasserapport som PDF uden grænse"],
+      ["2 bruger, 2 afdeling, op til 7 medarbejdere på vagtplanen", "Reservationer, 33 om måneden, op til 11 borde — bookingside, bordplan, venteliste", "Z-bon-aflæsning fra foto: 5 om dagen — hver dags kasserapport som PDF uden grænse"],
       ["Dig + 5 teammedlemmer med rollerettigheder, op til 61 medarbejdere på vagtplanen", "Reservationer, ubegrænset"],
       ["4 afdelinger, dig + 8 teammedlemmer, op til 222 medarbejdere på vagtplanen", "Reservationer, ubegrænset"],
     ]);
     cleanup();
     p = show("en");
     expect(cards(p.$$).map((c) => c.lines[0])).toEqual([
-      "2 user, 2 location, up to 7 staff on the rota",
-      "You + 5 team members with role permissions, up to 61 staff on the rota",
-      "4 locations, you + 8 team members, up to 222 staff on the rota",
+      "2 user, 2 location, up to 7 staff on the schedule",
+      "You + 5 team members with role permissions, up to 61 staff on the schedule",
+      "4 locations, you + 8 team members, up to 222 staff on the schedule",
     ]);
+    expect(cards(p.$$)[0].lines[1]).toBe("Reservations, 33 a month, up to 11 tables — booking page, floor plan, waitlist");
   });
 });
 

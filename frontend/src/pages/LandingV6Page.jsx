@@ -17,8 +17,17 @@
  * dark. The engine's default theme-color writer is the <meta> itself, which is what the app writes too, so no
  * setThemeColor is passed. data-bb-consent-skip on the root: the cookie banner's observer ignores the engine's
  * per-frame writes inside it (components/CookieConsent.jsx); the bottom bar (data-bb-consent-clear) still counts.
- * A mount that fails half-way leaves the static page and is reported through the client-error beacon. */
-import { useLayoutEffect, useRef } from "react";
+ * A mount that fails half-way leaves the static page and is reported through the client-error beacon.
+ *
+ * Fix round (gate, 22 Oct):
+ *   - the root renders with .lp6-boot: transitions stay off until the engine's first layout (engine.js note 14), so no hidden
+ *     stage picture fades out at load or after a language switch;
+ *   - data-bb-consent-side="right": on the wide layouts the cookie banner floats bottom-right (components/CookieConsent.jsx),
+ *     off the hero's trial line and button, which sit bottom-left on the two-column page;
+ *   - a language switch keeps the reader where they were: the switch that was used keeps the focus (WCAG 2.4.3), open FAQ
+ *     answers stay open, and in the morning sheet the section on screen stays where it was (in the day, the engine's own
+ *     layout already keeps the place). The place is taken before setLang and put back after the new engine's first layout. */
+import { useCallback, useLayoutEffect, useRef } from "react";
 import { useLanguage } from "../hooks/useLanguage";
 import { reportClientError } from "../utils/reportClientError";
 import { isAndroidBrowser } from "../components/landing/v2/platform";
@@ -30,6 +39,7 @@ import Dock from "../components/landing/v6/Dock";
 import Sheet from "../components/landing/v6/Sheet";
 import Footer from "../components/landing/v6/Footer";
 import { pageLangFor } from "../components/landing/v6/site";
+import { placeOf, putPlaceBack } from "../components/landing/v6/place";
 import "../components/landing/v6/styles";
 
 // #probe = 100svh: the engine re-lays out when the small viewport changes (iOS bars, a growing frame)
@@ -45,17 +55,25 @@ function engineFailed(err) {
 export default function LandingV6Page() {
   const { lang, t, setLang } = useLanguage();
   const pageLang = pageLangFor(lang);
-  return <LandingV6 key={pageLang} t={t} lang={pageLang} isAndroid={isAndroidBrowser()} onLang={setLang} />;
+  // the reader's place across the re-key below (this component is not re-keyed, so the ref survives it)
+  const carry = useRef(null);
+  return <LandingV6 key={pageLang} t={t} lang={pageLang} isAndroid={isAndroidBrowser()} onLang={setLang} carryRef={carry} />;
 }
 
-function LandingV6({ t, lang, isAndroid, onLang }) {
+function LandingV6({ t, lang, isAndroid, onLang, carryRef }) {
   const ref = useRef(null);
-  useLayoutEffect(() => mountLanding(ref.current, { onError: engineFailed }), []);
+  useLayoutEffect(() => {
+    const destroy = mountLanding(ref.current, { onError: engineFailed });
+    const place = carryRef.current;
+    if (place && place.to === lang) { carryRef.current = null; putPlaceBack(ref.current, place); }
+    return destroy;
+  }, [carryRef, lang]);
+  const pick = useCallback((from) => (code) => { carryRef.current = placeOf(ref.current, from, pageLangFor(code)); onLang(code); }, [carryRef, onLang]);
   return (
-    <div ref={ref} className="lp6" data-page="landing" lang={lang} data-bb-consent-skip="">
+    <div ref={ref} className="lp6 lp6-boot" data-page="landing" lang={lang} data-bb-consent-skip="" data-bb-consent-side="right">
       <a className="skip" href="#main">{t("landingV6.skip")}</a>
       <div id="night" aria-hidden="true"></div>
-      <TopBar t={t} lang={lang} onLang={onLang} />
+      <TopBar t={t} lang={lang} onLang={pick("top")} />
       <main id="main">
         <section className="aften" id="aften" aria-labelledby="aften-h">
           <Hero t={t} />
@@ -64,7 +82,7 @@ function LandingV6({ t, lang, isAndroid, onLang }) {
         </section>
         <Sheet t={t} isAndroid={isAndroid} />
       </main>
-      <Footer t={t} isAndroid={isAndroid} />
+      <Footer t={t} isAndroid={isAndroid} lang={lang} onLang={pick("foot")} />
       <div id="probe" aria-hidden="true" style={PROBE}></div>
     </div>
   );

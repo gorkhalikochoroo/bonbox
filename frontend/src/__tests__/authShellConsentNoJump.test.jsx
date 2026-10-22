@@ -100,7 +100,14 @@ describe("the auth frame pads for the cookie banner only where it can cover the 
 
   it("the banner's md+ geometry the 1288 px rule rests on is unchanged (left 24 px, 420 px wide)", () => {
     const src = fs.readFileSync(path.join(SRC, "components/CookieConsent.jsx"), "utf8");
-    expect(src).toContain("md:left-6 md:w-[420px]");
+    // landing fix round (22 Oct): a page may ask for the right side (data-bb-consent-side="right", the v6 landing only);
+    // every other page, the auth pages included, keeps the card 24 px from the left
+    expect(src).toContain('const side = wide && right ? "md:right-6" : "md:left-6";');
+    expect(src).toContain("${side} md:w-[420px]");
+    const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name === "__tests__" ? [] : walk(path.join(d, e.name))) : /\.jsx?$/.test(e.name) ? [path.join(d, e.name)] : []));
+    const code = (f) => fs.readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+    const askers = walk(SRC).filter((f) => /\sdata-bb-consent-side="right"/.test(code(f))).map((f) => path.relative(SRC, f));
+    expect(askers).toEqual([path.join("pages", "LandingV6Page.jsx")]);
     expect(src).toContain("bottom = wide ? (clear > 0 ? clear + 16 : 24) : clear");
   });
 });

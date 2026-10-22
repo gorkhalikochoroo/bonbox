@@ -22,7 +22,9 @@ const CM = (
     <i className="cm c1"></i><i className="cm c2"></i><i className="cm c3"></i><i className="cm c4"></i>
   </>
 );
-const Img = ({ img, alt }) => <img src={img.src} width={img.width} height={img.height} alt={alt} loading="lazy" decoding="async" />;
+/* fix round (gate budgets): the stage pictures sit in the pinned frame, inside the viewport, so "lazy" cannot hold them back;
+   fetchpriority low lets the page's script, styles and fonts go first on a slow line */
+const Img = ({ img, alt }) => <img src={img.src} width={img.width} height={img.height} alt={alt} loading="lazy" decoding="async" fetchPriority="low" />;
 const Dg = ({ d }) => <span className="dg"><b className="sx f1">{d}</b><b className="sx f1"></b></span>;
 
 export default function Stage({ t, isAndroid }) {

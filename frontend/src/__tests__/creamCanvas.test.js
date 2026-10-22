@@ -100,7 +100,7 @@ describe("1. the light ground is BonBox paper", () => {
     const lp6 = read("components/landing/v6/landingV6.css").replace(/\/\*[\s\S]*?\*\//g, "");
     expect(lp6).toMatch(/:root:has\(\.lp6\)\{[^}]*background:#F6F4EC/);
     expect(lp6).toMatch(/:root:has\(\.lp6\) body\{[^}]*background:#F6F4EC/);
-    expect(read("pages/LandingV6Page.jsx")).toMatch(/className="lp6" data-page="landing"/);
+    expect(read("pages/LandingV6Page.jsx")).toMatch(/className="lp6 lp6-boot" data-page="landing"/);
   });
 });
 

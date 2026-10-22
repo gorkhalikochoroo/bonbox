@@ -18,9 +18,10 @@
  *   4. alive: promise callbacks (fonts.ready / fonts.load) and queued timers / frames do nothing after destroy().
  *   5. No expandos: el._on, el._t, d._c and room._rt live in per-mount Maps / variables.
  *   6. Snapshot / restore: the attributes the engine writes (class, style, hidden, inert, tabindex, aria-current, data-s,
- *      data-beat, data-x, data-g, data-st) on every element under root, and the text it writes (clock digits, counters,
- *      Z-bon amounts), are recorded before the first write and put back by destroy(), so a second mount (StrictMode, a
- *      language re-key) starts from the DOM React rendered.
+ *      data-beat, data-x, data-g, data-st) on every element it writes to (SNAP_SEL, plus the root), and the text it writes
+ *      (clock digits, counters, Z-bon amounts), are recorded before the first write and put back by destroy(), so a second
+ *      mount (StrictMode, a language re-key) starts from the DOM React rendered. (Fix round: only those elements, not every
+ *      element under root, the room's ~400 SVG nodes included; landingV6Engine.test.jsx walks every scene and compares.)
  *   7. Jumps use behavior 'instant' (the app's html has scroll-behavior: smooth; landingV6.css also turns it off on the page).
  *   8. The browser bar: edge() writes theme-color through opts.setThemeColor and compares with the live <meta> value, not a
  *      cached one (useThemeColorSync may write after the engine); a check 300 ms after mount puts it right if so.
@@ -32,7 +33,19 @@
  *      listener on the document also lets iOS apply the :active tap feedback (landingV6.css).
  *  13. A mount that fails half-way (markup out of step with the engine) undoes what it did, so the page stays the static,
  *      readable no-JS layout React rendered, and hands the error to opts.onError (default: rethrown on a timer, so it shows
- *      as an uncaught error in the console without breaking the React tree). */
+ *      as an uncaught error in the console without breaking the React tree).
+ *  14. Fix round (gate, 22 Oct): the root renders with .lp6-boot (every transition off, landingV6.css). The prototype set its
+ *      mode classes in a <head> script before the figures existed; here they are added to a laid-out tree, so without it
+ *      every hidden stage picture faded out from full opacity for .22 s at load and after a language switch. The engine
+ *      takes .lp6-boot off after its first layout (whose reads computed every figure's style in its final mode), before the
+ *      first paint, so the first screen's own entrance (the 10.00 roster's fade-in) still plays as in the prototype.
+ *  15. Fix round: the fonts.ready re-layout is queued only while fonts are still loading after the first layout (when they
+ *      are already in, it was a second full layout before the first paint); fonts.load + loadingdone still follow any face.
+ *  16. Fix round: the phone clock's first-screen size (--fs-clock0) is read once per layout (G.c0), not in every scroll
+ *      frame (a getComputedStyle there forced a style pass over the whole page in each tick). Every change of that token
+ *      (a width or a height breakpoint) already re-lays out.
+ *  17. Fix round: the moving edge (--e) is written on the top bar, the bottom bar and the frame (the only elements whose
+ *      colours split at it, landingV6.css), not on the root, so a crossing restyles those three subtrees, not the page. */
 import { FLOOR } from "./floor.js";
 import { NSC, SCN, NAV, NAVF, buildTrack, seg as segAt, beatU, scnOf as scnAt, curScn as curScnAt, createStepper, goNext as nextJump, goPrev as prevJump, jumpCheck } from "./nav.js";
 import { clearanceMisses, repairMiss, NOFIX } from "./guard.js";
@@ -42,6 +55,19 @@ export const LANDING_BAR = Object.freeze({ paper: "#f6f4ec", night: "#12281e" })
 
 const SNAP_ATTRS = ["class", "style", "hidden", "inert", "tabindex", "aria-current", "data-s", "data-beat", "data-x", "data-g", "data-st"];
 const SNAP_TEXT = ".dg b,#count,#dcount,.zb dd";
+/* the elements whose colour splits at the night edge (each learns its resting top, --t) */
+const SPLIT_SEL = ".top .sx,.top .xb,.top .bt,.top .logo,.top .sbg,.dock .sx,.dock .xb,.dock .bt,.dock .sbg,.frame .sx,.frame .sbg,.frame .cm,.frame .xb,.frame .bt";
+/* 6. every element under root the engine writes an attribute on (the root itself is added): the room (svg, tables, box, foot,
+   the Vindue 2 label), the reveal rows, both bars (+ the bar's stepper row) and every split element, the night, the hero, the
+   frame, its figures and their windows, the Z-bon rule, the clock digits, the statements (asides, links), the index, the stage
+   nav, the progress bars. A new write on another element must add it here (the engine test's all-scenes walk goes red). */
+const SNAP_SEL = [
+  ".room-svg", ".room-svg .t[id]", "#room", "#roombox", "#roomfoot", "#v2l", "[data-r]",
+  "#top-bar", "#dock", ".dk-nav", SPLIT_SEL, "#night", "#hero",
+  "#frame", "#frame .fx", "#frame .plate", ".fx .win", "#zbline", "#clock", ".dg b",
+  "#c1", "#c2", "#c3", ".copy.sc .aside", ".copy.sc a", ".ix a", ".ix a .w",
+  "#snav", "#snend", "#snev", "#prev", "#dprev", "#prog", "#dprog",
+].join(",");
 
 const metaEl = () => (typeof document === "undefined" ? null : document.querySelector('meta[name="theme-color"]'));
 const liveThemeColor = () => {
@@ -92,7 +118,7 @@ export function mountLanding(root, opts) {
   }
 
   /* ───── snapshot (before the first write) ───── */
-  const snapEls = [root, ...root.querySelectorAll("*")].map((el) => [el, SNAP_ATTRS.map((a) => el.getAttribute(a))]);
+  const snapEls = [root, ...root.querySelectorAll(SNAP_SEL)].map((el) => [el, SNAP_ATTRS.map((a) => el.getAttribute(a))]);
   const snapText = [...root.querySelectorAll(SNAP_TEXT)].map((el) => [el, el.textContent]);
   const barAtMount = liveThemeColor();
   let barWrote = null;
@@ -178,11 +204,11 @@ export function mountLanding(root, opts) {
     } else rs.forEach((el) => el.classList.add("in"));
 
     /* ───── chrome: top bar, bottom bar, the edge ───── */
-    const top = $("top-bar"), dock = $("dock"), frameEl = $("frame"), nightEl = $("night"), G = { dkb: 0 };
+    const top = $("top-bar"), dock = $("dock"), frameEl = $("frame"), nightEl = $("night"), G = { dkb: 0 }, EDGE = [top, dock, frameEl].filter(Boolean);
     let S = {};
     function docTop(el) { return el.getBoundingClientRect().top + window.scrollY; }
     function relTop(el, rt) { let y = 0; while (el && el !== rt) { y += el.offsetTop; el = el.offsetParent; } return y; }
-    const SPLIT = [...root.querySelectorAll(".top .sx,.top .xb,.top .bt,.top .logo,.top .sbg,.dock .sx,.dock .xb,.dock .bt,.dock .sbg,.frame .sx,.frame .sbg,.frame .cm,.frame .xb,.frame .bt")];
+    const SPLIT = [...root.querySelectorAll(SPLIT_SEL)];
     /* every element that can meet the edge learns its own resting top (px from the viewport top) once per layout */
     function setT() {
       const vh = G.vh, dH = dock.offsetHeight, dt = vh - G.dkb - dH;
@@ -199,7 +225,9 @@ export function mountLanding(root, opts) {
       const vh = G.vh, xing = e > 0 && e < vh, top_ = x === "pn" ? (e <= 0 ? "night" : "paper") : (e <= 0 ? "paper" : "night");
       if (x !== S.x) { S.x = x; R.setAttribute("data-x", x); }
       if (xing !== S.xing) { S.xing = xing; R.classList.toggle("xing", xing); }
-      if (xing) { const ev = Math.round(e) + "px"; if (ev !== S.e) { S.e = ev; R.style.setProperty("--e", ev); } }
+      /* 17. the edge goes on the three elements that split at it (top bar, bottom bar, frame), not on the root: a custom property
+         written on the root every frame of a crossing restyled the whole page (sheet and footer included) in each frame */
+      if (xing) { const ev = Math.round(e) + "px"; if (ev !== S.e) { S.e = ev; EDGE.forEach((el) => el.style.setProperty("--e", ev)); } }
       const g = gStage || top_;
       if (g !== S.g) { S.g = g; R.setAttribute("data-g", g); }
       /* 8. the live value, not a cached one */
@@ -243,7 +271,8 @@ export function mountLanding(root, opts) {
         chrome(y, false);
       };
       const lay = () => { measure(); setT(); S = {}; setU(); st(); };
-      lay(); on(window, "resize", lay); on(window, "scroll", st, { passive: true }); on(window, "load", lay);
+      lay(); R.classList.remove("lp6-boot"); /* 14 */
+      on(window, "resize", lay); on(window, "scroll", st, { passive: true }); on(window, "load", lay);
       if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (alive) lay(); });
       return;
     }
@@ -399,6 +428,8 @@ export function mountLanding(root, opts) {
       const cps = [c1, c2, c3].map((c) => c.offsetHeight), copyH = Math.max.apply(0, cps), copyMin = Math.min.apply(0, cps);
       const navH = snav.offsetHeight ? snav.offsetHeight + parseFloat(getComputedStyle(snav).marginTop) : 0;
       fsClk = parseFloat(getComputedStyle(clock).fontSize);
+      /* 16. the phone clock's size before the stage pins (a token that changes only with a breakpoint, which re-lays out) */
+      G.c0 = parseFloat(getComputedStyle(R).getPropertyValue("--fs-clock0")) || 56;
       const rw0 = wide ? Math.min(W, 640) : W; roster.style.width = rw0 + "px"; const roH = roster.offsetHeight;
       room.classList.add("has-late"); room.style.width = W + "px"; let fh = rfoot.offsetHeight + 8;
       /* the widest room that fits h = 28 + w·690/1101 + foot (the foot wraps when narrow, so measure again) */
@@ -640,7 +671,7 @@ export function mountLanding(root, opts) {
         setPre(id === "h" && hin < 0.5); past = ho < 0.5;
       } else if (!wide) {
         /* phone: before the stage pins, the clock is a quieter 56 px under the headline; it grows to its stage size as it pins */
-        const c0 = parseFloat(getComputedStyle(R).getPropertyValue("--fs-clock0")) || 56, k0 = Math.min(1, c0 / fsClk), ck = (k0 + (1 - k0) * clamp(0, y / Math.max(1, pin), 1)).toFixed(3);
+        const c0 = G.c0, k0 = Math.min(1, c0 / fsClk), ck = (k0 + (1 - k0) * clamp(0, y / Math.max(1, pin), 1)).toFixed(3);
         if (ck !== S.ck) { S.ck = ck; clock.style.setProperty("--ck", ck); }
       }
       const pr = clamp(0, u / (TOT - 100), 1).toFixed(3); if (pr !== S.pr) { S.pr = pr; progs.forEach((e) => e.style.setProperty("--p", pr)); }
@@ -713,9 +744,12 @@ export function mountLanding(root, opts) {
       try { const rob = new ResizeObserver(() => { if (alive && stale()) relay(); }); rob.observe(prb); rob.observe(clock); undo.push(() => rob.disconnect()); } catch { /* no observer: the resize listener stays */ }
     }
     ["(max-height:720px)", "(min-height:780px)", "(min-height:800px)", "(min-height:900px)", "(min-height:1000px)", "(max-height:800px)", "(max-height:860px)", DQ, TALLQ].forEach((q) => mqOn(q, relay));
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (alive) layout(); });
     on(window, "load", layout); on(window, "pageshow", () => { S.u = null; tick(); });
     layout();
+    /* 14. the first layout is done: transitions back on (before the first paint) */
+    R.classList.remove("lp6-boot");
+    /* 15. a face the first layout asked for: lay out again once it is in (not when every face was already loaded) */
+    if (document.fonts && document.fonts.ready && document.fonts.status !== "loaded") document.fonts.ready.then(() => { if (alive) layout(); });
     /* v6.2: WebKit can resolve fonts.ready before lazily used data: faces have loaded. Ask for the stage's Inter faces by name (300 the clock,
        400 / 500 / 600 the statements and labels, at their sizes) and lay out again once they are in, and again after any later face */
     if (document.fonts) {

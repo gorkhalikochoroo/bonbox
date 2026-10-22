@@ -43,6 +43,8 @@ describe("lib/planLimits.js mirrors billing.py PLAN_CAPS", () => {
     expect(PLAN_LIMITS.free.kasse_extracts_per_day).toBe(PLAN_LIMITS.free.z_report_scans_per_day);
     // "hver dags kasserapport som PDF uden grænse" is the per-day PDF; a period export stops at 7 days on Free
     expect(PLAN_LIMITS.free.daily_close_export_days).toBe(7);
+    // fix round: "op til 3 borde" (reservations.py create_resource and the bulk create enforce it)
+    expect(PLAN_LIMITS.free.bookable_resources_max).toBe(3);
   });
 
   it("paid cards: Dig + 2 / dig + 4, Pro 3 locations, unlimited reservations", () => {
@@ -51,6 +53,8 @@ describe("lib/planLimits.js mirrors billing.py PLAN_CAPS", () => {
     expect(PLAN_LIMITS.pro.branches).toBe(3);
     expect(PLAN_LIMITS.starter.reservations_per_month).toBe(-1);
     expect(PLAN_LIMITS.pro.reservations_per_month).toBe(-1);
+    expect(PLAN_LIMITS.starter.bookable_resources_max).toBe(-1);
+    expect(PLAN_LIMITS.pro.bookable_resources_max).toBe(-1);
   });
 
   it("is frozen (a page cannot change a limit it prints)", () => {

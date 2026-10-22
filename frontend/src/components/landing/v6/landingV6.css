@@ -737,10 +737,22 @@
    the prototype's body (no margin, no sideways scroll) and the scrolling it was measured with (all initial values). index.css sets html{scroll-behavior:smooth;overscroll-behavior:none} for the app
    (the stepper's jumps must be instant, and an anchor must not glide); scroll-padding stays at its initial value (index.css's 74 px rule for the old landing's bar left with the paper commit, port step 7) */
 :root:has(.lp6){scroll-behavior:auto;scroll-padding-top:auto;overscroll-behavior:auto}
-:root:has(.lp6) body{margin:0;background:#F6F4EC;overflow-x:clip}
+:root:has(.lp6) body{margin:0;padding-left:0;padding-right:0;background:#F6F4EC;overflow-x:clip}
+/* fix round: index.css pads the body sideways by the safe-area insets (a notched iPhone in landscape, where the page loads stacked).
+   Inside that padding the root's overflow-x:clip cut the stacked night band's full bleed at the inset (paper strips beside
+   19.45 → 00.10). The root carries the insets instead: content stays clear of the notch, the clip box spans the whole width.
+   (body's padding-top / padding-bottom are untouched: index.css's padding-bottom carries the cookie banner's --bb-consent-h) */
+.lp6{padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
 /* index.css (pointer: coarse) gives every a, button and [role=button] a min-height of 44 px. The page sets its own 44 px boxes
    (.btn, .next, the .tlink and footer link padding); the app's rule would make the headline words, the index rows and the inline links tall */
 .lp6 :is(a,button,[role=button]){min-height:auto}
+/* fix round: index.css (pointer: coarse) also shrinks every pressed a / button / [role=button] to .97. On iOS :active starts at touchstart,
+   so a scroll that began on a headline word shrank it for a moment. The page's own press feedback stays (the stepper's and the bar's dim) */
+.lp6 :is(a,button,[role=button]):active{scale:none}
+/* fix round (gate flash): until the engine's first layout every transition is off. The root renders with .lp6-boot; the engine adds
+   the mode classes (story hides every later stage picture) to a tree that is already laid out, and without this each hidden picture
+   faded out from full opacity for .22 s at load and after a language switch. engine.js takes the class off before the first paint */
+.lp6.lp6-boot,.lp6.lp6-boot *,.lp6.lp6-boot::before,.lp6.lp6-boot::after,.lp6.lp6-boot *::before,.lp6.lp6-boot *::after{transition:none!important}
 
 /* ═════════════ port step 5: what the prototype did not render (PORT_PLAN 2.3, section 3) ═════════════ */
 /* DK · EN with drawn flags (the prototype kept the switch hidden until English existed): the language on screen is text,
@@ -755,8 +767,13 @@
 .lp6 .lang button{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:44px;min-width:44px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .lp6 .lang button:focus-visible{outline:2px solid var(--fg);outline-offset:2px;border-radius:6px}
 @media (hover:hover){.lp6 .lang button:hover .sx{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px}}
-@media (max-width:399px){.lp6 .lang .lg-cur,.lp6 .lang .dot{display:none}}
-@media (max-width:539px){.lp6.js.cta-past:not(.dock-on) .lang{display:none}}
+@media (max-width:399px){.lp6 .top .lang .lg-cur,.lp6 .top .lang .dot{display:none}}
+@media (max-width:539px){.lp6.js.cta-past:not(.dock-on) .top .lang{display:none}}
+/* fix round: the same switch in the footer's link list, always shown in full (the top bar's steps aside on narrow phones once the
+   header's "Prøv gratis" is up). On paper, in ink: the edge-split colours (.sx) belong to the bars; the 44 px row as the links beside it */
+.lp6 .foot .links .lang button{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0;height:44px;min-width:44px}
+.lp6 .foot .lang .sx{color:var(--ink)}
+.lp6 .foot .lang .sx.f3{color:var(--ink-3)}
 /* "Vælg Starter" / "Vælg Pro" under the paid cards (→ /register?plan=…) */
 .lp6 .price .pick{margin-top:6px;font-size:var(--fs-note);line-height:1.45}
 .lp6 .price .pick .tlink{color:var(--ink);font-weight:500}

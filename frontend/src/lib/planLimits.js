@@ -15,9 +15,12 @@
  *   kasse_extracts_per_day  the Kasserapport photo path; the Gratis line's
  *                           "3 om dagen" must hold on both paths
  *   daily_close_export_days a period export's longest span (Gratis: 7 days)
+ *   bookable_resources_max  tables / resources on the floor plan, -1 =
+ *                           unlimited (the Gratis line's "op til 3 borde";
+ *                           landing fix round, 22 Oct)
  *
  * The landing never types these numbers: its copy carries {users}, {branches},
- * {team}, {staff}, {resv} and {scans} placeholders filled from here.
+ * {team}, {staff}, {resv}, {tables} and {scans} placeholders filled from here.
  */
 export const PLAN_LIMITS = Object.freeze({
   free: Object.freeze({
@@ -28,6 +31,7 @@ export const PLAN_LIMITS = Object.freeze({
     z_report_scans_per_day: 3,
     kasse_extracts_per_day: 3,
     daily_close_export_days: 7,
+    bookable_resources_max: 3,
   }),
   starter: Object.freeze({
     team_users: 3,
@@ -37,6 +41,7 @@ export const PLAN_LIMITS = Object.freeze({
     z_report_scans_per_day: 20,
     kasse_extracts_per_day: 40,
     daily_close_export_days: 31,
+    bookable_resources_max: -1,
   }),
   pro: Object.freeze({
     team_users: 5,
@@ -46,6 +51,7 @@ export const PLAN_LIMITS = Object.freeze({
     z_report_scans_per_day: 100,
     kasse_extracts_per_day: 200,
     daily_close_export_days: 366,
+    bookable_resources_max: -1,
   }),
 });
 

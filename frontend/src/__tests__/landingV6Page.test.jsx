@@ -55,12 +55,15 @@ beforeEach(() => { engine.mount.mockClear(); engine.destroy.mockClear(); lang.se
 afterEach(cleanup);
 
 describe("the root and what the engine reads (engine.js hand-over, step 4)", () => {
-  it("one .lp6 root: data-page=landing, lang, no class but lp6, consent-skip marker", () => {
+  it("one .lp6 root: data-page=landing, lang, no class but lp6 (+ lp6-boot until the engine's first layout), consent markers", () => {
     const { root } = show("da");
-    expect(root.className).toBe("lp6");
+    // fix round: lp6-boot keeps every transition off until the engine has laid the page out (no load-time flash)
+    expect(root.className).toBe("lp6 lp6-boot");
     expect(root.getAttribute("data-page")).toBe("landing");
     expect(root.getAttribute("lang")).toBe("da");
     expect(root.hasAttribute("data-bb-consent-skip")).toBe(true);
+    // fix round: the desktop cookie card goes bottom-right, off the hero's trial line and button
+    expect(root.getAttribute("data-bb-consent-side")).toBe("right");
   });
 
   it("every id the engine queries exists exactly once inside the root", () => {
@@ -123,6 +126,8 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
     expect($$("figcaption.demo, .pcap, .room-foot .demo").every((e) => e.textContent === "Eksempel · demodata")).toBe(true);
     expect($$("figcaption.demo, .pcap, .room-foot .demo")).toHaveLength(14);
     expect($$("img").every((i) => i.getAttribute("alt") && i.getAttribute("loading") === "lazy" && i.getAttribute("width") && i.getAttribute("height"))).toBe(true);
+    // fix round (gate budgets): the stage pictures sit in the viewport, so they ask for a low fetch priority instead
+    expect($$("img").every((i) => i.getAttribute("fetchpriority") === "low")).toBe(true);
   });
 
   it("prices: frozen names and lines, every number from planPrices / planLimits", () => {
@@ -131,7 +136,7 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
     expect($("#pricing-h").textContent).toBe(`${starter.founding} kr./md. for de første ${FOUNDING_LIMIT} virksomheder — derefter ${starter.regular}${NB}kr./md.`);
     const cards = $$(".price").map((li) => [li.querySelector(".pn").textContent, li.querySelector(".pp").textContent, li.querySelector(".then").textContent, [...li.querySelectorAll(".inc > span")].map((s) => s.textContent)]);
     expect(cards).toEqual([
-      ["", "Gratis", "uden kort", ["1 bruger, 1 afdeling, op til 3 medarbejdere på vagtplanen", "Reservationer, 20 om måneden — bookingside, bordplan, venteliste", `Z-bon-aflæsning fra foto: 3${NB}om${NB}dagen — hver dags kasserapport som PDF uden grænse`]],
+      ["", "Gratis", "uden kort", ["1 bruger, 1 afdeling, op til 3 medarbejdere på vagtplanen", "Reservationer, 20 om måneden, op til 3 borde — bookingside, bordplan, venteliste", `Z-bon-aflæsning fra foto: 3${NB}om${NB}dagen — hver dags kasserapport som PDF uden grænse`]],
       ["Starter", `${starter.founding} kr./md.`, `Efter de første ${FOUNDING_LIMIT}: ${starter.regular}${NB}kr./md.`, ["Dig + 2 teammedlemmer med rollerettigheder, op til 50 medarbejdere på vagtplanen", "Reservationer, ubegrænset"]],
       ["Pro", `${pro.founding} kr./md.`, `Efter de første ${FOUNDING_LIMIT}: ${pro.regular}${NB}kr./md.`, ["3 afdelinger, dig + 4 teammedlemmer, op til 200 medarbejdere på vagtplanen", "Reservationer, ubegrænset"]],
     ]);
@@ -149,7 +154,10 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
     expect(text(".hm-1")).toBe("Jeg hedder Manoj.");
     expect($(".hm-m a").getAttribute("href")).toBe("mailto:contact@bonbox.dk");
     expect($(".foot .legal p").innerHTML).toBe('BonBox er et produkt fra<br>DukaanAI v/Manoz Chaudhary<br>CVR 46417321<br><a href="mailto:contact@bonbox.dk">contact@bonbox.dk</a>');
-    expect($$(".foot .links li").map((li) => li.textContent)).toEqual(["Handelsbetingelser", "Privatlivspolitik", "Kontakt", "Cookieindstillinger"]);
+    // fix round: DK · EN in the footer too (the top bar's switch steps aside on narrow phones once the header's button is up)
+    expect($$(".foot .links li").map((li) => li.textContent)).toEqual(["Handelsbetingelser", "Privatlivspolitik", "Kontakt", "Cookieindstillinger", "DK·EN"]);
+    expect($(".foot .links .lang .lg-cur b").getAttribute("aria-current")).toBe("true");
+    expect($(".foot .links .lang button[lang='en']").getAttribute("aria-label")).toBe("English");
     expect($(".foot .links button").getAttribute("data-cookie-settings")).toBe("open");
     expect(text(".copy-r")).toBe("© 2026 BonBox · Lavet i København");
   });
@@ -214,9 +222,15 @@ describe("DK · EN with drawn flags", () => {
     expect(btn.textContent).toBe(cat.en.short);
     expect(btn.getAttribute("lang")).toBe("en");
     expect(btn.getAttribute("aria-label")).toBe(cat.en.label);
-    expect(root.querySelectorAll(".lang svg.flag")).toHaveLength(2);
+    expect(root.querySelectorAll(".top .lang svg.flag")).toHaveLength(2);
+    // fix round: the same switch in the footer (two flags there too), and nowhere else
+    expect(root.querySelectorAll(".lang")).toHaveLength(2);
+    expect(root.querySelectorAll(".foot .lang svg.flag")).toHaveLength(2);
     expect(root.textContent).not.toMatch(/[\u{1F1E6}-\u{1F1FF}]/u);
     fireEvent.click(btn);
+    expect(lang.setLang).toHaveBeenCalledWith("en");
+    lang.setLang.mockClear();
+    fireEvent.click($(".foot .lang button"));
     expect(lang.setLang).toHaveBeenCalledWith("en");
   });
 
@@ -279,7 +293,7 @@ describe("the engine's lifecycle around React", () => {
     mo.disconnect();
     expect(records).toEqual([]);
     expect(engine.mount).toHaveBeenCalledTimes(1);
-    expect(r.root.className).toBe("lp6 js motion story");
+    expect(r.root.className).toBe("lp6 lp6-boot js motion story"); // the mocked engine never takes lp6-boot off
     expect(r.root.querySelector("#count").textContent).toBe("4 / 7");
   });
 });
@@ -304,7 +318,9 @@ describe("the real engine on this markup (jsdom: no layout, so this proves the w
       expect(errors).toEqual([]);
       expect(root.classList.contains("story")).toBe(true);
       expect(root.classList.contains("js")).toBe(true);
+      expect(root.classList.contains("lp6-boot")).toBe(false); // transitions back on after the first layout
       destroy();
+      expect(root.classList.contains("lp6-boot")).toBe(true); // a second mount starts from the boot state again
       expect(root.outerHTML).toBe(before);
       expect(window.__lp6).toBeUndefined();
     } finally {

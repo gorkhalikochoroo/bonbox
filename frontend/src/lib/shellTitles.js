@@ -15,12 +15,15 @@
  */
 //
 // Landing v6 (22 Oct 2026): the title is the landing's headline. da = index.html's <title> exactly; en is
-// Claude's suggestion (PORT_PLAN 2.6, forslag); tr reads the English title, as a Turkish reader reads the
-// English landing (landingV6.* has no Turkish yet, PORT_PLAN 2.2).
+// Claude's suggestion (PORT_PLAN 2.6, forslag).
+// tr keeps its Turkish title (fix round, 22 Oct): this is the tab title of every signed-in app page that does
+// not name itself (the dashboard and the other Layout pages), and the app is Turkish for a Turkish owner. The
+// landing itself is English for a Turkish reader (landingV6.* has no Turkish yet, PORT_PLAN 2.2), so there the
+// tab keeps the Turkish line until a Turkish landing exists.
 export const SHELL_TITLES = {
   da: "BonBox · Vagterne. Bordene. Kassen.",
   en: "BonBox · Shifts. Tables. Till.",
-  tr: "BonBox · Shifts. Tables. Till.",
+  tr: "BonBox — İşletmenin gerçekten üzerinde döndüğü arka ofis",
 };
 
 export const SHELL_TITLE_VALUES = Object.values(SHELL_TITLES);

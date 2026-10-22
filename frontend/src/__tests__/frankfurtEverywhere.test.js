@@ -242,6 +242,17 @@ describe("/privacy: Frankfurt main row; the fallback copy only behind IRELAND_CO
     expect(termsDate(IRELAND_COPY_DELETE_BY, "da")).toMatch(/^\d{1,2}\. [a-z]+ \d{4}$/);
   });
 
+  // Landing fix round (22 Oct): the row promises "slettes senest <day>". If that day passes with the row still on,
+  // /privacy states a promise in the past. CI goes red the day after, so the release that deletes the old project
+  // (IRELAND_COPY_ROW = false) or moves the date is never forgotten.
+  it("while the fallback row is on, its deletion day has not passed (Copenhagen time)", () => {
+    const copenhagenToday = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Copenhagen", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    expect(copenhagenToday).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    if (IRELAND_COPY_ROW) {
+      expect(copenhagenToday <= IRELAND_COPY_DELETE_BY, `IRELAND_COPY_DELETE_BY (${IRELAND_COPY_DELETE_BY}) has passed while IRELAND_COPY_ROW is on: delete the old project and set the row off, or move the date (src/legal/terms.js)`).toBe(true);
+    }
+  });
+
   for (const lang of ["da", "en"]) {
     it(`${lang}: the main Supabase row is Frankfurt, and Ireland appears only in the fallback row (constant as committed: ${IRELAND_COPY_ROW})`, () => {
       const { container, rows } = renderPrivacy(lang);

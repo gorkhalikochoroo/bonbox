@@ -13,9 +13,11 @@
  *   (d) a re-render through the language context (the provider re-rendering, a new value object) writes nothing to
  *       the DOM the engine has laid out;
  *   (e) DK → EN through the page's own switch re-keys the page: the old engine is destroyed, one new engine mounts on
- *       the English page, the tab title and <html lang> follow (Danish / English / a Turkish reader's English);
+ *       the English page, the tab title and <html lang> follow (Danish / English; a Turkish reader: the English page,
+ *       the Turkish app title); and (fix round) the reader keeps their place: the switch keeps the focus (top bar or
+ *       footer), open FAQ answers stay open, the sheet section on screen stays where it was;
  *   (f) with the cookie banner: no id appears twice in the document, and the open banner sits on the bottom bar
- *       (data-bb-consent-clear), never over its "Prøv gratis";
+ *       (data-bb-consent-clear), never over its "Prøv gratis"; on the wide layouts it floats bottom-right (fix round);
  *   (g) "← Forrige": hidden at 1 / 7, shown from 2 / 7 to 7 / 7 on both steppers (the frame's and the bottom bar's),
  *       walked 1 → 7 → 1 with real clicks.
  * jsdom has no layout, so the geometry is the engine's own fall-backs; the maths is held to the prototype in a real
@@ -289,7 +291,7 @@ describe("(e) DK → EN through the page's own switch", () => {
     expect(document.documentElement.lang).toBe("da");
   });
 
-  it("a Turkish reader: the English page, the English tab title (no Turkish landing yet)", async () => {
+  it("a Turkish reader: the English page (no Turkish landing yet); the tab keeps the app's Turkish title", async () => {
     setup();
     primeLocales({ tr }); // the app loads the Turkish pack on demand; here it is in, as da / en are (test/setup.js)
     localStorage.setItem("lang", "tr");
@@ -299,7 +301,65 @@ describe("(e) DK → EN through the page's own switch", () => {
     expect(lp6().querySelector("h1").textContent).toContain(en["landingV6.h1.shifts"]);
     expect(document.documentElement.lang).toBe("tr");
     expect(document.title).toBe(SHELL_TITLES.tr);
-    expect(SHELL_TITLES.tr).toBe(SHELL_TITLES.en);
+    // fix round: the shell title is every signed-in app page's tab title too, and the app is Turkish for a Turkish owner,
+    // so tr keeps its Turkish title (it was the English one in the first port)
+    expect(SHELL_TITLES.tr).toBe("BonBox — İşletmenin gerçekten üzerinde döndüğü arka ofis");
+    expect(SHELL_TITLES.tr).not.toBe(SHELL_TITLES.en);
+  });
+
+  /* fix round: the reader's place across the switch (components/landing/v6/place.js). jsdom has no layout: the sheet's
+     sections get their rects from here, Danish and English text differing in height (#faq 70 px from the top in Danish,
+     145 px in English, as measured at 1280 x 800 in the gate) */
+  const sheetRects = (where) => {
+    const real = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function () {
+      const r = (top, h) => ({ top, bottom: top + h, height: h, left: 0, right: 390, width: 390, x: 0, y: top, toJSON() {} });
+      const lang = this.closest && this.closest(".lp6") && this.closest(".lp6").getAttribute("lang");
+      if (where === "sheet") {
+        if (["mere", "pricing", "tryghed"].includes(this.id)) return r(-900, 300);
+        if (this.id === "faq") return lang === "en" ? r(145, 400) : r(70, 400);
+      } else if (["mere", "pricing", "tryghed", "faq", "foot"].includes(this.id)) return r(1200, 300); // still in the day
+      return real.call(this);
+    });
+  };
+
+  it("keyboard on the top bar's switch, in the sheet with FAQ answer 2 open: focus stays on the switch, the answer stays open, #faq stays put", async () => {
+    const e = setup();
+    sheetRects("sheet");
+    render(page());
+    await flush();
+    const daRoot = lp6();
+    daRoot.querySelectorAll("details")[1].open = true;
+    e.setY(6265);
+    const sw = daRoot.querySelector(".top .lang button[lang='en']");
+    sw.focus();
+    expect(document.activeElement).toBe(sw);
+    fireEvent.click(sw);
+    await flush();
+    const enRoot = lp6();
+    expect(enRoot.getAttribute("lang")).toBe("en");
+    // the focus is on the new page's switch (now "Dansk"), not on <body> (WCAG 2.4.3)
+    expect(document.activeElement).toBe(enRoot.querySelector(".top .lang button[lang='da']"));
+    expect([...enRoot.querySelectorAll("details")].map((d) => d.open)).toEqual([false, true, false]);
+    // #faq was 70 px from the top; the English sheet puts it at 145: the page moves by 75 so it is at 70 again
+    expect(e.getY()).toBe(6265 + 75);
+  });
+
+  it("the footer's switch keeps the focus in the footer; in the day nothing scrolls (the engine keeps the place)", async () => {
+    const e = setup();
+    sheetRects("day");
+    render(page());
+    await flush();
+    e.setY(1800);
+    const sw = lp6().querySelector(".foot .lang button[lang='en']");
+    sw.focus();
+    fireEvent.click(sw);
+    await flush();
+    const enRoot = lp6();
+    expect(enRoot.getAttribute("lang")).toBe("en");
+    expect(document.activeElement).toBe(enRoot.querySelector(".foot .lang button[lang='da']"));
+    expect(e.getY()).toBe(1800);
+    expect(window.scrollTo).not.toHaveBeenCalled();
   });
 });
 
@@ -337,6 +397,36 @@ describe("(f) with the cookie banner", () => {
     document.querySelector("#dock").getBoundingClientRect = rect(window.innerHeight, 0, 0); // display:none at ≥ 1024 wide
     act(() => { vi.advanceTimersByTime(700); });
     expect(document.querySelector('[data-cookie-consent="banner"]').style.bottom).toBe("0px");
+  });
+});
+
+describe("(f) fix round: on the wide layouts the banner floats bottom-right on the landing only", () => {
+  it("1440 x 900: the card takes the right corner (the hero's trial line and button sit bottom-left); /login keeps the left", async () => {
+    setup({ w: 1440, h: 900 });
+    render(page(<CookieConsent />));
+    await flush();
+    act(() => { vi.advanceTimersByTime(700); });
+    let banner = document.querySelector('[data-cookie-consent="banner"]');
+    expect(banner.className).toMatch(/(^|\s)md:right-6(\s|$)/);
+    expect(banner.className).not.toMatch(/md:left-6/);
+    expect(banner.style.bottom).toBe("24px");
+    fireEvent.click([...lp6().querySelectorAll("a")].find((a) => a.getAttribute("href") === "/login"));
+    await flush();
+    act(() => { vi.advanceTimersByTime(50); });
+    banner = document.querySelector('[data-cookie-consent="banner"]');
+    expect(document.querySelector(".lp6")).toBeNull();
+    expect(banner.className).toMatch(/(^|\s)md:left-6(\s|$)/);
+    expect(banner.className).not.toMatch(/md:right-6/);
+  });
+
+  it("a phone keeps the full-width sheet on the bar (the side marker changes nothing under 768 px)", async () => {
+    setup();
+    render(page(<CookieConsent />));
+    await flush();
+    act(() => { vi.advanceTimersByTime(700); });
+    const banner = document.querySelector('[data-cookie-consent="banner"]');
+    expect(banner.className).toMatch(/inset-x-0/);
+    expect(banner.className).toMatch(/md:left-6/); // the md: classes do not apply under 768 px; the default stays as before
   });
 });
 

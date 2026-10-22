@@ -68,7 +68,7 @@ describe("landingV6.* in da.js and en.js", () => {
     }
     expect(vars(da["landingV6.price.headline"])).toEqual(["founding", "n", "regular"]);
     expect(vars(da["landingV6.price.freeTeam"])).toEqual(["branches", "staff", "users"]);
-    expect(vars(da["landingV6.price.freeResv"])).toEqual(["resv"]);
+    expect(vars(da["landingV6.price.freeResv"])).toEqual(["resv", "tables"]);
     expect(vars(da["landingV6.price.freeScans"])).toEqual(["scans"]);
     expect(vars(da["landingV6.trial"])).toEqual(["price"]);
   });

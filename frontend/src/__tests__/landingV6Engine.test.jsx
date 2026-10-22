@@ -175,6 +175,54 @@ describe("engine.js — mount and destroy leave nothing behind", () => {
     d2();
   });
 
+  it("fix round: a root rendered with .lp6-boot (transitions off) loses it after the first layout and gets it back on destroy", () => {
+    for (const [size, mode] of [[{ w: 390, h: 844 }, "story"], [{ w: 820, h: 1180 }, "story"], [{ w: 1440, h: 900 }, "story"], [{ w: 375, h: 667 }, "stacked"], [{ w: 390, h: 844, reduced: true }, "reduced"]]) {
+      const e = setup(size);
+      e.root.classList.add("lp6-boot");
+      const before = e.root.outerHTML;
+      const destroy = mountLanding(e.root);
+      expect([mode, e.root.classList.contains("js"), e.root.classList.contains("lp6-boot")]).toEqual([mode, true, false]);
+      destroy();
+      expect([mode, e.root.outerHTML === before]).toEqual([mode, true]);
+    }
+  });
+
+  it("fix round: the snapshot holds every element the engine writes — every scene walked, both steppers 1 → 7 → 1, a resize, then destroy: the DOM as rendered", () => {
+    // jsdom has no layout, so most of the sizes the engine writes come out NaN and are dropped (a second pass with every box
+    // 300 x 120 adds the writes that need a size); the geometric writes (the screens' windows, the Vindue 2 label …) are walked
+    // in a real browser by the lab's port-build/fixround/tools/snapshot_walk.mjs (every scene at 6 sizes, then destroy: the DOM as rendered).
+    const runs = [];
+    for (const sized of [false, true]) for (const size of [{ w: 390, h: 844 }, { w: 390, h: 700 }, { w: 820, h: 1180 }, { w: 1440, h: 900 }, { w: 375, h: 667 }]) runs.push([size, sized]);
+    for (const [size, sized] of runs) {
+      const e = setup(size);
+      if (sized) {
+        vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(300);
+        vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(120);
+      }
+      const before = e.root.outerHTML;
+      const touched = new Set();
+      const mo = new MutationObserver(() => {});
+      mo.observe(e.root, { subtree: true, attributes: true, childList: true, characterData: true });
+      const destroy = mountLanding(e.root);
+      const story = e.root.classList.contains("story");
+      const end = story ? ((window.__lp6.geo().TOT + 100) * size.h) / 100 : 4000;
+      for (let y = 0; y <= end + size.h; y += size.h / 8) { e.setY(y); window.dispatchEvent(new Event("scroll")); vi.advanceTimersByTime(FRAME); }
+      vi.advanceTimersByTime(1500);
+      e.setY(0); window.dispatchEvent(new Event("scroll")); vi.advanceTimersByTime(FRAME);
+      for (const id of ["#dnext", "#next"]) {
+        for (let n = 0; n < 7; n++) { e.root.querySelector(id).click(); vi.advanceTimersByTime(400); window.dispatchEvent(new Event("scroll")); vi.advanceTimersByTime(FRAME); }
+        for (let n = 0; n < 7; n++) { e.root.querySelector(id === "#next" ? "#prev" : "#dprev").click(); vi.advanceTimersByTime(400); window.dispatchEvent(new Event("scroll")); vi.advanceTimersByTime(FRAME); }
+      }
+      window.dispatchEvent(new Event("resize")); vi.advanceTimersByTime(1500);
+      for (const r of mo.takeRecords()) if (r.type === "attributes") touched.add(r.target);
+      mo.disconnect();
+      destroy();
+      // not vacuous: the walk made the engine write on many elements (the root, bars, figures, the clock, the room's tables …)
+      expect([size, sized, touched.size > (story ? 60 : 15)]).toEqual([size, sized, true]);
+      expect([size, sized, e.root.outerHTML === before]).toEqual([size, sized, true]);
+    }
+  });
+
   it("the mode goes on the root: story on a tall phone, the stacked page on a short one or under reduced motion", () => {
     let e = setup({ w: 390, h: 844 });
     let d = mountLanding(e.root);

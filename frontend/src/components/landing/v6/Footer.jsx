@@ -3,15 +3,18 @@
  * Handelsbetingelser / Privatlivspolitik / Kontakt are router links (the prototype had absolute URLs); the legal
  * documents keep their Danish names on the English page too (as en.js does; PORT_PLAN section 8 item 9). No
  * Databehandleraftale link until a real DPA exists. "Cookieindstillinger" reopens the banner's drawer (GDPR
- * Art. 7(3): withdrawing is as easy as giving). On Android the owner app link goes to the web app (StoreLink). */
+ * Art. 7(3): withdrawing is as easy as giving). On Android the owner app link goes to the web app (StoreLink).
+ * DK · EN (fix round, 22 Oct): the same switch as the top bar's, so the language can always be changed at the end of the
+ * page (on phones under 540 px the top bar's switch steps aside while the header's "Prøv gratis" is up). */
 import { Fragment } from "react";
 import { Link } from "react-router-dom";
 import { CookieSettingsButton } from "../../CookieConsent";
+import LangSwitch from "./LangSwitch";
 import Lockup from "./Lockup";
 import StoreLink from "./StoreLink";
 import { CONTACT_EMAIL, LEGAL_LINES } from "./site";
 
-export default function Footer({ t, isAndroid }) {
+export default function Footer({ t, isAndroid, lang, onLang }) {
   return (
     <footer className="foot" id="foot">
       <div className="wrap">
@@ -25,6 +28,7 @@ export default function Footer({ t, isAndroid }) {
             <li><Link to="/privacy">{t("landingV6.foot.privacy")}</Link></li>
             <li><Link to="/contact">{t("landingV6.foot.contact")}</Link></li>
             <li><CookieSettingsButton label={t("landingV6.foot.cookies")} /></li>
+            <li><LangSwitch lang={lang} onPick={onLang} /></li>
           </ul>
           <div className="apps">
             <p><StoreLink app="owner" t={t} isAndroid={isAndroid} /></p>

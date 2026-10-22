@@ -70,6 +70,21 @@ describe("committed staff web bundle (ios-scheduler/App/App/public)", () => {
     ]) expect(bundle).toContain(text);
   });
 
+  // Landing fix round (22 Oct): the bundle is built from src/legal/terms.js, so the push day's one-line date
+  // change (PRIVACY_UPDATED) must be rebuilt into it as well, or the staff app's /privacy and /cookies keep
+  // printing the old date at their next Xcode Cloud build. Push-day order: set PRIVACY_UPDATED →
+  // `npm run build:scheduler-app` → commit ios-scheduler/App/App/public/ and capacitor.config.json.
+  // The bundle stores the dates as string literals (backticks after minification).
+  it("carries terms.js's privacy date (and, while the fallback row is on, its deletion day): rebuilt after a date change", async () => {
+    const { PRIVACY_UPDATED, PRIVACY_PUSH_DAY_PLACEHOLDER, IRELAND_COPY_ROW, IRELAND_COPY_DELETE_BY } = await import("../legal/terms");
+    const literal = (d) => new RegExp("[`\"']" + d.replace(/-/g, "\\-") + "[`\"']");
+    expect(bundle).toMatch(literal(PRIVACY_UPDATED));
+    // once the push day is set, the placeholder is gone from the bundle (while it is still set, privacyUpdatedPushDay
+    // is the one red test that says so; this file does not add a second one)
+    if (PRIVACY_UPDATED !== PRIVACY_PUSH_DAY_PLACEHOLDER) expect(bundle).not.toContain(PRIVACY_PUSH_DAY_PLACEHOLDER);
+    if (IRELAND_COPY_ROW) expect(bundle).toMatch(literal(IRELAND_COPY_DELETE_BY));
+  });
+
   it("the committed capacitor.config.json is the staff app's", () => {
     const cfg = JSON.parse(fs.readFileSync(path.join(FRONTEND, "ios-scheduler/App/App/capacitor.config.json"), "utf8"));
     expect(cfg.appId).toBe("dk.bonbox.scheduler");

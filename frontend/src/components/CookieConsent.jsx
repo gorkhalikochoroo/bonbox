@@ -200,7 +200,10 @@ function saveConsent(choices) {
 //  • Desktop (>= 768 px): a floating card, bottom-left, max 420 px. The app's
 //    "+" (QuickAdd) lives bottom-left too and is marked data-bb-consent-clear,
 //    so the card floats above it rather than over it; the AI button lives
-//    bottom-right and is left alone.
+//    bottom-right and is left alone. A page whose own bottom-left matters
+//    marks an element data-bb-consent-side="right" and gets the card
+//    bottom-right instead (the v6 landing: its hero's "Prøv gratis" and trial
+//    line sit bottom-left on the two-column page; landing fix round, 22 Oct).
 //  • The visible text is one short sentence (cookieBannerShort) with "Læs
 //    mere" → /cookies. The full text (cookieBannerBody, unchanged) is in the
 //    "Tilpas" panel, above the switches.
@@ -212,6 +215,7 @@ function saveConsent(choices) {
 // they land on a marked bar (lib/consentClear.js).
 const CLEAR_SELECTOR = CONSENT_CLEAR_SELECTOR;
 const WIDE_QUERY = "(min-width: 768px)";
+const SIDE_RIGHT_SELECTOR = '[data-bb-consent-side="right"]';
 
 export default function CookieConsent() {
   const { t } = useLanguage();
@@ -221,7 +225,8 @@ export default function CookieConsent() {
   const bannerRef = useRef(null);
   // clear: px from the viewport bottom to the top of the highest bar the
   // banner must not cover; wide: the desktop layout.
-  const [place, setPlace] = useState({ clear: 0, wide: false });
+  // right: a page asked for the desktop card on the right (data-bb-consent-side).
+  const [place, setPlace] = useState({ clear: 0, wide: false, right: false });
   const [choices, setChoices] = useState({
     necessary: true,
     analytics: false,
@@ -321,6 +326,7 @@ export default function CookieConsent() {
       frame = 0;
       let clear = 0;
       let wide = false;
+      let right = false;
       try {
         const vh = window.innerHeight;
         document.querySelectorAll(CLEAR_SELECTOR).forEach((el) => {
@@ -329,7 +335,8 @@ export default function CookieConsent() {
         });
       } catch { /* noop */ }
       try { wide = !!window.matchMedia && window.matchMedia(WIDE_QUERY).matches; } catch { /* noop */ }
-      setPlace((p) => (p.clear === clear && p.wide === wide ? p : { clear, wide }));
+      try { right = !!document.querySelector(SIDE_RIGHT_SELECTOR); } catch { /* noop */ }
+      setPlace((p) => (p.clear === clear && p.wide === wide && p.right === right ? p : { clear, wide, right }));
     };
     const schedule = () => {
       if (frame) return;
@@ -447,9 +454,10 @@ export default function CookieConsent() {
   // Placement. Phone: on the bar under it, or on the bottom edge (then the
   // sheet itself pads for the home indicator). Desktop: 24 px off the corner,
   // or 16 px above a marked button in it.
-  const { clear, wide } = place;
+  const { clear, wide, right } = place;
   const bottom = wide ? (clear > 0 ? clear + 16 : 24) : clear;
   const edgePad = !wide && clear === 0;
+  const side = wide && right ? "md:right-6" : "md:left-6";
 
   // Accept and Decline: one class, so they can never drift apart in size or
   // weight. Two lines fit inside the 44 px when a language runs long.
@@ -488,7 +496,7 @@ export default function CookieConsent() {
         role="dialog"
         aria-label={t("cookieBannerAria") || "Cookie consent"}
         data-cookie-consent="banner"
-        className="fixed z-[60] inset-x-0 md:inset-x-auto md:left-6 md:w-[420px] md:max-w-[calc(100vw-3rem)] motion-safe:animate-[bbFade_180ms_ease-out]"
+        className={`fixed z-[60] inset-x-0 md:inset-x-auto ${side} md:w-[420px] md:max-w-[calc(100vw-3rem)] motion-safe:animate-[bbFade_180ms_ease-out]`}
         style={{ bottom: `${bottom}px` }}
       >
         <div

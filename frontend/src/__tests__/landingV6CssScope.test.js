@@ -64,6 +64,7 @@ root.walkRules((r) => {
 const selectors = styleRules.flatMap((r) => splitList(r.selector));
 const rulesFor = (sel) => styleRules.filter((r) => splitList(r.selector).includes(sel));
 const ruleFor = (sel) => rulesFor(sel)[0];
+const mediaOfRule = (r) => (r && r.parent && r.parent.type === "atrule" && r.parent.name === "media" ? r.parent.params : null);
 const declsOf = (rule) => {
   const o = {};
   rule.walkDecls((d) => {
@@ -93,7 +94,7 @@ describe("landingV6.css — every selector is scoped to the page", () => {
   it("html/body rules set only the ground, the scroll behaviour and the page's own body box", () => {
     const allowed = {
       ":root:has(.lp6)": ["background", "scroll-behavior", "scroll-padding-top", "overscroll-behavior", "text-size-adjust", "-webkit-text-size-adjust"],
-      ":root:has(.lp6) body": ["margin", "background", "overflow-x"],
+      ":root:has(.lp6) body": ["margin", "padding-left", "padding-right", "background", "overflow-x"],
     };
     const seen = [];
     for (const r of styleRules) {
@@ -159,7 +160,44 @@ describe("landingV6.css — the app's global rules the page does not want are un
 
   it("body is the prototype's page body while mounted: paper, no margin, no sideways scroll", () => {
     const d = declsOf(ruleFor(":root:has(.lp6) body"));
-    expect(d).toEqual({ margin: "0", background: "#F6F4EC", "overflow-x": "clip" });
+    expect(d).toEqual({ margin: "0", "padding-left": "0", "padding-right": "0", background: "#F6F4EC", "overflow-x": "clip" });
+  });
+
+  it("fix round: the safe-area side insets move from body (index.css) onto the root, so the stacked night band bleeds to both edges", () => {
+    const app = read(join(SRC, "index.css"));
+    expect(app).toMatch(/padding-left: env\(safe-area-inset-left\);\s*padding-right: env\(safe-area-inset-right\);/);
+    const root = rulesFor(".lp6").map(declsOf).find((d) => d["padding-left"]);
+    expect(root).toEqual({ "padding-left": "env(safe-area-inset-left,0px)", "padding-right": "env(safe-area-inset-right,0px)" });
+    // the band's full bleed is measured from the root's content box, and the root is the clip box
+    expect(declsOf(ruleFor(".lp6:not(.story) .nb"))["margin-inline"]).toBe("calc(50% - 50vw)");
+    expect(rulesFor(".lp6").some((r) => declsOf(r)["overflow-x"] === "clip")).toBe(true);
+    // body keeps its bottom padding (the cookie banner's --bb-consent-h rides on it) and its top inset
+    const body = declsOf(ruleFor(":root:has(.lp6) body"));
+    expect(body["padding-bottom"]).toBeUndefined();
+    expect(body["padding-top"]).toBeUndefined();
+  });
+
+  it("fix round: index.css's touch press shrink (scale .97 on a / button / [role=button]:active) is undone inside .lp6", () => {
+    const app = read(join(SRC, "index.css"));
+    expect(app).toMatch(/button:active, a:active, \[role="button"\]:active \{\s*scale: 0\.97;/);
+    expect(declsOf(ruleFor(".lp6 :is(a,button,[role=button]):active"))).toEqual({ scale: "none" });
+  });
+
+  it("fix round: until the engine's first layout every transition is off (.lp6-boot), so no hidden picture fades out at load", () => {
+    const sels = [".lp6.lp6-boot", ".lp6.lp6-boot *", ".lp6.lp6-boot::before", ".lp6.lp6-boot::after", ".lp6.lp6-boot *::before", ".lp6.lp6-boot *::after"];
+    for (const sel of sels) expect([sel, declsOf(ruleFor(sel))]).toEqual([sel, { transition: "none !important" }]);
+    expect(splitList(ruleFor(".lp6.lp6-boot").selector).sort()).toEqual([...sels].sort());
+    // the picture rule it holds back: story hides every later screen with a .22 s fade
+    expect(declsOf(ruleFor(".lp6.story .fx")).transition).toMatch(/opacity \.22s/);
+    expect(mediaOfRule(ruleFor(".lp6.lp6-boot"))).toBeNull();
+  });
+
+  it("fix round: DK · EN in the footer shows in full, in ink; only the top bar's switch steps aside on narrow phones", () => {
+    const narrow = styleRules.filter((r) => r.parent && r.parent.type === "atrule" && /max-width:(399|539)px/.test(r.parent.params) && /\.lang/.test(r.selector));
+    expect(narrow.length).toBe(2);
+    for (const r of narrow) for (const sel of splitList(r.selector)) expect(sel).toMatch(/\.top \.lang/);
+    expect(declsOf(ruleFor(".lp6 .foot .links .lang button"))).toMatchObject({ display: "inline-flex", height: "44px", "min-width": "44px" });
+    expect(declsOf(ruleFor(".lp6 .foot .lang .sx")).color).toBe("var(--ink)");
   });
 
   it("the page root is its own stacking context with no transform (fixed bars still pin to the viewport)", () => {
