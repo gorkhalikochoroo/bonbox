@@ -232,9 +232,23 @@ describe("source: the fallback-copy row of /privacy is the only place under src/
 
 describe("/privacy: Frankfurt main row; the fallback copy only behind IRELAND_COPY_ROW", () => {
   const FALLBACK = {
-    en: ["Supabase", `Previous database and file storage. After the move to Frankfurt on 20 October 2026 a copy is kept as a fallback; it will be deleted by ${termsDate(IRELAND_COPY_DELETE_BY, "en")}.`, "EU (Ireland)", "A copy of all account and business data and the files you had uploaded, as of 20 October 2026"],
-    da: ["Supabase", `Tidligere database og fillagring. Efter flytningen til Frankfurt den 20. oktober 2026 beholdes en kopi som reserve; den slettes senest ${termsDate(IRELAND_COPY_DELETE_BY, "da")}.`, "EU (Irland)", "En kopi af alle konto- og virksomhedsdata og de filer, du havde uploadet, pr. 20. oktober 2026"],
+    en: ["Supabase", `Previous database and file storage. After the move to Frankfurt on 20 October 2026 a copy is kept as a fallback; it will be deleted by ${termsDate(IRELAND_COPY_DELETE_BY, "en")}. Until then, receipt pictures uploaded before the move are still loaded from this copy.`, "EU (Ireland)", "A copy of all account and business data and the files you had uploaded, as of 20 October 2026"],
+    da: ["Supabase", `Tidligere database og fillagring. Efter flytningen til Frankfurt den 20. oktober 2026 beholdes en kopi som reserve; den slettes senest ${termsDate(IRELAND_COPY_DELETE_BY, "da")}. Indtil da hentes billeder af bilag, der blev uploadet før flytningen, stadig fra denne kopi.`, "EU (Irland)", "En kopi af alle konto- og virksomhedsdata og de filer, du havde uploadet, pr. 20. oktober 2026"],
   };
+
+  // Security fix round (23 Oct): the copy is not a passive reserve. A receipt picture is stored as a full signed URL on
+  // the host that was live at upload (backend services/receipt_ocr.py signs for a year), and the move copied the rows
+  // without re-signing them, so pictures uploaded before 20 Oct still load from the old project. The row says so until
+  // the old project is deleted (and the packet makes "0 rows point at Ireland" the condition for that deletion).
+  it("the fallback row says pre-move receipt pictures still load from the copy, as long as uploads are stored as signed URLs", () => {
+    const ocr = fs.readFileSync(path.join(SRC, "../../backend/app/services/receipt_ocr.py"), "utf8");
+    expect(ocr).toMatch(/signed = storage\.signed_url\(key, ttl_seconds=one_year\)/);
+    expect(FALLBACK.da[1]).toMatch(/Indtil da hentes billeder af bilag, der blev uploadet før flytningen, stadig fra denne kopi\.$/);
+    expect(FALLBACK.en[1]).toMatch(/Until then, receipt pictures uploaded before the move are still loaded from this copy\.$/);
+    // the sentence never names the old place itself: Ireland stays in the Location column only
+    expect(FALLBACK.da[1]).not.toMatch(IRELAND);
+    expect(FALLBACK.en[1]).not.toMatch(IRELAND);
+  });
 
   it("the deletion day is a real day after the move", () => {
     expect(IRELAND_COPY_DELETE_BY).toMatch(/^\d{4}-\d{2}-\d{2}$/);

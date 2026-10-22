@@ -27,7 +27,7 @@
  *   - a language switch keeps the reader where they were: the switch that was used keeps the focus (WCAG 2.4.3), open FAQ
  *     answers stay open, and in the morning sheet the section on screen stays where it was (in the day, the engine's own
  *     layout already keeps the place). The place is taken before setLang and put back after the new engine's first layout. */
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useLanguage } from "../hooks/useLanguage";
 import { reportClientError } from "../utils/reportClientError";
 import { isAndroidBrowser } from "../components/landing/v2/platform";
@@ -40,6 +40,7 @@ import Sheet from "../components/landing/v6/Sheet";
 import Footer from "../components/landing/v6/Footer";
 import { pageLangFor } from "../components/landing/v6/site";
 import { placeOf, putPlaceBack } from "../components/landing/v6/place";
+import { LANDING_TITLE_VALUES, holdLandingTitle, landingTitle, shellTitle } from "../lib/shellTitles";
 import "../components/landing/v6/styles";
 
 // #probe = 100svh: the engine re-lays out when the small viewport changes (iOS bars, a growing frame)
@@ -57,7 +58,29 @@ export default function LandingV6Page() {
   const pageLang = pageLangFor(lang);
   // the reader's place across the re-key below (this component is not re-keyed, so the ref survives it)
   const carry = useRef(null);
+  useLandingTitle(pageLang, lang);
   return <LandingV6 key={pageLang} t={t} lang={pageLang} isAndroid={isAndroidBrowser()} onLang={setLang} carryRef={carry} />;
+}
+
+/* The tab names the landing while it is on screen (security fix round, 23 Oct 2026; step_13 open item 9): the page's
+ * headline in the page's language (lib/shellTitles.js LANDING_TITLES; index.html ships the Danish one). The app's own
+ * default title (SHELL_TITLES, as on origin/main) is every signed-in page's that does not name itself, so the landing
+ * holds the tab (the language provider then leaves the headline alone after a DK / EN switch) and, when it goes, hands
+ * the tab back with the app's title in the language on screen then. Lives here, not in the re-keyed LandingV6, so a
+ * language switch does not release and take the tab again. */
+function useLandingTitle(pageLang, appLang) {
+  const appLangRef = useRef(appLang);
+  useEffect(() => { appLangRef.current = appLang; }, [appLang]);
+  useEffect(() => {
+    const release = holdLandingTitle();
+    return () => {
+      release();
+      if (typeof document !== "undefined" && LANDING_TITLE_VALUES.includes(document.title)) document.title = shellTitle(appLangRef.current);
+    };
+  }, []);
+  useEffect(() => {
+    if (typeof document !== "undefined") document.title = landingTitle(pageLang);
+  }, [pageLang]);
 }
 
 function LandingV6({ t, lang, isAndroid, onLang, carryRef }) {

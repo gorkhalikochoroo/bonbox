@@ -149,7 +149,8 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
     const trust = $$(".trust li").map((li) => li.textContent);
     expect(trust[0]).toBe("Database i EU (Frankfurt, Tyskland) · underleverandører i privatlivspolitikken");
     expect(trust[1]).toMatch(/Anthropic.*endnu ikke bekræftet.*Vi sælger ikke dine data/);
-    expect(trust.slice(2)).toEqual(["Ingen andel af din omsætning", "MedarbejderEgne vagter og timer. Indsender kasserapporten — ser ikke omsætningen."]);
+    // security fix round (23 Oct): the staff line says what the code enforces (landingV6Claims.test.jsx pins why)
+    expect(trust.slice(2)).toEqual(["Ingen andel af din omsætning", "MedarbejderSer vagtplanen og egne timer. Ingen adgang til regnskab, MOMS, bank eller andres løn."]);
     expect($$(".qa summary").map((s) => s.textContent)).toEqual(["Virker det med min POS?", "Hvad sker der efter de 14 dages prøveperiode?", "Skal personalet have en app?"]);
     expect(text(".hm-1")).toBe("Jeg hedder Manoj.");
     expect($(".hm-m a").getAttribute("href")).toBe("mailto:contact@bonbox.dk");

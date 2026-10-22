@@ -25,7 +25,7 @@ export default function AccessV2() {
       role: t("landingV2.access.staff.role", "Staff"),
       detail: t(
         "landingV2.access.staff.detail",
-        "Their own shifts and hours. Submits the kasserapport — doesn't see the takings."
+        "Sees the rota and their own hours. No access to the books, MOMS, bank or anyone else's pay."
       ),
     },
     {

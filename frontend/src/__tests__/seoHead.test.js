@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SHELL_TITLES } from "../lib/shellTitles";
+import { LANDING_TITLES, SHELL_TITLES, isReplaceableTitle } from "../lib/shellTitles";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const html = readFileSync(resolve(root, "index.html"), "utf8");
@@ -18,16 +18,20 @@ const metaContent = (attr, name) => {
 };
 
 describe("landing head for search engines", () => {
-  // Landing v6 (PORT_PLAN 2.6, removal audit 12/14): the shell's tab title is the landing's headline, and the
-  // runtime swap for an English reader only fires while document.title is one of SHELL_TITLES — so the static
-  // <title> must be exactly SHELL_TITLES.da, and the share cards say the same.
-  it("the tab title, og:title and twitter:title are SHELL_TITLES.da exactly; the og image is the absolute v4 card", () => {
+  // Landing v6 (PORT_PLAN 2.6, removal audit 12/14): the static tab title is the landing's headline (what crawlers
+  // read for "/"), and the share cards say the same. Security fix round (23 Oct): it is the landing's title
+  // (LANDING_TITLES.da), no longer the app's default (SHELL_TITLES, origin/main's line again); the language provider
+  // replaces it with the app's on every page the landing is not on (isReplaceableTitle), so it must be exactly
+  // LANDING_TITLES.da.
+  it("the tab title, og:title and twitter:title are LANDING_TITLES.da exactly; the og image is the absolute v4 card", () => {
     const title = html.match(/<title>([^<]*)<\/title>/)[1];
-    expect(title).toBe(SHELL_TITLES.da);
-    expect(metaContent("property", "og:title")).toBe(SHELL_TITLES.da);
-    expect(metaContent("name", "twitter:title")).toBe(SHELL_TITLES.da);
-    expect(SHELL_TITLES.en).toBeTruthy();
-    expect(SHELL_TITLES.en).not.toBe(SHELL_TITLES.da);
+    expect(title).toBe(LANDING_TITLES.da);
+    expect(metaContent("property", "og:title")).toBe(LANDING_TITLES.da);
+    expect(metaContent("name", "twitter:title")).toBe(LANDING_TITLES.da);
+    expect(isReplaceableTitle(title)).toBe(true); // an app route opened cold gets the app's title
+    expect(LANDING_TITLES.en).toBeTruthy();
+    expect(LANDING_TITLES.en).not.toBe(LANDING_TITLES.da);
+    expect(SHELL_TITLES.da).not.toBe(LANDING_TITLES.da);
     expect(metaContent("property", "og:image")).toBe("https://www.bonbox.dk/og-image-v4.png");
     expect(metaContent("name", "twitter:image")).toBe("https://www.bonbox.dk/og-image-v4.png");
     expect(existsSync(resolve(root, "public", "og-image-v4.png"))).toBe(true);

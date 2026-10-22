@@ -375,6 +375,50 @@ describe("Tryghed: who reads the receipt images, said the way the privacy policy
   });
 });
 
+/* Security fix round (23 Oct): the old staff line ("Indsender kasserapporten — ser ikke omsætningen" / "Submits the
+ * kasserapport, never sees the takings") was true for no role. Invited team members (cashier, viewer) read sales and
+ * cannot write (backend main.py _MEMBER_WRITE_ALLOWED); the Vagtplan staff portal has no daily-close or kasserapport
+ * route at all and shows the whole team's rota (team-schedule). The line now says what the portal enforces: the rota
+ * and the staffer's own hours, nothing from the books, MOMS, the business's bank or anyone else's pay (forslag). */
+describe("Tryghed: the staff line says what the staff portal enforces", () => {
+  const STAFF = {
+    da: "Ser vagtplanen og egne timer. Ingen adgang til regnskab, MOMS, bank eller andres løn.",
+    en: "Sees the rota and their own hours. No access to the books, MOMS, bank or anyone else's pay.",
+  };
+  const OLD_CLAIM = /kasserapport|omsætning|takings|revenue|indsender|submits/i;
+
+  it("the page shows the new wording, word for word (da + en); the old 'submits the kasserapport, never sees the takings' claim cannot come back", () => {
+    for (const [lang, d] of [["da", da], ["en", en]]) {
+      expect(d["landingV6.trust.staffDetail"]).toBe(STAFF[lang]);
+      // the unrouted old landing says the same while it stays in the tree
+      expect(d["landingV2.access.staff.detail"]).toBe(STAFF[lang]);
+      for (const k of ["landingV6.trust.staffDetail", "landingV2.access.staff.detail"]) expect(d[k], `${lang} ${k}`).not.toMatch(OLD_CLAIM);
+      const { $$ } = show(lang);
+      const staff = $$(".trust li").find((li) => li.querySelector(".who"));
+      expect(norm(staff.querySelector("b").textContent)).toBe(d["landingV6.trust.staffRole"]);
+      expect(norm(staff.querySelector(".who").textContent)).toBe(STAFF[lang]);
+      cleanup();
+    }
+    // AccessV2's inline fallback is the English value (a stale fallback would bring the old claim back)
+    expect(read("components/landing/v2/AccessV2.jsx")).toContain(`"${STAFF.en}"`);
+    expect(read("components/landing/v2/AccessV2.jsx")).not.toMatch(/doesn't see the takings/);
+  });
+
+  it("what the line rests on, read from the backend: no daily-close / kasserapport / sales / MOMS route in the staff portal; the team rota carries no pay", () => {
+    const portal = backend("app/routers/staff_portal.py");
+    const routes = [...portal.matchAll(/@router\.(?:get|post|put|patch|delete)\(\s*"([^"]+)"/g)].map((m) => m[1]);
+    expect(routes.length).toBeGreaterThan(30); // the parser finds the routes (never passes vacuously)
+    expect(routes).toContain("/{token}/team-schedule"); // "ser vagtplanen": the whole team's rota
+    expect(routes).toContain("/{token}/hours"); // "egne timer"
+    expect(routes.filter((r) => /daily|close|kasse|sales|revenue|omsaet|vat|moms|report|expense|cashbook|invoice|faktura/i.test(r))).toEqual([]);
+    const team = portal.match(/class TeamShift\(BaseModel\):([\s\S]*?)\n\n\n/);
+    expect(team, "TeamShift in staff_portal.py").not.toBeNull();
+    const fields = [...team[1].matchAll(/^ {4}([a-z_]+): /gm)].map((m) => m[1]);
+    expect(fields).toContain("staff_name");
+    expect(fields.filter((f) => /rate|wage|pay|salary|lon|amount|cost/i.test(f))).toEqual([]);
+  });
+});
+
 describe("the footer reaches a person and the legal texts", () => {
   it("Handelsbetingelser, Privatlivspolitik, Kontakt as in-app links; the address /contact gives; Cookieindstillinger; no Databehandleraftale (da + en)", () => {
     const contact = read("pages/ContactPage.jsx").match(/const SUPPORT_EMAIL = "([^"]+)"/)[1];

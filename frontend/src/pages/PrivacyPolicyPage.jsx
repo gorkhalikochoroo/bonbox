@@ -64,9 +64,16 @@ function Table({ headers, rows }) {
 // third Supabase row, FALLBACK_COPY_ROW below, names it. Set the constant to
 // false once the old project is gone and the row disappears in both
 // languages.
+// Security fix round (23 Oct 2026): the copy is not only passive. Receipt
+// pictures uploaded before the move are stored in the database as full
+// signed URLs on the old project's host (services/receipt_ocr.py signs for a
+// year), so the owner's browser still loads them from there. The row says so
+// until the old project is deleted; before that deletion those URLs must be
+// re-signed against Frankfurt (release packet: "0 rows point at the old
+// project").
 const FALLBACK_COPY_ROW = {
-  en: ["Supabase", `Previous database and file storage. After the move to Frankfurt on 20 October 2026 a copy is kept as a fallback; it will be deleted by ${termsDate(IRELAND_COPY_DELETE_BY, "en")}.`, "EU (Ireland)", "A copy of all account and business data and the files you had uploaded, as of 20 October 2026"],
-  da: ["Supabase", `Tidligere database og fillagring. Efter flytningen til Frankfurt den 20. oktober 2026 beholdes en kopi som reserve; den slettes senest ${termsDate(IRELAND_COPY_DELETE_BY, "da")}.`, "EU (Irland)", "En kopi af alle konto- og virksomhedsdata og de filer, du havde uploadet, pr. 20. oktober 2026"],
+  en: ["Supabase", `Previous database and file storage. After the move to Frankfurt on 20 October 2026 a copy is kept as a fallback; it will be deleted by ${termsDate(IRELAND_COPY_DELETE_BY, "en")}. Until then, receipt pictures uploaded before the move are still loaded from this copy.`, "EU (Ireland)", "A copy of all account and business data and the files you had uploaded, as of 20 October 2026"],
+  da: ["Supabase", `Tidligere database og fillagring. Efter flytningen til Frankfurt den 20. oktober 2026 beholdes en kopi som reserve; den slettes senest ${termsDate(IRELAND_COPY_DELETE_BY, "da")}. Indtil da hentes billeder af bilag, der blev uploadet før flytningen, stadig fra denne kopi.`, "EU (Irland)", "En kopi af alle konto- og virksomhedsdata og de filer, du havde uploadet, pr. 20. oktober 2026"],
 };
 const fallbackCopyRows = (lang) => (IRELAND_COPY_ROW ? [FALLBACK_COPY_ROW[lang]] : []);
 

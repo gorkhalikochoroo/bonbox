@@ -13,8 +13,8 @@
  *   (d) a re-render through the language context (the provider re-rendering, a new value object) writes nothing to
  *       the DOM the engine has laid out;
  *   (e) DK → EN through the page's own switch re-keys the page: the old engine is destroyed, one new engine mounts on
- *       the English page, the tab title and <html lang> follow (Danish / English; a Turkish reader: the English page,
- *       the Turkish app title); and (fix round) the reader keeps their place: the switch keeps the focus (top bar or
+ *       the English page, the tab title and <html lang> follow (Danish / English; a Turkish reader: the English page
+ *       and its English headline in the tab, the Turkish app title once the page is left); and (fix round) the reader keeps their place: the switch keeps the focus (top bar or
  *       footer), open FAQ answers stay open, the sheet section on screen stays where it was;
  *   (f) with the cookie banner: no id appears twice in the document, and the open banner sits on the bottom bar
  *       (data-bb-consent-clear), never over its "Prøv gratis"; on the wide layouts it floats bottom-right (fix round);
@@ -29,7 +29,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, act, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { LanguageProvider } from "../hooks/useLanguage";
-import { SHELL_TITLES } from "../lib/shellTitles";
+import { LANDING_TITLES, SHELL_TITLES } from "../lib/shellTitles";
 import { da } from "../i18n/da.js";
 import { en } from "../i18n/en.js";
 import { tr } from "../i18n/tr.js";
@@ -111,7 +111,7 @@ function setup({ w = 390, h = 844 } = {}) {
   Object.defineProperty(window, "scrollY", { get: () => Y, configurable: true });
   Object.defineProperty(document.documentElement, "scrollHeight", { value: 100000, configurable: true });
   window.scrollTo = vi.fn((a, b) => { Y = typeof a === "object" ? a.top : b; });
-  document.title = SHELL_TITLES.da; // index.html's <title>
+  document.title = LANDING_TITLES.da; // index.html's <title>
   env = {
     live, obs, mqls,
     setY: (y) => { Y = y; },
@@ -258,12 +258,12 @@ describe("(e) DK → EN through the page's own switch", () => {
     await flush();
     const daRoot = lp6();
     const perMount = e.engineListeners();
-    expect(document.title).toBe(SHELL_TITLES.da);
+    expect(document.title).toBe(LANDING_TITLES.da);
     expect(document.documentElement.lang).toBe("da");
     expect(daRoot.querySelector("h1").textContent).toContain(da["landingV6.h1.shifts"]);
-    // the title is the headline, in each language
-    expect(SHELL_TITLES.da).toBe(`BonBox · ${da["landingV6.h1.shifts"]} ${da["landingV6.h1.tables"]} ${da["landingV6.h1.till"]}`);
-    expect(SHELL_TITLES.en).toBe(`BonBox · ${en["landingV6.h1.shifts"]} ${en["landingV6.h1.tables"]} ${en["landingV6.h1.till"]}`);
+    // the landing's title is its headline, in each language (security fix round: the landing's own, no longer the app's)
+    expect(LANDING_TITLES.da).toBe(`BonBox · ${da["landingV6.h1.shifts"]} ${da["landingV6.h1.tables"]} ${da["landingV6.h1.till"]}`);
+    expect(LANDING_TITLES.en).toBe(`BonBox · ${en["landingV6.h1.shifts"]} ${en["landingV6.h1.tables"]} ${en["landingV6.h1.till"]}`);
 
     fireEvent.click(daRoot.querySelector(".lang button[lang='en']"));
     await flush();
@@ -277,7 +277,7 @@ describe("(e) DK → EN through the page's own switch", () => {
     expect(eng.destroys[0].root).toBe(daRoot);
     expect(eng.mounts[1].root).toBe(enRoot);
     expect(e.engineListeners()).toBe(perMount); // the Danish engine's are gone, the English one's are there
-    expect(document.title).toBe(SHELL_TITLES.en);
+    expect(document.title).toBe(LANDING_TITLES.en);
     expect(document.documentElement.lang).toBe("en");
     expect(localStorage.getItem("lang")).toBe("en");
 
@@ -287,24 +287,29 @@ describe("(e) DK → EN through the page's own switch", () => {
     expect(eng.mounts).toHaveLength(3);
     expect(eng.destroys).toHaveLength(2);
     expect(e.engineListeners()).toBe(perMount);
-    expect(document.title).toBe(SHELL_TITLES.da);
+    expect(document.title).toBe(LANDING_TITLES.da);
     expect(document.documentElement.lang).toBe("da");
   });
 
-  it("a Turkish reader: the English page (no Turkish landing yet); the tab keeps the app's Turkish title", async () => {
+  it("a Turkish reader: the English page (no Turkish landing yet) with its English headline in the tab; the app's Turkish title once the page is left", async () => {
     setup();
     primeLocales({ tr }); // the app loads the Turkish pack on demand; here it is in, as da / en are (test/setup.js)
     localStorage.setItem("lang", "tr");
-    render(page());
+    const { getByTestId } = render(page());
     await flush();
     expect(lp6().getAttribute("lang")).toBe("en");
     expect(lp6().querySelector("h1").textContent).toContain(en["landingV6.h1.shifts"]);
     expect(document.documentElement.lang).toBe("tr");
-    expect(document.title).toBe(SHELL_TITLES.tr);
-    // fix round: the shell title is every signed-in app page's tab title too, and the app is Turkish for a Turkish owner,
-    // so tr keeps its Turkish title (it was the English one in the first port)
+    // security fix round (23 Oct): the landing names itself in the page's own language (it was the app's Turkish title
+    // while the two shared one title)
+    expect(document.title).toBe(LANDING_TITLES.en);
+    // the app's default title is every signed-in app page's tab title, and the app is Turkish for a Turkish owner
     expect(SHELL_TITLES.tr).toBe("BonBox — İşletmenin gerçekten üzerinde döndüğü arka ofis");
     expect(SHELL_TITLES.tr).not.toBe(SHELL_TITLES.en);
+    fireEvent.click([...lp6().querySelectorAll("a")].find((a) => a.getAttribute("href") === "/login"));
+    await flush();
+    expect(getByTestId("login-page")).toBeTruthy();
+    expect(document.title).toBe(SHELL_TITLES.tr);
   });
 
   /* fix round: the reader's place across the switch (components/landing/v6/place.js). jsdom has no layout: the sheet's
@@ -456,5 +461,79 @@ describe("(g) ← Forrige: hidden at 1 / 7, shown from 2 / 7 to 7 / 7", () => {
     fireEvent.click($("#dprev")); settle();
     expect(e.getY()).toBe(y);
     expect(state().count).toBe("1 / 7");
+  });
+});
+
+/* (h) security fix round (23 Oct; step_13 open item 9): the landing and the app each keep their own tab title. The port
+ * had made the landing's headline the app's default title too, so every signed-in page that does not name itself (the
+ * dashboard and the other Layout pages) read "BonBox · Vagterne. Bordene. Kassen.". The app's default is origin/main's
+ * line again; the landing sets its headline while it is on screen; index.html still ships the Danish headline (what
+ * crawlers read for "/"), and the language provider swaps it for the app's on any page the landing is not on. */
+describe("(h) tab titles: the landing's own headline, the app's default title everywhere else", () => {
+  // origin/main's lib/shellTitles.js and index.html <title>, word for word
+  const MAIN = {
+    da: "BonBox — Bagkontoret din virksomhed faktisk kører på",
+    en: "BonBox — The back office your business actually runs on",
+  };
+  const routes = (path) => (
+    <MemoryRouter initialEntries={[path]}>
+      <LanguageProvider>
+        <Routes>
+          <Route path="/" element={<LandingV6Page />} />
+          <Route path="/dashboard" element={<p data-testid="dashboard">dashboard</p>} />
+          <Route path="/login" element={<p data-testid="login-page">login</p>} />
+        </Routes>
+      </LanguageProvider>
+    </MemoryRouter>
+  );
+
+  it("the app's default title is origin/main's again (da, en) and differs from the landing's headline", () => {
+    expect(SHELL_TITLES.da).toBe(MAIN.da);
+    expect(SHELL_TITLES.en).toBe(MAIN.en);
+    for (const l of ["da", "en"]) expect(SHELL_TITLES[l]).not.toBe(LANDING_TITLES[l]);
+  });
+
+  for (const l of ["da", "en"]) {
+    it(`${l}: an app page opened cold (index.html's landing title in the tab) gets the app's default title, not the headline`, async () => {
+      setup();
+      localStorage.setItem("lang", l);
+      document.title = LANDING_TITLES.da; // index.html's static <title>
+      const { getByTestId } = render(routes("/dashboard"));
+      await flush();
+      expect(getByTestId("dashboard")).toBeTruthy();
+      expect(lp6()).toBeNull();
+      expect(document.title).toBe(MAIN[l]);
+    });
+
+    it(`${l}: the landing shows its headline; leaving it for an app page without a title of its own hands back the app's title`, async () => {
+      setup();
+      localStorage.setItem("lang", l);
+      document.title = LANDING_TITLES.da;
+      const { getByTestId } = render(routes("/"));
+      await flush();
+      expect(lp6()).not.toBeNull();
+      expect(document.title).toBe(LANDING_TITLES[l]);
+      fireEvent.click([...lp6().querySelectorAll("a")].find((a) => a.getAttribute("href") === "/login"));
+      await flush();
+      expect(getByTestId("login-page")).toBeTruthy();
+      expect(document.title).toBe(MAIN[l]);
+    });
+  }
+
+  it("a DK → EN switch on the landing keeps the landing's headline (the provider leaves a held title alone); a page's own title is never stomped", async () => {
+    setup();
+    render(routes("/"));
+    await flush();
+    expect(document.title).toBe(LANDING_TITLES.da);
+    fireEvent.click(lp6().querySelector(".lang button[lang='en']"));
+    await flush();
+    expect(document.title).toBe(LANDING_TITLES.en);
+    cleanup();
+    // a page that names itself keeps its name through a language change
+    document.title = "Book bord · Bistro";
+    localStorage.setItem("lang", "en");
+    render(routes("/dashboard"));
+    await flush();
+    expect(document.title).toBe("Book bord · Bistro");
   });
 });

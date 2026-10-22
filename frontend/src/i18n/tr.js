@@ -5025,7 +5025,7 @@ export const tr = {
   "landingV2.access.title": "Kim neyi görür.",
   "landingV2.access.body": "Ciro sahibine aittir. Kapatan kişinin işini yapmak için onu görmesi gerekmez.",
   "landingV2.access.staff.role": "Personel",
-  "landingV2.access.staff.detail": "Kendi vardiyaları ve saatleri. Kasserapport'u gönderir — kasayı görmez.",
+  "landingV2.access.staff.detail": "Vardiya planını ve kendi saatlerini görür. Muhasebeye, MOMS'a, bankaya veya başkalarının maaşına erişimi yoktur.",
   "landingV2.access.manager.role": "Yönetici",
   "landingV2.access.manager.detail": "Vardiya planını kurar ve yayınlar, saatleri onaylar, salonu ve rezervasyon defterini yönetir.",
   "landingV2.access.owner.role": "Sahip",

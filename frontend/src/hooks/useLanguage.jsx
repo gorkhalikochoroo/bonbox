@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { LANGUAGES } from "../i18n/languageCatalog";
 import { loadLocale, loadedLocales, localesFor } from "../lib/localeStore";
-import { SHELL_TITLE_VALUES, browserListsDanish, shellTitle } from "../lib/shellTitles";
+import { browserListsDanish, isReplaceableTitle, shellTitle } from "../lib/shellTitles";
 import { landingFirstPaint } from "../lib/landingBoot";
 // The landing page's and cookie banner's keys in Danish and English, built
 // from i18n/da.js + en.js at build time (vite.config.js, lib/bootKeys.js).
@@ -319,11 +319,17 @@ export function LanguageProvider({ children }) {
   // document.title ("Book bord · <venue>"). Only replace the title when it is
   // still one of the two shell defaults, so a page that has named itself is
   // never stomped by a language change.
+  //
+  // Landing v6 (security fix round, 23 Oct 2026): index.html's static title
+  // is the landing's headline (lib/shellTitles.js LANDING_TITLES). It counts
+  // as a default too, so an app route opened cold (or a signed-in owner sent
+  // on from "/") gets the app's title — except while the landing itself holds
+  // the tab (pages/LandingV6Page.jsx), which sets its own headline.
   useEffect(() => {
     if (typeof document === "undefined") return;
     document.documentElement.lang = lang;
     const wanted = shellTitle(lang);
-    if (SHELL_TITLE_VALUES.includes(document.title)) document.title = wanted;
+    if (isReplaceableTitle(document.title)) document.title = wanted;
   }, [lang]);
 
   // First paint waits for the visitor's dictionary — the page is still the
