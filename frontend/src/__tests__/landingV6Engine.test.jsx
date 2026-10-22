@@ -10,12 +10,15 @@
  *   - the mode classes go on the root, never on <html>; queries stay inside the root;
  *   - theme-color is written through setThemeColor, compared with the live <meta>, and put back on destroy;
  *   - the stepper's 250 ms tap merge and the one-time re-assert of a jump iOS snapped back;
- *   - a mount that fails half-way leaves the static page and reports.
+ *   - a mount that fails half-way leaves the static page and reports;
+ *   - (hardening round, 23 Oct) the debug hooks: window.__lp6 and the window.__perf tick timer exist only in a dev build or
+ *     with ?lp6debug in the address. This file runs as a production build does (import.meta.env.DEV stubbed false) and opts
+ *     in with ?lp6debug, so every __lp6 read below also proves the opt-in; the debug-hook block turns each switch on and off.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import RoomSvg from "../components/landing/v6/RoomSvg";
-import { mountLanding, LANDING_BAR } from "../components/landing/v6/engine";
+import { mountLanding, LANDING_BAR, debugHooksOn } from "../components/landing/v6/engine";
 
 const ROOM = renderToStaticMarkup(<RoomSvg />);
 
@@ -130,8 +133,10 @@ function teardown() {
   document.head.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove());
   delete window.matchMedia; delete window.ResizeObserver; delete window.IntersectionObserver;
 }
-beforeEach(() => { delete window.__lp6; });
-afterEach(teardown);
+/* a production build (DEV false) that opts in to the debug hooks through the address, as the lab's probes do */
+const debugAddress = (on) => window.history.replaceState(null, "", on ? "/?lp6debug" : "/");
+beforeEach(() => { delete window.__lp6; delete window.__perf; vi.stubEnv("DEV", false); debugAddress(true); });
+afterEach(() => { teardown(); vi.unstubAllEnvs(); debugAddress(false); delete window.__perf; });
 
 describe("engine.js — mount and destroy leave nothing behind", () => {
   for (const [name, size] of [["story (phone 390x844)", { w: 390, h: 844 }], ["story (tablet 820x1180)", { w: 820, h: 1180 }], ["story (desktop 1440x900)", { w: 1440, h: 900 }], ["stacked (375x667)", { w: 375, h: 667 }]]) {
@@ -388,5 +393,72 @@ describe("engine.js — a mount that fails half-way", () => {
     expect(vi.getTimerCount()).toBe(0);
     expect(window.__lp6).toBeUndefined();
     d();
+  });
+});
+
+describe("engine.js — the debug hooks (hardening round): window.__lp6 and window.__perf only in a dev build or with ?lp6debug", () => {
+  const scrollSome = (e) => { for (let y = 300; y <= 1500; y += 300) { e.setY(y); window.dispatchEvent(new Event("scroll")); vi.advanceTimersByTime(FRAME); } };
+
+  it("a production build without ?lp6debug: no window.__lp6, and the ticks never touch window.__perf", () => {
+    debugAddress(false);
+    expect(import.meta.env.DEV).toBe(false);
+    expect(debugHooksOn()).toBe(false);
+    const e = setup();
+    window.__perf = [];
+    const d = mountLanding(e.root);
+    expect(e.root.classList.contains("story")).toBe(true); // the pinned day, where the handle used to be set
+    scrollSome(e);
+    expect("__lp6" in window).toBe(false);
+    expect(window.__perf).toEqual([]);
+    d();
+    expect("__lp6" in window).toBe(false);
+  });
+
+  it("?lp6debug turns them on in a production build: the frozen handle while mounted, one timing per tick on a real array", () => {
+    expect(debugHooksOn()).toBe(true);
+    const e = setup();
+    window.__perf = [];
+    const d = mountLanding(e.root);
+    expect(window.__lp6 && Object.isFrozen(window.__lp6)).toBe(true);
+    expect(Object.keys(window.__lp6).sort()).toEqual(["geo", "scn", "warn"]);
+    const first = window.__perf.length;
+    expect(first).toBeGreaterThanOrEqual(1); // the first layout's tick
+    scrollSome(e);
+    expect(window.__perf.length).toBeGreaterThan(first);
+    expect(window.__perf.every((ms) => Number.isFinite(ms) && ms >= 0)).toBe(true);
+    d();
+    expect(window.__lp6).toBeUndefined();
+  });
+
+  it("a dev build turns them on without the parameter", () => {
+    debugAddress(false);
+    vi.stubEnv("DEV", true);
+    expect(debugHooksOn()).toBe(true);
+    const e = setup();
+    const d = mountLanding(e.root);
+    expect(window.__lp6 && Object.isFrozen(window.__lp6)).toBe(true);
+    d();
+    expect(window.__lp6).toBeUndefined();
+  });
+
+  it("the parameter is looked up by name: ?lp6debug, ?lp6debug=1, ?x=1&lp6debug — not in a value, a fragment or a longer name", () => {
+    for (const [address, on] of [["/?lp6debug", true], ["/?lp6debug=1", true], ["/?x=1&lp6debug", true], ["/?x=lp6debug", false], ["/#lp6debug", false], ["/?lp6debugger", false], ["/?LP6DEBUG", false], ["/", false]]) {
+      window.history.replaceState(null, "", address);
+      expect([address, debugHooksOn()]).toEqual([address, on]);
+    }
+  });
+
+  it("tick() pushes only onto a real array: anything else in window.__perf is left alone and nothing throws", () => {
+    for (const perf of [{ push: vi.fn() }, "not an array", 7, true, null, { length: 0 }]) {
+      const e = setup();
+      window.__perf = perf;
+      const errors = [];
+      const d = mountLanding(e.root, { onError: (err) => errors.push(err) });
+      expect(() => scrollSome(e)).not.toThrow();
+      expect(errors).toEqual([]);
+      if (perf && typeof perf.push === "function") expect(perf.push).not.toHaveBeenCalled();
+      expect(window.__perf).toBe(perf);
+      d();
+    }
   });
 });

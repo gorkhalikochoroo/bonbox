@@ -19,7 +19,13 @@
  *       fixtures/vercelHeaders.origin-main.json, a verbatim copy: CI has no origin/main); no CSP directive loosened;
  *   (f) before consent the landing sends no analytics or usage request (the app's analytics module and usage log, the
  *       api client, fetch, XHR, sendBeacon all watched; the app's page tracking mounted beside it), and — so the
- *       watch is not blind — after "Accept all" the usage log's request is seen.
+ *       watch is not blind — after "Accept all" the usage log's request is seen. Hardening round (23 Oct): each (f) test
+ *       runs on a fresh module graph, so state the blocks above leave in the usage log cannot hide a broken consent check;
+ *   (g) hardening round (23 Oct): the address never steers the page elsewhere and never reaches storage, and the landing
+ *       has no message listener — no location.assign / replace / href=, window.open, pushState or navigate in its code,
+ *       its three reads of the address pinned line by line, its one replaceState writing only #s1 / #s2 / #s6; rendered on
+ *       hostile addresses with every moving link clicked: no pushState, no window.open, no "message" listener, the query
+ *       kept, no storage write carrying anything from the address.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -522,9 +528,43 @@ describe("(e) vercel.json security headers: origin/main's or stricter", () => {
 /* ───────────────────────────── (f) ───────────────────────────── */
 const ANALYTICS = /\/api\/analytics|event-log|\/events?\b|track|collect|telemetry|beacon|pixel|gtag|google-analytics|googletagmanager|posthog|plausible|segment|mixpanel|hotjar|clarity|sentry/i;
 
+/* Hardening round (23 Oct): every (f) test runs on a FRESH module graph — the page, the language provider, the cookie
+ * banner, the usage log and the router, imported anew after vi.resetModules(). The usage log keeps its queue and its 5 s
+ * flush timer at module level, and the blocks above (which mount the app's page tracking too) leave both behind: a flush
+ * timer they set dies with the fake clock, the log's "a flush is already planned" mark stays, and a later page view is
+ * queued but never sent. On the shared graph the first two tests below stayed green with the consent check broken; on a
+ * fresh graph they turn red (release notes: the break and its run). The api / analytics mocks above apply to the fresh
+ * graph as well (vi.mock outlives resetModules), so NET still sees every request. */
+let F = null;
+async function freshGraph() {
+  vi.resetModules();
+  const store = await import("../lib/localeStore");
+  store.primeLocales({ en, da }); // as src/test/setup.js does for the shared graph, before any component module runs
+  const [page, banner, language, usage, router] = await Promise.all([
+    import("../pages/LandingV6Page"), import("../components/CookieConsent"), import("../hooks/useLanguage"), import("../hooks/useEventLog"), import("react-router-dom"),
+  ]);
+  return { Page: page.default, Banner: banner.default, Provider: language.LanguageProvider, usePageTracking: usage.usePageTracking, analyticsAllowed: usage.analyticsAllowed, R: router };
+}
+function freshApp(entry) {
+  const { Page, Banner, Provider, usePageTracking: useTracking, R } = F;
+  function Tracking() { useTracking(); return null; }
+  return (
+    <R.MemoryRouter initialEntries={[entry]}>
+      <Provider>
+        <Tracking />
+        <R.Routes>
+          <R.Route path="/" element={<Page />} />
+          <R.Route path="/login" element={<p data-testid="login-page">login</p>} />
+        </R.Routes>
+        <Banner />
+      </Provider>
+    </R.MemoryRouter>
+  );
+}
+
 async function visitLanding() {
   browser({ ua: IPHONE });
-  const r = render(app("/"));
+  const r = render(freshApp("/"));
   await flush();
   tick(700); // the banner opens
   await flush();
@@ -544,6 +584,15 @@ async function visitLanding() {
 }
 
 describe("(f) no analytics or usage request before consent", () => {
+  beforeEach(async () => { F = await freshGraph(); });
+  afterEach(() => { F = null; });
+
+  it("each test has its own usage log: the graph is fresh, not the one blocks (a)–(e) used", () => {
+    expect(F.usePageTracking).not.toBe(usePageTracking); // the top-level import
+    expect(F.Page).not.toBe(LandingV6Page);
+    expect(F.analyticsAllowed()).toBe(false); // no answer stored: the gate is closed
+  });
+
   it("first visit (no answer yet): nothing leaves — not the analytics module, the usage log, the api, fetch, XHR or a beacon", async () => {
     await visitLanding();
     expect(document.querySelector('[data-cookie-consent="banner"]')).not.toBeNull(); // still unanswered
@@ -577,4 +626,168 @@ describe("(f) no analytics or usage request before consent", () => {
     await flush();
     expect(NET.calls.map((c) => [c.via, c.method, c.url])).toEqual([["api", "post", "/event-log/batch"]]);
   });
+});
+
+/* ───────────────────────────── (g) ───────────────────────────── */
+/* Hardening round (23 Oct): the address (query and fragment) never steers the page somewhere else, never reaches storage,
+ * and the landing takes no cross-window messages. Source: the landing's own code (TREE, raw, comments included) has no
+ * navigation sink, no message listener and no storage at all; its three reads of the address are pinned line by line; its
+ * one replaceState writes only nav.js SCENE_HASH's strings. Rendered: a visit on hostile addresses, every link that moves
+ * the page clicked, both language switches, the banner answered — then no pushState, no window.open, every replaceState
+ * one of the three scene fragments with the router's state kept, the query untouched, no "message" listener, no storage
+ * write carrying anything from the address. */
+const NAV_SINKS = [
+  ["location.assign", /\blocation\s*\.\s*assign\b/],
+  ["location.replace", /\blocation\s*\.\s*replace\b/],
+  ["location.<part> =", /\blocation\s*\.\s*(?:href|hash|search|pathname|host|hostname|origin|protocol|port)\s*=(?!=)/],
+  ["location =", /(?<![\w$])location\s*=(?!=)/],
+  ["window.open / open(", /\b(?:window|self|top|parent|globalThis)\s*\.\s*open\b|(?<![\w.$])open\s*\(/],
+  ["history.pushState", /\bpushState\b/],
+  ["history.go / back / forward", /\bhistory\s*\.\s*(?:go|back|forward)\b/],
+  ["useNavigate / navigate( / <Navigate", /\buseNavigate\b|(?<![\w.$])navigate\s*\(|<Navigate\b/],
+  ["meta refresh", /http-?equiv/i],
+];
+const MESSAGE_SINKS = [
+  ['"message" listener', /["'`]message(?:error)?["'`]/],
+  ["onmessage", /\bonmessage\b/],
+  ["postMessage", /\bpostMessage\b/],
+  ["MessageChannel / BroadcastChannel", /\b(?:MessageChannel|BroadcastChannel)\b/],
+];
+const STORAGE_SINKS = [
+  ["localStorage", /\blocalStorage\b/],
+  ["sessionStorage", /\bsessionStorage\b/],
+  ["indexedDB", /\bindexedDB\b/],
+  ["document.cookie", /\bdocument\s*\.\s*cookie\b/],
+  ["caches", /\bcaches\s*\.\s*open\b/],
+];
+/** Every place the landing reads the address (any other read, of any part, by any means, is new and goes red). */
+const ADDRESS_READ = /\blocation\b|\bdocument\s*\.\s*(?:URL|documentURI|referrer|baseURI)\b|\bURLSearchParams\b|\bnew\s+URL\b|\buseSearchParams\b|\buseLocation\b|\bhashchange\b|\bpopstate\b/;
+const ADDRESS_READS = [
+  ["pages/LandingV6Page.jsx", "try { return sceneOfHash(window.location.hash); } catch { return null; }"],
+  [`${V6}/engine.js`, 'try { return new URLSearchParams(window.location.search).has("lp6debug"); } catch { return false; }'],
+  [`${V6}/engine.js`, "if (!h || window.location.hash === h) return;"],
+];
+const SCENE_URLS = ["#s1", "#s2", "#s6"];
+const scanTree = (sinks) => {
+  const hits = [];
+  for (const f of TREE) read(f).split("\n").forEach((line, i) => { for (const [name, re] of sinks) if (re.test(line)) hits.push(`${f}:${i + 1} ${name}: ${line.trim().slice(0, 120)}`); });
+  return hits;
+};
+
+describe("(g) the address never steers the page elsewhere, never reaches storage; no message listener", () => {
+  it("source: no navigation sink in the landing's code (location.assign / replace / href=, location =, window.open, pushState, navigate …)", () => {
+    expect(scanTree(NAV_SINKS)).toEqual([]);
+  });
+
+  it("source: no message listener, no postMessage, no channel", () => {
+    expect(scanTree(MESSAGE_SINKS)).toEqual([]);
+  });
+
+  it("source: no storage at all (localStorage, sessionStorage, indexedDB, document.cookie, caches)", () => {
+    expect(scanTree(STORAGE_SINKS)).toEqual([]);
+  });
+
+  it("source: the landing reads the address in exactly three places — a scene fragment, a debug switch, a compare", () => {
+    const reads = [];
+    for (const f of TREE) read(f).split("\n").forEach((line) => { if (ADDRESS_READ.test(line)) reads.push([f, line.trim()]); });
+    expect(reads).toEqual(ADDRESS_READS);
+    // the arrival fragment goes through an exact-match allow-list, never parsed
+    expect(read(`${V6}/nav.js`)).toMatch(/export function sceneOfHash\(hash\) \{\n {2}for \(const go of Object\.keys\(SCENE_HASH\)\) if \(SCENE_HASH\[go\] === hash\) return go;\n {2}return null;\n\}/);
+  });
+
+  it("source: the one replaceState writes a SCENE_HASH string, with the router's state kept; SCENE_HASH is the three [data-go] hrefs", async () => {
+    const lines = [];
+    for (const f of TREE) read(f).split("\n").forEach((line, i, all) => { if (/\breplaceState\b/.test(line)) lines.push([f, line.trim(), all.slice(Math.max(0, i - 3), i).map((l) => l.trim())]); });
+    expect(lines.map(([f, l]) => [f, l])).toEqual([[`${V6}/engine.js`, 'try { window.history.replaceState(window.history.state, "", h); } catch { /* a sandboxed frame: the address stays */ }']]);
+    expect(lines[0][2]).toEqual(["function nameScene(go) {", "const h = own(SCENE_HASH, go) ? SCENE_HASH[go] : null;", "if (!h || window.location.hash === h) return;"]);
+    const { SCENE_HASH, sceneOfHash } = await import("../components/landing/v6/nav");
+    expect(SCENE_HASH).toEqual({ "1a": "#s1", "2a": "#s2", "3a": "#s6" });
+    expect(Object.isFrozen(SCENE_HASH)).toBe(true);
+    for (const [go, h] of Object.entries(SCENE_HASH)) expect(sceneOfHash(h)).toBe(go);
+    for (const h of ["", "#", "#s3", "#S2", "#s2 ", " #s2", "#s2x", "#%73%32", "s2", "#s2?x", "#pricing", "#constructor", "#__proto__", "#toString", "#<img src=x onerror=alert(1)>", "#javascript:alert(1)", null, undefined]) expect([h, sceneOfHash(h)]).toEqual([h, null]);
+    // the hrefs the scenes' links carry (hero words, stage index) are exactly these three
+    for (const f of [`${V6}/Hero.jsx`, `${V6}/Stage.jsx`]) {
+      const pairs = [...read(f).matchAll(/href="(#s\d)" data-go="(\w+)"/g)].map((m) => [m[2], m[1]]);
+      expect(pairs).toEqual(Object.entries(SCENE_HASH));
+    }
+  });
+
+  it("the patterns catch what they are for (each on a sample line), and not what the landing does", () => {
+    const hit = (sinks, line) => sinks.filter(([, re]) => re.test(line)).map(([n]) => n);
+    for (const line of ["window.location.assign(x)", "location.replace(x)", "window.location.href = x", "document.location = x", "location = x", "window.open(x)", "open(x, '_blank')", "history.pushState(null, '', x)", "window.history.go(-1)", "const go = useNavigate()", "navigate(x)", "<Navigate to={x} />", '<meta httpEquiv="refresh" />']) expect([line, hit(NAV_SINKS, line).length > 0]).toEqual([line, true]);
+    for (const line of ['window.addEventListener("message", f)', "on(window, 'message', f)", "window.onmessage = f", "parent.postMessage(x, '*')", "new BroadcastChannel('x')"]) expect([line, hit(MESSAGE_SINKS, line).length > 0]).toEqual([line, true]);
+    for (const line of ["localStorage.setItem('x', y)", "window.sessionStorage.setItem(k, v)", "indexedDB.open('x')", "document.cookie = x", "caches.open('x')"]) expect([line, hit(STORAGE_SINKS, line).length > 0]).toEqual([line, true]);
+    for (const line of ["const loc = useLocation();", "const u = new URL(document.URL);", "const q = new URLSearchParams(x);", "on(window, 'hashchange', f)", "document.referrer"]) expect([line, ADDRESS_READ.test(line)]).toEqual([line, true]);
+    for (const line of ["if (!h || window.location.hash === h) return;", "jumpTo(Math.round(y2));", "d.open = true;", "reportClientError({ kind: \"render\", message: x })", "carryRef.current = placeOf(ref.current, from, pageLangFor(code)); onLang(code);"]) {
+      expect([line, hit([...NAV_SINKS, ...MESSAGE_SINKS, ...STORAGE_SINKS], line)]).toEqual([line, []]);
+    }
+  });
+
+  const MARK = "zq7lp6mark";
+  const ADDRESSES = [
+    `/?plan=${MARK}&lang=${MARK}&ref=${MARK}&next=//evil.example/${MARK}&redirect=https://evil.example/${MARK}#${MARK}`,
+    `/?ref=${MARK}&utm_source=${MARK}#s2`,
+    `/?go=javascript:alert(1)&${MARK}=1#//evil.example/${MARK}`,
+    `/?${MARK}#<img src=x onerror=alert(1)>${MARK}`,
+  ];
+  for (const address of ADDRESSES) {
+    it(`rendered: a visit on ${JSON.stringify(address)} — no pushState, no window.open, no message listener, the query kept, no storage write from the address`, async () => {
+      browser({ ua: IPHONE });
+      window.history.replaceState(null, "", address);
+      const search0 = window.location.search, hash0 = window.location.hash, len0 = window.history.length;
+      const push = vi.spyOn(window.history, "pushState");
+      const repl = vi.spyOn(window.history, "replaceState");
+      const open = vi.spyOn(window, "open").mockImplementation(() => null);
+      const types = [];
+      for (const target of [EventTarget.prototype, window]) {
+        const add = target.addEventListener;
+        vi.spyOn(target, "addEventListener").mockImplementation(function (type, fn, o) { types.push(String(type)); return add.call(this, type, fn, o); });
+      }
+      const writes = [];
+      for (const [name, store] of [["localStorage", localStorage], ["sessionStorage", sessionStorage]]) {
+        const set = store.setItem;
+        vi.spyOn(store, "setItem").mockImplementation((k, v) => { writes.push([name, String(k), String(v)]); return set.call(store, k, v); });
+      }
+      // the stepper's tap gate reads performance.now(): the clock moves with the fake timers here, so each click counts
+      const clock = { t: 1000 };
+      vi.spyOn(performance, "now").mockImplementation(() => clock.t);
+      const wait = (ms) => { clock.t += ms; tick(ms); };
+      localStorage.setItem("lang", "da"); writes.length = 0;
+      render(app(address));
+      await flush();
+      wait(700);
+      await flush();
+      expect(lp6()).not.toBeNull();
+      expect(lp6().classList.contains("story")).toBe(true);
+      // every link that moves the page, the steppers, a FAQ answer, both language switches, the banner answered
+      for (const a of [...lp6().querySelectorAll("[data-go]")]) { fireEvent.click(a); wait(300); }
+      for (const id of ["#dnext", "#next", "#dprev"]) { fireEvent.click(lp6().querySelector(id)); wait(300); }
+      fireEvent.click(lp6().querySelector(".qa summary"));
+      fireEvent.click(lp6().querySelector(".top .lang button[lang='en']"));
+      await flush();
+      for (const a of [...lp6().querySelectorAll("[data-go]")]) { fireEvent.click(a); wait(300); }
+      fireEvent.click(lp6().querySelector(".foot .lang button[lang='da']"));
+      await flush();
+      const banner = document.querySelector('[data-cookie-consent="banner"]');
+      fireEvent.click([...banner.querySelectorAll("button")].find((b) => b.textContent === da.cookieDeclineNonEssential || b.textContent === en.cookieDeclineNonEssential));
+      wait(6000);
+      await flush();
+      // not vacuous: the clicks did reach the engine (it named scenes) and the language and the banner were stored
+      expect(repl.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(writes.map(([, k]) => k)).toEqual(expect.arrayContaining(["lang", "bonbox_cookie_consent"]));
+      // no navigation
+      expect(push).not.toHaveBeenCalled();
+      expect(open).not.toHaveBeenCalled();
+      expect(repl.mock.calls.filter(([state, , url]) => !SCENE_URLS.includes(url) || state !== null)).toEqual([]);
+      expect(window.history.length).toBe(len0);
+      expect([window.location.pathname, window.location.search]).toEqual(["/", search0]); // the query exactly as it came
+      expect([hash0, ...SCENE_URLS]).toContain(window.location.hash);
+      // no cross-window messages
+      expect(types.filter((t) => /message/i.test(t))).toEqual([]);
+      // nothing from the address in storage (key or value), and no session storage at all
+      const fromAddress = (s) => s.includes(MARK) || /evil|javascript|onerror|<img|#s\d/i.test(s);
+      expect(writes.filter(([, k, v]) => fromAddress(k) || fromAddress(v))).toEqual([]);
+      expect(writes.filter(([name]) => name === "sessionStorage")).toEqual([]);
+    });
+  }
 });

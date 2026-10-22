@@ -26,8 +26,13 @@
  *     off the hero's trial line and button, which sit bottom-left on the two-column page;
  *   - a language switch keeps the reader where they were: the switch that was used keeps the focus (WCAG 2.4.3), open FAQ
  *     answers stay open, and in the morning sheet the section on screen stays where it was (in the day, the engine's own
- *     layout already keeps the place). The place is taken before setLang and put back after the new engine's first layout. */
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+ *     layout already keeps the place). The place is taken before setLang and put back after the new engine's first layout.
+ *
+ * Hardening round (23 Oct): an arrival on a scene's address (a cold load of /#s1, /#s2 or /#s6, or Back to one) opens the
+ * page on that scene. The fragment is read once, when the page mounts, and only as one of nav.js SCENE_HASH's three exact
+ * strings (anything else is ignored); the engine jumps there after its first layout (engine.js note 19). A language switch
+ * carries the reader's place instead, so a re-keyed page is never sent back to the arrival scene. */
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLanguage } from "../hooks/useLanguage";
 import { reportClientError } from "../utils/reportClientError";
 import { isAndroidBrowser } from "../components/landing/v2/platform";
@@ -39,6 +44,7 @@ import Dock from "../components/landing/v6/Dock";
 import Sheet from "../components/landing/v6/Sheet";
 import Footer from "../components/landing/v6/Footer";
 import { pageLangFor } from "../components/landing/v6/site";
+import { sceneOfHash } from "../components/landing/v6/nav";
 import { placeOf, putPlaceBack } from "../components/landing/v6/place";
 import { LANDING_TITLE_VALUES, holdLandingTitle, landingTitle, shellTitle } from "../lib/shellTitles";
 import "../components/landing/v6/styles";
@@ -53,13 +59,20 @@ function engineFailed(err) {
   reportClientError({ kind: "render", message: `landing engine: ${(err && err.message) || err}` });
 }
 
+/* The scene the address names on arrival ("1a" for /#s1 …), or null: an exact match against nav.js SCENE_HASH only. */
+function arrivalScene() {
+  try { return sceneOfHash(window.location.hash); } catch { return null; }
+}
+
 export default function LandingV6Page() {
   const { lang, t, setLang } = useLanguage();
   const pageLang = pageLangFor(lang);
   // the reader's place across the re-key below (this component is not re-keyed, so the ref survives it)
   const carry = useRef(null);
+  // the scene an arrival on /#s1, /#s2 or /#s6 opens on: read once, when the page mounts
+  const [arrive] = useState(arrivalScene);
   useLandingTitle(pageLang, lang);
-  return <LandingV6 key={pageLang} t={t} lang={pageLang} isAndroid={isAndroidBrowser()} onLang={setLang} carryRef={carry} />;
+  return <LandingV6 key={pageLang} t={t} lang={pageLang} isAndroid={isAndroidBrowser()} onLang={setLang} carryRef={carry} arrive={arrive} />;
 }
 
 /* The tab names the landing while it is on screen (security fix round, 23 Oct 2026; step_13 open item 9): the page's
@@ -83,14 +96,16 @@ function useLandingTitle(pageLang, appLang) {
   }, [pageLang]);
 }
 
-function LandingV6({ t, lang, isAndroid, onLang, carryRef }) {
+function LandingV6({ t, lang, isAndroid, onLang, carryRef, arrive }) {
   const ref = useRef(null);
   useLayoutEffect(() => {
-    const destroy = mountLanding(ref.current, { onError: engineFailed });
     const place = carryRef.current;
-    if (place && place.to === lang) { carryRef.current = null; putPlaceBack(ref.current, place); }
+    const carried = !!place && place.to === lang;
+    // a language switch keeps the reader's place; only a page that carries none may open on the arrival scene
+    const destroy = mountLanding(ref.current, { onError: engineFailed, arrive: carried ? null : arrive });
+    if (carried) { carryRef.current = null; putPlaceBack(ref.current, place); }
     return destroy;
-  }, [carryRef, lang]);
+  }, [carryRef, lang, arrive]);
   const pick = useCallback((from) => (code) => { carryRef.current = placeOf(ref.current, from, pageLangFor(code)); onLang(code); }, [carryRef, onLang]);
   return (
     <div ref={ref} className="lp6 lp6-boot" data-page="landing" lang={lang} data-bb-consent-skip="" data-bb-consent-side="right">

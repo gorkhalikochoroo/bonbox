@@ -26,6 +26,9 @@
  *   8. The browser bar: edge() writes theme-color through opts.setThemeColor and compares with the live <meta> value, not a
  *      cached one (useThemeColorSync may write after the engine); a check 300 ms after mount puts it right if so.
  *   9. window.__aft → window.__lp6 = { warn, scn, geo } (frozen, removed by destroy). The opt-in window.__perf hook stays.
+ *      Hardening round (23 Oct): both exist only where debugHooksOn() says so — a dev build, or an address with ?lp6debug
+ *      (the lab's probes; the tests set it). A production bundle without it has no window.__lp6 and never times a tick;
+ *      tick() pushes onto window.__perf only when it is a real array.
  *  10. NAV / SCN stepping (nav.js) and the guard's maths (guard.js) are pure modules.
  *  11. Renames from the CSS port (step 3): .end → .lp6-end; --bx --by --k --draw → --lp6-bx --lp6-by --lp6-k --lp6-draw.
  *  12. iOS Safari (Simulator, 22 Oct ~07:50): stepper taps < 250 ms after the previous accepted tap count as one; after a jump,
@@ -45,15 +48,23 @@
  *      frame (a getComputedStyle there forced a style pass over the whole page in each tick). Every change of that token
  *      (a width or a height breakpoint) already re-lays out.
  *  17. Fix round: the moving edge (--e) is written on the top bar, the bottom bar and the frame (the only elements whose
- *      colours split at it, landingV6.css), not on the root, so a crossing restyles those three subtrees, not the page. */
+ *      colours split at it, landingV6.css), not on the root, so a crossing restyles those three subtrees, not the page.
+ *  18. Hardening round (23 Oct): a click on a [data-go] link with a modifier key or another mouse button (new tab, new
+ *      window) is left to the browser. A plain click jumps, and the address bar then names that scene (nav.js SCENE_HASH,
+ *      written over the current history entry, not as a new one, so Back still leaves the page), never a stale #pricing.
+ *  19. Hardening round: opts.arrive (LandingV6Page: the scene an allow-listed address fragment names, /#s1 /#s2 /#s6, on
+ *      its first visit) opens the page on that scene after the first layout, while the reader is still at the top.
+ *  20. Hardening round: in the pinned day the frame carries data-bb-own-anchors: the app's ScrollManager (App.jsx) leaves an
+ *      address fragment that points inside it to this engine (its scene articles sit in a sticky frame, where the browser's
+ *      own scroll-to-element lands nowhere useful); on the stacked page the browser's scroll is the right one. */
 import { FLOOR } from "./floor.js";
-import { NSC, SCN, NAV, NAVF, buildTrack, seg as segAt, beatU, scnOf as scnAt, curScn as curScnAt, createStepper, goNext as nextJump, goPrev as prevJump, jumpCheck } from "./nav.js";
+import { NSC, SCN, NAV, NAVF, SCENE_HASH, buildTrack, seg as segAt, beatU, scnOf as scnAt, curScn as curScnAt, createStepper, goNext as nextJump, goPrev as prevJump, jumpCheck } from "./nav.js";
 import { clearanceMisses, repairMiss, NOFIX } from "./guard.js";
 
 /** The two grounds' browser-bar colours (the app writes theme-color in lower case). */
 export const LANDING_BAR = Object.freeze({ paper: "#f6f4ec", night: "#12281e" });
 
-const SNAP_ATTRS = ["class", "style", "hidden", "inert", "tabindex", "aria-current", "data-s", "data-beat", "data-x", "data-g", "data-st"];
+const SNAP_ATTRS = ["class", "style", "hidden", "inert", "tabindex", "aria-current", "data-s", "data-beat", "data-x", "data-g", "data-st", "data-bb-own-anchors"];
 const SNAP_TEXT = ".dg b,#count,#dcount,.zb dd";
 /* the elements whose colour splits at the night edge (each learns its resting top, --t) */
 const SPLIT_SEL = ".top .sx,.top .xb,.top .bt,.top .logo,.top .sbg,.dock .sx,.dock .xb,.dock .bt,.dock .sbg,.frame .sx,.frame .sbg,.frame .cm,.frame .xb,.frame .bt";
@@ -81,6 +92,14 @@ const writeThemeColor = (v) => {
 const mm = (q) => {
   try { return window.matchMedia(q); } catch { return { matches: false }; }
 };
+const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+/** 9. The debug hooks (window.__lp6, window.__perf) are on in a dev build, or when the address has ?lp6debug. Vite writes
+ *  import.meta.env.DEV as false into a production bundle; the try covers a bundle made without Vite (the lab's tools). */
+export function debugHooksOn() {
+  try { if (import.meta.env.DEV) return true; } catch { /* no Vite env */ }
+  try { return new URLSearchParams(window.location.search).has("lp6debug"); } catch { return false; }
+}
 
 export function mountLanding(root, opts) {
   opts = opts || {};
@@ -123,6 +142,7 @@ export function mountLanding(root, opts) {
   const barAtMount = liveThemeColor();
   let barWrote = null;
   const handle = { current: null };
+  const DEBUG = debugHooksOn();
 
   function destroy() {
     if (!alive) return;
@@ -263,7 +283,8 @@ export function mountLanding(root, opts) {
     on(document, "touchcancel", touches, { passive: true });
 
     if (!story) {
-      /* stacked page: the night band is a real section; its two edges pass the fixed bars exactly */
+      /* stacked page: the night band is a real section; its two edges pass the fixed bars exactly. 20: an address fragment
+         is the browser's (and ScrollManager's) to scroll to here */
       dnext.closest(".dk-nav").hidden = true;
       const st = () => {
         const y = window.scrollY, vh = G.vh, a = G.nb0 - y, b = G.nb1 - y;
@@ -278,6 +299,7 @@ export function mountLanding(root, opts) {
     }
 
     /* ───── the pinned day ───── */
+    frameEl.setAttribute("data-bb-own-anchors", ""); /* 20 */
     const hero = $("hero"), track = $("track"), scene = $("scene"), clock = $("clock"), plate = $("plate"), zbl = $("zbline"), roster = $("roster"), uge = $("uge"), vagt = $("vagt"), vapp = $("vapp"), rbox = $("roombox"), rfoot = $("roomfoot"),
       booking = $("booking"), bookw = $("bookw"), stand = $("stand"), tal = $("tal"), standw = $("standw"), foto = $("foto"), fotow = $("fotow"), zb = $("zb"), kasse = $("kasse"),
       c1 = $("c1"), c2 = $("c2"), c3 = $("c3"), snav = $("snav"), snev = $("snev"), snend = $("snend"), prev = $("prev"), eprev = $("eprev"), nextB = $("next"), ixa = [...root.querySelectorAll(".ix a")];
@@ -577,7 +599,7 @@ export function mountLanding(root, opts) {
     /* v6.2 fix: a screen taller than its room is scaled down about its centre to fit it (2 px spare for rounding); returns the scale, the caller places
        by the visual height. (The guard's own fallback stops at half; this one fits whatever the room, so a 600–700 px tall tablet window shows a small roster, never an overlap) */
     function shrink(el, h, roomPx) { roomPx -= 2; const k = roomPx > 0 && h > roomPx ? Math.floor((roomPx / h) * 1000) / 1000 : 1; el.style.scale = k < 1 ? String(k) : ""; return k; }
-    /* v6.2 last-line guard (phone, and the one-column tablet stage): the maths is guard.js. A miss is logged in window.__lp6.warn; layout() then
+    /* v6.2 last-line guard (phone, and the one-column tablet stage): the maths is guard.js. A miss is logged in WARN (window.__lp6.warn, 9); layout() then
        runs once more on fresh measures, and if the miss survives, that screen is moved inside its band, or, where it is taller than the band,
        scaled to it. A future regression can never silently cover the clock. The 22.50 tile + plan and the Z-bon are logged only. */
     function guard() {
@@ -640,7 +662,13 @@ export function mountLanding(root, opts) {
     });
 
     let ticking = false, SY = null;
-    function tick() { ticking = false; const t0 = window.__perf ? now() : 0; tick2(); if (t0) window.__perf.push(now() - t0); }
+    /* 9. the tick timer: only with the debug hooks on, and only onto a real array */
+    function tick() {
+      ticking = false;
+      const perf = DEBUG && Array.isArray(window.__perf) ? window.__perf : null, t0 = perf ? now() : 0;
+      tick2();
+      if (perf) perf.push(now() - t0);
+    }
     function tick2() {
       const y = SY !== null ? SY : window.scrollY; SY = null;
       const u = ((y - pin) / svh) * 100;
@@ -721,12 +749,29 @@ export function mountLanding(root, opts) {
     function goPrev() { if (!ST.tap(now())) return; const j = prevJump(ST, now(), jumpCtx); if (j) stepTo(j.k, j.y); }
     on(nextB, "click", goNext); on(dnext, "click", goNext);
     [prev, eprev, dprev].forEach((b) => on(b, "click", goPrev));
-    root.querySelectorAll("[data-go]").forEach((a) => on(a, "click", (ev) => { ev.preventDefault(); if (!ST.tap(now())) return; stepTo(SCN[a.dataset.go], beatY(a.dataset.go, NAVF[a.dataset.go])); }));
-    handle.current = Object.freeze({
-      geo: () => ({ SEG, ACC, TOT, pin, svh, trackH, desk, wide, hh: G.hh, AI, roomIn: G.roomIn, doors: G.doors, N0, N1, FLY, TV2, NAV, tallV: GEO.tallV, k7: GEO.k7 }),
-      scn: curScn, warn: WARN,
-    });
-    try { Object.defineProperty(window, "__lp6", { value: handle.current, configurable: true, writable: false }); } catch { /* a frozen window */ }
+    /* 18. the address bar names the scene a link jumped to: one of nav.js SCENE_HASH's three strings, nothing else */
+    function nameScene(go) {
+      const h = own(SCENE_HASH, go) ? SCENE_HASH[go] : null;
+      if (!h || window.location.hash === h) return;
+      try { window.history.replaceState(window.history.state, "", h); } catch { /* a sandboxed frame: the address stays */ }
+    }
+    const goLinks = [...root.querySelectorAll("[data-go]")];
+    goLinks.forEach((a) => on(a, "click", (ev) => {
+      /* 18. a new tab, a new window, a download: the browser's own */
+      if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      ev.preventDefault();
+      if (!ST.tap(now())) return;
+      const go = a.dataset.go;
+      stepTo(SCN[go], beatY(go, NAVF[go]));
+      nameScene(go);
+    }));
+    if (DEBUG) {
+      handle.current = Object.freeze({
+        geo: () => ({ SEG, ACC, TOT, pin, svh, trackH, desk, wide, hh: G.hh, AI, roomIn: G.roomIn, doors: G.doors, N0, N1, FLY, TV2, NAV, tallV: GEO.tallV, k7: GEO.k7 }),
+        scn: curScn, warn: WARN,
+      });
+      try { Object.defineProperty(window, "__lp6", { value: handle.current, configurable: true, writable: false }); } catch { /* a frozen window */ }
+    }
     on(window, "scroll", onScroll, { passive: true });
     /* a width change or a real height change re-lays the stage; Safari's bars collapsing (< 140 px) only moves the bottom bar.
        v6.2: so does any change of the stage's real inputs: the small viewport (#probe = 100svh), the clock's computed size, a height breakpoint.
@@ -748,6 +793,10 @@ export function mountLanding(root, opts) {
     layout();
     /* 14. the first layout is done: transitions back on (before the first paint) */
     R.classList.remove("lp6-boot");
+    /* 19. an arrival on a scene's address opens on that scene: a scene nav.js SCENE_HASH names, whose [data-go] link this page
+       has, while the page is still at the top (a StrictMode re-mount, or a page the browser has already scrolled, keeps its place) */
+    const arrive = opts.arrive;
+    if (arrive && own(SCENE_HASH, arrive) && goLinks.some((a) => a.dataset.go === arrive && a.getAttribute("href") === SCENE_HASH[arrive]) && window.scrollY < 2) stepTo(SCN[arrive], beatY(arrive, NAVF[arrive]));
     /* 15. a face the first layout asked for: lay out again once it is in (not when every face was already loaded) */
     if (document.fonts && document.fonts.ready && document.fonts.status !== "loaded") document.fonts.ready.then(() => { if (alive) layout(); });
     /* v6.2: WebKit can resolve fonts.ready before lazily used data: faces have loaded. Ask for the stage's Inter faces by name (300 the clock,

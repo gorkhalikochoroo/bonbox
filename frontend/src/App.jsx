@@ -1045,7 +1045,7 @@ function AppRoutes() {
  * Declared ABOVE its only consumer (AppInner) rather than relying on function
  * hoisting, for the same reason.
  */
-function ScrollManager() {
+export function ScrollManager() {
   const { pathname, hash } = useLocation();
   useEffect(() => {
     // No anchor: plain top-of-page, as before — at once, not html's smooth
@@ -1096,7 +1096,12 @@ function ScrollManager() {
       const el = document.getElementById(hash.slice(1));
       if (!el) return false;
       done = true;
-      el.scrollIntoView({ block: "start" });
+      // A part of a page that scrolls to its own anchors says so: the landing's
+      // pinned day (data-bb-own-anchors on its frame, written by its engine,
+      // components/landing/v6/engine.js) opens /#s1, /#s2 and /#s6 on that
+      // scene itself; scrolling the element into view would land inside its
+      // sticky frame, on no scene in particular. Everything else as before.
+      if (!el.closest("[data-bb-own-anchors]")) el.scrollIntoView({ block: "start" });
       cleanup();
       return true;
     };

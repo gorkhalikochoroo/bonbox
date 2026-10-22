@@ -314,18 +314,23 @@ describe("the real engine on this markup (jsdom: no layout, so this proves the w
     Object.defineProperty(window, "innerWidth", { value: 390, configurable: true });
     Object.defineProperty(window, "innerHeight", { value: 844, configurable: true });
     const errors = [];
+    // hardening round: the debug handle exists only in a dev build or with ?lp6debug (engine.js note 9): opted in here, so
+    // the check that destroy() removes it is not vacuous
+    window.history.replaceState(null, "", "/?lp6debug");
     try {
       const destroy = mountLanding(root, { onError: (e) => errors.push(e) });
       expect(errors).toEqual([]);
       expect(root.classList.contains("story")).toBe(true);
       expect(root.classList.contains("js")).toBe(true);
       expect(root.classList.contains("lp6-boot")).toBe(false); // transitions back on after the first layout
+      expect(window.__lp6 && Object.isFrozen(window.__lp6)).toBe(true);
       destroy();
       expect(root.classList.contains("lp6-boot")).toBe(true); // a second mount starts from the boot state again
       expect(root.outerHTML).toBe(before);
       expect(window.__lp6).toBeUndefined();
     } finally {
       Object.assign(window, { matchMedia: saved.matchMedia, ResizeObserver: saved.RO, IntersectionObserver: saved.IO, scrollTo: saved.scrollTo });
+      window.history.replaceState(null, "", "/");
     }
   });
 });

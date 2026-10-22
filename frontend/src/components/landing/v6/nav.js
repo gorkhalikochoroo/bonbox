@@ -127,6 +127,18 @@ export function goPrev(st, now, ctx) {
   return p ? { k: p.k, y: ctx.beatY(p.id, p.f) } : null;
 }
 
+/** Port (hardening round, 23 Oct): the three scenes a link can name — the hero's headline words and the stage index are
+ *  <a href="#s1" data-go="1a"> and so on. A click writes that fragment into the address bar, and an arrival on it (a cold
+ *  load of /#s2, Back to /#s6) opens on that scene. These three exact strings are the only fragments the landing ever
+ *  writes or acts on; anything else in the address is never read for navigation. */
+export const SCENE_HASH = Object.freeze({ "1a": "#s1", "2a": "#s2", "3a": "#s6" });
+
+/** The data-go scene a fragment names ("#s2" → "2a"), or null for any other fragment (compared whole, never parsed). */
+export function sceneOfHash(hash) {
+  for (const go of Object.keys(SCENE_HASH)) if (SCENE_HASH[go] === hash) return go;
+  return null;
+}
+
 /** After a jump p = {y0 (before), y (target), at}: "reassert" when the page is back at y0 (± 2 px) and not at the target while no
  *  touch is active; "wait" while a touch is down or nothing is wrong yet; "expired" after JUMP_WATCH; "none" without a jump. */
 export function jumpCheck(p, y, now, touching) {

@@ -20,6 +20,8 @@
  *       (data-bb-consent-clear), never over its "Prøv gratis"; on the wide layouts it floats bottom-right (fix round);
  *   (g) "← Forrige": hidden at 1 / 7, shown from 2 / 7 to 7 / 7 on both steppers (the frame's and the bottom bar's),
  *       walked 1 → 7 → 1 with real clicks.
+ * Hardening round (23 Oct): window.__lp6 exists only in a dev build or with ?lp6debug in the address (engine.js note 9);
+ * this file runs as a production build (import.meta.env.DEV stubbed false) and opts in through the address.
  * jsdom has no layout, so the geometry is the engine's own fall-backs; the maths is held to the prototype in a real
  * browser by the lab's port-build/tools scripts. Listeners and observers are attributed to the engine by the stack
  * that created them (engine.js), so the provider's and the banner's own listeners never blur the count.
@@ -132,9 +134,11 @@ function teardown() {
 beforeEach(() => {
   eng.mounts.length = 0; eng.destroys.length = 0; beacon.mockClear();
   delete window.__lp6;
+  vi.stubEnv("DEV", false);
+  window.history.replaceState(null, "", "/?lp6debug"); // the debug handle, opted in (engine.js note 9)
   localStorage.setItem("lang", "da");
 });
-afterEach(() => { cleanup(); teardown(); localStorage.clear(); document.documentElement.lang = "da"; });
+afterEach(() => { cleanup(); teardown(); vi.unstubAllEnvs(); window.history.replaceState(null, "", "/"); localStorage.clear(); document.documentElement.lang = "da"; });
 
 const page = (extra = null) => (
   <MemoryRouter initialEntries={["/"]}>

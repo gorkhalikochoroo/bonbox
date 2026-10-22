@@ -2,7 +2,7 @@
  *
  * On a phone and on the one-column tablet stage, after placing, no screen may come closer than 20 px to the clock's bottom or
  * 24 px to the statement it shows with (+ its caption, where the plate carries one). engine.js measures the frame (offsetTop /
- * offsetHeight / style.scale, as laid out) and asks clearanceMisses(); a miss is logged in window.__lp6.warn, the layout runs once
+ * offsetHeight / style.scale, as laid out) and asks clearanceMisses(); a miss is logged (window.__lp6.warn with the debug hooks on), the layout runs once
  * more on fresh measures, and a miss that survives is repaired by repairMiss() (moved inside its band, or scaled to it).
  * The 22.50 tile + plan (tal, stand: one frame, the drawing lands on it) and the Z-bon (joined to the Kassen card's "I alt")
  * are never moved: logged only. */
