@@ -1,0 +1,235 @@
+/**
+ * LANDING V6 — the stylesheet stays inside the page (PORT_PLAN 1.6, port step 3).
+ *
+ * The landing's CSS rides in its lazy chunk and STAYS loaded after the visitor
+ * leaves "/" for /register, /login or the app. So every rule in landingV6.css
+ * must be scoped to the page root (.lp6), or reach html/body only through
+ * :root:has(.lp6) — which stops matching the moment the page unmounts.
+ * Global names (keyframes, registered custom properties) are prefixed lp6-,
+ * because an @property registration is global whatever its selector.
+ *
+ * Also pinned: the overrides of the app's own global rules that the page does
+ * not want (44 px touch min-height, smooth scroll, scroll padding), the v6.2 /
+ * v6.3 rules the prototype was measured with, Tailwind not scanning the v6
+ * folder, and the one extra font weight the page brings.
+ *
+ * The real-browser half (every computed style of the prototype vs the port, at
+ * six sizes and six page states) is the lab's port-build/tools/css_parity.mjs.
+ */
+import { describe, it, expect } from "vitest";
+import { readFileSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import postcss from "postcss";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SRC = join(HERE, "..");
+const FRONTEND = join(SRC, "..");
+const V6 = join(SRC, "components", "landing", "v6");
+const CSS_FILE = join(V6, "landingV6.css");
+const read = (p) => readFileSync(p, "utf8");
+const css = read(CSS_FILE);
+const root = postcss.parse(css);
+// the rules alone, comments dropped (the header comment names the unprefixed properties on purpose)
+const bare = (() => {
+  const r = postcss.parse(css);
+  r.walkComments((c) => c.remove());
+  return r.toString();
+})();
+
+// a selector list split at top-level commas (not inside :is(), :not(), [..])
+const splitList = (s) => {
+  const out = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of s) {
+    if (ch === "(" || ch === "[") depth++;
+    if (ch === ")" || ch === "]") depth--;
+    if (ch === "," && depth === 0) {
+      out.push(cur.trim());
+      cur = "";
+    } else cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+};
+const inKeyframes = (node) => {
+  for (let p = node.parent; p; p = p.parent) if (p.type === "atrule" && /keyframes$/i.test(p.name)) return true;
+  return false;
+};
+const styleRules = [];
+root.walkRules((r) => {
+  if (!inKeyframes(r)) styleRules.push(r);
+});
+const selectors = styleRules.flatMap((r) => splitList(r.selector));
+const rulesFor = (sel) => styleRules.filter((r) => splitList(r.selector).includes(sel));
+const ruleFor = (sel) => rulesFor(sel)[0];
+const declsOf = (rule) => {
+  const o = {};
+  rule.walkDecls((d) => {
+    o[d.prop] = d.value + (d.important ? " !important" : "");
+  });
+  return o;
+};
+
+describe("landingV6.css — every selector is scoped to the page", () => {
+  it("has a few hundred rules to check (the parse found the file)", () => {
+    expect(selectors.length).toBeGreaterThan(600);
+  });
+
+  it("every selector starts with .lp6 or :root:has(.lp6)", () => {
+    const bad = selectors.filter((s) => !/^(\.lp6(?![\w-])|:root:has\(\.lp6\)(?![\w-]))/.test(s));
+    expect(bad).toEqual([]);
+  });
+
+  it("no selector names html, body or :root except through :root:has(.lp6)", () => {
+    const bad = selectors.filter((s) => {
+      const rest = s.replace(/^:root:has\(\.lp6\)( body)?/, "");
+      return /(^|[\s>+~(,])(html|body)(?![\w-])|:root/.test(rest);
+    });
+    expect(bad).toEqual([]);
+  });
+
+  it("html/body rules set only the ground, the scroll behaviour and the page's own body box", () => {
+    const allowed = {
+      ":root:has(.lp6)": ["background", "scroll-behavior", "scroll-padding-top", "overscroll-behavior", "text-size-adjust", "-webkit-text-size-adjust"],
+      ":root:has(.lp6) body": ["margin", "background", "overflow-x"],
+    };
+    const seen = [];
+    for (const r of styleRules) {
+      for (const s of splitList(r.selector)) {
+        if (!s.startsWith(":root:has(.lp6)")) continue;
+        expect(Object.keys(allowed)).toContain(s);
+        r.walkDecls((d) => {
+          seen.push(`${s} { ${d.prop} }`);
+          expect(allowed[s]).toContain(d.prop);
+        });
+      }
+    }
+    expect(seen.length).toBeGreaterThan(0);
+  });
+
+  it("keyframes and registered custom properties carry the lp6- prefix, and every animation names only lp6- keyframes", () => {
+    const keyframes = [];
+    const props = [];
+    root.walkAtRules((a) => {
+      if (/keyframes$/i.test(a.name)) keyframes.push(a.params.trim());
+      if (a.name === "property") props.push(a.params.trim());
+    });
+    expect(keyframes.sort()).toEqual(["lp6-barGrow", "lp6-dgIn", "lp6-dgOut", "lp6-rowFade", "lp6-rowRise"]);
+    expect(props.sort()).toEqual(["--lp6-bx", "--lp6-by", "--lp6-draw", "--lp6-k"]);
+    const names = new Set(keyframes);
+    root.walkDecls(/^animation(-name)?$/, (d) => {
+      const used = d.value.match(/\blp6-[\w-]+|\b(dgIn|dgOut|rowFade|rowRise|barGrow)\b/g) || [];
+      for (const u of used) expect(names.has(u)).toBe(true);
+    });
+    // the unprefixed registered names never come back (--k0 / --ck are plain, unregistered properties)
+    expect(bare).not.toMatch(/--(bx|by|k|draw)(?![\w-])/);
+  });
+
+  it("carries no @import, @font-face or remote url()", () => {
+    // an @import would also make @tailwindcss/postcss compile this file as a Tailwind root
+    const at = [];
+    root.walkAtRules((a) => at.push(a.name));
+    expect(at).not.toContain("import");
+    expect(at).not.toContain("font-face");
+    expect(bare).not.toMatch(/url\(\s*["']?(https?:)?\/\//i);
+  });
+});
+
+describe("landingV6.css — the app's global rules the page does not want are undone on the page only", () => {
+  it("the 44 px touch min-height on every a / button (index.css, pointer: coarse) is reset inside .lp6", () => {
+    const app = read(join(SRC, "index.css"));
+    expect(app).toMatch(/button:not\(\[role="switch"\]\), a, \[role="button"\],[\s\S]*?min-height: 44px/);
+    const r = ruleFor(".lp6 :is(a,button,[role=button])");
+    expect(r).toBeTruthy();
+    expect(declsOf(r)["min-height"]).toBe("auto");
+  });
+
+  it("html scrolls the way the prototype was measured while the page is mounted: no smooth scroll, no scroll padding, the native bounce", () => {
+    const decls = {};
+    for (const r of styleRules) if (splitList(r.selector).includes(":root:has(.lp6)")) Object.assign(decls, declsOf(r));
+    expect(decls["scroll-behavior"]).toBe("auto");
+    expect(decls["scroll-padding-top"]).toBe("auto");
+    expect(decls["overscroll-behavior"]).toBe("auto");
+    expect(decls.background.toUpperCase()).toBe("#F6F4EC");
+    // :root:has(.lp6) is 0,2,0 — it beats index.css's `html { scroll-behavior: smooth; overscroll-behavior: none }` (0,0,1)
+    // and the old landing's `html:has([data-page="landing"]) { scroll-padding-top: 74px }` (0,1,1)
+  });
+
+  it("body is the prototype's page body while mounted: paper, no margin, no sideways scroll", () => {
+    const d = declsOf(ruleFor(":root:has(.lp6) body"));
+    expect(d).toEqual({ margin: "0", background: "#F6F4EC", "overflow-x": "clip" });
+  });
+
+  it("the page root is its own stacking context with no transform (fixed bars still pin to the viewport)", () => {
+    const decls = {};
+    for (const r of styleRules) if (splitList(r.selector).includes(".lp6") && r.parent.type === "root") Object.assign(decls, declsOf(r));
+    expect(decls).toMatchObject({ position: "relative", "z-index": "0", isolation: "isolate", background: "var(--paper)" });
+    expect(decls.transform).toBeUndefined();
+    expect(decls.filter).toBeUndefined();
+  });
+});
+
+describe("landingV6.css — the measured v6.2 / v6.3 rules came across", () => {
+  // some rule for exactly this selector declares prop: value (a selector can have several rules, e.g. .lp6 .next)
+  const has = (sel, prop, value) => {
+    const rs = rulesFor(sel);
+    expect(rs.length, sel).toBeGreaterThan(0);
+    if (!prop) return rs[0];
+    const r = rs.find((x) => declsOf(x)[prop] === value);
+    expect(r ? value : rs.map((x) => declsOf(x)[prop]), `${sel} { ${prop} }`).toBe(value);
+    return r;
+  };
+  it("v6.2: a story page that drops under 600 px tall hides the stage screens (.cramp)", () => {
+    has(".lp6.cramp .frame .fx", "visibility", "hidden");
+  });
+  it("v6.2: the 22.50 caption stays one line on phones", () => {
+    const r = has(".lp6.story .stand figcaption.demo", "white-space", "nowrap");
+    expect(r.parent.params).toBe("(max-width:767px)");
+  });
+  it("v6.3: a quick second tap on the stepper or the bottom bar is a tap, not a zoom, with no grey flash", () => {
+    has(".lp6 .next", "touch-action", "manipulation");
+    has(".lp6 .dock", "-webkit-tap-highlight-color", "transparent");
+  });
+  it("v6.2: the 7 / 7 row keeps Prøv gratis still and puts ← Forrige 96 px in from the right", () => {
+    has(".lp6.story .sn-end .prev", "margin-right", "96px");
+    has(".lp6.story .sn-end", "flex-wrap", "nowrap");
+    has(".lp6.story .story-nav.lp6-end .sn-end");
+  });
+  it("v6.2: the footer mail link's focus ring hugs its own line", () => {
+    has(".lp6 .foot .legal p a:focus-visible", "outline-offset", "-11px");
+  });
+  it("v6.3: the room still draws itself right after a stepper jump (.jd eases --lp6-draw)", () => {
+    expect(declsOf(ruleFor(".lp6.story .room-svg.jd")).transition).toMatch(/^--lp6-draw 1s/);
+  });
+  it("the price section is #pricing (Terms § 8 links /#pricing), clear of the top bar", () => {
+    has(".lp6 #pricing", "scroll-margin-top", "calc(var(--hh) + 8px)");
+    expect(bare).not.toMatch(/#priser(?![\w-])/);
+  });
+  it("the colliding class names are prefixed: .lp6-glass, .lp6-ring, .lp6-end", () => {
+    expect(selectors.some((s) => /\.lp6-glass(?![\w-])/.test(s))).toBe(true);
+    expect(selectors.some((s) => /\.lp6-ring(?![\w-])/.test(s))).toBe(true);
+    expect(selectors.some((s) => /\.lp6-end(?![\w-])/.test(s))).toBe(true);
+    expect(selectors.filter((s) => /\.(glass|ring|end)(?![\w-])/.test(s))).toEqual([]);
+  });
+});
+
+describe("the landing's CSS plumbing outside the stylesheet", () => {
+  it("Tailwind does not scan the v6 folder (its words would become global utilities)", () => {
+    const app = read(join(SRC, "index.css"));
+    expect(app.split("\n")[0]).toBe('@import "tailwindcss";');
+    expect(app).toMatch(/^@source not "\.\/components\/landing\/v6";$/m);
+  });
+
+  it("styles.js brings Inter 300 (the clock) from @fontsource/inter beside the page's stylesheet, and nothing else", () => {
+    const s = read(join(V6, "styles.js"));
+    const imports = [...s.matchAll(/^import\s+["']([^"']+)["'];?$/gm)].map((m) => m[1]);
+    expect(imports).toEqual(["@fontsource/inter/latin-300.css", "./landingV6.css"]);
+    expect(existsSync(join(FRONTEND, "node_modules", "@fontsource", "inter", "latin-300.css"))).toBe(true);
+    // the app already loads 400/500/600 in main.jsx; the page adds no other weight
+    const main = read(join(SRC, "main.jsx"));
+    for (const w of [400, 500, 600]) expect(main).toContain(`@fontsource/inter/latin-${w}.css`);
+    expect(main).not.toContain("@fontsource/inter/latin-300.css");
+  });
+});

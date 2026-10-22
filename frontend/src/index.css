@@ -1,4 +1,9 @@
 @import "tailwindcss";
+/* The v6 landing (components/landing/v6) uses no Tailwind: it has its own
+   stylesheet, scoped under .lp6 (landingV6.css). Tailwind scans every word in a
+   source file, so the page's class names and its generated room drawing
+   ("ring", "end", …) would otherwise turn into stray global utilities. */
+@source not "./components/landing/v6";
 
 /* Tailwind 4 made a bare `border` / `border-t` currentColor — near-black ink
    — where v3 drew gray-200. Dividers written for v3 (kasserapport review,

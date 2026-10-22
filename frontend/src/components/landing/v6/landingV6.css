@@ -1,0 +1,736 @@
+/* BonBox landing v6: the v6.3 prototype's stylesheet, scoped under .lp6 (PORT_PLAN 1.6).
+ *
+ * Ported mechanically from bonbox-lab-state/landing-v4-2026-10-21/final/site/tools/src.html
+ * (sha256 852247b0f613ecf1bd04c5dd34f529401b60883712fa2cf9b1a6d73f8813406d) by port-build/tools/scope_css.mjs (port step 3); maintained by hand from here on.
+ * The lazy landing chunk's CSS stays loaded after the visitor leaves "/", so NOTHING here may reach outside the page:
+ *   - every selector starts with .lp6 (the page root) or :root:has(.lp6) (html/body, only while the page is mounted);
+ *   - the page's mode classes (js motion story xing cta-past dock-on cramp) and data-x / data-g sit on the .lp6 root, not on <html>;
+ *   - keyframes are lp6-*, and the registered custom properties are --lp6-bx --lp6-by --lp6-k --lp6-draw
+ *     (an @property registration is global: an unprefixed --k with inherits:true would change every other --k in the app);
+ *   - class names the app already styles are prefixed: .lp6-glass (index.css .glass), .lp6-ring and .lp6-end (Tailwind utilities).
+ * landingV6CssScope.test.js holds all of this. Inter 300 (the clock) is imported beside this file in styles.js; 400/500/600 come with main.jsx.
+ */
+/* ═════════════ tokens ═════════════ */
+.lp6{
+  --paper:#F6F4EC;--raised:#FCFBF7;
+  --ink:#093A26;--ink-2:#3D5649;--ink-3:#56695E;--line:#71857A;--line-faint:#DAD9CE;
+  --night:#12281E;--forest:#093A26;--forest-hover:#062C1D;
+  /* the app's section colours (frontend/src/config/scheduleSectionColors.js: kitchen red-500, bar blue-500, floor violet-500) */
+  --role-k:#EF4444;--role-b:#3B82F6;--role-f:#8B5CF6;
+  /* the settled ground under the stage: paper | night (two grounds, nothing in between) */
+  --ground:#F6F4EC;--fg:#093A26;--fg2:#3D5649;--fg3:#56695E;--stroke:#71857A;--hair:#DAD9CE;
+  --btn-bg:#093A26;--btn-fg:#F6F4EC;--c-sky:#0284C7;--c-em:#047857;--c-late:#EA580C;
+  --shadow:0 28px 56px -28px rgba(9,58,38,.34),0 2px 8px -3px rgba(9,58,38,.12);
+  --ring:0 0 0 1px rgba(9,58,38,.10);
+  /* the moving edge: everything above --e wears slot a, everything below wears slot b */
+  --e:99999px;
+  --a-g:#F6F4EC;--a-f1:#093A26;--a-f2:#3D5649;--a-f3:#56695E;--a-hr:#DAD9CE;--a-bb:#093A26;--a-bf:#F6F4EC;
+  --b-g:#12281E;--b-f1:#F6F4EC;--b-f2:#C9D4CD;--b-f3:#9DB0A5;--b-hr:#37493F;--b-bb:#F6F4EC;--b-bf:#093A26;
+  --m-out:cubic-bezier(.16,1,.3,1);--m-io:cubic-bezier(.76,0,.24,1);--m-rise:24px;
+  /* PHONE tokens (< 768): body 17, labels 13 (nothing smaller), captions 13, notes 15; section gap 56–72; first-screen clock 56 */
+  --fs-clock:clamp(64px,10.3svh,96px);--fs-clock0:56px;--fs-h1:44px;--fs-lead:clamp(19px,2.25svh,21px);--fs-body:17px;--fs-sub:17px;--fs-note:15px;--fs-label:13px;--fs-cap:13px;--fs-ui:15px;
+  --fs-row:20px;--fs-price:28px;--fs-ix:20px;--ls-label:.16em;
+  --gut:20px;--sec:clamp(56px,8svh,72px);--pad1:40px;--hh:56px;--rad:14px;--dk:64px;--cg:72px;
+}
+.lp6[data-x=np]{--a-g:#12281E;--a-f1:#F6F4EC;--a-f2:#C9D4CD;--a-f3:#9DB0A5;--a-hr:#37493F;--a-bb:#F6F4EC;--a-bf:#093A26;
+  --b-g:#F6F4EC;--b-f1:#093A26;--b-f2:#3D5649;--b-f3:#56695E;--b-hr:#DAD9CE;--b-bb:#093A26;--b-bf:#F6F4EC}
+.lp6[data-g=night]{--ground:#12281E;--fg:#F6F4EC;--fg2:#C9D4CD;--fg3:#9DB0A5;--stroke:#86A394;--hair:#37493F;--btn-bg:#F6F4EC;--btn-fg:#093A26;
+  --c-sky:#7DD3FC;--c-em:#6EE7B7;--c-late:#FB923C;--shadow:0 30px 60px -24px rgba(0,0,0,.55),0 2px 8px -2px rgba(0,0,0,.3);--ring:0 0 0 1px rgba(246,244,236,.12)}
+@media (max-width:380px){.lp6{--fs-h1:40px;--gut:16px;--ls-label:.14em}}
+/* short phones (Safari with its bars, iPhone mini): a tighter first screen and stage */
+@media (max-width:767px) and (max-height:720px){.lp6{--fs-h1:36px;--fs-clock:56px;--fs-clock0:52px}}
+/* tall phones (Pro Max): the stage's type grows instead of its air */
+@media (max-width:767px) and (min-height:900px){.lp6{--fs-clock:clamp(96px,11.6svh,108px);--fs-clock0:60px;--fs-lead:22px}}
+/* TABLET tokens (768+, single column): body 18 */
+@media (min-width:768px){.lp6{--fs-clock:clamp(96px,11.5svh,136px);--fs-clock0:96px;--fs-h1:72px;--fs-lead:26px;--fs-body:18px;--fs-sub:18px;--fs-note:16px;--fs-row:22px;--fs-price:30px;
+  --gut:40px;--sec:96px;--pad1:64px;--hh:64px;--rad:16px;--ls-label:.18em}}
+@media (min-width:820px){.lp6{--dk:0px}}
+/* LANDSCAPE tokens from 1024 px: two columns */
+@media (min-width:1024px) and (min-aspect-ratio:5/4){.lp6{--fs-clock:clamp(112px,15svh,144px);--fs-h1:clamp(64px,6.4vw,76px);--fs-lead:28px;--fs-ix:18px;--cg:48px}}
+/* DESKTOP tokens (1200+): body 19, line length 45–75 ch, section gap 128 */
+@media (min-width:1200px){.lp6{--fs-h1:clamp(96px,12svh,132px);--fs-lead:clamp(32px,2.5vw,38px);--fs-body:19px;--fs-sub:clamp(20px,2.05svh,22px);--fs-note:17px;--fs-row:24px;--fs-price:34px;--fs-ix:20px;
+  --gut:64px;--sec:128px;--pad1:96px;--hh:72px;--rad:18px;--cg:72px}}
+@media (min-width:1200px) and (min-aspect-ratio:5/4){.lp6{--fs-clock:clamp(144px,19svh,208px)}}
+
+/* ═════════════ base ═════════════ */
+.lp6,.lp6 *,.lp6::before,.lp6 *::before,.lp6::after,.lp6 *::after{box-sizing:border-box}
+:root:has(.lp6){-webkit-text-size-adjust:100%;text-size-adjust:100%;background:#F6F4EC}
+.lp6{margin:0;background:var(--paper);color:var(--fg);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;overflow-x:clip}
+.lp6 img,.lp6 svg{display:block;max-width:100%}
+.lp6 a{color:inherit}
+.lp6 p,.lp6 h1,.lp6 h2,.lp6 h3,.lp6 dl,.lp6 dd,.lp6 ol,.lp6 ul,.lp6 figure{margin:0}
+.lp6 ol,.lp6 ul{padding:0;list-style:none}
+.lp6 [hidden]{display:none!important}
+.lp6 .sr{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.lp6 .skip{position:absolute;left:12px;top:-60px;z-index:100;background:var(--forest);color:var(--paper);padding:10px 14px;border-radius:8px;text-decoration:none;font-weight:600}
+.lp6 .skip:focus{top:12px}
+.lp6 :focus-visible{outline:2px solid var(--fg);outline-offset:3px;border-radius:6px}
+.lp6 .label{font-size:var(--fs-label);line-height:16px;font-weight:600;letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--fg3)}
+.lp6 .demo{display:block;font-size:var(--fs-cap);line-height:18px;color:var(--fg3);letter-spacing:0;text-transform:none;font-weight:400}
+.lp6 .num{font-variant-numeric:tabular-nums}
+.lp6 .nw{white-space:nowrap}
+.lp6 .btn{display:inline-flex;align-items:center;justify-content:center;height:44px;padding:0 18px;border-radius:999px;background:var(--btn-bg);color:var(--btn-fg);font-weight:600;font-size:var(--fs-ui);line-height:1;text-decoration:none;white-space:nowrap;transition:background-color .2s ease,color .2s ease}
+.lp6 .btn-lg{height:52px;padding:0 28px;font-size:17px}
+@media (hover:hover){.lp6 .btn:hover{background:var(--forest-hover)}.lp6[data-g=night] .btn:hover{background:#fff}.lp6 .tlink:hover{text-decoration-color:currentColor}}
+/* inline links: a 44 px hit area without moving the line */
+.lp6 .tlink{display:inline-block;padding-block:12px;margin-block:-12px;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;text-decoration-color:var(--stroke);transition:text-decoration-color .25s ease}
+
+/* ═════════════ the edge — one hard line between the two grounds ═════════════
+   Every text element that can meet the edge is painted from two colours split exactly at the edge
+   (background-clip:text), so it is ink on paper and paper on night at every pixel, at every moment.
+   Outside a crossing the same elements use the settled colours. */
+.lp6 .sx{transition:color .3s ease}
+.lp6 .sx.f1{color:var(--fg)}.lp6 .sx.f2{color:var(--fg2)}.lp6 .sx.f3{color:var(--fg3)}
+.lp6 .sbg.h{background:var(--hair)}.lp6 .sbg.k{background:var(--fg)}
+.lp6.xing :is(.top,.dock) .sx,.lp6.story.xing .frame .sx{color:transparent;-webkit-text-fill-color:transparent;transition:none;
+  background-image:linear-gradient(180deg,var(--sa) calc(var(--e) - var(--t,0px)),var(--sb) 0);-webkit-background-clip:text;background-clip:text}
+.lp6.xing :is(.top,.dock) .sx.f1,.lp6.story.xing .frame .sx.f1{--sa:var(--a-f1);--sb:var(--b-f1)}
+.lp6.xing :is(.top,.dock) .sx.f2,.lp6.story.xing .frame .sx.f2{--sa:var(--a-f2);--sb:var(--b-f2)}
+.lp6.xing :is(.top,.dock) .sx.f3,.lp6.story.xing .frame .sx.f3{--sa:var(--a-f3);--sb:var(--b-f3)}
+.lp6.xing :is(.top,.dock) .sbg.h,.lp6.story.xing .frame .sbg.h{background:linear-gradient(180deg,var(--a-hr) calc(var(--e) - var(--t,0px)),var(--b-hr) 0)}
+.lp6.xing :is(.top,.dock) .sbg.k,.lp6.story.xing .frame .sbg.k{background:linear-gradient(180deg,var(--a-f1) calc(var(--e) - var(--t,0px)),var(--b-f1) 0)}
+.lp6.xing :is(.top,.dock) .xb,.lp6.story.xing .frame .xb{transition:none;background:linear-gradient(180deg,var(--a-bb) calc(var(--e) - var(--t,0px)),var(--b-bb) 0)}
+.lp6.xing :is(.top,.dock) .xb .bt,.lp6.story.xing .frame .xb .bt{color:transparent;-webkit-text-fill-color:transparent;background-image:linear-gradient(180deg,var(--a-bf) calc(var(--e) - var(--t,0px)),var(--b-bf) 0);-webkit-background-clip:text;background-clip:text}
+.lp6.story.xing .frame .cm{border-image:linear-gradient(180deg,var(--a-f1) calc(var(--e) - var(--t,0px)),var(--b-f1) 0) 1}
+/* the logo is an SVG: two copies, each clipped to its side of the edge */
+.lp6 .logo{position:relative;display:block;color:var(--fg);flex:none;padding:6px 0}
+.lp6 .logo .lgA{display:block}.lp6 .logo .lgB{display:none}
+.lp6.xing .top .logo .lgA{color:var(--a-f1);clip-path:inset(0 0 max(0px,calc(100% - (var(--e) - var(--t,0px) - 6px))) 0)}
+.lp6.xing .top .logo .lgB{display:block;position:absolute;left:0;top:6px;color:var(--b-f1);clip-path:inset(max(0px,calc(var(--e) - var(--t,0px) - 6px)) 0 0 0)}
+.lp6 .sx::selection,.lp6 .sx *::selection{-webkit-text-fill-color:var(--ink);color:var(--ink);background:#CFE6D8}
+/* the night ground, driven by the scroll (story only) */
+.lp6 #night{position:fixed;left:0;right:0;top:0;height:100lvh;background:var(--night);z-index:1;pointer-events:none;visibility:hidden;will-change:transform}
+
+/* ═════════════ top bar ═════════════ */
+.lp6 .top{position:fixed;inset:0 0 auto 0;height:calc(var(--hh) + env(safe-area-inset-top,0px));padding-top:env(safe-area-inset-top,0px);z-index:60;background:var(--ground);--t:0px}
+.lp6.xing .top{background:linear-gradient(180deg,var(--a-g) var(--e),var(--b-g) 0)}
+.lp6 .top .hl{position:absolute;left:0;right:0;bottom:0;height:1px;opacity:0;transition:opacity .25s ease}
+.lp6 .top.scrolled .hl{opacity:1}
+.lp6 .top .in{height:var(--hh);max-width:calc(1312px + 2*var(--gut));margin:0 auto;padding:0 var(--gut);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.lp6 .logo svg{height:21px;width:auto}
+.lp6 .nav{display:flex;align-items:center;gap:clamp(14px,3.2vw,28px)}
+.lp6 .navl{font-size:var(--fs-ui);text-decoration:none;padding:12px 0;white-space:nowrap}
+.lp6 .top .btn{height:44px;padding:0 16px}
+/* one "Prøv gratis" at a time: the header shows its button only after the hero button has scrolled away,
+   and under 820 px only while the bottom bar (which carries the same button) is down */
+.lp6.js .top .btn{display:none}
+.lp6.js.cta-past .top .btn{display:inline-flex}
+@media (max-width:819px){.lp6.js.dock-on .top .btn{display:none}}
+@media (max-width:399px){.lp6 .navl.prices-l{display:none}}
+@media (max-width:339px){.lp6 .top .in{gap:8px}.lp6 .nav{gap:12px}.lp6 .top .btn{padding:0 12px;font-size:14px}.lp6 .logo svg{height:19px}}
+@media (min-width:768px){.lp6 .logo svg{height:24px}.lp6 .top .btn{padding:0 18px}}
+@media (min-width:1200px){.lp6 .logo svg{height:26px}}
+
+/* ═════════════ hero ═════════════ */
+.lp6 .hero{position:relative;z-index:3;max-width:calc(1312px + 2*var(--gut));margin:0 auto;padding:calc(var(--hh) + 20px) var(--gut) 0}
+.lp6 .h1{font-size:var(--fs-h1);line-height:.98;font-weight:600;letter-spacing:-.04em;color:var(--ink)}
+.lp6 .h1 a{display:block;width:fit-content;text-decoration:none;color:inherit}
+.lp6 .h1 sup{display:none;font-size:13px;font-weight:500;letter-spacing:.02em;line-height:1;vertical-align:top;position:relative;top:calc(var(--fs-h1)*.13);margin-left:calc(var(--fs-h1)*.08);color:var(--ink-3);font-variant-numeric:tabular-nums}
+@media (hover:hover){.lp6 .h1 a:hover > span{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:.12em;text-decoration-color:var(--line)}}
+.lp6 .sub{margin-top:14px;font-size:var(--fs-sub);line-height:1.45;color:var(--ink-2);max-width:34ch;text-wrap:pretty}
+.lp6 .cta-row{margin-top:20px;display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+.lp6 .cta-row .tlink{font-size:var(--fs-ui);font-weight:500;color:var(--ink)}
+.lp6 .trial{margin-top:12px;font-size:15px;line-height:1.45;color:var(--ink-2);max-width:44ch}
+@media (max-width:359px){.lp6 .trial .nw{white-space:normal}}
+@media (max-width:767px) and (max-height:720px){.lp6 .hero{padding-top:calc(var(--hh) + 10px)}.lp6 .h1{line-height:1}.lp6 .h1 a{display:inline-block}.lp6 .sub{margin-top:8px;font-size:16px}.lp6 .cta-row{margin-top:14px}.lp6 .trial{margin-top:8px}.lp6 .btn-lg{height:48px}}
+@media (min-width:768px){.lp6 .hero{padding-top:calc(var(--hh) + 40px)}.lp6 .sub{margin-top:20px}.lp6 .cta-row{margin-top:32px;gap:28px}.lp6 .trial{font-size:15px}}
+@media (min-width:1200px){.lp6 .sub{margin-top:28px;max-width:26ch}.lp6 .trial{max-width:38ch;font-size:16px}.lp6 .cta-row{margin-top:36px}.lp6 .cta-row .tlink{font-size:17px}}
+
+/* ═════════════ the day — shared pieces ═════════════ */
+.lp6 .aften{position:relative}
+.lp6 .clock,.lp6 .ix,.lp6 .plate,.lp6 .zbl{display:none}
+.lp6 .copy .label{margin-bottom:8px}
+.lp6 .copy .line{font-size:var(--fs-lead);line-height:1.34;font-weight:500;letter-spacing:-.011em;text-wrap:pretty}
+.lp6 .copy .line .s{display:block}
+.lp6 .copy .aside{margin-top:12px;font-size:var(--fs-ui);line-height:24px}
+.lp6 .copy .aside.note{font-size:var(--fs-note);line-height:1.45;max-width:36ch}
+.lp6 .copy time{display:block}
+@media (min-width:768px){.lp6 .copy .line{line-height:1.25;letter-spacing:-.016em;max-width:30ch}}
+
+/* real screens: crop + scale only, never scaled by motion. ONE frame for every real screen:
+   the radius, a 1 px ring and the same shadow (paper and night have their own ring) */
+.lp6 .card{position:relative}
+.lp6 .card .scr{position:relative;display:block;border-radius:var(--rad);background:#fff;box-shadow:var(--ring),var(--shadow)}
+.lp6 .card .scr img{width:100%;height:auto}
+.lp6 .card picture{display:block}
+.lp6 .card .scr > img,.lp6 .card .win{border-radius:inherit}
+.lp6 .card .win{display:block;overflow:hidden}
+.lp6[data-g=night] .card .scr,.lp6:not(.story) .nb .card .scr{box-shadow:0 0 0 1px rgba(246,244,236,.12),var(--shadow)}
+/* the Vagtplan card: the capture's own corners (top-left ≈ 27, top-right ≈ 48 source px) — clip to them, no white sliver.
+   On tall phones the same figure serves the whole app screen instead (one <picture>, one download): the normal frame */
+.lp6 .vagt .scr{background:none;border-radius:4% 7% 4% 4% / 5.5% 9.6% 5.5% 5.5%}
+@media (max-width:767px) and (min-height:780px){.lp6 .vagt .scr{background:#fff;border-radius:var(--rad)}}
+/* the guest booking page stops above its date strip; the guest chips fade out at the cut instead of being sliced */
+.lp6 .bookw .win{aspect-ratio:1179 / 860}
+.lp6 .bookw .win img{-webkit-mask:linear-gradient(#000,#000) top / 100% 78% no-repeat,linear-gradient(90deg,#000 calc(100% - 72px),transparent) bottom / 100% 22% no-repeat;mask:linear-gradient(#000,#000) top / 100% 78% no-repeat,linear-gradient(90deg,#000 calc(100% - 72px),transparent) bottom / 100% 22% no-repeat}
+.lp6 .booking .scr > img{-webkit-mask:linear-gradient(#000,#000) top / 100% 79% no-repeat,linear-gradient(90deg,#000 calc(100% - 56px),transparent) bottom / 100% 21% no-repeat;mask:linear-gradient(#000,#000) top / 100% 79% no-repeat,linear-gradient(90deg,#000 calc(100% - 56px),transparent) bottom / 100% 21% no-repeat}
+/* 00.10 phone: the scan card stops under "Upload billede"; its box fades out at the cut */
+.lp6 .foto .scr > img{-webkit-mask:linear-gradient(#000 84%,transparent);mask:linear-gradient(#000 84%,transparent)}
+/* the week plan: Personale + MAN + I DAG, header to the end of Sofie M.'s row (product-captures desktop/06 x 494–1456, crop only):
+   today's three shifts match the roster card; no later-week sick call or alarm days in the 10.00 frame */
+.lp6 .uge .win{aspect-ratio:962 / 1572}
+/* 22.50 on phone: the stand's "Sidder nu" tile at 1:1 (source x 253–505, complete), then the floor plan's window corner (x 84–668, y 14–376) */
+.lp6 .tal{width:fit-content}
+.lp6 .tal .win{width:calc(252px * var(--tk,1));height:calc(107px * var(--tk,1))}
+.lp6 .tal .win img{width:100%;max-width:none}
+.lp6 .stand .win{aspect-ratio:584 / var(--cy,362)}
+.lp6 .stand .win img{width:188.527%;max-width:none;margin:-2.3973% 0 0 -14.3836%}
+/* 22.50 from 768 px: the two complete number tiles (Gæster · Sidder nu) over the whole floor plan, one frame */
+.lp6 .standw .duo{position:relative;display:block}.lp6 .standw .tw{display:block;width:66.71%}
+.lp6 .standw .pw{margin-top:14px}
+.lp6 .standw .pw .win{aspect-ratio:1101 / 682}
+.lp6 .standw .pw .win img{margin-top:-.7266%}
+.lp6 .kasse .win{position:relative}
+.lp6 .fig figcaption.demo,.lp6 .room-foot .demo{margin-top:8px}
+/* printer's crop marks: 1 px. In the stacked page each screen has its own; in the story they are one fixed plate */
+.lp6 .cm{display:none;position:absolute;width:16px;height:16px;border:0 solid var(--fg);pointer-events:none}
+@media (min-width:768px){
+  .lp6:not(.story) .card .cm{display:block}
+  .lp6:not(.story) .card .cm.c1{left:-24px;top:-24px;border-width:1px 0 0 1px}.lp6:not(.story) .card .cm.c2{right:-24px;top:-24px;border-width:1px 1px 0 0}
+  .lp6:not(.story) .card .cm.c3{left:-24px;bottom:-24px;border-width:0 0 1px 1px}.lp6:not(.story) .card .cm.c4{right:-24px;bottom:-24px;border-width:0 1px 1px 0}
+  .lp6:not(.story) .card figcaption.demo{margin-top:40px}
+}
+.lp6 .ph-only{}.lp6 .wd-only{display:none}
+@media (min-width:768px){.lp6 .ph-only{display:none!important}.lp6 .wd-only{display:block}}
+.lp6 .dk-only{display:none}
+@media (min-width:1024px) and (min-aspect-ratio:5/4){.lp6 .dk-only{display:block}.lp6 .nd-only{display:none!important}}
+
+/* roster card ("På vagt"): page-native, typeset from run.db, the app's 3 px section marker per shift */
+.lp6 .ro{background:var(--raised);color:var(--ink);border-radius:var(--rad);border:1px solid rgba(9,58,38,.10);box-shadow:0 1px 2px rgba(9,58,38,.07),0 22px 44px -22px rgba(9,58,38,.2);padding:16px 18px 2px}
+.lp6 .ro-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--line-faint)}
+.lp6 .ro-head .label{color:var(--ink)}
+.lp6 .ro-head .cap{font-size:13px;line-height:16px;letter-spacing:.06em;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.lp6 .ro-axis{position:relative;height:18px;margin:12px 0 0 15px;font-size:13px;line-height:18px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.lp6 .ro-axis span{position:absolute;top:0;transform:translateX(-50%)}
+.lp6 .ro-axis span:first-child{transform:none}.lp6 .ro-axis span:last-child{transform:translateX(-100%)}
+.lp6 .shift{position:relative;padding:12px 0 14px 15px;border-bottom:1px solid var(--line-faint)}
+.lp6 .shift:last-child{border-bottom:0}
+.lp6 .shift::before{content:"";position:absolute;left:0;top:12px;bottom:14px;width:3px;border-radius:2px;background:var(--role)}
+.lp6 .shift-top{display:flex;align-items:baseline;gap:10px}
+.lp6 .shift-name{font-size:18px;font-weight:600;letter-spacing:-.015em;line-height:1.2;white-space:nowrap}
+.lp6 .shift-role{font-size:13px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.lp6 .shift-time{margin-left:auto;font-size:16px;font-variant-numeric:tabular-nums;letter-spacing:-.01em;color:var(--ink);white-space:nowrap}
+.lp6 .trk{position:relative;height:3px;margin-top:12px;border-radius:2px;background:var(--line-faint)}
+.lp6 .trk i{position:absolute;top:0;bottom:0;left:calc(var(--a)*100%);width:calc((var(--b) - var(--a))*100%);border-radius:2px;background:var(--ink);transform-origin:0 50%}
+.lp6 .roster figcaption.demo{color:var(--ink-3)}
+.lp6.story .roster figcaption.demo{color:var(--fg3)}
+@media (max-width:767px) and (min-height:800px){.lp6 .shift{padding:15px 0 17px 15px}.lp6 .shift::before{top:15px;bottom:17px}.lp6 .ro-axis{margin-top:14px}}
+/* tall phones (Pro Max): the roster takes the stage's height instead of leaving it as air */
+@media (max-width:767px) and (min-height:900px){.lp6 .ro{padding:20px 20px 4px}.lp6 .shift{padding:19px 0 21px 15px}.lp6 .shift::before{top:19px;bottom:21px}.lp6 .ro-axis{margin-top:16px}.lp6 .shift-name{font-size:19px}}
+@media (max-width:767px) and (max-height:720px){.lp6.story .ro-axis{display:none}}
+@media (max-width:767px) and (max-height:720px){.lp6 .ro{padding:11px 14px 0}.lp6 .ro-head{padding-bottom:9px}.lp6 .ro-axis{margin-top:7px}.lp6 .shift{padding:8px 0 9px 15px}.lp6 .shift::before{top:8px;bottom:9px}.lp6 .shift-name{font-size:17px}.lp6 .trk{margin-top:8px}}
+@media (max-width:359px){.lp6 .shift-top{flex-wrap:wrap;row-gap:2px;column-gap:10px}.lp6 .shift-role{order:3;flex-basis:100%;letter-spacing:.1em}}
+@media (min-width:768px){.lp6 .ro{padding:22px 26px 4px}.lp6 .shift-name{font-size:22px}.lp6 .shift-time{font-size:18px}.lp6 .shift{padding:16px 0 18px 18px}.lp6 .shift::before{top:16px;bottom:18px}.lp6 .ro-axis{margin-left:18px;margin-top:16px}.lp6 .trk{margin-top:14px}.lp6 .shift-role{letter-spacing:.16em}}
+@media (min-width:768px) and (min-height:1000px){.lp6 .ro{padding:28px 34px 8px}.lp6 .ro-head .label,.lp6 .ro-head .cap{font-size:14px}.lp6 .ro-axis{font-size:14px}.lp6 .shift-name{font-size:28px}.lp6 .shift-role{font-size:13px}.lp6 .shift-time{font-size:22px}.lp6 .shift{padding:26px 0 28px 18px}.lp6 .shift::before{top:26px;bottom:28px}.lp6 .ro-axis{margin-top:20px}.lp6 .trk{margin-top:18px}}
+@media (min-width:1200px){.lp6 .ro{padding:26px 32px 6px}.lp6 .shift-name{font-size:26px}.lp6 .shift-time{font-size:20px}.lp6 .shift{padding:20px 0 22px 18px}.lp6 .shift::before{top:20px;bottom:22px}.lp6 .ro-axis{margin-top:18px}.lp6 .trk{margin-top:16px}}
+
+/* line-art room */
+.lp6 .room-fig{position:relative}
+.lp6 .room-box{position:relative;padding:28px 0 0;margin-inline:auto}
+.lp6 .room-svg{width:100%;height:auto;overflow:visible}
+.lp6 .room-svg *{vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round}
+.lp6 .room-svg .w,.lp6 .room-svg .door path{fill:none;stroke:var(--stroke);stroke-width:1.5}
+.lp6 .room-svg .lp6-glass{stroke-width:1}
+.lp6 .room-svg .bd{fill:none;stroke:var(--stroke);stroke-width:1.25}
+.lp6 .room-svg .ch{fill:none;stroke:var(--stroke);stroke-width:1}
+.lp6 .t .L{transition:opacity .4s ease}
+.lp6 .t .up,.lp6 .t .seat,.lp6 .t .late,.lp6 .t .globe{opacity:0}
+.lp6 .t[data-s=up] .base,.lp6 .t[data-s=seat] .base{opacity:0}
+.lp6 .t[data-s=up] .up,.lp6 .t[data-s=seat] .seat,.lp6 .t[data-s=late] .late,.lp6 .t.on .globe{opacity:1}
+.lp6 .t .up .bd,.lp6 .t .up .ch{stroke:var(--c-sky);stroke-width:1.5}
+.lp6 .t .seat .bd{fill:color-mix(in oklab,var(--c-em) 24%,transparent);stroke:var(--c-em);stroke-width:1.5}
+.lp6 .t .seat .ch{fill:var(--c-em);stroke:var(--c-em);transform:translate(calc(var(--dx)*6px),calc(var(--dy)*6px));transition:transform .5s var(--m-out)}
+.lp6 .t:not([data-s=seat]) .seat .ch{transform:none}
+.lp6 .t .lp6-ring{fill:none;stroke:var(--c-late);stroke-width:1.5;stroke-dasharray:5 5}
+/* the reservation book's globe: 14 css px with a 2 px ring of the ground, whatever the drawing's scale */
+.lp6 .t .globe .gs{transform:scale(calc(var(--u,1.72) * 7 / 11))}
+.lp6 .t .globe .gr{fill:var(--ground);stroke:none}
+.lp6 .t .globe .gs > :not(.gr){fill:none;stroke:var(--c-sky);stroke-width:1.25}
+.lp6 #t-v2 .globe{transition:opacity .35s ease .62s}
+.lp6 .room-fig.wait #t-v2 .globe{opacity:0;transition:opacity .15s ease}
+/* 19.45: Vindue 2 is seated the moment the guest's booking lands on it */
+.lp6 .room-fig.land #t-v2 .L{transition-delay:.55s}
+.lp6 .t .hl{opacity:0}
+.lp6 .t .hlr{fill:none;stroke:var(--c-em);stroke-width:1.5}
+.lp6 .room-fig.v2 #t-v2 .hl{opacity:1;transition:opacity .4s ease .75s}
+.lp6 .rl.v2l{position:absolute;transform:translateX(-50%);color:var(--c-em);opacity:0;transition:opacity .3s ease}
+.lp6 .room-fig.v2 .rl.v2l{opacity:1;transition:opacity .4s ease .85s}
+.lp6 .door .leaf{transform-box:view-box;transform-origin:var(--hx) var(--hy);transition:transform .9s var(--m-io)}
+.lp6 .door .arc{transition:opacity .5s ease}
+.lp6 .room-svg:not(.open) .door .leaf{transform:rotate(90deg)}
+.lp6 .room-svg:not(.open) .door .arc{opacity:0}
+.lp6 .rl{font-size:13px;line-height:16px;font-weight:600;letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--fg3);white-space:nowrap}
+.lp6 .rl.vindue,.lp6 .rl.rbar{position:absolute}
+.lp6 .rl.vindue{top:0;left:40%;transform:translateX(-50%)}
+.lp6 .rl.rbar{left:93.1%;top:calc(16.24px + 42%);transform:translate(-50%,-50%) rotate(90deg)}
+/* under the room: [Eksempel · demodata | INDGANG] then the legend on its own row */
+.lp6 .room-foot{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;column-gap:24px}
+.lp6 .room-foot .demo{grid-column:1;grid-row:1}
+.lp6 .room-foot .indgang{grid-column:2;grid-row:1;margin-top:9px;padding-right:var(--ind,5.5%)}
+.lp6 .room-foot .legend{grid-column:1 / -1;grid-row:2;margin-top:12px}
+/* the legend reads like the room's other labels: 13 px spaced capitals; "Forsinket" only while a table is late */
+.lp6 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;line-height:16px;font-weight:600;letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--fg3)}
+.lp6 .legend > span{display:inline-flex;align-items:center;gap:7px}
+.lp6 .legend i{width:10px;height:10px;border-radius:50%;flex:none;display:inline-block}
+.lp6 .legend .lgl{display:none}
+.lp6 .room-fig.has-late .legend .lgl{display:inline-flex}
+@media (max-width:767px){.lp6 .legend{letter-spacing:.1em;gap:6px 12px}.lp6 .legend > span{gap:6px}}
+.lp6 .lg-seat{background:var(--c-em);box-shadow:0 0 0 1px var(--c-em)}
+.lp6 .lg-up{box-shadow:inset 0 0 0 1.5px var(--c-sky)}
+.lp6 .lg-late{border:1.5px dashed var(--c-late)}
+.lp6 .lg-on{width:12px!important;height:12px!important;background:none}
+.lp6 .lg-on svg{width:12px;height:12px}
+.lp6 .lg-on svg *{fill:none;stroke:var(--c-sky);stroke-width:1.2}
+
+/* Z-bon (line art on paper) */
+.lp6 .zb{width:var(--zb-w,240px)}
+.lp6 .zb-in{position:relative;width:var(--zb-w,240px);max-width:100%}
+.lp6 .zb-slot{height:12px;margin:0 -14px;border:1.5px solid var(--stroke);border-bottom:0;border-radius:8px 8px 0 0;position:relative}
+.lp6 .zb-slot::after{content:"";position:absolute;left:10px;right:10px;bottom:0;height:1.5px;background:var(--stroke)}
+.lp6 .zb-clip{overflow:hidden;padding:0 0 14px}
+.lp6 .zb-paper{background:var(--raised);color:var(--ink);padding:18px 18px 26px;-webkit-mask:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) 50%/12px 100%;mask:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) 50%/12px 100%}
+.lp6 .zb-head{display:grid;gap:6px;justify-items:center;padding-bottom:14px}
+.lp6 .zb-head i{display:block;height:1.5px;background:var(--ink);opacity:.55;border-radius:1px}
+.lp6 .zb-head i:nth-child(1){width:46%}.lp6 .zb-head i:nth-child(2){width:64%}.lp6 .zb-head i:nth-child(3){width:38%}
+.lp6 .zb-rows div{display:flex;justify-content:space-between;gap:12px;font-size:15px;line-height:26px;font-variant-numeric:tabular-nums}
+.lp6 .zb-rows dt{color:var(--ink-2)}
+.lp6 .zb-rows dd{color:var(--ink)}
+.lp6 .zb-rows .tot{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+.lp6 .zb-rows .tot dt,.lp6 .zb-rows .tot dd{font-weight:600;color:var(--ink)}
+@media (min-width:768px){.lp6 .zb-rows div{font-size:clamp(15px,calc(var(--zb-w,240px) * .066),22px);line-height:1.8}.lp6 .zb-paper{padding:26px 26px 32px}.lp6 .zb-head{gap:9px;padding-bottom:18px}.lp6 .zb-rows .tot{margin-top:12px;padding-top:12px}}
+@media (min-width:1200px){.lp6 .zb-rows div{font-size:clamp(15px,calc(var(--zb-w,240px) * .072),19px)}}
+
+.lp6 .story-nav{display:none}
+.lp6 .count{font-size:13px;line-height:16px;font-weight:600;letter-spacing:.12em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.lp6 .prog{flex:1;height:1px;position:relative;overflow:hidden}
+.lp6 .prog i{position:absolute;inset:0;transform-origin:0 50%;transform:scaleX(var(--p,0))}
+.lp6 .next{all:unset;box-sizing:border-box;cursor:pointer;height:44px;display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;white-space:nowrap}
+.lp6 .next .ar{font-size:15px;letter-spacing:0}
+.lp6 .next:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+/* v6.3: iOS Safari — a quick second tap on the stepper or the bottom bar is a tap, not a double-tap zoom, and no grey tap flash
+   (the keyboard focus ring above stays) */
+.lp6 .next,.lp6 .dock{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+/* v6.2 "← Forrige" (forslag): the mirror of "Næste →", same type and the same split colours (.sx f1 on paper and on night).
+   Shown from 2 / 7 to 7 / 7; hidden (not only disabled) at 1 / 7 and before the stage pins.
+   Bottom bar: "←" alone in its own 44 × 44 box before NÆSTE. While hidden it keeps its place, so NÆSTE never moves under a thumb */
+.lp6 .prev{justify-content:center}
+.lp6 .dk-nav .prev{width:44px;margin:0 -4px 0 -12px}
+.lp6 .dk-nav .prev.off{visibility:hidden}
+/* measured (barfit_v62): at 320 px the count ends 2 px from "Prøv gratis" (the bar's gap is 10), so under 360 px the bar drops "n / 7";
+   the progress line along the bar's top still shows how far the day is */
+@media (max-width:359px){.lp6 .dk-nav .count{display:none}}
+
+/* ═════════════ STACKED layout (no JS, reduced motion, short phones) — the CSS default ═════════════
+   The same day in the same order: 10.00 · 12.30 · 16.40 on paper, then 19.45 · 22.50 · 00.10 in one night band */
+.lp6:not(.story) .track{padding:var(--sec) 0 0}
+.lp6:not(.story) .frame{max-width:calc(1312px + 2*var(--gut));margin:0 auto;padding:0 var(--gut)}
+.lp6:not(.story) :is(.scene,.zb-slot,.rl.vindue,.venue,.date,.story-nav,.copy.sc,.st-only){display:none!important}
+.lp6:not(.story) .ch{display:grid;gap:24px;padding:calc(var(--sec) / 2) 0}
+.lp6:not(.story) #s1{padding-top:0}
+.lp6:not(.story) .copy time{font-size:48px;line-height:1;font-weight:300;letter-spacing:-.04em;font-variant-numeric:tabular-nums;color:var(--fg);margin-bottom:16px}
+.lp6:not(.story) .roster{max-width:640px}
+.lp6:not(.story) .card.vagt,.lp6:not(.story) .card.booking,.lp6:not(.story) .card.kasse,.lp6:not(.story) .card.foto{max-width:400px}
+.lp6:not(.story) .card.vapp,.lp6:not(.story) .card.fotow{max-width:380px}
+.lp6:not(.story) .card.bookw{max-width:520px}
+.lp6:not(.story) .card.uge{max-width:640px}
+.lp6:not(.story) .room-fig{max-width:640px}
+.lp6:not(.story) .card.standw{max-width:720px}
+.lp6:not(.story) .card.stand{max-width:400px}
+/* the night band: full width, hard edges, settled colours */
+.lp6:not(.story) .nb{background:var(--night);padding-block:calc(var(--sec) / 2);margin-inline:calc(50% - 50vw);padding-inline:calc(50vw - 50%);
+  --ground:#12281E;--fg:#F6F4EC;--fg2:#C9D4CD;--fg3:#9DB0A5;--stroke:#86A394;--hair:#37493F;--c-sky:#7DD3FC;--c-em:#6EE7B7;--c-late:#FB923C;
+  --shadow:0 30px 60px -24px rgba(0,0,0,.55),0 2px 8px -2px rgba(0,0,0,.3);color:var(--fg)}
+.lp6:not(.story) .nb .ch + .ch{border-top:1px solid var(--hair)}
+.lp6:not(.story) .zb{--zb-w:260px}
+.lp6:not(.story) #s1 > .roster{order:-1}
+@media (max-width:767px){.lp6:not(.story) .track{padding-top:28px}}
+@media (min-width:900px){
+  .lp6:not(.story) .ch{grid-template-columns:minmax(0,5fr) minmax(0,7fr);column-gap:72px;align-items:start}
+  /* the statement stays beside its screens while they pass (sticky, no animation) */
+  .lp6:not(.story) .ch > .copy{grid-row:1 / span 6;position:sticky;top:calc(var(--hh) + 48px);align-self:start}
+  .lp6:not(.story) .ch > .fig{grid-column:2}
+  .lp6:not(.story) #s1 > .roster{order:0}
+}
+
+/* ═════════════ STORY layout (the pinned day) ═════════════ */
+.lp6.story #night{visibility:visible;transform:translate3d(0,100lvh,0)}
+.lp6.story .track{position:relative;height:calc(var(--trk,600) * 1svh)}
+.lp6.story .copy.st{display:none}
+/* phone + tablet: one column; the bands (--bt top, --bc clock→media, --bm media→copy) and the media slot are set by layout() */
+.lp6.story .frame{position:sticky;top:0;z-index:2;height:100svh;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr);
+  grid-template-rows:auto auto calc(var(--slot,300px) + var(--bc,24px)) auto auto;grid-template-areas:"head" "clock" "scene" "copy" "nav";align-content:start;
+  max-width:calc(760px + 2*var(--gut));margin:0 auto;padding:calc(var(--hh) + env(safe-area-inset-top,0px)) var(--gut) calc(var(--dk) + env(safe-area-inset-bottom,0px))}
+.lp6.story .ch,.lp6.story .nb{display:contents}
+.lp6.story :is(.venue,.date){grid-area:head;margin-top:var(--bt,24px);transition:opacity .14s ease}
+/* one eyebrow line on phone/tablet: the venue on the first beat, then the date — out 140 ms, then in */
+.lp6.story .frame:is([data-beat="1a"],[data-beat=h]) .venue,.lp6.story .frame:not([data-beat="1a"]):not([data-beat=h]) .date{transition:opacity .26s ease .16s}
+.lp6.story .frame:not([data-beat="1a"]):not([data-beat=h]) .venue{opacity:0}
+.lp6.story .frame:is([data-beat="1a"],[data-beat=h]) .date{opacity:0}
+.lp6.story .clock{grid-area:clock;display:flex;margin:6px 0 0 -.045em;font-size:var(--fs-clock);font-weight:300;letter-spacing:-.045em;line-height:1;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";height:.76em;user-select:none;width:max-content;transform:scale(var(--ck,1));transform-origin:0 100%}
+.lp6.story .clock .dg{display:grid}
+.lp6.story .clock .dg b{grid-area:1 / 1;display:block;height:.76em;line-height:.76em;font-weight:300}
+.lp6.story .clock .dg b + b{opacity:0}
+.lp6.story .clock .dg b.in{opacity:1;animation:lp6-dgIn .2s cubic-bezier(.16,1,.3,1) 40ms backwards}
+.lp6.story .clock .dg b.out{opacity:0;animation:lp6-dgOut .12s linear}
+.lp6.story .clock.now .dg b{animation:none}
+@keyframes lp6-dgIn{from{opacity:0;transform:translateY(4px)}}
+@keyframes lp6-dgOut{from{opacity:1}}
+.lp6.story .clock .dot{display:block;line-height:.76em;height:.76em;margin:0 -.03em}
+.lp6.story .clock .dg + .dg{margin-left:-.04em}
+.lp6.story .scene{grid-area:scene;margin-top:var(--bc,24px);min-height:0;position:relative}
+.lp6.story .copy.sc{grid-area:copy;align-self:start;margin-top:var(--bm,24px);opacity:0;pointer-events:none;transition:opacity .2s ease}
+.lp6.story .copy.sc.on{opacity:1;pointer-events:auto;transition:opacity .3s ease .1s}
+@media not all and (min-width:1024px) and (min-aspect-ratio:5/4){.lp6.story .copy.sc{align-self:center}}
+/* the two sentences: the one the stage is showing is ink, the other rests in --fg3 */
+.lp6.story .copy:not(.b2) .s1,.lp6.story .copy.b2 .s2{--sa:var(--a-f1);--sb:var(--b-f1);color:var(--fg)}
+.lp6.story .copy:not(.b2) .s2,.lp6.story .copy.b2 .s1{--sa:var(--a-f3);--sb:var(--b-f3);color:var(--fg3)}
+/* one aside per beat, all in one cell (the copy never changes height between beats) */
+.lp6.story .asides{display:grid}
+/* off-beat asides are hidden by opacity only: they stay in the accessibility tree (their links leave the tab order while off) */
+.lp6.story .asides > .aside{grid-area:1 / 1;opacity:0;pointer-events:none;transition:opacity .2s ease}
+.lp6.story .asides > .aside.on{opacity:1;pointer-events:auto;transition:opacity .3s ease .12s}
+.lp6.story .fig{position:absolute;left:0;top:0;margin:0}
+/* v6.2 fix: a story page whose window drops under 600 px tall after load (a phone turned to landscape) keeps the clock, the statements and the nav;
+   the stage screens step aside (layout() sets .cramp; the stacked page is chosen only at load) */
+.lp6.cramp .frame .fx,.lp6.cramp .plate,.lp6.cramp .zbl{visibility:hidden}
+/* v6.2 fix: on the shortest phones (≤ 620 px) the 22.50 plan is narrower than its caption; the caption stays one line (as layout() assumes, TAG),
+   so the tile + plan keep 24 px above the statement without the guard pulling the plan off its tile */
+@media (max-width:767px){.lp6.story .stand figcaption.demo{white-space:nowrap}}
+.lp6.story .card,.lp6.story .zb{z-index:2}
+/* the crop-mark plate (from 768 px): drawn once around the stage; only the screen inside it changes */
+@media (min-width:768px){
+  .lp6.story .plate{display:block;position:absolute;left:0;top:0;pointer-events:none;z-index:1}
+  .lp6.story .plate .cm{display:block}
+  .lp6.story .plate .c1{left:0;top:0;border-width:1px 0 0 1px}.lp6.story .plate .c2{right:0;top:0;border-width:1px 1px 0 0}
+  .lp6.story .plate .c3{left:0;bottom:0;border-width:0 0 1px 1px}.lp6.story .plate .c4{right:0;bottom:0;border-width:0 1px 1px 0}
+  .lp6.story .plate .pcap{position:absolute;left:0;top:calc(100% + 12px);transition:opacity .3s ease}
+  .lp6.story .plate.nocap .pcap{opacity:0;transition:opacity .15s ease}
+  .lp6.story .fig figcaption.demo,.lp6.story .room-foot .demo{display:none}
+  .lp6.story .room-foot .legend{grid-row:1;grid-column:1;margin-top:8px}
+  .lp6.story .zbl{display:block;position:absolute;height:1px;background:var(--stroke);opacity:0;transform-origin:0 50%;transform:scaleX(0);transition:opacity .2s ease,transform .2s ease}
+  .lp6.story .zbl.on{opacity:.6;transform:none;transition:opacity .4s ease .95s,transform .5s var(--m-out) .95s}
+}
+.lp6.story .zb .zb-in{margin-inline:auto}
+@media (min-width:768px){.lp6.story .zb .zb-in{margin-inline:0}}
+
+/* enter / leave: exit first (220 ms, 12 px drop), then entry (600 ms from 16 px below) — never scaled */
+.lp6.story .fx{opacity:0;translate:0 16px;pointer-events:none;transition:opacity .22s ease,translate 0s linear .22s}
+.lp6.story .fx.out{opacity:0;translate:0 12px;transition:opacity .22s cubic-bezier(.4,0,1,1),translate .22s cubic-bezier(.4,0,1,1)}
+.lp6.story .fx.on{opacity:1;translate:none;pointer-events:auto;transition:opacity .6s var(--m-out) var(--dl,.22s),translate .6s var(--m-out) var(--dl,.22s)}
+/* 19.45 → the guest's booking from 12.30 flies into Vindue 2 and becomes the reservation book's globe mark */
+.lp6.story .booking-any{transform-origin:50% 50%}
+.lp6.story .booking-any.on{transition:opacity .6s var(--m-out) var(--dl,.22s),translate .6s var(--m-out) var(--dl,.22s),transform .7s var(--m-io)}
+.lp6.story .booking-any.fly{translate:none;transform:translate(calc(var(--fly-x)*1px),calc(var(--fly-y)*1px)) scale(var(--fly-k));opacity:0;
+  transition:transform .75s var(--m-io),opacity .3s ease .48s}
+
+/* room */
+.lp6.story .room-fig{--dl:.12s}
+.lp6.story .room-svg *{vector-effect:none}
+@property --lp6-bx{syntax:'<number>';inherits:false;initial-value:0}
+@property --lp6-by{syntax:'<number>';inherits:false;initial-value:0}
+@property --lp6-k{syntax:'<number>';inherits:true;initial-value:1}
+.lp6.story .room-box{transform:translate(calc(var(--lp6-bx) * 1px),calc(var(--lp6-by) * 1px)) scale(var(--lp6-k));transform-origin:0 0;clip-path:var(--clip,inset(-40px));
+  transition:--lp6-bx .6s var(--m-io) .1s,--lp6-by .6s var(--m-io) .1s,--lp6-k .6s var(--m-io) .1s,clip-path .6s var(--m-io) .1s,opacity .25s ease}
+.lp6.story .room-svg .w,.lp6.story .room-svg .door path{stroke-width:calc(var(--u,1) * 1.5 / var(--lp6-k))}
+.lp6.story .room-svg .lp6-glass{stroke-width:calc(var(--u,1) * 1 / var(--lp6-k))}
+.lp6.story .room-svg .bd{stroke-width:calc(var(--u,1) * 1.25 / var(--lp6-k))}
+.lp6.story .room-svg .ch{stroke-width:calc(var(--u,1) * 1 / var(--lp6-k))}
+.lp6.story .t .up .bd,.lp6.story .t .seat .bd,.lp6.story .t .lp6-ring,.lp6.story .t .hlr{stroke-width:calc(var(--u,1) * 1.5 / var(--lp6-k))}
+.lp6.story .t .lp6-ring{stroke-dasharray:calc(var(--u,1)*5/var(--lp6-k)) calc(var(--u,1)*5/var(--lp6-k))}
+.lp6.story .t .globe .gs > :not(.gr){stroke-width:calc(1.964 / var(--lp6-k))}
+.lp6.story .t .seat .ch{transform:translate(calc(var(--dx)*var(--u,1)*5px),calc(var(--dy)*var(--u,1)*5px))}
+.lp6.story .shell [pathLength],.lp6.story .base [pathLength]{stroke-dasharray:1 1;stroke-dashoffset:calc(1 - clamp(0,(var(--lp6-draw,1) - var(--o,0)) / .22,1))}
+/* v6.3: the stepper jumps (the page no longer glides through 16.40 → 19.45), so right after a jump (.jd) the room still draws itself:
+   --draw eases to its new value; any scroll by hand takes .jd off again and the drawing follows the scroll as before */
+@property --lp6-draw{syntax:'<number>';inherits:true;initial-value:1}
+.lp6.story .room-svg.jd{transition:--lp6-draw 1s cubic-bezier(.33,0,.2,1) .22s}
+.lp6.story .room-svg .shell,.lp6.story .room-svg .t{transition:opacity .4s ease}
+.lp6.story .room-fig .rl,.lp6.story .room-fig .legend,.lp6.story .room-foot{transition:opacity .3s ease}
+.lp6.story .room-fig[data-st] .rl,.lp6.story .room-fig[data-st] .legend{opacity:0}
+/* while the night edge crosses the stage the room's labels wait (they are set in one colour, not split at the edge) */
+.lp6.story .room-fig.xr .rl,.lp6.story .room-fig.xr .room-foot{opacity:0;transition:opacity .15s ease}
+.lp6.story .room-fig[data-st] .room-foot{opacity:0;transition:opacity .15s ease}
+.lp6.story .room-fig:not([data-st]) .room-foot,.lp6.story .room-fig:not([data-st]) .legend{transition:opacity .35s ease .5s}
+.lp6.story .room-fig[data-st=card] .shell,.lp6.story .room-fig[data-st=card] .t:not(#t-v2){opacity:.14}
+.lp6.story .room-fig[data-st=cut] .room-box{opacity:0;transition:--lp6-bx .5s var(--m-io),--lp6-by .5s var(--m-io),--lp6-k .5s var(--m-io),clip-path .5s var(--m-io),opacity .15s ease 1.1s}
+/* back from 22.50, the match-cut in reverse: the drawing is already lying on the screen, so it comes up first (180 ms),
+   the screen fades off it (from 160 ms), then the drawing flies home (from 400 ms) — no empty stage and no ghost */
+.lp6.story .room-fig.ret .room-box{opacity:1;transition:opacity .18s ease,--lp6-bx .6s var(--m-io) .4s,--lp6-by .6s var(--m-io) .4s,--lp6-k .6s var(--m-io) .4s,clip-path .6s var(--m-io) .4s}
+.lp6.story .room-fig.ret .room-foot,.lp6.story .room-fig.ret .legend,.lp6.story .room-fig.ret .rl{transition:opacity .35s ease .95s}
+/* 22.50: the drawing lands exactly on the real stand screen, which fades in over it */
+.lp6.story :is(.stand,.standw).fx,.lp6.story :is(.stand,.standw).fx.on,.lp6.story :is(.stand,.standw).fx.out{translate:none}
+.lp6.story :is(.stand,.standw).fx.on{transition:opacity .35s ease .72s}
+.lp6.story :is(.stand,.standw,.tal).fx.out{transition:opacity .22s ease .16s}
+.lp6.story .tal{--dl:.52s}
+/* Z-bon prints, numbers count */
+.lp6.story .zb .zb-paper{transform:translateY(-102%);transition:transform .3s var(--m-io)}
+.lp6.story .zb.on .zb-paper{transform:none;transition:transform .6s var(--m-out) .3s}
+.lp6.story .zb{--dl:.3s}
+.lp6.story .zb.on{transition:opacity .6s var(--m-out) var(--dl),translate .6s var(--m-out) var(--dl),transform .7s var(--m-io)}
+.lp6.story .zb{transform:translate(calc(var(--zx,0) * 1px),calc(var(--zy,0) * 1px)) scale(var(--zs,1));transform-origin:0 0}
+/* Kassen card window: Betalinger first (the numbers), then up to MOMS; a short window ends on a row line */
+.lp6.story .kasse .win img{transform:translateY(calc(var(--k0,0) * 1px));transition:transform .2s ease .25s}
+.lp6.story .kasse.on .win img{transform:none;transition:transform .7s var(--m-io) .45s}
+.lp6.story .kasse .win::before{content:"";position:absolute;left:0;right:0;top:0;height:44px;pointer-events:none;opacity:0;transition:opacity .2s ease;z-index:1;background:linear-gradient(#fff,rgba(255,255,255,0))}
+.lp6.story .kasse.cut .win::before{opacity:1}
+.lp6.story .kasse.cut.on .win::before{opacity:0;transition:opacity .3s ease .45s}
+.lp6.story .kasse{--dl:.26s}
+.lp6.story .fx.out.hold{transition:opacity .2s ease .44s,translate .2s ease .44s}
+.lp6[data-g=night].story :is(.foto,.fotow,.kasse,.tal).fx.on{transition:opacity .18s ease var(--dl,.22s),translate .6s var(--m-out) var(--dl,.22s)}
+.lp6.story .kasse.fx.on{z-index:3}
+
+/* story nav: in the frame from 820 px; below that it lives in the bottom bar. At 7 / 7 it becomes the trial button */
+@media (min-width:820px){
+  .lp6.story .frame{padding-bottom:env(safe-area-inset-bottom,0px)}
+  .lp6.story .story-nav{grid-area:nav;display:grid;min-height:52px;margin-top:24px;align-items:center;transition:opacity .3s ease}
+  .lp6.story .story-nav > *{grid-area:1 / 1;transition:opacity .3s ease,visibility 0s linear .3s}
+  .lp6.story .sn-ev{display:flex;align-items:center;gap:16px}
+  .lp6.story .sn-end{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+  .lp6.story .sn-trial{font-size:15px;line-height:20px}
+  .lp6.story .story-nav:not(.lp6-end) .sn-end,.lp6.story .story-nav.lp6-end .sn-ev{opacity:0;visibility:hidden}
+  .lp6.story .story-nav.lp6-end .sn-end,.lp6.story .story-nav:not(.lp6-end) .sn-ev{transition:opacity .3s ease .1s,visibility 0s}
+  /* v6.2 fix: at 7 / 7 the row keeps v6.1's [Prøv gratis][trial line], so "Prøv gratis" never moves; "← Forrige" comes after the trial line,
+     96 px in from the right edge (clear of where "Næste" was, so a double click cannot step back). The row never wraps; where the label
+     does not fit, the button is "←" alone (layout() measures) */
+  .lp6.story .sn-end{flex-wrap:nowrap}
+  .lp6.story .sn-end .prev{flex:none;margin-left:auto;margin-right:96px}
+  .lp6.story .sn-end .sn-trial{min-width:0}
+  .lp6.story .sn-end.ic .prev{width:44px}
+  .lp6.story .sn-end.ic .prev .lb{display:none}
+}
+/* v6.2 fix: the two-column page's left column (373–420 px) has no room for it at 7 / 7; the index links step back by chapter there */
+@media (min-width:1024px) and (min-aspect-ratio:5/4){.lp6.story .sn-end .prev{display:none}}
+.lp6 .sn-end{display:none}
+@media (min-width:768px){.lp6.story .copy .label{margin-bottom:10px}}
+@media (max-width:767px) and (min-height:900px){.lp6.story .copy .label{margin-bottom:12px}.lp6.story .clock{margin-top:10px}}
+@media (max-width:767px){.lp6.story .copy .aside{margin-top:10px}.lp6.story .copy .aside.note{font-size:15px;line-height:21px}}
+
+/* ─── landscape from 1024 px: the editorial composition on the same engine ───
+   left: the day's index, the statement, the date and the clock; right: ONE real screen inside the crop-mark plate */
+@media (min-width:1024px) and (min-aspect-ratio:5/4){
+  .lp6 .h1 sup{display:inline}
+  .lp6.story .frame{grid-template-columns:minmax(0,5fr) minmax(0,7fr);column-gap:var(--cg);align-content:center;
+    grid-template-rows:repeat(6,auto);grid-template-areas:"head scene" "ix scene" "copy scene" "date scene" "clock scene" "nav scene";
+    max-width:calc(1312px + 2*var(--gut));padding:calc(var(--hh) + 40px) var(--gut) 36px}
+  .lp6.story :is(.venue,.date){margin-top:0}
+  .lp6.story .venue{grid-area:head}
+  .lp6.story .date{grid-area:date;margin-top:clamp(40px,7svh,96px)}
+  .lp6.story .frame:not([data-beat="1a"]):not([data-beat=h]) .venue,.lp6.story .frame:is([data-beat="1a"],[data-beat=h]) .date{opacity:1}
+  .lp6.story .scene{grid-row:1 / -1;margin:0}
+  .lp6.story .clock{margin:10px 0 0 -.06em}
+  .lp6.story .copy.sc{margin-top:40px}
+  .lp6.story .copy.sc > .label{display:none}
+  .lp6.story .copy .line{font-size:var(--fs-lead);line-height:1.12;font-weight:600;letter-spacing:-.026em;max-width:15em}
+  .lp6.story .copy .line .s + .s{margin-top:.42em}
+  .lp6.story .copy .aside{margin-top:24px;font-size:17px;line-height:1.5}
+  .lp6.story .copy .aside.note{max-width:34ch;font-size:17px;line-height:1.5}
+  .lp6.story .ix{grid-area:ix;display:grid;margin-top:16px;border-top:1px solid transparent}
+  .lp6.story .ix a{display:grid;grid-template-columns:40px 1fr;align-items:baseline;padding:10px 0;text-decoration:none;position:relative}
+  .lp6.story .ix a .ixr{position:absolute;left:0;right:0;bottom:0;height:1px}
+  .lp6.story .ix .n{font-size:13px;line-height:16px;font-weight:600;letter-spacing:.12em;font-variant-numeric:tabular-nums}
+  .lp6.story .ix .w{font-size:var(--fs-ix);line-height:28px;font-weight:500;letter-spacing:-.01em}
+  .lp6.story .ix a.cur .w{font-weight:600}
+  .lp6.story .story-nav{margin-top:20px;max-width:420px}
+  /* the hand-over from the hero: the left column rises 16 px into place while the hero lifts away (the ranges overlap) */
+  .lp6.story .frame[data-beat=h] :is(.venue,.ix,.date,.clock,.story-nav){opacity:var(--hin,0);transform:translateY(calc((1 - var(--hin,0)) * 16px));transition:none}
+  .lp6.story .frame[data-beat=h] .copy.sc.on{opacity:var(--hin,0);transform:translateY(calc((1 - var(--hin,0)) * 16px));transition:none}
+  .lp6.story .frame :is(.ix,.clock,.story-nav){transition:opacity .4s ease,visibility 0s linear}
+  .lp6.story .hero{position:absolute;top:0;left:0;right:0;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);column-gap:var(--cg);padding-top:var(--hero-top,calc(var(--hh) + 120px))}
+  .lp6.story .hero{pointer-events:none}.lp6.story .hero > *{grid-column:1;pointer-events:auto}
+}
+@media (min-width:1024px) and (min-aspect-ratio:5/4) and (max-height:860px){.lp6.story .ix a{padding:7px 0}.lp6.story .copy.sc{margin-top:28px}.lp6.story .copy .aside{margin-top:16px}.lp6.story .story-nav{margin-top:14px}.lp6.story .frame{padding-top:calc(var(--hh) + 28px);padding-bottom:28px}}
+@media (min-width:1024px) and (min-aspect-ratio:5/4) and (max-height:800px){.lp6.story .copy .aside{font-size:16px}}
+@media not all and (min-width:1024px) and (min-aspect-ratio:5/4){.lp6.story .hero{margin-bottom:calc(var(--hero-pull,0) * 1px)}}
+
+/* ═════════════ morning sheet (paper rises over the night) ═════════════ */
+.lp6 .sheet{position:relative;z-index:5;background:var(--paper);color:var(--ink);--fg:var(--ink);--fg2:var(--ink-2);--fg3:var(--ink-3);--btn-bg:var(--forest);--btn-fg:var(--paper);--stroke:var(--line);--hair:var(--line-faint);--ground:var(--paper)}
+.lp6.story .sheet{margin-top:-100svh;border-radius:24px 24px 0 0}
+.lp6 .wrap{max-width:calc(1312px + 2*var(--gut));margin:0 auto;padding:0 var(--gut)}
+.lp6 .sec{padding-top:var(--sec)}
+.lp6 .sec:last-of-type{padding-bottom:var(--sec)}
+/* the sheet's rounded edge already marks the start: a short pad, no first hairline */
+.lp6 #mere{padding-top:var(--pad1)}
+.lp6 #pricing{scroll-margin-top:calc(var(--hh) + 8px)}
+.lp6 .rail{display:grid;gap:16px}
+.lp6 .rows li{display:grid;gap:4px;padding:16px 0;border-top:1px solid var(--line-faint)}
+.lp6 .rows li:first-child{border-top:0;padding-top:0}
+.lp6 .rows li:last-child{border-bottom:1px solid var(--line-faint)}
+.lp6 .rows b{font-size:var(--fs-row);line-height:1.3;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+.lp6 .rows p{font-size:var(--fs-body);line-height:1.5;color:var(--ink-2);max-width:46ch;text-wrap:pretty}
+.lp6 .lead{display:grid;gap:16px;align-content:start}
+.lp6 .ph{font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-.02em;color:var(--ink);max-width:22ch;text-wrap:balance}
+.lp6 .psub{margin-top:-6px;font-size:var(--fs-body);line-height:1.5;color:var(--ink-2);max-width:46ch;text-wrap:pretty}
+/* prices: name · price · after-100 price, then who the plan is for and what it adds (live plan lines) */
+.lp6 .prices{margin-top:8px;border-top:1px solid var(--line-faint)}
+.lp6 .price{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"n p" "n t" "d d";align-items:center;column-gap:16px;padding:14px 0 16px;border-bottom:1px solid var(--line-faint)}
+.lp6 .price .pn{grid-area:n;font-size:17px;line-height:22px;font-weight:600;color:var(--ink)}
+.lp6 .price .pp{grid-area:p;font-size:20px;line-height:24px;font-weight:500;letter-spacing:-.01em;color:var(--ink);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.lp6 .price .then{grid-area:t;font-size:var(--fs-cap);line-height:18px;color:var(--ink-3);text-align:right}
+.lp6 .price .pd{grid-area:d;display:grid;gap:4px;margin-top:8px}
+.lp6 .price .pos{font-size:var(--fs-note);line-height:1.45;color:var(--ink-2);text-wrap:pretty}
+.lp6 .price .inc{display:grid;gap:4px;font-size:var(--fs-note);line-height:1.45;font-weight:500;color:var(--ink);text-wrap:pretty}
+.lp6 .price .inc > span{position:relative;padding-left:16px}
+.lp6 .price .inc > span::before{content:"";position:absolute;left:0;top:.73em;width:7px;height:1px;background:var(--ink-3)}
+.lp6 .price.free .pn{display:none}
+.lp6 .price.free .pp{grid-area:n;font-size:17px;line-height:22px;font-weight:600;text-align:left}
+.lp6 .price.free .then{grid-row:1 / 3;grid-column:2}
+.lp6 .pnote{margin-top:16px;font-size:var(--fs-note);line-height:1.5;color:var(--ink-2);max-width:52ch;text-wrap:pretty}
+.lp6 .pnote b{font-weight:600;color:var(--ink)}
+.lp6 .prices-cta{margin-top:24px}
+.lp6 .tst{display:none}
+.lp6 .mn{display:none}
+/* questions: native disclosure rows; the person behind BonBox under them (phone) or under the label (desktop) */
+.lp6 .qas{display:grid}
+.lp6 .qa{border-top:1px solid var(--line-faint)}
+.lp6 .qa:last-child{border-bottom:1px solid var(--line-faint)}
+.lp6 .qa summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:56px;padding:14px 0;font-size:17px;line-height:1.35;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+.lp6 .qa summary::-webkit-details-marker{display:none}
+.lp6 .qa summary i{position:relative;flex:none;width:14px;height:14px}
+.lp6 .qa summary i::before,.lp6 .qa summary i::after{content:"";position:absolute;left:0;right:0;top:6.25px;height:1.5px;border-radius:1px;background:var(--ink-2);transition:transform .3s var(--m-out)}
+.lp6 .qa summary i::after{transform:rotate(90deg)}
+.lp6 .qa[open] summary i::after{transform:rotate(0deg)}
+.lp6 .qa p{padding:0 0 18px;font-size:var(--fs-body);line-height:1.5;color:var(--ink-2);max-width:30em;text-wrap:pretty}
+.lp6 .qa p .tlink{color:var(--ink);white-space:nowrap}
+@media (hover:hover){.lp6 .qa summary:hover > span{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;text-decoration-color:var(--line)}}
+.lp6 .human{margin-top:16px;display:grid;gap:8px;align-content:start}
+.lp6 .human .label{margin-bottom:4px}
+.lp6 .hm-1{font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.lp6 .hm-2{font-size:var(--fs-body);line-height:1.5;color:var(--ink-2);max-width:40ch;text-wrap:pretty}
+.lp6 .hm-m{margin-top:4px;font-size:var(--fs-ui);line-height:24px}
+.lp6 .hm-m .tlink{color:var(--ink);font-weight:500}
+.lp6 .trust li{padding:16px 0;border-top:1px solid var(--line-faint);font-size:var(--fs-body);line-height:1.5;color:var(--ink);text-wrap:pretty}
+.lp6 .trust .t{display:block;max-width:46ch}
+.lp6 .trust li:last-child{border-bottom:1px solid var(--line-faint)}
+.lp6 .trust b{font-weight:600}
+.lp6 .trust .tlink{color:var(--ink)}
+.lp6 .trust .who{display:block;color:var(--ink-2)}
+@media (max-width:359px){.lp6 .trust .nw{white-space:normal}}
+@media (min-width:768px){
+  .lp6 .rows li{grid-template-columns:minmax(0,4fr) minmax(0,8fr);gap:24px;align-items:baseline;padding:20px 0}
+  .lp6 .rows li:first-child{padding-top:0}
+  .lp6 .ph{font-size:30px;line-height:1.2}
+  .lp6 .prices{margin-top:16px}
+  .lp6 .price{grid-template-columns:minmax(0,4fr) minmax(0,7fr);grid-template-areas:"n d" "p d" "t d";grid-template-rows:auto auto 1fr;column-gap:32px;row-gap:6px;align-items:start;padding:24px 0}
+  .lp6 .price .pn,.lp6 .price.free .pn{display:block;min-height:16px;font-size:var(--fs-label);line-height:16px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3)}
+  .lp6 .price .pp,.lp6 .price.free .pp{grid-area:p;font-size:var(--fs-price);line-height:1.15;font-weight:500;letter-spacing:-.02em;text-align:left}
+  .lp6 .price .then,.lp6 .price.free .then{grid-area:t;grid-row:auto;grid-column:auto;text-align:left}
+  .lp6 .price .pd{margin-top:0;gap:6px;padding-top:2px}
+  .lp6 .price .pos,.lp6 .price .inc{font-size:var(--fs-note)}
+  .lp6 .pnote{margin-top:20px}
+  .lp6 .qa summary{font-size:19px;min-height:64px}
+  .lp6 .hm-1{font-size:30px;line-height:1.2}
+  .lp6 .human{margin-top:32px}
+}
+/* landscape from 1024: Timer · Lager · Økonomi continue the day's index (04–06) as three columns */
+@media (min-width:1024px) and (min-aspect-ratio:5/4){
+  .lp6 #mere .rows{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:var(--cg)}
+  .lp6 #mere .rows li,.lp6 #mere .rows li:first-child{display:block;padding:24px 0 0;border-top:1px solid var(--line-faint)}
+  .lp6 #mere .rows li:last-child{border-bottom:0}
+  .lp6 #mere .mn{display:block;margin-bottom:14px;font-size:13px;line-height:16px;font-weight:600;letter-spacing:.12em;color:var(--ink-3);font-variant-numeric:tabular-nums}
+  .lp6 #mere .rows b{display:block}
+  .lp6 #mere .rows p{margin-top:10px;max-width:30ch}
+  .lp6.motion #mere .rows li:first-child{border-top-color:transparent;position:relative}
+  .lp6.motion #mere .rows li:first-child::before{content:"";position:absolute;left:0;right:0;top:-1px;height:1px;background:var(--line-faint);transform:scaleX(0);transform-origin:0 50%}
+  .lp6.motion #mere .rows li.in:first-child::before{transform:scaleX(1);transition:transform 1.1s var(--m-out) calc(var(--dl,0s) + .1s)}
+}
+/* desktop: the decision keeps the day's grammar — statement left, evidence right */
+@media (min-width:1200px){
+  .lp6 .g2,.lp6 .rail,.lp6 .rows li{grid-template-columns:minmax(0,5fr) minmax(0,7fr);column-gap:72px}
+  .lp6 .rail{display:grid;row-gap:0;align-items:start}
+  .lp6 .rail > .lead{grid-column:1}
+  .lp6 .rail > .body{grid-column:2;padding-top:32px}
+  .lp6 .rows li{padding:28px 0;align-items:baseline}
+  .lp6 .rows li:first-child{padding-top:0}
+  .lp6 .ph{font-size:36px;line-height:1.12;letter-spacing:-.024em;max-width:15em}
+  .lp6 .psub{margin-top:0;max-width:34ch}
+  .lp6 .prices{margin-top:0}
+  .lp6 .price{padding:28px 0;column-gap:40px}
+  .lp6 .price .then{font-size:15px;line-height:21px}
+  .lp6 .prices-cta{margin-top:32px}
+  .lp6 .tst{display:block;font-size:36px;line-height:1.12;font-weight:600;letter-spacing:-.024em;color:var(--ink);max-width:15em}
+  .lp6 .trust .tdup{display:none}
+  .lp6 .trust li{padding:22px 0}
+  .lp6 .trust li:first-child{padding-top:0;border-top:0}
+  .lp6 .trust .t{max-width:none}
+  .lp6 #faq .rail{grid-template-rows:auto 1fr}
+  .lp6 #faq .rail > .lead{grid-row:1}
+  .lp6 #faq .rail > .body{grid-column:2;grid-row:1 / span 2;padding-top:0}
+  .lp6 #faq .rail > .human{grid-column:1;grid-row:2;margin-top:20px}
+  /* one eyebrow per column: under "Spørgsmål" the person answers without a second label (it stays as the heading for screen readers) */
+  .lp6 #faq .human .label{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;margin:0}
+  .lp6 .hm-1{font-size:36px;line-height:1.12;letter-spacing:-.024em}
+  .lp6 .hm-2{max-width:34ch}
+  .lp6 .qa summary{font-size:var(--fs-row);min-height:72px;padding:20px 0}
+  .lp6 .qa p{padding-bottom:24px}
+  .lp6 .qa:first-child{border-top:0}
+  .lp6 .qa:first-child summary{padding-top:0;min-height:52px}
+}
+
+/* footer — outside <main>, the same paper, a hairline above */
+.lp6 .foot{position:relative;z-index:5;background:var(--paper);color:var(--ink);border-top:1px solid var(--line-faint)}
+.lp6 .foot .wrap{padding-top:48px;padding-bottom:calc(32px + env(safe-area-inset-bottom));display:grid;gap:32px}
+.lp6 .foot .logo{color:var(--ink)}
+.lp6 .foot .logo svg{height:24px}
+.lp6 .foot p,.lp6 .foot li{font-size:var(--fs-ui);line-height:1.6;color:var(--ink-2)}
+.lp6 .foot a{color:var(--ink);text-decoration:none}
+.lp6 .foot a:hover{text-decoration:underline;text-underline-offset:4px}
+.lp6 .foot .legal{display:grid;gap:12px;align-content:start}
+.lp6 .foot .legal p a{display:inline-block;padding-block:12px;margin-block:-12px}
+/* v6.2: the mail link's focus ring hugs its own line (1 px above and below the line box, 3 px at the sides) so it clears "CVR 46417321" above;
+   the transparent padding and the equal negative margin keep the 44 px target and leave the footer unchanged at rest */
+.lp6 .foot .legal p a{padding-inline:14px;margin-inline:-14px}
+.lp6 .foot .legal p a:focus-visible{outline-offset:-11px;border-radius:17px}/* 17 − 11 = the 6 px corner every focus ring has */
+.lp6 .foot .right{display:grid;gap:24px}
+.lp6 .foot .links li,.lp6 .foot .apps p{line-height:24px}
+.lp6 .foot .links a,.lp6 .foot .apps a{display:inline-block;padding:10px 0;vertical-align:top}
+.lp6 .foot .copy-r{margin-top:12px;font-size:var(--fs-cap);color:var(--ink-3)}
+@media (min-width:768px){.lp6 .foot .right{grid-template-columns:1fr 1fr;column-gap:24px}}
+@media (min-width:1200px){.lp6 .foot .wrap{grid-template-columns:minmax(0,5fr) minmax(0,7fr);column-gap:72px;padding-top:64px}.lp6 .foot .copy-r{font-size:14px}}
+
+/* phone bottom bar (48 px "Prøv gratis" in a 64 px bar): during the day "Næste → n/7"; after it, the trial line.
+   While the day runs it rides the stage's bottom (--dkb = the bars' height when Safari collapses them).
+   It is in the tab order right after the stage; a keyboard user who tabs into it while it is down brings it up. */
+.lp6 .dock{position:fixed;left:0;right:0;bottom:0;z-index:55;height:calc(64px + env(safe-area-inset-bottom,0px));padding:0 var(--gut) env(safe-area-inset-bottom,0px);display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--ground);transform:translateY(110%);transition:transform .3s var(--m-out)}
+.lp6.xing .dock{background:linear-gradient(180deg,var(--a-g) calc(var(--e) - var(--t,0px)),var(--b-g) 0)}
+.lp6 .dock .hl{position:absolute;left:0;right:0;top:0;height:1px}
+.lp6 .dock.on,.lp6 .dock:focus-within{transform:translateY(calc(-1 * var(--dkb,0px)))}
+.lp6 .dock .btn{height:48px;font-size:17px;padding:0 24px;flex:none}
+.lp6 .dk-left{display:grid;flex:1;min-width:0}
+.lp6 .dk-left > *{grid-area:1 / 1;align-self:center;transition:opacity .25s ease}
+.lp6 .dk-nav{display:flex;align-items:center;gap:12px;margin-left:-2px}
+.lp6 .dk-trial{font-size:var(--fs-cap);line-height:1.3}
+.lp6 .dock:not(.ev) .dk-nav,.lp6 .dock.ev .dk-trial{opacity:0;visibility:hidden}
+.lp6 .dk-prog{position:absolute;left:0;right:0;top:0;height:1px;transform-origin:0 50%;transform:scaleX(var(--p,0));opacity:0;transition:opacity .25s ease}
+.lp6 .dock.ev .dk-prog{opacity:1}
+@media (max-width:359px){.lp6 .dock{gap:10px}.lp6 .dock .btn{padding:0 18px;font-size:16px}}
+@media (min-width:820px){.lp6 .dock{display:none}}
+/* v6.1 fix: a focused link or button never sits under the bottom bar (64 px + safe area, +12 px air) — the bar exists below 820 px */
+@media (max-width:819px){.lp6 main a,.lp6 main button,.lp6 main summary,.lp6 footer a{scroll-margin-bottom:calc(76px + env(safe-area-inset-bottom,0px))}}
+
+/* reveal-once below the day — only when motion is allowed; CSS default = visible */
+.lp6.motion [data-r]{opacity:0;transform:translateY(var(--m-rise))}
+.lp6.motion [data-r]:focus-within{opacity:1;transform:none;transition:none}
+.lp6.motion [data-r].in{opacity:1;transform:none;transition:opacity .9s ease var(--dl,0s),transform 1.2s var(--m-out) var(--dl,0s)}
+.lp6.motion .rows li:not(:first-child),.lp6.motion .trust li{border-top-color:transparent;position:relative}
+.lp6.motion .rows li:not(:first-child)::before,.lp6.motion .trust li:not(:first-child)::before{content:"";position:absolute;left:0;right:0;top:-1px;height:1px;background:var(--line-faint);transform:scaleX(0);transform-origin:0 50%}
+.lp6.motion .rows li.in::before,.lp6.motion .trust li.in::before{transform:scaleX(1);transition:transform 1.1s var(--m-out) calc(var(--dl,0s) + .1s)}
+@media (max-width:1199px){.lp6.motion .trust li:first-child{border-top-color:transparent;position:relative}.lp6.motion .trust li:first-child::before{content:"";position:absolute;left:0;right:0;top:-1px;height:1px;background:var(--line-faint);transform:scaleX(0);transform-origin:0 50%}}
+@keyframes lp6-rowFade{from{opacity:0}}
+@keyframes lp6-rowRise{from{transform:translateY(12px)}}
+@keyframes lp6-barGrow{from{transform:scaleX(0)}}
+.lp6.motion .shift{animation:lp6-rowFade .6s ease both,lp6-rowRise .9s var(--m-out) both;animation-delay:calc(.12s + var(--i) * .06s)}
+.lp6.motion .trk i{animation:lp6-barGrow 1s var(--m-out) both;animation-delay:calc(.3s + var(--i) * .06s)}
+@media (prefers-reduced-motion:reduce){.lp6,.lp6 *,.lp6::before,.lp6 *::before,.lp6::after,.lp6 *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* ═════════════ port: the page inside the app (PORT_PLAN 1.5–1.7) ═════════════ */
+/* the root is its own stacking context, so every landing layer (top bar z 60, bottom bar z 55) stays under the cookie banner (z 60)
+   and its drawer's backdrop (z 55); no transform on it, so the fixed bars and the night still pin to the viewport */
+.lp6{position:relative;z-index:0;isolation:isolate}
+/* html and body while the page is mounted (the :has() stops matching when it unmounts): the paper ground, in light and dark,
+   the prototype's body (no margin, no sideways scroll) and the scrolling it was measured with (all initial values). index.css sets html{scroll-behavior:smooth;overscroll-behavior:none} for the app
+   (the stepper's jumps must be instant, and an anchor must not glide) and, until the paper commit, scroll-padding-top:74px for the old landing's bar */
+:root:has(.lp6){scroll-behavior:auto;scroll-padding-top:auto;overscroll-behavior:auto}
+:root:has(.lp6) body{margin:0;background:#F6F4EC;overflow-x:clip}
+/* index.css (pointer: coarse) gives every a, button and [role=button] a min-height of 44 px. The page sets its own 44 px boxes
+   (.btn, .next, the .tlink and footer link padding); the app's rule would make the headline words, the index rows and the inline links tall */
+.lp6 :is(a,button,[role=button]){min-height:auto}
