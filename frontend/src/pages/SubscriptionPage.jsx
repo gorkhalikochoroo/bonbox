@@ -1234,7 +1234,7 @@ export default function SubscriptionPage() {
         {!user && (
           <Reassure title={t("pricingReassureNoCard") || "No card for trial"} sub={t("pricingReassureNoCardSub") || "14 days of Pro, no payment info needed."} />
         )}
-        <Reassure title={t("pricingReassureDenmark") || "Built in Denmark"} sub={t("pricingReassureDenmarkSub") || "Database in Ireland · DKK and MOMS built in"} />
+        <Reassure title={t("pricingReassureDenmark") || "Built in Denmark"} sub={t("pricingReassureDenmarkSub") || "Database in the EU (Frankfurt, Germany) · DKK and MOMS built in"} />
         <Reassure title={t("pricingReassureCancel") || "Cancel anytime"} sub={t("pricingReassureCancelSub") || "No lock-in. Export your data on the way out."} />
         {/*
           Count and list are DERIVED from the picker, never typed. This tile

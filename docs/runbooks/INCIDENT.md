@@ -17,7 +17,8 @@ processed. `/privacy` gives the same answer under "Who has access to your data".
 | What | Where |
 |---|---|
 | API (`bonbox-api`, one worker) | Render, region **Frankfurt (EU)**. No persistent storage on the server. |
-| Database and uploaded files (primary) | Supabase, region **eu-west-1 (Ireland)**. Files are in Storage bucket `receipts`. |
+| Database and uploaded files (primary) | Supabase project `qwogfearhfhaunqpuvgd`, region **eu-central-1 (Frankfurt)**, since 20 Oct 2026. Files are in Storage bucket `receipts`. |
+| Old primary (fallback copy) | Supabase project `ahlqhztujpeccmaivkhr`, region eu-west-1 (Ireland). Unchanged copy of the database and files as of 20 Oct 2026, kept as a fallback until Manoj says delete. Not live: never restore into it or point the API at it without a decision. Remove this row when it is deleted. |
 | Backup project | Supabase project `bonbox-backup`, region **eu-central-1 (Frankfurt)**. Empty until the nightly backup release is live; then it holds encrypted nightly copies of the database and the files. |
 | Frontend | Vercel, global CDN. Static files only, no customer data. |
 | Domain and DNS (`bonbox.dk`, every mail record: MX, SPF, DKIM, DMARC) | Simply.com (registrar and DNS). |
@@ -86,7 +87,8 @@ level (section e).
    - Disable the affected feature with its flag (see section f, "Flags").
    - **Data lost or corrupted:** stop the writes first (roll back the deploy,
      or switch off the feature), then restore:
-     - *Database:* Supabase dashboard → primary project (eu-west-1) →
+     - *Database:* Supabase dashboard → primary project
+       (`qwogfearhfhaunqpuvgd`, eu-central-1 Frankfurt) →
        Database → Backups. A restore replaces the whole database, so export
        anything newer you must keep first. What is kept, and for how long,
        depends on the Supabase plan: check that page now, not during an
@@ -99,6 +101,13 @@ level (section e).
        `APP_SECRET_KEY` that was live when the copy was taken, both from the
        password manager. Until that release is live, the backup project holds
        nothing.
+       **Until the release after Landing v6 + Frankfurt:** the script's
+       main-project guard (`MAIN_PROJECT_REF`, and the photo-bucket check
+       behind `--allow-main-project`) still names the old project
+       `ahlqhztujpeccmaivkhr`, not the live Frankfurt one. Its
+       `$DATABASE_URL` check still refuses the URL in the environment, but
+       check by hand that no target is `qwogfearhfhaunqpuvgd` unless you mean
+       to overwrite production.
 2. **Preserve evidence.**
    - Do **not** purge `error_logs` or delete triage notes.
    - Export the `/admin` recent errors and triage notes for the incident

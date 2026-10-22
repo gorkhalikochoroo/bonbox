@@ -182,7 +182,7 @@ export default function HeroV2() {
             <span>
               {t(
                 "landingV2HeroTrustHosting",
-                "Database in Ireland · providers listed in the privacy policy",
+                "Database in the EU (Frankfurt, Germany) · providers listed in the privacy policy",
               )}
             </span>
             <span>{t("landingV2HeroTrustNoCut", "No cut of your revenue")}</span>

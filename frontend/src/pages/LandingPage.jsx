@@ -31,7 +31,7 @@
  *
  *      Jul 2026: "EU-servere" was NOT a definitionally-true fact, and
  *      calling it one here is how it survived review for months. The
- *      database is in eu-west-1 (Ireland) and receipt photos are sent
+ *      database is in the EU (Frankfurt since 20 Oct 2026) and receipt photos are sent
  *      to Anthropic in the US to be read, so "EU servers" implied an
  *      EU-only pipeline that does not exist. A reader in a Danish dev
  *      group checked the claim against the privacy policy, found they
@@ -1188,7 +1188,7 @@ export default function LandingPage() {
                   tx_("landingCheck1", "14 dages gratis prøve"),
                   tx_("landingCheck2", "Ingen kortoplysninger"),
                   tx_("landingCheckCompliance", "Bogføringsloven"),
-                  tx_("landingCheckGdpr", "Database i Irland"),
+                  tx_("landingCheckGdpr", "Database i EU (Frankfurt, Tyskland)"),
                 ].map((txt) => (
                   <span key={txt} className="inline-flex items-center gap-1.5">
                     <Check size={14} strokeWidth={2} className="text-emerald-600 shrink-0" aria-hidden="true" />
@@ -1468,7 +1468,7 @@ export default function LandingPage() {
             // Was a hardcoded "6 languages" sitting in a row headed
             // "definitionally-true" — the one entry here that wasn't. Now counted.
             { val: nLangs(tx_("landingFactLangVal", "{n} languages")), label: tx_("landingFactLangLabel", "in the app") },
-            { val: tx_("landingFactEuVal", "Ireland"), label: tx_("landingFactEuLabel", "Where your database sits") },
+            { val: tx_("landingFactEuVal", "EU (Frankfurt, Germany)"), label: tx_("landingFactEuLabel", "Where your database sits") },
             { val: tx_("landingFactBogfVal", "6 år"), label: tx_("landingFactBogfLabel", "your documents are kept") },
             { val: tx_("landingFactFristVal", "25%"), label: tx_("landingFactFristLabel", "MOMS worked out on every sale") },
           ].map((s) => (
@@ -1486,7 +1486,7 @@ export default function LandingPage() {
           {[
             { title: tx_("landingTrustBogf7", "Fortløbende fakturanumre"), body: tx_("landingTrustBogf7Body", "Gap-free invoice numbering, kreditnota with the next number, locked books.") },
             { title: tx_("landingTrustBogf10", "Bogføringsloven"), body: tx_("landingTrustBogf10Body", "5-year retention. Immutable audit log on every financial change.") },
-            { title: tx_("landingTrustGdpr", "Built to GDPR"), body: tx_("landingTrustGdprBody", "Database in Ireland. Receipts are read in the US. Every processor is named in the privacy policy, so you can check them before you sign up. You export or delete your data yourself, and your revisor logs in without sharing a password.") },
+            { title: tx_("landingTrustGdpr", "Built to GDPR"), body: tx_("landingTrustGdprBody", "Database in the EU (Frankfurt, Germany). Receipts are read in the US. Every processor is named in the privacy policy, so you can check them before you sign up. You export or delete your data yourself, and your revisor logs in without sharing a password.") },
             { title: tx_("landingTrustAudit", "Audit-logged"), body: tx_("landingTrustAuditBody", "Every send, void, unlock and schedule publish leaves an append-only trail you can show SKAT.") },
           ].map((badge) => (
             <div key={badge.title}>
@@ -1584,7 +1584,7 @@ export default function LandingPage() {
             { q: tx_("landingFaq3Q", "What if the AI misreads a kasserapport?"),
               a: tx_("landingFaq3A", "Every parsed receipt is editable — the AI suggests, you confirm. Low-confidence matches go to a Review inbox instead of the books. Nothing flips to 'final' without your tap. Plus a 10-year audit log records every change.") },
             { q: tx_("landingFaq4Q", "Where does my data live?"),
-              a: tx_("landingFaq4A", "The database is in Ireland. When a receipt needs reading, the image goes to Anthropic in the US. Every company that touches your data is named in the privacy policy.\n\nThe audit log can't be edited or deleted. That's locked in the database itself.\n\nYou can pull everything out as CSV and delete your account whenever you want.") },
+              a: tx_("landingFaq4A", "The database is in the EU (Frankfurt, Germany). When a receipt needs reading, the image goes to Anthropic in the US. Every company that touches your data is named in the privacy policy.\n\nThe audit log can't be edited or deleted. That's locked in the database itself.\n\nYou can pull everything out as CSV and delete your account whenever you want.") },
             { q: tx_("landingFaq5Q", "Do I need a CVR to sign up?"),
               a: tx_("landingFaq5A", "No. Sign up with email. Add CVR later when you want CVR-verified customers + auto-fill on fakturaer. Freelancers without a CVR work fine — just toggle 'Privatperson' on each customer.") },
             { q: tx_("landingFaq6Q", "What happens after the 14-day trial?"),

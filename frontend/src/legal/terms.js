@@ -44,6 +44,14 @@ export const TERMS_VERSION = "2026-10-11";
    until 00:00 Copenhagen on this one. */
 export const TERMS_EXISTING_FROM = "2026-10-26";
 
+/* Push-day placeholder for PRIVACY_UPDATED (Landing v6 + Frankfurt release,
+   22 Oct 2026). A valid ISO day so the pages and the date rules keep working
+   before the push, and one nobody would take for a real date ("31. december
+   2099" on the page). The release packet replaces PRIVACY_UPDATED's value
+   with the Copenhagen push day; src/__tests__/privacyUpdatedPushDay.test.js
+   fails until it has. */
+export const PRIVACY_PUSH_DAY_PLACEHOLDER = "2099-12-31";
+
 /* The "Last updated" date of BOTH /privacy AND /cookies — PrivacyPolicyPage
    and CookiePolicyPage each print this one constant, so the two pages never
    disagree on when. Push 3 changed /privacy together with the Terms (the
@@ -65,8 +73,27 @@ export const TERMS_EXISTING_FROM = "2026-10-26";
    both pages at once. Never earlier than TERMS_VERSION
    (src/__tests__/push3Privacy.test.jsx checks), and both pages must print
    this constant, not TERMS_VERSION or a hard-coded date
-   (src/__tests__/privacyDateMergeGuard.test.jsx). */
-export const PRIVACY_UPDATED = "2026-10-12";
+   (src/__tests__/privacyDateMergeGuard.test.jsx).
+
+   Landing v6 + Frankfurt (22 Oct 2026): /privacy changes again — the main
+   Supabase row moves to Frankfurt and, while it exists, the old project's
+   fallback copy gets its own row (IRELAND_COPY_ROW below). The value is the
+   placeholder until the packet step on push day; it was "2026-10-12". */
+export const PRIVACY_UPDATED = PRIVACY_PUSH_DAY_PLACEHOLDER;
+
+/* The fallback copy in the old Supabase project (database and files moved to
+   Frankfurt on 20 Oct 2026; the old project is kept unchanged as a fallback
+   until Manoj says delete, around 27 Oct). While it exists, /privacy lists it
+   as its own processor row, the only place either language names its
+   location; IRELAND_COPY_DELETE_BY is the "deleted by" day that row promises.
+
+   !!! RELEASE-TIME: right before the push, check the Supabase project list.
+   Old project still there → true. Deleted → false: the row disappears from
+   /privacy in both languages (src/__tests__/frankfurtEverywhere.test.js and
+   backupPrivacyRow / push3Privacy hold both cases); re-run those tests and
+   rebuild the Vagtplan bundle (npm run build:scheduler-app). */
+export const IRELAND_COPY_ROW = true;
+export const IRELAND_COPY_DELETE_BY = "2026-10-31";
 
 /** Add accept_terms: true to a sign-up request body — only when the caller
     says the page showed the acceptance line (opts.acceptTerms === true).

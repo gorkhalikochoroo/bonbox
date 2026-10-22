@@ -40,7 +40,7 @@ describe("the auth frame pads for the cookie banner only where it can cover the 
     const el = frame({});
     // Push 8 review, second round: the padding stopped at 1288 px, and from
     // there the card sat over /login's footer line ("Lavet i København ·
-    // database i Irland") with no way to scroll it clear. The padding is back
+    // database i …") with no way to scroll it clear. The padding is back
     // at every width; from lg the frame grows by it, so it moves nothing.
     expect(padClasses(el)).toEqual([
       "pb-[var(--bb-consent-h,0px)]",

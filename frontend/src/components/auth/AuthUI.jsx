@@ -240,7 +240,7 @@ export function AuthLanguageSelect({ labelKey = "regLanguageLabel" }) {
  * moves nothing. /login jumped 43 px at 1280 × 800, 113 px at 1280 × 960 and
  * 27 px at 1024 × 768, /forgot-password 114 px, when only the padding was
  * there (Push 8 review). From 1288 px the card no longer reaches the column,
- * but it sat over /login's footer ("Lavet i København · database i Irland")
+ * but it sat over /login's footer (the "Lavet i København · database i …" line)
  * with no way to scroll it clear once the padding stopped there; with the
  * growth the padding is back at every width and still moves nothing. Below
  * lg the padding alone stays: on a tablet the lift is what keeps a short

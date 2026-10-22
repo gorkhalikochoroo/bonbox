@@ -56,7 +56,7 @@ export default function AccessV2() {
       role: t("landingV2.access.bonbox.role", "BonBox"),
       detail: t(
         "landingV2.access.bonbox.detail",
-        "Database in Ireland. Receipt images are read by our AI provider, Anthropic, or another provider listed in the privacy policy — where they process them is not yet confirmed. We don't sell your data and we don't train models on your books."
+        "Database in the EU (Frankfurt, Germany). Receipt images are read by our AI provider, Anthropic, or another provider listed in the privacy policy — where they process them is not yet confirmed. We don't sell your data and we don't train models on your books."
       ),
     },
   ];

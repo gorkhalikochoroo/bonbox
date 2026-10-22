@@ -8,10 +8,11 @@
  *   • No IP anonymisation after 30 days (the change log and the security log
  *     keep the IP), no "adjustable 5–10 years" setting, no "the law requires
  *     US to keep your records" — the owner keeps them.
- *   • Processors: a location only where confirmed (Supabase: Ireland,
- *     Render: Frankfurt, Companies House: UK; the Supabase backup project:
- *     Frankfurt); the rest say "Not confirmed". The list names every service
- *     the code can send data to.
+ *   • Processors: a location only where confirmed (Supabase: Frankfurt
+ *     since the move of 20 Oct 2026, Render: Frankfurt, Companies House: UK;
+ *     the Supabase backup project: Frankfurt; the old project's fallback
+ *     copy, while it exists: Ireland); the rest say "Not confirmed". The
+ *     list names every service the code can send data to.
  *
  * The backend sibling (backend/tests/test_privacy_matches_code.py) holds the
  * same sentences against the code's own constants.
@@ -19,6 +20,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { IRELAND_COPY_ROW } from "../legal/terms";
 
 let langCode = "da";
 vi.mock("../hooks/useLanguage", () => ({
@@ -135,9 +137,14 @@ describe("deletion: /privacy says what Terms § 4 says", () => {
 
 describe("processors: complete, and a location only where confirmed", () => {
   const ALLOWED = {
-    en: ["EU (Ireland)", "EU (Frankfurt, Germany)", "EU (Germany, Frankfurt)", "Global CDN", "Global", "United Kingdom", "Not confirmed"],
-    da: ["EU (Irland)", "EU (Frankfurt, Tyskland)", "EU (Tyskland, Frankfurt)", "Globalt CDN", "Globalt", "Storbritannien", "Ikke bekræftet"],
+    en: ["EU (Frankfurt, Germany)", "EU (Germany, Frankfurt)", "Global CDN", "Global", "United Kingdom", "Not confirmed"],
+    da: ["EU (Frankfurt, Tyskland)", "EU (Tyskland, Frankfurt)", "Globalt CDN", "Globalt", "Storbritannien", "Ikke bekræftet"],
   };
+  // The old project's location is allowed only while its fallback row exists.
+  if (IRELAND_COPY_ROW) {
+    ALLOWED.en.push("EU (Ireland)");
+    ALLOWED.da.push("EU (Irland)");
+  }
   for (const lang of ["en", "da"]) {
     it(`${lang}: every service the code calls is listed, with a confirmed location or 'not confirmed'`, () => {
       const { container } = renderPage(PrivacyPolicyPage, lang);
@@ -150,11 +157,12 @@ describe("processors: complete, and a location only where confirmed", () => {
       }
       for (const r of rows) expect(ALLOWED[lang]).toContain(r[2]);
       const loc = Object.fromEntries(rows.map((r) => [r[0], r[2]]));
-      // Supabase has two rows: the main project (Ireland) first, then the
-      // separate backup project (Frankfurt) of the nightly backup.
+      // Supabase rows: the main project (Frankfurt) first, then the separate
+      // backup project (Frankfurt) of the nightly backup, then — while it
+      // exists — the old project's fallback copy (Ireland).
       expect(rows.filter((r) => r[0] === "Supabase").map((r) => r[2])).toEqual(lang === "da"
-        ? ["EU (Irland)", "EU (Tyskland, Frankfurt)"]
-        : ["EU (Ireland)", "EU (Germany, Frankfurt)"]);
+        ? ["EU (Frankfurt, Tyskland)", "EU (Tyskland, Frankfurt)", ...(IRELAND_COPY_ROW ? ["EU (Irland)"] : [])]
+        : ["EU (Frankfurt, Germany)", "EU (Germany, Frankfurt)", ...(IRELAND_COPY_ROW ? ["EU (Ireland)"] : [])]);
       expect(loc.Render).toBe(lang === "da" ? "EU (Frankfurt, Tyskland)" : "EU (Frankfurt, Germany)");
       expect(screen.getByTestId("privacy-location-note")).toBeTruthy();
     });

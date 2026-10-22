@@ -6,7 +6,7 @@ import { CookieSettingsButton } from "../components/CookieConsent";
 // changes it on its own (the backup processor row + R-h's Analytics-consent
 // sentences), so it has its own release-time date there, never earlier than
 // TERMS_VERSION.
-import { PRIVACY_UPDATED, termsDate } from "../legal/terms";
+import { PRIVACY_UPDATED, termsDate, IRELAND_COPY_ROW, IRELAND_COPY_DELETE_BY } from "../legal/terms";
 import BonBoxMark from "../components/BonBoxMark";
 import BonBoxWordmark from "../components/BonBoxWordmark";
 
@@ -50,13 +50,26 @@ function Table({ headers, rows }) {
 // what Terms of Service § 4 says (immediate deletion; change log, security
 // and error logs and the accounting-document images kept; no retention
 // setting; the owner, not BonBox, keeps the accounting records). A processor
-// location is named only where it is confirmed (Supabase: Ireland, project
-// in eu-west-1; Render: Frankfurt; Companies House: UK); every other row
+// location is named only where it is confirmed (Supabase: Frankfurt,
+// eu-central-1; Render: Frankfurt; Companies House: UK); every other row
 // says "Not confirmed" / "Ikke bekræftet".
 // Nightly backup (Manoj, 11 Oct 2026): the second Supabase row is the
 // separate backup project (eu-central-1, Frankfurt) that the nightly job
 // (backend services/backup_service) copies the database and the uploaded
 // files to, encrypted on our server before upload.
+// Frankfurt move (20 Oct 2026; text in the Landing v6 + Frankfurt release):
+// the database and the uploaded files moved to the main project in
+// Frankfurt. The old project is kept unchanged as a fallback copy until
+// it is deleted; while it exists (IRELAND_COPY_ROW in legal/terms.js) the
+// third Supabase row, FALLBACK_COPY_ROW below, names it. Set the constant to
+// false once the old project is gone and the row disappears in both
+// languages.
+const FALLBACK_COPY_ROW = {
+  en: ["Supabase", `Previous database and file storage. After the move to Frankfurt on 20 October 2026 a copy is kept as a fallback; it will be deleted by ${termsDate(IRELAND_COPY_DELETE_BY, "en")}.`, "EU (Ireland)", "A copy of all account and business data and the files you had uploaded, as of 20 October 2026"],
+  da: ["Supabase", `Tidligere database og fillagring. Efter flytningen til Frankfurt den 20. oktober 2026 beholdes en kopi som reserve; den slettes senest ${termsDate(IRELAND_COPY_DELETE_BY, "da")}.`, "EU (Irland)", "En kopi af alle konto- og virksomhedsdata og de filer, du havde uploadet, pr. 20. oktober 2026"],
+};
+const fallbackCopyRows = (lang) => (IRELAND_COPY_ROW ? [FALLBACK_COPY_ROW[lang]] : []);
+
 const CHROME = {
   en: { terms: "Terms", cookies: "Cookies", cookieSettings: "Cookie settings", back: "Back to BonBox" },
   da: { terms: "Vilkår", cookies: "Cookies", cookieSettings: "Cookieindstillinger", back: "Tilbage til BonBox" },
@@ -215,8 +228,9 @@ function PrivacyEn() {
           <Table
             headers={["Service", "Purpose", "Location", "Data processed"]}
             rows={[
-              ["Supabase", "Database (PostgreSQL) and file storage", "EU (Ireland)", "All account and business data, and the files you upload"],
+              ["Supabase", "Database (PostgreSQL) and file storage", "EU (Frankfurt, Germany)", "All account and business data, and the files you upload"],
               ["Supabase", "Encrypted backup copy (database + the files you upload)", "EU (Germany, Frankfurt)", "All account and business data and the files you upload, encrypted before they leave BonBox"],
+              ...fallbackCopyRows("en"),
               ["Vercel", "Frontend hosting", "Global CDN", "No personal data stored"],
               ["Render", "Backend API hosting", "EU (Frankfurt, Germany)", "API requests, no persistent storage"],
               ["Resend", "Email delivery", "Not confirmed", "Email address, email content"],
@@ -496,8 +510,9 @@ function PrivacyDa() {
           <Table
             headers={["Tjeneste", "Formål", "Placering", "Behandlede data"]}
             rows={[
-              ["Supabase", "Database (PostgreSQL) og fillagring", "EU (Irland)", "Alle konto- og virksomhedsdata og de filer, du uploader"],
+              ["Supabase", "Database (PostgreSQL) og fillagring", "EU (Frankfurt, Tyskland)", "Alle konto- og virksomhedsdata og de filer, du uploader"],
               ["Supabase", "Krypteret sikkerhedskopi (database + de filer, du uploader)", "EU (Tyskland, Frankfurt)", "Alle konto- og virksomhedsdata og de filer, du uploader, krypteret før de forlader BonBox"],
+              ...fallbackCopyRows("da"),
               ["Vercel", "Hosting af frontend", "Globalt CDN", "Ingen personoplysninger gemmes"],
               ["Render", "Hosting af backend-API", "EU (Frankfurt, Tyskland)", "API-forespørgsler, ingen varig lagring"],
               ["Resend", "Afsendelse af e-mails", "Ikke bekræftet", "E-mailadresse, e-mailens indhold"],
