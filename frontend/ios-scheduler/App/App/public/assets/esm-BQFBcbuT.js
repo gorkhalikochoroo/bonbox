@@ -1,0 +1,2 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/web-aBuJhpTs.js","assets/dist-CXO7fBfF.js"])))=>i.map(i=>d[i]);
+import{p as e}from"./vendor-react-BUHZeGuk.js";import{i as t}from"./dist-CXO7fBfF.js";var n=t(`App`,{web:()=>e(()=>import(`./web-aBuJhpTs.js`).then(e=>new e.AppWeb),__vite__mapDeps([0,1]))});export{n as t};

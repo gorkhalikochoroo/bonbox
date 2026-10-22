@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="da">
   <head>
-    <meta charset="UTF-8" /><script>(function(){try{var p=location.pathname.replace(/\/+$/,"")||"/";if((p==="/"||p==="/v2")&&!/(?:^|;\s*)bonbox_csrf=/.test(document.cookie)){var tk=null;try{tk=localStorage.getItem("token")}catch(e){}if(!tk)return}var f={"da":"/assets/da--lt3p26i.js","en":"/assets/en-BqNqY53h.js"};var l=null;try{l=localStorage.getItem("lang")}catch(e){}if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}var h=l==="da"?f.da:f.en;var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)}catch(e){}})()</script>
+    <meta charset="UTF-8" /><script>(function(){try{var p=location.pathname.replace(/\/+$/,"")||"/";if((p==="/"||p==="/v2")&&!/(?:^|;\s*)bonbox_csrf=/.test(document.cookie)){var tk=null;try{tk=localStorage.getItem("token")}catch(e){}if(!tk)return}var f={"da":"/assets/da-CP4KOcqU.js","en":"/assets/en-0xmbjpPW.js"};var l=null;try{l=localStorage.getItem("lang")}catch(e){}if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}var h=l==="da"?f.da:f.en;var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)}catch(e){}})()</script>
     <!-- Start the session check while the page is still parsing (speed push,
          15 Oct). AuthProvider used to send GET /auth/me only once the whole
          app bundle had downloaded and run — on a phone over 4G a second,
@@ -154,13 +154,14 @@
          pinned explicitly as defence-in-depth.) -->
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <!-- Search snippet, social previews (og/twitter) and the JSON-LD below say
-         what the landing's hero says (push 9): no payroll wording (BonBox
+         what the landing's hero says (landing v6, 22 Oct 2026: the title is the
+         headline, the description the line under it): no payroll wording (BonBox
          tracks hours and exports them; it does not run payroll), no promise
          of a staff app on every phone (there is no Android app), the same
          audience as the headline. Push 8's one-www-address, da/en-only,
          no-free-price rules still hold. __tests__/landingPush9Review.test.jsx
          and __tests__/seoHead.test.js read this file. -->
-    <meta name="description" content="Dagens kasserapport, bookinger, vagtplan, timer, lager og MOMS samlet ét sted. Til caféer, restauranter, barer og saloner. Ét login til ejeren og én regning." />
+    <meta name="description" content="Bagkontoret til caféer, restauranter, barer og saloner." />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="BonBox" />
@@ -322,27 +323,28 @@
          and the woff2 files ride the immutable /assets/* cache header. -->
 
 
-    <!-- Open Graph for Facebook sharing. The share image is og-image-v3.png:
-         the kit's lock-up (docs/brand/lockup) on paper. A new file name
-         rather than a new ?v=, so no scraper's cache can answer with the old
-         picture. og-image-v2.png stays in public/ for pages that already
-         reference it. -->
-    <meta property="og:title" content="BonBox — Bagkontoret din virksomhed faktisk kører på" />
-    <meta property="og:description" content="Dagens kasserapport, bookinger, vagtplan, timer, lager og MOMS samlet ét sted. Til caféer, restauranter, barer og saloner. Ét login til ejeren og én regning." />
+    <!-- Open Graph for Facebook sharing. The share image is og-image-v4.png:
+         the v6 landing's card (the headline beside the evening's shifts at
+         Bistro Nørrebro, demo data). A new file name rather than a new ?v=,
+         so no scraper's cache can answer with the old picture. og-image-v2/v3
+         stay in public/ for pages that already reference them. The SPA has one
+         head for both languages: these texts are Danish (the market). -->
+    <meta property="og:title" content="BonBox · Vagterne. Bordene. Kassen." />
+    <meta property="og:description" content="Bagkontoret til caféer, restauranter, barer og saloner." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://www.bonbox.dk/" />
-    <meta property="og:image" content="https://www.bonbox.dk/og-image-v3.png" />
+    <meta property="og:image" content="https://www.bonbox.dk/og-image-v4.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="BonBox" />
+    <meta property="og:image:alt" content="BonBox: Vagterne. Bordene. Kassen. Bagkontoret til caféer, restauranter, barer og saloner. Ved siden af aftenens vagter på Bistro Nørrebro, eksempel med demodata." />
     <meta property="og:locale" content="da_DK" />
     <meta property="og:locale:alternate" content="en_GB" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://www.bonbox.dk/og-image-v3.png" />
-    <meta name="twitter:title" content="BonBox — Bagkontoret din virksomhed faktisk kører på" />
-    <meta name="twitter:description" content="Dagens kasserapport, bookinger, vagtplan, timer, lager og MOMS samlet ét sted. Til caféer, restauranter, barer og saloner. Ét login til ejeren og én regning." />
+    <meta name="twitter:image" content="https://www.bonbox.dk/og-image-v4.png" />
+    <meta name="twitter:title" content="BonBox · Vagterne. Bordene. Kassen." />
+    <meta name="twitter:description" content="Bagkontoret til caféer, restauranter, barer og saloner." />
 
     <!-- SEO extras -->
     <meta name="keywords" content="kasserapport, dagens lukning, MOMS-frist, faktura, bilagsscanning, vagtplan, timeregistrering, bordbestilling, café software, restaurant software, Bogføringsloven, BonBox" />
@@ -355,7 +357,7 @@
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
       "name": "BonBox",
-      "description": "Styr på kassen, vagterne og MOMS. Dagens kasserapport, bookinger, vagtplan, timer, lager og MOMS samlet ét sted — til caféer, restauranter, barer og saloner.",
+      "description": "Bagkontoret til caféer, restauranter, barer og saloner.",
       "url": "https://www.bonbox.dk/",
       "applicationCategory": "BusinessApplication",
       "operatingSystem": "Web, iOS",
@@ -363,68 +365,67 @@
     }
     </script>
 
-    <title>BonBox — Bagkontoret din virksomhed faktisk kører på</title>
-    <script type="module" crossorigin src="/assets/index-BDPjyur8.js"></script>
+    <title>BonBox · Vagterne. Bordene. Kassen.</title>
+    <script type="module" crossorigin src="/assets/index-CjrP7vhc.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-COnpUsM8.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-react-BUHZeGuk.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-BcdF0Q62.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-LWrGRbQH.js">
     <link rel="modulepreload" crossorigin href="/assets/dist-CXO7fBfF.js">
     <link rel="modulepreload" crossorigin href="/assets/createLucideIcon-BeWY0psp.js">
-    <link rel="modulepreload" crossorigin href="/assets/shopping-bag-BaKipm5K.js">
-    <link rel="modulepreload" crossorigin href="/assets/thermometer-D6_QaZ-i.js">
-    <link rel="modulepreload" crossorigin href="/assets/utensils-C0WjKqNn.js">
-    <link rel="modulepreload" crossorigin href="/assets/calendar-DxEWjSYj.js">
-    <link rel="modulepreload" crossorigin href="/assets/user-cog-kQ54S_Cc.js">
-    <link rel="modulepreload" crossorigin href="/assets/chart-column-DS4Objdw.js">
-    <link rel="modulepreload" crossorigin href="/assets/check-DyDpai5q.js">
-    <link rel="modulepreload" crossorigin href="/assets/chevron-down-Bxdvmzzi.js">
-    <link rel="modulepreload" crossorigin href="/assets/chevron-left-Rqmh2xUx.js">
-    <link rel="modulepreload" crossorigin href="/assets/chevron-right-Dcu0t1Pe.js">
-    <link rel="modulepreload" crossorigin href="/assets/circle-alert-R3Z7gW5n.js">
-    <link rel="modulepreload" crossorigin href="/assets/circle-check-DCWwKi13.js">
-    <link rel="modulepreload" crossorigin href="/assets/circle-question-mark-C83xnK0l.js">
-    <link rel="modulepreload" crossorigin href="/assets/clock-BsqigbMb.js">
-    <link rel="modulepreload" crossorigin href="/assets/eye-CLgianMb.js">
-    <link rel="modulepreload" crossorigin href="/assets/file-text-aY__-RGL.js">
-    <link rel="modulepreload" crossorigin href="/assets/gift-BbwcnjWN.js">
-    <link rel="modulepreload" crossorigin href="/assets/globe-rSTq5vO8.js">
-    <link rel="modulepreload" crossorigin href="/assets/info-CwnGBsxr.js">
-    <link rel="modulepreload" crossorigin href="/assets/key-round-BoJxoU7B.js">
-    <link rel="modulepreload" crossorigin href="/assets/rotate-ccw-CwIS6GLM.js">
-    <link rel="modulepreload" crossorigin href="/assets/loader-circle-C5XkG8z0.js">
-    <link rel="modulepreload" crossorigin href="/assets/mail-DSNc_M2n.js">
-    <link rel="modulepreload" crossorigin href="/assets/minus-BKGyLJRj.js">
-    <link rel="modulepreload" crossorigin href="/assets/users-round-B8kOyQMz.js">
-    <link rel="modulepreload" crossorigin href="/assets/plus-BxPSFn0v.js">
-    <link rel="modulepreload" crossorigin href="/assets/shield-check-BAlcfGW8.js">
-    <link rel="modulepreload" crossorigin href="/assets/thumbs-up-CmgFKazt.js">
-    <link rel="modulepreload" crossorigin href="/assets/trash-2-DTvaPgAZ.js">
-    <link rel="modulepreload" crossorigin href="/assets/triangle-alert-DEYpjNEa.js">
-    <link rel="modulepreload" crossorigin href="/assets/users-DjI9TG8c.js">
-    <link rel="modulepreload" crossorigin href="/assets/wallet-CZl-CTnX.js">
-    <link rel="modulepreload" crossorigin href="/assets/wrench-B2u_eGeA.js">
-    <link rel="modulepreload" crossorigin href="/assets/x-jbpByaGN.js">
-    <link rel="modulepreload" crossorigin href="/assets/Icon-D2HLcxyE.js">
-    <link rel="modulepreload" crossorigin href="/assets/Card-BViS5faX.js">
-    <link rel="modulepreload" crossorigin href="/assets/CookieConsent-BhVep9pZ.js">
-    <link rel="modulepreload" crossorigin href="/assets/currency-CkDS3_QP.js">
-    <link rel="modulepreload" crossorigin href="/assets/Amount-DkOOKSMQ.js">
-    <link rel="modulepreload" crossorigin href="/assets/Button-BAVtAjH6.js">
-    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-rp72ZNp6.js">
+    <link rel="modulepreload" crossorigin href="/assets/shopping-bag-D9S0tTse.js">
+    <link rel="modulepreload" crossorigin href="/assets/thermometer-CUTzRiuG.js">
+    <link rel="modulepreload" crossorigin href="/assets/utensils-pfA8T1j2.js">
+    <link rel="modulepreload" crossorigin href="/assets/calendar-BkMQWPeo.js">
+    <link rel="modulepreload" crossorigin href="/assets/user-cog-bEvTG0ws.js">
+    <link rel="modulepreload" crossorigin href="/assets/chart-column-BJfcun11.js">
+    <link rel="modulepreload" crossorigin href="/assets/check-IDCH7-gA.js">
+    <link rel="modulepreload" crossorigin href="/assets/chevron-down-DcgiNQ92.js">
+    <link rel="modulepreload" crossorigin href="/assets/chevron-left-PCUMIoZr.js">
+    <link rel="modulepreload" crossorigin href="/assets/chevron-right-C62pHGfl.js">
+    <link rel="modulepreload" crossorigin href="/assets/circle-alert-ZnVdY2Zq.js">
+    <link rel="modulepreload" crossorigin href="/assets/circle-check-YEHe_sa4.js">
+    <link rel="modulepreload" crossorigin href="/assets/circle-question-mark-B4iVi0-k.js">
+    <link rel="modulepreload" crossorigin href="/assets/clock-RbfVhX95.js">
+    <link rel="modulepreload" crossorigin href="/assets/eye-BD3zcNGP.js">
+    <link rel="modulepreload" crossorigin href="/assets/file-text-BxADsWWu.js">
+    <link rel="modulepreload" crossorigin href="/assets/gift-ChL_wklT.js">
+    <link rel="modulepreload" crossorigin href="/assets/globe-3gNcogNJ.js">
+    <link rel="modulepreload" crossorigin href="/assets/info-Du3wPUj3.js">
+    <link rel="modulepreload" crossorigin href="/assets/key-round-Ba8NwX4U.js">
+    <link rel="modulepreload" crossorigin href="/assets/rotate-ccw-CzOFY1Co.js">
+    <link rel="modulepreload" crossorigin href="/assets/loader-circle-CRviL0w3.js">
+    <link rel="modulepreload" crossorigin href="/assets/mail-3_WH9Q5y.js">
+    <link rel="modulepreload" crossorigin href="/assets/minus-Oag0nVhH.js">
+    <link rel="modulepreload" crossorigin href="/assets/users-round-CioDVKaj.js">
+    <link rel="modulepreload" crossorigin href="/assets/plus-Dj0gaE92.js">
+    <link rel="modulepreload" crossorigin href="/assets/shield-check-CwItI6h7.js">
+    <link rel="modulepreload" crossorigin href="/assets/thumbs-up-YJPPTJhg.js">
+    <link rel="modulepreload" crossorigin href="/assets/trash-2-CEG_Lxs-.js">
+    <link rel="modulepreload" crossorigin href="/assets/triangle-alert-Bc17p4Xu.js">
+    <link rel="modulepreload" crossorigin href="/assets/users-DtFBUMVw.js">
+    <link rel="modulepreload" crossorigin href="/assets/wallet-CtX2N7yD.js">
+    <link rel="modulepreload" crossorigin href="/assets/wrench-Cs-VE5-K.js">
+    <link rel="modulepreload" crossorigin href="/assets/x-CR9G__P9.js">
+    <link rel="modulepreload" crossorigin href="/assets/Icon-rVf2_IZc.js">
+    <link rel="modulepreload" crossorigin href="/assets/Card-CtQZwdsc.js">
+    <link rel="modulepreload" crossorigin href="/assets/CookieConsent-Cc96Zx6S.js">
+    <link rel="modulepreload" crossorigin href="/assets/currency-B2NknvEC.js">
+    <link rel="modulepreload" crossorigin href="/assets/Amount-CW3WaAmN.js">
+    <link rel="modulepreload" crossorigin href="/assets/Button-GWHLx6iN.js">
+    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-eSNhdb1u.js">
+    <link rel="modulepreload" crossorigin href="/assets/navManifest-UEHZlArX.js">
     <link rel="modulepreload" crossorigin href="/assets/axios-MlJ7qYYv.js">
     <link rel="modulepreload" crossorigin href="/assets/platform-DXzmFqsj.js">
     <link rel="modulepreload" crossorigin href="/assets/api-YC4-DixW.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEventLog-DnNiMZ1C.js">
-    <link rel="modulepreload" crossorigin href="/assets/terms-GFI20Ek6.js">
+    <link rel="modulepreload" crossorigin href="/assets/useEventLog-BHiFG55C.js">
+    <link rel="modulepreload" crossorigin href="/assets/terms-qonse5lt.js">
     <link rel="modulepreload" crossorigin href="/assets/errText-COJAKLWR.js">
-    <link rel="modulepreload" crossorigin href="/assets/useAuth-MuvWzUxZ.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-BT0HMg1R.js">
-    <link rel="modulepreload" crossorigin href="/assets/UpgradeNudge-DyxNUquG.js">
-    <link rel="modulepreload" crossorigin href="/assets/navManifest-UEHZlArX.js">
-    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-CGX0fyUw.js">
-    <link rel="modulepreload" crossorigin href="/assets/guestSurface-C-71uN2a.js">
-    <link rel="modulepreload" crossorigin href="/assets/liveAlertKinds-T1mCRl_O.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-D4X7rM-H.css">
+    <link rel="modulepreload" crossorigin href="/assets/useAuth-C6WOONjd.js">
+    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-79uLC8b1.js">
+    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-C4nPjf7F.js">
+    <link rel="modulepreload" crossorigin href="/assets/guestSurface-DMGcEFjI.js">
+    <link rel="modulepreload" crossorigin href="/assets/liveAlertKinds-Bj6c2cM8.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-BcLJnpix.css">
   </head>
   <body>
     <script>
@@ -435,7 +436,8 @@
       (function () {
         // LIGHT ground + browser bar (12 Oct 2026): paper ONLY on a route known
         // to draw on the paper (the owner app, the paper auth screens, the
-        // schedule wall screen); white html/body (.bb-page-white) and the
+        // schedule wall screen, the landing "/" and "/v2" since 22 Oct 2026);
+        // white html/body (.bb-page-white) and the
         // static white bar everywhere else — so a guest page, incl. the vanity
         // /<slug> that no list can name, never flashes cream on a cold load.
         // Keep equal to PAPER_PATHS / PAPER_PREFIXES in src/utils/themeColor.js
@@ -443,6 +445,7 @@
         // localStorage try: it must run even when storage is blocked.
         var wp = location.pathname.replace(/\/+$/, "") || "/";
         var paper = /^\/workshop\/job\//.test(wp) || [
+          "/", "/v2",
           "/login", "/register", "/forgot-password", "/verify-email", "/contact", "/staff/schedule/stand", "/staff",
           "/dashboard", "/sales", "/events", "/reservations", "/gavekort", "/scan", "/expenses", "/inventory",
           "/staffing", "/weather", "/waste", "/weekly-report", "/vat-report", "/reports", "/feedback", "/cashbook",

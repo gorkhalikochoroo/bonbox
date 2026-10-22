@@ -44,6 +44,32 @@ describe("committed staff web bundle (ios-scheduler/App/App/public)", () => {
     expect(main).not.toContain('!=="scheduler"');
   });
 
+  // Landing v6 + Frankfurt release: the database moved to Frankfurt on
+  // 20 Oct 2026 and the app says so (frankfurtEverywhere.test.js holds the
+  // source). The bundle must be rebuilt from that source: Ireland only in the
+  // /privacy fallback-copy row, and only while IRELAND_COPY_ROW is on. If
+  // this fails after a text change or after switching the constant, run
+  // `npm run build:scheduler-app` and commit the folder.
+  it("names Frankfurt as the database location; Ireland only in /privacy's fallback-copy row while it is on", async () => {
+    const { IRELAND_COPY_ROW } = await import("../legal/terms");
+    const dir = path.join(PUBLIC, "assets");
+    const IRELAND = /Irland|Ireland|İrlanda|आयरल्यान्ड|ไอร์แลนด์|eu-west-1/g;
+    const hits = fs.readdirSync(dir).filter((f) => f.endsWith(".js")).flatMap((f) => {
+      const src = fs.readFileSync(path.join(dir, f), "utf8");
+      return [...src.matchAll(IRELAND)].map((m) => ({ file: f.replace(/-[\w-]+\.js$/, ""), at: src.slice(m.index - 4, m.index + m[0].length + 1) }));
+    });
+    expect(hits).toEqual(IRELAND_COPY_ROW
+      ? [{ file: "PrivacyPolicyPage", at: "EU (Ireland)" }, { file: "PrivacyPolicyPage", at: "EU (Irland)" }]
+      : []);
+    for (const text of [
+      "Lavet i København · database i EU (Frankfurt, Tyskland)",
+      "Made in Copenhagen · database in the EU (Frankfurt, Germany)",
+      "Databasen står i EU (Frankfurt, Tyskland). Opsig når som helst",
+      "EU (Frankfurt, Germany)",
+      "AB'de (Frankfurt, Almanya)",
+    ]) expect(bundle).toContain(text);
+  });
+
   it("the committed capacitor.config.json is the staff app's", () => {
     const cfg = JSON.parse(fs.readFileSync(path.join(FRONTEND, "ios-scheduler/App/App/capacitor.config.json"), "utf8"));
     expect(cfg.appId).toBe("dk.bonbox.scheduler");
