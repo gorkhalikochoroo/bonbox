@@ -21,6 +21,8 @@ vi.mock("../hooks/useFounderRateStatus", () => ({
 }));
 
 const PricingV2 = (await import("../components/landing/v2/PricingV2")).default;
+const SheetV6 = (await import("../components/landing/v6/Sheet")).default;
+const { useLanguage } = await import("../hooks/useLanguage");
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 afterEach(cleanup);
 
@@ -29,6 +31,25 @@ describe("the price table carries the plan (PQ-17, B6)", () => {
     const { container } = render(<MemoryRouter><PricingV2 /></MemoryRouter>);
     const hrefs = [...container.querySelectorAll('a[href^="/register"]')].map((a) => a.getAttribute("href"));
     expect(hrefs).toEqual(["/register", "/register?plan=starter", "/register?plan=pro"]);
+  });
+
+  // Landing v6 (port step 10, PORT_PLAN 5.2 / removal audit 3): "/" now renders the v6 page, so its price section
+  // must carry the plan the same way. The PricingV2 test above stays: v2 is kept in the tree, unrouted, until the
+  // clean-up release. v6 order: the quiet "Vælg Starter" / "Vælg Pro" links under the paid cards, then the big
+  // "Prøv gratis" (no plan) under the cards; the Free card has no link of its own.
+  it("v6 (on / since landing v6): Vælg Starter → /register?plan=starter, Vælg Pro → /register?plan=pro, Prøv gratis → /register", () => {
+    function V6() {
+      const { t } = useLanguage();
+      return <SheetV6 t={t} isAndroid={false} />;
+    }
+    const { container } = render(<MemoryRouter><V6 /></MemoryRouter>);
+    const links = [...container.querySelectorAll('a[href^="/register"]')].map((a) => [a.getAttribute("href"), a.textContent]);
+    expect(links).toEqual([
+      ["/register?plan=starter", da["landingV6.price.pickStarter"]],
+      ["/register?plan=pro", da["landingV6.price.pickPro"]],
+      ["/register", da["landingV6.cta"]],
+    ]);
+    expect(container.querySelector(".price.free a")).toBeNull();
   });
 });
 

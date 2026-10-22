@@ -74,6 +74,9 @@ vi.mock("../hooks/useEventLog", () => ({ trackEvent: () => {} }));
 const TermsPage = (await import("../pages/TermsPage")).default;
 const SubscriptionPage = (await import("../pages/SubscriptionPage")).default;
 const PricingV2 = (await import("../components/landing/v2/PricingV2")).default;
+const HeroV6 = (await import("../components/landing/v6/Hero")).default;
+const DockV6 = (await import("../components/landing/v6/Dock")).default;
+const { useLanguage } = await import("../hooks/useLanguage");
 
 afterEach(() => {
   cleanup();
@@ -529,6 +532,24 @@ describe("F3: no '14 days free' badge for a paying subscriber", () => {
       expect(d["landingV2.pricing.pro.trial"]).toBe(
         lang === "da" ? "14 dage gratis · intet kort påkrævet" : "14 days free · no card required");
       expect(container.textContent).toContain(d["landingV2.pricing.pro.trial"]);
+    });
+
+    // Landing v6 (port step 10, PORT_PLAN 5.2 / removal audit 21): "/" renders the v6 page now. It makes the same
+    // sign-up offer in its own words, "14 dage gratis · intet kort" / "14 days free · no card", in the hero's trial
+    // line and on the bottom bar (and at the end of the day). The PricingV2 test above stays on the kept v2 file.
+    it(`${lang}: the public page on / (v6) makes the same sign-up offer, in its own words`, () => {
+      langCode = lang;
+      function V6() {
+        const { t } = useLanguage();
+        return <><HeroV6 t={t} /><DockV6 t={t} /></>;
+      }
+      const { container } = render(<MemoryRouter><V6 /></MemoryRouter>);
+      const d = lang === "da" ? da : en;
+      const offer = lang === "da" ? "14 dage gratis · intet kort" : "14 days free · no card";
+      // (the end-of-day line keeps "intet kort" / "no card" together with a no-break space)
+      expect([d["landingV6.trialDock"], d["landingV6.trialEnd"].replace(/\u00a0/g, " ")]).toEqual([offer, offer]);
+      expect(container.querySelector(".trial").textContent.startsWith(offer)).toBe(true);
+      expect(container.querySelector(".dk-trial").textContent).toBe(offer);
     });
   }
 });

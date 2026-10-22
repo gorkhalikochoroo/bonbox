@@ -374,8 +374,12 @@ const valueOf = (src, key) => {
 };
 
 describe("VAT status is not confirmed: no price copy says moms is or is not added (decision d)", () => {
+  // + the v6 landing's price lines (port step 10, PORT_PLAN 5.2): "/" renders them now. Not landingV6.price.momsExcl /
+  // momsIncl: those two ARE the basis notes, rendered only once PRICE_MOMS_BASIS is set (landingV6Claims holds that).
   const PRICE_KEYS = ["faqA6", "landingV2.pricing.footnote", "landingCalcOurs", "landingPricingLede",
-    "landingPricingHonesty", "landingPricingFinePrint", "landingFaq6A"];
+    "landingPricingHonesty", "landingPricingFinePrint", "landingFaq6A",
+    "landingV6.trial", "landingV6.price.headline", "landingV6.price.subhead", "landingV6.price.perMonth", "landingV6.price.then",
+    "landingV6.price.note", "landingV6.price.noteCheckout", "landingV6.faq.trialA"];
   const VAT_CLAIM = /moms oven|no moms|no vat|moms hariç|ex\.? moms|ekskl\.? moms|excl\.? (moms|vat)|inkl\.? moms|incl\.? (moms|vat)|momsregistr|vat-registered|reverse.charge|omvendt betalingspligt|25 ?%|%25|chưa MOMS|ยังไม่รวม|थपिँदैन|VAT-दर्ता/i;
 
   it.each(PACKS)("%s", (f) => {
@@ -386,9 +390,17 @@ describe("VAT status is not confirmed: no price copy says moms is or is not adde
     }
   });
 
+  it("the sweep reads the v6 price lines in da.js and en.js (found, not skipped)", () => {
+    for (const f of ["da.js", "en.js"]) {
+      const src = read(`i18n/${f}`);
+      for (const key of PRICE_KEYS.filter((k) => k.startsWith("landingV6."))) expect([f, key, valueOf(src, key) !== null]).toEqual([f, key, true]);
+    }
+  });
+
   it("the price surfaces' sources and inline fallbacks", () => {
     for (const f of ["pages/TermsPage.jsx", "components/landing/v2/PricingV2.jsx", "components/landing/WhatDoYouPayNow.jsx",
-      "pages/LandingPage.jsx", "pages/SubscriptionPage.jsx", "components/TrialBanner.jsx"]) {
+      "pages/LandingPage.jsx", "pages/SubscriptionPage.jsx", "components/TrialBanner.jsx",
+      "pages/LandingV6Page.jsx", "components/landing/v6/Sheet.jsx", "components/landing/v6/Hero.jsx"]) {
       const offenders = read(f).split("\n").filter((l) => /moms oven|no moms is added|no vat \(moms\)|ex\.? moms|not vat-registered|ikke momsregistr/i.test(l));
       expect([f, offenders]).toEqual([f, []]);
     }
@@ -399,6 +411,9 @@ describe("VAT status is not confirmed: no price copy says moms is or is not adde
     expect(en.faqA6).toContain("you see the exact amount at checkout before you confirm the purchase");
     expect(da["landingV2.pricing.footnote"]).toContain("du ser det præcise beløb ved betalingen");
     expect(en["landingV2.pricing.footnote"]).toContain("you see the exact amount at checkout");
+    // the v6 page's price note carries the same neutral sentence (port step 10)
+    expect(da["landingV6.price.noteCheckout"]).toContain("Du ser det præcise beløb ved betalingen, før du bekræfter.");
+    expect(en["landingV6.price.noteCheckout"]).toContain("You see the exact amount at checkout before you confirm.");
     for (const f of ["np.js", "th.js", "vi.js"]) {
       expect(read(`i18n/${f}`)).not.toMatch(/^\s+faqA6:/m); // falls back to English
     }
@@ -418,16 +433,27 @@ describe("Free is not promised 'for altid' / 'forever' anywhere user-facing (dec
     for (const f of ["da.js", "en.js", "tr.js", "np.js"]) {
       const src = read(`i18n/${f}`);
       for (const key of ["pricingForever", "landingV2.pricing.free.period", "landingPricingForever",
-        "landingPricingSub", "landingPricingFreeTagline", "landingFaq6A"]) {
+        "landingPricingSub", "landingPricingFreeTagline", "landingFaq6A",
+        "landingV6.price.freeName", "landingV6.price.noCard", "landingV6.price.freePos", "landingV6.trial", "landingV6.faq.trialA"]) {
         const v = valueOf(src, key);
         if (v !== null) expect([f, key, v]).toEqual([f, key, expect.not.stringMatching(FOREVER)]);
       }
     }
   });
 
+  it("the v6 Free lines are read in da.js and en.js (found, not skipped)", () => {
+    for (const f of ["da.js", "en.js"]) {
+      const src = read(`i18n/${f}`);
+      for (const key of ["landingV6.price.freeName", "landingV6.price.noCard", "landingV6.price.freePos", "landingV6.trial", "landingV6.faq.trialA"]) {
+        expect([f, key, valueOf(src, key) !== null]).toEqual([f, key, true]);
+      }
+    }
+  });
+
   it("components, inline fallbacks and the public demo reel", () => {
     for (const f of ["pages/LandingPage.jsx", "pages/SubscriptionPage.jsx", "components/landing/v2/PricingV2.jsx",
-      "components/TrialBanner.jsx", "components/TermsUpdateNotice.jsx"]) {
+      "components/TrialBanner.jsx", "components/TermsUpdateNotice.jsx",
+      "pages/LandingV6Page.jsx", "components/landing/v6/Sheet.jsx", "components/landing/v6/Hero.jsx", "components/landing/v6/Stage.jsx", "components/landing/v6/Dock.jsx"]) {
       const offenders = read(f).split("\n").filter((l) => /forever free|free forever|for altid|keep free forever|brief forever|livstid/i.test(l));
       expect([f, offenders]).toEqual([f, []]);
     }

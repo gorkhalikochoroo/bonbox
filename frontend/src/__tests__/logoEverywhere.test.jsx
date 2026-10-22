@@ -164,6 +164,44 @@ describe("the wordmark is the kit's, not typed", () => {
   });
 });
 
+// Landing v6 (port step 10, PORT_PLAN 1.8 / 5.2): "/" wears the kit LOCKUP (symbol + word, docs/brand/lockup), not
+// BonBoxWordmark (the word alone) beside a separate mark: the prototype's logo is the lockup, and the night edge needs
+// two copies of it in the top bar (lgA / lgB, each clipped to one side of the edge). Sized by height in landingV6.css
+// (the width follows the viewBox): top bar 21 px (19 under 340 px wide, 24 from 768, 26 from 1200), footer 24 px.
+describe("the v6 landing wears the kit lockup", () => {
+  const css = () => read("components/landing/v6/landingV6.css");
+
+  it("Lockup.jsx is docs/brand/lockup's forest lockup: its viewBox and both paths, in currentColor, decorative", async () => {
+    const kit = readFileSync(join(REPO, "docs/brand/lockup/bonbox-lockup-forest.svg"), "utf8");
+    const { default: Lockup, LOCKUP_VIEWBOX } = await import("../components/landing/v6/Lockup");
+    const svg = render(<Lockup />).container.querySelector("svg");
+    expect(svg.getAttribute("viewBox")).toBe(kit.match(/viewBox="([^"]+)"/)[1]);
+    expect(LOCKUP_VIEWBOX).toBe("0 -998 4475.67 1008");
+    expect([...svg.querySelectorAll("path")].map((p) => p.getAttribute("d"))).toEqual([...kit.matchAll(/<path[^>]* d="([^"]+)"/g)].map((m) => m[1]));
+    expect([...svg.querySelectorAll("path")].every((p) => p.getAttribute("fill") === "currentColor")).toBe(true);
+    expect(svg.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("top bar: two copies (lgA / lgB, the second hidden from readers) in one link named BonBox; footer: one; no typed word beside it", () => {
+    const top = read("components/landing/v6/TopBar.jsx"), foot = read("components/landing/v6/Footer.jsx");
+    expect(top).toContain('<a className="logo" href="#main" aria-label="BonBox"><span className="lgA"><Lockup /></span><span className="lgB" aria-hidden="true"><Lockup /></span></a>');
+    expect(foot).toContain('<a className="logo" href="#main" aria-label="BonBox"><Lockup /></a>');
+    for (const s of [top, foot]) {
+      expect(s).not.toMatch(/import BonBoxWordmark|import BonBoxMark/);
+      expect(s).not.toMatch(/>\s*BonBox\s*<\/(span|h1|p|a)>/);
+    }
+  });
+
+  it("heights: top bar 21 px (19 under 340, 24 from 768, 26 from 1200), footer 24 px; width from the viewBox", () => {
+    const c = css();
+    expect(c).toContain(".lp6 .logo svg{height:21px;width:auto}");
+    expect(c).toMatch(/@media \(max-width:339px\)\{[^}]*\}[^@]*\.lp6 \.logo svg\{height:19px\}/);
+    expect(c).toMatch(/@media \(min-width:768px\)\{\.lp6 \.logo svg\{height:24px\}/);
+    expect(c).toMatch(/@media \(min-width:1200px\)\{\.lp6 \.logo svg\{height:26px\}\}/);
+    expect(c).toContain(".lp6 .foot .logo svg{height:24px}");
+  });
+});
+
 describe("the share image and the public demo pages", () => {
   const PUBLIC = join(SRC, "..", "public");
   const pngSize = (p) => {

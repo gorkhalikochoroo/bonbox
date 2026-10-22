@@ -479,6 +479,13 @@ describe("Subscription page: businesses only (LEG-12)", () => {
     expect(await screen.findByText("uden kort")).toBeTruthy();
     expect(read("pages/SubscriptionPage.jsx")).not.toContain('"forever"');
     expect(read("components/landing/v2/PricingV2.jsx")).not.toContain('"forever"');
+    // Landing v6 (port step 10, PORT_PLAN 5.2): "/" prints the Free card from landingV6.price.* now
+    for (const d of [da, en]) {
+      for (const k of ["landingV6.price.freeName", "landingV6.price.noCard", "landingV6.price.freePos"]) {
+        expect([k, d[k]]).toEqual([k, expect.not.stringMatching(/altid|forever/i)]);
+      }
+    }
+    expect(read("components/landing/v6/Sheet.jsx")).not.toMatch(/forever|for altid/i);
   });
 });
 
@@ -572,6 +579,9 @@ describe("no founding 'for life' claim anywhere (decision 3)", () => {
     "pages/SubscriptionPage.jsx",
     "components/landing/v2/PricingV2.jsx",
     "components/FounderRatePill.jsx",
+    // the v6 landing on "/" (port step 10, PORT_PLAN 5.2): the page and every file of its tree
+    "pages/LandingV6Page.jsx",
+    ...fs.readdirSync(path.join(SRC, "components/landing/v6")).filter((f) => /\.(jsx?|css)$/.test(f)).map((f) => `components/landing/v6/${f}`),
   ];
   it.each(files)("%s", (rel) => {
     const offenders = read(rel)

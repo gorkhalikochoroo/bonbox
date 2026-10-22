@@ -99,3 +99,53 @@ describe("guard.js — the rule itself", () => {
     expect([...NOFIX]).toEqual(["tal", "stand", "zb"]);
   });
 });
+
+/* Port step 10 (PORT_PLAN 5.1): more sizes, RECORDED the same way (lab port-build/tools/guard_rec.mjs → port-build/step10/
+ * guard_rec.json; the port's engine.js + landingV6.css on the prototype markup in Chromium, after layout, read as engine.js
+ * guard() reads it). 393x852 (iPhone 17) and 440x956 (17 Pro Max) use the phone list; 820x1180 (iPad A16 portrait) is the
+ * one-column tablet stage: the plate with its 30 px caption against the highest statement, the wd-only screens, and the
+ * Z-bon twice, with its own 3b / 3a transforms (k / dy as the engine computes them: GEO.zs1 / zs0, zy0). 320x568 and 375x667
+ * load the stacked page (story needs h ≥ 600, and w ≥ 600 or screen.height ≥ 740), where no guard runs: nothing to record.
+ *   [id, statement, offsetTop, offsetHeight, cap, box, zb] */
+const REC2 = {
+  "393x852": { clockBottom: 183, copyTops: [623, 589, 602],
+    figs: [["roster", 0, 243, 322], ["vagt", 0, 225, 358], ["booking", 1, 245, 281], ["room", 1, 230, 303], ["tal", 1, 207, 107], ["stand", 1, 328, 237], ["foto", 2, 229, 327], ["kasse", 2, 222, 341]] },
+  "440x956": { clockBottom: 224, copyTops: [713, 674, 689],
+    figs: [["roster", 0, 291, 354], ["vagt", 0, 268, 401], ["booking", 1, 292, 315], ["room", 1, 279, 333], ["tal", 1, 252, 107], ["stand", 1, 373, 274], ["foto", 2, 273, 367], ["kasse", 2, 265, 383]] },
+  "820x1180": { clockBottom: 207, copyTops: [944, 916, 916],
+    figs: [["plate", -1, 239, 615, 30], ["roster", 0, 328, 437], ["vapp", 0, 283, 526], ["bookw", 1, 313, 467], ["room", 1, 284, 517], ["standw", 1, 263, 567], ["fotow", 2, 263, 568],
+      ["zb", 2, 587, 264, 0, "3b", { k: 1, dy: 0 }], ["zb", 2, 587, 264, 0, "3a", { k: 1.4017, dy: -226 }], ["kasse", 2, 262, 569]] },
+};
+const input2 = (r, shift = 0) => ({ clockBottom: r.clockBottom + shift, copyTops: r.copyTops,
+  figs: r.figs.map(([id, copy, offsetTop, h, cap = 0, box = "", zb = null]) => ({ id, copy, offsetTop, h, scale: 1, cap, box, zb })) });
+
+describe("guard.js — recorded at the release's phone and tablet sizes (port step 10)", () => {
+  for (const [size, r] of Object.entries(REC2)) {
+    it(`${size}: every screen ≥ 20 below the clock and ≥ 24 above its statement, as laid out`, () => {
+      expect(clearanceMisses(input2(r))).toEqual([]);
+      for (const f of input2(r).figs) {
+        const b = figureBox(f), copy = f.copy < 0 ? Math.min(...r.copyTops) : r.copyTops[f.copy];
+        expect([f.id + f.box, b.top - r.clockBottom >= CLOCK_AIR, copy - b.bottom >= COPY_AIR]).toEqual([f.id + f.box, true, true]);
+      }
+    });
+
+    it(`${size}: the numbers are not vacuous — a clock 1 px past the tightest screen's air is caught`, () => {
+      const room = Math.min(...input2(r).figs.map((f) => figureBox(f).top - r.clockBottom));
+      expect(room).toBeGreaterThanOrEqual(CLOCK_AIR);
+      const bad = clearanceMisses(input2(r, room - CLOCK_AIR + 1));
+      expect(bad.length).toBeGreaterThan(0);
+      expect(clearanceMisses(input2(r, room - CLOCK_AIR))).toEqual([]);
+    });
+  }
+
+  it("820x1180: the plate answers to the highest statement with its caption; the 3a Z-bon is the enlarged one, lifted", () => {
+    const r = input2(REC2["820x1180"]);
+    const plate = r.figs.find((f) => f.id === "plate");
+    expect(figureBox(plate)).toEqual({ top: 239, bottom: 884 }); // 615 + the 30 px caption
+    expect(Math.min(...REC2["820x1180"].copyTops) - 884).toBe(32);
+    const [z3b, z3a] = r.figs.filter((f) => f.id === "zb");
+    expect([z3b.box, z3a.box]).toEqual(["3b", "3a"]);
+    expect(figureBox(z3a).top).toBe(361);
+    expect(figureBox(z3a).bottom - figureBox(z3a).top).toBeCloseTo(264 * 1.4017, 3);
+  });
+});

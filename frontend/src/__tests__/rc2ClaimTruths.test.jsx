@@ -21,7 +21,8 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import FooterV2 from "../components/landing/v2/FooterV2";
-import { LanguageProvider } from "../hooks/useLanguage";
+import FooterV6 from "../components/landing/v6/Footer";
+import { LanguageProvider, useLanguage } from "../hooks/useLanguage";
 import { da } from "../i18n/da";
 import { en } from "../i18n/en";
 import { tr } from "../i18n/tr";
@@ -46,6 +47,29 @@ describe("4. no \"Databehandleraftale\" link until the DPA ships", () => {
       expect(document.body.textContent).not.toMatch(/Databehandleraftale/);
     });
   }
+  // Landing v6 (port step 10, PORT_PLAN 5.2): "/" renders the v6 footer now. Same rule: the two legal documents and
+  // Kontakt, nothing labelled Databehandleraftale (the FooterV2 test above stays on the kept v2 file).
+  for (const lang of ["da", "en", "tr"]) {
+    it(`the v6 landing footer on / (${lang}) links Handelsbetingelser and Privatlivspolitik only — nothing labelled Databehandleraftale`, async () => {
+      localStorage.setItem("lang", lang);
+      function V6() {
+        const { t } = useLanguage();
+        return <FooterV6 t={t} isAndroid={false} />;
+      }
+      render(<LanguageProvider><MemoryRouter><V6 /></MemoryRouter></LanguageProvider>);
+      const links = await screen.findAllByRole("link");
+      expect(links.some((a) => /databehandler|processing agreement/i.test(a.textContent))).toBe(false);
+      const legal = links.filter((a) => ["/terms", "/privacy"].includes(a.getAttribute("href")));
+      expect(legal.map((a) => a.getAttribute("href")).sort()).toEqual(["/privacy", "/terms"]);
+      expect(links.filter((a) => a.getAttribute("href") === "/contact")).toHaveLength(1);
+      expect(document.body.textContent).not.toMatch(/Databehandleraftale/);
+    });
+  }
+  it("no landingV6 text names a Databehandleraftale (da, en, tr)", () => {
+    for (const d of [da, en, tr]) {
+      expect(Object.entries(d).filter(([k, v]) => k.startsWith("landingV6.") && /databehandleraftale|processing agreement/i.test(String(v)))).toEqual([]);
+    }
+  });
   it("no page or component renders the DPA label anywhere (swept)", () => {
     // (Code that renders it: the key, a label, or JSX text — not a comment about it.)
     const users = sourceFiles(".").filter((f) => /landingV2\.footer\.dpa|label:\s*["']Databehandleraftale|>\s*Databehandleraftale\s*</.test(read(f)));

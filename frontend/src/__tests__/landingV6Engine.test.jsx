@@ -75,6 +75,11 @@ function setup({ w = 390, h = 844, reduced = false, meta = "#ffffff" } = {}) {
   const add = EventTarget.prototype.addEventListener, rem = EventTarget.prototype.removeEventListener;
   vi.spyOn(EventTarget.prototype, "addEventListener").mockImplementation(function (type, fn, o) { const k = find(key(this, type, fn, o)); live.set(k, 1); return add.call(this, type, fn, o); });
   vi.spyOn(EventTarget.prototype, "removeEventListener").mockImplementation(function (type, fn, o) { const k = find(key(this, type, fn, o)); live.delete(k); return rem.call(this, type, fn, o); });
+  // port step 10: in vitest's jsdom the global window carries its OWN addEventListener / removeEventListener (not the
+  // prototype's), so the two spies above never saw the engine's window listeners (scroll, resize, load, pageshow). Count them too.
+  const wAdd = window.addEventListener, wRem = window.removeEventListener;
+  vi.spyOn(window, "addEventListener").mockImplementation(function (type, fn, o) { const k = find(key(window, type, fn, o)); live.set(k, 1); return wAdd.call(this, type, fn, o); });
+  vi.spyOn(window, "removeEventListener").mockImplementation(function (type, fn, o) { const k = find(key(window, type, fn, o)); live.delete(k); return wRem.call(this, type, fn, o); });
   // matchMedia: phones answer TALLQ / height queries by the numbers; reduced motion on request; the lists count their listeners
   const mqls = [];
   const answer = (q) => {
@@ -202,6 +207,15 @@ describe("engine.js — mount and destroy leave nothing behind", () => {
     expect(stray.textContent).toBe("app");
     expect(stray.getAttribute("class")).toBeNull();
     d(); stray.remove();
+  });
+
+  it("window listeners (scroll, resize, load, pageshow) are counted, attached while mounted and released on destroy", () => {
+    const e = setup();
+    const d = mountLanding(e.root);
+    const onWindow = () => [...e.live.keys()].filter(([t]) => t === window).map(([, type]) => type).sort();
+    expect(onWindow()).toEqual(expect.arrayContaining(["load", "pageshow", "resize", "scroll"]));
+    d();
+    expect(onWindow()).toEqual([]);
   });
 
   it("matchMedia listeners: the nine re-layout queries are followed while mounted and released on destroy", () => {
