@@ -20,7 +20,11 @@
  * uses a key this list does not cover — a key outside it would show its
  * English fallback for a moment before the Danish text arrived.
  */
-export const BOOT_PREFIXES = ["landingV2", "landingPlan", "cookie"];
+//
+// Landing v6 (port step 5/6): "landingV6" joins the list. "landingV2" and "landingPlan" stay until the route
+// switches to the v6 page (port step 7, PORT_PLAN 1.9 / 2.4), so the old landing keeps painting from boot keys
+// on every commit in between; that step drops them (BOOT_PREFIXES = ["landingV6", "cookie"]).
+export const BOOT_PREFIXES = ["landingV2", "landingPlan", "landingV6", "cookie"];
 
 /** Single keys outside those prefixes that the banner or landing reads. */
 export const BOOT_KEYS = ["suCookieMore", "close"];

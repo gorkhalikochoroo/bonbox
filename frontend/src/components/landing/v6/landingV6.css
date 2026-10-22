@@ -741,3 +741,26 @@
 /* index.css (pointer: coarse) gives every a, button and [role=button] a min-height of 44 px. The page sets its own 44 px boxes
    (.btn, .next, the .tlink and footer link padding); the app's rule would make the headline words, the index rows and the inline links tall */
 .lp6 :is(a,button,[role=button]){min-height:auto}
+
+/* ═════════════ port step 5: what the prototype did not render (PORT_PLAN 2.3, section 3) ═════════════ */
+/* DK · EN with drawn flags (the prototype kept the switch hidden until English existed): the language on screen is text,
+   the other a button (44 px at least). Under 400 px, where "Priser" leaves the bar too, only the other language shows.
+   Under 540 px, while the header's own "Prøv gratis" is up (after the day, no bottom bar) the switch steps aside, so the
+   bar keeps the prototype's measured logo · (Priser) · Log ind · Prøv gratis (with the switch the button ran 22 px past
+   the edge at 320, 7 at 430, 19 at 480; measured, port-build/step5/barfit_*.json); it is back as soon as that button goes */
+.lp6 .lang{display:flex;align-items:center;gap:6px;font-size:var(--fs-ui);line-height:1;white-space:nowrap}
+.lp6 .lang .lg-cur,.lp6 .lang .lg-alt{display:inline-flex;align-items:center;gap:6px}
+.lp6 .lang b{font-weight:600}
+.lp6 .lang .flag{width:16px;height:12px;flex:none}
+.lp6 .lang button{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:44px;min-width:44px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.lp6 .lang button:focus-visible{outline:2px solid var(--fg);outline-offset:2px;border-radius:6px}
+@media (hover:hover){.lp6 .lang button:hover .sx{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px}}
+@media (max-width:399px){.lp6 .lang .lg-cur,.lp6 .lang .dot{display:none}}
+@media (max-width:539px){.lp6.js.cta-past:not(.dock-on) .lang{display:none}}
+/* "Vælg Starter" / "Vælg Pro" under the paid cards (→ /register?plan=…) */
+.lp6 .price .pick{margin-top:6px;font-size:var(--fs-note);line-height:1.45}
+.lp6 .price .pick .tlink{color:var(--ink);font-weight:500}
+/* Cookieindstillinger in the footer's link list: a button that reads as the links beside it */
+.lp6 .foot .links button{all:unset;box-sizing:border-box;display:inline-block;padding:10px 0;vertical-align:top;color:var(--ink);cursor:pointer}
+.lp6 .foot .links button:hover{text-decoration:underline;text-underline-offset:4px}
+.lp6 .foot .links button:focus-visible{outline:2px solid var(--fg);outline-offset:3px;border-radius:6px}
