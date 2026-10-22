@@ -44,7 +44,8 @@
 /* TABLET tokens (768+, single column): body 18 */
 @media (min-width:768px){.lp6{--fs-clock:clamp(96px,11.5svh,136px);--fs-clock0:96px;--fs-h1:72px;--fs-lead:26px;--fs-body:18px;--fs-sub:18px;--fs-note:16px;--fs-row:22px;--fs-price:30px;
   --gut:40px;--sec:96px;--pad1:64px;--hh:64px;--rad:16px;--ls-label:.18em}}
-@media (min-width:820px){.lp6{--dk:0px}}
+/* port (iOS, iPad portrait): the bottom bar serves every one-column stage, so only the two-column page has no bar to reserve room for */
+@media (min-width:1024px) and (min-aspect-ratio:5/4){.lp6{--dk:0px}}
 /* LANDSCAPE tokens from 1024 px: two columns */
 @media (min-width:1024px) and (min-aspect-ratio:5/4){.lp6{--fs-clock:clamp(112px,15svh,144px);--fs-h1:clamp(64px,6.4vw,76px);--fs-lead:28px;--fs-ix:18px;--cg:48px}}
 /* DESKTOP tokens (1200+): body 19, line length 45–75 ch, section gap 128 */
@@ -112,10 +113,10 @@
 .lp6 .navl{font-size:var(--fs-ui);text-decoration:none;padding:12px 0;white-space:nowrap}
 .lp6 .top .btn{height:44px;padding:0 16px}
 /* one "Prøv gratis" at a time: the header shows its button only after the hero button has scrolled away,
-   and under 820 px only while the bottom bar (which carries the same button) is down */
+   and on a one-column stage only while the bottom bar (which carries the same button) is down */
 .lp6.js .top .btn{display:none}
 .lp6.js.cta-past .top .btn{display:inline-flex}
-@media (max-width:819px){.lp6.js.dock-on .top .btn{display:none}}
+@media not all and (min-width:1024px) and (min-aspect-ratio:5/4){.lp6.js.dock-on .top .btn{display:none}}
 @media (max-width:399px){.lp6 .navl.prices-l{display:none}}
 @media (max-width:339px){.lp6 .top .in{gap:8px}.lp6 .nav{gap:12px}.lp6 .top .btn{padding:0 12px;font-size:14px}.lp6 .logo svg{height:19px}}
 @media (min-width:768px){.lp6 .logo svg{height:24px}.lp6 .top .btn{padding:0 18px}}
@@ -310,6 +311,10 @@
 /* v6.3: iOS Safari — a quick second tap on the stepper or the bottom bar is a tap, not a double-tap zoom, and no grey tap flash
    (the keyboard focus ring above stays) */
 .lp6 .next,.lp6 .dock{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+/* port (iOS, v6.3 open item 4): with the grey flash gone, a press shows as a short dim on the stepper buttons and the bar's "Prøv gratis"
+   (instant, theme-neutral; iOS Safari applies :active only on a page that listens for touchstart: engine.js does, on the document) */
+.lp6 .next:active{opacity:.55}
+.lp6 .dock .btn:active{opacity:.78}
 /* v6.2 "← Forrige" (forslag): the mirror of "Næste →", same type and the same split colours (.sx f1 on paper and on night).
    Shown from 2 / 7 to 7 / 7; hidden (not only disabled) at 1 / 7 and before the stage pins.
    Bottom bar: "←" alone in its own 44 × 44 box before NÆSTE. While hidden it keeps its place, so NÆSTE never moves under a thumb */
@@ -479,8 +484,10 @@
 .lp6[data-g=night].story :is(.foto,.fotow,.kasse,.tal).fx.on{transition:opacity .18s ease var(--dl,.22s),translate .6s var(--m-out) var(--dl,.22s)}
 .lp6.story .kasse.fx.on{z-index:3}
 
-/* story nav: in the frame from 820 px; below that it lives in the bottom bar. At 7 / 7 it becomes the trial button */
-@media (min-width:820px){
+/* story nav: in the frame on the two-column page; on every one-column stage it lives in the bottom bar. At 7 / 7 it becomes the trial button.
+   Port (was: in the frame from 820 px): on the one-column tablet stage (iPad portrait, 820–1032 px wide) the frame's 7 / 7 row went under the
+   rising morning sheet while the MOMS screen still showed, so "←" could not be reached; the bar keeps it up until that screen is covered (v6.3 rule) */
+@media (min-width:1024px) and (min-aspect-ratio:5/4){
   .lp6.story .frame{padding-bottom:env(safe-area-inset-bottom,0px)}
   .lp6.story .story-nav{grid-area:nav;display:grid;min-height:52px;margin-top:24px;align-items:center;transition:opacity .3s ease}
   .lp6.story .story-nav > *{grid-area:1 / 1;transition:opacity .3s ease,visibility 0s linear .3s}
@@ -703,9 +710,9 @@
 .lp6 .dk-prog{position:absolute;left:0;right:0;top:0;height:1px;transform-origin:0 50%;transform:scaleX(var(--p,0));opacity:0;transition:opacity .25s ease}
 .lp6 .dock.ev .dk-prog{opacity:1}
 @media (max-width:359px){.lp6 .dock{gap:10px}.lp6 .dock .btn{padding:0 18px;font-size:16px}}
-@media (min-width:820px){.lp6 .dock{display:none}}
-/* v6.1 fix: a focused link or button never sits under the bottom bar (64 px + safe area, +12 px air) — the bar exists below 820 px */
-@media (max-width:819px){.lp6 main a,.lp6 main button,.lp6 main summary,.lp6 footer a{scroll-margin-bottom:calc(76px + env(safe-area-inset-bottom,0px))}}
+@media (min-width:1024px) and (min-aspect-ratio:5/4){.lp6 .dock{display:none}}
+/* v6.1 fix: a focused link or button never sits under the bottom bar (64 px + safe area, +12 px air) — the bar exists on every one-column stage */
+@media not all and (min-width:1024px) and (min-aspect-ratio:5/4){.lp6 main a,.lp6 main button,.lp6 main summary,.lp6 footer a{scroll-margin-bottom:calc(76px + env(safe-area-inset-bottom,0px))}}
 
 /* reveal-once below the day — only when motion is allowed; CSS default = visible */
 .lp6.motion [data-r]{opacity:0;transform:translateY(var(--m-rise))}

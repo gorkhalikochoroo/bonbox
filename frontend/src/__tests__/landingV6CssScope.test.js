@@ -215,6 +215,32 @@ describe("landingV6.css — the measured v6.2 / v6.3 rules came across", () => {
   });
 });
 
+describe("landingV6.css — port step 4 (iOS Safari fixes after v6.3)", () => {
+  const DESK = "(min-width:1024px) and (min-aspect-ratio:5/4)";
+  const ONECOL = "not all and (min-width:1024px) and (min-aspect-ratio:5/4)";
+  const mediaOf = (r) => (r.parent && r.parent.type === "atrule" && r.parent.name === "media" ? r.parent.params : null);
+
+  it("a press on the stepper or on the bar's Prøv gratis shows as a short dim (the grey tap flash stays off)", () => {
+    expect(declsOf(ruleFor(".lp6 .next:active"))).toEqual({ opacity: ".55" });
+    expect(declsOf(ruleFor(".lp6 .dock .btn:active"))).toEqual({ opacity: ".78" });
+    expect(mediaOf(ruleFor(".lp6 .next:active"))).toBeNull(); // every pointer, every size
+    expect(rulesFor(".lp6 .dock").some((r) => declsOf(r)["-webkit-tap-highlight-color"] === "transparent")).toBe(true);
+  });
+
+  it("the bottom bar serves every one-column stage (iPad portrait too): only the two-column page hides it", () => {
+    const hide = rulesFor(".lp6 .dock").filter((r) => declsOf(r).display === "none");
+    expect(hide.map(mediaOf)).toEqual([DESK]);
+    // the frame's own stepper row exists only on the two-column page; elsewhere the bar carries ← · Næste · n / 7
+    expect(rulesFor(".lp6.story .story-nav").filter((r) => declsOf(r).display === "grid").map(mediaOf)).toEqual([DESK]);
+    // the room reserved for the bar, the header's Prøv gratis while the bar is up, and the focus clearance follow the same line
+    expect(rulesFor(".lp6").filter((r) => declsOf(r)["--dk"] === "0px").map(mediaOf)).toEqual([DESK]);
+    expect(mediaOf(ruleFor(".lp6.js.dock-on .top .btn"))).toBe(ONECOL);
+    expect(mediaOf(ruleFor(".lp6 main a"))).toBe(ONECOL);
+    // nothing is keyed to the old 820 px line any more
+    expect(bare).not.toMatch(/\((min-width:820px|max-width:819px)\)/);
+  });
+});
+
 describe("the landing's CSS plumbing outside the stylesheet", () => {
   it("Tailwind does not scan the v6 folder (its words would become global utilities)", () => {
     const app = read(join(SRC, "index.css"));
