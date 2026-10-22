@@ -171,13 +171,16 @@ describe("the share image and the public demo pages", () => {
     return [b.readUInt32BE(16), b.readUInt32BE(20)];
   };
 
-  it("index.html shares og-image-v3.png (a new name, 1200 x 630) and v2 stays", () => {
+  // Landing v6 (port step 5/6, PORT_PLAN 2.6): the card is og-image-v4.png, the v6 page's own (a new name, so no
+  // scraper's cache answers with v3's picture). v2 and v3 stay in public/ for pages that already reference them.
+  it("index.html shares og-image-v4.png (a new name, 1200 x 630); v2 and v3 stay", () => {
     const html = readFileSync(join(SRC, "..", "index.html"), "utf8");
-    expect(html).toContain('<meta property="og:image" content="https://www.bonbox.dk/og-image-v3.png" />');
-    expect(html).toContain('<meta name="twitter:image" content="https://www.bonbox.dk/og-image-v3.png" />');
-    expect(html).not.toMatch(/content="[^"]*og-image-v2\.png/);
+    expect(html).toContain('<meta property="og:image" content="https://www.bonbox.dk/og-image-v4.png" />');
+    expect(html).toContain('<meta name="twitter:image" content="https://www.bonbox.dk/og-image-v4.png" />');
+    expect(html).not.toMatch(/content="[^"]*og-image-v[23]\.png/);
     expect(html).toContain('<meta property="og:image:width" content="1200" />');
     expect(html).toContain('<meta property="og:image:height" content="630" />');
+    expect(pngSize(join(PUBLIC, "og-image-v4.png"))).toEqual([1200, 630]);
     expect(pngSize(join(PUBLIC, "og-image-v3.png"))).toEqual([1200, 630]);
     expect(pngSize(join(PUBLIC, "og-image-v2.png"))).toEqual([1200, 630]);
   });

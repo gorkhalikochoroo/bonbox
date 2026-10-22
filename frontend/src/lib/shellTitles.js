@@ -13,10 +13,14 @@
  * hook can restore the shell title without going through the language
  * context module — tests mock that module, never this one.
  */
+//
+// Landing v6 (22 Oct 2026): the title is the landing's headline. da = index.html's <title> exactly; en is
+// Claude's suggestion (PORT_PLAN 2.6, forslag); tr reads the English title, as a Turkish reader reads the
+// English landing (landingV6.* has no Turkish yet, PORT_PLAN 2.2).
 export const SHELL_TITLES = {
-  da: "BonBox — Bagkontoret din virksomhed faktisk kører på",
-  en: "BonBox — The back office your business actually runs on",
-  tr: "BonBox — İşletmenin gerçekten üzerinde döndüğü arka ofis",
+  da: "BonBox · Vagterne. Bordene. Kassen.",
+  en: "BonBox · Shifts. Tables. Till.",
+  tr: "BonBox · Shifts. Tables. Till.",
 };
 
 export const SHELL_TITLE_VALUES = Object.values(SHELL_TITLES);
