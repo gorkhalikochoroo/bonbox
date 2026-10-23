@@ -79,7 +79,7 @@ export const PRIVACY_PUSH_DAY_PLACEHOLDER = "2099-12-31";
    Supabase row moves to Frankfurt and, while it exists, the old project's
    fallback copy gets its own row (IRELAND_COPY_ROW below). The value is the
    placeholder until the packet step on push day; it was "2026-10-12". */
-export const PRIVACY_UPDATED = PRIVACY_PUSH_DAY_PLACEHOLDER;
+export const PRIVACY_UPDATED = "2026-10-23";
 
 /* The fallback copy in the old Supabase project (database and files moved to
    Frankfurt on 20 Oct 2026; the old project is kept unchanged as a fallback
@@ -93,7 +93,11 @@ export const PRIVACY_UPDATED = PRIVACY_PUSH_DAY_PLACEHOLDER;
    backupPrivacyRow / push3Privacy hold both cases); re-run those tests and
    rebuild the Vagtplan bundle (npm run build:scheduler-app). */
 export const IRELAND_COPY_ROW = true;
-export const IRELAND_COPY_DELETE_BY = "2026-10-31";
+/* 23 Oct 2026: moved from 2026-10-31. Receipt pictures uploaded before the move
+   are still loaded from the old project through stored links, so it is deleted
+   only after a backend release re-links them to Frankfurt and a check shows no
+   row still points at the old project. */
+export const IRELAND_COPY_DELETE_BY = "2026-11-30";
 
 /** Add accept_terms: true to a sign-up request body — only when the caller
     says the page showed the acceptance line (opts.acceptTerms === true).
