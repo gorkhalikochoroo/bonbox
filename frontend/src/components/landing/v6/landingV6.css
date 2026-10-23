@@ -554,10 +554,11 @@
   .lp6.story .hero{position:absolute;top:0;left:0;right:0;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);column-gap:var(--cg);padding-top:var(--hero-top,calc(var(--hh) + 120px))}
   .lp6.story .hero{pointer-events:none}.lp6.story .hero > *{grid-column:1;pointer-events:auto}
   /* first-screen round (23 Oct): the hero hangs from the plate's top edge (layout() sets --hero-top: the headline's cap height on the
-     line of the top crop marks) and the air under the headline is shared in equal bands: two spacer rows, above the subline (--hero-a1)
-     and above the button row (--hero-a2), sized by layout() (heroFit.js); the elements keep their own margins */
-  .lp6.story .hero{grid-template-rows:auto var(--hero-a1,0px) auto var(--hero-a2,0px) auto auto}
-  .lp6.story .hero > .h1{grid-row:1}.lp6.story .hero > .sub{grid-row:3}.lp6.story .hero > .cta-row{grid-row:5}.lp6.story .hero > .trial{grid-row:6}
+     line of the top crop marks). Hero-group round (23 Oct): the subline, the button row and the trial line are one block with their own
+     margins; one spacer row above the subline (--hero-a1, sized by layout(): heroFit.js) puts the block's last baseline on the roster
+     card's bottom edge, 40 px – 2 × the section gap under the headline */
+  .lp6.story .hero{grid-template-rows:auto var(--hero-a1,0px) auto auto auto}
+  .lp6.story .hero > .h1{grid-row:1}.lp6.story .hero > .sub{grid-row:3}.lp6.story .hero > .cta-row{grid-row:4}.lp6.story .hero > .trial{grid-row:5}
 }
 @media (min-width:1024px) and (min-aspect-ratio:5/4) and (max-height:860px){.lp6.story .ix a{padding:7px 0}.lp6.story .copy.sc{margin-top:28px}.lp6.story .copy .aside{margin-top:16px}.lp6.story .story-nav{margin-top:14px}.lp6.story .frame{padding-top:calc(var(--hh) + 28px);padding-bottom:28px}}
 @media (min-width:1024px) and (min-aspect-ratio:5/4) and (max-height:800px){.lp6.story .copy .aside{font-size:16px}}

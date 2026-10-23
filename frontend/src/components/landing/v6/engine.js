@@ -597,16 +597,19 @@ export function mountLanding(root, opts) {
       G.roomIn = clamp(0.1, N0 + (N1 - N0) * pTouch, 0.36); G.doors = G.roomIn + 0.14; GEO.flipY = roomTopVp;
       if (desk) {
         /* first-screen round (23 Oct): the hero hangs from the plate's top edge (the headline's cap height on the line of the top crop
-           marks) and shares the column's air under it in three equal bands (heroFit.js), measured with no extra air; the roster waits
-           in the plate, centred. Without a layout (no measures) the hero's top is the plate's top edge, no air */
-        setV(hero, { "--hero-a1": "0px", "--hero-a2": "0px" });
+           marks). Hero-group round (23 Oct): the subline, the button row and the trial line are one block with their own margins, its
+           last baseline on the bottom edge of the roster card as placed above (box(): with any scale), clamped 40 px – 2 × the section
+           gap under the headline and never under the bottom crop marks (heroFit.js); measured with no extra air. Without a layout (no
+           measures) the hero's top is the plate's top edge, no air */
+        setV(hero, { "--hero-a1": "0px" });
         const hp = parseFloat(getComputedStyle(hero).paddingTop) || 0, hq = (s) => hero.querySelector(s), part = (el) => {
           if (!el) return null;
           const c = getComputedStyle(el), fs = parseFloat(c.fontSize), lh = parseFloat(c.lineHeight);
           return { top: el.offsetTop - hp, h: el.offsetHeight, fs, lh: Number.isFinite(lh) ? lh : fs * 1.2 };
         };
-        const hf = heroFit({ plateTop: OY, screenBottom: svh, h1: part(hq(".h1")), sub: part(hq(".sub")), cta: part(hq(".cta-row")), trial: part(hq(".trial")) });
-        setV(hero, hf ? { "--hero-top": Math.round(hf.top) + "px", "--hero-a1": Math.round(hf.a1) + "px", "--hero-a2": Math.round(hf.a2) + "px" } : { "--hero-top": Math.round(OY) + "px" });
+        const card = roster.querySelector(".ro"), cardBottom = card ? OY + at(box(roster), 0, relTop(card, roster) + card.offsetHeight)[1] : NaN;
+        const hf = heroFit({ plateTop: OY, plateBottom: OY + P, cardBottom, maxGap: 2 * parseFloat(getComputedStyle(R).getPropertyValue("--sec")), h1: part(hq(".h1")), sub: part(hq(".sub")), trial: part(hq(".trial")) });
+        setV(hero, hf ? { "--hero-top": Math.round(hf.top) + "px", "--hero-a1": Math.round(hf.a1) + "px" } : { "--hero-top": Math.round(OY) + "px" });
       } else {
         /* before it pins, the stage label starts just under the hero (phone 24 px, tablet one section gap) */
         hero.style.setProperty("--hero-pull", Math.round(-(padT + tTop) + pull));
