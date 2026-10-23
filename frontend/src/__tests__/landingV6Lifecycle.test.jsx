@@ -20,6 +20,9 @@
  *       (data-bb-consent-clear), never over its "Prøv gratis"; on the wide layouts it floats bottom-right (fix round);
  *   (g) "← Forrige": hidden at 1 / 7, shown from 2 / 7 to 7 / 7 on both steppers (the frame's and the bottom bar's),
  *       walked 1 → 7 → 1 with real clicks.
+ *   (i) Simulator round (iOS Safari, 23 Oct): after a DK / EN switch the first tap on the bottom bar acts ("Prøv gratis",
+ *       "Næste", "←"); a switch that was tapped (iOS Safari never focuses a tapped button) leaves no focus behind, one that
+ *       had the focus gets it back; the re-keyed page's engine settles its first layout (engine.js note 22), a first load not.
  * Hardening round (23 Oct): window.__lp6 exists only in a dev build or with ?lp6debug in the address (engine.js note 9);
  * this file runs as a production build (import.meta.env.DEV stubbed false) and opts in through the address.
  * jsdom has no layout, so the geometry is the engine's own fall-backs; the maths is held to the prototype in a real
@@ -36,6 +39,7 @@ import { da } from "../i18n/da.js";
 import { en } from "../i18n/en.js";
 import { tr } from "../i18n/tr.js";
 import { primeLocales } from "../lib/localeStore";
+import { NAVF, beatU } from "../components/landing/v6/nav";
 
 // the real engine, counted: every mount, every destroy, the DOM each mount started from and each destroy left
 const eng = vi.hoisted(() => ({ mounts: [], destroys: [] }));
@@ -44,7 +48,7 @@ vi.mock("../components/landing/v6/engine", async (importOriginal) => {
   return {
     ...actual,
     mountLanding: (root, opts) => {
-      eng.mounts.push({ root, html: root.outerHTML });
+      eng.mounts.push({ root, html: root.outerHTML, opts });
       const destroy = actual.mountLanding(root, opts);
       return () => { destroy(); eng.destroys.push({ root, html: root.outerHTML }); };
     },
@@ -539,5 +543,86 @@ describe("(h) tab titles: the landing's own headline, the app's default title ev
     render(routes("/dashboard"));
     await flush();
     expect(document.title).toBe("Book bord · Bistro");
+  });
+});
+
+/* ───────────────────────────── (i) ───────────────────────────── */
+describe("(i) after a DK / EN switch the first tap on the bottom bar acts", () => {
+  const FRAME = 32;
+  /** The page y of a scene's resting point, from the engine's own geometry (window.__lp6, opted in with ?lp6debug). */
+  const sceneY = (go) => { const g = window.__lp6.geo(); return Math.max(0, Math.round(g.pin + (beatU({ SEG: g.SEG, ACC: g.ACC }, go, NAVF[go]) * g.svh) / 100)); };
+  const scrolled = () => act(() => { window.dispatchEvent(new Event("scroll")); vi.advanceTimersByTime(FRAME); });
+  /** The Danish page at 4 / 7, then a TAP on the top bar's switch: in iOS Safari a tapped button never takes the focus, so
+   *  nothing on the page has it (document.body) as the click runs. */
+  async function switchedAt4(e) {
+    // no layout in jsdom, but a consistent page: every box sits at the document's top and moves up as the page scrolls (as in
+    // a browser), so the re-keyed engine measures the same stage, not one that starts where the reader is
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(() => ({ x: 0, y: -window.scrollY, top: -window.scrollY, bottom: -window.scrollY, left: 0, right: 0, width: 0, height: 0 }));
+    const r = render(page());
+    await flush();
+    act(() => { vi.advanceTimersByTime(1000); });
+    e.setY(sceneY("S")); await scrolled();
+    expect(lp6().querySelector("#dcount").textContent).toBe("4 / 7");
+    const sw = lp6().querySelector(".top .lang button[lang='en']");
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.click(sw);
+    await flush();
+    expect(lp6().getAttribute("lang")).toBe("en");
+    act(() => { vi.advanceTimersByTime(1000); });
+    await scrolled();
+    expect(lp6().querySelector("#dcount").textContent).toBe("4 / 7"); // the engine kept the place
+    return r;
+  }
+
+  it("a tapped switch leaves no focus behind (as on a page that was never switched); the bar's \"Try free\" goes to /register on the first tap", async () => {
+    const e = setup();
+    const { getByTestId } = await switchedAt4(e);
+    expect(document.activeElement).toBe(document.body);
+    const cta = lp6().querySelector("#dock a[href='/register']");
+    expect(cta.textContent).toBe(en["landingV6.cta"]);
+    fireEvent.click(cta);
+    await flush();
+    expect(getByTestId("register-page")).toBeTruthy();
+  });
+
+  it("\"Next\" acts on the first tap: 4 / 7 → 5 / 7", async () => {
+    const e = setup();
+    await switchedAt4(e);
+    window.scrollTo.mockClear();
+    fireEvent.click(lp6().querySelector("#dnext"));
+    expect(window.scrollTo.mock.calls).toEqual([[{ top: sceneY("2b"), behavior: "instant" }]]);
+    await scrolled();
+    expect(lp6().querySelector("#dcount").textContent).toBe("5 / 7");
+  });
+
+  it("\"←\" acts on the first tap: 4 / 7 → 3 / 7", async () => {
+    const e = setup();
+    await switchedAt4(e);
+    window.scrollTo.mockClear();
+    fireEvent.click(lp6().querySelector("#dprev"));
+    expect(window.scrollTo.mock.calls).toEqual([[{ top: sceneY("1b"), behavior: "instant" }]]);
+    await scrolled();
+    expect(lp6().querySelector("#dcount").textContent).toBe("3 / 7");
+  });
+
+  it("a switch that had the focus (keyboard, assistive tech, a browser that focuses a clicked button) gets it back; the footer's too", async () => {
+    for (const where of [".top", ".foot"]) {
+      localStorage.setItem("lang", "da");
+      setup();
+      const { unmount } = render(page());
+      await flush();
+      const sw = lp6().querySelector(`${where} .lang button[lang='en']`);
+      sw.focus();
+      fireEvent.click(sw);
+      await flush();
+      expect([where, document.activeElement]).toEqual([where, lp6().querySelector(`${where} .lang button[lang='da']`)]);
+      unmount(); teardown();
+    }
+  });
+
+  it("the re-keyed page's engine settles its first layout (nothing replays); a first load keeps its entrance", async () => {
+    const e = setup();
+    await switchedAt4(e);
+    expect(eng.mounts.map((m) => !!(m.opts && m.opts.settle))).toEqual([false, true]);
   });
 });

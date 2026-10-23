@@ -31,7 +31,13 @@
  * Hardening round (23 Oct): an arrival on a scene's address (a cold load of /#s1, /#s2 or /#s6, or Back to one) opens the
  * page on that scene. The fragment is read once, when the page mounts, and only as one of nav.js SCENE_HASH's three exact
  * strings (anything else is ignored); the engine jumps there after its first layout (engine.js note 19). A language switch
- * carries the reader's place instead, so a re-keyed page is never sent back to the arrival scene. */
+ * carries the reader's place instead, so a re-keyed page is never sent back to the arrival scene.
+ *
+ * Simulator round (iOS Safari, 23 Oct): the scene's address reached while the page is already on screen (no reload) steps to that
+ * scene too (engine.js note 21). After a language switch the switch gets the focus back only when it had the focus when it
+ * was used (keyboard, assistive tech, a browser that focuses a clicked button); a tap in iOS Safari never focuses a button, so
+ * the re-keyed page is left as unfocused as one that was never switched (place.js). The re-keyed page's first layout is
+ * settled before transitions come back, so nothing on it (the bottom bar included) animates in again (engine.js note 22). */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLanguage } from "../hooks/useLanguage";
 import { reportClientError } from "../utils/reportClientError";
@@ -101,8 +107,9 @@ function LandingV6({ t, lang, isAndroid, onLang, carryRef, arrive }) {
   useLayoutEffect(() => {
     const place = carryRef.current;
     const carried = !!place && place.to === lang;
-    // a language switch keeps the reader's place; only a page that carries none may open on the arrival scene
-    const destroy = mountLanding(ref.current, { onError: engineFailed, arrive: carried ? null : arrive });
+    // a language switch keeps the reader's place (and settles its first layout: nothing animates in again, engine.js note 22);
+    // only a page that carries none may open on the arrival scene
+    const destroy = mountLanding(ref.current, { onError: engineFailed, arrive: carried ? null : arrive, settle: carried });
     if (carried) { carryRef.current = null; putPlaceBack(ref.current, place); }
     return destroy;
   }, [carryRef, lang, arrive]);

@@ -11,7 +11,12 @@
  *       (the other scene ids, #pricing, near misses, encodings, hostile text) opens at the top; the stacked page leaves
  *       it to the browser; StrictMode jumps once; a language switch never sends the reader back to the arrival scene;
  *   (d) App.jsx's ScrollManager leaves a fragment inside the pinned day (data-bb-own-anchors, written by the engine) to
- *       the engine and scrolls every other one as before (#pricing on the landing, the stacked page's scenes, any page).
+ *       the engine and scrolls every other one as before (#pricing on the landing, the stacked page's scenes, any page);
+ *   (e) Simulator round (iOS Safari, 23 Oct; engine.js note 21): the scene's address reached while the page is already on
+ *       screen (typed into the bar, a plain link, another app, Back / Forward: the fragment changes, no reload, the browser
+ *       fires its history-traversal and fragment-change events) steps to that scene from the top, from 7 / 7 and from the
+ *       prices; the two events of one change are one jump; the step queue carries on from it; every other fragment is
+ *       ignored; the engine's own address write fires neither event; both listeners leave with the page.
  * jsdom has no layout: the geometry is the engine's own fall-backs (pin 0, svh = the window's height; every box at the
  * document's top), the same ones the expected scroll positions are computed from (window.__lp6.geo(), opted in with
  * ?lp6debug). The positions themselves are checked in a real browser (release notes).
@@ -312,5 +317,185 @@ describe("(d) ScrollManager: the pinned day's anchors are the engine's; every ot
     wait(1000);
     expect(e.scrollIntoView).toHaveBeenCalledTimes(1);
     expect(e.scrollIntoView.mock.contexts[0]).toBe(lp6().querySelector("#s2"));
+  });
+});
+
+/* ───────────────────────────── (e) ───────────────────────────── */
+/** A same-document fragment navigation as the browser makes it: the address changes (a new entry), then the history-traversal
+ *  event and the fragment-change event (in that order, unless told otherwise; the second can come a task later). */
+const navigate = (hash, order = ["popstate", "hashchange"]) => act(() => {
+  const oldURL = window.location.href;
+  window.history.pushState(null, "", window.location.pathname + window.location.search + hash);
+  for (const t of order) window.dispatchEvent(t === "popstate" ? new PopStateEvent("popstate", { state: null }) : new HashChangeEvent("hashchange", { oldURL, newURL: window.location.href }));
+});
+/** The window's listeners for the two address events, live (added and not yet removed), whoever added them. */
+function addressListeners() {
+  const live = { hashchange: new Set(), popstate: new Set() }; // type → the (listener, capture) pairs still attached
+  const keyOf = (fn, o) => [fn, typeof o === "boolean" ? o : !!(o && o.capture)];
+  const find = (set, k) => [...set].find((x) => x[0] === k[0] && x[1] === k[1]);
+  const add = window.addEventListener, rem = window.removeEventListener;
+  vi.spyOn(window, "addEventListener").mockImplementation(function (type, fn, o) {
+    if (live[type] && !find(live[type], keyOf(fn, o))) live[type].add(keyOf(fn, o));
+    return add.call(this, type, fn, o);
+  });
+  vi.spyOn(window, "removeEventListener").mockImplementation(function (type, fn, o) {
+    if (live[type]) { const k = find(live[type], keyOf(fn, o)); if (k) live[type].delete(k); }
+    return rem.call(this, type, fn, o);
+  });
+  return { count: () => live.hashchange.size + live.popstate.size, types: () => [...live.hashchange].map(() => "hashchange").concat([...live.popstate].map(() => "popstate")) };
+}
+
+describe("(e) the scene's address reached while the page is already on screen (no reload)", () => {
+  const FROM = [
+    ["the top", () => 0, 1],
+    ["7 / 7", () => sceneY("3b"), 7],
+    ["the prices (past the day)", () => 50000, 7],
+  ];
+  for (const [where, y0, scn0] of FROM) {
+    for (const [go, hash] of [["2a", "#s2"], ["3a", "#s6"]]) {
+      it(`from ${where}: ${hash} steps to scene ${SCN[go]} at its resting point, one instant jump, the address left as it is`, async () => {
+        const e = setup(SIZES.phone, "/?lp6debug");
+        render(page("/"));
+        await flush();
+        wait(1000);
+        e.setY(y0()); await scrolled();
+        expect([where, window.__lp6.scn()]).toEqual([where, scn0]);
+        e.scrollTo.mockClear();
+        const repl = vi.spyOn(window.history, "replaceState");
+        navigate(hash);
+        wait(FRAME);
+        expect(e.scrollTo.mock.calls).toEqual([[{ top: sceneY(go), behavior: "instant" }]]);
+        await scrolled();
+        expect(window.__lp6.scn()).toBe(SCN[go]);
+        expect(lp6().querySelector("#count").textContent).toBe(`${SCN[go]} / 7`);
+        expect(window.location.hash).toBe(hash);
+        expect(repl).not.toHaveBeenCalled();
+        // it stays: the jump's checks and a late re-layout keep the scene
+        wait(1500);
+        window.dispatchEvent(new Event("resize")); wait(500);
+        await scrolled();
+        expect(window.__lp6.scn()).toBe(SCN[go]);
+      });
+    }
+  }
+
+  it("desktop and tablet: #s1, #s2, #s6 from the top each land on their scene", async () => {
+    for (const size of ["tablet", "desktop"]) {
+      for (const [go, hash] of Object.entries(SCENE_HASH)) {
+        const e = setup(SIZES[size], "/?lp6debug");
+        const { unmount } = render(page("/"));
+        await flush();
+        wait(1000);
+        e.scrollTo.mockClear();
+        navigate(hash);
+        wait(FRAME);
+        expect([size, hash, e.scrollTo.mock.calls]).toEqual([size, hash, [[{ top: sceneY(go), behavior: "instant" }]]]);
+        await scrolled();
+        expect([size, hash, window.__lp6.scn()]).toEqual([size, hash, SCN[go]]);
+        unmount();
+        vi.useRealTimers();
+        window.history.replaceState(null, "", "/");
+      }
+    }
+  });
+
+  it("the two events of one change are one jump, whichever comes first and when the second comes a frame later", async () => {
+    for (const order of [["popstate", "hashchange"], ["hashchange", "popstate"], ["popstate"], ["hashchange"]]) {
+      const e = setup(SIZES.phone, "/?lp6debug");
+      const { unmount } = render(page("/"));
+      await flush();
+      wait(1000);
+      e.scrollTo.mockClear();
+      navigate("#s6", order.slice(0, 1));
+      wait(FRAME);
+      if (order[1]) { act(() => { window.dispatchEvent(order[1] === "popstate" ? new PopStateEvent("popstate") : new HashChangeEvent("hashchange")); }); wait(FRAME); }
+      expect([order.join(" + "), e.scrollTo.mock.calls]).toEqual([order.join(" + "), [[{ top: sceneY("3a"), behavior: "instant" }]]]);
+      unmount();
+      vi.useRealTimers();
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
+  it("the step queue carries on from it: Næste right after #s2 goes to scene 3; Back to #s2 after #s6 steps back to 2", async () => {
+    const e = setup(SIZES.phone, "/?lp6debug");
+    render(page("/"));
+    await flush();
+    wait(1000);
+    navigate("#s2"); wait(FRAME);
+    // a tap within the queue's 600 ms steps on from the jump's scene, not from where the page happens to be (here: the
+    // page has not reported its new place yet, as on iOS while it applies the jump)
+    e.setY(0);
+    e.scrollTo.mockClear();
+    fireEvent.click(lp6().querySelector("#dnext"));
+    expect(e.scrollTo.mock.calls).toEqual([[{ top: sceneY("1b"), behavior: "instant" }]]);
+    wait(1000);
+    navigate("#s6"); wait(FRAME); await scrolled();
+    expect(window.__lp6.scn()).toBe(6);
+    // Back: the browser makes the earlier entry current and fires the two events
+    act(() => { window.history.replaceState(null, "", "/?lp6debug#s2"); window.dispatchEvent(new PopStateEvent("popstate")); window.dispatchEvent(new HashChangeEvent("hashchange")); });
+    wait(FRAME); await scrolled();
+    expect(window.__lp6.scn()).toBe(2);
+  });
+
+  it(`every other fragment is ignored, from the top and from 7 / 7: ${["#", "#s3", "#s4", "#S2", "#s2x", "#s22", "#%73%32", "#s2%20", "#1a", "#2a", "#pricing", "#faq", "#foot", "#main", "#constructor", "#__proto__", "#<img src=x onerror=alert(1)>", "#javascript:alert(1)", "#//evil.example"].length} of them`, async () => {
+    const OTHER = ["#", "#s3", "#s4", "#S2", "#s2x", "#s22", "#%73%32", "#s2%20", "#1a", "#2a", "#pricing", "#faq", "#foot", "#main", "#constructor", "#__proto__", "#<img src=x onerror=alert(1)>", "#javascript:alert(1)", "#//evil.example"];
+    const e = setup(SIZES.phone, "/?lp6debug");
+    render(page("/"));
+    await flush();
+    wait(1000);
+    for (const y of [0, sceneY("3b")]) {
+      e.setY(y); await scrolled();
+      for (const hash of OTHER) {
+        e.scrollTo.mockClear();
+        navigate(hash);
+        wait(FRAME);
+        expect([y, hash, e.scrollTo.mock.calls]).toEqual([y, hash, []]);
+        expect([y, hash, e.getY()]).toEqual([y, hash, y]);
+      }
+    }
+  });
+
+  it("the engine's own address write (a headline word, an index link) fires neither event: one jump per click", async () => {
+    const e = setup(SIZES.phone, "/?lp6debug");
+    render(page("/"));
+    await flush();
+    wait(1000);
+    const seen = [];
+    const note = (ev) => seen.push(ev.type);
+    window.addEventListener("hashchange", note); window.addEventListener("popstate", note);
+    try {
+      for (const el of [links("2a")[0], links("3a")[1], links("1a")[0]]) {
+        e.scrollTo.mockClear();
+        click(el);
+        wait(400);
+        expect([el.dataset.go, e.scrollTo.mock.calls.length, window.location.hash]).toEqual([el.dataset.go, 1, SCENE_HASH[el.dataset.go]]);
+      }
+      expect(seen).toEqual([]);
+    } finally { window.removeEventListener("hashchange", note); window.removeEventListener("popstate", note); }
+  });
+
+  it("the stacked page (short phone) leaves a fragment change to the browser: no engine jump, no listener", async () => {
+    const L = addressListeners();
+    const e = setup(SIZES.stacked, "/?lp6debug");
+    render(page("/"));
+    await flush();
+    expect(lp6().classList.contains("story")).toBe(false);
+    expect(L.count()).toBe(0);
+    navigate("#s2"); wait(FRAME);
+    expect(e.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("both listeners are the engine's (in its ledger): one of each while the page is on screen, still one after DK → EN, none after unmount", async () => {
+    const L = addressListeners();
+    setup(SIZES.phone, "/?lp6debug");
+    const { unmount } = render(page("/"));
+    await flush();
+    expect(L.types()).toEqual(["hashchange", "popstate"]);
+    fireEvent.click(lp6().querySelector(".top .lang button[lang='en']"));
+    await flush();
+    expect(lp6().getAttribute("lang")).toBe("en");
+    expect(L.types()).toEqual(["hashchange", "popstate"]);
+    unmount();
+    expect(L.count()).toBe(0);
   });
 });

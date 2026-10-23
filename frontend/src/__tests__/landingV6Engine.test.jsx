@@ -11,6 +11,9 @@
  *   - theme-color is written through setThemeColor, compared with the live <meta>, and put back on destroy;
  *   - the stepper's 250 ms tap merge and the one-time re-assert of a jump iOS snapped back;
  *   - a mount that fails half-way leaves the static page and reports;
+ *   - (Simulator round, 23 Oct; note 22) a mount that carries the reader's place (opts.settle: a language re-key) resolves
+ *     its first layout's classes (the bar on …) with a layout read while .lp6-boot still holds every transition off, so taking
+ *     it off changes nothing and starts nothing; a first load (no settle) keeps its entrance;
  *   - (hardening round, 23 Oct) the debug hooks: window.__lp6 and the window.__perf tick timer exist only in a dev build or
  *     with ?lp6debug in the address. This file runs as a production build does (import.meta.env.DEV stubbed false) and opts
  *     in with ?lp6debug, so every __lp6 read below also proves the opt-in; the debug-hook block turns each switch on and off.
@@ -459,6 +462,29 @@ describe("engine.js — the debug hooks (hardening round): window.__lp6 and wind
       if (perf && typeof perf.push === "function") expect(perf.push).not.toHaveBeenCalled();
       expect(window.__perf).toBe(perf);
       d();
+    }
+  });
+});
+
+describe("note 22: a re-mount that carries the reader's place settles its first layout before transitions come back", () => {
+  it("settle: the bar turned on in the first layout is resolved by a layout read while .lp6-boot is on, then the class comes off; a first load: no read in between", () => {
+    for (const settle of [true, false]) {
+      const e = setup();
+      e.root.classList.add("lp6-boot"); // as React renders the root
+      // mid-day, the bar up: every box moves up with the page, the footer far below
+      e.setY(1800);
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function () { const t = (this.id === "foot" ? 50000 : 0) - window.scrollY; return { x: 0, y: t, top: t, bottom: t, left: 0, right: 0, width: 0, height: 0 }; });
+      const seq = [];
+      const dockCl = e.root.querySelector("#dock").classList, rootCl = e.root.classList;
+      const oh = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function () { if (this === e.root) seq.push("layout read"); return oh.get.call(this); });
+      const tog = DOMTokenList.prototype.toggle, rem = DOMTokenList.prototype.remove;
+      vi.spyOn(DOMTokenList.prototype, "toggle").mockImplementation(function (t, f) { const r = tog.call(this, t, f); if (this === dockCl && t === "on") seq.push(`bar on=${r}`); return r; });
+      vi.spyOn(DOMTokenList.prototype, "remove").mockImplementation(function (...t) { if (this === rootCl && t.includes("lp6-boot")) seq.push("boot off"); return rem.apply(this, t); });
+      const destroy = mountLanding(e.root, { settle });
+      // the bar went up in the first layout; with settle a layout read follows it, and only then do transitions come back
+      expect([settle, seq]).toEqual([settle, settle ? ["bar on=true", "layout read", "boot off"] : ["bar on=true", "boot off"]]);
+      destroy();
     }
   });
 });

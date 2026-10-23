@@ -56,9 +56,22 @@
  *      its first visit) opens the page on that scene after the first layout, while the reader is still at the top.
  *  20. Hardening round: in the pinned day the frame carries data-bb-own-anchors: the app's ScrollManager (App.jsx) leaves an
  *      address fragment that points inside it to this engine (its scene articles sit in a sticky frame, where the browser's
- *      own scroll-to-element lands nowhere useful); on the stacked page the browser's scroll is the right one. */
+ *      own scroll-to-element lands nowhere useful); on the stacked page the browser's scroll is the right one.
+ *  21. Simulator round (iOS Safari, 23 Oct): a scene's address reached inside the page already on screen (typed into the
+ *      bar, a plain link to /#s2, another app opening it in this tab, Back / Forward between such entries) changes only the
+ *      fragment, with no reload. The browser's fragment-change and history-traversal events both report it; the engine reads
+ *      the fragment then, after the browser's own scroll (on the next frame, so the pair is one jump), and when it is exactly
+ *      one of nav.js SCENE_HASH's three strings it steps there as the index links do (instant jump, step queue). Anything
+ *      else (#pricing, #faq, #foot …) is left to the browser and ScrollManager, as before. The engine's own address write
+ *      (18) fires neither event. Both listeners are in the ledger.
+ *  22. Simulator round: a mount that carries the reader's place (a language switch re-keys the page mid-way) settles its
+ *      first layout while transitions are still off, so taking .lp6-boot off starts no transition on the re-keyed page.
+ *      Without it, whatever the first layout changed after the engine's last layout read was left to the next style pass,
+ *      the one that turns transitions back on: which of those changes then animate depends on the browser (Chromium,
+ *      measured: the top bar's hairline faded in again; per the CSS, the bottom bar could slide up again from below and its
+ *      stepper fade in, as the bar did on first showing). A first load keeps its entrance (14). */
 import { FLOOR } from "./floor.js";
-import { NSC, SCN, NAV, NAVF, SCENE_HASH, buildTrack, seg as segAt, beatU, scnOf as scnAt, curScn as curScnAt, createStepper, goNext as nextJump, goPrev as prevJump, jumpCheck } from "./nav.js";
+import { NSC, SCN, NAV, NAVF, SCENE_HASH, sceneOfHash, buildTrack, seg as segAt, beatU, scnOf as scnAt, curScn as curScnAt, createStepper, goNext as nextJump, goPrev as prevJump, jumpCheck } from "./nav.js";
 import { clearanceMisses, repairMiss, NOFIX } from "./guard.js";
 
 /** The two grounds' browser-bar colours (the app writes theme-color in lower case). */
@@ -738,9 +751,11 @@ export function mountLanding(root, opts) {
         jumpTo(p.y);
       }
     }
+    /* the page y a step lands on (inside the document) */
+    const stepY = (y) => Math.max(0, Math.min(Math.round(y), document.documentElement.scrollHeight - window.innerHeight));
     /* v6.3 step queue (nav.js): three quick taps are three steps, a tap during a scroll never steps from a scene in between */
     function stepTo(k, y) {
-      y = Math.max(0, Math.min(Math.round(y), document.documentElement.scrollHeight - window.innerHeight));
+      y = stepY(y);
       const q = ST.to(k, y, now()); goTo(y); if (Math.abs(window.scrollY - y) < 2) q.hit = true;
     }
     const jumpCtx = { cur: curScn, beatY, endY: () => pin + trackH - svh - G.hh };
@@ -756,15 +771,34 @@ export function mountLanding(root, opts) {
       try { window.history.replaceState(window.history.state, "", h); } catch { /* a sandboxed frame: the address stays */ }
     }
     const goLinks = [...root.querySelectorAll("[data-go]")];
+    /* 19, 21. a scene an address may name: one of SCENE_HASH's three, whose [data-go] link (with that very href) this page has */
+    const linked = (go) => !!go && own(SCENE_HASH, go) && goLinks.some((a) => a.dataset.go === go && a.getAttribute("href") === SCENE_HASH[go]);
+    /* the scene's resting point, the same jump the index links make (instant, into the step queue) */
+    const goScene = (go) => stepTo(SCN[go], beatY(go, NAVF[go]));
     goLinks.forEach((a) => on(a, "click", (ev) => {
       /* 18. a new tab, a new window, a download: the browser's own */
       if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
       ev.preventDefault();
       if (!ST.tap(now())) return;
       const go = a.dataset.go;
-      stepTo(SCN[go], beatY(go, NAVF[go]));
+      goScene(go);
       nameScene(go);
     }));
+    /* 21. the fragment changed inside this page: read it on the next frame, after the browser's own scroll; a scene's own
+       address steps there from wherever the page is, anything else is not ours. The two events of one change are one jump:
+       the second finds the page at that scene's resting point already (a browser that scrolled to the fragment after the
+       first one finds it moved, and is put back) */
+    let addrQ = null;
+    function addressChanged() {
+      if (addrQ != null) return;
+      addrQ = frame(() => {
+        addrQ = null;
+        let go = null;
+        try { go = sceneOfHash(window.location.hash); } catch { go = null; }
+        if (linked(go) && Math.abs(window.scrollY - stepY(beatY(go, NAVF[go]))) >= 2) goScene(go);
+      });
+    }
+    on(window, "hashchange", addressChanged); on(window, "popstate", addressChanged);
     if (DEBUG) {
       handle.current = Object.freeze({
         geo: () => ({ SEG, ACC, TOT, pin, svh, trackH, desk, wide, hh: G.hh, AI, roomIn: G.roomIn, doors: G.doors, N0, N1, FLY, TV2, NAV, tallV: GEO.tallV, k7: GEO.k7 }),
@@ -791,12 +825,15 @@ export function mountLanding(root, opts) {
     ["(max-height:720px)", "(min-height:780px)", "(min-height:800px)", "(min-height:900px)", "(min-height:1000px)", "(max-height:800px)", "(max-height:860px)", DQ, TALLQ].forEach((q) => mqOn(q, relay));
     on(window, "load", layout); on(window, "pageshow", () => { S.u = null; tick(); });
     layout();
+    /* 22. a re-mount that keeps the reader's place: the first layout's classes (the bar on, its stepper, the scene's picture)
+       are resolved now, while every transition is still off, so taking .lp6-boot off below changes no value and starts nothing */
+    if (opts.settle) void R.offsetHeight;
     /* 14. the first layout is done: transitions back on (before the first paint) */
     R.classList.remove("lp6-boot");
     /* 19. an arrival on a scene's address opens on that scene: a scene nav.js SCENE_HASH names, whose [data-go] link this page
        has, while the page is still at the top (a StrictMode re-mount, or a page the browser has already scrolled, keeps its place) */
     const arrive = opts.arrive;
-    if (arrive && own(SCENE_HASH, arrive) && goLinks.some((a) => a.dataset.go === arrive && a.getAttribute("href") === SCENE_HASH[arrive]) && window.scrollY < 2) stepTo(SCN[arrive], beatY(arrive, NAVF[arrive]));
+    if (linked(arrive) && window.scrollY < 2) goScene(arrive);
     /* 15. a face the first layout asked for: lay out again once it is in (not when every face was already loaded) */
     if (document.fonts && document.fonts.ready && document.fonts.status !== "loaded") document.fonts.ready.then(() => { if (alive) layout(); });
     /* v6.2: WebKit can resolve fonts.ready before lazily used data: faces have loaded. Ask for the stage's Inter faces by name (300 the clock,

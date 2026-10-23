@@ -631,7 +631,7 @@ describe("(f) no analytics or usage request before consent", () => {
 /* ───────────────────────────── (g) ───────────────────────────── */
 /* Hardening round (23 Oct): the address (query and fragment) never steers the page somewhere else, never reaches storage,
  * and the landing takes no cross-window messages. Source: the landing's own code (TREE, raw, comments included) has no
- * navigation sink, no message listener and no storage at all; its three reads of the address are pinned line by line; its
+ * navigation sink, no message listener and no storage at all; its reads of the address are pinned line by line; its
  * one replaceState writes only nav.js SCENE_HASH's strings. Rendered: a visit on hostile addresses, every link that moves
  * the page clicked, both language switches, the banner answered — then no pushState, no window.open, every replaceState
  * one of the three scene fragments with the router's state kept, the query untouched, no "message" listener, no storage
@@ -666,6 +666,9 @@ const ADDRESS_READS = [
   ["pages/LandingV6Page.jsx", "try { return sceneOfHash(window.location.hash); } catch { return null; }"],
   [`${V6}/engine.js`, 'try { return new URLSearchParams(window.location.search).has("lp6debug"); } catch { return false; }'],
   [`${V6}/engine.js`, "if (!h || window.location.hash === h) return;"],
+  // Simulator round (23 Oct, engine.js note 21): the fragment again when it changes inside the page, through the same allow-list
+  [`${V6}/engine.js`, "try { go = sceneOfHash(window.location.hash); } catch { go = null; }"],
+  [`${V6}/engine.js`, 'on(window, "hashchange", addressChanged); on(window, "popstate", addressChanged);'],
 ];
 const SCENE_URLS = ["#s1", "#s2", "#s6"];
 const scanTree = (sinks) => {
@@ -687,7 +690,7 @@ describe("(g) the address never steers the page elsewhere, never reaches storage
     expect(scanTree(STORAGE_SINKS)).toEqual([]);
   });
 
-  it("source: the landing reads the address in exactly three places — a scene fragment, a debug switch, a compare", () => {
+  it("source: the landing reads the address in exactly these places — a scene fragment (on arrival and when it changes), a debug switch, a compare", () => {
     const reads = [];
     for (const f of TREE) read(f).split("\n").forEach((line) => { if (ADDRESS_READ.test(line)) reads.push([f, line.trim()]); });
     expect(reads).toEqual(ADDRESS_READS);
