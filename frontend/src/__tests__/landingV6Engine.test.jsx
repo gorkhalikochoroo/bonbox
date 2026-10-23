@@ -42,7 +42,7 @@ function fixture() {
 <div class="clock" id="clock" aria-hidden="true">${dg(1)}${dg(0)}<span class="dot sx f1">.</span>${dg(0)}${dg(0)}</div>
 <div class="scene" id="scene"></div><div class="plate" id="plate"><i class="cm c1"></i><span class="demo pcap sx f3">demo</span></div><i class="zbl" id="zbline"></i>
 <div class="copy sc" id="c1"><h3 class="label sx f3">l</h3><p class="line"><span class="s s1 sx">s1</span> <span class="s s2 sx">s2</span></p><div class="asides"><p class="aside" data-b="h 1a 1b A"><a class="tlink sx f1" href="https://apps.apple.com/dk/app/x/id1">app</a></p></div></div>
-<div class="copy sc" id="c2"><h3 class="label sx f3">l</h3><p class="line"><span class="s s1 sx">s1</span></p><div class="asides"><p class="aside note sx f2" data-b="2a A2">n</p><p class="aside note sx f2" data-b="S">n</p><p class="aside note sx f2" data-b="B2">n</p><p class="aside note sx f2" data-b="2b C">n</p></div></div>
+<div class="copy sc" id="c2"><h3 class="label sx f3">l</h3><p class="line"><span class="s s1 sx">s1</span></p><div class="asides"><p class="aside note sx f2" data-b="2a">n</p><p class="aside note sx f2" data-b="S">n</p><p class="aside note sx f2" data-b="B2">n</p><p class="aside note sx f2" data-b="2b C">n</p></div></div>
 <div class="copy sc" id="c3"><h3 class="label sx f3">l</h3><p class="line"><span class="s s1 sx">s1</span></p><div class="asides"><p class="aside note sx f2" data-b="3a">n</p><p class="aside note sx f2" data-b="3b end">n</p></div></div>
 <article class="ch" id="s1">${fig("roster", "roster on", '<div class="ro">r</div>')}${fig("uge", "card uge dk-only")}</article>
 <article class="ch" id="s2">${fig("booking", "card booking ph-only", '<span class="scr"><img alt=""></span>')}${fig("bookw", "card bookw wd-only")}</article>
@@ -583,6 +583,16 @@ describe("polish round, item 1: 19.45 opens on the room — the 12.30 booking ne
         };
         expect(state).toEqual({ f, beat: "S", count: "4 / 7", frameCount: "4 / 7", cards: [[], []], room: ["on", "v2"], st: null, v2: ["seat", true], asides: ["S"] });
       }
+      // the way into 19.45 (the room drawing in, chapter 2 already up) shows no aside: the 12.30 booking-link line does not repeat
+      let c2up = 0;
+      for (let f = 0.02; f < 1; f += 0.04) {
+        scrollAt(e, at(e, "A", f));
+        vi.advanceTimersByTime(700);
+        if (!$("#c2").classList.contains("on")) continue;
+        c2up++;
+        expect([f, [...e.root.querySelectorAll("#c2 .aside.on")].map((a) => a.dataset.b)]).toEqual([f, []]);
+      }
+      expect(c2up).toBeGreaterThan(2);
       // nothing in the page carries the flight's classes or properties
       expect(e.root.querySelectorAll(".fly, .wait, .land, .booking-any")).toHaveLength(0);
       for (const s of ["#booking", "#bookw"]) expect($(s).style.getPropertyValue("--fly-x")).toBe("");
@@ -638,6 +648,29 @@ describe("polish round, item 4: the bottom bar sits on the real bottom edge; wha
       expect(window.__lp6.geo().svh).toBe(780); // no re-layout: the stage stays laid out in the small viewport
       d();
     }
+  });
+
+  it("a bar wears the split gradient (.ex) only while the edge runs through it; otherwise it is solid, so iOS Safari tints the strip under its toolbar with it", () => {
+    const e = setup({ w: 390, h: 844 });
+    tallTrack(e, 844, 534);
+    const topBar = e.root.querySelector("#top-bar"), dock = e.root.querySelector("#dock");
+    Object.defineProperty(topBar, "offsetHeight", { configurable: true, get: () => 56 });
+    Object.defineProperty(dock, "offsetHeight", { configurable: true, get: () => 64 });
+    const cls = [topBar.className, dock.className];
+    const d = mountLanding(e.root);
+    const seen = new Set();
+    for (const id of ["A", "end"]) for (let f = 0; f <= 1; f += 0.005) {
+      scrollAt(e, at(e, id, f));
+      const xing = e.root.classList.contains("xing"), ev = parseFloat(topBar.style.getPropertyValue("--e")), dt = parseFloat(dock.style.getPropertyValue("--t"));
+      const want = !xing ? "" : ev > dt ? "d" : ev < 56 ? "t" : "";
+      const got = (topBar.classList.contains("ex") ? "t" : "") + (dock.classList.contains("ex") ? "d" : "");
+      expect([id, f, got]).toEqual([id, f, want]);
+      if (xing) seen.add(e.root.getAttribute("data-x") + ":" + (got || "-"));
+    }
+    // both crossings ran the edge through the dock, the middle and the top bar
+    expect([...seen].sort()).toEqual(["np:-", "np:d", "np:t", "pn:-", "pn:d", "pn:t"]);
+    d();
+    expect([topBar.className, dock.className]).toEqual(cls); // restored on destroy
   });
 
   it("data-gb follows the ground at the viewport's bottom edge: paper, night once the edge has risen past it, paper again under the morning sheet", () => {

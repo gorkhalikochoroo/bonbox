@@ -353,6 +353,11 @@ describe("landingV6.css — polish round (23 Oct; Manoj's iPhone)", () => {
     expect(ruleFor(":root:has(.lp6[data-gb=night]) body")).toBe(ruleFor(":root:has(.lp6[data-gb=night])"));
     const engine = read(join(V6, "engine.js"));
     expect(engine).not.toMatch(/--dkb|dockLift|100lvh/);
+    // 23 Oct: the bars are solid during a crossing; only one the edge runs through (.ex) wears the split (Safari tints its toolbar from it)
+    expect(declsOf(ruleFor(".lp6.xing .dock"))).toEqual({ background: "var(--b-g)" });
+    expect(declsOf(ruleFor(".lp6.xing .top"))).toEqual({ background: "var(--a-g)" });
+    expect(declsOf(ruleFor(".lp6.xing .dock.ex")).background).toMatch(/^linear-gradient/);
+    expect(declsOf(ruleFor(".lp6.xing .top.ex")).background).toMatch(/^linear-gradient/);
   });
 
   it("item 3: a crossing keeps each split text's colour (only its fill is transparent), so nothing fades in from nothing when the edge leaves; a ground change switches colours at once", () => {

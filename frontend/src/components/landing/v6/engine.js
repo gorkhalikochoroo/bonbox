@@ -319,6 +319,8 @@ export function mountLanding(root, opts) {
     function setT() {
       const vh = G.vh, dH = dock.offsetHeight, dt = vh - dH;
       dock.style.setProperty("--t", dt + "px");
+      /* the two bars' bands, for edge(): where the edge runs through a bar (read here, never in the scroll tick) */
+      G.dt = dt; G.th = top ? top.offsetHeight : 0;
       FR.length = 0;
       /* polish round: "← Forrige" (two-column page) is measured here even while it is hidden, so showing it later reads nothing
          in the scroll tick (it used to read its spans' offsets there) */
@@ -362,6 +364,11 @@ export function mountLanding(root, opts) {
       if (x !== S.x) { S.x = x; R.setAttribute("data-x", x); }
       if (xing !== S.xing) { if (S.xing != null) gx(); S.xing = xing; R.classList.toggle("xing", xing); }
       if (gb !== S.gb) { S.gb = gb; R.setAttribute("data-gb", gb); }
+      /* 23 Oct (Safari on iPhone): a bar wears the split gradient only while the edge runs through that bar, and is otherwise the
+         solid ground it sits in. Safari colours the strip under its own toolbar from the bar's solid background; while the dock was a
+         gradient for the whole crossing, that strip fell back to the top's paper under a night bar */
+      const ex = !xing ? "" : e > G.dt ? "d" : e < G.th ? "t" : "";
+      if (ex !== S.ex) { S.ex = ex; if (top) top.classList.toggle("ex", ex === "t"); dock.classList.toggle("ex", ex === "d"); }
       /* 17. the edge goes on the elements that split at it, not on the root: a custom property written on the root every frame of a
          crossing restyled the whole page (sheet and footer included) in each frame. Polish round: the two bars, and on the stage only
          the elements it runs through (splitFrame), no longer the frame */
@@ -518,7 +525,8 @@ export function mountLanding(root, opts) {
       /* 19.45 → 21.15: the guest from 12.30 is at Vindue 2 — the table is named in the drawing and ringed while the copy says so,
          from the first moment of 19.45 */
       room.classList.toggle("v2", id === "S" || (id === "B" && !v2free));
-      /* copy: chapter, and which of its two sentences is ink */
+      /* copy: chapter, and which of its two sentences is ink. "A2" (the room drawing in on the way to 19.45) has no aside of its own
+         (23 Oct): the 12.30 booking-link line no longer repeats there; 19.45's own line comes with S */
       const ch = id === "A" ? (t < G.roomIn ? 1 : 2) : { h: 1, "1a": 1, "2a": 2, "1b": 1, S: 2, B: 2, "2b": 2, C: 2 }[id] || 3,
         b2 = id === "1b" || (id === "A" && t < G.roomIn) || /^(S|B|2b|C|3b|end)$/.test(id), ak = id === "A" ? (t < G.roomIn ? "A" : "A2") : id === "B" ? (v2free ? "B2" : "S") : id;
       const key = ch + (b2 ? "b" : "") + ak;

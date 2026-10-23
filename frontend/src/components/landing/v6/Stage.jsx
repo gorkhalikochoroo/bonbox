@@ -82,7 +82,7 @@ export default function Stage({ t, lang, isAndroid }) {
         <div className="copy sc" id="c2">
           <h3 className="label sx f3">{reservations}</h3>
           <p className="line"><span className="s s1 sx">{s2}</span> <span className="s s2 sx">{s4}</span></p>
-          <div className="asides"><p className="aside note sx f2" data-b="2a A2">{s2aside}</p><p className="aside note sx f2" data-b="S">{s4aside}</p><p className="aside note sx f2" data-b="B2">{stand}</p><p className="aside note sx f2" data-b="2b C">{guests}</p></div>
+          <div className="asides"><p className="aside note sx f2" data-b="2a">{s2aside}</p><p className="aside note sx f2" data-b="S">{s4aside}</p><p className="aside note sx f2" data-b="B2">{stand}</p><p className="aside note sx f2" data-b="2b C">{guests}</p></div>
         </div>
         <div className="copy sc" id="c3">
           <h3 className="label sx f3">{close}</h3>

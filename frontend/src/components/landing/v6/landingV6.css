@@ -120,7 +120,10 @@
 
 /* ═════════════ top bar ═════════════ */
 .lp6 .top{position:fixed;inset:0 0 auto 0;height:calc(var(--hh) + env(safe-area-inset-top,0px));padding-top:env(safe-area-inset-top,0px);z-index:60;background:var(--ground);--t:0px}
-.lp6.xing .top{background:linear-gradient(180deg,var(--a-g) var(--e),var(--b-g) 0)}
+/* 23 Oct: solid while the edge is below the bar, the split only while it runs through it (engine.js edge(): .ex), so Safari can take
+   the bar's colour for its own chrome */
+.lp6.xing .top{background:var(--a-g)}
+.lp6.xing .top.ex{background:linear-gradient(180deg,var(--a-g) var(--e),var(--b-g) 0)}
 .lp6 .top .hl{position:absolute;left:0;right:0;bottom:0;height:1px;opacity:0;transition:opacity .25s ease}
 .lp6 .top.scrolled .hl{opacity:1}
 .lp6 .top .in{height:var(--hh);max-width:calc(1312px + 2*var(--gut));margin:0 auto;padding:0 var(--gut);display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -738,7 +741,10 @@
    longer rides the stage's bottom when the browser's bars collapse (--dkb is gone).
    It is in the tab order right after the stage; a keyboard user who tabs into it while it is down brings it up. */
 .lp6 .dock{position:fixed;left:0;right:0;bottom:0;z-index:55;height:calc(64px + env(safe-area-inset-bottom,0px));padding:0 var(--gut) env(safe-area-inset-bottom,0px);display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--ground);transform:translateY(110%);transition:transform .3s var(--m-out)}
-.lp6.xing .dock{background:linear-gradient(180deg,var(--a-g) calc(var(--e) - var(--t,0px)),var(--b-g) 0)}
+/* 23 Oct: solid while the edge is above the bar, the split only while it runs through it (.ex): iOS Safari colours the strip under
+   its toolbar from this solid background (a gradient left that strip paper under a night bar) */
+.lp6.xing .dock{background:var(--b-g)}
+.lp6.xing .dock.ex{background:linear-gradient(180deg,var(--a-g) calc(var(--e) - var(--t,0px)),var(--b-g) 0)}
 .lp6 .dock .hl{position:absolute;left:0;right:0;top:0;height:1px}
 .lp6 .dock.on,.lp6 .dock:focus-within{transform:none}
 .lp6 .dock .btn{height:48px;font-size:17px;padding:0 24px;flex:none}
