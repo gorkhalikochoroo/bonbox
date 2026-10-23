@@ -19,6 +19,10 @@ Pinned here:
   • the Z-bon e-mail attachment reads the file by key from current storage
     (no URL fetch), and refuses another owner's key
   • GET /api/admin/storage-links: aggregate counts only, admin-only
+  • fix round (23 Oct): only rows written before the 20 Oct cutover are
+    ever signed (a tenant's typed Ireland URLs cost no outbound call), a
+    process-wide signing budget, the delete flag proves signing itself and
+    ignores post-cutover rows, and no key reaches a log line
 
 Run:
   cd backend && python -m pytest tests/test_storage_links.py -q
@@ -26,7 +30,7 @@ Run:
 import json
 import logging
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -65,6 +69,19 @@ def _key(uid, kind="expense", n="a"):
 
 def _irl(key, access="sign", bucket="receipts", token="eyJhbGciOiJIUzI1NiJ9.irl.secret"):
     return f"{IRL_HOST}/storage/v1/object/{access}/{bucket}/{key}?token={token}"
+
+
+# A row's created_at as the columns store it (naive UTC): before the move to
+# Frankfurt (every legacy Ireland row) and after it (only typed by a client).
+OLD = datetime(2026, 10, 1, 9, 30)
+NEW = datetime(2026, 10, 21, 9, 30)
+
+
+def _ref(stored, owner, **kw):
+    """client_receipt_ref for a row written before the cutover — the rows
+    the re-link exists for. The cutover gate itself is pinned below."""
+    kw.setdefault("created_at", OLD)
+    return sl.client_receipt_ref(stored, owner, **kw)
 
 
 class FakeBackend:
@@ -124,7 +141,7 @@ OTHER = str(uuid.uuid4())
 @pytest.mark.parametrize("access", ["sign", "public", "authenticated"])
 def test_owned_ireland_link_becomes_a_frankfurt_link(backend, access):
     k = _key(OWNER)
-    out = sl.client_receipt_ref(_irl(k, access), OWNER, source="expenses")
+    out = _ref(_irl(k, access), OWNER, source="expenses")
     assert out.startswith(f"{FRA_HOST}/storage/v1/object/sign/receipts/{k}?token=")
     assert IRL not in out
     assert backend.sign_calls == [(k, ONE_YEAR, sl.SIGN_TIMEOUT_SECONDS)]
@@ -133,19 +150,19 @@ def test_owned_ireland_link_becomes_a_frankfurt_link(backend, access):
 @pytest.mark.parametrize("kind", ["expense", "sale", "kasserapport"])
 def test_every_receipt_kind_is_relinked(backend, kind):
     k = _key(OWNER, kind)
-    assert sl.client_receipt_ref(_irl(k), OWNER).startswith(FRA_HOST)
+    assert _ref(_irl(k), OWNER).startswith(FRA_HOST)
 
 
 def test_owner_may_be_a_uuid_object_and_host_case_is_ignored(backend):
     k = _key(OWNER)
     url = _irl(k).replace(IRL_HOST, f"https://{IRL.upper()}.SUPABASE.CO")
-    assert sl.client_receipt_ref(url, uuid.UUID(OWNER)).startswith(FRA_HOST)
+    assert _ref(url, uuid.UUID(OWNER)).startswith(FRA_HOST)
 
 
 def test_percent_encoded_slashes_resolve_to_the_canonical_key(backend):
     k = _key(OWNER)
     url = _irl(k.replace("/", "%2F"))
-    out = sl.client_receipt_ref(url, OWNER)
+    out = _ref(url, OWNER)
     assert out.startswith(FRA_HOST) and backend.sign_calls[0][0] == k
 
 
@@ -163,7 +180,7 @@ def test_ttl_is_the_one_new_uploads_get():
     f"{FRA_HOST}/storage/v1/object/sign/receipts/{_key(OWNER)}?token=t",   # already Frankfurt
 ])
 def test_non_retired_values_are_unchanged_and_never_signed(backend, stored):
-    assert sl.client_receipt_ref(stored, OWNER) == stored
+    assert _ref(stored, OWNER) == stored
     assert backend.sign_calls == []
 
 
@@ -185,7 +202,7 @@ def test_non_retired_values_are_unchanged_and_never_signed(backend, stored):
     (_irl(_key(OWNER)).replace("https://", "http://"), "refused_scheme"),
 ])
 def test_refused_retired_links_come_back_unchanged_without_signing(backend, stored, reason):
-    assert sl.client_receipt_ref(stored, OWNER, source="expenses") == stored
+    assert _ref(stored, OWNER, source="expenses") == stored
     assert backend.sign_calls == []
     assert sl.relink_stats().get(reason) == 1
 
@@ -197,20 +214,20 @@ def test_refused_retired_links_come_back_unchanged_without_signing(backend, stor
     "https://bonbox-api.onrender.com/uploads/receipts/abc_1.jpg",     # the legacy sales row
 ])
 def test_foreign_hosts_are_unchanged(backend, stored):
-    assert sl.client_receipt_ref(stored, OWNER) == stored
+    assert _ref(stored, OWNER) == stored
     assert backend.sign_calls == []
     assert sl.relink_stats().get("foreign_host") == 1
 
 
 def test_malformed_url_is_unchanged_and_never_raises(backend):
     stored = "https://[::1/storage/v1/object/sign/receipts/x"
-    assert sl.client_receipt_ref(stored, OWNER) == stored
+    assert _ref(stored, OWNER) == stored
     assert backend.sign_calls == []
 
 
 def test_no_owner_means_no_relink(backend):
     stored = _irl(_key(OWNER))
-    assert sl.client_receipt_ref(stored, None) == stored
+    assert _ref(stored, None) == stored
     assert backend.sign_calls == []
 
 
@@ -219,7 +236,7 @@ def test_non_durable_storage_means_no_relink(monkeypatch):
     b.is_durable = False
     monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
     stored = _irl(_key(OWNER))
-    assert sl.client_receipt_ref(stored, OWNER) == stored
+    assert _ref(stored, OWNER) == stored
     assert b.sign_calls == []
 
 
@@ -228,7 +245,7 @@ def test_signing_failure_or_timeout_returns_the_stored_value(monkeypatch, mode):
     b = FakeBackend(sign=mode)
     monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
     stored = _irl(_key(OWNER))
-    assert sl.client_receipt_ref(stored, OWNER) == stored
+    assert _ref(stored, OWNER) == stored
     assert sl.relink_stats()["sign_failed"] == 1
 
 
@@ -241,11 +258,11 @@ def test_a_failed_signing_is_not_retried_on_every_read(monkeypatch):
     monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
     stored = _irl(_key(OWNER))
     for _ in range(3):
-        assert sl.client_receipt_ref(stored, OWNER) == stored
+        assert _ref(stored, OWNER) == stored
     assert len(b.sign_calls) == 1 and sl.relink_stats()["sign_backoff"] == 2
     clock[0] += sl.SIGN_FAIL_BACKOFF_SECONDS + 1
     b.sign_mode = "ok"
-    assert sl.client_receipt_ref(stored, OWNER).startswith(FRA_HOST)
+    assert _ref(stored, OWNER).startswith(FRA_HOST)
     assert len(b.sign_calls) == 2
 
 
@@ -253,7 +270,7 @@ def test_a_signed_url_on_a_retired_host_is_never_handed_out(monkeypatch):
     b = FakeBackend(host=IRL_HOST)
     monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
     stored = _irl(_key(OWNER))
-    assert sl.client_receipt_ref(stored, OWNER) == stored
+    assert _ref(stored, OWNER) == stored
     assert sl.relink_stats()["sign_failed"] == 1
 
 
@@ -261,8 +278,8 @@ def test_a_signed_url_on_a_retired_host_is_never_handed_out(monkeypatch):
 
 def test_cache_hit_makes_no_second_signing_call(backend):
     stored = _irl(_key(OWNER))
-    first = sl.client_receipt_ref(stored, OWNER)
-    second = sl.client_receipt_ref(stored, OWNER)
+    first = _ref(stored, OWNER)
+    second = _ref(stored, OWNER)
     assert first == second and len(backend.sign_calls) == 1
     assert sl.relink_stats()["cache_hit"] == 1
 
@@ -271,33 +288,33 @@ def test_cache_entry_is_reminted_after_30_days(backend, monkeypatch):
     clock = [1000.0]
     monkeypatch.setattr(sl.time, "monotonic", lambda: clock[0])
     stored = _irl(_key(OWNER))
-    first = sl.client_receipt_ref(stored, OWNER)
+    first = _ref(stored, OWNER)
     clock[0] += sl.CACHE_FRESH_SECONDS + 1
-    second = sl.client_receipt_ref(stored, OWNER)
+    second = _ref(stored, OWNER)
     assert first != second and len(backend.sign_calls) == 2
 
 
 def test_a_cached_link_is_never_served_for_another_owners_row(backend):
     k = _key(OWNER)
-    assert sl.client_receipt_ref(_irl(k), OWNER).startswith(FRA_HOST)
+    assert _ref(_irl(k), OWNER).startswith(FRA_HOST)
     # the same object named on a row of ANOTHER owner: refused before the cache
-    assert sl.client_receipt_ref(_irl(k), OTHER) == _irl(k)
+    assert _ref(_irl(k), OTHER) == _irl(k)
 
 
 def test_cache_is_bounded(backend, monkeypatch):
     monkeypatch.setattr(sl, "CACHE_MAX_ENTRIES", 3)
     for i in range(5):
-        sl.client_receipt_ref(_irl(f"{OWNER}/expense/{format(i, 'x') * 64}.jpg"), OWNER)
+        _ref(_irl(f"{OWNER}/expense/{format(i, 'x') * 64}.jpg"), OWNER)
     assert sl.relink_stats()["cached_objects"] == 3
 
 
 def test_logs_carry_no_path_key_or_token(backend, caplog):
     caplog.set_level(logging.DEBUG)
     secret = "eyJ.SECRET-TOKEN.x"
-    sl.client_receipt_ref(_irl(_key(OTHER), token=secret), OWNER, source="expenses")
-    sl.client_receipt_ref(f"https://evil.example/storage/v1/object/sign/receipts/{_key(OWNER)}?token={secret}",
+    _ref(_irl(_key(OTHER), token=secret), OWNER, source="expenses")
+    _ref(f"https://evil.example/storage/v1/object/sign/receipts/{_key(OWNER)}?token={secret}",
                           OWNER, source="sales")
-    sl.client_receipt_ref(_irl(_key(OWNER), token=secret), OWNER, source="expenses")   # relinked
+    _ref(_irl(_key(OWNER), token=secret), OWNER, source="expenses")   # relinked
     text = caplog.text
     assert "foreign_host" in text and "evil.example" in text
     for needle in (secret, OWNER, OTHER, "a" * 64, "/receipts/"):
@@ -307,7 +324,7 @@ def test_logs_carry_no_path_key_or_token(backend, caplog):
 def test_unknown_host_is_logged_once(backend, caplog):
     caplog.set_level(logging.WARNING)
     for _ in range(3):
-        sl.client_receipt_ref("https://bonbox-api.onrender.com/uploads/receipts/x.jpg", OWNER, source="sales")
+        _ref("https://bonbox-api.onrender.com/uploads/receipts/x.jpg", OWNER, source="sales")
     assert caplog.text.count("foreign_host") == 1
     assert sl.relink_stats()["foreign_host"] == 3
 
@@ -350,7 +367,7 @@ def test_real_backend_relinks_on_frankfurt_with_one_year_and_short_timeout(monke
     seen = []
     _mock_supabase(monkeypatch, seen)
     k = _key(OWNER)
-    out = sl.client_receipt_ref(_irl(k), OWNER)
+    out = _ref(_irl(k), OWNER)
     assert out == f"{FRA_HOST}/storage/v1/object/sign/receipts/{k}?token=fresh"
     assert len(seen) == 1
     assert json.loads(seen[0].content) == {"expiresIn": ONE_YEAR}
@@ -473,11 +490,13 @@ def test_expense_read_paths_hand_out_frankfurt_and_write_nothing(env, backend):
     db.add(cat); db.commit()
     k1, k2, k3 = _key(u.id, n="a"), _key(u.id, n="b"), _key(OTHER, n="c")
     posted = Expense(user_id=u.id, category_id=cat.id, date=date(2026, 7, 1), amount=10,
-                     description="booked", payment_method="card", receipt_photo=_irl(k1))
+                     description="booked", payment_method="card", receipt_photo=_irl(k1), created_at=OLD)
     draft = Expense(user_id=u.id, category_id=cat.id, date=date(2026, 7, 2), amount=20,
-                    description="draft", payment_method="card", receipt_photo=_irl(k2), status="pending")
+                    description="draft", payment_method="card", receipt_photo=_irl(k2), status="pending",
+                    created_at=OLD)
     foreign = Expense(user_id=u.id, category_id=cat.id, date=date(2026, 7, 3), amount=30,
-                      description="someone else's key", payment_method="card", receipt_photo=_irl(k3))
+                      description="someone else's key", payment_method="card", receipt_photo=_irl(k3),
+                      created_at=OLD)
     db.add_all([posted, draft, foreign]); db.commit()
     raw = {e.id: e.receipt_photo for e in (posted, draft, foreign)}
     app.dependency_overrides[get_current_user] = lambda: u
@@ -499,9 +518,9 @@ def test_sales_read_paths_hand_out_frankfurt_and_write_nothing(env, backend):
     u = _owner(db)
     k = _key(u.id, "expense")      # prod: the one Ireland sale points at an expense-kind file
     sale = Sale(user_id=u.id, date=date(2026, 5, 7), amount=99, payment_method="card",
-                receipt_photo=_irl(k))
+                receipt_photo=_irl(k), created_at=OLD)
     legacy = Sale(user_id=u.id, date=date(2026, 5, 6), amount=50, payment_method="card",
-                  receipt_photo="https://bonbox-api.onrender.com/uploads/receipts/old_1.jpg")
+                  receipt_photo="https://bonbox-api.onrender.com/uploads/receipts/old_1.jpg", created_at=OLD)
     db.add_all([sale, legacy]); db.commit()
     raw = {sale.id: sale.receipt_photo, legacy.id: legacy.receipt_photo}
     app.dependency_overrides[get_current_user] = lambda: u
@@ -540,7 +559,7 @@ def test_daily_close_read_paths_hand_out_frankfurt_and_write_nothing(env, backen
     u = _owner(db)
     k = _key(u.id, "kasserapport")
     dc = DailyClose(user_id=u.id, date=date(2026, 5, 23), revenue_total=100, payment_total=100,
-                    status="confirmed", receipt_photo=_irl(k))
+                    status="confirmed", receipt_photo=_irl(k), created_at=OLD)
     db.add(dc); db.commit()
     raw = dc.receipt_photo
     client = TestClient(app)
@@ -566,8 +585,15 @@ def test_daily_close_echo_back_keeps_the_stored_photo_and_signature(env, backend
     client = TestClient(app)
     r = client.post("/api/daily-close", json=_close_payload(irl), headers=_hdr(u))
     assert r.status_code == 200, r.text
+    assert r.json()["receipt_photo"] == irl                   # a row written today: never re-linked
+    row = db.query(DailyClose).filter(DailyClose.user_id == u.id).one()
+    row.created_at = OLD                                      # …so make it the legacy draft it stands for
+    db.commit()
+    r = client.get(f"/api/daily-close/{row.id}", headers=_hdr(u))
+    assert r.status_code == 200, r.text
     handed = r.json()["receipt_photo"]
     assert handed.startswith(FRA_HOST) and k in handed        # the page now holds the re-link
+    db.expire_all()
     row = db.query(DailyClose).filter(DailyClose.user_id == u.id).one()
     assert row.receipt_photo == irl
     sig_before = _content_signature(row)
@@ -675,13 +701,13 @@ def test_admin_storage_links_counts_only(env, monkeypatch):
                                _key(u.id, n="e"), None, ""]):
         db.add(Expense(user_id=u.id, category_id=cat.id, date=date(2026, 7, 1), amount=n + 1,
                        description=f"e{n}", payment_method="card", receipt_photo=photo,
-                       is_deleted=(n == 1)))
+                       is_deleted=(n == 1), created_at=OLD))
     db.add(Sale(user_id=u.id, date=date(2026, 5, 7), amount=1, payment_method="card",
-                receipt_photo="uploads/receipts/legacy_1.jpg"))
+                receipt_photo="uploads/receipts/legacy_1.jpg", created_at=OLD))
     db.add(Sale(user_id=u.id, date=date(2026, 5, 7), amount=2, payment_method="card",
-                receipt_photo="https://bonbox-api.onrender.com/uploads/receipts/x.jpg"))
+                receipt_photo="https://bonbox-api.onrender.com/uploads/receipts/x.jpg", created_at=OLD))
     db.add(DailyClose(user_id=u.id, date=date(2026, 5, 23), revenue_total=1, payment_total=1,
-                      receipt_photo=_irl(_key(u.id, "kasserapport"))))
+                      receipt_photo=_irl(_key(u.id, "kasserapport")), created_at=OLD))
     db.commit()
     app.dependency_overrides[require_super_admin] = lambda: u
     statements.clear()
@@ -693,6 +719,7 @@ def test_admin_storage_links_counts_only(env, monkeypatch):
     assert (e["rows_with_value"], e["retired_host"], e["current_host"], e["not_url"]) == (7, 5, 1, 1)
     assert (e["retired_resolvable"], e["retired_missing"], e["retired_unchecked"],
             e["retired_refused"]) == (2, 1, 1, 1)
+    assert (e["retired_signable"], e["retired_sign_failed"], e["retired_after_cutover"]) == (2, 0, 0)
     assert e["retired_refused_by_reason"] == {"refused_not_owner_key": 1}
     s = cols["sales"]
     assert (s["rows_with_value"], s["not_url"], s["other_url"], s["retired_host"]) == (2, 1, 1, 0)
@@ -701,7 +728,8 @@ def test_admin_storage_links_counts_only(env, monkeypatch):
     assert body["unresolvable"] == 4 and body["safe_to_delete_retired_project"] is False
     assert body["totals"]["retired_host"] == 6
     assert len(b.exists_calls) == 4                          # one per distinct object
-    assert b.sign_calls == []
+    # one short-lived signing per object that exists — the delete proof
+    assert b.sign_calls == [(there, sl.REPORT_SIGN_TTL_SECONDS, sl.SIGN_TIMEOUT_SECONDS)]
     # aggregates only: no key, owner id, path, token or host in the answer
     text = r.text
     for needle in (str(u.id), OTHER, "a" * 64, "token", "supabase.co", "onrender"):
@@ -718,11 +746,12 @@ def test_admin_storage_links_safe_when_every_row_resolves(env, monkeypatch):
     b = FakeBackend({k: b"x"})
     monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
     db.add(DailyClose(user_id=u.id, date=date(2026, 5, 23), revenue_total=1, payment_total=1,
-                      receipt_photo=_irl(k)))
+                      receipt_photo=_irl(k), created_at=OLD))
     db.commit()
     app.dependency_overrides[require_super_admin] = lambda: u
     body = TestClient(app).get("/api/admin/storage-links").json()
     assert body["unresolvable"] == 0 and body["safe_to_delete_retired_project"] is True
+    assert body["totals"]["retired_signable"] == 1
 
 
 def test_admin_storage_links_is_admin_only(env, monkeypatch):
@@ -738,3 +767,230 @@ def test_admin_storage_links_is_admin_only(env, monkeypatch):
     assert "columns" not in r.text and b.exists_calls == []
     r = TestClient(app).get("/api/admin/storage-links")
     assert r.status_code in (401, 403, 404)
+
+
+# ─── fix round 23 Oct: B1 — only rows written before the cutover sign ──
+
+@pytest.mark.parametrize("created_at, reason", [
+    (None, "refused_no_created_at"),
+    ("2026-10-01T09:30:00", "refused_no_created_at"),          # not a datetime: fail closed
+    (datetime(2026, 10, 20, 0, 0), "refused_after_cutover"),     # the instant itself (naive UTC)
+    (NEW, "refused_after_cutover"),
+    (datetime(2026, 10, 20, 2, 30, tzinfo=timezone(timedelta(hours=2))), "refused_after_cutover"),
+])
+def test_rows_without_a_legacy_created_at_are_never_signed(backend, created_at, reason):
+    stored = _irl(_key(OWNER))
+    assert sl.client_receipt_ref(stored, OWNER, created_at=created_at, source="expenses") == stored
+    assert backend.sign_calls == []
+    assert sl.relink_stats().get(reason) == 1
+
+
+@pytest.mark.parametrize("created_at", [
+    datetime(2026, 10, 19, 23, 59, 59),                                   # naive UTC, just before
+    datetime(2026, 10, 20, 1, 0, tzinfo=timezone(timedelta(hours=2))),   # 19 Oct 23:00 UTC
+    datetime(2026, 5, 7, 12, 0, tzinfo=timezone.utc),
+])
+def test_rows_written_before_the_cutover_are_relinked(backend, created_at):
+    out = sl.client_receipt_ref(_irl(_key(OWNER)), OWNER, created_at=created_at)
+    assert out.startswith(FRA_HOST) and len(backend.sign_calls) == 1
+
+
+def test_cutover_is_the_frankfurt_move():
+    assert sl.RETIRED_CUTOVER == datetime(2026, 10, 20, tzinfo=timezone.utc)
+
+
+def _bulk_expenses(db, u, photos, created_at):
+    cat = ExpenseCategory(user_id=u.id, name=f"R{uuid.uuid4().hex[:4]}", color="#3B82F6")
+    db.add(cat); db.commit()
+    db.bulk_save_objects([
+        Expense(user_id=u.id, category_id=cat.id, date=date(2026, 7, 1), amount=1,
+                description=f"x{i}", payment_method="card", receipt_photo=photo, created_at=created_at)
+        for i, photo in enumerate(photos)])
+    db.commit()
+
+
+def test_typed_ireland_urls_on_new_rows_cost_no_signing_call(env, monkeypatch):
+    """Probe P2/P3: a tenant stores 1,100 made-up Ireland URLs naming its OWN
+    key. Before the fix every GET /api/expenses made 1,100 outbound signing
+    calls (the 1,024-entry failure list evicts itself). Rows written after
+    the cutover are never signed: 0 calls, and the stored value comes back."""
+    db, _ = env
+    b = FakeBackend(sign="none")                       # Supabase: "object not found"
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    u = _owner(db)
+    photos = [_irl(f"{u.id}/expense/{format(i, '064x')}.jpg") for i in range(1100)]
+    _bulk_expenses(db, u, photos, NEW)
+    app.dependency_overrides[get_current_user] = lambda: u
+    client = TestClient(app)
+    for _ in range(3):
+        r = client.get("/api/expenses")
+        assert r.status_code == 200 and len(r.json()) == 1100
+    assert b.sign_calls == []
+    assert sorted(x["receipt_photo"] for x in r.json()) == sorted(photos)
+    # the create response (P3) signs nothing either
+    r = client.post("/api/expenses", json={"date": "2026-10-22", "amount": 5, "description": "typed",
+                                           "payment_method": "card",
+                                           "receipt_photo": _irl(_key(u.id, n="f"))})
+    assert r.status_code == 201, r.text
+    assert r.json()["receipt_photo"] == _irl(_key(u.id, n="f"))
+    assert b.sign_calls == []
+
+
+def test_signing_is_capped_per_minute_process_wide(env, monkeypatch):
+    """Backstop: 100 legacy rows with made-up keys (each signing fails) make
+    at most SIGN_BUDGET_PER_MIN outbound calls a minute, however often the
+    list is read."""
+    db, _ = env
+    clock = [5000.0]
+    monkeypatch.setattr(sl, "_now", lambda: clock[0])
+    b = FakeBackend(sign="none")
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    u = _owner(db)
+    _bulk_expenses(db, u, [_irl(f"{u.id}/expense/{format(i, '064x')}.jpg") for i in range(100)], OLD)
+    app.dependency_overrides[get_current_user] = lambda: u
+    client = TestClient(app)
+    assert client.get("/api/expenses").status_code == 200
+    assert len(b.sign_calls) == sl.SIGN_BUDGET_PER_MIN
+    for _ in range(3):                                  # same minute: nothing more goes out
+        assert client.get("/api/expenses").status_code == 200
+    assert len(b.sign_calls) == sl.SIGN_BUDGET_PER_MIN
+    assert sl.relink_stats()["sign_budget"] >= 70
+    clock[0] += 60                                      # a minute later: one more minute's worth
+    assert client.get("/api/expenses").status_code == 200
+    assert len(b.sign_calls) == 2 * sl.SIGN_BUDGET_PER_MIN
+    assert len({c[0] for c in b.sign_calls}) == 2 * sl.SIGN_BUDGET_PER_MIN   # no key asked twice
+
+
+def test_a_spent_budget_still_serves_cached_links(backend, monkeypatch):
+    clock = [5000.0]
+    monkeypatch.setattr(sl, "_now", lambda: clock[0])
+    monkeypatch.setattr(sl, "SIGN_BUDGET_PER_MIN", 2)
+    sl.reset_for_tests()
+    a, bb, c = (_irl(_key(OWNER, n=x)) for x in "abc")
+    first = _ref(a, OWNER)
+    assert first.startswith(FRA_HOST) and _ref(bb, OWNER).startswith(FRA_HOST)
+    assert _ref(c, OWNER) == c                          # budget spent: stored value
+    assert _ref(a, OWNER) == first                      # cached: no budget needed
+    assert len(backend.sign_calls) == 2
+    clock[0] += 30                                      # half a minute: one token back
+    assert _ref(c, OWNER).startswith(FRA_HOST)
+
+
+# ─── fix round 23 Oct: the delete flag proves signing, ignores new rows ──
+
+def _admin_get(env, monkeypatch, b, u):
+    from app.services.admin_security import require_super_admin
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    app.dependency_overrides[require_super_admin] = lambda: u
+    r = TestClient(app).get("/api/admin/storage-links")
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+@pytest.mark.parametrize("mode", ["none", "raise", "retired_host"])
+def test_not_safe_to_delete_when_the_current_project_cannot_sign(env, monkeypatch, mode):
+    """Right after a deploy relink_stats.sign_failed is 0 because nothing was
+    tried. The flag must not lean on that: it signs each legacy object
+    itself, and an object that exists but cannot be signed is unresolvable."""
+    db, _ = env
+    u = _owner(db)
+    k = _key(u.id, "kasserapport")
+    # "retired_host": signing answers, but with a link on the retired host
+    b = FakeBackend({k: b"x"}, sign=("ok" if mode == "retired_host" else mode),
+                    host=(IRL_HOST if mode == "retired_host" else FRA_HOST))
+    db.add(DailyClose(user_id=u.id, date=date(2026, 5, 23), revenue_total=1, payment_total=1,
+                      receipt_photo=_irl(k), created_at=OLD))
+    db.commit()
+    body = _admin_get(env, monkeypatch, b, u)
+    assert body["relink_stats"].get("sign_failed", 0) == 0          # the counter says nothing
+    t = body["totals"]
+    assert (t["retired_resolvable"], t["retired_signable"], t["retired_sign_failed"]) == (1, 0, 1)
+    assert body["unresolvable"] == 1
+    assert body["safe_to_delete_retired_project"] is False
+    assert b.exists_calls == [k] and [c[0] for c in b.sign_calls] == [k]
+
+
+def test_rows_written_after_the_cutover_neither_block_nor_starve_the_check(env, monkeypatch):
+    """Probe P5: one real legacy row, then a tenant adds 501 made-up own-key
+    rows and one naming another owner's key — all written after the cutover.
+    They are counted apart, never checked, and the flag stays true."""
+    db, _ = env
+    owner = _owner(db)
+    k = _key(owner.id, "kasserapport")
+    db.add(DailyClose(user_id=owner.id, date=date(2026, 5, 23), revenue_total=1, payment_total=1,
+                      receipt_photo=_irl(k), created_at=OLD))
+    db.commit()
+    attacker = _owner(db)
+    fakes = [_irl(f"{attacker.id}/expense/{format(i, '064x')}.jpg") for i in range(501)]
+    _bulk_expenses(db, attacker, fakes + [_irl(_key(owner.id, n="z"))], NEW)
+    b = FakeBackend({k: b"x"})
+    body = _admin_get(env, monkeypatch, b, owner)
+    t = body["totals"]
+    assert t["retired_host"] == 503 and t["retired_after_cutover"] == 502
+    assert (t["retired_signable"], t["retired_missing"], t["retired_unchecked"], t["retired_refused"]) == (1, 0, 0, 0)
+    assert body["unresolvable"] == 0 and body["safe_to_delete_retired_project"] is True
+    assert b.exists_calls == [k] and [c[0] for c in b.sign_calls] == [k]
+
+
+def test_report_checks_the_oldest_legacy_rows_first_and_holds_no_transaction(env, monkeypatch):
+    """Rows are read oldest first (the check budget reaches the real legacy
+    rows before anything newer), and the read transaction is over before the
+    first storage call — no DB connection is held while storage answers."""
+    db, _ = env
+    u = _owner(db)
+    cat = ExpenseCategory(user_id=u.id, name="R", color="#3B82F6")
+    db.add(cat); db.commit()
+    newer, older = _key(u.id, n="b"), _key(u.id, n="a")
+    for k, at in ((newer, OLD), (older, OLD - timedelta(days=30))):     # inserted newest first
+        db.add(Expense(user_id=u.id, category_id=cat.id, date=date(2026, 7, 1), amount=1,
+                       description="x", payment_method="card", receipt_photo=_irl(k), created_at=at))
+    db.commit()
+    in_tx = []
+
+    class Watching(FakeBackend):
+        def exists(self, key):
+            in_tx.append(db.in_transaction())
+            return super().exists(key)
+
+    b = Watching({newer: b"x", older: b"x"})
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    body = sl.storage_link_report(db, check_limit=1)
+    assert b.exists_calls == [older]
+    assert body["totals"]["retired_unchecked"] == 1 and body["safe_to_delete_retired_project"] is False
+    assert in_tx == [False]
+
+
+# ─── fix round 23 Oct: no key or error body in a storage log line ──────
+
+def test_real_backend_signing_failures_log_no_key_or_body(monkeypatch, caplog):
+    """Probe P4: a 400 'Object not found' from Supabase (its body echoes the
+    path) and a transport error whose message names the URL — the WARNING
+    lines carry neither the owner id nor the file name. (WARNING is what the
+    web process emits: it configures no root level, so httpx's own INFO
+    request line, which does name the URL, is not written there.)"""
+    caplog.set_level(logging.WARNING)
+    k = _key(OWNER)
+    b = storage_mod.SupabaseStorageBackend(FRA_HOST, "service-key", "receipts")
+    b._client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(
+        400, json={"statusCode": "404", "error": "not_found",
+                   "message": f"Object not found: receipts/{r.url.path}"})))
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    assert _ref(_irl(k), OWNER) == _irl(k)                  # re-link failed -> stored value
+    assert "signed_url -> 400" in caplog.text
+
+    def boom(request):
+        raise httpx.ConnectError(f"cannot reach {request.url}")
+    b._client = httpx.Client(transport=httpx.MockTransport(boom))
+    assert b.signed_url(k) is None
+    assert "ConnectError" in caplog.text
+    for needle in (OWNER, "a" * 64, "/receipts/", "Object not found"):
+        assert needle not in caplog.text
+
+
+def test_upload_prints_no_key(monkeypatch, capsys):
+    from app.services import receipt_ocr
+    _mock_supabase(monkeypatch, [])
+    stored = receipt_ocr._upload_to_supabase(b"\xff\xd8jpeg", "x.jpg", user_id=OWNER, kind="expense")
+    assert stored.startswith(FRA_HOST)
+    out = capsys.readouterr().out
+    assert "Uploaded receipt" in out and OWNER not in out

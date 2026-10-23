@@ -193,7 +193,9 @@ def _to_response(dc: DailyClose) -> dict:
         # value, the content signature and the audit trail keep the raw one,
         # and the save below keeps it when the page echoes this link back.
         "receipt_photo": client_receipt_ref(getattr(dc, "receipt_photo", None),
-                                            getattr(dc, "user_id", None), source="daily_closes"),
+                                            getattr(dc, "user_id", None),
+                                            created_at=getattr(dc, "created_at", None),
+                                            source="daily_closes"),
         # Where the figures came from (Z-bon or typed, the tills added
         # together, which of them were typed). A reopened draft that was itself
         # a sum keeps its tills on the revisor's record when another bon is

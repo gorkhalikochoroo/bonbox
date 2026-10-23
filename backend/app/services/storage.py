@@ -296,13 +296,14 @@ class SupabaseStorageBackend(StorageBackend):
                 **extra,
             )
         except httpx.HTTPError as e:
-            logger.warning("Supabase signed_url failed for %s: %s", key, e)
+            # Never the key (owner id + file name) or the error text (it can
+            # carry the URL): the exception class only.
+            logger.warning("Supabase signed_url failed: %s", type(e).__name__)
             return None
         if resp.status_code >= 400:
-            logger.warning(
-                "Supabase signed_url %s -> %s: %s",
-                key, resp.status_code, resp.text[:200],
-            )
+            # The status only — the key and Supabase's error body stay out of
+            # the logs (the body echoes the object path).
+            logger.warning("Supabase signed_url -> %s", resp.status_code)
             return None
         data = resp.json()
         signed = data.get("signedURL") or data.get("signed_url") or ""

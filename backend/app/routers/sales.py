@@ -1230,7 +1230,8 @@ def list_receipt_sales(
     for s in sales:
         # A photo on the retired storage project → the same file's link in
         # the current one (services/storage_links). Read-only.
-        photo = client_receipt_ref(s.receipt_photo, s.user_id, source="sales")
+        photo = client_receipt_ref(s.receipt_photo, s.user_id, created_at=s.created_at,
+                                   source="sales")
         # Convert local paths to full URLs so frontend can display them
         if photo and not photo.startswith("http"):
             photo = f"{base_url}/{photo}"

@@ -1044,7 +1044,7 @@ def _upload_to_supabase(
     from app.services.storage_links import RECEIPT_URL_TTL_SECONDS
     signed = storage.signed_url(key, ttl_seconds=RECEIPT_URL_TTL_SECONDS)
     if signed:
-        print(f"[Storage] Uploaded receipt to Supabase: {key}")
+        print("[Storage] Uploaded receipt to Supabase")   # never the key (owner id + file name)
         return signed
     # Upload succeeded but signing failed → return the storage key as
     # a fallback marker. Callers store it in receipt_photo; until the

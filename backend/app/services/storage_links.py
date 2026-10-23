@@ -41,13 +41,26 @@ What it never does:
   • fetch from the retired host — it only signs in the current project.
   • log a path, key or token — hosts, sources and reason codes only.
 
+Only rows written BEFORE the move are ever re-linked (RETIRED_CUTOVER, the
+row's own created_at; a missing one is refused). Every legacy Ireland link
+was stored before 20 Oct (production 23 Oct: 7 of 7). A row written since can
+only carry an Ireland-shaped URL because a client typed one — expense and
+sale receipt_photo and daily_closes.receipt_photo accept any string — and
+signing those would let any tenant turn every list read into one outbound
+Supabase call per row (fix round 23 Oct, finding B1).
+
 Signing happens in the request path, so it is bounded: a short per-call
 timeout, a failure returns the stored value (no worse than before), and an
 in-process LRU keeps one URL per object for 30 days (the URL itself is valid
 for a year), so a list endpoint asks Supabase once per object per process;
-after a failure the object is not asked again for 5 minutes.
-`relink_stats()` counts what happened, for /api/admin/storage-links: before
-the retired project is deleted, `sign_failed` and every `refused_*` must be 0.
+after a failure the object is not asked again for 5 minutes. Behind all of
+that, a process-wide budget (SIGN_BUDGET_PER_MIN) caps signing attempts that
+miss the cache; when it is spent the stored value is handed out and the next
+read tries again.
+`relink_stats()` counts what happened since boot. It is informational: the
+precondition for deleting the retired project is
+`safe_to_delete_retired_project` in /api/admin/storage-links, which signs
+each legacy object itself rather than trusting a counter a deploy resets.
 """
 from __future__ import annotations
 
@@ -55,6 +68,7 @@ import logging
 import threading
 import time
 from collections import Counter, OrderedDict
+from datetime import datetime, timezone
 from urllib.parse import unquote, urlsplit
 
 from app.config import settings
@@ -77,7 +91,20 @@ RELINK_KINDS = frozenset({"expense", "sale", "kasserapport"})
 # (receipt_ocr._upload_to_supabase) and re-links alike.
 RECEIPT_URL_TTL_SECONDS = 60 * 60 * 24 * 365
 
+# Production moved to Frankfurt on 20 Oct 2026. A row written on or after this
+# instant was never stored with an Ireland link by the app, so it is never
+# re-linked (its created_at is server-set: no request schema accepts it).
+RETIRED_CUTOVER = datetime(2026, 10, 20, tzinfo=timezone.utc)
+
 SIGN_TIMEOUT_SECONDS = 3.0
+# Process-wide ceiling on signing calls that miss the cache (a token bucket,
+# refilled continuously). The 7 legacy objects need 7 calls per process start
+# (then cached for 30 days); this is the backstop if anything else ever
+# reaches the signer.
+SIGN_BUDGET_PER_MIN = 30
+# The signing check /api/admin/storage-links makes per legacy object: proves
+# the current project can mint a link for it. Minting writes nothing.
+REPORT_SIGN_TTL_SECONDS = 60
 CACHE_MAX_ENTRIES = 1024
 CACHE_FRESH_SECONDS = 30 * 24 * 60 * 60
 # After a failed signing, the same object is not asked again for this long:
@@ -94,6 +121,23 @@ _cache: "OrderedDict[str, tuple[str, float]]" = OrderedDict()
 _stats: Counter = Counter()
 _failed: "OrderedDict[str, float]" = OrderedDict()
 _noted: set[tuple[str, str]] = set()
+_bucket: dict = {"tokens": float(SIGN_BUDGET_PER_MIN), "at": None}
+
+
+def _now() -> float:
+    """The monotonic clock every timer here reads (one seam for tests)."""
+    return time.monotonic()
+
+
+def _as_utc(value) -> datetime | None:
+    """A row's created_at as an aware UTC datetime. The columns are naive
+    UTC (utc_now; Postgres `timestamp without time zone`, SQLite returns
+    naive too), so a naive value is UTC. Anything else is None."""
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _host(url: str) -> str | None:
@@ -150,16 +194,23 @@ def _bucket_of(url: str) -> str | None:
     return segs[0]
 
 
-def retired_link_key(stored: str | None, owner_id) -> tuple[str | None, str]:
+def retired_link_key(stored: str | None, owner_id, *, created_at=None) -> tuple[str | None, str]:
     """For a URL on a retired host: (key, "ok") when it may be re-linked to
     the same object in the current bucket, else (None, reason). Pure — no
     storage call; /api/admin/storage-links uses it to count the same way the
-    read paths decide."""
+    read paths decide. `created_at` is the ROW's: a row without one, or
+    written on/after RETIRED_CUTOVER, is refused before anything else is
+    looked at."""
     s = (stored or "").strip()
     if not s or "://" not in s:
         return None, "not_a_url"
     if _host(s) not in RETIRED_STORAGE_HOSTS:
         return None, "not_retired_host"
+    at = _as_utc(created_at)
+    if at is None:
+        return None, "refused_no_created_at"
+    if at >= RETIRED_CUTOVER:
+        return None, "refused_after_cutover"
     if not s.lower().startswith("https://"):
         return None, "refused_scheme"
     if owner_id is None:
@@ -178,7 +229,7 @@ def retired_link_key(stored: str | None, owner_id) -> tuple[str | None, str]:
 
 
 def _cached(key: str) -> str | None:
-    now = time.monotonic()
+    now = _now()
     with _lock:
         hit = _cache.get(key)
         if hit is None:
@@ -193,7 +244,7 @@ def _cached(key: str) -> str | None:
 
 
 def _recently_failed(key: str) -> bool:
-    now = time.monotonic()
+    now = _now()
     with _lock:
         at = _failed.get(key)
         if at is None:
@@ -206,7 +257,7 @@ def _recently_failed(key: str) -> bool:
 
 def _remember_failure(key: str) -> None:
     with _lock:
-        _failed[key] = time.monotonic()
+        _failed[key] = _now()
         _failed.move_to_end(key)
         while len(_failed) > CACHE_MAX_ENTRIES:
             _failed.popitem(last=False)
@@ -214,7 +265,7 @@ def _remember_failure(key: str) -> None:
 
 def _remember(key: str, url: str) -> None:
     with _lock:
-        _cache[key] = (url, time.monotonic())
+        _cache[key] = (url, _now())
         _cache.move_to_end(key)
         while len(_cache) > CACHE_MAX_ENTRIES:
             _cache.popitem(last=False)
@@ -222,11 +273,31 @@ def _remember(key: str, url: str) -> None:
         _failed.pop(key, None)
 
 
-def client_receipt_ref(stored: str | None, owner_id, *, source: str = "") -> str | None:
+def _take_sign_token() -> bool:
+    """One signing attempt from the process-wide budget, or False when it is
+    spent. A token bucket of SIGN_BUDGET_PER_MIN, refilled continuously."""
+    now = _now()
+    cap = float(SIGN_BUDGET_PER_MIN)
+    with _lock:
+        at = _bucket["at"]
+        tokens = _bucket["tokens"]
+        if at is not None and now > at:
+            tokens = min(cap, tokens + (now - at) * cap / 60.0)
+        _bucket["at"] = now
+        if tokens < 1.0:
+            _bucket["tokens"] = tokens
+            return False
+        _bucket["tokens"] = tokens - 1.0
+        return True
+
+
+def client_receipt_ref(stored: str | None, owner_id, *, created_at=None,
+                       source: str = "") -> str | None:
     """The receipt reference to hand a client for `stored` on a row owned by
-    `owner_id`. NEVER writes, never fetches from a retired host; on any doubt
-    returns `stored` unchanged. `source` ('expenses', 'sales', 'daily_closes')
-    only labels the log line."""
+    `owner_id` and written at `created_at` (the ROW's). NEVER writes, never
+    fetches from a retired host; on any doubt returns `stored` unchanged.
+    Only rows written before RETIRED_CUTOVER are ever signed. `source`
+    ('expenses', 'sales', 'daily_closes') only labels the log line."""
     if not stored or not isinstance(stored, str):
         return stored
     s = stored.strip()
@@ -242,7 +313,7 @@ def client_receipt_ref(stored: str | None, owner_id, *, source: str = "") -> str
     if host not in RETIRED_STORAGE_HOSTS:
         _note("foreign_host", source, host)
         return stored
-    key, reason = retired_link_key(s, owner_id)
+    key, reason = retired_link_key(s, owner_id, created_at=created_at)
     if key is None:
         _note(reason, source)
         return stored
@@ -256,6 +327,9 @@ def client_receipt_ref(stored: str | None, owner_id, *, source: str = "") -> str
         return hit
     if _recently_failed(key):
         _note("sign_backoff", source)
+        return stored
+    if not _take_sign_token():
+        _note("sign_budget", source)
         return stored
     try:
         signed = backend.signed_url(key, ttl_seconds=RECEIPT_URL_TTL_SECONDS,
@@ -273,14 +347,18 @@ def client_receipt_ref(stored: str | None, owner_id, *, source: str = "") -> str
 def relink_response_model(model, data, source: str):
     """For a response model's wrap validator (ExpenseResponse, SaleResponse):
     swap receipt_photo on the built PYDANTIC model for its client link. The
-    owner is read from what the model was built from (the ORM row's user_id,
-    or a dict's); without one nothing is re-linked. The source object — the
-    ORM row — is only read, never assigned."""
+    owner and created_at are read from what the model was built from (the
+    ORM row's, or a dict's); without an owner nothing is re-linked, and
+    without a created_at before the cutover nothing is signed. The source
+    object — the ORM row — is only read, never assigned."""
     stored = getattr(model, "receipt_photo", None)
     if not stored or isinstance(data, type(model)):
         return model                    # nothing stored, or already built (re-validation)
-    owner = data.get("user_id") if isinstance(data, dict) else getattr(data, "user_id", None)
-    out = client_receipt_ref(stored, owner, source=source)
+    if isinstance(data, dict):
+        owner, created = data.get("user_id"), data.get("created_at")
+    else:
+        owner, created = getattr(data, "user_id", None), getattr(data, "created_at", None)
+    out = client_receipt_ref(stored, owner, created_at=created, source=source)
     if out != stored:
         model.receipt_photo = out
     return model
@@ -313,6 +391,8 @@ def reset_for_tests() -> None:
         _failed.clear()
         _stats.clear()
         _noted.clear()
+        _bucket["tokens"] = float(SIGN_BUDGET_PER_MIN)
+        _bucket["at"] = None
 
 
 # ─── /api/admin/storage-links: is every retired-host photo resolvable? ──
@@ -326,40 +406,77 @@ _URL_COLUMNS = (
 )
 
 
+def _report_sign_ok(backend, key: str) -> bool:
+    """Can the current project mint a link for `key` right now? A real
+    signing call with a 60 s TTL — writes nothing. Any error, an empty
+    answer or a link on a retired host is False."""
+    try:
+        signed = backend.signed_url(key, ttl_seconds=REPORT_SIGN_TTL_SECONDS,
+                                    timeout=SIGN_TIMEOUT_SECONDS)
+    except Exception:  # noqa: BLE001 — "could not sign" is not "signs"
+        return False
+    return bool(signed and isinstance(signed, str)
+                and _host(signed) not in RETIRED_STORAGE_HOSTS)
+
+
+_REPORT_KEYS = (
+    "rows_with_value", "current_host", "retired_host", "other_url", "not_url",
+    "retired_after_cutover",
+    "retired_resolvable", "retired_signable", "retired_sign_failed",
+    "retired_missing", "retired_unchecked", "retired_refused",
+)
+
+
 def storage_link_report(db, *, check_limit: int = 500) -> dict:
     """Aggregate counts only — no ids, keys, paths, hosts or owners.
 
     Per column, every non-empty receipt_photo (soft-deleted rows included:
     they are retained source documents) is classed as on the current host,
-    on a retired host, on another host, or not a URL. Each retired-host value
-    is put through the SAME guards the read paths use (retired_link_key) and,
-    when it passes, its object is looked up in the current bucket:
-      retired_resolvable   the file is there — the read paths re-link it
+    on a retired host, on another host, or not a URL. A retired-host value
+    on a row written on/after RETIRED_CUTOVER is counted apart as
+    `retired_after_cutover`: the read paths never re-link it, and since
+    only a client can have typed it, it neither blocks the delete nor uses
+    the check budget (it stays visible, in case a legacy link was ever
+    copied onto a newer row). Every OTHER retired-host value — the legacy
+    links — goes through the SAME guards the read paths use
+    (retired_link_key) and, when it passes, its object is looked up in the
+    current bucket and, when there, signed once (60 s TTL):
+      retired_resolvable   the file is there
+        retired_signable     … and the current project signs a link for it
+        retired_sign_failed  … but signing it failed — the read path would
+                               hand out the dead Ireland link
       retired_missing      the guards pass but there is no such file
       retired_unchecked    the lookup could not answer (or check_limit hit)
       retired_refused      the guards refuse it (another owner's key, wrong
-                           bucket or kind, malformed) — never re-linked
-    `unresolvable` = missing + unchecked + refused: what breaks when the
-    retired project is deleted. Read-only: one storage listing per distinct
-    object, no writes."""
+                           bucket or kind, no created_at, malformed) —
+                           never re-linked
+    `unresolvable` = missing + unchecked + refused + sign_failed: what breaks
+    when the retired project is deleted. `safe_to_delete_retired_project`
+    also requires every legacy row to be signable, so it is proven by this
+    call, not by process counters a deploy resets.
+
+    The DB is read first, oldest rows first; the read transaction is then
+    ended (nothing is written) so no connection is held during the storage
+    calls. Then one existence check and at most one signing call per
+    distinct legacy object, at most `check_limit` of each."""
     import importlib
     from app.services.storage import get_storage
 
     backend = get_storage()
     current = current_storage_host()
-    seen: dict[str, bool | None] = {}
     budget = max(0, int(check_limit))
-    columns = []
-    totals: Counter = Counter()
+    tables = []
     for table, module, name in _URL_COLUMNS:
         model = getattr(importlib.import_module(module), name)
         col = model.receipt_photo
         c: Counter = Counter()
         refused: Counter = Counter()
-        rows = (db.query(model.user_id, col)
+        legacy_keys: list[str] = []
+        rows = (db.query(model.user_id, col, model.created_at)
                 .filter(col.isnot(None), col != "")
+                .order_by(model.created_at, model.id)
                 .yield_per(500))
-        for owner_id, value in rows:
+        for owner_id, value, created_at in rows:      # DB only — no storage call in here
             c["rows_with_value"] += 1
             v = (value or "").strip()
             if "://" not in v:
@@ -373,52 +490,72 @@ def storage_link_report(db, *, check_limit: int = 500) -> dict:
                 c["other_url"] += 1
                 continue
             c["retired_host"] += 1
-            key, reason = retired_link_key(v, owner_id)
+            key, reason = retired_link_key(v, owner_id, created_at=created_at)
+            if reason == "refused_after_cutover":
+                c["retired_after_cutover"] += 1
+                continue
             if key is None:
                 c["retired_refused"] += 1
                 refused[reason] += 1
                 continue
+            legacy_keys.append(key)
+        tables.append((table, c, refused, legacy_keys))
+    try:
+        db.rollback()          # end the read transaction: no connection held below
+    except Exception:  # noqa: BLE001
+        pass
+
+    seen: dict[str, str] = {}      # key -> "signable" | "sign_failed" | "missing" | "unchecked"
+    columns = []
+    totals: Counter = Counter()
+    for table, c, refused, legacy_keys in tables:
+        for key in legacy_keys:
             if key not in seen:
                 if budget <= 0:
-                    found = None
+                    seen[key] = "unchecked"
                 else:
                     budget -= 1
                     try:
                         found = backend.exists(key)
                     except Exception:  # noqa: BLE001 — an error is "could not check"
                         found = None
-                seen[key] = found
-            found = seen[key]
-            if found is True:
+                    if found is True:
+                        seen[key] = "signable" if _report_sign_ok(backend, key) else "sign_failed"
+                    elif found is False:
+                        seen[key] = "missing"
+                    else:
+                        seen[key] = "unchecked"
+            outcome = seen[key]
+            if outcome in ("signable", "sign_failed"):
                 c["retired_resolvable"] += 1
-            elif found is False:
-                c["retired_missing"] += 1
+                c[f"retired_{outcome}"] += 1
             else:
-                c["retired_unchecked"] += 1
+                c[f"retired_{outcome}"] += 1
         row = {"table": table, "column": "receipt_photo"}
-        for k in ("rows_with_value", "current_host", "retired_host", "other_url", "not_url",
-                  "retired_resolvable", "retired_missing", "retired_unchecked", "retired_refused"):
+        for k in _REPORT_KEYS:
             row[k] = c[k]
         row["retired_refused_by_reason"] = dict(refused)
         columns.append(row)
         totals.update({k: v for k, v in row.items() if isinstance(v, int)})
     unresolvable = (totals["retired_missing"] + totals["retired_unchecked"]
-                    + totals["retired_refused"])
+                    + totals["retired_refused"] + totals["retired_sign_failed"])
+    legacy = totals["retired_host"] - totals["retired_after_cutover"]
     durable = bool(getattr(backend, "is_durable", False))
     retired_configured = configured_project_is_retired()
     return {
         "durable_storage": durable,
         "configured_project_is_retired": retired_configured,
+        "retired_cutover": RETIRED_CUTOVER.date().isoformat(),
         "columns": columns,
-        "totals": {k: totals[k] for k in (
-            "rows_with_value", "current_host", "retired_host", "other_url", "not_url",
-            "retired_resolvable", "retired_missing", "retired_unchecked", "retired_refused")},
-        "objects_checked": len([k for k, v in seen.items() if v is not None]),
+        "totals": {k: totals[k] for k in _REPORT_KEYS},
+        "objects_checked": len([k for k, v in seen.items() if v != "unchecked"]),
         "unresolvable": unresolvable,
-        # True only when every retired-host row is re-linked to a file that
-        # exists in the current project — the precondition for deleting the
-        # retired one. Also check relink_stats: sign_failed must be 0.
+        # True only when every legacy retired-host row is re-linked to a file
+        # that exists in the current project AND the current project signed
+        # a link for it in this very call — the precondition for deleting the
+        # retired one. Rows written after the cutover are not part of it.
         "safe_to_delete_retired_project": bool(durable and not retired_configured
-                                               and unresolvable == 0),
+                                               and unresolvable == 0
+                                               and totals["retired_signable"] == legacy),
         "relink_stats": relink_stats(),
     }

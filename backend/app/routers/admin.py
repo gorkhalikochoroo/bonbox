@@ -616,9 +616,13 @@ def admin_storage_links(
     current host, on the retired host, elsewhere, not a URL; of the retired
     ones, how many re-link to a file that exists here, how many are missing,
     could not be checked, or are refused by the re-link guards.
-    `safe_to_delete_retired_project` is true only when none is unresolvable;
-    `relink_stats.sign_failed` must also be 0. Read-only: one storage
-    listing per distinct object, nothing written. Same guard and limits as
+    Rows written after the 20 Oct cutover are counted apart
+    (`retired_after_cutover`) and never re-linked.
+    `safe_to_delete_retired_project` is true only when none is unresolvable
+    AND every legacy object was signed by the current project in this call
+    (it does not rely on `relink_stats`, which a deploy resets). Read-only:
+    one storage listing and one 60 s signing per distinct legacy object,
+    nothing written. Same guard and limits as
     every /admin route (require_super_admin, the app-wide rate limit, the
     /api/admin scan blocker)."""
     from app.services.storage_links import storage_link_report
