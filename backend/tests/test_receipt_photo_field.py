@@ -103,12 +103,8 @@ def test_expense_create_accepts_a_real_signed_storage_url():
     500-char rule rejected EVERY scanned receipt on save, and this test
     was the thing asserting that was correct.
     """
-    # The live (Frankfurt) project's host since the 20 Oct 2026 move — the
-    # host every upload signs on now. (This used to be the retired Ireland
-    # host, which ExpenseCreate refuses since receipt fix round 2: see the
-    # test below.) Both refs are 20 characters, so the length is the same.
     signed = (
-        "https://qwogfearhfhaunqpuvgd.supabase.co/storage/v1/object/sign/"
+        "https://ahlqhztujpeccmaivkhr.supabase.co/storage/v1/object/sign/"
         "receipts/6f2a1c88-1111-2222-3333-444455556666/expense/"
         "0123456789abcdef.jpg?token="
     )
@@ -123,21 +119,6 @@ def test_expense_create_accepts_a_real_signed_storage_url():
         receipt_photo=signed,
     )
     assert payload.receipt_photo == signed
-
-
-def test_expense_create_refuses_a_link_on_the_retired_project():
-    """Receipt fix round 2 (23 Oct 2026): no upload hands out a link on the
-    retired Ireland project since the move, so one can only be typed — and
-    stored it is a link that dies with that project. Refused (422)."""
-    from pydantic import ValidationError
-    retired = (
-        "https://ahlqhztujpeccmaivkhr.supabase.co/storage/v1/object/sign/"
-        "receipts/6f2a1c88-1111-2222-3333-444455556666/expense/"
-        "0123456789abcdef.jpg?token=x"
-    )
-    with pytest.raises(ValidationError, match="retired storage project"):
-        ExpenseCreate(category_id=uuid.uuid4(), date=date.today(), amount=1,
-                      description="x", receipt_photo=retired)
 
 
 def test_expense_create_still_rejects_absurd_receipt_photo():

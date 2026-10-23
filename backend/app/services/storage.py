@@ -34,7 +34,7 @@ Public surface:
   get_storage() -> StorageBackend                  # singleton
   compose_key(user_id, kind, sha, ext) -> str      # path builder
   StorageBackend.put(key, data, content_type) -> str
-  StorageBackend.get(key, timeout=None) -> bytes | None
+  StorageBackend.get(key) -> bytes | None
   StorageBackend.delete(key) -> bool
   StorageBackend.is_durable -> bool                # Supabase=True, Local/Unavailable=False
 """
@@ -109,10 +109,8 @@ class StorageBackend(ABC):
         we'll save to the DB row."""
 
     @abstractmethod
-    def get(self, key: str, timeout: float | None = None) -> bytes | None:
-        """Read bytes at `key`. Returns None if not found. `timeout` (seconds)
-        bounds this one read; None keeps the backend's own. A read made while
-        a request holds a DB connection (the Z-bon attachment) passes one."""
+    def get(self, key: str) -> bytes | None:
+        """Read bytes at `key`. Returns None if not found."""
 
     @abstractmethod
     def delete(self, key: str) -> bool:
@@ -128,8 +126,7 @@ class StorageBackend(ABC):
         """
         return 0
 
-    def signed_url(self, key: str, ttl_seconds: int = 3600,
-                   timeout: float | None = None) -> str | None:
+    def signed_url(self, key: str, ttl_seconds: int = 3600) -> str | None:
         """Return a time-limited URL the browser can fetch directly.
 
         Used by the legacy expense/sale receipt-photo flow which stores
@@ -137,21 +134,8 @@ class StorageBackend(ABC):
         support signed URLs return None — caller falls back to backend-
         proxied serving via the regular GET endpoint.
 
-        `timeout` (seconds) bounds this one call; None keeps the backend's
-        own. A read path that signs while answering a request (the receipt
-        re-link, services/storage_links.py) passes a short one.
-
         Default implementation returns None; override per backend.
         """
-        return None
-
-    def exists(self, key: str) -> bool | None:
-        """Whether an object is stored at `key`: True / False, or None when
-        it could not be checked (a storage error, no durable storage). Three
-        answers on purpose: "could not check" must never read as "missing"
-        or as "there" (/api/admin/storage-links counts them apart).
-
-        Default: None (cannot check); override per backend."""
         return None
 
 
@@ -194,21 +178,17 @@ class SupabaseStorageBackend(StorageBackend):
             )
         return key
 
-    def get(self, key: str, timeout: float | None = None) -> bytes | None:
+    def get(self, key: str) -> bytes | None:
         url = f"{self.base}/object/{self.bucket}/{key}"
-        extra = {} if timeout is None else {"timeout": httpx.Timeout(float(timeout))}
         try:
-            resp = self._client.get(url, headers=self._headers, **extra)
+            resp = self._client.get(url, headers=self._headers)
         except httpx.HTTPError as e:
-            # Never the key (owner id + file name) or the error text (it can
-            # carry the URL): the exception class only.
-            logger.warning("Supabase storage GET failed: %s", type(e).__name__)
+            logger.warning("Supabase storage GET failed for %s: %s", key, e)
             return None
         if resp.status_code == 404:
             return None
         if resp.status_code >= 400:
-            # The status only — no key, no Supabase error body.
-            logger.warning("Supabase storage GET -> %s", resp.status_code)
+            logger.warning("Supabase storage GET %s -> %s", key, resp.status_code)
             return None
         return resp.content
 
@@ -255,36 +235,7 @@ class SupabaseStorageBackend(StorageBackend):
             logger.warning("delete_prefix(%s) failed: %s", folder, e)
         return removed
 
-    def exists(self, key: str) -> bool | None:
-        """Lists the key's folder, searching for its file name — the list
-        API delete_prefix already uses, so no new endpoint is relied on.
-        None when the listing fails (never False on an error)."""
-        folder, _, name = key.rpartition("/")
-        if not folder or not name:
-            return None
-        try:
-            resp = self._client.post(
-                f"{self.base}/object/list/{self.bucket}",
-                json={"prefix": folder, "search": name, "limit": 100, "offset": 0},
-                headers=self._headers,
-                timeout=httpx.Timeout(10.0, connect=5.0),
-            )
-        except httpx.HTTPError as e:
-            logger.warning("Supabase exists check failed: %s", type(e).__name__)
-            return None
-        if resp.status_code >= 400:
-            logger.warning("Supabase exists check -> %s", resp.status_code)
-            return None
-        try:
-            items = resp.json() or []
-        except ValueError:
-            return None
-        if not isinstance(items, list):
-            return None
-        return any(isinstance(it, dict) and it.get("name") == name for it in items)
-
-    def signed_url(self, key: str, ttl_seconds: int = 3600,
-                   timeout: float | None = None) -> str | None:
+    def signed_url(self, key: str, ttl_seconds: int = 3600) -> str | None:
         """Generate a signed URL valid for `ttl_seconds`. Used by the
         legacy receipt_photo flow that stores a URL string in DB.
 
@@ -293,23 +244,20 @@ class SupabaseStorageBackend(StorageBackend):
         as-is. Returns None on failure (caller falls back to local path /
         backend proxy)."""
         url = f"{self.base}/object/sign/{self.bucket}/{key}"
-        extra = {} if timeout is None else {"timeout": httpx.Timeout(float(timeout))}
         try:
             resp = self._client.post(
                 url,
                 json={"expiresIn": int(ttl_seconds)},
                 headers=self._headers,
-                **extra,
             )
         except httpx.HTTPError as e:
-            # Never the key (owner id + file name) or the error text (it can
-            # carry the URL): the exception class only.
-            logger.warning("Supabase signed_url failed: %s", type(e).__name__)
+            logger.warning("Supabase signed_url failed for %s: %s", key, e)
             return None
         if resp.status_code >= 400:
-            # The status only — the key and Supabase's error body stay out of
-            # the logs (the body echoes the object path).
-            logger.warning("Supabase signed_url -> %s", resp.status_code)
+            logger.warning(
+                "Supabase signed_url %s -> %s: %s",
+                key, resp.status_code, resp.text[:200],
+            )
             return None
         data = resp.json()
         signed = data.get("signedURL") or data.get("signed_url") or ""
@@ -351,7 +299,7 @@ class LocalStorageBackend(StorageBackend):
         p.write_bytes(data)
         return key
 
-    def get(self, key: str, timeout: float | None = None) -> bytes | None:
+    def get(self, key: str) -> bytes | None:
         try:
             p = self._resolve(key)
         except StorageError:
@@ -369,13 +317,6 @@ class LocalStorageBackend(StorageBackend):
             p.unlink()
             return True
         return False
-
-    def exists(self, key: str) -> bool | None:
-        try:
-            p = self._resolve(key)
-        except StorageError:
-            return False
-        return p.is_file()
 
     def delete_prefix(self, prefix: str) -> int:
         """Delete every file under the `<prefix>/` directory. Best-effort."""
@@ -412,7 +353,7 @@ class UnavailableStorageBackend(StorageBackend):
     def put(self, key: str, data: bytes, content_type: str = "image/jpeg") -> str:
         raise StorageError("durable storage not configured")
 
-    def get(self, key: str, timeout: float | None = None) -> bytes | None:
+    def get(self, key: str) -> bytes | None:
         raise StorageError("durable storage not configured")
 
     def delete(self, key: str) -> bool:

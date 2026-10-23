@@ -602,35 +602,6 @@ def admin_backup_health(
     }
 
 
-@router.get("/storage-links")
-def admin_storage_links(
-    admin: User = Depends(require_super_admin),
-    db: Session = Depends(get_db),
-):
-    """Are the receipt photos still linked on the retired storage project
-    (Ireland) all resolvable in the current one (Frankfurt)? The check to
-    run before that project is deleted.
-
-    Aggregate counts only, per table/column — never an id, key, path, host
-    or owner (services/storage_links.storage_link_report): rows on the
-    current host, on the retired host, elsewhere, not a URL; of the retired
-    ones, how many re-link to a file that exists here, how many are missing,
-    could not be checked, or are refused by the re-link guards.
-    Rows written after the 20 Oct cutover are counted apart
-    (`retired_after_cutover`) and never re-linked.
-    `safe_to_delete_retired_project` is true only when none is unresolvable,
-    `retired_after_cutover` is 0 (each such row is a photo that would break
-    with the project and has to be explained first), AND every legacy object
-    was signed by the current project in this call (it does not rely on
-    `relink_stats`, which a deploy resets). Read-only:
-    one storage listing and one 60 s signing per distinct legacy object,
-    nothing written. Same guard and limits as
-    every /admin route (require_super_admin, the app-wide rate limit, the
-    /api/admin scan blocker)."""
-    from app.services.storage_links import storage_link_report
-    return storage_link_report(db)
-
-
 @router.get("/public-surface-health")
 def admin_public_surface_health(
     admin: User = Depends(require_super_admin),

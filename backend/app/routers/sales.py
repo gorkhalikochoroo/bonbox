@@ -1063,15 +1063,6 @@ def create_sale_from_receipt(
     user: User = Depends(get_current_user),
 ):
     """Create a sale from a confirmed receipt upload."""
-    from app.services.storage_links import is_retired_link
-    if is_retired_link(receipt_path):
-        # No upload hands out a link on the retired storage project since the
-        # Frankfurt move: only a typed one can arrive (receipt fix round 2).
-        raise HTTPException(status_code=422, detail={
-            "code": "retired_receipt_link",
-            "message": "That receipt link points at the old server. Upload the picture again.",
-            "message_da": "Bilagslinket peger på den gamle server. Upload billedet igen.",
-        })
     sale = Sale(
         user_id=user.id,
         date=date.today(),
@@ -1235,12 +1226,8 @@ def list_receipt_sales(
     )
     base_url = str(request.base_url).rstrip("/")
     results = []
-    from app.services.storage_links import client_receipt_ref
     for s in sales:
-        # A photo on the retired storage project → the same file's link in
-        # the current one (services/storage_links). Read-only.
-        photo = client_receipt_ref(s.receipt_photo, s.user_id, created_at=s.created_at,
-                                   source="sales")
+        photo = s.receipt_photo
         # Convert local paths to full URLs so frontend can display them
         if photo and not photo.startswith("http"):
             photo = f"{base_url}/{photo}"

@@ -38,14 +38,11 @@ info and passwords and of the keys in the environment.
 Safety:
   • A write needs --confirm-target equal to "<host>/<dbname>" (DB) or
     "<bucket>" (photos bucket), so a pasted URL cannot write by accident.
-  • It refuses a DB target in a protected project — the live primary
-    (qwogfearhfhaunqpuvgd, Frankfurt, since 20 Oct 2026), the old primary
-    kept as a fallback copy (ahlqhztujpeccmaivkhr, Ireland), and whatever
-    project $SUPABASE_URL / $DATABASE_URL name — or equal to $DATABASE_URL:
-    restore into a NEW project or a local database, then repoint the app.
-    Photos may go back into a protected project's bucket only with
-    --allow-main-project, and an object that already exists there is never
-    overwritten.
+  • It refuses a DB target in the main production project
+    (ahlqhztujpeccmaivkhr) or equal to $DATABASE_URL — restore into a NEW
+    project or a local database, then repoint the app. Photos may go back
+    into the main project's bucket only with --allow-main-project, and an
+    object that already exists there is never overwritten.
   • Before it downloads anything for a DB write it checks that the login may
     set session_replication_role (the load needs it) and explains what to do
     when it may not.
@@ -109,49 +106,7 @@ from app.services.backup_storage import (  # noqa: E402
 )
 from app.utils.time import utc_now  # noqa: E402
 
-# Projects a restore never writes into (photos: only with --allow-main-project).
-# MAIN_PROJECT_REF is the LIVE primary — Frankfurt since the 20 Oct 2026 move
-# (docs/runbooks/INCIDENT.md). Until this release the guard still named the
-# old Ireland ref, so only the exact $DATABASE_URL match protected production:
-# a pooler URL on the other port, the db.<ref>.supabase.co host, or the photo
-# bucket at https://<ref>.supabase.co all got through. The old primary stays
-# refused too: it is an unchanged fallback copy ("never restore into it").
-# And the refs $SUPABASE_URL / $DATABASE_URL name are added at run time (as
-# backup_service derives the main project from settings.SUPABASE_URL), so the
-# next move cannot leave the guard naming the wrong project again.
-MAIN_PROJECT_REF = "qwogfearhfhaunqpuvgd"
-RETIRED_PROJECT_REFS = ("ahlqhztujpeccmaivkhr",)
-_PROJECT_REF_RE = re.compile(r"^[a-z0-9]{20}$")
-
-
-def _project_refs_in(url: str | None) -> set[str]:
-    """The Supabase project refs a URL names: the <ref>.supabase.co or
-    db.<ref>.supabase.co host, or the pooler login postgres.<ref>."""
-    refs: set[str] = set()
-    try:
-        parts = urlsplit((url or "").strip())
-        host = (parts.hostname or "").lower()
-        user = unquote(parts.username or "").lower()
-    except ValueError:
-        return refs
-    labels = host.split(".")
-    if host.endswith(".supabase.co") and len(labels) >= 3:
-        refs.add(labels[-3])
-    if "." in user:
-        refs.add(user.rsplit(".", 1)[1])
-    return {r for r in refs if _PROJECT_REF_RE.match(r)}
-
-
-def protected_project_refs(env: dict) -> set[str]:
-    refs = {MAIN_PROJECT_REF, *RETIRED_PROJECT_REFS}
-    for name in ("SUPABASE_URL", "DATABASE_URL"):
-        refs |= _project_refs_in(env.get(name))
-    return refs
-
-
-def _names_protected_project(text: str | None, env: dict) -> bool:
-    t = (text or "").lower()
-    return any(ref in t for ref in protected_project_refs(env))
+MAIN_PROJECT_REF = "ahlqhztujpeccmaivkhr"
 
 # The extensions storage.compose_key allows, with the types the app uploads
 # them as (a restored object must be served like the original).
@@ -282,7 +237,7 @@ def _db_target(args, env) -> str:
 
 
 def _refuse_main(target: str, env: dict) -> str | None:
-    if _names_protected_project(target, env):
+    if MAIN_PROJECT_REF in (target or ""):
         return "target is in the main production project; restore into a new project"
     main_db = (env.get("DATABASE_URL") or "").strip()
     if main_db and _pg_url(main_db) == _pg_url(target):
@@ -327,8 +282,7 @@ def run_db(bucket, fernet, args, env, ctx: dict | None = None) -> dict:
             _say(f"  {error}")
             return {**out, "error": error}
         where = f"{target_conn.info.host}/{target_conn.info.dbname}"
-        if (_names_protected_project(target_conn.info.host, env)
-                or _names_protected_project(target_conn.info.user, env)):
+        if MAIN_PROJECT_REF in (target_conn.info.host or "") or MAIN_PROJECT_REF in (target_conn.info.user or ""):
             target_conn.close()
             return {**out, "error": "refused: target is in the main production project"}
         if not args.dry_run and args.confirm_target != where:
