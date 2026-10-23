@@ -1,0 +1,113 @@
+{
+  "_about": "The English app screens of the v6 landing (23 Oct 2026, Manoj: \"eng should be eng and danish should be danish\"): byte-for-byte copies of bonbox-lab-state/landing-v4-2026-10-21/captures-en (report.json; independently checked: same size, crop, quality and demo numbers as the Danish twins). The 10.00 week plan is the alternate box img/alt/vagt-uge-v8.en.alt.webp, saved as vagt-uge-v8.en.webp (decisions_2026-10-21_evening.md, 23 Oct ~08:10). landingV6Assets.test.jsx hashes the files in the repo against these and, where the lab folder is on disk, the lab files too. The Danish files and the share card are pinned as they were (unchanged by this step). Replace a hash only when a picture is deliberately re-captured, in the same commit, with the reason in the message.",
+  "source_dir": "bonbox-lab-state/landing-v4-2026-10-21/captures-en",
+  "en": {
+    "vagt-uge-v8.en.webp": {
+      "source": "img/alt/vagt-uge-v8.en.alt.webp",
+      "bytes": 49432,
+      "sha256": "145ca35b2371931c1eb4f10f93181b057002647c090952eac5dadd618d762332"
+    },
+    "1945_booking_gaest.en.webp": {
+      "source": "img/1945_booking_gaest.en.webp",
+      "bytes": 22294,
+      "sha256": "59a52e5d55cf2bc650ba4926feff1793b86fbbaefc587b7ab54d9323012f33da"
+    },
+    "bord-gaest.en.webp": {
+      "source": "img/bord-gaest.en.webp",
+      "bytes": 48614,
+      "sha256": "94ef764434a7a046e96720dc62ac57fa2e82322661cbf6043888339e7a29acae"
+    },
+    "1640_vagtplan_naeste_vagt_c15.en.webp": {
+      "source": "img/1640_vagtplan_naeste_vagt_c15.en.webp",
+      "bytes": 37900,
+      "sha256": "aeca69320762abec3c432c39a294aa0a78c8b2fe4e6b3cb58cb939e2e51af647"
+    },
+    "vagt-app-v8.en.webp": {
+      "source": "img/vagt-app-v8.en.webp",
+      "bytes": 48626,
+      "sha256": "5ad6ebb6866851a2c396f7a94b68b646f7a4937c2b78c7568092010c7db2c9dd"
+    },
+    "stand-sidder.en.webp": {
+      "source": "img/stand-sidder.en.webp",
+      "bytes": 2598,
+      "sha256": "9290fe9e4adb7a0b31f3f6e40f771622f212f4b0171ec80c2b4692d037a5768b"
+    },
+    "2250_stand_bordplan.en.webp": {
+      "source": "img/2250_stand_bordplan.en.webp",
+      "bytes": 39438,
+      "sha256": "d083c782a0a45a8028a787bda2b25160195b30b62aab903f1d3d90e912db5d81"
+    },
+    "stand-tal2.en.webp": {
+      "source": "img/stand-tal2.en.webp",
+      "bytes": 4984,
+      "sha256": "17537c7f1f3d8bd62e575467edbda241799d6aa82ae044c201cb154d4cf6706b"
+    },
+    "kasse-foto.en.webp": {
+      "source": "img/kasse-foto.en.webp",
+      "bytes": 45428,
+      "sha256": "d7a60ed5346e7534491aa43fe9e8f13fde86a6e3195b91321a5b4300bbcc3296"
+    },
+    "kasse-foto-hel-v7.en.webp": {
+      "source": "img/kasse-foto-hel-v7.en.webp",
+      "bytes": 83446,
+      "sha256": "33fec6d658d0e2608fce841c9e6c02013eb99c8a3984f738a6b90daf5a085c10"
+    },
+    "kasse-moms.en.webp": {
+      "source": "img/kasse-moms.en.webp",
+      "bytes": 72618,
+      "sha256": "650f9cdbe6e362101afb52e7a027de9688400f011b2f03a41839f8ecd2e5c0b1"
+    }
+  },
+  "da": {
+    "vagt-uge-v8.webp": {
+      "bytes": 48838,
+      "sha256": "9fd6a9f7492cc4de1e0e4643c502f135bfdd5262d5abd53fab139737d57e508f"
+    },
+    "1945_booking_gaest.webp": {
+      "bytes": 22868,
+      "sha256": "018d500eb90855aea096db3e9711ac6682ca43671d2817d84eff0dc82f58f361"
+    },
+    "bord-gaest.webp": {
+      "bytes": 48206,
+      "sha256": "3471f217ffac6f43d01fc435927543c1b6344068e4bb764e8cab5842b30be0c4"
+    },
+    "1640_vagtplan_naeste_vagt_c15.webp": {
+      "bytes": 39184,
+      "sha256": "3a0945def53647c4cae81568e1234b317cde004349dbc81b956929d5de802a25"
+    },
+    "vagt-app-v8.webp": {
+      "bytes": 50000,
+      "sha256": "6119d03fc5b88d4c75a855cffbcb50bc2b476825a525f5cbb115251745af1605"
+    },
+    "stand-sidder.webp": {
+      "bytes": 2576,
+      "sha256": "ee4a5879f4fa7a3767ae0fa0f5da565cfdc12cdacd4786590a3888daab574928"
+    },
+    "2250_stand_bordplan.webp": {
+      "bytes": 39506,
+      "sha256": "eabf727fa45efc25c6ea12f3fc53c6de6973f84fc3c5a001e1aba4c75fee6194"
+    },
+    "stand-tal2.webp": {
+      "bytes": 5132,
+      "sha256": "7ef857f0c8cdf9f85d11a2fc5210a5c90826652125d6a3da7312c3e1e47f9ff8"
+    },
+    "kasse-foto.webp": {
+      "bytes": 41406,
+      "sha256": "6b4c9d3139cf2f23c3d7cf3175267942eff6c53b0bdb17bcd811cf640b5abc45"
+    },
+    "kasse-foto-hel-v7.webp": {
+      "bytes": 78936,
+      "sha256": "06f9efa3a90ab22047659fa52710eb6b1736279ced679c6c96c93290a4ab447d"
+    },
+    "kasse-moms.webp": {
+      "bytes": 72632,
+      "sha256": "5ea0949841d445f26244390003976aeb13f39e96251fd54772f0323e90d8a57a"
+    }
+  },
+  "og": {
+    "public/og-image-v4.png": {
+      "bytes": 139600,
+      "sha256": "68b49c39dcdb8b0b282f33a2c321b99aaadb8583a3470633f233a09c865bae83"
+    }
+  }
+}

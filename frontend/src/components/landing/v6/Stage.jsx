@@ -8,9 +8,14 @@
  *
  * Demo data stays as the screenshots show it in every language: the venue and table names, the staff names, the
  * axis hours and the amounts (Danish money format, as the app prints DKK everywhere). Every picture is demo data
- * and says so. */
+ * and says so.
+ *
+ * The pictures are the app in the page's language (23 Oct 2026, "eng should be eng and danish should be danish"):
+ * images.js imagesFor(lang) gives the Danish screens on the Danish page and the English screens on the English one
+ * (a Turkish reader's too), one file per <img> / <source>. A language switch re-keys the page, so the new set comes in
+ * with the new text; each pair has the same pixel box, so the engine's layout does not move. */
 import { Link } from "react-router-dom";
-import { IMG } from "./images";
+import { imagesFor } from "./images";
 import RoomSvg from "./RoomSvg";
 import StoreLink from "./StoreLink";
 import { rich } from "./rich";
@@ -27,7 +32,8 @@ const CM = (
 const Img = ({ img, alt }) => <img src={img.src} width={img.width} height={img.height} alt={alt} loading="lazy" decoding="async" fetchPriority="low" />;
 const Dg = ({ d }) => <span className="dg"><b className="sx f1">{d}</b><b className="sx f1"></b></span>;
 
-export default function Stage({ t, isAndroid }) {
+export default function Stage({ t, lang, isAndroid }) {
+  const IMG = imagesFor(lang);
   const demo = t("landingV6.demo");
   const cap = <figcaption className="demo sx f3">{demo}</figcaption>;
   const schedule = t("landingV6.label.schedule");

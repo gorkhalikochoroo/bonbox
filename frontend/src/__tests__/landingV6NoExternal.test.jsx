@@ -73,7 +73,7 @@ describe("the source asks no other host", () => {
     expect(specs.size).toBeGreaterThan(20);
     expect([...specs].filter((s) => !s.startsWith(".") && !["react", "react-router-dom", "@fontsource/inter/latin-300.css"].includes(s))).toEqual([]);
     // the pictures are files in the tree, imported (hashed under /assets/ by Vite)
-    for (const m of read(`${V6}/images.js`).matchAll(/from\s+["'](\.\/img\/[^"']+)["']/g)) expect(fs.existsSync(path.join(SRC, V6, m[1]))).toBe(true);
+    for (const m of read(`${V6}/images.js`).matchAll(/from\s+["'](\.\/img\/[^"'?]+)(\?no-inline)?["']/g)) expect(fs.existsSync(path.join(SRC, V6, m[1]))).toBe(true);
   });
 
   it("the stylesheets: no remote url(), no @import; Inter 300 is two relative font files from @fontsource (font-src 'self')", () => {

@@ -7,7 +7,8 @@
  * listener, timer and observer). React never re-writes what the engine owns (PORT_PLAN 1.3).
  *
  * Language. The page is Danish or English: pageLang = "da" for Danish, else "en". A reader in another language
- * (Turkish today) gets the whole page in English, never a mix (landingV6.* exists in da.js and en.js only), and the
+ * (Turkish today) gets the whole page in English, never a mix (landingV6.* exists in da.js and en.js only; the app
+ * screens on the stage are the English captures on the English page, images.js imagesFor), and the
  * root's lang says so to screen readers and translators. A language change re-keys the tree: the old engine is
  * destroyed with its DOM, the new one lays out against the new text.
  *
@@ -123,7 +124,7 @@ function LandingV6({ t, lang, isAndroid, onLang, carryRef, arrive }) {
       <main id="main">
         <section className="aften" id="aften" aria-labelledby="aften-h">
           <Hero t={t} />
-          <Stage t={t} isAndroid={isAndroid} />
+          <Stage t={t} lang={lang} isAndroid={isAndroid} />
           <Dock t={t} />
         </section>
         <Sheet t={t} isAndroid={isAndroid} />
