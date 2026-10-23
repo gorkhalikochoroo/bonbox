@@ -492,12 +492,16 @@ def storage_link_report(db, *, check_limit: int = 500) -> dict:
 
     Per column, every non-empty receipt_photo (soft-deleted rows included:
     they are retained source documents) is classed as on the current host,
-    on a retired host, on another host, or not a URL. A retired-host value
     on a row written on/after RETIRED_CUTOVER is counted apart as
-    `retired_after_cutover`: the read paths never re-link it, and since
-    only a client can have typed it, it neither blocks the delete nor uses
-    the check budget (it stays visible, in case a legacy link was ever
-    copied onto a newer row). Every OTHER retired-host value — the legacy
+    `retired_after_cutover`: the read paths never re-link it and it uses no
+    check budget, but it DOES hold `safe_to_delete_retired_project` false
+    (fix round 3). Since fix round 2 no write path stores a new one, so such
+    a row was written between the move and that release — most likely a
+    REAL photo ("Knyt til eksisterende udgift" on the old code moved a
+    pre-move draft's Ireland link onto a newer expense), which would break
+    with the project. Each one has to be explained (or fixed) before the
+    delete; the flag cannot tell typed junk from a real photo, so it never
+    guesses. Every OTHER retired-host value — the legacy
     links — goes through the SAME guards the read paths use
     (retired_link_key) and, when it passes, its object is looked up in the
     current bucket and, when there, signed once (60 s TTL):
@@ -513,7 +517,8 @@ def storage_link_report(db, *, check_limit: int = 500) -> dict:
     `unresolvable` = missing + unchecked + refused + sign_failed: what breaks
     when the retired project is deleted. `safe_to_delete_retired_project`
     also requires every legacy row to be signable, so it is proven by this
-    call, not by process counters a deploy resets.
+    call, not by process counters a deploy resets — and
+    `retired_after_cutover` to be 0.
 
     The DB is read first, oldest rows first; the read transaction is then
     ended (nothing is written) so no connection is held during the storage
@@ -612,10 +617,13 @@ def storage_link_report(db, *, check_limit: int = 500) -> dict:
         "unresolvable": unresolvable,
         # True only when every legacy retired-host row is re-linked to a file
         # that exists in the current project AND the current project signed
-        # a link for it in this very call — the precondition for deleting the
-        # retired one. Rows written after the cutover are not part of it.
+        # a link for it in this very call, AND no row written after the
+        # cutover still links to the retired project (never re-linked, so it
+        # would break with it; each one is explained first) — the
+        # precondition for deleting the retired one.
         "safe_to_delete_retired_project": bool(durable and not retired_configured
                                                and unresolvable == 0
+                                               and totals["retired_after_cutover"] == 0
                                                and totals["retired_signable"] == legacy),
         "relink_stats": relink_stats(),
     }

@@ -29,6 +29,10 @@ Pinned here:
     a per-owner signing budget inside the process-wide one; storage GET
     logs no key; host log marks cannot silence a reason; the naive-is-UTC
     rule is checked under a forced non-UTC zone; the Z-bon read waits 8 s
+  • fix round 3 (23 Oct): a row written after the cutover that still links
+    to Ireland holds the delete flag false; the link-bilag 503 says "a few
+    minutes" (the signing backoff is 5); a padded Ireland spelling is
+    refused on every write path; exists() logs no key on an error
 
 Run:
   cd backend && python -m pytest tests/test_storage_links.py -q
@@ -944,10 +948,14 @@ def test_not_safe_to_delete_when_the_current_project_cannot_sign(env, monkeypatc
     assert b.exists_calls == [k] and [c[0] for c in b.sign_calls] == [k]
 
 
-def test_rows_written_after_the_cutover_neither_block_nor_starve_the_check(env, monkeypatch):
+def test_rows_written_after_the_cutover_never_starve_the_check_but_hold_the_flag(env, monkeypatch):
     """Probe P5: one real legacy row, then a tenant adds 501 made-up own-key
     rows and one naming another owner's key — all written after the cutover.
-    They are counted apart, never checked, and the flag stays true."""
+    They are counted apart and never checked (the legacy row still gets its
+    check). Since fix round 3 they hold the flag false: no write path stores
+    a new Ireland link since fix round 2, so a post-cutover Ireland row has
+    to be explained before the delete — the flag cannot tell typed junk
+    from a real photo."""
     db, _ = env
     owner = _owner(db)
     k = _key(owner.id, "kasserapport")
@@ -962,7 +970,7 @@ def test_rows_written_after_the_cutover_neither_block_nor_starve_the_check(env, 
     t = body["totals"]
     assert t["retired_host"] == 503 and t["retired_after_cutover"] == 502
     assert (t["retired_signable"], t["retired_missing"], t["retired_unchecked"], t["retired_refused"]) == (1, 0, 0, 0)
-    assert body["unresolvable"] == 0 and body["safe_to_delete_retired_project"] is True
+    assert body["unresolvable"] == 0 and body["safe_to_delete_retired_project"] is False
     assert b.exists_calls == [k] and [c[0] for c in b.sign_calls] == [k]
 
 
@@ -1403,3 +1411,231 @@ def test_naive_created_at_is_utc_whatever_the_local_zone(backend, local_tz_far_f
     assert [c[0] for c in backend.sign_calls] == [k]
     assert sl.retired_link_key(_irl(k), OWNER, created_at=just_before) == (k, "ok")
     assert sl.retired_link_key(_irl(k), OWNER, created_at=at_cutover) == (None, "refused_after_cutover")
+
+
+# ─── fix round 3 (23 Oct) ──────────────────────────────────────────────
+# 1 a row written after the cutover that links to Ireland holds the flag false
+# 3 the link-bilag 503 says "a few minutes": a failed signing backs off 5 min
+# 4 a padded Ireland spelling is refused on every write path that refuses
+#   one; exists() never logs the key on an error status or transport error
+
+def test_not_safe_to_delete_while_a_row_written_after_the_cutover_links_to_ireland(env, monkeypatch):
+    """Packet item 3: every legacy row resolves and is signed, but one row
+    written after the move still links to Ireland (on the old code
+    "Knyt til eksisterende udgift" moved a pre-move draft's Ireland link
+    onto a newer expense). The read path never re-links it, so that photo
+    breaks with the project: the flag stays false until the row is
+    explained and fixed — then it turns true. The late row uses no check."""
+    db, _ = env
+    u = _owner(db)
+    k = _key(u.id, "kasserapport")
+    moved = _key(u.id, "expense", "7")
+    db.add(DailyClose(user_id=u.id, date=date(2026, 5, 23), revenue_total=1, payment_total=1,
+                      receipt_photo=_irl(k), created_at=OLD))
+    late = Expense(user_id=u.id, category_id=_cat(db, u).id, date=date(2026, 10, 2), amount=80,
+                   description="typed", payment_method="card", receipt_photo=_irl(moved),
+                   created_at=NEW)
+    db.add(late); db.commit()
+    late_id = late.id
+    b = FakeBackend({k: b"x", moved: b"x"})
+    body = _admin_get(env, monkeypatch, b, u)
+    t = body["totals"]
+    assert (t["retired_host"], t["retired_after_cutover"], t["retired_signable"]) == (2, 1, 1)
+    assert body["unresolvable"] == 0 and t["retired_signable"] == t["retired_host"] - t["retired_after_cutover"]
+    assert body["safe_to_delete_retired_project"] is False
+    assert b.exists_calls == [k] and [c[0] for c in b.sign_calls] == [k]
+    # explained and fixed (the same file's Frankfurt link stored): true
+    db.get(Expense, late_id).receipt_photo = f"{FRA_HOST}/storage/v1/object/sign/receipts/{moved}?token=t"
+    db.commit()
+    body = _admin_get(env, monkeypatch, FakeBackend({k: b"x"}), u)
+    assert body["totals"]["retired_after_cutover"] == 0 and body["unresolvable"] == 0
+    assert body["safe_to_delete_retired_project"] is True
+
+
+def test_link_bilag_503_says_a_few_minutes_because_a_failed_signing_backs_off(env, monkeypatch):
+    """The 503 said "prøv igen om et minut", but a failed signing is not
+    tried again for SIGN_FAIL_BACKOFF_SECONDS (5 min): a retry a minute
+    later got the same 503 without a signing call. The DA and EN texts now
+    say a few minutes, and that is what happens: inside the backoff no call
+    and 503 again; after it, signed and linked."""
+    db, _ = env
+    clock = [5000.0]
+    monkeypatch.setattr(sl, "_now", lambda: clock[0])
+    u = _owner(db)
+    k = _key(u.id, "expense", "6")
+    draft, typed = _draft_and_typed(db, u, _irl(k))
+    draft_id, typed_id = draft.id, typed.id
+    b = FakeBackend({k: b"x"}, sign="none")
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    app.dependency_overrides[get_current_user] = lambda: u
+    c = TestClient(app)
+
+    def link():
+        return c.post(f"/api/expenses/{typed_id}/link-bilag", json={"draft_id": str(draft_id)})
+
+    r = link()
+    assert r.status_code == 503, r.text
+    d = r.json()["detail"]
+    assert d["message_da"] == ("Bilagsbilledet kunne ikke flyttes lige nu. Intet er ændret — "
+                               "prøv igen om nogle minutter.")
+    assert d["message"] == ("The receipt picture could not be moved right now. Nothing was "
+                            "changed — try again in a few minutes.")
+    assert len(b.sign_calls) == 1
+    assert sl.SIGN_FAIL_BACKOFF_SECONDS >= 2 * 60          # why the text says minutes
+    clock[0] += 60                                         # "om et minut": still backed off
+    assert link().status_code == 503 and len(b.sign_calls) == 1
+    b.sign_mode = "ok"
+    clock[0] += sl.SIGN_FAIL_BACKOFF_SECONDS               # past the backoff: tried again
+    r = link()
+    assert r.status_code == 200, r.text
+    assert len(b.sign_calls) == 2
+    db.expire_all()
+    assert db.get(Expense, typed_id).receipt_photo.startswith(FRA_HOST)
+
+
+_PADS = {
+    "spaces": ("   ", "  "),
+    "tab_newline": ("\t", "\r\n"),
+    # urlsplit drops leading ASCII blanks by itself, but not these: only the
+    # .strip() before the host check refuses them
+    "unicode_spaces": ("  ", "　 "),
+}
+
+
+def _write_padded(path, db, u, photo):
+    """Send `photo` through one write path that refuses an Ireland link.
+    Returns (response, check) — check() asserts nothing of it was stored."""
+    c = TestClient(app)
+    exp = {"date": "2026-10-22", "amount": 5, "description": "padded", "payment_method": "card"}
+    if path in ("expenses", "expenses_from_receipt"):
+        url = "/api/expenses" if path == "expenses" else "/api/expenses/from-receipt"
+        r = c.post(url, json={**exp, "receipt_photo": photo})
+        return r, lambda: db.query(Expense).filter(Expense.user_id == u.id).count() == 0
+    if path == "sales_from_receipt":
+        r = c.post("/api/sales/from-receipt", params={"amount": 10, "receipt_path": photo})
+        return r, lambda: db.query(Sale).filter(Sale.user_id == u.id).count() == 0
+    if path == "link_bilag":
+        target = Expense(user_id=u.id, category_id=_cat(db, u).id, date=date(2026, 7, 1), amount=1,
+                         description="old", payment_method="card", created_at=OLD)
+        db.add(target); db.commit()
+        tid = target.id
+        r = c.post(f"/api/expenses/{tid}/link-bilag", json={"receipt_photo": photo})
+        return r, lambda: (db.get(Expense, tid).receipt_photo is None
+                           and _bilag_audits(db, u) == [])
+    if path == "daily_close_new":
+        r = c.post("/api/daily-close", json=_close_payload(photo), headers=_hdr(u))
+        return r, lambda: db.query(DailyClose).filter(DailyClose.user_id == u.id).count() == 0
+    if path == "daily_close_move":
+        body = {"from_date": "2026-05-22", "to_date": "2026-05-23", "body": _close_payload(photo),
+                "save_id": f"pad-{uuid.uuid4().hex[:8]}"}
+        r = c.post("/api/daily-close/move", json=body, headers=_hdr(u))
+        return r, lambda: db.query(DailyClose).filter(DailyClose.user_id == u.id).count() == 0
+    if path == "daily_close_resave":
+        # a pre-move draft that stores a legacy photo, re-saved naming ANOTHER Ireland file
+        legacy = _irl(_key(u.id, "kasserapport", "c"))
+        dc = DailyClose(user_id=u.id, date=date(2026, 5, 23), revenue_total=100, payment_total=100,
+                        status="draft", receipt_photo=legacy, created_at=OLD)
+        db.add(dc); db.commit()
+        dc_id, base = dc.id, dc.updated_at
+        r = c.post("/api/daily-close", json=_close_payload(photo, base=base.isoformat()), headers=_hdr(u))
+        db.expire_all()
+        return r, lambda: (db.get(DailyClose, dc_id).receipt_photo == legacy
+                           and db.get(DailyClose, dc_id).updated_at == base)
+    raise AssertionError(path)
+
+
+@pytest.mark.parametrize("pad", list(_PADS), ids=list(_PADS))
+@pytest.mark.parametrize("path", ["expenses", "expenses_from_receipt", "sales_from_receipt",
+                                  "link_bilag", "daily_close_new", "daily_close_move",
+                                  "daily_close_resave"])
+def test_a_padded_ireland_link_is_refused_on_every_write_path(env, monkeypatch, path, pad):
+    """The refusal reads the host of the value with its surrounding blanks
+    removed, so a leading/trailing pad (spaces, tab/newline, or Unicode
+    spaces urlsplit leaves in place) never gets an Ireland link past it:
+    on every write path that refuses one, 422, nothing stored, no signing
+    call. Stored on a pre-move row, the read path (which strips) would sign
+    it on every read."""
+    db, _ = env
+    b = FakeBackend(sign="none")
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    lead, trail = _PADS[pad]
+    kind = {"sales_from_receipt": "sale", "daily_close_new": "kasserapport",
+            "daily_close_move": "kasserapport", "daily_close_resave": "kasserapport"}.get(path, "expense")
+    photo = f"{lead}{_irl(_key(u.id, kind, 'e'))}{trail}"
+    r, nothing_stored = _write_padded(path, db, u, photo)
+    assert r.status_code == 422, (path, pad, r.status_code, r.text)
+    detail = r.json()["detail"]
+    if isinstance(detail, dict):
+        assert detail["code"] == "retired_receipt_link" and detail["message_da"]
+    else:                                   # ExpenseCreate's validator: pydantic's list
+        assert any("retired storage project" in str(e.get("msg", "")) for e in detail), detail
+    db.expire_all()
+    assert nothing_stored(), (path, pad)
+    assert b.sign_calls == []
+
+
+@pytest.mark.parametrize("pad", list(_PADS), ids=list(_PADS))
+def test_the_daily_close_padded_echo_still_saves_and_keeps_the_stored_string(env, monkeypatch, pad):
+    """The one Ireland link a write may carry is the page's own echo of what
+    the close stores. Padded, it is still that echo: saved, and the stored
+    string stays byte-identical (the pad is not stored)."""
+    db, _ = env
+    b = FakeBackend(sign="none")
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    u = _owner(db)
+    legacy = _irl(_key(u.id, "kasserapport", "c"))
+    dc = DailyClose(user_id=u.id, date=date(2026, 5, 23), revenue_total=100, payment_total=100,
+                    status="draft", receipt_photo=legacy, created_at=OLD)
+    db.add(dc); db.commit()
+    dc_id, base = dc.id, dc.updated_at
+    lead, trail = _PADS[pad]
+    r = TestClient(app).post("/api/daily-close", json=_close_payload(f"{lead}{legacy}{trail}",
+                                                                     base=base.isoformat()),
+                             headers=_hdr(u))
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    assert db.get(DailyClose, dc_id).receipt_photo == legacy
+
+
+def _exists_needles(k):
+    return (OWNER, k.rsplit("/", 1)[1], "/receipts/", "Object not found", "cannot reach",
+            "timed out reading", "/object/list/")
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 409, 429, 500, 502, 503])
+def test_real_backend_exists_logs_no_key_on_an_error_status(monkeypatch, caplog, status):
+    """exists() (the delete check's lookup) on a 4xx/5xx whose body echoes
+    the folder and file name: None ("could not check"), and its log line
+    carries the status only — at any level the storage module logs, not
+    just WARNING. (httpx's own INFO request line is a separate, known
+    limit: the web process does not write INFO.)"""
+    caplog.set_level(logging.WARNING)
+    caplog.set_level(logging.DEBUG, logger="app.services.storage")
+    k = _key(OWNER, "kasserapport", "d")
+    b = storage_mod.SupabaseStorageBackend(FRA_HOST, "service-key", "receipts")
+    b._client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(
+        status, json={"statusCode": str(status), "error": "x",
+                      "message": f"Object not found: {r.url.path} {json.loads(r.content)}"})))
+    assert b.exists(k) is None
+    assert f"Supabase exists check -> {status}" in caplog.text
+    for needle in _exists_needles(k):
+        assert needle not in caplog.text, needle
+
+
+@pytest.mark.parametrize("exc", [httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError])
+def test_real_backend_exists_logs_no_key_on_a_transport_error(monkeypatch, caplog, exc):
+    caplog.set_level(logging.WARNING)
+    caplog.set_level(logging.DEBUG, logger="app.services.storage")
+    k = _key(OWNER, "kasserapport", "d")
+
+    def boom(request):
+        raise exc(f"cannot reach {request.url} — timed out reading {json.loads(request.content)}",
+                  request=request)
+    b = storage_mod.SupabaseStorageBackend(FRA_HOST, "service-key", "receipts")
+    b._client = httpx.Client(transport=httpx.MockTransport(boom))
+    assert b.exists(k) is None
+    assert f"Supabase exists check failed: {exc.__name__}" in caplog.text
+    for needle in _exists_needles(k):
+        assert needle not in caplog.text, needle

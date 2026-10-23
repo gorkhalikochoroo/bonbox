@@ -1528,10 +1528,13 @@ def link_bilag(
             out = client_receipt_ref(photo, draft.user_id, created_at=draft.created_at,
                                      source="expenses")
             if not out or not isinstance(out, str) or is_retired_link(out):
+                # "a few minutes", not "a minute": after a failed signing the
+                # same object is not asked again for SIGN_FAIL_BACKOFF_SECONDS
+                # (5 min), so a retry sooner gets this answer again.
                 raise HTTPException(status_code=503, detail={
                     "code": "bilag_relink_unavailable",
-                    "message": "The receipt picture could not be moved right now. Nothing was changed — try again in a minute.",
-                    "message_da": "Bilagsbilledet kunne ikke flyttes lige nu. Intet er ændret — prøv igen om et minut.",
+                    "message": "The receipt picture could not be moved right now. Nothing was changed — try again in a few minutes.",
+                    "message_da": "Bilagsbilledet kunne ikke flyttes lige nu. Intet er ændret — prøv igen om nogle minutter.",
                 })
             photo = out
             relinked = True
