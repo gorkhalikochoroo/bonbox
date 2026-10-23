@@ -64,7 +64,22 @@ describe("the source asks no other host", () => {
 
   it("nothing in the tree fetches, beacons, opens a socket, builds a <script> / <link> / <img>, or imports a URL", () => {
     const NET = /\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|EventSource|new\s+Image\s*\(|createElement\s*\(\s*["'`](script|link|img|iframe)|\bimport\s*\(|\.src\s*=|srcset|rel\s*=\s*["'](preconnect|dns-prefetch|prefetch|preload)/;
-    for (const f of CODE) expect([f, stripComments(read(f)).match(NET)?.[0] ?? null]).toEqual([f, null]);
+    /* the one exception (switch-preload round, 23 Oct): before a language switch, switchPictures.js loads the new language's
+       twins of the pictures on screen, each a file of images.js (an /assets/ file or a data: URI of the tree, the same address
+       the re-keyed page's <img> then asks for). One off-page Image, one src, both pinned here exactly once; the src is
+       load()'s argument, and load() is called only with imagesFor(to)[key].src. (It also reads, never writes, the 16.40
+       <picture>'s own source srcset, to know which file is on screen.) */
+    const PRELOAD = `${V6}/switchPictures.js`, PRELOAD_LINES = ["const img = new Image();", "img.src = src;", 'source.getAttribute("srcset")'];
+    expect(CODE).toContain(PRELOAD);
+    for (const f of CODE) {
+      let s = stripComments(read(f));
+      if (f === PRELOAD) {
+        for (const l of PRELOAD_LINES) { expect([l, s.split(l).length - 1]).toEqual([l, 1]); s = s.replace(l, ""); }
+        expect([...s.matchAll(/\bload\(([^)]*)\)/g)].map((m) => m[1])).toEqual(["src", "set[k].src"]);
+        expect(s).toContain("const set = imagesFor(to);");
+      }
+      expect([f, s.match(NET)?.[0] ?? null]).toEqual([f, null]);
+    }
   });
 
   it("every import is relative, or react / react-router-dom / @fontsource/inter's latin-300 stylesheet", () => {

@@ -39,7 +39,13 @@
  * place on it (engine.js note 23). After a language switch the switch gets the focus back only when it had the focus when it
  * was used (keyboard, assistive tech, a browser that focuses a clicked button); a tap in iOS Safari never focuses a button, so
  * the re-keyed page is left as unfocused as one that was never switched (place.js). The re-keyed page's first layout is
- * settled before transitions come back, so nothing on it (the bottom bar included) animates in again (engine.js note 22). */
+ * settled before transitions come back, so nothing on it (the bottom bar included) animates in again (engine.js note 22).
+ *
+ * Switch-preload round (23 Oct): the two languages' pictures are different files, so a switch first starts loading the new
+ * language's twins of the pictures on screen, and only those (switchPictures.js), and re-keys when they have decoded or after
+ * WAIT_MS (600 ms), whichever comes first; until then the old page, its pictures included, stays as it is, so no card stands
+ * empty while its file is on the way. A tap during the wait (either switch) is the same switch, handled once. No picture on
+ * screen: the switch is at once, as before. The place is taken just before setLang, as before (place.js, unchanged). */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLanguage } from "../hooks/useLanguage";
 import { reportClientError } from "../utils/reportClientError";
@@ -54,6 +60,7 @@ import Footer from "../components/landing/v6/Footer";
 import { pageLangFor } from "../components/landing/v6/site";
 import { sceneOfHash } from "../components/landing/v6/nav";
 import { placeOf, putPlaceBack } from "../components/landing/v6/place";
+import { WAIT_MS, preloadOnScreen } from "../components/landing/v6/switchPictures";
 import { LANDING_TITLE_VALUES, holdLandingTitle, landingTitle, shellTitle } from "../lib/shellTitles";
 import "../components/landing/v6/styles";
 
@@ -115,7 +122,23 @@ function LandingV6({ t, lang, isAndroid, onLang, carryRef, arrive }) {
     if (carried) { carryRef.current = null; putPlaceBack(ref.current, place); }
     return destroy;
   }, [carryRef, lang, arrive]);
-  const pick = useCallback((from) => (code) => { carryRef.current = placeOf(ref.current, from, pageLangFor(code)); onLang(code); }, [carryRef, onLang]);
+  // a switch waiting for the new language's pictures on screen (switchPictures.js); a second tap meanwhile is the same switch
+  const waiting = useRef(null);
+  const pick = useCallback((from) => (code) => {
+    if (waiting.current) return;
+    const go = () => { carryRef.current = placeOf(ref.current, from, pageLangFor(code)); onLang(code); };
+    const ready = preloadOnScreen(ref.current, lang, pageLangFor(code));
+    if (!ready) { go(); return; }
+    const w = {};
+    waiting.current = w;
+    const fire = () => {
+      if (waiting.current !== w) return;
+      waiting.current = null; clearTimeout(w.timer);
+      if (ref.current) go(); else onLang(code); // the page has gone meanwhile: the reader's language still changes
+    };
+    w.timer = setTimeout(fire, WAIT_MS);
+    ready.then(fire, fire);
+  }, [carryRef, onLang, lang]);
   return (
     <div ref={ref} className="lp6 lp6-boot" data-page="landing" lang={lang} data-bb-consent-skip="" data-bb-consent-side="right">
       <a className="skip" href="#main">{t("landingV6.skip")}</a>

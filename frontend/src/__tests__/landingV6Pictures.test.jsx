@@ -119,3 +119,45 @@ describe("caption and alt text follow the language", () => {
     });
   }
 });
+
+/* switch-preload round (23 Oct; the independent check's note): the English page's picture descriptions are English. The
+   eight alt texts and the drawn roster's accessible name (the figure stands in for a picture: the ninth description) are
+   pinned; none carries æ / ø / å except in the names the page keeps as the app shows them (the venue, the table, the locked
+   MOMS / Kasserapport terms). */
+describe("the English page's picture descriptions are English, pinned", () => {
+  const LOCKED = ["Bistro Nørrebro", "Vindue", "MOMS", "Kasserapport", "kasserapport"];
+  const EN_DESCRIPTIONS = {
+    "landingV6.alt.week": "The team's schedule, split into kitchen, bar and floor: today Mads K., Freja N. and Sofie M. are on shift.",
+    "landingV6.alt.booking": "The guest booking page for Bistro Nørrebro: choose the number of guests, no account needed.",
+    "landingV6.alt.staffApp": "The Vagtplan app: the staff member's next shift today, 17:00–22:30, in 20 minutes.",
+    "landingV6.alt.standSeated": "The host stand: 16 seated now at 5 tables.",
+    "landingV6.alt.standFloor": "The host stand on iPad: tonight's floor plan with taken and free tables.",
+    "landingV6.alt.standTiles": "The host stand: 63 guests today, 16 seated now.",
+    "landingV6.alt.closePhoto": "The kasserapport in BonBox on the phone: take a photo of the Z-report or upload it.",
+    "landingV6.alt.closeMoms": "MOMS worked out: revenue 8.240,00 kr., MOMS 1.648,00 kr. and the payments split into cash, card and MobilePay.",
+    "landingV6.roster.aria": "Schedule for Tuesday 20 October at Bistro Nørrebro: Mads K., chef, 16:00–22:00. Sofie M., server, 17:00–22:30. Freja N., bartender, 17:30–23:00. Example · demo data.",
+  };
+  const altKeys = Object.keys(en).filter((k) => k.startsWith("landingV6.alt."));
+
+  it("every English landingV6.alt.* value (and the roster's name) has no æ / ø / å outside the locked names", () => {
+    expect(altKeys).toHaveLength(8);
+    for (const k of [...altKeys, "landingV6.roster.aria"]) {
+      let v = en[k];
+      for (const name of LOCKED) v = v.split(name).join("");
+      expect([k, v.match(/[æøåÆØÅ]/g)]).toEqual([k, null]);
+    }
+  });
+
+  it("the nine English values, as they are on 23 Oct (the eight alt texts + the roster's name)", () => {
+    expect(Object.fromEntries([...altKeys, "landingV6.roster.aria"].map((k) => [k, en[k]]))).toEqual(EN_DESCRIPTIONS);
+    // each is a different sentence from its Danish twin (no Danish value left in en.js)
+    for (const k of Object.keys(EN_DESCRIPTIONS)) expect([k, en[k] === da[k]]).toEqual([k, false]);
+  });
+
+  it("the English page renders exactly these as its pictures' alt texts", () => {
+    const { root } = show("en");
+    const alts = new Set([...root().querySelectorAll("img")].map((img) => img.getAttribute("alt")));
+    expect(alts).toEqual(new Set(altKeys.map((k) => EN_DESCRIPTIONS[k])));
+    expect(root().querySelector("#roster").getAttribute("aria-label")).toBe(EN_DESCRIPTIONS["landingV6.roster.aria"]);
+  });
+});
