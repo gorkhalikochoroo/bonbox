@@ -7,7 +7,7 @@
  *
  * Source: bonbox-lab-state/landing-v4-2026-10-21/final/site/tools/src.html (v6.3, sha256 852247b0f613ecf1…; port-build/inputs.txt),
  * the <head> mode script and the <script> after the footer. Band maths, fit(), pair(), shrink(), the guard and its re-layout,
- * clock pacing, the edge split, the dock lift, the v6.2 re-layout triggers (#probe = 100svh, the clock's font size, the
+ * clock pacing, the edge split, the v6.2 re-layout triggers (#probe = 100svh, the clock's font size, the
  * height breakpoints, ResizeObserver, fonts.load + loadingdone, KEEP) and the v6.3 instant jumps, step queue and end-beat
  * bar rule are the prototype's, unchanged. What the port changes, and only this:
  *   1. Root: the mode classes (js motion story cramp xing cta-past dock-on), data-x, data-g and --e --trk --bt --bc --bm --slot
@@ -80,7 +80,20 @@
  *      browser's own scroll restore puts the reader back. A new entry (typed, a plain link, another app) carries no state,
  *      so it still steps, once. Chosen over keeping the address on the current scene: #s6 names 6 and 7, so Back to a #s6
  *      entry left at 7 / 7 would still jump to 6 (measured), and skipping a jump to the scene the reader is already in
- *      would also skip a typed /#s6 at 7 / 7; it would also write the address on every scene change while scrolling. */
+ *      would also skip a typed /#s6 at 7 / 7; it would also write the address on every scene change while scrolling.
+ *  24. Polish round (23 Oct; Manoj's iPhone, Safari and Brave):
+ *      - 19.45 opens on the room: the 12.30 booking card no longer shows again at the start of the beat and no longer flies into
+ *        Vindue 2 (the card phase, .fly / --fly-*, the room's .wait / .land and the "S0" aside are gone); Vindue 2 is seated, ringed,
+ *        named and online and the aside says so from the beat's first moment. 21.15 and 22.50 as before; NAV / SCN unchanged.
+ *      - the bottom bar sits on the viewport's real bottom edge (its lift by innerHeight − svh is gone); #night reaches that edge however
+ *        tall the viewport (landingV6.css); data-gb on the root = the ground at the viewport's bottom edge, which html / body take.
+ *      - scroll smoothness (measured: CPU 6x, a hand scroll through the day at 390 x 844 and 1440 x 900): the stage's split texts get
+ *        the edge only where it runs through them (splitFrame), and only while night rises; --lp6-hin goes on the left column's eight
+ *        parts and --lp6-draw on the drawing's thirteen drawn groups, not on the frame / the svg; the 22.50 flight is the room-box's
+ *        own transform (composited) with the strokes' scale in 8 steps; "← Forrige" is measured at layout, not in the tick (the tick
+ *        reads no layout); a crossing keeps each split text's colour (no fade-in from nothing when the edge leaves) and a ground
+ *        change switches colours at once (gx, .lp6-gx).
+ *      - ?lp6debug=fps (with the debug hooks, 9): a frame meter in a corner, for a device or the Simulator. */
 import { FLOOR } from "./floor.js";
 import { NSC, SCN, NAV, NAVF, SCENE_HASH, LP6_MARK, sceneOfHash, buildTrack, seg as segAt, beatU, scnOf as scnAt, curScn as curScnAt, createStepper, goNext as nextJump, goPrev as prevJump, jumpCheck } from "./nav.js";
 import { clearanceMisses, repairMiss, NOFIX } from "./guard.js";
@@ -89,7 +102,7 @@ import { heroFit } from "./heroFit.js";
 /** The two grounds' browser-bar colours (the app writes theme-color in lower case). */
 export const LANDING_BAR = Object.freeze({ paper: "#f6f4ec", night: "#12281e" });
 
-const SNAP_ATTRS = ["class", "style", "hidden", "inert", "tabindex", "aria-current", "data-s", "data-beat", "data-x", "data-g", "data-st", "data-bb-own-anchors"];
+const SNAP_ATTRS = ["class", "style", "hidden", "inert", "tabindex", "aria-current", "data-s", "data-beat", "data-x", "data-g", "data-gb", "data-st", "data-bb-own-anchors"];
 const SNAP_TEXT = ".dg b,#count,#dcount,.zb dd";
 /* the elements whose colour splits at the night edge (each learns its resting top, --t) */
 const SPLIT_SEL = ".top .sx,.top .xb,.top .bt,.top .logo,.top .sbg,.dock .sx,.dock .xb,.dock .bt,.dock .sbg,.frame .sx,.frame .sbg,.frame .cm,.frame .xb,.frame .bt";
@@ -98,10 +111,10 @@ const SPLIT_SEL = ".top .sx,.top .xb,.top .bt,.top .logo,.top .sbg,.dock .sx,.do
    frame, its figures and their windows, the Z-bon rule, the clock digits, the statements (asides, links), the index, the stage
    nav, the progress bars. A new write on another element must add it here (the engine test's all-scenes walk goes red). */
 const SNAP_SEL = [
-  ".room-svg", ".room-svg .t[id]", "#room", "#roombox", "#roomfoot", "#v2l", "[data-r]",
+  ".room-svg", ".room-svg .t[id]", ".room-svg .shell", ".room-svg .t .base", "#room", "#roombox", "#roomfoot", "#v2l", "[data-r]",
   "#top-bar", "#dock", ".dk-nav", SPLIT_SEL, "#night", "#hero",
   "#frame", "#frame .fx", "#frame .plate", ".fx .win", "#zbline", "#clock", ".dg b",
-  "#c1", "#c2", "#c3", ".copy.sc .aside", ".copy.sc a", ".ix a", ".ix a .w",
+  "#c1", "#c2", "#c3", ".copy.sc .aside", ".copy.sc a", "#ix", ".ix a", ".ix a .w", "#aften-h", "#date",
   "#snav", "#snend", "#snev", "#prev", "#dprev", "#prog", "#dprog",
 ].join(",");
 
@@ -124,6 +137,12 @@ const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 export function debugHooksOn() {
   try { if (import.meta.env.DEV) return true; } catch { /* no Vite env */ }
   try { return new URLSearchParams(window.location.search).has("lp6debug"); } catch { return false; }
+}
+
+/** 24. The frame meter (polish round, 23 Oct): only where the debug hooks are on (9) AND the address says ?lp6debug=fps. */
+export function fpsMeterOn() {
+  if (!debugHooksOn()) return false;
+  try { return new URLSearchParams(window.location.search).get("lp6debug") === "fps"; } catch { return false; }
 }
 
 export function mountLanding(root, opts) {
@@ -222,7 +241,7 @@ export function mountLanding(root, opts) {
     const touches = (e) => { touchN = e.touches ? e.touches.length : 0; };
 
     /* the evening's tables (run.db via floor.json) */
-    const T = FLOOR, tEls = T.map((t) => $("t-" + t.id)), roomSvg = root.querySelector(".room-svg"), room = $("room");
+    const T = FLOOR, tEls = T.map((t) => $("t-" + t.id)), roomSvg = root.querySelector(".room-svg"), room = $("room"), DRAW = [...roomSvg.querySelectorAll(".shell,.t .base")];
     function inAny(l, m) { for (let i = 0; i < l.length; i++) if (m >= l[i][0] && m < l[i][1]) return true; return false; }
     function roomAt(m) {
       let late = false;
@@ -248,33 +267,107 @@ export function mountLanding(root, opts) {
       undo.push(() => io.disconnect());
     } else rs.forEach((el) => el.classList.add("in"));
 
+    /* 24. ?lp6debug=fps: a corner box for measuring on a device or the iOS Simulator, where no trace is at hand — the frames in the
+       last 2 s, the p95 gap between them, and the frames dropped while the page scrolls (a gap over 1.5 frames counts the frames it
+       missed; the frame is the 10th-percentile gap of the last 2 s, so 60 and 120 Hz both read right): in the last 2 s, and since load
+       over every frame painted while scrolling. Outside the root (body), in the ledger, gone on destroy */
+    if (fpsMeterOn()) {
+      const box = document.createElement("div");
+      box.setAttribute("data-lp6-fps", ""); box.setAttribute("aria-hidden", "true");
+      box.style.cssText = "position:fixed;right:6px;top:calc(env(safe-area-inset-top,0px) + 66px);z-index:2147483647;pointer-events:none;font:600 11px/1.35 ui-monospace,Menlo,monospace;color:#fff;background:rgba(0,0,0,.74);padding:4px 7px;border-radius:6px;white-space:pre;font-variant-numeric:tabular-nums";
+      document.body.appendChild(box);
+      undo.push(() => box.remove());
+      const ts = [], drops = [];
+      let scrollAt = -1e9, dropAll = 0, scrolled = 0, shown = 0;
+      on(window, "scroll", () => { scrollAt = performance.now(); }, { passive: true });
+      const meter = (t) => {
+        const n = ts.length;
+        if (n) {
+          const gap = t - ts[n - 1];
+          if (t - scrollAt < 200) {
+            const gs = []; for (let i = 1; i < n; i++) gs.push(ts[i] - ts[i - 1]);
+            gs.sort((a, b) => a - b);
+            const v = gs.length ? Math.max(4, gs[Math.floor(gs.length * 0.1)]) : 1000 / 60, m = gap > 1.5 * v ? Math.round(gap / v) - 1 : 0;
+            scrolled++; dropAll += m; if (m) drops.push([t, m]);
+          }
+        }
+        ts.push(t);
+        while (ts.length && t - ts[0] > 2000) ts.shift();
+        while (drops.length && t - drops[0][0] > 2000) drops.shift();
+        if (t - shown > 250) {
+          shown = t;
+          const gs = []; for (let i = 1; i < ts.length; i++) gs.push(ts[i] - ts[i - 1]);
+          gs.sort((a, b) => a - b);
+          const p95 = gs.length ? gs[Math.min(gs.length - 1, Math.floor(gs.length * 0.95))] : 0, d2 = drops.reduce((a, d) => a + d[1], 0);
+          box.textContent = "frames " + ts.length + "/2s  p95 " + p95.toFixed(1) + " ms\ndropped 2s " + d2 + "  all " + dropAll + "/" + scrolled;
+        }
+        frame(meter);
+      };
+      frame(meter);
+    }
+
     /* ───── chrome: top bar, bottom bar, the edge ───── */
-    const top = $("top-bar"), dock = $("dock"), frameEl = $("frame"), nightEl = $("night"), G = { dkb: 0 }, EDGE = [top, dock, frameEl].filter(Boolean);
+    const top = $("top-bar"), dock = $("dock"), frameEl = $("frame"), nightEl = $("night"), G = {}, EDGE = [top, dock].filter(Boolean);
     let S = {};
     function docTop(el) { return el.getBoundingClientRect().top + window.scrollY; }
     function relTop(el, rt) { let y = 0; while (el && el !== rt) { y += el.offsetTop; el = el.offsetParent; } return y; }
     const SPLIT = [...root.querySelectorAll(SPLIT_SEL)];
+    /* polish round (23 Oct, scroll smoothness): the stage's own split elements, each with its resting box in the frame
+       ({ el, t, b, v }: top, bottom, the --e it wears now), so a crossing writes the edge only on the few that straddle it */
+    const FR = [];
     /* every element that can meet the edge learns its own resting top (px from the viewport top) once per layout */
     function setT() {
-      const vh = G.vh, dH = dock.offsetHeight, dt = vh - G.dkb - dH;
+      const vh = G.vh, dH = dock.offsetHeight, dt = vh - dH;
       dock.style.setProperty("--t", dt + "px");
+      FR.length = 0;
+      /* polish round: "← Forrige" (two-column page) is measured here even while it is hidden, so showing it later reads nothing
+         in the scroll tick (it used to read its spans' offsets there) */
+      const pv = story ? $("prev") : null, ph = !!pv && pv.hidden;
+      if (ph) pv.hidden = false;
       for (let i = 0; i < SPLIT.length; i++) {
         const el = SPLIT[i];
         let t;
-        if (top.contains(el)) t = relTop(el, top); else if (dock.contains(el)) t = dt + relTop(el, dock); else if (story) t = relTop(el, frameEl); else continue;
+        if (top.contains(el)) t = relTop(el, top); else if (dock.contains(el)) t = dt + relTop(el, dock);
+        else if (story) { t = relTop(el, frameEl); if (el.offsetParent !== null) FR.push({ el, t, b: t + el.offsetHeight, v: null }); }
+        else continue;
         el.style.setProperty("--t", t + "px");
       }
+      if (ph) pv.hidden = true;
+    }
+    /* polish round: the night edge rising over the stage (pn). An element wholly above it wears slot a, one wholly below it slot b,
+       and only one the edge runs through gets the edge itself: a handful of writes per frame on small elements, where --e on the
+       frame restyled its whole subtree (≈ 610 elements, the room's drawing included) in every frame of the crossing. When paper
+       rises at the end (np) the morning sheet covers whatever lies below the edge, so the stage keeps its settled colours (the
+       frame's split rules are keyed on data-x=pn) and nothing is written */
+    function splitFrame(e) {
+      for (let i = 0; i < FR.length; i++) {
+        const f = FR[i], v = e >= f.b ? "99999px" : e <= f.t ? "-99999px" : Math.round(e) + "px";
+        if (v !== f.v) { f.v = v; f.el.style.setProperty("--e", v); }
+      }
+    }
+    /* polish round: the frame where the ground or the crossing changes, and the next, switch colours at once (landingV6.css .lp6-gx);
+       two frames, so the change is styled with it on whether it was made in a frame callback or in a scroll event (the stacked page).
+       Not on a layout's first tick (S is new there: nothing changed on screen, and the first layout runs with transitions off) */
+    let gxQ = null;
+    function gx() {
+      R.classList.add("lp6-gx");
+      if (gxQ == null) gxQ = frame(() => { gxQ = frame(() => { gxQ = null; R.classList.remove("lp6-gx"); }); });
     }
     /* x: 'pn' (paper above the edge, night below) or 'np'; e: the edge in px from the viewport top */
     function edge(x, e, gStage) {
       const vh = G.vh, xing = e > 0 && e < vh, top_ = x === "pn" ? (e <= 0 ? "night" : "paper") : (e <= 0 ? "paper" : "night");
+      /* polish round (iOS / Brave, bars collapsed): the ground at the viewport's bottom edge, for html / body (landingV6.css data-gb), so
+         whatever a browser shows past the page (its bars' movement, a rubber band) is the ground that is there */
+      const gb = x === "pn" ? (e < vh ? "night" : "paper") : (e < vh ? "paper" : "night");
       if (x !== S.x) { S.x = x; R.setAttribute("data-x", x); }
-      if (xing !== S.xing) { S.xing = xing; R.classList.toggle("xing", xing); }
-      /* 17. the edge goes on the three elements that split at it (top bar, bottom bar, frame), not on the root: a custom property
-         written on the root every frame of a crossing restyled the whole page (sheet and footer included) in each frame */
-      if (xing) { const ev = Math.round(e) + "px"; if (ev !== S.e) { S.e = ev; EDGE.forEach((el) => el.style.setProperty("--e", ev)); } }
+      if (xing !== S.xing) { if (S.xing != null) gx(); S.xing = xing; R.classList.toggle("xing", xing); }
+      if (gb !== S.gb) { S.gb = gb; R.setAttribute("data-gb", gb); }
+      /* 17. the edge goes on the elements that split at it, not on the root: a custom property written on the root every frame of a
+         crossing restyled the whole page (sheet and footer included) in each frame. Polish round: the two bars, and on the stage only
+         the elements it runs through (splitFrame), no longer the frame */
+      if (xing) { const ev = Math.round(e) + "px"; if (ev !== S.e) { S.e = ev; EDGE.forEach((el) => el.style.setProperty("--e", ev)); if (story && x === "pn") splitFrame(e); } }
       const g = gStage || top_;
-      if (g !== S.g) { S.g = g; R.setAttribute("data-g", g); }
+      if (g !== S.g) { if (S.g != null) gx(); S.g = g; R.setAttribute("data-g", g); }
       /* 8. the live value, not a cached one */
       S.tc = top_;
       const want = LANDING_BAR[top_];
@@ -285,8 +378,10 @@ export function mountLanding(root, opts) {
       G.cta = docTop(c) + c.offsetHeight; G.p0 = docTop(p); G.p1 = G.p0 + p.offsetHeight; G.foot = docTop($("foot")); G.hh = top.offsetHeight; G.vh = window.innerHeight;
       if (!story) { const nb = $("nb"); G.nb0 = docTop(nb); G.nb1 = G.nb0 + nb.offsetHeight; }
     }
-    /* while the day runs the bar rides the stage's bottom: if Safari's bars collapse (innerHeight > svh), it lifts by the difference */
-    function dockLift() { const x = story && G.ev ? Math.max(0, Math.round(window.innerHeight - (G.svh || window.innerHeight))) : 0; if (x !== G.dkb) { G.dkb = x; dock.style.setProperty("--dkb", x + "px"); setT(); } }
+    /* polish round (Manoj's iPhone in Brave, 23 Oct): the bar sits on the viewport's real bottom edge at every moment. It used to ride
+       the stage's bottom while the day ran (lifted by innerHeight − svh when the browser's bars collapsed), which left a band of the
+       ground under it, and below that the page's paper. The stage is laid out in the small viewport, so its statement keeps its 20 px
+       over the bar when the bars are out, and more when they collapse */
     /* "Prøv gratis" once the hero button has gone: under the header (or, on desktop, once the hero has lifted away).
        The bottom bar is then up, except over the price button and the footer. */
     function chrome(y, ev, past) {
@@ -295,7 +390,7 @@ export function mountLanding(root, opts) {
       if (past !== G.past) { G.past = past; R.classList.toggle("cta-past", past); }
       const onB = past && !(G.p0 < y + vh - 64 && G.p1 > y) && y + vh < G.foot + 40;
       if (onB !== G.on) { G.on = onB; dock.classList.toggle("on", onB); R.classList.toggle("dock-on", onB); }
-      if (ev !== G.ev) { G.ev = ev; dock.classList.toggle("ev", ev); dockLift(); }
+      if (ev !== G.ev) { G.ev = ev; dock.classList.toggle("ev", ev); }
       top.classList.toggle("scrolled", y > 8);
     }
     function setU() { const w = roomSvg.getBoundingClientRect().width; if (w > 0) roomSvg.style.setProperty("--u", (1101 / w).toFixed(4)); }
@@ -327,7 +422,9 @@ export function mountLanding(root, opts) {
     frameEl.setAttribute("data-bb-own-anchors", ""); /* 20 */
     const hero = $("hero"), track = $("track"), scene = $("scene"), clock = $("clock"), plate = $("plate"), zbl = $("zbline"), roster = $("roster"), uge = $("uge"), vagt = $("vagt"), vapp = $("vapp"), rbox = $("roombox"), rfoot = $("roomfoot"),
       booking = $("booking"), bookw = $("bookw"), stand = $("stand"), tal = $("tal"), standw = $("standw"), foto = $("foto"), fotow = $("fotow"), zb = $("zb"), kasse = $("kasse"),
-      c1 = $("c1"), c2 = $("c2"), c3 = $("c3"), snav = $("snav"), snev = $("snev"), snend = $("snend"), prev = $("prev"), eprev = $("eprev"), nextB = $("next"), ixa = [...root.querySelectorAll(".ix a")];
+      c1 = $("c1"), c2 = $("c2"), c3 = $("c3"), snav = $("snav"), snev = $("snev"), snend = $("snend"), prev = $("prev"), eprev = $("eprev"), nextB = $("next"), ixa = [...root.querySelectorAll(".ix a")],
+      /* polish round: the left column's parts that rise in with the hero's hand-over (desktop); --lp6-hin is written on these, not the frame */
+      HIN = [$("aften-h"), $("ix"), $("date"), clock, snav, c1, c2, c3];
     const counts = [$("count"), $("dcount")], progs = [$("prog"), $("dprog")], digs = [...clock.querySelectorAll(".dg")], asides = [...root.querySelectorAll(".copy.sc .aside")],
       scLinks = [...root.querySelectorAll(".copy.sc a")], v2l = $("v2l"), TALLQ = "(max-width:767px) and (min-height:780px)";
     let TRACK, SEG, ACC, TOT, AI, svh, pin, trackH, desk, wide, fsClk = 64, LW = 0, LH = 0;
@@ -335,9 +432,9 @@ export function mountLanding(root, opts) {
     function build() { TRACK = buildTrack(desk); SEG = TRACK.SEG; ACC = TRACK.ACC; TOT = TRACK.TOT; AI = TRACK.AI; R.style.setProperty("--trk", TOT + 100); }
     const seg = (u) => segAt(TRACK, u);
     function ss(a, b, x) { const t = clamp(0, (x - a) / (b - a), 1); return t * t * (3 - 2 * t); }
-    const N0 = 0.05, N1 = 0.38, FLY = 0.34, TV2 = (1275 - 1185) / 185; G.roomIn = 0.2; G.doors = 0.34; /* TV2: Vindue 2 frees at 21.15 (floor.json lit 19:45–21:15) */
+    const N0 = 0.05, N1 = 0.38, TV2 = (1275 - 1185) / 185; G.roomIn = 0.2; G.doors = 0.34; /* TV2: Vindue 2 frees at 21.15 (floor.json lit 19:45–21:15) */
     /* the clock: 10.00 · 12.30 · 16.40 held (also while night rises over the 16.40 card); then 16.40 → 17.00 while the room draws (the door opens at 17.00),
-       → 19.40 while the room fills; 19.45 held while the guest arrives; → 22.50; 22.50 held; → 00.10 */
+       → 19.40 while the room fills; 19.45 held while the guest from 12.30 sits at Vindue 2; → 22.50; 22.50 held; → 00.10 */
     function minutes(id, t) {
       if (id === "A") return t < G.roomIn ? 1000 : t < G.doors ? 1000 + 20 * ss(G.roomIn, G.doors, t) : 1020 + 160 * ss(G.doors, 1, t);
       if (id === "B") return 1185 + 185 * t;
@@ -364,10 +461,9 @@ export function mountLanding(root, opts) {
       onV = !!onV;
       if (ON.get(el) === onV) return;
       ON.set(el, onV); unlater(TO.get(el)); TO.delete(el);
-      if (onV) { el.classList.remove("out", "fly"); el.classList.add("on"); }
+      if (onV) { el.classList.remove("out"); el.classList.add("on"); }
       else if (el.classList.contains("on")) {
         el.classList.remove("on");
-        if (el.classList.contains("booking-any") && S.beat === "S") { el.classList.add("fly"); return; }
         /* .hold screens (00.10) wait until the incoming screen is past half; the stand leaves after the drawing is back on it */
         const long = el.classList.contains("hold") || el === stand || el === standw || el === tal;
         el.classList.add("out"); TO.set(el, later(() => { el.classList.remove("out"); TO.delete(el); }, long ? 640 : 240));
@@ -395,9 +491,10 @@ export function mountLanding(root, opts) {
     /* what the stage shows at (beat, progress) */
     let roomRT = null;
     function show(id, t) {
-      const early = id === "A" && t < G.roomIn, roomOn = (id === "A" && t >= G.roomIn) || /^(S|B|2b|C)$/.test(id), card = id === "S" && t < FLY, v2free = id === "B" && t >= TV2;
+      const early = id === "A" && t < G.roomIn, roomOn = (id === "A" && t >= G.roomIn) || /^(S|B|2b|C)$/.test(id), v2free = id === "B" && t >= TV2;
       vis(roster, id === "h" || (id === "1a" && !desk)); vis(uge, desk && id === "1a");
-      vis(booking, !wide && (id === "2a" || card)); vis(bookw, wide && (id === "2a" || card));
+      /* polish round (23 Oct): the 12.30 booking shows at 12.30 only; 19.45 opens on the room (no second showing, no flight into Vindue 2) */
+      vis(booking, !wide && id === "2a"); vis(bookw, wide && id === "2a");
       vis(vagt, !wide && (id === "1b" || early)); vis(vapp, wide && (id === "1b" || early));
       vis(room, roomOn);
       vis(stand, !wide && id === "2b"); vis(tal, !wide && id === "2b"); vis(standw, wide && id === "2b");
@@ -405,8 +502,8 @@ export function mountLanding(root, opts) {
       vis(foto, !wide && id === "3a"); vis(fotow, wide && id === "3a");
       if (wide && close && !ON.get(zb)) frame(countUp);
       vis(zb, wide && close); vis(kasse, id === "3b" || id === "end");
-      if (wide) { const a3 = id === "3a"; setV(zb, { "--zx": a3 ? GEO.zx0 : 0, "--zy": a3 ? GEO.zy0 : 0, "--zs": a3 ? GEO.zs0 : GEO.zs1 }); zbl.classList.toggle("on", close && !a3); }
-      const st = card ? "card" : id === "2b" ? "cut" : "";
+      if (wide) { const a3 = id === "3a"; if (a3 !== S.za) { S.za = a3; setV(zb, { "--zx": a3 ? GEO.zx0 : 0, "--zy": a3 ? GEO.zy0 : 0, "--zs": a3 ? GEO.zs0 : GEO.zs1 }); } zbl.classList.toggle("on", close && !a3); }
+      const st = id === "2b" ? "cut" : "";
       if (st !== S.rst) {
         const was = S.rst; S.rst = st;
         if (st) room.setAttribute("data-st", st); else room.removeAttribute("data-st");
@@ -414,14 +511,16 @@ export function mountLanding(root, opts) {
         unlater(roomRT); roomRT = null;
         if (was === "cut" && !st) { room.classList.add("ret"); roomRT = later(() => room.classList.remove("ret"), 1200); } else room.classList.remove("ret");
         const b = (st === "cut" ? GEO.b2b : null) || { x: 0, y: 0, k: 1 };
-        setV(rbox, { "--lp6-bx": b.x, "--lp6-by": b.y, "--lp6-k": b.k, "--clip": st === "cut" ? GEO.clip : "inset(-40px)" });
+        /* polish round: the flight is the room-box's own transform (composited); --lp6-k is the strokes' scale (landingV6.css) */
+        rbox.style.transform = "translate(" + b.x + "px," + b.y + "px) scale(" + b.k + ")";
+        setV(rbox, { "--lp6-k": b.k, "--clip": st === "cut" ? GEO.clip : "inset(-40px)" });
       }
-      room.classList.toggle("wait", id === "A" || card); room.classList.toggle("land", id === "S");
-      /* 19.45 → 21.15: the guest from 12.30 is at Vindue 2 — the table is named in the drawing and ringed while the copy says so */
-      room.classList.toggle("v2", (id === "S" && !card) || (id === "B" && !v2free));
+      /* 19.45 → 21.15: the guest from 12.30 is at Vindue 2 — the table is named in the drawing and ringed while the copy says so,
+         from the first moment of 19.45 */
+      room.classList.toggle("v2", id === "S" || (id === "B" && !v2free));
       /* copy: chapter, and which of its two sentences is ink */
       const ch = id === "A" ? (t < G.roomIn ? 1 : 2) : { h: 1, "1a": 1, "2a": 2, "1b": 1, S: 2, B: 2, "2b": 2, C: 2 }[id] || 3,
-        b2 = id === "1b" || (id === "A" && t < G.roomIn) || /^(S|B|2b|C|3b|end)$/.test(id), ak = id === "A" ? (t < G.roomIn ? "A" : "A2") : card ? "S0" : id === "B" ? (v2free ? "B2" : "S") : id;
+        b2 = id === "1b" || (id === "A" && t < G.roomIn) || /^(S|B|2b|C|3b|end)$/.test(id), ak = id === "A" ? (t < G.roomIn ? "A" : "A2") : id === "B" ? (v2free ? "B2" : "S") : id;
       const key = ch + (b2 ? "b" : "") + ak;
       if (key !== S.copy) {
         S.copy = key;
@@ -449,8 +548,6 @@ export function mountLanding(root, opts) {
       S.bk = onB;
       const a = document.activeElement;
       prev.hidden = !onB; dprev.classList.toggle("off", !onB);
-      /* the edge split needs each span's resting top; a hidden button had none when setT() last ran */
-      if (onB) prev.querySelectorAll(".sx").forEach((el) => el.style.setProperty("--t", relTop(el, frameEl) + "px"));
       if (!onB) { if (a === prev) nextB.focus({ preventScroll: true }); else if (a === dprev) dnext.focus({ preventScroll: true }); }
     }
 
@@ -488,8 +585,8 @@ export function mountLanding(root, opts) {
         for (let k = 0; k < 3; k++) { room.style.width = Math.round(w) + "px"; fh = rfoot.offsetHeight + 8; const w2 = Math.max(f(fh), fl()); if (Math.abs(w2 - w) < 1) break; w = Math.min(w, w2); }
         room.style.width = Math.round(w) + "px"; fh = rfoot.offsetHeight + 8; return w;
       };
-      let rw, rt, rx, rbx = 0, bk, tTop = 24, pull = 24;
-      if (!desk) { hero.style.opacity = ""; hero.style.transform = ""; hero.style.visibility = ""; frameEl.style.removeProperty("--hin"); setPre(false); }
+      let rw, rt, rx, rbx = 0, tTop = 24, pull = 24;
+      if (!desk) { hero.style.opacity = ""; hero.style.transform = ""; hero.style.visibility = ""; HIN.forEach((el) => el.style.removeProperty("--lp6-hin")); setPre(false); }
       if (wide) clock.style.removeProperty("--ck");
       if (!wide) {
         /* ── phone: [head · clock] [media slot] [copy] with bands ≤ one section gap; the slack goes to the media, never below the minimum gaps
@@ -520,7 +617,7 @@ export function mountLanding(root, opts) {
         /* the drawing narrows when the slot is short; its foot (caption, INDGANG, legend) keeps the full width, so it never wraps further */
         rw = Math.min(W, ((Hx - 28 - fh) * 1101) / 690); rbox.style.width = Math.round(rw) + "px"; rx = rbx = (W - rw) / 2; rfoot.style.setProperty("--ind", Math.round(rx + 0.055 * rw) + "px");
         roomH = 28 + (rw * 690) / 1101 + fh; rt = mid(roomH); place(room, 0, rt, W);
-        if (bookH > Hx) { bw = ((Hx - TAG) * 800) / 578; bookH = Hx; } place(booking, (W - bw) / 2, mid(bookH), bw); bk = { el: booking, x: (W - bw) / 2, y: mid(bookH), w: bw, h: bookH - TAG };
+        if (bookH > Hx) { bw = ((Hx - TAG) * 800) / 578; bookH = Hx; } place(booking, (W - bw) / 2, mid(bookH), bw);
         /* 22.50 — the "Sidder nu" tile at 1:1 (0.9 on short screens), then the floor plan's corner: both rows of tables (y 14–376),
            or only the window row (y 14–190) when the screen is short; the drawing lands on it */
         const tk = svh <= 720 ? 0.9 : 1, th = Math.round(107 * tk), tg = svh <= 720 ? 10 : 14, top_ = th + tg;
@@ -568,14 +665,14 @@ export function mountLanding(root, opts) {
         } else { rw = roomFit(rf); roomW = rw; }
         /* v6.2 fix: under ~650 px tall even the 40 px drawing with its header and foot is taller than the plate: the room is then scaled to the plate */
         const roomH2 = 28 + (rw * 690) / 1101 + fh, rk2 = shrink(room, roomH2, P + 2); rx = cx(rw); rt = mid2(roomH2 * rk2) - (roomH2 * (1 - rk2)) / 2; place(room, cx(roomW), rt, roomW);
-        const bf = fit(1179 / 860, W, P, CLR, 640); place(bookw, cx(bf.w), mid2(bf.h), bf.w); win(bookw, bf.h); bk = { el: bookw, x: cx(bf.w), y: mid2(bf.h), w: bf.w, h: bf.h };
+        const bf = fit(1179 / 860, W, P, CLR, 640); place(bookw, cx(bf.w), mid2(bf.h), bf.w); win(bookw, bf.h);
         /* 22.50 — the two number tiles over the whole floor plan, one frame; the drawing lands on the plan */
         const sw2 = Math.max(Math.min(W, (P - 2 * CLR - 14) / SG), Math.min(W - 2 * CLR, (P - 14) / SG)), th = (sw2 * 107) / 757, ph = (sw2 * 682) / 1101, gh2 = th + 14 + ph, gx2 = cx(sw2), gt2 = mid2(gh2), kb2 = sw2 / rw;
         place(standw, gx2, gt2, sw2); GEO.tg = { el: standw, x: 0, y: th + 14 - (8 * sw2) / 1101 - 28 * kb2, k: kb2 }; GEO.wn = [0, th + 14, sw2, gh2];
         pair(W, P, mid2, cx);
       }
       /* v6.2 fix: the guard runs before the stage geometry below, and that geometry is taken from where the figures really are
-         (box(): as laid out, with any scale), so a figure the guard moved or scaled keeps its flight, its landing and its clip on target */
+         (box(): as laid out, with any scale), so a figure the guard moved or scaled keeps its landing and its clip on target */
       if (!cramp && guard()) return;
       const u = 1101 / rw; roomSvg.style.setProperty("--u", u.toFixed(4));
       /* the room-box sits rbx in from the room figure's left (centred in it; 0 where the figure is the box) */
@@ -586,10 +683,8 @@ export function mountLanding(root, opts) {
         lx0 = (qa[0] - rbx - bb.x) / bb.k, ly0 = (qa[1] - bb.y) / bb.k, lx1 = (qb[0] - rbx - bb.x) / bb.k, ly1 = (qb[1] - bb.y) / bb.k, bh = 28 + (rw * 690) / 1101;
       GEO.clip = "inset(" + ly0.toFixed(1) + "px " + (rw - lx1).toFixed(1) + "px " + (bh - ly1).toFixed(1) + "px " + lx0.toFixed(1) + "px)";
       if (S.rst === "cut") rbox.style.setProperty("--clip", GEO.clip);
-      /* the booking card's flight into Vindue 2 (centre to centre, down to the table's size) */
-      const v2 = T[1], vv = at(rq, rbx + v2.cx / u, 28 + v2.cy / u), kq = box(bk.el), sc = at(kq, bk.w / 2, bk.h / 2);
-      setV(bk.el, { "--fly-x": ((vv[0] - sc[0]) / kq.s).toFixed(1), "--fly-y": ((vv[1] - sc[1]) / kq.s).toFixed(1), "--fly-k": ((2.2 * v2.r) / u * rq.s / (bk.w * kq.s)).toFixed(4) });
       /* the "Vindue 2" label sits under the table, between the window row and the next row (room-box coordinates) */
+      const v2 = T[1];
       v2l.style.left = (v2.cx / u).toFixed(1) + "px"; v2l.style.top = (28 + (v2.cy + v2.r + 18) / u).toFixed(1) + "px";
       /* the 16.40 card hands over to the room the moment the rising edge reaches the room's bottom: the night rises over the card,
          the room starts drawing while the edge is still crossing it — the stage is never empty */
@@ -719,20 +814,22 @@ export function mountLanding(root, opts) {
       if (sheetTop < G.vh) edge("np", sheetTop, sheetTop <= 0 ? "paper" : "night");
       else { const e = pE <= 0 ? BIG : pE >= 1 ? -BIG : svh * (1 - pE); edge("pn", e, e < GEO.flipY + 1 ? "night" : "paper"); }
       const ny = S.x === "pn" ? (pE <= 0 ? BIG : Math.max(0, Math.round(svh * (1 - pE)))) : (sheetTop <= 0 ? BIG : 0);
-      if (ny !== S.ny) { S.ny = ny; nightEl.style.transform = ny >= BIG ? "translate3d(0,100lvh,0)" : "translate3d(0," + ny + "px,0)"; nightEl.style.visibility = ny >= BIG ? "hidden" : "visible"; }
+      if (ny !== S.ny) { S.ny = ny; nightEl.style.transform = ny >= BIG ? "translate3d(0,100%,0)" : "translate3d(0," + ny + "px,0)"; nightEl.style.visibility = ny >= BIG ? "hidden" : "visible"; }
       const m = Math.round(minutes(id, t) / 5) * 5; setClock(m);
-      /* 19.45: Vindue 2 waits ("Snart") until the guest's booking has landed on it */
-      const mr = id === "S" && t < FLY ? 1184 : m; if (mr !== S.m) { S.m = mr; roomAt(mr); }
-      /* the outline starts drawing just before the card hands over, so the room arrives with its walls already up */
+      if (m !== S.m) { S.m = m; roomAt(m); }
+      /* the outline starts drawing just before the card hands over, so the room arrives with its walls already up.
+         Polish round (23 Oct, scroll smoothness): --lp6-draw goes on the walls' group and the twelve free-table outlines (DRAW), the only
+         parts that draw, not on the drawing: on the svg it restyled all of its ≈ 330 nodes in every scroll frame of the passage */
       const dv = (id === "A" ? clamp(0, (t - G.roomIn + 0.05) / 0.25, 1) * 1.22 : (i > AI ? 1.22 : 0)).toFixed(3);
-      if (dv !== S.draw) { roomSvg.classList.toggle("jd", S.draw != null && now() - (G.jt || -1e9) < 400); S.draw = dv; roomSvg.style.setProperty("--lp6-draw", dv); }
+      if (dv !== S.draw) { roomSvg.classList.toggle("jd", S.draw != null && now() - (G.jt || -1e9) < 400); S.draw = dv; for (let k = 0; k < DRAW.length; k++) DRAW[k].style.setProperty("--lp6-draw", dv); }
       const xr = !!S.xing && S.x === "pn"; if (xr !== S.xr) { S.xr = xr; room.classList.toggle("xr", xr); }
       let past;
       if (desk) {
         /* the hero lifts away (0 → 14 svh) while the left column rises in (10 → 24 svh): overlapping, never an empty moment */
         const ho = 1 - ss(0, svh * 0.14, y - pin), hin = ss(svh * 0.1, svh * 0.24, y - pin), hs = ho.toFixed(2);
         if (hs !== S.ho) { S.ho = hs; hero.style.opacity = hs === "1.00" ? "" : hs; hero.style.transform = hs === "1.00" ? "" : "translateY(" + ((1 - ho) * -48).toFixed(1) + "px)"; hero.style.visibility = hs === "0.00" ? "hidden" : ""; }
-        const hi = hin.toFixed(2); if (hi !== S.hin) { S.hin = hi; frameEl.style.setProperty("--hin", hi); }
+        /* polish round: on the eight parts that use it (a registered, non-inherited property): the frame's whole subtree is no longer restyled per frame */
+        const hi = hin.toFixed(2); if (hi !== S.hin) { S.hin = hi; HIN.forEach((el) => el.style.setProperty("--lp6-hin", hi)); }
         setPre(id === "h" && hin < 0.5); past = ho < 0.5;
       } else if (!wide) {
         /* phone: before the stage pins, the clock is a quieter 56 px under the headline; it grows to its stage size as it pins */
@@ -851,13 +948,13 @@ export function mountLanding(root, opts) {
     on(window, "hashchange", addressChanged); on(window, "popstate", addressChanged);
     if (DEBUG) {
       handle.current = Object.freeze({
-        geo: () => ({ SEG, ACC, TOT, pin, svh, trackH, desk, wide, hh: G.hh, AI, roomIn: G.roomIn, doors: G.doors, N0, N1, FLY, TV2, NAV, tallV: GEO.tallV, k7: GEO.k7 }),
+        geo: () => ({ SEG, ACC, TOT, pin, svh, trackH, desk, wide, hh: G.hh, AI, roomIn: G.roomIn, doors: G.doors, N0, N1, TV2, NAV, tallV: GEO.tallV, k7: GEO.k7 }),
         scn: curScn, warn: WARN,
       });
       try { Object.defineProperty(window, "__lp6", { value: handle.current, configurable: true, writable: false }); } catch { /* a frozen window */ }
     }
     on(window, "scroll", onScroll, { passive: true });
-    /* a width change or a real height change re-lays the stage; Safari's bars collapsing (< 140 px) only moves the bottom bar.
+    /* a width change or a real height change re-lays the stage; Safari's bars collapsing (< 140 px) only re-reads the bars' places.
        v6.2: so does any change of the stage's real inputs: the small viewport (#probe = 100svh), the clock's computed size, a height breakpoint.
        Inside an iframe (the Claude app's viewer) svh IS the frame's height, so when the frame grows after load the clock and the bands follow
        the CSS and the figures must follow too. Safari's bars change innerHeight only (svh stays): that keeps the cheap path */
@@ -867,7 +964,7 @@ export function mountLanding(root, opts) {
     function stale() { return (prb.offsetHeight || window.innerHeight) !== svh || parseFloat(getComputedStyle(clock).fontSize) !== fsClk; }
     on(window, "resize", () => {
       const w = window.innerWidth, h = window.innerHeight;
-      if (w !== LW || Math.abs(h - LH) > 140 || stale()) relay(); else { G.vh = h; dockLift(); setT(); S.u = null; tick(); }
+      if (w !== LW || Math.abs(h - LH) > 140 || stale()) relay(); else { G.vh = h; setT(); S.u = null; tick(); }
     });
     if (window.ResizeObserver) {
       try { const rob = new ResizeObserver(() => { if (alive && stale()) relay(); }); rob.observe(prb); rob.observe(clock); undo.push(() => rob.disconnect()); } catch { /* no observer: the resize listener stays */ }

@@ -82,7 +82,7 @@ export default function Stage({ t, lang, isAndroid }) {
         <div className="copy sc" id="c2">
           <h3 className="label sx f3">{reservations}</h3>
           <p className="line"><span className="s s1 sx">{s2}</span> <span className="s s2 sx">{s4}</span></p>
-          <div className="asides"><p className="aside note sx f2" data-b="2a A2 S0">{s2aside}</p><p className="aside note sx f2" data-b="S">{s4aside}</p><p className="aside note sx f2" data-b="B2">{stand}</p><p className="aside note sx f2" data-b="2b C">{guests}</p></div>
+          <div className="asides"><p className="aside note sx f2" data-b="2a A2">{s2aside}</p><p className="aside note sx f2" data-b="S">{s4aside}</p><p className="aside note sx f2" data-b="B2">{stand}</p><p className="aside note sx f2" data-b="2b C">{guests}</p></div>
         </div>
         <div className="copy sc" id="c3">
           <h3 className="label sx f3">{close}</h3>
@@ -123,11 +123,11 @@ export default function Stage({ t, lang, isAndroid }) {
             <p className="line">{s2}</p>
             <p className="aside note">{s2aside}</p>
           </div>
-          <figure className="fig fx card booking booking-any ph-only" id="booking">
+          <figure className="fig fx card booking ph-only" id="booking">
             <span className="scr"><Img img={IMG.bookingGuest} alt={altBooking} /></span>
             {cap}
           </figure>
-          <figure className="fig fx card bookw booking-any wd-only" id="bookw">
+          <figure className="fig fx card bookw wd-only" id="bookw">
             <span className="scr"><span className="win"><Img img={IMG.bookingGuestWide} alt={altBooking} /></span>{CM}</span>
             {cap}
           </figure>

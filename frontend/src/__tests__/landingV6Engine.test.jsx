@@ -42,10 +42,10 @@ function fixture() {
 <div class="clock" id="clock" aria-hidden="true">${dg(1)}${dg(0)}<span class="dot sx f1">.</span>${dg(0)}${dg(0)}</div>
 <div class="scene" id="scene"></div><div class="plate" id="plate"><i class="cm c1"></i><span class="demo pcap sx f3">demo</span></div><i class="zbl" id="zbline"></i>
 <div class="copy sc" id="c1"><h3 class="label sx f3">l</h3><p class="line"><span class="s s1 sx">s1</span> <span class="s s2 sx">s2</span></p><div class="asides"><p class="aside" data-b="h 1a 1b A"><a class="tlink sx f1" href="https://apps.apple.com/dk/app/x/id1">app</a></p></div></div>
-<div class="copy sc" id="c2"><h3 class="label sx f3">l</h3><p class="line"><span class="s s1 sx">s1</span></p><div class="asides"><p class="aside note sx f2" data-b="2a A2 S0">n</p><p class="aside note sx f2" data-b="S">n</p><p class="aside note sx f2" data-b="B2">n</p><p class="aside note sx f2" data-b="2b C">n</p></div></div>
+<div class="copy sc" id="c2"><h3 class="label sx f3">l</h3><p class="line"><span class="s s1 sx">s1</span></p><div class="asides"><p class="aside note sx f2" data-b="2a A2">n</p><p class="aside note sx f2" data-b="S">n</p><p class="aside note sx f2" data-b="B2">n</p><p class="aside note sx f2" data-b="2b C">n</p></div></div>
 <div class="copy sc" id="c3"><h3 class="label sx f3">l</h3><p class="line"><span class="s s1 sx">s1</span></p><div class="asides"><p class="aside note sx f2" data-b="3a">n</p><p class="aside note sx f2" data-b="3b end">n</p></div></div>
 <article class="ch" id="s1">${fig("roster", "roster on", '<div class="ro">r</div>')}${fig("uge", "card uge dk-only")}</article>
-<article class="ch" id="s2">${fig("booking", "card booking booking-any ph-only", '<span class="scr"><img alt=""></span>')}${fig("bookw", "card bookw booking-any wd-only")}</article>
+<article class="ch" id="s2">${fig("booking", "card booking ph-only", '<span class="scr"><img alt=""></span>')}${fig("bookw", "card bookw wd-only")}</article>
 <article class="ch" id="s3">${fig("vagt", "card vagt ph-only", '<span class="scr"><img alt=""></span>')}${fig("vapp", "card vapp wd-only")}</article>
 <div class="nb" id="nb">
 <article class="ch" id="s4"><figure class="fig fx room-fig" id="room" aria-hidden="true"><div class="room-box" id="roombox"><span class="rl v2l" id="v2l">v2</span>${ROOM}</div><div class="room-foot" id="roomfoot"><span class="legend">l</span></div></figure></article>
@@ -552,5 +552,287 @@ describe("first-screen + hero-group rounds (23 Oct): layout() hangs the two-colu
       expect(hero.style.getPropertyValue("--hero-pull")).not.toBe("");
       destroy();
     }
+  });
+});
+
+/* ───────────── polish round (23 Oct; Manoj's iPhone, Safari and Brave) ───────────── */
+const at = (e, id, f) => { const g = window.__lp6.geo(), i = g.SEG.findIndex((x) => x[0] === id); return g.pin + ((g.ACC[i] + g.SEG[i][1] * f) * g.svh) / 100; };
+const scrollAt = (e, y) => { e.setY(Math.round(y)); window.dispatchEvent(new Event("scroll")); vi.advanceTimersByTime(FRAME); };
+/* the track as tall as the browser lays it out (jsdom has no layout: TOT + 100 svh), so the night and the morning sheet happen */
+const tallTrack = (e, h, tot) => Object.defineProperty(e.root.querySelector("#track"), "offsetHeight", { configurable: true, get: () => Math.round(((tot + 100) * h) / 100) });
+
+describe("polish round, item 1: 19.45 opens on the room — the 12.30 booking never shows again and never flies", () => {
+  for (const size of [{ w: 390, h: 844 }, { w: 820, h: 1180 }, { w: 1440, h: 900 }]) {
+    it(`${size.w} × ${size.h}: every moment of 19.45 is the room with Vindue 2 seated, ringed, named and online, and the seated aside; the counter says 4 / 7`, () => {
+      const e = setup(size);
+      const d = mountLanding(e.root);
+      const $ = (s) => e.root.querySelector(s);
+      const wide = size.w >= 768;
+      // 12.30 still shows its card (the one the layout uses)
+      scrollAt(e, at(e, "2a", 0.45));
+      expect($(wide ? "#bookw" : "#booking").classList.contains("on")).toBe(true);
+      for (const f of [0.002, 0.01, 0.05, 0.1, 0.2, 0.34, 0.5, 0.74, 0.99]) {
+        scrollAt(e, at(e, "S", f));
+        vi.advanceTimersByTime(700); // every leave timer has run
+        const state = {
+          f, beat: $("#frame").dataset.beat, count: $("#dcount").textContent, frameCount: $("#count").textContent,
+          cards: ["#booking", "#bookw"].map((s) => $(s).className.split(" ").filter((c) => c === "on" || c === "out" || c === "fly")),
+          room: ["on", "v2", "wait", "land"].filter((c) => $("#room").classList.contains(c)), st: $("#room").getAttribute("data-st"),
+          v2: [$("#t-v2").getAttribute("data-s"), $("#t-v2").classList.contains("on")],
+          asides: [...e.root.querySelectorAll("#c2 .aside.on")].map((a) => a.dataset.b),
+        };
+        expect(state).toEqual({ f, beat: "S", count: "4 / 7", frameCount: "4 / 7", cards: [[], []], room: ["on", "v2"], st: null, v2: ["seat", true], asides: ["S"] });
+      }
+      // nothing in the page carries the flight's classes or properties
+      expect(e.root.querySelectorAll(".fly, .wait, .land, .booking-any")).toHaveLength(0);
+      for (const s of ["#booking", "#bookw"]) expect($(s).style.getPropertyValue("--fly-x")).toBe("");
+      // 21.15 still hands over to the tablet line, 22.50 is still the cut onto the stand
+      scrollAt(e, at(e, "B", 0.9));
+      expect([...e.root.querySelectorAll("#c2 .aside.on")].map((a) => a.dataset.b)).toEqual(["B2"]);
+      expect($("#room").classList.contains("v2")).toBe(false);
+      scrollAt(e, at(e, "2b", 0.6));
+      expect($("#room").getAttribute("data-st")).toBe("cut");
+      d();
+    });
+  }
+
+  it("Næste from 3 / 7 lands on 4 / 7 = 19.45 with the room already on (NAV / SCN unchanged)", () => {
+    const e = setup();
+    const d = mountLanding(e.root);
+    scrollAt(e, at(e, "1b", 0.5));
+    expect(e.root.querySelector("#dcount").textContent).toBe("3 / 7");
+    vi.advanceTimersByTime(400);
+    e.root.querySelector("#dnext").click();
+    vi.advanceTimersByTime(FRAME);
+    window.dispatchEvent(new Event("scroll")); vi.advanceTimersByTime(FRAME);
+    expect([e.root.querySelector("#frame").dataset.beat, e.root.querySelector("#dcount").textContent]).toEqual(["S", "4 / 7"]);
+    expect(Math.abs(window.scrollY - Math.round(at(e, "S", 0.74)))).toBeLessThan(2);
+    expect(e.root.querySelector("#booking").classList.contains("on")).toBe(false);
+    expect(e.root.querySelector("#room").classList.contains("on")).toBe(true);
+    d();
+  });
+});
+
+describe("polish round, item 4: the bottom bar sits on the real bottom edge; what shows past the page is the ground", () => {
+  /* Safari / Brave collapse their bars: innerHeight grows, the small viewport (#probe) stays — the engine's cheap path */
+  function collapse(e, h0, h1) {
+    Object.defineProperty(window, "innerHeight", { value: h1, configurable: true });
+    window.dispatchEvent(new Event("resize"));
+    vi.advanceTimersByTime(FRAME);
+  }
+  function smallViewport(e, h0) {
+    Object.defineProperty(e.root.querySelector("#probe"), "offsetHeight", { configurable: true, get: () => h0 });
+    e.root.querySelector("#clock").style.fontSize = "64px"; // a real size, so the clock is not "changed" by the resize
+  }
+
+  it("402 × 780 → 874 (bars collapse) at 1 / 7, 4 / 7 and 7 / 7: no lift (no --dkb), the bar's resting top is the new innerHeight's bottom", () => {
+    for (const place of [["1a", 0.5], ["S", 0.74], ["3b", 0.62]]) {
+      const e = setup({ w: 402, h: 780 });
+      smallViewport(e, 780); tallTrack(e, 780, 534);
+      const d = mountLanding(e.root);
+      const dock = e.root.querySelector("#dock");
+      scrollAt(e, at(e, ...place));
+      expect(dock.style.getPropertyValue("--t")).toBe("780px");
+      collapse(e, 780, 874);
+      expect([place[0], dock.style.getPropertyValue("--dkb"), dock.style.getPropertyValue("--t")]).toEqual([place[0], "", "874px"]); // the bar's own height is 0 in jsdom
+      expect(window.__lp6.geo().svh).toBe(780); // no re-layout: the stage stays laid out in the small viewport
+      d();
+    }
+  });
+
+  it("data-gb follows the ground at the viewport's bottom edge: paper, night once the edge has risen past it, paper again under the morning sheet", () => {
+    const e = setup({ w: 390, h: 844 });
+    tallTrack(e, 844, 534);
+    const d = mountLanding(e.root);
+    const gb = () => e.root.getAttribute("data-gb");
+    scrollAt(e, at(e, "1a", 0.5));
+    expect(gb()).toBe("paper");
+    scrollAt(e, at(e, "A", 0.06)); // the edge has just come up from the bottom: the bottom is night, the top still paper
+    expect([gb(), e.root.getAttribute("data-g"), e.root.classList.contains("xing")]).toEqual(["night", "paper", true]);
+    scrollAt(e, at(e, "S", 0.74));
+    expect([gb(), e.root.getAttribute("data-g")]).toEqual(["night", "night"]);
+    scrollAt(e, at(e, "end", 0.6)); // the sheet has risen past the bottom
+    expect(gb()).toBe("paper");
+    d();
+    expect(e.root.hasAttribute("data-gb")).toBe(false); // restored on destroy
+  });
+});
+
+describe("polish round, item 3: no per-frame work the scroll does not need", () => {
+  const LAYOUT_READS = [["Element", "getBoundingClientRect"], ["Element", "getClientRects"]];
+  const LAYOUT_GETTERS = ["offsetTop", "offsetLeft", "offsetWidth", "offsetHeight", "offsetParent"];
+  const ELEMENT_GETTERS = ["scrollWidth", "scrollHeight", "clientWidth", "clientHeight", "scrollTop"];
+
+  for (const size of [{ w: 390, h: 844 }, { w: 820, h: 1180 }, { w: 1440, h: 900 }]) {
+    it(`${size.w} × ${size.h}: a scroll by hand through the whole day and back reads no layout in the tick (getBoundingClientRect, offset*, client*, scroll*, getComputedStyle)`, () => {
+      const e = setup(size);
+      tallTrack(e, size.h, size.w >= 1024 ? 564 : 534);
+      const d = mountLanding(e.root);
+      vi.advanceTimersByTime(400);
+      const reads = [];
+      for (const [, m] of LAYOUT_READS) vi.spyOn(Element.prototype, m).mockImplementation(function () { reads.push(m); return { x: 0, y: 0, top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, length: 0 }; });
+      for (const g of LAYOUT_GETTERS) { const o = Object.getOwnPropertyDescriptor(HTMLElement.prototype, g); vi.spyOn(HTMLElement.prototype, g, "get").mockImplementation(function () { reads.push(g); return o.get.call(this); }); }
+      for (const g of ELEMENT_GETTERS) { const o = Object.getOwnPropertyDescriptor(Element.prototype, g); vi.spyOn(Element.prototype, g, "get").mockImplementation(function () { reads.push(g); return o.get.call(this); }); }
+      const gcs = window.getComputedStyle;
+      vi.spyOn(window, "getComputedStyle").mockImplementation((...a) => { reads.push("getComputedStyle"); return gcs(...a); });
+      const end = window.__lp6.geo().pin + ((window.__lp6.geo().TOT + 100) * size.h) / 100;
+      for (let y = 0; y <= end; y += size.h / 23) scrollAt(e, y); // ~2 % of a screen per frame: every beat, both edges, 1 → 7 / 7
+      for (let y = end; y >= 0; y -= size.h / 23) scrollAt(e, y);
+      vi.advanceTimersByTime(1500); // the clock pacing and the leave timers, too
+      expect(reads).toEqual([]);
+      vi.restoreAllMocks();
+      d();
+    });
+  }
+
+  const SPLIT_FRAME = ".frame .sx,.frame .sbg,.frame .cm,.frame .xb,.frame .bt";
+  /* a laid-out stage (jsdom has none): every split element has its own box, 24 px tall, one under the other from 100 px */
+  function laidOutSplit(e) {
+    const els = [...e.root.querySelectorAll(SPLIT_FRAME)], top = new Map(els.map((el, i) => [el, 100 + i * 8]));
+    const op = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetParent"), ot = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop"), oh = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    vi.spyOn(HTMLElement.prototype, "offsetParent", "get").mockImplementation(function () { return top.has(this) ? e.root.querySelector("#frame") : op.get.call(this); });
+    vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function () { return top.has(this) ? top.get(this) : ot.get.call(this); });
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function () { return top.has(this) ? 24 : oh.get.call(this); });
+    return { els, top };
+  }
+  it("the night edge rising over the stage is written only on the stage's elements it runs through, never on the frame (390 × 844)", () => {
+    const e = setup({ w: 390, h: 844 });
+    tallTrack(e, 844, 534);
+    const { els, top } = laidOutSplit(e);
+    const d = mountLanding(e.root);
+    const frameEl = e.root.querySelector("#frame");
+    const writes = [];
+    const sp = CSSStyleDeclaration.prototype.setProperty;
+    // which element a declaration belongs to: every split element's style object, the frame's and the two bars'
+    const owner = new Map([...els, frameEl, e.root.querySelector("#top-bar"), e.root.querySelector("#dock")].map((el) => [el.style, el]));
+    vi.spyOn(CSSStyleDeclaration.prototype, "setProperty").mockImplementation(function (p, v, pr) { if (p === "--e" && owner.has(this)) writes.push([owner.get(this), v]); return sp.call(this, p, v, pr); });
+    const perFrame = [];
+    for (let f = 0.04; f <= 0.4; f += 0.004) { writes.length = 0; scrollAt(e, at(e, "A", f)); perFrame.push(writes.filter(([el]) => el !== frameEl && els.includes(el)).length); expect(writes.some(([el]) => el === frameEl)).toBe(false); }
+    // the crossing happened (the bars got the edge), the stage's split elements were written, and after the first frame
+    // of the crossing (every element below the edge, once) at most a few per frame: those it runs through
+    expect(perFrame.some((n) => n > 0)).toBe(true);
+    expect(Math.max(...perFrame.slice(perFrame.findIndex((n) => n > 0) + 1))).toBeLessThanOrEqual(8);
+    // slot a above the edge, slot b below it, the edge itself on an element it runs through
+    scrollAt(e, at(e, "A", 0.2));
+    const eNow = parseFloat(e.root.querySelector("#top-bar").style.getPropertyValue("--e"));
+    for (const el of els) {
+      const t = top.get(el), v = el.style.getPropertyValue("--e");
+      expect([t, v]).toEqual([t, eNow >= t + 24 ? "99999px" : eNow <= t ? "-99999px" : Math.round(eNow) + "px"]);
+    }
+    vi.restoreAllMocks();
+    d();
+  });
+
+  it("the paper edge rising at the end (the morning sheet) writes nothing on the stage: the sheet covers it below the edge", () => {
+    const e = setup({ w: 390, h: 844 });
+    tallTrack(e, 844, 534);
+    const { els } = laidOutSplit(e);
+    const d = mountLanding(e.root);
+    scrollAt(e, at(e, "A", 0.2)); // the night's own crossing wrote the stage (so the stage is not simply never written)
+    expect(els.some((el) => el.style.getPropertyValue("--e") !== "")).toBe(true);
+    scrollAt(e, at(e, "3b", 0.62));
+    const before = els.map((el) => el.style.getPropertyValue("--e"));
+    let crossed = false;
+    for (let f = 0.02; f <= 1; f += 0.02) { scrollAt(e, at(e, "end", f)); crossed = crossed || (e.root.classList.contains("xing") && e.root.getAttribute("data-x") === "np"); }
+    expect(crossed).toBe(true);
+    expect(els.map((el) => el.style.getPropertyValue("--e"))).toEqual(before);
+    expect(e.root.querySelector("#frame").style.getPropertyValue("--e")).toBe("");
+    vi.restoreAllMocks();
+    d();
+  });
+
+  it("the desktop hand-over writes --lp6-hin on the left column's eight parts, never on the frame; the drawing's --lp6-draw goes on its drawn groups, never on the svg", () => {
+    const e = setup({ w: 1440, h: 900 });
+    tallTrack(e, 900, 564);
+    const d = mountLanding(e.root);
+    const frameEl = e.root.querySelector("#frame"), svg = e.root.querySelector(".room-svg");
+    scrollAt(e, at(e, "h", 0.6));
+    expect(frameEl.style.getPropertyValue("--hin") + frameEl.style.getPropertyValue("--lp6-hin")).toBe("");
+    const parts = ["#aften-h", "#ix", "#date", "#clock", "#snav", "#c1", "#c2", "#c3"].map((s) => e.root.querySelector(s).style.getPropertyValue("--lp6-hin"));
+    expect(new Set(parts).size).toBe(1);
+    expect(+parts[0]).toBeGreaterThan(0);
+    for (const f of [0.1, 0.2, 0.3, 0.4]) {
+      scrollAt(e, at(e, "A", f));
+      expect(svg.style.getPropertyValue("--lp6-draw")).toBe("");
+    }
+    scrollAt(e, at(e, "S", 0.5)); // past the passage: drawn (jsdom has no room geometry, so the passage's own values are NaN here)
+    const groups = [...svg.querySelectorAll(".shell, .t .base")];
+    expect(groups.length).toBe(13);
+    expect(new Set(groups.map((g) => g.style.getPropertyValue("--lp6-draw")))).toEqual(new Set(["1.220"]));
+    d();
+  });
+
+  it("the 22.50 flight is the room-box's own transform (a compositor animation), with the strokes' scale beside it", () => {
+    const e = setup({ w: 390, h: 844 });
+    const d = mountLanding(e.root);
+    const rbox = e.root.querySelector("#roombox");
+    scrollAt(e, at(e, "S", 0.5));
+    expect(rbox.style.transform).toBe("translate(0px,0px) scale(1)");
+    scrollAt(e, at(e, "2b", 0.6));
+    expect(rbox.style.transform).toMatch(/^translate\(.+px,.+px\) scale\(.+\)$/);
+    expect(rbox.style.getPropertyValue("--lp6-k")).not.toBe("");
+    expect(rbox.style.getPropertyValue("--lp6-bx") + rbox.style.getPropertyValue("--lp6-by")).toBe("");
+    d();
+  });
+
+  it("a scroll frame inside a resting scene writes nothing but what moved (unchanged values are skipped)", () => {
+    for (const size of [{ w: 390, h: 844 }, { w: 1440, h: 900 }]) {
+      const e = setup(size);
+      tallTrack(e, size.h, size.w >= 1024 ? 564 : 534);
+      const d = mountLanding(e.root);
+      for (const [id, f] of [["1a", 0.5], ["S", 0.5], ["B", 0.1], ["3b", 0.5]]) {
+        scrollAt(e, at(e, id, f)); vi.advanceTimersByTime(1000);
+        const mo = new MutationObserver(() => {});
+        mo.observe(e.root, { subtree: true, attributes: true, characterData: true, childList: true });
+        for (let k = 1; k <= 3; k++) scrollAt(e, at(e, id, f) + k); // 1 px a frame
+        vi.advanceTimersByTime(1000);
+        // at most the two progress lines (--p, written only when its 3-decimal value moves)
+        const touched = [...new Set(mo.takeRecords().map((r) => r.target.id || r.target.className))];
+        expect([size.w, id, touched.filter((t) => t !== "prog" && t !== "dprog")]).toEqual([size.w, id, []]);
+        mo.disconnect();
+      }
+      d();
+    }
+  });
+});
+
+describe("polish round: the frame meter (?lp6debug=fps), for measuring on a device or the Simulator", () => {
+  it("?lp6debug=fps: a corner box on the body that counts frames; gone on destroy, with nothing left behind", () => {
+    window.history.replaceState(null, "", "/?lp6debug=fps");
+    const e = setup();
+    const d = mountLanding(e.root);
+    const box = document.querySelector("[data-lp6-fps]");
+    expect(box && box.parentElement).toBe(document.body);
+    expect(box.getAttribute("aria-hidden")).toBe("true");
+    for (let y = 0; y < 3000; y += 60) scrollAt(e, y);
+    vi.advanceTimersByTime(600);
+    expect(box.textContent).toMatch(/^frames \d+\/2s {2}p95 [\d.]+ ms\ndropped 2s \d+ {2}all \d+\/\d+$/);
+    expect(+box.textContent.match(/all \d+\/(\d+)/)[1]).toBeGreaterThan(0); // frames painted while scrolling were counted
+    d();
+    expect(document.querySelector("[data-lp6-fps]")).toBeNull();
+    expect(e.listeners()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("not without it: ?lp6debug alone, another value, no parameter, or a production build without the debug switch", () => {
+    for (const [address, dev] of [["/?lp6debug", false], ["/?lp6debug=1", false], ["/?fps", false], ["/", false], ["/", true], ["/?x=fps", true]]) {
+      window.history.replaceState(null, "", address);
+      vi.stubEnv("DEV", dev);
+      const e = setup();
+      const d = mountLanding(e.root);
+      expect([address, dev, document.querySelector("[data-lp6-fps]")]).toEqual([address, dev, null]);
+      d();
+    }
+    vi.stubEnv("DEV", false);
+  });
+
+  it("a dev build turns it on with the parameter", () => {
+    window.history.replaceState(null, "", "/?lp6debug=fps");
+    vi.stubEnv("DEV", true);
+    const e = setup();
+    const d = mountLanding(e.root);
+    expect(document.querySelector("[data-lp6-fps]")).not.toBeNull();
+    d();
+    expect(document.querySelector("[data-lp6-fps]")).toBeNull();
   });
 });

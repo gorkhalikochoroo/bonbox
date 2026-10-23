@@ -78,14 +78,16 @@ describe("landingV6.css — every selector is scoped to the page", () => {
     expect(selectors.length).toBeGreaterThan(600);
   });
 
-  it("every selector starts with .lp6 or :root:has(.lp6)", () => {
-    const bad = selectors.filter((s) => !/^(\.lp6(?![\w-])|:root:has\(\.lp6\)(?![\w-]))/.test(s));
+  // polish round (23 Oct): html / body follow the ground at the viewport's bottom edge, keyed on the root's data-gb (still only while
+  // the page is mounted): :root:has(.lp6[data-gb=night]) is the one other form
+  it("every selector starts with .lp6 or :root:has(.lp6) (or :root:has(.lp6[data-gb=night]))", () => {
+    const bad = selectors.filter((s) => !/^(\.lp6(?![\w-])|:root:has\(\.lp6(\[data-gb=night\])?\)(?![\w-]))/.test(s));
     expect(bad).toEqual([]);
   });
 
   it("no selector names html, body or :root except through :root:has(.lp6)", () => {
     const bad = selectors.filter((s) => {
-      const rest = s.replace(/^:root:has\(\.lp6\)( body)?/, "");
+      const rest = s.replace(/^:root:has\(\.lp6(\[data-gb=night\])?\)( body)?/, "");
       return /(^|[\s>+~(,])(html|body)(?![\w-])|:root/.test(rest);
     });
     expect(bad).toEqual([]);
@@ -95,11 +97,13 @@ describe("landingV6.css — every selector is scoped to the page", () => {
     const allowed = {
       ":root:has(.lp6)": ["background", "scroll-behavior", "scroll-padding-top", "overscroll-behavior", "text-size-adjust", "-webkit-text-size-adjust"],
       ":root:has(.lp6) body": ["margin", "padding-left", "padding-right", "background", "overflow-x"],
+      ":root:has(.lp6[data-gb=night])": ["background"],
+      ":root:has(.lp6[data-gb=night]) body": ["background"],
     };
     const seen = [];
     for (const r of styleRules) {
       for (const s of splitList(r.selector)) {
-        if (!s.startsWith(":root:has(.lp6)")) continue;
+        if (!s.startsWith(":root:has(.lp6")) continue;
         expect(Object.keys(allowed)).toContain(s);
         r.walkDecls((d) => {
           seen.push(`${s} { ${d.prop} }`);
@@ -118,14 +122,16 @@ describe("landingV6.css — every selector is scoped to the page", () => {
       if (a.name === "property") props.push(a.params.trim());
     });
     expect(keyframes.sort()).toEqual(["lp6-barGrow", "lp6-dgIn", "lp6-dgOut", "lp6-rowFade", "lp6-rowRise"]);
-    expect(props.sort()).toEqual(["--lp6-bx", "--lp6-by", "--lp6-draw", "--lp6-k"]);
+    // polish round (23 Oct): --lp6-bx / --lp6-by went (the 22.50 flight is the room-box's own transform); --lp6-hin came (the
+    // desktop hand-over, written on the left column's parts, not inherited)
+    expect(props.sort()).toEqual(["--lp6-draw", "--lp6-hin", "--lp6-k"]);
     const names = new Set(keyframes);
     root.walkDecls(/^animation(-name)?$/, (d) => {
       const used = d.value.match(/\blp6-[\w-]+|\b(dgIn|dgOut|rowFade|rowRise|barGrow)\b/g) || [];
       for (const u of used) expect(names.has(u)).toBe(true);
     });
     // the unprefixed registered names never come back (--k0 / --ck are plain, unregistered properties)
-    expect(bare).not.toMatch(/--(bx|by|k|draw)(?![\w-])/);
+    expect(bare).not.toMatch(/--(bx|by|k|draw|hin)(?![\w-])/);
   });
 
   it("carries no @import, @font-face or remote url()", () => {
@@ -258,8 +264,8 @@ describe("landingV6.css — the measured v6.2 / v6.3 rules came across", () => {
   it("v6.2: the footer mail link's focus ring hugs its own line", () => {
     has(".lp6 .foot .legal p a:focus-visible", "outline-offset", "-11px");
   });
-  it("v6.3: the room still draws itself right after a stepper jump (.jd eases --lp6-draw)", () => {
-    expect(declsOf(ruleFor(".lp6.story .room-svg.jd")).transition).toMatch(/^--lp6-draw 1s/);
+  it("v6.3: the room still draws itself right after a stepper jump (.jd eases --lp6-draw, on the drawn groups since the polish round)", () => {
+    expect(declsOf(ruleFor(".lp6.story .room-svg.jd :is(.shell,.base)")).transition).toMatch(/^--lp6-draw 1s/);
   });
   it("the price section is #pricing (Terms § 8 links /#pricing), clear of the top bar", () => {
     has(".lp6 #pricing", "scroll-margin-top", "calc(var(--hh) + 8px)");
@@ -315,5 +321,62 @@ describe("the landing's CSS plumbing outside the stylesheet", () => {
     const main = read(join(SRC, "main.jsx"));
     for (const w of [400, 500, 600]) expect(main).toContain(`@fontsource/inter/latin-${w}.css`);
     expect(main).not.toContain("@fontsource/inter/latin-300.css");
+  });
+});
+
+describe("landingV6.css — polish round (23 Oct; Manoj's iPhone)", () => {
+  it("item 2: \"← NÆSTE → 3 / 7\" is one group — the ← box 44 px from the bar's edge with its arrow at its right, NÆSTE right after it, the count 10 px (≈ 12 px of ink) after →", () => {
+    expect(declsOf(ruleFor(".lp6 .dk-nav"))).toEqual({ display: "flex", "align-items": "center", "margin-left": "calc(-1 * min(var(--gut), 20px))" }); // no gap
+    expect(declsOf(ruleFor(".lp6 .dk-nav .prev"))).toEqual({ width: "44px", "justify-content": "flex-end", "padding-right": "5px" }); // no margin
+    expect(declsOf(ruleFor(".lp6 .dk-nav .prev.off"))).toEqual({ visibility: "hidden" }); // hidden in place: NÆSTE never moves between 1 / 7 and 2 / 7
+    expect(declsOf(ruleFor(".lp6 .dk-nav .count"))).toEqual({ "margin-left": "10px" });
+    expect(declsOf(ruleFor(".lp6 .dk-nav .next"))).toEqual({ gap: "3px" });
+    expect(ruleFor(".lp6 .dk-nav .next")).toBe(ruleFor(".lp6 .sn-ev .next")); // the two-column row hugs its arrows the same way
+    expect(declsOf(ruleFor(".lp6 .next")).height).toBe("44px");
+    // the boxes this gives on every one-column width (gutter 16 under 381 px, 20 on phones, 40 from 768): the ← box starts on screen,
+    // both targets are 44 px or more and touch without overlapping, and the visible gap ← · NÆSTE is the 5 px padding (+ the glyphs' sides)
+    for (const gut of [16, 20, 40]) {
+      const prevL = gut - Math.min(gut, 20), prevR = prevL + 44, nextL = prevR, nextW = 65; // NEXT, the narrower label, is 65 px wide
+      expect([gut, prevL >= 0, prevR - Math.max(0, prevL) >= 44, nextL - prevR, nextW >= 44]).toEqual([gut, true, true, 0, true]);
+    }
+    expect(rulesFor(".lp6 .dk-nav .prev").some((r) => /margin/.test(Object.keys(declsOf(r)).join()))).toBe(false);
+  });
+
+  it("item 4: the bar sits on the real bottom edge (no --dkb lift); the night reaches it however tall the viewport; html / body follow the ground at the bottom", () => {
+    expect(bare).not.toMatch(/--dkb/);
+    expect(declsOf(ruleFor(".lp6 .dock.on"))).toEqual({ transform: "none" });
+    expect(ruleFor(".lp6 .dock.on")).toBe(ruleFor(".lp6 .dock:focus-within"));
+    expect(declsOf(ruleFor(".lp6 #night"))).toMatchObject({ position: "fixed", top: "0", bottom: "0", "min-height": "100lvh" });
+    expect(declsOf(ruleFor(".lp6 #night")).height).toBeUndefined();
+    expect(declsOf(ruleFor(".lp6.story #night")).transform).toBe("translate3d(0,100%,0)");
+    expect(declsOf(ruleFor(":root:has(.lp6[data-gb=night])"))).toEqual({ background: "#12281E" });
+    expect(ruleFor(":root:has(.lp6[data-gb=night]) body")).toBe(ruleFor(":root:has(.lp6[data-gb=night])"));
+    const engine = read(join(V6, "engine.js"));
+    expect(engine).not.toMatch(/--dkb|dockLift|100lvh/);
+  });
+
+  it("item 3: a crossing keeps each split text's colour (only its fill is transparent), so nothing fades in from nothing when the edge leaves; a ground change switches colours at once", () => {
+    const xing = rulesFor(".lp6.xing :is(.top,.dock) .sx")[0];
+    expect(declsOf(xing)).toMatchObject({ "-webkit-text-fill-color": "transparent", transition: "none" });
+    expect(declsOf(xing).color).toBeUndefined();
+    expect(declsOf(ruleFor(".lp6.xing :is(.top,.dock) .xb .bt")).color).toBeUndefined();
+    expect(declsOf(ruleFor(".lp6.xing :is(.top,.dock) .xb"))).toMatchObject({ "background-image": expect.stringMatching(/^linear-gradient/) });
+    expect(declsOf(ruleFor(".lp6.xing :is(.top,.dock) .xb")).background).toBeUndefined(); // the button keeps its own background-color under the gradient
+    expect(declsOf(ruleFor(".lp6.lp6-gx :is(.sx,.btn,.bt)"))).toEqual({ transition: "none" });
+    // the stage splits only while night rises (paper rising at the end is covered by the morning sheet)
+    expect(selectors.filter((s) => /\.story\.xing \.frame/.test(s))).toEqual([]);
+    expect(selectors.filter((s) => /\.story\.xing\[data-x=pn\] \.frame/.test(s)).length).toBe(9);
+  });
+
+  it("item 3: the 22.50 flight is a transform transition; the strokes' --lp6-k follows it in 8 even steps (steps(8) first, for a browser without linear())", () => {
+    for (const sel of [".lp6.story .room-box", ".lp6.story .room-fig[data-st=cut] .room-box", ".lp6.story .room-fig.ret .room-box"]) {
+      const ts = [];
+      ruleFor(sel).walkDecls("transition", (d) => ts.push(d.value));
+      expect([sel, ts.length]).toEqual([sel, 2]);
+      expect(ts[0]).toMatch(/--lp6-k \.[56]s steps\(8\)/);
+      expect(ts[1]).toMatch(/--lp6-k \.[56]s linear\(0,0 26\.7%,\.125 26\.7%/);
+      for (const t of ts) { expect(t).toMatch(/\btransform \.[56]s cubic-bezier\(\.76,0,\.24,1\)/); expect(t).not.toMatch(/var\(|--lp6-b[xy]/); }
+    }
+    expect(declsOf(ruleFor(".lp6.story .room-box")).transform).toBeUndefined(); // the engine writes it (inline)
   });
 });

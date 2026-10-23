@@ -83,11 +83,15 @@ describe("the root and what the engine reads (engine.js hand-over, step 4)", () 
     expect($$(".ix a[data-c] .w")).toHaveLength(3);
     expect($$(".clock .dg").map((d) => [...d.querySelectorAll("b")].map((b) => b.textContent))).toEqual([["1", ""], ["0", ""], ["0", ""], ["0", ""]]);
     expect($$(".copy.sc .line")).toHaveLength(3);
-    expect($$(".copy.sc .aside[data-b]").map((a) => a.getAttribute("data-b"))).toEqual(["h 1a 1b A", "2a A2 S0", "S", "B2", "2b C", "3a", "3b end"]);
+    // polish round (23 Oct): 19.45 no longer opens on the 12.30 card ("S0"), so the booking-page aside belongs to 12.30 and the
+    // room's rise only; 19.45 says "Gæsten fra kl. 12.30 sidder ved Vindue 2." from its first moment
+    expect($$(".copy.sc .aside[data-b]").map((a) => a.getAttribute("data-b"))).toEqual(["h 1a 1b A", "2a A2", "S", "B2", "2b C", "3a", "3b end"]);
     expect($$("[data-go]").map((a) => a.getAttribute("data-go"))).toEqual(["1a", "2a", "3a", "1a", "2a", "3a"]);
     expect($$("dd[data-v]").map((d) => [d.dataset.v, d.textContent])).toEqual([["640", "640,00"], ["6610", "6.610,00"], ["990", "990,00"], ["8240", "8.240,00"]]);
     expect($(".tot dd").textContent).toBe("8.240,00");
-    expect($$(".booking-any")).toHaveLength(2);
+    // polish round: the 12.30 cards no longer fly into Vindue 2 at 19.45, so the flight's class is gone from both
+    expect($$(".booking-any")).toHaveLength(0);
+    expect($$("#booking.booking, #bookw.bookw")).toHaveLength(2);
     expect($$(".hold")).toHaveLength(3);
     expect($("#frame").getAttribute("data-beat")).toBe("1a");
     expect($("#prev").hidden).toBe(true);

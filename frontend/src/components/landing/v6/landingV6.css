@@ -5,9 +5,10 @@
  * The lazy landing chunk's CSS stays loaded after the visitor leaves "/", so NOTHING here may reach outside the page:
  *   - every selector starts with .lp6 (the page root) or :root:has(.lp6) (html/body, only while the page is mounted);
  *   - the page's mode classes (js motion story xing cta-past dock-on cramp) and data-x / data-g sit on the .lp6 root, not on <html>;
- *   - keyframes are lp6-*, and the registered custom properties are --lp6-bx --lp6-by --lp6-k --lp6-draw
- *     (an @property registration is global: an unprefixed --k with inherits:true would change every other --k in the app);
+ *   - keyframes are lp6-*, and the registered custom properties are --lp6-k --lp6-draw --lp6-hin (polish round, 23 Oct: --lp6-bx / --lp6-by
+ *     went, --lp6-hin came) (an @property registration is global: an unprefixed --k with inherits:true would change every other --k in the app);
  *   - class names the app already styles are prefixed: .lp6-glass (index.css .glass), .lp6-ring and .lp6-end (Tailwind utilities).
+ *   - html / body are reached only through :root:has(.lp6) and, for the ground past the page (polish round), :root:has(.lp6[data-gb=night]);
  * landingV6CssScope.test.js holds all of this. Inter 300 (the clock) is imported beside this file in styles.js; 400/500/600 come with main.jsx.
  */
 /* ═════════════ tokens ═════════════ */
@@ -83,28 +84,39 @@
 /* ═════════════ the edge — one hard line between the two grounds ═════════════
    Every text element that can meet the edge is painted from two colours split exactly at the edge
    (background-clip:text), so it is ink on paper and paper on night at every pixel, at every moment.
-   Outside a crossing the same elements use the settled colours. */
+   Outside a crossing the same elements use the settled colours.
+   Polish round (23 Oct, scroll smoothness): on the stage the edge is written only on the elements it runs through (engine.js splitFrame:
+   above it slot a, below it slot b), and only while night rises (data-x=pn); when paper rises at the end the morning sheet covers the
+   stage below the edge, so the stage keeps its settled colours. The two bars split as before.
+   Polish round: during a crossing a split text keeps its settled colour and only its fill is transparent (the gradient shows through);
+   it was colour:transparent, so the moment the edge left the screen every split text (the clock, the bars, the labels, the captions)
+   faded back in from nothing over .3 s, and "Prøv gratis" from no background over .2 s (measured: the clock at 4 % at 16 ms). And on the
+   frame where the ground or the crossing changes (engine.js gx: .lp6-gx, two frames), colours switch at once instead of fading from
+   the old ground's (a stepper jump into the night faded the bars' text in from dark-on-dark) */
 .lp6 .sx{transition:color .3s ease}
 .lp6 .sx.f1{color:var(--fg)}.lp6 .sx.f2{color:var(--fg2)}.lp6 .sx.f3{color:var(--fg3)}
 .lp6 .sbg.h{background:var(--hair)}.lp6 .sbg.k{background:var(--fg)}
-.lp6.xing :is(.top,.dock) .sx,.lp6.story.xing .frame .sx{color:transparent;-webkit-text-fill-color:transparent;transition:none;
+.lp6.xing :is(.top,.dock) .sx,.lp6.story.xing[data-x=pn] .frame .sx{-webkit-text-fill-color:transparent;transition:none;
   background-image:linear-gradient(180deg,var(--sa) calc(var(--e) - var(--t,0px)),var(--sb) 0);-webkit-background-clip:text;background-clip:text}
-.lp6.xing :is(.top,.dock) .sx.f1,.lp6.story.xing .frame .sx.f1{--sa:var(--a-f1);--sb:var(--b-f1)}
-.lp6.xing :is(.top,.dock) .sx.f2,.lp6.story.xing .frame .sx.f2{--sa:var(--a-f2);--sb:var(--b-f2)}
-.lp6.xing :is(.top,.dock) .sx.f3,.lp6.story.xing .frame .sx.f3{--sa:var(--a-f3);--sb:var(--b-f3)}
-.lp6.xing :is(.top,.dock) .sbg.h,.lp6.story.xing .frame .sbg.h{background:linear-gradient(180deg,var(--a-hr) calc(var(--e) - var(--t,0px)),var(--b-hr) 0)}
-.lp6.xing :is(.top,.dock) .sbg.k,.lp6.story.xing .frame .sbg.k{background:linear-gradient(180deg,var(--a-f1) calc(var(--e) - var(--t,0px)),var(--b-f1) 0)}
-.lp6.xing :is(.top,.dock) .xb,.lp6.story.xing .frame .xb{transition:none;background:linear-gradient(180deg,var(--a-bb) calc(var(--e) - var(--t,0px)),var(--b-bb) 0)}
-.lp6.xing :is(.top,.dock) .xb .bt,.lp6.story.xing .frame .xb .bt{color:transparent;-webkit-text-fill-color:transparent;background-image:linear-gradient(180deg,var(--a-bf) calc(var(--e) - var(--t,0px)),var(--b-bf) 0);-webkit-background-clip:text;background-clip:text}
-.lp6.story.xing .frame .cm{border-image:linear-gradient(180deg,var(--a-f1) calc(var(--e) - var(--t,0px)),var(--b-f1) 0) 1}
+.lp6.xing :is(.top,.dock) .sx.f1,.lp6.story.xing[data-x=pn] .frame .sx.f1{--sa:var(--a-f1);--sb:var(--b-f1)}
+.lp6.xing :is(.top,.dock) .sx.f2,.lp6.story.xing[data-x=pn] .frame .sx.f2{--sa:var(--a-f2);--sb:var(--b-f2)}
+.lp6.xing :is(.top,.dock) .sx.f3,.lp6.story.xing[data-x=pn] .frame .sx.f3{--sa:var(--a-f3);--sb:var(--b-f3)}
+.lp6.xing :is(.top,.dock) .sbg.h,.lp6.story.xing[data-x=pn] .frame .sbg.h{background:linear-gradient(180deg,var(--a-hr) calc(var(--e) - var(--t,0px)),var(--b-hr) 0)}
+.lp6.xing :is(.top,.dock) .sbg.k,.lp6.story.xing[data-x=pn] .frame .sbg.k{background:linear-gradient(180deg,var(--a-f1) calc(var(--e) - var(--t,0px)),var(--b-f1) 0)}
+.lp6.xing :is(.top,.dock) .xb,.lp6.story.xing[data-x=pn] .frame .xb{transition:none;background-image:linear-gradient(180deg,var(--a-bb) calc(var(--e) - var(--t,0px)),var(--b-bb) 0)}
+.lp6.xing :is(.top,.dock) .xb .bt,.lp6.story.xing[data-x=pn] .frame .xb .bt{-webkit-text-fill-color:transparent;background-image:linear-gradient(180deg,var(--a-bf) calc(var(--e) - var(--t,0px)),var(--b-bf) 0);-webkit-background-clip:text;background-clip:text}
+.lp6.story.xing[data-x=pn] .frame .cm{border-image:linear-gradient(180deg,var(--a-f1) calc(var(--e) - var(--t,0px)),var(--b-f1) 0) 1}
+.lp6.lp6-gx :is(.sx,.btn,.bt){transition:none}
 /* the logo is an SVG: two copies, each clipped to its side of the edge */
 .lp6 .logo{position:relative;display:block;color:var(--fg);flex:none;padding:6px 0}
 .lp6 .logo .lgA{display:block}.lp6 .logo .lgB{display:none}
 .lp6.xing .top .logo .lgA{color:var(--a-f1);clip-path:inset(0 0 max(0px,calc(100% - (var(--e) - var(--t,0px) - 6px))) 0)}
 .lp6.xing .top .logo .lgB{display:block;position:absolute;left:0;top:6px;color:var(--b-f1);clip-path:inset(max(0px,calc(var(--e) - var(--t,0px) - 6px)) 0 0 0)}
 .lp6 .sx::selection,.lp6 .sx *::selection{-webkit-text-fill-color:var(--ink);color:var(--ink);background:#CFE6D8}
-/* the night ground, driven by the scroll (story only) */
-.lp6 #night{position:fixed;left:0;right:0;top:0;height:100lvh;background:var(--night);z-index:1;pointer-events:none;visibility:hidden;will-change:transform}
+/* the night ground, driven by the scroll (story only). Polish round (23 Oct; Brave on Manoj's iPhone showed paper under the bar with the
+   night up): it reaches the viewport's real bottom edge however tall the browser's collapsed bars leave it (top 0 · bottom 0), and at
+   least the large viewport; its resting place below the screen is its own height down (100%), not 100lvh */
+.lp6 #night{position:fixed;left:0;right:0;top:0;bottom:0;min-height:100lvh;background:var(--night);z-index:1;pointer-events:none;visibility:hidden;will-change:transform}
 
 /* ═════════════ top bar ═════════════ */
 .lp6 .top{position:fixed;inset:0 0 auto 0;height:calc(var(--hh) + env(safe-area-inset-top,0px));padding-top:env(safe-area-inset-top,0px);z-index:60;background:var(--ground);--t:0px}
@@ -147,6 +159,9 @@
 @media not all and (min-width:1024px) and (min-aspect-ratio:5/4){@media (min-width:768px) and (max-width:1199px){.lp6 .h1 a{display:inline-block}.lp6 .sub{max-width:48ch}.lp6 .trial{max-width:52ch}}}
 
 /* ═════════════ the day — shared pieces ═════════════ */
+/* polish round (23 Oct, scroll smoothness): the desktop hand-over's rise-in, written per frame on the left column's eight parts; not
+   inherited, so a write restyles that part alone (it was --hin on the frame, which restyled the frame's ≈ 610 elements per frame) */
+@property --lp6-hin{syntax:'<number>';inherits:false;initial-value:0}
 .lp6 .aften{position:relative}
 .lp6 .clock,.lp6 .ix,.lp6 .plate,.lp6 .zbl{display:none}
 .lp6 .copy .label{margin-bottom:8px}
@@ -256,15 +271,13 @@
 .lp6 .t .globe .gs{transform:scale(calc(var(--u,1.72) * 7 / 11))}
 .lp6 .t .globe .gr{fill:var(--ground);stroke:none}
 .lp6 .t .globe .gs > :not(.gr){fill:none;stroke:var(--c-sky);stroke-width:1.25}
-.lp6 #t-v2 .globe{transition:opacity .35s ease .62s}
-.lp6 .room-fig.wait #t-v2 .globe{opacity:0;transition:opacity .15s ease}
-/* 19.45: Vindue 2 is seated the moment the guest's booking lands on it */
-.lp6 .room-fig.land #t-v2 .L{transition-delay:.55s}
+/* 19.45 (polish round, 23 Oct): the stage opens on the room with the guest from 12.30 already at Vindue 2 — seated, ringed, named
+   and with the booking's globe from the first moment of the beat (no booking card flies in any more) */
 .lp6 .t .hl{opacity:0}
 .lp6 .t .hlr{fill:none;stroke:var(--c-em);stroke-width:1.5}
-.lp6 .room-fig.v2 #t-v2 .hl{opacity:1;transition:opacity .4s ease .75s}
+.lp6 .room-fig.v2 #t-v2 .hl{opacity:1}
 .lp6 .rl.v2l{position:absolute;transform:translateX(-50%);color:var(--c-em);opacity:0;transition:opacity .3s ease}
-.lp6 .room-fig.v2 .rl.v2l{opacity:1;transition:opacity .4s ease .85s}
+.lp6 .room-fig.v2 .rl.v2l{opacity:1;transition:opacity .4s ease}
 .lp6 .door .leaf{transform-box:view-box;transform-origin:var(--hx) var(--hy);transition:transform .9s var(--m-io)}
 .lp6 .door .arc{transition:opacity .5s ease}
 .lp6 .room-svg:not(.open) .door .leaf{transform:rotate(90deg)}
@@ -326,10 +339,18 @@
 .lp6 .dock .btn:active{opacity:.78}
 /* v6.2 "← Forrige" (forslag): the mirror of "Næste →", same type and the same split colours (.sx f1 on paper and on night).
    Shown from 2 / 7 to 7 / 7; hidden (not only disabled) at 1 / 7 and before the stage pins.
-   Bottom bar: "←" alone in its own 44 × 44 box before NÆSTE. While hidden it keeps its place, so NÆSTE never moves under a thumb */
+   Bottom bar: "←" alone in its own 44 × 44 box before NÆSTE. While hidden it keeps its place, so NÆSTE never moves under a thumb.
+   Polish round (23 Oct; Manoj's iPhone at 3 / 7: "←", NÆSTE and "3 / 7" sat apart): "← NÆSTE → 3 / 7" is one group. The ← box starts at
+   the bar's edge (20 px left of the gutter, never past the screen's edge) and carries its arrow at its right side, 5 px before NÆSTE's box,
+   which starts where the ← box ends: the two targets touch and never overlap, each 44 px or more, and the visible gaps are only the
+   glyphs' own (← · NÆSTE ≈ 7 px, NÆSTE · → ≈ 7 px, → · 3 / 7 ≈ 12 px). The two-column page's row keeps its 16 px between the buttons
+   and hugs each arrow to its word the same way */
 .lp6 .prev{justify-content:center}
-.lp6 .dk-nav .prev{width:44px;margin:0 -4px 0 -12px}
+.lp6 .dk-nav .prev{width:44px;justify-content:flex-end;padding-right:5px}
 .lp6 .dk-nav .prev.off{visibility:hidden}
+.lp6 .dk-nav .prev:focus-visible{outline-offset:-2px}
+.lp6 .dk-nav .next,.lp6 .sn-ev .next{gap:3px}
+.lp6 .dk-nav .count{margin-left:10px}
 /* measured (barfit_v62): at 320 px the count ends 2 px from "Prøv gratis" (the bar's gap is 10), so under 360 px the bar drops "n / 7";
    the progress line along the bar's top still shows how far the day is */
 @media (max-width:359px){.lp6 .dk-nav .count{display:none}}
@@ -367,7 +388,7 @@
 }
 
 /* ═════════════ STORY layout (the pinned day) ═════════════ */
-.lp6.story #night{visibility:visible;transform:translate3d(0,100lvh,0)}
+.lp6.story #night{visibility:visible;transform:translate3d(0,100%,0)}
 .lp6.story .track{position:relative;height:calc(var(--trk,600) * 1svh)}
 .lp6.story .copy.st{display:none}
 /* phone + tablet: one column; the bands (--bt top, --bc clock→media, --bm media→copy) and the media slot are set by layout() */
@@ -431,20 +452,19 @@
 .lp6.story .fx{opacity:0;translate:0 16px;pointer-events:none;transition:opacity .22s ease,translate 0s linear .22s}
 .lp6.story .fx.out{opacity:0;translate:0 12px;transition:opacity .22s cubic-bezier(.4,0,1,1),translate .22s cubic-bezier(.4,0,1,1)}
 .lp6.story .fx.on{opacity:1;translate:none;pointer-events:auto;transition:opacity .6s var(--m-out) var(--dl,.22s),translate .6s var(--m-out) var(--dl,.22s)}
-/* 19.45 → the guest's booking from 12.30 flies into Vindue 2 and becomes the reservation book's globe mark */
-.lp6.story .booking-any{transform-origin:50% 50%}
-.lp6.story .booking-any.on{transition:opacity .6s var(--m-out) var(--dl,.22s),translate .6s var(--m-out) var(--dl,.22s),transform .7s var(--m-io)}
-.lp6.story .booking-any.fly{translate:none;transform:translate(calc(var(--fly-x)*1px),calc(var(--fly-y)*1px)) scale(var(--fly-k));opacity:0;
-  transition:transform .75s var(--m-io),opacity .3s ease .48s}
-
 /* room */
 .lp6.story .room-fig{--dl:.12s}
 .lp6.story .room-svg *{vector-effect:none}
-@property --lp6-bx{syntax:'<number>';inherits:false;initial-value:0}
-@property --lp6-by{syntax:'<number>';inherits:false;initial-value:0}
+/* the 22.50 match-cut: the drawing flies onto the stand screen's plan (engine.js writes the room-box's transform and --lp6-k, the scale
+   the strokes divide by, so a line keeps its weight on screen while the drawing grows). Polish round (23 Oct, scroll smoothness): the
+   flight is the room-box's own transform (a compositor animation; it was --lp6-bx / --lp6-by / --lp6-k, run on the main thread), and the
+   strokes' --lp6-k follows the same curve in 8 even steps (linear(): each step 1/8 of the change, timed where the m-io curve crosses it)
+   instead of every frame: a frame of the flight restyled all ≈ 330 nodes of the drawing, now 8 times per flight. Each transition is
+   declared twice: steps(8) first, for a browser without linear() (no var() in either, so the second is dropped there at parse time) */
 @property --lp6-k{syntax:'<number>';inherits:true;initial-value:1}
-.lp6.story .room-box{transform:translate(calc(var(--lp6-bx) * 1px),calc(var(--lp6-by) * 1px)) scale(var(--lp6-k));transform-origin:0 0;clip-path:var(--clip,inset(-40px));
-  transition:--lp6-bx .6s var(--m-io) .1s,--lp6-by .6s var(--m-io) .1s,--lp6-k .6s var(--m-io) .1s,clip-path .6s var(--m-io) .1s,opacity .25s ease}
+.lp6.story .room-box{transform-origin:0 0;clip-path:var(--clip,inset(-40px));
+  transition:transform .6s cubic-bezier(.76,0,.24,1) .1s,--lp6-k .6s steps(8) .1s,clip-path .6s cubic-bezier(.76,0,.24,1) .1s,opacity .25s ease;
+  transition:transform .6s cubic-bezier(.76,0,.24,1) .1s,--lp6-k .6s linear(0,0 26.7%,.125 26.7%,.125 39.1%,.25 39.1%,.25 44.9%,.375 44.9%,.375 48.5%,.5 48.5%,.5 51.5%,.625 51.5%,.625 55.1%,.75 55.1%,.75 60.9%,.875 60.9%,.875 73.3%,1 73.3%,1) .1s,clip-path .6s cubic-bezier(.76,0,.24,1) .1s,opacity .25s ease}
 .lp6.story .room-svg .w,.lp6.story .room-svg .door path{stroke-width:calc(var(--u,1) * 1.5 / var(--lp6-k))}
 .lp6.story .room-svg .lp6-glass{stroke-width:calc(var(--u,1) * 1 / var(--lp6-k))}
 .lp6.story .room-svg .bd{stroke-width:calc(var(--u,1) * 1.25 / var(--lp6-k))}
@@ -455,9 +475,11 @@
 .lp6.story .t .seat .ch{transform:translate(calc(var(--dx)*var(--u,1)*5px),calc(var(--dy)*var(--u,1)*5px))}
 .lp6.story .shell [pathLength],.lp6.story .base [pathLength]{stroke-dasharray:1 1;stroke-dashoffset:calc(1 - clamp(0,(var(--lp6-draw,1) - var(--o,0)) / .22,1))}
 /* v6.3: the stepper jumps (the page no longer glides through 16.40 → 19.45), so right after a jump (.jd) the room still draws itself:
-   --draw eases to its new value; any scroll by hand takes .jd off again and the drawing follows the scroll as before */
+   --draw eases to its new value; any scroll by hand takes .jd off again and the drawing follows the scroll as before.
+   Polish round (23 Oct, scroll smoothness): the engine writes --lp6-draw on the walls' group and the free-table outlines (.shell, .t .base),
+   so the ease runs there too; on the svg every scroll frame of the drawing restyled all ≈ 330 of its nodes, now ≈ 75 */
 @property --lp6-draw{syntax:'<number>';inherits:true;initial-value:1}
-.lp6.story .room-svg.jd{transition:--lp6-draw 1s cubic-bezier(.33,0,.2,1) .22s}
+.lp6.story .room-svg.jd :is(.shell,.base){transition:--lp6-draw 1s cubic-bezier(.33,0,.2,1) .22s}
 .lp6.story .room-svg .shell,.lp6.story .room-svg .t{transition:opacity .4s ease}
 .lp6.story .room-fig .rl,.lp6.story .room-fig .legend,.lp6.story .room-foot{transition:opacity .3s ease}
 .lp6.story .room-fig[data-st] .rl,.lp6.story .room-fig[data-st] .legend{opacity:0}
@@ -465,11 +487,12 @@
 .lp6.story .room-fig.xr .rl,.lp6.story .room-fig.xr .room-foot{opacity:0;transition:opacity .15s ease}
 .lp6.story .room-fig[data-st] .room-foot{opacity:0;transition:opacity .15s ease}
 .lp6.story .room-fig:not([data-st]) .room-foot,.lp6.story .room-fig:not([data-st]) .legend{transition:opacity .35s ease .5s}
-.lp6.story .room-fig[data-st=card] .shell,.lp6.story .room-fig[data-st=card] .t:not(#t-v2){opacity:.14}
-.lp6.story .room-fig[data-st=cut] .room-box{opacity:0;transition:--lp6-bx .5s var(--m-io),--lp6-by .5s var(--m-io),--lp6-k .5s var(--m-io),clip-path .5s var(--m-io),opacity .15s ease 1.1s}
+.lp6.story .room-fig[data-st=cut] .room-box{opacity:0;transition:transform .5s cubic-bezier(.76,0,.24,1),--lp6-k .5s steps(8),clip-path .5s cubic-bezier(.76,0,.24,1),opacity .15s ease 1.1s;
+  transition:transform .5s cubic-bezier(.76,0,.24,1),--lp6-k .5s linear(0,0 26.7%,.125 26.7%,.125 39.1%,.25 39.1%,.25 44.9%,.375 44.9%,.375 48.5%,.5 48.5%,.5 51.5%,.625 51.5%,.625 55.1%,.75 55.1%,.75 60.9%,.875 60.9%,.875 73.3%,1 73.3%,1),clip-path .5s cubic-bezier(.76,0,.24,1),opacity .15s ease 1.1s}
 /* back from 22.50, the match-cut in reverse: the drawing is already lying on the screen, so it comes up first (180 ms),
    the screen fades off it (from 160 ms), then the drawing flies home (from 400 ms) — no empty stage and no ghost */
-.lp6.story .room-fig.ret .room-box{opacity:1;transition:opacity .18s ease,--lp6-bx .6s var(--m-io) .4s,--lp6-by .6s var(--m-io) .4s,--lp6-k .6s var(--m-io) .4s,clip-path .6s var(--m-io) .4s}
+.lp6.story .room-fig.ret .room-box{opacity:1;transition:opacity .18s ease,transform .6s cubic-bezier(.76,0,.24,1) .4s,--lp6-k .6s steps(8) .4s,clip-path .6s cubic-bezier(.76,0,.24,1) .4s;
+  transition:opacity .18s ease,transform .6s cubic-bezier(.76,0,.24,1) .4s,--lp6-k .6s linear(0,0 26.7%,.125 26.7%,.125 39.1%,.25 39.1%,.25 44.9%,.375 44.9%,.375 48.5%,.5 48.5%,.5 51.5%,.625 51.5%,.625 55.1%,.75 55.1%,.75 60.9%,.875 60.9%,.875 73.3%,1 73.3%,1) .4s,clip-path .6s cubic-bezier(.76,0,.24,1) .4s}
 .lp6.story .room-fig.ret .room-foot,.lp6.story .room-fig.ret .legend,.lp6.story .room-fig.ret .rl{transition:opacity .35s ease .95s}
 /* 22.50: the drawing lands exactly on the real stand screen, which fades in over it */
 .lp6.story :is(.stand,.standw).fx,.lp6.story :is(.stand,.standw).fx.on,.lp6.story :is(.stand,.standw).fx.out{translate:none}
@@ -548,8 +571,9 @@
   .lp6.story .ix a.cur .w{font-weight:600}
   .lp6.story .story-nav{margin-top:20px;max-width:420px}
   /* the hand-over from the hero: the left column rises 16 px into place while the hero lifts away (the ranges overlap) */
-  .lp6.story .frame[data-beat=h] :is(.venue,.ix,.date,.clock,.story-nav){opacity:var(--hin,0);transform:translateY(calc((1 - var(--hin,0)) * 16px));transition:none}
-  .lp6.story .frame[data-beat=h] .copy.sc.on{opacity:var(--hin,0);transform:translateY(calc((1 - var(--hin,0)) * 16px));transition:none}
+  /* polish round (23 Oct): --lp6-hin is registered as not inherited and written on these parts themselves (engine.js), not on the frame */
+  .lp6.story .frame[data-beat=h] :is(.venue,.ix,.date,.clock,.story-nav){opacity:var(--lp6-hin);transform:translateY(calc((1 - var(--lp6-hin)) * 16px));transition:none}
+  .lp6.story .frame[data-beat=h] .copy.sc.on{opacity:var(--lp6-hin);transform:translateY(calc((1 - var(--lp6-hin)) * 16px));transition:none}
   .lp6.story .frame :is(.ix,.clock,.story-nav){transition:opacity .4s ease,visibility 0s linear}
   .lp6.story .hero{position:absolute;top:0;left:0;right:0;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);column-gap:var(--cg);padding-top:var(--hero-top,calc(var(--hh) + 120px))}
   .lp6.story .hero{pointer-events:none}.lp6.story .hero > *{grid-column:1;pointer-events:auto}
@@ -710,16 +734,17 @@
 @media (min-width:1200px){.lp6 .foot .wrap{grid-template-columns:minmax(0,5fr) minmax(0,7fr);column-gap:72px;padding-top:64px}.lp6 .foot .copy-r{font-size:14px}}
 
 /* phone bottom bar (48 px "Prøv gratis" in a 64 px bar): during the day "Næste → n/7"; after it, the trial line.
-   While the day runs it rides the stage's bottom (--dkb = the bars' height when Safari collapses them).
+   Polish round (23 Oct; Brave on Manoj's iPhone): it sits on the viewport's real bottom edge (+ the safe area) at every moment; it no
+   longer rides the stage's bottom when the browser's bars collapse (--dkb is gone).
    It is in the tab order right after the stage; a keyboard user who tabs into it while it is down brings it up. */
 .lp6 .dock{position:fixed;left:0;right:0;bottom:0;z-index:55;height:calc(64px + env(safe-area-inset-bottom,0px));padding:0 var(--gut) env(safe-area-inset-bottom,0px);display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--ground);transform:translateY(110%);transition:transform .3s var(--m-out)}
 .lp6.xing .dock{background:linear-gradient(180deg,var(--a-g) calc(var(--e) - var(--t,0px)),var(--b-g) 0)}
 .lp6 .dock .hl{position:absolute;left:0;right:0;top:0;height:1px}
-.lp6 .dock.on,.lp6 .dock:focus-within{transform:translateY(calc(-1 * var(--dkb,0px)))}
+.lp6 .dock.on,.lp6 .dock:focus-within{transform:none}
 .lp6 .dock .btn{height:48px;font-size:17px;padding:0 24px;flex:none}
 .lp6 .dk-left{display:grid;flex:1;min-width:0}
 .lp6 .dk-left > *{grid-area:1 / 1;align-self:center;transition:opacity .25s ease}
-.lp6 .dk-nav{display:flex;align-items:center;gap:12px;margin-left:-2px}
+.lp6 .dk-nav{display:flex;align-items:center;margin-left:calc(-1 * min(var(--gut), 20px))}
 .lp6 .dk-trial{font-size:var(--fs-cap);line-height:1.3}
 .lp6 .dock:not(.ev) .dk-nav,.lp6 .dock.ev .dk-trial{opacity:0;visibility:hidden}
 .lp6 .dk-prog{position:absolute;left:0;right:0;top:0;height:1px;transform-origin:0 50%;transform:scaleX(var(--p,0));opacity:0;transition:opacity .25s ease}
@@ -753,6 +778,9 @@
    (the stepper's jumps must be instant, and an anchor must not glide); scroll-padding stays at its initial value (index.css's 74 px rule for the old landing's bar left with the paper commit, port step 7) */
 :root:has(.lp6){scroll-behavior:auto;scroll-padding-top:auto;overscroll-behavior:auto}
 :root:has(.lp6) body{margin:0;padding-left:0;padding-right:0;background:#F6F4EC;overflow-x:clip}
+/* polish round (23 Oct; Brave on Manoj's iPhone): what a browser shows past the page (the band its bars leave while they move, a rubber
+   band) is the ground at the viewport's bottom edge (engine.js data-gb on the root): night while the night is up, paper otherwise */
+:root:has(.lp6[data-gb=night]),:root:has(.lp6[data-gb=night]) body{background:#12281E}
 /* fix round: index.css pads the body sideways by the safe-area insets (a notched iPhone in landscape, where the page loads stacked).
    Inside that padding the root's overflow-x:clip cut the stacked night band's full bleed at the inset (paper strips beside
    19.45 → 00.10). The root carries the insets instead: content stays clear of the notch, the clip box spans the whole width.

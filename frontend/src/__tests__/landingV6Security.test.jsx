@@ -667,6 +667,8 @@ const ADDRESS_READ = /\blocation\b|\bdocument\s*\.\s*(?:URL|documentURI|referrer
 const ADDRESS_READS = [
   ["pages/LandingV6Page.jsx", "try { return sceneOfHash(window.location.hash); } catch { return null; }"],
   [`${V6}/engine.js`, 'try { return new URLSearchParams(window.location.search).has("lp6debug"); } catch { return false; }'],
+  // polish round (23 Oct, engine.js note 24): the frame meter's switch, read only once the debug hooks are on, compared whole
+  [`${V6}/engine.js`, 'try { return new URLSearchParams(window.location.search).get("lp6debug") === "fps"; } catch { return false; }'],
   // Back fix (23 Oct, engine.js note 23): the entry's mark counts only at its own address, compared whole with the fragment;
   // the mark is written only when the fragment is that SCENE_HASH string already; the name write is skipped (the entry only
   // marked) when the address already names the scene
