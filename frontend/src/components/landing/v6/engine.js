@@ -84,6 +84,7 @@
 import { FLOOR } from "./floor.js";
 import { NSC, SCN, NAV, NAVF, SCENE_HASH, LP6_MARK, sceneOfHash, buildTrack, seg as segAt, beatU, scnOf as scnAt, curScn as curScnAt, createStepper, goNext as nextJump, goPrev as prevJump, jumpCheck } from "./nav.js";
 import { clearanceMisses, repairMiss, NOFIX } from "./guard.js";
+import { heroFit } from "./heroFit.js";
 
 /** The two grounds' browser-bar colours (the app writes theme-color in lower case). */
 export const LANDING_BAR = Object.freeze({ paper: "#f6f4ec", night: "#12281e" });
@@ -595,8 +596,17 @@ export function mountLanding(root, opts) {
       const roomTopVp = OY + at(rq, 0, 0)[1], roomBotVp = OY + at(rq, 0, 28 + (rw * 690) / 1101)[1], pTouch = clamp(0, 1 - roomBotVp / svh, 1);
       G.roomIn = clamp(0.1, N0 + (N1 - N0) * pTouch, 0.36); G.doors = G.roomIn + 0.14; GEO.flipY = roomTopVp;
       if (desk) {
-        /* the hero sits in the left column, centred on the stage's middle line; the roster waits in the plate */
-        const hh = hero.offsetHeight - parseFloat(getComputedStyle(hero).paddingTop); hero.style.setProperty("--hero-top", Math.round(padT + (avail - hh) / 2) + "px");
+        /* first-screen round (23 Oct): the hero hangs from the plate's top edge (the headline's cap height on the line of the top crop
+           marks) and shares the column's air under it in three equal bands (heroFit.js), measured with no extra air; the roster waits
+           in the plate, centred. Without a layout (no measures) the hero's top is the plate's top edge, no air */
+        setV(hero, { "--hero-a1": "0px", "--hero-a2": "0px" });
+        const hp = parseFloat(getComputedStyle(hero).paddingTop) || 0, hq = (s) => hero.querySelector(s), part = (el) => {
+          if (!el) return null;
+          const c = getComputedStyle(el), fs = parseFloat(c.fontSize), lh = parseFloat(c.lineHeight);
+          return { top: el.offsetTop - hp, h: el.offsetHeight, fs, lh: Number.isFinite(lh) ? lh : fs * 1.2 };
+        };
+        const hf = heroFit({ plateTop: OY, screenBottom: svh, h1: part(hq(".h1")), sub: part(hq(".sub")), cta: part(hq(".cta-row")), trial: part(hq(".trial")) });
+        setV(hero, hf ? { "--hero-top": Math.round(hf.top) + "px", "--hero-a1": Math.round(hf.a1) + "px", "--hero-a2": Math.round(hf.a2) + "px" } : { "--hero-top": Math.round(OY) + "px" });
       } else {
         /* before it pins, the stage label starts just under the hero (phone 24 px, tablet one section gap) */
         hero.style.setProperty("--hero-pull", Math.round(-(padT + tTop) + pull));

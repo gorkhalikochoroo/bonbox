@@ -488,3 +488,51 @@ describe("note 22: a re-mount that carries the reader's place settles its first 
     }
   });
 });
+
+describe("first-screen round (23 Oct): layout() hangs the two-column hero from the plate's top edge, and only there", () => {
+  // the hero's four parts as the built page lays them out at 1440 × 900 (recorded in headless Chromium; landingV6FirstScreen.test.js):
+  // [offsetTop from the hero's content top, offsetHeight, font-size, line-height]; the frame's padding (the plate's top edge) 112 / 36
+  const PARTS = { ".h1": [0, 317, 108, 105.84], ".sub": [345, 58, 20, 29], ".cta-row": [439, 52, 19, 28.5], ".trial": [503, 46, 16, 23.2] };
+  function laidOut(e) {
+    const hero = e.root.querySelector("#hero");
+    hero.insertAdjacentHTML("beforeend", '<p class="sub">s</p><p class="trial">t</p>');
+    hero.append(hero.querySelector(".cta-row"), hero.querySelector(".trial")); // h1, sub, cta-row, trial, as Hero.jsx renders them
+    const css = new Map([[e.root.querySelector("#frame"), { paddingTop: "112px", paddingBottom: "36px" }], [hero, { paddingTop: "0px" }]]);
+    for (const [sel, [top, h, fs, lh]] of Object.entries(PARTS)) {
+      const el = hero.querySelector(sel);
+      Object.defineProperty(el, "offsetTop", { configurable: true, get: () => top });
+      Object.defineProperty(el, "offsetHeight", { configurable: true, get: () => h });
+      css.set(el, { fontSize: fs + "px", lineHeight: lh + "px" });
+    }
+    const real = window.getComputedStyle;
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el, p) => {
+      const c = real(el, p), o = css.get(el);
+      return o ? new Proxy(c, { get: (t, k) => (k in o ? o[k] : typeof t[k] === "function" ? t[k].bind(t) : t[k]) }) : c;
+    });
+    return hero;
+  }
+
+  it("1440 × 900: --hero-top puts the headline's cap top on the crop marks' line; --hero-a1 / --hero-a2 share the air in equal bands", () => {
+    const e = setup({ w: 1440, h: 900 });
+    const hero = laidOut(e);
+    const destroy = mountLanding(e.root);
+    vi.advanceTimersByTime(FRAME);
+    expect(e.root.classList.contains("story")).toBe(true);
+    // the same values the built page wrote in Chromium at 1440 × 900 (98 = 112 − the cap's 13.6 px under the line box's top)
+    expect(["--hero-top", "--hero-a1", "--hero-a2"].map((k) => hero.style.getPropertyValue(k))).toEqual(["98px", "68px", "74px"]);
+    expect(hero.style.getPropertyValue("--hero-pull")).toBe("");
+    destroy();
+  });
+
+  it("the one-column tablet (820 × 1180) and the phone: no --hero-top and no air rows, only the stage's pull", () => {
+    for (const size of [{ w: 820, h: 1180 }, { w: 390, h: 844 }]) {
+      const e = setup(size);
+      const hero = laidOut(e);
+      const destroy = mountLanding(e.root);
+      vi.advanceTimersByTime(FRAME);
+      expect(["--hero-top", "--hero-a1", "--hero-a2"].map((k) => hero.style.getPropertyValue(k))).toEqual(["", "", ""]);
+      expect(hero.style.getPropertyValue("--hero-pull")).not.toBe("");
+      destroy();
+    }
+  });
+});

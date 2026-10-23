@@ -52,6 +52,10 @@
 @media (min-width:1200px){.lp6{--fs-h1:clamp(96px,12svh,132px);--fs-lead:clamp(32px,2.5vw,38px);--fs-body:19px;--fs-sub:clamp(20px,2.05svh,22px);--fs-note:17px;--fs-row:24px;--fs-price:34px;--fs-ix:20px;
   --gut:64px;--sec:128px;--pad1:96px;--hh:72px;--rad:18px;--cg:72px}}
 @media (min-width:1200px) and (min-aspect-ratio:5/4){.lp6{--fs-clock:clamp(144px,19svh,208px)}}
+/* first-screen round (23 Oct): with the headline's first line now on the crop marks' line, its widest word (DA "Vagterne." + 01) must end
+   24 px (the stage's corner clearance) short of the plate's left edge: 4.454 em + 17 px ≤ the left column + the column gap − 24 px,
+   i.e. 9.35vw − 12 px under 1440 px wide and 122 px from there (was 132 px; 12svh still rules wherever it is the smaller) */
+@media (min-width:1200px) and (min-aspect-ratio:5/4){.lp6{--fs-h1:clamp(96px,min(12svh,9.35vw - 12px),122px)}}
 
 /* ═════════════ base ═════════════ */
 .lp6,.lp6 *,.lp6::before,.lp6 *::before,.lp6::after,.lp6 *::after{box-sizing:border-box}
@@ -136,6 +140,11 @@
 @media (max-width:767px) and (max-height:720px){.lp6 .hero{padding-top:calc(var(--hh) + 10px)}.lp6 .h1{line-height:1}.lp6 .h1 a{display:inline-block}.lp6 .sub{margin-top:8px;font-size:16px}.lp6 .cta-row{margin-top:14px}.lp6 .trial{margin-top:8px}.lp6 .btn-lg{height:48px}}
 @media (min-width:768px){.lp6 .hero{padding-top:calc(var(--hh) + 40px)}.lp6 .sub{margin-top:20px}.lp6 .cta-row{margin-top:32px;gap:28px}.lp6 .trial{font-size:15px}}
 @media (min-width:1200px){.lp6 .sub{margin-top:28px;max-width:26ch}.lp6 .trial{max-width:38ch;font-size:16px}.lp6 .cta-row{margin-top:36px}.lp6 .cta-row .tlink{font-size:17px}}
+/* first-screen round (23 Oct; Manoj at 820 × 1180: "whats with those gap on right"): on the one-column tablet stage (768–1199 px wide,
+   not the two-column page) the headline's words run on one line and wrap where they must (EN one line at 820, DA two), each still
+   its own link with the stacked word's box (inline-block, fit-content × one line); the subline and the trial line run to ~50ch.
+   Phones (< 768) and the two-column page keep their own rules */
+@media not all and (min-width:1024px) and (min-aspect-ratio:5/4){@media (min-width:768px) and (max-width:1199px){.lp6 .h1 a{display:inline-block}.lp6 .sub{max-width:48ch}.lp6 .trial{max-width:52ch}}}
 
 /* ═════════════ the day — shared pieces ═════════════ */
 .lp6 .aften{position:relative}
@@ -544,6 +553,11 @@
   .lp6.story .frame :is(.ix,.clock,.story-nav){transition:opacity .4s ease,visibility 0s linear}
   .lp6.story .hero{position:absolute;top:0;left:0;right:0;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);column-gap:var(--cg);padding-top:var(--hero-top,calc(var(--hh) + 120px))}
   .lp6.story .hero{pointer-events:none}.lp6.story .hero > *{grid-column:1;pointer-events:auto}
+  /* first-screen round (23 Oct): the hero hangs from the plate's top edge (layout() sets --hero-top: the headline's cap height on the
+     line of the top crop marks) and the air under the headline is shared in equal bands: two spacer rows, above the subline (--hero-a1)
+     and above the button row (--hero-a2), sized by layout() (heroFit.js); the elements keep their own margins */
+  .lp6.story .hero{grid-template-rows:auto var(--hero-a1,0px) auto var(--hero-a2,0px) auto auto}
+  .lp6.story .hero > .h1{grid-row:1}.lp6.story .hero > .sub{grid-row:3}.lp6.story .hero > .cta-row{grid-row:5}.lp6.story .hero > .trial{grid-row:6}
 }
 @media (min-width:1024px) and (min-aspect-ratio:5/4) and (max-height:860px){.lp6.story .ix a{padding:7px 0}.lp6.story .copy.sc{margin-top:28px}.lp6.story .copy .aside{margin-top:16px}.lp6.story .story-nav{margin-top:14px}.lp6.story .frame{padding-top:calc(var(--hh) + 28px);padding-bottom:28px}}
 @media (min-width:1024px) and (min-aspect-ratio:5/4) and (max-height:800px){.lp6.story .copy .aside{font-size:16px}}
