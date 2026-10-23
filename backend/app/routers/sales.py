@@ -1226,8 +1226,11 @@ def list_receipt_sales(
     )
     base_url = str(request.base_url).rstrip("/")
     results = []
+    from app.services.storage_links import client_receipt_ref
     for s in sales:
-        photo = s.receipt_photo
+        # A photo on the retired storage project → the same file's link in
+        # the current one (services/storage_links). Read-only.
+        photo = client_receipt_ref(s.receipt_photo, s.user_id, source="sales")
         # Convert local paths to full URLs so frontend can display them
         if photo and not photo.startswith("http"):
             photo = f"{base_url}/{photo}"

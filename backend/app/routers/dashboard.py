@@ -556,13 +556,15 @@ def get_dashboard_batch(
         .limit(20)
         .all()
     )
+    from app.services.storage_links import client_receipt_ref
     receipts = [
         {
             "id": str(s.id),
             "date": str(s.date),
             "amount": float(s.amount),
             "payment_method": s.payment_method,
-            "receipt_photo": s.receipt_photo,
+            # Same link /sales/receipts hands out (services/storage_links).
+            "receipt_photo": client_receipt_ref(s.receipt_photo, s.user_id, source="sales"),
         }
         for s in receipt_sales
     ]

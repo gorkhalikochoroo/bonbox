@@ -48,6 +48,7 @@ from app.services.auth import get_current_user
 from app.services.billing import effective_plan, get_cap, has_feature, record_feature_skip
 from app.services.expense_status import not_pending
 from app.services.receipt_ocr import save_receipt_photo_ex, parse_z_report
+from app.services.storage_links import RELINK_KINDS, client_receipt_ref, same_receipt_object
 from app.services.ai_limits import vision_slot
 from app.services.image_guard import UnsupportedImageError, refusal_message, sniff_image_format
 from app.services.owner_language import owner_lang
@@ -186,7 +187,13 @@ def _to_response(dc: DailyClose) -> dict:
         # with its next draft save, so a draft changed elsewhere since is
         # never overwritten in silence (create_daily_close, round 21).
         "updated_at": getattr(dc, "updated_at", None),
-        "receipt_photo": getattr(dc, "receipt_photo", None),
+        # What the page is handed for the photo: a file still linked on the
+        # retired storage project comes back as a link to the same file in
+        # the current one (services/storage_links). Read-only — the stored
+        # value, the content signature and the audit trail keep the raw one,
+        # and the save below keeps it when the page echoes this link back.
+        "receipt_photo": client_receipt_ref(getattr(dc, "receipt_photo", None),
+                                            getattr(dc, "user_id", None), source="daily_closes"),
         # Where the figures came from (Z-bon or typed, the tills added
         # together, which of them were typed). A reopened draft that was itself
         # a sum keeps its tills on the revisor's record when another bon is
@@ -659,60 +666,50 @@ def _build_close_email_html(
     return subject, html
 
 
-def _is_safe_scan_url(url: str) -> bool:
-    """SSRF guard for the Z-report photo fetch.
-
-    The receipt_photo value is always either a local uploads/ path
-    (handled separately) or a Supabase storage URL. We therefore allow
-    ONLY https URLs whose host matches the configured Supabase project
-    host (falling back to the managed *.supabase.co domain when
-    SUPABASE_URL is unset, e.g. local dev). This blocks an owner from
-    coercing the server into fetching internal/metadata endpoints
-    (169.254.169.254, localhost, 10.x, …) and exfiltrating the response
-    body as a revisor email attachment.
-    """
-    try:
-        from urllib.parse import urlparse
-        from app.config import settings
-        p = urlparse(url)
-        if p.scheme != "https" or not p.hostname:
-            return False
-        host = p.hostname.lower()
-        configured = urlparse((settings.SUPABASE_URL or "").strip()).hostname
-        if configured:
-            return host == configured.lower()
-        return host == "supabase.co" or host.endswith(".supabase.co")
-    except Exception:  # noqa: BLE001
-        return False
-
-
-def _fetch_scan_bytes_best_effort(receipt_url: str | None) -> tuple[bytes | None, str | None]:
-    """Best-effort fetch of the Z-report photo for email attachment.
+def _fetch_scan_bytes_best_effort(receipt_url: str | None, owner_id=None) -> tuple[bytes | None, str | None]:
+    """Best-effort read of the Z-report photo for the e-mail attachment.
     Returns (bytes, filename) or (None, None) on any failure — never
     raises into the close-confirm path. L8 — graceful degradation.
 
-    Supports two storage shapes:
-      • Supabase URL (https, allow-listed host): GET it  — SSRF-guarded
-      • Local path (uploads/...): read from disk
+    Two stored shapes:
+      • a storage object — a signed URL (on ANY host: the retired Ireland
+        project's or the current one's) or a bare key: reduced to its key
+        with parse_receipt_ref for `owner_id` (the close's owner) and read
+        through the current storage backend, the way the revisor package's
+        load_bilag does. The URL itself is never fetched, so there is no
+        outbound request a stored string can aim (SSRF), and a close whose
+        photo was linked on Ireland still gets the Frankfurt copy (it was
+        refused by the old host allow-list since the 20 Oct move). Another
+        owner's key, or a kind that is not a receipt, is refused.
+      • a local path (uploads/…): read from disk, confined to allowed roots.
     """
     if not receipt_url:
         return None, None
     try:
-        if receipt_url.startswith("http"):
-            # SSRF guard — only fetch from the allow-listed Supabase host.
-            if not _is_safe_scan_url(receipt_url):
-                logger.warning(
-                    "scan_image fetch refused (host not allow-listed): %s",
-                    receipt_url[:80],
-                )
+        from app.services.receipt_ref import parse_receipt_ref
+        parsed = parse_receipt_ref(receipt_url, owner_id) if owner_id is not None else None
+        if parsed and parsed[0] == "storage":
+            key = parsed[1]
+            if key.split("/", 2)[1] not in RELINK_KINDS:
+                logger.warning("scan_image read refused (not a receipt kind)")
                 return None, None
-            from urllib.request import Request, urlopen
-            req = Request(receipt_url, headers={"User-Agent": "BonBox/1.0"})
-            with urlopen(req, timeout=8) as resp:  # noqa: S310 — host allow-listed above
-                data = resp.read()
+            from app.services.storage import get_storage
+            data = get_storage().get(key)
+            if not data:
+                logger.warning("scan_image not found in storage")
+                return None, None
             return data, "z_report.jpg"
+        if "://" in receipt_url:
+            # A URL that is not this owner's storage object: never fetched.
+            from urllib.parse import urlsplit
+            try:
+                host = (urlsplit(receipt_url).hostname or "?")[:100]
+            except ValueError:
+                host = "?"
+            logger.warning("scan_image refused (not the owner's storage object) host=%s", host)
+            return None, None
         # Local path branch — read from disk, CONFINED to an allowed root.
-        # In prod, storage is Supabase so receipt_photo is always an https URL
+        # In prod, storage is Supabase so receipt_photo is a storage URL / key
         # and this branch isn't reached; the local path is dev/test only. We
         # still confine it so a crafted absolute receipt_photo can't turn the
         # close→revisor email attach into a local-file read (e.g. /etc/passwd,
@@ -737,13 +734,10 @@ def _fetch_scan_bytes_best_effort(receipt_url: str | None) -> tuple[bytes | None
             within = False
         if within and p.is_file():
             return p.read_bytes(), p.name
-        logger.warning(
-            "scan_image local read refused (outside allowed roots): %s",
-            str(receipt_url)[:80],
-        )
+        logger.warning("scan_image local read refused (outside allowed roots)")
         return None, None
     except Exception as e:  # noqa: BLE001
-        logger.warning("scan_image fetch failed: %s", e)
+        logger.warning("scan_image fetch failed: %s", type(e).__name__)
     return None, None
 
 
@@ -1089,7 +1083,7 @@ def _fire_close_auto_email(
     scan_supposed_to_attach = has_feature(user, "close_scan_attached")
     receipt_url = getattr(dc, "receipt_photo", None)
     if scan_supposed_to_attach and receipt_url:
-        scan_bytes, scan_filename = _fetch_scan_bytes_best_effort(receipt_url)
+        scan_bytes, scan_filename = _fetch_scan_bytes_best_effort(receipt_url, dc.user_id)
     scan_degraded = bool(scan_supposed_to_attach and receipt_url and not scan_bytes)
     result["scan_degraded"] = scan_degraded
 
@@ -2491,7 +2485,14 @@ def _file_close(request: Request, data: DailyCloseCreate, db: Session, user: Use
         # editing a draft without re-uploading the photo shouldn't lose
         # the existing reference.
         if data.receipt_photo:
-            existing.receipt_photo = data.receipt_photo
+            # The page sends back the photo link it was handed. For a photo
+            # stored on the retired storage project that is the re-link
+            # (services/storage_links) — the SAME file. Keep the stored
+            # string then: replacing it would change the close's content
+            # signature (a re-lock would read as "changed" to the revisor)
+            # and put a photo change in the audit trail. Compared by key.
+            if not same_receipt_object(data.receipt_photo, existing.receipt_photo, user.id):
+                existing.receipt_photo = data.receipt_photo
         elif data.receipt_photo == "":
             # The page says the close has no photo any more: the bon it was
             # of was thrown away (Start forfra), so it is no longer the

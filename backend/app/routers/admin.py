@@ -602,6 +602,29 @@ def admin_backup_health(
     }
 
 
+@router.get("/storage-links")
+def admin_storage_links(
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Are the receipt photos still linked on the retired storage project
+    (Ireland) all resolvable in the current one (Frankfurt)? The check to
+    run before that project is deleted.
+
+    Aggregate counts only, per table/column — never an id, key, path, host
+    or owner (services/storage_links.storage_link_report): rows on the
+    current host, on the retired host, elsewhere, not a URL; of the retired
+    ones, how many re-link to a file that exists here, how many are missing,
+    could not be checked, or are refused by the re-link guards.
+    `safe_to_delete_retired_project` is true only when none is unresolvable;
+    `relink_stats.sign_failed` must also be 0. Read-only: one storage
+    listing per distinct object, nothing written. Same guard and limits as
+    every /admin route (require_super_admin, the app-wide rate limit, the
+    /api/admin scan blocker)."""
+    from app.services.storage_links import storage_link_report
+    return storage_link_report(db)
+
+
 @router.get("/public-surface-health")
 def admin_public_surface_health(
     admin: User = Depends(require_super_admin),
