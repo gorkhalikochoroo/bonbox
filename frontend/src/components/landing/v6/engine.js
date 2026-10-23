@@ -69,9 +69,20 @@
  *      Without it, whatever the first layout changed after the engine's last layout read was left to the next style pass,
  *      the one that turns transitions back on: which of those changes then animate depends on the browser (Chromium,
  *      measured: the top bar's hairline faded in again; per the CSS, the bottom bar could slide up again from below and its
- *      stepper fade in, as the bar did on first showing). A first load keeps its entrance (14). */
+ *      stepper fade in, as the bar did on first showing). A first load keeps its entrance (14).
+ *  23. Back fix (23 Oct): 21 stepped on every arrival at a scene's address, Back / Forward included, so a reader who opened
+ *      /#s2 (or tapped a word that named it), went on to 7 / 7, tapped Priser or the logo (a new entry) and pressed Back was
+ *      sent to scene 2 instead of their place (measured in Chromium, real taps). The address and the scroll position cannot
+ *      tell Back from a new /#s2; the entry's own history state can. Once the engine has handled an entry at a scene's
+ *      address (named it: 18; opened on it or kept its place on it: 19; stepped to it as a new address: 21) it adds
+ *      nav.js LP6_MARK = that address to the entry's state (the router's keys kept, the same address, written over the
+ *      entry, never pushed). A fragment change to an entry carrying the mark for its address is a return: no jump, the
+ *      browser's own scroll restore puts the reader back. A new entry (typed, a plain link, another app) carries no state,
+ *      so it still steps, once. Chosen over keeping the address on the current scene: #s6 names 6 and 7, so Back to a #s6
+ *      entry left at 7 / 7 would still jump to 6 (measured), and skipping a jump to the scene the reader is already in
+ *      would also skip a typed /#s6 at 7 / 7; it would also write the address on every scene change while scrolling. */
 import { FLOOR } from "./floor.js";
-import { NSC, SCN, NAV, NAVF, SCENE_HASH, sceneOfHash, buildTrack, seg as segAt, beatU, scnOf as scnAt, curScn as curScnAt, createStepper, goNext as nextJump, goPrev as prevJump, jumpCheck } from "./nav.js";
+import { NSC, SCN, NAV, NAVF, SCENE_HASH, LP6_MARK, sceneOfHash, buildTrack, seg as segAt, beatU, scnOf as scnAt, curScn as curScnAt, createStepper, goNext as nextJump, goPrev as prevJump, jumpCheck } from "./nav.js";
 import { clearanceMisses, repairMiss, NOFIX } from "./guard.js";
 
 /** The two grounds' browser-bar colours (the app writes theme-color in lower case). */
@@ -764,11 +775,33 @@ export function mountLanding(root, opts) {
     function goPrev() { if (!ST.tap(now())) return; const j = prevJump(ST, now(), jumpCtx); if (j) stepTo(j.k, j.y); }
     on(nextB, "click", goNext); on(dnext, "click", goNext);
     [prev, eprev, dprev].forEach((b) => on(b, "click", goPrev));
-    /* 18. the address bar names the scene a link jumped to: one of nav.js SCENE_HASH's three strings, nothing else */
+    /* 23. the current entry's history state with the engine's mark for scene address h added: every key the router wrote is
+       kept, and a missing state stays what the router reads it as ({ idx: null }, react-router getIndex); null when the
+       state is not a plain record the mark can join (then nothing is marked) */
+    function markedState(h) {
+      const s = window.history.state;
+      if (s == null) return { idx: null, [LP6_MARK]: h };
+      return typeof s === "object" && !Array.isArray(s) ? { ...s, [LP6_MARK]: h } : null;
+    }
+    /* 23. the engine has already handled this entry at scene address h (it named it, opened on it or stepped to it) */
+    function handled(h) {
+      let s = null;
+      try { s = window.history.state; } catch { s = null; }
+      return !!s && typeof s === "object" && own(s, LP6_MARK) && s[LP6_MARK] === h && window.location.hash === h;
+    }
+    /* 23. mark the current entry as handled, when its address is scene go's: the same address, written over this entry */
+    function markEntry(go) {
+      const h = own(SCENE_HASH, go) ? SCENE_HASH[go] : null;
+      if (!h || window.location.hash !== h || handled(h)) return;
+      try { const st = markedState(h); if (st) window.history.replaceState(st, ""); } catch { /* a sandboxed frame: unmarked, so Back to it steps as before */ }
+    }
+    /* 18. the address bar names the scene a link jumped to: one of nav.js SCENE_HASH's three strings, nothing else; 23. the
+       entry is marked as handled at that address */
     function nameScene(go) {
       const h = own(SCENE_HASH, go) ? SCENE_HASH[go] : null;
-      if (!h || window.location.hash === h) return;
-      try { window.history.replaceState(window.history.state, "", h); } catch { /* a sandboxed frame: the address stays */ }
+      if (!h) return;
+      if (window.location.hash === h) { markEntry(go); return; }
+      try { window.history.replaceState(markedState(h) || window.history.state, "", h); } catch { /* a sandboxed frame: the address stays */ }
     }
     const goLinks = [...root.querySelectorAll("[data-go]")];
     /* 19, 21. a scene an address may name: one of SCENE_HASH's three, whose [data-go] link (with that very href) this page has */
@@ -786,8 +819,10 @@ export function mountLanding(root, opts) {
     }));
     /* 21. the fragment changed inside this page: read it on the next frame, after the browser's own scroll; a scene's own
        address steps there from wherever the page is, anything else is not ours. The two events of one change are one jump:
-       the second finds the page at that scene's resting point already (a browser that scrolled to the fragment after the
-       first one finds it moved, and is put back) */
+       the second finds the entry handled (23) or the page at that scene's resting point already (a browser that scrolled to
+       the fragment after the first one finds it moved, and is put back).
+       23. Only a new address steps: an entry the engine has handled (marked) is one the reader has been on, reached again by
+       Back / Forward, and the reader goes back to their place on it (the browser's own scroll restore), as before note 21 */
     let addrQ = null;
     function addressChanged() {
       if (addrQ != null) return;
@@ -795,7 +830,9 @@ export function mountLanding(root, opts) {
         addrQ = null;
         let go = null;
         try { go = sceneOfHash(window.location.hash); } catch { go = null; }
-        if (linked(go) && Math.abs(window.scrollY - stepY(beatY(go, NAVF[go]))) >= 2) goScene(go);
+        if (!linked(go) || handled(SCENE_HASH[go])) return;
+        if (Math.abs(window.scrollY - stepY(beatY(go, NAVF[go]))) >= 2) goScene(go);
+        markEntry(go);
       });
     }
     on(window, "hashchange", addressChanged); on(window, "popstate", addressChanged);
@@ -834,6 +871,8 @@ export function mountLanding(root, opts) {
        has, while the page is still at the top (a StrictMode re-mount, or a page the browser has already scrolled, keeps its place) */
     const arrive = opts.arrive;
     if (linked(arrive) && window.scrollY < 2) goScene(arrive);
+    /* 23. opened on it or kept its place on it: either way the entry is handled, so Back to it later is a return, not a jump */
+    if (linked(arrive)) markEntry(arrive);
     /* 15. a face the first layout asked for: lay out again once it is in (not when every face was already loaded) */
     if (document.fonts && document.fonts.ready && document.fonts.status !== "loaded") document.fonts.ready.then(() => { if (alive) layout(); });
     /* v6.2: WebKit can resolve fonts.ready before lazily used data: faces have loaded. Ask for the stage's Inter faces by name (300 the clock,

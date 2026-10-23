@@ -34,7 +34,8 @@
  * carries the reader's place instead, so a re-keyed page is never sent back to the arrival scene.
  *
  * Simulator round (iOS Safari, 23 Oct): the scene's address reached while the page is already on screen (no reload) steps to that
- * scene too (engine.js note 21). After a language switch the switch gets the focus back only when it had the focus when it
+ * scene too (engine.js note 21), once per entry: Back / Forward to an entry the engine has handled returns the reader to their
+ * place on it (engine.js note 23). After a language switch the switch gets the focus back only when it had the focus when it
  * was used (keyboard, assistive tech, a browser that focuses a clicked button); a tap in iOS Safari never focuses a button, so
  * the re-keyed page is left as unfocused as one that was never switched (place.js). The re-keyed page's first layout is
  * settled before transitions come back, so nothing on it (the bottom bar included) animates in again (engine.js note 22). */

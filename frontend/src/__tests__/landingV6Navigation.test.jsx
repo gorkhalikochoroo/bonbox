@@ -16,7 +16,12 @@
  *       screen (typed into the bar, a plain link, another app, Back / Forward: the fragment changes, no reload, the browser
  *       fires its history-traversal and fragment-change events) steps to that scene from the top, from 7 / 7 and from the
  *       prices; the two events of one change are one jump; the step queue carries on from it; every other fragment is
- *       ignored; the engine's own address write fires neither event; both listeners leave with the page.
+ *       ignored; the engine's own address write fires neither event; both listeners leave with the page;
+ *   (f) Back fix (23 Oct; engine.js note 23): a reader who opened /#s2 or tapped a word that named #s2 / #s6, went on to
+ *       7 / 7 (by hand or with Næste), and left by Priser or the logo, is put back at 7 / 7 by Back (and again after
+ *       Forward and Back): no jump, no entry added by the page, nothing pushed; a new /#s6 typed at 7 / 7 still steps, once,
+ *       and so does the same /#s2 typed again; Back / Forward between two handled scene entries return to the reader's
+ *       place on each; only the mark for the entry's own address counts; every other fragment is still ignored and unmarked.
  * jsdom has no layout: the geometry is the engine's own fall-backs (pin 0, svh = the window's height; every box at the
  * document's top), the same ones the expected scroll positions are computed from (window.__lp6.geo(), opted in with
  * ?lp6debug). The positions themselves are checked in a real browser (release notes).
@@ -26,7 +31,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, act, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { LanguageProvider } from "../hooks/useLanguage";
-import { SCN, NAVF, SCENE_HASH, beatU } from "../components/landing/v6/nav";
+import { SCN, NAVF, SCENE_HASH, LP6_MARK, beatU } from "../components/landing/v6/nav";
 
 vi.mock("../services/api", () => {
   const ok = () => Promise.resolve({ data: {} });
@@ -122,7 +127,8 @@ describe("(a) a plain click on a headline word or an index link: the jump, and t
       expect(e.scrollTo).toHaveBeenLastCalledWith({ top: Math.max(0, Math.round(sceneY(go))), behavior: "instant" });
       expect(window.location.hash).toBe(SCENE_HASH[go]);
       expect(window.location.search).toBe("?ref=r1-a-01");
-      expect(window.history.state).toEqual(state);
+      // the router's state kept, plus the engine's mark for the scene it named (engine.js note 23)
+      expect(window.history.state).toEqual({ ...state, [LP6_MARK]: SCENE_HASH[go] });
       wait(300);
     }
     expect(repl.mock.calls.map((c) => c[2])).toEqual(["#s2", "#s6", "#s1"]);
@@ -369,7 +375,9 @@ describe("(e) the scene's address reached while the page is already on screen (n
         expect(window.__lp6.scn()).toBe(SCN[go]);
         expect(lp6().querySelector("#count").textContent).toBe(`${SCN[go]} / 7`);
         expect(window.location.hash).toBe(hash);
-        expect(repl).not.toHaveBeenCalled();
+        // the one history write marks the entry as handled (engine.js note 23): no URL, so the address cannot change
+        expect(repl.mock.calls).toEqual([[{ idx: null, [LP6_MARK]: hash }, ""]]);
+        expect(window.history.state).toEqual({ idx: null, [LP6_MARK]: hash });
         // it stays: the jump's checks and a late re-layout keep the scene
         wait(1500);
         window.dispatchEvent(new Event("resize")); wait(500);
@@ -416,7 +424,7 @@ describe("(e) the scene's address reached while the page is already on screen (n
     }
   });
 
-  it("the step queue carries on from it: Næste right after #s2 goes to scene 3; Back to #s2 after #s6 steps back to 2", async () => {
+  it("the step queue carries on from it: Næste right after #s2 goes to scene 3; an unmarked #s2 entry after #s6 steps back to 2", async () => {
     const e = setup(SIZES.phone, "/?lp6debug");
     render(page("/"));
     await flush();
@@ -431,7 +439,9 @@ describe("(e) the scene's address reached while the page is already on screen (n
     wait(1000);
     navigate("#s6"); wait(FRAME); await scrolled();
     expect(window.__lp6.scn()).toBe(6);
-    // Back: the browser makes the earlier entry current and fires the two events
+    // an earlier #s2 entry that carries no mark (one the engine never handled: say its mark could not be written) is made
+    // current and the browser fires the two events: it steps as a new address does. Back to an entry the engine HAS
+    // handled is a return to the reader's place (engine.js note 23, block (f))
     act(() => { window.history.replaceState(null, "", "/?lp6debug#s2"); window.dispatchEvent(new PopStateEvent("popstate")); window.dispatchEvent(new HashChangeEvent("hashchange")); });
     wait(FRAME); await scrolled();
     expect(window.__lp6.scn()).toBe(2);
@@ -497,5 +507,220 @@ describe("(e) the scene's address reached while the page is already on screen (n
     expect(L.types()).toEqual(["hashchange", "popstate"]);
     unmount();
     expect(L.count()).toBe(0);
+  });
+});
+
+/* ───────────────────────────── (f) ───────────────────────────── */
+/* Back fix (23 Oct, engine.js note 23). The regression: a reader who opened /#s2 (or tapped a word that named it), went on to
+ * 7 / 7, tapped Priser or the logo (a plain fragment link: the browser makes a new entry) and pressed Back was sent to scene 2.
+ * Here the browser's own history does the walking (jsdom's: the link click makes the entry, history.back() / forward()
+ * traverse and fire popstate + hashchange with the entry's real state); what jsdom does not do is scroll, so the test does
+ * what the browser does: scroll to the fragment the link names, and on Back / Forward put back the entry's saved place. */
+const PRICES_Y = 50000;
+const y7 = () => sceneY("3b");
+/** Back or Forward through the browser's own history; restore = the entry's saved place, put back before the engine's frame. */
+const traverse = (dir, restore) => {
+  act(() => { window.history[dir](); vi.advanceTimersByTime(0); });
+  if (restore != null) env.setY(restore);
+  wait(FRAME);
+};
+/** The reader moves on to 7 / 7: by hand (a scroll) or with Næste, one tap at a time. */
+async function toSeven(how, size) {
+  if (how === "scroll") { env.setY(y7()); await scrolled(); return; }
+  const next = lp6().querySelector(size === "desktop" ? "#next" : "#dnext");
+  for (let i = 0; i < 8 && window.__lp6.scn() < 7; i++) { fireEvent.click(next); wait(700); await scrolled(); }
+}
+/** A plain fragment link: the browser's own navigation (a new entry, popstate + hashchange), then its scroll to the target. */
+async function follow(sel, y) {
+  const a = lp6().querySelector(sel);
+  expect(a.hasAttribute("data-go")).toBe(false); // not the engine's: the browser follows it
+  act(() => { a.click(); vi.advanceTimersByTime(0); });
+  env.setY(y); await scrolled();
+  wait(FRAME);
+}
+
+describe("(f) Back after moving on from a scene the address names: the reader is put back where they were", () => {
+  // [how the address came to name the scene, that address, the page's address and router entry, the word tapped (if any)]
+  const NAMED = [
+    ["a cold load of /#s2", "#s2", "/?lp6debug#s2", "/#s2", null],
+    ["the hero word 02 (names #s2)", "#s2", "/?lp6debug", "/", "#hero a[data-go='2a']"],
+    ["the hero word 03 (names #s6, which covers 6 and 7)", "#s6", "/?lp6debug", "/", "#hero a[data-go='3a']"],
+  ];
+  const LEAVE = [["Priser (#pricing)", ".top .prices-l", "#pricing", () => PRICES_Y], ["the logo (#main)", ".top .logo", "#main", () => 0]];
+  for (const size of ["phone", "desktop"]) {
+    for (const [named, hash, address, entry, word] of NAMED) {
+      for (const how of ["scroll", "Næste"]) {
+        for (const [leave, sel, to, yTo] of LEAVE) {
+          it(`${size}: ${named} → ${how === "scroll" ? "scrolls" : "Næste"} to 7 / 7 → ${leave} → Back: still 7 / 7, no jump, no new entry from the page`, async () => {
+            setup(SIZES[size], address);
+            render(page(entry));
+            await flush();
+            wait(1000);
+            const push = vi.spyOn(window.history, "pushState");
+            const len0 = window.history.length;
+            if (word) { click(lp6().querySelector(word)); wait(1000); await scrolled(); }
+            expect(window.history.length).toBe(len0); // naming the scene wrote over this entry
+            expect(window.location.hash).toBe(hash);
+            await toSeven(how === "scroll" ? "scroll" : "next", size);
+            expect(window.__lp6.scn()).toBe(7);
+            const at7 = env.getY();
+            expect(window.location.hash).toBe(hash); // the address still names the scene the reader left
+            expect(window.history.length).toBe(len0);
+            await follow(sel, yTo());
+            expect(window.location.hash).toBe(to);
+            const len1 = window.history.length; // with the browser's own entry for the link (any forward entries dropped)
+            env.scrollTo.mockClear();
+            traverse("back", at7);
+            await scrolled();
+            expect([named, how, leave, env.scrollTo.mock.calls]).toEqual([named, how, leave, []]);
+            expect(env.getY()).toBe(at7);
+            expect(window.__lp6.scn()).toBe(7);
+            expect(lp6().querySelector("#count").textContent).toBe("7 / 7");
+            expect(window.location.hash).toBe(hash);
+            // and it stays: the jump checks and a late re-layout leave the place alone
+            wait(1500);
+            window.dispatchEvent(new Event("resize")); wait(500);
+            await scrolled();
+            expect(window.__lp6.scn()).toBe(7);
+            // Forward to the link's entry and Back again: the same
+            traverse("forward", yTo());
+            await scrolled();
+            traverse("back", at7);
+            await scrolled();
+            expect(env.scrollTo).not.toHaveBeenCalled();
+            expect(window.__lp6.scn()).toBe(7);
+            expect(window.history.length).toBe(len1); // the page added no entry
+            expect(push).not.toHaveBeenCalled();
+            // how: the arrival or the word marked the entry as handled at its address (engine.js note 23)
+            expect(window.history.state).toEqual({ idx: null, [LP6_MARK]: hash });
+          });
+        }
+      }
+    }
+  }
+
+  it("a new /#s6 typed at 7 / 7 (on the entry the page marked #s2) still steps to scene 6, once; that entry is then a return too", async () => {
+    const e = setup(SIZES.phone, "/?lp6debug#s2");
+    render(page("/#s2"));
+    await flush();
+    wait(1000);
+    const push = vi.spyOn(window.history, "pushState");
+    await toSeven("scroll");
+    e.scrollTo.mockClear();
+    navigate("#s6"); // a new entry, no state: as the browser makes it for a typed address
+    const len0 = window.history.length;
+    wait(FRAME);
+    expect(e.scrollTo.mock.calls).toEqual([[{ top: sceneY("3a"), behavior: "instant" }]]);
+    await scrolled();
+    expect(window.__lp6.scn()).toBe(6);
+    push.mockClear(); // navigate() itself stands in for the browser's push
+    // the reader moves on to 7 / 7, taps Priser, comes Back: still 7 / 7
+    await toSeven("scroll");
+    expect(window.history.length).toBe(len0); // stepping and marking wrote over the typed entry
+    await follow(".top .prices-l", PRICES_Y);
+    const len1 = window.history.length;
+    e.scrollTo.mockClear();
+    traverse("back", y7());
+    await scrolled();
+    expect(e.scrollTo).not.toHaveBeenCalled();
+    expect(window.__lp6.scn()).toBe(7);
+    // Back once more, to the #s2 entry (left at 7 / 7): a return as well
+    traverse("back", y7());
+    await scrolled();
+    expect(window.location.hash).toBe("#s2");
+    expect(e.scrollTo).not.toHaveBeenCalled();
+    expect(window.__lp6.scn()).toBe(7);
+    expect(push).not.toHaveBeenCalled();
+    expect(window.history.length).toBe(len1); // the typed address and the link: the browser's own entries, none from the page
+    // how: the step marked the typed entry as handled at its address (engine.js note 23)
+    traverse("forward", y7());
+    expect([window.location.hash, window.history.state]).toEqual(["#s6", { idx: null, [LP6_MARK]: "#s6" }]);
+  });
+
+  it("the same /#s2 typed again on the marked /#s2 entry (the browser puts a fresh entry, no state, in its place) steps to scene 2", async () => {
+    const e = setup(SIZES.phone, "/?lp6debug#s2");
+    render(page("/#s2"));
+    await flush();
+    wait(1000);
+    const len0 = window.history.length;
+    await toSeven("scroll");
+    e.scrollTo.mockClear();
+    act(() => { window.history.replaceState(null, "", window.location.href); window.dispatchEvent(new PopStateEvent("popstate", { state: null })); });
+    wait(FRAME);
+    expect(e.scrollTo.mock.calls).toEqual([[{ top: sceneY("2a"), behavior: "instant" }]]);
+    await scrolled();
+    expect(window.__lp6.scn()).toBe(2);
+    expect(window.history.state).toEqual({ idx: null, [LP6_MARK]: "#s2" });
+    expect(window.history.length).toBe(len0);
+  });
+
+  it("Back / Forward between two scene entries the page has handled: each returns to the reader's place on it, never a jump", async () => {
+    const e = setup(SIZES.tablet, "/?lp6debug");
+    render(page("/"));
+    await flush();
+    wait(1000);
+    navigate("#s2"); wait(FRAME); await scrolled();
+    expect(window.__lp6.scn()).toBe(2);
+    wait(1000);
+    const y4 = sceneY("S");
+    e.setY(y4); await scrolled(); // the reader reads on to 4 / 7 on the #s2 entry
+    expect(window.__lp6.scn()).toBe(4);
+    navigate("#s6"); wait(FRAME); await scrolled();
+    expect(window.__lp6.scn()).toBe(6);
+    wait(1000);
+    const y6 = e.getY();
+    e.scrollTo.mockClear();
+    traverse("back", y4); await scrolled();
+    expect([window.location.hash, window.__lp6.scn(), e.scrollTo.mock.calls]).toEqual(["#s2", 4, []]);
+    traverse("forward", y6); await scrolled();
+    expect([window.location.hash, window.__lp6.scn(), e.scrollTo.mock.calls]).toEqual(["#s6", 6, []]);
+  });
+
+  it("only the mark for the entry's own address counts: another scene's mark, an inherited one, a non-record state each step as new", async () => {
+    const proto = Object.create({ [LP6_MARK]: "#s2" });
+    const STATES = [
+      ["another scene's mark", { idx: 4, [LP6_MARK]: "#s6" }],
+      ["an inherited mark (not the state's own)", proto],
+      ["a mark that is not a string", { [LP6_MARK]: ["#s2"] }],
+      ["a state that is a string", "#s2"],
+      ["a state that is a list", ["#s2"]],
+      ["the mark under another key", { lp: "#s2", LP6: "#s2" }],
+    ];
+    for (const [what, state] of STATES) {
+      const e = setup(SIZES.phone, "/?lp6debug");
+      const { unmount } = render(page("/"));
+      await flush();
+      wait(1000);
+      await toSeven("scroll");
+      e.scrollTo.mockClear();
+      act(() => { window.history.pushState(state, "", "/?lp6debug#s2"); window.dispatchEvent(new PopStateEvent("popstate", { state })); window.dispatchEvent(new HashChangeEvent("hashchange")); });
+      wait(FRAME);
+      expect([what, e.scrollTo.mock.calls]).toEqual([what, [[{ top: sceneY("2a"), behavior: "instant" }]]]);
+      unmount();
+      vi.useRealTimers();
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
+  it("other fragments are still ignored, marked or not, and leave no mark: Back / Forward to them, or a mark on a hostile address", async () => {
+    const OTHER = ["#pricing", "#main", "#faq", "#foot", "#s3", "#S2", "#s2x", "#%73%32", "#constructor", "#__proto__", "#<img src=x onerror=alert(1)>", "#javascript:alert(1)", "#//evil.example"];
+    const e = setup(SIZES.phone, "/?lp6debug");
+    render(page("/"));
+    await flush();
+    wait(1000);
+    const repl = vi.spyOn(window.history, "replaceState");
+    await toSeven("scroll");
+    const y = e.getY();
+    for (const hash of OTHER) {
+      for (const state of [null, { [LP6_MARK]: hash }, { [LP6_MARK]: "#s2" }]) {
+        e.scrollTo.mockClear();
+        act(() => { window.history.pushState(state, "", "/?lp6debug" + hash); window.dispatchEvent(new PopStateEvent("popstate", { state })); window.dispatchEvent(new HashChangeEvent("hashchange")); });
+        wait(FRAME);
+        expect([hash, state, e.scrollTo.mock.calls, e.getY()]).toEqual([hash, state, [], y]);
+      }
+      traverse("back", y); traverse("forward", y);
+      expect([hash, e.scrollTo.mock.calls, e.getY()]).toEqual([hash, [], y]);
+    }
+    expect(repl).not.toHaveBeenCalled(); // the engine wrote nothing for any of them
   });
 });

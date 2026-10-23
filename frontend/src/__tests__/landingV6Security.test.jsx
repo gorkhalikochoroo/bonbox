@@ -23,7 +23,8 @@
  *       runs on a fresh module graph, so state the blocks above leave in the usage log cannot hide a broken consent check;
  *   (g) hardening round (23 Oct): the address never steers the page elsewhere and never reaches storage, and the landing
  *       has no message listener — no location.assign / replace / href=, window.open, pushState or navigate in its code,
- *       its three reads of the address pinned line by line, its one replaceState writing only #s1 / #s2 / #s6; rendered on
+ *       its reads of the address pinned line by line, its replaceStates writing only #s1 / #s2 / #s6 or no address at all
+ *       (the Back fix's mark, engine.js note 23, whose value is one of those three strings); rendered on
  *       hostile addresses with every moving link clicked: no pushState, no window.open, no "message" listener, the query
  *       kept, no storage write carrying anything from the address.
  */
@@ -632,10 +633,11 @@ describe("(f) no analytics or usage request before consent", () => {
 /* Hardening round (23 Oct): the address (query and fragment) never steers the page somewhere else, never reaches storage,
  * and the landing takes no cross-window messages. Source: the landing's own code (TREE, raw, comments included) has no
  * navigation sink, no message listener and no storage at all; its reads of the address are pinned line by line; its
- * one replaceState writes only nav.js SCENE_HASH's strings. Rendered: a visit on hostile addresses, every link that moves
- * the page clicked, both language switches, the banner answered — then no pushState, no window.open, every replaceState
- * one of the three scene fragments with the router's state kept, the query untouched, no "message" listener, no storage
- * write carrying anything from the address. */
+ * replaceStates write only nav.js SCENE_HASH's strings, or no address at all (the Back fix's mark, engine.js note 23).
+ * Rendered: a visit on hostile addresses, every link that moves the page clicked, both language switches, the banner
+ * answered — then no pushState, no window.open, every replaceState one of the three scene fragments (or none) with the
+ * router's state kept plus the mark for that scene, the query untouched, no "message" listener, no storage write carrying
+ * anything from the address. */
 const NAV_SINKS = [
   ["location.assign", /\blocation\s*\.\s*assign\b/],
   ["location.replace", /\blocation\s*\.\s*replace\b/],
@@ -665,7 +667,12 @@ const ADDRESS_READ = /\blocation\b|\bdocument\s*\.\s*(?:URL|documentURI|referrer
 const ADDRESS_READS = [
   ["pages/LandingV6Page.jsx", "try { return sceneOfHash(window.location.hash); } catch { return null; }"],
   [`${V6}/engine.js`, 'try { return new URLSearchParams(window.location.search).has("lp6debug"); } catch { return false; }'],
-  [`${V6}/engine.js`, "if (!h || window.location.hash === h) return;"],
+  // Back fix (23 Oct, engine.js note 23): the entry's mark counts only at its own address, compared whole with the fragment;
+  // the mark is written only when the fragment is that SCENE_HASH string already; the name write is skipped (the entry only
+  // marked) when the address already names the scene
+  [`${V6}/engine.js`, 'return !!s && typeof s === "object" && own(s, LP6_MARK) && s[LP6_MARK] === h && window.location.hash === h;'],
+  [`${V6}/engine.js`, "if (!h || window.location.hash !== h || handled(h)) return;"],
+  [`${V6}/engine.js`, "if (window.location.hash === h) { markEntry(go); return; }"],
   // Simulator round (23 Oct, engine.js note 21): the fragment again when it changes inside the page, through the same allow-list
   [`${V6}/engine.js`, "try { go = sceneOfHash(window.location.hash); } catch { go = null; }"],
   [`${V6}/engine.js`, 'on(window, "hashchange", addressChanged); on(window, "popstate", addressChanged);'],
@@ -698,12 +705,23 @@ describe("(g) the address never steers the page elsewhere, never reaches storage
     expect(read(`${V6}/nav.js`)).toMatch(/export function sceneOfHash\(hash\) \{\n {2}for \(const go of Object\.keys\(SCENE_HASH\)\) if \(SCENE_HASH\[go\] === hash\) return go;\n {2}return null;\n\}/);
   });
 
-  it("source: the one replaceState writes a SCENE_HASH string, with the router's state kept; SCENE_HASH is the three [data-go] hrefs", async () => {
+  it("source: the two replaceStates write only a SCENE_HASH string (or no address at all), with the router's state kept; SCENE_HASH is the three [data-go] hrefs", async () => {
     const lines = [];
     for (const f of TREE) read(f).split("\n").forEach((line, i, all) => { if (/\breplaceState\b/.test(line)) lines.push([f, line.trim(), all.slice(Math.max(0, i - 3), i).map((l) => l.trim())]); });
-    expect(lines.map(([f, l]) => [f, l])).toEqual([[`${V6}/engine.js`, 'try { window.history.replaceState(window.history.state, "", h); } catch { /* a sandboxed frame: the address stays */ }']]);
-    expect(lines[0][2]).toEqual(["function nameScene(go) {", "const h = own(SCENE_HASH, go) ? SCENE_HASH[go] : null;", "if (!h || window.location.hash === h) return;"]);
-    const { SCENE_HASH, sceneOfHash } = await import("../components/landing/v6/nav");
+    expect(lines.map(([f, l]) => [f, l])).toEqual([
+      // engine.js note 23: the mark, written over the current entry with NO address argument (the address cannot change)
+      [`${V6}/engine.js`, 'try { const st = markedState(h); if (st) window.history.replaceState(st, ""); } catch { /* a sandboxed frame: unmarked, so Back to it steps as before */ }'],
+      // engine.js note 18: the scene's name, h a SCENE_HASH string
+      [`${V6}/engine.js`, 'try { window.history.replaceState(markedState(h) || window.history.state, "", h); } catch { /* a sandboxed frame: the address stays */ }'],
+    ]);
+    expect(lines[0][2]).toEqual(["function markEntry(go) {", "const h = own(SCENE_HASH, go) ? SCENE_HASH[go] : null;", "if (!h || window.location.hash !== h || handled(h)) return;"]);
+    expect(lines[1][2]).toEqual(["const h = own(SCENE_HASH, go) ? SCENE_HASH[go] : null;", "if (!h) return;", "if (window.location.hash === h) { markEntry(go); return; }"]);
+    // the state written: the router's own keys kept (a missing state as the router reads it), plus the mark = h, nothing else
+    const src = read(`${V6}/engine.js`);
+    expect(src).toContain('function markedState(h) {\n      const s = window.history.state;\n      if (s == null) return { idx: null, [LP6_MARK]: h };\n      return typeof s === "object" && !Array.isArray(s) ? { ...s, [LP6_MARK]: h } : null;\n    }');
+    expect((src.match(/\bmarkedState\(/g) || []).length).toBe(3); // the definition and the two writes above
+    const { SCENE_HASH, sceneOfHash, LP6_MARK } = await import("../components/landing/v6/nav");
+    expect(LP6_MARK).toBe("lp6");
     expect(SCENE_HASH).toEqual({ "1a": "#s1", "2a": "#s2", "3a": "#s6" });
     expect(Object.isFrozen(SCENE_HASH)).toBe(true);
     for (const [go, h] of Object.entries(SCENE_HASH)) expect(sceneOfHash(h)).toBe(go);
@@ -781,7 +799,15 @@ describe("(g) the address never steers the page elsewhere, never reaches storage
       // no navigation
       expect(push).not.toHaveBeenCalled();
       expect(open).not.toHaveBeenCalled();
-      expect(repl.mock.calls.filter(([state, , url]) => !SCENE_URLS.includes(url) || state !== null)).toEqual([]);
+      // every write: a scene's name (one of the three fragments) or the mark alone (no address argument), and the state is
+      // the router's (here none: MemoryRouter leaves window.history alone) plus the mark for that scene, nothing else
+      expect(repl.mock.calls.filter((c) => {
+        const [state, , url] = c;
+        const okUrl = c.length === 2 ? true : SCENE_URLS.includes(url);
+        const okState = !!state && JSON.stringify(Object.keys(state).sort()) === JSON.stringify(["idx", "lp6"]) && state.idx === null && SCENE_URLS.includes(state.lp6) && (c.length === 2 || state.lp6 === url);
+        return !(okUrl && okState);
+      })).toEqual([]);
+      expect(repl.mock.calls.some((c) => c.length === 3)).toBe(true); // not vacuous: scenes were named
       expect(window.history.length).toBe(len0);
       expect([window.location.pathname, window.location.search]).toEqual(["/", search0]); // the query exactly as it came
       expect([hash0, ...SCENE_URLS]).toContain(window.location.hash);

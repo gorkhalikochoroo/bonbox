@@ -133,6 +133,11 @@ export function goPrev(st, now, ctx) {
  *  writes or acts on; anything else in the address is never read for navigation. */
 export const SCENE_HASH = Object.freeze({ "1a": "#s1", "2a": "#s2", "3a": "#s6" });
 
+/** Port (Back fix, 23 Oct): the key engine.js adds to a history entry's state once it has handled that entry at a scene
+ *  address (named it, opened on it, or stepped to it when it was new); its value is that SCENE_HASH string. Back / Forward to
+ *  an entry carrying it, at that very address, is a return to the reader's place on it, never a jump. */
+export const LP6_MARK = "lp6";
+
 /** The data-go scene a fragment names ("#s2" → "2a"), or null for any other fragment (compared whole, never parsed). */
 export function sceneOfHash(hash) {
   for (const go of Object.keys(SCENE_HASH)) if (SCENE_HASH[go] === hash) return go;
