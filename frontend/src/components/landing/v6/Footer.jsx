@@ -4,8 +4,8 @@
  * documents keep their Danish names on the English page too (as en.js does; PORT_PLAN section 8 item 9). No
  * Databehandleraftale link until a real DPA exists. "Cookieindstillinger" reopens the banner's drawer (GDPR
  * Art. 7(3): withdrawing is as easy as giving). On Android the owner app link goes to the web app (StoreLink).
- * DK · EN (fix round, 22 Oct): the same switch as the top bar's, so the language can always be changed at the end of the
- * page (on phones under 540 px the top bar's switch steps aside while the header's "Prøv gratis" is up). */
+ * The language switch (fix round, 22 Oct; two flags since 23 Oct): the same switch as the top bar's, so the language can always be changed at the end of the
+ * page (under 500 px the top bar's switch steps aside while the header's "Prøv gratis" is up). */
 import { Fragment } from "react";
 import { Link } from "react-router-dom";
 import { CookieSettingsButton } from "../../CookieConsent";

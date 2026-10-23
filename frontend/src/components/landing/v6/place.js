@@ -1,7 +1,8 @@
 /* The reader's place across a language switch (LandingV6Page re-keys the whole page on DK ⇄ EN; fix round, 22 Oct).
  *
  * Taken just before setLang, put back right after the new language's engine has laid the page out:
- *   - the switch that was used (top bar or footer) gets the focus back, so a keyboard reader is not sent to the top of
+ *   - the switch that was used (top bar or footer) gets the focus back, on the flag that was pressed (now the page's language,
+ *     aria-pressed), so a keyboard reader is not sent to the top of
  *     the page (WCAG 2.4.3). Only when that switch had the focus as it was used (Simulator round, 23 Oct): a keyboard,
  *     assistive tech, or a browser that focuses a clicked button. A tap in iOS Safari never focuses a button, so there the
  *     re-keyed page keeps no focus, as a page that was never switched. (In the Simulator the first tap on the bottom bar's
@@ -13,7 +14,7 @@
  *     height). In the day itself the engine's layout keeps the place (same track in both languages), so nothing moves. */
 /* the morning sheet's sections, top to bottom: the first one still on screen is the reader's place there */
 const SHEET_PLACES = ["mere", "pricing", "tryghed", "faq", "foot"];
-/* the switch that was used: the top bar's or the footer's DK · EN */
+/* the switch that was used: the top bar's or the footer's two flags */
 const switchSel = (from) => (from === "foot" ? ".foot" : ".top") + " .lang";
 
 /** Where the reader is, taken just before a language switch: which switch (top bar or footer) and whether it had the
@@ -41,6 +42,7 @@ export function putPlaceBack(root, place) {
     const dy = Math.round(el.getBoundingClientRect().top - place.top);
     if (dy) { try { window.scrollTo({ top: window.scrollY + dy, behavior: "instant" }); } catch { window.scrollTo(0, window.scrollY + dy); } }
   }
-  const b = place.focus && root.querySelector(switchSel(place.from) + " .lg-alt button");
+  /* the flag that was pressed (both flags are buttons since 23 Oct: the pressed one is now the page's language) */
+  const b = place.focus && root.querySelector(switchSel(place.from) + ` button[lang="${place.to}"]`);
   if (b) { try { b.focus({ preventScroll: true }); } catch { /* an old browser: focus stays where it is */ } }
 }

@@ -192,12 +192,32 @@ describe("landingV6.css — the app's global rules the page does not want are un
     expect(mediaOfRule(ruleFor(".lp6.lp6-boot"))).toBeNull();
   });
 
-  it("fix round: DK · EN in the footer shows in full, in ink; only the top bar's switch steps aside on narrow phones", () => {
-    const narrow = styleRules.filter((r) => r.parent && r.parent.type === "atrule" && /max-width:(399|539)px/.test(r.parent.params) && /\.lang/.test(r.selector));
-    expect(narrow.length).toBe(2);
-    for (const r of narrow) for (const sel of splitList(r.selector)) expect(sel).toMatch(/\.top \.lang/);
-    expect(declsOf(ruleFor(".lp6 .foot .links .lang button"))).toMatchObject({ display: "inline-flex", height: "44px", "min-width": "44px" });
-    expect(declsOf(ruleFor(".lp6 .foot .lang .sx")).color).toBe("var(--ink)");
+  it("fix round: the language switch in the footer always shows; only the top bar's steps aside, under 500 px, while the header's \"Prøv gratis\" is up", () => {
+    const hiding = styleRules.filter((r) => /\.lang/.test(r.selector) && /display/.test(r.toString()) && declsOf(r).display === "none");
+    expect(hiding.map((r) => [mediaOfRule(r), r.selector])).toEqual([["(max-width:499px)", ".lp6.js.cta-past:not(.dock-on) .top .lang"]]);
+    // the footer's link list unsets every button (all:unset, padding 10px 0): the switch's own rule after it gives the 44 px box back
+    expect(declsOf(ruleFor(".lp6 .foot .links .lang button"))).toMatchObject({ display: "inline-flex", position: "relative", padding: "0", width: "44px", height: "44px" });
+    expect(declsOf(ruleFor(".lp6 .foot .links .lang"))["margin-left"]).toBe("-10px"); // the first flag on the links' left edge
+  });
+
+  it("flags round (23 Oct): two flags, each a 44 x 44 button; the page's language full colour over a 2 px line, the other at .45, full under hover and focus", () => {
+    expect(declsOf(ruleFor(".lp6 .lang button"))).toMatchObject({ all: "unset", "box-sizing": "border-box", position: "relative", width: "44px", height: "44px", cursor: "pointer" });
+    expect(declsOf(ruleFor(".lp6 .lang .flag"))).toMatchObject({ width: "24px", height: "18px", flex: "none" });
+    expect(declsOf(ruleFor(".lp6 .lang button[aria-pressed=false] .flag"))).toEqual({ opacity: ".45" });
+    expect(declsOf(ruleFor(".lp6 .lang button[aria-pressed=false]:focus-visible .flag"))).toEqual({ opacity: "1" });
+    const hover = ruleFor(".lp6 .lang button[aria-pressed=false]:hover .flag");
+    expect([mediaOfRule(hover), declsOf(hover)]).toEqual(["(hover:hover)", { opacity: "1" }]);
+    // the state never rests on colour alone: a line under the pressed flag, in the one stroke that reads on paper and on night
+    expect(declsOf(ruleFor(".lp6 .lang button[aria-pressed=true]::after"))).toMatchObject({ content: '""', position: "absolute", height: "2px", background: "var(--line)" });
+    const tokens = declsOf(ruleFor(".lp6"));
+    expect(tokens["--line"]).toBe("#71857A");
+    for (const night of [".lp6[data-g=night]", ".lp6[data-x=np]"]) expect(declsOf(ruleFor(night))["--line"]).toBeUndefined();
+    // a visible focus ring on every flag
+    expect(declsOf(ruleFor(".lp6 .lang button:focus-visible"))).toMatchObject({ outline: "2px solid var(--fg)" });
+    // nothing repaints a flag at the night edge: no crossing rule reaches .lang or .flag
+    expect(selectors.filter((sel) => /\.xing/.test(sel) && /\.lang|\.flag/.test(sel))).toEqual([]);
+    // the old DK · EN rules are gone (text, separator, current-as-text)
+    expect(selectors.filter((sel) => /\.lang .*(\.sx|\.dot|\.lg-cur|\.lg-alt|\bb\b)/.test(sel))).toEqual([]);
   });
 
   it("the page root is its own stacking context with no transform (fixed bars still pin to the viewport)", () => {

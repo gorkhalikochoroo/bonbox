@@ -351,8 +351,9 @@ describe("(e) DK → EN through the page's own switch", () => {
     await flush();
     const enRoot = lp6();
     expect(enRoot.getAttribute("lang")).toBe("en");
-    // the focus is on the new page's switch (now "Dansk"), not on <body> (WCAG 2.4.3)
-    expect(document.activeElement).toBe(enRoot.querySelector(".top .lang button[lang='da']"));
+    // the focus is on the new page's switch, on the flag that was pressed (now the page's language), not on <body> (WCAG 2.4.3)
+    expect(document.activeElement).toBe(enRoot.querySelector(".top .lang button[lang='en']"));
+    expect(document.activeElement.getAttribute("aria-pressed")).toBe("true");
     expect([...enRoot.querySelectorAll("details")].map((d) => d.open)).toEqual([false, true, false]);
     // #faq was 70 px from the top; the English sheet puts it at 145: the page moves by 75 so it is at 70 again
     expect(e.getY()).toBe(6265 + 75);
@@ -370,7 +371,7 @@ describe("(e) DK → EN through the page's own switch", () => {
     await flush();
     const enRoot = lp6();
     expect(enRoot.getAttribute("lang")).toBe("en");
-    expect(document.activeElement).toBe(enRoot.querySelector(".foot .lang button[lang='da']"));
+    expect(document.activeElement).toBe(enRoot.querySelector(".foot .lang button[lang='en']"));
     expect(e.getY()).toBe(1800);
     expect(window.scrollTo).not.toHaveBeenCalled();
   });
@@ -615,7 +616,8 @@ describe("(i) after a DK / EN switch the first tap on the bottom bar acts", () =
       sw.focus();
       fireEvent.click(sw);
       await flush();
-      expect([where, document.activeElement]).toEqual([where, lp6().querySelector(`${where} .lang button[lang='da']`)]);
+      // flags round (23 Oct): both flags are buttons, so the focus comes back on the one that was pressed, now aria-pressed
+      expect([where, document.activeElement]).toEqual([where, lp6().querySelector(`${where} .lang button[lang='en'][aria-pressed='true']`)]);
       unmount(); teardown();
     }
   });

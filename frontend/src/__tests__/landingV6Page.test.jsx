@@ -7,7 +7,8 @@
  *   - the Danish text is the prototype's, numbers from planPrices / planLimits (never typed);
  *   - CTAs are router links, prices at #pricing, no absolute bonbox.dk link; Android gets the web app, not the store;
  *   - the English page, and a Turkish reader getting the English page whole (no mix);
- *   - DK · EN with drawn flags from the catalog; a pick stores the language;
+ *   - the language switch: two drawn flags (no letters), each a named button (catalog names, lang, aria-pressed); a pick
+ *     stores the language;
  *   - the engine: mounted once on the root, destroyed on unmount, re-mounted on a language re-key; a re-render with a
  *     new dictionary function writes nothing to the DOM; the real engine mounts on this markup without an error and
  *     its destroy() puts the DOM back exactly.
@@ -155,9 +156,10 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
     expect(text(".hm-1")).toBe("Jeg hedder Manoj.");
     expect($(".hm-m a").getAttribute("href")).toBe("mailto:contact@bonbox.dk");
     expect($(".foot .legal p").innerHTML).toBe('BonBox er et produkt fra<br>DukaanAI v/Manoz Chaudhary<br>CVR 46417321<br><a href="mailto:contact@bonbox.dk">contact@bonbox.dk</a>');
-    // fix round: DK · EN in the footer too (the top bar's switch steps aside on narrow phones once the header's button is up)
-    expect($$(".foot .links li").map((li) => li.textContent)).toEqual(["Handelsbetingelser", "Privatlivspolitik", "Kontakt", "Cookieindstillinger", "DK·EN"]);
-    expect($(".foot .links .lang .lg-cur b").getAttribute("aria-current")).toBe("true");
+    // fix round: the language switch in the footer too (the top bar's steps aside on narrow phones once the header's button is up);
+    // flags round (23 Oct): two flags, no letters
+    expect($$(".foot .links li").map((li) => li.textContent)).toEqual(["Handelsbetingelser", "Privatlivspolitik", "Kontakt", "Cookieindstillinger", ""]);
+    expect($(".foot .links .lang button[lang='da']").getAttribute("aria-pressed")).toBe("true");
     expect($(".foot .links .lang button[lang='en']").getAttribute("aria-label")).toBe("English");
     expect($(".foot .links button").getAttribute("data-cookie-settings")).toBe("open");
     expect(text(".copy-r")).toBe("© 2026 BonBox · Lavet i København");
@@ -214,32 +216,80 @@ describe("English, and a reader in a language the page does not have", () => {
   });
 });
 
-describe("DK · EN with drawn flags", () => {
-  it("labels from the catalog, the current language as text, the other a named button; no emoji flag", () => {
-    const { $, root } = show("da");
-    const cat = Object.fromEntries(ALL_LANGUAGES.map((l) => [l.code, l]));
-    expect($(".lang [aria-current]").textContent).toBe(cat.da.short);
-    const btn = $(".lang button");
-    expect(btn.textContent).toBe(cat.en.short);
-    expect(btn.getAttribute("lang")).toBe("en");
-    expect(btn.getAttribute("aria-label")).toBe(cat.en.label);
-    expect(root.querySelectorAll(".top .lang svg.flag")).toHaveLength(2);
-    // fix round: the same switch in the footer (two flags there too), and nowhere else
-    expect(root.querySelectorAll(".lang")).toHaveLength(2);
-    expect(root.querySelectorAll(".foot .lang svg.flag")).toHaveLength(2);
-    expect(root.textContent).not.toMatch(/[\u{1F1E6}-\u{1F1FF}]/u);
-    fireEvent.click(btn);
-    expect(lang.setLang).toHaveBeenCalledWith("en");
-    lang.setLang.mockClear();
-    fireEvent.click($(".foot .lang button"));
-    expect(lang.setLang).toHaveBeenCalledWith("en");
+describe("the language switch: two drawn flags (Manoj 23 Oct: \"instead of dk en just put flag\")", () => {
+  const cat = Object.fromEntries(ALL_LANGUAGES.map((l) => [l.code, l]));
+  const sw = (root, where) => root.querySelector(`${where} .lang`);
+  const buttons = (root, where) => [...sw(root, where).children];
+
+  it("top bar and footer: two buttons, Danish then English, named in their own language (lang set), the page's language pressed", () => {
+    for (const code of ["da", "en"]) {
+      const { root } = show(code);
+      expect(root.querySelectorAll(".lang")).toHaveLength(2); // the top bar's and the footer's, nowhere else
+      for (const where of [".top", ".foot"]) {
+        const bs = buttons(root, where);
+        expect(bs.map((b) => b.tagName)).toEqual(["BUTTON", "BUTTON"]);
+        expect(bs.map((b) => [b.getAttribute("type"), b.getAttribute("lang"), b.getAttribute("aria-label"), b.getAttribute("aria-pressed")])).toEqual([
+          ["button", "da", "Dansk", String(code === "da")],
+          ["button", "en", "English", String(code === "en")],
+        ]);
+        // the names are the catalog's, never typed here
+        expect(bs.map((b) => b.getAttribute("aria-label"))).toEqual([cat.da.label, cat.en.label]);
+        // aria-pressed is the switch's one state word: no aria-current left over
+        expect(sw(root, where).querySelectorAll("[aria-current]")).toHaveLength(0);
+      }
+      cleanup();
+    }
   });
 
-  it("on the English page the button offers Dansk", () => {
-    const { $ } = show("en");
-    expect($(".lang [aria-current]").textContent).toBe("EN");
-    expect($(".lang button").getAttribute("aria-label")).toBe("Dansk");
-    expect($(".lang button").getAttribute("lang")).toBe("da");
+  it("no visible letters: no DK / EN, no separator dot, no text node at all; each button holds one drawn flag, 24 x 18; no emoji flag", () => {
+    const { root } = show("da");
+    for (const where of [".top", ".foot"]) {
+      const el = sw(root, where);
+      expect(el.textContent).toBe("");
+      const texts = [];
+      const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let n = tw.nextNode(); n; n = tw.nextNode()) texts.push(n.textContent);
+      expect(texts).toEqual([]);
+      expect(el.innerHTML).not.toMatch(/\bDK\b|\bEN\b|·/);
+      for (const b of buttons(root, where)) {
+        expect([...b.children].map((c) => c.tagName.toLowerCase())).toEqual(["svg"]);
+        const svg = b.firstElementChild;
+        expect([svg.getAttribute("class"), svg.getAttribute("width"), svg.getAttribute("height"), svg.getAttribute("viewBox"), svg.getAttribute("aria-hidden"), svg.getAttribute("focusable")]).toEqual(["flag", "24", "18", "0 0 24 18", "true", "false"]);
+        // drawn without ids (the switch is on the page twice) and without text
+        expect(svg.querySelectorAll("[id], text, title")).toHaveLength(0);
+      }
+    }
+    expect(root.textContent).not.toMatch(/[\u{1F1E6}-\u{1F1FF}]/u);
+  });
+
+  it("the flags keep their own colours: nothing in the switch takes part in the night edge's colour split", () => {
+    const { root } = show("da");
+    // engine.js SPLIT_SEL repaints .sx / .sbg / .xb / .bt (and the logo) in the top bar; none of them inside the switch
+    for (const where of [".top", ".foot"]) expect(sw(root, where).querySelectorAll(".sx, .sbg, .xb, .bt, .logo")).toHaveLength(0);
+    // each flag paints with its own fixed colours, never currentColor
+    const fills = [...root.querySelectorAll(".top .lang svg path")].map((p) => p.getAttribute("fill") || p.getAttribute("stroke"));
+    expect(new Set(fills)).toEqual(new Set(["#C8102E", "#FFFFFF", "#012169"]));
+  });
+
+  it("pressing the other flag picks that language (top bar and footer); pressing the page's own does nothing", () => {
+    const { root } = show("da");
+    fireEvent.click(root.querySelector(".top .lang button[lang='en']"));
+    expect(lang.setLang.mock.calls).toEqual([["en"]]);
+    lang.setLang.mockClear();
+    fireEvent.click(root.querySelector(".foot .lang button[lang='en']"));
+    expect(lang.setLang.mock.calls).toEqual([["en"]]);
+    lang.setLang.mockClear();
+    fireEvent.click(root.querySelector(".top .lang button[lang='da']"));
+    fireEvent.click(root.querySelector(".foot .lang button[lang='da']"));
+    expect(lang.setLang).not.toHaveBeenCalled();
+  });
+
+  it("on the English page: English pressed, Dansk offered (lang=da)", () => {
+    const { root } = show("en");
+    const da = root.querySelector(".top .lang button[lang='da']"), enB = root.querySelector(".top .lang button[lang='en']");
+    expect([da.getAttribute("aria-label"), da.getAttribute("aria-pressed"), enB.getAttribute("aria-label"), enB.getAttribute("aria-pressed")]).toEqual(["Dansk", "false", "English", "true"]);
+    fireEvent.click(da);
+    expect(lang.setLang.mock.calls).toEqual([["da"]]);
   });
 });
 

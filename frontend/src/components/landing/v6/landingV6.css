@@ -755,25 +755,31 @@
 .lp6.lp6-boot,.lp6.lp6-boot *,.lp6.lp6-boot::before,.lp6.lp6-boot::after,.lp6.lp6-boot *::before,.lp6.lp6-boot *::after{transition:none!important}
 
 /* ═════════════ port step 5: what the prototype did not render (PORT_PLAN 2.3, section 3) ═════════════ */
-/* DK · EN with drawn flags (the prototype kept the switch hidden until English existed): the language on screen is text,
-   the other a button (44 px at least). Under 400 px, where "Priser" leaves the bar too, only the other language shows.
-   Under 540 px, while the header's own "Prøv gratis" is up (after the day, no bottom bar) the switch steps aside, so the
-   bar keeps the prototype's measured logo · (Priser) · Log ind · Prøv gratis (with the switch the button ran 22 px past
-   the edge at 320, 7 at 430, 19 at 480; measured, port-build/step5/barfit_*.json); it is back as soon as that button goes */
-.lp6 .lang{display:flex;align-items:center;gap:6px;font-size:var(--fs-ui);line-height:1;white-space:nowrap}
-.lp6 .lang .lg-cur,.lp6 .lang .lg-alt{display:inline-flex;align-items:center;gap:6px}
-.lp6 .lang b{font-weight:600}
-.lp6 .lang .flag{width:16px;height:12px;flex:none}
-.lp6 .lang button{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:44px;min-width:44px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+/* The language switch: two drawn flags, Danish then English (Manoj 23 Oct: "instead of dk en just put flag"), each a 44 x 44
+   button; no letters and no separator: the 20 px between the two flags is the two targets' own padding. The page's language
+   shows its flag in full colour over a 2 px line; the other flag sits at .45 and comes to full colour under the pointer or the
+   keyboard's focus. The line is var(--line), the one stroke that holds 3:1 on both grounds (3.6 on paper, 4.0 on night), so,
+   like the flags, it keeps its own colour and takes no part in the night edge's split (.sx); aria-pressed says the same in
+   words. While the header's own "Prøv gratis" is up (after the day, no bottom bar) the top bar's switch steps aside under 500 px
+   (was 540 for "DK · EN"): logo · flags · (Priser) · Log ind · Prøv gratis fit from 484 px in Danish, 466 in English (measured
+   in Chromium, port-build/flags/flags.json); 16 px kept spare for another browser's text widths. Everywhere else, phones
+   included, both flags show (the footer always has them) */
+.lp6 .lang{display:flex;align-items:center}
+.lp6 .lang button{all:unset;box-sizing:border-box;position:relative;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.lp6 .lang .flag{width:24px;height:18px;flex:none;transition:opacity .2s ease}
+.lp6 .lang button[aria-pressed=false] .flag{opacity:.45}
+.lp6 .lang button[aria-pressed=false]:focus-visible .flag{opacity:1}
+@media (hover:hover){.lp6 .lang button[aria-pressed=false]:hover .flag{opacity:1}}
+.lp6 .lang button[aria-pressed=true]{cursor:default}
+.lp6 .lang button[aria-pressed=true]::after{content:"";position:absolute;left:10px;right:10px;bottom:7px;height:2px;background:var(--line)}
 .lp6 .lang button:focus-visible{outline:2px solid var(--fg);outline-offset:2px;border-radius:6px}
-@media (hover:hover){.lp6 .lang button:hover .sx{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px}}
-@media (max-width:399px){.lp6 .top .lang .lg-cur,.lp6 .top .lang .dot{display:none}}
-@media (max-width:539px){.lp6.js.cta-past:not(.dock-on) .top .lang{display:none}}
-/* fix round: the same switch in the footer's link list, always shown in full (the top bar's steps aside on narrow phones once the
-   header's "Prøv gratis" is up). On paper, in ink: the edge-split colours (.sx) belong to the bars; the 44 px row as the links beside it */
-.lp6 .foot .links .lang button{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0;height:44px;min-width:44px}
-.lp6 .foot .lang .sx{color:var(--ink)}
-.lp6 .foot .lang .sx.f3{color:var(--ink-3)}
+@media (max-width:499px){.lp6.js.cta-past:not(.dock-on) .top .lang{display:none}}
+/* fix round: the same switch in the footer's link list, always shown (the top bar's steps aside on narrow phones once the header's
+   "Prøv gratis" is up): the 44 px row as the links beside it (the list's own button rule below unsets every button), the first
+   flag on the links' left edge (its 10 px of padding hang into the gutter) */
+.lp6 .foot .links .lang{margin-left:-10px}
+.lp6 .foot .links .lang button{display:inline-flex;align-items:center;justify-content:center;position:relative;padding:0;width:44px;height:44px;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.lp6 .foot .links .lang button[aria-pressed=true]{cursor:default}
 /* "Vælg Starter" / "Vælg Pro" under the paid cards (→ /register?plan=…) */
 .lp6 .price .pick{margin-top:6px;font-size:var(--fs-note);line-height:1.45}
 .lp6 .price .pick .tlink{color:var(--ink);font-weight:500}

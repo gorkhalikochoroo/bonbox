@@ -1,9 +1,12 @@
-/* DK · EN in the top bar (PORT_PLAN 2.3). The page is Danish or English, so the switch offers exactly those two,
- * always in that order: the language on screen is text (aria-current), the other is a button named in its own
- * language ("English" / "Dansk", lang set) that calls the app's setLang (stores the choice, clears the auto-pick).
- * Codes and names come from i18n/languageCatalog.js (the catalog says "DK", not the prototype's "DA"), each with
- * its drawn flag (Flag.jsx). The codes take part in the night edge's colour split (.sx); the flags are pictures.
- * Under 400 px only the button shows (landingV6.css), one 44 px target. */
+/* The language switch in the top bar and the footer (PORT_PLAN 2.3; Manoj 23 Oct: "instead of dk en just put flag").
+ * The page is Danish or English, so the switch offers exactly those two, always in that order: two drawn flags
+ * (Flag.jsx), no letters and no separator, each a real button with a 44 x 44 px target. A button is named in its own
+ * language ("Dansk" / "English" from i18n/languageCatalog.js, lang set, so a screen reader says each name in its language)
+ * and says whether it is the page's language (aria-pressed). The language on screen keeps its flag in full colour with a
+ * thin line under it; the other flag is dimmed until hovered or focused (landingV6.css), so the state never rests on colour
+ * alone. Pressing the other flag calls the app's setLang (stores the choice, clears the auto-pick); pressing the one
+ * already on screen does nothing. The flags keep their own colours on paper and on night: nothing here takes part in the
+ * night edge's colour split (.sx). */
 import { ALL_LANGUAGES } from "../../../i18n/languageCatalog";
 import Flag from "./Flag";
 import { PAGE_LANGS } from "./site";
@@ -13,26 +16,12 @@ const entry = (code) => ALL_LANGUAGES.find((l) => l.code === code);
 export default function LangSwitch({ lang, onPick }) {
   return (
     <span className="lang">
-      {PAGE_LANGS.map((code, i) => {
-        const l = entry(code);
-        const sep = i > 0 ? <span className="dot sx f3" aria-hidden="true">·</span> : null;
-        if (code === lang) {
-          return (
-            <span className="lg-cur" key={code}>
-              {sep}
-              <Flag code={code} />
-              <b className="sx f1" aria-current="true">{l.short}</b>
-            </span>
-          );
-        }
+      {PAGE_LANGS.map((code) => {
+        const on = code === lang;
         return (
-          <span className="lg-alt" key={code}>
-            {sep}
-            <button type="button" lang={code} aria-label={l.label} onClick={() => onPick(code)}>
-              <Flag code={code} />
-              <span className="sx f3">{l.short}</span>
-            </button>
-          </span>
+          <button type="button" key={code} lang={code} aria-label={entry(code).label} aria-pressed={on} onClick={on ? undefined : () => onPick(code)}>
+            <Flag code={code} />
+          </button>
         );
       })}
     </span>

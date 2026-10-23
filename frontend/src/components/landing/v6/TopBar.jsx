@@ -1,5 +1,5 @@
 /* The top bar (v6.3 src.html "header.top"): the lockup twice (lgA / lgB, the night edge clips one to each side),
- * DK · EN, Priser, Log ind and the header's "Prøv gratis" (the engine shows it once the hero's button has scrolled
+ * the language switch (two flags), Priser, Log ind and the header's "Prøv gratis" (the engine shows it once the hero's button has scrolled
  * away). Log ind and Prøv gratis are router links (in-app, no reload, the ?ref= memory copy survives). */
 import { Link } from "react-router-dom";
 import Lockup from "./Lockup";
