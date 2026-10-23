@@ -48,7 +48,7 @@ from app.services.auth import get_current_user
 from app.services.billing import effective_plan, get_cap, has_feature, record_feature_skip
 from app.services.expense_status import not_pending
 from app.services.receipt_ocr import save_receipt_photo_ex, parse_z_report
-from app.services.storage_links import RELINK_KINDS, client_receipt_ref, same_receipt_object
+from app.services.storage_links import RELINK_KINDS, client_receipt_ref, is_retired_link, same_receipt_object
 from app.services.ai_limits import vision_slot
 from app.services.image_guard import UnsupportedImageError, refusal_message, sniff_image_format
 from app.services.owner_language import owner_lang
@@ -668,6 +668,11 @@ def _build_close_email_html(
     return subject, html
 
 
+# The Z-bon attachment read (below) waits at most this long for storage; the
+# backend's own default is 30 s (sized for uploads).
+ZBON_READ_TIMEOUT_SECONDS = 8.0
+
+
 def _fetch_scan_bytes_best_effort(receipt_url: str | None, owner_id=None) -> tuple[bytes | None, str | None]:
     """Best-effort read of the Z-report photo for the e-mail attachment.
     Returns (bytes, filename) or (None, None) on any failure — never
@@ -696,7 +701,9 @@ def _fetch_scan_bytes_best_effort(receipt_url: str | None, owner_id=None) -> tup
                 logger.warning("scan_image read refused (not a receipt kind)")
                 return None, None
             from app.services.storage import get_storage
-            data = get_storage().get(key)
+            # A short bound: this runs inside the close-confirm request, which
+            # holds a DB connection (15 per instance) while storage answers.
+            data = get_storage().get(key, timeout=ZBON_READ_TIMEOUT_SECONDS)
             if not data:
                 logger.warning("scan_image not found in storage")
                 return None, None
@@ -2079,6 +2086,34 @@ def create_daily_close(
     return _after_close_filed(db, request, user, row, status, final_values)
 
 
+# A typed Z-bon link on the retired storage project (receipt fix round 2).
+RETIRED_RECEIPT_LINK = "retired_receipt_link"
+
+
+def _refuse_new_retired_photo(data: DailyCloseCreate, existing, user: User) -> None:
+    """422 when the save carries a link on the retired storage project that
+    is not the page's own echo of what this close already stores. Since the
+    Frankfurt move no upload hands one out, so a NEW one can only be typed —
+    and on a close written before the move it would be signed on every read.
+    The echo (the stored string itself, or another link to the same file of
+    this owner — services/storage_links.same_receipt_object) passes, and the
+    save below then keeps the stored string. Checked before anything of the
+    save is written."""
+    incoming = (data.receipt_photo or "").strip()
+    if not incoming or not is_retired_link(incoming):
+        return
+    stored = getattr(existing, "receipt_photo", None) if existing is not None else None
+    if stored and (incoming == stored.strip() or same_receipt_object(incoming, stored, user.id)):
+        return
+    raise HTTPException(status_code=422, detail={
+        "code": RETIRED_RECEIPT_LINK,
+        "message": ("The Z-report picture link points at the old server. Reload the page and "
+                    "try again — nothing was saved."),
+        "message_da": ("Linket til Z-bon-billedet peger på den gamle server. Genindlæs siden og "
+                       "prøv igen — intet er gemt."),
+    })
+
+
 def _file_close(request: Request, data: DailyCloseCreate, db: Session, user: User,
                 *, defer_commit: bool = False):
     """The save (or lock) of one day's close — create_daily_close's body, up
@@ -2450,6 +2485,9 @@ def _file_close(request: Request, data: DailyCloseCreate, db: Session, user: Use
                 status_code=409,
                 detail="This daily close is locked. Unlock it first to make changes."
             )
+        # A typed link on the retired storage project never lands (only the
+        # page's echo of the stored photo passes) — before any field is set.
+        _refuse_new_retired_photo(data, existing, user)
         # A RE-LOCK after an unlock is marked "Rettet kasserapport" by
         # _fire_close_auto_email, per recipient, from the audit trail — not
         # from this row, whose send status the re-lock resets below.
@@ -2565,6 +2603,8 @@ def _file_close(request: Request, data: DailyCloseCreate, db: Session, user: Use
             "cash_counted": data.cash_counted,
         }
 
+    # A new close never stores a link on the retired storage project.
+    _refuse_new_retired_photo(data, None, user)
     dc = DailyClose(
         id=uuid.uuid4(),
         user_id=user.id,

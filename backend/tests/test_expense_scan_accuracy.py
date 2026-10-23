@@ -257,9 +257,13 @@ def test_structured_layer_without_payment_method_stays_none(monkeypatch):
 # the client's error path fell through to a generic message.
 
 def _signed_url(n: int = 597) -> str:
-    """Shaped like the real thing: /object/sign/ + a long ?token= JWT."""
+    """Shaped like the real thing: /object/sign/ + a long ?token= JWT. On the
+    live (Frankfurt) project's host, where every upload signs since the
+    20 Oct 2026 move — a link on the retired Ireland host is refused on
+    save since receipt fix round 2 (tests/test_storage_links.py). Both refs
+    are 20 characters, so the length is the same."""
     base = (
-        "https://ahlqhztujpeccmaivkhr.supabase.co/storage/v1/object/sign/"
+        "https://qwogfearhfhaunqpuvgd.supabase.co/storage/v1/object/sign/"
         "receipts/6f2a1c88-1111-2222-3333-444455556666/expense/"
         "0123456789abcdef0123456789abcdef0123456789abcdef.jpg?token="
     )

@@ -141,6 +141,12 @@ class ExpenseCreate(BaseModel):
             raise ValueError(
                 f"receipt_photo path too long (max {RECEIPT_PHOTO_MAX_LEN} chars)"
             )
+        from app.services.storage_links import is_retired_link
+        if is_retired_link(v):
+            # No upload hands out a link on the retired storage project since
+            # the Frankfurt move, so only a typed one can arrive; stored, it
+            # would only ever be a dead link (receipt fix round 2).
+            raise ValueError("receipt_photo points at the retired storage project")
         return v
 
     @field_validator("currency", mode="before")

@@ -23,12 +23,20 @@ Pinned here:
     ever signed (a tenant's typed Ireland URLs cost no outbound call), a
     process-wide signing budget, the delete flag proves signing itself and
     ignores post-cutover rows, and no key reaches a log line
+  • fix round 2 (23 Oct): link-bilag stores a pre-move draft's photo as its
+    Frankfurt link (503 and nothing written when it cannot); no write path
+    takes a NEW Ireland link (422; the daily-close page's own echo passes);
+    a per-owner signing budget inside the process-wide one; storage GET
+    logs no key; host log marks cannot silence a reason; the naive-is-UTC
+    rule is checked under a forced non-UTC zone; the Z-bon read waits 8 s
 
 Run:
   cd backend && python -m pytest tests/test_storage_links.py -q
 """
 import json
 import logging
+import os
+import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
@@ -94,6 +102,7 @@ class FakeBackend:
         self.host = host
         self.sign_calls: list = []
         self.get_calls: list = []
+        self.get_timeouts: list = []
         self.exists_calls: list = []
 
     def signed_url(self, key, ttl_seconds=3600, timeout=None):
@@ -105,8 +114,9 @@ class FakeBackend:
         n = len(self.sign_calls)
         return f"{self.host}/storage/v1/object/sign/receipts/{key}?token=fresh{n}"
 
-    def get(self, key):
+    def get(self, key, timeout=None):
         self.get_calls.append(key)
+        self.get_timeouts.append(timeout)
         return self.objects.get(key)
 
     def exists(self, key):
@@ -583,11 +593,13 @@ def test_daily_close_echo_back_keeps_the_stored_photo_and_signature(env, backend
     k = _key(u.id, "kasserapport")
     irl = _irl(k)
     client = TestClient(app)
-    r = client.post("/api/daily-close", json=_close_payload(irl), headers=_hdr(u))
+    r = client.post("/api/daily-close", json=_close_payload(None), headers=_hdr(u))
     assert r.status_code == 200, r.text
-    assert r.json()["receipt_photo"] == irl                   # a row written today: never re-linked
+    # A NEW Ireland link is refused on save (fix round 2), so the legacy
+    # draft it stands for — written before the move — is planted directly.
     row = db.query(DailyClose).filter(DailyClose.user_id == u.id).one()
-    row.created_at = OLD                                      # …so make it the legacy draft it stands for
+    row.receipt_photo = irl
+    row.created_at = OLD
     db.commit()
     r = client.get(f"/api/daily-close/{row.id}", headers=_hdr(u))
     assert r.status_code == 200, r.text
@@ -627,6 +639,15 @@ def _starter_with_profile(db):
     return u
 
 
+def _legacy_draft_close(db, u, photo):
+    """A draft close written before the move, its Z-bon on Ireland — the only
+    way one can exist since fix round 2 refuses a NEW Ireland link."""
+    dc = DailyClose(user_id=u.id, date=date(2026, 5, 23), revenue_total=0, payment_total=0,
+                    status="draft", receipt_photo=photo, created_at=OLD)
+    db.add(dc); db.commit()
+    return dc
+
+
 def _no_url_fetch(monkeypatch):
     def refuse(*a, **k):
         raise AssertionError("the Z-bon photo must be read from storage, not fetched by URL")
@@ -643,12 +664,14 @@ def test_zbon_mail_attaches_the_frankfurt_copy_of_an_ireland_photo(env, monkeypa
     k = _key(u.id, "kasserapport")
     b = FakeBackend({k: b"\xff\xd8\xff\xe0 the z-bon"})
     monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    _legacy_draft_close(db, u, _irl(k))
     r = TestClient(app).post("/api/daily-close", json=_close_payload(_irl(k), status="confirmed"),
                              headers=_hdr(u))
     assert r.status_code == 200, r.text
     ritual = r.json()["close_ritual"]
     assert ritual["has_scan"] is True and ritual["scan_degraded"] is False
     assert b.get_calls == [k]
+    assert b.get_timeouts == [8.0]            # fix round 2: a short read inside the confirm request
     assert all(len(p["attachments"]) == 2 for p in sent) and sent
 
 
@@ -662,6 +685,7 @@ def test_zbon_mail_refuses_another_owners_key(env, monkeypatch):
     foreign = _key(OTHER, "kasserapport")
     b = FakeBackend({foreign: b"someone else's z-bon"})
     monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    _legacy_draft_close(db, u, _irl(foreign))    # the echo of the stored string passes the save
     r = TestClient(app).post("/api/daily-close", json=_close_payload(_irl(foreign), status="confirmed"),
                              headers=_hdr(u))
     assert r.status_code == 200, r.text
@@ -827,12 +851,13 @@ def test_typed_ireland_urls_on_new_rows_cost_no_signing_call(env, monkeypatch):
         assert r.status_code == 200 and len(r.json()) == 1100
     assert b.sign_calls == []
     assert sorted(x["receipt_photo"] for x in r.json()) == sorted(photos)
-    # the create response (P3) signs nothing either
+    # a NEW typed one is refused at the door since fix round 2 (422) — no
+    # row, no signing call
     r = client.post("/api/expenses", json={"date": "2026-10-22", "amount": 5, "description": "typed",
                                            "payment_method": "card",
                                            "receipt_photo": _irl(_key(u.id, n="f"))})
-    assert r.status_code == 201, r.text
-    assert r.json()["receipt_photo"] == _irl(_key(u.id, n="f"))
+    assert r.status_code == 422, r.text
+    assert db.query(Expense).filter(Expense.description == "typed").count() == 0
     assert b.sign_calls == []
 
 
@@ -845,18 +870,27 @@ def test_signing_is_capped_per_minute_process_wide(env, monkeypatch):
     monkeypatch.setattr(sl, "_now", lambda: clock[0])
     b = FakeBackend(sign="none")
     monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
-    u = _owner(db)
-    _bulk_expenses(db, u, [_irl(f"{u.id}/expense/{format(i, '064x')}.jpg") for i in range(100)], OLD)
-    app.dependency_overrides[get_current_user] = lambda: u
+    # 5 owners x 25 rows: each owner's own budget (10) is not the limit
+    # here, the process-wide one (30) is
+    uids = [_owner(db).id for _ in range(5)]
+    for uid in uids:
+        _bulk_expenses(db, db.get(User, uid),
+                       [_irl(f"{uid}/expense/{format(i, '064x')}.jpg") for i in range(25)], OLD)
     client = TestClient(app)
-    assert client.get("/api/expenses").status_code == 200
+
+    def read_all():
+        for uid in uids:
+            app.dependency_overrides[get_current_user] = lambda uid=uid: db.get(User, uid)
+            assert client.get("/api/expenses").status_code == 200
+
+    read_all()
     assert len(b.sign_calls) == sl.SIGN_BUDGET_PER_MIN
     for _ in range(3):                                  # same minute: nothing more goes out
-        assert client.get("/api/expenses").status_code == 200
+        read_all()
     assert len(b.sign_calls) == sl.SIGN_BUDGET_PER_MIN
     assert sl.relink_stats()["sign_budget"] >= 70
     clock[0] += 60                                      # a minute later: one more minute's worth
-    assert client.get("/api/expenses").status_code == 200
+    read_all()
     assert len(b.sign_calls) == 2 * sl.SIGN_BUDGET_PER_MIN
     assert len({c[0] for c in b.sign_calls}) == 2 * sl.SIGN_BUDGET_PER_MIN   # no key asked twice
 
@@ -994,3 +1028,378 @@ def test_upload_prints_no_key(monkeypatch, capsys):
     assert stored.startswith(FRA_HOST)
     out = capsys.readouterr().out
     assert "Uploaded receipt" in out and OWNER not in out
+
+
+# ─── fix round 2 (23 Oct) ──────────────────────────────────────────────
+# 1 link-bilag re-links a pre-move draft's photo at WRITE time
+# 2 no write path accepts a NEW retired-host link; a per-owner signing budget
+# 3 SupabaseStorageBackend.get logs no key
+# 4 host log marks cannot silence reason-only warnings
+# 5 'naive created_at is UTC' is guarded under a non-UTC local zone in CI too
+# 6 the Z-bon attachment read is bounded (8 s)
+
+def _cat(db, u):
+    c = ExpenseCategory(user_id=u.id, name=f"R{uuid.uuid4().hex[:4]}", color="#3B82F6")
+    db.add(c); db.commit()
+    return c
+
+
+def _draft_and_typed(db, u, photo, *, draft_at=OLD, typed_at=NEW):
+    """A pre-move Godkend-kø draft with its bilag on Ireland, and an expense
+    the owner typed after the move (the 'Knyt til eksisterende udgift' case:
+    2 of the 4 Ireland expense photos in production are such drafts)."""
+    cat = _cat(db, u)
+    draft = Expense(user_id=u.id, category_id=cat.id, date=date(2026, 10, 2), amount=80,
+                    description="scan", payment_method="card", receipt_photo=photo,
+                    receipt_source="scan", status="pending", created_at=draft_at)
+    typed = Expense(user_id=u.id, category_id=cat.id, date=date(2026, 10, 2), amount=80,
+                    description="typed", payment_method="card", created_at=typed_at)
+    db.add_all([draft, typed]); db.commit()
+    return draft, typed
+
+
+def _bilag_audits(db, u):
+    return db.query(AuditLog).filter(AuditLog.user_id == u.id,
+                                     AuditLog.action == "expense.bilag_linked").all()
+
+
+def test_is_retired_link():
+    k = _key(OWNER)
+    assert sl.is_retired_link(_irl(k))
+    assert sl.is_retired_link("  " + _irl(k).replace("https://", "http://").upper() + " ")
+    assert sl.is_retired_link(f"//{IRL}.supabase.co/storage/v1/object/sign/receipts/{k}")
+    for v in (None, "", 42, k, f"{FRA_HOST}/storage/v1/object/sign/receipts/{k}?token=t",
+              f"https://{IRL}.supabase.co.evil.example/x", f"https://{IRL}.supabase.co@evil.example/x",
+              "https://[::1/x", f"uploads/receipts/{OWNER}_1.jpg"):
+        assert not sl.is_retired_link(v), v
+
+
+def test_link_bilag_stores_the_frankfurt_link_for_a_pre_move_draft(env, monkeypatch):
+    """Probe P8: the draft's Ireland link used to move as is onto a typed
+    expense written after the move — never re-linked there, counted as
+    'after the cutover', so the delete flag said safe while a real photo
+    stayed on Ireland. It is now stored as the Frankfurt link to the same
+    file; nothing on Ireland is left behind and the audit row says so."""
+    db, _ = env
+    u = _owner(db)
+    k = _key(u.id, "expense", "7")
+    draft, typed = _draft_and_typed(db, u, _irl(k))
+    draft_id, typed_id = draft.id, typed.id
+    b = FakeBackend({k: b"x"})
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    app.dependency_overrides[get_current_user] = lambda: u
+    c = TestClient(app)
+    r = c.post(f"/api/expenses/{typed_id}/link-bilag", json={"draft_id": str(draft_id)})
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    stored = db.get(Expense, typed_id).receipt_photo
+    assert stored.startswith(f"{FRA_HOST}/storage/v1/object/sign/receipts/{k}?token=")
+    assert not sl.is_retired_link(stored)
+    assert b.sign_calls == [(k, ONE_YEAR, sl.SIGN_TIMEOUT_SECONDS)]
+    assert db.get(Expense, draft_id) is None                       # the draft went, as before
+    (audit,) = _bilag_audits(db, u)
+    after = json.loads(audit.after_state)
+    assert after["receipt_photo"] == stored and after["receipt_relinked"] is True
+    # a later deploy (cold cache): the row hands out what it stores, and the
+    # delete check finds nothing on Ireland
+    sl.reset_for_tests()
+    listed = {x["description"]: x["receipt_photo"] for x in c.get("/api/expenses").json()}
+    assert listed["typed"] == stored
+    from app.services.admin_security import require_super_admin
+    app.dependency_overrides[require_super_admin] = lambda: u
+    body = TestClient(app).get("/api/admin/storage-links").json()
+    assert body["totals"]["retired_host"] == 0 and body["totals"]["retired_after_cutover"] == 0
+
+
+def test_link_bilag_reuses_the_link_the_queue_was_handed(env, monkeypatch):
+    """The Godkend-kø list already re-linked the draft's photo: the write
+    takes the cached link — no second signing call."""
+    db, _ = env
+    u = _owner(db)
+    k = _key(u.id, "expense", "8")
+    draft, typed = _draft_and_typed(db, u, _irl(k))
+    draft_id, typed_id = draft.id, typed.id
+    b = FakeBackend({k: b"x"})
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    app.dependency_overrides[get_current_user] = lambda: u
+    c = TestClient(app)
+    handed = c.get("/api/expenses/pending").json()[0]["receipt_photo"]
+    assert handed.startswith(FRA_HOST)
+    r = c.post(f"/api/expenses/{typed_id}/link-bilag", json={"draft_id": str(draft_id)})
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    assert db.get(Expense, typed_id).receipt_photo == handed and len(b.sign_calls) == 1
+
+
+@pytest.mark.parametrize("mode", ["none", "raise", "budget", "retired_host"])
+def test_link_bilag_writes_nothing_when_the_draft_photo_cannot_be_relinked(env, monkeypatch, mode):
+    """Signing fails, times out, the budget is spent, or it answers with an
+    Ireland link: 503 with a DA/EN message, and nothing is written — the
+    draft stays in the queue, the typed expense has no bilag, no audit row."""
+    db, statements = env
+    u = _owner(db)
+    k = _key(u.id, "expense", "9")
+    draft, typed = _draft_and_typed(db, u, _irl(k))
+    if mode == "budget":
+        monkeypatch.setattr(sl, "SIGN_BUDGET_PER_OWNER_PER_MIN", 0)
+        b = FakeBackend({k: b"x"})
+    elif mode == "retired_host":
+        b = FakeBackend({k: b"x"}, host=IRL_HOST)
+    else:
+        b = FakeBackend({k: b"x"}, sign=mode)
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    app.dependency_overrides[get_current_user] = lambda: u
+    statements.clear()
+    r = TestClient(app).post(f"/api/expenses/{typed.id}/link-bilag", json={"draft_id": str(draft.id)})
+    assert r.status_code == 503, r.text
+    d = r.json()["detail"]
+    assert d["code"] == "bilag_relink_unavailable" and d["message"] and d["message_da"]
+    assert _writes_to(statements, "expenses") == []
+    db.expire_all()
+    assert db.get(Expense, typed.id).receipt_photo is None
+    still = db.get(Expense, draft.id)
+    assert still is not None and still.status == "pending" and still.receipt_photo == _irl(k)
+    assert _bilag_audits(db, u) == []
+
+
+def test_link_bilag_refuses_a_typed_ireland_link(env, monkeypatch):
+    """Probe P1: a tenant could put a chosen own-key Ireland link on a
+    PRE-move expense through link-bilag's receipt_photo body (it passes
+    is_own_upload) — then every read signed it. Refused before the owner
+    check; nothing stored, no signing call."""
+    db, _ = env
+    b = FakeBackend(sign="none")
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    u = _owner(db)
+    target = Expense(user_id=u.id, category_id=_cat(db, u).id, date=date(2026, 7, 1), amount=1,
+                     description="old", payment_method="card", created_at=OLD)
+    db.add(target); db.commit()
+    typed = _irl(f"{u.id}/expense/{'e' * 64}.jpg")
+    app.dependency_overrides[get_current_user] = lambda: u
+    r = TestClient(app).post(f"/api/expenses/{target.id}/link-bilag", json={"receipt_photo": typed})
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"]["code"] == "retired_receipt_link" and r.json()["detail"]["message_da"]
+    db.expire_all()
+    assert db.get(Expense, target.id).receipt_photo is None
+    assert b.sign_calls == [] and _bilag_audits(db, u) == []
+    # a real upload's link (Frankfurt) still links
+    ok = f"{FRA_HOST}/storage/v1/object/sign/receipts/{u.id}/expense/{'d' * 64}.jpg?token=t"
+    r = TestClient(app).post(f"/api/expenses/{target.id}/link-bilag", json={"receipt_photo": ok})
+    assert r.status_code == 200, r.text
+
+
+def test_create_paths_refuse_a_typed_ireland_link(env, backend):
+    db, _ = env
+    u = _owner(db)
+    irl = _irl(_key(u.id, n="f"))
+    app.dependency_overrides[get_current_user] = lambda: u
+    c = TestClient(app)
+    exp = {"date": "2026-10-22", "amount": 5, "description": "typed", "payment_method": "card"}
+    for path in ("/api/expenses", "/api/expenses/from-receipt"):
+        r = c.post(path, json={**exp, "receipt_photo": irl})
+        assert r.status_code == 422, (path, r.text)
+    r = c.post("/api/sales/from-receipt", params={"amount": 10, "receipt_path": irl})
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"]["code"] == "retired_receipt_link"
+    assert db.query(Expense).filter(Expense.user_id == u.id).count() == 0
+    assert db.query(Sale).filter(Sale.user_id == u.id).count() == 0
+    # Frankfurt links and other hosts are stored as before
+    fra = f"{FRA_HOST}/storage/v1/object/sign/receipts/{_key(u.id, n='g')}?token=t"
+    assert c.post("/api/expenses", json={**exp, "receipt_photo": fra}).status_code == 201
+    r = c.post("/api/sales/from-receipt", params={"amount": 10, "receipt_path": fra})
+    assert r.status_code == 201, r.text
+    assert backend.sign_calls == []
+
+
+def test_daily_close_refuses_a_new_ireland_link_but_keeps_the_echo(env, monkeypatch):
+    """Probe P1b: unlock a pre-move close and re-save it with a typed Ireland
+    link — it used to be stored (and signed on every read). A new close with
+    one, and a re-save naming ANOTHER Ireland file, are refused (422, nothing
+    saved). The page sending back the stored string itself still saves."""
+    db, _ = env
+    b = FakeBackend(sign="none")
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    u = _owner(db)
+    c = TestClient(app)
+    # a new close
+    r = c.post("/api/daily-close", json=_close_payload(_irl(_key(u.id, "kasserapport", "e"))),
+               headers=_hdr(u))
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"]["code"] == "retired_receipt_link" and r.json()["detail"]["message_da"]
+    assert db.query(DailyClose).filter(DailyClose.user_id == u.id).count() == 0
+    # a pre-move close, locked, unlocked, re-saved with a typed link
+    dc = DailyClose(user_id=u.id, date=date(2026, 5, 23), revenue_total=100, payment_total=100,
+                    status="confirmed", created_at=OLD)
+    db.add(dc); db.commit()
+    r = c.post(f"/api/daily-close/{dc.id}/unlock", json={"reason": "typo"}, headers=_hdr(u))
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    base = db.get(DailyClose, dc.id).updated_at
+    typed = _irl(_key(u.id, "kasserapport", "f"))
+    r = c.post("/api/daily-close", json=_close_payload(typed, base=base.isoformat()), headers=_hdr(u))
+    assert r.status_code == 422, r.text
+    db.expire_all()
+    row = db.get(DailyClose, dc.id)
+    assert row.receipt_photo is None and row.status == "draft" and row.updated_at == base
+    # a legacy draft's own Ireland link sent back as is (the read could not
+    # re-link it): saved, the stored string kept
+    legacy = _irl(_key(u.id, "kasserapport", "g"))
+    row.receipt_photo = legacy
+    db.commit()
+    db.expire_all()
+    base = db.get(DailyClose, dc.id).updated_at
+    r = c.post("/api/daily-close", json=_close_payload(legacy, base=base.isoformat()), headers=_hdr(u))
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    assert db.get(DailyClose, dc.id).receipt_photo == legacy
+    # …but not another Ireland file in its place
+    base = db.get(DailyClose, dc.id).updated_at
+    r = c.post("/api/daily-close", json=_close_payload(typed, base=base.isoformat()), headers=_hdr(u))
+    assert r.status_code == 422, r.text
+    db.expire_all()
+    assert db.get(DailyClose, dc.id).receipt_photo == legacy
+    assert b.sign_calls == []
+
+
+def test_one_owner_cannot_spend_the_signing_budget_of_another(env, monkeypatch):
+    """Probe P2: one tenant's 40 pre-move rows on made-up keys spent the
+    whole process-wide minute, and another owner's real legacy photo was
+    handed out as its Ireland link. A tenant now gets at most
+    SIGN_BUDGET_PER_OWNER_PER_MIN signings a minute; the other owner's photo
+    is re-linked in the same minute."""
+    db, _ = env
+    clock = [10_000.0]
+    monkeypatch.setattr(sl, "_now", lambda: clock[0])
+    victim = _owner(db)
+    vk = _key(victim.id, "expense", n="9")
+    db.add(Expense(user_id=victim.id, category_id=_cat(db, victim).id, date=date(2026, 5, 7), amount=50,
+                   description="legacy", payment_method="card", receipt_photo=_irl(vk), created_at=OLD))
+    db.commit()
+
+    class Mixed(FakeBackend):
+        def signed_url(self, key, ttl_seconds=3600, timeout=None):
+            self.sign_calls.append((key, ttl_seconds, timeout))
+            if key in self.objects:
+                return f"{FRA_HOST}/storage/v1/object/sign/receipts/{key}?token=t{len(self.sign_calls)}"
+            return None                                    # a made-up file
+    b = Mixed({vk: b"x"})
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    attacker = _owner(db)
+    _bulk_expenses(db, attacker, [_irl(f"{attacker.id}/expense/{format(i, '064x')}.jpg") for i in range(40)], OLD)
+    c = TestClient(app)
+    app.dependency_overrides[get_current_user] = lambda: attacker
+    for _ in range(3):
+        assert c.get("/api/expenses").status_code == 200
+    assert len(b.sign_calls) == sl.SIGN_BUDGET_PER_OWNER_PER_MIN == 10
+    assert sl.relink_stats()["sign_budget_owner"] >= 30
+    app.dependency_overrides[get_current_user] = lambda: victim
+    got = {x["description"]: x["receipt_photo"] for x in c.get("/api/expenses").json()}["legacy"]
+    assert got.startswith(f"{FRA_HOST}/storage/v1/object/sign/receipts/{vk}")
+    assert len(b.sign_calls) == 11
+
+
+def test_owner_budget_map_is_bounded(backend, monkeypatch):
+    monkeypatch.setattr(sl, "OWNER_BUDGETS_MAX", 3)
+    for _ in range(6):
+        o = str(uuid.uuid4())
+        assert _ref(_irl(_key(o)), o).startswith(FRA_HOST)
+    assert len(sl._owner_buckets) == 3
+
+
+def test_foreign_hosts_cannot_silence_a_later_warning(backend, caplog):
+    """Probe P7: 100 typed foreign hosts filled the one log-once set, and a
+    real sign_failed afterwards was counted but never logged. Host marks are
+    capped on their own; a reason-only mark always logs once."""
+    caplog.set_level(logging.WARNING)
+    for i in range(150):
+        _ref(f"https://h{i}.example.org/x.jpg", OWNER, source="expenses")
+    assert caplog.text.count("reason=foreign_host") == sl._MAX_NOTED_HOSTS     # still capped
+    caplog.clear()
+    backend.sign_mode = "none"
+    _ref(_irl(_key(OWNER)), OWNER, source="expenses")
+    _ref(_irl(_key(OWNER, n="b")), OWNER, source="expenses")
+    assert caplog.text.count("reason=sign_failed source=expenses") == 1
+    assert sl.relink_stats()["sign_failed"] == 2
+
+
+def test_real_backend_get_logs_no_key_or_body(monkeypatch, caplog):
+    """Probe P6: a missing Z-bon file (400 'Object not found', its body echoes
+    the path) and a transport error naming the URL — the WARNING lines from
+    SupabaseStorageBackend.get carry neither the owner id nor the file name."""
+    from app.routers.daily_close import _fetch_scan_bytes_best_effort
+    caplog.set_level(logging.WARNING)
+    k = _key(OWNER, "kasserapport", "d")
+    b = storage_mod.SupabaseStorageBackend(FRA_HOST, "service-key", "receipts")
+    b._client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(
+        400, json={"statusCode": "404", "error": "not_found",
+                   "message": f"Object not found: {r.url.path}"})))
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    assert _fetch_scan_bytes_best_effort(_irl(k), OWNER) == (None, None)
+    assert "Supabase storage GET -> 400" in caplog.text
+
+    def boom(request):
+        raise httpx.ConnectError(f"cannot reach {request.url}")
+    b._client = httpx.Client(transport=httpx.MockTransport(boom))
+    assert b.get(k) is None
+    assert "Supabase storage GET failed: ConnectError" in caplog.text
+    for needle in (OWNER, "d" * 64, "/receipts/", "Object not found", "cannot reach"):
+        assert needle not in caplog.text
+
+
+def test_zbon_read_is_bounded_to_eight_seconds(monkeypatch):
+    """The Z-bon attachment is read inside the close-confirm request, which
+    holds a DB connection (15 per instance): the read waits 8 s at most, not
+    the client's 30 s upload default."""
+    from app.routers.daily_close import ZBON_READ_TIMEOUT_SECONDS, _fetch_scan_bytes_best_effort
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        assert request.url.host == f"{FRA}.supabase.co"
+        return httpx.Response(200, content=b"\xff\xd8 z-bon")
+    b = storage_mod.SupabaseStorageBackend(FRA_HOST, "service-key", "receipts")
+    own = b._client.timeout                               # the backend's own: 30 s read, 10 s connect
+    b._client = httpx.Client(transport=httpx.MockTransport(handler), timeout=own)
+    monkeypatch.setattr(storage_mod, "get_storage", lambda: b)
+    k = _key(OWNER, "kasserapport")
+    assert _fetch_scan_bytes_best_effort(_irl(k), OWNER) == (b"\xff\xd8 z-bon", "z_report.jpg")
+    assert ZBON_READ_TIMEOUT_SECONDS == 8.0
+    assert len(seen) == 1 and seen[0].url.path == f"/storage/v1/object/receipts/{k}"
+    assert {seen[0].extensions["timeout"][x] for x in ("connect", "read", "write", "pool")} == {8.0}
+    # other reads keep the backend's own timeout
+    seen.clear()
+    assert b.get(k) == b"\xff\xd8 z-bon"
+    assert seen[0].extensions["timeout"]["read"] == 30.0
+
+
+@pytest.fixture(params=["Etc/GMT+12", "Etc/GMT-14"])
+def local_tz_far_from_utc(request):
+    """The process's local zone forced to UTC-12 / UTC+14 for one test (and
+    put back after it), so a naive created_at read as LOCAL time — instead
+    of UTC — fails in CI's TZ=UTC run too, in both directions."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is POSIX-only")
+    old = os.environ.get("TZ")
+    os.environ["TZ"] = request.param
+    time.tzset()
+    try:
+        assert time.timezone != 0, "the forced zone did not take"
+        yield request.param
+    finally:
+        if old is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = old
+        time.tzset()
+
+
+def test_naive_created_at_is_utc_whatever_the_local_zone(backend, local_tz_far_from_utc):
+    just_before = datetime(2026, 10, 19, 23, 59, 59)        # naive UTC, the last pre-move second
+    at_cutover = datetime(2026, 10, 20, 0, 0)
+    k = _key(OWNER)
+    assert sl.client_receipt_ref(_irl(k), OWNER, created_at=just_before).startswith(FRA_HOST)
+    assert sl.client_receipt_ref(_irl(_key(OWNER, n="b")), OWNER, created_at=at_cutover) == \
+        _irl(_key(OWNER, n="b"))
+    assert [c[0] for c in backend.sign_calls] == [k]
+    assert sl.retired_link_key(_irl(k), OWNER, created_at=just_before) == (k, "ok")
+    assert sl.retired_link_key(_irl(k), OWNER, created_at=at_cutover) == (None, "refused_after_cutover")

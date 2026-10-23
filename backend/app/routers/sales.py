@@ -1063,6 +1063,15 @@ def create_sale_from_receipt(
     user: User = Depends(get_current_user),
 ):
     """Create a sale from a confirmed receipt upload."""
+    from app.services.storage_links import is_retired_link
+    if is_retired_link(receipt_path):
+        # No upload hands out a link on the retired storage project since the
+        # Frankfurt move: only a typed one can arrive (receipt fix round 2).
+        raise HTTPException(status_code=422, detail={
+            "code": "retired_receipt_link",
+            "message": "That receipt link points at the old server. Upload the picture again.",
+            "message_da": "Bilagslinket peger på den gamle server. Upload billedet igen.",
+        })
     sale = Sale(
         user_id=user.id,
         date=date.today(),

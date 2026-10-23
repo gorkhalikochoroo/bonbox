@@ -34,7 +34,7 @@ Public surface:
   get_storage() -> StorageBackend                  # singleton
   compose_key(user_id, kind, sha, ext) -> str      # path builder
   StorageBackend.put(key, data, content_type) -> str
-  StorageBackend.get(key) -> bytes | None
+  StorageBackend.get(key, timeout=None) -> bytes | None
   StorageBackend.delete(key) -> bool
   StorageBackend.is_durable -> bool                # Supabase=True, Local/Unavailable=False
 """
@@ -109,8 +109,10 @@ class StorageBackend(ABC):
         we'll save to the DB row."""
 
     @abstractmethod
-    def get(self, key: str) -> bytes | None:
-        """Read bytes at `key`. Returns None if not found."""
+    def get(self, key: str, timeout: float | None = None) -> bytes | None:
+        """Read bytes at `key`. Returns None if not found. `timeout` (seconds)
+        bounds this one read; None keeps the backend's own. A read made while
+        a request holds a DB connection (the Z-bon attachment) passes one."""
 
     @abstractmethod
     def delete(self, key: str) -> bool:
@@ -192,17 +194,21 @@ class SupabaseStorageBackend(StorageBackend):
             )
         return key
 
-    def get(self, key: str) -> bytes | None:
+    def get(self, key: str, timeout: float | None = None) -> bytes | None:
         url = f"{self.base}/object/{self.bucket}/{key}"
+        extra = {} if timeout is None else {"timeout": httpx.Timeout(float(timeout))}
         try:
-            resp = self._client.get(url, headers=self._headers)
+            resp = self._client.get(url, headers=self._headers, **extra)
         except httpx.HTTPError as e:
-            logger.warning("Supabase storage GET failed for %s: %s", key, e)
+            # Never the key (owner id + file name) or the error text (it can
+            # carry the URL): the exception class only.
+            logger.warning("Supabase storage GET failed: %s", type(e).__name__)
             return None
         if resp.status_code == 404:
             return None
         if resp.status_code >= 400:
-            logger.warning("Supabase storage GET %s -> %s", key, resp.status_code)
+            # The status only — no key, no Supabase error body.
+            logger.warning("Supabase storage GET -> %s", resp.status_code)
             return None
         return resp.content
 
@@ -345,7 +351,7 @@ class LocalStorageBackend(StorageBackend):
         p.write_bytes(data)
         return key
 
-    def get(self, key: str) -> bytes | None:
+    def get(self, key: str, timeout: float | None = None) -> bytes | None:
         try:
             p = self._resolve(key)
         except StorageError:
@@ -406,7 +412,7 @@ class UnavailableStorageBackend(StorageBackend):
     def put(self, key: str, data: bytes, content_type: str = "image/jpeg") -> str:
         raise StorageError("durable storage not configured")
 
-    def get(self, key: str) -> bytes | None:
+    def get(self, key: str, timeout: float | None = None) -> bytes | None:
         raise StorageError("durable storage not configured")
 
     def delete(self, key: str) -> bool:

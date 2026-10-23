@@ -35,9 +35,10 @@ another owner's key in an Ireland-shaped URL and be handed a working link to
 their photo. The owner compared is the ROW's, never the caller's.
 
 What it never does:
-  • write — the result is never assigned to an ORM attribute (an autoflush
-    would store it). Stored values, _content_signature / doc_sig, audit rows
-    and the revisor package all keep reading the raw column.
+  • write — a read path never assigns the result to an ORM attribute (an
+    autoflush would store it); only link-bilag stores one, deliberately.
+    Stored values, _content_signature / doc_sig, audit rows and the revisor
+    package all keep reading the raw column.
   • fetch from the retired host — it only signs in the current project.
   • log a path, key or token — hosts, sources and reason codes only.
 
@@ -55,8 +56,20 @@ in-process LRU keeps one URL per object for 30 days (the URL itself is valid
 for a year), so a list endpoint asks Supabase once per object per process;
 after a failure the object is not asked again for 5 minutes. Behind all of
 that, a process-wide budget (SIGN_BUDGET_PER_MIN) caps signing attempts that
-miss the cache; when it is spent the stored value is handed out and the next
-read tries again.
+miss the cache, and inside it each row owner has a smaller one
+(SIGN_BUDGET_PER_OWNER_PER_MIN), so one tenant cannot spend it for everyone;
+when either is spent the stored value is handed out and the next read tries
+again.
+
+No write path accepts a NEW retired-host link (fix round 2, 23 Oct):
+ExpenseCreate, link-bilag, /sales/from-receipt and the daily-close save
+refuse one with 422 (`is_retired_link`); the daily-close save lets through
+only the page's own echo of what the close already stores. Moving a draft's
+bilag onto another expense (link-bilag) re-links it at write time — the
+moved photo is stored as the Frankfurt link, never as an Ireland link on a
+newer row (that write path is the one place a result of client_receipt_ref
+is stored, on purpose).
+
 `relink_stats()` counts what happened since boot. It is informational: the
 precondition for deleting the retired project is
 `safe_to_delete_retired_project` in /api/admin/storage-links, which signs
@@ -102,6 +115,11 @@ SIGN_TIMEOUT_SECONDS = 3.0
 # (then cached for 30 days); this is the backstop if anything else ever
 # reaches the signer.
 SIGN_BUDGET_PER_MIN = 30
+# Inside that, per row owner (also a token bucket): one tenant's rows can use
+# a third of the minute at most, so another owner's legacy photo still gets
+# its link. The owner map is bounded (least recently used out).
+SIGN_BUDGET_PER_OWNER_PER_MIN = 10
+OWNER_BUDGETS_MAX = 1024
 # The signing check /api/admin/storage-links makes per legacy object: proves
 # the current project can mint a link for it. Minting writes nothing.
 REPORT_SIGN_TTL_SECONDS = 60
@@ -111,6 +129,10 @@ CACHE_FRESH_SECONDS = 30 * 24 * 60 * 60
 # a slow or failing Supabase then costs one short timeout per object per
 # 5 minutes, not one per object per read.
 SIGN_FAIL_BACKOFF_SECONDS = 5 * 60
+# Log-once marks that carry a HOST (foreign URLs: a tenant can type any
+# host) are capped; marks of a reason alone are a closed set (reason x
+# source, both from code) and always log once, so a tenant filling the host
+# marks can never silence a later sign_failed.
 _MAX_NOTED_HOSTS = 100
 
 _OBJECT_PREFIX = "/storage/v1/object/"
@@ -121,7 +143,9 @@ _cache: "OrderedDict[str, tuple[str, float]]" = OrderedDict()
 _stats: Counter = Counter()
 _failed: "OrderedDict[str, float]" = OrderedDict()
 _noted: set[tuple[str, str]] = set()
+_noted_hosts: set[tuple[str, str, str]] = set()
 _bucket: dict = {"tokens": float(SIGN_BUDGET_PER_MIN), "at": None}
+_owner_buckets: "OrderedDict[str, tuple[float, float]]" = OrderedDict()
 
 
 def _now() -> float:
@@ -160,20 +184,38 @@ def configured_project_is_retired() -> bool:
 
 
 def _note(reason: str, source: str, host: str | None = None) -> None:
-    """Count, and log ONCE per (reason, source) per process. Never a path,
-    key or token: the host (for a foreign URL), the source and the reason."""
+    """Count, and log ONCE per (reason, source[, host]) per process. Never a
+    path, key or token: the host (for a foreign URL), the source and the
+    reason. Host marks are capped at _MAX_NOTED_HOSTS; reason-only marks are
+    not (a closed set), so they always log once."""
     with _lock:
         _stats[reason] += 1
-        mark = (reason, f"{source}|{host or ''}")
-        if mark in _noted or len(_noted) >= _MAX_NOTED_HOSTS:
-            return
-        _noted.add(mark)
+        if host:
+            mark = (reason, source or "", host[:100])
+            if mark in _noted_hosts or len(_noted_hosts) >= _MAX_NOTED_HOSTS:
+                return
+            _noted_hosts.add(mark)
+        else:
+            mark2 = (reason, source or "")
+            if mark2 in _noted:
+                return
+            _noted.add(mark2)
     if host:
         logger.warning("receipt link left as stored: reason=%s source=%s host=%s",
                        reason, source or "-", host[:100])
     else:
         logger.warning("receipt link left as stored: reason=%s source=%s",
                        reason, source or "-")
+
+
+def is_retired_link(value) -> bool:
+    """True when `value` is a link on a retired storage host. Every write
+    path refuses a NEW one (fix round 2): since the move only a client can
+    send one, and on a pre-cutover row it would be signed on every read.
+    Any scheme, any case; a lookalike host is not a retired host."""
+    if not value or not isinstance(value, str):
+        return False
+    return _host(value.strip()) in RETIRED_STORAGE_HOSTS
 
 
 def _bucket_of(url: str) -> str | None:
@@ -273,22 +315,37 @@ def _remember(key: str, url: str) -> None:
         _failed.pop(key, None)
 
 
-def _take_sign_token() -> bool:
-    """One signing attempt from the process-wide budget, or False when it is
-    spent. A token bucket of SIGN_BUDGET_PER_MIN, refilled continuously."""
+def _refill(tokens: float, at, now: float, cap: float) -> float:
+    if at is not None and now > at:
+        return min(cap, tokens + (now - at) * cap / 60.0)
+    return tokens
+
+
+def _take_sign_token(owner_id=None) -> str | None:
+    """One signing attempt from the process-wide budget AND the row owner's,
+    or the reason it was refused ("sign_budget" / "sign_budget_owner").
+    Token buckets of SIGN_BUDGET_PER_MIN and SIGN_BUDGET_PER_OWNER_PER_MIN,
+    refilled continuously; both are taken together or neither is."""
     now = _now()
     cap = float(SIGN_BUDGET_PER_MIN)
+    owner_cap = float(SIGN_BUDGET_PER_OWNER_PER_MIN)
+    owner = str(owner_id) if owner_id is not None else ""
     with _lock:
-        at = _bucket["at"]
-        tokens = _bucket["tokens"]
-        if at is not None and now > at:
-            tokens = min(cap, tokens + (now - at) * cap / 60.0)
-        _bucket["at"] = now
+        tokens = _refill(_bucket["tokens"], _bucket["at"], now, cap)
+        _bucket["tokens"], _bucket["at"] = tokens, now
+        o_tokens, o_at = _owner_buckets.get(owner, (owner_cap, None))
+        o_tokens = _refill(o_tokens, o_at, now, owner_cap)
+        _owner_buckets[owner] = (o_tokens, now)
+        _owner_buckets.move_to_end(owner)
+        while len(_owner_buckets) > OWNER_BUDGETS_MAX:
+            _owner_buckets.popitem(last=False)
         if tokens < 1.0:
-            _bucket["tokens"] = tokens
-            return False
+            return "sign_budget"
+        if o_tokens < 1.0:
+            return "sign_budget_owner"
         _bucket["tokens"] = tokens - 1.0
-        return True
+        _owner_buckets[owner] = (o_tokens - 1.0, now)
+        return None
 
 
 def client_receipt_ref(stored: str | None, owner_id, *, created_at=None,
@@ -328,8 +385,9 @@ def client_receipt_ref(stored: str | None, owner_id, *, created_at=None,
     if _recently_failed(key):
         _note("sign_backoff", source)
         return stored
-    if not _take_sign_token():
-        _note("sign_budget", source)
+    refused = _take_sign_token(owner_id)
+    if refused:
+        _note(refused, source)
         return stored
     try:
         signed = backend.signed_url(key, ttl_seconds=RECEIPT_URL_TTL_SECONDS,
@@ -391,6 +449,8 @@ def reset_for_tests() -> None:
         _failed.clear()
         _stats.clear()
         _noted.clear()
+        _noted_hosts.clear()
+        _owner_buckets.clear()
         _bucket["tokens"] = float(SIGN_BUDGET_PER_MIN)
         _bucket["at"] = None
 
