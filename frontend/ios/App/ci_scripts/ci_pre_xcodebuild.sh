@@ -98,7 +98,11 @@ NEW_BUILD=$((LAST_MANUAL + CI_BUILD_NUMBER))
 # main is now owner 2.4 with the UIScene fix (2.3 is in App Review, hand
 # archived as 1054); hand archives of 2.4 start at 1056, so CI lands at or
 # above 1057.
-MIN_BUILD=1057
+#
+# 1071 (24 Oct 2026): owner 2.4 was submitted from Xcode Cloud build 1069.
+# main is now owner 2.5; hand archives of 2.5 start at 1070 (pbxproj), so CI
+# lands at or above 1071.
+MIN_BUILD=1071
 if [ "$NEW_BUILD" -lt "$MIN_BUILD" ]; then
     echo "   (NEW_BUILD $NEW_BUILD below floor — clamping up to $MIN_BUILD)"
     NEW_BUILD=$MIN_BUILD
