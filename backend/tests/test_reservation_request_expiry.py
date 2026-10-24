@@ -145,11 +145,11 @@ def _owner(db) -> User:
 
 
 def _req(db, owner, *, hours_out, status="requested", email="sita@example.com",
-         asked_hours_ago=48):
-    """A request `hours_out` from now, asked `asked_hours_ago` (default two
-    days: an UNANSWERED request — fix round 2 gives every request its own
-    deadline, and one asked a minute ago is not overdue)."""
-    start = datetime.now() + timedelta(hours=hours_out)
+         asked_hours_ago=48, now=None):
+    """A request `hours_out` from now (or from `now`), asked `asked_hours_ago`
+    (default two days: an UNANSWERED request — fix round 2 gives every
+    request its own deadline, and one asked a minute ago is not overdue)."""
+    start = (now or datetime.now()) + timedelta(hours=hours_out)
     r = Reservation(user_id=owner.id, starts_at=start,
                     ends_at=start + timedelta(minutes=120),
                     party_size=12, guest_name="Sita", guest_email=email,
@@ -161,9 +161,16 @@ def _req(db, owner, *, hours_out, status="requested", email="sita@example.com",
 
 def test_an_unanswered_request_is_closed_before_the_sitting(db):
     u = _owner(db)
-    r = _req(db, u, hours_out=EXPIRE_BEFORE_START_HOURS - 1)
+    # A DAYTIME run (today, 14:00 venue time): since the R1a fix round no
+    # request is declined in the night — one for a 10:00 sitting waits for
+    # the 08:00 run (tests/test_r1a_fix_round.py) — so the real hour must not
+    # decide this test.
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("Europe/Copenhagen")).replace(
+        tzinfo=None, hour=14, minute=0, second=0, microsecond=0)
+    r = _req(db, u, hours_out=EXPIRE_BEFORE_START_HOURS - 1, now=now)
 
-    out = expire_stale_requests(db)
+    out = expire_stale_requests(db, now_local=now)
     db.refresh(r)
     assert out["requests_expired"] == 1
     assert r.status == "cancelled"

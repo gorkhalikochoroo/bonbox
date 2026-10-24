@@ -20,7 +20,11 @@ What the review measured, and what each test pins:
     page is told "requested", never "confirmed".
   • P2 / atk-e: form_ms over a day was a 422 the guest could not get past.
   • P1: "[link]" made a name longer than its column (a Postgres 500).
+    R1a fix round: nothing a guest types is rewritten any more — it is
+    stored as typed (so it always fits), and defanged where it is SHOWN.
   • atk-e F_links: hosts with a sub-domain and most TLDs passed as text.
+    has_link / strip_links keep that reach (the owner's closure note);
+    the e-mails use defang_links (tests/test_r1a_fix_guest_text.py).
   • A held bot's address gets no "request received" mail; other held
     bookings share a small per-venue budget (atk-m: one venue's bots used the
     fleet's 40 guest mails a day).
@@ -148,7 +152,7 @@ def test_ten_bot_group_requests_do_not_lock_out_a_real_party(client, db, outbox,
     u, p, _ = restaurant(db)
     for i in range(10):
         r = book(client, p.reservation_slug, day=today_local() + timedelta(days=40 + i), time="19:00",
-                 party=10, name=f"Bot {i}", email=f"bot{i}@x.test", form_ms=None, ip=f"10.3.0.{i}")
+                 party=10, name=f"Bot {i}", email=f"bot{i}@x.test", form_ms=300, ip=f"10.3.0.{i}")
         assert r.json()["status"] == "requested"
     real = book(client, p.reservation_slug, day=today_local() + timedelta(days=7), time="19:00",
                 party=12, name="Firmafest Jensen", email="jensen@firma.test", form_ms=95000)
@@ -272,7 +276,10 @@ def test_a_trap_filled_at_bot_speed_is_dropped_as_requested(client, db, outbox):
 # ── P2: form_ms is clamped, never a 422 ────────────────────────────────
 @pytest.mark.parametrize("sent,status", [
     (86_400_001, "confirmed"), (10 ** 10, "confirmed"), ("7000", "confirmed"),
-    (-5, "requested"), ("abc", "requested"), (True, "requested"),
+    (-5, "requested"), (0, "requested"),
+    # Junk reads as "not said" — UNKNOWN, a real guest on an odd client,
+    # never a robot (R1a fix round): it books as on live.
+    ("abc", "confirmed"), (True, "confirmed"),
 ])
 def test_form_ms_is_clamped_not_refused(client, db, outbox, sent, status):
     u, p, _ = restaurant(db)
@@ -281,8 +288,8 @@ def test_form_ms_is_clamped_not_refused(client, db, outbox, sent, status):
     assert r.json()["status"] == status
 
 
-# ── P1: "[link]" never outgrows the column ─────────────────────────────
-def test_stripped_text_fits_its_column(client, db, outbox):
+# ── P1: link-like text is stored as typed, and fits its column ─────────
+def test_link_like_text_is_stored_as_typed_and_fits_its_column(client, db, outbox):
     from app.models.reservation import Reservation as R
     name = " ".join(["a.io"] * 32)[:160]
     occasion = " ".join(["a.io"] * 12)
@@ -290,7 +297,7 @@ def test_stripped_text_fits_its_column(client, db, outbox):
     r = book(client, p.reservation_slug, day=DAY, name=name, occasion=occasion)
     assert r.status_code == 200, r.text
     row = reservation(db, r.json()["id"])
-    assert "[link]" in row.guest_name and "[link]" in row.occasion
+    assert row.guest_name == name and row.occasion == occasion
     assert len(row.guest_name) <= R.__table__.c.guest_name.type.length
     assert len(row.occasion) <= R.__table__.c.occasion.type.length
 
@@ -328,14 +335,27 @@ def test_ordinary_text_is_left_alone(text):
     assert strip_links(text) == text
 
 
-def test_a_name_with_a_sub_domain_host_is_held_and_stripped(client, db, outbox):
+def test_a_name_with_a_bare_host_is_a_name_and_every_mail_shows_it_defanged(client, db, outbox):
+    """R1a fix round: only an EXPLICIT link (http://, https://, www.) in the
+    name is robot-like. A bare host is booked as on live, stored as typed —
+    and the guest's mail and the owner's mail show it defanged, never as a
+    host a mail client links."""
     u, p, _ = restaurant(db)
     r = book(client, p.reservation_slug, day=DAY, name="Mette secure.mobilepay-refund.dk/x",
              guest_notes="Refund at login.bonbox-refund.com/claim", email="mette@example.com")
-    assert r.json()["status"] == "requested"
+    assert r.json()["status"] == "confirmed"
     row = reservation(db, r.json()["id"])
-    assert _reason(db, row.id) == "link_in_name"
-    assert "refund" not in row.guest_name and "refund" not in (row.guest_notes or "")
+    assert _reason(db, row.id) is None
+    assert row.guest_name == "Mette secure.mobilepay-refund.dk/x"
+    assert row.guest_notes == "Refund at login.bonbox-refund.com/claim"
+    to = sorted(m["to"] for m in outbox)
+    assert to == sorted(["mette@example.com", u.email])
+    for m in outbox:
+        assert "mobilepay-refund.dk" not in m["html"] and "bonbox-refund.com" not in m["html"]
+    guest = next(m for m in outbox if m["to"] == "mette@example.com")
+    assert "secure[.]mobilepay-refund[.]dk/x" in guest["html"]
+    owner = next(m for m in outbox if m["to"] == u.email)
+    assert "login[.]bonbox-refund[.]com/claim" in owner["html"]
 
 
 def test_a_name_carrying_an_at_url_is_held_and_never_reaches_the_owner_as_a_link(client, db, outbox):
@@ -351,17 +371,18 @@ def test_a_name_carrying_an_at_url_is_held_and_never_reaches_the_owner_as_a_link
         assert r.json()["status"] == "requested", name
         row = reservation(db, r.json()["id"])
         assert _reason(db, row.id) == "link_in_name"
-        assert "http" not in row.guest_name and "[link]" in row.guest_name
-        assert row.guest_notes == "Se [link]"
+        # Stored exactly as typed (R1a fix round) — never rewritten.
+        assert row.guest_name == name
+        assert row.guest_notes == "Se https://evil.com/claim?ref=@x"
     assert outbox == []                  # bot-like holds: no mail to anyone
     # A real name with such a link in the NOTE: confirmed, and the owner's
-    # new-booking e-mail carries "[link]", never the URL.
+    # new-booking e-mail shows it defanged, never as the URL.
     r = book(client, p.reservation_slug, day=DAY + timedelta(days=5), name="Mette Hansen",
              guest_notes="Se https://evil.com/claim?ref=@x", email="mette.h@example.com",
              ip="10.30.1.1")
     assert r.json()["status"] == "confirmed"
     owner_mail = [m for m in outbox if m["to"] == u.email]
-    assert len(owner_mail) == 1 and "[link]" in owner_mail[0]["html"]
+    assert len(owner_mail) == 1 and "hxxps://evil[.]com/claim?ref=@x" in owner_mail[0]["html"]
     for m in outbox:
         assert "evil.com" not in (m["html"] or "") and "refund.com" not in (m["html"] or "")
 
@@ -393,7 +414,7 @@ def test_held_bookings_share_a_small_mail_budget(client, db, outbox, monkeypatch
     capped = [x for x in logs(db, u, channel="email") if x.error_message == "held_mail_capped"]
     assert len(capped) == 3
     # A fast fill (a bot's form) gets no mail at all, and the page is told so.
-    fast = book(client, p.reservation_slug, day=DAY + timedelta(days=30), form_ms=None,
+    fast = book(client, p.reservation_slug, day=DAY + timedelta(days=30), form_ms=300,
                 email="victim@example.com", ip="10.8.2.1")
     assert fast.json()["status"] == "requested" and fast.json()["guest_mail"] is False
     assert [m for m in outbox if m["to"] == "victim@example.com"] == []

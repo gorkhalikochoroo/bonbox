@@ -235,7 +235,7 @@ def test_declining_a_held_person_we_never_mailed_tells_them(client, db, outbox, 
 
 def test_a_bot_like_hold_is_never_mailed_and_never_a_notice(client, db, outbox):
     u, p, _ = restaurant(db, tables=6)
-    bot = book(client, p.reservation_slug, day=_friday(), time="19:00", form_ms=None,
+    bot = book(client, p.reservation_slug, day=_friday(), time="19:00", form_ms=300,
                email="victim@example.dk").json()
     assert bot["guest_mail"] is False
     as_owner(u)

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -116,18 +116,22 @@ def test_approving_a_held_combined_booking_after_a_boot_holds_both_tables(client
 def test_the_expiry_releases_occupancy(db):
     from app.jobs.reservation_request_expiry import expire_stale_requests
     u, p, tables = restaurant(db, tables=1)
-    now_cph = datetime.now(ZoneInfo("Europe/Copenhagen")).replace(tzinfo=None, microsecond=0)
+    # A pinned DAYTIME clock (today, 15:00): no request is declined in the
+    # night since the R1a fix round, so the real hour must not decide this.
+    now_cph = datetime.now(ZoneInfo("Europe/Copenhagen")).replace(
+        tzinfo=None, hour=15, minute=0, second=0, microsecond=0)
     start = now_cph + timedelta(hours=2)
+    asked = (now_cph - timedelta(hours=3)).replace(tzinfo=ZoneInfo("Europe/Copenhagen"))
     # Asked three hours ago and still unanswered: past its own deadline.
     r = Reservation(user_id=u.id, resource_id=tables[0].id, guest_name="Legacy",
                     party_size=2, starts_at=start, ends_at=start + timedelta(minutes=90),
                     duration_min=90, status="requested", source="public",
-                    created_at=datetime.utcnow() - timedelta(hours=3))
+                    created_at=asked.astimezone(timezone.utc).replace(tzinfo=None))
     db.add(r); db.commit(); db.refresh(r)
     db.add(ReservationOccupancy(id=uuid.uuid4(), reservation_id=r.id, resource_id=tables[0].id,
                                 user_id=u.id, starts_at=r.starts_at, ends_at=r.ends_at, active=True))
     db.commit()
-    out = expire_stale_requests(db)
+    out = expire_stale_requests(db, now_local=now_cph)
     assert out["requests_expired"] == 1
     assert reservation(db, r.id).status == "cancelled"
     assert active_occupancy(db, r.id) == []
@@ -135,7 +139,7 @@ def test_the_expiry_releases_occupancy(db):
 
 def test_an_owner_edit_of_a_held_booking_holds_nothing(client, db, outbox):
     u, p, tables = restaurant(db, tables=6)
-    rid = book(client, p.reservation_slug, day=DAY, time="18:00", form_ms=None).json()["id"]
+    rid = book(client, p.reservation_slug, day=DAY, time="18:00", form_ms=300).json()["id"]
     as_owner(u)
     e = client.patch(f"/api/reservations/reservations/{rid}",
                      json={"starts_at": f"{DAY.isoformat()}T18:30:00", "party_size": 3})
@@ -147,7 +151,7 @@ def test_an_owner_edit_of_a_held_booking_holds_nothing(client, db, outbox):
 
 def test_approval_gives_another_table_when_the_pick_was_taken(client, db, outbox):
     u, p, tables = restaurant(db, tables=2)
-    held = book(client, p.reservation_slug, day=DAY, time="19:00", form_ms=None,
+    held = book(client, p.reservation_slug, day=DAY, time="19:00", form_ms=300,
                 resource_id=str(tables[0].id)).json()["id"]
     assert _held_after(db, held)["resource_ids"] == [str(tables[0].id)]
     # Meanwhile a real guest takes that very table.
@@ -162,7 +166,7 @@ def test_approval_gives_another_table_when_the_pick_was_taken(client, db, outbox
 
 def test_approval_says_so_when_nothing_is_free(client, db, outbox):
     u, p, tables = restaurant(db, tables=1)
-    held = book(client, p.reservation_slug, day=DAY, time="19:00", form_ms=None).json()["id"]
+    held = book(client, p.reservation_slug, day=DAY, time="19:00", form_ms=300).json()["id"]
     book(client, p.reservation_slug, day=DAY, time="19:00", email="real@x.test")
     a = _approve(client, u, held)
     assert a.status_code == 409
@@ -203,7 +207,7 @@ def test_a_chosen_stylist_is_never_swapped_on_approval(client, db, outbox):
 
 def test_the_book_shows_why_and_what_a_held_booking_was_for(client, db, outbox):
     u, p, tables = restaurant(db, tables=6)
-    rid = book(client, p.reservation_slug, day=DAY, time="19:00", form_ms=None,
+    rid = book(client, p.reservation_slug, day=DAY, time="19:00", form_ms=300,
                resource_id=str(tables[2].id)).json()["id"]
     as_owner(u)
     rows = client.get("/api/reservations/book", params={"day": DAY.isoformat()}).json()["reservations"]
@@ -216,7 +220,7 @@ def test_the_book_shows_why_and_what_a_held_booking_was_for(client, db, outbox):
 
 def test_declining_a_held_booking_mails_only_a_guest_we_mailed(client, db, outbox, volume_on):
     u, p, tables = restaurant(db, tables=6)
-    bot = book(client, p.reservation_slug, day=DAY, time="18:00", form_ms=None,
+    bot = book(client, p.reservation_slug, day=DAY, time="18:00", form_ms=300,
                email="victim@example.com").json()["id"]
     assert [m for m in outbox if m["to"] == "victim@example.com"] == []
     as_owner(u)
@@ -247,7 +251,7 @@ def test_the_expiry_does_not_mail_a_held_bot_address(db, client, outbox):
         pytest.skip("needs a time the venue is open")
     u, p, tables = restaurant(db, tables=2)
     rid = book(client, p.reservation_slug, day=start.date(), time=start.strftime("%H:%M"),
-               form_ms=None, email="victim@example.com").json()["id"]
+               form_ms=300, email="victim@example.com").json()["id"]
     # Past its own deadline (asked 3 h ahead: an hour before the sitting).
     expire_stale_requests(db, now_local=now_cph + timedelta(hours=2, minutes=5))
     assert reservation(db, rid).status == "cancelled"
@@ -257,7 +261,7 @@ def test_the_expiry_does_not_mail_a_held_bot_address(db, client, outbox):
 def test_the_change_feed_marks_held_and_alarms_on_approval(client, db, outbox):
     u, p, tables = restaurant(db, tables=6)
     since = (datetime.utcnow() - timedelta(seconds=5)).isoformat()
-    rid = book(client, p.reservation_slug, day=DAY, time="19:00", form_ms=None,
+    rid = book(client, p.reservation_slug, day=DAY, time="19:00", form_ms=300,
                allergy_severity="severe", allergy_note="nødder").json()["id"]
     real = book(client, p.reservation_slug, day=DAY, time="12:00", email="real@x.test").json()["id"]
     as_owner(u)

@@ -43,6 +43,14 @@ CPH = ZoneInfo("Europe/Copenhagen")
 
 
 def _now_cph() -> datetime:
+    """A pinned DAYTIME clock — today, 14:00 venue time. Since the R1a fix
+    round no request is declined in the night (answer_deadline), so a sweep
+    run at the real "now" would depend on the hour the suite runs; every
+    sweep here gets this clock (tests/test_r1a_fix_round.py pins the night)."""
+    return datetime.now(CPH).replace(tzinfo=None, hour=14, minute=0, second=0, microsecond=0)
+
+
+def _real_now_cph() -> datetime:
     return datetime.now(CPH).replace(tzinfo=None, microsecond=0)
 
 
@@ -124,7 +132,7 @@ def test_the_real_clock_run_leaves_a_fresh_request_alone(db, outbox):
     """The hourly job as main.py runs it (no clock given): a request asked a
     minute ago for 3 h from now is not declined (it was, at 90c2b772)."""
     u, _p, _ = restaurant(db)
-    now = _now_cph()
+    now = _real_now_cph()
     r = _request(db, u, asked=now - timedelta(minutes=1), starts=now + timedelta(hours=3))
     assert expire_stale_requests(db)["requests_expired"] == 0
     assert reservation(db, r.id).status == "requested"
@@ -139,7 +147,7 @@ def test_a_held_person_we_never_mailed_is_told_when_it_expires(db, outbox):
                       party=2, email="rikke@example.dk", held_reason="venue_hour")
     bot = _request(db, u, asked=now - timedelta(days=2), starts=now + timedelta(hours=3),
                    party=2, email="victim@example.dk", held_reason="fast_fill")
-    out = expire_stale_requests(db)
+    out = expire_stale_requests(db, now_local=now)
     assert out["requests_expired"] == 2
     assert [m["to"] for m in outbox] == ["rikke@example.dk"]
     assert reservation(db, person.id).status == reservation(db, bot.id).status == "cancelled"
@@ -158,7 +166,7 @@ def test_the_held_expiry_mails_stay_within_the_venue_budget(db, outbox):
     for i in range(12):
         _request(db, u, asked=now - timedelta(days=2), starts=now + timedelta(hours=2),
                  party=2, email=f"g{i}@example.dk", held_reason="venue_hour")
-    out = expire_stale_requests(db)
+    out = expire_stale_requests(db, now_local=now)
     assert out["requests_expired"] == 12
     assert out["guests_notified"] == settings.BOOKING_HELD_DECLINE_MAILS_PER_DAY == 10 == len(outbox)
     # The hourly "request received" budget was not touched by the run.
@@ -180,7 +188,7 @@ def test_a_spent_request_received_budget_never_silences_the_expiry(db, outbox):
     for i in range(8):
         _request(db, u, asked=now - timedelta(days=1), starts=now + timedelta(hours=3),
                  party=2, email=f"s5-{i}@example.dk", held_reason="sitting_full")
-    out = expire_stale_requests(db)
+    out = expire_stale_requests(db, now_local=now)
     assert out == {"requests_expired": 8, "guests_notified": 8}
     assert sorted(m["to"] for m in outbox) == sorted(f"s5-{i}@example.dk" for i in range(8))
 

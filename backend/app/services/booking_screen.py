@@ -39,13 +39,26 @@ bumps an abuse signal. A broken guard must never turn away a real guest.
 Rules, the first match wins (n = the venue's active tables or chairs;
 [V] = a volume rule, only with BOOKING_VOLUME_CEILINGS on — see below):
   1. trap field filled       — form filled fast → drop; else hold (honeypot)
-  2. form filled in < MIN_FILL_MS, or no time sent → hold (fast_fill)
-  3. a link in the guest's name                    → hold (link_in_name)
+  2. a fill time SENT and under MIN_FILL_MS        → hold (fast_fill)
+     — no fill time at all is UNKNOWN, never a robot (R1a fix round): a
+       page loaded before the frontend deploy, or a deploy Vercel never
+       made, sends none, and those are real guests. It books as on live
+       and is counted for the abuse monitor (booking_no_fill_time).
+  3. an EXPLICIT link in the guest's name — "http://", "https://" or
+     "www.", any case, after NFKC                  → hold (link_in_name)
+     — a dotted name ("Anne.Marie.Jensen") is a name.
   4. a REAL group request (party ≥ max(threshold, GROUP_FLOOR)): [V] with
      max(GROUP_REQUESTS_PER_DAY, n) already open today → hold
      (requests_full); otherwise → confirm (it is a request on its own)
   5. the same contact has ≥ CONTACT_ACTIVE_MAX active future bookings here
                                                    → hold (contact_active)
+     — only bookings that count: a held booking still waiting for the
+       owner never counts (a robot's three fast posts with a regular's
+       e-mail held her real booking — R1a verify S2); confirmed ones do.
+     — a chair venue (a salon, a barber, a shop, a workshop) counts
+       DAYS, not appointments: a parent booking four children's haircuts
+       on one Saturday is one day; a 4th different day ahead is held. One
+       day takes at most CONTACT_SAME_DAY_MAX of one contact's bookings.
      — rules 5–9 are for bookings, and for the small "requests" of a venue
        that approves every booking itself (threshold 1) —
   6. [V] (bookings only) a capped plan: a quarter of the monthly cap already
@@ -84,13 +97,13 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 
 from app.config import settings as app_config
 from app.models.audit_log import AuditLog
 from app.models.reservation import Reservation
 from app.utils import abuse_signals
-from app.utils.text import has_link
+from app.utils.text import has_explicit_link
 
 logger = logging.getLogger(__name__)
 
@@ -134,11 +147,20 @@ def _count(q) -> int:
 
 
 def _fast(form_ms) -> bool:
-    """No fill time sent, or less than a person needs."""
+    """A fill time was SENT and it is less than a person needs.
+
+    No fill time (None) is "unknown", never fast: a guest page loaded before
+    the frontend deploy, an embed cached on the owner's site, or a frontend
+    Vercel never deployed sends none — and those are real guests (R1a verify
+    S3: every such booking was held silently and declined unmailed). The
+    request model already reads junk as None (_clamp_form_ms) and a negative
+    as 0."""
+    if form_ms is None:
+        return False
     try:
-        return form_ms is None or int(form_ms) < int(app_config.BOOKING_MIN_FILL_MS)
+        return int(form_ms) < int(app_config.BOOKING_MIN_FILL_MS)
     except (TypeError, ValueError):
-        return True
+        return False
 
 
 def real_group_size(settings: dict) -> int:
@@ -182,11 +204,26 @@ def _phone_digits(phone: str | None) -> str:
     return re.sub(r"\D", "", phone or "")
 
 
-def contact_active_count(db, owner_id, *, email: str | None, phone: str | None,
-                         now_local: datetime) -> int:
-    """Active future bookings at this venue for the same guest: the same
-    e-mail (case and spaces ignored), or the same last 8 digits of the phone
-    whatever the separators. 0 when neither is usable."""
+def _pending_hold(db):
+    """SQL: the booking is a HELD one still waiting for the owner — a request
+    with a held_public audit row. It counts for no guest: it holds nothing,
+    and a robot's held posts made with a regular's e-mail must not put her
+    real booking on hold (R1a verify S2). Once the owner approves it, it is
+    confirmed and counts like any booking."""
+    held = (
+        db.query(AuditLog.id)
+        .filter(AuditLog.entity_type == "reservation",
+                AuditLog.entity_id == Reservation.id,
+                AuditLog.action == HELD_ACTION)
+        .exists()
+    )
+    return and_(Reservation.status == "requested", held)
+
+
+def _contact_match(email: str | None, phone: str | None):
+    """The same guest: the same e-mail (case and spaces ignored), or the same
+    last 8 digits of the phone whatever the separators. None when neither is
+    usable."""
     conds = []
     e = (email or "").strip().lower()
     if e:
@@ -198,17 +235,77 @@ def contact_active_count(db, owner_id, *, email: str | None, phone: str | None,
             col = func.replace(col, ch, "")
         # digits are 0-9 only, so the pattern carries no wildcard of its own.
         conds.append(col.like(f"%{digits[-8:]}"))
-    if not conds:
+    return or_(*conds) if conds else None
+
+
+def _contact_rows(db, owner_id, match, now_local: datetime) -> tuple:
+    """The filter for a guest's bookings that COUNT: active, ahead, and not
+    a held booking still waiting for the owner."""
+    return (
+        Reservation.user_id == owner_id,
+        Reservation.is_deleted.is_(False),
+        Reservation.status.in_(_ACTIVE),
+        Reservation.starts_at >= now_local,
+        match,
+        ~_pending_hold(db),
+    )
+
+
+def contact_active_count(db, owner_id, *, email: str | None, phone: str | None,
+                         now_local: datetime) -> int:
+    """Active future bookings at this venue for the same guest (_contact_match)
+    — held bookings still waiting for the owner left out. 0 when neither
+    contact is usable."""
+    match = _contact_match(email, phone)
+    if match is None:
         return 0
     return _count(
-        db.query(func.count(Reservation.id)).filter(
-            Reservation.user_id == owner_id,
-            Reservation.is_deleted.is_(False),
-            Reservation.status.in_(_ACTIVE),
-            Reservation.starts_at >= now_local,
-            or_(*conds),
-        )
+        db.query(func.count(Reservation.id)).filter(*_contact_rows(db, owner_id, match, now_local))
     )
+
+
+def contact_active_days(db, owner_id, *, email: str | None, phone: str | None,
+                        now_local: datetime) -> dict:
+    """{"YYYY-MM-DD": n} — the same guest's counting future bookings
+    (contact_active_count's rows) per local date, for a chair venue's
+    same-guest rule. One GROUP BY; {} when neither contact is usable."""
+    match = _contact_match(email, phone)
+    if match is None:
+        return {}
+    day = func.date(Reservation.starts_at)
+    rows = (
+        db.query(day, func.count(Reservation.id))
+        .filter(*_contact_rows(db, owner_id, match, now_local))
+        .group_by(day)
+        .all()
+    )
+    return {str(d)[:10]: int(n or 0) for d, n in rows if d is not None}
+
+
+def contact_limit_reached(db, owner_id, *, email: str | None, phone: str | None,
+                          now_local: datetime, start: datetime | None,
+                          by_day: bool) -> bool:
+    """Rule 5: does this guest already hold enough future bookings here?
+
+    A table venue counts BOOKINGS: CONTACT_ACTIVE_MAX of them → the next is
+    held. A chair venue (`by_day`: a salon, a barber, a shop, a workshop)
+    counts DAYS: a parent booking four children's haircuts back to back on
+    one Saturday is one day (the R1a verify's barber simulation held 23 such
+    family bookings — live confirms them); a booking on a new day when
+    CONTACT_ACTIVE_MAX other days are already booked is held, and one day
+    takes at most CONTACT_SAME_DAY_MAX of the guest's bookings."""
+    cmax = int(app_config.BOOKING_CONTACT_ACTIVE_MAX)
+    if cmax <= 0:
+        return False
+    if not by_day or start is None:
+        return contact_active_count(db, owner_id, email=email, phone=phone,
+                                    now_local=now_local) >= cmax
+    per_day = contact_active_days(db, owner_id, email=email, phone=phone, now_local=now_local)
+    on_day = per_day.get(start.date().isoformat())
+    if on_day is None:
+        return len(per_day) >= cmax
+    same_max = int(app_config.BOOKING_CONTACT_SAME_DAY_MAX)
+    return same_max > 0 and on_day >= same_max
 
 
 def public_rows_since(db, owner_id, since_utc: datetime) -> int:
@@ -321,6 +418,16 @@ def monthly_cap(owner) -> int | None:
     return cap if cap > 0 else None
 
 
+def _speaks_appointments(owner) -> bool:
+    """A salon, a barber, a shop or a workshop — the venues whose book says
+    "aftaler" (reservation_emails.speaks_appointments). Never raises."""
+    try:
+        from app.services.reservation_emails import speaks_appointments
+        return speaks_appointments(getattr(owner, "business_type", None))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _fail_open(rule: str) -> None:
     logger.warning("booking screen %s failed — confirming (fail-open)", rule, exc_info=True)
     abuse_signals.bump("booking_screen_error")
@@ -331,7 +438,7 @@ def screen_public_booking(db, *, owner, settings: dict, payload, is_request: boo
                           now_local: datetime, start: datetime | None = None,
                           duration_min: int | None = None, chairs: bool = False) -> Screen:
     """The decision for one anonymous booking. `payload` is the create body
-    BEFORE links are stripped (rule 3 reads the raw name); `now_utc` is naive
+    as the guest typed it (nothing is ever rewritten); `now_utc` is naive
     UTC (created_at), `now_local` and `start` naive venue time (starts_at).
     Call it under services/venue_lock.venue_lock, and commit the booking
     before the lock goes: the counts must see the row this one writes."""
@@ -344,12 +451,15 @@ def screen_public_booking(db, *, owner, settings: dict, payload, is_request: boo
     #    sees it), and only a trap filled at bot speed is dropped.
     if (getattr(payload, "website", None) or "").strip():
         return Screen("drop", "honeypot") if fast else Screen("hold", "honeypot")
-    # 2. Filled in faster than a person can (or by a client that does not
-    #    say how long it took).
+    # 2. Filled in faster than a person can. A client that does not say how
+    #    long it took is a real guest on an older page: it books as on live,
+    #    and the abuse monitor counts it.
     if fast:
         return Screen("hold", "fast_fill")
-    # 3. A link where a name goes.
-    if has_link(getattr(payload, "guest_name", None)):
+    if form_ms is None:
+        abuse_signals.bump("booking_no_fill_time")
+    # 3. An explicit link ("http://", "https://", "www.") where a name goes.
+    if has_explicit_link(getattr(payload, "guest_name", None)):
         return Screen("hold", "link_in_name")
 
     try:
@@ -369,12 +479,13 @@ def screen_public_booking(db, *, owner, settings: dict, payload, is_request: boo
                     db, owner.id, min_group, now_utc - timedelta(days=1)) >= max(cap, n):
                 return Screen("hold", "requests_full")
             return CONFIRM
-        # 5. One guest already holding several future bookings here.
-        cmax = int(cfg.BOOKING_CONTACT_ACTIVE_MAX)
-        if cmax > 0 and contact_active_count(
+        # 5. One guest already holding several future bookings here (held
+        #    ones still waiting for the owner never count). A chair venue
+        #    counts days: a family's appointments on one day are one.
+        if contact_limit_reached(
                 db, owner.id, email=getattr(payload, "guest_email", None),
-                phone=getattr(payload, "guest_phone", None),
-                now_local=now_local) >= cmax:
+                phone=getattr(payload, "guest_phone", None), now_local=now_local,
+                start=start, by_day=(chairs or _speaks_appointments(owner))):
             return Screen("hold", "contact_active")
         if not volume:
             # R1a: the volume rules below (6–9) are switched off — a real

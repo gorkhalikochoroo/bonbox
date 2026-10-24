@@ -14,7 +14,9 @@ One module now owns:
   • the language — a guest email is written in Reservation.guest_lang (what
     the guest booked in), else the venue's default (owner_language.
     venue_language); an owner email in owner_language.owner_lang(owner);
-  • escaping — every piece of guest- or owner-supplied text goes through _e().
+  • escaping — every piece of guest- or owner-supplied text goes through _e();
+    what a GUEST typed goes through _g(), which also defangs any link in it
+    ("example[.]com") — the stored text is never changed.
     Subjects are plain text, never HTML, so they are not escaped (a guest would
     see a literal "&amp;"); newlines are collapsed instead;
   • delivery — `deliver()`: send_email, ONE retry after RETRY_DELAY_SECONDS
@@ -216,6 +218,16 @@ def _e(value) -> str:
     return _html.escape(str(value if value is not None else ""), quote=True)
 
 
+def _g(value) -> str:
+    """What a GUEST typed into a booking (name, notes, allergy note,
+    occasion, phone), as an e-mail shows it: every link-like token defanged
+    ("example[.]com", "hxxps://…") so no mail client turns it into a link,
+    then escaped. The stored text is never changed (R1a fix round: a
+    write-time rewrite garbled allergy notes)."""
+    from app.utils.text import defang_links
+    return _e(defang_links(str(value)) if value is not None else value)
+
+
 def _subject(text: str) -> str:
     """A subject is plain text: never escaped, but no line breaks."""
     return " ".join(str(text or "").split())
@@ -411,7 +423,7 @@ def _what(r, lang: str) -> str:
 def _hello(r, lang: str) -> str:
     name = (getattr(r, "guest_name", None) or "").strip()
     word = "Hej" if lang == "da" else "Hi"
-    return f"<p>{word} {_e(name)},</p>" if name else f"<p>{word},</p>"
+    return f"<p>{word} {_g(name)},</p>" if name else f"<p>{word},</p>"
 
 
 def _details(r, venue: Venue, lang: str, *, when: str) -> str:
@@ -430,7 +442,7 @@ def _allergy_line(r, lang: str, label: str, *, severity: bool = False) -> str:
     if not tags and not note:
         return ""
     names = ", ".join(allergen_label(t, lang) for t in tags)
-    parts = [p for p in (_e(names), _e(note)) if p]
+    parts = [p for p in (_e(names), _g(note)) if p]
     sev = ""
     if severity:
         level = _SEVERITY.get(lang, _SEVERITY["en"]).get(getattr(r, "allergy_severity", None) or "")
@@ -745,12 +757,12 @@ def _owner_guest_block(r, lang: str, *, when: str, appointment: bool = False) ->
     name = (getattr(r, "guest_name", None) or "").strip() or fallback
     bits = []
     if r.guest_phone:
-        bits.append(("Tlf: " if lang == "da" else "Phone: ") + _e(r.guest_phone))
+        bits.append(("Tlf: " if lang == "da" else "Phone: ") + _g(r.guest_phone))
     if r.guest_email:
         bits.append(("E-mail: " if lang == "da" else "Email: ") + _e(r.guest_email))
     contact = " · ".join(bits) or (
         "Ingen kontaktinfo opgivet" if lang == "da" else "No contact details given")
-    return (f"<p><strong>{_e(name)}</strong> · {_party(r.party_size, lang)}<br>"
+    return (f"<p><strong>{_g(name)}</strong> · {_party(r.party_size, lang)}<br>"
             f"{_e(when)}<br>{contact}</p>")
 
 
@@ -827,8 +839,8 @@ def render_owner_new_booking(r, venue: Venue, lang: str, *, booking_url: str,
         title = f"<p><strong>{head} via din bookingside</strong></p>"
         service = (f"<p><strong>Behandling:</strong> {_e(r.service_name)}</p>"
                    if has_service else "")
-        occasion = f"<p><strong>Anledning:</strong> {_e(r.occasion)}</p>" if r.occasion else ""
-        notes = f"<p><strong>Besked:</strong> {_e(r.guest_notes)}</p>" if r.guest_notes else ""
+        occasion = f"<p><strong>Anledning:</strong> {_g(r.occasion)}</p>" if r.occasion else ""
+        notes = f"<p><strong>Besked:</strong> {_g(r.guest_notes)}</p>" if r.guest_notes else ""
         allergy = _allergy_line(r, lang, "Allergi", severity=True)
         waiting = ((f"<p>{'Kunden' if appointment else 'Gæsten'} venter på dit svar.</p>")
                    if is_request else "")
@@ -839,8 +851,8 @@ def render_owner_new_booking(r, venue: Venue, lang: str, *, booking_url: str,
         title = f"<p><strong>{head} via your booking page</strong></p>"
         service = (f"<p><strong>Service:</strong> {_e(r.service_name)}</p>"
                    if has_service else "")
-        occasion = f"<p><strong>Occasion:</strong> {_e(r.occasion)}</p>" if r.occasion else ""
-        notes = f"<p><strong>Message:</strong> {_e(r.guest_notes)}</p>" if r.guest_notes else ""
+        occasion = f"<p><strong>Occasion:</strong> {_g(r.occasion)}</p>" if r.occasion else ""
+        notes = f"<p><strong>Message:</strong> {_g(r.guest_notes)}</p>" if r.guest_notes else ""
         allergy = _allergy_line(r, lang, "Allergy", severity=True)
         waiting = ((f"<p>The {'customer' if appointment else 'guest'} is waiting for your answer.</p>")
                    if is_request else "")
@@ -1083,18 +1095,32 @@ def venue_mail_share_capped(db: Session, owner_id) -> int | None:
     return share if n >= share else None
 
 
-def confirmation_will_send(db: Session, owner_id, email: str | None) -> bool:
+def held_request_extra() -> int:
+    """How many "request received" mails a day a HELD (person-like) booking
+    may send past the per-address cap on confirmations
+    (BOOKING_HELD_MAILS_PER_ADDRESS_EXTRA, never negative)."""
+    try:
+        return max(0, int(app_config.BOOKING_HELD_MAILS_PER_ADDRESS_EXTRA))
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def confirmation_will_send(db: Session, owner_id, email: str | None, *,
+                           held: bool = False) -> bool:
     """Will the confirmation (or "request received") for a new online
     booking to `email` go out — every ceiling deliver() and
     send_guest_confirmation apply, read now, nothing written? The guest page
     promises an e-mail only when this says yes (fix round 2: a held guest's
     receipt said "Vi svarer dig på …" while no mail was coming). A failed
-    check answers False: deliver() would refuse too."""
+    check answers False: deliver() would refuse too. `held`: the "request
+    received" of a person-like HELD booking — the per-address cap gives it
+    held_request_extra() more (send_guest_confirmation(held=True))."""
     to = (email or "").strip()
     if not to or db is None or not _plausible_address(to):
         return False
     try:
-        if not confirmation_quota_left(db, owner_id, to):
+        if not confirmation_quota_left(db, owner_id, to,
+                                       extra=(held_request_extra() if held else 0)):
             return False
         if owner_guest_mail_capped(db, owner_id) is not None:
             return False
@@ -1280,7 +1306,7 @@ def deliver(db: Session | None, *, owner_id, reservation_id, event_type: str,
 
 # ── Caps ───────────────────────────────────────────────────────────────
 
-def confirmation_quota_left(db: Session, owner_id, email: str) -> bool:
+def confirmation_quota_left(db: Session, owner_id, email: str, *, extra: int = 0) -> bool:
     """Has this venue already mailed this address enough for one day?
 
     Without a bound, the public booking form is an open relay: anyone can make
@@ -1291,7 +1317,10 @@ def confirmation_quota_left(db: Session, owner_id, email: str) -> bool:
     Counted from reservations: confirmation_sent_at is stamped on every
     DELIVERED confirmation, so the ledger exists. Counted by MAILBOX, not by
     spelling (services/mailbox.py): "anna+1@…", "anna+2@…" and
-    "a.nna@gmail.com" all land in one inbox."""
+    "a.nna@gmail.com" all land in one inbox.
+
+    `extra`: a held booking's "request received" may go this many past the
+    cap (held_request_extra) — the guest was promised an answer."""
     since = utc_now() - timedelta(days=1)
     sent_to = (
         db.query(Reservation.guest_email)
@@ -1302,7 +1331,7 @@ def confirmation_quota_left(db: Session, owner_id, email: str) -> bool:
         .all()
     )
     n = count_same_mailbox((a for (a,) in sent_to), email)
-    return n < CONFIRMATIONS_PER_ADDRESS_PER_DAY
+    return n < CONFIRMATIONS_PER_ADDRESS_PER_DAY + max(0, int(extra or 0))
 
 
 def guest_heard_from_us(db: Session, r) -> bool:
@@ -1314,14 +1343,19 @@ def guest_heard_from_us(db: Session, r) -> bool:
 
 # ── Guest sends ────────────────────────────────────────────────────────
 
-def send_guest_confirmation(db: Session | None, owner, profile, r) -> bool:
+def send_guest_confirmation(db: Session | None, owner, profile, r, *,
+                            held: bool = False) -> bool:
     """(a) Confirmation — or "request received" for a group request.
-    Stamps confirmation_sent_at ONLY when the email was delivered."""
+    Stamps confirmation_sent_at ONLY when the email was delivered.
+    `held`: a person-like HELD booking's "request received" — the per-address
+    cap gives it held_request_extra() more, so a guest whose bookings today
+    used the cap still hears that this one is a request (R1a fix round)."""
     if db is None or not r.guest_email or r.confirmation_sent_at is not None:
         return False
     # Skip quietly: the BOOKING is real and committed, and the guest sees the
     # reference on screen. A relay attempt must not become an error.
-    if not confirmation_quota_left(db, r.user_id, r.guest_email):
+    if not confirmation_quota_left(db, r.user_id, r.guest_email,
+                                   extra=(held_request_extra() if held else 0)):
         logger.warning("confirmation suppressed: per-address daily cap reached (owner=%s)",
                        r.user_id)
         _log(db, owner_id=r.user_id, reservation_id=r.id, event_type=GUEST_CONFIRMATION,
@@ -1423,15 +1457,24 @@ def send_guest_reminder(db: Session | None, owner, profile, r) -> bool:
                    to=r.guest_email, subject=subject, html=html, reply_to=venue.reply_to)
 
 
-def send_guest_request_expired(db: Session | None, owner, profile, r) -> bool:
+def send_guest_request_expired(db: Session | None, owner, profile, r, *,
+                               held: bool = False) -> bool:
     """"We couldn't confirm your request" — the request-expiry sweep's mail.
 
     Bound by the same per-address cap as the confirmation: a group request is
     a plain insert that always succeeds, so a caller could park unlimited rows
-    against one typed address, and this sweep would mail every one of them."""
+    against one typed address, and this sweep would mail every one of them.
+    `held`: a person-like booking the booking screen HELD. When its "request
+    received" went out, the answer follows whatever the address count says:
+    the guest was promised one (R1a fix round — a family's 4th booking was
+    declined unmailed because its siblings' confirmations used the cap). It
+    stays bounded: only a held booking whose own first mail passed the cap
+    (plus held_request_extra) gets one, and the per-reservation cap still
+    applies in deliver(). A group request is unchanged."""
     if db is None or not r.guest_email:
         return False
-    if not confirmation_quota_left(db, r.user_id, r.guest_email):
+    if (not (held and guest_heard_from_us(db, r))
+            and not confirmation_quota_left(db, r.user_id, r.guest_email)):
         logger.warning("request-expiry mail suppressed: per-address daily cap reached "
                        "(owner=%s reservation=%s)", r.user_id, r.id)
         _log(db, owner_id=r.user_id, reservation_id=r.id, event_type=GUEST_REQUEST_EXPIRED,

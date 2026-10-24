@@ -54,7 +54,6 @@ from app.services.logo_service import logo_signed_url
 from app.services.owner_language import venue_language
 from app.services.qr_signer import sign_booking_token, verify_booking_token
 from app.utils import abuse_signals
-from app.utils.text import strip_links
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -159,8 +158,9 @@ class PublicReservationCreate(BaseModel):
     # `website` is a trap: the field sits off-screen on our page, a person
     # never fills it, a form-filling bot does. `form_ms` is how long the
     # page was open before the guest pressed Book — a booking typed in under
-    # two seconds (or sent by a client that does not say) is held as a
-    # request the owner approves, never refused.
+    # two seconds is held as a request the owner approves, never refused. A
+    # client that does not say (a page loaded before the frontend deploy)
+    # books as on live (R1a fix round).
     website: str = Field(default="", max_length=200)
     form_ms: int | None = None
 
@@ -180,8 +180,9 @@ class PublicReservationCreate(BaseModel):
         """Clamped, never refused: a page left open overnight (a desktop tab,
         the embed on the owner's site, a booking iPad at the door) sends a
         huge value, and a 422 there was a booking the guest could not make
-        until they reloaded. Junk reads as "not said" (the screen holds it),
-        a negative as 0, anything over a day as a day."""
+        until they reloaded. Junk reads as "not said" — unknown, booked as
+        on live (R1a fix round) — a negative as 0, anything over a day as a
+        day."""
         if v is None or isinstance(v, bool):
             return None
         try:
@@ -786,13 +787,15 @@ _confirmation_quota_left = reservation_emails.confirmation_quota_left
 
 
 def _send_confirmation(owner: User, profile: BusinessProfile, r: Reservation,
-                       db: Session | None = None) -> bool:
+                       db: Session | None = None, *, held: bool = False) -> bool:
     """Guest confirmation ("request received" for a group request), in the
     guest's language. Never blocks the booking; returns True only when the
     email was delivered, and only then stamps confirmation_sent_at — the
-    per-address cap counts those stamps, so a failed send must not claim one."""
+    per-address cap counts those stamps, so a failed send must not claim one.
+    `held`: a person-like HELD booking's "request received" (the per-address
+    cap gives it reservation_emails.held_request_extra() more)."""
     try:
-        return reservation_emails.send_guest_confirmation(db, owner, profile, r)
+        return reservation_emails.send_guest_confirmation(db, owner, profile, r, held=held)
     except Exception as exc:  # noqa: BLE001 — best-effort
         logger.warning("reservation confirmation email failed: %s", type(exc).__name__)
         return False
@@ -866,7 +869,7 @@ def _send_booking_notifications(reservation_id: str, owner_id: str,
                                     status="failed", error="held_no_mail")
         elif (held_mail_ok if held_mail_ok is not None
               else owner_booking_alerts.claim_held_guest_mail(db, owner.id, now_utc=utc_now())):
-            _send_confirmation(owner, profile, r, db)
+            _send_confirmation(owner, profile, r, db, held=True)
         else:
             reservation_emails._log(db, owner_id=owner.id, reservation_id=r.id,
                                     event_type=reservation_emails.GUEST_CONFIRMATION,
@@ -932,14 +935,18 @@ def _send_guest_cancel_notifications(reservation_id: str, owner_id: str,
             logger.warning("guest cancel email failed: %s", type(exc).__name__)
         db.commit()
 
-        # A booking the screen HELD (R1a). A bot-like hold withdrawn with its
-        # own booking token pings no one: the owner was never told about it,
-        # and a robot that posts and withdraws every hour buzzed the owner
-        # every hour, night included (fix-2 verify S4). A person-like hold's
+        # A booking the screen HELD and nobody approved (R1a). A bot-like
+        # hold withdrawn with its own booking token pings no one: the owner
+        # was never told about it, and a robot that posts and withdraws every
+        # hour buzzed the owner every hour, night included (fix-2 verify S4). A person-like hold's
         # withdrawal waits for the morning in the quiet hours once the hour's
         # budget is spent — like its booking did.
         hold_reason = None
-        if r.status == "cancelled" and r.source == "public":
+        # Only while it was still a REQUEST: a held booking the owner approved
+        # is a normal booking from then on — its cancellation tells the owner
+        # and nudges the waitlist like any other (R1a verify S1: an approved
+        # robot-like hold cancelled later pinged no one).
+        if was_request and r.status == "cancelled" and r.source == "public":
             hold_reason = (booking_screen.held_info(db, owner.id, [r.id])
                            .get(str(r.id), {}).get("reason"))
         if hold_reason in booking_screen.BOT_REASONS:
@@ -1206,18 +1213,6 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
         )
 
 
-# Column lengths a guest-typed text must fit after "[link]" replaced a link
-# ("a.io" → "[link]" grows the text): Postgres refuses an over-long VARCHAR
-# (an anonymous 500), SQLite never notices (review P1).
-_GUEST_NAME_MAX = Reservation.__table__.c.guest_name.type.length or 160
-_OCCASION_MAX = Reservation.__table__.c.occasion.type.length or 60
-_FREE_TEXT_MAX = 2000
-
-
-def _fit(text: str | None, n: int) -> str | None:
-    return text[:n].rstrip() if text and len(text) > n else text
-
-
 def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: User,
                      profile: BusinessProfile, payload, start: datetime, settings: dict,
                      idempotency_key, salon: bool, is_request: bool):
@@ -1247,13 +1242,14 @@ def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: U
                 "guest_mail": False}
     hold_reason = screen.reason if screen.action == "hold" else None
 
-    # No link reaches the owner's e-mail or the host stand as text a mail
-    # client turns into an anchor: names and notes keep "[link]" instead —
-    # cut back to the column, which "[link]" can outgrow.
-    payload.guest_name = _fit(strip_links(payload.guest_name) or payload.guest_name, _GUEST_NAME_MAX)
-    payload.guest_notes = _fit(strip_links(payload.guest_notes), _FREE_TEXT_MAX)
-    payload.allergy_note = _fit(strip_links(payload.allergy_note), _FREE_TEXT_MAX)
-    payload.occasion = _fit(strip_links(payload.occasion), _OCCASION_MAX)
+    # What the guest typed — name, notes, allergy note, occasion — is stored
+    # EXACTLY as typed, as on live: the kitchen and the AI allergy reading
+    # read the guest's own words. (R1 replaced anything link-like with
+    # "[link]" here, and "Glutenfri.Laktosefri.Nøddeallergi" lost the
+    # allergy — R1a fix round, 24 Oct.) A link is made harmless where the
+    # text is SHOWN instead: reservation_emails passes every guest-typed
+    # value through utils.text.defang_links, and the owner's screens do the
+    # same (frontend/src/utils/guestText.js).
 
     # Salon appointment (S3a) — a behandling and/or a pinned stylist routes to
     # the provider path, handled separately so the table booking flow below is
@@ -1399,7 +1395,8 @@ def _guest_mail_plan(db: Session, owner: User, r: Reservation,
             return False, None
         if hold_reason in booking_screen.NO_GUEST_MAIL:
             return False, None
-        if not reservation_emails.confirmation_will_send(db, owner.id, r.guest_email):
+        if not reservation_emails.confirmation_will_send(db, owner.id, r.guest_email,
+                                                         held=bool(hold_reason)):
             return False, (True if hold_reason else None)
         if hold_reason:
             ok = owner_booking_alerts.claim_held_guest_mail(db, owner.id, now_utc=utc_now())

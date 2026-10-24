@@ -271,19 +271,24 @@ def test_a_solo_barbers_full_day_of_customers(client, db, outbox, clock, volume_
 
 
 # ── what R1a keeps, with the switch off ────────────────────────────────
-@pytest.mark.parametrize("how", ["fast", "unsaid", "trap", "link"])
+@pytest.mark.parametrize("how", ["fast", "zero", "trap", "link", "www"])
 def test_a_robots_signal_is_still_held_silently(client, db, outbox, volume_off, how):
+    # R1a fix round: "unsaid" (no fill time) is a real guest on an older page,
+    # not a robot — tests/test_r1a_fix_round.py; a link in the name is an
+    # EXPLICIT one (http://, https://, www.).
     u, p, _ = restaurant(db, tables=6)
-    kw = {"fast": dict(form_ms=900), "unsaid": dict(form_ms=None),
+    kw = {"fast": dict(form_ms=900), "zero": dict(form_ms=0),
           "trap": dict(form_ms=40000, website="https://x.test"),
-          "link": dict(form_ms=40000, name="Mette mobilepay-refund.com")}[how]
+          "link": dict(form_ms=40000, name="Mette https://mobilepay-refund.com"),
+          "www": dict(form_ms=40000, name="Mette WWW.mobilepay-refund.com")}[how]
     r = book(client, p.reservation_slug, day=today_local() + timedelta(days=3), time="19:00",
              email="victim@example.com", **kw)
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "requested" and body["guest_mail"] is False
-    assert _reason(db, body["id"]) == {"fast": "fast_fill", "unsaid": "fast_fill",
-                                       "trap": "honeypot", "link": "link_in_name"}[how]
+    assert _reason(db, body["id"]) == {"fast": "fast_fill", "zero": "fast_fill",
+                                       "trap": "honeypot", "link": "link_in_name",
+                                       "www": "link_in_name"}[how]
     assert reservation(db, body["id"]).resource_id is None            # holds no table
     assert [m for m in outbox if m["to"] in ("victim@example.com", u.email)] == []
     assert _owner_pings(db, u) == []

@@ -38,6 +38,17 @@ om lidt". Now:
   • asked very late         → the owner still gets an hour (asked 30 min
                               ahead: nobody is declined before they could
                               have been answered).
+
+THE OWNER'S DAY (R1a fix round, 24 Oct 2026). That window is counted in
+DAYTIME (08:00–22:00 venue time), and no deadline falls in the night:
+
+  • asked at 21:00 for 09:30 tomorrow → 21:00–22:00 + 08:00–09:00: declined
+    at 09:00, never at 05:30 before the owner is up (verify S5);
+  • a deadline in the night (after 21:00, before 08:00) → 08:00, when the
+    guest still hears an hour before the sitting; a breakfast too early for
+    that → 21:00 the evening before, if the owner had their window by then;
+  • asked late in the evening for the same night → open until the morning,
+    as the nightly run left it on live.
 """
 
 from __future__ import annotations
@@ -78,16 +89,81 @@ TELL_BEFORE_START_HOURS = 1
 MIN_ANSWER_HOURS = 1
 
 
+# The owner's day (venue time, R1a fix round). The answer window is counted
+# in DAYTIME, OWNER_DAY_FROM_HOUR–OWNER_DAY_TO_HOUR, and a deadline is only
+# ever set from OWNER_DAY_FROM_HOUR to DECLINE_UNTIL_HOUR — the hourly sweep
+# then declines it before 22:00 whatever minute it runs at.
+OWNER_DAY_FROM_HOUR = 8
+OWNER_DAY_TO_HOUR = 22
+DECLINE_UNTIL_HOUR = 21
+
+
+def _at(t: datetime, hour: int) -> datetime:
+    return t.replace(hour=hour, minute=0, second=0, microsecond=0)
+
+
+def owner_daytime_after(created_local: datetime, hours: float) -> datetime:
+    """The moment the owner has had `hours` of DAYTIME (08:00–22:00 venue
+    wall-clock) since the request came in. A request at 21:00 with 2 h to
+    answer: 21:00–22:00, then 08:00–09:00 → 09:00 the next morning.
+    Wall-clock is exact here: daytime never spans a summer-time change
+    (those happen at 02:00–03:00)."""
+    need = timedelta(hours=hours)
+    t = created_local
+    while True:
+        if t < _at(t, OWNER_DAY_FROM_HOUR):
+            t = _at(t, OWNER_DAY_FROM_HOUR)
+        elif t >= _at(t, OWNER_DAY_TO_HOUR):
+            t = _at(t + timedelta(days=1), OWNER_DAY_FROM_HOUR)
+        room = _at(t, OWNER_DAY_TO_HOUR) - t
+        if need <= room:
+            return t + need
+        need -= room
+        t = _at(t + timedelta(days=1), OWNER_DAY_FROM_HOUR)
+
+
+def _out_of_the_night(deadline: datetime, starts_at: datetime,
+                      owner_had_day_by: datetime | None) -> datetime:
+    """A deadline that would fall in the night (after DECLINE_UNTIL_HOUR,
+    before OWNER_DAY_FROM_HOUR) moves to the MORNING — when that still tells
+    the guest TELL_BEFORE_START_HOURS before the sitting. A sitting too early
+    for that (breakfast) is answered the EVENING before instead, if the
+    owner had their daytime window by then; else the morning still wins (the
+    owner's chance before the guest's notice)."""
+    if _at(deadline, OWNER_DAY_FROM_HOUR) <= deadline <= _at(deadline, DECLINE_UNTIL_HOUR):
+        return deadline
+    if deadline.hour < OWNER_DAY_FROM_HOUR:
+        morning = _at(deadline, OWNER_DAY_FROM_HOUR)
+        evening = _at(deadline - timedelta(days=1), DECLINE_UNTIL_HOUR)
+    else:
+        morning = _at(deadline + timedelta(days=1), OWNER_DAY_FROM_HOUR)
+        evening = _at(deadline, DECLINE_UNTIL_HOUR)
+    if morning <= starts_at - timedelta(hours=TELL_BEFORE_START_HOURS):
+        return morning
+    if owner_had_day_by is None or owner_had_day_by <= evening:
+        return evening
+    return morning
+
+
 def answer_deadline(starts_at: datetime, created_local: datetime | None) -> datetime:
     """When an unanswered request is declined (naive venue time). See the
-    module docstring; a row with no creation time is treated as old."""
+    module docstring; a row with no creation time is treated as old.
+
+    R1a fix round (24 Oct 2026): the owner's answer window — two hours, or
+    the shorter one a same-day request leaves — is counted in DAYTIME, and
+    the deadline never falls in the night. An evening request for tomorrow's
+    09:30 is declined at 09:00, not at 05:30 before anyone is up (verify S5).
+    """
     far = starts_at - timedelta(hours=EXPIRE_BEFORE_START_HOURS)
     if created_local is None:
-        return far
+        return _out_of_the_night(far, starts_at, None)
     grace = min(created_local + timedelta(hours=ANSWER_WINDOW_HOURS),
                 max(starts_at - timedelta(hours=TELL_BEFORE_START_HOURS),
                     created_local + timedelta(hours=MIN_ANSWER_HOURS)))
-    return max(far, grace)
+    base = max(far, grace)
+    window = min(timedelta(hours=ANSWER_WINDOW_HOURS), base - created_local)
+    daytime = owner_daytime_after(created_local, window.total_seconds() / 3600)
+    return _out_of_the_night(max(base, daytime), starts_at, daytime)
 
 
 def _created_local(r) -> datetime | None:
@@ -165,7 +241,7 @@ def expire_stale_requests(db: Session | None = None, *, now_local: datetime | No
             reason = held.get(str(r.id), _NOT_HELD)
             if reason is not _NOT_HELD and not _may_tell_held(db, r, reason):
                 continue
-            if _tell_the_guest(db, r):
+            if _tell_the_guest(db, r, held=reason is not _NOT_HELD):
                 notified += 1
         if rows:
             # Persist the mail ledger (NotificationLog rows) the sends wrote.
@@ -216,7 +292,7 @@ def _may_tell_held(db: Session, r: Reservation, reason) -> bool:
     return owner_booking_alerts.claim_held_decline_mail(db, r.user_id, now_utc=utc_now())
 
 
-def _tell_the_guest(db: Session, r: Reservation) -> bool:
+def _tell_the_guest(db: Session, r: Reservation, *, held: bool = False) -> bool:
     """Best-effort "we couldn't take it" mail, in the guest's language.
     Returns True only when it was actually delivered.
 
@@ -248,7 +324,7 @@ def _tell_the_guest(db: Session, r: Reservation) -> bool:
             .filter(BusinessProfile.user_id == r.user_id)
             .first()
         )
-        return reservation_emails.send_guest_request_expired(db, owner, profile, r)
+        return reservation_emails.send_guest_request_expired(db, owner, profile, r, held=held)
     except Exception:  # noqa: BLE001
         logger.warning("request-expiry mail failed for reservation=%s", r.id)
         return False

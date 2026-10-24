@@ -450,8 +450,9 @@ class Settings(BaseSettings):
     # day (Free), the day's group requests, and each venue's share of the
     # fleet guest mail. OFF (the default): no real guest is held because of
     # how many others booked — a booking is held only for a robot's signal
-    # (the trap field, a form filled in under BOOKING_MIN_FILL_MS, a link in
-    # the name) or for the same guest's 4th booking ahead. The verify of fix
+    # (the trap field, a fill time sent and under BOOKING_MIN_FILL_MS, an
+    # explicit link — http://, https://, www. — in the name) or for the same
+    # guest's 4th booking ahead (a chair venue: 4th day ahead). The verify of fix
     # round 2 still held real guests by volume (an Instagram rush, a steady
     # same-day afternoon, a solo barber's 7th customer) and left one venue
     # with no day bound at all; the rules stay in the code, tested in both
@@ -460,7 +461,12 @@ class Settings(BaseSettings):
     BOOKING_MIN_FILL_MS: int = 2000             # faster form fill → held
     BOOKING_GROUP_REQUESTS_PER_DAY: int = 10    # real group requests a day; over it → held, never refused
     BOOKING_GROUP_FLOOR: int = 6                # a "real group" is at least max(threshold, this)
-    BOOKING_CONTACT_ACTIVE_MAX: int = 3         # active future bookings per guest
+    BOOKING_CONTACT_ACTIVE_MAX: int = 3         # active future bookings per guest (a chair venue: days)
+    # A chair venue (salon, barber, shop, workshop) counts the same guest's
+    # DAYS ahead, so a parent can book the whole family on one Saturday (R1a
+    # fix round: the barber simulation held a 4th child as the same guest).
+    # One day takes at most this many of one guest's bookings; 0 = no bound.
+    BOOKING_CONTACT_SAME_DAY_MAX: int = 6
     BOOKING_VENUE_HOUR_MIN: int = 6             # an hour: max(6, tables/chairs) online bookings
     BOOKING_SITTING_MIN: int = 3                # one sitting: max(3, half the tables) …
     BOOKING_SITTING_WINDOW_MIN: int = 180       # … made in the last 3 hours (a burst)
@@ -474,6 +480,16 @@ class Settings(BaseSettings):
     # round 2, 24 Oct 2026).
     BOOKING_HELD_GUEST_MAILS_PER_HOUR: int = 3
     BOOKING_HELD_GUEST_MAILS_PER_DAY: int = 10
+    # That "request received" mail may pass the per-address cap on
+    # confirmations (reservation_emails.CONFIRMATIONS_PER_ADDRESS_PER_DAY, 3)
+    # by this many a day: a guest whose three bookings today already used
+    # it still hears that the 4th is a request (R1a verify S4: the page then
+    # had to say "no e-mail", and the expiry declined it unmailed). Its
+    # decline or expiry mail always follows a request mail that went out.
+    # One: 3 confirmations + 1 request + its answer = 5, the per-mailbox
+    # bound the owner's own mails already keep (GUEST_MAILS_PER_MAILBOX_PER_DAY),
+    # so the owner's decline still reaches the guest.
+    BOOKING_HELD_MAILS_PER_ADDRESS_EXTRA: int = 1
     # … and the "we couldn't take it" mail (the owner's decline, or the
     # expiry) to such a booking we never mailed: its OWN day budget per
     # venue, never the hourly one above (R1a: an expiry run that declined a

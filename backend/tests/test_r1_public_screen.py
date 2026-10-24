@@ -10,13 +10,16 @@ guest except as "Forespørgsel modtaget" on a held one:
   • the hidden trap field filled at bot speed → dropped (200 "requested" —
     never "confirmed" — no row, no message); filled at a person's pace →
     HELD (a browser's autofill must not lose a real booking);
-  • a fast or unsaid form fill, a link in the name, the same contact with 3
-    active future bookings, or unusually many bookings for the venue's size
+  • a fast form fill, an explicit link in the name (http://, https://,
+    www.), the same contact with 3 active future bookings, or unusually
+    many bookings for the venue's size
     → HELD: stored as a request on NO table (the engine's pick waits on the
     held_public audit row), holding nothing until the owner approves;
   • the day's 11th public group request → still taken, HELD (requests_full),
     never refused (fix round, 24 Oct).
 A broken check confirms (fail-open). Holds never use the monthly quota.
+R1a fix round: no fill time at all is a real guest on an older page — it
+books as on live; and nothing the guest typed is ever rewritten.
 
 Run: cd backend && python -m pytest tests/test_r1_public_screen.py -q
 """
@@ -60,13 +63,13 @@ def test_the_honeypot_drops_the_booking_silently(client, db, outbox):
     assert "sita" not in (a.after_state or "").lower()          # no PII
 
 
-def test_a_fast_or_unsaid_form_fill_is_held_with_no_table_held(client, db, outbox):
+def test_a_fast_form_fill_is_held_with_no_table_held(client, db, outbox):
     u, profile, _ = restaurant(db)
     slug = profile.reservation_slug
-    missing = book(client, slug, day=DAY, time="18:00", form_ms=None)
+    zero = book(client, slug, day=DAY, time="18:00", form_ms=0)
     fast = book(client, slug, day=DAY, time="18:30", form_ms=500, email="b@example.com")
     honest = book(client, slug, day=DAY, time="19:00", form_ms=5000, email="c@example.com")
-    for held in (missing, fast):
+    for held in (zero, fast):
         assert held.status_code == 200, held.text
         assert held.json()["status"] == "requested"
         r = reservation(db, held.json()["id"])
@@ -84,14 +87,17 @@ def test_a_fast_or_unsaid_form_fill_is_held_with_no_table_held(client, db, outbo
     assert all("resource_ids" in x for x in reasons)
 
 
-def test_a_link_in_the_name_is_held_and_stripped(client, db, outbox):
+def test_a_link_in_the_name_is_held_and_kept_as_typed(client, db, outbox):
+    """Held as robot-like (an explicit "www." in the name) — and the text is
+    stored exactly as typed (R1a fix round: a write-time rewrite garbled
+    real guests' allergy notes). It is defanged only where it is shown."""
     u, profile, _ = restaurant(db)
     r = book(client, profile.reservation_slug, day=DAY,
              name="WIN NOW www.spam-prize.com", guest_notes="see http://evil.example now")
     assert r.json()["status"] == "requested"
     row = reservation(db, r.json()["id"])
-    assert "spam-prize" not in row.guest_name and "[link]" in row.guest_name
-    assert row.guest_notes == "see [link] now"
+    assert row.guest_name == "WIN NOW www.spam-prize.com"
+    assert row.guest_notes == "see http://evil.example now"
 
 
 def test_the_same_contact_is_held_from_the_fourth_booking(client, db, outbox):
@@ -169,7 +175,7 @@ def _approve(client, owner, rid):
 
 def test_approving_a_held_table_booking_holds_the_table(client, db, outbox):
     u, profile, _ = restaurant(db)
-    r = book(client, profile.reservation_slug, day=DAY, form_ms=None)
+    r = book(client, profile.reservation_slug, day=DAY, form_ms=300)
     rid = r.json()["id"]
     assert active_occupancy(db, rid) == []
     a = _approve(client, u, rid)
@@ -180,7 +186,7 @@ def test_approving_a_held_table_booking_holds_the_table(client, db, outbox):
 
 def test_approving_a_held_combined_set_holds_every_table(client, db, outbox):
     u, profile, _ = restaurant(db, tables=2, seats=4, combinable=True)
-    r = book(client, profile.reservation_slug, day=DAY, party=6, form_ms=None)
+    r = book(client, profile.reservation_slug, day=DAY, party=6, form_ms=300)
     assert r.json()["status"] == "requested"
     row = reservation(db, r.json()["id"])
     assert row.resource_id is None and row.combined_resource_ids is None
@@ -215,7 +221,7 @@ def test_holds_do_not_use_the_monthly_quota(client, db, outbox):
     for i in range(22):
         r = book(client, profile.reservation_slug, day=DAY + timedelta(days=i % 3),
                  time=TIMES[i % len(TIMES)], name=f"Bot {i}", email=f"bot{i}@example.com",
-                 form_ms=None, ip=f"198.18.0.{i}")
+                 form_ms=300, ip=f"198.18.0.{i}")
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "requested"
     db.expire_all()

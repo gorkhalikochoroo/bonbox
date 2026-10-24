@@ -139,14 +139,17 @@ def has_link(text: str | None) -> bool:
 
 
 def strip_links(text: str | None) -> str | None:
-    """Replace every link in a guest-typed text with "[link]".
+    """Replace every link in a text with "[link]".
 
-    Anonymous booking text reaches the owner's e-mail and the host stand, and
-    many mail clients turn a bare URL into a clickable anchor in mail sent from
-    the venue. E-mail addresses stay as they are. Text with no link comes back
-    unchanged (line breaks in a note included); where a link was replaced,
-    runs of spaces left behind are collapsed. The caller cuts the result to
-    its column: "[link]" can be longer than the link it replaced."""
+    Used for the owner's own closure note (services/reservation_service.
+    clean_closure_note), shown on the public booking page. NEVER for what a
+    guest typed into a booking: a guest's name, notes, allergy note and
+    occasion are stored exactly as typed (R1a fix round, 24 Oct: this rewrite
+    turned "Glutenfri.Laktosefri.Nøddeallergi" into "[link]" and the allergy
+    vanished from the book) — they are made harmless where they are SHOWN,
+    by defang_links(). E-mail addresses stay as they are. Text with no link
+    comes back unchanged (line breaks in a note included); where a link was
+    replaced, runs of spaces left behind are collapsed."""
     if not text:
         return text
     out, n1 = _SCHEME_RE.subn("[link]", _normalise(text))
@@ -155,3 +158,116 @@ def strip_links(text: str | None) -> str | None:
     if not (n1 or n2):
         return text
     return re.sub(r"[ \t]{2,}", " ", _unmask(out, kept)).strip()
+
+
+# ── A guest's booking text: kept as typed, defanged where it is shown ──
+# R1a fix round (24 Oct 2026). What a guest types into a booking (name,
+# notes, allergy note, occasion) is STORED EXACTLY AS TYPED — the AI allergy
+# reading and the kitchen read the guest's own words. A link in it is made
+# harmless only where it is SHOWN: every e-mail (guest and owner) passes it
+# through defang_links(), and the owner's screens do the same in the browser
+# (frontend/src/utils/guestText.js, the same rules).
+
+_EXPLICIT_LINK_RE = re.compile(r"(?i)https?://|www\.")
+
+
+def has_explicit_link(text: str | None) -> bool:
+    """Does the text carry an EXPLICIT link: "http://", "https://" or
+    "www." — any case, after Unicode NFKC (full-width "ｗｗｗ．" counts)?
+
+    The booking screen's robot-like-name rule (booking_screen rule 3) reads
+    only this. A bare dotted word is a normal name: "Anne.Marie.Jensen",
+    "Hans.Chr.Andersen", "J.P.Hansen" (the R1a verify found such names held
+    silently as links)."""
+    if not text:
+        return False
+    return _EXPLICIT_LINK_RE.search(unicodedata.normalize("NFKC", text)) is not None
+
+
+# A host on a domain ending mail clients turn into a link. Wider than _TLDS:
+# a false match here only shows "[.]" (display, never stored), a miss shows a
+# tappable link — so the endings the R1a verify got past (.zip, .lol, .nu …)
+# are in. A dotted run of words needs a KNOWN ending (or a path after it), so
+# "Glutenfri.Laktosefri.Nøddeallergi" and "Anne.Marie.Jensen" are shown as
+# typed; endings that are everyday Danish words ("men", "by", "si") are left
+# out. frontend/src/utils/guestText.js carries the same list (a backend
+# test compares the two).
+_DISPLAY_TLDS = _TLDS + (
+    "|zip|mov|nu|casa|lol|sbs|fyi|st|ac|gle|ink|lat|mom|quest|cam|bond|cfd"
+    "|hair|beauty|skin|makeup|boats|autos|homes|motorcycles|yachts|rocks|monster"
+    "|wtf|host|press|global|party|review|trade|stream|download|racing|faith"
+    "|science|accountant|cricket|webcam|xin|ren|wang|nz|au|jp|kr|tr|gr|hu|ro"
+    "|bg|rs|mk|md|kz|il|ae|ir|pk|bd|ph|th|vn|sg|hk|mx|cl|ve|za|ng|ke|eg|tn"
+)
+_DISPLAY_TLD_SET = frozenset(_DISPLAY_TLDS.split("|"))
+# A dotted token and what follows it (a port or a path). Linear: the dots
+# separate the parts, so nothing backtracks over a long note (a regex that
+# tried every ending at every label took 0.7 s on "a.a.a.…").
+_HOST_TOKEN_RE = re.compile(r"(?<![\w.-])([\w-]+(?:\.[\w-]+)+)((?:[:/]\S*)?)")
+
+
+def _is_ending(label: str) -> bool:
+    low = label.lower()
+    return low in _DISPLAY_TLD_SET or (low.startswith("xn--") and len(low) > 4)
+
+
+def _link_labels(labels: list[str], suffix: str) -> int:
+    """How many leading labels of a dotted token make a link: 0 for none.
+    An IP address with a port or a path ("1.2.3.4/login" — a bare
+    "12.34.56.78" is a phone number); any domain with a path ("t.me/x",
+    "evil.lol/claim"); else up to the last label that is a known ending
+    ("login.evil.com", "evil.com.Glutenfri" → "evil.com")."""
+    if (suffix and len(labels) == 4
+            and all(x.isdigit() and len(x) <= 3 for x in labels)):
+        return 4
+    last = labels[-1]
+    if suffix.startswith("/") and last.isalpha() and 2 <= len(last) <= 24:
+        return len(labels)
+    for i in range(len(labels) - 1, 0, -1):
+        if _is_ending(labels[i]):
+            return i + 1
+    return 0
+
+
+def _defang_hosts(text: str) -> tuple[str, int]:
+    """Every link-like dotted token defanged; (text, how many)."""
+    n = 0
+
+    def _one(m):
+        nonlocal n
+        labels = m.group(1).split(".")
+        k = _link_labels(labels, m.group(2) or "")
+        if not k:
+            return m.group(0)
+        n += 1
+        host = "[.]".join(labels[:k])
+        rest = "".join("." + x for x in labels[k:])
+        return host + rest + (m.group(2) or "")
+
+    return _HOST_TOKEN_RE.sub(_one, text), n
+
+
+def _defang_token(token: str) -> str:
+    """"https://evil.com/x" → "hxxps://evil[.]com/x": no mail client or
+    phone turns it into a link, and the owner still reads what was typed."""
+    token = re.sub(r"(?i)^h(tt)(ps?)(?=:)", lambda m: m.group(0)[0] + "xx" + m.group(2), token)
+    return token.replace(".", "[.]")
+
+
+def defang_links(text: str | None) -> str | None:
+    """A guest's text as it is SHOWN: every link-like token kept as plain
+    text with its dots defanged ("example[.]com", "hxxps://…"). The stored
+    value is never changed — call this only on the way to an e-mail or a
+    screen. Text with no link comes back exactly as given (line breaks
+    included); e-mail addresses ("anna@cafe.dk") are never touched. When a
+    link is found the text is shown NFKC-folded (full-width letters, look-
+    alike dots), so a disguised link is defanged too."""
+    if not text:
+        return text
+    norm = _normalise(text)
+    out, n1 = _SCHEME_RE.subn(lambda m: _defang_token(m.group(0)), norm)
+    masked, kept = _mask_emails(out)
+    masked, n2 = _defang_hosts(masked)
+    if not (n1 or n2):
+        return text
+    return _unmask(masked, kept)
