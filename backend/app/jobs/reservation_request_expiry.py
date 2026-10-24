@@ -57,7 +57,9 @@ EXPIRE_BEFORE_START_HOURS = 6
 def expire_stale_requests(db: Session | None = None) -> dict:
     """Decline requests the owner never answered, and tell the guest.
 
-    Runs nightly. Never raises — a failure here must not take the rest of
+    Runs every hour (main.py) and in the nightly maintenance — every hour so
+    "six hours before the sitting" is true for an evening request made the
+    same day; idempotent, it only touches rows still "requested". Never raises — a failure here must not take the rest of
     maintenance down with it.
     """
     own_session = db is None
@@ -79,6 +81,7 @@ def expire_stale_requests(db: Session | None = None) -> dict:
             )
             .all()
         )
+        from app.services import reservation_occupancy_service as occ_service
         for r in rows:
             r.status = "cancelled"
             r.cancelled_at = utc_now()
@@ -86,13 +89,28 @@ def expire_stale_requests(db: Session | None = None) -> dict:
             # a year later this row should still say plainly that nobody
             # answered, not imply the guest changed their mind.
             r.cancel_reason = "request_expired_no_answer"
+            # A request holds no table — but if anything ever gave one an
+            # occupancy row (an owner who assigned a table and never
+            # confirmed, a backfill), a declined request must free it: the
+            # status alone does not (review P9: an expired request kept its
+            # table for the sitting).
+            occ_service.release_occupancy(db, r.id)
             expired += 1
         if expired:
             db.commit()
 
+        # A booking the booking screen HELD hears only if we already mailed
+        # its address about it: a bot's typed address must not get the
+        # "we couldn't take it" mail it never asked for (R1 fix round).
+        held_ids = _held_ids(db, rows)
+
         # Mail AFTER the commit: the decision is durable first, and a mail
         # failure must never leave a row half-expired.
         for r in rows:
+            if str(r.id) in held_ids:
+                from app.services import reservation_emails
+                if not reservation_emails.guest_heard_from_us(db, r):
+                    continue
             if _tell_the_guest(db, r):
                 notified += 1
         if rows:
@@ -109,6 +127,20 @@ def expire_stale_requests(db: Session | None = None) -> dict:
             db.close()
 
     return {"requests_expired": expired, "guests_notified": notified}
+
+
+def _held_ids(db: Session, rows) -> set:
+    """Ids among `rows` that the booking screen held. One audit query per
+    venue; a read error answers "none" (the per-address cap still holds)."""
+    from app.services import booking_screen
+    by_owner: dict = {}
+    for r in rows:
+        if r.source == "public":
+            by_owner.setdefault(r.user_id, []).append(r.id)
+    out: set = set()
+    for owner_id, ids in by_owner.items():
+        out.update(booking_screen.held_info(db, owner_id, ids).keys())
+    return out
 
 
 def _tell_the_guest(db: Session, r: Reservation) -> bool:

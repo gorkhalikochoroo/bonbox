@@ -419,16 +419,24 @@ class Settings(BaseSettings):
     GUEST_EMAILS_FLEET_PER_DAY: int = 40
     # Anonymous online bookings (services/booking_screen.py). Over a ceiling a
     # booking is HELD as a request the owner approves — a real guest is never
-    # refused, a bot's flood holds no table. The group-request ceiling refuses
-    # (409 requests_full): a request already waits for the owner.
+    # refused, a bot's flood holds no table. The venue ceilings count only the
+    # online bookings that PASSED the screen, so held bots never push real
+    # guests into "held" (R1 fix round, 24 Oct 2026).
     BOOKING_MIN_FILL_MS: int = 2000             # faster form fill → held
-    BOOKING_GROUP_REQUESTS_PER_DAY: int = 10    # per venue, rolling 24 h
+    BOOKING_GROUP_REQUESTS_PER_DAY: int = 10    # real group requests a day; over it → held, never refused
+    BOOKING_GROUP_FLOOR: int = 6                # a "real group" is at least max(threshold, this)
     BOOKING_CONTACT_ACTIVE_MAX: int = 3         # active future bookings per guest
-    BOOKING_VENUE_HOUR_MIN: int = 6             # floor of max(6, tables/chairs)
-    BOOKING_VENUE_DAY_MIN: int = 24             # floor of max(24, 4 × tables)
+    BOOKING_VENUE_HOUR_MIN: int = 3             # floor of max(3, half the tables/chairs) an hour
+    BOOKING_VENUE_DAY_MIN: int = 24             # floor of max(24, 4 × tables) a day
+    BOOKING_SITTING_MIN: int = 2                # floor of max(2, half the tables) online at one sitting
+    # A HELD booking's "request received" mail to the typed address: at most
+    # this many per venue an hour and a day (a bot's address gets none; the
+    # guest page shows the receipt either way).
+    BOOKING_HELD_GUEST_MAILS_PER_HOUR: int = 3
+    BOOKING_HELD_GUEST_MAILS_PER_DAY: int = 10
     # Pings to the OWNER about online bookings and cancellations
-    # (services/owner_booking_alerts.py): this many an hour, then one summary,
-    # and never more than the day ceiling in a rolling 24 h.
+    # (services/owner_booking_alerts.py): this many an hour, then one summary
+    # an hour; the day ceiling stops only the single pings, never the summary.
     OWNER_BOOKING_PINGS_PER_HOUR: int = 3
     OWNER_BOOKING_PINGS_PER_DAY: int = 20
     # Wrong staff join / stand pairing codes from all addresses together:

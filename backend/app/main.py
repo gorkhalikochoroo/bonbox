@@ -6453,6 +6453,30 @@ try:
         name="Abuse ceilings monitor",
         replace_existing=True,
     )
+    # Online-booking door (R1 fix round, 24 Oct 2026). Every 10 min: the
+    # owner's hourly summary for a venue with a ping held back (a booking
+    # over the budget, or one the booking screen held as bot-likely) once
+    # the last summary is an hour old — so a held-back booking is never left
+    # unsaid when nothing arrives after it. Every hour: the request expiry,
+    # so "six hours before the sitting" holds for a request made the same
+    # day (the nightly run alone declined a held 19:00 request only after
+    # its sitting). Both idempotent and fail-soft.
+    from app.services.owner_booking_alerts import flush_digests as _flush_owner_digests
+    from app.jobs.reservation_request_expiry import expire_stale_requests as _expire_requests
+    _scheduler.add_job(
+        _flush_owner_digests,
+        trigger=IntervalTrigger(minutes=10),
+        id="owner_booking_digest",
+        name="Owner hourly summary of held-back booking pings",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        _expire_requests,
+        trigger=IntervalTrigger(hours=1),
+        id="reservation_request_expiry",
+        name="Decline unanswered booking requests 6 h before the sitting",
+        replace_existing=True,
+    )
     # Public-surface quality monitor — flags SILENT booking-page defects (a page
     # dead for 14 days, an app-default title) the crash monitor can't see. Every
     # 15 min (higher per-slug cost than the frontend monitor). Fail-soft,
@@ -6514,7 +6538,8 @@ try:
           "recurring expenses (04:00), daily brief push (06:00), daily brief email (06:30), "
           "aiia sync (03:30), mobilepay sync (03:45), frontend monitor (5m), "
           "nightly backup (04:20 UTC, off unless BACKUP_* set), abuse monitor (2m), "
-          "revisor packages (hourly :20), daily brief precompute (04:05-07:05 UTC hourly)")
+          "revisor packages (hourly :20), daily brief precompute (04:05-07:05 UTC hourly), "
+          "owner booking digest (10m), request expiry (1h)")
 
     # Scheduler shutdown migrated to the `lifespan` context manager
     # near the FastAPI() constructor. It checks globals() for the

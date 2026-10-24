@@ -548,8 +548,70 @@ def list_changes(
         str(res.id): res.label
         for res in db.query(BookableResource).filter(BookableResource.user_id == user.id).all()
     }
-    changes = [_reservation_change_dict(r, label_by_id, cutoff) for r in rows]
+    from app.services import booking_screen
+    held = booking_screen.held_info(
+        db, user.id, [r.id for r in rows if r.status == "requested" and r.source == "public"])
+    # When the owner APPROVES a held booking with a severe allergy, THAT is
+    # when it reaches the kitchen: the stand gets the severe alert then (the
+    # 14 Jun rule, unchanged for every booking that is real).
+    approved = {c["id"]: c for c in _approved_severe_changes(db, user, cutoff, label_by_id)}
+    changes = []
+    for r in rows:
+        if str(r.id) in approved:
+            continue                       # said once, as the approval below
+        c = _reservation_change_dict(r, label_by_id, cutoff)
+        # Held by the booking screen (R1): the stand folds these into one
+        # quiet "N til tjek" — a bot's "severe allergy" must not set off the
+        # urgent beep and a sticky red toast on every poll during service.
+        c["held"] = str(r.id) in held
+        changes.append(c)
+    changes.extend(approved.values())
     return {"server_time": server_time, "changes": changes}
+
+
+def _approved_severe_changes(db: Session, user: User, cutoff: datetime, label_by_id: dict) -> list:
+    """Held online bookings with a SEVERE allergy that the owner approved
+    after `cutoff` — kind "approved", for the stand's severe alert. One
+    audit query on (user_id, created_at); fail-soft (none)."""
+    try:
+        from app.models.audit_log import AuditLog
+        from app.services import booking_screen
+        ids = [eid for (eid,) in (
+            db.query(AuditLog.entity_id)
+            .filter(AuditLog.user_id == user.id,
+                    AuditLog.created_at > cutoff,
+                    AuditLog.action == "reservation.confirmed")
+            .limit(50)
+            .all()
+        ) if eid]
+        if not ids:
+            return []
+        rows = (
+            db.query(Reservation)
+            .filter(Reservation.user_id == user.id, Reservation.id.in_(ids),
+                    Reservation.is_deleted.is_(False), Reservation.source == "public",
+                    Reservation.status == "confirmed",
+                    Reservation.allergy_severity == "severe")
+            .all()
+        )
+        if not rows:
+            return []
+        held = booking_screen.held_info(db, user.id, [r.id for r in rows])
+        out = []
+        for r in rows:
+            if str(r.id) not in held:
+                continue
+            c = _reservation_change_dict(r, label_by_id, cutoff)
+            c["kind"] = "approved"
+            c["held"] = False
+            out.append(c)
+        return out
+    except Exception:  # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return []
 
 
 # ─── settings ────────────────────────────────────────────────────────
@@ -1796,12 +1858,33 @@ def reservation_book(
         .filter(BookableResource.user_id == user.id)
         .all()
     }
+    held = _held_for_rows(db, user, rows)
+    absent = _absent_providers(db, user, rows, target)
     dicts = []
     for r in rows:
         d = _reservation_dict(r)
         ids = d.get("combined_resource_ids")
         if ids:
             d["combined_resource_labels"] = [label_by_id.get(i, i) for i in ids]
+        h = held.get(str(r.id))
+        if h is not None:
+            # Held by the booking screen (R1): why, and the table(s) or the
+            # stylist it was booked for — it holds none of them until the
+            # owner approves. `quiet`: bot-likely, no ping of its own.
+            from app.services import booking_screen
+            d["held"] = {
+                "reason": h.get("reason"),
+                "quiet": h.get("reason") in booking_screen.SUMMARY_ONLY,
+                "wanted": [label_by_id.get(i, i) for i in h.get("resource_ids") or []],
+                "pinned": bool(h.get("pinned")),
+            }
+        # Did the guest get an e-mail from us about this booking? The owner's
+        # decline of a held booking says whether the guest will hear.
+        d["guest_mailed"] = r.confirmation_sent_at is not None
+        if str(r.resource_id or "") in absent:
+            # The stylist is on Ferie / Syg that day (Vagtplan) — the booking
+            # was made before; the owner has to move or call it.
+            d["provider_absent"] = True
         dicts.append(d)
 
     return {
@@ -1809,6 +1892,44 @@ def reservation_book(
         "reservations": dicts,
         "summary": {"total": len(rows), "covers": covers, "by_status": by_status},
     }
+
+
+def _held_for_rows(db: Session, user: User, rows) -> dict:
+    """booking_screen.held_info for the book's open online requests."""
+    ids = [r.id for r in rows if r.status == "requested" and r.source == "public"]
+    if not ids:
+        return {}
+    from app.services import booking_screen
+    return booking_screen.held_info(db, user.id, ids)
+
+
+def _absent_providers(db: Session, user: User, rows, day: date) -> set:
+    """{str(resource_id)} of the day's stylist chairs whose stylist has a
+    blocking absence (Ferie, Syg …) that day. Fail-soft: a read error flags
+    nothing."""
+    try:
+        rids = {r.resource_id for r in rows
+                if r.resource_id and r.status in ("requested", "confirmed")}
+        if not rids:
+            return set()
+        chairs = (
+            db.query(BookableResource.id, BookableResource.staff_id)
+            .filter(BookableResource.user_id == user.id,
+                    BookableResource.id.in_(list(rids)),
+                    BookableResource.kind == "provider",
+                    BookableResource.staff_id.isnot(None))
+            .all()
+        )
+        if not chairs:
+            return set()
+        away = rsvc._absent(db, user.id, [sid for _, sid in chairs], day, day)
+        return {str(rid) for rid, sid in chairs if (str(sid), day) in away}
+    except Exception:  # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return set()
 
 
 @router.get("/search")
@@ -2831,6 +2952,78 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
     return out
 
 
+def _held_pick_free(db: Session, user: User, ids: list, start, end, exclude_id) -> bool:
+    """Are these tables/chairs all still active and free for [start, end)?
+    Read from occupancy — the source the exclusion constraint guards."""
+    if not ids:
+        return False
+    try:
+        uids = [UUID(str(x)) for x in ids]
+    except (TypeError, ValueError):
+        return False
+    active = (
+        db.query(func.count(BookableResource.id))
+        .filter(BookableResource.user_id == user.id, BookableResource.id.in_(uids),
+                BookableResource.is_active.is_(True), BookableResource.is_deleted.is_(False))
+        .scalar() or 0
+    )
+    if int(active) != len(set(uids)):
+        return False
+    clash = (
+        db.query(ReservationOccupancy.id)
+        .filter(
+            ReservationOccupancy.user_id == user.id,
+            ReservationOccupancy.resource_id.in_(uids),
+            ReservationOccupancy.reservation_id != exclude_id,
+            ReservationOccupancy.active.is_(True),
+            ReservationOccupancy.starts_at < end,
+            ReservationOccupancy.ends_at > start,
+        )
+        .first()
+    )
+    return clash is None
+
+
+def _assign_held_on_approval(db: Session, user: User, r: Reservation, held: dict) -> None:
+    """A HELD online booking holds no table or chair (booking_screen). When
+    the owner approves it, give it one: the pick the engine made when the
+    guest booked, if still free; else a fresh pick — except a stylist the
+    guest CHOSE, who is never swapped for another (409 stylist_unavailable).
+    Nothing free → 409 slot_unavailable; the owner can open the booking and
+    place it by hand. Sets resource_id / combined_resource_ids; the caller's
+    occupancy step then holds every table of the set."""
+    from app.services import booking_screen  # noqa: F401 — the held contract
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    pick = [x for x in (held.get("resource_ids") or []) if x]
+    duration = int(r.duration_min or 90)
+    start = r.starts_at
+    end = r.ends_at or (start + timedelta(minutes=duration))
+    is_appt = bool(r.service_name)
+    ids = None
+    if pick and is_appt and len(pick) == 1:
+        # A chair: still in a shift, not on Ferie, and free (the same check
+        # the guest's own booking passed).
+        if rsvc.recheck_provider_slot(db, profile=profile, user_id=user.id,
+                                      resource_id=pick[0], start=start,
+                                      duration_min=duration, now=None):
+            ids = pick
+    elif pick and _held_pick_free(db, user, pick, start, end, r.id):
+        ids = pick
+    if ids is None:
+        if held.get("pinned"):
+            raise HTTPException(status_code=409, detail={"error": "stylist_unavailable", "held": True})
+        if profile is not None:
+            ids = rsvc.recheck_and_assign_combo(
+                db, profile=profile, user_id=user.id, start=start,
+                party_size=1 if is_appt else int(r.party_size or 1), now=None,
+                duration_min=duration, owner_booking=True,
+            )
+    if not ids:
+        raise HTTPException(status_code=409, detail={"error": "slot_unavailable", "held": True})
+    r.resource_id = UUID(str(ids[0]))
+    r.combined_resource_ids = [str(x) for x in ids] if len(ids) > 1 else None
+
+
 @router.patch("/reservations/{reservation_id}/status")
 def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                   background_tasks: BackgroundTasks,
@@ -2847,6 +3040,17 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
 
     prev_status = r.status
     prev_resource_id = r.resource_id
+    # A booking the booking screen HELD (it waits on no table) — approving it
+    # gives it the table or chair it was booked for; declining it mails only a
+    # guest we already mailed about it (booking_screen / R1 fix round).
+    held = None
+    if prev_status == "requested" and r.source == "public":
+        from app.services import booking_screen
+        held = booking_screen.held_info(db, user.id, [r.id]).get(str(r.id))
+    if (held is not None and payload.status in ("confirmed", "seated")
+            and payload.resource_id is None and r.resource_id is None
+            and not r.combined_resource_ids):
+        _assign_held_on_approval(db, user, r, held)
     # Seating (or reopening) onto a table someone is still sitting at: refuse,
     # and say who — before anything on this booking changes.
     if payload.status == "seated" and prev_status != "seated":
@@ -3032,9 +3236,13 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                 background_tasks, user, r, "request_confirmed", db=db,
                 prev_status=prev_status)
         elif payload.status == "cancelled" and prev_status in ("requested", "confirmed"):
-            guest_mail_skipped = _queue_guest_email(
-                background_tasks, user, r, "cancelled_by_venue", db=db,
-                prev_status=prev_status)
+            # A HELD booking's typed address hears only if it already heard
+            # from us about this booking (its "request received" mail): the
+            # decline must not mail every stranger a bot typed in.
+            if held is None or reservation_emails.guest_heard_from_us(db, r):
+                guest_mail_skipped = _queue_guest_email(
+                    background_tasks, user, r, "cancelled_by_venue", db=db,
+                    prev_status=prev_status)
 
     out = _reservation_dict(r)
     if guest_mail_skipped:

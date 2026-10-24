@@ -47,6 +47,7 @@ from app.services import owner_booking_alerts
 from app.services import reservation_emails
 from app.services import venue_identity
 from app.services import reservation_occupancy_service as occ_service
+from app.services.venue_lock import venue_lock
 from app.services.allergens import allergen_set_for, collects_allergies, sanitize_severity, sanitize_tags
 from app.services.billing import at_cap, has_feature
 from app.services.logo_service import logo_signed_url
@@ -72,6 +73,9 @@ def _now_local() -> datetime:
 # Shape checks for guest contact. Deliberately permissive: a booking form
 # is not a signup, and a tourist's +44 number must go through. They exist
 # to catch a typo before it becomes a confirmation nobody receives.
+# The longest form_ms the server keeps (a day); larger is clamped to it.
+FORM_MS_MAX = 86_400_000
+
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$")
 _PHONE_RE = re.compile(r"^\+?[0-9 ()\-./]{6,40}$")
 
@@ -158,7 +162,7 @@ class PublicReservationCreate(BaseModel):
     # two seconds (or sent by a client that does not say) is held as a
     # request the owner approves, never refused.
     website: str = Field(default="", max_length=200)
-    form_ms: int | None = Field(default=None, ge=0, le=86_400_000)
+    form_ms: int | None = None
 
     @field_validator("lang", mode="before")
     @classmethod
@@ -169,6 +173,22 @@ class PublicReservationCreate(BaseModel):
     @classmethod
     def _clean_website(cls, v):
         return v if isinstance(v, str) else ""
+
+    @field_validator("form_ms", mode="before")
+    @classmethod
+    def _clamp_form_ms(cls, v):
+        """Clamped, never refused: a page left open overnight (a desktop tab,
+        the embed on the owner's site, a booking iPad at the door) sends a
+        huge value, and a 422 there was a booking the guest could not make
+        until they reloaded. Junk reads as "not said" (the screen holds it),
+        a negative as 0, anything over a day as a day."""
+        if v is None or isinstance(v, bool):
+            return None
+        try:
+            n = int(float(v))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return max(0, min(n, FORM_MS_MAX))
 
 
 def _resolve_owner(db: Session, slug: str) -> tuple[BusinessProfile, User]:
@@ -806,7 +826,8 @@ def _load_for_notify(db: Session, reservation_id: str, owner_id: str):
     return r, owner, profile
 
 
-def _send_booking_notifications(reservation_id: str, owner_id: str) -> None:
+def _send_booking_notifications(reservation_id: str, owner_id: str,
+                                hold_reason: str | None = None) -> None:
     """Run the post-booking notifications (guest confirmation email, owner push,
     owner email) OFF the request path, on a FRESH DB session.
 
@@ -820,26 +841,54 @@ def _send_booking_notifications(reservation_id: str, owner_id: str) -> None:
     the guest's response — the booking commits and returns in milliseconds, and
     this runs after. Each send is individually best-effort; one failing never
     affects the booking or the others. Committed after each step so a later
-    failure cannot roll back an earlier send's stamp or log row."""
+    failure cannot roll back an earlier send's stamp or log row.
+
+    `hold_reason` — the booking screen HELD it (booking_screen):
+      • NO_GUEST_MAIL reasons (a bot's form): no "request received" mail to
+        the typed address — the guest page already showed the receipt;
+      • other held bookings: the mail, within the venue's small held-mail
+        budget (owner_booking_alerts.claim_held_guest_mail);
+      • SUMMARY_ONLY reasons: no owner ping of its own — logged as held back,
+        and the hourly summary ("3 venter på dit svar") tells the owner."""
     db = SessionLocal()
     try:
         r, owner, profile = _load_for_notify(db, reservation_id, owner_id)
         if r is None or owner is None or profile is None:
             return
-        _send_confirmation(owner, profile, r, db)       # guest email (+ stamp on delivery)
+        # 1. The guest.
+        if hold_reason is None:
+            _send_confirmation(owner, profile, r, db)       # guest email (+ stamp on delivery)
+        elif hold_reason in booking_screen.NO_GUEST_MAIL:
+            reservation_emails._log(db, owner_id=owner.id, reservation_id=r.id,
+                                    event_type=reservation_emails.GUEST_CONFIRMATION,
+                                    status="failed", error="held_no_mail")
+        elif owner_booking_alerts.claim_held_guest_mail(db, owner.id, now_utc=utc_now()):
+            _send_confirmation(owner, profile, r, db)
+        else:
+            reservation_emails._log(db, owner_id=owner.id, reservation_id=r.id,
+                                    event_type=reservation_emails.GUEST_CONFIRMATION,
+                                    status="failed", error="held_mail_capped")
         db.commit()
-        # The owner's ping budget (owner_booking_alerts): a few an hour, then
-        # one summary — a flood of online bookings never floods the phone.
-        decision = owner_booking_alerts.decide(db, owner.id, now_utc=utc_now())
-        if decision == "send":
+        # 2. The owner — the ping budget (owner_booking_alerts): a few an hour,
+        #    then one summary an hour; a flood never floods the phone.
+        if hold_reason in booking_screen.SUMMARY_ONLY:
+            owner_booking_alerts.log_suppressed(
+                db, owner.id, "reservation_created", why=owner_booking_alerts.HELD_FOR_SUMMARY)
+            return
+        ping = owner_booking_alerts.decide(db, owner.id, now_utc=utc_now(),
+                                           event="reservation_created")
+        if ping.decision == "send":
             try:
                 from app.services.notification_service import notify_owner_new_reservation
                 notify_owner_new_reservation(db, owner, r)  # owner device push
             except Exception as exc:  # noqa: BLE001
                 logger.warning("owner reservation notify failed: %s", exc)
             _notify_owner_email(owner, profile, r, db)       # owner email
-        elif not (decision == "burst" and _send_owner_burst(db, owner, profile, r)):
-            # Over the budget (or a summary with nothing to count): held back.
+        elif ping.decision == "burst":
+            owner_booking_alerts.send_summary(db, owner, profile, ping,
+                                              today=_now_local().date().isoformat())
+        else:
+            # Over the budget: held back; the next summary counts it.
             owner_booking_alerts.log_suppressed(db, owner.id, "reservation_created")
         db.commit()
     except Exception:  # noqa: BLE001 — never let a notification break anything
@@ -847,32 +896,6 @@ def _send_booking_notifications(reservation_id: str, owner_id: str) -> None:
         db.rollback()
     finally:
         db.close()
-
-
-def _send_owner_burst(db: Session, owner: User, profile, r: Reservation) -> bool:
-    """The one summary (push + e-mail) for a burst of online bookings: the
-    public bookings made in the last hour. False — and nothing sent — when
-    there were none (a burst of cancellations alone is not "many new
-    bookings"; it is held back like any ping over the budget)."""
-    try:
-        n = booking_screen.public_rows_since(db, owner.id, utc_now() - timedelta(hours=1))
-    except Exception:  # noqa: BLE001
-        logger.warning("burst count failed", exc_info=True)
-        n = 0
-    if n <= 0:
-        return False
-    today = _now_local().date().isoformat()
-    try:
-        from app.services.notification_service import notify_owner_booking_burst
-        notify_owner_booking_burst(db, owner, n, today=today)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("owner burst push failed: %s", exc)
-    try:
-        reservation_emails.send_owner_booking_burst(
-            db, owner, profile, n, reservation_id=r.id, today=today)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("owner burst email failed: %s", type(exc).__name__)
-    return True
 
 
 def _send_guest_cancel_notifications(reservation_id: str, owner_id: str,
@@ -898,10 +921,14 @@ def _send_guest_cancel_notifications(reservation_id: str, owner_id: str,
         db.commit()
 
         # The owner's ping budget, shared with new bookings: a few an hour,
-        # then one summary, then nothing until the hour turns.
-        decision = owner_booking_alerts.decide(db, owner.id, now_utc=utc_now())
-        if decision != "send":
-            if not (decision == "burst" and _send_owner_burst(db, owner, profile, r)):
+        # then one summary an hour, then nothing until the hour turns.
+        ping = owner_booking_alerts.decide(db, owner.id, now_utc=utc_now(),
+                                           event="reservation_cancelled")
+        if ping.decision != "send":
+            if ping.decision == "burst":
+                owner_booking_alerts.send_summary(db, owner, profile, ping,
+                                                  today=_now_local().date().isoformat())
+            else:
                 owner_booking_alerts.log_suppressed(db, owner.id, "reservation_cancelled")
             db.commit()
             return
@@ -970,8 +997,10 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
     the table path.
 
     `hold_reason` (booking_screen said "hold"): the chair is resolved exactly
-    as above, but the booking is stored as a REQUEST on it with no occupancy
-    — it holds nothing until the owner approves it."""
+    as above, but the booking is stored as a REQUEST on NO chair — it holds
+    nothing until the owner approves it. The chair (and whether the guest
+    chose that stylist) goes on the held_public audit row; approving assigns
+    it (reservations.update_status)."""
     duration = rsvc.resolve_behandling_duration(db, owner.id, payload.behandling_id)
     service_name = None
     if payload.behandling_id:
@@ -1033,8 +1062,9 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
     from app.services.reservation_ai import apply_ai_signals
     apply_ai_signals(r, btype)
     if hold_reason:
-        # Held for the owner's OK: on the chosen chair, holding nothing.
-        r.resource_id = resource_ids[0]
+        # Held for the owner's OK: no chair, no occupancy — a request like a
+        # group request, so nothing (the boot backfill, an owner edit)
+        # mistakes it for a hold. The chosen chair waits on the audit row.
         db.add(r)
         db.flush()
     else:
@@ -1052,16 +1082,18 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
 
     audit_service.record(db, owner, "reservation.created_public", "reservation", r.id)
     if hold_reason:
-        audit_service.record(db, owner, "reservation.held_public", "reservation", r.id,
-                             after={"reason": hold_reason})
+        audit_service.record(db, owner, booking_screen.HELD_ACTION, "reservation", r.id,
+                             after=booking_screen.held_after(
+                                 hold_reason, resource_ids, pinned=bool(payload.stylist_id)))
     db.commit()
     # Same post-commit notifications as the table path, OFF the request path
     # (guest confirmation + owner push + owner email). They used to run inline
     # here, holding the guest's response for every provider round trip.
     if background_tasks is not None:
-        background_tasks.add_task(_send_booking_notifications, str(r.id), str(owner.id))
+        background_tasks.add_task(_send_booking_notifications, str(r.id), str(owner.id),
+                                  hold_reason)
     else:  # direct callers without a request — still best-effort, never raises
-        _send_booking_notifications(str(r.id), str(owner.id))
+        _send_booking_notifications(str(r.id), str(owner.id), hold_reason)
     return {"id": str(r.id), "status": r.status, "booking_token": _receipt_token(r)}
 
 
@@ -1128,30 +1160,65 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     salon = bool(payload.behandling_id or payload.stylist_id)
     is_request = (not salon) and rsvc.is_group_request(settings, payload.party_size)
 
+    # One anonymous create at a time per venue, from the screen's counts to
+    # the booking's commit (services/venue_lock.py): twelve posts at the same
+    # instant all read "under the ceiling" and all went through (security
+    # review, atk_b_race). Only fast database work happens under it.
+    with venue_lock(db, f"bb-create:{owner.id}"):
+        return _screen_and_book(
+            db, background_tasks, owner=owner, profile=profile, payload=payload,
+            start=start, settings=settings, idempotency_key=idempotency_key,
+            salon=salon, is_request=is_request,
+        )
+
+
+# Column lengths a guest-typed text must fit after "[link]" replaced a link
+# ("a.io" → "[link]" grows the text): Postgres refuses an over-long VARCHAR
+# (an anonymous 500), SQLite never notices (review P1).
+_GUEST_NAME_MAX = Reservation.__table__.c.guest_name.type.length or 160
+_OCCASION_MAX = Reservation.__table__.c.occasion.type.length or 60
+_FREE_TEXT_MAX = 2000
+
+
+def _fit(text: str | None, n: int) -> str | None:
+    return text[:n].rstrip() if text and len(text) > n else text
+
+
+def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: User,
+                     profile: BusinessProfile, payload, start: datetime, settings: dict,
+                     idempotency_key, salon: bool, is_request: bool):
+    """The screen and the write, under the venue lock (create_reservation)."""
+    try:
+        sitting_min = (rsvc.resolve_behandling_duration(db, owner.id, payload.behandling_id)
+                       if salon else rsvc.resolve_duration(profile, payload.party_size))
+    except Exception:  # noqa: BLE001 — the sitting rule just skips
+        sitting_min = None
+
     # Guest-invisible screening (services/booking_screen.py), on the text as
     # it was typed (a link in the name is one of its signals).
     screen = booking_screen.screen_public_booking(
         db, owner=owner, settings=settings, payload=payload, is_request=is_request,
         n_resources=_bookable_count(db, owner.id), now_utc=utc_now(),
-        now_local=_now_local(),
+        now_local=_now_local(), start=start, duration_min=sitting_min,
     )
     if screen.action == "drop":
-        # The trap field was filled: a bot. No row, no message, no hint.
+        # The trap field, filled at bot speed. No row, no message — and never
+        # a "confirmed" for a booking that does not exist: the page says
+        # "request received" at most.
         audit_service.record(db, owner, "reservation.public_dropped", "business_profile",
                              profile.id, after={"reason": screen.reason})
         db.commit()
         abuse_signals.bump("booking_honeypot")
-        return {"id": str(uuid4()), "status": "confirmed", "booking_token": ""}
-    if screen.action == "refuse":
-        raise HTTPException(status_code=409, detail={"error": screen.error})
+        return {"id": str(uuid4()), "status": "requested", "booking_token": ""}
     hold_reason = screen.reason if screen.action == "hold" else None
 
     # No link reaches the owner's e-mail or the host stand as text a mail
-    # client turns into an anchor: names and notes keep "[link]" instead.
-    payload.guest_name = strip_links(payload.guest_name) or payload.guest_name
-    payload.guest_notes = strip_links(payload.guest_notes)
-    payload.allergy_note = strip_links(payload.allergy_note)
-    payload.occasion = strip_links(payload.occasion)
+    # client turns into an anchor: names and notes keep "[link]" instead —
+    # cut back to the column, which "[link]" can outgrow.
+    payload.guest_name = _fit(strip_links(payload.guest_name) or payload.guest_name, _GUEST_NAME_MAX)
+    payload.guest_notes = _fit(strip_links(payload.guest_notes), _FREE_TEXT_MAX)
+    payload.allergy_note = _fit(strip_links(payload.allergy_note), _FREE_TEXT_MAX)
+    payload.occasion = _fit(strip_links(payload.occasion), _OCCASION_MAX)
 
     # Salon appointment (S3a) — a behandling and/or a pinned stylist routes to
     # the provider path, handled separately so the table booking flow below is
@@ -1202,9 +1269,15 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
                 resource_ids = [payload.resource_id]
 
     btype = getattr(owner, "business_type", None) or "restaurant"
+    # A HELD booking is a request on NO table (resource_id NULL — the model's
+    # "a request is pending, no hold yet"): the boot backfill of occupancy,
+    # the owner's edit and the book's table lanes all read a table on a
+    # request as a HOLD (review blocker, 24 Oct). The engine's pick waits on
+    # the held_public audit row and is assigned when the owner approves.
+    holds_table = bool(resource_ids) and not (is_request or hold_reason)
     r = Reservation(
         user_id=owner.id,
-        resource_id=(resource_ids[0] if resource_ids else None),
+        resource_id=(resource_ids[0] if holds_table else None),
         guest_name=payload.guest_name, guest_email=payload.guest_email,
         guest_phone=payload.guest_phone,
         guest_consent_marketing=payload.consent_marketing,
@@ -1229,13 +1302,10 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     from app.services.reservation_ai import apply_ai_signals
     apply_ai_signals(r, btype)
 
-    if is_request or hold_reason:
-        # Group request — does NOT hold a table (no occupancy row) until the
-        # owner approves (→ confirmed assigns + occupies). Plain insert.
-        # A HELD booking (booking_screen) is the same: a request on the table
-        # set the engine picked, holding nothing until the owner says yes.
-        if hold_reason and resource_ids:
-            r.combined_resource_ids = list(resource_ids) if len(resource_ids) > 1 else None
+    if not holds_table:
+        # Group request, or a HELD booking — does NOT hold a table (no
+        # occupancy row) until the owner approves (→ confirmed assigns +
+        # occupies). Plain insert.
         db.add(r)
         db.flush()
         db.commit()
@@ -1259,14 +1329,14 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     # request path so the booking's audit trail is guaranteed before we respond).
     audit_service.record(db, owner, "reservation.created_public", "reservation", r.id)
     if hold_reason:
-        audit_service.record(db, owner, "reservation.held_public", "reservation", r.id,
-                             after={"reason": hold_reason})
+        audit_service.record(db, owner, booking_screen.HELD_ACTION, "reservation", r.id,
+                             after=booking_screen.held_after(hold_reason, resource_ids))
     db.commit()
     # Notifications (guest confirmation email + owner push + owner email) run OFF
     # the request path on a fresh session, so a slow email/push provider no longer
     # holds the DB connection or delays the guest's response — the booking already
     # committed above. All best-effort inside the task.
-    background_tasks.add_task(_send_booking_notifications, str(r.id), str(owner.id))
+    background_tasks.add_task(_send_booking_notifications, str(r.id), str(owner.id), hold_reason)
     return {"id": str(r.id), "status": r.status, "booking_token": _receipt_token(r)}
 
 

@@ -981,21 +981,40 @@ def notify_owner_new_reservation(db: Session, owner, reservation, *, cancelled: 
     return result
 
 
-def notify_owner_booking_burst(db: Session, owner, n: int, *, today: str | None = None) -> dict:
+def summary_words(n: int, waiting: int, *, da: bool) -> tuple[str, str]:
+    """(title, body) of the owner's hourly summary — new online bookings and
+    the requests waiting for an answer. Shared by the push and the e-mail."""
+    n, waiting = max(0, int(n or 0)), max(0, int(waiting or 0))
+    if da:
+        title = "BonBox · Nye online-bookinger"
+        bits = []
+        if n:
+            bits.append(f"{n} nye")
+        if waiting:
+            bits.append(f"{waiting} venter på dit svar")
+        body_text = (" · ".join(bits) or "Ingen nye") + ". Se dem i bogen."
+    else:
+        title = "BonBox · New online bookings"
+        bits = []
+        if n:
+            bits.append(f"{n} new")
+        if waiting:
+            bits.append(f"{waiting} waiting for your answer")
+        body_text = (" · ".join(bits) or "Nothing new") + ". See them in your book."
+    return title, body_text
+
+
+def notify_owner_booking_burst(db: Session, owner, n: int, *, waiting: int = 0,
+                               today: str | None = None) -> dict:
     """ONE summary push instead of a buzz per booking, once the owner's hourly
-    ping budget is spent (services/owner_booking_alerts.py). Owner devices
-    only, the same tag every time (a newer summary replaces the older one on
-    the lock screen), no guest data. Writes one NotificationLog row
-    (event "owner_booking_burst"), which the budget counts. Never raises."""
+    ping budget is spent (services/owner_booking_alerts.py): the new online
+    bookings and the requests waiting for an answer. Owner devices only, the
+    same tag every time (a newer summary replaces the older one on the lock
+    screen), no guest data. Writes one NotificationLog row (event
+    "owner_booking_burst"). Never raises."""
     result = {"attempted": 0, "sent": 0}
     da = owner_lang(owner) == "da"
-    n = max(0, int(n or 0))
-    if da:
-        title = "BonBox · Mange nye online-bookinger"
-        body_text = f"{n} den seneste time. Resten ser du i bogen."
-    else:
-        title = "BonBox · Many new online bookings"
-        body_text = f"{n} in the last hour. See the rest in your book."
+    title, body_text = summary_words(n, waiting, da=da)
     url = "/reservations" + (f"?date={today}" if today else "")
     payload = {"title": title, "body": body_text, "tag": "bonbox-booking-burst",
                "data": {"url": url}}

@@ -777,34 +777,41 @@ def _owner_budget_footer(lang: str, *, appointment: bool = False) -> str:
         n = 3
     if lang == "da":
         where = "Tidsbestilling" if appointment else "Reservationer"
-        text = (f"Du får højst {n} af disse i timen. Slå e-mails om online-bookinger "
-                f"fra under {where} → Indstillinger.")
+        text = (f"Du får højst {n} af disse i timen, derefter én samlet besked i timen. "
+                f"Slå e-mails om online-bookinger fra under {where} → Indstillinger.")
     else:
         where = "Appointments" if appointment else "Reservations"
-        text = (f"You get at most {n} of these an hour. Turn off online-booking "
-                f"e-mails under {where} → Settings.")
+        text = (f"You get at most {n} of these an hour, then one summary an hour. "
+                f"Turn off online-booking e-mails under {where} → Settings.")
     return f'<p style="{_MUTED};margin-top:16px">{_e(text)}</p>'
 
 
-def render_owner_booking_burst(venue: Venue, lang: str, n: int, booking_url: str) -> tuple[str, str]:
-    """Many online bookings in an hour: ONE mail with the count and a link to
-    the book, instead of a mail per booking. No guest data. (`venue` is kept
-    for the shared signature; the mail goes to the owner, so it says "your
-    booking page".)"""
-    n = max(0, int(n or 0))
+def render_owner_booking_burst(venue: Venue, lang: str, n: int, booking_url: str,
+                               *, waiting: int = 0) -> tuple[str, str]:
+    """The owner's hourly summary: ONE mail with the new online bookings and
+    the requests waiting for an answer, and a link to the book — instead of a
+    mail per booking. No guest data. (`venue` is kept for the shared
+    signature; the mail goes to the owner, so it says "your booking page".)"""
+    from app.services.notification_service import summary_words
+    appointment = bool(getattr(venue, "appointment", False))
+    _title, body_text = summary_words(n, waiting, da=(lang == "da"))
+    counts = body_text.rsplit(". ", 1)[0]          # "12 nye · 3 venter på dit svar"
     if lang == "da":
-        subject = f"Mange nye online-bookinger ({n} den seneste time)"
-        line = (f"<p><strong>{n} nye online-bookinger den seneste time</strong> via "
-                "din bookingside. Resten ser du i bogen.</p>")
+        subject = f"Nye online-bookinger: {counts}"
+        line = f"<p><strong>{_e(counts)}</strong> via din bookingside.</p>"
+        if waiting:
+            line += ("<p>En booking, der venter på dit svar, holder ingen "
+                     + ("tid" if appointment else "bord") + ", før du bekræfter den.</p>")
         cta = "Åbn bogen"
     else:
-        subject = f"Many new online bookings ({n} in the last hour)"
-        line = (f"<p><strong>{n} new online bookings in the last hour</strong> via "
-                "your booking page. See the rest in your book.</p>")
+        subject = f"New online bookings: {counts}"
+        line = f"<p><strong>{_e(counts)}</strong> via your booking page.</p>"
+        if waiting:
+            line += ("<p>A booking waiting for your answer holds no "
+                     + ("time" if appointment else "table") + " until you confirm it.</p>")
         cta = "Open your book"
     body = line + _button(booking_url, cta)
-    return _subject(subject), _shell(lang, body, _owner_budget_footer(
-        lang, appointment=bool(getattr(venue, "appointment", False))))
+    return _subject(subject), _shell(lang, body, _owner_budget_footer(lang, appointment=appointment))
 
 
 def render_owner_new_booking(r, venue: Venue, lang: str, *, booking_url: str,
@@ -1407,10 +1414,11 @@ def send_owner_guest_cancelled(db: Session | None, owner, profile, r, *,
 
 
 def send_owner_booking_burst(db: Session | None, owner, profile, n: int, *,
-                             reservation_id, today: str | None = None) -> bool:
-    """The one summary mail for a burst of online bookings (see
-    owner_booking_alerts). `reservation_id` is the booking that tipped it —
-    the log row's ledger key; the mail itself names no booking."""
+                             reservation_id, waiting: int = 0,
+                             today: str | None = None) -> bool:
+    """The one summary mail an hour for online bookings (see
+    owner_booking_alerts). `reservation_id` is the log row's ledger key (a
+    fresh id for a summary); the mail itself names no booking."""
     to = (getattr(owner, "email", None) or "").strip()
     if not to:
         return False
@@ -1420,7 +1428,8 @@ def send_owner_booking_burst(db: Session | None, owner, profile, n: int, *,
         return False
     lang = owner_lang(owner)
     url = f"{app_config.FRONTEND_URL.rstrip('/')}/reservations" + (f"?date={today}" if today else "")
-    subject, html = render_owner_booking_burst(venue_context(owner, profile), lang, n, url)
+    subject, html = render_owner_booking_burst(venue_context(owner, profile), lang, n, url,
+                                               waiting=waiting)
     return deliver(db, owner_id=owner.id, reservation_id=reservation_id,
                    event_type=OWNER_BOOKING_BURST, to=to, subject=subject, html=html)
 

@@ -1,12 +1,16 @@
-"""R1 D6 — spam can't flood the owner's phone or inbox.
+"""R1 D6 — spam can't flood the owner's phone or inbox (fix round 24 Oct).
 
 Every online booking and guest cancellation pushed the owner AND e-mailed the
 owner, uncapped: 66 fake bookings were 66 pushes and 66 e-mails (spam audit
-(h)). Now (services/owner_booking_alerts.py) the owner gets at most 3 pings
-an hour, then ONE summary ("Mange nye online-bookinger · 7 den seneste time"),
-then nothing until the hour turns — and never more than 20 in 24 h. Guest
-cancellations share the budget. The owner can switch the e-mails off; push
-and the guest's own mails are unaffected.
+(h)). Now (services/owner_booking_alerts.py) the owner gets at most 3 single
+pings an hour, then ONE summary an hour ("Nye online-bookinger · 7 nye · 2
+venter på dit svar"), then nothing until the hour turns. The 20-a-day
+ceiling stops only the single pings — never the hourly summary: the review
+showed ~20 bot posts over five hours left the owner blind for the rest of the
+day while real guests were held (atk-n). A ping held back is summed up by the
+10-minute digest once the hour allows. Guest cancellations share the budget.
+The owner can switch the e-mails off; push and the guest's own mails are
+unaffected.
 
 Run: cd backend && python -m pytest tests/test_r1_owner_alert_budget.py -q
 """
@@ -51,6 +55,20 @@ def _mails(db, owner, event):
     return [x for x in logs(db, owner, channel="email") if x.event_type == event]
 
 
+def _spent(db, owner, event, *, at):
+    db.add(NotificationLog(id=uuid.uuid4(), user_id=owner.id, staff_id=None,
+                           channel=alerts.LEDGER_CHANNEL, event_type=event,
+                           status=alerts.SPENT, created_at=at))
+
+
+def _age_all(db, owner, minutes):
+    for row in db.query(NotificationLog).filter(NotificationLog.user_id == owner.id).all():
+        row.created_at = row.created_at - timedelta(minutes=minutes)
+    for row in db.query(Reservation).filter(Reservation.user_id == owner.id).all():
+        row.created_at = row.created_at - timedelta(minutes=minutes)
+    db.commit()
+
+
 def test_ten_bookings_in_ten_minutes_three_pings_one_summary(client, db, outbox):
     u, profile, _ = restaurant(db)
     for i in range(10):
@@ -64,14 +82,14 @@ def test_ten_bookings_in_ten_minutes_three_pings_one_summary(client, db, outbox)
     assert len(suppressed) == 6
     # The summary counts the online bookings of the last hour when it went
     # out — the 4th booking tipped it.
-    assert "4 den seneste time" in burst[0].body or "4 in the last hour" in burst[0].body
+    assert burst[0].body.startswith("4 nye") or burst[0].body.startswith("4 new")
     # E-mail follows the same budget: 3 booking mails + 1 summary.
     assert len(_mails(db, u, "owner_new_booking")) == 3
     assert len(_mails(db, u, "owner_booking_burst")) == 1
     owner_mail = [m for m in outbox if m["to"] == u.email]
     assert len(owner_mail) == 4
-    assert any("Mange nye online-bookinger (4" in m["subject"]
-               or "Many new online bookings (4" in m["subject"] for m in owner_mail)
+    assert any("online-bookinger: 4 nye" in m["subject"]
+               or "online bookings: 4 new" in m["subject"] for m in owner_mail)
     # Every guest still got their own confirmation.
     assert len(_mails(db, u, "guest_confirmation")) == 10
 
@@ -81,30 +99,71 @@ def test_the_budget_resets_after_the_hour(client, db, outbox):
     for i in range(5):
         r = _public_row(db, u, i)
         pubres._send_booking_notifications(str(r.id), str(u.id))
-    assert alerts.decide(db, u.id, now_utc=utc_now()) == "suppress"
-    # 61 minutes later the hour is over.
-    later = utc_now() + timedelta(minutes=61)
-    assert alerts.decide(db, u.id, now_utc=later) == "send"
-    # …and for real: age every log row by 61 minutes, then one more booking.
-    for row in db.query(NotificationLog).filter(NotificationLog.user_id == u.id).all():
-        row.created_at = row.created_at - timedelta(minutes=61)
-    db.commit()
+    assert alerts.decide(db, u.id, now_utc=utc_now()).decision == "suppress"
+    # …and for real: age every row by 61 minutes, then one more booking.
+    _age_all(db, u, 61)
     r = _public_row(db, u, 9)
     pubres._send_booking_notifications(str(r.id), str(u.id))
     assert len(_push(db, u, "reservation_created")) == 4
 
 
-def test_the_24h_ceiling(db):
+def test_the_24h_ceiling_stops_single_pings_never_the_hourly_summary(db):
     u, _p, _ = restaurant(db)
-    for i in range(20):        # 20 pings spread over the last day, none this hour
-        db.add(NotificationLog(id=uuid.uuid4(), user_id=u.id, staff_id=None, channel="push",
-                               event_type="reservation_created", status="failed",
-                               created_at=utc_now() - timedelta(hours=2, minutes=i * 30)))
+    for i in range(20):        # 20 single pings over the last day, none this hour
+        _spent(db, u, "reservation_created", at=utc_now() - timedelta(hours=2, minutes=i * 30))
     db.commit()
-    assert alerts.decide(db, u.id, now_utc=utc_now()) == "suppress"
-    db.query(NotificationLog).filter(NotificationLog.user_id == u.id).first().status = "suppressed"
-    db.commit()                # 19 counted pings: the hour is empty → send
-    assert alerts.decide(db, u.id, now_utc=utc_now()) == "send"
+    _public_row(db, u, 0)      # something to say
+    first = alerts.decide(db, u.id, now_utc=utc_now())
+    assert first.decision == "burst" and first.new == 1
+    # One summary an hour, not more.
+    assert alerts.decide(db, u.id, now_utc=utc_now()).decision == "suppress"
+    # An hour later, with a new booking to say: the next summary.
+    _public_row(db, u, 1, minutes_ago=-60)
+    later = alerts.decide(db, u.id, now_utc=utc_now() + timedelta(minutes=61))
+    assert later.decision == "burst" and later.new == 1
+
+
+def test_after_the_ceiling_a_real_booking_still_reaches_the_owner(client, db, outbox):
+    """atk-n: bots spent the day's 20 pings over five hours; then a real
+    guest booked. Before the fix: no push, no e-mail, for the rest of the
+    day. Now: the summary — and a second booking inside that hour reaches the
+    owner in the NEXT summary (the digest), even if nothing else arrives."""
+    u, profile, _ = restaurant(db)
+    for i in range(20):
+        _spent(db, u, "reservation_created", at=utc_now() - timedelta(hours=1, minutes=5 + i * 12))
+    db.commit()
+    real = _public_row(db, u, 1)
+    pubres._send_booking_notifications(str(real.id), str(u.id))
+    burst = _push(db, u, "owner_booking_burst")
+    assert len(burst) == 1
+    assert burst[0].body.startswith(("1 nye", "1 new"))
+    assert len(_mails(db, u, "owner_booking_burst")) == 1
+    second = _public_row(db, u, 2)
+    pubres._send_booking_notifications(str(second.id), str(u.id))
+    assert len(_push(db, u, "reservation_created", status="suppressed")) == 1
+    # The digest leaves it until the hour is up…
+    assert alerts.flush_digests(db, now_utc=utc_now())["owner_digests_sent"] == 0
+    # …then sums it up, with nothing else arriving in between.
+    out = alerts.flush_digests(db, now_utc=utc_now() + timedelta(minutes=62))
+    assert out["owner_digests_sent"] == 1
+    assert len(_push(db, u, "owner_booking_burst")) == 2
+    # Nothing new held back since: no third summary.
+    assert alerts.flush_digests(db, now_utc=utc_now() + timedelta(minutes=125))["owner_digests_sent"] == 0
+
+
+def test_the_summary_names_the_requests_waiting(db):
+    u, _p, _ = restaurant(db)
+    for i in range(3):
+        _public_row(db, u, i, status="requested")
+    for i in range(3):
+        _spent(db, u, "reservation_created", at=utc_now() - timedelta(minutes=5))
+    db.commit()
+    ping = alerts.decide(db, u.id, now_utc=utc_now())
+    assert (ping.decision, ping.new, ping.waiting) == ("burst", 3, 3)
+    from app.services.notification_service import summary_words
+    assert summary_words(3, 3, da=True) == ("BonBox · Nye online-bookinger",
+                                            "3 nye · 3 venter på dit svar. Se dem i bogen.")
+    assert summary_words(0, 2, da=False)[1] == "2 waiting for your answer. See them in your book."
 
 
 def test_guest_cancellations_share_the_budget(client, db, outbox):
@@ -125,13 +184,11 @@ def test_guest_cancellations_share_the_budget(client, db, outbox):
     assert len(_push(db, u, "reservation_cancelled", status="suppressed")) == 1
 
 
-def test_a_cancel_alone_never_sends_a_bookings_summary(client, db, outbox):
+def test_a_cancel_alone_never_sends_an_empty_summary(client, db, outbox):
     u, profile, _ = restaurant(db)
     old = [_public_row(db, u, i, minutes_ago=180) for i in range(4)]
     for i in range(3):         # 3 pings this hour that were not bookings
-        db.add(NotificationLog(id=uuid.uuid4(), user_id=u.id, staff_id=None, channel="push",
-                               event_type="reservation_cancelled", status="failed",
-                               created_at=utc_now() - timedelta(minutes=5)))
+        _spent(db, u, "reservation_cancelled", at=utc_now() - timedelta(minutes=5))
     db.commit()
     old[0].status = "cancelled"; db.commit()
     pubres._send_guest_cancel_notifications(str(old[0].id), str(u.id))
@@ -158,16 +215,17 @@ def test_opting_out_stops_owner_mail_only(client, db, outbox):
 
 def test_a_broken_budget_sends(db, monkeypatch):
     u, _p, _ = restaurant(db)
-    monkeypatch.setattr(alerts, "_pings_since", lambda *a, **k: 1 / 0)
-    assert alerts.decide(db, u.id, now_utc=utc_now()) == "send"
+    monkeypatch.setattr(alerts, "_spent_since", lambda *a, **k: 1 / 0)
+    assert alerts.decide(db, u.id, now_utc=utc_now()).decision == "send"
 
 
-def test_the_burst_mail_names_the_page_as_the_menu_does(db):
+def test_the_summary_mail_names_the_page_as_the_menu_does(db):
     from app.services import reservation_emails as mail
     v = mail.Venue(name="Klip & Krølle", appointment=True)
-    subj, html = mail.render_owner_booking_burst(v, "da", 7, "https://x/reservations")
-    assert subj == "Mange nye online-bookinger (7 den seneste time)"
+    subj, html = mail.render_owner_booking_burst(v, "da", 7, "https://x/reservations", waiting=2)
+    assert subj == "Nye online-bookinger: 7 nye · 2 venter på dit svar"
     assert "Tidsbestilling → Indstillinger" in html and "Reservation" not in html
+    assert "holder ingen tid" in html
     subj_en, html_en = mail.render_owner_booking_burst(mail.Venue(name="Bistro"), "en", 7, "u")
-    assert subj_en == "Many new online bookings (7 in the last hour)"
-    assert "Reservations → Settings" in html_en
+    assert subj_en == "New online bookings: 7 new"
+    assert "Reservations → Settings" in html_en and "one summary an hour" in html_en

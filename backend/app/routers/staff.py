@@ -8095,7 +8095,50 @@ def owner_register_absence(
         "kind": body.kind,
         "date_from": body.date_from.isoformat(),
         "date_to": date_to.isoformat(),
+        # Appointments already booked with them on those days (a salon): the
+        # absence stops NEW online bookings, but these are still in the book
+        # and the owner has to move or call them. {count, first} — no guest
+        # data. Fail-soft: a read error says nothing.
+        "bookings": _bookings_with_staff(db, user.id, staff.id, body.date_from, date_to),
     }
+
+
+def _bookings_with_staff(db: Session, owner_id, staff_id, date_from, date_to) -> dict:
+    """Active bookings on this staff member's chair(s) whose local start day
+    falls in [date_from, date_to]: {"count", "first"} (first = ISO date)."""
+    try:
+        from datetime import datetime as _dt, time as _time, timedelta as _td
+        from app.models.bookable_resource import BookableResource
+        from app.models.reservation import Reservation
+        chairs = [rid for (rid,) in (
+            db.query(BookableResource.id)
+            .filter(BookableResource.user_id == owner_id,
+                    BookableResource.staff_id == staff_id,
+                    BookableResource.kind == "provider")
+            .all()
+        )]
+        if not chairs:
+            return {"count": 0, "first": None}
+        lo = _dt.combine(date_from, _time(0, 0))
+        hi = _dt.combine(date_to, _time(0, 0)) + _td(days=1)
+        q = (
+            db.query(func.count(Reservation.id), func.min(Reservation.starts_at))
+            .filter(Reservation.user_id == owner_id,
+                    Reservation.resource_id.in_(chairs),
+                    Reservation.is_deleted.is_(False),
+                    Reservation.status.in_(("requested", "confirmed")),
+                    Reservation.starts_at >= lo,
+                    Reservation.starts_at < hi)
+            .one()
+        )
+        n, first = int(q[0] or 0), q[1]
+        return {"count": n, "first": first.date().isoformat() if (n and first) else None}
+    except Exception:  # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return {"count": 0, "first": None}
 
 
 @router.delete("/absences/{absence_id}", status_code=204)

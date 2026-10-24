@@ -7,12 +7,15 @@ account; that must not mean a stranger reaches the owner easily.
 
 services/booking_screen.py decides per booking — never visible to a real
 guest except as "Forespørgsel modtaget" on a held one:
-  • the hidden trap field filled → dropped (200, no row, no message);
+  • the hidden trap field filled at bot speed → dropped (200 "requested" —
+    never "confirmed" — no row, no message); filled at a person's pace →
+    HELD (a browser's autofill must not lose a real booking);
   • a fast or unsaid form fill, a link in the name, the same contact with 3
     active future bookings, or unusually many bookings for the venue's size
-    → HELD: stored as a request on the table the engine picked, holding no
-    table until the owner approves;
-  • the day's 11th public group request → 409 requests_full.
+    → HELD: stored as a request on NO table (the engine's pick waits on the
+    held_public audit row), holding nothing until the owner approves;
+  • the day's 11th public group request → still taken, HELD (requests_full),
+    never refused (fix round, 24 Oct).
 A broken check confirms (fail-open). Holds never use the monthly quota.
 
 Run: cd backend && python -m pytest tests/test_r1_public_screen.py -q
@@ -40,10 +43,13 @@ def _status(db, rid):
 
 def test_the_honeypot_drops_the_booking_silently(client, db, outbox):
     u, profile, _ = restaurant(db)
-    r = book(client, profile.reservation_slug, day=DAY, website="https://win.example")
+    r = book(client, profile.reservation_slug, day=DAY, website="https://win.example",
+             form_ms=300)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["status"] == "confirmed" and body["booking_token"] == ""
+    # Never "confirmed" for a booking that does not exist (review: a guest
+    # whose autofill filled the trap read "Reservation bekræftet").
+    assert body["status"] == "requested" and body["booking_token"] == ""
     assert db.query(Reservation).count() == 0
     assert db.query(NotificationLog).count() == 0
     assert outbox == []
@@ -62,7 +68,9 @@ def test_a_fast_or_unsaid_form_fill_is_held_with_no_table_held(client, db, outbo
         assert held.status_code == 200, held.text
         assert held.json()["status"] == "requested"
         r = reservation(db, held.json()["id"])
-        assert r.status == "requested" and r.resource_id is not None
+        # On NO table: a table on a request is a hold to every other reader.
+        assert r.status == "requested" and r.resource_id is None
+        assert r.combined_resource_ids is None
         assert active_occupancy(db, r.id) == []
     assert honest.json()["status"] == "confirmed"
     assert len(active_occupancy(db, honest.json()["id"])) == 1
@@ -70,6 +78,8 @@ def test_a_fast_or_unsaid_form_fill_is_held_with_no_table_held(client, db, outbo
     reasons = [a.after_state for a in db.query(AuditLog)
                .filter(AuditLog.action == "reservation.held_public").all()]
     assert len(reasons) == 2 and all("fast_fill" in x for x in reasons)
+    # The engine's pick waits on the audit row, for the owner's approval.
+    assert all("resource_ids" in x for x in reasons)
 
 
 def test_a_link_in_the_name_is_held_and_stripped(client, db, outbox):
@@ -101,7 +111,7 @@ def test_the_same_contact_is_held_from_the_fourth_booking(client, db, outbox):
     assert fifth.json()["status"] == "requested"
 
 
-def test_the_venue_hour_ceiling_holds_the_seventh(client, db, outbox):
+def test_the_venue_hour_ceiling_holds_the_fourth(client, db, outbox):
     u, profile, _ = restaurant(db, tables=6)
     slug = profile.reservation_slug
     statuses = []
@@ -110,13 +120,15 @@ def test_the_venue_hour_ceiling_holds_the_seventh(client, db, outbox):
                  email=f"guest{i}@example.com", ip=f"198.51.100.{i}")
         assert r.status_code == 200, r.text
         statuses.append(r.json()["status"])
-    assert statuses[:6] == ["confirmed"] * 6
-    assert statuses[6:] == ["requested"] * 14
+    # max(BOOKING_VENUE_HOUR_MIN 3, half of 6 tables) = 3 an hour (fix round:
+    # the old floor of 6 was a 6-table venue's whole sitting).
+    assert statuses[:3] == ["confirmed"] * 3
+    assert statuses[3:] == ["requested"] * 17
     held = db.query(Reservation).filter(Reservation.status == "requested").all()
     assert all(active_occupancy(db, h.id) == [] for h in held)
 
 
-def test_the_eleventh_group_request_of_the_day_is_refused(client, db, outbox):
+def test_the_eleventh_group_request_of_the_day_is_held_not_refused(client, db, outbox):
     u, profile, _ = restaurant(db)
     slug = profile.reservation_slug
     codes = []
@@ -124,8 +136,14 @@ def test_the_eleventh_group_request_of_the_day_is_refused(client, db, outbox):
         r = book(client, slug, day=DAY, time=TIMES[i % len(TIMES)], party=12,
                  name=f"Selskab {i}", email=f"grp{i}@example.com", ip=f"203.0.113.{i}")
         codes.append((r.status_code, (r.json().get("status") or r.json().get("detail", {}).get("error"))))
-    assert codes[:10] == [(200, "requested")] * 10
-    assert codes[10] == (409, "requests_full")
+    # Every one is taken (a request holds no table); the 11th is HELD — no
+    # ping of its own, the hourly summary counts it (fix round: a refusal let
+    # ten bot posts lock every real party of 8+ out for a day).
+    assert codes == [(200, "requested")] * 11
+    from app.models.audit_log import AuditLog
+    held = [a.after_state for a in db.query(AuditLog)
+            .filter(AuditLog.action == "reservation.held_public").all()]
+    assert len(held) == 1 and "requests_full" in held[0]
     # A normal table booking is never refused by it: after this flood (11
     # public rows this hour, over the venue-hour ceiling) it is held for the
     # owner's OK, not turned away.
@@ -155,10 +173,12 @@ def test_approving_a_held_combined_set_holds_every_table(client, db, outbox):
     r = book(client, profile.reservation_slug, day=DAY, party=6, form_ms=None)
     assert r.json()["status"] == "requested"
     row = reservation(db, r.json()["id"])
-    assert row.combined_resource_ids and len(row.combined_resource_ids) == 2
+    assert row.resource_id is None and row.combined_resource_ids is None
     assert active_occupancy(db, row.id) == []
     a = _approve(client, u, row.id)
     assert a.status_code == 200, a.text
+    row = reservation(db, row.id)
+    assert row.combined_resource_ids and len(row.combined_resource_ids) == 2
     held = {str(o.resource_id) for o in active_occupancy(db, row.id)}
     assert held == {str(x) for x in row.combined_resource_ids}
 
@@ -171,10 +191,11 @@ def test_approving_a_held_salon_booking_holds_the_chair(client, db, outbox):
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "requested"
     row = reservation(db, r.json()["id"])
-    assert str(row.resource_id) == str(s["station"].id)
+    assert row.resource_id is None
     assert row.service_name == "Klip" and active_occupancy(db, row.id) == []
     a = _approve(client, s["user"], row.id)
     assert a.status_code == 200, a.text
+    assert str(reservation(db, row.id).resource_id) == str(s["station"].id)
     assert len(active_occupancy(db, row.id)) == 1
 
 

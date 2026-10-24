@@ -1,45 +1,59 @@
-"""Guest-invisible screening of an anonymous online booking (R1, 24 Oct 2026).
+"""Guest-invisible screening of an anonymous online booking (R1, 24 Oct 2026;
+fix round the same day).
 
 Booking needs no account. That must not mean a stranger's script fills the
 owner's evening or the owner's phone. Each public create asks this module one
-question first: confirm it, HOLD it as a request the owner approves, drop it,
-or refuse it.
+question first: confirm it, HOLD it as a request the owner approves, or drop
+it. Nothing here REFUSES a booking: over a ceiling a booking is held, never
+turned away (the group ceiling used to answer 409 requests_full; a script
+could then lock every real party of 8+ out for a day with ten posts).
 
-A real guest never sees the difference between "confirm" and "hold" beyond
-the receipt's wording ("Forespørgsel modtaget"), and is never refused for
-being one of many: over a ceiling a booking is held, not turned away. Only two
-things leave the normal path:
-
-  • drop    — the hidden trap field was filled in. Our page never fills it, so
-              only a bot did. No row, no message, a normal-looking 200.
-  • refuse  — a GROUP request when the venue already has the day's ceiling of
-              open public group requests (409 requests_full). A request holds
-              no table, so without this a script parked hundreds of "party of
-              12" requests, each an owner e-mail and push (spam audit (d)).
+  • drop    — the hidden trap field was filled AND the form was filled in
+              faster than a person can: a bot. No row, no message; the page
+              gets a plain "request received" (never "confirmed").
+  • hold    — stored as a request on no table; the owner sees "Tjek før du
+              bekræfter". Two kinds of reason:
+                SUMMARY_ONLY  (bot-likely, or one more group request on a
+                              busy day): no ping of its own — the owner's
+                              hourly summary counts it ("3 venter på dit
+                              svar");
+                the rest      (a real-looking guest at a busy moment): the
+                              normal ping budget.
+              NO_GUEST_MAIL reasons send the typed address nothing until the
+              owner answers; the others share a small per-venue mail budget.
 
 Every count is a SQL COUNT scoped to the venue (user_id) — never a row scan
-(the 31 Aug lesson). Rules 2 and 4–8 FAIL OPEN: a broken check confirms the
-booking, logs a warning and bumps an abuse signal. A broken guard must never
-turn away a real guest.
+(the 31 Aug lesson). The VENUE ceilings count only the online bookings that
+PASSED this screen (public rows minus the held ones), so a flood that was
+already held does not push the next real guest into "held" for a day.
+The rules FAIL OPEN: a broken check confirms the booking, logs a warning and
+bumps an abuse signal. A broken guard must never turn away a real guest.
 
 Rules, the first match wins:
-  1. trap field filled                        → drop    (honeypot)
-  2. group request, ≥ GROUP_REQUESTS_PER_DAY
-     public group requests in 24 h            → refuse  (requests_full)
-  3. any other group request                  → confirm (already a request)
-  4. form filled in < MIN_FILL_MS, or no time → hold    (fast_fill)
-  5. a link in the guest's name               → hold    (link_in_name)
-  6. the same contact has ≥ CONTACT_ACTIVE_MAX
-     active future bookings here              → hold    (contact_active)
-  7. ≥ max(VENUE_HOUR_MIN, tables/chairs)
-     public bookings in the last hour         → hold    (venue_hour)
-  8. ≥ max(VENUE_DAY_MIN, 4 × tables/chairs)
-     public bookings in the last 24 h         → hold    (venue_day)
-  9. otherwise                                → confirm
+  1. trap field filled       — form filled fast → drop; else hold (honeypot)
+  2. form filled in < MIN_FILL_MS, or no time sent → hold (fast_fill)
+  3. a link in the guest's name                    → hold (link_in_name)
+  4. a REAL group request (party ≥ max(threshold, GROUP_FLOOR)): with
+     max(GROUP_REQUESTS_PER_DAY, tables) already open today → hold
+     (requests_full); otherwise → confirm (it is a request on its own)
+  5. the same contact has ≥ CONTACT_ACTIVE_MAX active future bookings here
+                                                   → hold (contact_active)
+     — rules 5–9 are for bookings, and for the small "requests" of a venue
+       that approves every booking itself (threshold 1) —
+  6. (bookings only) a capped plan: a quarter of the monthly cap already
+     confirmed online in 24 h                      → hold (plan_day)
+  7. ≥ max(VENUE_HOUR_MIN, ⌈tables/2⌉) passed in the last hour
+                                                   → hold (venue_hour)
+  8. (bookings only) ≥ max(SITTING_MIN, ⌈tables/2⌉) confirmed online
+     bookings made in 24 h already overlap this sitting
+                                                   → hold (sitting_full)
+  9. ≥ max(VENUE_DAY_MIN, 4 × tables) passed in 24 h → hold (venue_day)
+ 10. otherwise                                     → confirm
 """
 from __future__ import annotations
 
 import logging
+import math
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -47,6 +61,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, or_
 
 from app.config import settings as app_config
+from app.models.audit_log import AuditLog
 from app.models.reservation import Reservation
 from app.utils import abuse_signals
 from app.utils.text import has_link
@@ -55,18 +70,32 @@ logger = logging.getLogger(__name__)
 
 # The statuses an active booking can hold (reservation_service.ACTIVE_STATUSES).
 _ACTIVE = ("requested", "confirmed", "seated")
+# A booking that holds a table or chair.
+_HOLDING_A_TABLE = ("confirmed", "seated")
+# Statuses that use a capped plan's monthly quota (public_reservations.
+# _month_reservations_used counts the same four).
+_USES_QUOTA = ("confirmed", "seated", "completed", "no_show")
 # Separators a phone number may be typed with; stripped in SQL so "+45 12 34
 # 56 78" and "12345678" are the same contact. Postgres and SQLite both have
 # replace(), so the comparison is the same on both.
 _PHONE_SEPARATORS = (" ", "-", "(", ")", ".", "/", "+")
 
+HELD_ACTION = "reservation.held_public"
+
+# Held reasons whose booking gets no owner ping of its own — the hourly
+# summary counts it instead.
+SUMMARY_ONLY = frozenset({"honeypot", "fast_fill", "link_in_name", "requests_full"})
+# Held reasons whose typed address gets no "request received" mail: almost
+# certainly not a person, so the mail would only relay a stranger's text.
+NO_GUEST_MAIL = frozenset({"honeypot", "fast_fill", "link_in_name"})
+
 
 @dataclass(frozen=True)
 class Screen:
-    action: str                # "confirm" | "hold" | "drop" | "refuse"
-    reason: str | None = None  # honeypot | fast_fill | link_in_name | contact_active
-                               # | venue_hour | venue_day | requests_full
-    error: str | None = None   # the 409 code for "refuse"
+    action: str                # "confirm" | "hold" | "drop"
+    reason: str | None = None  # honeypot | fast_fill | link_in_name | requests_full
+                               # | contact_active | plan_day | venue_hour
+                               # | sitting_full | venue_day
 
 
 CONFIRM = Screen("confirm")
@@ -76,17 +105,49 @@ def _count(q) -> int:
     return int(q.scalar() or 0)
 
 
-def _group_requests_24h(db, owner_id, threshold, since_utc: datetime) -> int:
-    q = db.query(func.count(Reservation.id)).filter(
-        Reservation.user_id == owner_id,
-        Reservation.source == "public",
-        Reservation.status == "requested",
-        Reservation.is_deleted.is_(False),
-        Reservation.created_at >= since_utc,
+def _fast(form_ms) -> bool:
+    """No fill time sent, or less than a person needs."""
+    try:
+        return form_ms is None or int(form_ms) < int(app_config.BOOKING_MIN_FILL_MS)
+    except (TypeError, ValueError):
+        return True
+
+
+def real_group_size(settings: dict) -> int:
+    """The smallest party that is a REAL group: the venue's request threshold,
+    but never under BOOKING_GROUP_FLOOR — a venue that approves every booking
+    itself (threshold 1) does not turn a table for two into a group."""
+    try:
+        threshold = int(settings.get("group_request_threshold") or 0)
+    except (TypeError, ValueError):
+        threshold = 0
+    return max(threshold, int(app_config.BOOKING_GROUP_FLOOR))
+
+
+def _group_requests_24h(db, owner_id, min_party: int, since_utc: datetime) -> int:
+    """Open public REAL-group requests made since `since_utc` that passed the
+    screen — a bot's held group requests do not count against a real party
+    (atk-d). Both directions are pinned in tests/test_r1_fix_screen.py: held
+    ones are left out, passed ones are counted (a correlated NOT EXISTS that
+    matched nothing would shadow every row silently)."""
+    held = (
+        db.query(AuditLog.id)
+        .filter(AuditLog.entity_type == "reservation",
+                AuditLog.entity_id == Reservation.id,
+                AuditLog.action == HELD_ACTION)
+        .exists()
     )
-    if threshold:
-        q = q.filter(Reservation.party_size >= int(threshold))
-    return _count(q)
+    return _count(
+        db.query(func.count(Reservation.id)).filter(
+            Reservation.user_id == owner_id,
+            Reservation.source == "public",
+            Reservation.status == "requested",
+            Reservation.is_deleted.is_(False),
+            Reservation.created_at >= since_utc,
+            Reservation.party_size >= int(min_party),
+            ~held,
+        )
+    )
 
 
 def _phone_digits(phone: str | None) -> str:
@@ -135,6 +196,67 @@ def public_rows_since(db, owner_id, since_utc: datetime) -> int:
     )
 
 
+def held_since(db, owner_id, since_utc: datetime) -> int:
+    """Bookings this screen HELD since `since_utc` (one audit row each)."""
+    return _count(
+        db.query(func.count(AuditLog.id)).filter(
+            AuditLog.user_id == owner_id,
+            AuditLog.action == HELD_ACTION,
+            AuditLog.created_at >= since_utc,
+        )
+    )
+
+
+def passed_since(db, owner_id, since_utc: datetime) -> int:
+    """Online bookings that PASSED the screen since `since_utc`: confirmed
+    ones, and requests that are requests on their own merit (a group). The
+    held ones are left out — a flood the screen already held must not keep
+    holding the next real guest (review P3: a real guest was held for 23 h
+    after 24 bot rows that were themselves all held)."""
+    return max(0, public_rows_since(db, owner_id, since_utc) - held_since(db, owner_id, since_utc))
+
+
+def quota_used_online_since(db, owner_id, since_utc: datetime) -> int:
+    """Online bookings made since `since_utc` that use the monthly quota."""
+    return _count(
+        db.query(func.count(Reservation.id)).filter(
+            Reservation.user_id == owner_id,
+            Reservation.source == "public",
+            Reservation.is_deleted.is_(False),
+            Reservation.status.in_(_USES_QUOTA),
+            Reservation.created_at >= since_utc,
+        )
+    )
+
+
+def sitting_online_count(db, owner_id, *, start: datetime, end: datetime,
+                         since_utc: datetime) -> int:
+    """Confirmed online bookings made since `since_utc` that overlap the
+    sitting [start, end) — how much of that sitting strangers took today."""
+    return _count(
+        db.query(func.count(Reservation.id)).filter(
+            Reservation.user_id == owner_id,
+            Reservation.source == "public",
+            Reservation.is_deleted.is_(False),
+            Reservation.status.in_(_HOLDING_A_TABLE),
+            Reservation.created_at >= since_utc,
+            Reservation.starts_at < end,
+            Reservation.ends_at > start,
+        )
+    )
+
+
+def monthly_cap(owner) -> int | None:
+    """The plan's monthly online-booking cap, or None when unlimited (or
+    unreadable — the plan rule then simply does not apply)."""
+    try:
+        from app.services.billing import get_cap
+        cap = int(get_cap(owner, "reservations_per_month"))
+    except Exception:  # noqa: BLE001
+        return None
+    return cap if cap > 0 else None
+
+
 def _fail_open(rule: str) -> None:
     logger.warning("booking screen %s failed — confirming (fail-open)", rule, exc_info=True)
     abuse_signals.bump("booking_screen_error")
@@ -142,53 +264,74 @@ def _fail_open(rule: str) -> None:
 
 def screen_public_booking(db, *, owner, settings: dict, payload, is_request: bool,
                           n_resources: int, now_utc: datetime,
-                          now_local: datetime) -> Screen:
+                          now_local: datetime, start: datetime | None = None,
+                          duration_min: int | None = None) -> Screen:
     """The decision for one anonymous booking. `payload` is the create body
-    BEFORE links are stripped (rule 5 reads the raw name); `now_utc` is naive
-    UTC (created_at), `now_local` naive venue time (starts_at)."""
+    BEFORE links are stripped (rule 3 reads the raw name); `now_utc` is naive
+    UTC (created_at), `now_local` and `start` naive venue time (starts_at).
+    Call it under services/venue_lock.venue_lock, and commit the booking
+    before the lock goes: the counts must see the row this one writes."""
     cfg = app_config
-    # 1. The trap field. Nothing on our page fills it.
-    if (getattr(payload, "website", None) or "").strip():
-        return Screen("drop", "honeypot")
+    form_ms = getattr(payload, "form_ms", None)
+    fast = _fast(form_ms)
 
-    # 2–3. A group request: capped per day, otherwise already a request.
-    if is_request:
-        try:
-            cap = int(cfg.BOOKING_GROUP_REQUESTS_PER_DAY)
-            if cap > 0 and _group_requests_24h(
-                    db, owner.id, settings.get("group_request_threshold"),
-                    now_utc - timedelta(days=1)) >= cap:
-                return Screen("refuse", "requests_full", "requests_full")
-        except Exception:  # noqa: BLE001 — fail open
-            _fail_open("group_requests")
-            _release(db)
-        return CONFIRM
+    # 1. The trap field. Nothing on our page fills it — but a browser or a
+    #    password manager might, so a person-paced form is HELD (the owner
+    #    sees it), and only a trap filled at bot speed is dropped.
+    if (getattr(payload, "website", None) or "").strip():
+        return Screen("drop", "honeypot") if fast else Screen("hold", "honeypot")
+    # 2. Filled in faster than a person can (or by a client that does not
+    #    say how long it took).
+    if fast:
+        return Screen("hold", "fast_fill")
+    # 3. A link where a name goes.
+    if has_link(getattr(payload, "guest_name", None)):
+        return Screen("hold", "link_in_name")
 
     try:
-        # 4. Filled in faster than a person can (or by a client that does not
-        #    say how long it took).
-        form_ms = getattr(payload, "form_ms", None)
-        if form_ms is None or int(form_ms) < int(cfg.BOOKING_MIN_FILL_MS):
-            return Screen("hold", "fast_fill")
-        # 5. A link where a name goes.
-        if has_link(getattr(payload, "guest_name", None)):
-            return Screen("hold", "link_in_name")
-        # 6. One guest already holding several future bookings here.
+        n = max(0, int(n_resources or 0))
+        half = math.ceil(n / 2)
+        party = int(getattr(payload, "party_size", 0) or 0)
+        # 4. A REAL group asks on purpose and waits for the owner anyway: the
+        #    venue ceilings below are not for it (a julefrokost rush is real).
+        #    Many open group requests today: the next one still goes in (a
+        #    request holds no table), but waits for the hourly summary.
+        min_group = real_group_size(settings)
+        if is_request and party >= min_group:
+            cap = int(cfg.BOOKING_GROUP_REQUESTS_PER_DAY)
+            if cap > 0 and _group_requests_24h(
+                    db, owner.id, min_group, now_utc - timedelta(days=1)) >= max(cap, n):
+                return Screen("hold", "requests_full")
+            return CONFIRM
+        # 5. One guest already holding several future bookings here.
         cmax = int(cfg.BOOKING_CONTACT_ACTIVE_MAX)
         if cmax > 0 and contact_active_count(
                 db, owner.id, email=getattr(payload, "guest_email", None),
                 phone=getattr(payload, "guest_phone", None),
                 now_local=now_local) >= cmax:
             return Screen("hold", "contact_active")
-        # 7–8. Unusually many online bookings for the size of the venue.
-        n = max(0, int(n_resources or 0))
-        hour_cap = max(int(cfg.BOOKING_VENUE_HOUR_MIN), n)
-        if hour_cap > 0 and public_rows_since(db, owner.id, now_utc - timedelta(hours=1)) >= hour_cap:
+        day_ago = now_utc - timedelta(days=1)
+        # 6. A capped plan (Free: 20 a month): online strangers alone may not
+        #    use up more than a quarter of the month in a day.
+        mcap = None if is_request else monthly_cap(owner)
+        if mcap and quota_used_online_since(db, owner.id, day_ago) >= max(1, mcap // 4):
+            return Screen("hold", "plan_day")
+        # 7. Unusually many online bookings for the size of the venue.
+        hour_cap = max(int(cfg.BOOKING_VENUE_HOUR_MIN), half)
+        if hour_cap > 0 and passed_since(db, owner.id, now_utc - timedelta(hours=1)) >= hour_cap:
             return Screen("hold", "venue_hour")
+        # 8. Half of this sitting already went to online bookings made today.
+        if not is_request and start is not None and duration_min:
+            sit_cap = max(int(cfg.BOOKING_SITTING_MIN), half)
+            if sit_cap > 0 and sitting_online_count(
+                    db, owner.id, start=start, end=start + timedelta(minutes=int(duration_min)),
+                    since_utc=day_ago) >= sit_cap:
+                return Screen("hold", "sitting_full")
+        # 9. … and over a day.
         day_cap = max(int(cfg.BOOKING_VENUE_DAY_MIN), 4 * n)
-        if day_cap > 0 and public_rows_since(db, owner.id, now_utc - timedelta(days=1)) >= day_cap:
+        if day_cap > 0 and passed_since(db, owner.id, day_ago) >= day_cap:
             return Screen("hold", "venue_day")
-    except Exception:  # noqa: BLE001 — fail open: a broken check never refuses a guest
+    except Exception:  # noqa: BLE001 — fail open: a broken check never holds a guest back
         _fail_open("rules")
         _release(db)
         return CONFIRM
@@ -203,3 +346,63 @@ def _release(db) -> None:
         db.rollback()
     except Exception:  # noqa: BLE001
         pass
+
+
+# ── What was held, and on what ─────────────────────────────────────────
+# A held booking is stored as a request on NO table (resource_id NULL) — the
+# model's own rule ("NULL while a request is pending, no hold yet"), which
+# every reader keys on: the boot backfill of reservation_occupancy, the
+# owner's edit and status paths, the book's table lanes. The engine's pick
+# (the table set, or the stylist the guest chose) lives on the held_public
+# audit row instead, with the reason, and is assigned when the owner approves.
+
+def held_after(reason: str, resource_ids=None, *, pinned: bool = False) -> dict:
+    """The held_public audit row's `after` — no PII: a reason, resource ids,
+    and whether the guest chose that stylist (a pin is never reassigned)."""
+    out = {"reason": reason}
+    ids = [str(x) for x in (resource_ids or []) if x]
+    if ids:
+        out["resource_ids"] = ids
+    if pinned:
+        out["pinned"] = True
+    return out
+
+
+def held_info(db, owner_id, reservation_ids) -> dict:
+    """{str(reservation_id): {"reason", "resource_ids", "pinned"}} for the
+    bookings in `reservation_ids` that this screen held. One query on the
+    audit table's (entity_type, entity_id) index. A read error answers {}."""
+    import json
+    ids = [x for x in (reservation_ids or []) if x]
+    if not ids:
+        return {}
+    try:
+        rows = (
+            db.query(AuditLog.entity_id, AuditLog.after_state)
+            .filter(
+                AuditLog.entity_type == "reservation",
+                AuditLog.entity_id.in_(ids),
+                AuditLog.user_id == owner_id,
+                AuditLog.action == HELD_ACTION,
+            )
+            .all()
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("held-info read failed", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return {}
+    out = {}
+    for eid, after in rows:
+        try:
+            data = json.loads(after) if after else {}
+        except (TypeError, ValueError):
+            data = {}
+        out[str(eid)] = {
+            "reason": data.get("reason"),
+            "resource_ids": [str(x) for x in (data.get("resource_ids") or []) if x],
+            "pinned": bool(data.get("pinned")),
+        }
+    return out

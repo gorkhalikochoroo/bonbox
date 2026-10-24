@@ -33,17 +33,30 @@ import sys
 import pytest
 
 
+# Jobs taken off the scheduler in a test run (see _pause_abuse_monitor).
+_PAUSED_JOBS = (
+    "abuse_monitor",
+    # The online-booking door (R1 fix round): the owner digest every 10 min
+    # and the hourly request expiry read and write the shared database —
+    # tests drive them directly (test_r1_fix_owner_budget.py,
+    # test_r1_fix_held_no_table.py), never on a timer mid-test.
+    "owner_booking_digest",
+    "reservation_request_expiry",
+)
+
+
 def _pause_abuse_monitor(main) -> None:
     """Importing app.main starts the background scheduler. Its 2-minute abuse
     monitor drains the in-process abuse counters that tests read, so in a
     test run it is taken off the scheduler (tests/test_abuse_monitor.py
-    drives the job directly)."""
+    drives the job directly). The same for the other _PAUSED_JOBS."""
     sched = getattr(main, "_scheduler", None)
-    try:
-        if sched is not None and sched.get_job("abuse_monitor") is not None:
-            sched.remove_job("abuse_monitor")
-    except Exception:  # noqa: BLE001 — isolation helper, never fails a test
-        pass
+    for job_id in _PAUSED_JOBS:
+        try:
+            if sched is not None and sched.get_job(job_id) is not None:
+                sched.remove_job(job_id)
+        except Exception:  # noqa: BLE001 — isolation helper, never fails a test
+            pass
 
 
 def _reset_app_rate_limits() -> None:
