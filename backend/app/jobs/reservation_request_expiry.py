@@ -20,12 +20,30 @@ there is still time to.
 Deliberately NOT a cancellation of anything real: only rows still sitting
 at "requested" are touched. The moment an owner confirms or declines, the
 sweep leaves it alone forever.
+
+EACH REQUEST HAS ITS OWN DEADLINE (fix round 2, 24 Oct 2026). The sweep runs
+every hour, and it used to decline everything within six hours of its
+sitting — so a group of ten asking for tonight at 15:00 was declined at the
+16:00 run, minutes after it arrived, while the page said "Vi vender tilbage
+om lidt". Now:
+
+    deadline = max(starts_at − 6 h,
+                   min(created_at + 2 h, max(starts_at − 1 h, created_at + 1 h)))
+
+  • asked days ahead        → declined 6 h before the sitting, as before;
+  • asked the same day      → the owner has 2 h to answer, and the guest
+                              hears at least an hour before the sitting
+                              when there is room for that (asked 3 h ahead:
+                              declined 1 h before);
+  • asked very late         → the owner still gets an hour (asked 30 min
+                              ahead: nobody is declined before they could
+                              have been answered).
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
@@ -52,15 +70,44 @@ logger = logging.getLogger(__name__)
 # enough ahead that the guest can still book somewhere else; late enough
 # that an owner who checks the app once a day has had a fair chance.
 EXPIRE_BEFORE_START_HOURS = 6
+# A request made the same day: the owner gets this long to answer …
+ANSWER_WINDOW_HOURS = 2
+# … the guest hears at least this long before the sitting when there is room …
+TELL_BEFORE_START_HOURS = 1
+# … and nobody is declined sooner than this after asking.
+MIN_ANSWER_HOURS = 1
 
 
-def expire_stale_requests(db: Session | None = None) -> dict:
+def answer_deadline(starts_at: datetime, created_local: datetime | None) -> datetime:
+    """When an unanswered request is declined (naive venue time). See the
+    module docstring; a row with no creation time is treated as old."""
+    far = starts_at - timedelta(hours=EXPIRE_BEFORE_START_HOURS)
+    if created_local is None:
+        return far
+    grace = min(created_local + timedelta(hours=ANSWER_WINDOW_HOURS),
+                max(starts_at - timedelta(hours=TELL_BEFORE_START_HOURS),
+                    created_local + timedelta(hours=MIN_ANSWER_HOURS)))
+    return max(far, grace)
+
+
+def _created_local(r) -> datetime | None:
+    """created_at is naive UTC; the deadline is in venue time."""
+    c = getattr(r, "created_at", None)
+    if c is None:
+        return None
+    if c.tzinfo is None:
+        c = c.replace(tzinfo=timezone.utc)
+    return c.astimezone(_TZ).replace(tzinfo=None)
+
+
+def expire_stale_requests(db: Session | None = None, *, now_local: datetime | None = None) -> dict:
     """Decline requests the owner never answered, and tell the guest.
 
     Runs every hour (main.py) and in the nightly maintenance — every hour so
-    "six hours before the sitting" is true for an evening request made the
-    same day; idempotent, it only touches rows still "requested". Never raises — a failure here must not take the rest of
-    maintenance down with it.
+    each request is declined close to its own deadline (answer_deadline);
+    idempotent, it only touches rows still "requested". Never raises — a
+    failure here must not take the rest of maintenance down with it.
+    `now_local` (naive venue time) is for tests.
     """
     own_session = db is None
     db = db or SessionLocal()
@@ -71,8 +118,11 @@ def expire_stale_requests(db: Session | None = None) -> dict:
         # the cutoff has to be built in that frame too. Comparing against
         # naive UTC made the sweep fire two hours out in Danish summer:
         # the "six hours before" promise would really have been four.
-        cutoff = _now_local() + timedelta(hours=EXPIRE_BEFORE_START_HOURS)
-        rows = (
+        now = now_local or _now_local()
+        cutoff = now + timedelta(hours=EXPIRE_BEFORE_START_HOURS)
+        # Every deadline is at or after starts_at − 6 h, so only rows inside
+        # that horizon can be due; each one is then checked on its own.
+        candidates = (
             db.query(Reservation)
             .filter(
                 Reservation.status == "requested",
@@ -81,6 +131,8 @@ def expire_stale_requests(db: Session | None = None) -> dict:
             )
             .all()
         )
+        rows = [r for r in candidates
+                if answer_deadline(r.starts_at, _created_local(r)) <= now]
         from app.services import reservation_occupancy_service as occ_service
         for r in rows:
             r.status = "cancelled"
@@ -99,18 +151,19 @@ def expire_stale_requests(db: Session | None = None) -> dict:
         if expired:
             db.commit()
 
-        # A booking the booking screen HELD hears only if we already mailed
-        # its address about it: a bot's typed address must not get the
-        # "we couldn't take it" mail it never asked for (R1 fix round).
-        held_ids = _held_ids(db, rows)
+        # A booking the booking screen HELD: a bot-like hold's typed address
+        # never gets the "we couldn't take it" mail it never asked for; a
+        # person-like hold we never mailed hears within the venue's small
+        # held-mail budget (fix round 2: such guests were left with no word
+        # at all, against the receipt's promise).
+        held = _held_reasons(db, rows)
 
         # Mail AFTER the commit: the decision is durable first, and a mail
         # failure must never leave a row half-expired.
         for r in rows:
-            if str(r.id) in held_ids:
-                from app.services import reservation_emails
-                if not reservation_emails.guest_heard_from_us(db, r):
-                    continue
+            reason = held.get(str(r.id), _NOT_HELD)
+            if reason is not _NOT_HELD and not _may_tell_held(db, r, reason):
+                continue
             if _tell_the_guest(db, r):
                 notified += 1
         if rows:
@@ -129,18 +182,36 @@ def expire_stale_requests(db: Session | None = None) -> dict:
     return {"requests_expired": expired, "guests_notified": notified}
 
 
-def _held_ids(db: Session, rows) -> set:
-    """Ids among `rows` that the booking screen held. One audit query per
-    venue; a read error answers "none" (the per-address cap still holds)."""
+_NOT_HELD = object()
+
+
+def _held_reasons(db: Session, rows) -> dict:
+    """{id: held reason} for the rows among `rows` the booking screen held.
+    One audit query per venue; a read error answers "none" (the per-address
+    cap still holds)."""
     from app.services import booking_screen
     by_owner: dict = {}
     for r in rows:
         if r.source == "public":
             by_owner.setdefault(r.user_id, []).append(r.id)
-    out: set = set()
+    out: dict = {}
     for owner_id, ids in by_owner.items():
-        out.update(booking_screen.held_info(db, owner_id, ids).keys())
+        for rid, info in booking_screen.held_info(db, owner_id, ids).items():
+            out[rid] = info.get("reason")
     return out
+
+
+def _may_tell_held(db: Session, r: Reservation, reason) -> bool:
+    """A held booking's expiry mail: yes when we already mailed this guest
+    about it; never for a bot-like hold; otherwise within the venue's
+    held-mail budget (owner_booking_alerts.claim_held_guest_mail)."""
+    from app.services import booking_screen, owner_booking_alerts, reservation_emails
+    if reservation_emails.guest_heard_from_us(db, r):
+        return True
+    if reason in booking_screen.NO_GUEST_MAIL or not r.guest_email:
+        return False
+    from app.utils.time import utc_now
+    return owner_booking_alerts.claim_held_guest_mail(db, r.user_id, now_utc=utc_now())
 
 
 def _tell_the_guest(db: Session, r: Reservation) -> bool:

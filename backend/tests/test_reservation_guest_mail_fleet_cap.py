@@ -146,6 +146,13 @@ def test_the_defaults_fit_the_resend_free_quota():
     # room for verification, reset, staff and alert mail. On Free the fleet
     # ceiling is the binding one, below the per-venue cap; raise both via
     # env after an upgrade.
-    assert settings.GUEST_EMAILS_FLEET_PER_DAY == 40
-    assert settings.GUEST_EMAILS_FLEET_PER_DAY + settings.MAGIC_LINK_FLEET_MAX_PER_DAY <= 70
+    # Raised 40 → 60 in booking fix round 2 (24 Oct 2026) — it still leaves
+    # 20 of the 100 for those — and split into per-venue shares: one venue's
+    # online bookings may start at most 15 % of it in 24 h, so a drip at one
+    # or two venues no longer stops every venue's guest mail.
+    assert settings.GUEST_EMAILS_FLEET_PER_DAY == 60
+    assert settings.GUEST_EMAILS_FLEET_PER_DAY + settings.MAGIC_LINK_FLEET_MAX_PER_DAY <= 80
     assert settings.GUEST_EMAILS_FLEET_PER_DAY > 3  # measured peak ~3/day stays untouched
+    from app.services.reservation_emails import venue_mail_share
+    assert venue_mail_share() == 9
+    assert venue_mail_share() * 3 < settings.GUEST_EMAILS_FLEET_PER_DAY

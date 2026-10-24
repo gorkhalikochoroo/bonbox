@@ -415,23 +415,42 @@ class Settings(BaseSettings):
     # a confirmed account from an unknown one. 0 = off.
     MAGIC_LINK_MIN_RESPONSE_MS: int = 300
     # Guest e-mails delivered across ALL venues in a rolling 24 h
-    # (services/reservation_emails.py deliver()). Peak ~3/day.
-    GUEST_EMAILS_FLEET_PER_DAY: int = 40
+    # (services/reservation_emails.py deliver()). Peak ~3/day. Raised from 40
+    # (24 Oct 2026, booking fix round 2): with the magic-link ceiling (20) it
+    # still leaves 20 of Resend Free's 100 a day for verification, reset,
+    # staff and alert mail. Raise both when Resend is upgraded.
+    GUEST_EMAILS_FLEET_PER_DAY: int = 60
+    # One venue's share of that ceiling for the mails its ONLINE bookings
+    # start (the confirmation, or "request received"): at most this percent
+    # of GUEST_EMAILS_FLEET_PER_DAY in a rolling 24 h (60 → 9). A slow drip
+    # at one or two venues can then no longer use up every venue's guest
+    # mail for the day (recheck, 24 Oct: two venues drained the 40). The
+    # page never promises a mail the share holds back, and the operator is
+    # alerted (abuse monitor, abuse_guest_mail). 0 = off.
+    BOOKING_VENUE_MAIL_SHARE_PCT: int = 15
     # Anonymous online bookings (services/booking_screen.py). Over a ceiling a
     # booking is HELD as a request the owner approves — a real guest is never
     # refused, a bot's flood holds no table. The venue ceilings count only the
     # online bookings that PASSED the screen, so held bots never push real
-    # guests into "held" (R1 fix round, 24 Oct 2026).
+    # guests into "held" (R1 fix round, 24 Oct 2026). Fix round 2 (same day):
+    # the ceilings are for BURSTS and PATTERNS only — measured on simulated
+    # busy weeks at 4, 6 and 10 tables, no real guest is held.
     BOOKING_MIN_FILL_MS: int = 2000             # faster form fill → held
     BOOKING_GROUP_REQUESTS_PER_DAY: int = 10    # real group requests a day; over it → held, never refused
     BOOKING_GROUP_FLOOR: int = 6                # a "real group" is at least max(threshold, this)
     BOOKING_CONTACT_ACTIVE_MAX: int = 3         # active future bookings per guest
-    BOOKING_VENUE_HOUR_MIN: int = 3             # floor of max(3, half the tables/chairs) an hour
-    BOOKING_VENUE_DAY_MIN: int = 24             # floor of max(24, 4 × tables) a day
-    BOOKING_SITTING_MIN: int = 2                # floor of max(2, half the tables) online at one sitting
-    # A HELD booking's "request received" mail to the typed address: at most
-    # this many per venue an hour and a day (a bot's address gets none; the
-    # guest page shows the receipt either way).
+    BOOKING_VENUE_HOUR_MIN: int = 6             # an hour: max(6, tables/chairs) online bookings
+    BOOKING_SITTING_MIN: int = 3                # one sitting: max(3, half the tables) …
+    BOOKING_SITTING_WINDOW_MIN: int = 180       # … made in the last 3 hours (a burst)
+    BOOKING_DATE_MIN: int = 6                   # one date: max(6, 1.5 × tables or 4 × chairs) …
+    BOOKING_DATE_PER_TABLE: float = 1.5         # … made in the last 24 hours
+    BOOKING_DATE_PER_CHAIR: int = 4
+    # Mail to a HELD booking's typed address that looks like a person's (not
+    # a bot's form): the "request received" mail, and the decline or expiry
+    # mail when it never got that one — at most this many per venue an hour
+    # and a day, all of them together. A bot-like hold (trap, fast fill, a
+    # link in the name) gets none; the guest page says so when no mail is
+    # coming (fix round 2, 24 Oct 2026).
     BOOKING_HELD_GUEST_MAILS_PER_HOUR: int = 3
     BOOKING_HELD_GUEST_MAILS_PER_DAY: int = 10
     # Pings to the OWNER about online bookings and cancellations
@@ -439,6 +458,12 @@ class Settings(BaseSettings):
     # an hour; the day ceiling stops only the single pings, never the summary.
     OWNER_BOOKING_PINGS_PER_HOUR: int = 3
     OWNER_BOOKING_PINGS_PER_DAY: int = 20
+    # Quiet hours (venue time, Europe/Copenhagen) for a summary that would
+    # only be about HELD bookings: it waits for the morning. A bot-like hold
+    # never starts a summary at all — the next summary, or the morning one,
+    # counts it (fix round 2). Real bookings and cancellations are unchanged.
+    OWNER_SUMMARY_QUIET_FROM_HOUR: int = 22
+    OWNER_SUMMARY_QUIET_TO_HOUR: int = 7
     # Wrong staff join / stand pairing codes from all addresses together:
     # JOIN_FAIL_GLOBAL_MAX within JOIN_FAIL_WINDOW_SEC pauses that door for
     # everyone for JOIN_COOLOFF_SEC (main.join_failure_brake).

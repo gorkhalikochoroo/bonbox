@@ -1035,6 +1035,67 @@ def fleet_guest_mail_capped(db: Session) -> int | None:
     return cap if guest_emails_sent_fleet_last_24h(db) >= cap else None
 
 
+def venue_mail_share() -> int | None:
+    """One venue's share of the fleet ceiling for the mails its online
+    bookings start (the confirmation / "request received"): ⌈SHARE_PCT % ×
+    GUEST_EMAILS_FLEET_PER_DAY⌉ in 24 h. None when either knob is off."""
+    pct = int(app_config.BOOKING_VENUE_MAIL_SHARE_PCT)
+    fleet = int(app_config.GUEST_EMAILS_FLEET_PER_DAY)
+    if pct <= 0 or fleet <= 0:
+        return None
+    return max(1, -(-fleet * pct // 100))
+
+
+def venue_mail_share_capped(db: Session, owner_id) -> int | None:
+    """The share when this venue has used it (confirmations DELIVERED in the
+    last 24 h), else None. Raises when the count fails — deliver() refuses.
+    A slow drip at two venues used every venue's guest mail for a day before
+    this (recheck, 24 Oct: 21 + 19 of the fleet's 40)."""
+    share = venue_mail_share()
+    if share is None:
+        return None
+    since = utc_now() - timedelta(days=1)
+    n = int(
+        db.query(func.count(NotificationLog.id))
+        .filter(
+            NotificationLog.user_id == owner_id,
+            NotificationLog.channel == "email",
+            NotificationLog.status == "sent",
+            NotificationLog.event_type == GUEST_CONFIRMATION,
+            NotificationLog.created_at >= since,
+        )
+        .scalar() or 0
+    )
+    return share if n >= share else None
+
+
+def confirmation_will_send(db: Session, owner_id, email: str | None) -> bool:
+    """Will the confirmation (or "request received") for a new online
+    booking to `email` go out — every ceiling deliver() and
+    send_guest_confirmation apply, read now, nothing written? The guest page
+    promises an e-mail only when this says yes (fix round 2: a held guest's
+    receipt said "Vi svarer dig på …" while no mail was coming). A failed
+    check answers False: deliver() would refuse too."""
+    to = (email or "").strip()
+    if not to or db is None or not _plausible_address(to):
+        return False
+    try:
+        if not confirmation_quota_left(db, owner_id, to):
+            return False
+        if owner_guest_mail_capped(db, owner_id) is not None:
+            return False
+        if venue_mail_share_capped(db, owner_id) is not None:
+            return False
+        return fleet_guest_mail_capped(db) is None
+    except Exception:  # noqa: BLE001
+        logger.warning("confirmation pre-check failed — not promising a mail", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
+
 def guest_email_owner_cap(db: Session, owner_id) -> int:
     """This owner's rolling-24h guest-mail ceiling: the lower one until the
     owner's own e-mail address is confirmed — and while a "did you create
@@ -1143,7 +1204,10 @@ def deliver(db: Session | None, *, owner_id, reservation_id, event_type: str,
             to: str | None, subject: str, html: str,
             reply_to: str | None = None) -> bool:
     """Send one reservation email: cap check (guest mail), send, one retry,
-    log row. True only when the provider accepted it. Never raises."""
+    log row. True only when the provider accepted it. Never raises.
+
+    A confirmation (the mail an online booking starts) also counts against
+    the venue's share of the fleet ceiling (venue_mail_share)."""
     to = (to or "").strip()
     is_guest = event_type in GUEST_EVENTS
     if not to:
@@ -1164,6 +1228,11 @@ def deliver(db: Session | None, *, owner_id, reservation_id, event_type: str,
             if not capped and owner_guest_mail_capped(db, owner_id) is not None:
                 # The venue's own daily ceiling, across all its bookings.
                 capped, reason = True, "owner_capped"
+            if (not capped and event_type == GUEST_CONFIRMATION
+                    and venue_mail_share_capped(db, owner_id) is not None):
+                # This venue's share of the fleet ceiling for the mails its
+                # online bookings start: one venue cannot use up the fleet.
+                capped, reason = True, "venue_share"
             if not capped and fleet_guest_mail_capped(db) is not None:
                 # Every venue together: the fleet-wide daily ceiling.
                 capped, reason = True, "fleet_capped"
@@ -1176,6 +1245,11 @@ def deliver(db: Session | None, *, owner_id, reservation_id, event_type: str,
         if capped:
             if reason == "fleet_capped":
                 abuse_signals.bump("guest_mail_fleet")
+            elif reason == "venue_share":
+                # The operator hears about this too (abuse monitor,
+                # abuse_guest_mail): a drip at one venue, or a venue so busy
+                # the knob should be raised.
+                abuse_signals.bump("guest_mail_venue")
             logger.warning("guest email suppressed: %s (reservation=%s, event=%s)",
                            reason, reservation_id, event_type)
             _log(db, owner_id=owner_id, reservation_id=reservation_id,

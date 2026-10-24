@@ -1,5 +1,5 @@
 """Guest-invisible screening of an anonymous online booking (R1, 24 Oct 2026;
-fix round the same day).
+fix rounds 1 and 2 the same day).
 
 Booking needs no account. That must not mean a stranger's script fills the
 owner's evening or the owner's phone. Each public create asks this module one
@@ -8,33 +8,40 @@ it. Nothing here REFUSES a booking: over a ceiling a booking is held, never
 turned away (the group ceiling used to answer 409 requests_full; a script
 could then lock every real party of 8+ out for a day with ten posts).
 
+THE PRINCIPLE (fix round 2): on a normal busy night a real guest is confirmed
+at once. Only bot-like forms, BURSTS (many bookings in a short time) and
+PATTERNS (one guest holding many, one date filling unusually fast) are held.
+Measured, not assumed: tests/test_r1_fix2_real_guests.py walks simulated busy
+weeks at 4, 6 and 10 tables through the real create path — no real guest is
+held — and the attack bursts still are.
+
   • drop    — the hidden trap field was filled AND the form was filled in
               faster than a person can: a bot. No row, no message; the page
               gets a plain "request received" (never "confirmed").
   • hold    — stored as a request on no table; the owner sees "Tjek før du
               bekræfter". Two kinds of reason:
-                SUMMARY_ONLY  (bot-likely, or one more group request on a
-                              busy day): no ping of its own — the owner's
-                              hourly summary counts it ("3 venter på dit
-                              svar");
-                the rest      (a real-looking guest at a busy moment): the
-                              normal ping budget.
-              NO_GUEST_MAIL reasons send the typed address nothing until the
-              owner answers; the others share a small per-venue mail budget.
+                BOT_REASONS   (honeypot, fast_fill, link_in_name): no mail to
+                              the typed address, no ping of its own, and it
+                              never starts a summary by itself — the next
+                              summary, or the morning one, counts it;
+                the rest      (a person at a busy moment): the "request
+                              received" mail and the decline / expiry mail
+                              within a small per-venue budget, and the normal
+                              ping budget (requests_full: the summary only).
 
 Every count is a SQL COUNT scoped to the venue (user_id) — never a row scan
-(the 31 Aug lesson). The VENUE ceilings count only the online bookings that
-PASSED this screen (public rows minus the held ones), so a flood that was
-already held does not push the next real guest into "held" for a day.
+(the 31 Aug lesson). The venue ceilings count only the online bookings that
+PASSED this screen, so a flood that was already held does not push the next
+real guest into "held".
 The rules FAIL OPEN: a broken check confirms the booking, logs a warning and
 bumps an abuse signal. A broken guard must never turn away a real guest.
 
-Rules, the first match wins:
+Rules, the first match wins (n = the venue's active tables or chairs):
   1. trap field filled       — form filled fast → drop; else hold (honeypot)
   2. form filled in < MIN_FILL_MS, or no time sent → hold (fast_fill)
   3. a link in the guest's name                    → hold (link_in_name)
   4. a REAL group request (party ≥ max(threshold, GROUP_FLOOR)): with
-     max(GROUP_REQUESTS_PER_DAY, tables) already open today → hold
+     max(GROUP_REQUESTS_PER_DAY, n) already open today → hold
      (requests_full); otherwise → confirm (it is a request on its own)
   5. the same contact has ≥ CONTACT_ACTIVE_MAX active future bookings here
                                                    → hold (contact_active)
@@ -42,13 +49,20 @@ Rules, the first match wins:
        that approves every booking itself (threshold 1) —
   6. (bookings only) a capped plan: a quarter of the monthly cap already
      confirmed online in 24 h                      → hold (plan_day)
-  7. ≥ max(VENUE_HOUR_MIN, ⌈tables/2⌉) passed in the last hour
+  7. BURST, the venue: ≥ max(VENUE_HOUR_MIN 6, n) passed in the last hour
                                                    → hold (venue_hour)
-  8. (bookings only) ≥ max(SITTING_MIN, ⌈tables/2⌉) confirmed online
-     bookings made in 24 h already overlap this sitting
-                                                   → hold (sitting_full)
-  9. ≥ max(VENUE_DAY_MIN, 4 × tables) passed in 24 h → hold (venue_day)
+  8. BURST, one sitting (bookings only): ≥ max(SITTING_MIN 3, ⌈n/2⌉)
+     confirmed online bookings made in the last SITTING_WINDOW (3 h) already
+     overlap this sitting                          → hold (sitting_full)
+  9. PATTERN, one date (bookings only): ≥ max(DATE_MIN 6, ⌈1.5 × tables⌉)
+     — chairs: max(6, 4 × chairs) — confirmed online bookings made in the
+     last 24 h are already for this date           → hold (date_full)
  10. otherwise                                     → confirm
+
+Before fix round 2, rule 8 counted a whole day and every table's half
+(the 4th online booking for a busy Friday dinner waited for the owner), and
+a venue-wide day rule (24 a day) let an honest-looking drip spread over
+future dates put every later guest, on every date, on hold.
 """
 from __future__ import annotations
 
@@ -82,12 +96,14 @@ _PHONE_SEPARATORS = (" ", "-", "(", ")", ".", "/", "+")
 
 HELD_ACTION = "reservation.held_public"
 
-# Held reasons whose booking gets no owner ping of its own — the hourly
-# summary counts it instead.
-SUMMARY_ONLY = frozenset({"honeypot", "fast_fill", "link_in_name", "requests_full"})
-# Held reasons whose typed address gets no "request received" mail: almost
-# certainly not a person, so the mail would only relay a stranger's text.
-NO_GUEST_MAIL = frozenset({"honeypot", "fast_fill", "link_in_name"})
+# Held reasons that say "probably not a person": the typed address gets no
+# mail at all (it would only relay a stranger's text), the owner no ping of
+# its own, and no summary starts because of it alone.
+BOT_REASONS = frozenset({"honeypot", "fast_fill", "link_in_name"})
+NO_GUEST_MAIL = BOT_REASONS
+# Held reasons whose booking gets no owner ping of its own — a summary
+# counts it instead.
+SUMMARY_ONLY = BOT_REASONS | {"requests_full"}
 
 
 @dataclass(frozen=True)
@@ -95,7 +111,7 @@ class Screen:
     action: str                # "confirm" | "hold" | "drop"
     reason: str | None = None  # honeypot | fast_fill | link_in_name | requests_full
                                # | contact_active | plan_day | venue_hour
-                               # | sitting_full | venue_day
+                               # | sitting_full | date_full
 
 
 CONFIRM = Screen("confirm")
@@ -232,7 +248,7 @@ def quota_used_online_since(db, owner_id, since_utc: datetime) -> int:
 def sitting_online_count(db, owner_id, *, start: datetime, end: datetime,
                          since_utc: datetime) -> int:
     """Confirmed online bookings made since `since_utc` that overlap the
-    sitting [start, end) — how much of that sitting strangers took today."""
+    sitting [start, end) — how much of that sitting went online lately."""
     return _count(
         db.query(func.count(Reservation.id)).filter(
             Reservation.user_id == owner_id,
@@ -244,6 +260,32 @@ def sitting_online_count(db, owner_id, *, start: datetime, end: datetime,
             Reservation.ends_at > start,
         )
     )
+
+
+def date_online_count(db, owner_id, *, day_start: datetime, since_utc: datetime) -> int:
+    """Confirmed online bookings made since `since_utc` for the local date
+    that starts at `day_start` (naive venue time) — how fast that one date
+    is filling from the booking page."""
+    return _count(
+        db.query(func.count(Reservation.id)).filter(
+            Reservation.user_id == owner_id,
+            Reservation.source == "public",
+            Reservation.is_deleted.is_(False),
+            Reservation.status.in_(_HOLDING_A_TABLE),
+            Reservation.created_at >= since_utc,
+            Reservation.starts_at >= day_start,
+            Reservation.starts_at < day_start + timedelta(days=1),
+        )
+    )
+
+
+def date_cap(n_resources: int, *, chairs: bool) -> int:
+    """Rule 9's ceiling for one date: max(DATE_MIN, ⌈1.5 × tables⌉), or
+    max(DATE_MIN, 4 × chairs) — a chair takes many appointments a day."""
+    cfg = app_config
+    n = max(0, int(n_resources or 0))
+    per = float(cfg.BOOKING_DATE_PER_CHAIR if chairs else cfg.BOOKING_DATE_PER_TABLE)
+    return max(int(cfg.BOOKING_DATE_MIN), math.ceil(per * n))
 
 
 def monthly_cap(owner) -> int | None:
@@ -265,7 +307,7 @@ def _fail_open(rule: str) -> None:
 def screen_public_booking(db, *, owner, settings: dict, payload, is_request: bool,
                           n_resources: int, now_utc: datetime,
                           now_local: datetime, start: datetime | None = None,
-                          duration_min: int | None = None) -> Screen:
+                          duration_min: int | None = None, chairs: bool = False) -> Screen:
     """The decision for one anonymous booking. `payload` is the create body
     BEFORE links are stripped (rule 3 reads the raw name); `now_utc` is naive
     UTC (created_at), `now_local` and `start` naive venue time (starts_at).
@@ -316,21 +358,32 @@ def screen_public_booking(db, *, owner, settings: dict, payload, is_request: boo
         mcap = None if is_request else monthly_cap(owner)
         if mcap and quota_used_online_since(db, owner.id, day_ago) >= max(1, mcap // 4):
             return Screen("hold", "plan_day")
-        # 7. Unusually many online bookings for the size of the venue.
-        hour_cap = max(int(cfg.BOOKING_VENUE_HOUR_MIN), half)
+        # 7. A BURST at the venue: more online bookings in one hour than it
+        #    has tables (at least 6). A busy week's busiest real hour stays
+        #    well under it (tests/test_r1_fix2_real_guests.py).
+        hour_cap = max(int(cfg.BOOKING_VENUE_HOUR_MIN), n)
         if hour_cap > 0 and passed_since(db, owner.id, now_utc - timedelta(hours=1)) >= hour_cap:
             return Screen("hold", "venue_hour")
-        # 8. Half of this sitting already went to online bookings made today.
+        # 8. A BURST at one sitting: half its tables (at least 3) went to
+        #    online bookings made in the last 3 hours. Only the recent ones
+        #    count — real guests booking Friday dinner over the week never
+        #    reach it; a script filling 19:00 in minutes does.
         if not is_request and start is not None and duration_min:
             sit_cap = max(int(cfg.BOOKING_SITTING_MIN), half)
+            window = timedelta(minutes=max(1, int(cfg.BOOKING_SITTING_WINDOW_MIN)))
             if sit_cap > 0 and sitting_online_count(
                     db, owner.id, start=start, end=start + timedelta(minutes=int(duration_min)),
-                    since_utc=day_ago) >= sit_cap:
+                    since_utc=now_utc - window) >= sit_cap:
                 return Screen("hold", "sitting_full")
-        # 9. … and over a day.
-        day_cap = max(int(cfg.BOOKING_VENUE_DAY_MIN), 4 * n)
-        if day_cap > 0 and passed_since(db, owner.id, day_ago) >= day_cap:
-            return Screen("hold", "venue_day")
+        # 9. A PATTERN on one date: that date took more online bookings in
+        #    24 h than a busy week sends it. Per date — a drip spread over
+        #    many dates never holds a guest on another date.
+        if not is_request and start is not None:
+            cap = date_cap(n, chairs=chairs)
+            day_start = datetime.combine(start.date(), datetime.min.time())
+            if cap > 0 and date_online_count(db, owner.id, day_start=day_start,
+                                             since_utc=day_ago) >= cap:
+                return Screen("hold", "date_full")
     except Exception:  # noqa: BLE001 — fail open: a broken check never holds a guest back
         _fail_open("rules")
         _release(db)

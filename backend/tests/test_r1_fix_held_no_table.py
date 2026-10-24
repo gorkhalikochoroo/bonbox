@@ -118,9 +118,11 @@ def test_the_expiry_releases_occupancy(db):
     u, p, tables = restaurant(db, tables=1)
     now_cph = datetime.now(ZoneInfo("Europe/Copenhagen")).replace(tzinfo=None, microsecond=0)
     start = now_cph + timedelta(hours=2)
+    # Asked three hours ago and still unanswered: past its own deadline.
     r = Reservation(user_id=u.id, resource_id=tables[0].id, guest_name="Legacy",
                     party_size=2, starts_at=start, ends_at=start + timedelta(minutes=90),
-                    duration_min=90, status="requested", source="public")
+                    duration_min=90, status="requested", source="public",
+                    created_at=datetime.utcnow() - timedelta(hours=3))
     db.add(r); db.commit(); db.refresh(r)
     db.add(ReservationOccupancy(id=uuid.uuid4(), reservation_id=r.id, resource_id=tables[0].id,
                                 user_id=u.id, starts_at=r.starts_at, ends_at=r.ends_at, active=True))
@@ -207,7 +209,8 @@ def test_the_book_shows_why_and_what_a_held_booking_was_for(client, db, outbox):
     rows = client.get("/api/reservations/book", params={"day": DAY.isoformat()}).json()["reservations"]
     row = next(r for r in rows if r["id"] == rid)
     assert row["resource_id"] is None
-    assert row["held"] == {"reason": "fast_fill", "quiet": True, "wanted": ["Bord 3"], "pinned": False}
+    assert row["held"] == {"reason": "fast_fill", "quiet": True, "bot": True,
+                           "wanted": ["Bord 3"], "pinned": False}
     assert row["guest_mailed"] is False                 # a fast fill gets no mail
 
 
@@ -223,8 +226,9 @@ def test_declining_a_held_booking_mails_only_a_guest_we_mailed(client, db, outbo
     assert [m for m in outbox if m["to"] == "victim@example.com"] == []
     # A real-looking guest held at a busy moment DID get "request received":
     # declining tells them.
-    for i in range(3):
-        book(client, p.reservation_slug, day=DAY, time=f"1{2 + i}:00", email=f"r{i}@x.test")
+    for i in range(6):                  # the hour's max(6, tables) online bookings
+        book(client, p.reservation_slug, day=DAY + timedelta(days=1 + i), time="19:00",
+             email=f"r{i}@x.test")
     busy = book(client, p.reservation_slug, day=DAY, time="20:00", email="late@x.test")
     assert busy.json()["status"] == "requested"
     assert _held_after(db, busy.json()["id"])["reason"] == "venue_hour"
@@ -244,7 +248,8 @@ def test_the_expiry_does_not_mail_a_held_bot_address(db, client, outbox):
     u, p, tables = restaurant(db, tables=2)
     rid = book(client, p.reservation_slug, day=start.date(), time=start.strftime("%H:%M"),
                form_ms=None, email="victim@example.com").json()["id"]
-    expire_stale_requests(db)
+    # Past its own deadline (asked 3 h ahead: an hour before the sitting).
+    expire_stale_requests(db, now_local=now_cph + timedelta(hours=2, minutes=5))
     assert reservation(db, rid).status == "cancelled"
     assert [m for m in outbox if m["to"] == "victim@example.com"] == []
 

@@ -86,14 +86,15 @@ def _venue(Session, tables=6):
 
 def test_simultaneous_posts_cannot_pass_the_hour_ceiling(filedb):
     uid, slug = _venue(filedb)
-    day = today_local() + timedelta(days=3)
-    times = [f"{11 + i // 2:02d}:{30 * (i % 2):02d}" for i in range(N)]   # 11:00 … 16:30
+    # A date each, the same time: only the hour ceiling is in play (fix round
+    # 2 — the sitting and date rules count per sitting and per date).
+    days = [today_local() + timedelta(days=3 + i) for i in range(N)]
     barrier = threading.Barrier(N)
     results = [None] * N
 
     def post(i):
         client = TestClient(app)
-        body = {"day": day.isoformat(), "time": times[i], "party_size": 2,
+        body = {"day": days[i].isoformat(), "time": "19:00", "party_size": 2,
                 "guest_name": f"Race {i}", "guest_email": f"race{i}@x.test", "form_ms": 5000}
         barrier.wait()
         r = client.post(f"/api/public/reservations/{slug}", json=body,
@@ -107,12 +108,12 @@ def test_simultaneous_posts_cannot_pass_the_hour_ceiling(filedb):
         t.join(120)
     assert all(r is not None and r[0] == 200 for r in results), results
     confirmed = [r for r in results if r[1] == "confirmed"]
-    # max(BOOKING_VENUE_HOUR_MIN 3, half of 6 tables) — and not one more.
-    assert len(confirmed) == 3, results
+    # max(BOOKING_VENUE_HOUR_MIN 6, 6 tables) — and not one more.
+    assert len(confirmed) == 6, results
     db = filedb()
     try:
         assert db.query(Reservation).filter(Reservation.user_id == uid,
-                                            Reservation.status == "confirmed").count() == 3
+                                            Reservation.status == "confirmed").count() == 6
         pings = (db.query(NotificationLog)
                  .filter(NotificationLog.user_id == uid, NotificationLog.channel == "push",
                          NotificationLog.status.in_(("sent", "failed"))).all())

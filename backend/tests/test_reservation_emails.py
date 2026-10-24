@@ -676,6 +676,9 @@ def test_request_expiry_mail_is_bilingual_and_logged(db, outbox):
     start = datetime.now() + timedelta(hours=2)
     db.add(Reservation(user_id=owner.id, starts_at=start, ends_at=start + timedelta(hours=2),
                        party_size=12, guest_name="Sita", guest_email=GUEST,
+                       # Asked two days ago: unanswered (each request has its
+                       # own deadline since fix round 2, 24 Oct 2026).
+                       created_at=utc_now() - timedelta(days=2),
                        guest_lang="en", status="requested"))
     db.commit()
     out = expire_stale_requests(db)
@@ -692,9 +695,15 @@ def test_request_expiry_counts_only_delivered_mail(db, monkeypatch, sleeps):
     owner, _ = _venue(db)
     start = datetime.now() + timedelta(hours=2)
     db.add(Reservation(user_id=owner.id, starts_at=start, ends_at=start + timedelta(hours=2),
-                       party_size=12, guest_name="Sita", guest_email=GUEST, status="requested"))
+                       party_size=12, guest_name="Sita", guest_email=GUEST,
+                       # Asked two days ago: unanswered (each request has its
+                       # own deadline since fix round 2, 24 Oct 2026).
+                       created_at=utc_now() - timedelta(days=2), status="requested"))
     db.commit()
-    assert expire_stale_requests(db)["guests_notified"] == 0
+    out = expire_stale_requests(db)
+    # Both ways: the request WAS expired (a zero that came from expiring
+    # nothing proved nothing) and the undelivered mail is not counted.
+    assert out == {"requests_expired": 1, "guests_notified": 0}
 
 
 # ── 5. every template escapes what people typed ─────────────────────────

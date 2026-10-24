@@ -827,7 +827,8 @@ def _load_for_notify(db: Session, reservation_id: str, owner_id: str):
 
 
 def _send_booking_notifications(reservation_id: str, owner_id: str,
-                                hold_reason: str | None = None) -> None:
+                                hold_reason: str | None = None,
+                                held_mail_ok: bool | None = None) -> None:
     """Run the post-booking notifications (guest confirmation email, owner push,
     owner email) OFF the request path, on a FRESH DB session.
 
@@ -844,12 +845,13 @@ def _send_booking_notifications(reservation_id: str, owner_id: str,
     failure cannot roll back an earlier send's stamp or log row.
 
     `hold_reason` — the booking screen HELD it (booking_screen):
-      • NO_GUEST_MAIL reasons (a bot's form): no "request received" mail to
-        the typed address — the guest page already showed the receipt;
+      • BOT_REASONS (a bot's form): no "request received" mail to the typed
+        address, no owner ping of its own, and no summary starts because of
+        it — the next summary, or the morning one, counts it;
       • other held bookings: the mail, within the venue's small held-mail
-        budget (owner_booking_alerts.claim_held_guest_mail);
-      • SUMMARY_ONLY reasons: no owner ping of its own — logged as held back,
-        and the hourly summary ("3 venter på dit svar") tells the owner."""
+        budget — `held_mail_ok` is the claim the request path already made
+        (so the page could say whether a mail is coming; None: claim here) —
+        and the normal ping budget (requests_full: the summary only)."""
     db = SessionLocal()
     try:
         r, owner, profile = _load_for_notify(db, reservation_id, owner_id)
@@ -862,7 +864,8 @@ def _send_booking_notifications(reservation_id: str, owner_id: str,
             reservation_emails._log(db, owner_id=owner.id, reservation_id=r.id,
                                     event_type=reservation_emails.GUEST_CONFIRMATION,
                                     status="failed", error="held_no_mail")
-        elif owner_booking_alerts.claim_held_guest_mail(db, owner.id, now_utc=utc_now()):
+        elif (held_mail_ok if held_mail_ok is not None
+              else owner_booking_alerts.claim_held_guest_mail(db, owner.id, now_utc=utc_now())):
             _send_confirmation(owner, profile, r, db)
         else:
             reservation_emails._log(db, owner_id=owner.id, reservation_id=r.id,
@@ -871,12 +874,17 @@ def _send_booking_notifications(reservation_id: str, owner_id: str,
         db.commit()
         # 2. The owner — the ping budget (owner_booking_alerts): a few an hour,
         #    then one summary an hour; a flood never floods the phone.
+        if hold_reason in booking_screen.BOT_REASONS:
+            owner_booking_alerts.log_suppressed(
+                db, owner.id, "reservation_created", why=owner_booking_alerts.HELD_BOT)
+            return
         if hold_reason in booking_screen.SUMMARY_ONLY:
             owner_booking_alerts.log_suppressed(
                 db, owner.id, "reservation_created", why=owner_booking_alerts.HELD_FOR_SUMMARY)
             return
+        held = hold_reason is not None
         ping = owner_booking_alerts.decide(db, owner.id, now_utc=utc_now(),
-                                           event="reservation_created")
+                                           event="reservation_created", held=held)
         if ping.decision == "send":
             try:
                 from app.services.notification_service import notify_owner_new_reservation
@@ -888,8 +896,12 @@ def _send_booking_notifications(reservation_id: str, owner_id: str,
             owner_booking_alerts.send_summary(db, owner, profile, ping,
                                               today=_now_local().date().isoformat())
         else:
-            # Over the budget: held back; the next summary counts it.
-            owner_booking_alerts.log_suppressed(db, owner.id, "reservation_created")
+            # Over the budget: held back; the next summary counts it (a held
+            # booking's waits for the morning in the quiet hours).
+            owner_booking_alerts.log_suppressed(
+                db, owner.id, "reservation_created",
+                why=(owner_booking_alerts.HELD_OVER_BUDGET if held
+                     else owner_booking_alerts.OVER_BUDGET))
         db.commit()
     except Exception:  # noqa: BLE001 — never let a notification break anything
         logger.exception("booking notifications task failed")
@@ -1086,15 +1098,17 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
                              after=booking_screen.held_after(
                                  hold_reason, resource_ids, pinned=bool(payload.stylist_id)))
     db.commit()
+    guest_mail, held_mail_ok = _guest_mail_plan(db, owner, r, hold_reason)
     # Same post-commit notifications as the table path, OFF the request path
     # (guest confirmation + owner push + owner email). They used to run inline
     # here, holding the guest's response for every provider round trip.
     if background_tasks is not None:
         background_tasks.add_task(_send_booking_notifications, str(r.id), str(owner.id),
-                                  hold_reason)
+                                  hold_reason, held_mail_ok)
     else:  # direct callers without a request — still best-effort, never raises
-        _send_booking_notifications(str(r.id), str(owner.id), hold_reason)
-    return {"id": str(r.id), "status": r.status, "booking_token": _receipt_token(r)}
+        _send_booking_notifications(str(r.id), str(owner.id), hold_reason, held_mail_ok)
+    return {"id": str(r.id), "status": r.status, "booking_token": _receipt_token(r),
+            "guest_mail": guest_mail}
 
 
 @router.post("/{slug}")
@@ -1199,7 +1213,7 @@ def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: U
     screen = booking_screen.screen_public_booking(
         db, owner=owner, settings=settings, payload=payload, is_request=is_request,
         n_resources=_bookable_count(db, owner.id), now_utc=utc_now(),
-        now_local=_now_local(), start=start, duration_min=sitting_min,
+        now_local=_now_local(), start=start, duration_min=sitting_min, chairs=salon,
     )
     if screen.action == "drop":
         # The trap field, filled at bot speed. No row, no message — and never
@@ -1209,7 +1223,8 @@ def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: U
                              profile.id, after={"reason": screen.reason})
         db.commit()
         abuse_signals.bump("booking_honeypot")
-        return {"id": str(uuid4()), "status": "requested", "booking_token": ""}
+        return {"id": str(uuid4()), "status": "requested", "booking_token": "",
+                "guest_mail": False}
     hold_reason = screen.reason if screen.action == "hold" else None
 
     # No link reaches the owner's e-mail or the host stand as text a mail
@@ -1332,12 +1347,51 @@ def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: U
         audit_service.record(db, owner, booking_screen.HELD_ACTION, "reservation", r.id,
                              after=booking_screen.held_after(hold_reason, resource_ids))
     db.commit()
+    guest_mail, held_mail_ok = _guest_mail_plan(db, owner, r, hold_reason)
     # Notifications (guest confirmation email + owner push + owner email) run OFF
     # the request path on a fresh session, so a slow email/push provider no longer
     # holds the DB connection or delays the guest's response — the booking already
     # committed above. All best-effort inside the task.
-    background_tasks.add_task(_send_booking_notifications, str(r.id), str(owner.id), hold_reason)
-    return {"id": str(r.id), "status": r.status, "booking_token": _receipt_token(r)}
+    background_tasks.add_task(_send_booking_notifications, str(r.id), str(owner.id),
+                              hold_reason, held_mail_ok)
+    return {"id": str(r.id), "status": r.status, "booking_token": _receipt_token(r),
+            "guest_mail": guest_mail}
+
+
+def _guest_mail_plan(db: Session, owner: User, r: Reservation,
+                     hold_reason: str | None) -> tuple[bool, bool | None]:
+    """(guest_mail, held_mail_ok) for a booking just committed.
+
+    `guest_mail` tells the guest page whether an e-mail is coming, so the
+    receipt never promises one that is not ("Vi svarer dig på {email}" over
+    a held booking whose mail budget was spent — recheck, 24 Oct). It is
+    read from every ceiling the send applies; the send itself still runs
+    after the answer, best-effort.
+
+    `held_mail_ok`: for a person-like HELD booking, the venue's held-mail
+    budget is claimed HERE (under the create lock), and the background send
+    uses that claim — None for every other booking. When another ceiling
+    already says no, nothing is claimed and the send is left to log its own
+    reason. A bot-like hold gets no mail and claims nothing. Fail-safe: an
+    error promises no mail."""
+    try:
+        if not r.guest_email:
+            return False, None
+        if hold_reason in booking_screen.NO_GUEST_MAIL:
+            return False, None
+        if not reservation_emails.confirmation_will_send(db, owner.id, r.guest_email):
+            return False, (True if hold_reason else None)
+        if hold_reason:
+            ok = owner_booking_alerts.claim_held_guest_mail(db, owner.id, now_utc=utc_now())
+            return ok, ok
+        return True, None
+    except Exception:  # noqa: BLE001 — never a 500 for the guest
+        logger.warning("guest-mail plan failed", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return False, (False if hold_reason else None)
 
 
 def _bookable_count(db: Session, user_id) -> int:

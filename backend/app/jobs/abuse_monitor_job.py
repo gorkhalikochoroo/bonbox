@@ -9,7 +9,8 @@ hour/24 h; links and guest mails for the alert text), and keeps one
 MonitorState row per kind:
 
   abuse_magic_link  sign-in link mails held back (fleet / per-domain ceiling)
-  abuse_guest_mail  guest e-mails held back (fleet-wide daily ceiling)
+  abuse_guest_mail  guest e-mails held back (fleet-wide daily ceiling, or one
+                    venue's share of it)
   abuse_staff_join  staff join paused for everyone (global cool-off)
   abuse_stand_join  host-stand pairing paused for everyone (global cool-off)
   abuse_signups     unusual number of new accounts (alert only, nothing blocked)
@@ -166,7 +167,7 @@ def _signup_counts(db, now) -> tuple[int, int]:
 
 def _evaluate(db, sig: dict, now) -> dict:
     from app.services.abuse_caps import magic_link_counts
-    from app.services.reservation_emails import guest_emails_sent_fleet_last_24h
+    from app.services.reservation_emails import guest_emails_sent_fleet_last_24h, venue_mail_share
 
     g = lambda k: int(sig.get(k, 0) or 0)  # noqa: E731
     when = now.strftime("%Y-%m-%d %H:%M")
@@ -182,12 +183,15 @@ def _evaluate(db, sig: dict, now) -> dict:
              H=s.MAGIC_LINK_FLEET_MAX_PER_HOUR, D=s.MAGIC_LINK_FLEET_MAX_PER_DAY),
     )
 
-    n_guest = g("guest_mail_fleet")
+    n_guest, n_venue = g("guest_mail_fleet"), g("guest_mail_venue")
     sent24 = guest_emails_sent_fleet_last_24h(db)
+    share = venue_mail_share()
     checks["abuse_guest_mail"] = (
-        n_guest > 0,
-        f"held={n_guest} sent_24h={sent24} cap={s.GUEST_EMAILS_FLEET_PER_DAY}",
-        dict(when=when, n=n_guest, sent24=sent24, cap=s.GUEST_EMAILS_FLEET_PER_DAY),
+        n_guest + n_venue > 0,
+        f"held={n_guest} held_venue_share={n_venue} sent_24h={sent24} "
+        f"cap={s.GUEST_EMAILS_FLEET_PER_DAY} share={share}",
+        dict(when=when, n=n_guest, n_venue=n_venue, sent24=sent24,
+             cap=s.GUEST_EMAILS_FLEET_PER_DAY, share=share),
     )
 
     for service, kind in (("abuse_staff_join", "staff_join"), ("abuse_stand_join", "stand_join")):
@@ -272,13 +276,35 @@ def alert_copy(service: str, c: dict) -> tuple[str, list[str], str, str]:
             "Sign-in mail ceiling reached. Existing owners still get links. Details by e-mail.",
         )
     if service == "abuse_guest_mail":
+        n_venue = int(c.get("n_venue") or 0)
+        if not int(c.get("n") or 0) and n_venue:
+            # Only one venue's share was used up — every other venue still
+            # mails its guests.
+            return (
+                "BonBox: one venue used its share of guest e-mails",
+                [
+                    f"At {c['when']} UTC a venue had sent its share of guest confirmation e-mails "
+                    f"for the last 24 hours ({c['share']} of the fleet's {c['cap']}), so BonBox "
+                    "held the next ones back for that venue only.",
+                    f"Held back in the last 2 minutes: {n_venue}. Guest e-mails sent by all venues "
+                    f"in the last 24 hours: {c['sent24']}.",
+                    "Bookings are still saved, and the guest's booking page says no e-mail is "
+                    "coming. Other venues are not affected.",
+                    "This is a slow booking drip at one venue, or a venue busier than the share. "
+                    "Check /admin/recent-errors and the venue's book; if it is real traffic, raise "
+                    "BOOKING_VENUE_MAIL_SHARE_PCT or GUEST_EMAILS_FLEET_PER_DAY in Render.",
+                ],
+                "BonBox: one venue's guest e-mails held back",
+                "A venue used its daily share of guest e-mails. Other venues are not affected.",
+            )
         return (
             "BonBox: guest e-mail ceiling reached, guest mails held back",
             [
                 "BonBox stopped sending guest e-mails (confirmations, changes, reminders) for all "
                 f"venues at {c['when']} UTC: {c['sent24']} were sent in the last 24 hours, and the "
                 f"ceiling is {c['cap']}.",
-                f"Held back in the last 2 minutes: {c['n']}.",
+                f"Held back in the last 2 minutes: {c['n']}"
+                + (f", and {n_venue} more by one venue's share" if n_venue else "") + ".",
                 "Bookings are still saved; only the e-mail to the guest is skipped, and owners are "
                 "not told in the app.",
                 "If this is real traffic, raise GUEST_EMAILS_FLEET_PER_DAY in Render.",

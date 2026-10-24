@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
+
 from app.models.reservation import Reservation
 from app.models.staff import NotificationLog
 from app.services import booking_screen
@@ -111,21 +113,29 @@ def test_the_same_contact_is_held_from_the_fourth_booking(client, db, outbox):
     assert fifth.json()["status"] == "requested"
 
 
-def test_the_venue_hour_ceiling_holds_the_fourth(client, db, outbox):
-    u, profile, _ = restaurant(db, tables=6)
+@pytest.mark.parametrize("tables", [6, 10])
+def test_the_venue_hour_ceiling_holds_a_burst(client, db, outbox, tables):
+    """20 posts in one hour, each its own guest and time: max(6, tables) are
+    confirmed, the rest held (fix round 2 — the fix round's max(3, half the
+    tables) held ordinary guests on a busy evening; a busy week's busiest
+    real hour stays far under this, tests/test_r1_fix2_real_guests.py)."""
+    u, profile, _ = restaurant(db, tables=tables)
     slug = profile.reservation_slug
     statuses = []
     for i in range(20):
-        r = book(client, slug, day=DAY, time=TIMES[i], name=f"Guest {i}",
-                 email=f"guest{i}@example.com", ip=f"198.51.100.{i}")
+        r = book(client, slug, day=DAY + timedelta(days=i % 3), time=TIMES[i],
+                 name=f"Guest {i}", email=f"guest{i}@example.com", ip=f"198.51.100.{i}")
         assert r.status_code == 200, r.text
         statuses.append(r.json()["status"])
-    # max(BOOKING_VENUE_HOUR_MIN 3, half of 6 tables) = 3 an hour (fix round:
-    # the old floor of 6 was a 6-table venue's whole sitting).
-    assert statuses[:3] == ["confirmed"] * 3
-    assert statuses[3:] == ["requested"] * 17
+    cap = max(6, tables)
+    assert statuses[:cap] == ["confirmed"] * cap
+    assert statuses[cap:] == ["requested"] * (20 - cap)
     held = db.query(Reservation).filter(Reservation.status == "requested").all()
     assert all(active_occupancy(db, h.id) == [] for h in held)
+    from app.models.audit_log import AuditLog
+    reasons = {a.after_state for a in db.query(AuditLog)
+               .filter(AuditLog.action == "reservation.held_public").all()}
+    assert reasons and all('"venue_hour"' in x for x in reasons)
 
 
 def test_the_eleventh_group_request_of_the_day_is_held_not_refused(client, db, outbox):

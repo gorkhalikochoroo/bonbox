@@ -30,6 +30,7 @@ from app.jobs.reservation_request_expiry import (
 )
 from app.models.reservation import Reservation
 from app.models.user import User
+from app.utils.time import utc_now
 
 
 @pytest.fixture
@@ -143,12 +144,17 @@ def _owner(db) -> User:
     return u
 
 
-def _req(db, owner, *, hours_out, status="requested", email="sita@example.com"):
+def _req(db, owner, *, hours_out, status="requested", email="sita@example.com",
+         asked_hours_ago=48):
+    """A request `hours_out` from now, asked `asked_hours_ago` (default two
+    days: an UNANSWERED request — fix round 2 gives every request its own
+    deadline, and one asked a minute ago is not overdue)."""
     start = datetime.now() + timedelta(hours=hours_out)
     r = Reservation(user_id=owner.id, starts_at=start,
                     ends_at=start + timedelta(minutes=120),
                     party_size=12, guest_name="Sita", guest_email=email,
-                    status=status)
+                    status=status,
+                    created_at=utc_now() - timedelta(hours=asked_hours_ago))
     db.add(r); db.commit(); db.refresh(r)
     return r
 

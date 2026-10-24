@@ -6460,7 +6460,9 @@ try:
     # unsaid when nothing arrives after it. Every hour: the request expiry,
     # so "six hours before the sitting" holds for a request made the same
     # day (the nightly run alone declined a held 19:00 request only after
-    # its sitting). Both idempotent and fail-soft.
+    # its sitting). Each request has its own deadline (fix round 2): one made
+    # the same day gets two hours for the owner to answer, never minutes.
+    # Both idempotent and fail-soft.
     from app.services.owner_booking_alerts import flush_digests as _flush_owner_digests
     from app.jobs.reservation_request_expiry import expire_stale_requests as _expire_requests
     _scheduler.add_job(
@@ -6474,7 +6476,7 @@ try:
         _expire_requests,
         trigger=IntervalTrigger(hours=1),
         id="reservation_request_expiry",
-        name="Decline unanswered booking requests 6 h before the sitting",
+        name="Decline unanswered booking requests at each one's deadline",
         replace_existing=True,
     )
     # Public-surface quality monitor — flags SILENT booking-page defects (a page

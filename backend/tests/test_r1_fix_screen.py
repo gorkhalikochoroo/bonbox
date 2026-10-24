@@ -10,8 +10,11 @@ What the review measured, and what each test pins:
     day (409 requests_full). Now the real party's request goes in.
   • atk-a / atk-c: a slow drip (6 an hour, honest timing, rotating contacts)
     confirmed 24 fake bookings on a 6-table venue and closed a Free venue's
-    page for the month in ~3.5 h. Now: 3 an hour, half a sitting, and a
-    capped plan confirms at most a quarter of its month in a day.
+    page for the month in ~3.5 h. Now (fix round 2): one date takes at most
+    max(6, 1.5 × tables) online bookings made in 24 h, one sitting at most
+    max(3, half the tables) made in 3 h, and a capped plan confirms at most a
+    quarter of its month in a day. A drip spread over many dates holds no
+    real guest on any other date (the fix round's venue-wide day ceiling did).
   • The trap field: filled at a person's pace (a browser's autofill) the
     booking is held, never lost; filled at bot speed it is dropped — and the
     page is told "requested", never "confirmed".
@@ -81,7 +84,11 @@ def test_a_flood_that_was_held_does_not_hold_the_next_real_guest(client, db, out
     assert r.json()["status"] == "confirmed", _reason(db, r.json()["id"])
 
 
-def test_the_day_ceiling_still_holds_after_many_passed_bookings(client, db, outbox):
+def test_a_drip_spread_over_dates_holds_no_real_guest_on_another_date(client, db, outbox):
+    """Recheck S1 (24 Oct): 3 honest-looking posts an hour for 8 hours, a new
+    date each round, were all confirmed — and from then on every real guest,
+    on every date, was held (the venue-wide 24-a-day ceiling). The day rule is
+    per DATE now."""
     u, p, _ = restaurant(db, tables=6)
     for rnd in range(8):            # 3 an hour for 8 simulated hours = 24 passed
         for i in range(3):
@@ -90,8 +97,30 @@ def test_the_day_ceiling_still_holds_after_many_passed_bookings(client, db, outb
                      name=f"G{rnd}-{i}", email=f"g{rnd}-{i}@x.test", ip=f"10.1.{rnd}.{i}")
             assert r.json()["status"] == "confirmed", (rnd, i, _reason(db, r.json()["id"]))
         _age(db, u, 61)
-    r = book(client, p.reservation_slug, day=DAY + timedelta(days=20), email="late@x.test")
-    assert r.json()["status"] == "requested" and _reason(db, r.json()["id"]) == "venue_day"
+    for k, d in enumerate((DAY + timedelta(days=20), DAY + timedelta(days=3), today_local() + timedelta(days=1))):
+        r = book(client, p.reservation_slug, day=d, time="19:00", name="Mette Rigtig",
+                 email=f"mette{k}@x.test", form_ms=48000)
+        assert r.json()["status"] == "confirmed", _reason(db, r.json()["id"])
+
+
+def test_a_drip_on_one_date_is_held_at_the_date_ceiling(client, db, outbox):
+    """…but one date filling unusually fast is a pattern: max(6, 1.5 × 6
+    tables) = 9 online bookings made in 24 h for one date, then held."""
+    u, p, _ = restaurant(db, tables=6)
+    slots = ("11:00", "12:30", "14:00", "15:30", "17:00", "18:30", "20:00", "21:30")
+    got = []
+    for n in range(12):
+        r = book(client, p.reservation_slug, day=DAY, time=slots[n % len(slots)], name=f"Drip {n}",
+                 email=f"onedate{n}@x.test", ip=f"10.9.0.{n}")
+        got.append((r.json()["status"], _reason(db, r.json()["id"])))
+        if n % 3 == 2:
+            _age(db, u, 61)         # 3 an hour: the hour rule stays out of it
+    assert [s for s, _ in got].count("confirmed") == 9
+    assert got[9:] == [("requested", "date_full")] * 3
+    # Another date is untouched by it.
+    other = book(client, p.reservation_slug, day=DAY + timedelta(days=1), time="19:00",
+                 email="other-date@x.test", form_ms=52000)
+    assert other.json()["status"] == "confirmed"
 
 
 # ── P4 + atk-d: requests are never refused ─────────────────────────────
@@ -136,7 +165,10 @@ def test_over_the_group_ceiling_a_request_is_held_quietly(client, db, outbox):
 
 
 # ── atk-a / atk-c: the slow drip ───────────────────────────────────────
-def test_a_drip_confirms_three_an_hour_and_half_a_sitting(client, db, outbox):
+def test_a_fast_drip_on_one_evening_confirms_at_most_the_date_ceiling(client, db, outbox):
+    """atk-a: 6 posts an hour for 4 hours, four sittings of one evening. At
+    most 9 (the date ceiling at 6 tables) are confirmed, never more than 3 at
+    one sitting within 3 hours (was 24 before R1, 12 after the fix round)."""
     u, p, _ = restaurant(db, tables=6)
     times = ("19:00", "21:00", "17:00", "13:00")
     confirmed = []
@@ -148,13 +180,15 @@ def test_a_drip_confirms_three_an_hour_and_half_a_sitting(client, db, outbox):
                      email=f"drip{n}@x.test", ip=f"10.5.{rnd}.{i}")
             assert r.status_code == 200, r.text
             if r.json()["status"] == "confirmed":
-                confirmed.append(times[n % 4])
+                confirmed.append((rnd, times[n % 4]))
                 this_hour += 1
-        assert this_hour <= 3, (rnd, this_hour)      # max(3, half of 6 tables) an hour
+        assert this_hour <= 6, (rnd, this_hour)      # max(6, 6 tables) an hour
         _age(db, u, 61)
-    assert len(confirmed) <= 12                      # 3 an hour (was 24)
-    for t in times:                                  # never more than half a sitting
-        assert confirmed.count(t) <= 3, (t, confirmed)
+    assert len(confirmed) == 9                       # max(6, 1.5 × 6) for one date
+    for t in times:                                  # a sitting: ≤ 3 made within 3 h
+        for rnd in range(4):
+            recent = [x for x in confirmed if x[1] == t and rnd - 2 <= x[0] <= rnd]
+            assert len(recent) <= 3, (t, rnd, confirmed)
 
 
 def test_a_drip_cannot_close_a_free_venue_for_the_month(client, db, outbox):
@@ -178,18 +212,35 @@ def test_a_drip_cannot_close_a_free_venue_for_the_month(client, db, outbox):
     assert _reason(db, real.json()["id"]) == "plan_day"
 
 
-def test_the_sitting_rule_holds_the_fourth_at_one_sitting(client, db, outbox):
+def test_the_sitting_rule_holds_a_burst_at_one_sitting(client, db, outbox):
+    """Three online bookings for 19:00 made within 3 hours: the 4th that
+    overlaps them waits for the owner (max(3, half of 6 tables))."""
     u, p, _ = restaurant(db, tables=6)
     for i in range(3):
         r = book(client, p.reservation_slug, day=DAY, time="19:00", email=f"s{i}@x.test",
                  ip=f"10.7.0.{i}")
         assert r.json()["status"] == "confirmed"
-        _age(db, u, 61)                              # keep the hour rule out of it
+        _age(db, u, 30)
     fourth = book(client, p.reservation_slug, day=DAY, time="19:30", email="s4@x.test")
     assert fourth.json()["status"] == "requested"
     assert _reason(db, fourth.json()["id"]) == "sitting_full"
     lunch = book(client, p.reservation_slug, day=DAY, time="13:00", email="s5@x.test")
     assert lunch.json()["status"] == "confirmed"
+
+
+def test_real_guests_booking_one_sitting_over_the_week_are_never_held(client, db, outbox):
+    """Recheck S4 (24 Oct): six real guests booked Friday dinner, one every
+    75 minutes, and the 4th, 5th and 6th were held while three tables were
+    free. The sitting rule counts only bookings made in the last 3 hours, so
+    guests spread over the week — or even over an afternoon — are confirmed."""
+    u, p, _ = restaurant(db, tables=6)
+    got = []
+    for i, t in enumerate(("19:00", "19:30", "18:45", "19:15", "20:00", "19:00")):
+        r = book(client, p.reservation_slug, day=DAY, time=t, name=f"Rigtig {i}",
+                 email=f"rigtig{i}@x.test", form_ms=40000 + 1000 * i, ip=f"10.7.1.{i}")
+        got.append((r.json()["status"], _reason(db, r.json()["id"])))
+        _age(db, u, 75)
+    assert got == [("confirmed", None)] * 6
 
 
 # ── The trap field ─────────────────────────────────────────────────────
@@ -246,6 +297,12 @@ def test_stripped_text_fits_its_column(client, db, outbox):
     "see payments.evil.com", "https://bit.ly/abc", "x.com", "ｅｖｉｌ.com",
     # A host with a sub-domain on a TLD the short list does not name, no path.
     "secure.mobilepay-refund.rocks", "login.bank-dk.scam",
+    # Fix round 2 (recheck S3): a URL with an "@" in it was masked as an
+    # e-mail address before the link match ran, and passed as text.
+    "https://secure-refund.com/claim?u=@me", "https://mobilepay-refund.com/@dk",
+    "www.@refund.dk", "www.secure-refund.com/@me", "https://user@evil.com/login",
+    "user@evil.com/login", "evil.com/claim@x", "Se https://evil.com/claim?ref=@x",
+    "claim.dev", "winner.ca", "refund.np", "evil.gov", "evil.edu",
 ])
 def test_links_mail_clients_would_link_are_caught(text):
     assert has_link(text)
@@ -256,6 +313,9 @@ def test_links_mail_clients_would_link_are_caught(text):
     "anna@cafe.dk", "Kontakt: anna.hansen@gmail.com", "bl.a. glutenfri", "bl.a.glutenfri",
     "f.eks.nødder", "kl.19.30", "ring 12.34.56.78", "J.R. Smith", "evt.glutenfri",
     "A.P. Møller", "Anne-Marie Østergård", "3.5 år", "og/eller",
+    # Strict addresses stay text, whatever sits around them.
+    "anna+bord@gmail.com", "mail: anna@cafe.dk.", "(anna@café.dk)", "ca. 30 min",
+    "Vi er ca.4 personer",
 ])
 def test_ordinary_text_is_left_alone(text):
     assert not has_link(text)
@@ -272,24 +332,62 @@ def test_a_name_with_a_sub_domain_host_is_held_and_stripped(client, db, outbox):
     assert "refund" not in row.guest_name and "refund" not in (row.guest_notes or "")
 
 
+def test_a_name_carrying_an_at_url_is_held_and_never_reaches_the_owner_as_a_link(client, db, outbox):
+    """Recheck S3: these three names were confirmed, stored verbatim, and
+    sent to the owner as clickable links in the new-booking e-mail."""
+    u, p, _ = restaurant(db)
+    names = ("Mette https://secure-refund.com/claim?u=@me", "Refund https://mobilepay-refund.com/@dk",
+             "Login https://user@evil.com/login")
+    for i, name in enumerate(names):
+        r = book(client, p.reservation_slug, day=DAY + timedelta(days=i), name=name,
+                 guest_notes="Se https://evil.com/claim?ref=@x", email=f"at{i}@example.com",
+                 ip=f"10.30.0.{i}")
+        assert r.json()["status"] == "requested", name
+        row = reservation(db, r.json()["id"])
+        assert _reason(db, row.id) == "link_in_name"
+        assert "http" not in row.guest_name and "[link]" in row.guest_name
+        assert row.guest_notes == "Se [link]"
+    assert outbox == []                  # bot-like holds: no mail to anyone
+    # A real name with such a link in the NOTE: confirmed, and the owner's
+    # new-booking e-mail carries "[link]", never the URL.
+    r = book(client, p.reservation_slug, day=DAY + timedelta(days=5), name="Mette Hansen",
+             guest_notes="Se https://evil.com/claim?ref=@x", email="mette.h@example.com",
+             ip="10.30.1.1")
+    assert r.json()["status"] == "confirmed"
+    owner_mail = [m for m in outbox if m["to"] == u.email]
+    assert len(owner_mail) == 1 and "[link]" in owner_mail[0]["html"]
+    for m in outbox:
+        assert "evil.com" not in (m["html"] or "") and "refund.com" not in (m["html"] or "")
+
+
 # ── atk-m: held mail to typed addresses is bounded per venue ───────────
-def test_held_bookings_share_a_small_mail_budget(client, db, outbox):
+def test_held_bookings_share_a_small_mail_budget(client, db, outbox, monkeypatch):
+    from app.config import settings
+    # The venue's share of the fleet's guest mail is its own test
+    # (test_r1_fix2_mail_and_alerts.py); here only the held-mail budget.
+    monkeypatch.setattr(settings, "BOOKING_VENUE_MAIL_SHARE_PCT", 0)
     u, p, _ = restaurant(db, tables=2)
-    for i in range(3):                               # the hour's 3 confirmed
-        book(client, p.reservation_slug, day=DAY + timedelta(days=i), email=f"ok{i}@x.test",
-             ip=f"10.8.0.{i}")
-    held = []
+    for i in range(6):                               # the hour's max(6, 2 tables) confirmed
+        r = book(client, p.reservation_slug, day=DAY + timedelta(days=i), email=f"ok{i}@x.test",
+                 ip=f"10.8.0.{i}")
+        assert r.json()["status"] == "confirmed"
+        assert r.json()["guest_mail"] is True        # the page may say a mail is coming
+    held, said = [], []
     for i in range(6):                               # 6 more: held (venue_hour)
         r = book(client, p.reservation_slug, day=DAY + timedelta(days=10 + i),
                  email=f"held{i}@x.test", ip=f"10.8.1.{i}")
         assert _reason(db, r.json()["id"]) == "venue_hour"
         held.append(f"held{i}@x.test")
+        said.append(r.json()["guest_mail"])
     mailed = [m for m in outbox if m["to"] in held]
     assert len(mailed) == 3                          # BOOKING_HELD_GUEST_MAILS_PER_HOUR
+    # The page promised a mail to exactly the three that get one.
+    assert said == [True, True, True, False, False, False]
+    assert {m["to"] for m in mailed} == set(held[:3])
     capped = [x for x in logs(db, u, channel="email") if x.error_message == "held_mail_capped"]
     assert len(capped) == 3
-    # A fast fill (a bot's form) gets no mail at all.
+    # A fast fill (a bot's form) gets no mail at all, and the page is told so.
     fast = book(client, p.reservation_slug, day=DAY + timedelta(days=30), form_ms=None,
                 email="victim@example.com", ip="10.8.2.1")
-    assert fast.json()["status"] == "requested"
+    assert fast.json()["status"] == "requested" and fast.json()["guest_mail"] is False
     assert [m for m in outbox if m["to"] == "victim@example.com"] == []

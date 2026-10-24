@@ -249,3 +249,48 @@ def logs(db, owner, **filters) -> list:
     for k, v in filters.items():
         q = q.filter(getattr(NotificationLog, k) == v)
     return q.all()
+
+
+# ── A simulated clock (fix round 2) ─────────────────────────────────────
+class Clock:
+    """Every "now" the public create path reads, and every created_at it
+    writes, follow `local` (naive Copenhagen wall-clock) — nothing is
+    back-dated; each booking meets the screen at its own minute."""
+
+    def __init__(self):
+        self.local = None
+
+    def now_local(self):
+        return self.local
+
+    def now_utc(self):
+        from datetime import timezone
+        return self.local.replace(tzinfo=_TZ).astimezone(timezone.utc).replace(tzinfo=None)
+
+
+@pytest.fixture
+def clock(client, monkeypatch):
+    from sqlalchemy import event
+
+    import app.routers.public_reservations as pr
+    import app.services.owner_booking_alerts as oba
+    import app.utils.time as tmod
+    from app.models.audit_log import AuditLog
+    c = Clock()
+    monkeypatch.setattr(tmod, "utc_now", c.now_utc)
+    monkeypatch.setattr(pr, "utc_now", c.now_utc)
+    monkeypatch.setattr(pr, "_now_local", c.now_local)
+    monkeypatch.setattr(mail, "utc_now", c.now_utc)
+    monkeypatch.setattr(oba, "_now_local", c.now_local)
+
+    def stamp(mapper, connection, target):
+        if getattr(target, "created_at", None) is None:
+            target.created_at = c.now_utc()
+
+    models = (Reservation, AuditLog, NotificationLog)
+    for m in models:
+        event.listen(m, "before_insert", stamp)
+    yield c
+    for m in models:
+        event.remove(m, "before_insert", stamp)
+

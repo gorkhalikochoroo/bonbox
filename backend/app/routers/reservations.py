@@ -1875,9 +1875,16 @@ def reservation_book(
             d["held"] = {
                 "reason": h.get("reason"),
                 "quiet": h.get("reason") in booking_screen.SUMMARY_ONLY,
+                # Bot-like (trap, fast fill, link): its address never gets a
+                # mail from us, so the owner's decline is a silent one.
+                "bot": h.get("reason") in booking_screen.BOT_REASONS,
                 "wanted": [label_by_id.get(i, i) for i in h.get("resource_ids") or []],
                 "pinned": bool(h.get("pinned")),
             }
+            if h.get("reason") == "contact_active":
+                # The drawer names the real limit, not a hard-coded 3.
+                from app.config import settings as _cfg
+                d["held"]["limit"] = int(_cfg.BOOKING_CONTACT_ACTIVE_MAX)
         # Did the guest get an e-mail from us about this booking? The owner's
         # decline of a held booking says whether the guest will hear.
         d["guest_mailed"] = r.confirmation_sent_at is not None
@@ -1892,6 +1899,26 @@ def reservation_book(
         "reservations": dicts,
         "summary": {"total": len(rows), "covers": covers, "by_status": by_status},
     }
+
+
+def _held_is_bot(held: dict | None) -> bool:
+    from app.services import booking_screen
+    return (held or {}).get("reason") in booking_screen.BOT_REASONS
+
+
+def _may_tell_held_guest(db: Session, user: User, r: Reservation, held: dict) -> bool:
+    """Does the owner's decline of a HELD online booking mail the guest?
+    Yes when we already mailed them about it; never for a bot-like hold;
+    otherwise within the venue's held-mail budget."""
+    from app.services import booking_screen, owner_booking_alerts
+    if reservation_emails.guest_heard_from_us(db, r):
+        return True
+    if _held_is_bot(held) or not r.guest_email:
+        return False
+    if not reservation_emails.starts_in_future(r, user):
+        return True        # nothing is sent for a past booking anyway; claim nothing
+    from app.utils.time import utc_now
+    return owner_booking_alerts.claim_held_guest_mail(db, user.id, now_utc=utc_now())
 
 
 def _held_for_rows(db: Session, user: User, rows) -> dict:
@@ -3236,13 +3263,25 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                 background_tasks, user, r, "request_confirmed", db=db,
                 prev_status=prev_status)
         elif payload.status == "cancelled" and prev_status in ("requested", "confirmed"):
-            # A HELD booking's typed address hears only if it already heard
-            # from us about this booking (its "request received" mail): the
-            # decline must not mail every stranger a bot typed in.
-            if held is None or reservation_emails.guest_heard_from_us(db, r):
+            # A HELD booking: a bot-like hold's typed address never hears (the
+            # decline must not mail every stranger a bot typed in); a
+            # person-like hold hears if we already mailed it, or else within
+            # the venue's small held-mail budget (fix round 2: such a guest
+            # got no word at all).
+            if held is None or _may_tell_held_guest(db, user, r, held):
                 guest_mail_skipped = _queue_guest_email(
                     background_tasks, user, r, "cancelled_by_venue", db=db,
                     prev_status=prev_status)
+            elif r.guest_email and not _held_is_bot(held):
+                # A person-like hold we could not mail (the venue's held-mail
+                # budget is spent): the owner is told, so they can call.
+                guest_mail_skipped = {
+                    "code": "held_mail_budget",
+                    "message": ("Declined. The guest was not e-mailed: today's e-mails for held "
+                                "requests are used up. Call the guest if it was real."),
+                    "message_da": ("Afvist. Gæsten fik ingen e-mail: dagens e-mails til holdte "
+                                   "forespørgsler er brugt. Ring til gæsten, hvis den var ægte."),
+                }
 
     out = _reservation_dict(r)
     if guest_mail_skipped:

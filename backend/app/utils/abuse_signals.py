@@ -6,7 +6,9 @@ state lives in monitor_state rows. Counts only: never an address, e-mail,
 IP or user id.
 
 Kinds: edge, no_edge, magic_link_fleet, magic_link_domain,
-guest_mail_fleet, staff_join_cooloff, stand_join_cooloff.
+guest_mail_fleet, guest_mail_venue (one venue's share of the fleet guest-mail
+ceiling used up), staff_join_cooloff, stand_join_cooloff, booking_honeypot,
+booking_screen_error.
 """
 from __future__ import annotations
 

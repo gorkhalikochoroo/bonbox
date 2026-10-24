@@ -17,11 +17,17 @@ The budget, per venue:
     owner blind for the rest of the day while real guests were held as
     requests only the owner could approve (security review, atk-n).
 
-Anything held back is logged ("suppressed"); a booking the screen held as
-bot-likely (booking_screen.SUMMARY_ONLY) gets no ping of its own and is
-logged the same way. `flush_digests` (every 10 minutes) sends the summary for
-those once the hour allows, so a held-back booking is never left unsaid when
-nothing else arrives after it.
+Anything held back is logged ("suppressed", with why). `flush_digests`
+(every 10 minutes) sends the summary for those once the hour allows, so a
+held-back booking is never left unsaid when nothing else arrives after it —
+with two exceptions (fix round 2: one robot post an hour buzzed the owner
+every hour, day and night):
+  • a booking the screen held as BOT-LIKE (booking_screen.BOT_REASONS) never
+    starts a summary by itself. The next summary a real booking or a
+    cancellation starts counts it ("3 venter på dit svar"), and so does ONE
+    morning summary after the quiet hours, if nothing told the owner yet;
+  • a summary that would only be about held bookings waits for the morning
+    in the quiet hours (OWNER_SUMMARY_QUIET_FROM/TO_HOUR, 22–07 venue time).
 
 The decision is made and RECORDED under the venue lock (services/
 venue_lock.py) on a ledger row (NotificationLog channel "budget"), so twelve
@@ -36,7 +42,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func
@@ -58,8 +64,14 @@ SUPPRESSED = "suppressed"
 LEDGER_CHANNEL = "budget"
 SPENT = "spent"
 # Why a ping was held back (NotificationLog.error_message).
-OVER_BUDGET = "owner_ping_budget"
-HELD_FOR_SUMMARY = "held_for_summary"
+OVER_BUDGET = "owner_ping_budget"         # a real booking / cancellation over the budget
+HELD_OVER_BUDGET = "held_over_budget"     # a held (person-like) booking over the budget
+HELD_FOR_SUMMARY = "held_for_summary"     # a held booking that never pings (requests_full)
+HELD_BOT = "held_bot"                     # a bot-like hold: never starts a summary
+# The held-back kinds that start a summary only outside the quiet hours.
+_HELD_TRIGGERS = (HELD_OVER_BUDGET, HELD_FOR_SUMMARY)
+# Every held-back kind about a HELD booking (the morning summary's question).
+_HELD_KINDS = _HELD_TRIGGERS + (HELD_BOT,)
 
 _TZ = ZoneInfo("Europe/Copenhagen")
 
@@ -67,6 +79,35 @@ _TZ = ZoneInfo("Europe/Copenhagen")
 def _now_local() -> datetime:
     """Naive Copenhagen wall-clock — the frame starts_at is stored in."""
     return datetime.now(_TZ).replace(tzinfo=None)
+
+
+def _local_of(now_utc: datetime) -> datetime:
+    """Naive UTC (the NotificationLog clock) → naive venue wall-clock."""
+    return now_utc.replace(tzinfo=timezone.utc).astimezone(_TZ).replace(tzinfo=None)
+
+
+def _utc_of(local: datetime) -> datetime:
+    """Naive venue wall-clock → naive UTC."""
+    return local.replace(tzinfo=_TZ).astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def in_quiet_hours(now_local: datetime) -> bool:
+    """22–07 venue time by default: a summary about held bookings only
+    waits for the morning. Equal hours switch it off."""
+    start = int(app_config.OWNER_SUMMARY_QUIET_FROM_HOUR) % 24
+    end = int(app_config.OWNER_SUMMARY_QUIET_TO_HOUR) % 24
+    h = now_local.hour
+    if start == end:
+        return False
+    return (h >= start or h < end) if start > end else (start <= h < end)
+
+
+def _quiet_ended_at(now_local: datetime) -> datetime:
+    """The venue-time instant the last quiet hours ended (today's 07:00, or
+    yesterday's before it)."""
+    end = int(app_config.OWNER_SUMMARY_QUIET_TO_HOUR) % 24
+    t = now_local.replace(hour=end, minute=0, second=0, microsecond=0)
+    return t if t <= now_local else t - timedelta(days=1)
 
 
 @dataclass(frozen=True)
@@ -141,13 +182,17 @@ def summary_counts(db, owner_id, *, now_utc: datetime, since: datetime | None = 
     return public_rows_since(db, owner_id, since), waiting_requests(db, owner_id)
 
 
-def decide(db, owner_id, *, now_utc: datetime, event: str = "reservation_created") -> Ping:
+def decide(db, owner_id, *, now_utc: datetime, event: str = "reservation_created",
+           held: bool = False) -> Ping:
     """The next owner ping: "send" | "burst" | "suppress", RECORDED before it
     returns (a ledger row for send and burst). `now_utc` is naive UTC (the
-    NotificationLog clock). Never raises; commits its own ledger row."""
+    NotificationLog clock). `held`: the booking was held by the screen (a
+    person-like hold) — over the budget in the quiet hours it waits for the
+    morning instead of starting a summary. Never raises; commits its own
+    ledger row."""
     try:
         with venue_lock(db, _lock_key(owner_id)):
-            ping = _decide_locked(db, owner_id, now_utc=now_utc, event=event)
+            ping = _decide_locked(db, owner_id, now_utc=now_utc, event=event, held=held)
             db.commit()
             return ping
     except Exception:  # noqa: BLE001 — fail open: never hide a real booking
@@ -159,7 +204,7 @@ def decide(db, owner_id, *, now_utc: datetime, event: str = "reservation_created
         return Ping("send")
 
 
-def _decide_locked(db, owner_id, *, now_utc: datetime, event: str) -> Ping:
+def _decide_locked(db, owner_id, *, now_utc: datetime, event: str, held: bool = False) -> Ping:
     per_day = int(app_config.OWNER_BOOKING_PINGS_PER_DAY)
     per_hour = int(app_config.OWNER_BOOKING_PINGS_PER_HOUR)
     hour_ago = now_utc - timedelta(hours=1)
@@ -170,6 +215,9 @@ def _decide_locked(db, owner_id, *, now_utc: datetime, event: str) -> Ping:
         _spend(db, owner_id, event if event in SINGLE_EVENTS else SINGLE_EVENTS[0])
         return Ping("send")
     if _last_summary_at(db, owner_id, hour_ago) is not None:
+        return Ping("suppress")
+    if held and in_quiet_hours(_local_of(now_utc)):
+        # Only a held booking to tell, at night: the morning summary does.
         return Ping("suppress")
     new, waiting = summary_counts(db, owner_id, now_utc=now_utc)
     if new + waiting <= 0:
@@ -217,9 +265,56 @@ def send_summary(db, owner, profile, ping: Ping, *, today: str | None = None) ->
         logger.warning("owner summary email failed: %s", type(exc).__name__)
 
 
+def _held_back_since(db, owner_id, kinds, *, after: datetime | None,
+                     before: datetime | None = None) -> int:
+    """Held-back pings of these kinds (NotificationLog error_message) after
+    `after` (and before `before`)."""
+    q = db.query(func.count(NotificationLog.id)).filter(
+        NotificationLog.user_id == owner_id,
+        NotificationLog.channel == "push",
+        NotificationLog.status == SUPPRESSED,
+        NotificationLog.event_type.in_(PING_EVENTS),
+        NotificationLog.error_message.in_(kinds),
+    )
+    if after is not None:
+        q = q.filter(NotificationLog.created_at > after)
+    if before is not None:
+        q = q.filter(NotificationLog.created_at < before)
+    return int(q.scalar() or 0)
+
+
+def _digest_due(db, owner_id, *, last_real, last_held, now_utc: datetime) -> str | None:
+    """Why this venue's summary is due now — "hour" (a ping held back since
+    the last summary, an hour after it) or "morning" (held bookings nobody
+    told the owner about, once after the quiet hours) — or None. Runs under
+    the venue lock."""
+    day_ago = now_utc - timedelta(days=1)
+    hour_ago = now_utc - timedelta(hours=1)
+    now_local = _local_of(now_utc)
+    quiet = in_quiet_hours(now_local)
+    last = _last_summary_at(db, owner_id, day_ago)
+    triggers = [last_real] + ([] if quiet else [last_held])
+    for t in triggers:
+        if t is not None and (last is None or (last < hour_ago and last < t)):
+            return "hour"
+    if quiet:
+        return None
+    # The morning summary: bot-like holds never start one by themselves, but
+    # the owner hears about them once a day, after the quiet hours — if no
+    # summary since then said so already.
+    quiet_end = _utc_of(_quiet_ended_at(now_local))
+    if last is not None and last >= quiet_end:
+        return None
+    if _held_back_since(db, owner_id, _HELD_KINDS, after=last or day_ago, before=quiet_end):
+        return "morning"
+    return None
+
+
 def flush_digests(db=None, *, now_utc: datetime | None = None) -> dict:
     """Every 10 minutes: the hourly summary for each venue with a ping held
-    back since its last summary, once the last summary is an hour old. Never
+    back since its last summary, once the last summary is an hour old; a
+    held booking's only in daytime (the quiet hours wait for the morning);
+    a bot-like hold's never by itself — once in the morning at most. Never
     raises."""
     from app.database import SessionLocal
     from app.models.business_profile import BusinessProfile
@@ -232,28 +327,41 @@ def flush_digests(db=None, *, now_utc: datetime | None = None) -> dict:
     try:
         now_utc = now_utc or utc_now()
         day_ago = now_utc - timedelta(days=1)
-        hour_ago = now_utc - timedelta(hours=1)
-        held = (
-            db.query(NotificationLog.user_id, func.max(NotificationLog.created_at))
+        rows = (
+            db.query(NotificationLog.user_id, NotificationLog.error_message,
+                     func.max(NotificationLog.created_at))
             .filter(
                 NotificationLog.channel == "push",
                 NotificationLog.status == SUPPRESSED,
                 NotificationLog.event_type.in_(PING_EVENTS),
                 NotificationLog.created_at >= day_ago,
             )
-            .group_by(NotificationLog.user_id)
+            .group_by(NotificationLog.user_id, NotificationLog.error_message)
             .all()
         )
         db.rollback()
-        for owner_id, last_held in held:
+        # Per venue: the newest held-back real ping and held-booking ping.
+        # A bot-like hold is listed (the morning summary may count it) but
+        # is never a trigger by itself.
+        venues: dict = {}
+        for owner_id, why, at in rows:
+            v = venues.setdefault(owner_id, {"real": None, "held": None})
+            if why == HELD_BOT:
+                continue
+            key = "held" if why in _HELD_KINDS else "real"
+            if v[key] is None or at > v[key]:
+                v[key] = at
+        for owner_id, v in venues.items():
             try:
                 ping = None
                 with venue_lock(db, _lock_key(owner_id)):
-                    last = _last_summary_at(db, owner_id, day_ago)
-                    if last is None or (last < hour_ago and last < last_held):
-                        new, waiting = summary_counts(db, owner_id, now_utc=now_utc,
-                                                      since=last or hour_ago)
-                        if new + waiting > 0:
+                    why = _digest_due(db, owner_id, last_real=v["real"], last_held=v["held"],
+                                      now_utc=now_utc)
+                    if why is not None:
+                        last = _last_summary_at(db, owner_id, day_ago)
+                        since = last or (day_ago if why == "morning" else now_utc - timedelta(hours=1))
+                        new, waiting = summary_counts(db, owner_id, now_utc=now_utc, since=since)
+                        if (waiting if why == "morning" else new + waiting) > 0:
                             _spend(db, owner_id, BURST_EVENT)
                             ping = Ping("burst", new=new, waiting=waiting)
                     db.commit()
@@ -263,7 +371,7 @@ def flush_digests(db=None, *, now_utc: datetime | None = None) -> dict:
                 profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == owner_id).first()
                 if owner is None:
                     continue
-                send_summary(db, owner, profile, ping, today=_now_local().date().isoformat())
+                send_summary(db, owner, profile, ping, today=_local_of(now_utc).date().isoformat())
                 db.commit()
                 sent += 1
             except Exception:  # noqa: BLE001 — one venue never stops the rest

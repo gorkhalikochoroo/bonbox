@@ -56,16 +56,22 @@ def portal_path(token: str, business_name: str | None,
 
 # A link a stranger can type into a booking. Gmail, Outlook and Apple Mail
 # turn more than "www." and ".com" into a clickable link, so this matches:
-#   • a scheme or "www." link;
+#   • a scheme or "www." link — whatever it carries, an "@" included
+#     ("https://secure-refund.com/claim?u=@me" is a link, not an address);
 #   • a host with a sub-domain ("login.bonbox-refund.com", "my.evil.dk") —
 #     any letter-only top-level domain, labels of two characters or more;
 #   • a bare domain ("winner-dk.eu") on a common or a European top-level
 #     domain;
-#   • any domain with a path after it ("t.me/x", "wa.me/45…", "goo.gl/x");
+#   • any domain with a path after it ("t.me/x", "wa.me/45…", "goo.gl/x",
+#     "evil.com/claim@x");
 #   • an IP address with a port or a path ("1.2.3.4/login") — a bare
 #     "12.34.56.78" is a Danish phone number, not a link.
 # Before matching, look-alike dots ("。", "．", "․", "[.]", "(.)") are folded
-# to ".", and an e-mail address is kept whole ("anna@cafe.dk" is not a link).
+# to ".". Scheme and "www." links are found FIRST, on the text as typed; only
+# then are e-mail addresses set aside, and only STRICT ones ("anna@cafe.dk",
+# never a token that runs on into a path or another "@"): an address mask
+# that swallowed any "\S+@\S+" hid every URL with an "@" in it (recheck,
+# 24 Oct: such names were confirmed and reached the owner's e-mail as links).
 # Labels of two characters or more keep "bl.a.", "f.eks." and "kl.19" text.
 _TLDS = (
     "com|net|org|dk|io|ru|xyz|info|biz|top|click|link|shop|online|site|live|app|ly"
@@ -73,17 +79,18 @@ _TLDS = (
     "|gl|fo|tk|ml|ga|cf|gq|pw|ws|su|cn|in|br|ua|tv|gg|ai|sh|im|la|vip|win|bid|loan"
     "|work|club|store|tech|space|website|fun|icu|cyou|buzz|rest|bar|today|news|email"
     "|support|help|page|pro|cloud|digital|network|services|life|world|zone|mobi|name"
+    "|dev|ca|gov|edu|np"
 )
 # A hostname label: letters/digits, hyphens inside. _SUB_LABEL (two or more
 # characters) is for the sub-domain form, where any letter-only TLD counts —
 # so "bl.a.glutenfri" and "f.eks.nødder" stay text.
 _LABEL = r"[^\W_](?:[\w-]*[^\W_])?"
 _SUB_LABEL = r"[^\W_][\w-]*[^\W_]"
+_SCHEME_RE = re.compile(r"(?i)(?<![\w-])(?:https?://|www\.)\S+")
 _LINK_RE = re.compile(
-    r"(?i)(?<![\w@-])(?:"
-    r"(?:https?://|www\.)\S+"
+    r"(?i)(?<![\w-])(?:"
     # a host with a sub-domain: two+ labels, then a letter-only TLD
-    r"|(?:" + _SUB_LABEL + r"\.){2,}[^\W\d_]{2,24}\b(?:[:/]\S*)?"
+    r"(?:" + _SUB_LABEL + r"\.){2,}[^\W\d_]{2,24}\b(?:[:/]\S*)?"
     # a domain followed by a path ("t.me/x")
     r"|" + _LABEL + r"\.[^\W\d_]{2,24}/\S*"
     # a bare domain on a known TLD ("x.com", "winner-dk.eu")
@@ -92,7 +99,10 @@ _LINK_RE = re.compile(
     r"|\d{1,3}(?:\.\d{1,3}){3}[:/]\S*"
     r")"
 )
-_EMAIL_RE = re.compile(r"\S+@\S+")
+# A STRICT e-mail address: not glued to a path, a scheme or another "@" on
+# either side ("evil.com/claim@x" and "user@evil.com/login" are not
+# addresses — the link match sees them).
+_EMAIL_RE = re.compile(r"(?<![\w/:@.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+(?![\w/@])")
 _DOT_LOOKALIKES = re.compile(r"\s*(?:\[\.\]|\(\.\)|\{\.\}|\[dot\]|\(dot\))\s*|[。．․｡]", re.I)
 
 
@@ -102,7 +112,8 @@ def _normalise(text: str) -> str:
 
 
 def _mask_emails(text: str) -> tuple[str, list[str]]:
-    """E-mail addresses out of the way of the link match, kept for restoring."""
+    """Strict e-mail addresses out of the way of the link match, kept for
+    restoring. Run AFTER the scheme/www links are out of the text."""
     kept: list[str] = []
 
     def _keep(m):
@@ -120,7 +131,10 @@ def has_link(text: str | None) -> bool:
     """Does the text carry a URL, a www. link, a host or a bare domain?"""
     if not text:
         return False
-    masked, _ = _mask_emails(_normalise(text))
+    norm = _normalise(text)
+    if _SCHEME_RE.search(norm):
+        return True
+    masked, _ = _mask_emails(norm)
     return _LINK_RE.search(masked) is not None
 
 
@@ -135,8 +149,9 @@ def strip_links(text: str | None) -> str | None:
     its column: "[link]" can be longer than the link it replaced."""
     if not text:
         return text
-    masked, kept = _mask_emails(_normalise(text))
-    out, n = _LINK_RE.subn("[link]", masked)
-    if not n:
+    out, n1 = _SCHEME_RE.subn("[link]", _normalise(text))
+    masked, kept = _mask_emails(out)
+    out, n2 = _LINK_RE.subn("[link]", masked)
+    if not (n1 or n2):
         return text
     return re.sub(r"[ \t]{2,}", " ", _unmask(out, kept)).strip()
