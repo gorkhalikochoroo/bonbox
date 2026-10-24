@@ -501,3 +501,88 @@ describe("the round-4 words have real Danish and English, with no restaurant wor
     }
   });
 });
+
+// ── R1a (24 Oct 2026): a held online booking speaks of the CUSTOMER ──────
+// The booking door holds some online bookings for the owner's OK (a robot's
+// signal, the same customer's 4th). On a salon's, a shop's or a workshop's
+// book the drawer's reason, the decline confirm and the "not e-mailed" toast
+// said "Gæsten …" / "gruppeforespørgsler" (fix-2 verify S10).
+describe("R1a · a held online booking on a shop's or a workshop's book says 'customer'", () => {
+  const HELD_KEYS = [
+    "rsvpHeldWhyFastAppt", "rsvpHeldWhyContactAppt", "rsvpHeldWhyRequestsAppt",
+    "rsvpHeldDeclineBodyMailAppt", "rsvpHeldDeclineBodyMaybeAppt", "rsvpGuestMailHeldBudgetAppt",
+    "rsvpHeldApproveNoTableAppt",
+  ];
+  const heldRow = (held, extra = {}) => {
+    const soon = new Date(Date.now() + 3 * 3600000);
+    return {
+      id: "h1", guest_name: "Rikke Rigtig", party_size: 1, status: "requested", source: "public",
+      resource_id: null, combined_resource_ids: null, allergen_tags: [], guest_mailed: false, held,
+      starts_at: localIso(soon), ends_at: localIso(new Date(soon.getTime() + 60 * 60000)), ...extra,
+    };
+  };
+  const openHeld = async (type) => {
+    renderOwner("/reservations", type);
+    await settle(16);
+    await act(async () => { fireEvent.click(screen.getAllByText("Rikke Rigtig")[0]); });
+    await settle(6);
+    return screen.getByTestId("rsvp-held-drawer");
+  };
+  const declineOpts = async (lang) => {
+    const dict = lang === "en" ? en : da;
+    const dialog = screen.getByTestId("rsvp-held-drawer").closest('[role="dialog"]') || document.body;
+    const b = [...dialog.querySelectorAll("button")].find((x) => x.textContent.trim() === dict.rsvpDeclineAction);
+    expect(b).toBeTruthy();
+    await act(async () => { fireEvent.click(b); });
+    await settle(6);
+    return h.confirm.mock.calls[h.confirm.mock.calls.length - 1][0];
+  };
+
+  it("every new sentence is real Danish and English, with no guest word", () => {
+    for (const k of HELD_KEYS) {
+      expect(da[k], k).toBeTruthy();
+      expect(en[k], k).toBeTruthy();
+      expect(da[k], k).not.toBe(en[k]);
+      expect(da[k].replace(/\{\w+\}/g, ""), k).not.toMatch(/gæst|bord|selskab|gruppe/i);
+      expect(en[k].replace(/\{\w+\}/g, ""), k).not.toMatch(/guest|table|party|group/i);
+    }
+  });
+
+  for (const [type, lang] of [["workshop", "da"], ["clothing", "en"]]) {
+    const dict = lang === "en" ? en : da;
+    const RE = lang === "en" ? /guest|group request/i : /gæst|gruppeforesp/i;
+    it(`${type} (${lang}): the same customer's 4th — the drawer and the decline say 'customer'`, async () => {
+      h.lang = lang;
+      rows = [heldRow({ reason: "contact_active", quiet: false, bot: false, wanted: ["Plads 2"], pinned: false, limit: 3 })];
+      h.patch.mockResolvedValue({ data: { id: "h1", status: "cancelled" } });
+      const drawer = await openHeld(type);
+      expect(drawer.textContent).toContain(dict.rsvpHeldWhyContactAppt.replace("{n}", "3"));
+      expect(drawer.textContent).not.toMatch(RE);
+      const opts = await declineOpts(lang);
+      expect(opts.message).toBe(dict.rsvpHeldDeclineBodyMaybeAppt.replace("{name}", "Rikke Rigtig"));
+      expect(opts.message).not.toMatch(RE);
+    });
+
+    it(`${type} (${lang}): a fast form the owner mailed about — 'customer' again`, async () => {
+      h.lang = lang;
+      rows = [heldRow({ reason: "fast_fill", quiet: true, bot: true, wanted: [], pinned: false },
+        { guest_mailed: true })];
+      h.patch.mockResolvedValue({ data: { id: "h1", status: "cancelled" } });
+      const drawer = await openHeld(type);
+      expect(drawer.textContent).toContain(dict.rsvpHeldWhyFastAppt);
+      expect(drawer.textContent).not.toMatch(RE);
+      const opts = await declineOpts(lang);
+      expect(opts.message).toBe(dict.rsvpHeldDeclineBodyMailAppt.replace("{name}", "Rikke Rigtig"));
+    });
+  }
+
+  it("a restaurant keeps 'Gæsten …' (unchanged)", async () => {
+    resources = [place("p1", "Bord 1", 2), place("p2", "Bord 2", 2)];
+    rows = [heldRow({ reason: "contact_active", quiet: false, bot: false, wanted: ["Bord 2"], pinned: false, limit: 3 }, { party_size: 2 })];
+    h.patch.mockResolvedValue({ data: { id: "h1", status: "cancelled" } });
+    const drawer = await openHeld("restaurant");
+    expect(drawer.textContent).toContain(da.rsvpHeldWhyContact.replace("{n}", "3"));
+    const opts = await declineOpts("da");
+    expect(opts.message).toBe(da.rsvpHeldDeclineBodyMaybe.replace("{name}", "Rikke Rigtig"));
+  });
+});

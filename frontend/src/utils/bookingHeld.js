@@ -44,10 +44,21 @@ const WHY = {
 };
 const WHY_DEFAULT = ["rsvpHeldWhy", "Held for your OK: there were unusually many bookings in a short time, or the form was filled in very fast. Confirm it if it looks real."];
 
+// A salon, a shop or a workshop books CUSTOMERS for a time (apptWords): the
+// sentences that name the person say "the customer" there, never "the
+// guest" (R1a; the verticals' rule in verticalFit.apptWords.test.jsx).
+const WHY_APPT = {
+  fast_fill: ["rsvpHeldWhyFastAppt", "The form was filled in faster than a person can — often a robot. Confirm it only if you know the customer."],
+  contact_active: ["rsvpHeldWhyContactAppt", "This customer already has {n} or more appointments ahead with you. Confirm it if it looks real."],
+  requests_full: ["rsvpHeldWhyRequestsAppt", "Many requests came in today. Confirm it if it looks real."],
+};
+
 // `held.limit` is the server's real limit for a guest's bookings ahead
 // (contact_active); an older server sends none, and its limit was 3.
-export function heldWhy(r, t) {
-  const [key, fallback] = WHY[r?.held?.reason] || WHY_DEFAULT;
+// `apptWords`: a salon, a shop or a workshop.
+export function heldWhy(r, t, { apptWords = false } = {}) {
+  const reason = r?.held?.reason;
+  const [key, fallback] = (apptWords && WHY_APPT[reason]) || WHY[reason] || WHY_DEFAULT;
   const n = Number(r?.held?.limit);
   return t(key, fallback, { n: Number.isFinite(n) && n > 0 ? n : 3 });
 }

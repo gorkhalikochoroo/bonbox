@@ -1322,7 +1322,7 @@ function ReservationDrawer({
                     {t("rsvpHeldLabel", "Check before you confirm")}
                   </div>
                   <p className="text-[12px] leading-snug text-gray-600 dark:text-gray-400">
-                    {heldWhy(r, t)}
+                    {heldWhy(r, t, { apptWords })}
                   </p>
                   {/* The table(s) or the stylist it was booked for — it holds
                       none of them until it is confirmed. */}
@@ -4993,7 +4993,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         return;
       }
     } else if (status === "cancelled") {
-      const who = r.guest_name || t("rsvpGuest", "Guest");
+      const who = r.guest_name || (apptWords ? t("rsvpColGuestAppt", "Customer") : t("rsvpGuest", "Guest"));
       // A `requested` booking is DECLINED (it was never confirmed), not a
       // confirmed booking CANCELLED — honest, distinct copy for each while
       // keeping the ONE useConfirm dialog. This single confirm owns BOTH the
@@ -5013,11 +5013,17 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           heldDecline
             ? {
                 title: t("rsvpDeclineConfirmTitle", "Decline this request?"),
+                // A salon, a shop, a workshop: "the customer", never "the
+                // guest" (apptWords — R1a).
                 message: silent
                   ? t("rsvpHeldDeclineBodySilent", "The request from {name} is declined without an e-mail — we never wrote to that address. Call them if it was real.", { name: who })
                   : maybeMail
-                    ? t("rsvpHeldDeclineBodyMaybe", "The request from {name} is declined. We e-mail the guest if today's limit for held requests allows — you'll be told if not.", { name: who })
-                    : t("rsvpHeldDeclineBodyMail", "The request from {name} is declined. The guest gets an e-mail about it.", { name: who }),
+                    ? (apptWords
+                      ? t("rsvpHeldDeclineBodyMaybeAppt", "The request from {name} is declined. We e-mail the customer if today's limit for held requests allows — you'll be told if not.", { name: who })
+                      : t("rsvpHeldDeclineBodyMaybe", "The request from {name} is declined. We e-mail the guest if today's limit for held requests allows — you'll be told if not.", { name: who }))
+                    : (apptWords
+                      ? t("rsvpHeldDeclineBodyMailAppt", "The request from {name} is declined. The customer gets an e-mail about it.", { name: who })
+                      : t("rsvpHeldDeclineBodyMail", "The request from {name} is declined. The guest gets an e-mail about it.", { name: who })),
                 confirmLabel: silent
                   ? t("rsvpHeldDeclineSilentAction", "Decline without a message")
                   : t("rsvpDeclineAction", "Decline"),
@@ -5161,7 +5167,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         toast({ severity: "notice", message: t("rsvpGuestMailAddressCap", { cap: gSkip.cap }) });
       } else if (gSkip?.code === "held_mail_budget") {
         // A held request declined after the day's held-request mails ran out.
-        toast({ severity: "notice", message: t("rsvpGuestMailHeldBudget", "Declined. The guest was not e-mailed: today's e-mails for held requests are used up. Call the guest if it was real.") });
+        toast({
+          severity: "notice",
+          message: apptWords
+            ? t("rsvpGuestMailHeldBudgetAppt", "Declined. The customer was not e-mailed: today's e-mails for held requests are used up. Call the customer if it was real.")
+            : t("rsvpGuestMailHeldBudget", "Declined. The guest was not e-mailed: today's e-mails for held requests are used up. Call the guest if it was real."),
+        });
       }
       if (finishFirst) {
         toast({
@@ -5221,6 +5232,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           ? t("rsvpHeldApproveStylistTaken", "The stylist the customer chose isn't free at {time} any more. Call the customer, or decline it.", { time: fmtTime(r.starts_at) })
           : isProvider
           ? t("rsvpHeldApproveNoTime", "No stylist is free at {time} any more. Call the customer, or decline it.", { time: fmtTime(r.starts_at) })
+          : apptWords
+          ? t("rsvpHeldApproveNoTableAppt", "No space is free at {time} any more. Open the appointment and pick a space yourself, or decline it.", { time: fmtTime(r.starts_at) })
           : t("rsvpHeldApproveNoTable", "No table is free at {time} any more. Open the booking and place it yourself, or decline it.", { time: fmtTime(r.starts_at) }))
         : null;
       if (heldConflict) {
