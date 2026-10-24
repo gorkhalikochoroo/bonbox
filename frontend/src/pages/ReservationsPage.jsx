@@ -336,6 +336,13 @@ function serializeBookingHours(hours) {
   });
   return out;
 }
+// Has the owner SAVED booking hours (any weekday "closed" or "HH:MM-HH:MM")?
+// The backend's test for the same thing (salon_quick_setup has_saved): the
+// first-run card then shows these hours, and keeps them unless edited.
+function hasSavedBookingHours(bh) {
+  return !!bh && typeof bh === "object" &&
+    Object.values(bh).some((v) => v === "closed" || (typeof v === "string" && v.includes("-")));
+}
 // Salon-flavored starting hours for the first-run card — the SAME shape
 // defaultBookingHours() returns, but a typical salon week (Tue–Fri 09–17,
 // Sat 09–14, Mon + Sun closed). A suggestion only; the owner confirms/edits
@@ -3610,6 +3617,10 @@ function SalonFirstRunCard({
   busy,
   error,
   onOpen,
+  // The hours on the card are the owner's SAVED ones (Indstillinger →
+  // Åbningstider), not a suggestion: the label says so, and the tap keeps
+  // them unless the owner edits a day here (R1 A1).
+  hoursSaved = false,
 }) {
   return (
     <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 space-y-5 max-w-2xl">
@@ -3633,7 +3644,9 @@ function SalonFirstRunCard({
       <div className="space-y-3">
         <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
           <Clock className="w-3.5 h-3.5" aria-hidden />
-          {t("rsvpSalonHoursSuggestion", "Suggested — change if it doesn't fit")}
+          {hoursSaved
+            ? t("rsvpSalonHoursSaved", "Your saved hours. Change them if you need to")
+            : t("rsvpSalonHoursSuggestion", "Suggested — change if it doesn't fit")}
         </div>
         <WeekHoursEditor
           t={t}
@@ -3643,17 +3656,26 @@ function SalonFirstRunCard({
         />
       </div>
 
-      {/* Soft, non-blocking nudge — the owner can open for booking now; a
-          behandling just makes the guest's pick richer. */}
+      {/* No service yet: a customer picks a behandling before any time, so
+          the page can take no booking (R1 A4). Amber — it needs the owner. */}
       {behandlingerCount === 0 && (
-        <div className="rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 px-3 py-2.5 text-sm text-gray-600 dark:text-gray-300 flex items-start gap-2">
-          <Scissors className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" aria-hidden />
-          <span>
-            {t(
-              "rsvpSalonAddBehandlingNudge",
-              "Add a service so guests can pick one.",
-            )}
-          </span>
+        <div
+          role="status"
+          data-testid="salon-no-service-warn"
+          className="rounded-lg border border-amber-200 dark:border-amber-800/40 bg-amber-50/70 dark:bg-amber-900/10 px-3 py-2.5 text-sm text-amber-900 dark:text-amber-100 flex items-start gap-2"
+        >
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
+          <div className="min-w-0 space-y-1.5">
+            <p>{t("rsvpSalonNoServiceWarn", "Customers can't book until you add a service.")}</p>
+            <Link
+              to="/reservations?tab=behandlinger"
+              data-testid="salon-add-service-cta"
+              className="inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-2"
+            >
+              <Scissors className="w-3.5 h-3.5" aria-hidden />
+              {t("rsvpSalonAddServiceCta", "Add a service")}
+            </Link>
+          </div>
         </div>
       )}
 
@@ -4361,7 +4383,16 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           slug: r.data?.reservation_slug || null,
           // false = no opening hours saved: a self-chair has no time to offer.
           hoursDeclared: r.data?.hours_declared !== false,
+          // Tells a held online booking from a group request (bookingHeld.js).
+          groupThreshold: r.data?.settings?.group_request_threshold,
         });
+        // The salon first-run card shows the hours the owner already SAVED
+        // (not the suggestion), unless they have started editing the card.
+        const savedHours = r.data?.settings?.booking_hours;
+        if (hasSavedBookingHours(savedHours) && !salonHoursDirtyRef.current) {
+          setSalonHours(parseBookingHours(savedHours));
+          setSalonHoursSaved(true);
+        }
       })
       .catch(() => {});
     return () => { alive = false; };
@@ -4445,6 +4476,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // and one tap seeds the self-chair, persists the hours, and enables
   // reservations (POST /reservations/salon/quick-setup). Writes ONLY on tap.
   const [salonHours, setSalonHours] = useState(() => defaultSalonHours());
+  // The card's hours are the owner's saved ones, and whether the owner has
+  // edited them on the card — only an edit replaces saved hours (R1 A1).
+  const [salonHoursSaved, setSalonHoursSaved] = useState(false);
+  const salonHoursDirtyRef = useRef(false);
   const [salonSetupBusy, setSalonSetupBusy] = useState(false);
   const [salonSetupError, setSalonSetupError] = useState("");
 
@@ -4653,9 +4688,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
 
   // Salon first-run helpers — patch one weekday, fan Monday out to the week,
   // and the one-tap quick-setup that opens the salon for booking.
-  const setSalonHourDay = (key, patch) =>
+  const setSalonHourDay = (key, patch) => {
+    salonHoursDirtyRef.current = true;
     setSalonHours((h) => ({ ...h, [key]: { ...h[key], ...patch } }));
-  const applySalonMonToAll = () =>
+  };
+  const applySalonMonToAll = () => {
+    salonHoursDirtyRef.current = true;
     setSalonHours((h) => {
       const mon = h.mon;
       const next = {};
@@ -4664,6 +4702,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       });
       return next;
     });
+  };
   const openSalonForBooking = async () => {
     if (salonSetupBusy) return; // guard against double-submit
     setSalonSetupBusy(true);
@@ -4671,6 +4710,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     try {
       await api.post("/reservations/salon/quick-setup", {
         booking_hours: serializeBookingHours(salonHours),
+        // Saved hours stay unless the owner edited them on this card.
+        replace_hours: salonHoursDirtyRef.current,
       });
       // Refetch so the self-chair now appears (providerStations > 0 → the
       // first-run card falls away and the live book + New-booking sheet
@@ -5815,6 +5856,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // the SAME summary the customer's page reads (party 1 — one chair), so the
   // banner and the page cannot disagree. A failed read says nothing.
   const [noBookableTimes, setNoBookableTimes] = useState(false);
+  // …because the salon offers no service a customer can pick (R1 A4).
+  const [noServiceOnline, setNoServiceOnline] = useState(false);
   useEffect(() => {
     // A salon that still needs a behandler gets the first-run card or the
     // setup note — never this banner on top of them.
@@ -5828,8 +5871,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     })
       // Not at the monthly cap: "no bookable time" would be false there — the
       // shifts are fine, online booking is paused (its own monitor code).
-      .then((r) => { if (alive) setNoBookableTimes(Array.isArray(r.data?.days) && !r.data?.next_open_day && r.data?.closed_reason !== "not_accepting"); })
-      .catch(() => { if (alive) setNoBookableTimes(false); });
+      .then((r) => {
+        if (!alive) return;
+        setNoBookableTimes(Array.isArray(r.data?.days) && !r.data?.next_open_day && r.data?.closed_reason !== "not_accepting");
+        setNoServiceOnline(r.data?.closed_reason === "no_service");
+      })
+      .catch(() => { if (alive) { setNoBookableTimes(false); setNoServiceOnline(false); } });
     return () => { alive = false; };
   }, [isProvider, standalone, salonNeedsSetup, publicPage, providerStations.length]);
   const behandlerByResourceId = useMemo(() => {
@@ -6828,6 +6875,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           busy={salonSetupBusy}
           error={salonSetupError}
           onOpen={openSalonForBooking}
+          hoursSaved={salonHoursSaved}
         />
       )}
 
@@ -6868,15 +6916,22 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             {/* Name the likely cause: no saved opening hours (a self-chair
                 follows them), else no behandler with time to book. */}
             <p className="mt-0.5 text-[13px] opacity-90">
-              {publicPage?.hoursDeclared === false
+              {noServiceOnline
+                ? t("rsvpProviderNoServiceBody", "Your page is on, but there's no service customers can book. Add one under Services.")
+                : publicPage?.hoursDeclared === false
                 ? t("rsvpProviderNoTimesNoHoursBody", "Your booking page has no free time in the next 14 days — your opening hours aren't saved yet.")
                 : t("rsvpProviderNoTimesBody", "Your booking page has no free time in the next 14 days. Add a stylist — yourself too — or publish their shifts in Vagtplan.")}
             </p>
             <Link
-              to={publicPage?.hoursDeclared === false ? "/reservations?tab=settings" : "/reservations?tab=floor"}
+              to={noServiceOnline
+                ? "/reservations?tab=behandlinger"
+                : publicPage?.hoursDeclared === false ? "/reservations?tab=settings" : "/reservations?tab=floor"}
+              data-testid={noServiceOnline ? "salon-no-service-cta" : undefined}
               className="mt-2 inline-flex items-center gap-1 text-[13px] font-semibold underline underline-offset-2"
             >
-              {publicPage?.hoursDeclared === false
+              {noServiceOnline
+                ? t("rsvpSalonAddServiceCta", "Add a service")
+                : publicPage?.hoursDeclared === false
                 ? t("rsvpProviderNoTimesHoursCta", "Save opening hours")
                 : t("rsvpProviderNoTimesCta", "Add a stylist")}
               <ChevronRight className="w-3.5 h-3.5" aria-hidden />
