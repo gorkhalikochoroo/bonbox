@@ -81,6 +81,7 @@ const TOOL_PHONE = PHONE_CTRL + " max-sm:px-1.5 max-sm:min-w-10";
 // Sheet gives the bottom sheet, the cap, the scroll and the pinned footer.
 import Sheet from "../components/ui/Sheet";
 import { useLocation, Link as RouterLink } from "react-router-dom";
+import { bookingModeFor } from "../config/venueProfiles";
 import ClaimQuestionResend from "../components/ClaimQuestionResend";
 import { heldReasonForUser, heldReasonFromError, HELD_CLAIM_OPEN } from "../utils/senderGate";
 import { emailOk } from "../utils/guestContact";
@@ -2163,6 +2164,10 @@ export default function StaffSchedulePage() {
   const [autopilotApplying, setAutopilotApplying] = useState(false);
   const [autopilotSuggestion, setAutopilotSuggestion] = useState(null);
   const [autopilotToast, setAutopilotToast] = useState("");
+  // Appointments already booked with someone just registered as away (R1
+  // fix round): {count, first, name}. Stays until dismissed — the owner has
+  // to move or call them.
+  const [absenceBookings, setAbsenceBookings] = useState(null);
 
   const handleRunAutopilot = async () => {
     setAutopilotLoading(true);
@@ -3381,6 +3386,24 @@ export default function StaffSchedulePage() {
           </span>
         </SectionBanner>
       )}
+      {absenceBookings && (
+        <SectionBanner
+          severity="warn"
+          icon="AlertTriangle"
+          title={absenceBookings.count === 1
+            ? t("absenceBookingsOne", "1 appointment with {name} is already booked on those days.", { name: absenceBookings.name })
+            : t("absenceBookingsN", "{n} appointments with {name} are already booked on those days.", { n: absenceBookings.count, name: absenceBookings.name })}
+          onDismiss={() => setAbsenceBookings(null)}
+        >
+          <RouterLink
+            to={`/reservations?date=${absenceBookings.first}`}
+            data-testid="absence-bookings-link"
+            className="font-semibold underline underline-offset-2"
+          >
+            {absenceBookings.count === 1 ? t("absenceBookingsSeeOne", "See it") : t("absenceBookingsSeeN", "See them")}
+          </RouterLink>
+        </SectionBanner>
+      )}
       {/* Autopilot-success toast (auto-dismisses after 7s) */}
       {autopilotToast && (
         // Neutral: this banner also says "nothing to copy", which is a fact,
@@ -4042,11 +4065,13 @@ export default function StaffSchedulePage() {
           absences={absences}
           onClose={() => setAbsenceSheet(null)}
           onChanged={fetchWeekLayers}
-          onSaved={(msg) => {
+          onSaved={(msg, booked) => {
             setAbsenceSheet(null);
             setAutopilotToast(msg);
             setTimeout(() => setAutopilotToast(""), 7000);
+            setAbsenceBookings(booked && booked.count > 0 && booked.first ? booked : null);
           }}
+          apptBooking={bookingModeFor(user?.business_type) === "provider"}
           t={t}
           lang={lang}
         />
@@ -8558,7 +8583,7 @@ function absenceRangeText(from, to, lang) {
 }
 
 /** Exported (named) so the sheet can be mounted in a test without the page. */
-export function AbsenceSheet({ staff, initialStaffId, initialDate, absences = [], onClose, onChanged, onSaved, t, lang }) {
+export function AbsenceSheet({ staff, initialStaffId, initialDate, absences = [], onClose, onChanged, onSaved, t, lang, apptBooking = false }) {
   // The server's window (sick_call_service.register_absence): from a month
   // back to a year ahead. The pickers offer the same span. Read once, when
   // the sheet opens.
@@ -8616,14 +8641,17 @@ export function AbsenceSheet({ staff, initialStaffId, initialDate, absences = []
     setSaving(true);
     setErr("");
     try {
-      await api.post("/staff/absences", { staff_id: staffId, kind, date_from: from, date_to: to });
+      const res = await api.post("/staff/absences", { staff_id: staffId, kind, date_from: from, date_to: to });
       window.dispatchEvent(new Event("bonbox-data-changed"));
       await onChanged?.();
+      // Appointments already booked with them on those days (a salon): the
+      // page names them with a link to the day — they are still in the book.
+      const booked = res?.data?.bookings;
       onSaved?.(t("absenceSaved", "{name}: {kind} {range} registered", {
         name: member?.name || "",
         kind: absKindLabel(kind, t),
         range: absenceRangeText(from, to, lang),
-      }));
+      }), booked && booked.count > 0 ? { count: booked.count, first: booked.first, name: member?.name || "" } : null);
     } catch (e2) {
       const code = e2?.response?.data?.detail?.code;
       const byCode = {
@@ -8672,6 +8700,11 @@ export function AbsenceSheet({ staff, initialStaffId, initialDate, absences = []
             <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
               {t("absenceSheetSub", "Holiday, sick or a child's sick day. Their shifts on those days are flagged on the schedule.")}
             </p>
+            {apptBooking && (
+              <p data-testid="absence-online-hint" className="text-[13px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
+                {t("absenceSheetOnlineHint", "Their times disappear from online booking on those days.")}
+              </p>
+            )}
           </div>
           <button
             type="button"

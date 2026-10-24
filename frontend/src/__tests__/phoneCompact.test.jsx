@@ -410,7 +410,11 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     "pages/DashboardPage.jsx": { onClick: 6, onSubmit: 2, ariaLabel: 1, ariaExpanded: 1, ariaHaspopup: 1, role: 4, title: 3, Button: 3, button: 3, Link: 1, to: 1, tKeys: 13 },
     "components/dashboard/TodayOnShiftCard.jsx": { Link: 2, to: 2, tKeys: 4 },
     "components/DailyBriefCard.jsx": { onClick: 5, ariaLabel: 4, role: 1, title: 3, button: 5, Link: 2, disabled: 2, to: 2, tKeys: 12 },
-    "pages/StaffSchedulePage.jsx": { onClick: 96, onChange: 49, onSubmit: 3, ariaLabel: 40, ariaExpanded: 3, ariaPressed: 4, role: 12, title: 51, id: 15, testid: 11, Button: 20, button: 66, disabled: 29, to: 4, tKeys: 449 },
+    // R1 fix round (24 Oct 2026) ADDED to StaffSchedulePage, nothing removed:
+    // the "already booked on those days" banner (+1 title, to, testid) and
+    // the sheet's online-booking hint (+1 testid), 5 new t() keys. Was
+    // { title: 51, testid: 11, to: 4, tKeys: 449 }.
+    "pages/StaffSchedulePage.jsx": { onClick: 96, onChange: 49, onSubmit: 3, ariaLabel: 40, ariaExpanded: 3, ariaPressed: 4, role: 12, title: 52, id: 15, testid: 13, Button: 20, button: 66, disabled: 29, to: 5, tKeys: 454 },
     "components/ScheduleConfirmationCard.jsx": { role: 1, tKeys: 3 },
     "pages/StaffHoursPage.jsx": { onClick: 36, onChange: 21, onSubmit: 6, ariaLabel: 4, ariaExpanded: 1, ariaPressed: 4, role: 13, title: 14, id: 8, testid: 1, Button: 18, button: 22, Link: 4, disabled: 20, to: 6, tKeys: 230 },
     // R1 (24 Oct 2026) ADDED to ReservationsPage, nothing removed: the owner
@@ -418,7 +422,11 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // no-service CTA (+1 Link, to), status/test hooks (+1 role, +7 testid) and
     // 7 new t() keys. Was { onClick: 85, ariaLabel: 65, role: 32, testid: 6,
     // button: 56, Link: 4, disabled: 29, to: 4, tKeys: 678 }.
-    "pages/ReservationsPage.jsx": { onClick: 86, onChange: 62, onSubmit: 11, ariaLabel: 66, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 4, role: 34, title: 26, id: 22, testid: 13, Button: 32, button: 57, Link: 5, disabled: 30, to: 5, href: 3, tKeys: 685 },
+    // R1 fix round ADDED, nothing removed: the held drawer's "Booket til",
+    // the away-stylist flag (2 rows), the online card's line (+4 testid) and
+    // 9 more t() keys (rsvpHeldWhy moved to utils/bookingHeld.js). Was
+    // { testid: 13, tKeys: 685 }.
+    "pages/ReservationsPage.jsx": { onClick: 86, onChange: 62, onSubmit: 11, ariaLabel: 66, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 4, role: 34, title: 26, id: 22, testid: 17, Button: 32, button: 57, Link: 5, disabled: 30, to: 5, href: 3, tKeys: 694 },
     "pages/InventoryPage.jsx": { onClick: 61, onChange: 38, onSubmit: 1, ariaLabel: 27, role: 1, title: 27, id: 7, Button: 5, button: 41, Link: 2, disabled: 3, to: 2, tKeys: 165 },
     "components/InventoryAutopilotPanel.jsx": { onClick: 5, onChange: 1, ariaLabel: 1, Button: 4, button: 1, disabled: 1, tKeys: 35 },
     "components/LiveKpisToday.jsx": { ariaLabel: 2, title: 1, tKeys: 14 },

@@ -114,7 +114,8 @@ import WaitlistSection from "../components/reservations/WaitlistSection";
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
 import BookingNameRow from "../components/reservations/BookingNameRow";
 import ClosuresCard, { PauseControl } from "../components/reservations/ClosuresCard";
-import { isHeldForCheck } from "../utils/bookingHeld";
+import { isHeldForCheck, heldWhy, heldWanted } from "../utils/bookingHeld";
+import { activePause, fmtClosureRange, todayIso } from "../utils/closures";
 import { canPurchaseInApp } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
 import { formatKr } from "../utils/currency";
@@ -1321,8 +1322,15 @@ function ReservationDrawer({
                     {t("rsvpHeldLabel", "Check before you confirm")}
                   </div>
                   <p className="text-[12px] leading-snug text-gray-600 dark:text-gray-400">
-                    {t("rsvpHeldWhy", "Held for your OK: there were unusually many bookings in a short time, or the form was filled in very fast. Confirm it if it looks real.")}
+                    {heldWhy(r, t)}
                   </p>
+                  {/* The table(s) or the stylist it was booked for — it holds
+                      none of them until it is confirmed. */}
+                  {heldWanted(r) && (
+                    <p data-testid="rsvp-held-wanted" className="text-[12px] leading-snug text-gray-600 dark:text-gray-400">
+                      {t("rsvpHeldWanted", "Booked for: {what}", { what: heldWanted(r) })}
+                    </p>
+                  )}
                 </div>
               )}
               {/* Provider (salon) → the behandling sub-line; table venues keep
@@ -4964,6 +4972,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     // A drop-in removed again (seated by mistake) is not a cancelled booking:
     // its own words, nobody notified, and it leaves the lists and counts.
     const removingWalkIn = status === "cancelled" && r.source === "walk_in";
+    // Declining a held booking whose guest never had a mail from us: say
+    // nothing to that address (the server holds to the same rule).
+    const silentHeldDecline = status === "cancelled" && r.status === "requested"
+      && isHeldForCheck(r, publicPage?.groupThreshold) && r.guest_mailed === false;
     if (removingWalkIn) {
       if (
         !(await confirm({
@@ -4984,9 +4996,26 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // list-row and drawer decline/cancel paths (rowActions hands "cancelled"
       // straight here), so branching the copy here fixes both at once.
       const isDecline = r.status === "requested";
+      // A HELD online booking (R1): the guest hears only if we already wrote
+      // to that address about it — a bot's typed address gets no mail, and
+      // the owner is told which it is before they tap.
+      const heldDecline = isDecline && isHeldForCheck(r, publicPage?.groupThreshold);
+      const silent = heldDecline && r.guest_mailed === false;
       if (
         !(await confirm(
-          isDecline
+          heldDecline
+            ? {
+                title: t("rsvpDeclineConfirmTitle", "Decline this request?"),
+                message: silent
+                  ? t("rsvpHeldDeclineBodySilent", "The request from {name} is declined without an e-mail — we never wrote to that address. Call them if it was real.", { name: who })
+                  : t("rsvpHeldDeclineBodyMail", "The request from {name} is declined. The guest gets an e-mail about it.", { name: who }),
+                confirmLabel: silent
+                  ? t("rsvpHeldDeclineSilentAction", "Decline without a message")
+                  : t("rsvpDeclineAction", "Decline"),
+                cancelLabel: t("rsvpCancelConfirmKeep", "Keep"),
+                destructive: true,
+              }
+            : isDecline
             ? {
                 title: t("rsvpDeclineConfirmTitle", "Decline this request?"),
                 message: t(
@@ -5045,7 +5074,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       const resp = await api.patch(`/reservations/reservations/${r.id}/status`, {
         status,
         cancel_reason: removingWalkIn ? "walk_in_removed" : status === "cancelled" ? "owner_cancelled" : null,
-        ...(removingWalkIn ? { notify_guest: false } : {}),
+        ...(removingWalkIn || silentHeldDecline ? { notify_guest: false } : {}),
       });
       // A cancel/no-show may have freed a table — surface the waiting parties
       // that fit (the backend already filtered by capacity + local day). This
@@ -5171,13 +5200,28 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         else openOnTables(r);
         return;
       }
-      setError(
-        d.error === "table_occupied"
-          ? t("rsvpTableStillTaken", "{table} is still taken — finish the party there first, or pick another table.", {
-              table: d.occupant?.table || t("rsvpTableFallback", "Table"),
-            })
-          : d.error || t("rsvpActionError", "Action failed. Please try again."),
-      );
+      // Approving a held online booking (R1 fix round) whose table or chair
+      // went meanwhile: said in words, as a toast — the book reload below
+      // clears the page's error line, and a raw "slot_unavailable" said
+      // nothing anyway.
+      const heldConflict = e?.response?.status === 409 && d.held
+        ? (d.error === "stylist_unavailable"
+          ? t("rsvpHeldApproveStylistTaken", "The stylist the customer chose isn't free at {time} any more. Call the customer, or decline it.", { time: fmtTime(r.starts_at) })
+          : isProvider
+          ? t("rsvpHeldApproveNoTime", "No stylist is free at {time} any more. Call the customer, or decline it.", { time: fmtTime(r.starts_at) })
+          : t("rsvpHeldApproveNoTable", "No table is free at {time} any more. Open the booking and place it yourself, or decline it.", { time: fmtTime(r.starts_at) }))
+        : null;
+      if (heldConflict) {
+        toast({ severity: "notice", message: heldConflict });
+      } else {
+        setError(
+          d.error === "table_occupied"
+            ? t("rsvpTableStillTaken", "{table} is still taken — finish the party there first, or pick another table.", {
+                table: d.occupant?.table || t("rsvpTableFallback", "Table"),
+              })
+            : d.error || t("rsvpActionError", "Action failed. Please try again."),
+        );
+      }
       await fetchBook(day);
     } finally {
       setActioningId(null);
@@ -6033,6 +6077,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     const events = [];
     reservations.forEach((r) => {
       if (!["requested", "confirmed", "seated"].includes(r.status) || !r.starts_at) return;
+      // A held online booking (R1) holds nothing until confirmed: a flood of
+      // them is not a full room.
+      if (isHeldForCheck(r, publicPage?.groupThreshold)) return;
       let s = minOfDay(r.starts_at);
       let e = r.ends_at ? minOfDay(r.ends_at) : s + 90;
       if (e <= s) e += 1440;
@@ -6057,7 +6104,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       peakPct: Math.min(999, Math.round((peak / totalCapacity) * 100)),
       peakTime: at == null ? null : `${pad(Math.floor((at % 1440) / 60))}.${pad(at % 60)}`,
     };
-  }, [reservations, totalCapacity]);
+  }, [reservations, totalCapacity, publicPage?.groupThreshold]);
   const nextArrival = useMemo(() => {
     // A day that is over has no next arrival — it named a party from
     // yesterday that nobody marked.
@@ -6285,6 +6332,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               {t("rsvpHeldLabel", "Check before you confirm")}
             </div>
           )}
+          {r.provider_absent && r.status !== "cancelled" && (
+            <div data-testid="rsvp-provider-absent" className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="w-3 h-3" aria-hidden />
+              {t("rsvpProviderAbsent", "The stylist is away this day — move it or call the customer")}
+            </div>
+          )}
           {r.guest_phone && (
             <div className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
               {r.guest_phone}
@@ -6370,7 +6423,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             render: (r) => {
               // A table booking has no behandler — not "Valgfri behandler".
               if (holdsTable(r)) return <span className="text-sm text-gray-400">—</span>;
-              const who = r.resource_id ? behandlerByResourceId[String(r.resource_id)] : "";
+              // A held booking waits on no chair; it was booked for one.
+              const who = r.resource_id ? behandlerByResourceId[String(r.resource_id)] : heldWanted(r);
               return (
                 <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300 truncate">
                   <Scissors className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-hidden />
@@ -6542,6 +6596,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           {isHeldForCheck(r, publicPage?.groupThreshold) && (
             <div data-testid="rsvp-held-label" className="mt-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300 truncate">
               {t("rsvpHeldLabel", "Check before you confirm")}
+            </div>
+          )}
+          {r.provider_absent && r.status !== "cancelled" && (
+            <div data-testid="rsvp-provider-absent" className="mt-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+              {t("rsvpProviderAbsent", "The stylist is away this day — move it or call the customer")}
             </div>
           )}
           {/* A finished row WRAPS instead: its seated → left line ("10.20 →
@@ -9670,6 +9729,8 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   // list; the rest of the settings are untouched.
   const setClosures = (closures) =>
     setData((d) => (d ? { ...d, closures: Array.isArray(closures) ? closures : [] } : d));
+  // The pause covering today, if any — the online card says so.
+  const pausedNow = activePause(data?.closures);
 
   // Toggle flips state + persists in one go (optimistic, like the
   // accept-online switch). Disabled entirely when the tier lacks the feature.
@@ -9800,7 +9861,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
               </p>
             </div>
           ) : (
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5" data-testid="rsvp-accept-sub">
             {enabled
               ? (data?.hours_declared === false
                   // Live, but with no saved hours the page offers no times at
@@ -9808,6 +9869,14 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
                   ? (apptWords
                     ? t("rsvpAcceptOnNoHoursProvider", "Your page is live, but customers can't book until you save opening hours below.")
                     : t("rsvpAcceptOnNoHours", "Your page is live, but guests can't book until you save opening hours below."))
+                  // Paused (R1 B6): live, but taking no online bookings —
+                  // "taking bookings" sat right above the amber pause line.
+                  : pausedNow
+                  ? ((pausedNow.to || pausedNow.from) === todayIso()
+                    ? t("rsvpAcceptOnPausedToday", "Your page is live, but online booking is paused for the rest of today.")
+                    : t("rsvpAcceptOnPaused", "Your page is live, but online booking is paused until and including {date}.", {
+                        date: fmtClosureRange(pausedNow.to || pausedNow.from, null, lang),
+                      }))
                   : t("rsvpAcceptOn", "Your public page is live and taking bookings."))
               : t("rsvpAcceptOff", "Turn on to publish your booking page.")}
           </p>

@@ -339,16 +339,18 @@ export function PauseControl({ t, lang = "da", closures = [], onChanged, today =
         {t("rsvpPauseOpen", "Pause online booking…")}
       </button>
       {open && (
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 min-w-0">
           <Button type="button" variant="secondary" size="md" busy={busy} onClick={() => post(today)}
             data-testid="rsvp-pause-today" className={PHONE_CTRL}>
             {t("rsvpPauseToday", "Rest of today")}
           </Button>
-          <div className="flex items-center gap-2">
-            <label className="sr-only" htmlFor="rsvp-pause-until">{t("rsvpPauseUntil", "Until and including…")}</label>
-            <span aria-hidden className="text-[13px] text-gray-600 dark:text-gray-300 whitespace-nowrap">
+          {/* Phone: the label on its own line, then the date and Gem side by
+              side — on one row the English "Until and including…" pushed
+              Save 33 px past a 375 px screen (review, geom-pause-row). */}
+          <div data-testid="rsvp-pause-until-row" className="flex flex-wrap sm:flex-nowrap items-center gap-2 min-w-0">
+            <label htmlFor="rsvp-pause-until" className="w-full sm:w-auto text-[13px] text-gray-600 dark:text-gray-300 sm:whitespace-nowrap">
               {t("rsvpPauseUntil", "Until and including…")}
-            </span>
+            </label>
             <input
               id="rsvp-pause-until"
               type="date"
@@ -356,10 +358,10 @@ export function PauseControl({ t, lang = "da", closures = [], onChanged, today =
               value={until}
               min={today}
               onChange={(e) => setUntil(e.target.value)}
-              className={DATE_INPUT + " sm:w-40"}
+              className={DATE_INPUT + " flex-1 min-w-0 sm:flex-none sm:w-40"}
             />
             <Button type="button" variant="primary" size="md" disabled={!until || busy}
-              onClick={() => post(until)} data-testid="rsvp-pause-save" className={PHONE_CTRL}>
+              onClick={() => post(until)} data-testid="rsvp-pause-save" className={PHONE_CTRL + " shrink-0"}>
               {t("save", "Save")}
             </Button>
           </div>

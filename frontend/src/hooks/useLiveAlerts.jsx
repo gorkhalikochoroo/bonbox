@@ -50,7 +50,7 @@ import { useLanguage } from "./useLanguage";
 import { playCancel, playChime, playUrgent, prepareSoundWhenIdle, unlockSound } from "../utils/sound";
 import { onApiIdle } from "../services/apiActivity";
 import { useGuestSurface } from "../lib/guestSurface";
-import { RESERVATIONS_CHANGED_EVENT, alertSoundFor } from "../lib/liveAlertKinds";
+import { RESERVATIONS_CHANGED_EVENT, alertSoundFor, splitHeld } from "../lib/liveAlertKinds";
 
 const POLL_MS = 20000;
 const FEED_CAP = 25;
@@ -193,9 +193,13 @@ export function LiveAlertsProvider({ children }) {
         }
       }
       if (c.party_size) bits.push(`${c.party_size}p`);
-      const severe = c.allergy_severity === "severe";
+      // A held booking never alarms (lib/liveAlertKinds.splitHeld): its
+      // "severe" waits for the owner's approval.
+      const held = !!c.held;
+      const severe = !held && c.allergy_severity === "severe";
       let title;
       if (c.kind === "cancelled") title = t("liveAlertCancelled", "Booking cancelled");
+      else if (c.kind === "approved") title = t("liveAlertApproved", "Booking confirmed");
       else if (c.kind === "new") title = t("liveAlertNew", "New booking");
       else title = t("liveAlertChanged", "Booking updated");
       // The booking's local day — lets the tap deep-link straight to the exact
@@ -222,6 +226,7 @@ export function LiveAlertsProvider({ children }) {
         sub: bits.join(" · "),
         hasAllergy: !!c.has_allergy,
         severe,
+        held,
       };
     },
     [t],
@@ -270,9 +275,11 @@ export function LiveAlertsProvider({ children }) {
         // are never collapsed into a "N changes" summary (the one alert that
         // matters can't be buried). Only the non-severe rest gets summarized
         // when a burst lands.
+        // Held bookings (R1) fold into one quiet toast and never sound.
+        const { live, held } = splitHeld(items);
         setToasts((cur) => {
-          const severe = items.filter((i) => i.severe);
-          const rest = items.filter((i) => !i.severe);
+          const severe = live.filter((i) => i.severe);
+          const rest = live.filter((i) => !i.severe);
           let toShow;
           if (rest.length <= 3) {
             toShow = [...severe, ...rest];
@@ -290,16 +297,30 @@ export function LiveAlertsProvider({ children }) {
               },
             ];
           }
+          if (held.length) {
+            toShow = [
+              ...toShow,
+              {
+                id: `t${++_toastSeq}`,
+                kind: "held",
+                title: t("liveAlertHeldTitle", "{n} online bookings to check", { n: held.length }),
+                who: "",
+                sub: t("liveAlertHeldSub", "Waiting for your OK — they hold no table"),
+                hasAllergy: false,
+                severe: false,
+              },
+            ];
+          }
           return [...toShow, ...cur].slice(0, 8);
         });
 
         // Sound ONCE per poll: a severe allergy wins, then any arrival, and a
         // batch of nothing but cancellations gets the falling cancel chime.
         if (soundRef.current) {
-          const kind = alertSoundFor(items);
+          const kind = alertSoundFor(live);
           if (kind === "urgent") playUrgent();
           else if (kind === "cancel") playCancel();
-          else playChime();
+          else if (kind === "chime") playChime();
         }
 
         // Tell an open booking list to reload now, instead of on its own
@@ -419,6 +440,8 @@ export function LiveAlertsProvider({ children }) {
                     className={`h-2 w-2 rounded-full shrink-0 ${
                       tt.kind === "cancelled"
                         ? "bg-gray-400"
+                        : tt.kind === "held"
+                          ? "bg-amber-500"
                         : tt.severe
                           ? "bg-red-500"
                           : tt.hasAllergy
