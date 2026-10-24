@@ -1048,11 +1048,17 @@ def venue_mail_share() -> int | None:
 
 def venue_mail_share_capped(db: Session, owner_id) -> int | None:
     """The share when this venue has used it (confirmations DELIVERED in the
-    last 24 h), else None. Raises when the count fails — deliver() refuses.
-    A slow drip at two venues used every venue's guest mail for a day before
-    this (recheck, 24 Oct: 21 + 19 of the fleet's 40)."""
+    last 24 h) AND the fleet is under pressure (it has delivered
+    BOOKING_VENUE_MAIL_SHARE_FROM_PCT of its day), else None. Raises when a
+    count fails — deliver() refuses. A slow drip at two venues used every
+    venue's guest mail for a day before this (recheck, 24 Oct: 21 + 19 of
+    the fleet's 40); a busy venue on a quiet day is not held back by it."""
     share = venue_mail_share()
     if share is None:
+        return None
+    from_pct = max(0, int(app_config.BOOKING_VENUE_MAIL_SHARE_FROM_PCT))
+    fleet = int(app_config.GUEST_EMAILS_FLEET_PER_DAY)
+    if from_pct and guest_emails_sent_fleet_last_24h(db) < -(-fleet * from_pct // 100):
         return None
     since = utc_now() - timedelta(days=1)
     n = int(

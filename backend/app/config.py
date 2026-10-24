@@ -421,13 +421,17 @@ class Settings(BaseSettings):
     # staff and alert mail. Raise both when Resend is upgraded.
     GUEST_EMAILS_FLEET_PER_DAY: int = 60
     # One venue's share of that ceiling for the mails its ONLINE bookings
-    # start (the confirmation, or "request received"): at most this percent
-    # of GUEST_EMAILS_FLEET_PER_DAY in a rolling 24 h (60 → 9). A slow drip
-    # at one or two venues can then no longer use up every venue's guest
-    # mail for the day (recheck, 24 Oct: two venues drained the 40). The
-    # page never promises a mail the share holds back, and the operator is
+    # start (the confirmation, or "request received"): this percent of
+    # GUEST_EMAILS_FLEET_PER_DAY in a rolling 24 h (60 → 9) — enforced only
+    # once the whole fleet has used BOOKING_VENUE_MAIL_SHARE_FROM_PCT of its
+    # day (60 → 30). A slow drip at one or two venues can then no longer use
+    # up every venue's guest mail (recheck, 24 Oct: two venues drained the
+    # 40), while a busy venue on a quiet day is held back by nothing but the
+    # fleet ceiling (a busy 10-table week sends more than 9 a day). The page
+    # never promises a mail the share holds back, and the operator is
     # alerted (abuse monitor, abuse_guest_mail). 0 = off.
     BOOKING_VENUE_MAIL_SHARE_PCT: int = 15
+    BOOKING_VENUE_MAIL_SHARE_FROM_PCT: int = 50
     # Anonymous online bookings (services/booking_screen.py). Over a ceiling a
     # booking is HELD as a request the owner approves — a real guest is never
     # refused, a bot's flood holds no table. The venue ceilings count only the

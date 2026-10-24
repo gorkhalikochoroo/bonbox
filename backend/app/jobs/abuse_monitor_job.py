@@ -284,8 +284,8 @@ def alert_copy(service: str, c: dict) -> tuple[str, list[str], str, str]:
                 "BonBox: one venue used its share of guest e-mails",
                 [
                     f"At {c['when']} UTC a venue had sent its share of guest confirmation e-mails "
-                    f"for the last 24 hours ({c['share']} of the fleet's {c['cap']}), so BonBox "
-                    "held the next ones back for that venue only.",
+                    f"for the last 24 hours ({c['share']} of the fleet's {c['cap']}) while the fleet "
+                    "had used half its day, so BonBox held the next ones back for that venue only.",
                     f"Held back in the last 2 minutes: {n_venue}. Guest e-mails sent by all venues "
                     f"in the last 24 hours: {c['sent24']}.",
                     "Bookings are still saved, and the guest's booking page says no e-mail is "

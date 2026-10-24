@@ -80,15 +80,17 @@ def test_a_drip_at_two_venues_no_longer_silences_a_third(client, db, outbox, clo
                          ip=f"10.40.{k}.{hour * 3 + j}")
                 assert r.json()["status"] == "confirmed"
                 answers[k].append(r.json()["guest_mail"])
+    # Free while the fleet had room; once the fleet had used half its day
+    # (30 of 60), a venue past its share (9) is held back — 15 each here.
     for k, (u, _p, _) in enumerate(venues):
-        assert len(_sent_confirmations(db, u)) == 9            # 15 % of 60
+        assert len(_sent_confirmations(db, u)) == 15
         # The page promised a mail exactly when one was coming.
-        assert answers[k] == [True] * 9 + [False] * 18
+        assert answers[k] == [True] * 15 + [False] * 12
         held_back = [x for x in logs(db, u, channel="email", event_type="guest_confirmation")
                      if x.error_message == "venue_share"]
-        assert len(held_back) == 18
+        assert len(held_back) == 12
     # The operator is told (abuse monitor kind guest_mail_venue) …
-    assert abuse_signals.drain().get("guest_mail_venue") == 36
+    assert abuse_signals.drain().get("guest_mail_venue") == 24
     # … and a real guest at a third venue still gets the confirmation.
     u3, p3, _ = restaurant(db, tables=6, name="Third")
     clock.local = start + timedelta(hours=9, minutes=5)
@@ -98,6 +100,25 @@ def test_a_drip_at_two_venues_no_longer_silences_a_third(client, db, outbox, clo
         "id": None, "booking_token": None, "status": "confirmed", "guest_mail": True}
     assert [x.status for x in logs(db, u3, channel="email", event_type="guest_confirmation")] == ["sent"]
     assert [m["to"] for m in outbox if m["to"] == "mette@example.dk"] == ["mette@example.dk"]
+
+
+def test_a_busy_venue_on_a_quiet_day_is_not_held_back_by_its_share(client, db, outbox, clock):
+    """A busy 10-table venue takes ~20 online bookings on a peak day (the
+    real-guest simulation). With the rest of the fleet quiet, every one of
+    those guests gets the confirmation — the share only bites when the
+    fleet is under pressure."""
+    u, p, _ = restaurant(db, tables=10, name="Travl")
+    day = _friday()
+    start = _at(day - timedelta(days=6), 9)
+    said = []
+    for i in range(20):
+        clock.local = start + timedelta(minutes=40 * i)         # a busy day, 1 every 40 min
+        r = book(client, p.reservation_slug, day=day + timedelta(days=i % 4), time=f"{17 + i % 4}:00",
+                 email=f"travl{i}@x.test", form_ms=45000, ip=f"10.70.0.{i}")
+        assert r.json()["status"] == "confirmed"
+        said.append(r.json()["guest_mail"])
+    assert said == [True] * 20
+    assert len(_sent_confirmations(db, u)) == 20
 
 
 def test_the_operator_hears_when_one_venue_uses_its_share(h):
