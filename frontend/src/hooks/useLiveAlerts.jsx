@@ -303,9 +303,11 @@ export function LiveAlertsProvider({ children }) {
               {
                 id: `t${++_toastSeq}`,
                 kind: "held",
-                title: t("liveAlertHeldTitle", "{n} online bookings to check", { n: held.length }),
+                title: held.length === 1
+                  ? t("liveAlertHeldTitleOne", "1 online booking to check")
+                  : t("liveAlertHeldTitle", "{n} online bookings to check", { n: held.length }),
                 who: "",
-                sub: t("liveAlertHeldSub", "Waiting for your OK — they hold no table"),
+                sub: t("liveAlertHeldSub", "Waiting for your OK — nothing is held until you confirm"),
                 hasAllergy: false,
                 severe: false,
               },

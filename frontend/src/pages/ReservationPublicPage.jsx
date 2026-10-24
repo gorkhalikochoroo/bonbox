@@ -2295,6 +2295,15 @@ export default function ReservationPublicPage() {
     const sentEmail = !linked ? contact.payload.guest_email : null;
     const sentPhone = !linked ? contact.payload.guest_phone : null;
     const emailGiven = !!sentEmail;
+    // The server says whether an e-mail is really coming (`guest_mail`,
+    // fix round 2): a held request past the venue's mail budget, or a venue
+    // past its daily share, gets none — and the page must not promise one
+    // ("Vi svarer dig på {email}" over silence). An older server sends no
+    // flag: the page then says what it always said. Only for the answer to
+    // THIS booking's own status — a request the venue has since confirmed
+    // gets the venue's own mail.
+    const noMailComing = !linked && emailGiven && result?.guest_mail === false
+      && result?.status === status;
 
     // Status-driven hero icon + headline + body. Emerald is reserved for the
     // one confirmed "money moment"; pending/closed states stay gray.
@@ -2320,8 +2329,9 @@ export default function ReservationPublicPage() {
       // ONE sentence on what happens next, naming the channel the guest gave.
       // The screen used to say it four times: this line, "save this page",
       // a spinning pill, and a paragraph under it.
-      body =
-        rDay === today
+      body = noMailComing
+        ? t("rsvpRequestNextNoMail", "The venue will answer as soon as they can. Keep this page — the answer shows here.")
+        : rDay === today
           ? t("rsvpRequestNextToday", "We'll get back to you shortly.")
           : sentEmail
             ? t("rsvpRequestNextEmail", "We'll reply to {email} before the day.", { email: sentEmail })
@@ -2390,7 +2400,9 @@ export default function ReservationPublicPage() {
     // a link we don't know which contact the guest gave, so we say nothing.
     let deliveryLine = null;
     if (!linked && isConfirmed) {
-      deliveryLine = emailGiven
+      deliveryLine = noMailComing
+        ? t("rsvpNoMailReceipt", "We can't send a confirmation e-mail right now. Keep this page — it's your receipt.")
+        : emailGiven
         ? t("rsvpEmailOnItsWay", "A confirmation is on its way to {email}.", {
             email: sentEmail,
           })

@@ -5,7 +5,7 @@
 // holding several. It holds no table or chair until the owner says yes.
 //
 // The book says so itself since the fix round: a held row carries
-// `held: {reason, quiet, wanted, pinned}` and every row carries
+// `held: {reason, quiet, bot, wanted, pinned, limit?}` and every row carries
 // `guest_mailed`. An older server sends neither, and then a held booking is
 // told apart from a GROUP request (a party at or above the venue's request
 // threshold asks on purpose) by its size: a public request for fewer people
@@ -34,18 +34,22 @@ const WHY = {
   fast_fill: ["rsvpHeldWhyFast", "The form was filled in faster than a person can — often a robot. Confirm it only if you know the guest."],
   link_in_name: ["rsvpHeldWhyLink", "There was a link in the name. Confirm it if it looks real."],
   honeypot: ["rsvpHeldWhyTrap", "A hidden field only robots see was filled in — a browser's autofill can do that too. Confirm it if it looks real."],
-  contact_active: ["rsvpHeldWhyContact", "This guest already has 3 or more bookings ahead with you. Confirm it if it looks real."],
+  contact_active: ["rsvpHeldWhyContact", "This guest already has {n} or more bookings ahead with you. Confirm it if it looks real."],
   requests_full: ["rsvpHeldWhyRequests", "Many group requests came in today. Confirm it if it looks real."],
   venue_hour: ["rsvpHeldWhyBusy", "Held for your OK: unusually many online bookings came in a short time. Confirm it if it looks real."],
   venue_day: ["rsvpHeldWhyBusy", "Held for your OK: unusually many online bookings came in a short time. Confirm it if it looks real."],
   sitting_full: ["rsvpHeldWhyBusy", "Held for your OK: unusually many online bookings came in a short time. Confirm it if it looks real."],
+  date_full: ["rsvpHeldWhyBusy", "Held for your OK: unusually many online bookings came in a short time. Confirm it if it looks real."],
   plan_day: ["rsvpHeldWhyBusy", "Held for your OK: unusually many online bookings came in a short time. Confirm it if it looks real."],
 };
 const WHY_DEFAULT = ["rsvpHeldWhy", "Held for your OK: there were unusually many bookings in a short time, or the form was filled in very fast. Confirm it if it looks real."];
 
+// `held.limit` is the server's real limit for a guest's bookings ahead
+// (contact_active); an older server sends none, and its limit was 3.
 export function heldWhy(r, t) {
   const [key, fallback] = WHY[r?.held?.reason] || WHY_DEFAULT;
-  return t(key, fallback);
+  const n = Number(r?.held?.limit);
+  return t(key, fallback, { n: Number.isFinite(n) && n > 0 ? n : 3 });
 }
 
 // What it was booked for ("Bord 3", "Bord 1 + Bord 2", "Mia"), or "".

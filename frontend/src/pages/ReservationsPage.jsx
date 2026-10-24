@@ -4972,10 +4972,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     // A drop-in removed again (seated by mistake) is not a cancelled booking:
     // its own words, nobody notified, and it leaves the lists and counts.
     const removingWalkIn = status === "cancelled" && r.source === "walk_in";
-    // Declining a held booking whose guest never had a mail from us: say
-    // nothing to that address (the server holds to the same rule).
+    // Declining a BOT-LIKE held booking whose address never had a mail from
+    // us: say nothing to it (the server holds to the same rule). A
+    // person-like hold (`held.bot === false`, fix round 2) is told within
+    // the venue's held-mail budget — the server says so if it could not be.
+    // An older server sends no `bot`: then every unmailed hold is silent.
     const silentHeldDecline = status === "cancelled" && r.status === "requested"
-      && isHeldForCheck(r, publicPage?.groupThreshold) && r.guest_mailed === false;
+      && isHeldForCheck(r, publicPage?.groupThreshold) && r.guest_mailed === false
+      && r.held?.bot !== false;
     if (removingWalkIn) {
       if (
         !(await confirm({
@@ -5000,7 +5004,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // to that address about it — a bot's typed address gets no mail, and
       // the owner is told which it is before they tap.
       const heldDecline = isDecline && isHeldForCheck(r, publicPage?.groupThreshold);
-      const silent = heldDecline && r.guest_mailed === false;
+      const silent = heldDecline && r.guest_mailed === false && r.held?.bot !== false;
+      // A person-like hold we never wrote to: mailed if the day's budget for
+      // held requests allows; a toast says so when it did not.
+      const maybeMail = heldDecline && r.guest_mailed === false && !silent;
       if (
         !(await confirm(
           heldDecline
@@ -5008,7 +5015,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 title: t("rsvpDeclineConfirmTitle", "Decline this request?"),
                 message: silent
                   ? t("rsvpHeldDeclineBodySilent", "The request from {name} is declined without an e-mail — we never wrote to that address. Call them if it was real.", { name: who })
-                  : t("rsvpHeldDeclineBodyMail", "The request from {name} is declined. The guest gets an e-mail about it.", { name: who }),
+                  : maybeMail
+                    ? t("rsvpHeldDeclineBodyMaybe", "The request from {name} is declined. We e-mail the guest if today's limit for held requests allows — you'll be told if not.", { name: who })
+                    : t("rsvpHeldDeclineBodyMail", "The request from {name} is declined. The guest gets an e-mail about it.", { name: who }),
                 confirmLabel: silent
                   ? t("rsvpHeldDeclineSilentAction", "Decline without a message")
                   : t("rsvpDeclineAction", "Decline"),
@@ -5150,6 +5159,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       } else if (gSkip?.code === "guest_email_address_cap") {
         // This guest's address was already mailed enough today (per-mailbox bound).
         toast({ severity: "notice", message: t("rsvpGuestMailAddressCap", { cap: gSkip.cap }) });
+      } else if (gSkip?.code === "held_mail_budget") {
+        // A held request declined after the day's held-request mails ran out.
+        toast({ severity: "notice", message: t("rsvpGuestMailHeldBudget", "Declined. The guest was not e-mailed: today's e-mails for held requests are used up. Call the guest if it was real.") });
       }
       if (finishFirst) {
         toast({

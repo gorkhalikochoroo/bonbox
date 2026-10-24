@@ -76,10 +76,11 @@ describe("isHeldForCheck with the server's word", () => {
 
   it("names every reason in plain words, en and da", () => {
     for (const reason of ["fast_fill", "link_in_name", "honeypot", "contact_active", "requests_full",
-      "venue_hour", "venue_day", "sitting_full", "plan_day"]) {
+      "venue_hour", "venue_day", "sitting_full", "plan_day", "date_full"]) {
       const said = heldWhy({ held: { reason } }, tDa);
       expect(said).not.toMatch(/^rsvp/);
-      expect(Object.values(da)).toContain(said);
+      // contact_active names the limit ({n}; an older server's was 3).
+      expect(Object.values(da).map((v) => v.replace("{n}", "3"))).toContain(said);
     }
     expect(heldWhy({ held: { reason: "something_new" } }, tDa)).toBe(da.rsvpHeldWhy);
     for (const k of ["rsvpHeldWhyFast", "rsvpHeldWhyLink", "rsvpHeldWhyTrap", "rsvpHeldWhyContact",
