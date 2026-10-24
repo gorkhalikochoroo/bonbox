@@ -116,3 +116,27 @@ describe("BookingNameRow", () => {
     expect(document.querySelector('[data-testid="rsvp-share-card"]')).toBeNull();   // not live
   });
 });
+
+describe("an older server without public_name", () => {
+  it("shows the trading name it does send, never 'no name yet'", async () => {
+    h.get.mockImplementation((url) => {
+      if (url === "/reservations/settings") {
+        return Promise.resolve({ data: {
+          reservations_enabled: false, reservation_slug: null, public_url: null,
+          business_name: "Trattoria Testa Aarhus", hours_declared: true,
+          settings: { group_request_threshold: 8 }, open_hours: {},
+        } });
+      }
+      if (url === "/reservations/resources") return Promise.resolve({ data: { resources: [{ id: "t1", kind: "table", label: "Bord 1", capacity_seats: 4, is_active: true }], fixtures: [], book_has_entries: false } });
+      return Promise.resolve({ data: {} });
+    });
+    render(
+      <MemoryRouter initialEntries={["/reservations?tab=settings"]}>
+        <ReservationsPage />
+      </MemoryRouter>,
+    );
+    await settle();
+    expect(screen.getByTestId("rsvp-booking-name-value").textContent).toBe("Trattoria Testa Aarhus");
+    expect(document.querySelector('[data-testid="rsvp-booking-name-empty"]')).toBeNull();
+  });
+});

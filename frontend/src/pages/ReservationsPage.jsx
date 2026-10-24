@@ -9763,7 +9763,10 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
       {/* The name on the booking page — before the page is live too (R1 C). */}
       <BookingNameRow
         t={t}
-        publicName={data?.public_name || null}
+        // An older server sends no public_name (the frontend ships first):
+        // the trading name it does send is the page's name then — never a
+        // false "no name yet".
+        publicName={data && "public_name" in data ? data.public_name || null : data?.business_name || null}
         tradingName={data?.business_name || ""}
         onSaved={fetchSettings}
         apptWords={apptWords}
