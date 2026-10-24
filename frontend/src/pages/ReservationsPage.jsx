@@ -114,6 +114,7 @@ import WaitlistSection from "../components/reservations/WaitlistSection";
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
 import BookingNameRow from "../components/reservations/BookingNameRow";
 import ClosuresCard, { PauseControl } from "../components/reservations/ClosuresCard";
+import { isHeldForCheck } from "../utils/bookingHeld";
 import { canPurchaseInApp } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
 import { formatKr } from "../utils/currency";
@@ -1219,6 +1220,9 @@ function ReservationDrawer({
   // booking next Monday, with a confirm that named only the time).
   isToday = true,
   dayLabel = null,
+  // A HELD online booking (bookingHeld.js): the booking screen kept it for
+  // the owner's OK. Amber "Tjek før du bekræfter" + why (R1 D7).
+  held = false,
 }) {
   if (!reservation) return null;
   const r = reservation;
@@ -1310,6 +1314,17 @@ function ReservationDrawer({
               <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                 {r.guest_name || "—"}
               </div>
+              {held && (
+                <div data-testid="rsvp-held-drawer" className="mt-1 space-y-0.5">
+                  <div className="inline-flex items-center gap-1 text-[12px] font-semibold text-amber-700 dark:text-amber-300">
+                    <AlertTriangle className="w-3.5 h-3.5" aria-hidden />
+                    {t("rsvpHeldLabel", "Check before you confirm")}
+                  </div>
+                  <p className="text-[12px] leading-snug text-gray-600 dark:text-gray-400">
+                    {t("rsvpHeldWhy", "Held for your OK: there were unusually many bookings in a short time, or the form was filled in very fast. Confirm it if it looks real.")}
+                  </p>
+                </div>
+              )}
               {/* Provider (salon) → the behandling sub-line; table venues keep
                   the party-size sub-line. */}
               {isProvider ? (
@@ -6252,6 +6267,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           >
             {r.guest_name || "—"}
           </div>
+          {isHeldForCheck(r, publicPage?.groupThreshold) && (
+            <div data-testid="rsvp-held-label" className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="w-3 h-3" aria-hidden />
+              {t("rsvpHeldLabel", "Check before you confirm")}
+            </div>
+          )}
           {r.guest_phone && (
             <div className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
               {r.guest_phone}
@@ -6506,6 +6527,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               />
             )}
           </div>
+          {isHeldForCheck(r, publicPage?.groupThreshold) && (
+            <div data-testid="rsvp-held-label" className="mt-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300 truncate">
+              {t("rsvpHeldLabel", "Check before you confirm")}
+            </div>
+          )}
           {/* A finished row WRAPS instead: its seated → left line ("10.20 →
               11.45 · 1 t 25 min") goes under the table and status when the
               phone cannot hold all four — it was shrink-0 on one line, so at
@@ -7757,6 +7783,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           onAssignMany={(r, ids) => assignTable(r, null, ids)}
           isToday={isViewingToday}
           dayLabel={isViewingToday ? null : shortDayLabel(day, t, lang)}
+          held={isHeldForCheck(selected, publicPage?.groupThreshold)}
           tableLabel={resolveTableLabel(selected, labelById)}
           // A salon's leftover table booking opens as the table booking it is.
           isProvider={isProvider && !holdsTable(selected)}
