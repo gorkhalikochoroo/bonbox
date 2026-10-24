@@ -25,6 +25,8 @@ describe("defangLinks — the owner's screens", () => {
     "https://secure-refund.com/claim?u=@me", "https://user@evil.com/login", "user@evil.com/login",
     "evil.com/claim@x", "secure-pay.zip", "bonbox-refund.lol", "refund.nu",
     "secure.mobilepay-refund.rocks", "evil.lol/claim", "evil.com:8080/x", "www.evil.dk",
+    // an ending no list names, with a path after it: a link all the same
+    "refund.banana/claim", "secure.pay-dk.zzz/login",
   ])("defangs %s", (link) => {
     const out = defangLinks(`Se ${link} nu`);
     expect(out).not.toBe(`Se ${link} nu`);

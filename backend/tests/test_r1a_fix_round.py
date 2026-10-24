@@ -176,6 +176,8 @@ LINKS = [
     "https://user@evil.com/login", "user@evil.com/login", "evil.com/claim@x",
     "secure-pay.zip", "bonbox-refund.lol", "refund.nu", "mitid-login.casa", "pay.sbs",
     "secure.mobilepay-refund.rocks", "evil.lol/claim", "evil.com:8080/x", "www.evil.dk",
+    # an ending no list names, with a path after it: a link all the same
+    "refund.banana/claim", "secure.pay-dk.zzz/login",
 ]
 _HOSTISH = re.compile(r"(?i)https?://|www\.|[\w-]\.(?:" + text_mod._DISPLAY_TLDS + r")\b")
 
@@ -494,32 +496,38 @@ def test_a_restaurant_still_counts_bookings(client, db, outbox):
 
 
 def test_a_held_guest_hears_past_the_address_cap_and_the_answer_follows(client, db, outbox, clock):
-    """Three appointments on three days today used the address's 3 mails.
-    The 4th day is held — and the guest IS told "request received" (the page
-    promises it), and the expiry's answer reaches them too. Bounded: the
-    extra is BOOKING_HELD_MAILS_PER_ADDRESS_EXTRA (1) a day — the next held
-    one's page says no mail is coming."""
+    """Three appointments on three days, booked this morning, used the
+    address's 3 mails. A 4th day — tomorrow — is held, and the guest IS told
+    "request received" (the page promises it); the expiry declines it
+    tomorrow at 08:00, inside the same 24 h, and its answer reaches the guest
+    although the address count is past the cap. Bounded: the extra is
+    BOOKING_HELD_MAILS_PER_ADDRESS_EXTRA (1) a day — the next held one's page
+    says no mail is coming."""
     from app.config import settings
-    first = today_local() + timedelta(days=4)
-    clock.local = _at(today_local(), 10)
-    days = [first + timedelta(days=i) for i in range(6)]
-    s = _barber(db, days[0])
-    for d in days[1:]:
+    today = today_local()
+    clock.local = _at(today, 10)
+    tomorrow = today + timedelta(days=1)
+    later = [today + timedelta(days=3 + i) for i in range(3)]
+    more = [today + timedelta(days=7 + i) for i in range(2)]
+    s = _barber(db, tomorrow)
+    for d in later + more:
         shift(db, s["user"], s["staff"], d, "10:00", "18:00")
     got = []
-    for i, d in enumerate(days):
+    for i, d in enumerate(later + [tomorrow] + more):
         clock.local += timedelta(minutes=3)
         got.append(_cut(client, s, d, "10:00", ip=f"10.74.0.{i}").json())
     assert [g["status"] for g in got] == ["confirmed"] * 3 + ["requested"] * 3
+    assert _reason(db, got[3]["id"]) == "contact_active"
     extra = settings.BOOKING_HELD_MAILS_PER_ADDRESS_EXTRA
     assert extra == 1
     assert [g["guest_mail"] for g in got] == [True] * 3 + [True] * extra + [False] * (3 - extra)
-    to_guest = [m for m in outbox if m["to"] == "familien.lund@example.dk"]
-    assert len(to_guest) == 3 + extra
-    # The answer to a promised request goes out whatever the address count.
-    clock.local = _at(days[3], 9)
-    out = expire_stale_requests(db, now_local=_at(days[3], 9))
+    assert len([m for m in outbox if m["to"] == "familien.lund@example.dk"]) == 3 + extra
+    # Tomorrow 08:00 — under 24 h after the four mails — the promised
+    # request is declined, and its answer goes out.
+    clock.local = _at(tomorrow, 8)
+    out = expire_stale_requests(db, now_local=_at(tomorrow, 8))
     assert out["requests_expired"] == 1 and out["guests_notified"] == 1
+    assert reservation(db, got[3]["id"]).cancel_reason == "request_expired_no_answer"
     assert len([m for m in outbox if m["to"] == "familien.lund@example.dk"]) == 3 + extra + 1
 
 
