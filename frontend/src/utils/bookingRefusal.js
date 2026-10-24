@@ -62,3 +62,30 @@ export function roomFullText(w, t, sitting, { edit = false } = {}) {
     : t("rsvpRoomFullShort", "That time is full.");
 }
 
+
+// ── The guest page's refusals (ReservationPublicPage, R1) ──────────────────
+// What a refused online booking does to the guest's flow. Every one KEEPS what
+// the guest typed (name, contact, notes): a refusal is about the date, the
+// time or the venue's online capacity — never a reason to make them type it
+// all again.
+//   back            — return to step 1 (pick another day or time)
+//   refetch         — ask for the day's times again
+//   refreshSummary  — ask for the date strip again (a day just closed)
+//   newIntent       — the next attempt is a new booking (new idempotency key)
+//   call            — offer the venue's phone next to the message
+export const GUEST_REFUSALS = {
+  slot_unavailable: { back: true, refetch: true, refreshSummary: false, newIntent: true, call: false },
+  stylist_unavailable: { back: true, refetch: true, refreshSummary: false, newIntent: true, call: false },
+  date_closed: { back: true, refetch: true, refreshSummary: true, newIntent: true, call: false },
+  requests_full: { back: false, refetch: false, refreshSummary: false, newIntent: true, call: true },
+  too_many_tries: { back: false, refetch: false, refreshSummary: false, newIntent: false, call: false },
+};
+
+// The refusal code for a failed create: the server's 409 code, or
+// "too_many_tries" for a 429 (the per-address limit). null when the answer
+// is not one of these (the caller keeps its own handling).
+export function guestRefusalOf(status, code) {
+  if (status === 429) return "too_many_tries";
+  if (status === 409 && code && Object.prototype.hasOwnProperty.call(GUEST_REFUSALS, code)) return code;
+  return null;
+}

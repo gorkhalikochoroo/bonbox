@@ -37,6 +37,7 @@ import { buildIcs, venueAddress } from "../utils/reservationIcs";
 import { saveFile } from "../utils/download";
 import {
   Calendar,
+  CalendarOff,
   CalendarPlus,
   Users,
   MapPin,
@@ -53,6 +54,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ArrowRight,
+  PauseCircle,
   X,
 } from "lucide-react";
 import api from "../services/api";
@@ -62,6 +64,7 @@ import { forceLightTheme } from "../utils/themeColor";
 import { venueMonogram } from "../utils/venueMonogram";
 import { contactState } from "../utils/guestContact";
 import { rescueDay } from "../utils/bookingDay";
+import { GUEST_REFUSALS, guestRefusalOf } from "../utils/bookingRefusal";
 import { capFirst, dateLocale, fmtDayLabel, fmtDayShort } from "../utils/guestLocale";
 import { isFramed } from "../utils/framed";
 import {
@@ -931,6 +934,12 @@ export default function ReservationPublicPage() {
   // premature "no times"). nextOpenDay drives the "closed today" nudge.
   const [dayMap, setDayMap] = useState(null);
   const [nextOpenDay, setNextOpenDay] = useState(null);
+  // The owner's own words for a day they closed for online booking (R1):
+  // {date: {note, kind}}, from the summary. Shown verbatim as the reason.
+  const [dayClosures, setDayClosures] = useState({});
+  // Bumped to ask for the date strip again — after a 409 date_closed the
+  // strip must show the day the owner just closed.
+  const [summaryNonce, setSummaryNonce] = useState(0);
   // Why each of those days can't be booked, from the same summary, keyed by
   // the party it was asked for: {party, reasons: {iso: reason | null}}. Read
   // through `dayReasons` below, which is null (unknown) while the summary for
@@ -1335,6 +1344,10 @@ export default function ReservationPublicPage() {
         const list = Array.isArray(res.data?.days) ? res.data.days : [];
         const map = Object.fromEntries(list.map((d) => [d.date, !!d.has_slots]));
         setDayMap(map);
+        setDayClosures(Object.fromEntries(
+          list.filter((d) => d.reason === "closed_date")
+            .map((d) => [d.date, { note: d.note || null, kind: d.kind || "closed" }]),
+        ));
         setReasonsFor({
           party: summaryParty,
           reasons: Object.fromEntries(list.map((d) => [d.date, d.has_slots ? null : d.reason || null])),
@@ -1365,8 +1378,9 @@ export default function ReservationPublicPage() {
     return () => {
       alive = false;
     };
-    // re-run when party changes (open days depend on party size)
-  }, [page, slug, summaryParty, today]);
+    // re-run when party changes (open days depend on party size), and when a
+    // refusal says the strip is out of date (summaryNonce)
+  }, [page, slug, summaryParty, today, summaryNonce]);
   const dayReasons = reasonsFor && reasonsFor.party === summaryParty ? reasonsFor.reasons : null;
 
   // ── Per-venue document title + OG tags ────────────────────────────
@@ -1538,7 +1552,7 @@ export default function ReservationPublicPage() {
           // A stylist chair is not a table — "2 left" would be meaningless.
           setSlotRemaining({});
           setGroupRequest(false);
-          setAvailMeta({ key: metaKey, reason: res.data?.reason || "" });
+          setAvailMeta({ key: metaKey, reason: res.data?.reason || "", closure: res.data?.closure || null });
           // A capped salon is paused too (it used to be offered times the
           // create path then refused).
           setClosedReason(res.data?.closed_reason || "");
@@ -1560,7 +1574,7 @@ export default function ReservationPublicPage() {
               : {},
           );
           setGroupRequest(!!res.data?.group_request);
-          setAvailMeta({ key: metaKey, reason: res.data?.reason || "" });
+          setAvailMeta({ key: metaKey, reason: res.data?.reason || "", closure: res.data?.closure || null });
           // The venue is at its monthly booking ceiling — every time we could
           // show would be refused by the create endpoint. Say so HERE, at the
           // top of the flow, instead of letting the guest pick a table and type
@@ -1728,7 +1742,11 @@ export default function ReservationPublicPage() {
       /* noop */
     }
   }, [pausedPanel]);
-  const sentenceCtx = { party, apptWords, day, today, maxAdvance, lang };
+  // The owner's note for a day they closed (the keyed answer first, then the
+  // summary's) — reasonSentence shows it verbatim.
+  const dayClosure =
+    (availMeta && availMeta.key === selKey && availMeta.closure) || dayClosures[day] || null;
+  const sentenceCtx = { party, apptWords, day, today, maxAdvance, lang, closure: dayClosure };
 
   function toggleAllergen(key) {
     setAllergenTags((prev) =>
@@ -1750,6 +1768,13 @@ export default function ReservationPublicPage() {
   // Rotated only on a real 409: that conflict is about the slot, so the
   // next attempt is a genuinely new intent.
   const idempotencyKey = useRef(null);
+  // Guest-invisible spam guards (backend services/booking_screen.py): how long
+  // this page was open before Book was pressed, and a trap field no person
+  // fills (it sits off-screen; a form-filling bot finds and fills it). A fast
+  // or unsaid fill is held for the venue's OK — never refused.
+  const nowMs = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
+  const mountedAt = useRef(nowMs());
+  const [hpWebsite, setHpWebsite] = useState("");
 
   function newIdempotencyKey() {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -1829,6 +1854,8 @@ export default function ReservationPublicPage() {
       ...(isProvider
         ? { behandling_id: behandlingId || null, stylist_id: stylistId || null }
         : {}),
+      website: hpWebsite,
+      form_ms: Math.max(0, Math.round(nowMs() - mountedAt.current)),
     };
     try {
       const res = await api.post(`/public/reservations/${slug}`, payload, {
@@ -1863,6 +1890,21 @@ export default function ReservationPublicPage() {
     } catch (err) {
       const status = err?.response?.status;
       const code = err?.response?.data?.detail?.error;
+      // R1 refusals (utils/bookingRefusal.js): every one keeps what the
+      // guest typed.
+      const refusal = guestRefusalOf(status, code);
+      if (refusal && !["slot_unavailable", "stylist_unavailable"].includes(refusal)) {
+        const how = GUEST_REFUSALS[refusal];
+        if (how.newIntent) idempotencyKey.current = null;
+        if (how.refreshSummary) setSummaryNonce((n) => n + 1);
+        if (how.refetch) {
+          if (isProvider) fetchAvailability(day, party, behandlingId, stylistId);
+          else fetchAvailability(day, party);
+        }
+        if (how.back) backToChoices();
+        setSubmitError(refusal);
+        return;
+      }
       if (status === 409 || status === 410) {
         // slot_unavailable | stylist_unavailable | party_too_large | not_accepting
         const lostRaceCode = code || "slot_unavailable";
@@ -2980,6 +3022,19 @@ export default function ReservationPublicPage() {
                   </button>
                 )}
               </div>
+              {/* The owner paused online booking (R1): say when it opens again,
+                  above the strip — which has already moved to the next open
+                  day. Grey, not amber: nothing went wrong. */}
+              {page?.paused_until && page.paused_until >= today && (
+                <p
+                  role="status"
+                  data-testid="rsvp-paused-reopens"
+                  className="mb-2.5 flex items-start gap-2 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-white/5 px-3 py-2 text-[13px] text-gray-700 dark:text-gray-300"
+                >
+                  <PauseCircle size={15} strokeWidth={1.75} className="mt-0.5 shrink-0 text-gray-500" aria-hidden="true" />
+                  <span>{t("rsvpPausedReopens", "Online booking opens again {date}.", { date: fmtDayLabel(addDays(page.paused_until, 1), lang) })}</span>
+                </p>
+              )}
               {/* One-tap date strip (unbookable days disabled, with the reason) — the primary picker. */}
               <DateStrip
                 today={today}
@@ -2993,6 +3048,26 @@ export default function ReservationPublicPage() {
                 t={t}
                 lang={lang}
               />
+              {/* The owner's words for the days they closed on the strip
+                  ("tor 24. dec · Lukket juleaften", R1 B4). The strip only
+                  says "lukket"; this says why, in the venue's own words. */}
+              {(() => {
+                const noted = Object.entries(dayClosures)
+                  .filter(([d, c]) => c?.note && d !== day)
+                  .sort(([a], [b]) => (a < b ? -1 : 1))
+                  .slice(0, 3);
+                if (!noted.length) return null;
+                return (
+                  <ul data-testid="rsvp-closure-notes" className="mt-2 space-y-0.5 text-[13px] text-gray-500 dark:text-gray-400">
+                    {noted.map(([d, c]) => (
+                      <li key={d} className="flex items-start gap-1.5">
+                        <CalendarOff size={13} strokeWidth={1.75} className="mt-[3px] shrink-0" aria-hidden="true" />
+                        <span>{capFirst(fmtDayShort(d, lang))} · {c.note}</span>
+                      </li>
+                    ))}
+                  </ul>
+                );
+              })()}
               {/* A later date: the page's own month grid in a sheet. The
                   native date field looked different on every phone and could
                   not show which days the place is closed. */}
@@ -3210,7 +3285,7 @@ export default function ReservationPublicPage() {
                         {nextOpenDay
                           ? reasonSentence(dayReason, t, sentenceCtx) || t("rsvpNoSlotsDay", "No available times on this day.")
                           : (() => {
-                              const why = ["closed", "full", "too_late"].includes(dayReason)
+                              const why = ["closed", "closed_date", "full", "too_late"].includes(dayReason)
                                 ? reasonSentence(dayReason, t, sentenceCtx)
                                 : null;
                               const window = why && maxAdvance <= 0 ? null : noneBookableText(maxAdvance, t);
@@ -3822,6 +3897,27 @@ export default function ReservationPublicPage() {
               </a>
             </p>
 
+            {/* The trap field (backend booking_screen): off-screen, out of
+                the tab order and hidden from screen readers, so no person
+                ever fills it; a form-filling bot does, and its booking is
+                quietly dropped. Same pattern as the signup form. */}
+            <div
+              aria-hidden="true"
+              data-testid="rsvp-hp"
+              className="absolute -left-[10000px] top-auto h-px w-px overflow-hidden"
+            >
+              <label htmlFor="rsvp-website">{t("rsvpHpLabel", "Leave this field empty")}</label>
+              <input
+                id="rsvp-website"
+                type="text"
+                name="website"
+                value={hpWebsite}
+                onChange={(e) => setHpWebsite(e.target.value)}
+                tabIndex={-1}
+                autoComplete="off"
+              />
+            </div>
+
             {/* Submit-error surfaces */}
             {submitError && (
               <div role="alert" className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 flex items-start gap-2">
@@ -3831,9 +3927,17 @@ export default function ReservationPublicPage() {
                   className="text-red-600 dark:text-red-400 shrink-0 mt-0.5"
                   aria-hidden="true"
                 />
-                <p className="text-sm text-gray-700 dark:text-gray-300">
-                  {submitErrorMessage(submitError, t)}
-                </p>
+                <div className="min-w-0 space-y-2">
+                  <p className="text-sm text-gray-700 dark:text-gray-300">
+                    {submitErrorMessage(submitError, t)}
+                  </p>
+                  {GUEST_REFUSALS[submitError]?.call && telHref(page.phone) && (
+                    <a href={telHref(page.phone)} className={TEL_ACTION} data-testid="rsvp-refusal-call">
+                      <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
+                      <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: page.phone })}</span>
+                    </a>
+                  )}
+                </div>
               </div>
             )}
           </section>
@@ -4132,6 +4236,12 @@ function submitErrorMessage(code, t) {
         "rsvpErrClosed",
         "Online booking was paused while you were booking.",
       );
+    case "date_closed":
+      return t("rsvpErrDateClosed", "We're not taking online bookings that day. Please pick another day.");
+    case "requests_full":
+      return t("rsvpErrRequestsFull", "We can't take more requests online today. Call us and we'll sort it out.");
+    case "too_many_tries":
+      return t("rsvpErrTooManyTries", "Too many tries in a short time. Wait a minute and try again. Your details are kept.");
     case "invalid_email":
       return t("rsvpEmailCheck", "Check your email — e.g. anna@example.com");
     case "invalid_phone":

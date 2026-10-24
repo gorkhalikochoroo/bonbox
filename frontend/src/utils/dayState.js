@@ -10,6 +10,9 @@
 //   no_fit            online can't seat this party (call instead)
 //   too_late          every start is inside the lead time
 //   full              every start is taken (bookings or the owner's pacing)
+//   closed_date       the owner closed this date for online booking (R1) —
+//                     the day carries the owner's `note` and `kind`
+//                     ("closed" | "pause"); it reads "lukket" like `closed`
 //   closed_or_full    reason unknown (a failed classification, an older server)
 // This file turns a reason into a state and the state into words. "Lukket"
 // is said only for `closed`: a retired, unknown or failed reason reads
@@ -50,6 +53,8 @@ export const WORDS = {
   rsvpNoSlotsDay: "No available times on this day.",
   rsvpPartyOne: "1 guest",
   rsvpPartyN: "{n} guests",
+  rsvpReasonPaused: "Online booking is paused this day. Call us to book.",
+  rsvpPausedReopens: "Online booking opens again {date}.",
 };
 
 const say = (t, key, vars) => (vars ? t(key, WORDS[key], vars) : t(key, WORDS[key]));
@@ -87,6 +92,7 @@ export function dayStateOf(reason) {
   if (reason === null || reason === undefined || reason === "") return null;
   switch (reason) {
     case "closed":
+    case "closed_date":
       return "closed";
     case "full":
       return "full";
@@ -149,10 +155,17 @@ function addDaysIso(iso, n) {
 // The time area's sentence for an unbookable day; null → the caller uses the
 // neutral rsvpNoSlotsDay. not_yet_bookable names the date booking opens
 // (day − maxAdvance), and only when that date is after today.
-export function reasonSentence(reason, t, { party, apptWords = false, day, today, maxAdvance, lang } = {}) {
+export function reasonSentence(reason, t, { party, apptWords = false, day, today, maxAdvance, lang, closure } = {}) {
   switch (reason) {
     case "closed":
       return say(t, "rsvpReasonClosed");
+    case "closed_date": {
+      // The owner's own words, verbatim ("Lukket juleaften"); without a note,
+      // a pause asks for a call and a closed date says closed.
+      const note = typeof closure?.note === "string" ? closure.note.trim() : "";
+      if (note) return note;
+      return closure?.kind === "pause" ? say(t, "rsvpReasonPaused") : say(t, "rsvpReasonClosed");
+    }
     case "full":
       return apptWords ? say(t, "rsvpReasonFullAppt") : say(t, "rsvpReasonFull", { party: partyText(party, t) });
     case "too_late":
