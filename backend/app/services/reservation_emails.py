@@ -1052,7 +1052,15 @@ def venue_mail_share_capped(db: Session, owner_id) -> int | None:
     BOOKING_VENUE_MAIL_SHARE_FROM_PCT of its day), else None. Raises when a
     count fails — deliver() refuses. A slow drip at two venues used every
     venue's guest mail for a day before this (recheck, 24 Oct: 21 + 19 of
-    the fleet's 40); a busy venue on a quiet day is not held back by it."""
+    the fleet's 40); a busy venue on a quiet day is not held back by it.
+
+    R1a: a VOLUME rule — only with BOOKING_VOLUME_CEILINGS on (off by
+    default): a busy 10-table venue's own confirmations were held back by
+    it on a peak weekend (fix-2 verify S8). Off, the fleet and the venue's
+    own daily ceilings apply exactly as before R1."""
+    from app.services.booking_screen import volume_ceilings_on
+    if not volume_ceilings_on():
+        return None
     share = venue_mail_share()
     if share is None:
         return None

@@ -932,16 +932,36 @@ def _send_guest_cancel_notifications(reservation_id: str, owner_id: str,
             logger.warning("guest cancel email failed: %s", type(exc).__name__)
         db.commit()
 
+        # A booking the screen HELD (R1a). A bot-like hold withdrawn with its
+        # own booking token pings no one: the owner was never told about it,
+        # and a robot that posts and withdraws every hour buzzed the owner
+        # every hour, night included (fix-2 verify S4). A person-like hold's
+        # withdrawal waits for the morning in the quiet hours once the hour's
+        # budget is spent — like its booking did.
+        hold_reason = None
+        if r.status == "cancelled" and r.source == "public":
+            hold_reason = (booking_screen.held_info(db, owner.id, [r.id])
+                           .get(str(r.id), {}).get("reason"))
+        if hold_reason in booking_screen.BOT_REASONS:
+            owner_booking_alerts.log_suppressed(
+                db, owner.id, "reservation_cancelled", why=owner_booking_alerts.HELD_BOT)
+            db.commit()
+            return
+
         # The owner's ping budget, shared with new bookings: a few an hour,
         # then one summary an hour, then nothing until the hour turns.
+        held = hold_reason is not None
         ping = owner_booking_alerts.decide(db, owner.id, now_utc=utc_now(),
-                                           event="reservation_cancelled")
+                                           event="reservation_cancelled", held=held)
         if ping.decision != "send":
             if ping.decision == "burst":
                 owner_booking_alerts.send_summary(db, owner, profile, ping,
                                                   today=_now_local().date().isoformat())
             else:
-                owner_booking_alerts.log_suppressed(db, owner.id, "reservation_cancelled")
+                owner_booking_alerts.log_suppressed(
+                    db, owner.id, "reservation_cancelled",
+                    why=(owner_booking_alerts.HELD_OVER_BUDGET if held
+                         else owner_booking_alerts.OVER_BUDGET))
             db.commit()
             return
 

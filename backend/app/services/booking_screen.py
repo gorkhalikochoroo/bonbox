@@ -36,25 +36,26 @@ real guest into "held".
 The rules FAIL OPEN: a broken check confirms the booking, logs a warning and
 bumps an abuse signal. A broken guard must never turn away a real guest.
 
-Rules, the first match wins (n = the venue's active tables or chairs):
+Rules, the first match wins (n = the venue's active tables or chairs;
+[V] = a volume rule, only with BOOKING_VOLUME_CEILINGS on — see below):
   1. trap field filled       — form filled fast → drop; else hold (honeypot)
   2. form filled in < MIN_FILL_MS, or no time sent → hold (fast_fill)
   3. a link in the guest's name                    → hold (link_in_name)
-  4. a REAL group request (party ≥ max(threshold, GROUP_FLOOR)): with
+  4. a REAL group request (party ≥ max(threshold, GROUP_FLOOR)): [V] with
      max(GROUP_REQUESTS_PER_DAY, n) already open today → hold
      (requests_full); otherwise → confirm (it is a request on its own)
   5. the same contact has ≥ CONTACT_ACTIVE_MAX active future bookings here
                                                    → hold (contact_active)
      — rules 5–9 are for bookings, and for the small "requests" of a venue
        that approves every booking itself (threshold 1) —
-  6. (bookings only) a capped plan: a quarter of the monthly cap already
+  6. [V] (bookings only) a capped plan: a quarter of the monthly cap already
      confirmed online in 24 h                      → hold (plan_day)
-  7. BURST, the venue: ≥ max(VENUE_HOUR_MIN 6, n) passed in the last hour
+  7. [V] BURST, the venue: ≥ max(VENUE_HOUR_MIN 6, n) passed in the last hour
                                                    → hold (venue_hour)
-  8. BURST, one sitting (bookings only): ≥ max(SITTING_MIN 3, ⌈n/2⌉)
+  8. [V] BURST, one sitting (bookings only): ≥ max(SITTING_MIN 3, ⌈n/2⌉)
      confirmed online bookings made in the last SITTING_WINDOW (3 h) already
      overlap this sitting                          → hold (sitting_full)
-  9. PATTERN, one date (bookings only): ≥ max(DATE_MIN 6, ⌈1.5 × tables⌉)
+  9. [V] PATTERN, one date (bookings only): ≥ max(DATE_MIN 6, ⌈1.5 × tables⌉)
      — chairs: max(6, 4 × chairs) — confirmed online bookings made in the
      last 24 h are already for this date           → hold (date_full)
  10. otherwise                                     → confirm
@@ -63,6 +64,17 @@ Before fix round 2, rule 8 counted a whole day and every table's half
 (the 4th online booking for a busy Friday dinner waited for the owner), and
 a venue-wide day rule (24 a day) let an honest-looking drip spread over
 future dates put every later guest, on every date, on hold.
+
+R1a (24 Oct 2026): the VOLUME rules — the group requests' day (4), the
+capped plan's day (6), the venue hour (7), one sitting (8) and one date (9)
+— apply only with the server setting BOOKING_VOLUME_CEILINGS on, and it is
+OFF by default. The verify of fix round 2 still found real guests held by
+volume (an Instagram rush on a sold-out Saturday, a steady same-day
+afternoon, a solo barber's 7th customer of the day). With it off, a real
+guest is held only for a robot's signal (rules 1–3) or for the same guest's
+4th booking ahead (rule 5) — and is otherwise confirmed exactly as before
+R1 (a group still asks, as it always did). The rules stay here, tested in
+both states, until they are re-tuned.
 """
 from __future__ import annotations
 
@@ -279,6 +291,16 @@ def date_online_count(db, owner_id, *, day_start: datetime, since_utc: datetime)
     )
 
 
+def volume_ceilings_on() -> bool:
+    """BOOKING_VOLUME_CEILINGS: the volume rules (4, 6, 7, 8, 9) apply only
+    when it is on. Off by default (R1a); an unreadable value reads as off —
+    the rules that are left (robots, the same guest) never depend on it."""
+    try:
+        return bool(app_config.BOOKING_VOLUME_CEILINGS)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def date_cap(n_resources: int, *, chairs: bool) -> int:
     """Rule 9's ceiling for one date: max(DATE_MIN, ⌈1.5 × tables⌉), or
     max(DATE_MIN, 4 × chairs) — a chair takes many appointments a day."""
@@ -338,10 +360,12 @@ def screen_public_booking(db, *, owner, settings: dict, payload, is_request: boo
         #    venue ceilings below are not for it (a julefrokost rush is real).
         #    Many open group requests today: the next one still goes in (a
         #    request holds no table), but waits for the hourly summary.
+        #    A volume rule: only with BOOKING_VOLUME_CEILINGS on.
+        volume = volume_ceilings_on()
         min_group = real_group_size(settings)
         if is_request and party >= min_group:
             cap = int(cfg.BOOKING_GROUP_REQUESTS_PER_DAY)
-            if cap > 0 and _group_requests_24h(
+            if volume and cap > 0 and _group_requests_24h(
                     db, owner.id, min_group, now_utc - timedelta(days=1)) >= max(cap, n):
                 return Screen("hold", "requests_full")
             return CONFIRM
@@ -352,6 +376,10 @@ def screen_public_booking(db, *, owner, settings: dict, payload, is_request: boo
                 phone=getattr(payload, "guest_phone", None),
                 now_local=now_local) >= cmax:
             return Screen("hold", "contact_active")
+        if not volume:
+            # R1a: the volume rules below (6–9) are switched off — a real
+            # guest is never held because of how many others booked.
+            return CONFIRM
         day_ago = now_utc - timedelta(days=1)
         # 6. A capped plan (Free: 20 a month): online strangers alone may not
         #    use up more than a quarter of the month in a day.

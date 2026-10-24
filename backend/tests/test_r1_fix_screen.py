@@ -25,6 +25,12 @@ What the review measured, and what each test pins:
     bookings share a small per-venue budget (atk-m: one venue's bots used the
     fleet's 40 guest mails a day).
 
+R1a (24 Oct 2026): the volume rules (one date, one sitting, the hour, the
+capped plan's day, the day's group requests) apply only with
+BOOKING_VOLUME_CEILINGS on — off by default. The tests of those rules run
+with it on (`volume_on`); the "no real guest is held" claims run in both
+states (`volume_both`). tests/test_r1a_volume_switch.py pins the off state.
+
 Run: cd backend && python -m pytest tests/test_r1_fix_screen.py -q
 """
 from __future__ import annotations
@@ -42,7 +48,7 @@ from app.utils.text import has_link, strip_links
 from app.utils.time import utc_now
 from tests._r1_booking_harness import (  # noqa: F401 — fixtures
     TABLE_SETTINGS, book, client, db, engine_and_session, logs, outbox, reservation,
-    restaurant, today_local,
+    restaurant, today_local, volume_both, volume_on,
 )
 
 DAY = today_local() + timedelta(days=5)
@@ -66,7 +72,7 @@ def _age(db, owner, minutes):
 
 # ── P3: held bots no longer hold the next real guest ───────────────────
 @pytest.mark.parametrize("hours_ago", [2, 12, 23])
-def test_a_flood_that_was_held_does_not_hold_the_next_real_guest(client, db, outbox, hours_ago):
+def test_a_flood_that_was_held_does_not_hold_the_next_real_guest(client, db, outbox, hours_ago, volume_both):
     u, p, _ = restaurant(db, tables=6)
     created = utc_now() - timedelta(hours=hours_ago)
     for i in range(24):
@@ -84,7 +90,7 @@ def test_a_flood_that_was_held_does_not_hold_the_next_real_guest(client, db, out
     assert r.json()["status"] == "confirmed", _reason(db, r.json()["id"])
 
 
-def test_a_drip_spread_over_dates_holds_no_real_guest_on_another_date(client, db, outbox):
+def test_a_drip_spread_over_dates_holds_no_real_guest_on_another_date(client, db, outbox, volume_both):
     """Recheck S1 (24 Oct): 3 honest-looking posts an hour for 8 hours, a new
     date each round, were all confirmed — and from then on every real guest,
     on every date, was held (the venue-wide 24-a-day ceiling). The day rule is
@@ -103,7 +109,7 @@ def test_a_drip_spread_over_dates_holds_no_real_guest_on_another_date(client, db
         assert r.json()["status"] == "confirmed", _reason(db, r.json()["id"])
 
 
-def test_a_drip_on_one_date_is_held_at_the_date_ceiling(client, db, outbox):
+def test_a_drip_on_one_date_is_held_at_the_date_ceiling(client, db, outbox, volume_on):
     """…but one date filling unusually fast is a pattern: max(6, 1.5 × 6
     tables) = 9 online bookings made in 24 h for one date, then held."""
     u, p, _ = restaurant(db, tables=6)
@@ -124,7 +130,7 @@ def test_a_drip_on_one_date_is_held_at_the_date_ceiling(client, db, outbox):
 
 
 # ── P4 + atk-d: requests are never refused ─────────────────────────────
-def test_a_venue_that_approves_everything_takes_its_eleventh_customer(client, db, outbox):
+def test_a_venue_that_approves_everything_takes_its_eleventh_customer(client, db, outbox, volume_both):
     u, p, _ = restaurant(db, settings=dict(TABLE_SETTINGS, group_request_threshold=1))
     got = []
     for i in range(11):
@@ -138,7 +144,7 @@ def test_a_venue_that_approves_everything_takes_its_eleventh_customer(client, db
     assert "requests_full" not in reasons
 
 
-def test_ten_bot_group_requests_do_not_lock_out_a_real_party(client, db, outbox):
+def test_ten_bot_group_requests_do_not_lock_out_a_real_party(client, db, outbox, volume_both):
     u, p, _ = restaurant(db)
     for i in range(10):
         r = book(client, p.reservation_slug, day=today_local() + timedelta(days=40 + i), time="19:00",
@@ -152,7 +158,7 @@ def test_ten_bot_group_requests_do_not_lock_out_a_real_party(client, db, outbox)
     assert _reason(db, real.json()["id"]) is None
 
 
-def test_over_the_group_ceiling_a_request_is_held_quietly(client, db, outbox):
+def test_over_the_group_ceiling_a_request_is_held_quietly(client, db, outbox, volume_on):
     u, p, _ = restaurant(db)
     ids = []
     for i in range(11):
@@ -165,7 +171,7 @@ def test_over_the_group_ceiling_a_request_is_held_quietly(client, db, outbox):
 
 
 # ── atk-a / atk-c: the slow drip ───────────────────────────────────────
-def test_a_fast_drip_on_one_evening_confirms_at_most_the_date_ceiling(client, db, outbox):
+def test_a_fast_drip_on_one_evening_confirms_at_most_the_date_ceiling(client, db, outbox, volume_on):
     """atk-a: 6 posts an hour for 4 hours, four sittings of one evening. At
     most 9 (the date ceiling at 6 tables) are confirmed, never more than 3 at
     one sitting within 3 hours (was 24 before R1, 12 after the fix round)."""
@@ -191,7 +197,7 @@ def test_a_fast_drip_on_one_evening_confirms_at_most_the_date_ceiling(client, db
             assert len(recent) <= 3, (t, rnd, confirmed)
 
 
-def test_a_drip_cannot_close_a_free_venue_for_the_month(client, db, outbox):
+def test_a_drip_cannot_close_a_free_venue_for_the_month(client, db, outbox, volume_on):
     from app.routers.public_reservations import _at_month_cap
     u, p, _ = restaurant(db, tables=6, plan="free")
     statuses = []
@@ -212,7 +218,7 @@ def test_a_drip_cannot_close_a_free_venue_for_the_month(client, db, outbox):
     assert _reason(db, real.json()["id"]) == "plan_day"
 
 
-def test_the_sitting_rule_holds_a_burst_at_one_sitting(client, db, outbox):
+def test_the_sitting_rule_holds_a_burst_at_one_sitting(client, db, outbox, volume_on):
     """Three online bookings for 19:00 made within 3 hours: the 4th that
     overlaps them waits for the owner (max(3, half of 6 tables))."""
     u, p, _ = restaurant(db, tables=6)
@@ -228,7 +234,7 @@ def test_the_sitting_rule_holds_a_burst_at_one_sitting(client, db, outbox):
     assert lunch.json()["status"] == "confirmed"
 
 
-def test_real_guests_booking_one_sitting_over_the_week_are_never_held(client, db, outbox):
+def test_real_guests_booking_one_sitting_over_the_week_are_never_held(client, db, outbox, volume_both):
     """Recheck S4 (24 Oct): six real guests booked Friday dinner, one every
     75 minutes, and the 4th, 5th and 6th were held while three tables were
     free. The sitting rule counts only bookings made in the last 3 hours, so
@@ -361,7 +367,7 @@ def test_a_name_carrying_an_at_url_is_held_and_never_reaches_the_owner_as_a_link
 
 
 # ── atk-m: held mail to typed addresses is bounded per venue ───────────
-def test_held_bookings_share_a_small_mail_budget(client, db, outbox, monkeypatch):
+def test_held_bookings_share_a_small_mail_budget(client, db, outbox, monkeypatch, volume_on):
     from app.config import settings
     # The venue's share of the fleet's guest mail is its own test
     # (test_r1_fix2_mail_and_alerts.py); here only the held-mail budget.

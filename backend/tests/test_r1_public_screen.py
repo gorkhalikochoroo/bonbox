@@ -32,7 +32,7 @@ from app.services import booking_screen
 from app.utils import abuse_signals
 from tests._r1_booking_harness import (  # noqa: F401 — fixtures
     active_occupancy, as_owner, book, client, db, engine_and_session, outbox,
-    reservation, restaurant, salon, shift, today_local,
+    reservation, restaurant, salon, shift, today_local, volume_on,
 )
 
 DAY = today_local() + timedelta(days=5)
@@ -114,7 +114,7 @@ def test_the_same_contact_is_held_from_the_fourth_booking(client, db, outbox):
 
 
 @pytest.mark.parametrize("tables", [6, 10])
-def test_the_venue_hour_ceiling_holds_a_burst(client, db, outbox, tables):
+def test_the_venue_hour_ceiling_holds_a_burst(client, db, outbox, tables, volume_on):
     """20 posts in one hour, each its own guest and time: max(6, tables) are
     confirmed, the rest held (fix round 2 — the fix round's max(3, half the
     tables) held ordinary guests on a busy evening; a busy week's busiest
@@ -138,7 +138,7 @@ def test_the_venue_hour_ceiling_holds_a_burst(client, db, outbox, tables):
     assert reasons and all('"venue_hour"' in x for x in reasons)
 
 
-def test_the_eleventh_group_request_of_the_day_is_held_not_refused(client, db, outbox):
+def test_the_eleventh_group_request_of_the_day_is_held_not_refused(client, db, outbox, volume_on):
     u, profile, _ = restaurant(db)
     slug = profile.reservation_slug
     codes = []

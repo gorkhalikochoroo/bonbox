@@ -415,21 +415,26 @@ class Settings(BaseSettings):
     # a confirmed account from an unknown one. 0 = off.
     MAGIC_LINK_MIN_RESPONSE_MS: int = 300
     # Guest e-mails delivered across ALL venues in a rolling 24 h
-    # (services/reservation_emails.py deliver()). Peak ~3/day. Raised from 40
-    # (24 Oct 2026, booking fix round 2): with the magic-link ceiling (20) it
-    # still leaves 20 of Resend Free's 100 a day for verification, reset,
-    # staff and alert mail. Raise both when Resend is upgraded.
-    GUEST_EMAILS_FLEET_PER_DAY: int = 60
+    # (services/reservation_emails.py deliver()). Peak ~3/day. 40 is the live
+    # value, kept in R1a (24 Oct 2026): fix round 2 raised it to 60, but on
+    # Resend Free (100 a day for EVERY mail we send) 60 + the magic-link
+    # ceiling (20) leaves 20 for owner booking e-mails, verification, reset
+    # and staff mail — and when the provider's day runs out, sign-in links
+    # fail too. With the per-venue share below switched off, 60 would also
+    # let one venue's drip relay 60 mails a day instead of 40. Raise it (and
+    # MAGIC_LINK_FLEET_MAX_PER_DAY) when Resend is upgraded.
+    GUEST_EMAILS_FLEET_PER_DAY: int = 40
     # One venue's share of that ceiling for the mails its ONLINE bookings
     # start (the confirmation, or "request received"): this percent of
-    # GUEST_EMAILS_FLEET_PER_DAY in a rolling 24 h (60 → 9) — enforced only
+    # GUEST_EMAILS_FLEET_PER_DAY in a rolling 24 h (40 → 6) — enforced only
     # once the whole fleet has used BOOKING_VENUE_MAIL_SHARE_FROM_PCT of its
-    # day (60 → 30). A slow drip at one or two venues can then no longer use
+    # day (40 → 20). A slow drip at one or two venues can then no longer use
     # up every venue's guest mail (recheck, 24 Oct: two venues drained the
-    # 40), while a busy venue on a quiet day is held back by nothing but the
-    # fleet ceiling (a busy 10-table week sends more than 9 a day). The page
-    # never promises a mail the share holds back, and the operator is
-    # alerted (abuse monitor, abuse_guest_mail). 0 = off.
+    # 40). The page never promises a mail the share holds back, and the
+    # operator is alerted (abuse monitor, abuse_guest_mail). 0 = off.
+    # R1a: applies ONLY with BOOKING_VOLUME_CEILINGS on — a busy venue's own
+    # confirmations were held back by it (fix-2 verify S8); size it per venue
+    # and raise the fleet ceiling before switching it on.
     BOOKING_VENUE_MAIL_SHARE_PCT: int = 15
     BOOKING_VENUE_MAIL_SHARE_FROM_PCT: int = 50
     # Anonymous online bookings (services/booking_screen.py). Over a ceiling a
@@ -439,6 +444,19 @@ class Settings(BaseSettings):
     # guests into "held" (R1 fix round, 24 Oct 2026). Fix round 2 (same day):
     # the ceilings are for BURSTS and PATTERNS only — measured on simulated
     # busy weeks at 4, 6 and 10 tables, no real guest is held.
+    #
+    # BOOKING_VOLUME_CEILINGS (R1a, 24 Oct 2026) — the ONE switch for every
+    # VOLUME rule: the venue hour, one sitting, one date, the capped plan's
+    # day (Free), the day's group requests, and each venue's share of the
+    # fleet guest mail. OFF (the default): no real guest is held because of
+    # how many others booked — a booking is held only for a robot's signal
+    # (the trap field, a form filled in under BOOKING_MIN_FILL_MS, a link in
+    # the name) or for the same guest's 4th booking ahead. The verify of fix
+    # round 2 still held real guests by volume (an Instagram rush, a steady
+    # same-day afternoon, a solo barber's 7th customer) and left one venue
+    # with no day bound at all; the rules stay in the code, tested in both
+    # states, until they are re-tuned. ON: the rules below apply as built.
+    BOOKING_VOLUME_CEILINGS: bool = False
     BOOKING_MIN_FILL_MS: int = 2000             # faster form fill → held
     BOOKING_GROUP_REQUESTS_PER_DAY: int = 10    # real group requests a day; over it → held, never refused
     BOOKING_GROUP_FLOOR: int = 6                # a "real group" is at least max(threshold, this)
@@ -450,13 +468,19 @@ class Settings(BaseSettings):
     BOOKING_DATE_PER_TABLE: float = 1.5         # … made in the last 24 hours
     BOOKING_DATE_PER_CHAIR: int = 4
     # Mail to a HELD booking's typed address that looks like a person's (not
-    # a bot's form): the "request received" mail, and the decline or expiry
-    # mail when it never got that one — at most this many per venue an hour
-    # and a day, all of them together. A bot-like hold (trap, fast fill, a
-    # link in the name) gets none; the guest page says so when no mail is
-    # coming (fix round 2, 24 Oct 2026).
+    # a bot's form): the "request received" mail — at most this many per
+    # venue an hour and a day. A bot-like hold (trap, fast fill, a link in the
+    # name) gets none; the guest page says so when no mail is coming (fix
+    # round 2, 24 Oct 2026).
     BOOKING_HELD_GUEST_MAILS_PER_HOUR: int = 3
     BOOKING_HELD_GUEST_MAILS_PER_DAY: int = 10
+    # … and the "we couldn't take it" mail (the owner's decline, or the
+    # expiry) to such a booking we never mailed: its OWN day budget per
+    # venue, never the hourly one above (R1a: an expiry run that declined a
+    # whole sitting at once told only 3 of the held guests — fix-2 verify
+    # S5). Still inside every guest-mail ceiling (per address, per venue,
+    # fleet). 0 = no such mail.
+    BOOKING_HELD_DECLINE_MAILS_PER_DAY: int = 10
     # Pings to the OWNER about online bookings and cancellations
     # (services/owner_booking_alerts.py): this many an hour, then one summary
     # an hour; the day ceiling stops only the single pings, never the summary.

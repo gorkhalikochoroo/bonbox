@@ -1909,8 +1909,9 @@ def _held_is_bot(held: dict | None) -> bool:
 def _may_tell_held_guest(db: Session, user: User, r: Reservation, held: dict) -> bool:
     """Does the owner's decline of a HELD online booking mail the guest?
     Yes when we already mailed them about it; never for a bot-like hold;
-    otherwise within the venue's held-mail budget."""
-    from app.services import booking_screen, owner_booking_alerts
+    otherwise within the venue's day budget for decline mails — its own,
+    not the hourly "request received" one (R1a)."""
+    from app.services import owner_booking_alerts
     if reservation_emails.guest_heard_from_us(db, r):
         return True
     if _held_is_bot(held) or not r.guest_email:
@@ -1918,7 +1919,7 @@ def _may_tell_held_guest(db: Session, user: User, r: Reservation, held: dict) ->
     if not reservation_emails.starts_in_future(r, user):
         return True        # nothing is sent for a past booking anyway; claim nothing
     from app.utils.time import utc_now
-    return owner_booking_alerts.claim_held_guest_mail(db, user.id, now_utc=utc_now())
+    return owner_booking_alerts.claim_held_decline_mail(db, user.id, now_utc=utc_now())
 
 
 def _held_for_rows(db: Session, user: User, rows) -> dict:

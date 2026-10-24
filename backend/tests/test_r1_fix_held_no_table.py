@@ -31,7 +31,7 @@ from app.models.reservation import Reservation
 from app.models.reservation_occupancy import ReservationOccupancy
 from tests._r1_booking_harness import (  # noqa: F401 — fixtures
     active_occupancy, as_owner, book, client, db, engine_and_session, logs, outbox,
-    reservation, restaurant, salon, shift, today_local,
+    reservation, restaurant, salon, shift, today_local, volume_on,
 )
 
 DAY = today_local() + timedelta(days=2)
@@ -214,7 +214,7 @@ def test_the_book_shows_why_and_what_a_held_booking_was_for(client, db, outbox):
     assert row["guest_mailed"] is False                 # a fast fill gets no mail
 
 
-def test_declining_a_held_booking_mails_only_a_guest_we_mailed(client, db, outbox):
+def test_declining_a_held_booking_mails_only_a_guest_we_mailed(client, db, outbox, volume_on):
     u, p, tables = restaurant(db, tables=6)
     bot = book(client, p.reservation_slug, day=DAY, time="18:00", form_ms=None,
                email="victim@example.com").json()["id"]

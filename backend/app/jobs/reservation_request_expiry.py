@@ -153,9 +153,10 @@ def expire_stale_requests(db: Session | None = None, *, now_local: datetime | No
 
         # A booking the booking screen HELD: a bot-like hold's typed address
         # never gets the "we couldn't take it" mail it never asked for; a
-        # person-like hold we never mailed hears within the venue's small
-        # held-mail budget (fix round 2: such guests were left with no word
-        # at all, against the receipt's promise).
+        # person-like hold we never mailed hears within the venue's day
+        # budget for decline mails (fix round 2: such guests were left with
+        # no word at all, against the receipt's promise; R1a: its own budget,
+        # not the hourly one a whole sitting's run used up).
         held = _held_reasons(db, rows)
 
         # Mail AFTER the commit: the decision is durable first, and a mail
@@ -203,15 +204,16 @@ def _held_reasons(db: Session, rows) -> dict:
 
 def _may_tell_held(db: Session, r: Reservation, reason) -> bool:
     """A held booking's expiry mail: yes when we already mailed this guest
-    about it; never for a bot-like hold; otherwise within the venue's
-    held-mail budget (owner_booking_alerts.claim_held_guest_mail)."""
+    about it; never for a bot-like hold; otherwise within the venue's day
+    budget for decline and expiry mails
+    (owner_booking_alerts.claim_held_decline_mail) — its own, not the hourly
+    "request received" one: one run declines a whole sitting at once (R1a)."""
     from app.services import booking_screen, owner_booking_alerts, reservation_emails
     if reservation_emails.guest_heard_from_us(db, r):
         return True
     if reason in booking_screen.NO_GUEST_MAIL or not r.guest_email:
         return False
-    from app.utils.time import utc_now
-    return owner_booking_alerts.claim_held_guest_mail(db, r.user_id, now_utc=utc_now())
+    return owner_booking_alerts.claim_held_decline_mail(db, r.user_id, now_utc=utc_now())
 
 
 def _tell_the_guest(db: Session, r: Reservation) -> bool:

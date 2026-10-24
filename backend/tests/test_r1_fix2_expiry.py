@@ -17,8 +17,9 @@ Now (jobs/reservation_request_expiry.answer_deadline):
   • asked very late   → never declined less than an hour after asking.
 
 And a request the screen held from a person-like form, whose guest never got
-a mail from us, is still told when it expires (within the venue's small
-held-mail budget) — a bot-like one never.
+a mail from us, is still told when it expires (within the venue's day budget
+for decline mails — its own since R1a, not the hourly "request received"
+one) — a bot-like one never.
 
 Run: cd backend && python -m pytest tests/test_r1_fix2_expiry.py -q
 """
@@ -35,7 +36,7 @@ from app.jobs.reservation_request_expiry import answer_deadline, expire_stale_re
 from app.models.audit_log import AuditLog
 from app.models.reservation import Reservation
 from tests._r1_booking_harness import (  # noqa: F401 — fixtures
-    client, clock, db, engine_and_session, outbox, reservation, restaurant,
+    client, clock, db, engine_and_session, outbox, reservation, restaurant, volume_on,
 )
 
 CPH = ZoneInfo("Europe/Copenhagen")
@@ -146,7 +147,12 @@ def test_a_held_person_we_never_mailed_is_told_when_it_expires(db, outbox):
 
 def test_the_held_expiry_mails_stay_within_the_venue_budget(db, outbox):
     """Twelve person-like holds nobody mailed (a burst): the expiry tells as
-    many as the held-mail budget allows (3 an hour), not a mail per row."""
+    many as the venue's day budget for decline mails allows
+    (BOOKING_HELD_DECLINE_MAILS_PER_DAY, 10) — not a mail per row, and no
+    longer the hourly 3 of "request received" (R1a: one run declines a
+    whole sitting at once; 5 of 11 held guests were never told)."""
+    from app.config import settings
+    from app.services import owner_booking_alerts as oba
     u, _p, _ = restaurant(db)
     now = _now_cph()
     for i in range(12):
@@ -154,10 +160,32 @@ def test_the_held_expiry_mails_stay_within_the_venue_budget(db, outbox):
                  party=2, email=f"g{i}@example.dk", held_reason="venue_hour")
     out = expire_stale_requests(db)
     assert out["requests_expired"] == 12
-    assert out["guests_notified"] == 3 == len(outbox)
+    assert out["guests_notified"] == settings.BOOKING_HELD_DECLINE_MAILS_PER_DAY == 10 == len(outbox)
+    # The hourly "request received" budget was not touched by the run.
+    from app.utils.time import utc_now
+    assert oba.claim_held_guest_mail(db, u.id, now_utc=utc_now()) is True
 
 
-def test_a_same_day_held_real_guest_is_not_declined_by_the_next_run(client, db, outbox, clock):
+def test_a_spent_request_received_budget_never_silences_the_expiry(db, outbox):
+    """Fix-2 verify S5: the hour's 3 "request received" mails went to the
+    first three held guests of a sitting; at expiry the other eight got
+    nothing. Now they are told, from the decline budget."""
+    from app.services import owner_booking_alerts as oba
+    from app.utils.time import utc_now
+    u, _p, _ = restaurant(db)
+    for _ in range(3):
+        assert oba.claim_held_guest_mail(db, u.id, now_utc=utc_now()) is True
+    assert oba.claim_held_guest_mail(db, u.id, now_utc=utc_now()) is False   # the hour is spent
+    now = _now_cph()
+    for i in range(8):
+        _request(db, u, asked=now - timedelta(days=1), starts=now + timedelta(hours=3),
+                 party=2, email=f"s5-{i}@example.dk", held_reason="sitting_full")
+    out = expire_stale_requests(db)
+    assert out == {"requests_expired": 8, "guests_notified": 8}
+    assert sorted(m["to"] for m in outbox) == sorted(f"s5-{i}@example.dk" for i in range(8))
+
+
+def test_a_same_day_held_real_guest_is_not_declined_by_the_next_run(client, db, outbox, clock, volume_on):
     """Recheck S1, end to end on a simulated clock (a Friday afternoon): a
     real guest for tonight, held at a busy moment, then the hourly runs —
     the request stays for the owner for its two hours."""

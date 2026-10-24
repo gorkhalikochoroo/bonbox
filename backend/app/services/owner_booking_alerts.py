@@ -424,3 +424,36 @@ def claim_held_guest_mail(db, owner_id, *, now_utc: datetime) -> bool:
         except Exception:  # noqa: BLE001
             pass
         return False
+
+
+# ── A held booking's "we couldn't take it" mail ─────────────────────────
+
+HELD_DECLINE_MAIL_EVENT = "held_decline_mail"
+
+
+def claim_held_decline_mail(db, owner_id, *, now_utc: datetime) -> bool:
+    """May this venue send one more decline or expiry mail to a person-like
+    HELD booking we never mailed? Its OWN day budget
+    (BOOKING_HELD_DECLINE_MAILS_PER_DAY), never the hourly "request
+    received" one (R1a): one expiry run declines a whole sitting at once,
+    and with the shared 3-an-hour budget 5 of 11 held guests for one Friday
+    19:00 were never told (fix-2 verify S5). The mail relays nothing the
+    stranger typed, and every guest-mail ceiling still applies to it. The
+    claim is recorded under the venue lock; a read error answers False (no
+    mail — the owner is told to call, the guest's page shows the answer)."""
+    try:
+        with venue_lock(db, f"bb-heldmail:{owner_id}"):
+            per_day = int(app_config.BOOKING_HELD_DECLINE_MAILS_PER_DAY)
+            ok = per_day > 0 and _spent_since(
+                db, owner_id, now_utc - timedelta(days=1), (HELD_DECLINE_MAIL_EVENT,)) < per_day
+            if ok:
+                _spend(db, owner_id, HELD_DECLINE_MAIL_EVENT)
+            db.commit()
+            return ok
+    except Exception:  # noqa: BLE001
+        logger.warning("held decline-mail budget check failed — no mail", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return False

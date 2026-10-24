@@ -294,3 +294,31 @@ def clock(client, monkeypatch):
     for m in models:
         event.remove(m, "before_insert", stamp)
 
+
+
+# ── R1a: the one switch for the volume rules ────────────────────────────
+@pytest.fixture
+def volume_on(monkeypatch):
+    """BOOKING_VOLUME_CEILINGS on: the volume rules (the venue hour, one
+    sitting, one date, the capped plan's day, the day's group requests, each
+    venue's mail share) apply as built. Off by default (R1a) — these tests
+    keep proving the rules work, for the day they are switched back on."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "BOOKING_VOLUME_CEILINGS", True)
+    return True
+
+
+@pytest.fixture
+def volume_off(monkeypatch):
+    """BOOKING_VOLUME_CEILINGS off, said out loud (the default — R1a)."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "BOOKING_VOLUME_CEILINGS", False)
+    return False
+
+
+@pytest.fixture(params=[False, True], ids=["volume_off", "volume_on"])
+def volume_both(request, monkeypatch):
+    """A test whose claim holds with the volume rules off AND on."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "BOOKING_VOLUME_CEILINGS", request.param)
+    return request.param

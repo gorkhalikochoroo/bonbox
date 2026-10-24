@@ -84,7 +84,59 @@ def _venue(Session, tables=6):
     return uid, slug
 
 
-def test_simultaneous_posts_cannot_pass_the_hour_ceiling(filedb):
+def _storm(filedb, uid, slug):
+    """N posts for N dates at 19:00, released together. → [(status, body status)]"""
+    days = [today_local() + timedelta(days=3 + i) for i in range(N)]
+    barrier = threading.Barrier(N)
+    results = [None] * N
+
+    def post(i):
+        client = TestClient(app)
+        body = {"day": days[i].isoformat(), "time": "19:00", "party_size": 2,
+                "guest_name": f"Race {i}", "guest_email": f"race{i}@x.test", "form_ms": 5000}
+        barrier.wait()
+        r = client.post(f"/api/public/reservations/{slug}", json=body,
+                        headers={"CF-Connecting-IP": f"203.0.113.{i + 1}"})
+        results[i] = (r.status_code, r.json().get("status"))
+
+    threads = [threading.Thread(target=post, args=(i,)) for i in range(N)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(120)
+    return results
+
+
+def _owner_pings(filedb, uid):
+    db = filedb()
+    try:
+        pings = (db.query(NotificationLog)
+                 .filter(NotificationLog.user_id == uid, NotificationLog.channel == "push",
+                         NotificationLog.status.in_(("sent", "failed"))).all())
+        return ([x for x in pings if x.event_type == "reservation_created"],
+                [x for x in pings if x.event_type == "owner_booking_burst"])
+    finally:
+        db.close()
+
+
+def test_with_the_volume_rules_off_a_storm_is_confirmed_and_the_owner_still_calm(filedb, monkeypatch):
+    """R1a (BOOKING_VOLUME_CEILINGS off, the default): twelve honest-looking
+    posts at the same instant, each for its own date, are all confirmed —
+    as before R1, no volume rule holds them — and the owner's ping budget
+    still holds under the race: 3 single pings and 1 summary."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "BOOKING_VOLUME_CEILINGS", False)
+    uid, slug = _venue(filedb)
+    results = _storm(filedb, uid, slug)
+    assert results == [(200, "confirmed")] * N, results
+    singles, summaries = _owner_pings(filedb, uid)
+    assert len(singles) == 3 and len(summaries) == 1, (len(singles), len(summaries))
+
+
+def test_simultaneous_posts_cannot_pass_the_hour_ceiling(filedb, monkeypatch):
+    # The hour ceiling is a volume rule (R1a): on for this test.
+    from app.config import settings
+    monkeypatch.setattr(settings, "BOOKING_VOLUME_CEILINGS", True)
     uid, slug = _venue(filedb)
     # A date each, the same time: only the hour ceiling is in play (fix round
     # 2 — the sitting and date rules count per sitting and per date).

@@ -19,6 +19,11 @@ What the recheck measured, and what each test pins:
     and a summary about held bookings only waits out the quiet hours
     (22–07 venue time).
 
+R1a (24 Oct 2026): the venue's mail share is a volume rule — on only with
+BOOKING_VOLUME_CEILINGS (off by default), and the fleet ceiling is back at
+the live 40; the share tests run with it on and a fleet of 60. A held
+person's decline has its own day budget, not the hourly one.
+
 Run: cd backend && python -m pytest tests/test_r1_fix2_mail_and_alerts.py -q
 """
 from __future__ import annotations
@@ -32,7 +37,7 @@ from app.services import owner_booking_alerts as alerts
 from app.utils import abuse_signals
 from tests._r1_booking_harness import (  # noqa: F401 — fixtures
     as_owner, book, client, clock, db, engine_and_session, logs, outbox, reservation,
-    restaurant, today_local,
+    restaurant, today_local, volume_both, volume_on,
 )
 from tests.test_abuse_monitor import OPS, h  # noqa: F401 — the monitor's fixture
 
@@ -65,7 +70,12 @@ def _summaries(db, owner):
 
 
 # ── item 5: one venue's share of the fleet's guest mail ────────────────
-def test_a_drip_at_two_venues_no_longer_silences_a_third(client, db, outbox, clock):
+def test_a_drip_at_two_venues_no_longer_silences_a_third(client, db, outbox, clock, volume_on, monkeypatch):
+    # The share as fix round 2 tuned it: on (volume_on) and a fleet of 60. R1a
+    # keeps the live 40 and the share off; this pins the share for the day
+    # it is switched on with a raised fleet ceiling.
+    from app.config import settings
+    monkeypatch.setattr(settings, "GUEST_EMAILS_FLEET_PER_DAY", 60)
     abuse_signals.reset()
     day = _friday()
     venues = [restaurant(db, tables=6, name=f"Drip {k}") for k in range(2)]
@@ -102,7 +112,7 @@ def test_a_drip_at_two_venues_no_longer_silences_a_third(client, db, outbox, clo
     assert [m["to"] for m in outbox if m["to"] == "mette@example.dk"] == ["mette@example.dk"]
 
 
-def test_a_busy_venue_on_a_quiet_day_is_not_held_back_by_its_share(client, db, outbox, clock):
+def test_a_busy_venue_on_a_quiet_day_is_not_held_back_by_its_share(client, db, outbox, clock, volume_both):
     """A busy 10-table venue takes ~20 online bookings on a peak day (the
     real-guest simulation). With the rest of the fleet quiet, every one of
     those guests gets the confirmation — the share only bites when the
@@ -162,7 +172,7 @@ def _hold_one(client, db, p, *, email, day, time="20:00"):
     return r.json()
 
 
-def test_a_held_guest_is_told_the_truth_on_the_page(client, db, outbox, monkeypatch):
+def test_a_held_guest_is_told_the_truth_on_the_page(client, db, outbox, monkeypatch, volume_on):
     from app.config import settings
     monkeypatch.setattr(settings, "BOOKING_HELD_GUEST_MAILS_PER_HOUR", 1)
     u, p, _ = restaurant(db, tables=6)
@@ -175,9 +185,14 @@ def test_a_held_guest_is_told_the_truth_on_the_page(client, db, outbox, monkeypa
         == ["first@example.dk"]
 
 
-def test_declining_a_held_person_we_never_mailed_tells_them(client, db, outbox, monkeypatch):
+def test_declining_a_held_person_we_never_mailed_tells_them(client, db, outbox, monkeypatch, volume_on):
+    """R1a: the owner's decline has its OWN day budget
+    (BOOKING_HELD_DECLINE_MAILS_PER_DAY), never the hourly "request received"
+    one — a held person whose "request received" the hour's budget held back
+    still hears the answer (fix-2 verify S5)."""
     from app.config import settings
     monkeypatch.setattr(settings, "BOOKING_HELD_GUEST_MAILS_PER_HOUR", 1)
+    monkeypatch.setattr(settings, "BOOKING_HELD_DECLINE_MAILS_PER_DAY", 1)
     u, p, _ = restaurant(db, tables=6)
     _hold_one(client, db, p, email="first@example.dk", day=_friday())       # spends the hour's one
     rikke = book(client, p.reservation_slug, day=_friday(), time="20:30", name="Rikke Rigtig",
@@ -192,22 +207,24 @@ def test_declining_a_held_person_we_never_mailed_tells_them(client, db, outbox, 
                if x["id"] == rikke["id"])
     assert row["held"]["reason"] == "venue_hour" and row["held"]["bot"] is False
     assert row["guest_mailed"] is False
-    # The owner declines while the budget is spent: saved, not mailed, and
-    # the owner is TOLD so they can call.
+    # The hour's "request received" budget is spent — the decline still
+    # reaches a person we never mailed: the one word they get, the answer.
     d = client.patch(f"/api/reservations/reservations/{rikke['id']}/status",
                      json={"status": "cancelled"})
     assert d.status_code == 200, d.text
-    assert d.json()["guest_email_skipped"]["code"] == "held_mail_budget"
-    assert [m for m in outbox if m["to"] == "rikke@example.dk"] == []
-    # With room in the budget again, the decline reaches a person we never
-    # mailed before — the one word they get, and it is the answer.
-    monkeypatch.setattr(settings, "BOOKING_HELD_GUEST_MAILS_PER_HOUR", 3)
+    assert "guest_email_skipped" not in d.json()
+    assert len([m for m in outbox if m["to"] == "rikke@example.dk"]) == 1
+    # The day's decline budget (1 here) is spent: saved, not mailed, and the
+    # owner is TOLD so they can call.
     as_owner(u)
     d = client.patch(f"/api/reservations/reservations/{jonas['id']}/status",
                      json={"status": "cancelled"})
-    assert "guest_email_skipped" not in d.json()
-    assert len([m for m in outbox if m["to"] == "jonas@example.dk"]) == 1
-    # And one we did mail ("request received") is told as before.
+    assert d.status_code == 200, d.text
+    assert d.json()["guest_email_skipped"]["code"] == "held_mail_budget"
+    assert [m for m in outbox if m["to"] == "jonas@example.dk"] == []
+    # And one we did mail ("request received") is told as before, whatever
+    # the budgets say.
+    monkeypatch.setattr(settings, "BOOKING_HELD_GUEST_MAILS_PER_HOUR", 3)
     later = book(client, p.reservation_slug, day=_friday() + timedelta(days=7), time="20:30",
                  name="Søren Rigtig", email="soren@example.dk", form_ms=81000).json()
     assert later["status"] == "requested" and later["guest_mail"] is True

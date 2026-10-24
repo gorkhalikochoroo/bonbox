@@ -44,7 +44,7 @@ from app.models.business_profile import BusinessProfile
 from app.models.reservation import Reservation
 from app.models.user import User
 from tests._r1_booking_harness import (  # noqa: F401 — fixtures
-    client, clock, db, engine_and_session, outbox,
+    client, clock, db, engine_and_session, outbox, volume_both, volume_on,
 )
 
 CPH = ZoneInfo("Europe/Copenhagen")
@@ -187,7 +187,7 @@ def _nearest(offered, wished):
 
 # ── a busy week of real guests: nobody waits for the owner ────────────────
 @pytest.mark.parametrize("tables", [4, 6, 10])
-def test_a_busy_week_of_real_guests_is_confirmed_at_once(client, db, outbox, clock, tables):
+def test_a_busy_week_of_real_guests_is_confirmed_at_once(client, db, outbox, clock, tables, volume_both):
     friday = _friday()
     posted, held, friday_n = 0, [], 0
     for seed in range(2):
@@ -214,7 +214,7 @@ def test_a_busy_week_of_real_guests_is_confirmed_at_once(client, db, outbox, clo
 
 # ── the attack bursts are still held ──────────────────────────────────────
 @pytest.mark.parametrize("tables", [4, 6, 10])
-def test_the_attack_bursts_are_still_held(client, db, outbox, clock, tables):
+def test_the_attack_bursts_are_still_held(client, db, outbox, clock, tables, volume_on):
     friday = _friday()
     base = datetime.combine(friday - timedelta(days=3), dtime(10, 0))
     sit_cap = max(3, math.ceil(tables / 2))
