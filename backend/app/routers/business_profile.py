@@ -604,10 +604,20 @@ def save_profile(
     # owner had just typed (R1 review). A trading name that differs from the
     # old company name was chosen — it stays. One that equalled it was only
     # mirroring, so a real rename carries over.
+    #
+    # Leaving the demo is the one exception: the business WAS the sample
+    # company before this save (was_demo_identity), or the trading name is
+    # still the sample's ("Mirabelle ApS", left by builds before revisor
+    # round 6). Then the name was never chosen against a real company, and
+    # the owner's own company — the name every revisor mail and invite
+    # carries — takes over (tests/test_revisor_r6_*).
+    from app.services.revisor_mail import DEMO_SEEDED_COMPANY_NAME
     new_company = (data.company_name or "").strip()
     trading = (user.business_name or "").strip()
+    sample_left = " ".join(trading.split()).casefold() == DEMO_SEEDED_COMPANY_NAME.casefold()
     if new_company and not _is_demo_identity(profile) and (
-            not trading or (new_company != old_company and trading == old_company)):
+            not trading or sample_left or was_demo_identity
+            or (new_company != old_company and trading == old_company)):
         user.business_name = new_company
 
     db.commit()
