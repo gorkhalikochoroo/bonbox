@@ -981,6 +981,56 @@ def notify_owner_new_reservation(db: Session, owner, reservation, *, cancelled: 
     return result
 
 
+def notify_owner_booking_burst(db: Session, owner, n: int, *, today: str | None = None) -> dict:
+    """ONE summary push instead of a buzz per booking, once the owner's hourly
+    ping budget is spent (services/owner_booking_alerts.py). Owner devices
+    only, the same tag every time (a newer summary replaces the older one on
+    the lock screen), no guest data. Writes one NotificationLog row
+    (event "owner_booking_burst"), which the budget counts. Never raises."""
+    result = {"attempted": 0, "sent": 0}
+    da = owner_lang(owner) == "da"
+    n = max(0, int(n or 0))
+    if da:
+        title = "BonBox · Mange nye online-bookinger"
+        body_text = f"{n} den seneste time. Resten ser du i bogen."
+    else:
+        title = "BonBox · Many new online bookings"
+        body_text = f"{n} in the last hour. See the rest in your book."
+    url = "/reservations" + (f"?date={today}" if today else "")
+    payload = {"title": title, "body": body_text, "tag": "bonbox-booking-burst",
+               "data": {"url": url}}
+    try:
+        from app.services.push_sender import send_to_subscription
+        subs = (
+            db.query(PushSubscription)
+            .filter(PushSubscription.user_id == owner.id,
+                    PushSubscription.staff_id.is_(None))
+            .all()
+        )
+    except Exception:  # noqa: BLE001
+        subs = []
+        send_to_subscription = None
+    for sub in subs:
+        result["attempted"] += 1
+        try:
+            outcome = send_to_subscription(sub, payload)
+            if outcome.get("ok"):
+                result["sent"] += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("booking burst push send threw: %s", exc)
+    try:
+        db.add(NotificationLog(
+            id=uuid.uuid4(), user_id=owner.id, staff_id=None, channel="push",
+            event_type="owner_booking_burst", subject=title, body=body_text,
+            status="sent" if result["sent"] else "failed",
+            error_message=None if result["sent"] else "no_active_subscription",
+        ))
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+    return result
+
+
 def notify_owner_freed_table(
     db: Session, owner, freed_reservation, top_match, *, sms_available: bool = False
 ) -> dict:

@@ -43,6 +43,7 @@ from app.models.staff import StaffMember
 from app.models.user import User
 from app.services import audit_service, reservation_service as rsvc
 from app.services import booking_screen
+from app.services import owner_booking_alerts
 from app.services import reservation_emails
 from app.services import venue_identity
 from app.services import reservation_occupancy_service as occ_service
@@ -827,18 +828,52 @@ def _send_booking_notifications(reservation_id: str, owner_id: str) -> None:
             return
         _send_confirmation(owner, profile, r, db)       # guest email (+ stamp on delivery)
         db.commit()
-        try:
-            from app.services.notification_service import notify_owner_new_reservation
-            notify_owner_new_reservation(db, owner, r)  # owner device push
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("owner reservation notify failed: %s", exc)
-        _notify_owner_email(owner, profile, r, db)       # owner email
+        # The owner's ping budget (owner_booking_alerts): a few an hour, then
+        # one summary — a flood of online bookings never floods the phone.
+        decision = owner_booking_alerts.decide(db, owner.id, now_utc=utc_now())
+        if decision == "send":
+            try:
+                from app.services.notification_service import notify_owner_new_reservation
+                notify_owner_new_reservation(db, owner, r)  # owner device push
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("owner reservation notify failed: %s", exc)
+            _notify_owner_email(owner, profile, r, db)       # owner email
+        elif decision == "burst":
+            _send_owner_burst(db, owner, profile, r)
+        else:
+            owner_booking_alerts.log_suppressed(db, owner.id, "reservation_created")
         db.commit()
     except Exception:  # noqa: BLE001 — never let a notification break anything
         logger.exception("booking notifications task failed")
         db.rollback()
     finally:
         db.close()
+
+
+def _send_owner_burst(db: Session, owner: User, profile, r: Reservation) -> bool:
+    """The one summary (push + e-mail) for a burst of online bookings: the
+    public bookings made in the last hour. False — and nothing sent — when
+    there were none (a burst of cancellations alone is not "many new
+    bookings"; it is held back like any ping over the budget)."""
+    try:
+        n = booking_screen.public_rows_since(db, owner.id, utc_now() - timedelta(hours=1))
+    except Exception:  # noqa: BLE001
+        logger.warning("burst count failed", exc_info=True)
+        n = 0
+    if n <= 0:
+        return False
+    today = _now_local().date().isoformat()
+    try:
+        from app.services.notification_service import notify_owner_booking_burst
+        notify_owner_booking_burst(db, owner, n, today=today)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("owner burst push failed: %s", exc)
+    try:
+        reservation_emails.send_owner_booking_burst(
+            db, owner, profile, n, reservation_id=r.id, today=today)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("owner burst email failed: %s", type(exc).__name__)
+    return True
 
 
 def _send_guest_cancel_notifications(reservation_id: str, owner_id: str,
@@ -862,6 +897,15 @@ def _send_guest_cancel_notifications(reservation_id: str, owner_id: str,
         except Exception as exc:  # noqa: BLE001
             logger.warning("guest cancel email failed: %s", type(exc).__name__)
         db.commit()
+
+        # The owner's ping budget, shared with new bookings: a few an hour,
+        # then one summary, then nothing until the hour turns.
+        decision = owner_booking_alerts.decide(db, owner.id, now_utc=utc_now())
+        if decision != "send":
+            if not (decision == "burst" and _send_owner_burst(db, owner, profile, r)):
+                owner_booking_alerts.log_suppressed(db, owner.id, "reservation_cancelled")
+            db.commit()
+            return
 
         # 2. Owner devices. Prefer the freed-table nudge when a waiting party
         #    actually FITS the just-freed table: one owner push ("Bord frigivet

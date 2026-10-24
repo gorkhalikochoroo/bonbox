@@ -105,6 +105,9 @@ GUEST_REMINDER = "guest_reminder"
 GUEST_REQUEST_EXPIRED = "guest_request_expired"
 OWNER_NEW_BOOKING = "owner_new_booking"
 OWNER_GUEST_CANCELLED = "owner_guest_cancelled"
+# One summary instead of a mail per booking once the owner's hourly budget is
+# spent (services/owner_booking_alerts.py). Not a guest event.
+OWNER_BOOKING_BURST = "owner_booking_burst"
 
 GUEST_EVENTS = frozenset({
     GUEST_CONFIRMATION, GUEST_CANCELLED_BY_GUEST, GUEST_CANCELLED_BY_VENUE,
@@ -122,6 +125,7 @@ _LOG_LABELS = {
     GUEST_REQUEST_EXPIRED: "Guest email: request not confirmed",
     OWNER_NEW_BOOKING: "Owner email: new online booking",
     OWNER_GUEST_CANCELLED: "Owner email: guest cancelled online",
+    OWNER_BOOKING_BURST: "Owner email: many online bookings (summary)",
 }
 
 LANGS = ("da", "en")
@@ -762,6 +766,47 @@ def _owner_reply_hint(r, lang: str, *, appointment: bool = False) -> str:
     return f'<p style="{_MUTED};margin-top:24px">{text}</p>'
 
 
+def _owner_budget_footer(lang: str, *, appointment: bool = False) -> str:
+    """Why the owner gets these mails, how many, and where to switch them off
+    (every owner mail about online bookings carries it). The page is named
+    as the owner's menu names it: Reservationer, or Tidsbestilling for a
+    salon, a shop or a workshop."""
+    try:
+        n = int(app_config.OWNER_BOOKING_PINGS_PER_HOUR)
+    except Exception:  # noqa: BLE001
+        n = 3
+    if lang == "da":
+        where = "Tidsbestilling" if appointment else "Reservationer"
+        text = (f"Du får højst {n} af disse i timen. Slå e-mails om online-bookinger "
+                f"fra under {where} → Indstillinger.")
+    else:
+        where = "Appointments" if appointment else "Reservations"
+        text = (f"You get at most {n} of these an hour. Turn off online-booking "
+                f"e-mails under {where} → Settings.")
+    return f'<p style="{_MUTED};margin-top:16px">{_e(text)}</p>'
+
+
+def render_owner_booking_burst(venue: Venue, lang: str, n: int, booking_url: str) -> tuple[str, str]:
+    """Many online bookings in an hour: ONE mail with the count and a link to
+    the book, instead of a mail per booking. No guest data. (`venue` is kept
+    for the shared signature; the mail goes to the owner, so it says "your
+    booking page".)"""
+    n = max(0, int(n or 0))
+    if lang == "da":
+        subject = f"Mange nye online-bookinger ({n} den seneste time)"
+        line = (f"<p><strong>{n} nye online-bookinger den seneste time</strong> via "
+                "din bookingside. Resten ser du i bogen.</p>")
+        cta = "Åbn bogen"
+    else:
+        subject = f"Many new online bookings ({n} in the last hour)"
+        line = (f"<p><strong>{n} new online bookings in the last hour</strong> via "
+                "your booking page. See the rest in your book.</p>")
+        cta = "Open your book"
+    body = line + _button(booking_url, cta)
+    return _subject(subject), _shell(lang, body, _owner_budget_footer(
+        lang, appointment=bool(getattr(venue, "appointment", False))))
+
+
 def render_owner_new_booking(r, venue: Venue, lang: str, *, booking_url: str,
                              now: datetime | None = None) -> tuple[str, str]:
     """A guest booked via /r/<slug>: who, when, contact, notes, allergy."""
@@ -795,7 +840,8 @@ def render_owner_new_booking(r, venue: Venue, lang: str, *, booking_url: str,
         cta = "Open and confirm" if is_request else "Open the booking"
     body = (title + _owner_guest_block(r, lang, when=when, appointment=appointment) + service
             + occasion + notes + allergy + waiting + _button(booking_url, cta))
-    return _subject(subject), _shell(lang, body, _owner_reply_hint(r, lang, appointment=appointment))
+    return _subject(subject), _shell(lang, body, _owner_reply_hint(r, lang, appointment=appointment)
+                                     + _owner_budget_footer(lang, appointment=appointment))
 
 
 def render_owner_guest_cancelled(r, venue: Venue, lang: str, *, booking_url: str,
@@ -834,7 +880,8 @@ def render_owner_guest_cancelled(r, venue: Venue, lang: str, *, booking_url: str
         cta = "See the day's bookings"
     body = (title + _owner_guest_block(r, lang, when=when, appointment=appointment) + freed
             + _button(booking_url, cta))
-    return _subject(subject), _shell(lang, body, _owner_reply_hint(r, lang, appointment=appointment))
+    return _subject(subject), _shell(lang, body, _owner_reply_hint(r, lang, appointment=appointment)
+                                     + _owner_budget_footer(lang, appointment=appointment))
 
 
 # ── Delivery ───────────────────────────────────────────────────────────
@@ -1305,11 +1352,34 @@ def send_guest_request_expired(db: Session | None, owner, profile, r) -> bool:
 
 # ── Owner sends ────────────────────────────────────────────────────────
 
+def owner_wants_booking_emails(profile) -> bool:
+    """The owner's switch (Reservationer → Indstillinger): e-mails about new
+    online bookings and guest cancellations. On unless switched off; a
+    settings read error keeps it on (the mail is the dependable channel)."""
+    if profile is None:
+        return True
+    try:
+        from app.services import reservation_service as rsvc
+        return rsvc.load_settings(profile).get("owner_booking_emails", True) is not False
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def _owner_opted_out(db, profile, r, event_type: str) -> bool:
+    if owner_wants_booking_emails(profile):
+        return False
+    _log(db, owner_id=r.user_id, reservation_id=r.id, event_type=event_type,
+         status="failed", error="owner_opted_out")
+    return True
+
+
 def send_owner_new_booking(db: Session | None, owner, profile, r) -> bool:
     """The dependable companion to the owner push (which only lands when the
     owner enabled notifications). Replying goes to the guest."""
     to = (getattr(owner, "email", None) or "").strip()
     if not to:
+        return False
+    if _owner_opted_out(db, profile, r, OWNER_NEW_BOOKING):
         return False
     lang = owner_lang(owner)
     subject, html = render_owner_new_booking(r, venue_context(owner, profile), lang,
@@ -1325,6 +1395,8 @@ def send_owner_guest_cancelled(db: Session | None, owner, profile, r, *,
     to = (getattr(owner, "email", None) or "").strip()
     if not to:
         return False
+    if _owner_opted_out(db, profile, r, OWNER_GUEST_CANCELLED):
+        return False
     lang = owner_lang(owner)
     subject, html = render_owner_guest_cancelled(r, venue_context(owner, profile), lang,
                                                  booking_url=owner_booking_url(r, owner),
@@ -1332,6 +1404,25 @@ def send_owner_guest_cancelled(db: Session | None, owner, profile, r, *,
     return deliver(db, owner_id=r.user_id, reservation_id=r.id,
                    event_type=OWNER_GUEST_CANCELLED, to=to, subject=subject, html=html,
                    reply_to=(r.guest_email or None))
+
+
+def send_owner_booking_burst(db: Session | None, owner, profile, n: int, *,
+                             reservation_id, today: str | None = None) -> bool:
+    """The one summary mail for a burst of online bookings (see
+    owner_booking_alerts). `reservation_id` is the booking that tipped it —
+    the log row's ledger key; the mail itself names no booking."""
+    to = (getattr(owner, "email", None) or "").strip()
+    if not to:
+        return False
+    if not owner_wants_booking_emails(profile):
+        _log(db, owner_id=owner.id, reservation_id=reservation_id,
+             event_type=OWNER_BOOKING_BURST, status="failed", error="owner_opted_out")
+        return False
+    lang = owner_lang(owner)
+    url = f"{app_config.FRONTEND_URL.rstrip('/')}/reservations" + (f"?date={today}" if today else "")
+    subject, html = render_owner_booking_burst(venue_context(owner, profile), lang, n, url)
+    return deliver(db, owner_id=owner.id, reservation_id=reservation_id,
+                   event_type=OWNER_BOOKING_BURST, to=to, subject=subject, html=html)
 
 
 # ── Background entry point for the owner's actions in the app ──────────
