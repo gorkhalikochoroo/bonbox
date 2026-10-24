@@ -390,6 +390,10 @@ const PARTY_GRID =
 // the bottom button stay hidden while paused (nothing there leads anywhere).
 const PAUSED_HIDES_PICKERS = true;
 
+// The longest form_ms the page sends (a day) — the server clamps to the same
+// (public_reservations.FORM_MS_MAX).
+const FORM_MS_MAX = 86_400_000;
+
 // The phone fold ladder (spec p1 §3.4.10 / owner Q5), measured with touch
 // emulation, gate: first time row ≥ 8px above the bottom bar.
 // Step 1: two rows of party chips put the first time row 4px above the bar at
@@ -1350,7 +1354,10 @@ export default function ReservationPublicPage() {
         ));
         setReasonsFor({
           party: summaryParty,
-          reasons: Object.fromEntries(list.map((d) => [d.date, d.has_slots ? null : d.reason || null])),
+          // A PAUSED day is not a closed one (R1 review): its own reason, so
+          // the chip says "pause" and the sentence asks for a call.
+          reasons: Object.fromEntries(list.map((d) => [d.date, d.has_slots ? null
+            : d.reason === "closed_date" && d.kind === "pause" ? "paused_date" : d.reason || null])),
         });
         setNextOpenDay(res.data?.next_open_day || null);
         // Paused: the explicit top-level flag, or (an older server) every day
@@ -1855,7 +1862,9 @@ export default function ReservationPublicPage() {
         ? { behandling_id: behandlingId || null, stylist_id: stylistId || null }
         : {}),
       website: hpWebsite,
-      form_ms: Math.max(0, Math.round(nowMs() - mountedAt.current)),
+      // At most a day: a page left open overnight sent a value the server
+      // refused (422) until the guest reloaded (R1 review P2).
+      form_ms: Math.min(FORM_MS_MAX, Math.max(0, Math.round(nowMs() - mountedAt.current))),
     };
     try {
       const res = await api.post(`/public/reservations/${slug}`, payload, {
@@ -3022,18 +3031,28 @@ export default function ReservationPublicPage() {
                   </button>
                 )}
               </div>
-              {/* The owner paused online booking (R1): say when it opens again,
-                  above the strip — which has already moved to the next open
-                  day. Grey, not amber: nothing went wrong. */}
+              {/* The owner paused online booking (R1): say until when, above
+                  the strip — which has already moved to the next open day.
+                  "Opens again <the day after>" was untrue when the day after
+                  is a weekly closed day (review), so it names the last paused
+                  day, and offers the phone. Grey, not amber: nothing broke. */}
               {page?.paused_until && page.paused_until >= today && (
-                <p
+                <div
                   role="status"
                   data-testid="rsvp-paused-reopens"
-                  className="mb-2.5 flex items-start gap-2 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-white/5 px-3 py-2 text-[13px] text-gray-700 dark:text-gray-300"
+                  className="mb-2.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-white/5 px-3 py-2 text-[13px] text-gray-700 dark:text-gray-300 space-y-1"
                 >
-                  <PauseCircle size={15} strokeWidth={1.75} className="mt-0.5 shrink-0 text-gray-500" aria-hidden="true" />
-                  <span>{t("rsvpPausedReopens", "Online booking opens again {date}.", { date: fmtDayLabel(addDays(page.paused_until, 1), lang) })}</span>
-                </p>
+                  <p className="flex items-start gap-2">
+                    <PauseCircle size={15} strokeWidth={1.75} className="mt-0.5 shrink-0 text-gray-500" aria-hidden="true" />
+                    <span>{t("rsvpPausedUntil", "Online booking is paused until and including {date}.", { date: fmtDayLabel(page.paused_until, lang) })}</span>
+                  </p>
+                  {telHref(page.phone) && (
+                    <a href={telHref(page.phone)} data-testid="rsvp-paused-call" className="ml-[23px] inline-flex items-center gap-1 font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2">
+                      <Phone size={13} strokeWidth={1.75} aria-hidden="true" />
+                      {t("rsvpNoSlotsCall", "Call us: {phone}", { phone: page.phone })}
+                    </a>
+                  )}
+                </div>
               )}
               {/* One-tap date strip (unbookable days disabled, with the reason) — the primary picker. */}
               <DateStrip
@@ -3285,7 +3304,7 @@ export default function ReservationPublicPage() {
                         {nextOpenDay
                           ? reasonSentence(dayReason, t, sentenceCtx) || t("rsvpNoSlotsDay", "No available times on this day.")
                           : (() => {
-                              const why = ["closed", "closed_date", "full", "too_late"].includes(dayReason)
+                              const why = ["closed", "closed_date", "paused_date", "full", "too_late"].includes(dayReason)
                                 ? reasonSentence(dayReason, t, sentenceCtx)
                                 : null;
                               const window = why && maxAdvance <= 0 ? null : noneBookableText(maxAdvance, t);
@@ -3899,22 +3918,30 @@ export default function ReservationPublicPage() {
 
             {/* The trap field (backend booking_screen): off-screen, out of
                 the tab order and hidden from screen readers, so no person
-                ever fills it; a form-filling bot does, and its booking is
-                quietly dropped. Same pattern as the signup form. */}
+                ever fills it; a form-filling bot does. Named so no browser
+                or password manager maps it to anything it would fill (it was
+                name="website" — identity autofill can fill that), and told
+                to stay out by the managers' own opt-outs. If something fills
+                it anyway at a person's pace, the server holds the booking
+                for the owner — it is never lost. */}
             <div
               aria-hidden="true"
               data-testid="rsvp-hp"
               className="absolute -left-[10000px] top-auto h-px w-px overflow-hidden"
             >
-              <label htmlFor="rsvp-website">{t("rsvpHpLabel", "Leave this field empty")}</label>
+              <label htmlFor="rsvp-bbt">{t("rsvpHpLabel", "Leave this field empty")}</label>
               <input
-                id="rsvp-website"
+                id="rsvp-bbt"
                 type="text"
-                name="website"
+                name="bb_trap_7"
                 value={hpWebsite}
                 onChange={(e) => setHpWebsite(e.target.value)}
                 tabIndex={-1}
                 autoComplete="off"
+                data-1p-ignore="true"
+                data-lpignore="true"
+                data-bwignore="true"
+                data-form-type="other"
               />
             </div>
 

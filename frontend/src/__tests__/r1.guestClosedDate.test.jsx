@@ -120,6 +120,15 @@ describe("dayState: closed_date", () => {
     expect(reasonSentence("closed_date", tDa, {})).toBe(da.rsvpReasonClosed);
   });
 
+  it("a paused day is its own state: 'på pause', a muted mark, the call sentence", () => {
+    expect(dayStateOf("paused_date")).toBe("online_paused");
+    expect(chipWord("paused_date", tDa)).toBe("på pause");
+    expect(markOfReason("paused_date")).toBe("muted");
+    expect(reasonSentence("paused_date", tDa, {})).toBe(da.rsvpReasonPaused);
+    expect(reasonSentence("paused_date", tDa, { closure: { note: "Kun telefon i dag", kind: "pause" } }))
+      .toBe("Kun telefon i dag");
+  });
+
   it("the new WORDS are the en.js values", async () => {
     const { en } = await import("../i18n/en");
     expect(WORDS.rsvpReasonPaused).toBe(en.rsvpReasonPaused);
@@ -163,13 +172,31 @@ describe("the guest page on a closed date", () => {
     expect(document.body.textContent).not.toContain(da.rsvpNoSlotsDay);
   });
 
-  it("a pause covering today says when online booking opens again", async () => {
+  it("a pause covering today says until when, and offers the phone", async () => {
+    // Fix round: "opens again <the day after>" named a Monday the venue is
+    // closed every week (review). The line names the last paused day.
     routes({ page: { ...PAGE, paused_until: plus(1) } });
     renderAt();
     await settle();
     const line = screen.getByTestId("rsvp-paused-reopens");
-    expect(line.textContent).toContain("Online-booking åbner igen");
-    expect(line.textContent).toContain("søndag 25. oktober");
+    expect(line.textContent).toContain("Online-booking er sat på pause til og med");
+    expect(line.textContent).toContain("lørdag 24. oktober");
+    expect(line.textContent).not.toContain("åbner igen");
+    expect(screen.getByTestId("rsvp-paused-call").getAttribute("href")).toMatch(/^tel:/);
+  });
+
+  it("a paused day reads 'på pause' on the strip, never 'lukket'", async () => {
+    routes({
+      page: { ...PAGE, paused_until: plus(1) },
+      sum: () => summary({ 1: { has_slots: false, reason: "closed_date", note: null, kind: "pause" } }),
+    });
+    renderAt();
+    await settle();
+    const chip = [...document.querySelectorAll('[role="radio"]')].find((r) => r.disabled);
+    expect(chip).toBeTruthy();
+    expect(chip.textContent).toContain("på pause");
+    expect(chip.textContent).not.toContain("lukket");
+    expect(chip.getAttribute("aria-label")).toContain("online-booking på pause");
   });
 
   it("no pause, no line", async () => {

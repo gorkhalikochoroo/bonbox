@@ -13,6 +13,9 @@
 //   closed_date       the owner closed this date for online booking (R1) —
 //                     the day carries the owner's `note` and `kind`
 //                     ("closed" | "pause"); it reads "lukket" like `closed`
+//   paused_date       the page's own name for a closed_date of kind "pause":
+//                     online booking is paused, the venue is not closed — the
+//                     chip says "pause", the sentence asks for a call
 //   closed_or_full    reason unknown (a failed classification, an older server)
 // This file turns a reason into a state and the state into words. "Lukket"
 // is said only for `closed`: a retired, unknown or failed reason reads
@@ -55,6 +58,9 @@ export const WORDS = {
   rsvpPartyN: "{n} guests",
   rsvpReasonPaused: "Online booking is paused this day. Call us to book.",
   rsvpPausedReopens: "Online booking opens again {date}.",
+  rsvpPausedUntil: "Online booking is paused until and including {date}.",
+  rsvpDayPaused: "paused",
+  rsvpDayPausedAria: "online booking paused",
 };
 
 const say = (t, key, vars) => (vars ? t(key, WORDS[key], vars) : t(key, WORDS[key]));
@@ -94,6 +100,8 @@ export function dayStateOf(reason) {
     case "closed":
     case "closed_date":
       return "closed";
+    case "paused_date":
+      return "online_paused";
     case "full":
       return "full";
     case "no_fit":
@@ -115,6 +123,7 @@ export const DAY_STATES = {
   no_fit: { chip: "rsvpDayPhoneOnly", aria: "rsvpDayPhoneAria", mark: "muted" }, // apptWords → rsvpDayPhoneAriaAppt
   too_late: { chip: "rsvpDayTooLate", aria: "rsvpDayTooLateAria", mark: null },
   neutral: { chip: null /* month name */, aria: "rsvpDayNoTimesAria", mark: null },
+  online_paused: { chip: "rsvpDayPaused", aria: "rsvpDayPausedAria", mark: "muted" },
   paused: { chip: null, aria: null, mark: null },
 };
 
@@ -159,12 +168,14 @@ export function reasonSentence(reason, t, { party, apptWords = false, day, today
   switch (reason) {
     case "closed":
       return say(t, "rsvpReasonClosed");
-    case "closed_date": {
+    case "closed_date":
+    case "paused_date": {
       // The owner's own words, verbatim ("Lukket juleaften"); without a note,
       // a pause asks for a call and a closed date says closed.
       const note = typeof closure?.note === "string" ? closure.note.trim() : "";
       if (note) return note;
-      return closure?.kind === "pause" ? say(t, "rsvpReasonPaused") : say(t, "rsvpReasonClosed");
+      return reason === "paused_date" || closure?.kind === "pause"
+        ? say(t, "rsvpReasonPaused") : say(t, "rsvpReasonClosed");
     }
     case "full":
       return apptWords ? say(t, "rsvpReasonFullAppt") : say(t, "rsvpReasonFull", { party: partyText(party, t) });

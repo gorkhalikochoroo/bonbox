@@ -118,16 +118,43 @@ describe("the honeypot and the fill time", () => {
     expect(body.form_ms).toBeGreaterThanOrEqual(0);
   });
 
+  it("a page open for more than a day sends at most a day (never a 422)", async () => {
+    let now = 1000;
+    const spy = vi.spyOn(performance, "now").mockImplementation(() => now);
+    try {
+      routes();
+      h.post.mockResolvedValue({ data: { id: "bk1", status: "confirmed", booking_token: "tok" } });
+      renderAt();
+      await settle();
+      await toDetails();
+      now = 1000 + 3 * 86_400_000;          // left open over a long weekend
+      await submit();
+      const [, body] = h.post.mock.calls[0];
+      expect(body.form_ms).toBe(86_400_000);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("the trap is hidden from people, keyboards, screen readers and autofill", async () => {
     routes();
     renderAt();
     await settle();
     await toDetails();
-    const trap = document.getElementById("rsvp-website");
+    // Fix round: name="website" is a field identity autofill can fill (a real
+    // guest's booking was then lost). A name no browser maps, and the
+    // password managers' own opt-outs.
+    expect(document.getElementById("rsvp-website")).toBeNull();
+    expect(document.querySelector('input[name="website"]')).toBeNull();
+    const trap = document.getElementById("rsvp-bbt");
     expect(trap).not.toBeNull();
-    expect(trap.getAttribute("name")).toBe("website");
+    expect(trap.getAttribute("name")).toBe("bb_trap_7");
     expect(trap.tabIndex).toBe(-1);
     expect(trap.getAttribute("autocomplete")).toBe("off");
+    expect(trap.getAttribute("data-1p-ignore")).toBe("true");
+    expect(trap.getAttribute("data-lpignore")).toBe("true");
+    expect(trap.getAttribute("data-bwignore")).toBe("true");
+    expect(trap.getAttribute("data-form-type")).toBe("other");
     const wrap = trap.closest('[aria-hidden="true"]');
     expect(wrap).not.toBeNull();
     expect(wrap.className).toMatch(/-left-\[10000px\]/);
