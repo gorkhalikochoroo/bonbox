@@ -122,3 +122,39 @@ def test_simultaneous_posts_cannot_pass_the_hour_ceiling(filedb):
         assert len(singles) <= 3 and len(summaries) <= 1, (len(singles), len(summaries))
     finally:
         db.close()
+
+
+def test_the_ping_budget_holds_when_decisions_land_together(filedb, monkeypatch):
+    """The owner's ping budget, the same way: eight decisions at the same
+    instant, with the count made slow so they all overlap. The budget allows
+    3 single pings an hour — and the venue lock keeps it at 3."""
+    import time
+    from app.services import owner_booking_alerts as alerts
+    from app.utils.time import utc_now
+    uid, _slug = _venue(filedb)
+    real = alerts._spent_since
+
+    def slow(*a, **k):
+        n = real(*a, **k)
+        time.sleep(0.05)                    # widen the count-then-write window
+        return n
+
+    monkeypatch.setattr(alerts, "_spent_since", slow)
+    barrier = threading.Barrier(8)
+    out = []
+
+    def decide():
+        db = filedb()
+        try:
+            barrier.wait()
+            out.append(alerts.decide(db, uid, now_utc=utc_now()).decision)
+        finally:
+            db.close()
+
+    threads = [threading.Thread(target=decide) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(60)
+    assert len(out) == 8
+    assert out.count("send") == 3, out
