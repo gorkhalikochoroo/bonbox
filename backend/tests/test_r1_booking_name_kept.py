@@ -5,8 +5,11 @@ Every Profile card ("Hvad serverer du", revisor, payment) echoes
 company_name on save, and PUT /api/business copied it into business_name
 unconditionally: "Trattoria Testa Aarhus", set for the booking page, became
 "Trattoria Testa" on the next cuisine save (settings audit, 24 Oct 2026).
-Now the copy happens only when the company name really changed, or when there
-is no trading name yet.
+Now the copy happens only when there is no trading name yet, or when the
+trading name was only MIRRORING the old company name and the company name
+really changed. A trading name the owner chose (Reservationer → Indstillinger
+→ Navn på bookingsiden) differs from the legal name, and stays — a CVR
+lookup's "BISTRO HAVN ApS" replaced it before the fix round (R1 review).
 
 Run: cd backend && python -m pytest tests/test_r1_booking_name_kept.py -q
 """
@@ -66,12 +69,34 @@ def test_echoed_company_name_keeps_the_trading_name(client, db):
     assert venue_identity.public_venue_name(_reload(db, u), prof) == "Trattoria Testa Aarhus"
 
 
-def test_a_real_company_name_change_still_carries_over(client, db):
-    u = _owner(db, business_name="Trattoria Testa Aarhus", company_name="Trattoria Testa")
+def test_a_real_company_name_change_carries_over_a_mirrored_name(client, db):
+    # The trading name was the company name: a rename follows it.
+    u = _owner(db, business_name="Trattoria Testa", company_name="Trattoria Testa")
     as_owner(u)
     r = _put(client, {"company_name": "Trattoria Testa ApS"})
     assert r.status_code == 200, r.text
     assert _reload(db, u).business_name == "Trattoria Testa ApS"
+
+
+def test_a_cvr_save_never_replaces_a_chosen_booking_name(client, db):
+    # The review's repro: the name row set "Bistro Havn Harbour"; then Profil
+    # → "Find din virksomhed" sent the CVR's legal name.
+    u = _owner(db, business_name="Bistro Havn Harbour", company_name="Bistro Havn")
+    as_owner(u)
+    r = _put(client, {"company_name": "BISTRO HAVN ApS", "org_number": "12345678",
+                      "source": "cvr"})
+    assert r.status_code == 200, r.text
+    assert _reload(db, u).business_name == "Bistro Havn Harbour"
+
+
+def test_the_first_company_name_save_keeps_the_signup_name(client, db):
+    # Signed up as "Bistro Havn" (no profile yet); the first legal-name save
+    # used to make it "Bistro Havn ApS" — and the slug bistro-havn-aps.
+    u = _owner(db, business_name="Bistro Havn", company_name=None)
+    as_owner(u)
+    r = _put(client, {"company_name": "Bistro Havn ApS"})
+    assert r.status_code == 200, r.text
+    assert _reload(db, u).business_name == "Bistro Havn"
 
 
 def test_first_save_copies_the_name_when_there_is_none(client, db):

@@ -595,14 +595,19 @@ def save_profile(
     # save, and the demo's "Mirabelle ApS" replaced the owner's signup name
     # (the fallback every revisor artifact uses) for good.
     #
-    # And only when the company name REALLY changed (or there is no trading
-    # name yet). business_name is the name on the booking page; the cuisine,
-    # revisor and payment cards all echo company_name, so "Trattoria Testa
-    # Aarhus" (set in Reservationer) became "Trattoria Testa" on any save of
-    # "Hvad serverer du" (settings audit, 24 Oct 2026).
+    # And only when the trading name is still the company name's mirror, or
+    # there is none. business_name is the name on the booking page, set in
+    # Reservationer → Indstillinger; the cuisine, revisor and payment cards
+    # all echo company_name, so "Trattoria Testa Aarhus" became "Trattoria
+    # Testa" on any save of "Hvad serverer du" (settings audit, 24 Oct 2026),
+    # and a CVR lookup's legal name ("BISTRO HAVN ApS") replaced the name the
+    # owner had just typed (R1 review). A trading name that differs from the
+    # old company name was chosen — it stays. One that equalled it was only
+    # mirroring, so a real rename carries over.
     new_company = (data.company_name or "").strip()
+    trading = (user.business_name or "").strip()
     if new_company and not _is_demo_identity(profile) and (
-            new_company != old_company or not (user.business_name or "").strip()):
+            not trading or (new_company != old_company and trading == old_company)):
         user.business_name = new_company
 
     db.commit()
