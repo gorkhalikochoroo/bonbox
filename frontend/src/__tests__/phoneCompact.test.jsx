@@ -429,7 +429,10 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // Fix round 2 ADDED, nothing removed: 2 t() keys (the "mailed if the
     // budget allows" decline line, the "budget spent" toast). Was
     // { tKeys: 694 }.
-    "pages/ReservationsPage.jsx": { onClick: 86, onChange: 62, onSubmit: 11, ariaLabel: 66, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 4, role: 34, title: 26, id: 22, testid: 17, Button: 32, button: 57, Link: 5, disabled: 30, to: 5, href: 3, tKeys: 696 },
+    // R1a ADDED, nothing removed: 4 t() keys, the customer's words for a
+    // held booking on an appointment book (the decline confirm's two lines,
+    // the budget toast, the approve conflict). Was { tKeys: 696 }.
+    "pages/ReservationsPage.jsx": { onClick: 86, onChange: 62, onSubmit: 11, ariaLabel: 66, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 4, role: 34, title: 26, id: 22, testid: 17, Button: 32, button: 57, Link: 5, disabled: 30, to: 5, href: 3, tKeys: 700 },
     "pages/InventoryPage.jsx": { onClick: 61, onChange: 38, onSubmit: 1, ariaLabel: 27, role: 1, title: 27, id: 7, Button: 5, button: 41, Link: 2, disabled: 3, to: 2, tKeys: 165 },
     "components/InventoryAutopilotPanel.jsx": { onClick: 5, onChange: 1, ariaLabel: 1, Button: 4, button: 1, disabled: 1, tKeys: 35 },
     "components/LiveKpisToday.jsx": { ariaLabel: 2, title: 1, tKeys: 14 },
