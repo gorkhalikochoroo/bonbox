@@ -64,11 +64,14 @@ describe("isHeldForCheck with the server's word", () => {
   const row = (over) => ({ status: "requested", source: "public", party_size: 2, guest_mailed: false, ...over });
   it.each([
     ["held by the server", row({ held: { reason: "fast_fill" } }), true],
-    ["a small request the server did NOT hold (threshold 1)", row({ party_size: 1 }), false],
+    // A paired stand cannot read the threshold (reads as 8): a party of 2 at a
+    // venue that approves everything itself is a request the server did NOT
+    // hold — its word wins over the guess.
+    ["a small request the server did NOT hold, on a stand", row({ party_size: 2 }), false, null],
     ["a group request", row({ party_size: 12, guest_mailed: true }), false],
     ["a held row that was confirmed since", row({ status: "confirmed", held: { reason: "venue_hour" } }), false],
-  ])("%s", (_n, r, expected) => {
-    expect(isHeldForCheck(r, 1)).toBe(expected);
+  ])("%s", (_n, r, expected, threshold = 1) => {
+    expect(isHeldForCheck(r, threshold)).toBe(expected);
   });
 
   it("names every reason in plain words, en and da", () => {

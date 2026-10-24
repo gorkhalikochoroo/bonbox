@@ -141,6 +141,7 @@ def test_a_drip_confirms_three_an_hour_and_half_a_sitting(client, db, outbox):
     times = ("19:00", "21:00", "17:00", "13:00")
     confirmed = []
     for rnd in range(4):            # 6 posts per simulated hour, 4 hours
+        this_hour = 0
         for i in range(6):
             n = rnd * 6 + i
             r = book(client, p.reservation_slug, day=DAY, time=times[n % 4], name=f"Drip {n}",
@@ -148,6 +149,8 @@ def test_a_drip_confirms_three_an_hour_and_half_a_sitting(client, db, outbox):
             assert r.status_code == 200, r.text
             if r.json()["status"] == "confirmed":
                 confirmed.append(times[n % 4])
+                this_hour += 1
+        assert this_hour <= 3, (rnd, this_hour)      # max(3, half of 6 tables) an hour
         _age(db, u, 61)
     assert len(confirmed) <= 12                      # 3 an hour (was 24)
     for t in times:                                  # never more than half a sitting
@@ -241,6 +244,8 @@ def test_stripped_text_fits_its_column(client, db, outbox):
     "evil.co.uk", "1.2.3.4/login", "t.me/x", "wa.me/4512345678", "goo.gl/x",
     "evil[.]com", "evil。com", "Mette secure.mobilepay-refund.dk/x", "WIN cash.xyz",
     "see payments.evil.com", "https://bit.ly/abc", "x.com", "ｅｖｉｌ.com",
+    # A host with a sub-domain on a TLD the short list does not name, no path.
+    "secure.mobilepay-refund.rocks", "login.bank-dk.scam",
 ])
 def test_links_mail_clients_would_link_are_caught(text):
     assert has_link(text)
