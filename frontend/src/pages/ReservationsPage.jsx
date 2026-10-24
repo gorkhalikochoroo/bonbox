@@ -112,6 +112,8 @@ import {
 import InsightsSection from "../components/reservations/InsightsSection";
 import WaitlistSection from "../components/reservations/WaitlistSection";
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
+import BookingNameRow from "../components/reservations/BookingNameRow";
+import ClosuresCard, { PauseControl } from "../components/reservations/ClosuresCard";
 import { canPurchaseInApp } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
 import { formatKr } from "../utils/currency";
@@ -9320,6 +9322,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   // gate, so entitlements are already settled here — reading hasFeature is
   // flicker-safe (tier-flicker doctrine, useEntitlements.jsx).
   const { hasFeature } = useEntitlements();
+  const { lang } = useLanguage();
   // A salon (provider mode) books one customer into a behandler's time: the
   // table rules — table time per party size, max party, group request,
   // covers per slot, combining tables, guests picking a table — do not exist
@@ -9394,6 +9397,8 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   }, [isProvider]);
   const [savingHours, setSavingHours] = useState(false);
   const [hoursSaved, setHoursSaved] = useState(false);
+  // E-mails to the owner about online bookings (R1 D6): on unless switched off.
+  const [savingOwnerEmails, setSavingOwnerEmails] = useState(false);
 
   const applyData = useCallback((d) => {
     setData(d);
@@ -9603,6 +9608,30 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
     }
   };
 
+  // The owner's e-mails about new online bookings and cancellations (R1 D6).
+  // Saved on the tap, through the same settings PUT.
+  const toggleOwnerEmails = async () => {
+    if (!data || savingOwnerEmails) return;
+    const next = data?.settings?.owner_booking_emails === false;
+    setSavingOwnerEmails(true);
+    setError("");
+    try {
+      const res = await api.put("/reservations/settings", { settings: { owner_booking_emails: next } });
+      applyData(res.data || null);
+    } catch (e) {
+      setError(
+        e?.response?.data?.detail?.error ||
+          t("rsvpSettingsSaveError", "Couldn't save settings."),
+      );
+    } finally {
+      setSavingOwnerEmails(false);
+    }
+  };
+  // Closed dates and pauses come back from their own endpoints as the fresh
+  // list; the rest of the settings are untouched.
+  const setClosures = (closures) =>
+    setData((d) => (d ? { ...d, closures: Array.isArray(closures) ? closures : [] } : d));
+
   // Toggle flips state + persists in one go (optimistic, like the
   // accept-online switch). Disabled entirely when the tier lacks the feature.
   const toggleSms = () => {
@@ -9692,8 +9721,18 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
         </div>
       )}
 
-      {/* On/off toggle */}
-      <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 flex items-center justify-between gap-4">
+      {/* The name on the booking page — before the page is live too (R1 C). */}
+      <BookingNameRow
+        t={t}
+        publicName={data?.public_name || null}
+        tradingName={data?.business_name || ""}
+        onSaved={fetchSettings}
+        apptWords={apptWords}
+      />
+
+      {/* On/off toggle (+ the pause, while the page is live) */}
+      <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3">
+      <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
             {apptWords
@@ -9761,6 +9800,14 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           </span>
         </button>
         )}
+      </div>
+      {/* Pause online booking for the rest of today / until a date — only
+          while the page is live (R1 B6). */}
+      {live && (
+        <div className="border-t border-gray-100 dark:border-gray-800 pt-3">
+          <PauseControl t={t} lang={lang} closures={data?.closures} onChanged={setClosures} />
+        </div>
+      )}
       </div>
 
       {/* Din bookingside — the page's own address, renamed here. The link
@@ -9905,6 +9952,9 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           </Button>
         </div>
       </div>
+
+      {/* Closed dates and pauses (R1 B5) — right after the hours. */}
+      <ClosuresCard t={t} lang={lang} closures={data?.closures} onChanged={setClosures} apptWords={apptWords} />
 
       {/* Availability settings (kept simple — a few numbers). <form> so
           Enter saves from any field on a host-stand keyboard. */}
@@ -10154,6 +10204,46 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           </Button>
         </div>
       </form>
+
+      {/* E-mails to the owner about online bookings (R1 D6): the switch for
+          the one channel that lands without a device. At most 3 an hour,
+          then one summary — the same budget as the push. */}
+      <div
+        data-testid="rsvp-owner-emails"
+        className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 flex items-center justify-between gap-4"
+      >
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {t("rsvpOwnerEmailToggle", "Email me about new online bookings and cancellations")}
+          </h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            {t("rsvpOwnerEmailToggleHint", "At most 3 an hour, then one summary. Push notifications follow the same limit.")}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={data?.settings?.owner_booking_emails !== false}
+          aria-label={t("rsvpOwnerEmailToggle", "Email me about new online bookings and cancellations")}
+          disabled={savingOwnerEmails}
+          onClick={toggleOwnerEmails}
+          className="shrink-0 inline-flex items-center justify-center min-h-[44px] min-w-[44px] -mr-2 disabled:opacity-50"
+        >
+          <span
+            className={
+              "relative inline-flex h-6 w-11 items-center rounded-full transition-colors " +
+              (data?.settings?.owner_booking_emails !== false ? "bg-emerald-600" : "bg-gray-300 dark:bg-gray-600")
+            }
+          >
+            <span
+              className={
+                "inline-block h-5 w-5 transform rounded-full bg-white transition-transform " +
+                (data?.settings?.owner_booking_emails !== false ? "translate-x-5" : "translate-x-0.5")
+              }
+            />
+          </span>
+        </button>
+      </div>
 
       {/* SMS reminders (Pro). Locked surface for non-Pro tiers (disabled
           switch + Pro badge/lock + upsell link to /subscription, the same
