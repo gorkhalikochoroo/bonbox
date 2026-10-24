@@ -16,6 +16,7 @@ from datetime import date, datetime, time, timedelta
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.models.absence import StaffAbsence
 from app.models.behandling import Behandling
 from app.models.bookable_resource import BookableResource
 from app.models.business_profile import BusinessProfile
@@ -323,6 +324,34 @@ def _opening_hours_windows(settings: dict, day: date) -> list[TimeWindow]:
     return [TimeWindow(start=start, end=end)]
 
 
+# Absence rows that take a stylist off the book: an absence that is waiting
+# for the owner, seen, or covered by someone else. Every kind counts (Ferie,
+# Syg, Barns sygedag, Andet). A cancelled row (withdrawn, or declined by the
+# owner) does not block.
+ABSENCE_BLOCKING_STATUSES = ("pending", "acknowledged", "covered")
+
+
+def _absent(db: Session, user_id, staff_ids, start: date, end: date) -> set:
+    """{(str(staff_id), date)} for every blocking absence of these staff in
+    [start, end] — ONE query, tenant-scoped. An empty staff list asks
+    nothing."""
+    ids = [s for s in staff_ids if s]
+    if not ids:
+        return set()
+    rows = (
+        db.query(StaffAbsence.staff_id, StaffAbsence.date)
+        .filter(
+            StaffAbsence.user_id == user_id,
+            StaffAbsence.staff_id.in_(ids),
+            StaffAbsence.date >= start,
+            StaffAbsence.date <= end,
+            StaffAbsence.status.in_(ABSENCE_BLOCKING_STATUSES),
+        )
+        .all()
+    )
+    return {(str(sid), d) for sid, d in rows}
+
+
 def provider_windows(db: Session, user_id, resource, day: date,
                      settings: dict) -> list[TimeWindow]:
     """A provider chair's open windows for the day — two HONEST sources, never
@@ -332,7 +361,9 @@ def provider_windows(db: Session, user_id, resource, day: date,
         weekly opening hours (`booking_hours`). Lets a solo salon take bookings
         without a StaffMember; no declared hours ⇒ [].
       • employed stylist (`staff_id` set) → that stylist's PUBLISHED Schedule
-        shifts; no published shift ⇒ [].
+        shifts; no published shift ⇒ []. A day the stylist is away (Ferie,
+        Syg, Barns sygedag, Andet — any absence not cancelled) ⇒ [], even
+        while her shift is still published.
 
     A provider row that is neither (a legacy NULL-staff row with
     follows_opening_hours False) ⇒ [] — it never silently lights up."""
@@ -340,6 +371,8 @@ def provider_windows(db: Session, user_id, resource, day: date,
         return _opening_hours_windows(settings, day)
     staff_id = getattr(resource, "staff_id", None)
     if not staff_id:
+        return []
+    if (str(staff_id), day) in _absent(db, user_id, [staff_id], day, day):
         return []
     shifts = (
         db.query(Schedule)
@@ -395,12 +428,16 @@ def _batched_provider_windows(db: Session, user_id, resources, start: date,
         )
         for row in rows:
             by_day.setdefault((row.staff_id, row.date), []).append(row)
+    # The days each stylist is away, in one query for the whole range.
+    away = _absent(db, user_id, staff_ids, start, end)
 
     def windows_for(resource, day: date) -> list[TimeWindow]:
         if getattr(resource, "follows_opening_hours", False):
             return _opening_hours_windows(settings, day)
         staff_id = getattr(resource, "staff_id", None)
         if not staff_id:
+            return []
+        if (str(staff_id), day) in away:
             return []
         return _shift_windows(day, by_day.get((staff_id, day), []))
 

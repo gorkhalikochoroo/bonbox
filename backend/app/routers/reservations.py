@@ -955,6 +955,10 @@ class SalonQuickSetup(BaseModel):
     # The owner-confirmed weekly opening hours ({mon..sun: "HH:MM-HH:MM"|"closed"}).
     # Sanitized server-side by _valid_booking_hours before it is ever stored.
     booking_hours: dict | None = None
+    # True only when the owner changed the hours on the card. Hours already
+    # saved (Indstillinger → Åbningstider) are kept otherwise: the card's
+    # suggestion used to overwrite them on the "Åbn for booking" tap.
+    replace_hours: bool = False
 
 
 @router.post("/salon/quick-setup")
@@ -978,7 +982,11 @@ def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
 
     # 1. Persist the owner-confirmed opening hours (validated) into settings —
     #    this is the ONLY write that makes the self-chair produce any slots.
-    if payload.booking_hours is not None:
+    #    Hours the owner already saved stay, unless they edited them here.
+    saved = rsvc.load_settings(profile).get("booking_hours")
+    has_saved = isinstance(saved, dict) and any(
+        v == "closed" or (isinstance(v, str) and "-" in v) for v in saved.values())
+    if payload.booking_hours is not None and (not has_saved or payload.replace_hours):
         merged = rsvc.load_settings(profile)
         merged["booking_hours"] = _valid_booking_hours(payload.booking_hours)
         profile.reservation_settings_json = json.dumps(merged)
@@ -1028,7 +1036,8 @@ def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
     audit_service.record(db, user, "reservation.salon_quick_setup",
                          "business_profile", profile.id)
     db.commit()
-    return get_settings(db, user)
+    return {**get_settings(db, user),
+            "hours_kept": bool(has_saved and not payload.replace_hours)}
 
 
 @router.post("/resources/bulk", status_code=201)

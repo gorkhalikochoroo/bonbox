@@ -498,11 +498,56 @@ def availability_summary(request: Request, slug: str = Path(...),
             ],
         }
 
+    # A salon whose chairs are set up but which offers no service: a guest
+    # must pick a behandling before any time, so NO day can be booked. The
+    # strip said days were open (counting a hidden 60-minute default) and
+    # the owner believed the page worked (settings audit, 24 Oct 2026).
+    if _provider_only_without_service(db, owner.id):
+        settings = rsvc.load_settings(profile)
+        today = _now_local().date()
+        max_advance = int(settings.get("max_advance_days", 60))
+        out_days = []
+        for i in range(days):
+            d = base + timedelta(days=i)
+            outside = rsvc.window_reason(d, today, max_advance)
+            out_days.append({"date": d.isoformat(), "has_slots": False,
+                             "reason": outside or "no_times"})
+        return {"from": base.isoformat(), "party_size": party, "next_open_day": None,
+                "group_request": False, "closed_reason": "no_service", "days": out_days}
+
     summary = rsvc.summarize_days(
         db, profile=profile, user_id=owner.id, start_date=base,
         days=days, party_size=party, now=_now_local(),
     )
     return {"from": base.isoformat(), "party_size": party, **summary}
+
+
+def _provider_only_without_service(db: Session, user_id) -> bool:
+    """Active chairs, no active table, and no active behandling. Fail-soft:
+    a read error answers False (the normal summary runs)."""
+    try:
+        kinds = {k for (k,) in (
+            db.query(BookableResource.kind)
+            .filter(BookableResource.user_id == user_id,
+                    BookableResource.is_active.is_(True),
+                    BookableResource.is_deleted.is_(False))
+            .distinct()
+            .all()
+        )}
+        if kinds != {"provider"}:
+            return False
+        return (
+            db.query(Behandling.id)
+            .filter(Behandling.user_id == user_id, Behandling.active.is_(True))
+            .first()
+        ) is None
+    except Exception:  # noqa: BLE001
+        logger.warning("no-service check failed", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return False
 
 
 @router.get("/{slug}/floor")

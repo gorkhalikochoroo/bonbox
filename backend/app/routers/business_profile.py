@@ -445,6 +445,10 @@ def save_profile(
     profile = db.query(BusinessProfile).filter(
         BusinessProfile.user_id == user.id,
     ).first()
+    # The company name as saved BEFORE this request: the Profile cards echo
+    # company_name on every save, so only a real change may move the trading
+    # name (the booking page's name) — see the end of this handler.
+    old_company = (profile.company_name or "").strip() if profile else ""
 
     # day_cutoff_hour — clamp to [0, 23] so a typo (e.g. "26") can't
     # land a junk value that the tz_utils helper would then defensively
@@ -590,8 +594,16 @@ def save_profile(
     # the sample company's name: the Profile forms echo company_name on every
     # save, and the demo's "Mirabelle ApS" replaced the owner's signup name
     # (the fallback every revisor artifact uses) for good.
-    if data.company_name and not _is_demo_identity(profile):
-        user.business_name = data.company_name
+    #
+    # And only when the company name REALLY changed (or there is no trading
+    # name yet). business_name is the name on the booking page; the cuisine,
+    # revisor and payment cards all echo company_name, so "Trattoria Testa
+    # Aarhus" (set in Reservationer) became "Trattoria Testa" on any save of
+    # "Hvad serverer du" (settings audit, 24 Oct 2026).
+    new_company = (data.company_name or "").strip()
+    if new_company and not _is_demo_identity(profile) and (
+            new_company != old_company or not (user.business_name or "").strip()):
+        user.business_name = new_company
 
     db.commit()
     db.refresh(profile)
