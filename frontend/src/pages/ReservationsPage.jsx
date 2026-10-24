@@ -4755,6 +4755,18 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepBookingId, deepDate]);
+  // A link to a DAY alone (/reservations?date=<iso>, no booking): the
+  // "N bookinger ligger allerede på disse dage" link on a closed date, and the
+  // owner's "Mange nye online-bookinger" push (R1). The book opens on that
+  // day; the param is then dropped so a refresh starts on it, not back here.
+  useEffect(() => {
+    if (deepBookingId || !deepDate) return;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(deepDate) && deepDate !== day) setDay(deepDate);
+    const next = new URLSearchParams(searchParams);
+    next.delete("date");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepBookingId, deepDate]);
 
   // Step 2 — once the target day's book has landed, re-point the drawer to the
   // fresh row and strip the params so a refresh doesn't re-open. A booking that

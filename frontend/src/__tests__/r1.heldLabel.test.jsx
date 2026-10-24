@@ -123,3 +123,18 @@ describe("the book", () => {
     expect(why.textContent).toContain(da.rsvpHeldWhy);
   });
 });
+
+describe("a link to a day alone", () => {
+  it("/reservations?date=<iso> opens that day's book (the closed-date bookings link)", async () => {
+    routes();
+    render(
+      <MemoryRouter initialEntries={["/reservations?date=2026-12-24"]}>
+        <ReservationsPage />
+      </MemoryRouter>,
+    );
+    await settle();
+    const days = h.get.mock.calls.filter(([u]) => u === "/reservations/book").map(([, cfg]) => cfg?.params?.day);
+    expect(days).toContain("2026-12-24");
+    expect(days[days.length - 1]).toBe("2026-12-24");
+  });
+});
