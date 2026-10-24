@@ -161,7 +161,10 @@ def test_declining_a_held_person_we_never_mailed_tells_them(client, db, outbox, 
     _hold_one(client, db, p, email="first@example.dk", day=_friday())       # spends the hour's one
     rikke = book(client, p.reservation_slug, day=_friday(), time="20:30", name="Rikke Rigtig",
                  email="rikke@example.dk", form_ms=74000).json()
-    assert rikke["guest_mail"] is False
+    jonas = book(client, p.reservation_slug, day=_friday(), time="21:00", name="Jonas Rigtig",
+                 email="jonas@example.dk", form_ms=66000).json()
+    assert rikke["guest_mail"] is False and jonas["guest_mail"] is False
+    assert [m for m in outbox if m["to"] in ("rikke@example.dk", "jonas@example.dk")] == []
     as_owner(u)
     row = next(x for x in client.get("/api/reservations/book",
                                      params={"day": _friday().isoformat()}).json()["reservations"]
@@ -175,15 +178,20 @@ def test_declining_a_held_person_we_never_mailed_tells_them(client, db, outbox, 
     assert d.status_code == 200, d.text
     assert d.json()["guest_email_skipped"]["code"] == "held_mail_budget"
     assert [m for m in outbox if m["to"] == "rikke@example.dk"] == []
-    # Next time, with room in the budget, the decline does reach the person.
+    # With room in the budget again, the decline reaches a person we never
+    # mailed before — the one word they get, and it is the answer.
     monkeypatch.setattr(settings, "BOOKING_HELD_GUEST_MAILS_PER_HOUR", 3)
-    later = book(client, p.reservation_slug, day=_friday() + timedelta(days=7), time="20:30",
-                 name="Søren Rigtig", email="soren@example.dk", form_ms=81000).json()
-    assert later["status"] == "requested"
     as_owner(u)
-    d = client.patch(f"/api/reservations/reservations/{later['id']}/status",
+    d = client.patch(f"/api/reservations/reservations/{jonas['id']}/status",
                      json={"status": "cancelled"})
     assert "guest_email_skipped" not in d.json()
+    assert len([m for m in outbox if m["to"] == "jonas@example.dk"]) == 1
+    # And one we did mail ("request received") is told as before.
+    later = book(client, p.reservation_slug, day=_friday() + timedelta(days=7), time="20:30",
+                 name="Søren Rigtig", email="soren@example.dk", form_ms=81000).json()
+    assert later["status"] == "requested" and later["guest_mail"] is True
+    as_owner(u)
+    client.patch(f"/api/reservations/reservations/{later['id']}/status", json={"status": "cancelled"})
     assert len([m for m in outbox if m["to"] == "soren@example.dk"]) == 2   # received + declined
 
 
