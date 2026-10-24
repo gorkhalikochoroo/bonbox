@@ -838,9 +838,8 @@ def _send_booking_notifications(reservation_id: str, owner_id: str) -> None:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("owner reservation notify failed: %s", exc)
             _notify_owner_email(owner, profile, r, db)       # owner email
-        elif decision == "burst":
-            _send_owner_burst(db, owner, profile, r)
-        else:
+        elif not (decision == "burst" and _send_owner_burst(db, owner, profile, r)):
+            # Over the budget (or a summary with nothing to count): held back.
             owner_booking_alerts.log_suppressed(db, owner.id, "reservation_created")
         db.commit()
     except Exception:  # noqa: BLE001 — never let a notification break anything
