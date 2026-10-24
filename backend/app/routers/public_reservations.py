@@ -19,7 +19,7 @@ public_bookings.py).
 """
 import logging
 from datetime import datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import (
@@ -42,6 +42,7 @@ from app.models.reservation import Reservation
 from app.models.staff import StaffMember
 from app.models.user import User
 from app.services import audit_service, reservation_service as rsvc
+from app.services import booking_screen
 from app.services import reservation_emails
 from app.services import venue_identity
 from app.services import reservation_occupancy_service as occ_service
@@ -50,6 +51,8 @@ from app.services.billing import at_cap, has_feature
 from app.services.logo_service import logo_signed_url
 from app.services.owner_language import venue_language
 from app.services.qr_signer import sign_booking_token, verify_booking_token
+from app.utils import abuse_signals
+from app.utils.text import strip_links
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -147,11 +150,24 @@ class PublicReservationCreate(BaseModel):
     # non-string, becomes None (→ the venue's default language) rather than a
     # 422, so a client sending junk still books. Older clients omit it.
     lang: str | None = None
+    # ── Guest-invisible spam guards (services/booking_screen.py) ──────
+    # `website` is a trap: the field sits off-screen on our page, a person
+    # never fills it, a form-filling bot does. `form_ms` is how long the
+    # page was open before the guest pressed Book — a booking typed in under
+    # two seconds (or sent by a client that does not say) is held as a
+    # request the owner approves, never refused.
+    website: str = Field(default="", max_length=200)
+    form_ms: int | None = Field(default=None, ge=0, le=86_400_000)
 
     @field_validator("lang", mode="before")
     @classmethod
     def _clean_lang(cls, v):
         return reservation_emails.normalize_lang(v)
+
+    @field_validator("website", mode="before")
+    @classmethod
+    def _clean_website(cls, v):
+        return v if isinstance(v, str) else ""
 
 
 def _resolve_owner(db: Session, slug: str) -> tuple[BusinessProfile, User]:
@@ -353,7 +369,40 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         # declared. Opening hours only — no bookability claim (the date strip
         # owns that), and nothing about plans or caps.
         "hours": _safe_week(db, owner, profile, settings),
+        # Dates the owner closed for online booking inside the booking window
+        # ({from, to, note, kind}) and, while a pause covers today, the last
+        # paused day — the page says "opens again <the day after>".
+        **_safe_closures(settings),
     }
+
+
+def _safe_closures(settings: dict) -> dict:
+    """The page's closures and pause, fail-soft (a read error = none)."""
+    try:
+        today = _now_local().date()
+        max_advance = int(settings.get("max_advance_days", 60))
+        pause = rsvc.pause_covering(settings, today)
+        return {
+            "closures": [
+                {k: c[k] for k in ("from", "to", "note", "kind")}
+                for c in rsvc.closures_between(settings, today, today + timedelta(days=max_advance))
+            ],
+            "paused_until": pause["to"] if pause else None,
+        }
+    except Exception:  # noqa: BLE001 — context, never a 500 for the page
+        logger.warning("public closures read failed", exc_info=True)
+        return {"closures": [], "paused_until": None}
+
+
+def _closure_for(settings: dict, day) -> dict | None:
+    """The owner's closure on `day` ({note, kind}), fail-open: a read error
+    means "not closed" — the hours and the engine still decide."""
+    try:
+        c = rsvc.closure_on(settings, day)
+    except Exception:  # noqa: BLE001
+        logger.warning("closure read failed", exc_info=True)
+        return None
+    return {"note": c["note"], "kind": c["kind"]} if c else None
 
 
 def _safe_identity(owner: User, profile: BusinessProfile, settings: dict):
@@ -407,6 +456,13 @@ def availability(request: Request, slug: str = Path(...),
         return {"date": day, "party_size": party, "slots": [],
                 "group_request": False, "closed_reason": "not_accepting",
                 "reason": "not_accepting"}
+
+    # A date the owner closed for online booking (a holiday, a pause).
+    closure = _closure_for(settings, target)
+    if closure:
+        return {"date": day, "party_size": party, "slots": [], "slot_remaining": {},
+                "group_request": rsvc.is_group_request(settings, party),
+                "reason": "closed_date", "closure": closure}
 
     group_request = rsvc.is_group_request(settings, party)
     if group_request:
@@ -573,6 +629,9 @@ def floor(request: Request, slug: str = Path(...),
              "tables_total": 0, "seats_total": 0, "free_total": 0}
     if start.date() < today or start.date() > today + timedelta(days=max_advance):
         return empty
+    closure = _closure_for(settings, start.date())
+    if closure:
+        return {**empty, "reason": "closed_date", "closure": closure}
 
     tables = rsvc.public_floor(
         db, profile=profile, user_id=owner.id, start=start,
@@ -675,6 +734,9 @@ def provider_availability(request: Request, slug: str = Path(...),
     # changes, and a billing error fails open (_at_month_cap).
     if _at_month_cap(db, owner):
         return {**empty, "closed_reason": "not_accepting", "reason": "not_accepting"}
+    closure = _closure_for(settings, target)
+    if closure:
+        return {**empty, "reason": "closed_date", "closure": closure}
 
     slots = rsvc.available_provider_slots(
         db, profile=profile, user_id=owner.id, day=target,
@@ -847,7 +909,8 @@ def _send_guest_cancel_notifications(reservation_id: str, owner_id: str,
 
 def _create_public_provider_booking(db: Session, owner: User, profile, payload,
                                     start, settings, idempotency_key,
-                                    background_tasks: BackgroundTasks | None = None):
+                                    background_tasks: BackgroundTasks | None = None,
+                                    hold_reason: str | None = None):
     """Public SALON booking (S3a) — books a PROVIDER for a behandling.
 
     In its own function so create_reservation's table flow is untouched.
@@ -861,7 +924,11 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
       • "valgfri behandler" (no stylist_id) auto-assigns among free providers
         via recheck_and_assign_combo.
     Reuses the same occupancy insert-and-catch + post-commit notifications as
-    the table path."""
+    the table path.
+
+    `hold_reason` (booking_screen said "hold"): the chair is resolved exactly
+    as above, but the booking is stored as a REQUEST on it with no occupancy
+    — it holds nothing until the owner approves it."""
     duration = rsvc.resolve_behandling_duration(db, owner.id, payload.behandling_id)
     service_name = None
     if payload.behandling_id:
@@ -907,7 +974,7 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
         party_size=1,
         starts_at=start, ends_at=start + timedelta(minutes=duration),
         duration_min=duration, service_name=service_name,
-        status="confirmed", source="public",
+        status="requested" if hold_reason else "confirmed", source="public",
         occasion=payload.occasion, guest_notes=payload.guest_notes,
         allergen_tags=sanitize_tags(payload.allergen_tags, btype),
         # A shop or a workshop asks no allergies (allergens.collects_allergies):
@@ -922,19 +989,28 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
     # Fail-soft; NEVER overwrites the confirmed allergen fields set above.
     from app.services.reservation_ai import apply_ai_signals
     apply_ai_signals(r, btype)
-    try:
-        occ_service.create_reservation_with_occupancy(
-            db, profile=profile, reservation=r, initial_resource_ids=resource_ids,
-            party_size=1, start=start, duration_min=duration, now=_now_local(),
-            reassign=reassign,
-        )
-    except occ_service.SlotUnavailable:
-        # Pinned-stylist race loss surfaces as the stylist-specific 409 (still
-        # fail-closed — reassign=False never re-picked another provider).
-        err = "stylist_unavailable" if payload.stylist_id else "slot_unavailable"
-        raise HTTPException(status_code=409, detail={"error": err})
+    if hold_reason:
+        # Held for the owner's OK: on the chosen chair, holding nothing.
+        r.resource_id = resource_ids[0]
+        db.add(r)
+        db.flush()
+    else:
+        try:
+            occ_service.create_reservation_with_occupancy(
+                db, profile=profile, reservation=r, initial_resource_ids=resource_ids,
+                party_size=1, start=start, duration_min=duration, now=_now_local(),
+                reassign=reassign,
+            )
+        except occ_service.SlotUnavailable:
+            # Pinned-stylist race loss surfaces as the stylist-specific 409 (still
+            # fail-closed — reassign=False never re-picked another provider).
+            err = "stylist_unavailable" if payload.stylist_id else "slot_unavailable"
+            raise HTTPException(status_code=409, detail={"error": err})
 
     audit_service.record(db, owner, "reservation.created_public", "reservation", r.id)
+    if hold_reason:
+        audit_service.record(db, owner, "reservation.held_public", "reservation", r.id,
+                             after={"reason": hold_reason})
     db.commit()
     # Same post-commit notifications as the table path, OFF the request path
     # (guest confirmation + owner push + owner email). They used to run inline
@@ -1000,17 +1076,50 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     if _at_month_cap(db, owner):
         raise HTTPException(status_code=409, detail={"error": "not_accepting"})
 
+    # A date the owner closed for online booking (Lukkedage og pauser) — on
+    # every path: a table, a group request, a salon time. The owner's own
+    # bookings (POST /reservations/book) never come through here.
+    if _closure_for(settings, start.date()) is not None:
+        raise HTTPException(status_code=409, detail={"error": "date_closed"})
+
+    salon = bool(payload.behandling_id or payload.stylist_id)
+    is_request = (not salon) and rsvc.is_group_request(settings, payload.party_size)
+
+    # Guest-invisible screening (services/booking_screen.py), on the text as
+    # it was typed (a link in the name is one of its signals).
+    screen = booking_screen.screen_public_booking(
+        db, owner=owner, settings=settings, payload=payload, is_request=is_request,
+        n_resources=_bookable_count(db, owner.id), now_utc=utc_now(),
+        now_local=_now_local(),
+    )
+    if screen.action == "drop":
+        # The trap field was filled: a bot. No row, no message, no hint.
+        audit_service.record(db, owner, "reservation.public_dropped", "business_profile",
+                             profile.id, after={"reason": screen.reason})
+        db.commit()
+        abuse_signals.bump("booking_honeypot")
+        return {"id": str(uuid4()), "status": "confirmed", "booking_token": ""}
+    if screen.action == "refuse":
+        raise HTTPException(status_code=409, detail={"error": screen.error})
+    hold_reason = screen.reason if screen.action == "hold" else None
+
+    # No link reaches the owner's e-mail or the host stand as text a mail
+    # client turns into an anchor: names and notes keep "[link]" instead.
+    payload.guest_name = strip_links(payload.guest_name) or payload.guest_name
+    payload.guest_notes = strip_links(payload.guest_notes)
+    payload.allergy_note = strip_links(payload.allergy_note)
+    payload.occasion = strip_links(payload.occasion)
+
     # Salon appointment (S3a) — a behandling and/or a pinned stylist routes to
     # the provider path, handled separately so the table booking flow below is
     # byte-identical. A plain table booking carries neither field.
-    if payload.behandling_id or payload.stylist_id:
+    if salon:
         return _create_public_provider_booking(
             db, owner, profile, payload, start, settings, idempotency_key,
-            background_tasks,
+            background_tasks, hold_reason=hold_reason,
         )
 
     duration = rsvc.resolve_duration(profile, payload.party_size)
-    is_request = rsvc.is_group_request(settings, payload.party_size)
 
     resource_ids = None
     if is_request:
@@ -1060,7 +1169,7 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
         party_size=payload.party_size,
         starts_at=start, ends_at=start + timedelta(minutes=duration),
         duration_min=duration,
-        status="requested" if is_request else "confirmed",
+        status="requested" if (is_request or hold_reason) else "confirmed",
         source="public",
         occasion=payload.occasion, guest_notes=payload.guest_notes,
         allergen_tags=sanitize_tags(payload.allergen_tags, btype),
@@ -1077,9 +1186,13 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     from app.services.reservation_ai import apply_ai_signals
     apply_ai_signals(r, btype)
 
-    if is_request:
+    if is_request or hold_reason:
         # Group request — does NOT hold a table (no occupancy row) until the
         # owner approves (→ confirmed assigns + occupies). Plain insert.
+        # A HELD booking (booking_screen) is the same: a request on the table
+        # set the engine picked, holding nothing until the owner says yes.
+        if hold_reason and resource_ids:
+            r.combined_resource_ids = list(resource_ids) if len(resource_ids) > 1 else None
         db.add(r)
         db.flush()
         db.commit()
@@ -1102,6 +1215,9 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     # Audit commits durably WITH the booking (a cheap DB write — it stays on the
     # request path so the booking's audit trail is guaranteed before we respond).
     audit_service.record(db, owner, "reservation.created_public", "reservation", r.id)
+    if hold_reason:
+        audit_service.record(db, owner, "reservation.held_public", "reservation", r.id,
+                             after={"reason": hold_reason})
     db.commit()
     # Notifications (guest confirmation email + owner push + owner email) run OFF
     # the request path on a fresh session, so a slow email/push provider no longer
@@ -1109,6 +1225,26 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     # committed above. All best-effort inside the task.
     background_tasks.add_task(_send_booking_notifications, str(r.id), str(owner.id))
     return {"id": str(r.id), "status": r.status, "booking_token": _receipt_token(r)}
+
+
+def _bookable_count(db: Session, user_id) -> int:
+    """Active tables and chairs — the venue's size for the screen's ceilings.
+    One COUNT; a read error counts 0 (the ceilings then use their floors)."""
+    try:
+        return int(
+            db.query(func.count(BookableResource.id))
+            .filter(BookableResource.user_id == user_id,
+                    BookableResource.is_active.is_(True),
+                    BookableResource.is_deleted.is_(False))
+            .scalar() or 0
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("resource count failed", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return 0
 
 
 def _verify(token: str | None, reservation_id: UUID, db: Session) -> Reservation:

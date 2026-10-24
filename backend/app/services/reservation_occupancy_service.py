@@ -325,9 +325,16 @@ def sync_occupancy_for_status(db: Session, reservation: Reservation) -> None:
         )
         if existing is None:
             # Re-point any stale inactive rows on other resources off, then
-            # add the active row for the current resource.
+            # add the active row(s) for the current resource — every table of
+            # a combined set (a held online booking for a 6 across two tables
+            # holds both once the owner approves it, not just the first).
             release_occupancy(db, reservation.id)
-            add_occupancy_row(db, reservation, active=True)
+            combined = [x for x in (reservation.combined_resource_ids or []) if x]
+            if len(combined) > 1:
+                add_occupancy_rows(db, reservation, [uuid.UUID(str(x)) for x in combined],
+                                   active=True)
+            else:
+                add_occupancy_row(db, reservation, active=True)
 
 
 class SlotUnavailable(Exception):

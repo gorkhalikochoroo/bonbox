@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_, and_
 from sqlalchemy.orm import Session
 
@@ -38,6 +38,9 @@ from app.routers.public_reservations import (
     # and the availability endpoints. A second local count here is exactly how
     # the owner's number and the gate that closes their page drift apart.
     _month_reservations_used as _month_usage,
+    # The guest page's own calendar day (Europe/Copenhagen): a closure the
+    # owner adds "for today" must be the day the guest page calls today.
+    _now_local as _public_now_local,
 )
 from app.services import audit_service
 from app.services.allergens import allergen_set_for, SEVERITY_LEVELS
@@ -572,7 +575,19 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
     settings = rsvc.load_settings(profile)
     slug = getattr(profile, "reservation_slug", None) if profile else None
     btype = (getattr(user, "business_type", None) or "restaurant")
+    try:
+        from app.services import venue_identity
+        public_name = venue_identity.public_venue_name(user, profile)
+    except Exception:  # noqa: BLE001 — a label, never a 500 for the settings
+        public_name = None
     return {
+        # The name the booking page shows (venue_identity.public_venue_name —
+        # the same function the guest page uses), for the name row in
+        # Indstillinger. None = the page shows no venue name.
+        "public_name": public_name,
+        # Closed dates and pauses from today on, each with the active
+        # bookings already on those days (the owner decides about those).
+        "closures": _closures_with_counts(db, user, settings),
         "reservations_enabled": bool(getattr(profile, "reservations_enabled", False)) if profile else False,
         "reservation_slug": slug,
         "public_url": _public_reservation_url(slug),
@@ -683,6 +698,13 @@ def update_settings(payload: SettingsUpdate, request: Request,
                 incoming["default_duration_min"] = max(15, min(360, int(incoming["default_duration_min"])))
             except (TypeError, ValueError):
                 incoming.pop("default_duration_min")
+        # Closed dates have their own endpoints; this generic path may carry
+        # them too, but never junk: the same cleaning as every closure write.
+        if "closed_dates" in incoming:
+            incoming["closed_dates"] = rsvc.clean_closures(
+                incoming["closed_dates"], _public_now_local().date())
+        if "owner_booking_emails" in incoming:
+            incoming["owner_booking_emails"] = bool(incoming["owner_booking_emails"])
         merged.update(incoming)
         profile.reservation_settings_json = json.dumps(merged)
 
@@ -696,6 +718,112 @@ def update_settings(payload: SettingsUpdate, request: Request,
     audit_service.record(db, user, "reservation.settings_updated", "business_profile", profile.id)
     db.commit()
     return get_settings(db, user)
+
+
+# ─── closed dates and pauses ─────────────────────────────────────────
+class ClosureCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    from_: str | None = Field(default=None, alias="from", max_length=10)
+    to: str | None = Field(default=None, max_length=10)
+    # Cut to 80 characters after links are stripped (rsvc.clean_closure_note).
+    note: str | None = Field(default=None, max_length=200)
+    kind: str = Field(default="closed", pattern="^(closed|pause)$")
+
+
+def _closures_with_counts(db: Session, user: User, settings: dict) -> list[dict]:
+    """Closures from today on, each with `bookings`: the active bookings
+    (requested, confirmed, seated; not deleted) whose local start date falls
+    in its range. One query over the union of the ranges, counted here."""
+    today = _public_now_local().date()
+    entries = [e for e in rsvc.closures_between(settings, today, date.max)]
+    if not entries:
+        return []
+    lo = min(date.fromisoformat(e["from"]) for e in entries)
+    hi = max(date.fromisoformat(e["to"]) for e in entries)
+    try:
+        starts = [
+            row[0] for row in (
+                db.query(Reservation.starts_at)
+                .filter(
+                    Reservation.user_id == user.id,
+                    Reservation.is_deleted.is_(False),
+                    Reservation.status.in_(rsvc.ACTIVE_STATUSES),
+                    Reservation.starts_at >= datetime.combine(lo, datetime.min.time()),
+                    Reservation.starts_at < datetime.combine(hi + timedelta(days=1), datetime.min.time()),
+                )
+                .all()
+            ) if row[0] is not None
+        ]
+    except Exception:  # noqa: BLE001 — a count is context, never a 500
+        starts = None
+    out = []
+    for e in entries:
+        a, b = date.fromisoformat(e["from"]), date.fromisoformat(e["to"])
+        n = None if starts is None else sum(1 for s in starts if a <= s.date() <= b)
+        out.append({**e, "bookings": n})
+    return out
+
+
+def _save_closures(db: Session, user: User, profile: BusinessProfile, closures: list) -> dict:
+    merged = rsvc.load_settings(profile)
+    merged["closed_dates"] = rsvc.clean_closures(closures, _public_now_local().date())
+    profile.reservation_settings_json = json.dumps(merged)
+    return merged
+
+
+@router.post("/closures", status_code=201)
+def add_closure(payload: ClosureCreate, db: Session = Depends(get_db),
+                user: User = Depends(get_current_user)):
+    """Close a date (or a range) for ONLINE booking, or pause online booking
+    until a date. Owner bookings are never stopped by it. 422 {error}:
+    bad_date | end_before_start | range_too_long | in_the_past | too_many."""
+    enforce_feature(user, "reservations")
+    profile = _profile(db, user)
+    if profile is None:
+        profile = BusinessProfile(user_id=user.id)
+        db.add(profile)
+        db.flush()
+    today = _public_now_local().date()
+    entry = {"from": payload.from_, "to": payload.to, "note": payload.note,
+             "kind": payload.kind}
+    if payload.kind == "pause":
+        # A pause starts now and needs an end ("resten af i dag" = today).
+        if not payload.to:
+            raise HTTPException(status_code=422, detail={"error": "bad_date"})
+        entry["from"] = today.isoformat()
+    clean, err = rsvc.check_closure(entry, today)
+    if err:
+        raise HTTPException(status_code=422, detail={"error": err})
+    settings = rsvc.load_settings(profile)
+    existing = rsvc.clean_closures(settings.get("closed_dates"), today)
+    if len(existing) >= rsvc.CLOSURE_MAX_ENTRIES:
+        raise HTTPException(status_code=422, detail={"error": "too_many"})
+    merged = _save_closures(db, user, profile, existing + [clean])
+    audit_service.record(db, user, "reservation.closure_added", "business_profile",
+                         profile.id, after={"from": clean["from"], "to": clean["to"],
+                                            "kind": clean["kind"]})
+    db.commit()
+    return {"closures": _closures_with_counts(db, user, merged)}
+
+
+@router.delete("/closures/{closure_id}")
+def remove_closure(closure_id: str, db: Session = Depends(get_db),
+                   user: User = Depends(get_current_user)):
+    """Open a closed date (or end a pause) for online booking again."""
+    enforce_feature(user, "reservations")
+    profile = _profile(db, user)
+    settings = rsvc.load_settings(profile)
+    today = _public_now_local().date()
+    existing = rsvc.clean_closures(settings.get("closed_dates"), today)
+    gone = [e for e in existing if e["id"] == closure_id]
+    if profile is None or not gone:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    merged = _save_closures(db, user, profile, [e for e in existing if e["id"] != closure_id])
+    audit_service.record(db, user, "reservation.closure_removed", "business_profile",
+                         profile.id, before={"from": gone[0]["from"], "to": gone[0]["to"],
+                                             "kind": gone[0]["kind"]})
+    db.commit()
+    return {"closures": _closures_with_counts(db, user, merged)}
 
 
 # Slugs an owner may NOT claim as a root vanity link (bonbox.dk/<slug>): they'd

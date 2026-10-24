@@ -52,3 +52,34 @@ def portal_path(token: str, business_name: str | None,
     if staff:
         return f"/s/{biz}/{staff}/{token}"
     return f"/s/{biz}/{token}"
+
+
+# A link a stranger can type into a booking: a scheme or "www." link, or a
+# bare domain on a common top-level domain (spam names like "WIN cash.xyz").
+# The look-behind keeps an e-mail address whole: "anna@cafe.dk" is not a
+# link, and neither is a word glued to a dot or a hyphen.
+_LINK_RE = re.compile(
+    r"(?i)(?<![@\w.-])(?:(?:https?://|www\.)\S+"
+    r"|[\w-]+\.(?:com|net|org|dk|io|ru|xyz|info|biz|top|click|link|shop|online|site|live|app|ly)\b(?:/\S*)?)"
+)
+
+
+def has_link(text: str | None) -> bool:
+    """Does the text carry a URL, a www. link or a bare domain?"""
+    return bool(text) and _LINK_RE.search(text) is not None
+
+
+def strip_links(text: str | None) -> str | None:
+    """Replace every link in a guest-typed text with "[link]".
+
+    Anonymous booking text reaches the owner's e-mail and the host stand, and
+    many mail clients turn a bare URL into a clickable anchor in mail sent from
+    the venue. E-mail addresses stay as they are. Text with no link comes back
+    unchanged (line breaks in a note included); where a link was replaced,
+    runs of spaces left behind are collapsed."""
+    if not text:
+        return text
+    out, n = _LINK_RE.subn("[link]", text)
+    if not n:
+        return text
+    return re.sub(r"[ \t]{2,}", " ", out).strip()

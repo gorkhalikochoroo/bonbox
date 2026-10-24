@@ -197,7 +197,9 @@ def _booking(db, owner, *, days=3, hour=19, status="confirmed", email=GUEST,
 
 def _book(client, slug, **extra):
     body = {"day": _DAY, "time": "19:00", "party_size": 2,
-            "guest_name": "Sita Sharma", "guest_email": GUEST}
+            "guest_name": "Sita Sharma", "guest_email": GUEST,
+            # An honest client, as the booking page sends it (R1 screen).
+            "form_ms": 5000}
     body.update(extra)
     return client.post(f"/api/public/reservations/{slug}", json=body)
 

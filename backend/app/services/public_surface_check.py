@@ -24,6 +24,8 @@ from app.services import venue_identity
 
 _HORIZON_DAYS = 14
 _PROBE_PARTY = 2
+# Codes that say something true about the page but are not a defect.
+_INFO_CODES = ("owner_closed",)
 
 
 def check_slug(db, *, profile, owner, now) -> dict:
@@ -44,7 +46,15 @@ def check_slug(db, *, profile, owner, now) -> dict:
         open_days = sum(1 for d in summary["days"] if d["has_slots"])
         detail["open_days_count"] = open_days
         detail["first_open_day"] = summary.get("next_open_day")
-        if open_days == 0:
+        # In-window days (past / not-yet-bookable are the window, not a
+        # verdict). All of them closed by the OWNER (Lukkedage og pauser) is
+        # the owner's choice — a holiday — not a dead page: its own info code.
+        in_window = [d for d in summary["days"]
+                     if d.get("reason") not in ("past", "not_yet_bookable")]
+        if open_days == 0 and in_window and all(
+                d.get("reason") == "closed_date" for d in in_window):
+            codes.append("owner_closed")
+        elif open_days == 0:
             codes.append("dead_on_arrival")
     except Exception as e:  # inconclusive — do NOT flag on our own probe error
         detail["dead_check_error"] = str(e)[:160]
@@ -102,11 +112,13 @@ def check_slug(db, *, profile, owner, now) -> dict:
 
     severity = ("urgent" if ("dead_on_arrival" in codes
                              or "monthly_cap_reached" in codes)
-                else "warn" if codes else None)
-    healthy = not codes
+                else "warn" if [c for c in codes if c not in _INFO_CODES]
+                else "info" if codes else None)
+    # An info code (the owner closed the page on purpose) is not a defect.
+    healthy = not [c for c in codes if c not in _INFO_CODES]
     summary = (
         f"open {detail.get('open_days_count', '?')}/{_HORIZON_DAYS}"
-        if healthy else f"{','.join(codes)} · open {detail.get('open_days_count', '?')}/{_HORIZON_DAYS}"
+        if not codes else f"{','.join(codes)} · open {detail.get('open_days_count', '?')}/{_HORIZON_DAYS}"
     )
     return {"codes": codes, "detail": detail, "severity": severity,
             "healthy": healthy, "summary": summary}

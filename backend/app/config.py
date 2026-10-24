@@ -417,6 +417,20 @@ class Settings(BaseSettings):
     # Guest e-mails delivered across ALL venues in a rolling 24 h
     # (services/reservation_emails.py deliver()). Peak ~3/day.
     GUEST_EMAILS_FLEET_PER_DAY: int = 40
+    # Anonymous online bookings (services/booking_screen.py). Over a ceiling a
+    # booking is HELD as a request the owner approves — a real guest is never
+    # refused, a bot's flood holds no table. The group-request ceiling refuses
+    # (409 requests_full): a request already waits for the owner.
+    BOOKING_MIN_FILL_MS: int = 2000             # faster form fill → held
+    BOOKING_GROUP_REQUESTS_PER_DAY: int = 10    # per venue, rolling 24 h
+    BOOKING_CONTACT_ACTIVE_MAX: int = 3         # active future bookings per guest
+    BOOKING_VENUE_HOUR_MIN: int = 6             # floor of max(6, tables/chairs)
+    BOOKING_VENUE_DAY_MIN: int = 24             # floor of max(24, 4 × tables)
+    # Pings to the OWNER about online bookings and cancellations
+    # (services/owner_booking_alerts.py): this many an hour, then one summary,
+    # and never more than the day ceiling in a rolling 24 h.
+    OWNER_BOOKING_PINGS_PER_HOUR: int = 3
+    OWNER_BOOKING_PINGS_PER_DAY: int = 20
     # Wrong staff join / stand pairing codes from all addresses together:
     # JOIN_FAIL_GLOBAL_MAX within JOIN_FAIL_WINDOW_SEC pauses that door for
     # everyone for JOIN_COOLOFF_SEC (main.join_failure_brake).

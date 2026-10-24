@@ -11,6 +11,8 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import re
+import secrets
 from datetime import date, datetime, time, timedelta
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -72,6 +74,14 @@ DEFAULT_SETTINGS: dict = {
     # Fallback open window when operating_hours_json is unset.
     "fallback_open": "11:00",
     "fallback_close": "22:00",
+    # Dates the owner closed for ONLINE booking (holidays, a private party
+    # night, "pause until …"). The owner's own bookings are never stopped by
+    # them. Each entry {id, from, to, note, kind: "closed"|"pause"}; always
+    # written through clean_closures().
+    "closed_dates": [],
+    # E-mail the owner about new online bookings and guest cancellations
+    # (owner_booking_alerts caps them; push is opted into per device).
+    "owner_booking_emails": True,
 }
 
 
@@ -634,7 +644,7 @@ def group_request_slots(db: Session, *, profile: BusinessProfile, user_id, day: 
 # plan, tier or cap word — "not_accepting" (the monthly cap, set by the
 # router) is deliberately generic.
 DAY_REASONS = ("past", "not_yet_bookable", "not_accepting", "closed",
-               "no_times", "no_fit", "too_late", "full")
+               "no_times", "no_fit", "too_late", "full", "closed_date")
 # "Reason unknown": emitted only when classification fails or is skipped (the
 # surface monitor asks for no reasons). The page reads it as neutral.
 LEGACY_REASON = "closed_or_full"
@@ -662,6 +672,134 @@ def window_reason(day: date, today: date, max_advance: int) -> str | None:
     if day > today + timedelta(days=max_advance):
         return "not_yet_bookable"
     return None
+
+
+# ── Closed dates and pauses (online booking only) ───────────────────────
+# The owner closes a date ("Lukket juleaften") or pauses online booking
+# ("resten af i dag", "til og med fredag"). Both stop ONLINE booking only —
+# the public endpoints read them; restaurant_windows / provider_windows never
+# do, so the owner can still write a private party into the book.
+CLOSURE_KINDS = ("closed", "pause")
+CLOSURE_MAX_ENTRIES = 60
+CLOSURE_MAX_SPAN_DAYS = 366
+CLOSURE_NOTE_MAX = 80
+_CLOSURE_ID_RE = re.compile(r"^[0-9a-f]{8}$")
+
+
+def _iso_day(value) -> date | None:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value.strip()[:10])
+    except ValueError:
+        return None
+
+
+def clean_closure_note(note) -> str | None:
+    """A guest-facing closure note: links replaced, line breaks and runs of
+    spaces collapsed, at most CLOSURE_NOTE_MAX characters, "" → None."""
+    if not isinstance(note, str):
+        return None
+    from app.utils.text import strip_links
+    text = " ".join((strip_links(note) or "").split())
+    text = text[:CLOSURE_NOTE_MAX].strip()
+    return text or None
+
+
+def check_closure(entry, today: date) -> tuple[dict | None, str | None]:
+    """One closure entry → (clean entry, None) or (None, error code).
+
+    Error codes: bad_date, end_before_start, range_too_long, in_the_past.
+    The id is kept when it is a well-formed one, else a new one is minted."""
+    if not isinstance(entry, dict):
+        return None, "bad_date"
+    start = _iso_day(entry.get("from"))
+    raw_to = entry.get("to")
+    end = start if raw_to in (None, "") else _iso_day(raw_to)
+    if start is None or end is None:
+        return None, "bad_date"
+    if end < start:
+        return None, "end_before_start"
+    if (end - start).days + 1 > CLOSURE_MAX_SPAN_DAYS:
+        return None, "range_too_long"
+    if end < today:
+        return None, "in_the_past"
+    kind = entry.get("kind") if entry.get("kind") in CLOSURE_KINDS else "closed"
+    cid = entry.get("id")
+    if not (isinstance(cid, str) and _CLOSURE_ID_RE.match(cid)):
+        cid = secrets.token_hex(4)
+    return {"id": cid, "from": start.isoformat(), "to": end.isoformat(),
+            "note": clean_closure_note(entry.get("note")), "kind": kind}, None
+
+
+def clean_closures(raw, today: date) -> list[dict]:
+    """Every write of `closed_dates` goes through here: valid entries only,
+    anything that ended before yesterday pruned, sorted by start, at most
+    CLOSURE_MAX_ENTRIES, ids unique. Junk is dropped, never stored."""
+    out: list[dict] = []
+    seen: set = set()
+    for entry in raw if isinstance(raw, list) else []:
+        # Yesterday stays one more day, so a guest's receipt from last night
+        # still reads the note; older entries go.
+        clean, _err = check_closure(entry, today - timedelta(days=1))
+        if clean is None:
+            continue
+        while clean["id"] in seen:
+            clean["id"] = secrets.token_hex(4)
+        seen.add(clean["id"])
+        out.append(clean)
+    out.sort(key=lambda e: (e["from"], e["to"], e["id"]))
+    return out[:CLOSURE_MAX_ENTRIES]
+
+
+def _closure_entries(settings: dict) -> list[dict]:
+    """The stored entries, read defensively (a junk value reads as none)."""
+    raw = settings.get("closed_dates") if isinstance(settings, dict) else None
+    out = []
+    for e in raw if isinstance(raw, list) else []:
+        if not isinstance(e, dict):
+            continue
+        start, end = _iso_day(e.get("from")), _iso_day(e.get("to") or e.get("from"))
+        if start is None or end is None or end < start:
+            continue
+        out.append({**e, "_from": start, "_to": end,
+                    "kind": e.get("kind") if e.get("kind") in CLOSURE_KINDS else "closed"})
+    return out
+
+
+def _public(e: dict) -> dict:
+    return {"id": e.get("id"), "from": e["_from"].isoformat(), "to": e["_to"].isoformat(),
+            "note": e.get("note") if isinstance(e.get("note"), str) and e.get("note") else None,
+            "kind": e["kind"]}
+
+
+def closure_on(settings: dict, day: date) -> dict | None:
+    """The closure covering `day` ({id, from, to, note, kind}), or None. A
+    "closed" entry wins over a "pause" on the same day."""
+    hits = [e for e in _closure_entries(settings) if e["_from"] <= day <= e["_to"]]
+    if not hits:
+        return None
+    hits.sort(key=lambda e: (e["kind"] != "closed", e["_from"]))
+    return _public(hits[0])
+
+
+def pause_covering(settings: dict, today: date) -> dict | None:
+    """The pause entry whose range includes today, or None."""
+    hits = [e for e in _closure_entries(settings)
+            if e["kind"] == "pause" and e["_from"] <= today <= e["_to"]]
+    if not hits:
+        return None
+    hits.sort(key=lambda e: e["_to"], reverse=True)
+    return _public(hits[0])
+
+
+def closures_between(settings: dict, start: date, end: date) -> list[dict]:
+    """Entries overlapping [start, end], sorted by start."""
+    hits = [e for e in _closure_entries(settings) if e["_from"] <= end and e["_to"] >= start]
+    hits.sort(key=lambda e: (e["_from"], e["_to"]))
+    return [_public(e) for e in hits]
 
 
 def _closed_by_declaration(profile: BusinessProfile | None, settings: dict,
@@ -844,7 +982,9 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
     `reason` is None on a day with times, else one of DAY_REASONS: `past` /
     `not_yet_bookable` outside the advance window; for an empty in-window day
     `closed` (declared closed in the Profile hours), `no_times`, `no_fit`,
-    `too_late` or `full` (see classify_empty_day). `has_slots` and
+    `too_late` or `full` (see classify_empty_day); `closed_date` for a date
+    the owner closed for online booking (that day also carries `note` and
+    `kind`, with or without reasons). `has_slots` and
     `next_open_day` are computed first, exactly as before — a reason never
     changes them. With `with_reasons=False` (the monitor, which reads only
     has_slots / next_open_day) an empty in-window day reads LEGACY_REASON and
@@ -881,6 +1021,16 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
         outside = window_reason(d, today, max_advance)
         if outside:
             out.append({"date": d.isoformat(), "has_slots": False, "reason": outside})
+            continue
+        # A date the owner closed for online booking: closed, with the
+        # owner's note, whatever the hours say — and named even when no
+        # reasons are asked for (the monitor tells "closed by the owner"
+        # from a dead page).
+        closure = closure_on(settings, d)
+        if closure is not None:
+            out.append({"date": d.isoformat(), "has_slots": False,
+                        "reason": "closed_date", "note": closure["note"],
+                        "kind": closure["kind"]})
             continue
         if group:
             slots = group_request_slots(
