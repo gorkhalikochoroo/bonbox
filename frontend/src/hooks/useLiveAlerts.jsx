@@ -51,6 +51,7 @@ import { playCancel, playChime, playUrgent, prepareSoundWhenIdle, unlockSound } 
 import { onApiIdle } from "../services/apiActivity";
 import { useGuestSurface } from "../lib/guestSurface";
 import { RESERVATIONS_CHANGED_EVENT, alertSoundFor, splitHeld } from "../lib/liveAlertKinds";
+import { guestText } from "../utils/guestText";
 
 const POLL_MS = 20000;
 const FEED_CAP = 25;
@@ -180,7 +181,7 @@ export function LiveAlertsProvider({ children }) {
   // Build a toast + feed entry from a change row.
   const describe = useCallback(
     (c) => {
-      const who = c.guest_name || t("liveAlertGuest", "Guest");
+      const who = guestText(c.guest_name) || t("liveAlertGuest", "Guest");
       const bits = [];
       if (c.table_label) bits.push(c.table_label);
       if (c.starts_at) {

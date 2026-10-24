@@ -94,6 +94,7 @@ import { fitRoom, roomMinWidth, tableFootprint } from "../utils/floorFit";
 import { comboLinks } from "../utils/hostStand";
 import { zoneTones } from "../utils/zoneColors";
 import { lateMinutes, overdueMinutes, overByText } from "../utils/serviceClock";
+import { guestText } from "../utils/guestText";
 
 // ── Status → visual tokens ────────────────────────────────────────────
 // Mirrors deriveFloorState's status vocabulary, in the book's colours (one
@@ -409,7 +410,7 @@ function TableNode({
               ? t("rsvpFreesInM", "free ~{n}m", { n: Math.max(0, booking.freesInMin) })
               : t("rsvpFreesAt", "free {time}", { time: booking.freesAt })
             : booking
-              ? `${booking.time}${booking.name ? " · " + booking.name : ""}`
+              ? `${booking.time}${booking.name ? " · " + guestText(booking.name) : ""}`
               : null;
 
   // ── Fit the words to the table ──────────────────────────────────────

@@ -122,6 +122,7 @@ import { formatKr } from "../utils/currency";
 import { businessTodayIso } from "../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 import { parseServerTime } from "../utils/serverTime";
+import { guestText } from "../utils/guestText";
 
 // Status → status-pill styling. Colour is BUDGETED, status-only (design
 // doctrine): it appears where it MEANS something and recedes where it
@@ -961,7 +962,7 @@ function FlagsCell({ r, t }) {
   const severe = r.allergy_severity === "severe";
   const allergyTitle = [
     (r.allergen_tags || []).map((k) => t(`allergen_${k}`, k)).join(", "),
-    r.allergy_note,
+    guestText(r.allergy_note),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -1000,7 +1001,7 @@ function FlagsCell({ r, t }) {
         </span>
       )}
       {r.occasion && (
-        <PartyPopper className="w-4 h-4" aria-label={r.occasion} title={r.occasion} />
+        <PartyPopper className="w-4 h-4" aria-label={guestText(r.occasion)} title={guestText(r.occasion)} />
       )}
       {r.source === "public" && (
         <Globe className="w-4 h-4" aria-label={t("rsvpSourceOnline", "online")} title={t("rsvpSourceOnline", "online")} />
@@ -1253,7 +1254,7 @@ function ReservationDrawer({
   const severe = r.allergy_severity === "severe";
   const allergyText = [
     (r.allergen_tags || []).map((k) => t(`allergen_${k}`, k)).join(", "),
-    r.allergy_note,
+    guestText(r.allergy_note),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -1297,7 +1298,7 @@ function ReservationDrawer({
     <Sheet
       onClose={onClose}
       // A name for screen readers: the booking it shows.
-      ariaLabel={`${r.guest_name || t("rsvpGuest", "Guest")} · ${fmtTime(r.starts_at)}`}
+      ariaLabel={`${guestText(r.guest_name) || t("rsvpGuest", "Guest")} · ${fmtTime(r.starts_at)}`}
       desktop="right"
       panelClassName={
         "bg-white dark:bg-[rgb(var(--surface-raised))] shadow-2xl border-t sm:border-t-0 sm:border-l border-gray-200 dark:border-[rgb(var(--surface-line-strong))] transition-shadow duration-700 " +
@@ -1313,7 +1314,7 @@ function ReservationDrawer({
                 {fmtTime(r.starts_at)}–{fmtTime(r.ends_at)}
               </div>
               <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                {r.guest_name || "—"}
+                {guestText(r.guest_name) || "—"}
               </div>
               {held && (
                 <div data-testid="rsvp-held-drawer" className="mt-1 space-y-0.5">
@@ -1493,7 +1494,7 @@ function ReservationDrawer({
                 }
               />
             )}
-            {r.occasion && <DetailRow label={t("rsvpOccasion", "Occasion")} value={r.occasion} />}
+            {r.occasion && <DetailRow label={t("rsvpOccasion", "Occasion")} value={guestText(r.occasion)} />}
           </div>
 
           {/* Assign / move table — for live bookings (not combined seatings,
@@ -1572,7 +1573,7 @@ function ReservationDrawer({
             )}
 
           {r.guest_notes && (
-            <p className="text-sm text-gray-600 dark:text-gray-300">{r.guest_notes}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-300">{guestText(r.guest_notes)}</p>
           )}
         </div>
 
@@ -3060,11 +3061,11 @@ function blockTitle(r, labels, t, late = 0, over = 0) {
   const word = over
     ? t("rsvpOverduePill", "Over time · {txt}", { txt: overByText(t, over) })
     : late ? t("rsvpLatePillText", "Late · {txt}", { txt: overByText(t, late) }) : labels[r.status] || r.status;
-  const base = `${fmtTime(r.starts_at)} ${r.guest_name || ""} (${r.party_size}) · ${word}`;
+  const base = `${fmtTime(r.starts_at)} ${guestText(r.guest_name) || ""} (${r.party_size}) · ${word}`;
   if (!allergyLevel(r)) return base;
   const detail = [
     (r.allergen_tags || []).map((k) => t(`allergen_${k}`, k)).join(", "),
-    r.allergy_note,
+    guestText(r.allergy_note),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -3407,7 +3408,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                             aria-hidden
                           />
                         )}
-                        {r.guest_name || t("rsvpGuest", "Guest")}
+                        {guestText(r.guest_name) || t("rsvpGuest", "Guest")}
                       </span>
                     </TimelineBarLabel>
                   </button>
@@ -3518,7 +3519,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                               aria-hidden
                             />
                           )}
-                          {r.guest_name || t("rsvpGuest", "Guest")}
+                          {guestText(r.guest_name) || t("rsvpGuest", "Guest")}
                         </span>
                       </TimelineBarLabel>
                     </button>
@@ -3532,10 +3533,10 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                         title={checkedInWords ? t("rsvpSeatActionAppt", "Check in") : t("rsvpSeatAction", "Seat")}
                         aria-label={checkedInWords
                           ? t("rsvpSeatNowAriaAppt", "Check {name} in", {
-                              name: r.guest_name || t("rsvpColGuestAppt", "Customer"),
+                              name: guestText(r.guest_name) || t("rsvpColGuestAppt", "Customer"),
                             })
                           : t("rsvpSeatNowAria", "Seat {name}", {
-                              name: r.guest_name || t("rsvpGuest", "Guest"),
+                              name: guestText(r.guest_name) || t("rsvpGuest", "Guest"),
                             })}
                         // Top half of the bar's right end — the time line's
                         // free space. Its own surface, so a name scrolled
@@ -4898,12 +4899,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       if (occ) {
         const ok = await occupiedConfirm({
           table: resolveTableLabel(occ, labelById),
-          name: occ.guest_name,
+          name: guestText(occ.guest_name),
           overMin: overdueMinutes(occ, Date.now()),
           endsAt: occ.ends_at,
-        }, r.guest_name);
+        }, guestText(r.guest_name));
         if (!ok) { openOnTables(r); return; }
-        finishFirst = { id: occ.id, name: occ.guest_name };
+        finishFirst = { id: occ.id, name: guestText(occ.guest_name) };
       }
     }
     // Seating a booking hours early is almost always the wrong row (a 20:00
@@ -4913,7 +4914,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     if (status === "seated" && r.status !== "completed" && r.starts_at) {
       const aheadMin = (new Date(r.starts_at).getTime() - Date.now()) / 60000;
       if (aheadMin > 60) {
-        const who = r.guest_name || t("rsvpGuest", "Guest");
+        const who = guestText(r.guest_name) || t("rsvpGuest", "Guest");
         // Someone else due on the same table inside their sitting: say who
         // and when, before the host commits — it was silent.
         const mine = Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length
@@ -4957,7 +4958,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       }
     }
     if (status === "no_show") {
-      const who = r.guest_name || t("rsvpGuest", "Guest");
+      const who = guestText(r.guest_name) || t("rsvpGuest", "Guest");
       if (
         !(await confirm({
           title: t("rsvpNoShowConfirmTitle", "Mark as no-show?"),
@@ -4993,7 +4994,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         return;
       }
     } else if (status === "cancelled") {
-      const who = r.guest_name || (apptWords ? t("rsvpColGuestAppt", "Customer") : t("rsvpGuest", "Guest"));
+      const who = guestText(r.guest_name) || (apptWords ? t("rsvpColGuestAppt", "Customer") : t("rsvpGuest", "Guest"));
       // A `requested` booking is DECLINED (it was never confirmed), not a
       // confirmed booking CANCELLED — honest, distinct copy for each while
       // keeping the ONE useConfirm dialog. This single confirm owns BOTH the
@@ -5106,7 +5107,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           severity: "notice",
           message: wasLate
             ? t("rsvpSeatLateKept", "{table} is needed at {time} — {name} has it until then.", {
-                table: kept.table || t("rsvpTableFallback", "Table"), time: hm(kept.at), name: r.guest_name || t("rsvpGuest", "Guest"),
+                table: kept.table || t("rsvpTableFallback", "Table"), time: hm(kept.at), name: guestText(r.guest_name) || t("rsvpGuest", "Guest"),
               })
             : t("rsvpSeatEarlyKept", "{table} is needed at {time}, so the booking keeps {booked}. Give them another table in the booking.", {
                 table: kept.table || t("rsvpTableFallback", "Table"), time: hm(kept.at), booked: fmtTime(r.starts_at),
@@ -5120,7 +5121,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         toast({
           severity: "info",
           message: t("rsvpSeatedMovedFrom", "{name} is seated — the table is theirs until {end} (booked {booked}).", {
-            name: r.guest_name || t("rsvpGuest", "Guest"),
+            name: guestText(r.guest_name) || t("rsvpGuest", "Guest"),
             end: fmtTime(resp.data.ends_at),
             booked: fmtTime(movedFrom),
           }),
@@ -5130,13 +5131,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         toast({
           severity: "info",
           message: t("rsvpNoShowDone", "{name} is marked as no-show. Reopen the booking if they turn up.", {
-            name: r.guest_name || t("rsvpGuest", "Guest"),
+            name: guestText(r.guest_name) || t("rsvpGuest", "Guest"),
           }),
         });
       }
       // Every change on the book is said, not just some: finishing, a
       // cancel and a removed drop-in only changed a colour.
-      const doneName = r.guest_name || t("rsvpGuest", "Guest");
+      const doneName = guestText(r.guest_name) || t("rsvpGuest", "Guest");
       if (status === "completed" && !finishFirst) {
         const tbl = resolveTableLabel(r, labelById);
         toast({
@@ -5179,7 +5180,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           severity: "success",
           message: t("rsvpFinishedAndSeated", "{done} finished — {name} seated at {table}.", {
             done: finishFirst.name || t("rsvpGuest", "Guest"),
-            name: r.guest_name || t("rsvpGuest", "Guest"),
+            name: guestText(r.guest_name) || t("rsvpGuest", "Guest"),
             table: resolveTableLabel(resp?.data || r, labelById) || t("rsvpTableFallback", "Table"),
           }),
         });
@@ -5189,7 +5190,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         toast({
           severity: "info",
           message: t("rsvpUndoSeatDone", "Seating undone — {name} is booked for {time} again.", {
-            name: r.guest_name || t("rsvpGuest", "Guest"), time: fmtTime(resp?.data?.starts_at || r.starts_at),
+            name: guestText(r.guest_name) || t("rsvpGuest", "Guest"), time: fmtTime(resp?.data?.starts_at || r.starts_at),
           }),
         });
       }
@@ -5216,10 +5217,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       if (e?.response?.status === 409 && d.error === "table_occupied" && d.occupant && !opts.retried) {
         await fetchBook(day);
         const ok = await occupiedConfirm({
-          table: d.occupant.table, name: d.occupant.name, overMin: d.occupant.over_min, endsAt: d.occupant.ends_at,
-        }, r.guest_name);
+          table: d.occupant.table, name: guestText(d.occupant.name), overMin: d.occupant.over_min, endsAt: d.occupant.ends_at,
+        }, guestText(r.guest_name));
         setActioningId(null);
-        if (ok) await setStatus(r, status, null, { finishFirst: { id: d.occupant.id, name: d.occupant.name }, retried: true });
+        if (ok) await setStatus(r, status, null, { finishFirst: { id: d.occupant.id, name: guestText(d.occupant.name) }, retried: true });
         else openOnTables(r);
         return;
       }
@@ -5654,7 +5655,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         toast({
           severity: "success",
           message: t("rsvpCombinedDone", "{name} now has {tables}.", {
-            name: r.guest_name || t("rsvpGuest", "Guest"),
+            name: guestText(r.guest_name) || t("rsvpGuest", "Guest"),
             tables: many.map((id) => labelById[String(id)]).filter(Boolean).join(" + "),
           }),
         });
@@ -5733,7 +5734,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         toast({
           severity: "notice",
           message: t("rsvpEditNoTableNow", "{name} is saved without a table — {table} is booked from {time}.", {
-            name: res.data.guest_name || t("rsvpGuest", "Guest"),
+            name: guestText(res.data.guest_name) || t("rsvpGuest", "Guest"),
             table: mv.clash_table || mv.from || t("rsvpTableFallback", "Table"),
             time: hm(mv.clash_at || ""),
           }),
@@ -5743,11 +5744,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           severity: "success",
           message: mv.from
             ? mv.clash_table
-              ? t("rsvpEditMovedClash", "{name} moved to {to} — {from} is booked from {time}.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to, from: mv.from, time: hm(mv.clash_at) })
+              ? t("rsvpEditMovedClash", "{name} moved to {to} — {from} is booked from {time}.", { name: guestText(res.data.guest_name) || t("rsvpGuest", "Guest"), to: mv.to, from: mv.from, time: hm(mv.clash_at) })
               : mv.from_seats
-                ? t("rsvpEditMovedSeats", "{name} moved to {to} — {from} seats {seats}.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to, from: mv.from, seats: mv.from_seats })
-                : t("rsvpEditMovedTable", "{name} moved to {to} — {from} didn't fit.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to, from: mv.from })
-            : t("rsvpEditMovedTableShort", "{name} is now at {to}.", { name: res.data.guest_name || t("rsvpGuest", "Guest"), to: mv.to }),
+                ? t("rsvpEditMovedSeats", "{name} moved to {to} — {from} seats {seats}.", { name: guestText(res.data.guest_name) || t("rsvpGuest", "Guest"), to: mv.to, from: mv.from, seats: mv.from_seats })
+                : t("rsvpEditMovedTable", "{name} moved to {to} — {from} didn't fit.", { name: guestText(res.data.guest_name) || t("rsvpGuest", "Guest"), to: mv.to, from: mv.from })
+            : t("rsvpEditMovedTableShort", "{name} is now at {to}.", { name: guestText(res.data.guest_name) || t("rsvpGuest", "Guest"), to: mv.to }),
         });
       }
       // "Gem alligevel" kept the booking as typed although it doesn't fit —
@@ -5755,7 +5756,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // just closing.
       const kept = res?.data?.kept;
       if (!mv && kept) {
-        const name = res.data.guest_name || t("rsvpGuest", "Guest");
+        const name = guestText(res.data.guest_name) || t("rsvpGuest", "Guest");
         toast({
           severity: "info",
           message: kept.party > kept.seats && kept.table
@@ -6161,7 +6162,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // already on the booking, so it costs nothing to say it.
   const nextArrivalHelper = useMemo(() => {
     if (!nextArrival) return t("rsvpNothingUpcoming", "Nothing upcoming");
-    const name = (nextArrival.guest_name || "").trim();
+    const name = (guestText(nextArrival.guest_name) || "").trim();
     const who = name
       ? `${name} · ${nextArrival.party_size}`
       : t("rsvpPartyOf", "Party of {n}", { n: nextArrival.party_size });
@@ -6347,9 +6348,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         <div className="min-w-0 max-w-[16rem]">
           <div
             className={"text-sm font-medium text-gray-900 dark:text-gray-100 truncate " + (r.status === "cancelled" ? "line-through decoration-gray-400" : "")}
-            title={r.guest_name || undefined}
+            title={guestText(r.guest_name) || undefined}
           >
-            {r.guest_name || "—"}
+            {guestText(r.guest_name) || "—"}
           </div>
           {isHeldForCheck(r, publicPage?.groupThreshold) && (
             <div data-testid="rsvp-held-label" className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
@@ -6386,7 +6387,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             if (!hasAllergy) return null;
             const detail = [
               (r.allergen_tags || []).map((k) => t(`allergen_${k}`, k)).join(", "),
-              r.allergy_note,
+              guestText(r.allergy_note),
             ]
               .filter(Boolean)
               .join(" · ");
@@ -6417,8 +6418,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           {/* The guest's note, on the row — it was only in the drawer, so a
               birthday cake or a high chair meant opening every booking. */}
           {(r.occasion || r.guest_notes) && (
-            <div className="text-[12px] text-gray-500 dark:text-gray-400 truncate" title={[r.occasion, r.guest_notes].filter(Boolean).join(" · ")}>
-              {[r.occasion, r.guest_notes].filter(Boolean).join(" · ")}
+            <div className="text-[12px] text-gray-500 dark:text-gray-400 truncate" title={[r.occasion, r.guest_notes].filter(Boolean).map(guestText).join(" · ")}>
+              {[r.occasion, r.guest_notes].filter(Boolean).map(guestText).join(" · ")}
             </div>
           )}
         </div>
@@ -6503,7 +6504,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // confirm dialog so a mid-rush fat-finger can't silently kill a table.
   const rowActions = (r) => {
     const busy = actioningId === r.id;
-    const who = r.guest_name || t("rsvpGuest", "Guest");
+    const who = guestText(r.guest_name) || t("rsvpGuest", "Guest");
     // setStatus already owns the single "cancelled" confirm — and now picks
     // DECLINE vs CANCEL copy from r.status (a `requested` booking is declined,
     // a confirmed one is cancelled). So hand "cancelled" straight through (no
@@ -6607,7 +6608,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             "Fø…" — on the one line a host reads to find the guest. */}
         <div className="min-w-0 flex-1 leading-tight">
           <div className={"text-sm font-medium text-gray-900 dark:text-gray-100 truncate" + (r.status === "cancelled" ? " line-through" : "")}>
-            {r.guest_name || "—"}
+            {guestText(r.guest_name) || "—"}
             {hasAllergy && r.status !== "cancelled" && (
               <AlertTriangle
                 className={
@@ -6734,11 +6735,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             <div className="mt-0.5 text-[12px] truncate text-gray-500 dark:text-gray-400">
               {r.allergy_note && (
                 <span className={r.allergy_severity === "severe" ? "font-medium text-red-600 dark:text-red-400" : "font-medium text-amber-700 dark:text-amber-400"}>
-                  {r.allergy_note}
+                  {guestText(r.allergy_note)}
                 </span>
               )}
               {r.allergy_note && (r.occasion || r.guest_notes) ? " · " : ""}
-              {[r.occasion, r.guest_notes].filter(Boolean).join(" · ")}
+              {[r.occasion, r.guest_notes].filter(Boolean).map(guestText).join(" · ")}
             </div>
           )}
         </div>
@@ -7658,7 +7659,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                         {shortDayLabel(h.day, t, lang)} · {hm(String(h.starts_at).slice(11, 16))}
                       </span>
                       <span className="flex-1 min-w-0 truncate text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {h.guest_name || t("rsvpGuest", "Guest")}
+                        {guestText(h.guest_name) || t("rsvpGuest", "Guest")}
                       </span>
                       <span className="inline-flex items-center gap-1 text-sm tabular-nums text-gray-700 dark:text-gray-300 shrink-0">
                         <Users className="w-3.5 h-3.5 text-gray-400" aria-hidden />{h.party_size}
@@ -7824,7 +7825,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             <span className="font-medium">{t("rsvpSeatedNoTableBanner", "Seated without a table:")}</span>
             {loose.map((r) => (
               <button key={r.id} type="button" onClick={() => openDrawer(r)} className="font-medium underline underline-offset-2 hover:no-underline">
-                {(r.guest_name || t("rsvpGuest", "Guest")) + " · " + r.party_size}
+                {(guestText(r.guest_name) || t("rsvpGuest", "Guest")) + " · " + r.party_size}
               </button>
             ))}
           </div>

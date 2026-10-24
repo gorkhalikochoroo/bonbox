@@ -2,6 +2,7 @@ import React from "react";
 import { AlertTriangle } from "lucide-react";
 import { fmtTime } from "../../utils/floorState";
 import { hasAllergy, UPCOMING_MAX_ROWS } from "../../utils/upcomingArrivals";
+import { guestText } from "../../utils/guestText";
 
 /**
  * "Kommende" — who is still to arrive, under the month calendar on desktop.
@@ -79,7 +80,7 @@ export default function UpcomingRail({
                   <span className="min-w-0">
                     <span className="flex items-center gap-1 min-w-0">
                       <span className="truncate text-[13px] text-gray-900 dark:text-gray-100">
-                        {r.guest_name || t("rsvpPartyOf", "Party of {n}", { n: r.party_size })}
+                        {guestText(r.guest_name) || t("rsvpPartyOf", "Party of {n}", { n: r.party_size })}
                       </span>
                       {allergy && (
                         <AlertTriangle
