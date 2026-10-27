@@ -2026,6 +2026,13 @@ export default function ReservationPublicPage() {
   const timesShowGrid =
     !(isProvider && !behandlingId) && !slotsError && closedReason !== "not_accepting" && !paused &&
     slotGroups.length > 0;
+  // G10 (judge 27 Oct, item 3): while the full night's offer — or the
+  // guest's place on its waitlist — is on screen and no time is picked, the
+  // bar's "Vælg tid" leads nowhere and is a second main green: no bar then.
+  // A nearest time or an earlier time picked brings it back ("Fortsæt").
+  const fullNightOnScreen =
+    step === 1 && !pausedPanel && !isProvider && !!fullNight && !slot &&
+    (dayReason === "full" || (timesShowGrid && eveningFull));
 
   // The paused panel can replace step 1 after the guest tapped a date or a
   // party (an /availability answer says "not_accepting"): the focused chip
@@ -3107,7 +3114,7 @@ export default function ReservationPublicPage() {
         // and pads the one card (EMBED_GROUND); with &flat=1, nothing.
         isEmbed
           ? (embedCard ? EMBED_GROUND : "")
-          : (pausedStep1 ? "pb-12" : "pb-32") + " sm:pt-10 sm:pb-12 sm:bg-gray-50 sm:dark:bg-gray-950"
+          : (pausedStep1 || fullNightOnScreen ? "pb-12" : "pb-32") + " sm:pt-10 sm:pb-12 sm:bg-gray-50 sm:dark:bg-gray-950"
       }`}
     >
       <div className={wide ? "grid grid-cols-[minmax(0,1fr)_28rem] gap-12 max-w-5xl mx-auto px-8 items-start" : "contents"}>
@@ -4367,7 +4374,7 @@ export default function ReservationPublicPage() {
             Embedded (?embed=1): `sticky` so it flows with the content-sized
             widget — it settles under the form in a short frame and pins to the
             frame bottom while scrolling a tall one, never detaching. */}
-        {!pausedStep1 && (
+        {!pausedStep1 && !fullNightOnScreen && (
         <div
           ref={barRef}
           data-testid="rsvp-cta-bar"

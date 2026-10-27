@@ -380,14 +380,17 @@ export function FullNight({
                 <span className="w-[6.5rem] shrink-0 text-[13px] font-medium text-gray-700 dark:text-gray-300 first-letter:uppercase">
                   {d.date === day ? t("rsvpNearestSameDay", "Earlier that day") : kit.fmtDayShort(d.date, lang)}
                 </span>
-                <div className="flex flex-wrap gap-2">
+                {/* Up to three times a day (the server's NEAREST_TIMES): three
+                    columns that fill the row to the card's edge (G10 item 3:
+                    they stopped 16 px short) and line up from day to day. */}
+                <div className="flex-1 min-w-0 grid grid-cols-3 gap-2">
                   {d.times.map((x) => (
                     <BookingTile
                       key={x}
                       selected={d.date === day && slot === x}
                       onClick={() => onPickTime?.(d.date, x)}
                       aria-label={t("rsvpNearestPick", "Book {day} at {time}", { day: kit.fmtDayLabel(d.date, lang), time: x })}
-                      className={"h-10 min-h-0! px-3.5 tabular-nums text-[14px] " + FOCUS}
+                      className={"w-full h-10 min-h-0! px-0 tabular-nums text-[14px] " + FOCUS}
                     >
                       {x}
                     </BookingTile>

@@ -521,3 +521,49 @@ describe("English", () => {
     expect(block.textContent).toContain("It isn't a booking — if a table frees up, Bistro Test may contact you by phone.");
   });
 });
+
+// Fix round 27 Oct — design judge G10 item 3: one main green on the full
+// night. The sticky bar's "Vælg tid" led nowhere under the offer and under
+// "Du er på ventelisten"; the nearest times stopped 16 px short of the row.
+describe("G10 item 3: the full night has one main green and full rows", () => {
+  it("no sticky bar while the offer is on screen; a nearest time picked brings it back", async () => {
+    routes();
+    renderAt();
+    await settle();
+    expect(screen.getByTestId("rsvp-cta-bar")).toBeTruthy();       // an open day: the bar (control)
+    await pickThursday();
+    expect(screen.queryByTestId("rsvp-cta-bar")).toBeNull();
+    const near = screen.getByTestId("rsvp-nearest");
+    for (const row of near.querySelectorAll("li > div")) {
+      expect(row.className).toContain("grid-cols-3");
+      expect(row.className).toContain("flex-1");
+    }
+    for (const tile of within(near).getAllByRole("button")) expect(tile.className).toMatch(/(^| )w-full( |$)/);
+    fireEvent.click(within(near).getAllByRole("button")[0]);
+    await settle();
+    expect(screen.queryByTestId("rsvp-full-night")).toBeNull();
+    expect(screen.getByTestId("rsvp-cta-bar")).toBeTruthy();
+  });
+
+  it("nor under the guest's place on the list once they joined", async () => {
+    routes();
+    h.post.mockResolvedValue({ data: {
+      id: "w-1", status: "waiting", waitlist_date: THU, party_size: 2, preferred_time: null,
+      erased: false, waitlist_token: "tok-1",
+    } });
+    renderAt();
+    await settle();
+    await pickThursday();
+    fireEvent.click(joinCta());
+    const form = screen.getByTestId("rsvp-wl-form");
+    type(within(form).getByLabelText(da.rsvpName), "Agnes Holm");
+    type(within(form).getByLabelText(da.rsvpWlPhone), "+45 20 30 40 50");
+    await act(async () => {
+      fireEvent.click(within(form).getByRole("button", { name: da.rsvpWlOfferCta }));
+    });
+    await settle();
+    expect(await screen.findByTestId("rsvp-wl-receipt")).toBeTruthy();
+    expect(screen.queryByTestId("rsvp-cta-bar")).toBeNull();
+    expect(screen.queryByRole("button", { name: da.rsvpPickTimeShort })).toBeNull();
+  });
+});
