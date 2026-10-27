@@ -63,7 +63,7 @@ import { markGuestSurface } from "../lib/guestSurface";
 import { forceLightTheme } from "../utils/themeColor";
 import { venueMonogram } from "../utils/venueMonogram";
 import { contactState } from "../utils/guestContact";
-import { rescueDay } from "../utils/bookingDay";
+import { rescueDay, seedStep1 } from "../utils/bookingDay";
 import { GUEST_REFUSALS, guestRefusalOf } from "../utils/bookingRefusal";
 import { capFirst, dateLocale, fmtDayLabel, fmtDayShort } from "../utils/guestLocale";
 import { isFramed } from "../utils/framed";
@@ -85,7 +85,21 @@ import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useLanguage } from "../hooks/useLanguage";
 import { loadLocale, loadedLocales } from "../lib/localeStore";
 import Button from "../components/ui/Button";
-import Chip from "../components/ui/Chip";
+import BookingTile from "../components/booking/BookingTile";
+import EarnedText from "../components/booking/EarnedText";
+import {
+  SKELETON_COUNT,
+  SKELETON_GRID,
+  TILE_CLOSED,
+  TILE_HOVER,
+  TILE_PICKED,
+  TILE_REST,
+  dateRailCols,
+  skeletonTileClass,
+  timeGridCols,
+} from "../components/booking/bookingTiles";
+import { useDelayedFlag } from "../hooks/useDelayedFlag";
+import { useAutoHeight } from "../hooks/useAutoHeight";
 import Input from "../components/ui/Input";
 import Sheet from "../components/ui/Sheet";
 import MonthCalendar from "../components/MonthCalendar";
@@ -157,12 +171,11 @@ const SECTION_TITLE = "block text-[15px] font-semibold tracking-tight text-gray-
 
 // One keyboard focus ring for every control on the page. The chips wore a
 // faint grey ring (~2.6:1) and the day chips and links the browser's own
-// outline — two looks, one of them nearly invisible.
+// outline — two looks, one of them nearly invisible. The picker tiles
+// (BookingTile) wear this one too.
 const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
   "focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-950";
-// The same, for the shared Chip primitive (its own ring is the faint one).
-const CHIP_FOCUS = "focus-visible:ring-gray-900! dark:focus-visible:ring-gray-100! focus-visible:ring-offset-2!";
 
 // "Ring til os: {phone}" where a day can't be booked online (the paused panel,
 // a party online can't seat, nothing open). 40px / 13px, the 27 Sep phone
@@ -176,6 +189,35 @@ const TEL_ACTION =
   "border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 " +
   "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors duration-200 " + FOCUS;
 
+// ── Finish (booking R3, "Refined, finished", judge 24 Oct 2026) ─────
+// Grayscale anti-aliasing on the guest page only — the crisper, lighter
+// Inter. Never global: the owner app is pixel-fitted (check by eye on a
+// device before merge).
+const ROOT_FINISH = "antialiased";
+// The embed's ground from 450 px: transparent (the host's colour shows), and
+// padding round the one card so its shadow is never cut by the frame.
+const EMBED_GROUND = "min-[450px]:bg-transparent min-[450px]:px-4 min-[450px]:pt-4 min-[450px]:pb-6";
+// The one elevation: white, 16 px corners (the hero rung), a 5 % ring and
+// one soft shadow. Light only — the embed forces light.
+const EMBED_CARD =
+  "min-[450px]:bg-white min-[450px]:rounded-[16px] " +
+  "min-[450px]:shadow-[0_0_0_1px_rgb(16_24_40/0.05),0_1px_2px_rgb(16_24_40/0.04),0_16px_40px_-20px_rgb(16_24_40/0.18)]";
+// A step enters over 220 ms from 4 px on the page's one curve (was 350 ms
+// from 8 px on the default ease). No fill mode: at rest there is no
+// transform, so nothing fixed inside is re-anchored.
+const STEP_ENTER = "motion-safe:animate-[bbStep_220ms_cubic-bezier(0.22,1,0.36,1)]";
+// The main action's finish: a 1 px neutral contact shadow (never green) and,
+// while CTA_TOP_EDGE is on, an 8 % white top edge — the one concession to
+// "glossy", an edge, not a gradient. It stays only if it passes Manoj's look
+// on a real phone (judge, call 2); false drops it, nothing depends on it.
+// Disabled, neither. The transition lives in index.css (.bb-cta).
+const CTA_TOP_EDGE = true;
+const CTA_FINISH =
+  "bb-cta disabled:shadow-none " +
+  (CTA_TOP_EDGE
+    ? "shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_1px_2px_rgb(16_24_40/0.18)]"
+    : "shadow-[0_1px_2px_rgb(16_24_40/0.18)]");
+
 // The day's times: a segmented control for the services (Frokost /
 // Eftermiddag / Aften) and that service's times four across. As horizontal
 // rails a full day (~40 times) showed 13 and hid the rest behind swipes; here
@@ -185,7 +227,18 @@ const TEL_ACTION =
 // `apptWords`: a salon, a shop or a workshop — its scarce slot is the last
 // TIME, never the last table. (Its groups are the day's parts, not meals:
 // groupSlots; with no "dinner" among them the grid opens on the first.)
+// A new day or party keeps the old times on screen until the new ones land.
+// Taps are blocked at once, but the grid dims (to .6) only when the answer is
+// slow: 180 ms (useDelayedFlag), and it comes back over 160 ms. Most answers
+// land in ~100 ms, and the grid used to blink on every tap, even when the
+// same times came back (judge 24 Oct, f95). Only a time that is NEW arrives
+// (3 px over 200 ms); chips are keyed by time, so an unchanged time is the
+// same node and never moves. The whole-grid fade on every mount is gone.
+// Columns are balanced so no time sits alone on its last row (timeGridCols).
+const TIME_ARRIVE = "motion-safe:animate-[bbArrive_200ms_cubic-bezier(0.22,1,0.36,1)]";
+
 function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords = false }) {
+  const dim = useDelayedFlag(loading, 180);
   const groupOf = (s) => groups.find((g) => g.slots.includes(s))?.key || null;
   const fallback = groupOf(slot) || (groups.some((g) => g.key === "dinner") ? "dinner" : groups[0]?.key);
   const [tab, setTab] = useState(fallback);
@@ -202,7 +255,15 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords =
   const noteFor = (x) => (uniform ? null : slotNote(slotRemaining[x], t, { apptWords }));
   const withNotes = current.slots.some((x) => noteFor(x));
   return (
-    <div className={loading ? "opacity-50 pointer-events-none transition-opacity duration-200" : "transition-opacity duration-200"}>
+    <div
+      data-testid="rsvp-time-grid"
+      data-dim={dim ? "true" : "false"}
+      className={
+        "transition-opacity ease-[cubic-bezier(0.22,1,0.36,1)] " +
+        (loading ? "pointer-events-none " : "") +
+        (dim ? "opacity-60 duration-200" : "opacity-100 duration-[160ms]")
+      }
+    >
       {groups.length > 1 && (
         <div
           className="mb-3 flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-gray-800"
@@ -235,7 +296,7 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords =
         role="radiogroup"
         aria-label={t(current.labelKey)}
         onKeyDown={rovingKeyDown}
-        className="grid grid-cols-4 sm:grid-cols-5 gap-2 motion-safe:animate-[fadeIn_0.25s_ease-out]"
+        className={"grid gap-2 " + timeGridCols(current.slots.length, { notes: withNotes })}
       >
         {current.slots.map((s, idx) => {
           // Scarcity, only when genuinely scarce and only from a real server
@@ -244,19 +305,18 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords =
           const note = noteFor(s);
           const focusable = slot === s || (!current.slots.includes(slot) && idx === 0);
           return (
-            <Chip
+            <BookingTile
               key={s}
-              size="md"
               selected={slot === s}
               onClick={() => onPick(s)}
               role="radio"
               aria-checked={slot === s}
-              aria-pressed={undefined}
               tabIndex={focusable ? 0 : -1}
+              // A picked time keeps weight 500 (the tile's): 500 → 600 made
+              // its digits reflow under the finger.
               className={
-                "w-full px-0 tabular-nums text-[15px] flex-col justify-center gap-0 duration-200 ease-out rounded-xl! " + CHIP_FOCUS + " " +
-                (withNotes ? "h-[52px] " : "h-11 ") +
-                (slot === s ? "font-semibold shadow-sm" : "")
+                "w-full px-0 tabular-nums text-[15px] flex-col justify-center gap-0 " + FOCUS + " " +
+                (withNotes ? "h-[52px] " : "h-11 ") + TIME_ARRIVE
               }
             >
               <span className="leading-none">{s}</span>
@@ -270,7 +330,7 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords =
                   {note}
                 </span>
               )}
-            </Chip>
+            </BookingTile>
           );
         })}
       </div>
@@ -310,13 +370,17 @@ function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = fals
     revealInRail(railRef.current, refs.current[value], prev ? "smooth" : "auto");
   }, [value]);
   return (
-    // From sm up: two neat weeks of seven instead of a ragged wrap.
+    // From 450 px up a grid, not a swipe rail: a window of up to 8 days in ONE
+    // row, longer windows in rows of 7 (dateRailCols). The restaurant's
+    // website frames this page at 460–520 px, where `sm:` (640) never fired:
+    // the rail cut the 6th day at the frame's edge, with no swipe on a mouse.
     <div
       ref={railRef}
       role="radiogroup"
       aria-label={t("rsvpPickDate", "Pick a date")}
       onKeyDown={rovingKeyDown}
-      className={RAIL + " relative sm:grid sm:grid-cols-7 sm:gap-1.5"}
+      style={{ "--rail-cols": dateRailCols(rail.length) }}
+      className={RAIL + " relative " + DATE_GRID}
     >
       {days.map((iso, idx) => {
         const known = dayMap && iso in dayMap;
@@ -340,18 +404,15 @@ function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = fals
             className={[
               // Width from the screen, like the party chips: 5½ across, so a
               // half day always sits at the edge (at 390 the 6th was cut by
-              // 2px — nothing said the row went on).
-              "shrink-0 snap-start w-[max(3.25rem,calc((100vw-3.5rem)/5.5))] sm:w-auto h-[68px] rounded-xl border " + FOCUS,
+              // 2px — nothing said the row went on). A grid cell from 450 px.
+              "shrink-0 snap-start w-[max(3.25rem,calc((100vw-3.5rem)/5.5))] min-[450px]:w-auto h-[68px] rounded-xl " + FOCUS,
               // A day picked beyond the row stands apart from it, so
               // "Lør 10 okt · Tors 15 okt" never reads as consecutive days.
-              idx === rail.length ? "ml-4 sm:ml-0 sm:col-start-1" : "",
-              "transition-[background-color,border-color,color] duration-200 ease-out",
+              idx === rail.length ? "ml-4 min-[450px]:ml-0 min-[450px]:col-start-1" : "",
               "flex flex-col items-center justify-center gap-1",
-              active
-                ? "border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900"
-                : closed
-                  ? "border-gray-100 bg-white text-gray-900 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100"
-                  : "border-gray-200 bg-white text-gray-900 hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100",
+              // The tiles of the other two pickers (bookingTiles.js). A closed
+              // day is not a button: no box, its faded day and word say it.
+              active ? TILE_PICKED : closed ? TILE_CLOSED : TILE_REST + " " + TILE_HOVER,
               closed ? "cursor-not-allowed" : "",
             ].join(" ")}
           >
@@ -364,7 +425,9 @@ function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = fals
             <span className={"text-lg font-semibold leading-none tabular-nums" + (closed ? " opacity-45" : "")}>
               {part(iso, { day: "numeric" })}
             </span>
-            <span className={"text-[11px] leading-none " + quiet + (closed && !word ? " opacity-45" : "")}>
+            {/* One line, always: from 450 px a 1-week window is 8 columns of
+                ~44 px, and "kun tlf." / "på pause" must not wrap in the tile. */}
+            <span className={"text-[11px] leading-none whitespace-nowrap " + quiet + (closed && !word ? " opacity-45" : "")}>
               {/* The state word (rsvpDayClosed / rsvpDayFull / …, utils/dayState.js),
                   else the month. rsvpClosed is the page <h1>, not this. */}
               {word || part(iso, { month: "short" }).replace(/^Sept$/, "Sep")}
@@ -375,6 +438,12 @@ function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = fals
     </div>
   );
 }
+
+// The date strip from 450 px (DateStrip): `--rail-cols` columns, edge to edge
+// with the questions above it. Whole class names, so Tailwind sees them.
+const DATE_GRID =
+  "min-[450px]:mx-0 min-[450px]:px-0 min-[450px]:overflow-visible min-[450px]:grid " +
+  "min-[450px]:grid-cols-[repeat(var(--rail-cols),minmax(0,1fr))] min-[450px]:gap-1.5";
 
 // Party sizes 1–10 on a phone: `--party-cols-phone` columns (partyColsPhone),
 // from sm up the existing `--party-cols` rows.
@@ -653,10 +722,12 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
           {eyebrow && (
             <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">{bookWords}</p>
           )}
+          {/* 21 px on step 1 — the page's own scale (11 / 13 / 15 / 18 / 21),
+              with Inter's optical tracking at that size (was 22 px). */}
           <h1
             className={
-              "font-semibold tracking-tight text-gray-900 dark:text-gray-100 leading-[1.1] line-clamp-2 " +
-              (step === 1 ? "text-[22px]" : "text-lg")
+              "font-semibold text-gray-900 dark:text-gray-100 leading-[1.1] line-clamp-2 " +
+              (step === 1 ? "text-[21px] tracking-[-0.0175em]" : "text-lg tracking-tight")
             }
           >
             {name || bookWords}
@@ -845,6 +916,31 @@ export default function ReservationPublicPage() {
   // it must show what guests get. Layout effect, so the first paint after a
   // client-side mount is already light. See forceLightTheme (utils/themeColor).
   useLayoutEffect(() => (isEmbed ? forceLightTheme() : undefined), [isEmbed]);
+
+  // ── One elevation in the embed (booking R3, judge change 4) ──────
+  // From 450 px the embedded booking is ONE white card on the restaurant's
+  // own ground: <html> and <body> go transparent (index.css, .bb-embed-card),
+  // `main` gets 16 px corners, a 5 % ring and one soft shadow, and the frame
+  // pads it (padding, not margin, so the posted height includes the card and
+  // its shadow is never cut). Below 450 px the widget IS the page there, so
+  // it stays flat. `&flat=1` (the owner's kit offers it) keeps the flat look
+  // for a website that already frames the booking.
+  const flat = searchParams.get("flat") === "1";
+  const embedCard = isEmbed && !flat;
+  useLayoutEffect(() => {
+    if (!embedCard || typeof document === "undefined") return undefined;
+    const root = document.documentElement;
+    root.classList.add("bb-embed-card");
+    return () => root.classList.remove("bb-embed-card");
+  }, [embedCard]);
+
+  // ── Height morph on the step area (judge change 11) ──────────────
+  // A service switch, a closed-day message or the next step eases to its new
+  // height instead of jumping — inside a restaurant's website the jump moved
+  // their whole page. Callback ref: the step area mounts after the loading
+  // screen. Off under reduced motion (useAutoHeight).
+  const [stepArea, setStepArea] = useState(null);
+  useAutoHeight(stepArea);
 
   // ── Height contract with the host page ───────────────────────────
   // The embed snippet ships a fixed height="720". That number is wrong
@@ -1189,6 +1285,13 @@ export default function ReservationPublicPage() {
   }, [result]);
 
   // ── Load the page data ───────────────────────────────────────────
+  // The link's ?d= and ?party=, as they are when the page data lands (a ref,
+  // so a later address change — "Book again" clearing ?booking= — does not
+  // refetch the venue).
+  const seedParams = useRef(searchParams);
+  useEffect(() => {
+    seedParams.current = searchParams;
+  }, [searchParams]);
   useEffect(() => {
     let alive = true;
     // No synchronous setLoading(true) — initial useState(true) covers
@@ -1198,8 +1301,20 @@ export default function ReservationPublicPage() {
       .get(`/public/reservations/${slug}`)
       .then((r) => {
         if (!alive) return;
-        setPage(r?.data || null);
+        const data = r?.data || null;
+        setPage(data);
         setLoadError("");
+        // Step 1's first answers in the SAME update as the page (booking R3):
+        // the date strip's first paint already shows the day chosen. Seeded
+        // by an effect after that paint, today's chip faded from white to ink
+        // ~650 ms into every load (judge 24 Oct). Seeded once per venue load;
+        // the guest's own picks own the state after that.
+        if (data) {
+          const q = seedParams.current;
+          const seed = seedStep1(data, { d: q?.get?.("d") ?? null, party: q?.get?.("party") ?? null }, today);
+          setDay(seed.day);
+          setParty(seed.party);
+        }
       })
       .catch((err) => {
         if (!alive) return;
@@ -1215,7 +1330,7 @@ export default function ReservationPublicPage() {
     return () => {
       alive = false;
     };
-  }, [slug]);
+  }, [slug, today]);
 
   // ── Deep-link self-cancel from the email ─────────────────────────
   // ?booking=<id>&token=<jwt> seeds `result` so the existing success
@@ -1291,38 +1406,14 @@ export default function ReservationPublicPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page?.language]);
 
-  // ── Seed step-1 selections once the page + query params resolve ───
-  useEffect(() => {
-    if (!page) return;
-    const qDay = searchParams.get("d");
-    const qParty = parseInt(searchParams.get("party") || "", 10);
-    // The backend's reading: a stored 0 = today only (never "|| 60").
-    const maxAdvance = maxAdvanceOf(page.max_advance_days);
-    const maxParty = Number(page.max_party_size) || 10;
-
-    // Validate the query day is within [today, today+maxAdvance].
-    let initialDay = today;
-    if (qDay && /^\d{4}-\d{2}-\d{2}$/.test(qDay) && isoDay(new Date(`${qDay}T00:00:00`)) === qDay) {
-      const latest = addDays(today, maxAdvance);
-      if (qDay >= today && qDay <= latest) initialDay = qDay;
-    }
-    setDay(initialDay);
-
-    // A salon, a shop or a workshop is booked by one customer — the page
-    // does not ask how many (vertical-fit, Push 8) — so a ?party=4 link does
-    // not set a party the customer cannot see or change, and the open days
-    // (asked for one) agree with the times and the booking.
-    if (speaksAppointments(page.business_type)) {
-      setParty(1);
-    } else if (Number.isFinite(qParty) && qParty >= 1) {
-      setParty(Math.min(qParty, maxParty));
-    } else {
-      setParty(Math.min(2, maxParty));
-    }
-    // Only seed once, when the page first loads. Subsequent user edits
-    // own the state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
+  // ── Step-1 selections ─────────────────────────────────────────────
+  // Seeded with the page data itself (the load effect above, seedStep1 in
+  // utils/bookingDay.js): the link's ?d= when it is a real day inside the
+  // booking window (the backend's reading: a stored 0 = today only), else
+  // today; a salon, a shop or a workshop is booked by one customer — the page
+  // does not ask how many (vertical-fit, Push 8) — so a ?party=4 link does not
+  // set a party the customer cannot see or change, and the open days (asked
+  // for one) agree with the times and the booking.
 
   // ── 14-day open/closed overview → auto-advance off a closed day ────
   // Table AND provider venues. A salon used to skip it, so on a closed Monday
@@ -2123,15 +2214,15 @@ export default function ReservationPublicPage() {
       // frame (the venue column, the card on the right), so the layout
       // doesn't jump from one centred column to two when the page arrives.
       return (
-        <div key="loading" className={`${rootMinH} bg-gray-50 dark:bg-gray-950 pt-10 pb-12`}>
+        <div key="loading" className={`${rootMinH} ${ROOT_FINISH} bg-gray-50 dark:bg-gray-950 pt-10 pb-12`}>
           <div className="grid grid-cols-[minmax(0,1fr)_28rem] gap-12 max-w-5xl mx-auto px-8 items-start">
             <div className="pt-8 space-y-6" aria-hidden="true">
-              <div className="animate-pulse rounded-xl bg-gray-200/70 dark:bg-gray-800 w-16 h-16" />
-              <div className="animate-pulse rounded-lg bg-gray-200/70 dark:bg-gray-800 h-8 w-2/3" />
+              <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-xl bg-gray-200/70 dark:bg-gray-800 w-16 h-16" />
+              <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-lg bg-gray-200/70 dark:bg-gray-800 h-8 w-2/3" />
             </div>
             <div className="w-full rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 px-6 py-8 space-y-4">
-              <div className="animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800 h-8 w-2/3" />
-              <div className="animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800 h-32" />
+              <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-lg bg-gray-100 dark:bg-gray-800 h-8 w-2/3" />
+              <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-xl bg-gray-100 dark:bg-gray-800 h-32" />
               <p className="text-sm text-gray-500 dark:text-gray-400 text-center pt-4">{loadingWord}</p>
             </div>
           </div>
@@ -2141,10 +2232,16 @@ export default function ReservationPublicPage() {
     return (
       // Keyed: React must not reuse this centred node for the loaded page's
       // wrapper (on a desktop that reuse moved it ~290px, a layout shift).
-      <div key="loading" className={`${rootMinH} bg-white dark:bg-gray-950 px-4 py-12`}>
-        <div className="max-w-md mx-auto space-y-4">
-          <div className="animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800 h-8 w-2/3" />
-          <div className="animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800 h-32" />
+      // In the embed's card mode the wait already stands in the card (on
+      // the host's ground from 450 px), so the frame never shows a white
+      // slab that then turns into a card.
+      <div
+        key="loading"
+        className={`${rootMinH} ${ROOT_FINISH} bg-white dark:bg-gray-950 px-4 py-12` + (embedCard ? " " + EMBED_GROUND : "")}
+      >
+        <div className={"max-w-md mx-auto space-y-4" + (embedCard ? " " + EMBED_CARD + " min-[450px]:px-4 min-[450px]:py-8" : "")}>
+          <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-lg bg-gray-100 dark:bg-gray-800 h-8 w-2/3" />
+          <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-xl bg-gray-100 dark:bg-gray-800 h-32" />
           <p className="text-sm text-gray-500 dark:text-gray-400 text-center pt-4">
             {loadingWord}
           </p>
@@ -2165,7 +2262,7 @@ export default function ReservationPublicPage() {
 
   if (loadError || !page) {
     return (
-      <div className={`${rootMinH} bg-white dark:bg-gray-950 px-4 py-16`}>
+      <div className={`${rootMinH} ${ROOT_FINISH} bg-white dark:bg-gray-950 px-4 py-16`}>
         <div className="max-w-md mx-auto text-center">
           <AlertCircle
             size={40}
@@ -2220,14 +2317,18 @@ export default function ReservationPublicPage() {
   // ── A booking link that is still loading, or no longer resolves ─────
   if (result && linkState === "loading") {
     return (
-      <div className={`${rootMinH} bg-gray-50 dark:bg-gray-950 flex items-center justify-center`}>
-        <Loader2 className="w-6 h-6 animate-spin text-gray-400" aria-label={t("loading", "Loading…")} />
+      <div className={`${rootMinH} ${ROOT_FINISH} bg-gray-50 dark:bg-gray-950 flex items-center justify-center`}>
+        {/* Grey, and only after 600 ms (.bb-late): a link that opens fast
+            goes straight to the receipt. */}
+        <div className="bb-late">
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400" aria-label={t("loading", "Loading…")} />
+        </div>
       </div>
     );
   }
   if (result && linkState === "failed") {
     return (
-      <div className={`${rootMinH} bg-gray-50 dark:bg-gray-950 px-4 py-16`}>
+      <div className={`${rootMinH} ${ROOT_FINISH} bg-gray-50 dark:bg-gray-950 px-4 py-16`}>
         <div className="max-w-md mx-auto space-y-5 text-center" role="status">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-full mx-auto bg-gray-100 dark:bg-gray-800">
             <AlertCircle size={28} strokeWidth={1.75} className="text-gray-500" aria-hidden="true" />
@@ -2468,7 +2569,7 @@ export default function ReservationPublicPage() {
     const mapUrl = mapsHref(page.address, page.city);
 
     return (
-      <div className={`${rootMinH} bg-gray-50 dark:bg-gray-950 px-4 py-10`}>
+      <div className={`${rootMinH} ${ROOT_FINISH} bg-gray-50 dark:bg-gray-950 px-4 py-10`}>
         <div className="max-w-md mx-auto space-y-6 text-center">
           {/* The guest may open this from an email on another device, where
               the page falls back to the venue's language — the switch has to
@@ -2477,10 +2578,13 @@ export default function ReservationPublicPage() {
             <LangPill lang={lang} setLang={setLang} />
           </div>
           <div
+            data-testid="rsvp-hero-icon"
             className={
               `inline-flex items-center justify-center w-14 h-14 rounded-full mx-auto ${heroWrap} ` +
-              // One brief pop on arrival (a small overshoot). No confetti.
-              "transition-all duration-500 ease-[cubic-bezier(0.2,0.9,0.3,1.2)] motion-reduce:transition-none " +
+              // One brief settle on arrival — the page's one ceremonial beat,
+              // on the doctrine curve at 450 ms. It used an overshoot curve
+              // (0.2,0.9,0.3,1.2) that bounced past its size. No confetti.
+              "transition-[opacity,scale] duration-[450ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none " +
               (heroIn ? "opacity-100 scale-100" : "opacity-0 scale-90")
             }
           >
@@ -2756,11 +2860,15 @@ export default function ReservationPublicPage() {
   );
   return (
     <div
-      className={`${rootMinH} bg-white dark:bg-gray-950 ${
+      data-testid="rsvp-root"
+      className={`${rootMinH} ${ROOT_FINISH} bg-white dark:bg-gray-950 ${
         // Tablet/desktop: the booking sits on a card over a quiet ground,
-        // instead of a narrow column floating on a white page. Not when
-        // embedded — the host site is the ground there.
-        isEmbed ? "" : (pausedStep1 ? "pb-12" : "pb-32") + " sm:pt-10 sm:pb-12 sm:bg-gray-50 sm:dark:bg-gray-950"
+        // instead of a narrow column floating on a white page. Embedded,
+        // the host site is the ground: from 450 px the frame is transparent
+        // and pads the one card (EMBED_GROUND); with &flat=1, nothing.
+        isEmbed
+          ? (embedCard ? EMBED_GROUND : "")
+          : (pausedStep1 ? "pb-12" : "pb-32") + " sm:pt-10 sm:pb-12 sm:bg-gray-50 sm:dark:bg-gray-950"
       }`}
     >
       <div className={wide ? "grid grid-cols-[minmax(0,1fr)_28rem] gap-12 max-w-5xl mx-auto px-8 items-start" : "contents"}>
@@ -2779,7 +2887,7 @@ export default function ReservationPublicPage() {
           // (it widened as the strip and the times arrived: a layout shift).
           (wide ? "w-full " : "") +
           (isEmbed
-            ? ""
+            ? (embedCard ? EMBED_CARD : "")
             : "sm:rounded-xl sm:border sm:border-gray-200 sm:bg-white sm:shadow-sm dark:sm:border-gray-800 dark:sm:bg-gray-900")
         }
       >
@@ -2792,6 +2900,9 @@ export default function ReservationPublicPage() {
         {/* No steps to show while paused: there is no flow. */}
         {!pausedStep1 && <StepDots step={step} t={t} apptWords={apptWords} />}
 
+        {/* The step area: exactly one of the paused panel, step 1 or step 2.
+            It eases between heights (useAutoHeight) instead of jumping. */}
+        <div ref={setStepArea} data-testid="rsvp-step-area">
         {/* ── Step 1 — (provider) behandling + behandler, then date + slot;
               (table) date + party + slot ────────────────────────────── */}
         {pausedPanel && (
@@ -2828,7 +2939,7 @@ export default function ReservationPublicPage() {
             ref={stepFocusRef}
             tabIndex={-1}
             aria-label={apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
-            className={STEP1_SPACING + " outline-none motion-safe:animate-[fadeIn_0.35s_ease-out]"}
+            className={STEP1_SPACING + " outline-none " + STEP_ENTER}
           >
             {/* Provider (salon): behandling → behandler come FIRST. The chosen
                 behandling drives slot length (server-resolved); behandler
@@ -2947,15 +3058,13 @@ export default function ReservationPublicPage() {
                   }
                 >
                   {partyOptions.map((n) => (
-                    <Chip
+                    <BookingTile
                       key={n}
-                      size="md"
                       selected={party === n}
                       onClick={() => setParty(n)}
                       aria-label={partyLabel(n, t)}
                       role="radio"
                       aria-checked={party === n}
-                      aria-pressed={undefined}
                       tabIndex={party === n ? 0 : -1}
                       // 40px, never 44, grid and rail alike (min-h-0! releases
                       // the coarse-pointer 44px floor). Rail (a ceiling above
@@ -2963,13 +3072,13 @@ export default function ReservationPublicPage() {
                       // chip always sits at the edge and says the row goes on.
                       className={
                         partyGrid
-                          ? "w-full px-0 h-10! min-h-0! tabular-nums text-[15px] duration-200 ease-out rounded-xl! " +
-                            (isEmbed ? "" : PARTY_CHIP_SHORT_RAIL + " ") + CHIP_FOCUS
-                          : "shrink-0 w-[max(2.5rem,calc((100vw-4.5rem)/7.5))] sm:w-auto h-10! min-h-0! snap-start tabular-nums text-[15px] duration-200 ease-out rounded-xl! " + CHIP_FOCUS
+                          ? "w-full px-0 h-10! min-h-0! tabular-nums text-[15px] " +
+                            (isEmbed ? "" : PARTY_CHIP_SHORT_RAIL + " ") + FOCUS
+                          : "shrink-0 w-[max(2.5rem,calc((100vw-4.5rem)/7.5))] sm:w-auto h-10! min-h-0! px-3.5 snap-start tabular-nums text-[15px] " + FOCUS
                       }
                     >
                       {n}
-                    </Chip>
+                    </BookingTile>
                   ))}
                 </div>
                 {/* This hint used to read "Større selskab? Vælg det højeste
@@ -3175,12 +3284,12 @@ export default function ReservationPublicPage() {
                   {t("rsvpPublicPickBehandling", "Vælg behandling")}
                 </p>
               ) : slotsLoading && slotGroups.length === 0 ? (
-                <div className="grid grid-cols-4 gap-2" aria-hidden="true">
-                    {Array.from({ length: 8 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className="animate-pulse h-11 rounded-lg bg-gray-100 dark:bg-gray-800"
-                      />
+                // The skeleton is the shape of the times that replace it
+                // (bookingTiles.js): the tile material, 12 px corners, the
+                // grid's own columns and three rows, so nothing jumps.
+                <div className={SKELETON_GRID} aria-hidden="true" data-testid="rsvp-times-skeleton">
+                    {Array.from({ length: SKELETON_COUNT }).map((_, i) => (
+                      <div key={i} className={skeletonTileClass(i)} />
                     ))}
                   </div>
               ) : slotsError ? (
@@ -3233,12 +3342,9 @@ export default function ReservationPublicPage() {
                   !isProvider && dayMap === null ? (
                     // Open/closed overview still resolving → don't flash a
                     // premature "no times"; show the same slot skeleton.
-                    <div className="grid grid-cols-4 gap-2">
-                      {Array.from({ length: 8 }).map((_, i) => (
-                        <div
-                          key={i}
-                          className="animate-pulse h-11 rounded-lg bg-gray-100 dark:bg-gray-800"
-                        />
+                    <div className={SKELETON_GRID} aria-hidden="true" data-testid="rsvp-times-skeleton">
+                      {Array.from({ length: SKELETON_COUNT }).map((_, i) => (
+                        <div key={i} className={skeletonTileClass(i)} />
                       ))}
                     </div>
                   ) : isProvider && dayMap === null && dayReason !== "no_fit" ? (
@@ -3420,7 +3526,7 @@ export default function ReservationPublicPage() {
 
         {/* ── Step 2 — guest details ────────────────────────────────── */}
         {step === 2 && (
-          <section className="space-y-5 motion-safe:animate-[fadeIn_0.35s_ease-out]">
+          <section className={"space-y-5 " + STEP_ENTER}>
             <h2
               ref={stepFocusRef}
               tabIndex={-1}
@@ -3981,6 +4087,7 @@ export default function ReservationPublicPage() {
             )}
           </section>
         )}
+        </div>
         {/* ── Sticky bottom CTA ─────────────────────────────────────────
             Standalone page: `fixed` to the viewport (root reserves pb-32).
             Embedded (?embed=1): `sticky` so it flows with the content-sized
@@ -3989,15 +4096,19 @@ export default function ReservationPublicPage() {
         {!pausedStep1 && (
         <div
           ref={barRef}
+          data-testid="rsvp-cta-bar"
           className={
             (isEmbed
-              ? "sticky glass-static bottom-0 -mx-4 sm:-mx-6"
+              ? "sticky glass-static bottom-0 -mx-4 sm:-mx-6" + (embedCard ? " min-[450px]:rounded-b-[16px]" : "")
               : // Phone: fixed to the screen, edge to edge (negative margins
                   // pushed it 16px past both edges). Tablet/desktop: the booking
                 // card's own sticky footer — a full-width bar cut across the
                 // card at 1280 and floated 190px below it at 768.
                 "fixed glass bottom-0 inset-x-0 sm:sticky sm:inset-x-auto sm:-mx-6 sm:rounded-b-xl sm:transform-none!") +
-            " z-40 border-t border-gray-200/80 dark:border-gray-800 dark:bg-gray-950/90!"
+            // It rests on a hairline, white at .92; its shadow comes only
+            // while it floats over content (.bb-cta-bar, index.css). As a
+            // frosted .85 bar with a gray-200 rule it read as a plain line.
+            " bb-cta-bar z-40 border-t border-gray-900/[0.07] dark:border-white/[0.08] bg-white/92! dark:bg-gray-950/90!"
           }
           style={
             isEmbed
@@ -4011,19 +4122,26 @@ export default function ReservationPublicPage() {
                 {/* The whole selection stays in view — date, time and party —
                     so the guest never has to scroll back up to check what the
                     button is about to continue with. */}
+                {/* On the page's type scale (15 / 13, were 14.5 / 12.5). Each
+                    line fades up 3 px when its words actually change
+                    (EarnedText) — never on first paint. */}
                 <div className="min-w-0 flex-1" aria-live="polite">
-                  <p className="text-[14.5px] font-semibold text-gray-900 dark:text-gray-100 truncate first-letter:uppercase">
-                    {[fmtDayShort(day, lang), slot || null].filter(Boolean).join(" · ")}
-                  </p>
-                  <p className="text-[12.5px] text-gray-500 dark:text-gray-400 truncate">
-                    {groupRequest
+                  <EarnedText
+                    as="p"
+                    className="text-[15px] font-semibold tracking-[-0.009em] text-gray-900 dark:text-gray-100 truncate first-letter:uppercase"
+                    text={[fmtDayShort(day, lang), slot || null].filter(Boolean).join(" · ")}
+                  />
+                  <EarnedText
+                    as="p"
+                    className="text-[13px] text-gray-500 dark:text-gray-400 truncate"
+                    text={groupRequest
                         ? t("rsvpGroupTimeNote", "{party} · request", {
                             party: partyLabel(party, t, apptWords),
                           })
                         : isProvider && chosenBehandling
                           ? chosenBehandling.name
                           : partyLabel(party, t, apptWords)}
-                  </p>
+                  />
                 </div>
                 {/* Never a dead grey block: until a time is picked the button
                     says so, and a tap scrolls to the times. Grey here, then
@@ -4032,10 +4150,10 @@ export default function ReservationPublicPage() {
                   variant="main"
                   size="lg"
                   onClick={needsTime ? revealTimes : goToDetails}
-                  className="shrink-0 min-w-[9.5rem] px-6 h-[52px]! rounded-xl! text-[15.5px]! font-semibold!"
+                  className={"shrink-0 min-w-[9.5rem] px-6 h-[52px]! rounded-xl! text-[15px]! font-semibold! tracking-[-0.009em] " + CTA_FINISH}
                   iconRight={needsTime ? null : <ArrowRight className="w-[18px] h-[18px]" aria-hidden="true" />}
                 >
-                  {needsTime ? t("rsvpPickTimeShort", "Pick a time") : t("rsvpContinue", "Continue")}
+                  <EarnedText text={needsTime ? t("rsvpPickTimeShort", "Pick a time") : t("rsvpContinue", "Continue")} />
                 </Button>
               </>
             ) : (
@@ -4059,15 +4177,16 @@ export default function ReservationPublicPage() {
                   // the button into the way back instead of a dead grey block.
                   onClick={needsTime ? backToChoices : onSubmit}
                   busy={submitting}
-                  className="flex-1 h-[52px]! rounded-xl! text-[15.5px]! font-semibold!"
+                  className={"flex-1 h-[52px]! rounded-xl! text-[15px]! font-semibold! tracking-[-0.009em] " + CTA_FINISH}
                   iconRight={
                     needsTime || !canSubmit ? null : <ArrowRight className="w-[18px] h-[18px]" aria-hidden="true" />
                   }
                 >
                   {/* A disabled button reading "Confirm reservation" tells the
                       guest nothing about why it will not press. Say what is
-                      missing — the label becomes the instruction. */}
-                  {needsTime
+                      missing — the label becomes the instruction. When the
+                      instruction changes, the new words fade up (EarnedText). */}
+                  <EarnedText text={needsTime
                     ? t("rsvpPickTimeCta", "Vælg et tidspunkt")
                     : !nameValid
                       ? t("rsvpCtaNeedName", "Tilføj dit navn")
@@ -4085,7 +4204,7 @@ export default function ReservationPublicPage() {
                                 : apptWords
                                   ? t("rsvpConfirmTime", "Confirm appointment")
                                   : t("rsvpConfirm", "Bekræft reservation"),
-                            )}
+                            )} />
                 </Button>
               </>
             )}
@@ -4187,16 +4306,20 @@ function StepDots({ step, t, apptWords = false }) {
       aria-valuetext={t("rsvpStepOf", "Step {n} of {total}", { n: step, total: 2 })}
       aria-label={apptWords ? t("rsvpStepAriaAppt", "Booking step") : t("rsvpStepAria", "Reservation step")}
     >
+      {/* 6 px dots, the current one 20 px wide, easing over 220 ms on the
+          page's one curve (were 8 px / 24 px on a 150 ms default ease —
+          a third curve on the page). */}
       {[1, 2].map((n) => (
         <span
           key={n}
+          data-current={n === step ? "true" : undefined}
           className={
-            "inline-block rounded-full transition-all h-2 " +
+            "inline-block rounded-full h-1.5 transition-[width,background-color] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] " +
             (n === step
-              ? "bg-gray-900 dark:bg-gray-100 w-6"
+              ? "bg-gray-900 dark:bg-gray-100 w-5"
               : n < step
-                ? "bg-gray-400 dark:bg-gray-500 w-2"
-                : "bg-gray-200 dark:bg-gray-700 w-2")
+                ? "bg-gray-400 dark:bg-gray-500 w-1.5"
+                : "bg-gray-200 dark:bg-gray-700 w-1.5")
           }
         />
       ))}
@@ -4206,7 +4329,7 @@ function StepDots({ step, t, apptWords = false }) {
 
 function ClosedScreen({ t, name, rootMinH = "min-h-screen" }) {
   return (
-    <div className={`${rootMinH} bg-white dark:bg-gray-950 px-4 py-16`}>
+    <div className={`${rootMinH} ${ROOT_FINISH} bg-white dark:bg-gray-950 px-4 py-16`}>
       <div className="max-w-md mx-auto text-center">
         <Calendar
           size={40}
