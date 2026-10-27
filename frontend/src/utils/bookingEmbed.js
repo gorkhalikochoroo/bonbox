@@ -59,6 +59,15 @@ export function buttonSnippet({ publicUrl, label }) {
 }
 
 /**
+ * The page's own query for the iframe. From 450 px the booking draws itself
+ * as ONE white card on the host's ground (booking R3); `flat` (&flat=1) keeps
+ * it flat for a site that already frames it.
+ */
+export function embedQuery({ flat = false } = {}) {
+  return flat ? "?embed=1&flat=1" : "?embed=1";
+}
+
+/**
  * The booking form inside the owner's page.
  *
  * The frame reports its own height (ReservationPublicPage, ?embed=1 posts
@@ -73,13 +82,13 @@ export function buttonSnippet({ publicUrl, label }) {
  * site builder strips the <script>, the frame keeps its 720px and the link
  * stays.
  */
-export function iframeSnippet({ publicUrl, label, venueName, fallbackLabel }) {
+export function iframeSnippet({ publicUrl, label, venueName, fallbackLabel, flat = false }) {
   const src = embedSrcFor(publicUrl);
   const origin = embedOriginFor(publicUrl);
   const title = `${label} — ${venueName || "BonBox"}`;
   return (
     `<div style="max-width:460px">\n` +
-    `  <iframe id="bonbox-booking" src="${escapeAttr(src)}?embed=1"\n` +
+    `  <iframe id="bonbox-booking" src="${escapeAttr(src + embedQuery({ flat }))}"\n` +
     `    title="${escapeAttr(title)}" width="100%" height="720" loading="lazy"\n` +
     `    style="border:0;width:100%;border-radius:16px"></iframe>\n` +
     `  <p id="bonbox-booking-link" style="margin:8px 0 0;font:400 14px/1.4 system-ui,sans-serif">\n` +
@@ -111,18 +120,19 @@ export function iframeSnippet({ publicUrl, label, venueName, fallbackLabel }) {
  * exists locally. The native shell's custom scheme falls back to the public
  * URL.
  */
-export function previewSrcFor(publicUrl, appOrigin) {
+export function previewSrcFor(publicUrl, appOrigin, { flat = false } = {}) {
   const src = embedSrcFor(publicUrl);
+  const q = embedQuery({ flat });
   let path = "";
   try {
     path = new URL(src).pathname;
   } catch {
-    return `${src}?embed=1`;
+    return `${src}${q}`;
   }
   if (typeof appOrigin === "string" && /^https?:\/\/[^/]+$/.test(appOrigin)) {
-    return `${appOrigin}${path}?embed=1`;
+    return `${appOrigin}${path}${q}`;
   }
-  return `${src}?embed=1`;
+  return `${src}${q}`;
 }
 
 /** mailto: that only OPENS the owner's mail app — BonBox sends nothing. */

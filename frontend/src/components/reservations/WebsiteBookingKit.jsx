@@ -158,6 +158,10 @@ export default function WebsiteBookingKit({
   canFramePreview = !(platform.isNative && platform.isIOS),
 }) {
   const [option, setOption] = useState("link");
+  // The booking draws itself as one white card on the owner's page from
+  // 450 px (booking R3). A site that already frames it can switch the card
+  // off: the snippet then loads the page with &flat=1.
+  const [flat, setFlat] = useState(false);
   const [builder, setBuilder] = useState(SITE_BUILDERS[0].id);
   const [qrError, setQrError] = useState(false);
   const [previewH, setPreviewH] = useState(640);
@@ -179,13 +183,14 @@ export default function WebsiteBookingKit({
       label,
       venueName,
       fallbackLabel: t("rsvpEmbedOpenInNewTab"),
+      flat,
     });
     const mail = mailtoHref({
       subject: t("rsvpEmbedMailSubject"),
       body: t("rsvpWebMailBody", { link: publicUrl, button, iframe }),
     });
-    return { button, iframe, mail, preview: previewSrcFor(publicUrl, appOrigin) };
-  }, [live, publicUrl, label, venueName, appOrigin, t]);
+    return { button, iframe, mail, preview: previewSrcFor(publicUrl, appOrigin, { flat }) };
+  }, [live, publicUrl, label, venueName, appOrigin, t, flat]);
 
   // The preview sizes itself exactly like the owner's page will: from the
   // booking page's own height messages, trusted only from that frame.
@@ -365,6 +370,19 @@ export default function WebsiteBookingKit({
                   />
                 </div>
                 <pre className={CODE} data-testid="website-embed-code">{kit.iframe}</pre>
+                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={flat}
+                    onChange={(e) => setFlat(e.target.checked)}
+                    data-testid="website-embed-flat"
+                    className="mt-0.5 h-4 w-4 min-h-0! shrink-0 rounded border-gray-300 dark:border-gray-600 accent-gray-900 dark:accent-gray-100"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-medium text-gray-800 dark:text-gray-200">{t("rsvpWebEmbedFlat")}</span>
+                    <span className={HINT + " block"}>{t("rsvpWebEmbedFlatHint")}</span>
+                  </span>
+                </label>
                 <p className={HINT}>
                   {/* The failure an owner can't see: on a plain-http site the
                       frame is blocked and shows a blank box, no error. */}

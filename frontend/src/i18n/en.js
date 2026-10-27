@@ -2126,6 +2126,8 @@ export const en = {
     rsvpWebQrFailed: "The image couldn't be downloaded. Try again, or take a screenshot of the code.",
     rsvpWebEmbedHeading: "The whole booking form inside your page",
     rsvpWebEmbedHint: "Paste the code into an HTML or Embed block. The form sizes itself to fit.",
+    rsvpWebEmbedFlat: "Without the card and shadow",
+    rsvpWebEmbedFlatHint: "For a site that already puts its own frame around the booking. Otherwise the booking sits on your page as a white card.",
     rsvpWebNeedsHttps: "Your website must run on https for the form to show. If it doesn't, use the link or the button — they work anywhere.",
     rsvpWebEmbedGuideLink: "See how in your website builder",
     rsvpWebPreviewHeading: "How it looks on a phone",

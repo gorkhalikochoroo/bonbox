@@ -2086,6 +2086,8 @@ export const da = {
     rsvpWebQrFailed: "Billedet kunne ikke hentes. Prøv igen, eller tag et skærmbillede af koden.",
     rsvpWebEmbedHeading: "Hele bookingformularen inde på din side",
     rsvpWebEmbedHint: "Indsæt koden i en HTML- eller Indlejr-blok. Formularen tilpasser selv sin højde.",
+    rsvpWebEmbedFlat: "Uden kort og skygge",
+    rsvpWebEmbedFlatHint: "Til en side, der allerede har sin egen ramme om bookingen. Ellers står bookingen som et hvidt kort på din side.",
     rsvpWebNeedsHttps: "Din hjemmeside skal køre på https, før formularen kan vises. Gør den ikke det, så brug linket eller knappen — de virker alle steder.",
     rsvpWebEmbedGuideLink: "Se hvordan i din hjemmesidebygger",
     rsvpWebPreviewHeading: "Sådan ser den ud på en telefon",

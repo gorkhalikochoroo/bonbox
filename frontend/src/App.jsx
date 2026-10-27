@@ -79,15 +79,10 @@ function WithGoogleAuth({ children }) {
 function GuestPage({ children }) {
   useLayoutEffect(() => markGuestSurface(), []);
   // A quiet, language-free spinner — the app's own loader says "Loading…" in
-  // English on a Danish restaurant's page.
+  // English on a Danish restaurant's page. Grey, and only after 600 ms
+  // (booking R3): a normal load goes from blank straight to the page.
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-950">
-          <div className="w-6 h-6 rounded-full border-2 border-gray-200 border-t-gray-500 animate-spin" aria-hidden="true" />
-        </div>
-      }
-    >
+    <Suspense fallback={<GuestSpinner />}>
       {children}
     </Suspense>
   );
@@ -98,6 +93,10 @@ function GuestPage({ children }) {
 // every other page — so a cold load never flashes a third colour between the
 // first paint and the page (it was slate-50 on both). Dark unchanged.
 function PageLoader() {
+  // A restaurant guest's page (/r/<slug>, or one that is mounted) gets the
+  // guest wait instead: grey, and only after 600 ms. The blue app spinner
+  // showed at ~210 ms on every cold booking load (booking R3, judge A7).
+  if (isGuestSurface()) return <GuestSpinner testId="page-loader" />;
   return (
     <div data-testid="page-loader" className="min-h-screen flex items-center justify-center dark:bg-gray-900">
       <div className="text-center">
@@ -307,7 +306,8 @@ import CookieConsent from "./components/CookieConsent";
 // NEVER wraps public (/r, /e, /s, /scan), spine, accountant, or auth routes.
 import PillarGate from "./components/PillarGate";
 import AccountLanguageSync from "./components/AccountLanguageSync";
-import { markGuestSurface, wasGuestPath } from "./lib/guestSurface";
+import { isGuestSurface, markGuestSurface, wasGuestPath } from "./lib/guestSurface";
+import GuestSpinner from "./components/GuestSpinner";
 
 /**
  * Self-contained ErrorBoundary for the cookie banner. If anything inside the
