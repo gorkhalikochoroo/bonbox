@@ -470,9 +470,55 @@ class Settings(BaseSettings):
     BOOKING_VENUE_HOUR_MIN: int = 6             # an hour: max(6, tables/chairs) online bookings
     BOOKING_SITTING_MIN: int = 3                # one sitting: max(3, half the tables) …
     BOOKING_SITTING_WINDOW_MIN: int = 180       # … made in the last 3 hours (a burst)
-    BOOKING_DATE_MIN: int = 6                   # one date: max(6, 1.5 × tables or 4 × chairs) …
-    BOOKING_DATE_PER_TABLE: float = 1.5         # … made in the last 24 hours
-    BOOKING_DATE_PER_CHAIR: int = 4
+    BOOKING_DATE_MIN: int = 6                   # one date: never held before this many …
+    BOOKING_DATE_PER_TABLE: float = 1.5         # (R1a; unused since R1b — kept for an env that sets it)
+    BOOKING_DATE_PER_CHAIR: int = 4             # (R1a; unused since R1b — kept for an env that sets it)
+    # ── R1b (27 Oct 2026): the volume rules, tuned (all still behind
+    # BOOKING_VOLUME_CEILINGS). The reviews of fix round 2 and R1a found real
+    # guests held by the R1 numbers (a solo barber's 7th customer, a steady
+    # same-day afternoon, an Instagram rush) and a venue with no day bound.
+    # The VENUE's day — a PATTERN, held person-like (the guest is mailed
+    # "request received", the owner is pinged): online bookings that PASSED
+    # the screen in 24 h reach max(VENUE_DAY_MIN, VENUE_DAY_PER_TABLE ×
+    # tables, VENUE_DAY_PER_CHAIR × chairs). 0 in VENUE_DAY_MIN switches it off.
+    BOOKING_VENUE_DAY_MIN: int = 24
+    BOOKING_VENUE_DAY_PER_TABLE: int = 4
+    BOOKING_VENUE_DAY_PER_CHAIR: int = 24       # ≈ 1.5 long days of 30-min services per chair
+    # ONE sitting (tables only): online bookings whose start is within
+    # ±SITTING_SPREAD_MIN of the requested start, made in the last
+    # SITTING_WINDOW_MIN, reach max(SITTING_MIN, ⌈SITTING_SHARE × tables⌉).
+    BOOKING_SITTING_SPREAD_MIN: int = 30
+    BOOKING_SITTING_SHARE: float = 0.5
+    # ONE date, relative to what that date can take (R1b): tables —
+    # max(DATE_MIN, ⌈DATE_TABLE_SHARE × tables × open minutes ÷ sitting
+    # length⌉) online bookings made in 24 h; chairs (a salon, a barber, a
+    # shop, a workshop) — the date's booked minutes reach DATE_CHAIR_SHARE of
+    # the chairs' open minutes that day (≈ ⌈0.75 × open ÷ service⌉ per chair:
+    # a solo barber open 09–18 with 30-min cuts takes 14), never before
+    # DATE_MIN bookings for that date.
+    BOOKING_DATE_TABLE_SHARE: float = 0.75
+    BOOKING_DATE_CHAIR_SHARE: float = 0.75
+    # A venue's share of the fleet's guest mail (R1b): max(SHARE_MIN,
+    # SHARE_PER_RESOURCE × tables/chairs, SHARE_PCT % of the fleet) in 24 h —
+    # a 6-table venue 12, a 10-table venue 20 — still only once the fleet is
+    # under pressure, and the pressure leaves the day-before reminders out
+    # (fix-2 verify S8: a busy venue's own reminders tripped it). SHARE_PCT 0
+    # switches the share off.
+    BOOKING_VENUE_MAIL_SHARE_MIN: int = 9
+    BOOKING_VENUE_MAIL_SHARE_PER_RESOURCE: int = 2
+    # The Free plan at its monthly cap (R1b, Manoj's decision "Free cap =
+    # requests"): the booking page stays OPEN and an online booking is held
+    # as a request on no table (plan_cap), with the upgrade nudge to the
+    # owner — never "not accepting". "" (unset) follows
+    # BOOKING_VOLUME_CEILINGS; "1"/"true"/"on" or "0"/"false"/"off" decide on
+    # their own. A string, so an empty value never stops the server.
+    BOOKING_PLAN_CAP_REQUESTS: str = ""
+    # Owner pings at night (R1b, D3): in the quiet hours below a booking or
+    # a cancellation pings only if it starts within this many hours; the
+    # rest waits for the 07:00 summary. OWNER_NIGHT_QUIET: "" follows
+    # BOOKING_VOLUME_CEILINGS, like BOOKING_PLAN_CAP_REQUESTS.
+    OWNER_NIGHT_QUIET: str = ""
+    OWNER_NIGHT_PING_WITHIN_HOURS: int = 12
     # Mail to a HELD booking's typed address that looks like a person's (not
     # a bot's form): the "request received" mail — at most this many per
     # venue an hour and a day. A bot-like hold (trap, fast fill, a link in the
@@ -505,7 +551,10 @@ class Settings(BaseSettings):
     # Quiet hours (venue time, Europe/Copenhagen) for a summary that would
     # only be about HELD bookings: it waits for the morning. A bot-like hold
     # never starts a summary at all — the next summary, or the morning one,
-    # counts it (fix round 2). Real bookings and cancellations are unchanged.
+    # counts it (fix round 2). Real bookings and cancellations are unchanged
+    # — unless OWNER_NIGHT_QUIET is on (R1b): then the same hours hold back
+    # every ping for a booking that starts later than
+    # OWNER_NIGHT_PING_WITHIN_HOURS from now.
     OWNER_SUMMARY_QUIET_FROM_HOUR: int = 22
     OWNER_SUMMARY_QUIET_TO_HOUR: int = 7
     # Wrong staff join / stand pairing codes from all addresses together:

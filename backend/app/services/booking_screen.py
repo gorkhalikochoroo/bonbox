@@ -53,6 +53,8 @@ Rules, the first match wins (n = the venue's active tables or chairs;
   4. a REAL group request (party ≥ max(threshold, GROUP_FLOOR)): [V] with
      max(GROUP_REQUESTS_PER_DAY, n) already open today → hold
      (requests_full); otherwise → confirm (it is a request on its own)
+ 4b. [P] (bookings only) the plan's monthly cap is reached and it takes
+     requests (R1b, below)                         → hold (plan_cap)
   5. the same contact has ≥ CONTACT_ACTIVE_MAX active future bookings here
                                                    → hold (contact_active)
      — only bookings that count: a held booking still waiting for the
@@ -68,18 +70,45 @@ Rules, the first match wins (n = the venue's active tables or chairs;
      confirmed online in 24 h                      → hold (plan_day)
   7. [V] BURST, the venue: ≥ max(VENUE_HOUR_MIN 6, n) passed in the last hour
                                                    → hold (venue_hour)
-  8. [V] BURST, one sitting (bookings only): ≥ max(SITTING_MIN 3, ⌈n/2⌉)
-     confirmed online bookings made in the last SITTING_WINDOW (3 h) already
-     overlap this sitting                          → hold (sitting_full)
-  9. [V] PATTERN, one date (bookings only): ≥ max(DATE_MIN 6, ⌈1.5 × tables⌉)
-     — chairs: max(6, 4 × chairs) — confirmed online bookings made in the
-     last 24 h are already for this date           → hold (date_full)
+ 7b. [V] PATTERN, the venue's day: ≥ max(24, 4 × tables, 24 × chairs) passed
+     in the last 24 h (R1b, below)                 → hold (venue_day)
+  8. [V] BURST, one sitting (bookings at tables only): ≥ max(SITTING_MIN 3,
+     ⌈n/2⌉) confirmed online bookings made in the last SITTING_WINDOW (3 h)
+     START within ±30 min of this one (R1b)        → hold (sitting_full)
+  9. [V] PATTERN, one date (bookings only): the date's confirmed online
+     bookings made in the last 24 h reach 3/4 of what the date can take —
+     tables by count, chairs by minutes (R1b, below) → hold (date_full)
  10. otherwise                                     → confirm
 
 Before fix round 2, rule 8 counted a whole day and every table's half
 (the 4th online booking for a busy Friday dinner waited for the owner), and
 a venue-wide day rule (24 a day) let an honest-looking drip spread over
 future dates put every later guest, on every date, on hold.
+
+R1b (27 Oct 2026) — the volume rules TUNED, still only with
+BOOKING_VOLUME_CEILINGS on (the reviews of fix round 2 and R1a):
+  4b. [P] the plan's monthly cap is reached (Free: 20) and
+      BOOKING_PLAN_CAP_REQUESTS is on (it follows the switch when unset):
+      the page stays open and the booking is held as a request on no table
+      (plan_cap) — never "not accepting"; the owner's mail carries the
+      upgrade nudge. A group request is a request already.
+  7b. [V] PATTERN, the venue's day: ≥ max(VENUE_DAY_MIN 24, 4 × tables,
+      24 × chairs) passed in the last 24 h          → hold (venue_day)
+      — person-like: the guest gets "request received" (within the
+      held-mail budget), the owner the usual ping. A drip spread over many
+      dates is bounded again (R1 verify B1), at the cost the decision named:
+      after such a drip a real guest waits for the owner's yes that day.
+   8. one sitting now counts only online bookings whose START is within
+      ±SITTING_SPREAD_MIN (30) of the requested start, made in the last
+      3 h, against max(3, ⌈half the tables⌉) — and only at tables: a chair
+      never takes two customers at once, its day has rule 9.
+   9. one date is relative to what THAT date can take: tables —
+      max(6, ⌈0.75 × tables × the date's open minutes ÷ the sitting⌉);
+      chairs — the date's booked minutes reach 0.75 of the chairs' open
+      minutes (≈ ⌈0.75 × open ÷ service⌉ per chair: a solo barber open 09–18
+      with 30-min cuts takes 14 — R1 verify blocker B2 held the 7th), never
+      before the date has 6 such bookings.
+[P] follows the switch unless BOOKING_PLAN_CAP_REQUESTS says otherwise.
 
 R1a (24 Oct 2026): the VOLUME rules — the group requests' day (4), the
 capped plan's day (6), the venue hour (7), one sitting (8) and one date (9)
@@ -144,8 +173,8 @@ SUMMARY_ONLY = BOT_REASONS | {"requests_full"}
 class Screen:
     action: str                # "confirm" | "hold" | "drop"
     reason: str | None = None  # honeypot | fast_fill | link_in_name | requests_full
-                               # | contact_active | plan_day | venue_hour
-                               # | sitting_full | date_full
+                               # | plan_cap | contact_active | plan_day | venue_hour
+                               # | venue_day | sitting_full | date_full
 
 
 CONFIRM = Screen("confirm")
@@ -417,22 +446,200 @@ def date_online_count(db, owner_id, *, day_start: datetime, since_utc: datetime)
 
 
 def volume_ceilings_on() -> bool:
-    """BOOKING_VOLUME_CEILINGS: the volume rules (4, 6, 7, 8, 9) apply only
-    when it is on. Off by default (R1a); an unreadable value reads as off —
-    the rules that are left (robots, the same guest) never depend on it."""
+    """BOOKING_VOLUME_CEILINGS: the volume rules (4, 6, 7, 7b, 8, 9) apply
+    only when it is on. Off by default (R1a); an unreadable value reads as
+    off — the rules that are left (robots, the same guest) never depend on
+    it."""
     try:
         return bool(app_config.BOOKING_VOLUME_CEILINGS)
     except Exception:  # noqa: BLE001
         return False
 
 
+_SWITCH_ON = frozenset({"1", "true", "on", "yes"})
+_SWITCH_OFF = frozenset({"0", "false", "off", "no"})
+
+
+def follows_volume_switch(raw) -> bool:
+    """A string setting that is unset ("" — it follows
+    BOOKING_VOLUME_CEILINGS), on or off (R1b). Anything else reads as unset.
+    Used by BOOKING_PLAN_CAP_REQUESTS and OWNER_NIGHT_QUIET, so the test
+    campaign can switch one item without the others."""
+    v = str(raw if raw is not None else "").strip().lower()
+    if v in _SWITCH_ON:
+        return True
+    if v in _SWITCH_OFF:
+        return False
+    return volume_ceilings_on()
+
+
+def plan_cap_requests_on() -> bool:
+    """R1b, rule 4b: at the plan's monthly cap the page stays open and an
+    online booking is held as a request (plan_cap), never "not accepting".
+    An unreadable setting reads as off: the cap then closes the page as on
+    live."""
+    try:
+        return follows_volume_switch(app_config.BOOKING_PLAN_CAP_REQUESTS)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def date_cap(n_resources: int, *, chairs: bool) -> int:
-    """Rule 9's ceiling for one date: max(DATE_MIN, ⌈1.5 × tables⌉), or
-    max(DATE_MIN, 4 × chairs) — a chair takes many appointments a day."""
+    """R1a's fixed ceiling for one date: max(DATE_MIN, ⌈1.5 × tables⌉), or
+    max(DATE_MIN, 4 × chairs). R1b reads the date's own capacity instead
+    (table_date_cap, the chairs' minutes); this stays the fallback when the
+    date's hours cannot be read."""
     cfg = app_config
     n = max(0, int(n_resources or 0))
     per = float(cfg.BOOKING_DATE_PER_CHAIR if chairs else cfg.BOOKING_DATE_PER_TABLE)
     return max(int(cfg.BOOKING_DATE_MIN), math.ceil(per * n))
+
+
+# ── R1b: the tuned volume rules' numbers ────────────────────────────────
+# Shares are floats from the environment; a product like 0.75 × 6 × 300/90
+# is 15.000000000000002, so every ceiling rounds before it ceils.
+
+def _ceil(x: float) -> int:
+    return math.ceil(round(float(x), 6))
+
+
+def resource_counts(db, user_id) -> tuple[int, int]:
+    """(tables, chairs): the venue's active, not-deleted bookable resources,
+    a chair being kind "provider" (a stylist, the owner's own chair). One
+    GROUP BY."""
+    from app.models.bookable_resource import BookableResource
+    rows = (
+        db.query(BookableResource.kind, func.count(BookableResource.id))
+        .filter(BookableResource.user_id == user_id,
+                BookableResource.is_active.is_(True),
+                BookableResource.is_deleted.is_(False))
+        .group_by(BookableResource.kind)
+        .all()
+    )
+    tables = chairs = 0
+    for kind, n in rows:
+        if kind == "provider":
+            chairs += int(n or 0)
+        else:
+            tables += int(n or 0)
+    return tables, chairs
+
+
+def venue_day_cap(n_tables: int, n_chairs: int) -> int:
+    """Rule 7b: max(VENUE_DAY_MIN, VENUE_DAY_PER_TABLE × tables,
+    VENUE_DAY_PER_CHAIR × chairs) online bookings passed in 24 h. 0 = off."""
+    cfg = app_config
+    base = int(cfg.BOOKING_VENUE_DAY_MIN)
+    if base <= 0:
+        return 0
+    return max(base,
+               int(cfg.BOOKING_VENUE_DAY_PER_TABLE) * max(0, int(n_tables or 0)),
+               int(cfg.BOOKING_VENUE_DAY_PER_CHAIR) * max(0, int(n_chairs or 0)))
+
+
+def sitting_cap(n_tables: int) -> int:
+    """Rule 8: max(SITTING_MIN, ⌈SITTING_SHARE × tables⌉)."""
+    cfg = app_config
+    return max(int(cfg.BOOKING_SITTING_MIN),
+               _ceil(float(cfg.BOOKING_SITTING_SHARE) * max(0, int(n_tables or 0))))
+
+
+def sitting_recent_count(db, owner_id, *, start: datetime, spread_min: int,
+                         since_utc: datetime) -> int:
+    """Confirmed online bookings made since `since_utc` whose START is within
+    ±`spread_min` of `start` (both ends included) — one sitting's recent
+    online bookings. A booking 45 minutes away is another sitting (R1b: the
+    overlap the R1 rule counted spanned ±2 hours, and a steady afternoon of
+    real guests for 18:45–20:00 read as one burst)."""
+    spread = timedelta(minutes=max(0, int(spread_min)))
+    return _count(
+        db.query(func.count(Reservation.id)).filter(
+            Reservation.user_id == owner_id,
+            Reservation.source == "public",
+            Reservation.is_deleted.is_(False),
+            Reservation.status.in_(_HOLDING_A_TABLE),
+            Reservation.created_at >= since_utc,
+            Reservation.starts_at >= start - spread,
+            Reservation.starts_at <= start + spread,
+        )
+    )
+
+
+def table_date_cap(open_minutes: int, n_tables: int, sitting_min: int) -> int:
+    """Rule 9 at tables: max(DATE_MIN, ⌈DATE_TABLE_SHARE × tables × open
+    minutes ÷ sitting length⌉) — three quarters of what the date's hours can
+    seat (6 tables, 17–22, 90-min sittings → 15; open 11–23 → 36)."""
+    cfg = app_config
+    turns = max(0, int(open_minutes or 0)) / max(1, int(sitting_min or 0))
+    return max(int(cfg.BOOKING_DATE_MIN),
+               _ceil(float(cfg.BOOKING_DATE_TABLE_SHARE) * max(0, int(n_tables or 0)) * turns))
+
+
+def date_open_minutes(db, *, owner_id, profile, settings: dict, day, chairs: bool) -> int:
+    """The minutes the venue takes bookings on `day`: at tables, the day's
+    booking window (rsvc.restaurant_windows — every table has the same); at
+    chairs, the sum of every active chair's windows that day (its published
+    shifts, or the owner's own chair's hours; a stylist on Ferie or Syg
+    counts none — rsvc._batched_provider_windows, one Schedule query)."""
+    from app.services import reservation_service as rsvc
+
+    def minutes(windows) -> int:
+        return sum(max(0, int((w.end - w.start).total_seconds() // 60)) for w in windows or [])
+
+    if not chairs:
+        return minutes(rsvc.restaurant_windows(profile, day, settings))
+    chairs_rows = [r for r in rsvc.active_resources(db, owner_id) if r.kind == "provider"]
+    if not chairs_rows:
+        return 0
+    windows_for = rsvc._batched_provider_windows(db, owner_id, chairs_rows, day, day, settings)
+    return sum(minutes(windows_for(r, day)) for r in chairs_rows)
+
+
+def date_online_minutes(db, owner_id, *, day_start: datetime, since_utc: datetime) -> tuple[int, int]:
+    """(bookings, booked minutes): confirmed online bookings made since
+    `since_utc` for the local date that starts at `day_start` — rule 9 at
+    chairs. One COUNT + SUM."""
+    n, total = (
+        db.query(func.count(Reservation.id), func.coalesce(func.sum(Reservation.duration_min), 0))
+        .filter(
+            Reservation.user_id == owner_id,
+            Reservation.source == "public",
+            Reservation.is_deleted.is_(False),
+            Reservation.status.in_(_HOLDING_A_TABLE),
+            Reservation.created_at >= since_utc,
+            Reservation.starts_at >= day_start,
+            Reservation.starts_at < day_start + timedelta(days=1),
+        )
+        .one()
+    )
+    return int(n or 0), int(total or 0)
+
+
+def _date_rule_holds(db, owner, *, profile, settings: dict, start: datetime,
+                     duration_min, n_tables: int, n_chairs: int, chairs: bool,
+                     since_utc: datetime) -> bool:
+    """Rule 9 (R1b): is this DATE filling unusually fast from the booking
+    page, measured against what the date can take? A failed read of the
+    date's hours falls back to R1a's fixed ceiling (never to no rule)."""
+    cfg = app_config
+    day_start = datetime.combine(start.date(), datetime.min.time())
+    floor = int(cfg.BOOKING_DATE_MIN)
+    try:
+        open_min = date_open_minutes(db, owner_id=owner.id, profile=profile,
+                                     settings=settings or {}, day=start.date(), chairs=chairs)
+    except Exception:  # noqa: BLE001 — the fixed ceiling, not no ceiling
+        logger.warning("date capacity read failed — R1a ceiling", exc_info=True)
+        _release(db)
+        cap = date_cap(n_chairs if chairs else n_tables, chairs=chairs)
+        return cap > 0 and date_online_count(db, owner.id, day_start=day_start,
+                                             since_utc=since_utc) >= cap
+    if chairs:
+        n, booked = date_online_minutes(db, owner.id, day_start=day_start, since_utc=since_utc)
+        share = float(cfg.BOOKING_DATE_CHAIR_SHARE)
+        return n >= max(1, floor) and booked >= share * open_min - 1e-6
+    cap = table_date_cap(open_min, n_tables, int(duration_min or 0) or 90)
+    return cap > 0 and date_online_count(db, owner.id, day_start=day_start,
+                                         since_utc=since_utc) >= cap
 
 
 def monthly_cap(owner) -> int | None:
@@ -464,12 +671,20 @@ def _fail_open(rule: str) -> None:
 def screen_public_booking(db, *, owner, settings: dict, payload, is_request: bool,
                           n_resources: int, now_utc: datetime,
                           now_local: datetime, start: datetime | None = None,
-                          duration_min: int | None = None, chairs: bool = False) -> Screen:
+                          duration_min: int | None = None, chairs: bool = False,
+                          profile=None, n_tables: int | None = None,
+                          n_chairs: int | None = None, at_plan_cap: bool = False) -> Screen:
     """The decision for one anonymous booking. `payload` is the create body
     as the guest typed it (nothing is ever rewritten); `now_utc` is naive
     UTC (created_at), `now_local` and `start` naive venue time (starts_at).
     Call it under services/venue_lock.venue_lock, and commit the booking
-    before the lock goes: the counts must see the row this one writes."""
+    before the lock goes: the counts must see the row this one writes.
+
+    R1b: `profile` (the date's hours for rule 9), `n_tables` / `n_chairs`
+    (the venue's tables and chairs; unknown → `n_resources` counted as
+    chairs for a chair booking, else as tables), `at_plan_cap` (the router
+    found the plan's monthly cap reached and the cap takes requests —
+    plan_cap_requests_on)."""
     cfg = app_config
     form_ms = getattr(payload, "form_ms", None)
     fast = _fast(form_ms)
@@ -492,7 +707,10 @@ def screen_public_booking(db, *, owner, settings: dict, payload, is_request: boo
 
     try:
         n = max(0, int(n_resources or 0))
-        half = math.ceil(n / 2)
+        if n_tables is None and n_chairs is None:
+            n_tables, n_chairs = (0, n) if chairs else (n, 0)
+        n_tables = max(0, int(n_tables or 0))
+        n_chairs = max(0, int(n_chairs or 0))
         party = int(getattr(payload, "party_size", 0) or 0)
         # 4. A REAL group asks on purpose and waits for the owner anyway: the
         #    venue ceilings below are not for it (a julefrokost rush is real).
@@ -507,6 +725,14 @@ def screen_public_booking(db, *, owner, settings: dict, payload, is_request: boo
                     db, owner.id, min_group, now_utc - timedelta(days=1)) >= max(cap, n):
                 return Screen("hold", "requests_full")
             return CONFIRM
+        # 4b. The plan's monthly cap is reached and the cap takes requests
+        #     (R1b — the router says so only when plan_cap_requests_on): the
+        #     page stays open, the booking waits for the owner's yes on no
+        #     table, and the owner's mail says why and how to lift it. A
+        #     small request (a venue that approves every booking) is a request
+        #     already and uses no quota.
+        if at_plan_cap and not is_request:
+            return Screen("hold", "plan_cap")
         # 5. One guest already holding several future bookings here (held
         #    ones still waiting for the owner never count). A chair venue
         #    counts days: a family's appointments on one day are one.
@@ -531,26 +757,35 @@ def screen_public_booking(db, *, owner, settings: dict, payload, is_request: boo
         hour_cap = max(int(cfg.BOOKING_VENUE_HOUR_MIN), n)
         if hour_cap > 0 and passed_since(db, owner.id, now_utc - timedelta(hours=1)) >= hour_cap:
             return Screen("hold", "venue_hour")
-        # 8. A BURST at one sitting: half its tables (at least 3) went to
-        #    online bookings made in the last 3 hours. Only the recent ones
-        #    count — real guests booking Friday dinner over the week never
-        #    reach it; a script filling 19:00 in minutes does.
-        if not is_request and start is not None and duration_min:
-            sit_cap = max(int(cfg.BOOKING_SITTING_MIN), half)
+        # 7b. A PATTERN at the venue (R1b): more online bookings passed in
+        #     24 h than a busy venue of this size takes — max(24, 4 × tables,
+        #     24 × chairs). Held person-like: the guest is mailed "request
+        #     received" and the owner pinged as for any person.
+        day_cap = venue_day_cap(n_tables, n_chairs)
+        if day_cap > 0 and passed_since(db, owner.id, day_ago) >= day_cap:
+            return Screen("hold", "venue_day")
+        # 8. A BURST at one sitting (tables only): half its tables (at least
+        #    3) went to online bookings made in the last 3 hours that START
+        #    within ±30 min of this one (R1b). Real guests booking Friday
+        #    dinner over the week never reach it; a script filling 19:00 in
+        #    minutes does. A chair takes one customer at a time — its day
+        #    is rule 9's.
+        if not is_request and not chairs and start is not None:
+            sit_cap = sitting_cap(n_tables)
             window = timedelta(minutes=max(1, int(cfg.BOOKING_SITTING_WINDOW_MIN)))
-            if sit_cap > 0 and sitting_online_count(
-                    db, owner.id, start=start, end=start + timedelta(minutes=int(duration_min)),
+            if sit_cap > 0 and sitting_recent_count(
+                    db, owner.id, start=start, spread_min=int(cfg.BOOKING_SITTING_SPREAD_MIN),
                     since_utc=now_utc - window) >= sit_cap:
                 return Screen("hold", "sitting_full")
-        # 9. A PATTERN on one date: that date took more online bookings in
-        #    24 h than a busy week sends it. Per date — a drip spread over
-        #    many dates never holds a guest on another date.
-        if not is_request and start is not None:
-            cap = date_cap(n, chairs=chairs)
-            day_start = datetime.combine(start.date(), datetime.min.time())
-            if cap > 0 and date_online_count(db, owner.id, day_start=day_start,
-                                             since_utc=day_ago) >= cap:
-                return Screen("hold", "date_full")
+        # 9. A PATTERN on one date: that date took, from the booking page in
+        #    24 h, three quarters of what its hours and its tables or chairs
+        #    can take (R1b). Per date — a drip spread over many dates never
+        #    holds a guest on another date by this rule.
+        if not is_request and start is not None and _date_rule_holds(
+                db, owner, profile=profile, settings=settings, start=start,
+                duration_min=duration_min, n_tables=n_tables, n_chairs=n_chairs,
+                chairs=chairs, since_utc=day_ago):
+            return Screen("hold", "date_full")
     except Exception:  # noqa: BLE001 — fail open: a broken check never holds a guest back
         _fail_open("rules")
         _release(db)
