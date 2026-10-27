@@ -114,8 +114,12 @@ import WaitlistSection from "../components/reservations/WaitlistSection";
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
 import BookingNameRow from "../components/reservations/BookingNameRow";
 import ClosuresCard, { PauseControl } from "../components/reservations/ClosuresCard";
-import { isHeldForCheck, heldWhy, heldWanted, heldForPlanCap } from "../utils/bookingHeld";
+import { isHeldForCheck, heldWhy, heldWanted, heldForPlanCap, heldLooksLikeBot, botApprovalConfirm } from "../utils/bookingHeld";
 import PlanCapBanner, { PlanCapHeldNudge, monthCapFromSettings } from "../components/reservations/PlanCapBanner";
+// R2 (27 Oct 2026): spam clean-up — the drawer's Spam, a whole wave, the
+// block list in Indstillinger.
+import { SpamButton, SpamWaveBox, SpamMarkedLine } from "../components/reservations/SpamActions";
+import ContactBlocksCard from "../components/reservations/ContactBlocksCard";
 import { activePause, fmtClosureRange, todayIso } from "../utils/closures";
 import { canPurchaseInApp } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
@@ -1226,6 +1230,10 @@ function ReservationDrawer({
   // A HELD online booking (bookingHeld.js): the booking screen kept it for
   // the owner's OK. Amber "Tjek før du bekræfter" + why (R1 D7).
   held = false,
+  // R2: spam clean-up (components/reservations/SpamActions.jsx) — the
+  // owner's book only; null on a paired stand device (no owner session).
+  // Called with the server's answer after a spam mark, an undo or a wave.
+  onSpamDone = null,
 }) {
   if (!reservation) return null;
   const r = reservation;
@@ -1380,6 +1388,11 @@ function ReservationDrawer({
           ) : (
             <StatusPill status={r.status} label={labels[r.status] || r.status} />
           )}
+          {/* R2: marked as spam — said, not a bare "Aflyst". */}
+          <SpamMarkedLine r={r} t={t} apptWords={apptWords} />
+          {/* R2: an open online request made with many others — decline the
+              whole wave in one go (asks the server how big it is). */}
+          {onSpamDone && <SpamWaveBox r={r} t={t} apptWords={apptWords} onDone={onSpamDone} />}
 
           {hasAllergy && (
             <div
@@ -1623,6 +1636,8 @@ function ReservationDrawer({
                     {a.label}
                   </button>
                 ))}
+                {/* R2: "Spam" — online bookings only, a quiet word like the rest. */}
+                {onSpamDone && <SpamButton r={r} t={t} apptWords={apptWords} busy={busy} onDone={onSpamDone} />}
               </div>
             )}
           </div>
@@ -2383,7 +2398,7 @@ function EditBookingSheet({
           {severity === "severe" && (
             <p className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-snug text-red-700 dark:text-red-400">
               <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" aria-hidden />
-              {t("rsvpEditAllergySevereHint", "Alvorlig giver en tydelig lyd på vært-skærmen.")}
+              {t("rsvpEditAllergySevereHint", "Alvorlig vises med rødt i bogen og på værtsskærmen. En ændring her giver ingen lyd — sig det selv til køkkenet.")}
             </p>
           )}
         </div>
@@ -4887,6 +4902,19 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       cancelLabel: t("rsvpPickAnotherTable", "Another table"),
     });
   };
+  // R2: after a spam mark, an undo or a whole wave — the book reloads, the
+  // drawer closes, a table freed for real shows the waiting parties that fit
+  // (as a cancel does), and the plan-cap banner takes the fresh month count
+  // (spam gives the month's quota back).
+  const spamDone = (data) => {
+    const m = data?.waitlist_matches;
+    if (Array.isArray(m) && m.length) setSpotMatches(m);
+    const cap = data ? monthCapFromSettings(data) : null;
+    if (cap) setPublicPage((p) => (p ? { ...p, monthCap: cap } : p));
+    setSelected(null);
+    try { window.dispatchEvent(new Event("bonbox-reservations-changed")); } catch { /* no window */ }
+    fetchBook(day);
+  };
   // "Andet bord": open the booking with its table picker in focus — focus
   // used to land on "Sæt til bords" again.
   const openOnTables = (r) => {
@@ -4897,6 +4925,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     }, 150);
   };
   const setStatus = async (r, status, onProceed = null, opts = {}) => {
+    // R2: a HELD online booking that looks like a robot's (a hidden field
+    // filled, a form filled in seconds, a link in the name, a contact the
+    // owner marked as spam) is never approved in one tap — the phone row's
+    // "Bekræft" and the drawer's ask once more, with the reason.
+    if ((status === "confirmed" || status === "seated") && !opts.retried && heldLooksLikeBot(r)) {
+      if ((await confirm(botApprovalConfirm(r, t, { apptWords, to: status }))) !== true) return;
+    }
     let finishFirst = opts.finishFirst || null;
     if (!finishFirst && status === "seated" && r.status !== "seated") {
       const mine = heldOf(r);
@@ -7894,6 +7929,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           isToday={isViewingToday}
           dayLabel={isViewingToday ? null : shortDayLabel(day, t, lang)}
           held={isHeldForCheck(selected, publicPage?.groupThreshold)}
+          onSpamDone={isStandDevice ? null : spamDone}
           tableLabel={resolveTableLabel(selected, labelById)}
           // A salon's leftover table booking opens as the table booking it is.
           isProvider={isProvider && !holdsTable(selected)}
@@ -10394,6 +10430,9 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           </span>
         </button>
       </div>
+
+      {/* R2: blocked and spam-marked contacts — masked, with Fjern. */}
+      <ContactBlocksCard t={t} lang={lang} apptWords={apptWords} />
 
       {/* SMS reminders (Pro). Locked surface for non-Pro tiers (disabled
           switch + Pro badge/lock + upsell link to /subscription, the same

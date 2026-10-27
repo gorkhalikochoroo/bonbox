@@ -45,6 +45,8 @@ const WHY = {
   // R1b: the plan's monthly cap is reached and the page takes requests —
   // `held.limit` is the cap. The upgrade nudge sits beside it (web only).
   plan_cap: ["rsvpHeldWhyPlanCap", "This month's {n} bookings on your plan are used, so new online bookings wait for your OK. Confirm it if it looks real."],
+  // R2: the owner marked this phone or mailbox as spam before.
+  marked_spam: ["rsvpHeldWhySpam", "You marked this contact as spam before. Confirm it only if you know the guest."],
 };
 const WHY_DEFAULT = ["rsvpHeldWhy", "Held for your OK: there were unusually many bookings in a short time, or the form was filled in very fast. Confirm it if it looks real."];
 
@@ -56,6 +58,7 @@ const WHY_APPT = {
   contact_active: ["rsvpHeldWhyContactAppt", "This customer already has {n} or more appointments ahead with you. Confirm it if it looks real."],
   requests_full: ["rsvpHeldWhyRequestsAppt", "Many requests came in today. Confirm it if it looks real."],
   plan_cap: ["rsvpHeldWhyPlanCapAppt", "This month's {n} appointments on your plan are used, so new online appointments wait for your OK. Confirm it if it looks real."],
+  marked_spam: ["rsvpHeldWhySpamAppt", "You marked this contact as spam before. Confirm it only if you know the customer."],
 };
 
 // The {n} a reason names when the server sends no `held.limit`: the
@@ -83,4 +86,46 @@ export function heldForPlanCap(r) {
 export function heldWanted(r) {
   const w = r?.held?.wanted;
   return Array.isArray(w) && w.length ? w.filter(Boolean).join(" + ") : "";
+}
+
+// ── R2 (27 Oct 2026) ────────────────────────────────────────────────────
+// The reasons that say "probably not a person" (backend booking_screen
+// BOT_REASONS): the server says so itself as `held.bot`; an older server
+// sends no `bot`, and then the reason decides.
+const BOT_REASONS = new Set(["honeypot", "fast_fill", "link_in_name", "marked_spam"]);
+
+// Is this a HELD online booking that looks like a robot's? Approving one —
+// "Bekræft", or seating it at once — takes a second step (the phone's
+// one-tap "Bekræft" on the book's row confirmed it straight away).
+export function heldLooksLikeBot(r) {
+  if (!r || r.status !== "requested" || r.source !== "public") return false;
+  const h = r.held;
+  if (!h || typeof h !== "object") return false;
+  if (h.bot === true) return true;
+  if (h.bot === false) return false;
+  return BOT_REASONS.has(h.reason);
+}
+
+// The second step's useConfirm options: the reason in plain words, and an
+// "… anyway" that names what the tap does. `to`: "confirmed" or "seated".
+export function botApprovalConfirm(r, t, { apptWords = false, to = "confirmed" } = {}) {
+  const yes = to === "seated"
+    ? (apptWords ? t("rsvpBotSeatYesAppt", "Check in anyway") : t("rsvpBotSeatYes", "Seat anyway"))
+    : t("rsvpBotConfirmYes", "Confirm anyway");
+  return {
+    title: apptWords
+      ? t("rsvpBotConfirmTitleAppt", "Confirm an appointment that looks like a robot?")
+      : t("rsvpBotConfirmTitle", "Confirm a booking that looks like a robot?"),
+    message: heldWhy(r, t, { apptWords }),
+    confirmLabel: yes,
+    cancelLabel: t("rsvpSeatEarlyNotNow", "Not now"),
+    // Not red (it destroys nothing), but never the Enter answer either.
+    irreversible: true,
+  };
+}
+
+// Marked as spam by the owner (R2): cancelled with cancel_reason
+// "owner_spam" — the drawer says so instead of a bare "Aflyst".
+export function isMarkedSpam(r) {
+  return !!r && r.status === "cancelled" && r.cancel_reason === "owner_spam";
 }
