@@ -30,7 +30,7 @@
  */
 import { createContext, useContext, useEffect, useState } from "react";
 import api from "../services/api";
-import { isQuietEmbed } from "../lib/embedMode";
+import { isQuietGuestPage } from "../lib/embedMode";
 
 const FeaturesContext = createContext(null);
 
@@ -47,11 +47,11 @@ export function FeaturesProvider({ children }) {
   // of these flags — it starts on the fail-closed defaults, marked loaded,
   // and never asks (below).
   const [flags, setFlags] = useState(() =>
-    isQuietEmbed() ? { ...DEFAULT_FLAGS, _loaded: true } : DEFAULT_FLAGS,
+    isQuietGuestPage() ? { ...DEFAULT_FLAGS, _loaded: true } : DEFAULT_FLAGS,
   );
 
   useEffect(() => {
-    if (isQuietEmbed()) return undefined;
+    if (isQuietGuestPage()) return undefined;
     let cancelled = false;
     // _noRetry: this is a boot-time probe.  If the backend's cold we'd
     // rather show "feature off" than block the SPA on retry storms.

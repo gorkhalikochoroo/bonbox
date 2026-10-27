@@ -103,12 +103,15 @@ describe("AuthProvider — no session check inside the booking frame", () => {
     expect(localStorage.getItem("bb_had_session")).toBe("1");
   });
 
-  it("the same page without ?embed=1 (a guest on the link) checks as before", async () => {
+  // Booking R5 (rubric G14): the guest's page on its own is quiet too —
+  // lib/embedMode.isQuietGuestPage, tests in r5.bookingPath.test.jsx. (Until
+  // R5 this case checked "as before".)
+  it("the same page without ?embed=1 (a guest on the link) is quiet too since R5", async () => {
     at("/r/cafe");
     const out = {};
     render(<AuthProvider><AuthProbe out={out} /></AuthProvider>);
     await waitFor(() => expect(out.loading).toBe(false));
-    expect(get).toHaveBeenCalledWith("/auth/me", { _noRetry: true });
+    expect(get).not.toHaveBeenCalled();
   });
 
   it("the owner app with a stray ?embed=1 checks as before", async () => {
@@ -137,8 +140,10 @@ describe("FeaturesProvider — no flags call inside the booking frame", () => {
     expect(out.flags.mobilepay_enabled).toBe(false);
   });
 
+  // Booking R5: /r/cafe on its own is quiet now as well, so "anywhere
+  // else" is the owner app.
   it("anywhere else: one call, as before", async () => {
-    at("/r/cafe");
+    at("/dashboard");
     const out = {};
     render(<FeaturesProvider><FlagsProbe out={out} /></FeaturesProvider>);
     await waitFor(() => expect(out.flags._loaded).toBe(true));
@@ -149,11 +154,13 @@ describe("FeaturesProvider — no flags call inside the booking frame", () => {
 
 describe("App.jsx — the keep-alive ping stays home inside the booking frame", () => {
   const app = read("App.jsx");
-  it("useKeepAlive returns before its first ping when isQuietEmbed()", () => {
+  // R5: isQuietGuestPage() = the frame (isQuietEmbed) OR the guest's page
+  // on its own; the frame keeps returning before its first ping.
+  it("useKeepAlive returns before its first ping when isQuietGuestPage()", () => {
     const fn = app.slice(app.indexOf("function useKeepAlive()"), app.indexOf("const GOOGLE_CLIENT_ID"));
-    expect(fn).toMatch(/useEffect\(\(\) => \{[\s\S]*?if \(isQuietEmbed\(\)\) return undefined;[\s\S]*?const ping = /);
-    expect(fn.indexOf("isQuietEmbed()")).toBeLessThan(fn.indexOf("ping();"));
-    expect(app).toContain('import { isQuietEmbed } from "./lib/embedMode";');
+    expect(fn).toMatch(/useEffect\(\(\) => \{[\s\S]*?if \(isQuietGuestPage\(\)\) return undefined;[\s\S]*?const ping = /);
+    expect(fn.indexOf("isQuietGuestPage()")).toBeLessThan(fn.indexOf("ping();"));
+    expect(app).toContain('import { isQuietGuestPage } from "./lib/embedMode";');
   });
 
   it("index.html's parse-time session check never runs on /r/ (unchanged: / and /dashboard only)", () => {

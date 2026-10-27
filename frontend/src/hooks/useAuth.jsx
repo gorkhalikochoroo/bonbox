@@ -8,7 +8,7 @@ import { verifyWallSkipsRole } from "../utils/verifyWallRole";
 import { forgetSessionVerifySkip } from "../utils/verifySkip";
 import { setQueueAccount } from "../utils/dailyCloseQueue";
 import { accountKeyFor, setCacheAccount } from "../lib/swrCache";
-import { isQuietEmbed } from "../lib/embedMode";
+import { isQuietGuestPage } from "../lib/embedMode";
 
 const AuthContext = createContext(null);
 
@@ -76,8 +76,9 @@ const VERIFICATION_GRACE_DATE = "2026-04-13T00:00:00";
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   // Booking R4: the booking frame on a restaurant's own website makes no
-  // session check (below), so it is never "loading" one.
-  const [loading, setLoading] = useState(() => !isQuietEmbed());
+  // session check (below), so it is never "loading" one. R5: nor the
+  // guest's booking page on its own (lib/embedMode.isQuietGuestPage).
+  const [loading, setLoading] = useState(() => !isQuietGuestPage());
 
   // Home's in-memory copy of the figures belongs to ONE account
   // (lib/swrCache): a different signed-in user — or none — empties it first.
@@ -110,7 +111,8 @@ export function AuthProvider({ children }) {
     // guest's form. No check, no state touched: the start-up hint for the
     // owner's own app is neither set nor cleared from here. (`loading`
     // started false for it.)
-    if (isQuietEmbed()) return;
+    // R5: the guest's booking page on its own (/r/<slug>, /<slug>) likewise.
+    if (isQuietGuestPage()) return;
     // Bootstrap auth probe — must NOT block the landing page when the
     // backend is cold (Render free dyno spin-up).  Without `_noRetry`
     // the axios retry interceptor would backoff for 26s on 503, leaving

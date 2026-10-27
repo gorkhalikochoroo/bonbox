@@ -37,20 +37,30 @@ import { useLanguage } from "../hooks/useLanguage";
 import { usePillars } from "../hooks/usePillars";
 import { speaksAppointments } from "../config/venueProfiles";
 import { useUndoToast } from "../hooks/useUndoToast";
-import { Button, Card, Icon } from "./ui";
+// Booking R5 ("trim what the booking page loads"): the three pieces this gate
+// draws, each from its own file, and its six Lucide icons by name. It used to
+// take { Button, Card, Icon } from the ./ui barrel — and since App.jsx loads
+// this gate up front, every page's first download (a restaurant guest's
+// booking page included) carried the whole UI kit and the Icon registry with
+// its ~70 icons, ~40 extra requests on a slow phone, for a card that only
+// shows on a switched-off pillar. Same look: Icon drew Lucide at strokeWidth
+// 1.75 with aria-hidden, and so do these.
+import Button from "./ui/Button";
+import Card from "./ui/Card";
+import { CalendarCheck, CalendarDays, Gift, Package, Sparkles, UsersRound } from "lucide-react";
 
 /**
- * Per-pillar interstitial metadata. Icon name (Lucide via <Icon>) +
- * the i18n keys for the title/body. Keys resolved against useLanguage.jsx
- * (real en + da entries — see the pillarGate* block there).
+ * Per-pillar interstitial metadata. The Lucide icon + the i18n keys for the
+ * title/body. Keys resolved against useLanguage.jsx (real en + da entries —
+ * see the pillarGate* block there).
  */
 const PILLAR_META = {
-  reservations: { icon: "CalendarCheck", titleKey: "pillarGateReservationsTitle", bodyKey: "pillarGateReservationsBody" },
-  gavekort:     { icon: "Gift",          titleKey: "pillarGateGavekortTitle",     bodyKey: "pillarGateGavekortBody" },
-  events:       { icon: "CalendarDays",  titleKey: "pillarGateEventsTitle",       bodyKey: "pillarGateEventsBody" },
-  inventory:    { icon: "Package",       titleKey: "pillarGateInventoryTitle",    bodyKey: "pillarGateInventoryBody" },
-  staff:        { icon: "UsersRound",    titleKey: "pillarGateStaffTitle",        bodyKey: "pillarGateStaffBody" },
-  insights:     { icon: "Sparkles",      titleKey: "pillarGateInsightsTitle",     bodyKey: "pillarGateInsightsBody" },
+  reservations: { icon: CalendarCheck, titleKey: "pillarGateReservationsTitle", bodyKey: "pillarGateReservationsBody" },
+  gavekort:     { icon: Gift,          titleKey: "pillarGateGavekortTitle",     bodyKey: "pillarGateGavekortBody" },
+  events:       { icon: CalendarDays,  titleKey: "pillarGateEventsTitle",       bodyKey: "pillarGateEventsBody" },
+  inventory:    { icon: Package,       titleKey: "pillarGateInventoryTitle",    bodyKey: "pillarGateInventoryBody" },
+  staff:        { icon: UsersRound,    titleKey: "pillarGateStaffTitle",        bodyKey: "pillarGateStaffBody" },
+  insights:     { icon: Sparkles,      titleKey: "pillarGateInsightsTitle",     bodyKey: "pillarGateInsightsBody" },
 };
 
 export default function PillarGate({ pillar, children }) {
@@ -69,6 +79,7 @@ export default function PillarGate({ pillar, children }) {
   if (!hiddenPillars.has(pillar)) return children;
 
   const meta = PILLAR_META[pillar] || PILLAR_META.insights;
+  const PillarIcon = meta.icon;
   // A salon, a shop or a repair trade books customers for a time: its menu
   // says "Tidsbestilling" (navManifest APPOINTMENT_LABELS), so the gate does
   // too — it said "Reservationer er slået fra" under that menu entry.
@@ -105,7 +116,7 @@ export default function PillarGate({ pillar, children }) {
       <div className="max-w-md mx-auto mt-8 sm:mt-16">
         <Card variant="emphasis" className="text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
-            <Icon name={meta.icon} className="h-6 w-6" />
+            <PillarIcon size={18} strokeWidth={1.75} className="h-6 w-6" aria-hidden="true" />
           </div>
           <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {t(titleKey)}
@@ -124,7 +135,7 @@ export default function PillarGate({ pillar, children }) {
               size="lg"
               busy={enabling}
               onClick={enable}
-              iconLeft={!enabling ? <Icon name={meta.icon} className="h-4 w-4" /> : null}
+              iconLeft={!enabling ? <PillarIcon size={18} strokeWidth={1.75} className="h-4 w-4" aria-hidden="true" /> : null}
             >
               {t("pillarGateEnableCta")}
             </Button>
