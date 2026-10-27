@@ -236,6 +236,55 @@ describe("Bekræft on a group", () => {
     await waitFor(() => expect(toastMessages()).toContain("Moved to 21.45 and confirmed — Selskab Nørgaard has Bord 8."));
   });
 
+  // Fix round 27 Oct (extra 3): the deploy window. An API from before the
+  // one-request move ignores starts_at and answers for the time the request
+  // had (its `at` is 20:30, not 21:45): the app falls back to the old two
+  // steps — move, then confirm — once, and says it moved.
+  it("an API that ignores the move: moves first, then confirms — once", async () => {
+    api.patch.mockImplementation((url, body) => {
+      if (/\/status$/.test(url) && statusCalls().length === 1) return Promise.reject(http(409, NO_FIT)); // the first Bekræft
+      if (/\/status$/.test(url) && body.starts_at) return Promise.reject(http(409, NO_FIT)); // old API: at 20:30 still
+      if (/\/status$/.test(url)) {
+        return Promise.resolve({ data: { ...GROUP, status: "confirmed", starts_at: at("21:45"), resource_id: "t8",
+          tables_assigned: { ids: ["t8"], labels: ["Bord 8"] } } });
+      }
+      return Promise.resolve({ data: { ...GROUP, starts_at: body.starts_at } });
+    });
+    renderAt(OWNER);
+    await screen.findAllByText("Selskab Nørgaard");
+    await act(async () => { fireEvent.click(confirmButton()); });
+    const sheet = await screen.findByTestId("no-table-fits");
+    await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: /Move to 21.45 and confirm/ })); });
+    await waitFor(() => expect(statusCalls().length).toBe(3));
+    const calls = api.patch.mock.calls.map(([u, b]) => [u, b]);
+    const moveAt = calls.findIndex(([u]) => u === "/reservations/reservations/g1");
+    expect(moveAt).toBeGreaterThan(-1);
+    expect(calls[moveAt][1]).toEqual({ starts_at: at("21:45") });
+    // The move came after the ignored one-request try, before the plain confirm.
+    expect(calls.findIndex(([u, b]) => /\/status$/.test(u) && b.starts_at)).toBeLessThan(moveAt);
+    expect(statusCalls()[2][1]).toMatchObject({ status: "confirmed", if_no_table: "ask" });
+    expect(statusCalls()[2][1].starts_at).toBeUndefined();
+    await waitFor(() => expect(toastMessages()).toContain("Moved to 21.45 and confirmed — Selskab Nørgaard has Bord 8."));
+    expect(screen.queryByTestId("no-table-fits")).toBeNull();
+  });
+
+  it("a new API that still finds no table at the new time: the sheet again, nothing moved", async () => {
+    const atNew = { ...NO_FIT, at: "21:45", times: ["22:00"] };
+    api.patch.mockImplementation((url, body) => {
+      if (/\/status$/.test(url) && body.starts_at) return Promise.reject(http(409, atNew));
+      if (/\/status$/.test(url)) return Promise.reject(http(409, NO_FIT));
+      return Promise.resolve({ data: {} });
+    });
+    renderAt(OWNER);
+    await screen.findAllByText("Selskab Nørgaard");
+    await act(async () => { fireEvent.click(confirmButton()); });
+    const sheet = await screen.findByTestId("no-table-fits");
+    await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: /Move to 21.45 and confirm/ })); });
+    await waitFor(() => expect(statusCalls().length).toBe(2));
+    expect(await screen.findByTestId("no-table-fits")).toBeTruthy();
+    expect(api.patch.mock.calls.map(([u]) => u)).not.toContain("/reservations/reservations/g1");
+  });
+
   it("Choose tables yourself opens the booking on its tables", async () => {
     api.patch.mockImplementation((url) => (/\/status$/.test(url) ? Promise.reject(http(409, NO_FIT)) : Promise.resolve({ data: {} })));
     renderAt(OWNER);

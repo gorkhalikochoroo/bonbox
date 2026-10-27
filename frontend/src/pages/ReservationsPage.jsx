@@ -5254,6 +5254,23 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       }
     } catch (e) {
       const d = e?.response?.data?.detail || {};
+      // "Flyt til … og bekræft" against an API from before the one-request
+      // move (the deploy window: the app can land a step ahead of the API).
+      // That server ignores starts_at and answers for the time the request
+      // had — its `at` is not the move's. Then the old two steps: move the
+      // request, then Bekræft as usual (fix round 27 Oct). Once only.
+      if (e?.response?.status === 409 && d.error === "no_table_fits" && confirmsNoTable
+          && opts.moveTo && opts.movedTo && d.at && d.at !== opts.movedTo && !opts.legacyMove) {
+        try {
+          await api.patch(`/reservations/reservations/${r.id}`, { starts_at: opts.moveTo });
+        } catch (e2) {
+          await fetchBook(day);
+          setError(bookFailWords(e2, t, t("rsvpActionError", "Action failed. Please try again."), { apptWords }));
+          return;
+        }
+        await setStatus(r, status, null, { movedTo: opts.movedTo, legacyMove: true, retried: true });
+        return;
+      }
       // R11 (B7): no table fits the group — nothing changed on the server.
       // The book reloads (the optimistic "confirmed" goes back to a request)
       // and the sheet says so and offers what can be done.
