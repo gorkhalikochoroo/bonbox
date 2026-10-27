@@ -23,16 +23,42 @@
  * only maybe (a party may be running over); nothing is held, nobody is
  * messaged. Dismissable; a new freed table brings it back.
  */
+import { useLayoutEffect, useRef } from "react";
 import { BellRing, Users, X } from "lucide-react";
 import Button from "../ui/Button";
 import { guestText } from "../../utils/guestText";
 
 export default function FreedTableNudge({ matches, t, apptWords = false, onShow, onDismiss, raised = false }) {
   const list = Array.isArray(matches) ? matches.filter(Boolean) : [];
-  if (!list.length) return null;
+  const shown = list.length > 0;
+  const ref = useRef(null);
+  // A toast (a cancel, a confirm) rises ABOVE this card instead of covering
+  // its title (walk 27 Oct P3-2, iPad portrait: "The booking for … is
+  // cancelled" sat on "A table may have opened"). The card tells the toast
+  // stack (hooks/useToast.jsx, --bb-toast-lift) how far up its top edge is.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!shown || !el) return undefined;
+    const root = document.documentElement;
+    const lift = () => {
+      const top = el.getBoundingClientRect().top;
+      root.style.setProperty("--bb-toast-lift", `${Math.max(0, Math.round(window.innerHeight - top + 8))}px`);
+    };
+    lift();
+    const ro = typeof ResizeObserver === "function" ? new ResizeObserver(lift) : null;
+    ro?.observe(el);
+    window.addEventListener("resize", lift);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", lift);
+      root.style.removeProperty("--bb-toast-lift");
+    };
+  }, [shown]);
+  if (!shown) return null;
   const named = list.filter((m) => m && m.guest_name);
   return (
     <section
+      ref={ref}
       role="status"
       aria-live="polite"
       data-freed-nudge=""

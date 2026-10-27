@@ -139,8 +139,12 @@ export function ToastProvider({ children }) {
             // Sits ABOVE the mobile tab bar (h-14 + its safe-area padding);
             // 4.5rem is the same clearance the old support chip used. Desktop
             // has no tab bar, so it drops to the normal bottom margin.
+            // Higher still while a card floats at the foot of the book
+            // (FreedTableNudge sets --bb-toast-lift to its top edge): a toast
+            // never covers that card's title (walk 27 Oct P3-2).
             className="fixed left-0 right-0 z-[60] flex flex-col items-center gap-2 px-4 pointer-events-none"
-            style={{ bottom: "calc(4.5rem + env(safe-area-inset-bottom, 0px))" }}
+            data-toast-stack=""
+            style={{ bottom: "max(calc(4.5rem + env(safe-area-inset-bottom, 0px)), var(--bb-toast-lift, 0px))" }}
           >
             {items.map(({ id, message, severity, action }) => {
               const { Icon, cls } = SEVERITY[severity];

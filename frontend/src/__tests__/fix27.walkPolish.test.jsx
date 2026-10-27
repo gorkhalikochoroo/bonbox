@@ -6,12 +6,18 @@
  *         error, a 409) is brought up clear of the fixed main-button bar on a
  *         phone: at 390×844 it drew at 770 px under the bar at 767, and the
  *         guest saw nothing change.
+ *   P3-2  On the door iPad (portrait), a toast ("The booking for … is
+ *         cancelled") covered the freed-table card's title: the card now tells
+ *         the toast stack its top edge, and toasts rise above it.
  *
  * Run: cd frontend && TZ=UTC npx vitest run src/__tests__/fix27.walkPolish.test.jsx
  */
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const h = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }));
 vi.mock("../services/api", () => ({
@@ -32,6 +38,7 @@ vi.mock("../hooks/useLanguage", async () => {
 });
 vi.mock("../hooks/useConfirm", () => ({ useConfirm: () => vi.fn().mockResolvedValue(true) }));
 
+const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ReservationPublicPage = (await import("../pages/ReservationPublicPage")).default;
 const { da } = await import("../i18n/da");
 
@@ -147,5 +154,35 @@ describe("P3-1: a refusal on the details step is seen, never left under the bar"
     await submit();
     expect(screen.getByRole("alert").textContent).toContain(da.rsvpErrTooManyTries);
     expect(window.scrollBy).not.toHaveBeenCalled();
+  });
+});
+
+describe("P3-2: a toast never covers the freed-table card's title", () => {
+  it("the card tells the toast stack its top edge; the stack rises above it; it goes with the card", async () => {
+    const { default: FreedTableNudge } = await import("../components/reservations/FreedTableNudge");
+    const { ToastProvider, useToast } = await import("../hooks/useToast");
+    // iPad portrait, 820×1180: the card floats 20 px off the foot, 125 px tall.
+    Object.defineProperty(window, "innerHeight", { configurable: true, writable: true, value: 1180 });
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function rect() {
+      return this.hasAttribute?.("data-freed-nudge") ? box(1035, 125) : box(0, 0);
+    });
+    const match = { id: "w1", guest_name: "Venter Vibe", party_size: 2 };
+    let say = null;
+    function Door({ matches }) {
+      const toast = useToast();
+      say = toast;
+      return <FreedTableNudge matches={matches} t={(_k, fb) => fb} onShow={() => {}} onDismiss={() => {}} />;
+    }
+    const lift = () => document.documentElement.style.getPropertyValue("--bb-toast-lift");
+    const { rerender } = render(<ToastProvider><Door matches={[match]} /></ToastProvider>);
+    // Its top edge is 1180 − 1035 = 145 px up; the toasts sit 8 px above that.
+    expect(lift()).toBe("153px");
+    act(() => { say("The booking for NoShow Test is cancelled."); });
+    expect(document.querySelector("[data-toast-stack]")).not.toBeNull();
+    const toastSrc = fs.readFileSync(path.join(SRC, "hooks/useToast.jsx"), "utf8");
+    expect(toastSrc).toContain('bottom: "max(calc(4.5rem + env(safe-area-inset-bottom, 0px)), var(--bb-toast-lift, 0px))"');
+    // Dismissed (or nobody fits any more): the toasts go back down.
+    rerender(<ToastProvider><Door matches={[]} /></ToastProvider>);
+    expect(lift()).toBe("");
   });
 });
