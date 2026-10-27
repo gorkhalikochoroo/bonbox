@@ -49,6 +49,11 @@ function heldWhy(reason, t) {
   if (reason === "marked_spam") {
     return t("rsvpWlHeldSpam", "You marked this number as spam. It is never texted from here.");
   }
+  // The same phone joined the same night again: its own held row, so the
+  // guest's second answer looks like the first (fix round 27 Oct).
+  if (reason === "repeat_join") {
+    return t("rsvpWlHeldRepeat", "This number is already on the list for this night.");
+  }
   return reason === "contact_active"
     ? t("rsvpWlHeldSame", "The same number is already waiting on several nights.")
     : t("rsvpWlHeldRobot", "Joined online in a way that looks automated.");

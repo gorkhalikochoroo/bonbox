@@ -189,8 +189,17 @@ describe("a phone the owner marked as spam (fix round 27 Oct)", () => {
     expect(said).not.toContain(da.rsvpWlSmsSent);
   });
 
+  it("a repeat join's held row says the number is already on the list", async () => {
+    const REPEAT = { ...SPAM, id: "r", guest_name: "Again", held_reason: "repeat_join" };
+    h.get.mockResolvedValue({ data: { waitlist: [ROWS[2], REPEAT], day: DAY, active_count: 2 } });
+    render(<WaitlistSection day={DAY} />);
+    await settle();
+    expect(rowOf("Again").textContent).toContain(da.rsvpWlHeldRepeat);
+    expect(rowOf("Again").textContent).not.toContain(da.rsvpWlHeldRobot);
+  });
+
   it("has real en and da words", () => {
-    for (const k of ["rsvpWlHeldSpam", "rsvpWlNotifySpam"]) {
+    for (const k of ["rsvpWlHeldSpam", "rsvpWlNotifySpam", "rsvpWlHeldRepeat"]) {
       expect(typeof en[k]).toBe("string");
       expect(typeof da[k]).toBe("string");
       expect(da[k]).not.toBe(en[k]);

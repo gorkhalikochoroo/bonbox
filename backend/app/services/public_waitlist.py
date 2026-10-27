@@ -41,8 +41,12 @@ like an online booking (services/booking_screen.py), and silently:
     freed-table nudge, listed after the real guests, and never sent the
     Notify SMS (reservations.notify_waitlist refuses it);
   • the same phone already on CONTACT_ACTIVE_MAX future online lists here →
-    held (a person-like hold); the same phone on the same night → no second
-    row (the guest gets the same receipt);
+    held (a person-like hold); the same phone on the same night (fix round
+    27 Oct, review P3-5) → a held SHADOW row (`repeat_join`) with its own
+    token: the second join gets the same status and the same answer as a
+    first one, never reveals, changes or returns a token for the entry that
+    was there, and its receipt shows only what the shadow stored. It counts
+    under the held bounds, and the list's caps answer it as a first join;
   • caps that close the online list (never the venue's own door list):
     PER_NIGHT entries a night, ACTIVE_MAX waiting at a venue, FLEET_PER_DAY
     across all venues. Any count error closes it (fail closed — the list is
@@ -522,6 +526,22 @@ def existing_entry(db, owner_id, day: date, phone: str | None):
     )
 
 
+# A join from a phone already waiting for the same night (fix round 27 Oct).
+REPEAT_REASON = "repeat_join"
+
+
+def repeat_state(db, owner_id, day: date, phone: str | None) -> str:
+    """"first" | "repeat" | "unknown" — is this phone already on this night's
+    online list (existing_entry)? "unknown" when it could not be read: the
+    caller answers "call us", never a guess either way."""
+    try:
+        return "repeat" if existing_entry(db, owner_id, day, phone) is not None else "first"
+    except Exception:  # noqa: BLE001 — fail closed
+        logger.warning("waitlist repeat check failed — closed", exc_info=True)
+        _rollback(db)
+        return "unknown"
+
+
 def contact_nights(db, owner_id, phone: str | None, today: date) -> int:
     """How many future nights this phone is already waiting for at this venue
     (online, active, not held)."""
@@ -682,17 +702,22 @@ def receipt(db, entry, today: date) -> dict:
 
 def stand_in_receipt(day: date, party: int, preferred_time: str | None) -> dict:
     """The receipt for a join that wrote nothing (a robot's trap at robot
-    speed, or the same guest's second post for the same night): it looks
-    like any receipt, with no link to come back to — nothing to tell a
-    script which check fired, nothing about anyone else's entry."""
+    speed, or a held join past the held bounds): it looks like any receipt —
+    the same keys, a signed token like any other (fix round 27 Oct: an empty
+    one told a script its post was dropped) — nothing to tell a script which
+    check fired, nothing about anyone else's entry. The token opens nothing:
+    there is no row behind it, so its receipt is a 404 and never shows a
+    value that was not stored."""
+    from app.services.qr_signer import sign_waitlist_token
+    sid = str(uuid.uuid4())
     return {
-        "id": str(uuid.uuid4()),
+        "id": sid,
         "status": "waiting",
         "waitlist_date": day.isoformat(),
         "party_size": party,
         "preferred_time": preferred_time,
         "erased": False,
-        "waitlist_token": "",
+        "waitlist_token": sign_waitlist_token(sid, ttl_hours=24),
     }
 
 

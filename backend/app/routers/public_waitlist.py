@@ -198,24 +198,20 @@ def _screen_and_join(db: Session, *, owner, profile, settings: dict, payload, da
     held = screen.action == "hold"
     reason = screen.reason
     if not held:
-        if pwl.existing_entry(db, owner.id, day, payload.guest_phone) is not None:
-            # The same guest, the same night: no second row. The receipt is
-            # the same as any join (never "this number is already on the
-            # list" — that would tell anyone with a number who is waiting).
-            return pwl.stand_in_receipt(day, party, payload.preferred_time)
-    if held:
-        # Held rows have bounds of their own (a night here, and the fleet's
-        # day) and never count toward a real guest's; past them, or when a
-        # count can't be read, the join is dropped silently.
-        room = pwl.held_room(db, owner.id, day=day, now_utc=now_utc)
-        if room != "open":
-            abuse_signals.bump({"night_full": "waitlist_held_ceiling",
-                                "fleet_full": "waitlist_fleet_held_ceiling"}.get(
-                                    room, "waitlist_held_count_error"))
-            return pwl.stand_in_receipt(day, party, payload.preferred_time)
-    elif not pwl.gate_open(db, owner.id, day=day, today=today, now_utc=now_utc, count_hold=True):
-        raise _unavailable()
-
+        # The online list's own caps answer a first and a repeat join alike.
+        if not pwl.gate_open(db, owner.id, day=day, today=today, now_utc=now_utc,
+                             count_hold=True):
+            raise _unavailable()
+        repeat = pwl.repeat_state(db, owner.id, day, payload.guest_phone)
+        if repeat == "unknown":
+            raise _unavailable()
+        if repeat == "repeat":
+            # The same phone, the same night (fix round 27 Oct, review P3-5):
+            # the same answer as a first join — a HELD shadow row with its
+            # own token and only its own stored values. Never "this number is
+            # already on the list", never a token for (or a change to) the
+            # entry that was there. It counts under the held bounds below.
+            held, reason = True, pwl.REPEAT_REASON
     wanted_hm = [t.strftime("%H:%M") for t in wanted]
     desired_from = desired_to = None
     if payload.preferred_time and payload.preferred_time in wanted_hm:
@@ -224,6 +220,19 @@ def _screen_and_join(db: Session, *, owner, profile, settings: dict, payload, da
         # "Any time this evening": the owner reads the evening it was for.
         desired_from = wanted[0]
         desired_to = wanted[-1]
+
+    if held:
+        # Held rows have bounds of their own (a night here, and the fleet's
+        # day) and never count toward a real guest's; past them, or when a
+        # count can't be read, the join is dropped silently — with the time
+        # a stored row would show, so nothing tells the two apart.
+        room = pwl.held_room(db, owner.id, day=day, now_utc=now_utc)
+        if room != "open":
+            abuse_signals.bump({"night_full": "waitlist_held_ceiling",
+                                "fleet_full": "waitlist_fleet_held_ceiling"}.get(
+                                    room, "waitlist_held_count_error"))
+            return pwl.stand_in_receipt(day, party,
+                                        desired_from.strftime("%H:%M") if desired_from else None)
 
     w = ReservationWaitlistEntry(
         user_id=owner.id,

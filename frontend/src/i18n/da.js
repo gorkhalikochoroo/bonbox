@@ -1600,6 +1600,7 @@ export const da = {
     rsvpWlHeldSame: "Samme nummer venter allerede på flere aftener.",
     rsvpWlHeldSpam: "Du har markeret nummeret som spam. Det får aldrig en sms herfra.",
     rsvpWlNotifySpam: "Du har markeret nummeret som spam, så der blev ikke sendt nogen besked.",
+    rsvpWlHeldRepeat: "Nummeret står allerede på listen til denne aften.",
     rsvpWlGuestLeft: "De har meldt sig af ventelisten.",
     rsvpPublicWaitlistSetting: "Gæster kan skrive sig på ventelisten, når du er fuldt booket",
     rsvpPublicWaitlistSettingHint: "Kun på aftener uden et ledigt bord, højst 15 pr. aften. Det er ikke en reservation — du kontakter selv gæsten, hvis et bord bliver ledigt.",

@@ -439,7 +439,12 @@ def test_a_trap_at_robot_speed_writes_nothing_and_looks_like_any_receipt(db, cli
     r = _join(client, profile, FRI, website="http://spam", form_ms=300)
     assert r.status_code == 201
     body = r.json()
-    assert body["status"] == "waiting" and body["waitlist_token"] == ""
+    # Fix round 27 Oct (C): a signed token like any receipt's (an empty one
+    # told a script it was dropped) — one that opens nothing.
+    assert body["status"] == "waiting" and body["waitlist_token"]
+    assert verify_waitlist_token(body["waitlist_token"]) == body["id"]
+    assert client.get(f"/api/public/reservations/booking/waitlist/{body['id']}",
+                      params={"token": body["waitlist_token"]}).status_code == 404
     assert set(body) == {"id", "status", "waitlist_date", "party_size", "preferred_time",
                          "erased", "waitlist_token"}
     assert _rows(db, owner) == []
@@ -474,13 +479,19 @@ def test_no_fill_time_joins_as_a_person(db, client):
 
 
 def test_the_same_phone_the_same_night_is_one_row(db, client):
+    """One row the owner can OFFER. Fix round 27 Oct (C): the second join is
+    a held shadow row with its own token — never a second waiting guest."""
     owner, profile, tables = _venue(db)
     _fill(db, owner, tables, FRI)
     assert _join(client, profile, FRI, guest_phone="+45 20 20 20 20").status_code == 201
     again = _join(client, profile, FRI, guest_phone="0045-2020-2020", guest_name="Agnes igen")
     assert again.status_code == 201
-    assert again.json()["waitlist_token"] == ""                 # nothing to come back to
-    assert len(_rows(db, owner)) == 1
+    rows = _rows(db, owner)
+    held = _held_ids(db, owner)
+    assert len([w for w in rows if str(w.id) not in held]) == 1
+    from app.routers.reservations import _waitlist_matches
+    assert [m["guest_name"] for m in _waitlist_matches(db, owner, waitlist_date=FRI,
+                                                       capacity=4)] == ["Agnes"]
 
 
 def test_a_robots_held_row_never_stands_in_for_the_real_guest(db, client):
@@ -976,3 +987,88 @@ def test_fix_b_a_held_count_that_cannot_be_read_drops_silently(db, client, monke
     assert r.status_code == 201 and r.json()["status"] == "waiting"
     assert _rows(db, owner) == []
     assert pwl.held_room(db, owner.id, day=FRI, now_utc=NOW) == "unknown"
+
+
+# ── Fix round 27 Oct (C): a repeat join looks like a first one ────────────
+# Review P3-5: the repeat got token "" where a first join got a real one (who
+# is waiting leaked), and its receipt echoed a party and time never stored.
+def _receipt(client, body):
+    return client.get(f"/api/public/reservations/booking/waitlist/{body['id']}",
+                      params={"token": body["waitlist_token"]})
+
+
+def test_fix_c_a_repeat_join_gets_a_first_joins_answer_and_its_own_row(db, client):
+    owner, profile, tables = _venue(db)
+    _fill(db, owner, tables, FRI)
+    first = _join(client, profile, FRI, guest_phone="+45 20 20 20 20", preferred_time="19:00")
+    again = _join(client, profile, FRI, guest_phone="20202020", guest_name="Someone",
+                  party_size=4, preferred_time="20:00")
+    assert first.status_code == again.status_code == 201
+    a, b = first.json(), again.json()
+    assert set(a) == set(b) and a["status"] == b["status"] == "waiting"
+    assert a["erased"] is b["erased"] is False
+    assert a["waitlist_token"] and b["waitlist_token"] and a["waitlist_token"] != b["waitlist_token"]
+    assert b["id"] != a["id"]                                     # never the existing entry
+    assert verify_waitlist_token(b["waitlist_token"]) == b["id"]
+    # The existing entry is untouched; the repeat is a held shadow row.
+    orig = db.get(W, uuid.UUID(a["id"]))
+    db.refresh(orig)
+    assert (orig.guest_name, orig.party_size, orig.desired_from) == ("Agnes", 2, datetime(2030, 1, 11, 19, 0))
+    shadow = db.get(W, uuid.UUID(b["id"]))
+    assert (shadow.guest_name, shadow.party_size) == ("Someone", 4)
+    assert pwl.held_reasons(db, owner.id, [shadow.id]) == {str(shadow.id): "repeat_join"}
+    # Each receipt shows only what its own row stored.
+    ra, rb = _receipt(client, a).json(), _receipt(client, b).json()
+    assert (ra["party_size"], ra["preferred_time"]) == (2, "19:00")
+    assert (rb["party_size"], rb["preferred_time"]) == (4, "20:00")
+    # Leaving with the repeat's token erases the shadow only.
+    left = client.post(f"/api/public/reservations/booking/waitlist/{b['id']}/cancel",
+                       params={"token": b["waitlist_token"]})
+    assert left.status_code == 200
+    db.expire_all()
+    assert db.get(W, uuid.UUID(a["id"])).guest_name == "Agnes"
+    assert db.get(W, uuid.UUID(b["id"])).guest_name is None
+    # The freed table still offers the real guest, once.
+    from app.routers.reservations import _waitlist_matches
+    assert [m["id"] for m in _waitlist_matches(db, owner, waitlist_date=FRI, capacity=4)] == [a["id"]]
+
+
+def test_fix_c_a_closed_list_answers_a_repeat_as_a_first_join(db, client, monkeypatch):
+    owner, profile, tables = _venue(db)
+    _fill(db, owner, tables, FRI)
+    assert _join(client, profile, FRI, guest_phone="+45 20 20 20 20").status_code == 201
+    monkeypatch.setattr(pwl, "PER_NIGHT", 1)                # now full
+    member = _join(client, profile, FRI, guest_phone="20202020")
+    stranger = _join(client, profile, FRI, guest_phone="+45 30 30 30 30")
+    assert member.status_code == stranger.status_code == 409
+    assert member.json() == stranger.json()
+    assert len(_rows(db, owner)) == 1
+
+
+def test_fix_c_repeats_count_under_the_held_bound(db, client, monkeypatch):
+    monkeypatch.setattr(pwl, "HELD_PER_NIGHT", 1)
+    owner, profile, tables = _venue(db)
+    _fill(db, owner, tables, FRI)
+    assert _join(client, profile, FRI).status_code == 201
+    one = _join(client, profile, FRI)                          # shadow 1: written
+    two = _join(client, profile, FRI)                          # past the bound: dropped
+    assert one.status_code == two.status_code == 201
+    assert set(one.json()) == set(two.json()) and two.json()["waitlist_token"]
+    assert len(_rows(db, owner)) == 2
+    assert _receipt(client, one.json()).status_code == 200
+    assert _receipt(client, two.json()).status_code == 404     # nothing stored, nothing shown
+    # A real first join is not touched by the held bound.
+    assert _join(client, profile, FRI, guest_phone="+45 30 30 30 30").status_code == 201
+
+
+def test_fix_c_a_repeat_check_that_cannot_be_read_says_call_us(db, client, monkeypatch):
+    owner, profile, tables = _venue(db)
+    _fill(db, owner, tables, FRI)
+
+    def boom(*a, **k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(pwl, "existing_entry", boom)
+    r = _join(client, profile, FRI)
+    assert r.status_code == 409 and r.json()["detail"]["error"] == "waitlist_unavailable"
+    assert _rows(db, owner) == []
