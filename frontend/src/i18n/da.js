@@ -1650,6 +1650,7 @@ export const da = {
     rsvpCapacityHoursClosedShift: "Lukket i åbningstiderne — behandlere på vagt kan stadig bookes",
     rsvpCapacityWeekTitle: "Hvem kan bookes",
     rsvpCapacityWeekIntro: "De næste 7 dage, som kunderne kan booke online.",
+    rsvpCapacityNoHours: "Dine åbningstider er ikke gemt, så ingen, der følger åbningstiderne, kan bookes endnu.",
     rsvpStylistsIntro: "Tilføj dem, kunderne booker. Hver behandler kan bookes, når salonen har åbent — eller i sine vagter i Vagtplan.",
     rsvpStylistAddTitle: "Tilføj en behandler",
     rsvpStylistNameLabel: "Navn",

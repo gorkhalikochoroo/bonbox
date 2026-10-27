@@ -161,6 +161,25 @@ describe("Hvem kan bookes — the week on Behandlere", () => {
     expect(rows[0].textContent).toContain("Ingen kan bookes");
     expect(screen.getByText(da.rsvpCapacityWeekTitle)).toBeInTheDocument();
   });
+  it("says when the opening hours are not saved, with the way to save them", async () => {
+    h.get.mockResolvedValue({ data: { days: WEEK, follows_hours: true, hours_saved: false } });
+    withRouter(<SalonWeekCapacity t={t} lang="da" />);
+    await settle();
+    const note = screen.getByTestId("salon-capacity-no-hours");
+    expect(note.textContent).toContain(da.rsvpCapacityNoHours);
+    expect(within(note).getByRole("link").getAttribute("href")).toBe("/reservations?tab=settings");
+  });
+  it("no such note once the hours are saved, or with no one on the hours", async () => {
+    h.get.mockResolvedValue({ data: { days: WEEK, follows_hours: true, hours_saved: true } });
+    const { unmount } = withRouter(<SalonWeekCapacity t={t} lang="da" />);
+    await settle();
+    expect(screen.queryByTestId("salon-capacity-no-hours")).toBeNull();
+    unmount();
+    h.get.mockResolvedValue({ data: { days: WEEK, follows_hours: false, hours_saved: false } });
+    withRouter(<SalonWeekCapacity t={t} lang="da" />);
+    await settle();
+    expect(screen.queryByTestId("salon-capacity-no-hours")).toBeNull();
+  });
   it("a failed read shows nothing", async () => {
     h.get.mockRejectedValue(new Error("Network Error"));
     render(<SalonWeekCapacity t={t} lang="da" />);
@@ -615,6 +634,7 @@ describe("the R7 words", () => {
     "rsvpCapacityYou", "rsvpCapacityN", "rsvpCapacityUpTo", "rsvpCapacityOneAtATime", "rsvpCapacityOnlyYou",
     "rsvpCapacityOnlyOne", "rsvpCapacityNobody", "rsvpCapacityClosedDay", "rsvpCapacityClosedNote", "rsvpCapacityClosed",
     "rsvpCapacityPaused", "rsvpCapacityAway", "rsvpCapacityHoursClosedShift", "rsvpCapacityWeekTitle", "rsvpCapacityWeekIntro",
+    "rsvpCapacityNoHours",
     "rsvpStylistsIntro", "rsvpStylistAddTitle", "rsvpStylistNameLabel", "rsvpStylistNamePh", "rsvpStylistBookableLabel",
     "rsvpStylistModeHours", "rsvpStylistModeShifts", "rsvpStylistModeHoursHint", "rsvpStylistModeShiftsHint", "rsvpStylistAddBtn",
     "rsvpStylistAddedHours", "rsvpStylistAddedShifts", "rsvpStylistExists", "rsvpStylistNameRequired", "rsvpStylistNameTooLong",

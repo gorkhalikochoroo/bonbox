@@ -1690,6 +1690,7 @@ export const en = {
     rsvpCapacityHoursClosedShift: "Closed in your opening hours — stylists on shifts can still be booked",
     rsvpCapacityWeekTitle: "Who can be booked",
     rsvpCapacityWeekIntro: "The next 7 days, as customers can book online.",
+    rsvpCapacityNoHours: "Your opening hours aren't saved, so no one on the opening hours can be booked yet.",
     rsvpStylistsIntro: "Add the people customers book. Each one can be booked whenever the salon is open, or on their shifts in the Schedule.",
     rsvpStylistAddTitle: "Add a stylist",
     rsvpStylistNameLabel: "Name",

@@ -467,6 +467,19 @@ def test_capacity_reads_seven_days_from_today_by_default_and_at_most_fourteen(cl
     assert _capacity(client, s, days=0).status_code == 422
 
 
+def test_capacity_says_when_the_opening_hours_are_not_saved(client, db):
+    # A chair on the opening hours books nothing until the hours card is
+    # saved: the answer says so, so the card can send her there.
+    s = salon(db, stylist=None, self_chair=True)
+    body = _capacity(client, s, days=1).json()
+    assert body["follows_hours"] is True and body["hours_saved"] is False
+    set_settings(db, s["profile"], booking_hours=OPEN_FRI)
+    body = _capacity(client, s, days=1).json()
+    assert body["hours_saved"] is True
+    shifts_only = salon(db)                              # Mia on shifts, no chair on the hours
+    assert _capacity(client, shifts_only, days=1).json()["follows_hours"] is False
+
+
 @pytest.mark.parametrize("path,method", [
     ("/api/reservations/salon/capacity", "get"),
     ("/api/reservations/salon/stylists", "post"),

@@ -16,7 +16,8 @@
 // A failed read shows nothing: never a count drawn from a fetch that did not
 // answer. Owner session only — the door stand never mounts these.
 import { useEffect, useRef, useState } from "react";
-import { Users } from "lucide-react";
+import { Link } from "react-router-dom";
+import { AlertTriangle, ChevronRight, Users } from "lucide-react";
 import api from "../../services/api";
 import { fmtClosureRange } from "../../utils/closures";
 import { ABSENCE_KIND } from "./SalonAttention";
@@ -90,7 +91,7 @@ export function hoursClosedNote(day, t) {
 }
 
 function useCapacity(params, key) {
-  const [days, setDays] = useState(null);
+  const [answer, setAnswer] = useState(null); // the whole answer, or null
   const want = useRef(key);
   useEffect(() => {
     let alive = true;
@@ -98,10 +99,10 @@ function useCapacity(params, key) {
     api.get("/reservations/salon/capacity", { params })
       .then((r) => {
         if (!alive || want.current !== key) return;
-        setDays(Array.isArray(r?.data?.days) ? r.data.days : null);
+        setAnswer(Array.isArray(r?.data?.days) ? r.data : null);
       })
       .catch(() => {
-        if (alive && want.current === key) setDays(null);
+        if (alive && want.current === key) setAnswer(null);
       });
     return () => {
       alive = false;
@@ -109,13 +110,13 @@ function useCapacity(params, key) {
     // `key` carries every param; the object itself is new on each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  return days;
+  return answer;
 }
 
 /** One line for the day the book shows (Aftaler). */
 export function SalonDayCapacity({ t, lang = "da", day, refreshKey = 0 }) {
-  const days = useCapacity({ start: day, days: 1 }, `${day}|${refreshKey}`);
-  const d = Array.isArray(days) ? days.find((x) => x.date === day) : null;
+  const answer = useCapacity({ start: day, days: 1 }, `${day}|${refreshKey}`);
+  const d = answer ? answer.days.find((x) => x.date === day) : null;
   if (!d) return null;
   const away = awayText(d, t);
   const note = hoursClosedNote(d, t);
@@ -133,8 +134,12 @@ export function SalonDayCapacity({ t, lang = "da", day, refreshKey = 0 }) {
 
 /** The next 7 days, one line each (Behandlere). */
 export default function SalonWeekCapacity({ t, lang = "da", refreshKey = 0 }) {
-  const days = useCapacity({ days: 7 }, `week|${refreshKey}`);
+  const answer = useCapacity({ days: 7 }, `week|${refreshKey}`);
+  const days = answer?.days;
   if (!Array.isArray(days) || days.length === 0) return null;
+  // A chair on the opening hours (hers, or a stylist who follows them) books
+  // nothing until the hours card is saved: say so, with the way there.
+  const hoursMissing = answer.follows_hours === true && answer.hours_saved === false;
   return (
     <section
       data-testid="salon-week-capacity"
@@ -149,6 +154,22 @@ export default function SalonWeekCapacity({ t, lang = "da", refreshKey = 0 }) {
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
           {t("rsvpCapacityWeekIntro", "The next 7 days, as customers can book online.")}
         </p>
+        {hoursMissing && (
+          <div
+            role="status"
+            data-testid="salon-capacity-no-hours"
+            className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-800/40 bg-amber-50/70 dark:bg-amber-900/10 px-3 py-2 text-[13px] text-amber-900 dark:text-amber-100"
+          >
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
+            <span className="min-w-0">
+              {t("rsvpCapacityNoHours", "Your opening hours aren't saved, so no one on the opening hours can be booked yet.")}{" "}
+              <Link to="/reservations?tab=settings" className="inline-flex items-center gap-0.5 font-semibold underline underline-offset-2">
+                {t("rsvpProviderNoTimesHoursCta", "Save opening hours")}
+                <ChevronRight className="w-3.5 h-3.5" aria-hidden />
+              </Link>
+            </span>
+          </div>
+        )}
       </div>
       <ul className="border-t border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
         {days.map((d) => {

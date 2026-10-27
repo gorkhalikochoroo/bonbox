@@ -1374,9 +1374,22 @@ def salon_capacity_days(start: date | None = Query(default=None),
 
     enforce_feature(user, "reservations")
     first = start or now_local(user).date()
+    profile = _profile(db, user)
+    saved = rsvc.load_settings(profile).get("booking_hours")
     return {
         "start": first.isoformat(),
-        "days": sa.salon_capacity(db, user.id, _profile(db, user), start=first, days=days),
+        "days": sa.salon_capacity(db, user.id, profile, start=first, days=days),
+        # A chair on the opening hours books nothing until the hours card is
+        # saved — the card says so, with the way there (no dead end).
+        "hours_saved": isinstance(saved, dict) and any(
+            v == "closed" or (isinstance(v, str) and "-" in v) for v in saved.values()),
+        "follows_hours": db.query(BookableResource.id).filter(
+            BookableResource.user_id == user.id,
+            BookableResource.kind == "provider",
+            BookableResource.is_active.is_(True),
+            BookableResource.is_deleted.is_(False),
+            BookableResource.follows_opening_hours.is_(True),
+        ).first() is not None,
     }
 
 
