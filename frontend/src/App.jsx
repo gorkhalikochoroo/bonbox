@@ -21,6 +21,9 @@ import { ConfirmProvider } from "./hooks/useConfirm";
 import { ToastProvider } from "./hooks/useToast";
 import { useThemeColorSync } from "./hooks/useThemeColorSync";
 import { isLandingPath, landingFirstPaint, mightBeSignedIn } from "./lib/landingBoot";
+import { isQuietGuestPage } from "./lib/embedMode";
+import { isBookingPath } from "./lib/bookingPath";
+import { PAGE_WORDS_ON } from "./lib/pageDict";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AlertTriangle } from "lucide-react";
 import Button from "./components/ui/Button";
@@ -35,6 +38,10 @@ const API_BASE = import.meta.env.VITE_API_URL || "";
 const HEALTH_URL = `${API_BASE.replace(/\/(api\/?)?$/, "")}/api/health`;
 function useKeepAlive() {
   useEffect(() => {
+    // Booking R4: the booking form inside a restaurant's own website makes no
+    // call it doesn't need — its own first request wakes the server anyway.
+    // R5: nor the guest's booking page on its own (/r/<slug>, /<slug>).
+    if (isQuietGuestPage()) return undefined;
     const ping = () => fetch(HEALTH_URL, { method: "HEAD" }).catch(() => {});
     ping(); // immediate ping on app load — warms Render before the first real call
     const id = setInterval(ping, 10 * 60 * 1000); // every 10 min
@@ -78,16 +85,14 @@ function WithGoogleAuth({ children }) {
  */
 function GuestPage({ children }) {
   useLayoutEffect(() => markGuestSurface(), []);
-  // A quiet, language-free spinner — the app's own loader says "Loading…" in
-  // English on a Danish restaurant's page.
+  // While the page's own code downloads: the page's own wait (booking R5) —
+  // the very skeleton index.html already painted before any code arrived
+  // (components/booking/bookingWait.js), so React's first commit changes
+  // nothing on screen and the guest never sees a blank white box. It was a
+  // grey spinner after 600 ms (R3), a blank page before that. Language-free:
+  // no words are here yet.
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-950">
-          <div className="w-6 h-6 rounded-full border-2 border-gray-200 border-t-gray-500 animate-spin" aria-hidden="true" />
-        </div>
-      }
-    >
+    <Suspense fallback={<BookingSkeleton variant={variantForHere()} />}>
       {children}
     </Suspense>
   );
@@ -98,6 +103,10 @@ function GuestPage({ children }) {
 // every other page — so a cold load never flashes a third colour between the
 // first paint and the page (it was slate-50 on both). Dark unchanged.
 function PageLoader() {
+  // A restaurant guest's page (/r/<slug>, or one that is mounted) gets the
+  // guest wait instead: grey, and only after 600 ms. The blue app spinner
+  // showed at ~210 ms on every cold booking load (booking R3, judge A7).
+  if (isGuestSurface()) return <GuestSpinner testId="page-loader" />;
   return (
     <div data-testid="page-loader" className="min-h-screen flex items-center justify-center dark:bg-gray-900">
       <div className="text-center">
@@ -307,7 +316,10 @@ import CookieConsent from "./components/CookieConsent";
 // NEVER wraps public (/r, /e, /s, /scan), spine, accountant, or auth routes.
 import PillarGate from "./components/PillarGate";
 import AccountLanguageSync from "./components/AccountLanguageSync";
-import { markGuestSurface, wasGuestPath } from "./lib/guestSurface";
+import { isGuestSurface, markGuestSurface, wasGuestPath } from "./lib/guestSurface";
+import GuestSpinner from "./components/GuestSpinner";
+import BookingSkeleton from "./components/booking/BookingSkeleton";
+import { variantForHere } from "./components/booking/bookingWait";
 
 /**
  * Self-contained ErrorBoundary for the cookie banner. If anything inside the
@@ -748,11 +760,21 @@ function LandingRoute() {
  * a blank screen: a visitor who taps "Prøv gratis" the moment the landing
  * paints on a slow phone used to stare at an empty white page for up to
  * ~2 s while the dictionary finished (push 9 review, Fast 3G + 4x CPU).
+ *
+ * Booking R5: the public booking page brings its own words (~10 KB, Danish
+ * and English — lib/pageDict.js), so it passes too: a guest's phone never
+ * waits for, or downloads, the ~200 KB full dictionary. Leaving it for
+ * another route asks for the full one (ensureFull) — that route waits here
+ * as before.
  */
 export function FullDictionaryGate({ children }) {
-  const { fullReady } = useLanguage();
+  const { fullReady, ensureFull } = useLanguage();
   const { pathname } = useLocation();
-  if (fullReady === false && !isLandingPath(pathname)) return <PageLoader />;
+  const held = fullReady === false && !isLandingPath(pathname) && !(PAGE_WORDS_ON && isBookingPath(pathname));
+  useEffect(() => {
+    if (held && typeof ensureFull === "function") ensureFull();
+  }, [held, ensureFull]);
+  if (held) return <PageLoader />;
   return children;
 }
 

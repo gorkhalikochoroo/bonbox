@@ -87,6 +87,10 @@ DEFAULT_SETTINGS: dict = {
     # through services/contact_marks.py, never through PUT /settings, and
     # never sent to the app as stored (GET /settings leaves it out).
     "contact_blocks": [],
+    # On a full night a guest may put themselves on the Venteliste from the
+    # booking page (booking R12, services/public_waitlist.py). On for every
+    # table venue (Manoj, 19 Oct); one switch off in Indstillinger.
+    "public_waitlist": True,
 }
 
 

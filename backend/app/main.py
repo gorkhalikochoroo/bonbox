@@ -132,6 +132,7 @@ from app.routers import reservation_insights as reservation_insights_router
 # R2 (27 Oct 2026): the owner's spam clean-up — Spam, Bloker, a whole wave.
 from app.routers import reservation_spam as reservation_spam_router
 from app.routers import public_reservations as public_reservations_router
+from app.routers import public_waitlist as public_waitlist_router
 from app.routers import stand_link as stand_link_router
 from app.routers import public_gavekort as public_gavekort_router
 from app.routers import revisor_package as revisor_package_router
@@ -5831,6 +5832,14 @@ app.include_router(reservation_spam_router.router, prefix="/api/reservations", t
 app.include_router(gavekort_router.router, prefix="/api/gavekort", tags=["Gavekort"])
 app.include_router(
     public_reservations_router.router,
+    prefix="/api/public/reservations",
+    tags=["Public Reservations"],
+)
+# The guest's own place on a venue's waitlist on a full night (booking R12):
+# join, receipt, leave. Same prefix and the same rate limiter as the booking
+# door above; its paths never shadow one of that router's.
+app.include_router(
+    public_waitlist_router.router,
     prefix="/api/public/reservations",
     tags=["Public Reservations"],
 )

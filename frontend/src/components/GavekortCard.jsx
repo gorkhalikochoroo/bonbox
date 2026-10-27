@@ -25,6 +25,7 @@
 // sized in `em` off the card's own font-size — one knob scales the lot.
 import React from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { readableInk, readableOn } from "../utils/accentColor";
 
 // Credit-card ratio (width : height). Locked — shared with the PDF.
 const CARD_RATIO = 1.586;
@@ -92,6 +93,14 @@ export default function GavekortCard({
     : accentColor && HEX_RE.test(accentColor)
       ? accentColor
       : tk.defaultAccent;
+  // Booking R5 added a LIGHT preset (gold). Words are never written in a
+  // colour they cannot be read in — the same rule the printed PDF follows
+  // (logo_service.readable_on / readable_ink): the monogram's letters take the
+  // paper or the ink, whichever reads on the accent, and the GAVEKORT eyebrow
+  // is the accent deepened just enough to read on the paper. The bar and the
+  // square keep the owner's exact colour. Foil is unchanged.
+  const accentText = isFoil ? accent : readableInk(accent, tk.paper);
+  const monoText = isFoil ? accent : readableOn(accent, tk.paper, tk.ink);
 
   const { num: amountNum, suffix: amountSuffix } = splitAmount(amountLabel);
 
@@ -204,7 +213,7 @@ export default function GavekortCard({
                     flexShrink: 0,
                     background: isFoil ? "transparent" : accent,
                     border: isFoil ? `1px solid ${accent}` : "none",
-                    color: isFoil ? accent : tk.paper,
+                    color: monoText,
                   }}
                 >
                   <span
@@ -251,7 +260,7 @@ export default function GavekortCard({
                 fontWeight: 600,
                 letterSpacing: "0.22em",
                 textTransform: "uppercase",
-                color: accent,
+                color: accentText,
                 whiteSpace: "nowrap",
                 paddingTop: "0.35em",
                 flexShrink: 0,

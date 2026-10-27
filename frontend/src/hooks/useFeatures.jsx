@@ -30,6 +30,7 @@
  */
 import { createContext, useContext, useEffect, useState } from "react";
 import api from "../services/api";
+import { isQuietGuestPage } from "../lib/embedMode";
 
 const FeaturesContext = createContext(null);
 
@@ -42,9 +43,15 @@ const DEFAULT_FLAGS = {
 };
 
 export function FeaturesProvider({ children }) {
-  const [flags, setFlags] = useState(DEFAULT_FLAGS);
+  // Booking R4: the booking form inside a restaurant's own website reads none
+  // of these flags — it starts on the fail-closed defaults, marked loaded,
+  // and never asks (below).
+  const [flags, setFlags] = useState(() =>
+    isQuietGuestPage() ? { ...DEFAULT_FLAGS, _loaded: true } : DEFAULT_FLAGS,
+  );
 
   useEffect(() => {
+    if (isQuietGuestPage()) return undefined;
     let cancelled = false;
     // _noRetry: this is a boot-time probe.  If the backend's cold we'd
     // rather show "feature off" than block the SPA on retry storms.

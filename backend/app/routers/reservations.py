@@ -3643,9 +3643,12 @@ def _local_date_of(dt: datetime | None, user: User) -> date:
 def _waitlist_matches(db: Session, user: User, *, waitlist_date, capacity, limit=5):
     """Waiting/notified parties for a day that fit `capacity`, FIFO. Pure read,
     tenant-scoped. A party larger than the freed capacity is never surfaced (no
-    false hope). capacity<=0 → no matches."""
+    false hope). capacity<=0 → no matches. An ONLINE entry the screen held
+    (robot-like, booking R12) is never offered: it stays on the list, marked
+    for the owner to check, but no freed-table nudge names it."""
     if capacity <= 0:
         return []
+    from app.services import public_waitlist as pwl
     rows = (
         db.query(ReservationWaitlistEntry)
         .filter(
@@ -3653,6 +3656,7 @@ def _waitlist_matches(db: Session, user: User, *, waitlist_date, capacity, limit
             ReservationWaitlistEntry.waitlist_date == waitlist_date,
             ReservationWaitlistEntry.status.in_(("waiting", "notified")),
             ReservationWaitlistEntry.party_size <= capacity,
+            ~pwl.held_exists(),
         )
         .order_by(ReservationWaitlistEntry.created_at.asc())
         .limit(limit)
@@ -3687,18 +3691,36 @@ def list_waitlist(day: date | None = Query(default=None),
         .limit(200)
         .all()
     )
-    return {"waitlist": [_waitlist_dict(w) for w in rows],
-            "day": d.isoformat(), "active_count": len(rows)}
+    # Online entries the screen held (booking R12): marked for the owner to
+    # check before calling. One query, only when online entries are listed.
+    from app.services import public_waitlist as pwl
+    held = pwl.held_reasons(db, user.id, [w.id for w in rows if w.source == pwl.SOURCE])
+    out = []
+    for w in rows:
+        item = _waitlist_dict(w)
+        reason = held.get(str(w.id))
+        item["held"] = reason is not None
+        item["held_reason"] = reason
+        out.append(item)
+    return {"waitlist": out, "day": d.isoformat(), "active_count": len(rows)}
 
 
 @router.post("/waitlist", status_code=201)
 def add_waitlist(payload: WaitlistCreate, request: Request,
                  db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     enforce_feature(user, "reservations")
+    # The door's own pool (booking R12): guests who joined online have their
+    # own bounds (services/public_waitlist.py) and never use the host's cap.
+    # A door entry counts while its night is ahead, or for 24 h after it was
+    # typed — last week's forgotten rows no longer hold a Free venue's cap
+    # for good, and a door tablet still cannot add unlimited past nights.
     active = (
         db.query(func.count(ReservationWaitlistEntry.id))
         .filter(ReservationWaitlistEntry.user_id == user.id,
-                ReservationWaitlistEntry.status.in_(("waiting", "notified")))
+                ReservationWaitlistEntry.source == "manual",
+                ReservationWaitlistEntry.status.in_(("waiting", "notified")),
+                or_(ReservationWaitlistEntry.waitlist_date >= business_today_local(user),
+                    ReservationWaitlistEntry.created_at >= utc_now() - timedelta(hours=24)))
         .scalar() or 0
     )
     enforce_cap(user, "reservation_waitlist_active_max", int(active))
@@ -3743,6 +3765,12 @@ def update_waitlist(entry_id: UUID, payload: WaitlistUpdate, request: Request,
         w.status = "cancelled"
         w.cancelled_at = utc_now()
         action = "reservation.waitlist_cancelled"
+        if w.source == "public":
+            # A guest who joined online: the purpose is over, so the name and
+            # phone go at once (booking R12; the list shows active rows only,
+            # so nothing on screen changes).
+            from app.services import public_waitlist as pwl
+            pwl.erase(w, utc_now())
     audit_service.record(db, user, action, "reservation_waitlist", w.id)
     db.commit()
     return _waitlist_dict(w)
@@ -3783,6 +3811,16 @@ def notify_waitlist(entry_id: UUID, request: Request,
             f"{hej}, der er måske blevet en plads ledig hos {biz}. "
             "Ring for at bekræfte — pladsen er ikke reserveret endnu."
         )
+        if w.source == "public":
+            # A guest who joined online (booking R12): a stranger typed this
+            # name, so the SMS carries only a plain first name (never their
+            # text), in the language they joined in.
+            from app.services import public_waitlist as pwl
+            lang = pwl.entry_lang(db, w)
+            if lang == "en" and biz == "restauranten":
+                biz = "the restaurant"
+            text = pwl.spot_may_be_free_sms(lang, first_name=pwl.sms_first_name(w.guest_name),
+                                            venue=biz)
         try:
             res = send_sms(to=w.guest_phone, text=text)
         except Exception:  # noqa: BLE001

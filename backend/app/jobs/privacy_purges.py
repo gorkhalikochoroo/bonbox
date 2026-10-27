@@ -14,7 +14,10 @@ R-h privacy purges — personal data that nothing removed.
         12 months (rows with a user_id go with the account).
 
 Every irreversible step sits behind a flag that defaults OFF
-(settings.PRIVACY_PURGE_WAITLIST_ENABLED / PRIVACY_PURGE_ORPHANS_ENABLED).
+(settings.PRIVACY_PURGE_WAITLIST_ENABLED / PRIVACY_PURGE_ORPHANS_ENABLED) —
+except the ONLINE waitlist rows (booking R12, source='public'): a guest who
+joined from the booking page is told the name and number are kept for the
+waitlist only, so those are always nulled at most 30 days after the night.
 OFF = the nightly run only counts what is due and writes nothing; the counts
 are at GET /api/admin/privacy-purges. Each purge opens its own session,
 commits per batch, rolls back on error and logs counts only — never a name,
@@ -138,6 +141,52 @@ def purge_waitlist_guest_pii(*, enabled: bool | None = None, now: datetime | Non
         db.close()
 
 
+# ── Booking R12: a guest who joined the waitlist online ──────────────────
+
+def _public_waitlist_due(db: Session, now: datetime):
+    W = ReservationWaitlistEntry
+    return _waitlist_due(db, now).filter(W.source == "public")
+
+
+def purge_public_waitlist_guest_pii(*, now: datetime | None = None, batch: int = BATCH,
+                                    max_batches: int = MAX_BATCHES) -> dict:
+    """Null guest name, phone, e-mail and note on ONLINE waitlist rows
+    (source='public', booking R12) past purge_after — the night + at most 30
+    days — and stamp purged_at. No flag: the booking page tells the guest it
+    is kept for the waitlist only, and these rows are a new class with no
+    legacy data behind the cautious dry run of PRIVACY_PURGE_WAITLIST_ENABLED
+    (which still governs the door's own entries)."""
+    now = now or utc_now()
+    W = ReservationWaitlistEntry
+    db: Session = SessionLocal()
+    try:
+        due = _count(_public_waitlist_due(db, now))
+        purged = 0
+        for _ in range(max_batches):
+            ids = [r[0] for r in _public_waitlist_due(db, now).order_by(W.purge_after).limit(batch).all()]
+            if not ids:
+                break
+            db.query(W).filter(W.id.in_(ids)).update(
+                {
+                    W.guest_name: None,
+                    W.guest_phone: None,
+                    W.guest_email: None,
+                    W.note: None,
+                    W.purged_at: now,
+                },
+                synchronize_session=False,
+            )
+            db.commit()
+            purged += len(ids)
+        return {"due": due, "purged": purged, "dry_run": False}
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        logger.warning("[retention] public waitlist purge failed: %s", type(e).__name__)
+        raise
+    finally:
+        db.close()
+
+
 # ── LEG-18: rows nobody ever deleted ─────────────────────────────────────
 
 def _delete_due(due_fn, model, order_col, *, enabled: bool, now: datetime,
@@ -198,6 +247,9 @@ def purge_anonymous_paid_waitlist(*, enabled: bool | None = None, now: datetime 
 # ── The nightly step ─────────────────────────────────────────────────────
 
 _PURGES = (
+    # First: online waitlist rows (booking R12) are purged with no flag, so
+    # the flag-gated purge below then sees only the door's own entries.
+    ("waitlist_public_guest_pii", "purge_public_waitlist_guest_pii"),
     ("waitlist_guest_pii", "purge_waitlist_guest_pii"),
     ("whatsapp_messages", "purge_old_whatsapp_messages"),
     ("magic_link_tokens", "purge_expired_magic_links"),

@@ -474,8 +474,13 @@ def test_tax_autopilot_unlinked_sale_still_counts(db, user, customer):
 
 
 def test_logo_palette_has_six_colors():
-    """6-color preset palette — security/consistency constraint."""
-    assert len(ACCENT_COLOR_PALETTE) == 6
+    """A closed preset palette — security/consistency constraint. Six colours
+    until booking R5 (27 Oct 2026) added a seventh, "gold", for the gold/brass
+    restaurant sites (the booking page wears the same colour; every surface
+    that writes on it picks its text by contrast — tests/test_r5_accent_colour.py).
+    Still a closed list: a free hex is refused below."""
+    assert len(ACCENT_COLOR_PALETTE) == 7
+    assert ACCENT_COLOR_PALETTE["gold"] == "#C9A45C"
     for name, hex_code in ACCENT_COLOR_PALETTE.items():
         assert hex_code.startswith("#")
         assert len(hex_code) == 7

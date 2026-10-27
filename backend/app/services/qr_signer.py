@@ -48,6 +48,10 @@ _ALGORITHM = "HS256"
 _SUB_TICKET = "bonbox-ticket"
 _SUB_BOOKING = "bonbox-booking"
 _SUB_GAVEKORT = "bonbox-gavekort"
+# The guest's place on a venue's online waitlist (booking R12): its own
+# subject and claim, so a booking token never opens a waitlist entry and a
+# waitlist token never opens a booking.
+_SUB_WAITLIST = "bonbox-rsvp-waitlist"
 
 # Grace window past event end during which the QR remains valid. Lets
 # late arrivals still scan in (spec §5.3 calls for ends_at + 6h).
@@ -300,3 +304,38 @@ def verify_booking_token(token: str) -> str | None:
     if not isinstance(bid, str) or not bid:
         return None
     return bid
+
+
+# ── Waitlist token — sign + verify (booking R12) ─────────────────────
+
+
+def sign_waitlist_token(entry_id: str, ttl_hours: int = 24) -> str:
+    """Sign the guest's link to their place on a venue's online waitlist
+    (`?wl=<id>&wt=<token>` on the booking page): read the receipt, leave the
+    list. Same key as the booking token, its own subject and claim (`wid`)."""
+    if ttl_hours <= 0:
+        ttl_hours = 24
+    payload = {
+        "wid": str(entry_id),
+        "sub": _SUB_WAITLIST,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=ttl_hours),
+    }
+    return jwt.encode(payload, _booking_token_key(), algorithm=_ALGORITHM)
+
+
+def verify_waitlist_token(token: str) -> str | None:
+    """The waitlist entry id (str), or None on any failure. The router must
+    also check that it is the entry the URL names."""
+    if not token or not isinstance(token, str):
+        return None
+    try:
+        claims = jwt.decode(token, _booking_token_key(), algorithms=[_ALGORITHM])
+    except JWTError as exc:
+        logger.debug("qr_signer.verify_waitlist_token: jwt decode failed: %s", exc)
+        return None
+    if claims.get("sub") != _SUB_WAITLIST:
+        return None
+    wid = claims.get("wid")
+    if not isinstance(wid, str) or not wid:
+        return None
+    return wid

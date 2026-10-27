@@ -506,7 +506,8 @@ describe("the time area names the reason and offers the next step", () => {
     fireEvent.click(within(times).getByRole("button", { name: da.rsvpOtherDate }));
     await settle(2);
     expect(screen.getByRole("dialog")).toBeTruthy();
-    expect(screen.getByRole("button", { name: da.rsvpNextMonth })).toBeTruthy();
+    // The month grid is its own chunk since booking R12: it arrives a beat later.
+    expect(await screen.findByRole("button", { name: da.rsvpNextMonth })).toBeTruthy();
   });
 
   it("embed: 'Anden dato' in the empty time area opens the calendar right under it", async () => {
@@ -524,7 +525,7 @@ describe("the time area names the reason and offers the next step", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     const here = screen.getByTestId("rsvp-calendar-at-empty");
     expect(btn.parentElement.contains(here)).toBe(true);
-    expect(within(here).getByRole("button", { name: da.rsvpNextMonth })).toBeTruthy();
+    expect(await within(here).findByRole("button", { name: da.rsvpNextMonth })).toBeTruthy();
     // Exactly one calendar: none under the strip.
     expect(screen.getAllByRole("button", { name: da.rsvpNextMonth })).toHaveLength(1);
     // The header's "Anden dato" moves it back under the strip.
@@ -658,7 +659,8 @@ describe("the strip's words belong to the party on screen", () => {
 });
 
 describe("party sizes on a phone", () => {
-  it("party 1–10 sit in a 2x5 grid at 40 px", async () => {
+  // Booking R4: 44 px on a phone (h-11!), 40 px from sm (sm:h-10!) — was 40 px.
+  it("party 1–10 sit in a 2x5 grid at 44 px (40 px from sm)", async () => {
     routes();
     renderAt();
     await settle();
@@ -670,9 +672,10 @@ describe("party sizes on a phone", () => {
     expect(group.className).not.toMatch(/(^|\s)overflow-x-auto(\s|$)/);
     expect(group.style.getPropertyValue("--party-cols-phone")).toBe("5");
     for (const c of chips) {
-      expect(c.className).toContain("h-10!");
+      expect(c.className).toMatch(/(^|\s)h-11!(\s|$)/);
+      expect(c.className).toMatch(/(^|\s)sm:h-10!(\s|$)/);
       expect(c.className).toContain("min-h-0!");
-      expect(c.className).not.toMatch(/(^|\s)h-11(\s|$)/);
+      expect(c.className).not.toMatch(/(^|\s)h-10!(\s|$)/);
     }
     chips[4].focus();
     fireEvent.keyDown(chips[4], { key: "ArrowRight" });
@@ -682,7 +685,7 @@ describe("party sizes on a phone", () => {
 
   it("a short phone screen keeps one swipe row on the standalone page only (fold ladder step 2)", async () => {
     // jsdom evaluates no media query: the classes are the contract. Under
-    // max-sm + max-height 700px the grid becomes the swipe row at 40px.
+    // max-sm + max-height 700px the grid becomes the swipe row at 44px (R4).
     const SHORT = "max-sm:[@media(max-height:700px)]:";
     routes();
     renderAt();
@@ -693,7 +696,7 @@ describe("party sizes on a phone", () => {
     for (const chip of within(group).getAllByRole("radio")) {
       expect(chip.className).toContain(`${SHORT}shrink-0`);
       expect(chip.className).toContain(`${SHORT}w-[max(2.5rem,calc((100vw-4.5rem)/7.5))]`);
-      expect(chip.className).toContain("h-10!");
+      expect(chip.className).toMatch(/(^|\s)h-11!(\s|$)/);
       expect(chip.className).toContain("min-h-0!");
     }
     cleanup();

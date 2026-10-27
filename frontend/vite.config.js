@@ -2,6 +2,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
+import { bookingGraph, buildBookingDict } from './scripts/bookingDict.mjs'
+import { bookingBootScript } from './scripts/bookingBoot.mjs'
 
 // ── The landing's boot dictionary (push 9, E) ─────────────────────
 // `virtual:bonbox-boot-dict` = { da: {...}, en: {...} } holding only the keys
@@ -69,6 +71,9 @@ function preloadDictionary() {
           `var f=${JSON.stringify(files)};` +
           'var l=null;try{l=localStorage.getItem("lang")}catch(e){}' +
           'if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}' +
+          // Booking R5: the booking page (marked by the booking script that
+          // sits ahead of this one) brings its own Danish and English words.
+          'if(window.__bbBooking&&(l==="da"||l==="en"))return;' +
           'var h=l==="da"?f.da:f.en;' +
           'var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)' +
           '}catch(e){}})()</script>'
@@ -138,9 +143,88 @@ function preloadLanding() {
   }
 }
 
+// ── The booking page's own words (booking R5) ─────────────────────
+// `virtual:bonbox-booking-dict` = { da: {...}, en: {...} } holding exactly the
+// keys the public booking page and every file its code reaches can show
+// (scripts/bookingDict.mjs), generated from src/i18n/da.js and en.js — still
+// the one place a string is written. ~10 KB gz for both languages; the page
+// registers it (src/lib/bookingDict.js) and a guest's phone never downloads
+// the ~200 KB full dictionary. Its own chunk (codeSplitting below), so the
+// page's chunk stays the page's code. Dev, build and vitest alike.
+function bookingDictionary() {
+  const VID = 'virtual:bonbox-booking-dict'
+  const RID = '\0' + VID
+  const file = (f) => new URL(f, import.meta.url)
+  return {
+    name: 'bonbox-booking-dictionary',
+    resolveId(id) {
+      if (id === VID) return RID
+    },
+    async load(id) {
+      if (id !== RID) return
+      const files = bookingGraph(fileURLToPath(file('./src')))
+      for (const f of files) this.addWatchFile(f)
+      const dicts = ['./src/i18n/da.js', './src/i18n/en.js']
+      for (const f of dicts) this.addWatchFile(fileURLToPath(file(f)))
+      const stamp = Date.now()
+      const [{ da }, { en }] = await Promise.all(dicts.map((f) => import(file(f).href + '?t=' + stamp)))
+      return `export default ${JSON.stringify(buildBookingDict({ files, da, en }))};`
+    },
+  }
+}
+
+// ── The booking page's parse-time script (booking R5) ─────────────
+// scripts/bookingBoot.mjs: on a booking address only, it marks the page for
+// the scripts after it, picks the skeleton the first paint shows (instead of
+// a blank white box on a slow phone), starts the page's own chunk with the
+// app's (build: modulepreload of the ReservationPublicPage chunk and its own
+// imports the page does not already preload) and its data with the page.
+// Inserted right after <meta charset>, AHEAD of the dictionary and landing
+// preloads (it runs after them in this list and inserts at the same spot),
+// so the dictionary preload already knows it is on the booking page.
+// The API address is resolved here: Vite's %VITE_API_URL% replacement runs
+// before this hook, so a script added now would keep the raw token.
+// One line to switch the whole parse-time script off (no skeleton at the
+// first paint, no early data, and the manifest / service worker / dictionary
+// preload rules that key off window.__bbBooking all fall back to before).
+// The page itself works either way.
+export const BOOKING_BOOT = true
+
+function bookingBoot() {
+  let apiUrl = ''
+  return {
+    name: 'bonbox-booking-boot',
+    configResolved(config) {
+      apiUrl = (config.env && config.env.VITE_API_URL) || ''
+    },
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        if (!BOOKING_BOOT) return html
+        let preload = []
+        const chunks = Object.values(ctx.bundle || {})
+        const page = chunks.find((c) => c.type === 'chunk' && c.facadeModuleId &&
+          /[\\/]src[\\/]pages[\\/]ReservationPublicPage\.jsx$/.test(c.facadeModuleId))
+        if (page) {
+          preload = [page.fileName, ...(page.imports || [])]
+            .filter((f, i, all) => all.indexOf(f) === i && !html.includes('/' + f))
+            .map((f) => '/' + f)
+        }
+        const script = bookingBootScript({ apiUrl, preload })
+        const charset = '<meta charset="UTF-8" />'
+        return html.includes(charset)
+          ? html.replace(charset, charset + script)
+          : html.replace('</head>', script + '</head>')
+      },
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), preloadDictionary(), preloadLanding(), bootDictionary()],
+  // bookingBoot AFTER the two preloads: each inserts right after <meta
+  // charset>, so the last one to run ends up first in <head>.
+  plugins: [react(), preloadDictionary(), preloadLanding(), bookingBoot(), bootDictionary(), bookingDictionary()],
   // Force the automatic JSX runtime everywhere — production already
   // uses it via @vitejs/plugin-react, but vitest's transform pipeline
   // sometimes falls back to the classic runtime which requires
@@ -262,6 +346,8 @@ export default defineConfig({
           groups: [
             { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/, priority: 40 },
             { name: 'vendor-i18n', test: /[\\/]hooks[\\/]useLanguage/, priority: 30 },
+            // Booking R5: the booking page's own words, its own chunk.
+            { name: 'booking-dict', test: /bonbox-booking-dict/, priority: 35 },
             { name: 'vendor-motion', test: /node_modules[\\/]framer-motion[\\/]/, priority: 20 },
             { name: 'vendor-charts', test: /node_modules[\\/](recharts|d3-[^\\/]+)[\\/]/, priority: 10 },
           ],
