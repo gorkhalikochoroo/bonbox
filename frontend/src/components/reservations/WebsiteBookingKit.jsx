@@ -4,30 +4,47 @@
 //   1. Link og knap — the booking link (one-tap copy), a ready "Book bord"
 //      button as plain HTML, and the QR code as a print-ready PNG.
 //   2. Indlejr      — the whole booking form inside their page (iframe that
-//      sizes itself from the page's bonbox:height messages), with a live
-//      preview of the real booking page at phone width.
-//   3. Vejledning   — four short steps per site builder.
+//      sizes itself from the page's bonbox:height messages), centred in
+//      their column at the width they choose, with the compact header and
+//      the card as switches, and a live preview of the real booking page on
+//      a phone or on their page on a computer (booking R4).
+//   3. Vejledning   — four short steps per site builder, plus the notes that
+//      builder needs (WordPress block editor and Elementor, Wix, Squarespace
+//      in detail; R4).
 //
 // Plus a mailto: hand-off to whoever makes their website. It only OPENS the
 // owner's own mail app, pre-filled — BonBox sends nothing.
 //
 // Every snippet comes from utils/bookingEmbed.js, so what is copied, what is
 // e-mailed and what the preview shows are built by the same code.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { Check, Copy, Download, ExternalLink, Globe, Mail } from "lucide-react";
+import { Check, Copy, Download, ExternalLink, Globe, Mail, Monitor, Smartphone } from "lucide-react";
 import TabPills from "../ui/TabPills";
 import { saveFile } from "../../utils/download";
 import { platform } from "../../utils/platform";
 import {
   BUTTON_STYLE,
+  EMBED_WIDTHS,
+  EMBED_WIDTH_DEFAULT,
   SITE_BUILDERS,
   buttonSnippet,
+  guideNoteKeys,
+  guideStepKeys,
   iframeSnippet,
   mailtoHref,
   previewSrcFor,
   qrFileName,
 } from "../../utils/bookingEmbed";
+
+// Booking R4: a new snippet carries the compact header (&compact=1) unless the
+// owner switches it off — their own page already shows their logo, name and
+// address, and without them "Vælg tid" sits above the fold on a 390×844
+// phone. Snippets pasted before R4 keep the full header. One line to flip.
+export const COMPACT_DEFAULT = true;
+
+// The width choices' words (EMBED_WIDTHS).
+const WIDTH_LABEL = { 460: "rsvpWebEmbedWidthStd", 560: "rsvpWebEmbedWidthWide" };
 
 // Phone controls are 40px with 13px text (index.css's 44px coarse-pointer
 // floor is released for exactly these); from sm: up they are 36px.
@@ -48,6 +65,87 @@ const CODE =
   "max-h-28 overflow-auto rounded-lg bg-gray-50 dark:bg-gray-950 border border-gray-100 " +
   "dark:border-gray-800 p-2.5 text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 " +
   "font-mono whitespace-pre";
+// One pill for every one-of choice in the kit (site builder, width, device):
+// 40px / 13px on a phone, 32px from sm. Picked = gray-900; in dark a raised
+// grey, never the inverted white slab (27 Sep phone rule).
+const PILL =
+  "inline-flex items-center justify-center gap-1.5 h-10 sm:h-8 min-h-0! px-3 rounded-full text-[13px] font-medium " +
+  "transition-colors focus-visible:outline-none focus-visible:ring-2 " +
+  "focus-visible:ring-[rgb(var(--brand-green-accent))] ";
+const pillClass = (on) =>
+  PILL +
+  (on
+    ? "bg-gray-900 text-white dark:bg-gray-600 dark:text-white"
+    : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700");
+
+// One switch row (the compact header, the card): a checkbox, its name and
+// one quiet line on what it does.
+function OptionCheck({ checked, onChange, label, hint, testId }) {
+  return (
+    <label className="flex items-start gap-2.5 cursor-pointer select-none">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        data-testid={testId}
+        className="mt-0.5 h-4 w-4 min-h-0! shrink-0 rounded border-gray-300 dark:border-gray-600 accent-gray-900 dark:accent-gray-100"
+      />
+      <span className="min-w-0">
+        <span className="block text-[13px] font-medium text-gray-800 dark:text-gray-200">{label}</span>
+        <span className={HINT + " block"}>{hint}</span>
+      </span>
+    </label>
+  );
+}
+
+// "On your page, on a computer": the booking at the width the owner chose,
+// centred on a light ground that stands in for their website — the card,
+// its shadow and the centring as their guests will see them. Scaled down
+// (never up) when the owner's own screen is narrower than that width, so a
+// phone shows the whole thing. The frame itself is the chosen width, so the
+// page inside lays out exactly as it will there.
+function HostPreview({ src, width, height, frameRef, title }) {
+  const boxRef = useRef(null);
+  const [avail, setAvail] = useState(0);
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return undefined;
+    const measure = () => setAvail(el.clientWidth || 0);
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // Unmeasured (0) = full size; never above 1.
+  const scale = avail > 0 ? Math.min(1, avail / width) : 1;
+  return (
+    <div data-testid="website-preview-host" className="rounded-xl bg-gray-100 dark:bg-gray-100 px-3 py-5 sm:px-5 sm:py-8">
+      <div ref={boxRef} className="w-full">
+        <div
+          className="mx-auto overflow-hidden"
+          style={{ width: Math.round(width * scale), height: Math.round(height * scale) }}
+        >
+          <iframe
+            ref={frameRef}
+            src={src}
+            title={title}
+            loading="lazy"
+            data-testid="website-preview"
+            data-scale={scale.toFixed(3)}
+            style={{
+              width,
+              height,
+              transform: scale < 1 ? `scale(${scale})` : undefined,
+              transformOrigin: "0 0",
+            }}
+            className="block border-0"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // The inline style of the snippet, as a React style object — the on-screen
 // button IS the snippet's button.
@@ -162,11 +260,34 @@ export default function WebsiteBookingKit({
   // 450 px (booking R3). A site that already frames it can switch the card
   // off: the snippet then loads the page with &flat=1.
   const [flat, setFlat] = useState(false);
+  // Booking R4: the compact header (default on for a new snippet), the width
+  // in the owner's column, and which preview — a phone, or their page on a
+  // computer (the only place the width and the card show).
+  const [compact, setCompact] = useState(COMPACT_DEFAULT);
+  const [width, setWidth] = useState(EMBED_WIDTH_DEFAULT);
+  const [device, setDevice] = useState("phone");
   const [builder, setBuilder] = useState(SITE_BUILDERS[0].id);
   const [qrError, setQrError] = useState(false);
   const [previewH, setPreviewH] = useState(640);
   const qrRef = useRef(null);
   const frameRef = useRef(null);
+  const pickDevice = (d) => {
+    if (d === device) return;
+    // The other frame is another width: its height comes from its own
+    // messages, not the last frame's.
+    setPreviewH(640);
+    setDevice(d);
+  };
+  // A choice the phone can't show (the width, the card) turns the preview to
+  // the computer, so the owner sees what they just changed.
+  const pickWidth = (w) => {
+    setWidth(w);
+    pickDevice("computer");
+  };
+  const pickFlat = (v) => {
+    setFlat(v);
+    pickDevice("computer");
+  };
 
   // `isProvider`: the page's appointment words (a salon, a shop, a workshop —
   // venueProfiles.speaksAppointments): "Book tid", customers, the counter;
@@ -184,13 +305,15 @@ export default function WebsiteBookingKit({
       venueName,
       fallbackLabel: t("rsvpEmbedOpenInNewTab"),
       flat,
+      compact,
+      width,
     });
     const mail = mailtoHref({
       subject: t("rsvpEmbedMailSubject"),
       body: t("rsvpWebMailBody", { link: publicUrl, button, iframe }),
     });
-    return { button, iframe, mail, preview: previewSrcFor(publicUrl, appOrigin, { flat }) };
-  }, [live, publicUrl, label, venueName, appOrigin, t, flat]);
+    return { button, iframe, mail, preview: previewSrcFor(publicUrl, appOrigin, { flat, compact }) };
+  }, [live, publicUrl, label, venueName, appOrigin, t, flat, compact, width]);
 
   // The preview sizes itself exactly like the owner's page will: from the
   // booking page's own height messages, trusted only from that frame.
@@ -370,19 +493,50 @@ export default function WebsiteBookingKit({
                   />
                 </div>
                 <pre className={CODE} data-testid="website-embed-code">{kit.iframe}</pre>
-                <label className="flex items-start gap-2.5 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={flat}
-                    onChange={(e) => setFlat(e.target.checked)}
-                    data-testid="website-embed-flat"
-                    className="mt-0.5 h-4 w-4 min-h-0! shrink-0 rounded border-gray-300 dark:border-gray-600 accent-gray-900 dark:accent-gray-100"
+                {/* Fit it to the owner's page (booking R4): how wide it may
+                    get in their column (it is always centred), the compact
+                    header, and the card (R3). The code above and the preview
+                    below follow every choice at once. */}
+                <div className="space-y-3 pt-1" data-testid="website-embed-options">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <span id="website-embed-width-label" className="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+                      {t("rsvpWebEmbedWidth")}
+                    </span>
+                    <div
+                      role="radiogroup"
+                      aria-labelledby="website-embed-width-label"
+                      data-testid="website-embed-width"
+                      className="flex flex-wrap gap-1.5"
+                    >
+                      {EMBED_WIDTHS.map((w) => (
+                        <button
+                          key={w}
+                          type="button"
+                          role="radio"
+                          aria-checked={width === w}
+                          onClick={() => pickWidth(w)}
+                          className={pillClass(width === w)}
+                        >
+                          {t(WIDTH_LABEL[w])}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <OptionCheck
+                    checked={compact}
+                    onChange={setCompact}
+                    testId="website-embed-compact"
+                    label={t("rsvpWebEmbedCompact")}
+                    hint={t("rsvpWebEmbedCompactHint")}
                   />
-                  <span className="min-w-0">
-                    <span className="block text-[13px] font-medium text-gray-800 dark:text-gray-200">{t("rsvpWebEmbedFlat")}</span>
-                    <span className={HINT + " block"}>{t("rsvpWebEmbedFlatHint")}</span>
-                  </span>
-                </label>
+                  <OptionCheck
+                    checked={flat}
+                    onChange={pickFlat}
+                    testId="website-embed-flat"
+                    label={t("rsvpWebEmbedFlat")}
+                    hint={t("rsvpWebEmbedFlatHint")}
+                  />
+                </div>
                 <p className={HINT}>
                   {/* The failure an owner can't see: on a plain-http site the
                       frame is blocked and shows a blank box, no error. */}
@@ -398,19 +552,54 @@ export default function WebsiteBookingKit({
               </div>
 
               <div className="space-y-2 border-t border-gray-100 dark:border-gray-800 pt-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className={HEAD}>{t("rsvpWebPreviewHeading")}</p>
-                  <a
-                    href={publicUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 min-h-0! text-xs text-gray-500 hover:text-gray-900 dark:hover:text-gray-200"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" aria-hidden />
-                    {t("rsvpOpenPage")}
-                  </a>
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <p className={HEAD}>
+                    {device === "computer" && canFramePreview
+                      ? t("rsvpWebPreviewHeadingDesktop")
+                      : t("rsvpWebPreviewHeading")}
+                  </p>
+                  <div className="flex items-center gap-3">
+                    {canFramePreview && (
+                      <div
+                        role="radiogroup"
+                        aria-label={t("rsvpWebPreviewDevice")}
+                        data-testid="website-preview-device"
+                        className="flex items-center gap-1"
+                      >
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={device === "phone"}
+                          onClick={() => pickDevice("phone")}
+                          className={pillClass(device === "phone")}
+                        >
+                          <Smartphone className="w-4 h-4" aria-hidden />
+                          <span>{t("rsvpWebPreviewPhone")}</span>
+                        </button>
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={device === "computer"}
+                          onClick={() => pickDevice("computer")}
+                          className={pillClass(device === "computer")}
+                        >
+                          <Monitor className="w-4 h-4" aria-hidden />
+                          <span>{t("rsvpWebPreviewComputer")}</span>
+                        </button>
+                      </div>
+                    )}
+                    <a
+                      href={publicUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 min-h-0! text-xs text-gray-500 hover:text-gray-900 dark:hover:text-gray-200"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" aria-hidden />
+                      {t("rsvpOpenPage")}
+                    </a>
+                  </div>
                 </div>
-                {canFramePreview && (
+                {canFramePreview && device === "phone" && (
                   // A phone-width frame around the REAL booking page — the
                   // same /r/ route and ?embed=1 the snippet loads.
                   <div className="mx-auto w-full max-w-[375px] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
@@ -424,6 +613,15 @@ export default function WebsiteBookingKit({
                       className="block w-full border-0"
                     />
                   </div>
+                )}
+                {canFramePreview && device === "computer" && (
+                  <HostPreview
+                    src={kit.preview}
+                    width={width}
+                    height={previewH}
+                    frameRef={frameRef}
+                    title={t("rsvpWebPreviewTitle")}
+                  />
                 )}
               </div>
             </div>
@@ -442,13 +640,7 @@ export default function WebsiteBookingKit({
                       role="radio"
                       aria-checked={on}
                       onClick={() => setBuilder(b.id)}
-                      className={
-                        "h-10 sm:h-8 min-h-0! px-3 rounded-full text-[13px] font-medium transition-colors " +
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-green-accent))] " +
-                        (on
-                          ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900"
-                          : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700")
-                      }
+                      className={pillClass(on)}
                     >
                       {b.name}
                     </button>
@@ -456,7 +648,10 @@ export default function WebsiteBookingKit({
                 })}
               </div>
               <ol className="space-y-2" data-testid="website-guide-steps">
-                {[t(active.open), t(active.add), t("rsvpWebGuidePaste"), t("rsvpWebGuidePublish")].map((s, i) => (
+                {/* Four steps: open, add, paste (it carries the copy button),
+                    publish — each builder names its own where the generic
+                    step would mislead (utils/bookingEmbed guideStepKeys). */}
+                {guideStepKeys(active).map((k) => t(k)).map((s, i) => (
                   <li key={i} className="flex gap-3 text-[13px] text-gray-700 dark:text-gray-300 leading-snug">
                     <span
                       className="shrink-0 w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 text-[11px] font-semibold text-gray-600 dark:text-gray-300 grid place-items-center"
@@ -481,7 +676,12 @@ export default function WebsiteBookingKit({
                   </li>
                 ))}
               </ol>
-              {active.wpNote && <p className={HINT}>{t("rsvpWebGuideWpNote")}</p>}
+              {/* What this builder needs said (WordPress → Elementor, Wix's box
+                  that doesn't grow, Squarespace's "Script disabled", a plan
+                  without code); WordPress-based hosts point to that guide. */}
+              {guideNoteKeys(active).map((k) => (
+                <p key={k} className={HINT} data-testid="website-guide-note">{t(k)}</p>
+              ))}
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 dark:border-gray-800 pt-3">
                 <p className={HINT + " min-w-0 flex-1"}>{t("rsvpWebGuideButtonOnly", { builder: active.name })}</p>
                 <CopyButton

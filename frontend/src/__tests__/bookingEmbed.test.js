@@ -42,9 +42,9 @@ describe("embedSrcFor — the iframe must load the /r/ route", () => {
 });
 
 describe("buttonSnippet", () => {
-  it("is a plain link to the pretty URL with the label", () => {
+  it("is a plain link to the pretty URL with the label (centred since booking R4)", () => {
     const s = buttonSnippet({ publicUrl: URL_ROOT, label: "Book bord" });
-    expect(s).toMatch(/^<a href="https:\/\/www\.bonbox\.dk\/cafe-mirabelle" target="_blank" rel="noopener"/);
+    expect(s).toMatch(/^<div style="text-align:center">\n  <a href="https:\/\/www\.bonbox\.dk\/cafe-mirabelle" target="_blank" rel="noopener"/);
     expect(s).toContain(">Book bord</a>");
     expect(s).not.toContain("<script");
   });
@@ -62,11 +62,14 @@ describe("iframeSnippet", () => {
     expect(s).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1"');
     expect(s).not.toContain('src="https://www.bonbox.dk/cafe-mirabelle');
   });
-  it("only resizes on height messages from the booking origin and this frame", () => {
-    expect(s).toContain("e.origin!=='https://www.bonbox.dk'");
-    expect(s).toContain("e.source!==f.contentWindow");
-    expect(s).toContain("e.data.type!=='bonbox:height'");
-    expect(s).toContain("f.style.height=e.data.height+'px'");
+  // Booking R4: one listener for every frame of ours on the page; the
+  // behaviour is run for real in r4.embedSnippet.test.js.
+  it("only resizes on height messages from the booking origin and a frame of ours", () => {
+    expect(s).toContain("var o='https://www.bonbox.dk'");
+    expect(s).toContain("e.origin!==o");
+    expect(s).toContain("a[i].contentWindow!==e.source");
+    expect(s).toContain("d.type!=='bonbox:height'");
+    expect(s).toContain("a[i].style.setProperty('height',h+'px','important')");
   });
   it("keeps a 720px fallback height and a working link for sites that strip scripts", () => {
     expect(s).toContain('height="720"');
@@ -78,7 +81,7 @@ describe("iframeSnippet", () => {
   it("points the listener at whatever origin the booking page is served from", () => {
     const local = iframeSnippet({ publicUrl: "http://127.0.0.1:15977/cafe", label: "Book bord", venueName: "X", fallbackLabel: "x" });
     expect(local).toContain('src="http://127.0.0.1:15977/r/cafe?embed=1"');
-    expect(local).toContain("e.origin!=='http://127.0.0.1:15977'");
+    expect(local).toContain("var o='http://127.0.0.1:15977'");
   });
 });
 
@@ -120,6 +123,7 @@ describe("helpers", () => {
       expect(typeof en[k], k).toBe("string");
       expect(da[k].length, k).toBeGreaterThan(0);
     }
-    expect(SITE_BUILDERS.map((b) => b.name)).toEqual(["Wix", "WordPress", "Squarespace", "One.com", "Simply.com", "Shopify"]);
+    // Booking R4: WordPress's Elementor editor has its own guide.
+    expect(SITE_BUILDERS.map((b) => b.name)).toEqual(["Wix", "WordPress", "Elementor", "Squarespace", "One.com", "Simply.com", "Shopify"]);
   });
 });

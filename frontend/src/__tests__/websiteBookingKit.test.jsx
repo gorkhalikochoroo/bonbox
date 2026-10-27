@@ -192,9 +192,10 @@ describe("WebsiteBookingKit — 2. Indlejr", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Indlejr" }));
     await act(async () => fireEvent.click(screen.getByTestId("website-copy-embed")));
     const code = writeText.mock.calls[0][0];
-    expect(code).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1"');
+    // Booking R4: a new snippet carries the compact header by default.
+    expect(code).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;compact=1"');
     expect(code).toContain("bonbox:height");
-    expect(code).toContain("e.origin!=='https://www.bonbox.dk'");
+    expect(code).toContain("var o='https://www.bonbox.dk'");
     expect(code).toContain("Åbn booking i nyt vindue →");
     expect(screen.getByText(/skal køre på https/)).toBeInTheDocument();
   });
@@ -204,7 +205,7 @@ describe("WebsiteBookingKit — 2. Indlejr", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Indlejr" }));
     const frame = screen.getByTestId("website-preview");
     expect(frame.tagName).toBe("IFRAME");
-    expect(frame).toHaveAttribute("src", "https://www.bonbox.dk/r/cafe-mirabelle?embed=1");
+    expect(frame).toHaveAttribute("src", "https://www.bonbox.dk/r/cafe-mirabelle?embed=1&compact=1");
     expect(frame).toHaveAttribute("title", "Forhåndsvisning af din bookingside");
     expect(frame.parentElement.className).toContain("max-w-[375px]");
   });
@@ -212,7 +213,7 @@ describe("WebsiteBookingKit — 2. Indlejr", () => {
   it("a local build previews its own page, not production's", () => {
     renderKit({ appOrigin: "http://127.0.0.1:15977" });
     fireEvent.click(screen.getByRole("tab", { name: "Indlejr" }));
-    expect(screen.getByTestId("website-preview")).toHaveAttribute("src", "http://127.0.0.1:15977/r/cafe-mirabelle?embed=1");
+    expect(screen.getByTestId("website-preview")).toHaveAttribute("src", "http://127.0.0.1:15977/r/cafe-mirabelle?embed=1&compact=1");
   });
 
   it("sizes the preview from the frame's own height messages only", () => {
@@ -271,7 +272,7 @@ describe("WebsiteBookingKit — 3. Vejledning", () => {
     expect(btn).toHaveTextContent("Kopiér kode");
     await act(async () => fireEvent.click(btn));
     const fromGuide = writeText.mock.calls[0][0];
-    expect(fromGuide).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1"');
+    expect(fromGuide).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;compact=1"');
     expect(btn).toHaveTextContent("Kopieret");
     // Same builder output as the Indlejr tab's own copy button.
     fireEvent.click(screen.getByRole("tab", { name: "Indlejr" }));
@@ -290,7 +291,8 @@ describe("WebsiteBookingKit — 3. Vejledning", () => {
     renderKit();
     fireEvent.click(screen.getByRole("tab", { name: "Vejledning" }));
     fireEvent.click(screen.getByRole("radio", { name: "WordPress" }));
-    expect(screen.getByText("Tilføj en HTML-blok (Custom HTML).")).toBeInTheDocument();
+    // Booking R4: the block's Danish name, as WordPress shows it.
+    expect(screen.getByText("Tilføj blokken “Tilpasset HTML” (Custom HTML), hvor bookingen skal stå.")).toBeInTheDocument();
     expect(screen.queryByText(/følg WordPress-vejledningen/)).toBeNull();
     fireEvent.click(screen.getByRole("radio", { name: "One.com" }));
     expect(screen.getByText(/følg WordPress-vejledningen/)).toBeInTheDocument();
@@ -310,7 +312,7 @@ describe("WebsiteBookingKit — send to whoever makes the website", () => {
     const body = q.get("body");
     expect(body).toContain(`Vores bookinglink:\n${PUBLIC}\n`);
     expect(body).toContain(`<a href="${PUBLIC}"`);
-    expect(body).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1"');
+    expect(body).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;compact=1"');
     expect(body).toContain("HTML- eller Indlejr-blok");
     expect(body).not.toMatch(/\{(link|button|iframe)\}/);
   });
