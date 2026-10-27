@@ -3800,8 +3800,13 @@ export default function ReservationPublicPage() {
                     apptWords={apptWords}
                   />
               )}
-              {/* R12: the evening is full while earlier times are free. */}
-              {timesShowGrid && eveningFull && fullBlock}
+              {/* R12: the evening is full while earlier times are free. 16 px
+                  between the times above and its line (judge 27 Oct: it sat
+                  4–5 px under the lunch tiles). The frame posts its whole
+                  height, the margin included. */}
+              {timesShowGrid && eveningFull && (
+                <div className="mt-4" data-full-after-grid="">{fullBlock}</div>
+              )}
             </div>
             {/* ── Pick your table on the 2D floor (matches the owner room) ──
                 Honesty gate #1 (+ grandfather): TABLE venues (dining/bar) show the

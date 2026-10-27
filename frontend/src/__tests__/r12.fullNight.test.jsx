@@ -258,6 +258,11 @@ describe("the full night: nearest free times and the waitlist", () => {
     const block = await screen.findByTestId("rsvp-full-night");
     expect(screen.getByTestId("rsvp-time-grid").textContent).toContain("12:30");
     expect(block.textContent).toContain("Aftenen er fuldt booket til 2 gæster.");
+    // 16 px under the times (design re-judge, fix round 5): the block sits
+    // in a mt-4 wrapper right after the grid.
+    const gap = block.closest("[data-full-after-grid]");
+    expect(gap).not.toBeNull();
+    expect(gap.className).toContain("mt-4");
     // The same day's earlier times are already in the grid above.
     expect(within(screen.getByTestId("rsvp-nearest")).getAllByRole("button").map((b) => b.textContent)).toEqual(["19:00"]);
     fireEvent.click(joinCta());
