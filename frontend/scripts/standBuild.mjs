@@ -420,9 +420,15 @@ export function appDictionaries() {
  *  file), and the list removed from dist/ afterwards. In dev and vitest the
  *  real lib/localeStore.js is used, so this only runs in the stand build. */
 export function appDictionariesIn(outDir) {
-  const file = () => path.resolve(FRONTEND, outDir, APP_DICTS_FILE);
+  // The build's real outDir once resolved (a --outDir on the command line
+  // wins over the config's), else the one given.
+  let dir = outDir;
+  const file = () => path.resolve(FRONTEND, dir, APP_DICTS_FILE);
   return {
     name: "bonbox-app-dictionaries-in",
+    configResolved(config) {
+      if (config && config.build && config.build.outDir) dir = config.build.outDir;
+    },
     resolveId(id) {
       return id === APP_DICTS_ID ? "\0" + APP_DICTS_ID : null;
     },
