@@ -488,6 +488,9 @@ def list_changes(
     since: str | None = Query(
         None, description="ISO-8601 cutoff; returns bookings created/changed/cancelled after this."
     ),
+    day: date | None = Query(
+        None, description="R10: the business day open on this screen; adds that day's book revision."
+    ),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -502,16 +505,31 @@ def list_changes(
     row). Read-only, so no audit row. A fresh client sends `since=<server_time it
     last saw>` and NEVER replays history on first load: missing/malformed `since`
     → empty list. Capped at 50 to bound the payload during a booking rush.
+
+    R10 — `day`: the business day a book on this screen shows. The answer then
+    also carries that day's revision (services/book_revision): the screen
+    compares it with the revision its /book answer carried and reloads
+    quietly when they differ, so a change made by ANYONE on ANY screen — the
+    owner's phone booking, a host seating a walk-in, a move, a cancel, the
+    Venteliste — shows everywhere within one poll. Only a reload: no toast and
+    no sound (the alert rules below are unchanged). Without `day` nothing
+    extra is read, so a screen with no book open pays nothing for it.
     """
     server_time = utc_now().isoformat()
+    book: dict = {}
+    if day is not None:
+        from app.services.book_revision import revision_or_none
+        lo, hi = business_day_window_local(user, day)
+        book = {"book_day": day.isoformat(),
+                "book_rev": revision_or_none(db, user.id, day, lo, hi)}
     if not since:
-        return {"server_time": server_time, "changes": []}
+        return {"server_time": server_time, "changes": [], **book}
     try:
         cutoff = datetime.fromisoformat(since.replace("Z", "+00:00"))
         if cutoff.tzinfo is not None:
             cutoff = cutoff.astimezone(timezone.utc).replace(tzinfo=None)
     except (ValueError, TypeError):
-        return {"server_time": server_time, "changes": []}
+        return {"server_time": server_time, "changes": [], **book}
 
     rows = (
         db.query(Reservation)
@@ -565,7 +583,7 @@ def list_changes(
         c["held"] = str(r.id) in held
         changes.append(c)
     changes.extend(approved.values())
-    return {"server_time": server_time, "changes": changes}
+    return {"server_time": server_time, "changes": changes, **book}
 
 
 def _approved_severe_changes(db: Session, user: User, cutoff: datetime, label_by_id: dict) -> list:
@@ -2224,6 +2242,12 @@ def reservation_book(
     # service now uses (business_day_window_local), so owner book and insights
     # bucket a booking into the identical business day.
     lo, hi = business_day_window_local(user, target)
+    # R10: the revision of what this answer sends (services/book_revision).
+    # Read BEFORE the rows, never after: a write landing between the two then
+    # makes the revision older than the rows — one extra quiet reload — and
+    # never newer, which would hide that write from the 20-second check.
+    from app.services.book_revision import revision_or_none
+    rev = revision_or_none(db, user.id, target, lo, hi)
     rows = (
         db.query(Reservation)
         .filter(
@@ -2291,6 +2315,10 @@ def reservation_book(
         "date": target.isoformat(),
         "reservations": dicts,
         "summary": {"total": len(rows), "covers": covers, "by_status": by_status},
+        # R10: the day's revision as of this answer (None = could not tell —
+        # the screen then keeps its slower full reload). The 20-second
+        # /changes?day= poll compares against it.
+        "rev": rev,
     }
 
 
