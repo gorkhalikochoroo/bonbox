@@ -114,7 +114,8 @@ import WaitlistSection from "../components/reservations/WaitlistSection";
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
 import BookingNameRow from "../components/reservations/BookingNameRow";
 import ClosuresCard, { PauseControl } from "../components/reservations/ClosuresCard";
-import { isHeldForCheck, heldWhy, heldWanted } from "../utils/bookingHeld";
+import { isHeldForCheck, heldWhy, heldWanted, heldForPlanCap } from "../utils/bookingHeld";
+import PlanCapBanner, { PlanCapHeldNudge, monthCapFromSettings } from "../components/reservations/PlanCapBanner";
 import { activePause, fmtClosureRange, todayIso } from "../utils/closures";
 import { canPurchaseInApp } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
@@ -1325,6 +1326,9 @@ function ReservationDrawer({
                   <p className="text-[12px] leading-snug text-gray-600 dark:text-gray-400">
                     {heldWhy(r, t, { apptWords })}
                   </p>
+                  {/* R1b: held because the plan's monthly cap is reached —
+                      the upgrade nudge (web only). */}
+                  {heldForPlanCap(r) && <PlanCapHeldNudge t={t} apptWords={apptWords} />}
                   {/* The table(s) or the stylist it was booked for — it holds
                       none of them until it is confirmed. */}
                   {heldWanted(r) && (
@@ -4411,6 +4415,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           hoursDeclared: r.data?.hours_declared !== false,
           // Tells a held online booking from a group request (bookingHeld.js).
           groupThreshold: r.data?.settings?.group_request_threshold,
+          // R1b: the plan's monthly cap — used, cap and what reaching it
+          // does — for the book's banner (PlanCapBanner).
+          monthCap: monthCapFromSettings(r.data),
         });
         // The salon first-run card shows the hours the owner already SAVED
         // (not the suggestion), unless they have started editing the card.
@@ -7063,6 +7070,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             </Link>
           </div>
         </div>
+      )}
+
+      {/* R1b: the plan's monthly cap is reached — what it does now, and the
+          upgrade nudge (web only). Not on the stand pop-out. */}
+      {!salonFirstRun && !standalone && (
+        <PlanCapBanner monthCap={publicPage?.monthCap} t={t} apptWords={apptWords} />
       )}
 
       {!salonFirstRun && (
