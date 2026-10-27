@@ -359,10 +359,13 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords =
             >
               <span className="leading-none">{s}</span>
               {withNotes && (
+                // G10 (judge 27 Oct): 11 px (10 was under the floor) in quiet
+                // grey — green no longer says "free" on a page whose green is
+                // the main action. The picked tile keeps its white/80.
                 <span
                   className={
-                    "block text-[10px] leading-none h-3 mt-1 font-medium " +
-                    (slot === s ? "bb-pick-quiet text-white/80 dark:text-gray-900/70" : "text-bb-green-dark dark:text-emerald-400")
+                    "block text-[11px] leading-none h-3 mt-1 font-medium " +
+                    (slot === s ? "bb-pick-quiet text-white/80 dark:text-gray-900/70" : "text-gray-500 dark:text-gray-400")
                   }
                 >
                   {note}
