@@ -37,7 +37,7 @@ import pytest
 _PAUSED_JOBS = (
     "abuse_monitor",
     # The online-booking door (R1 fix round): the owner digest every 10 min
-    # and the hourly request expiry read and write the shared database —
+    # and the quarter-hourly request expiry read and write the shared database —
     # tests drive them directly (test_r1_fix_owner_budget.py,
     # test_r1_fix_held_no_table.py), never on a timer mid-test.
     "owner_booking_digest",

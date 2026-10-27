@@ -6457,11 +6457,16 @@ try:
     # owner's hourly summary for a venue with a ping held back (a booking
     # over the budget, or one the booking screen held as bot-likely) once
     # the last summary is an hour old — so a held-back booking is never left
-    # unsaid when nothing arrives after it. Every hour: the request expiry,
-    # so "six hours before the sitting" holds for a request made the same
-    # day (the nightly run alone declined a held 19:00 request only after
-    # its sitting). Each request has its own deadline (fix round 2): one made
-    # the same day gets two hours for the owner to answer, never minutes.
+    # unsaid when nothing arrives after it. Every 15 minutes, on the quarter
+    # hour: the request expiry, so "six hours before the sitting" holds for a
+    # request made the same day (the nightly run alone declined a held 19:00
+    # request only after its sitting). Each request has its own deadline
+    # (fix round 2): one made the same day gets two hours for the owner to
+    # answer, never minutes — and since D-C (27 Oct 2026) the guest hears no
+    # later than an hour before the sitting, which an hourly run could miss
+    # by up to 59 minutes (an 08:30 deadline for a 09:30 breakfast declined
+    # at 09:25). Sittings fall on quarter hours, so a run on each one keeps
+    # those deadlines to the minute (D2 as approved: every 10–15 minutes).
     # Both idempotent and fail-soft.
     from app.services.owner_booking_alerts import flush_digests as _flush_owner_digests
     from app.jobs.reservation_request_expiry import expire_stale_requests as _expire_requests
@@ -6474,7 +6479,7 @@ try:
     )
     _scheduler.add_job(
         _expire_requests,
-        trigger=IntervalTrigger(hours=1),
+        trigger=CronTrigger(minute="0,15,30,45"),
         id="reservation_request_expiry",
         name="Decline unanswered booking requests at each one's deadline",
         replace_existing=True,
@@ -6541,7 +6546,7 @@ try:
           "aiia sync (03:30), mobilepay sync (03:45), frontend monitor (5m), "
           "nightly backup (04:20 UTC, off unless BACKUP_* set), abuse monitor (2m), "
           "revisor packages (hourly :20), daily brief precompute (04:05-07:05 UTC hourly), "
-          "owner booking digest (10m), request expiry (1h)")
+          "owner booking digest (10m), request expiry (every :00/:15/:30/:45)")
 
     # Scheduler shutdown migrated to the `lifespan` context manager
     # near the FastAPI() constructor. It checks globals() for the
