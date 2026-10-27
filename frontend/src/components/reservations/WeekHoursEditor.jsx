@@ -156,59 +156,67 @@ export default function WeekHoursEditor({
                 </span>
               </label>
               {isOpen ? (
-                <div className="min-w-0 space-y-1.5 max-sm:basis-full sm:flex-1">
-                  {periods.map((p, i) => (
-                    <div key={i} className="flex flex-wrap items-center gap-1.5" data-period={i}>
-                      <input
-                        type="time"
-                        value={p.open}
-                        onChange={(e) => setPeriod(k, i, { open: e.target.value })}
-                        aria-label={i === 0 ? t("rsvpHoursOpenAt", "Opens") : t("rsvpHoursOpenAt2", "Opens (2nd period)")}
-                        className={TIME_INPUT}
+                <>
+                  {/* The times: on a phone a line of their own under the day
+                      (order-last), on a wider screen beside it. */}
+                  <div className="min-w-0 space-y-1.5 max-sm:order-last max-sm:basis-full sm:flex-1">
+                    {periods.map((p, i) => (
+                      <div key={i} className="flex flex-wrap items-center gap-1.5" data-period={i}>
+                        <input
+                          type="time"
+                          value={p.open}
+                          onChange={(e) => setPeriod(k, i, { open: e.target.value })}
+                          aria-label={i === 0 ? t("rsvpHoursOpenAt", "Opens") : t("rsvpHoursOpenAt2", "Opens (2nd period)")}
+                          className={TIME_INPUT}
+                        />
+                        <span className="text-gray-400" aria-hidden>–</span>
+                        <input
+                          type="time"
+                          value={p.close}
+                          onChange={(e) => setPeriod(k, i, { close: e.target.value })}
+                          aria-label={i === 0 ? t("rsvpHoursCloseAt", "Closes") : t("rsvpHoursCloseAt2", "Closes (2nd period)")}
+                          className={TIME_INPUT}
+                        />
+                        {periods.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setPeriods(k, removePeriod(periods, i))}
+                            aria-label={t("rsvpHoursRemovePeriod", "Remove {from}–{to}", { from: hm(p.open), to: hm(p.close) })}
+                            className={ROW_BUTTON + " w-11"}
+                          >
+                            <X className="w-4 h-4" strokeWidth={1.75} aria-hidden />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {lastBooking && periods.length > 0 && (
+                      <LastBookingLine
+                        t={t}
+                        dayKey={k}
+                        lang={lang}
+                        periods={periods}
+                        step={step}
+                        sitting={lastBooking.sitting}
+                        apptWords={!!lastBooking.apptWords}
+                        onPick={(i, value) => setPeriod(k, i, { last: value })}
                       />
-                      <span className="text-gray-400" aria-hidden>–</span>
-                      <input
-                        type="time"
-                        value={p.close}
-                        onChange={(e) => setPeriod(k, i, { close: e.target.value })}
-                        aria-label={i === 0 ? t("rsvpHoursCloseAt", "Closes") : t("rsvpHoursCloseAt2", "Closes (2nd period)")}
-                        className={TIME_INPUT}
-                      />
-                      {periods.length > 1 ? (
-                        <button
-                          type="button"
-                          onClick={() => setPeriods(k, removePeriod(periods, i))}
-                          aria-label={t("rsvpHoursRemovePeriod", "Remove {from}–{to}", { from: hm(p.open), to: hm(p.close) })}
-                          className={ROW_BUTTON + " w-11"}
-                        >
-                          <X className="w-4 h-4" strokeWidth={1.75} aria-hidden />
-                        </button>
-                      ) : allowAddPeriod && periods.length < MAX_PERIODS ? (
-                        <button
-                          type="button"
-                          onClick={() => setPeriods(k, addPeriod(periods, addMode))}
-                          aria-label={t("rsvpHoursAddPeriodAria", "Add period, {day}", { day: weekdayName(k, lang) })}
-                          className={ROW_BUTTON + " gap-1 px-2 text-xs font-medium"}
-                        >
-                          <Plus className="w-3.5 h-3.5" strokeWidth={1.75} aria-hidden />
-                          {t("rsvpHoursAddPeriod", "Add period")}
-                        </button>
-                      ) : null}
-                    </div>
-                  ))}
-                  {lastBooking && periods.length > 0 && (
-                    <LastBookingLine
-                      t={t}
-                      dayKey={k}
-                      lang={lang}
-                      periods={periods}
-                      step={step}
-                      sitting={lastBooking.sitting}
-                      apptWords={!!lastBooking.apptWords}
-                      onPick={(i, value) => setPeriod(k, i, { last: value })}
-                    />
+                    )}
+                  </div>
+                  {/* "Tilføj periode" sits on the day's first line — on a
+                      phone beside the open box, so a row grows no line for
+                      it; wider, at the row's end. */}
+                  {allowAddPeriod && periods.length < MAX_PERIODS && (
+                    <button
+                      type="button"
+                      onClick={() => setPeriods(k, addPeriod(periods, addMode))}
+                      aria-label={t("rsvpHoursAddPeriodAria", "Add period, {day}", { day: weekdayName(k, lang) })}
+                      className={ROW_BUTTON + " ml-auto shrink-0 gap-1 px-2 text-xs font-medium"}
+                    >
+                      <Plus className="w-3.5 h-3.5" strokeWidth={1.75} aria-hidden />
+                      {t("rsvpHoursAddPeriod", "Add period")}
+                    </button>
                   )}
-                </div>
+                </>
               ) : (
                 <span className="text-sm leading-[44px] text-gray-400 dark:text-gray-500">
                   {t("rsvpHoursClosedDay", "Closed all day")}
