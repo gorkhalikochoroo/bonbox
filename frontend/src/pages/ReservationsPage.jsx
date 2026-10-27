@@ -114,6 +114,7 @@ import WaitlistSection from "../components/reservations/WaitlistSection";
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
 import BookingNameRow from "../components/reservations/BookingNameRow";
 import BookingAccentRow from "../components/reservations/BookingAccentRow";
+import PublicWaitlistSwitch from "../components/reservations/PublicWaitlistSwitch";
 import ClosuresCard, { PauseControl } from "../components/reservations/ClosuresCard";
 import { isHeldForCheck, heldWhy, heldWanted } from "../utils/bookingHeld";
 import { activePause, fmtClosureRange, todayIso } from "../utils/closures";
@@ -9862,6 +9863,12 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
 
       {/* The page's colour, right under its name (booking R5). */}
       <BookingAccentRow t={t} />
+
+      {/* Guests may join the waitlist on a full night (booking R12) — table
+          venues, and only when the server knows the setting. */}
+      {!apptWords && tableRules && data?.settings && "public_waitlist" in data.settings && (
+        <PublicWaitlistSwitch t={t} settings={data.settings} />
+      )}
 
       {/* On/off toggle (+ the pause, while the page is live) */}
       <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3">

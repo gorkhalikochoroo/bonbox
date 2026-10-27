@@ -23,7 +23,7 @@
  * say something true rather than guess at the cause.
  */
 import { useEffect, useRef, useState } from "react";
-import { Plus, Users, Clock, Bell, X, CalendarPlus, Loader2 } from "lucide-react";
+import { Plus, Users, Clock, Bell, X, CalendarPlus, Loader2, Globe } from "lucide-react";
 import api from "../../services/api";
 import { getStandToken } from "../../services/standAuth";
 import { useLanguage } from "../../hooks/useLanguage";
@@ -37,6 +37,19 @@ import { businessTodayIso } from "../../utils/dateFormat";
 import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../../utils/dailyCloseDay";
 import { fmtTime } from "../../utils/floorState";
 import PartySizeChips from "./PartySizeChips";
+import { guestText } from "../../utils/guestText";
+
+// A guest who joined online (booking R12) typed their own name: shown with
+// any link disarmed (utils/guestText.js — display only, the row keeps it).
+const whoOf = (entry, t) => guestText(entry?.guest_name) || t("rsvpGuest", "Guest");
+
+// The screen held this online entry (robot-like, or the same number on
+// several nights): what the owner reads under the name.
+function heldWhy(reason, t) {
+  return reason === "contact_active"
+    ? t("rsvpWlHeldSame", "The same number is already waiting on several nights.")
+    : t("rsvpWlHeldRobot", "Joined online in a way that looks automated.");
+}
 
 const inputCls =
   "w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 " +
@@ -165,8 +178,8 @@ export default function WaitlistSection({
     const ids = new Set(spotMatches.map((m) => m.id));
     setHighlight(ids);
     setSpotBanner(
-      spotMatches.length === 1
-        ? { one: spotMatches[0].guest_name }
+      spotMatches.length === 1 && spotMatches[0].guest_name
+        ? { one: guestText(spotMatches[0].guest_name) }
         : { n: spotMatches.length },
     );
     reloadWaitlist();
@@ -250,7 +263,7 @@ export default function WaitlistSection({
       flashToast(t("rsvpWlNotifyCap", "Already contacted twice — call them directly."));
       return;
     }
-    const who = entry.guest_name || t("rsvpGuest", "Guest");
+    const who = whoOf(entry, t);
     const ok = await confirm({
       message: isProvider
         ? t("rsvpWlNotifyConfirmProvider", "Let {name} know a time may have opened? It isn't held for them.", { name: who })
@@ -273,7 +286,11 @@ export default function WaitlistSection({
       );
       reloadWaitlist();
     } catch (err) {
-      if (err?.response?.status === 429) {
+      if (err?.response?.status === 409 && err?.response?.data?.detail?.error === "non_notifiable") {
+        // An online guest took themselves off the list (booking R12).
+        flashToast(t("rsvpWlGuestLeft", "They've left the waitlist."));
+        reloadWaitlist();
+      } else if (err?.response?.status === 429) {
         flashToast(t("rsvpWlNotifyCap", "Already contacted twice — call them directly."));
       } else {
         // Same third-state rule one layer down: the button spun and then went
@@ -286,7 +303,7 @@ export default function WaitlistSection({
   };
 
   const removeEntry = async (entry) => {
-    const who = entry.guest_name || t("rsvpGuest", "Guest");
+    const who = whoOf(entry, t);
     // The question is the title — it was "Er du sikker?" over the real one.
     const ok = await confirm({
       title: t("rsvpWlRemoveConfirm", "Remove {name} from the waitlist?", { name: who }),
@@ -353,7 +370,7 @@ export default function WaitlistSection({
       // Spelled as the book spells it ("18.00"). The app's toast, so it
       // outlives the row (it vanished with it after ~2 s) and names who.
       const time = fmtTime(booked?.starts_at) || bookTime;
-      const name = entry.guest_name || t("rsvpGuest", "Guest");
+      const name = whoOf(entry, t);
       appToast({
         severity: "success",
         message: table
@@ -361,7 +378,11 @@ export default function WaitlistSection({
           : t("rsvpWlBookedNameNoTable", "{name} booked {time}", { name, time }),
       });
     } catch (err) {
-      if (err?.response?.status === 409) {
+      if (err?.response?.status === 409 && err?.response?.data?.detail?.error === "not_convertible") {
+        setBookFor(null);
+        flashToast(t("rsvpWlGuestLeft", "They've left the waitlist."));
+        reloadWaitlist();
+      } else if (err?.response?.status === 409) {
         // Say WHY, as the new-booking sheet does: "just filled" was shown for
         // a time the venue is closed and for a sitting that runs past closing.
         const d = err?.response?.data?.detail || {};
@@ -557,7 +578,7 @@ export default function WaitlistSection({
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                        {e.guest_name || t("rsvpGuest", "Guest")}
+                        {whoOf(e, t)}
                       </span>
                       <span className="inline-flex items-center gap-1 text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums shrink-0">
                         <Users className="w-3.5 h-3.5 text-gray-400" aria-hidden />{e.party_size}
@@ -573,9 +594,33 @@ export default function WaitlistSection({
                           {e.notify_count > 1 ? ` ·${e.notify_count}` : ""}
                         </span>
                       )}
+                      {/* Joined from the booking page (R12): a source, not a
+                          state — grey, with the book's online icon. */}
+                      {e.source === "public" && (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400 shrink-0">
+                          <Globe className="w-3 h-3" aria-hidden="true" />
+                          {t("rsvpSourceOnline", "online")}
+                        </span>
+                      )}
                     </div>
+                    {/* The time the guest asked for, or the evening. */}
+                    {e.desired_from && (
+                      <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+                        {e.desired_to
+                          ? t("rsvpWlBetween", "{from}–{to}", { from: fmtTime(e.desired_from), to: fmtTime(e.desired_to) })
+                          : t("rsvpWlAround", "around {time}", { time: fmtTime(e.desired_from) })}
+                      </p>
+                    )}
+                    {/* Held by the booking screen (R12): amber = needs you. */}
+                    {e.held && (
+                      <p className="mt-0.5 text-[12px] leading-snug text-amber-800 dark:text-amber-300">
+                        <span className="font-medium">{t("rsvpWlHeldLabel", "Check before you contact them")}</span>
+                        {" · "}
+                        {heldWhy(e.held_reason, t)}
+                      </p>
+                    )}
                     {e.note && (
-                      <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 truncate">{e.note}</p>
+                      <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 truncate">{guestText(e.note)}</p>
                     )}
                     {e.guest_phone && (
                       <a href={`tel:${String(e.guest_phone).replace(/\s+/g, "")}`}
