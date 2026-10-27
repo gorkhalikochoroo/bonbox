@@ -184,6 +184,12 @@ function bookingDictionary() {
 // so the dictionary preload already knows it is on the booking page.
 // The API address is resolved here: Vite's %VITE_API_URL% replacement runs
 // before this hook, so a script added now would keep the raw token.
+// One line to switch the whole parse-time script off (no skeleton at the
+// first paint, no early data, and the manifest / service worker / dictionary
+// preload rules that key off window.__bbBooking all fall back to before).
+// The page itself works either way.
+export const BOOKING_BOOT = true
+
 function bookingBoot() {
   let apiUrl = ''
   return {
@@ -194,6 +200,7 @@ function bookingBoot() {
     transformIndexHtml: {
       order: 'post',
       handler(html, ctx) {
+        if (!BOOKING_BOOT) return html
         let preload = []
         const chunks = Object.values(ctx.bundle || {})
         const page = chunks.find((c) => c.type === 'chunk' && c.facadeModuleId &&

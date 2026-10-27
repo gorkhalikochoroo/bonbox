@@ -14,6 +14,11 @@
 // A registered dictionary never claims to be the whole language: `fullReady`
 // stays about the full one, so App.jsx still holds every other route until
 // that is in.
+// One line to switch it off: the booking page then waits for the full
+// dictionary again, exactly as before R5 (hooks/useLanguage.jsx and App.jsx's
+// FullDictionaryGate both read this).
+export const PAGE_WORDS_ON = true;
+
 const dicts = {};
 const subs = new Set();
 let version = 0;

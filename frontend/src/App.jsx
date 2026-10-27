@@ -23,6 +23,7 @@ import { useThemeColorSync } from "./hooks/useThemeColorSync";
 import { isLandingPath, landingFirstPaint, mightBeSignedIn } from "./lib/landingBoot";
 import { isQuietGuestPage } from "./lib/embedMode";
 import { isBookingPath } from "./lib/bookingPath";
+import { PAGE_WORDS_ON } from "./lib/pageDict";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AlertTriangle } from "lucide-react";
 import Button from "./components/ui/Button";
@@ -769,7 +770,7 @@ function LandingRoute() {
 export function FullDictionaryGate({ children }) {
   const { fullReady, ensureFull } = useLanguage();
   const { pathname } = useLocation();
-  const held = fullReady === false && !isLandingPath(pathname) && !isBookingPath(pathname);
+  const held = fullReady === false && !isLandingPath(pathname) && !(PAGE_WORDS_ON && isBookingPath(pathname));
   useEffect(() => {
     if (held && typeof ensureFull === "function") ensureFull();
   }, [held, ensureFull]);

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LANGUAGES } from "../i18n/languageCatalog";
 import { loadLocale, loadedLocales, localesFor } from "../lib/localeStore";
-import { pageDictFor, pageDictVersion, subscribePageDict } from "../lib/pageDict";
+import { PAGE_WORDS_ON, pageDictFor, pageDictVersion, subscribePageDict } from "../lib/pageDict";
 import { isBookingPathNow } from "../lib/bookingPath";
 import { browserListsDanish, isReplaceableTitle, shellTitle } from "../lib/shellTitles";
 import { landingFirstPaint } from "../lib/landingBoot";
@@ -178,7 +178,7 @@ export function detectInitialLanguage() {
 // ~200 KB full dictionary at all. Only for the two languages it carries; any
 // other language loads as before.
 const PAGE_LANGS = new Set(["da", "en"]);
-const onBookingPage = (code) => PAGE_LANGS.has(code) && isBookingPathNow();
+const onBookingPage = (code) => PAGE_WORDS_ON && PAGE_LANGS.has(code) && isBookingPathNow();
 
 export function LanguageProvider({ children }) {
   const [lang, setLangState] = useState(() => {
@@ -209,7 +209,7 @@ export function LanguageProvider({ children }) {
   // in the venue's language anyway). Before the page's code has arrived
   // nothing on screen says a word — the wait is the page's skeleton — so the
   // page never holds its first paint for a dictionary.
-  const pageReady = () => isBookingPathNow();
+  const pageReady = () => PAGE_WORDS_ON && isBookingPathNow();
   const readyFor = (code) => fullFor(code) || pageReady(code);
   // A key the page's words do not hold: fetch the full dictionary once, so
   // it shows in a moment instead of as a raw key (see the t() below).

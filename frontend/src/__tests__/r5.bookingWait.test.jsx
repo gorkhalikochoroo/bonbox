@@ -298,3 +298,20 @@ describe("index.html and the build", () => {
     expect(fn).toContain("config.env && config.env.VITE_API_URL");
   });
 });
+
+describe("one switch each", () => {
+  it("the parse-time script is on (vite.config.js BOOKING_BOOT), and off means index.html is left as it was", async () => {
+    expect(CONFIG).toContain("export const BOOKING_BOOT = true");
+    expect(CONFIG).toMatch(/handler\(html, ctx\) \{\s*if \(!BOOKING_BOOT\) return html/);
+  });
+
+  it("the page's own words are on (lib/pageDict PAGE_WORDS_ON), read by the provider and the gate", async () => {
+    const { PAGE_WORDS_ON } = await import("../lib/pageDict");
+    expect(PAGE_WORDS_ON).toBe(true);
+    const lang = fs.readFileSync(path.join(SRC, "hooks/useLanguage.jsx"), "utf8");
+    expect(lang).toMatch(/const onBookingPage = \(code\) => PAGE_WORDS_ON && /);
+    expect(lang).toMatch(/const pageReady = \(\) => PAGE_WORDS_ON && isBookingPathNow\(\);/);
+    const app = fs.readFileSync(path.join(SRC, "App.jsx"), "utf8");
+    expect(app).toContain("!(PAGE_WORDS_ON && isBookingPath(pathname))");
+  });
+});
