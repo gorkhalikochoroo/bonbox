@@ -21,6 +21,7 @@ import { ConfirmProvider } from "./hooks/useConfirm";
 import { ToastProvider } from "./hooks/useToast";
 import { useThemeColorSync } from "./hooks/useThemeColorSync";
 import { isLandingPath, landingFirstPaint, mightBeSignedIn } from "./lib/landingBoot";
+import { isQuietEmbed } from "./lib/embedMode";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AlertTriangle } from "lucide-react";
 import Button from "./components/ui/Button";
@@ -35,6 +36,9 @@ const API_BASE = import.meta.env.VITE_API_URL || "";
 const HEALTH_URL = `${API_BASE.replace(/\/(api\/?)?$/, "")}/api/health`;
 function useKeepAlive() {
   useEffect(() => {
+    // Booking R4: the booking form inside a restaurant's own website makes no
+    // call it doesn't need — its own first request wakes the server anyway.
+    if (isQuietEmbed()) return undefined;
     const ping = () => fetch(HEALTH_URL, { method: "HEAD" }).catch(() => {});
     ping(); // immediate ping on app load — warms Render before the first real call
     const id = setInterval(ping, 10 * 60 * 1000); // every 10 min
