@@ -6904,6 +6904,26 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
      the lie R10 removes — so a calm card stands in their place instead. */
   const bookUnavailable = !data && !loading && !!loadError && !standGone;
 
+  // The freed-table nudge floats over the night — until the Venteliste it
+  // points to is on screen: then it docks there (it hides, and the
+  // Venteliste's own line says it above its rows, never over them). While it
+  // floats, the Venteliste's line keeps quiet: one says it, never both at
+  // once (judge, frame 14 — fix round 5).
+  const nudgeUp = !!(freedNudge && freedNudge.day === day && waitlistCount !== 0 && !bookUnavailable);
+  const [waitlistInView, setWaitlistInView] = useState(false);
+  useEffect(() => {
+    if (!nudgeUp || typeof IntersectionObserver !== "function") return undefined;
+    const el = document.getElementById("rsvp-venteliste");
+    if (!el) return undefined;
+    const io = new IntersectionObserver((entries) => {
+      const e = entries[entries.length - 1];
+      setWaitlistInView(!!(e && e.isIntersecting));
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [nudgeUp]);
+  const nudgeFloats = nudgeUp && !waitlistInView;
+
   /* A TABLE venue that has not set up a single table. The empty book used to
      promise "Bookings will appear here as they come in" — they cannot: with
      no bookable table the availability engine has nothing to offer, so the
@@ -7751,7 +7771,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           floating over the foot of the page (it moves nothing — in the page
           it would push the night down mid-service). One tap: the Venteliste,
           the matches ringed, Giv besked / Book. */}
-      {freedNudge && freedNudge.day === day && waitlistCount !== 0 && !bookUnavailable && createPortal(
+      {nudgeFloats && createPortal(
         <FreedTableNudge
           matches={freedNudge.matches}
           t={t}
@@ -8067,6 +8087,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         <WaitlistSection
           day={day}
           spotMatches={spotMatches}
+          quietSpot={nudgeFloats}
           refreshTick={bookTick}
           onCountChange={setWaitlistCount}
           onConverted={() => fetchBook(day)}

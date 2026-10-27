@@ -108,6 +108,9 @@ export default function WaitlistSection({
   // Each new `n` opens the add form with that party size filled in — the
   // host adds the phone (it is how we text them when a table frees).
   addRequest = null,
+  // The page's floating freed-table nudge says the same right now: the
+  // "a spot may have opened" line keeps quiet while it floats (fix round 5).
+  quietSpot = false,
 }) {
   const { t } = useLanguage();
   const confirm = useConfirm();
@@ -469,8 +472,9 @@ export default function WaitlistSection({
         )}
       </div>
 
-      {/* "A spot may have opened" — surfaced, never auto-acted. */}
-      {spotBanner && (
+      {/* "A spot may have opened" — surfaced, never auto-acted. Quiet while
+          the page's floating nudge says it (one of the two, never both). */}
+      {spotBanner && !quietSpot && (
         <div className="flex items-start gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 text-sm border-b border-amber-100 dark:border-amber-900/40">
           <Bell className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
           <span className="flex-1">

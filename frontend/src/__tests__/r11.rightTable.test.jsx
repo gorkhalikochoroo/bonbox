@@ -432,6 +432,47 @@ describe("the freed-table nudge", () => {
     await waitFor(() => expect(document.querySelector("[data-freed-nudge]")).toBeNull());
   });
 
+  // Fix round 5 (judge, frame 14): the nudge and the Venteliste's own line
+  // said the same at the same time, and the floating card covered the rows
+  // it pointed to. One of them, never both; at the Venteliste, it docks.
+  it("one message at a time: the nudge floats, the Venteliste's line keeps quiet — and at the Venteliste the nudge docks", async () => {
+    const ios = [];
+    const realIO = globalThis.IntersectionObserver;
+    globalThis.IntersectionObserver = class {
+      constructor(cb) { this.cb = cb; ios.push(this); }
+      observe(el) { this.el = el; }
+      unobserve() {}
+      disconnect() { this.el = null; }
+    };
+    const seeWaitlist = (on) => act(() => {
+      ios.filter((o) => o.el && o.el.id === "rsvp-venteliste").forEach((o) => o.cb([{ isIntersecting: on }]));
+    });
+    const spotLine = () => [...document.getElementById("rsvp-venteliste").querySelectorAll("span")]
+      .find((el) => el.textContent.includes("A spot may have opened"));
+    try {
+      WAITLIST = [BO];
+      api.patch.mockImplementation((url) => (/\/status$/.test(url)
+        ? Promise.resolve({ data: { ...HANSEN, status: "cancelled", waitlist_matches: [BO] } })
+        : Promise.resolve({ data: {} })));
+      renderAt(OWNER);
+      await screen.findAllByText("Ida Hansen");
+      await waitFor(() => expect(api.get.mock.calls.some(([u]) => u === "/reservations/waitlist")).toBe(true));
+      fireEvent.click(screen.getAllByText("Ida Hansen")[0]);
+      const drawer = await screen.findByRole("dialog", { name: /Ida Hansen/ });
+      await act(async () => { fireEvent.click(within(drawer).getByRole("button", { name: "Cancel" })); });
+      await waitFor(() => expect(document.querySelector("[data-freed-nudge]")).not.toBeNull());
+      expect(spotLine()).toBeUndefined();                       // the nudge says it — the line keeps quiet
+      await seeWaitlist(true);                                  // the Venteliste is on screen
+      expect(document.querySelector("[data-freed-nudge]")).toBeNull();   // docked: nothing over its rows
+      expect(spotLine()?.textContent).toContain("Bo Mikkelsen");          // said there, above them
+      await seeWaitlist(false);                                 // scrolled away again
+      expect(document.querySelector("[data-freed-nudge]")).not.toBeNull();
+      expect(spotLine()).toBeUndefined();
+    } finally {
+      globalThis.IntersectionObserver = realIO;
+    }
+  });
+
   it("a table freed on ANOTHER screen is noticed on the next read, and asked about once", async () => {
     WAITLIST = [BO];
     api.get.mockImplementation((url, cfg) => {
