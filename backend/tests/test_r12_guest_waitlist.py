@@ -1045,18 +1045,24 @@ def test_fix_c_a_closed_list_answers_a_repeat_as_a_first_join(db, client, monkey
     assert len(_rows(db, owner)) == 1
 
 
-def test_fix_c_repeats_count_under_the_held_bound(db, client, monkeypatch):
+def test_fix_c_repeats_count_as_held_and_are_written_past_the_bound(db, client, monkeypatch):
+    """Fix round 4 (review2 #1): a repeat past the held bound used to get a
+    stand-in whose receipt 404'd, while a first join's answered 200 — so a
+    full bound turned the repeat into a "this number is on the list" probe.
+    Every repeat is now a stored, held shadow row; it still counts as held."""
     monkeypatch.setattr(pwl, "HELD_PER_NIGHT", 1)
     owner, profile, tables = _venue(db)
     _fill(db, owner, tables, FRI)
     assert _join(client, profile, FRI).status_code == 201
     one = _join(client, profile, FRI)                          # shadow 1: written
-    two = _join(client, profile, FRI)                          # past the bound: dropped
+    two = _join(client, profile, FRI)                          # past the bound: written too
     assert one.status_code == two.status_code == 201
     assert set(one.json()) == set(two.json()) and two.json()["waitlist_token"]
-    assert len(_rows(db, owner)) == 2
+    assert len(_rows(db, owner)) == 3
     assert _receipt(client, one.json()).status_code == 200
-    assert _receipt(client, two.json()).status_code == 404     # nothing stored, nothing shown
+    assert _receipt(client, two.json()).status_code == 200     # a row behind it, like any join
+    assert len(_held_ids(db, owner)) == 2                     # both count as held
+    assert pwl.held_night_count(db, owner.id, FRI) == 2
     # A real first join is not touched by the held bound.
     assert _join(client, profile, FRI, guest_phone="+45 30 30 30 30").status_code == 201
 

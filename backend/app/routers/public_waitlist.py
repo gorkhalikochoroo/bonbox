@@ -197,6 +197,7 @@ def _screen_and_join(db: Session, *, owner, profile, settings: dict, payload, da
 
     held = screen.action == "hold"
     reason = screen.reason
+    repeat_shadow = False
     if not held:
         # The online list's own caps answer a first and a repeat join alike.
         if not pwl.gate_open(db, owner.id, day=day, today=today, now_utc=now_utc,
@@ -210,8 +211,17 @@ def _screen_and_join(db: Session, *, owner, profile, settings: dict, payload, da
             # the same answer as a first join — a HELD shadow row with its
             # own token and only its own stored values. Never "this number is
             # already on the list", never a token for (or a change to) the
-            # entry that was there. It counts under the held bounds below.
-            held, reason = True, pwl.REPEAT_REASON
+            # entry that was there.
+            # ALWAYS written, past the held bounds too (fix round 4, review2
+            # #1): a first join of a person-like post is always stored, so a
+            # repeat that got a stand-in once the night's held rows were full
+            # (a receipt that 404s) told a prober the number was on the list.
+            # A stand-in answering from its token can't be made the same — it
+            # can't remember being left — so the row is real. Its bounds: the
+            # real caps above, a number already on that night's list, the
+            # join limit (4/min, 30/day per address), the night's purge; it
+            # counts as held, and the abuse monitor counts these.
+            held, reason, repeat_shadow = True, pwl.REPEAT_REASON, True
     wanted_hm = [t.strftime("%H:%M") for t in wanted]
     desired_from = desired_to = None
     if payload.preferred_time and payload.preferred_time in wanted_hm:
@@ -221,7 +231,9 @@ def _screen_and_join(db: Session, *, owner, profile, settings: dict, payload, da
         desired_from = wanted[0]
         desired_to = wanted[-1]
 
-    if held:
+    if repeat_shadow:
+        abuse_signals.bump("waitlist_repeat_join")
+    elif held:
         # Held rows have bounds of their own (a night here, and the fleet's
         # day) and never count toward a real guest's; past them, or when a
         # count can't be read, the join is dropped silently — with the time
