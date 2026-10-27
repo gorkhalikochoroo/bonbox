@@ -876,7 +876,10 @@ def test_book_again_opens_the_booking_page_in_the_guests_language(client, db, ou
     assert f'href="https://www.bonbox.dk/r/{profile.reservation_slug}?lang=en"' in html
 
 
-_LOOKUP_FIELDS = {"id", "status", "party_size", "starts_at", "guest_name",
+# duration_min: the sitting's real length, which the receipt's calendar file
+# reads (R2 cd15c3d9, rubric V5 — put in the create answer and this poll on
+# purpose). Not personal data; every private field stays out (below).
+_LOOKUP_FIELDS = {"id", "status", "party_size", "starts_at", "duration_min", "guest_name",
                   "occasion", "allergen_tags", "allergy_severity", "guest_lang",
                   "outcome"}
 
@@ -897,6 +900,8 @@ def test_the_booking_lookup_returns_what_the_guest_told_the_venue(client, db, ou
     assert body["allergy_severity"] == "severe"
     assert body["guest_lang"] == "en"
     assert body["guest_name"] == "Sita Sharma" and body["party_size"] == 2
+    # The calendar file's length is the booking's own, as the create answered.
+    assert body["duration_min"] == b["duration_min"] and body["duration_min"] > 0
     blob = json.dumps(body)
     for private in (GUEST, "11 22 33 44", "window please", "EpiPen", "anaphylaxis"):
         assert private not in blob, f"{private!r} leaked to the token holder"
