@@ -1331,3 +1331,96 @@ body.modal-open {
    dialog, where it covered the pinned primary button ("Sæt til bords",
    "Næste"). While a modal surface is open it steps aside. */
 body:has([aria-modal="true"]) .bonbox-ai-fab { display: none !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BOOKING BOX (R3, 27 Oct 2026) — the public booking page, /r/<slug>.
+   "Refined, finished" (judge 24 Oct): calm, not glossy. ONE curve for the
+   page, cubic-bezier(0.22, 1, 0.36, 1) — the ceremonial curve's family at
+   shorter lengths. Motion only where something changed. Every rule here is
+   booking-local: nothing outside the guest page carries these classes.
+   The global prefers-reduced-motion rule above collapses all of it.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root { --bb-ease: cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* Picker tiles (components/booking/bookingTiles.js). A new pick settles in
+   200 ms and the released chip lets go in 120 ms, so a change of choice has a
+   direction. `scale` is in the tile's OWN list: the global touch press
+   (`button:active`, 60 ms) still answers the finger at once, and the release
+   now eases back over 200 ms instead of snapping in one frame. */
+.bb-tile {
+  --bb-tile-dur: 120ms;
+  transition:
+    background-color var(--bb-tile-dur) var(--bb-ease),
+    border-color var(--bb-tile-dur) var(--bb-ease),
+    color var(--bb-tile-dur) var(--bb-ease),
+    box-shadow var(--bb-tile-dur) var(--bb-ease),
+    scale 200ms var(--bb-ease);
+}
+.bb-tile[aria-checked="true"] { --bb-tile-dur: 200ms; }
+
+/* The step section enters over 220 ms from 4 px (was 350 ms from 8 px). */
+@keyframes bbStep {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* A time chip that is NEW arrives; times that stayed the same never move
+   (chips are keyed by time, so only a new time mounts a new node). */
+@keyframes bbArrive {
+  from { opacity: 0; translate: 0 3px; }
+  to { opacity: 1; translate: 0 0; }
+}
+/* The bottom bar's words when they actually change (EarnedText). */
+@keyframes bbLabel {
+  from { opacity: 0; translate: 0 3px; }
+  to { opacity: 1; translate: 0 0; }
+}
+/* The skeleton breathes, calmer than the global animate-pulse. */
+@keyframes bbBreathe {
+  50% { opacity: 0.55; }
+}
+/* A spinner only for a genuinely slow load: hidden for 600 ms, then a fade. */
+@keyframes bbLate {
+  to { opacity: 1; }
+}
+.bb-late {
+  opacity: 0;
+  animation: bbLate 200ms ease-out 600ms forwards;
+}
+
+/* The bottom bar rests on a hairline and gets its shadow only while it
+   actually floats over content (a scroll-driven animation: at the end of the
+   page there is nothing under it, so no shadow). Where scroll timelines are
+   missing it keeps just the hairline. In the embed the frame never scrolls,
+   so it never floats. */
+.bb-cta-bar { --bb-float: 0 -1px 0 rgb(16 24 40 / 0.04), 0 -10px 24px -14px rgb(16 24 40 / 0.2); }
+.dark .bb-cta-bar { --bb-float: 0 -1px 0 rgb(0 0 0 / 0.3), 0 -10px 24px -14px rgb(0 0 0 / 0.6); }
+@keyframes bbFloat {
+  0%, 96% { box-shadow: var(--bb-float); }
+  100% { box-shadow: 0 0 0 transparent; }
+}
+@supports (animation-timeline: scroll()) {
+  .bb-cta-bar {
+    animation: bbFloat auto linear both;
+    animation-timeline: scroll(root block);
+  }
+}
+
+/* The main action: background and its contact shadow ease over 160 ms; the
+   touch press stays the global 60 ms and the release eases like the tiles. */
+.bb-cta {
+  transition:
+    background-color 160ms var(--bb-ease),
+    color 160ms var(--bb-ease),
+    box-shadow 160ms var(--bb-ease),
+    scale 200ms var(--bb-ease);
+}
+
+/* The embed as ONE card on the restaurant's own ground, from 450 px. The
+   page marks <html> with .bb-embed-card while it shows the card (never with
+   &flat=1, never on the standalone page); html and body go transparent so the
+   host's own colour shows around the card. Below 450 px the widget IS the
+   page there, so it stays flat and white. */
+@media (min-width: 450px) {
+  :root.bb-embed-card,
+  :root.bb-embed-card body { background-color: transparent !important; }
+}
