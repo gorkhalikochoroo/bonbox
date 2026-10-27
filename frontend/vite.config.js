@@ -2,6 +2,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
+import { bookingGraph, buildBookingDict } from './scripts/bookingDict.mjs'
 
 // ── The landing's boot dictionary (push 9, E) ─────────────────────
 // `virtual:bonbox-boot-dict` = { da: {...}, en: {...} } holding only the keys
@@ -69,6 +70,9 @@ function preloadDictionary() {
           `var f=${JSON.stringify(files)};` +
           'var l=null;try{l=localStorage.getItem("lang")}catch(e){}' +
           'if(!l){var n=(navigator.languages||[navigator.language||""]).join(",").toLowerCase();l=/(^|,)(da|fo)/.test(n)?"da":"en"}' +
+          // Booking R5: the booking page (marked by the booking script that
+          // sits ahead of this one) brings its own Danish and English words.
+          'if(window.__bbBooking&&(l==="da"||l==="en"))return;' +
           'var h=l==="da"?f.da:f.en;' +
           'var k=document.createElement("link");k.rel="modulepreload";k.href=h;document.head.appendChild(k)' +
           '}catch(e){}})()</script>'
@@ -138,9 +142,39 @@ function preloadLanding() {
   }
 }
 
+// ── The booking page's own words (booking R5) ─────────────────────
+// `virtual:bonbox-booking-dict` = { da: {...}, en: {...} } holding exactly the
+// keys the public booking page and every file its code reaches can show
+// (scripts/bookingDict.mjs), generated from src/i18n/da.js and en.js — still
+// the one place a string is written. ~10 KB gz for both languages; the page
+// registers it (src/lib/bookingDict.js) and a guest's phone never downloads
+// the ~200 KB full dictionary. Its own chunk (codeSplitting below), so the
+// page's chunk stays the page's code. Dev, build and vitest alike.
+function bookingDictionary() {
+  const VID = 'virtual:bonbox-booking-dict'
+  const RID = '\0' + VID
+  const file = (f) => new URL(f, import.meta.url)
+  return {
+    name: 'bonbox-booking-dictionary',
+    resolveId(id) {
+      if (id === VID) return RID
+    },
+    async load(id) {
+      if (id !== RID) return
+      const files = bookingGraph(fileURLToPath(file('./src')))
+      for (const f of files) this.addWatchFile(f)
+      const dicts = ['./src/i18n/da.js', './src/i18n/en.js']
+      for (const f of dicts) this.addWatchFile(fileURLToPath(file(f)))
+      const stamp = Date.now()
+      const [{ da }, { en }] = await Promise.all(dicts.map((f) => import(file(f).href + '?t=' + stamp)))
+      return `export default ${JSON.stringify(buildBookingDict({ files, da, en }))};`
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), preloadDictionary(), preloadLanding(), bootDictionary()],
+  plugins: [react(), preloadDictionary(), preloadLanding(), bootDictionary(), bookingDictionary()],
   // Force the automatic JSX runtime everywhere — production already
   // uses it via @vitejs/plugin-react, but vitest's transform pipeline
   // sometimes falls back to the classic runtime which requires
@@ -262,6 +296,8 @@ export default defineConfig({
           groups: [
             { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/, priority: 40 },
             { name: 'vendor-i18n', test: /[\\/]hooks[\\/]useLanguage/, priority: 30 },
+            // Booking R5: the booking page's own words, its own chunk.
+            { name: 'booking-dict', test: /bonbox-booking-dict/, priority: 35 },
             { name: 'vendor-motion', test: /node_modules[\\/]framer-motion[\\/]/, priority: 20 },
             { name: 'vendor-charts', test: /node_modules[\\/](recharts|d3-[^\\/]+)[\\/]/, priority: 10 },
           ],

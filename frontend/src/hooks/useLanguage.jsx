@@ -1,6 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LANGUAGES } from "../i18n/languageCatalog";
 import { loadLocale, loadedLocales, localesFor } from "../lib/localeStore";
+import { pageDictFor, pageDictVersion, subscribePageDict } from "../lib/pageDict";
+import { isBookingPathNow } from "../lib/bookingPath";
 import { browserListsDanish, isReplaceableTitle, shellTitle } from "../lib/shellTitles";
 import { landingFirstPaint } from "../lib/landingBoot";
 // The landing page's and cookie banner's keys in Danish and English, built
@@ -171,6 +173,13 @@ export function detectInitialLanguage() {
 }
 
 
+// Booking R5: the public booking page brings its own words (lib/pageDict.js,
+// ~10 KB for Danish AND English) — a guest's phone no longer downloads the
+// ~200 KB full dictionary at all. Only for the two languages it carries; any
+// other language loads as before.
+const PAGE_LANGS = new Set(["da", "en"]);
+const onBookingPage = (code) => PAGE_LANGS.has(code) && isBookingPathNow();
+
 export function LanguageProvider({ children }) {
   const [lang, setLangState] = useState(() => {
     const detected = detectInitialLanguage();
@@ -191,7 +200,24 @@ export function LanguageProvider({ children }) {
   // Dictionaries loaded so far, as state so a finished download re-renders.
   const [loaded, setLoaded] = useState(() => ({ ...loadedLocales() }));
   const [loadFailed, setLoadFailed] = useState(false);
-  const readyFor = (code) => localesFor(code).every((c) => loaded[c]);
+  const fullFor = (code) => localesFor(code).every((c) => loaded[c]);
+  // R5: re-render the moment a page registers its own words.
+  useSyncExternalStore(subscribePageDict, pageDictVersion, pageDictVersion);
+  // On the booking page every language is ready to show: Danish and English
+  // from the page's own words, any other from the page's English while its
+  // own dictionary loads in the background (the page offers DA/EN and opens
+  // in the venue's language anyway). Before the page's code has arrived
+  // nothing on screen says a word — the wait is the page's skeleton — so the
+  // page never holds its first paint for a dictionary.
+  const pageReady = () => isBookingPathNow();
+  const readyFor = (code) => fullFor(code) || pageReady(code);
+  // A key the page's words do not hold: fetch the full dictionary once, so
+  // it shows in a moment instead of as a raw key (see the t() below).
+  const fullAsked = useRef(false);
+  // Leaving the booking page for another route inside the app: App.jsx's
+  // FullDictionaryGate asks for the full dictionary through this.
+  const [fullWanted, setFullWanted] = useState(0);
+  const ensureFull = useCallback(() => setFullWanted((n) => n + 1), []);
 
   // The language on screen. While a newly picked language downloads, the
   // current one stays up (no blank screen, no raw keys); it switches the
@@ -203,6 +229,10 @@ export function LanguageProvider({ children }) {
 
   useEffect(() => {
     if (localesFor(lang).every((c) => loaded[c])) return undefined;
+    // R5: the booking page has its words; the full dictionary waits for a
+    // key outside them (t() below), or for the guest to leave the page
+    // (ensureFull, from App.jsx's gate — the address has changed by then).
+    if (onBookingPage(lang) && !fullAsked.current) return undefined;
     let live = true;
     Promise.all(localesFor(lang).map(loadLocale))
       .then(() => {
@@ -223,7 +253,7 @@ export function LanguageProvider({ children }) {
     return () => {
       live = false;
     };
-  }, [lang, loaded]);
+  }, [lang, loaded, fullWanted]);
 
   const setLang = useCallback((code) => {
     setLangState(code);
@@ -287,7 +317,21 @@ export function LanguageProvider({ children }) {
       !Array.isArray(maybeVars);
     const vars = thirdIsVarsObject ? maybeVars : varsFromSecond;
 
-    const hit = loaded[active]?.[key] || BOOT[active]?.[key] || loaded.en?.[key] || BOOT.en?.[key];
+    const hit =
+      loaded[active]?.[key] || pageDictFor(active)?.[key] || BOOT[active]?.[key] ||
+      loaded.en?.[key] || pageDictFor("en")?.[key] || BOOT.en?.[key];
+    // R5: the booking page asked for a word its own dictionary does not hold
+    // (lib/pageDict.js). Fetch the full one once — the page shows it a moment
+    // later rather than a raw key — and say so in development. Only once the
+    // page has registered its words: before its code arrives, nothing on the
+    // booking route is the page (the wait has no words).
+    if (!hit && !fullAsked.current && !loaded[active] && pageDictVersion() > 0 && onBookingPage(active)) {
+      fullAsked.current = true;
+      if (import.meta.env?.DEV) console.warn(`[i18n] "${key}" is not in the booking page's own words`);
+      Promise.all(localesFor(active).map((c) => loadLocale(c)))
+        .then(() => setLoaded({ ...loadedLocales() }))
+        .catch(() => {});
+    }
     let result;
     if (hit) {
       result = hit;
@@ -341,11 +385,13 @@ export function LanguageProvider({ children }) {
   // (FullDictionaryGate) renders only the landing on boot keys and holds
   // every other route back until the full dictionary is in — so no app page
   // ever shows a missing key. Other languages wait as before.
-  const fullReady = readyFor(active) || loadFailed;
-  if (!fullReady && !BOOT[active]) return null;
+  // `fullReady` is about the FULL dictionary only (a page's own words never
+  // count): App.jsx's FullDictionaryGate holds every other route on it.
+  const fullReady = fullFor(active) || loadFailed;
+  if (!fullReady && !BOOT[active] && !pageReady(active)) return null;
 
   return (
-    <LanguageContext.Provider value={{ lang: active, setLang, toggleLang, t, LANGUAGES, fullReady }}>
+    <LanguageContext.Provider value={{ lang: active, setLang, toggleLang, t, LANGUAGES, fullReady, ensureFull }}>
       {children}
     </LanguageContext.Provider>
   );
@@ -367,9 +413,14 @@ export function useLanguage() {
 // with the fonts the first paint is drawing in.
 try {
   const bootable = Boolean(BOOT[detectInitialLanguage().lang]);
+  // R5: nor on the booking page (Danish or English) — it brings its own words
+  // (lib/pageDict.js); a key outside them still fetches the full one (t()).
+  const ownWords = onBookingPage(detectInitialLanguage().lang);
   if (!(bootable && landingFirstPaint())) {
-    localesFor(detectInitialLanguage().lang).forEach((code) => {
-      loadLocale(code).catch(() => { /* the provider retries and falls back */ });
-    });
+    if (!ownWords) {
+      localesFor(detectInitialLanguage().lang).forEach((code) => {
+        loadLocale(code).catch(() => { /* the provider retries and falls back */ });
+      });
+    }
   }
 } catch { /* no storage available — the provider loads it on mount */ }

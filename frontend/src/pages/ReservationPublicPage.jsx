@@ -85,6 +85,11 @@ import { useKeyboardInset } from "../hooks/useKeyboardInset";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useLanguage } from "../hooks/useLanguage";
 import { loadLocale, loadedLocales } from "../lib/localeStore";
+// Booking R5: the page's own words (~10 KB, Danish + English) instead of the
+// ~200 KB full dictionary — registered as this module is evaluated, before the
+// first render (lib/pageDict.js, vite.config.js bonbox-booking-dict).
+import "../lib/bookingDict";
+import { pageDictFor } from "../lib/pageDict";
 import Button from "../components/ui/Button";
 import BookingTile from "../components/booking/BookingTile";
 import EarnedText from "../components/booking/EarnedText";
@@ -1938,6 +1943,7 @@ export default function ReservationPublicPage() {
   // dictionary is here (the page opens in it, so it nearly always is), else
   // the guest's own — never a raw key.
   const venueOccasionLabel = (k) =>
+    pageDictFor(page?.language)?.[`rsvpOccasion_${k}`] ||
     loadedLocales()[page?.language]?.[`rsvpOccasion_${k}`] ||
     t(`rsvpOccasion_${k}`, OCCASION_FALLBACK[k]);
 
@@ -1945,8 +1951,10 @@ export default function ReservationPublicPage() {
   // venue's dictionary while they fill in details, so the occasion can be
   // stored in it. A returning visitor who picked English before is the only
   // one who has not already loaded it.
+  // R5: the page's own words carry Danish and English, so for those this is
+  // never needed; another venue language still loads its dictionary.
   useEffect(() => {
-    if (step === 2 && page?.language && page.language !== lang) {
+    if (step === 2 && page?.language && page.language !== lang && !pageDictFor(page.language)) {
       loadLocale(page.language).catch(() => {});
     }
   }, [step, page?.language, lang]);
@@ -2575,7 +2583,13 @@ export default function ReservationPublicPage() {
       if (!stored) return "";
       const dicts = loadedLocales();
       const k = OCCASION_KEYS.find((key) =>
-        [dicts.da?.[`rsvpOccasion_${key}`], dicts.en?.[`rsvpOccasion_${key}`], OCCASION_FALLBACK[key]].includes(stored),
+        [
+          pageDictFor("da")?.[`rsvpOccasion_${key}`],
+          pageDictFor("en")?.[`rsvpOccasion_${key}`],
+          dicts.da?.[`rsvpOccasion_${key}`],
+          dicts.en?.[`rsvpOccasion_${key}`],
+          OCCASION_FALLBACK[key],
+        ].includes(stored),
       );
       return k ? t(`rsvpOccasion_${k}`, OCCASION_FALLBACK[k]) : stored;
     };

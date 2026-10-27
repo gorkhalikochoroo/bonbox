@@ -22,6 +22,7 @@ import { ToastProvider } from "./hooks/useToast";
 import { useThemeColorSync } from "./hooks/useThemeColorSync";
 import { isLandingPath, landingFirstPaint, mightBeSignedIn } from "./lib/landingBoot";
 import { isQuietGuestPage } from "./lib/embedMode";
+import { isBookingPath } from "./lib/bookingPath";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AlertTriangle } from "lucide-react";
 import Button from "./components/ui/Button";
@@ -753,11 +754,21 @@ function LandingRoute() {
  * a blank screen: a visitor who taps "Prøv gratis" the moment the landing
  * paints on a slow phone used to stare at an empty white page for up to
  * ~2 s while the dictionary finished (push 9 review, Fast 3G + 4x CPU).
+ *
+ * Booking R5: the public booking page brings its own words (~10 KB, Danish
+ * and English — lib/pageDict.js), so it passes too: a guest's phone never
+ * waits for, or downloads, the ~200 KB full dictionary. Leaving it for
+ * another route asks for the full one (ensureFull) — that route waits here
+ * as before.
  */
 export function FullDictionaryGate({ children }) {
-  const { fullReady } = useLanguage();
+  const { fullReady, ensureFull } = useLanguage();
   const { pathname } = useLocation();
-  if (fullReady === false && !isLandingPath(pathname)) return <PageLoader />;
+  const held = fullReady === false && !isLandingPath(pathname) && !isBookingPath(pathname);
+  useEffect(() => {
+    if (held && typeof ensureFull === "function") ensureFull();
+  }, [held, ensureFull]);
+  if (held) return <PageLoader />;
   return children;
 }
 
