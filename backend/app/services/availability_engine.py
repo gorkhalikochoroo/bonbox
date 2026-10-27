@@ -14,8 +14,8 @@ It is vertical-agnostic. The router adapts the world into three inputs:
 
 Then it fits a party/appointment of a given duration, respecting:
   • turn-time that scales with party size (restaurants),
-  • pacing (cap on how many bookings may START per window, so the kitchen /
-    the stylist isn't slammed),
+  • pacing (cap on how many GUESTS may START per window, so the kitchen /
+    the stylist isn't slammed — R9: guests, as the owner's label says),
   • lead time (earliest bookable = now + lead),
   • resource fit (smallest table that seats the party — big tables stay
     free for big parties),
@@ -59,10 +59,18 @@ class ResourceView:
 
 @dataclass(frozen=True)
 class BusyInterval:
-    """An existing reservation occupying a resource."""
+    """An existing reservation occupying a resource.
+
+    `reservation_id` and `party_size` (R9) let the pacing cap count GUESTS,
+    as its label says ("Maks. gæster pr. tid"): each booking once, however
+    many tables it joins, times its party. The defaults keep every older
+    caller exactly as it was — an interval with no booking id counts as one
+    booking of one guest."""
     resource_id: str
     start: datetime
     end: datetime
+    reservation_id: str | None = None
+    party_size: int = 1
 
 
 @dataclass(frozen=True)
@@ -92,7 +100,8 @@ class Slot:
 @dataclass
 class AvailabilityConfig:
     slot_granularity_min: int = 15
-    # Cap on reservations that may START within one pacing window. None = no cap.
+    # Cap on GUESTS whose booking may START within one pacing window (R9 — it
+    # counted bookings × tables). None = no cap.
     pacing_max_per_slot: int | None = None
     pacing_window_min: int = 15
     # Turn-time tiers by party size, largest-applicable wins. Each entry:
@@ -267,15 +276,43 @@ def combinable_zone_overflow(resources, cap: int = _COMBO_POOL_CAP) -> list[tupl
     return [(z, n) for z, n in counts.items() if n > cap]
 
 
-def _pacing_blocked(start: datetime, busy, config: AvailabilityConfig) -> bool:
-    """True if too many reservations already start within this slot's pacing
-    window (protects the kitchen / provider throughput)."""
+def guests_starting(start: datetime, busy, window_min: int) -> int:
+    """Guests whose booking STARTS in [start, start + window_min). Each
+    booking counts once with its party size — a party of 6 on two joined
+    tables is 6 guests, not 2 tables. An interval without a booking id (an
+    older caller) counts as one booking of one guest."""
+    win = timedelta(minutes=window_min)
+    seen: set = set()
+    guests = 0
+    for b in busy:
+        if not (start <= b.start < start + win):
+            continue
+        rid = getattr(b, "reservation_id", None)
+        if rid is not None:
+            if rid in seen:
+                continue
+            seen.add(rid)
+        guests += max(1, int(getattr(b, "party_size", 1) or 1))
+    return guests
+
+
+def _pacing_blocked(start: datetime, busy, config: AvailabilityConfig,
+                    party_size: int = 1) -> bool:
+    """True if this party would take the guests starting within this slot's
+    pacing window past the owner's cap (protects the kitchen / provider
+    throughput).
+
+    R9: the cap counts GUESTS ("Maks. gæster pr. tid" / "Max covers per
+    slot" — what the field always said, and what owners and booking tools
+    pace a kitchen by). It counted bookings × tables: an owner who typed 20
+    meaning 20 covers allowed 20 bookings. The new party counts too, so a
+    party bigger than the cap on its own is never paced in online. With a
+    party of one this is the old rule exactly (n started >= cap)."""
     if not config.pacing_max_per_slot:
         return False
-    win = timedelta(minutes=config.pacing_window_min)
-    floor = start
-    started = sum(1 for b in busy if floor <= b.start < floor + win)
-    return started >= config.pacing_max_per_slot
+    party = max(1, int(party_size or 1))
+    guests = guests_starting(start, busy, config.pacing_window_min)
+    return guests + party > config.pacing_max_per_slot
 
 
 def time_grid(*, windows, duration_min: int, config: AvailabilityConfig,
@@ -313,7 +350,7 @@ def compute_slots(*, windows, resources, busy, party_size: int,
 
     out: list[Slot] = []
     for start in time_grid(windows=windows, duration_min=duration, config=config, now=now):
-        if not _pacing_blocked(start, busy, config):
+        if not _pacing_blocked(start, busy, config, party_size):
             ids = assign_seats(party_size, start, start + dur, resources, busy, config)
             if ids:
                 out.append(Slot(
@@ -345,7 +382,7 @@ def find_slot_resource(*, requested_start: datetime, party_size: int, windows,
         return None
     if now and requested_start < now + timedelta(minutes=config.lead_time_min):
         return None
-    if _pacing_blocked(requested_start, busy, config):
+    if _pacing_blocked(requested_start, busy, config, party_size):
         return None
     return assign_resource(party_size, requested_start, end, resources, busy)
 
@@ -371,6 +408,6 @@ def find_slot_resources(*, requested_start: datetime, party_size: int, windows,
         return None
     if now and requested_start < now + timedelta(minutes=config.lead_time_min):
         return None
-    if _pacing_blocked(requested_start, busy, config):
+    if _pacing_blocked(requested_start, busy, config, party_size):
         return None
     return assign_seats(party_size, requested_start, end, resources, busy, config)

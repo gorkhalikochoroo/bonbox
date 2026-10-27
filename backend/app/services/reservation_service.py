@@ -121,10 +121,29 @@ def online_party_ceiling(settings: dict) -> int | None:
     return n if n >= 1 else None
 
 
+PACING_MAX = 1000
+
+
+def pacing_cap(settings: dict) -> int | None:
+    """"Maks. gæster pr. tid" as every path applies it (R9): a whole number
+    of guests from 1 to PACING_MAX, or None — no cap. PUT /settings stored
+    whatever a client sent, so a "20" string reached the engine's `>` (a
+    TypeError on every page load) and 0 or a negative read as "no cap" on
+    one path and "nobody fits" on another. Junk is "no cap", never "closed"."""
+    raw = settings.get("pacing_max_per_slot") if isinstance(settings, dict) else None
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        n = int(float(raw))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return min(n, PACING_MAX) if n >= 1 else None
+
+
 def build_config(settings: dict) -> AvailabilityConfig:
     return AvailabilityConfig(
         slot_granularity_min=int(settings.get("slot_granularity_min", 15)),
-        pacing_max_per_slot=settings.get("pacing_max_per_slot") or None,
+        pacing_max_per_slot=pacing_cap(settings),
         pacing_window_min=int(settings.get("pacing_window_min", 15)),
         turn_time_tiers=settings.get("turn_time_tiers") or [],
         default_duration_min=int(settings.get("default_duration_min", 90)),
@@ -479,11 +498,15 @@ def busy_for_day(db: Session, user_id, day: date) -> list[BusyInterval]:
     busy interval PER table (a 6-top booking across a 4-top + 2-top blocks
     BOTH), and a cancelled/no-show/completed reservation (its rows flipped
     active=FALSE) frees its tables automatically. A `requested` group hold owns
-    no occupancy row, so it correctly blocks nothing until approved."""
+    no occupancy row, so it correctly blocks nothing until approved.
+
+    Each interval carries its booking id and party size (R9), so the pacing
+    cap counts guests — each booking once, however many tables it joins."""
     lo = datetime.combine(day, time(0, 0)) - timedelta(hours=6)
     hi = datetime.combine(day, time(0, 0)) + timedelta(days=1, hours=6)
     rows = (
-        db.query(ReservationOccupancy)
+        db.query(ReservationOccupancy, Reservation.party_size)
+        .outerjoin(Reservation, Reservation.id == ReservationOccupancy.reservation_id)
         .filter(
             ReservationOccupancy.user_id == user_id,
             ReservationOccupancy.active.is_(True),
@@ -493,9 +516,19 @@ def busy_for_day(db: Session, user_id, day: date) -> list[BusyInterval]:
         .all()
     )
     return [
-        BusyInterval(resource_id=str(o.resource_id), start=o.starts_at, end=o.ends_at)
-        for o in rows
+        BusyInterval(resource_id=str(o.resource_id), start=o.starts_at, end=o.ends_at,
+                     reservation_id=str(o.reservation_id) if o.reservation_id else None,
+                     party_size=_party(party))
+        for o, party in rows
     ]
+
+
+def _party(raw) -> int:
+    """A stored party size as the pacing count reads it: 1 or more."""
+    try:
+        return max(1, int(raw or 1))
+    except (TypeError, ValueError):
+        return 1
 
 
 def _views(resources: list[BookableResource]) -> list[ResourceView]:
@@ -807,6 +840,100 @@ def closures_between(settings: dict, start: date, end: date) -> list[dict]:
     return [_public(e) for e in hits]
 
 
+# ── Old links (R9): a changed booking link keeps working ────────────────
+# Changing the link (POST /reservations/slug) used to kill the old one at
+# once: printed QR codes, the website button, Google and Instagram links all
+# answered "not taking bookings". The old slug is now kept in the venue's
+# settings JSON (no migration) and still opens the page, which then moves
+# the guest to the new address. Newest first, at most SLUG_ALIAS_MAX; no
+# expiry — the owner can stop one, and only the owner. Another venue can
+# neither claim nor be minted a slug that is someone's old link.
+SLUG_ALIAS_MAX = 5
+# What slugify / public_slug produce (and every minted slug ever held):
+# lowercase ASCII letters, digits and dashes, at most the column's 80.
+_SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$")
+
+
+def is_slug_shape(value) -> bool:
+    return isinstance(value, str) and bool(_SLUG_RE.match(value))
+
+
+def slug_aliases(settings) -> list[dict]:
+    """The venue's old links, newest first: [{"slug", "since"}]. Read
+    defensively — a junk entry is skipped, never served."""
+    raw = settings.get("slug_aliases") if isinstance(settings, dict) else None
+    out: list[dict] = []
+    seen: set = set()
+    for e in raw if isinstance(raw, list) else []:
+        if isinstance(e, str):
+            e = {"slug": e}
+        if not isinstance(e, dict):
+            continue
+        s = e.get("slug")
+        if not is_slug_shape(s) or s in seen:
+            continue
+        seen.add(s)
+        since = e.get("since")
+        out.append({"slug": s, "since": since if isinstance(since, str) and _iso_day(since) else None})
+    return out[:SLUG_ALIAS_MAX]
+
+
+def aliases_after_change(settings, old: str | None, new: str,
+                         today: date) -> tuple[list[dict], list[dict]]:
+    """(kept, dropped) once `old` stops being the link and `new` starts:
+    `new` leaves the list (an owner going back to an old link), `old` goes
+    first, and anything past SLUG_ALIAS_MAX drops — oldest first."""
+    rest = [a for a in slug_aliases(settings) if a["slug"] not in (new, old)]
+    if is_slug_shape(old) and old != new:
+        rest = [{"slug": old, "since": today.isoformat()}] + rest
+    return rest[:SLUG_ALIAS_MAX], rest[SLUG_ALIAS_MAX:]
+
+
+def alias_profile(db: Session, slug) -> BusinessProfile | None:
+    """The venue whose OLD link this is, or None.
+
+    One indexed-free probe, run only when no venue has `slug` as its link
+    (the public pages) or before a slug is handed out: a LIKE on the settings
+    text narrows the rows, the parsed list decides. Every write of the list
+    goes through json.dumps with its default separators, so the needle
+    `"slug": "<slug>"` matches exactly how it is stored; a slug holds only
+    [a-z0-9-], so it carries no LIKE wildcard."""
+    if not is_slug_shape(slug):
+        return None
+    try:
+        rows = (
+            db.query(BusinessProfile)
+            .filter(BusinessProfile.reservation_settings_json.like(f'%"slug": "{slug}"%'))
+            .limit(25)
+            .all()
+        )
+    except SQLAlchemyError:
+        logger.warning("old-link lookup failed for %r", slug, exc_info=True)
+        return None
+    for p in rows:
+        if any(a["slug"] == slug for a in slug_aliases(load_settings(p))):
+            return p
+    return None
+
+
+def booking_hours_days(settings) -> list[str]:
+    """The weekdays the booking hours DECIDE (Reservationer → Indstillinger →
+    Åbningstider): a day saved as "closed", as "HH:MM-HH:MM", or (a newer
+    shape) as a non-empty list of periods. The rest are booked on the
+    Profile opening hours (table venues only — a salon chair reads the
+    booking hours alone). The one answer the Profile page's note and the
+    settings card's source line give (R9)."""
+    bh = settings.get("booking_hours") if isinstance(settings, dict) else None
+    if not isinstance(bh, dict):
+        return []
+    out = []
+    for k in _WEEKDAY_KEYS:
+        v = bh.get(k)
+        if v == "closed" or (isinstance(v, str) and "-" in v) or (isinstance(v, list) and v):
+            out.append(k)
+    return out
+
+
 def _closed_by_declaration(profile: BusinessProfile | None, settings: dict,
                            day: date) -> bool:
     """True only when a source listed in CLOSED_DAY_SOURCES literally says
@@ -1094,9 +1221,16 @@ def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
 
     Restaurant tables are checked first (and may combine); appointment
     providers each carry capacity 1 and never combine, so they return at most a
-    single id. The caller writes one occupancy row per id, atomically."""
+    single id. The caller writes one occupancy row per id, atomically.
+
+    `owner_booking` (R9): the owner's own booking, edit or approval is not
+    paced. "Maks. gæster pr. tid" is a rule for ONLINE bookings — the owner
+    naming a table never met it, and auto-pick answered "no table fits" at a
+    time when tables were free. The owner is the authority on the room."""
     settings = load_settings(profile)
     config = build_config(settings)
+    if owner_booking:
+        config = dataclasses.replace(config, pacing_max_per_slot=None)
     resources = active_resources(db, user_id)
     busy = busy_for_day(db, user_id, start.date())
 
