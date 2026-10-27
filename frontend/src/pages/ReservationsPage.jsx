@@ -117,6 +117,9 @@ import ClosuresCard, { PauseControl } from "../components/reservations/ClosuresC
 import BehandlingRow from "../components/reservations/BehandlingRow";
 import SalonRhythmCard from "../components/reservations/SalonRhythmCard";
 import SalonAttention from "../components/reservations/SalonAttention";
+import SalonWeekCapacity, { SalonDayCapacity } from "../components/reservations/SalonCapacity";
+import StylistRow, { isOwnChair, tidyName, STYLIST_NAME_MAX } from "../components/reservations/StylistRow";
+import StylistAddCard from "../components/reservations/StylistAddCard";
 import { isHeldForCheck, heldWhy, heldWanted } from "../utils/bookingHeld";
 import { activePause, fmtClosureRange, todayIso } from "../utils/closures";
 import { canPurchaseInApp } from "../utils/platform";
@@ -298,15 +301,19 @@ function defaultBookingHours() {
   });
   return o;
 }
-function parseBookingHours(bh) {
-  const out = defaultBookingHours();
+// `suggest` makes the week a day falls back to when nothing is saved for it
+// (and the times a closed day reopens on): the restaurant's 11–22, or a
+// salon's week (R7 — a salon's card suggested 11–22, rubric S12).
+function parseBookingHours(bh, suggest = defaultBookingHours) {
+  const out = suggest();
   if (bh && typeof bh === "object") {
     DAY_KEYS.forEach((k) => {
       const v = bh[k];
-      if (v === "closed") out[k] = { closed: true, open: "11:00", close: "22:00" };
+      const base = out[k];
+      if (v === "closed") out[k] = { closed: true, open: base.open, close: base.close };
       else if (typeof v === "string" && v.includes("-")) {
         const [open, close] = v.split("-");
-        out[k] = { closed: false, open: open || "11:00", close: close || "22:00" };
+        out[k] = { closed: false, open: open || base.open, close: close || base.close };
       }
     });
   }
@@ -320,11 +327,13 @@ function parseBookingHours(bh) {
 // suggestion the engine never books. Days the booking hours set read as
 // before. A fresh account (nothing declared) keeps the suggestions and its
 // "Ikke gemt endnu" banner. Never for a salon: its self-chair reads only the
-// booking hours, so Profile hours there would show times nobody can book.
+// booking hours, so Profile hours there would show times nobody can book —
+// a salon's unsaved days show the salon's suggestion instead (R7).
 // Nothing is saved until the owner presses Gem.
 function cardBookingHours(bh, { openHours, hoursDeclared, isProvider } = {}) {
+  if (isProvider) return parseBookingHours(bh, defaultSalonHours);
   const out = parseBookingHours(bh);
-  if (isProvider || hoursDeclared !== true || !openHours || typeof openHours !== "object") return out;
+  if (hoursDeclared !== true || !openHours || typeof openHours !== "object") return out;
   if (!DAY_KEYS.some((k) => Array.isArray(openHours[k]) && openHours[k].length > 0)) return out;
   DAY_KEYS.forEach((k) => {
     if (bh && typeof bh === "object" && bh[k]) return; // the booking hours decide it
@@ -719,13 +728,23 @@ export default function ReservationsPage() {
             ? [{ id: "behandlinger", label: t("rsvpTabBehandlinger", "Services") }]
             : []),
           { id: "insights", label: t("rsvpTabInsights", "Insights") },
-          { id: "settings", label: t("rsvpTabSettings", "Settings") },
+          // A salon has five sections. On a 390px phone the fifth was cut
+          // (DA 310px of words + 80px of gaps in a 358px row — rubric S12):
+          // there Indstillinger stands as the gear (the word stays as its
+          // name for a screen reader) and the gaps share the row. sm: up and
+          // every other venue are unchanged.
+          {
+            id: "settings",
+            label: t("rsvpTabSettings", "Settings"),
+            ...(isProvider ? { phoneIcon: Settings } : {}),
+          },
         ]}
         activeId={tab}
         onChange={changeTab}
         ariaLabel={apptWords ? t("rsvpTabsAriaAppt", "Appointment book sections") : t("rsvpTabsAria", "Reservation sections")}
         size="lg"
         phone="underline"
+        phoneSpread={isProvider}
         // Phone: 8px under the title row instead of the column's 16 — the
         // tabs belong to the title (they are the page's sections).
         className="max-sm:-mt-2"
@@ -3650,6 +3669,10 @@ function SalonFirstRunCard({
   // Åbningstider), not a suggestion: the label says so, and the tap keeps
   // them unless the owner edits a day here (R1 A1).
   hoursSaved = false,
+  // Her name for her own chair — what customers read in "Vælg behandler".
+  // It used to be the business name (R7). Optional: blank = "Indehaver".
+  chairName = "",
+  onChairName = null,
 }) {
   return (
     <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 space-y-5 max-w-2xl">
@@ -3684,6 +3707,24 @@ function SalonFirstRunCard({
           onApplyMonToAll={applyMonToAll}
         />
       </div>
+
+      {onChairName && (
+        <div className="max-w-sm">
+          <label htmlFor="salon-first-run-name" className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">
+            {t("rsvpSelfChairNameLabel", "Your name (customers see it)")}
+          </label>
+          <input
+            id="salon-first-run-name"
+            type="text"
+            value={chairName}
+            onChange={(e) => onChairName(e.target.value)}
+            placeholder={t("rsvpSelfChairNamePh", "e.g. Anna")}
+            maxLength={STYLIST_NAME_MAX}
+            autoComplete="given-name"
+            className="w-full h-11 max-sm:h-10 max-sm:min-h-0! px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
+          />
+        </div>
+      )}
 
       {/* No service yet: a customer picks a behandling before any time, so
           the page can take no booking (R1 A4). Amber — it needs the owner. */}
@@ -4419,7 +4460,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         // (not the suggestion), unless they have started editing the card.
         const savedHours = r.data?.settings?.booking_hours;
         if (hasSavedBookingHours(savedHours) && !salonHoursDirtyRef.current) {
-          setSalonHours(parseBookingHours(savedHours));
+          setSalonHours(parseBookingHours(savedHours, defaultSalonHours));
           setSalonHoursSaved(true);
         }
       })
@@ -4511,6 +4552,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const salonHoursDirtyRef = useRef(false);
   const [salonSetupBusy, setSalonSetupBusy] = useState(false);
   const [salonSetupError, setSalonSetupError] = useState("");
+  // Her name for her own chair (R7) — never the business name.
+  const [salonChairName, setSalonChairName] = useState("");
 
   // ── Deep-link: /reservations?booking=<id>&date=<iso> ──────────────────
   // A live host-stand alert, the 8am brief, or a push lands the owner on the
@@ -4741,6 +4784,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         booking_hours: serializeBookingHours(salonHours),
         // Saved hours stay unless the owner edited them on this card.
         replace_hours: salonHoursDirtyRef.current,
+        // What customers call her chair (R7): her name, else "Indehaver".
+        chair_name: tidyName(salonChairName).slice(0, STYLIST_NAME_MAX) ||
+          t("rsvpSelfChairDefaultName", "Owner"),
       });
       // Refetch so the self-chair now appears (providerStations > 0 → the
       // first-run card falls away and the live book + New-booking sheet
@@ -7004,6 +7050,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           error={salonSetupError}
           onOpen={openSalonForBooking}
           hoursSaved={salonHoursSaved}
+          chairName={salonChairName}
+          onChairName={setSalonChairName}
         />
       )}
 
@@ -7429,6 +7477,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           count, or occupancy at the 85% warn threshold, always renders.
           Covers, Seated now and Next arrival always show: those are the three
           a host reads during service. */}
+      {/* A salon's day in one line (R7, rubric S5): "2 kan bookes samtidig
+          (dig og Mia)" — who customers can book on the day shown. Owner page
+          only; the stand is a service screen. */}
+      {isProvider && !standalone && !salonNeedsSetup && (
+        <SalonDayCapacity t={t} lang={lang} day={day} />
+      )}
       <StatStrip
         shortBelow="xl"
         items={[
@@ -8086,6 +8140,8 @@ function ZonePresetChips({ profile, t, value, onPick }) {
 function FloorSection({ t, businessType }) {
   const confirm = useConfirm();
   const { user } = useAuth();
+  // The week card's dates (R7) read in the owner's language.
+  const { lang } = useLanguage();
   // Account venue archetype — drives the section's vocabulary (heading,
   // intro, empty state, icon) and the suggested zone-preset chips.
   const profile = venueProfile(businessType);
@@ -8191,17 +8247,53 @@ function FloorSection({ t, businessType }) {
 
   const chosenStaff = staffMembers.find((s) => String(s.id) === String(staffId)) || null;
 
+  // Who customers can book, per day (R7): re-read after every change here.
+  const [capTick, setCapTick] = useState(0);
+  const bumpCapacity = () => setCapTick((n) => n + 1);
+
+  // People on the Vagtplan roster with no chair yet — the only ones the
+  // "from Vagtplan" picker below still offers (R7).
+  const rosterUnbound = useMemo(() => {
+    const bound = new Set(
+      resources.filter((r) => r.kind === "provider" && r.staff_id).map((r) => String(r.staff_id)),
+    );
+    return staffMembers.filter((s) => !bound.has(String(s.id)));
+  }, [resources, staffMembers]);
+
+  // A new stylist starts the way the salon already works: on shifts when a
+  // stylist already works Vagtplan shifts, else on the opening hours (R7).
+  const salonRunsShifts = resources.some(
+    (r) => r.kind === "provider" && r.staff_id && !r.follows_opening_hours && r.is_active !== false,
+  );
+
+  // The Free plan's 3-staff lock, read BEFORE the owner types a name (the
+  // server refuses the same count — GET /staff/members is that roster).
+  // Tri-state on isReady, as Vagtplan's own panel: never a lock that flashes.
+  const ent = useEntitlements();
+  const atStaffCap =
+    isProvider && ent?.isReady && typeof ent?.isAtCap === "function" &&
+    ent.isAtCap("staff_members", staffMembers.length);
+  const staffCap = atStaffCap
+    ? {
+        limit: typeof ent.cap === "function" ? ent.cap("staff_members") : null,
+        upgradeTo: ent.plan === "free" ? "starter" : ent.plan === "starter" ? "pro" : null,
+      }
+    : null;
+
   // "Det er mig" — a solo stylist adds HERSELF as a behandler. Before, the only
   // way in was a staff member with published Vagtplan shifts, so a one-chair
   // salon could not add herself (vertical-fit audit, Oct 2026). This is the
   // owner "self-chair" the Aftaler first-run card makes: a provider row with
   // no staff member whose availability is the saved opening hours
   // (follows_opening_hours — no hours saved = no times, never invented).
-  // Any self-chair, active or not — never a second one.
-  const selfChair = resources.find(
-    (r) => r.kind === "provider" && r.follows_opening_hours,
-  );
+  // Any self-chair, active or not — never a second one. A stylist added by
+  // name may follow the opening hours too (R7); she has a staff member, so
+  // she is not the owner's chair (isOwnChair).
+  const selfChair = resources.find((r) => isOwnChair(r));
   const [selfSaving, setSelfSaving] = useState(false);
+  // What customers call her — never the business name (R7: the guest page
+  // listed "Salon Saks" beside "Mia"). Blank = "Indehaver".
+  const [selfName, setSelfName] = useState("");
   const addSelfChair = async () => {
     setSelfSaving(true);
     setError("");
@@ -8209,13 +8301,15 @@ function FloorSection({ t, businessType }) {
     try {
       const res = await api.post("/reservations/resources", {
         kind: "provider",
-        label: (user?.business_name || "").trim().slice(0, 120) || t("rsvpSelfChairLabel", "Me"),
+        label: tidyName(selfName).slice(0, STYLIST_NAME_MAX) || t("rsvpSelfChairDefaultName", "Owner"),
         capacity_seats: 1,
         combinable: false,
         zone: null,
         follows_opening_hours: true,
       });
       setResources((prev) => [...prev, res.data]);
+      setSelfName("");
+      bumpCapacity();
     } catch (e) {
       if (e?.response?.status === 402) {
         const d = e?.response?.data?.detail || e?.response?.data || {};
@@ -8252,6 +8346,7 @@ function FloorSection({ t, businessType }) {
       setResources((prev) => [...prev, res.data]);
       setStaffId("");
       setLabel("");
+      bumpCapacity();
     } catch (e) {
       if (e?.response?.status === 402) {
         const d = e?.response?.data?.detail || e?.response?.data || {};
@@ -8485,8 +8580,13 @@ function FloorSection({ t, businessType }) {
         : placeWords
           ? t("rsvpTableDeleteConfirmAppt", "Remove this space?")
           : t("rsvpTableDeleteConfirm", "Remove this table?");
+    // A stylist keeps her place on the Vagtplan roster (and her plan seat)
+    // when her chair goes — say so, she was added here in one step (R7).
+    const staysNote = isProvider && r.staff_id && staffName
+      ? " " + t("rsvpStylistDeleteStays", "{name} stays on the staff list in the Schedule.", { name: staffName })
+      : "";
     const message = isProvider
-      ? staffName && staffName !== label
+      ? (staffName && staffName !== label
         ? t(
             "rsvpProviderDeleteBodyStaff",
             "{staff} works this station. It leaves the floor and the timeline and takes no more appointments — putting it back means setting it up again.",
@@ -8495,7 +8595,7 @@ function FloorSection({ t, businessType }) {
         : t(
             "rsvpProviderDeleteBody",
             "The station leaves the floor and the timeline and takes no more appointments — putting it back means setting it up again.",
-          )
+          )) + staysNote
       : placeWords
         ? r.zone
           ? t(
@@ -8526,6 +8626,35 @@ function FloorSection({ t, businessType }) {
     } catch {
       fetchResources();
     }
+    if (isProvider) bumpCapacity();
+  };
+
+  // A stylist added by name (R7): her chair joins the list, and a new person
+  // joins the roster this tab counts seats from.
+  const onStylistAdded = (added) => {
+    const row = added?.resource;
+    if (row?.id) setResources((prev) => [...prev.filter((x) => x.id !== row.id), row]);
+    if (added?.created_staff && added?.staff?.id) {
+      setStaffMembers((prev) =>
+        prev.some((s) => String(s.id) === String(added.staff.id)) ? prev : [...prev, added.staff],
+      );
+    }
+    setError("");
+    setCapMsg(null);
+    bumpCapacity();
+  };
+
+  // A chair renamed or switched (R7): the row, and a renamed stylist's name
+  // on the roster, so every row and the picker below say the same name.
+  const onStylistSaved = (row) => {
+    if (!row?.id) return;
+    setResources((prev) => prev.map((x) => (x.id === row.id ? { ...x, ...row } : x)));
+    if (row.staff_id && row.staff_name) {
+      setStaffMembers((prev) =>
+        prev.map((s) => (String(s.id) === String(row.staff_id) ? { ...s, name: row.staff_name } : s)),
+      );
+    }
+    bumpCapacity();
   };
 
   // Rows in the SAME (sort_order, label) order GET /resources returns, so the
@@ -8585,8 +8714,8 @@ function FloorSection({ t, businessType }) {
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {t(
-              "rsvpProvidersIntro",
-              "Add each stylist as a bookable station. Their published shifts decide when customers can book them.",
+              "rsvpStylistsIntro",
+              "Add the people customers book. Each one can be booked whenever the salon is open, or on their shifts in the Schedule.",
             )}
           </p>
         </div>
@@ -8640,11 +8769,15 @@ function FloorSection({ t, businessType }) {
 
       {/* "Det er mig" — the owner as behandler, offered until she is one. */}
       {isProvider && !loading && listRead && !selfChair && (
-        <div
-          className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 flex flex-col sm:flex-row sm:items-center gap-3"
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!selfSaving) addSelfChair();
+          }}
+          className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 max-sm:p-3 space-y-3"
           data-testid="self-chair-card"
         >
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
               {t("rsvpSelfChairTitle", "Do you take customers yourself?")}
             </h2>
@@ -8652,42 +8785,73 @@ function FloorSection({ t, businessType }) {
               {t("rsvpSelfChairBody", "Add yourself as a stylist. Your times follow the opening hours under Settings — no rota needed.")}
             </p>
           </div>
-          <Button
-            type="button"
-            variant="primary"
-            size="lg"
-            busy={selfSaving}
-            onClick={addSelfChair}
-            iconLeft={<Check className="w-4 h-4" />}
-            className="justify-center"
-          >
-            {t("rsvpSelfChairCta", "That's me")}
-          </Button>
-        </div>
+          {/* Her name, as customers will read it in "Vælg behandler" — the
+              chair used to take the business name (R7). */}
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+            <div className="min-w-0 flex-1">
+              <label htmlFor="self-chair-name" className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">
+                {t("rsvpSelfChairNameLabel", "Your name (customers see it)")}
+              </label>
+              <input
+                id="self-chair-name"
+                type="text"
+                value={selfName}
+                onChange={(e) => setSelfName(e.target.value)}
+                placeholder={t("rsvpSelfChairNamePh", "e.g. Anna")}
+                maxLength={STYLIST_NAME_MAX}
+                autoComplete="given-name"
+                className="w-full h-11 max-sm:h-10 max-sm:min-h-0! px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
+              />
+            </div>
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              busy={selfSaving}
+              iconLeft={<Check className="w-4 h-4" />}
+              className="justify-center max-sm:h-10 max-sm:min-h-0! max-sm:text-[13px]"
+            >
+              {t("rsvpSelfChairCta", "That's me")}
+            </Button>
+          </div>
+        </form>
       )}
 
-      {/* Provider add-form — a stylist picker + optional label override. The
-          station's availability is its staff member's published shifts. */}
+      {/* A stylist by name (R7): the staff member and her chair in one step,
+          booked on the opening hours or on her shifts. */}
       {isProvider && (
+        <StylistAddCard
+          t={t}
+          defaultFollows={!salonRunsShifts}
+          staffCap={staffCap}
+          onAdded={onStylistAdded}
+        />
+      )}
+
+      {/* Someone already on the Vagtplan roster, with no chair yet: the
+          picker + optional station name, booked on her published shifts.
+          Shown only while there is such a person. */}
+      {isProvider && rosterUnbound.length > 0 && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
             if (!saving) addProviderStation();
           }}
-          className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
+          data-testid="stylist-from-roster"
+          className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 max-sm:p-3 space-y-3"
         >
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-            {t("rsvpAddStation", "Add a station")}
+            {t("rsvpStylistFromRoster", "Or pick someone from the Schedule")}
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <select
               value={staffId}
               onChange={(e) => setStaffId(e.target.value)}
               aria-label={t("rsvpProviderPickStaff", "Choose a stylist")}
-              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
+              className="h-11 max-sm:h-10 max-sm:min-h-0! px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             >
               <option value="">{t("rsvpProviderPickStaff", "Choose a stylist")}</option>
-              {staffMembers.map((s) => (
+              {rosterUnbound.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name || s.full_name || String(s.id)}
                 </option>
@@ -8699,7 +8863,7 @@ function FloorSection({ t, businessType }) {
               onChange={(e) => setLabel(e.target.value)}
               placeholder={t("rsvpStationLabelPh", "Station name (optional)")}
               maxLength={120}
-              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
+              className="h-11 max-sm:h-10 max-sm:min-h-0! px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             />
           </div>
           <p className="text-xs text-gray-400 dark:text-gray-500">
@@ -8708,8 +8872,9 @@ function FloorSection({ t, businessType }) {
               "A stylist is bookable only during their published shifts. Add shifts on the Schedule page.",
             )}
           </p>
-          <div className="flex justify-end">
-            <Button type="submit" variant="primary" size="lg" busy={saving} iconLeft={<Plus className="w-4 h-4" />}>
+          <div className="flex sm:justify-end">
+            <Button type="submit" variant="secondary" size="lg" busy={saving} iconLeft={<Plus className="w-4 h-4" />}
+              className="max-sm:w-full max-sm:h-10 max-sm:min-h-0! max-sm:text-[13px] justify-center">
               {t("rsvpAddStationBtn", "Add station")}
             </Button>
           </div>
@@ -8976,53 +9141,22 @@ function FloorSection({ t, businessType }) {
           </p>
         </div>
       ) : isProvider ? (
+        // One row per chair (R7): the name customers see, how she is booked
+        // (the opening hours, or her shifts), rename and switch in place.
         <ul className="space-y-2">
           {resources
             .filter((r) => r.kind === "provider")
-            .map((r) => {
-              const staffName = r.staff_name || staffNameById[String(r.staff_id)] || "";
-              return (
-                <li
-                  key={r.id}
-                  className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] px-4 py-3 flex items-center justify-between gap-3"
-                >
-                  <div className="min-w-0 flex items-center gap-2">
-                    <VenueIcon className="w-4 h-4 text-gray-400 shrink-0" aria-hidden />
-                    <span className="min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-100">
-                      {r.label}
-                    </span>
-                    {r.staff_id ? (
-                      staffName && staffName !== r.label ? (
-                        <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400 truncate">
-                          {staffName}
-                        </span>
-                      ) : null
-                    ) : r.follows_opening_hours ? (
-                      // The owner "self-chair": no staff member, but bookable —
-                      // it follows the confirmed weekly opening hours. Neutral
-                      // gray, NOT the amber "needs a stylist" warning.
-                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-                        {t("rsvpProviderFollowsHours", "Follows opening hours")}
-                      </span>
-                    ) : (
-                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
-                        {t("rsvpProviderNoStaff", "No stylist")}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => removeResource(r)}
-                      aria-label={t("delete", "Delete")}
-                      className="w-11 h-11 inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 text-gray-400 hover:text-red-600 hover:border-red-300"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
+            .map((r) => (
+              <StylistRow
+                key={r.id}
+                r={r}
+                t={t}
+                staffName={r.staff_name || staffNameById[String(r.staff_id)] || ""}
+                businessName={user?.business_name || ""}
+                onSaved={onStylistSaved}
+                onRemove={removeResource}
+              />
+            ))}
         </ul>
       ) : (
         <ul className="space-y-2">
@@ -9142,6 +9276,9 @@ function FloorSection({ t, businessType }) {
           ))}
         </ul>
       )}
+
+      {/* Who customers can book, the next 7 days (R7, rubric S5). */}
+      {isProvider && !loading && <SalonWeekCapacity t={t} lang={lang} refreshKey={capTick} />}
     </div>
   );
 }
@@ -9486,7 +9623,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   const loadedDurationRef = useRef("");
   // Opening / booking hours, per weekday. Owner-settable so slots come from
   // when they actually open — not a hard-coded default.
-  const [hours, setHours] = useState(() => defaultBookingHours());
+  const [hours, setHours] = useState(() => (isProvider ? defaultSalonHours() : defaultBookingHours()));
   // applyData is a stable callback; it reads the venue mode from here.
   const isProviderRef = useRef(isProvider);
   useEffect(() => {
@@ -10008,7 +10145,12 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
             {t("rsvpHoursTitle", "Opening hours (bookings)")}
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {apptWords
+            {isProvider
+              // A salon: the hours steer the owner's chair and the stylists
+              // who follow them; a stylist on Vagtplan is booked in her
+              // shifts — "only while you're open" was not true for her (V3).
+              ? t("rsvpHoursHintSalon", "These hours steer your own chair and the stylists who follow the opening hours. Stylists on shifts are booked on their shifts.")
+              : apptWords
               ? t("rsvpHoursHintProvider", "Customers can only book while you're open. Set the hours for each day.")
               : t(
                 "rsvpHoursHint",
@@ -10020,8 +10162,12 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
         {/* No hours saved yet: the editor below shows SUGGESTED hours, and the
             booking page offers no times until real ones are saved. It used to
             show 11–22 every day as if the owner had set them — and the page
-            went live on those invented hours. */}
-        {data?.hours_declared === false && (
+            went live on those invented hours. A salon books only on the
+            hours saved HERE (never the Profile hours), so for a salon the
+            banner stays until these are saved (R7). */}
+        {(isProvider
+          ? !!data && !hasSavedBookingHours(data?.settings?.booking_hours)
+          : data?.hours_declared === false) && (
           <div
             role="status"
             className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-[13px] text-gray-800 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-100"
