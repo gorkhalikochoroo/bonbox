@@ -14,6 +14,8 @@
  *   5  The salon's two selects and the waitlist's time select: the tile look
  *      (rounded-xl, gray-50, a 6 % edge, pl-4 pr-10, weight 500), no native
  *      chrome, a 16 px Lucide chevron at right-3.
+ *   6  The main button: no 8 % white top edge (CTA_TOP_EDGE off); the 1 px
+ *      neutral contact shadow stays.
  *
  * Run: cd frontend && TZ=UTC npx vitest run src/__tests__/fix27.g10Judge.test.jsx
  */
@@ -250,5 +252,18 @@ describe("5: the selects wear the tile look with a Lucide chevron", () => {
     expect(block).toContain("<ChevronDown");
     expect(block).toContain("right-3");
     expect(read("pages/ReservationPublicPage.jsx")).toMatch(/FULL_NIGHT_KIT = \{[^}]*ChevronDown/);
+  });
+});
+
+describe("6: the main button keeps its contact shadow and drops the top edge", () => {
+  it("no inset white edge, the 0 1px 2px contact shadow kept", async () => {
+    routes();
+    renderAt();
+    await settle();
+    const cta = screen.getByTestId("rsvp-cta-bar").querySelector("button.bb-cta");
+    expect(cta).not.toBeNull();
+    expect(cta.className).toContain("shadow-[0_1px_2px_rgb(16_24_40/0.18)]");
+    expect(cta.className).not.toContain("inset_0_1px_0");
+    expect(read("pages/ReservationPublicPage.jsx")).toContain("const CTA_TOP_EDGE = false;");
   });
 });

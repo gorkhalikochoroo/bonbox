@@ -264,7 +264,9 @@ function SelectChevron() {
 // "glossy", an edge, not a gradient. It stays only if it passes Manoj's look
 // on a real phone (judge, call 2); false drops it, nothing depends on it.
 // Disabled, neither. The transition lives in index.css (.bb-cta).
-const CTA_TOP_EDGE = true;
+// Off (G10 item 6, judge 27 Oct): half of a bevel, invisible under an
+// owner's accent colour. The contact shadow stays.
+const CTA_TOP_EDGE = false;
 // `bb-accent-main` (R5): under the venue's accent colour the main button
 // wears it, its text picked by contrast (index.css "BOOKING ACCENT").
 const CTA_FINISH =
