@@ -377,7 +377,8 @@ def public_week(profile: BusinessProfile | None, settings: dict,
     Chosen per resource kind, exactly as available_slots() picks windows:
       * tables only: each weekday from restaurant_windows() (the booking
         hours when set for that day, else the Profile hours);
-      * providers only, every one a self-chair (follows_opening_hours): the
+      * providers only, every one on the opening hours (follows_opening_hours:
+        the owner's self-chair, or an R7 stylist who follows the hours): the
         booking hours only (_opening_hours_windows) — never the Profile hours;
       * a provider on stylist shifts (or a legacy row), tables and providers
         together, or no active resource: None. Shifts add or remove any day,
@@ -496,10 +497,17 @@ def provider_windows(db: Session, user_id, resource, day: date,
         while her shift is still published.
 
     A provider row that is neither (a legacy NULL-staff row with
-    follows_opening_hours False) ⇒ [] — it never silently lights up."""
-    if getattr(resource, "follows_opening_hours", False):
-        return _opening_hours_windows(settings, day)
+    follows_opening_hours False) ⇒ [] — it never silently lights up.
+
+    R7: a stylist added by name on Behandlere may follow the opening hours
+    too (follows_opening_hours with a staff_id) — bookable whenever the salon
+    is open, no Vagtplan shifts. Her Ferie / Syg / … still takes her off
+    that day, exactly as it does a stylist on shifts."""
     staff_id = getattr(resource, "staff_id", None)
+    if getattr(resource, "follows_opening_hours", False):
+        if staff_id and (str(staff_id), day) in _absent(db, user_id, [staff_id], day, day):
+            return []
+        return _opening_hours_windows(settings, day)
     if not staff_id:
         return []
     if (str(staff_id), day) in _absent(db, user_id, [staff_id], day, day):
@@ -543,6 +551,8 @@ def _batched_provider_windows(db: Session, user_id, resources, start: date,
     staff_ids = [r.staff_id for r in resources
                  if r.kind == "provider" and r.staff_id
                  and not getattr(r, "follows_opening_hours", False)]
+    # Every stylist's absences — on shifts or on the opening hours (R7).
+    all_staff = [r.staff_id for r in resources if r.kind == "provider" and r.staff_id]
     by_day: dict = {}
     if staff_ids:
         rows = (
@@ -559,12 +569,14 @@ def _batched_provider_windows(db: Session, user_id, resources, start: date,
         for row in rows:
             by_day.setdefault((row.staff_id, row.date), []).append(row)
     # The days each stylist is away, in one query for the whole range.
-    away = _absent(db, user_id, staff_ids, start, end)
+    away = _absent(db, user_id, all_staff, start, end)
 
     def windows_for(resource, day: date) -> list[TimeWindow]:
-        if getattr(resource, "follows_opening_hours", False):
-            return _opening_hours_windows(settings, day)
         staff_id = getattr(resource, "staff_id", None)
+        if getattr(resource, "follows_opening_hours", False):
+            if staff_id and (str(staff_id), day) in away:
+                return []
+            return _opening_hours_windows(settings, day)
         if not staff_id:
             return []
         if (str(staff_id), day) in away:

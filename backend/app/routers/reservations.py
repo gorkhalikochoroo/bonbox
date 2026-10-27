@@ -1169,6 +1169,66 @@ def create_resource(payload: ResourceCreate, request: Request,
     return _resource_dict(r)
 
 
+# ─── Salon stylists by name (R7, 27 Oct 2026) ─────────────────────────
+# What customers see for a chair: the stylist's name, else the chair label.
+STYLIST_NAME_MAX = 80
+# The owner's own chair when she gave no name: the DK-locked word the guest
+# page already falls back to (public_reservations providers) — never the
+# business name, which listed the salon itself as a stylist.
+SELF_CHAIR_FALLBACK = "Behandler"
+
+
+def _clean_stylist_name(raw) -> str:
+    """A person's name as the owner typed it: runs of whitespace become one
+    space, invisible and control characters go, trimmed. 1–80 characters,
+    else 422 {"error": "name_required" | "name_too_long"}."""
+    s = " ".join(str(raw or "").split())
+    s = "".join(ch for ch in s if ch.isprintable()).strip()
+    if not s:
+        raise HTTPException(status_code=422, detail={"error": "name_required"})
+    if len(s) > STYLIST_NAME_MAX:
+        raise HTTPException(status_code=422,
+                            detail={"error": "name_too_long", "max": STYLIST_NAME_MAX})
+    return s
+
+
+def _stylist_dict(r: BookableResource, staff_name: str | None) -> dict:
+    return {**_resource_dict(r), "staff_name": staff_name}
+
+
+def _salon_runs_shifts(db: Session, user: User) -> bool:
+    """Does the salon already run a stylist on Vagtplan shifts? Then a new
+    stylist starts on shifts too; otherwise on the opening hours."""
+    return (
+        db.query(BookableResource.id)
+        .filter(
+            BookableResource.user_id == user.id,
+            BookableResource.kind == "provider",
+            BookableResource.is_active.is_(True),
+            BookableResource.is_deleted.is_(False),
+            BookableResource.staff_id.isnot(None),
+            BookableResource.follows_opening_hours.is_(False),
+        )
+        .first()
+    ) is not None
+
+
+class StylistCreate(BaseModel):
+    # A new person by name — or someone already on the Vagtplan roster.
+    # Exactly one of the two.
+    name: str | None = Field(default=None, max_length=200)
+    staff_id: UUID | None = None
+    # True: bookable whenever the salon is open (the hours card), like the
+    # owner's own chair. False: only on her published Vagtplan shifts.
+    # None: shifts when the salon already runs a stylist on shifts, else hours.
+    follows_opening_hours: bool | None = None
+
+
+class StylistUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+    follows_opening_hours: bool | None = None
+
+
 class SalonQuickSetup(BaseModel):
     # The owner-confirmed weekly opening hours ({mon..sun: "HH:MM-HH:MM"|"closed"}).
     # Sanitized server-side by _valid_booking_hours before it is ever stored.
@@ -1177,6 +1237,10 @@ class SalonQuickSetup(BaseModel):
     # saved (Indstillinger → Åbningstider) are kept otherwise: the card's
     # suggestion used to overwrite them on the "Åbn for booking" tap.
     replace_hours: bool = False
+    # What customers call the owner's own chair (R7). It used to be the
+    # business name, so the guest page listed "Salon Saks" beside "Mia".
+    # Blank = "Behandler"; the owner can rename it on Behandlere.
+    chair_name: str | None = Field(default=None, max_length=200)
 
 
 @router.post("/salon/quick-setup")
@@ -1217,6 +1281,10 @@ def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
             BookableResource.user_id == user.id,
             BookableResource.kind == "provider",
             BookableResource.follows_opening_hours.is_(True),
+            # The owner's own chair has no staff member. A stylist added on
+            # Behandlere may follow the opening hours too (R7) — she is not
+            # the owner, and must not stop the owner's chair being made.
+            BookableResource.staff_id.is_(None),
             BookableResource.is_deleted.is_(False),
         )
         .first()
@@ -1231,11 +1299,10 @@ def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
         enforce_cap(user, "bookable_resources_max", int(current))
         # A new salon starts on 30-minute start times (R6, rubric S3).
         rsvc.start_new_salon_on_30(db, user.id, profile)
-        label = (
-            (getattr(user, "business_name", None)
-             or getattr(profile, "company_name", None) or "Behandler").strip()[:120]
-            or "Behandler"
-        )
+        # Her own name, as she typed it — never the business name (R7: the
+        # guest page listed the salon itself as a stylist).
+        label = (_clean_stylist_name(payload.chair_name)
+                 if (payload.chair_name or "").strip() else SELF_CHAIR_FALLBACK)
         chair = BookableResource(
             user_id=user.id, kind="provider", label=label,
             capacity_seats=1, combinable=False, staff_id=None,
@@ -1293,6 +1360,219 @@ def salon_attention(db: Session = Depends(get_db), user: User = Depends(get_curr
         logger.warning("salon attention: absence conflicts failed", exc_info=True)
         db.rollback()
     return out
+
+
+@router.get("/salon/capacity")
+def salon_capacity_days(start: date | None = Query(default=None),
+                        days: int = Query(default=7, ge=1, le=14),
+                        db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    """Who customers can book online, per day (R7, rubric S5): "2 kan bookes
+    samtidig (dig og Mia)". Read-only, owner-only; from the same windows the
+    booking engine books on. `start` defaults to the venue's today."""
+    from app.services import salon_attention as sa
+
+    enforce_feature(user, "reservations")
+    first = start or now_local(user).date()
+    return {
+        "start": first.isoformat(),
+        "days": sa.salon_capacity(db, user.id, _profile(db, user), start=first, days=days),
+    }
+
+
+@router.post("/salon/stylists", status_code=201)
+def add_salon_stylist(payload: StylistCreate, db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """Add a stylist from Behandlere in one step (R7, rubric S11).
+
+    By NAME: creates the staff member (the same Free 3-staff lock and the
+    same seat count as Vagtplan's own add, `staff_members`) and her chair in
+    ONE transaction — a cap refusal leaves nothing behind. A name already on
+    the roster without a chair is that person (no second "Mia", no seat).
+    By STAFF_ID: someone already on the roster gets a chair (no new seat).
+    A stylist who already has a chair → 409 stylist_exists.
+
+    Her times: the opening hours (like the owner's own chair, no shifts
+    needed; Ferie/Syg still take her off) or her published Vagtplan shifts.
+    The salon's first chair also opens the page and starts it on 30-minute
+    start times, exactly as POST /resources does."""
+    from app.models.staff import StaffMember
+    from app.routers.staff import count_active_staff
+
+    enforce_feature(user, "reservations")
+    if (payload.name is None) == (payload.staff_id is None):
+        raise HTTPException(status_code=422, detail={"error": "name_or_staff"})
+
+    member = None
+    name = None
+    if payload.staff_id is not None:
+        member = (
+            db.query(StaffMember)
+            .filter(StaffMember.id == payload.staff_id,
+                    StaffMember.user_id == user.id,
+                    StaffMember.active.is_(True),
+                    StaffMember.is_deleted.isnot(True))
+            .first()
+        )
+        if member is None:
+            raise HTTPException(status_code=404, detail={"error": "not_found"})
+    else:
+        name = _clean_stylist_name(payload.name)
+        want = name.casefold()
+        member = next(
+            (m for m in (
+                db.query(StaffMember)
+                .filter(StaffMember.user_id == user.id,
+                        StaffMember.active.is_(True),
+                        StaffMember.is_deleted.isnot(True))
+                .order_by(StaffMember.created_at)
+                .all()
+            ) if " ".join((m.name or "").split()).casefold() == want),
+            None,
+        )
+
+    if member is not None:
+        existing = (
+            db.query(BookableResource.id)
+            .filter(BookableResource.user_id == user.id,
+                    BookableResource.kind == "provider",
+                    BookableResource.staff_id == member.id,
+                    BookableResource.is_deleted.is_(False))
+            .first()
+        )
+        if existing is not None:
+            raise HTTPException(status_code=409, detail={
+                "error": "stylist_exists", "resource_id": str(existing[0]),
+                "name": member.name,
+            })
+
+    current = (
+        db.query(BookableResource)
+        .filter(BookableResource.user_id == user.id, BookableResource.is_deleted.is_(False))
+        .count()
+    )
+    # Both gates before any write: a refusal leaves no orphan staff member.
+    if member is None:
+        enforce_cap(user, "staff_members", count_active_staff(db, user.id))
+    enforce_cap(user, "bookable_resources_max", int(current))
+
+    follows = (bool(payload.follows_opening_hours)
+               if payload.follows_opening_hours is not None
+               else not _salon_runs_shifts(db, user))
+
+    created_staff = False
+    if member is None:
+        member = StaffMember(
+            user_id=user.id, name=name,
+            # A salon's role word (config/staffRoles.js ROLES_SALON[0]).
+            role="Frisør" if (getattr(user, "business_type", None) or "").lower() == "salon" else "Behandler",
+        )
+        db.add(member)
+        db.flush()
+        created_staff = True
+
+    prof = _profile(db, user)
+    if prof is None:
+        prof = BusinessProfile(user_id=user.id)
+        db.add(prof)
+        db.flush()
+    rsvc.start_new_salon_on_30(db, user.id, prof)
+    sort_order = int(
+        db.query(func.coalesce(func.max(BookableResource.sort_order), -1))
+        .filter(BookableResource.user_id == user.id, BookableResource.is_deleted.is_(False))
+        .scalar()
+    ) + 1
+    r = BookableResource(
+        user_id=user.id, kind="provider", label=(member.name or "")[:120] or SELF_CHAIR_FALLBACK,
+        capacity_seats=1, combinable=False, staff_id=member.id,
+        follows_opening_hours=follows, sort_order=sort_order,
+    )
+    db.add(r)
+    db.flush()
+    audit_service.record(
+        db, user, "reservation.stylist_added", "bookable_resource", r.id,
+        after={"created_staff": created_staff, "follows_opening_hours": follows},
+    )
+    activation = _activate_reservations_on_first_resource(db, user, had_resources_before=int(current))
+    db.commit()
+    return {
+        "resource": _stylist_dict(r, member.name),
+        "staff": {"id": str(member.id), "name": member.name},
+        "created_staff": created_staff,
+        "activation": activation,
+    }
+
+
+@router.patch("/salon/stylists/{resource_id}")
+def update_salon_stylist(resource_id: UUID, payload: StylistUpdate,
+                         db: Session = Depends(get_db),
+                         user: User = Depends(get_current_user)):
+    """Rename a chair, or switch how a stylist is booked (R7, rubric S12).
+
+    The name is the one customers see: the owner's own chair renames its
+    label; a stylist's chair renames the PERSON (StaffMember.name — the same
+    name Vagtplan and the guest page show) and the chair's label when that
+    was her old name (a label the owner chose, e.g. "Stol 2", stays).
+
+    follows_opening_hours switches a stylist between the opening hours and
+    her Vagtplan shifts. The owner's own chair always follows the hours, and
+    a chair with no one on it cannot start to (it would book nobody)."""
+    from app.models.staff import StaffMember
+
+    enforce_feature(user, "reservations")
+    r = (
+        db.query(BookableResource)
+        .filter(BookableResource.id == resource_id,
+                BookableResource.user_id == user.id,
+                BookableResource.kind == "provider",
+                BookableResource.is_deleted.is_(False))
+        .first()
+    )
+    if r is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    member = None
+    if r.staff_id:
+        member = (
+            db.query(StaffMember)
+            .filter(StaffMember.id == r.staff_id,
+                    StaffMember.user_id == user.id,
+                    StaffMember.is_deleted.isnot(True))
+            .first()
+        )
+    before = {"follows_opening_hours": bool(r.follows_opening_hours),
+              "renamed": False}
+    after = dict(before)
+
+    if payload.follows_opening_hours is not None:
+        want = bool(payload.follows_opening_hours)
+        if not r.staff_id:
+            if want != bool(r.follows_opening_hours):
+                raise HTTPException(status_code=422, detail={
+                    "error": "chair_needs_a_stylist" if want else "own_chair_follows_hours",
+                })
+        else:
+            r.follows_opening_hours = want
+            after["follows_opening_hours"] = want
+
+    if payload.name is not None:
+        name = _clean_stylist_name(payload.name)
+        if member is not None:
+            old = " ".join((member.name or "").split())
+            label = " ".join((r.label or "").split())
+            if name != old:
+                member.name = name
+                after["renamed"] = True
+            if not label or label == old:
+                r.label = name[:120]
+        elif name != (r.label or ""):
+            r.label = name[:120]
+            after["renamed"] = True
+
+    if after != before:
+        audit_service.record(db, user, "reservation.stylist_updated", "bookable_resource",
+                             r.id, before=before, after=after)
+    db.commit()
+    return _stylist_dict(r, member.name if member is not None else None)
 
 
 @router.post("/resources/bulk", status_code=201)

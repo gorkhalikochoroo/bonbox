@@ -14,6 +14,13 @@ Two facts the Aftaler tab shows, both read-only and owner-only:
     flags them only on the day itself. This lists every upcoming one, so the
     owner can move it or call the customer (rubric S6).
 
+  * salon_capacity (R7) — per day, who customers can book online and how
+    many at the same time ("2 kan bookes samtidig (dig og Mia)", rubric S5).
+    The engine always booked one customer per chair in parallel; nothing
+    told the owner. Read from the SAME windows the booking engine books on
+    (reservation_service._batched_provider_windows), so the line can never
+    promise a chair the guest page would not offer.
+
 Nothing here writes, and every reader is tenant-scoped on user_id.
 """
 from __future__ import annotations
@@ -28,6 +35,7 @@ from app.models.absence import StaffAbsence
 from app.models.bookable_resource import BookableResource
 from app.models.reservation import Reservation
 from app.models.staff import Schedule, StaffMember
+from app.services import reservation_service as rsvc
 from app.services.reservation_service import ABSENCE_BLOCKING_STATUSES
 
 logger = logging.getLogger(__name__)
@@ -48,7 +56,8 @@ def week_monday(day: date) -> date:
 
 def _bookable_stylists(db: Session, user_id) -> list:
     """Staff ids behind ACTIVE chairs that follow Vagtplan shifts (not the
-    owner's self-chair, which follows the opening hours)."""
+    owner's self-chair, and not a stylist who follows the opening hours —
+    R7 — neither needs a shift to be booked)."""
     rows = (
         db.query(BookableResource.staff_id)
         .filter(
@@ -57,6 +66,7 @@ def _bookable_stylists(db: Session, user_id) -> list:
             BookableResource.is_active.is_(True),
             BookableResource.is_deleted.is_(False),
             BookableResource.staff_id.isnot(None),
+            BookableResource.follows_opening_hours.is_(False),
         )
         .all()
     )
@@ -197,3 +207,105 @@ def absence_conflicts(db: Session, user_id, *, now_local: datetime,
             "status": r.status,
         })
     return {"count": len(hits), "items": items}
+
+
+# ── R7: who can be booked, per day ──────────────────────────────────────
+CAPACITY_MAX_DAYS = 14
+
+
+def max_overlap(spans) -> int:
+    """The most [start, end) spans that cover one instant. Half-open, like
+    the engine: a span that ends at 12:00 and one that starts at 12:00 are
+    never at the same time."""
+    events = []
+    for a, b in spans:
+        if b > a:
+            events.append((a, 1))
+            events.append((b, -1))
+    events.sort(key=lambda e: (e[0], e[1]))   # an end (-1) before a start at the same instant
+    now = best = 0
+    for _, step in events:
+        now += step
+        best = max(best, now)
+    return best
+
+
+def salon_capacity(db: Session, user_id, profile, *, start: date, days: int) -> list[dict]:
+    """Per day in [start, start + days): who customers can book online.
+
+        [{"date": "YYYY-MM-DD",
+          "count": n,                 # the most chairs open at one time
+          "people": [{"id", "name", "self", "windows": [["09:00", "17:00"]]}],
+          "away": [{"id", "name", "kind"}],   # a stylist on Ferie / Syg / …
+          "hours_closed": bool,       # the hours card says closed that weekday
+          "closed": None | "closed_date" | "paused", "note": str | None}, …]
+
+    `self` is the owner's own chair (follows the opening hours, no staff
+    member). A date the owner closed for online booking counts 0 — she can
+    still write a customer in herself (decision 3). Names are the ones the
+    guest page shows: the stylist's name, else the chair's label."""
+    days = max(1, min(CAPACITY_MAX_DAYS, int(days or 1)))
+    end = start + timedelta(days=days - 1)
+    settings = rsvc.load_settings(profile)
+    providers = [r for r in rsvc.active_resources(db, user_id) if r.kind == "provider"]
+    windows_for = rsvc._batched_provider_windows(db, user_id, providers, start, end, settings)
+    staff_ids = list({p.staff_id for p in providers if p.staff_id})
+    names: dict = {}
+    away_kind: dict = {}
+    if staff_ids:
+        names = {
+            sid: name
+            for sid, name in (
+                db.query(StaffMember.id, StaffMember.name)
+                .filter(StaffMember.user_id == user_id, StaffMember.id.in_(staff_ids))
+                .all()
+            )
+        }
+        for sid, d, kind in (
+            db.query(StaffAbsence.staff_id, StaffAbsence.date, StaffAbsence.kind)
+            .filter(
+                StaffAbsence.user_id == user_id,
+                StaffAbsence.staff_id.in_(staff_ids),
+                StaffAbsence.date >= start,
+                StaffAbsence.date <= end,
+                StaffAbsence.status.in_(ABSENCE_BLOCKING_STATUSES),
+            )
+            .all()
+        ):
+            away_kind.setdefault((str(sid), d), kind)
+    bh = settings.get("booking_hours")
+    out: list[dict] = []
+    for i in range(days):
+        d = start + timedelta(days=i)
+        people: list[dict] = []
+        away: list[dict] = []
+        spans: list = []
+        for p in providers:
+            sid = p.staff_id
+            name = ((names.get(sid) if sid else None) or p.label or "Behandler").strip()
+            kind = away_kind.get((str(sid), d)) if sid else None
+            if kind:
+                away.append({"id": str(p.id), "name": name, "kind": kind})
+                continue
+            ws = windows_for(p, d)
+            if not ws:
+                continue
+            people.append({
+                "id": str(p.id), "name": name,
+                "self": bool(getattr(p, "follows_opening_hours", False)) and not sid,
+                "windows": rsvc._hhmm_pairs(ws),
+            })
+            spans.extend((w.start, w.end) for w in ws)
+        closure = rsvc.closure_on(settings, d)
+        out.append({
+            "date": d.isoformat(),
+            "count": 0 if closure is not None else max_overlap(spans),
+            "people": people,
+            "away": away,
+            "hours_closed": isinstance(bh, dict) and bh.get(rsvc._WEEKDAY_KEYS[d.weekday()]) == "closed",
+            # A closed date, or a pause of online booking (R1 B5).
+            "closed": (None if closure is None
+                       else "paused" if closure.get("kind") == "pause" else "closed_date"),
+            "note": closure.get("note") if closure is not None else None,
+        })
+    return out
