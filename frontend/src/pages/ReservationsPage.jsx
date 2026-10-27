@@ -1631,7 +1631,7 @@ function capacityWord(t, n, apptWords) {
   return one ? t("rsvpSeatOne", "seat") : t("rsvpSeats", "seats");
 }
 
-function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialParty = null, seatingFor = null, bookedWithin = null, error = "", onWaitlist = null, apptWords = false }) {
+function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialParty = null, seatingFor = null, bookedWithin = null, error = "", onWaitlist = null, apptWords = false, roomUnknown = false, onRetryRoom = null }) {
   const pickMode = table === SEAT_WALK_IN_PICK;
   useEscToClose(onClose, busy);
   const dialogRef = useSheetFocus();
@@ -1724,7 +1724,9 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
   );
   // Nothing to seat them at now: with the rules, no seating is free for the
   // whole sitting; without them, only when every table is taken right now.
-  const noneFree = pickMode && (rulesKnown
+  // (Never while the tables could not be read: unknown is not "none free"
+  // — fix round 6, the sheet says the tables are being asked for again.)
+  const noneFree = pickMode && !roomUnknown && (rulesKnown
     ? !seatingNowFor
     : tables.length > 0 && tables.every((tb) => tb.busy));
   // …and why. Tables standing free that are all too small for this party (a
@@ -1838,10 +1840,43 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose, initialPar
             <X className="w-5 h-5" />
           </button>
         </div>
+        {/* The tables could not be read (fix round 6, gate P3): "unknown",
+            never "Ingen borde · Ingen ledige borde lige nu". The book's own
+            words, a way to ask again, and the waitlist — the door keeps a
+            way forward. Seat stays off: there is no table to name yet. */}
+        {pickMode && roomUnknown && (
+          <div role="status" data-seat-room-unknown="" className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-3 py-2.5">
+            <p className="text-[13px] leading-snug font-medium text-gray-800 dark:text-gray-100">
+              {apptWords
+                ? t("rsvpRoomUnknownAppt", "Couldn't load the spaces — trying again.")
+                : t("rsvpRoomUnknown", "Couldn't load the tables — trying again.")}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {onRetryRoom && (
+                <button
+                  type="button"
+                  onClick={onRetryRoom}
+                  className="h-10 px-3 rounded-lg border border-gray-300 text-[13px] font-semibold text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-800"
+                >
+                  {t("tryAgain", "Try again")}
+                </button>
+              )}
+              {onWaitlist && (
+                <button
+                  type="button"
+                  onClick={() => onWaitlist(partyN)}
+                  className="h-10 px-3 rounded-lg border border-gray-300 text-[13px] font-semibold text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-800"
+                >
+                  {t("rsvpWlAdd", "Add to waitlist")}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {/* Table picker — header-launched walk-in only. Free tables first;
             busy ones stay selectable-looking but are labelled + disabled so
             the host can't seat onto an occupied table. */}
-        {pickMode && (
+        {pickMode && !roomUnknown && (
           <div>
             <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
               {apptWords ? t("rsvpSeatWalkInTableAppt", "Space") : t("rsvpSeatWalkInTable", "Table")}
@@ -8267,6 +8302,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           error={seatError}
           onWaitlist={waitlistFromSheet}
           apptWords={apptWords}
+          roomUnknown={roomUnknown}
+          onRetryRoom={() => fetchResources()}
         />,
         document.body,
       )}

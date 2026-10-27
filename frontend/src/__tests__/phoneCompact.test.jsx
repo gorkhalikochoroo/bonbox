@@ -477,7 +477,11 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // onClick "Try again") and its 3 t() keys (rsvpRoomUnknown,
     // rsvpRoomUnknownAppt, tryAgain). Was { onClick: 74, role: 34,
     // button: 52, tKeys: 705 }.
-    "pages/ReservationsPage.jsx": { onClick: 75, onChange: 53, onSubmit: 10, ariaLabel: 59, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 2, role: 35, title: 24, id: 22, testid: 23, Button: 24, button: 53, Link: 5, disabled: 27, to: 5, href: 3, tKeys: 708 },
+    // Fix round 6 (27 Oct) ADDED, nothing removed: the drop-in sheet's
+    // "couldn't load the tables" box (+1 role, +2 button with their onClick:
+    // "Try again" and "Add to waitlist"), with the existing words (no new
+    // t() keys). Was { onClick: 75, role: 35, button: 53 }.
+    "pages/ReservationsPage.jsx": { onClick: 77, onChange: 53, onSubmit: 10, ariaLabel: 59, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 2, role: 36, title: 24, id: 22, testid: 23, Button: 24, button: 55, Link: 5, disabled: 27, to: 5, href: 3, tKeys: 708 },
     "components/reservations/EditBookingSheet.jsx": { onClick: 7, onChange: 7, onSubmit: 1, ariaLabel: 2, ariaPressed: 1, role: 3, id: 7, Button: 5, button: 2, disabled: 2, tKeys: 30 },
     "hooks/useSheetFocus.js": { role: 2, tKeys: 0 },
     "utils/snapStart.js": { tKeys: 4 },

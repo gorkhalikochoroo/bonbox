@@ -22,7 +22,7 @@
  * Run: cd frontend && TZ=UTC npx vitest run src/__tests__/fix27.doorScreenOneRoomRead.test.jsx
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, renderHook, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import fs from "node:fs";
 import path from "node:path";
@@ -250,6 +250,35 @@ describe("the door screen's book reads its tables once", () => {
     expect(rememberedStandLayout()).toBe("table");
     expect(lenses()).not.toBeNull();
     expect(dropIn()).not.toBeNull();
+  });
+
+  // Fix round 6 (gate P3): the drop-in sheet said "Ingen borde · Ingen
+  // ledige borde lige nu — sæt dem på ventelisten" while the tables simply
+  // could not be read. It now says what is true, asks again on a tap, and
+  // keeps the waitlist; seating waits for a table to name.
+  it("a 429 at open: the drop-in sheet says the tables couldn't be read — never 'no tables' — with Try again and the waitlist", async () => {
+    roomAnswer = RATE_LIMITED;
+    mount();
+    await settle();
+    await act(async () => { fireEvent.click(dropIn()); });
+    await settle();
+    const sheet = document.querySelector("[data-seat-room-unknown]");
+    expect(sheet).not.toBeNull();
+    expect(sheet.textContent).toContain("Couldn't load the tables — trying again.");
+    const page = document.body.textContent;
+    expect(page).not.toContain("No table free right now");
+    expect(page).not.toContain("No tables");
+    expect(within(sheet).getByRole("button", { name: "Add to waitlist" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Seat now" }).disabled).toBe(true);
+    // Try again asks once; when the tables answer, the picker is back.
+    const before = tableReads();
+    roomAnswer = ROOM;
+    await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: "Try again" })); });
+    await settle();
+    expect(tableReads()).toBe(before + 1);
+    expect(document.querySelector("[data-seat-room-unknown]")).toBeNull();
+    const picker = screen.getByRole("combobox", { name: "Table" });
+    expect([...picker.querySelectorAll("option")].some((o) => o.textContent.startsWith("21"))).toBe(true);
   });
 
   it("the honest line in Danish and English, and its salon words", async () => {
