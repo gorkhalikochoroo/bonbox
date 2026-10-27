@@ -2008,8 +2008,22 @@ export default function ReservationPublicPage() {
   // hands it its state, setters and helpers (`host`). The signed link goes in
   // the address bar (?wl=&wt=), so a reload or a bookmark brings it back.
   const wlHost = {
-    t, lang, slug, day, party, slot, page, offer: fullNight, setSlot, setDay, setSubmitError,
-    setSummaryNonce, fetchAvailability, fetchedDay, pickedDay, confirm, kit: FULL_NIGHT_KIT,
+    t, lang, slug, day, party, slot, page, offer: fullNight, confirm, kit: FULL_NIGHT_KIT,
+    // A nearest time: that day and that time. The day effect clears a time
+    // only for a day it has not seen (fetchedDay), so the time stays picked
+    // once that day's times are in.
+    pick: (d, x) => {
+      pickedDay.current = d;
+      fetchedDay.current = d;
+      setSubmitError("");
+      setSlot(x);
+      setDay(d);
+    },
+    // "A table just opened up": the strip and the times again.
+    refresh: () => {
+      setSummaryNonce((n) => n + 1);
+      fetchAvailability(day, party);
+    },
   };
   const fullBlock = (
     <Suspense fallback={null}>

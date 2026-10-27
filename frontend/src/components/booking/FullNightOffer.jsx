@@ -29,9 +29,12 @@
 // FULL_NIGHT_KIT) and its confirm dialog as `host.confirm`. Imported here, the
 // page's own helpers would be moved out of its chunk into small shared files,
 // and every import's file list would sit inside the page's chunk (the 30 kB
-// budget, rubric G14). Every t() passes the en.js text.
+// budget, rubric G14). Its own plain helpers (the receipts kept for the visit,
+// the phone check, form_ms, the error codes) are in ./fullNightKit.js, which
+// only this file imports. Every t() passes the en.js text.
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { formMs, joinErrorOf, joinedHere, keepReceipt, phoneOk, receiptFor } from "./fullNightKit";
 
 const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
@@ -45,13 +48,6 @@ const TEL_ACTION =
 const LABEL = "block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1.5";
 const QUIET = "text-[13px] leading-snug text-gray-500 dark:text-gray-400";
 const CARD = "rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4";
-// The booking form's own bound on how long the page was open (form_ms).
-const FORM_MS_MAX = 86_400_000;
-
-// This visit's receipts, by "slug|day|party" — they outlive a change of day
-// and back (this chunk stays loaded for the visit). No device storage: the
-// link in the address bar is what survives a reload.
-const RECEIPTS = new Map();
 
 function telHref(phone) {
   if (!phone) return null;
@@ -61,35 +57,6 @@ function telHref(phone) {
 
 function partyText(n, t) {
   return Number(n) === 1 ? t("rsvpPartyOne", "1 guest") : t("rsvpPartyN", "{n} guests", { n });
-}
-
-// The same shape check as the server's (and the booking form's).
-export function phoneOk(value) {
-  const v = String(value || "").split(/\s+/).filter(Boolean).join(" ");
-  const digits = (v.match(/\d/g) || []).length;
-  return digits >= 6 && digits <= 15 && /^\+?[0-9 ()\-./]{6,40}$/.test(v);
-}
-
-// How long the page has been open — the booking form's signal. A guest's
-// booking page is its own document (a link, or the embed's frame), so the
-// time since it loaded is never shorter than the time the guest spent on it.
-export function formMs() {
-  const now = typeof performance !== "undefined" && performance.now ? performance.now() : 0;
-  return Math.min(FORM_MS_MAX, Math.max(0, Math.round(now)));
-}
-
-// What a failed join says (the server's codes; 422 bodies are pydantic's).
-export function joinErrorOf(err) {
-  const status = err?.response?.status;
-  const detail = err?.response?.data?.detail;
-  const code = typeof detail?.error === "string" ? detail.error : null;
-  const text = JSON.stringify(detail || "");
-  if (status === 409 && code === "not_full") return "not_full";
-  if (status === 409 || status === 410) return "unavailable";
-  if (status === 429) return "too_many";
-  if (status === 422 && text.includes("invalid_phone")) return "phone";
-  if (status === 422 && text.includes("name_required")) return "name";
-  return "generic";
 }
 
 // The waitlist link in the address bar: kept while the guest is waiting.
@@ -535,10 +502,10 @@ export function WaitlistPlace({ t, lang, kit, confirm, id, token, venue = null, 
  * when the address bar carries a waitlist link this visit did not just make.
  *   • a receipt is kept per night for the visit and its link goes into the
  *     address bar while the guest is waiting;
- *   • a nearest time on the same day picks that time; on another day it moves
- *     to that day and the page keeps the time once its times are in (the page
- *     clears a time only for a day it has not seen — fetchedDay);
- *   • "a table just opened up" asks the strip and the times again.
+ *   • a nearest time picks that day and time (host.pick: the page keeps the
+ *     time once that day's times are in);
+ *   • "a table just opened up" asks the strip and the times again
+ *     (host.refresh).
  */
 export default function FullNightOffer({ host: h, back = false }) {
   const [params] = useSearchParams();
@@ -547,8 +514,7 @@ export default function FullNightOffer({ host: h, back = false }) {
   if (back) {
     const id = params.get("wl");
     const token = params.get("wt");
-    const here = [...RECEIPTS.values()].some((r) => r?.id === id);
-    return id && token && !here ? (
+    return id && token && !joinedHere(id) ? (
       <WaitlistPlace t={h.t} lang={h.lang} kit={h.kit} confirm={h.confirm} id={id} token={token} {...pageInfo} />
     ) : null;
   }
@@ -570,27 +536,13 @@ export default function FullNightOffer({ host: h, back = false }) {
       reason={reason}
       slot={h.slot}
       {...pageInfo}
-      initialReceipt={RECEIPTS.get(key) || null}
+      initialReceipt={receiptFor(key)}
       onJoined={(r) => {
-        RECEIPTS.set(key, r);
+        keepReceipt(key, r);
         keep(r);
       }}
-      onPickTime={(d, x) => {
-        h.pickedDay.current = d;
-        h.setSubmitError("");
-        h.fetchedDay.current = d;
-        h.setSlot(x);
-        h.setDay(d);
-      }}
-      onTableOpened={() => {
-        h.setSummaryNonce((n) => n + 1);
-        h.fetchAvailability(h.day, h.party);
-      }}
+      onPickTime={h.pick}
+      onTableOpened={h.refresh}
     />
   );
-}
-
-// For tests: this visit's receipts start empty.
-export function _resetReceipts() {
-  RECEIPTS.clear();
 }

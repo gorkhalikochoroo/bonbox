@@ -36,7 +36,7 @@ vi.mock("../hooks/useLanguage", async () => {
 vi.mock("../hooks/useConfirm", () => ({ useConfirm: () => h.confirm }));
 
 const ReservationPublicPage = (await import("../pages/ReservationPublicPage")).default;
-const { _resetReceipts } = await import("../components/booking/FullNightOffer");
+const { resetReceipts: _resetReceipts } = await import("../components/booking/fullNightKit");
 const { da } = await import("../i18n/da");
 const { en } = await import("../i18n/en");
 
