@@ -9,7 +9,9 @@ Kinds: edge, no_edge, magic_link_fleet, magic_link_domain,
 guest_mail_fleet, guest_mail_venue (one venue's share of the fleet guest-mail
 ceiling used up), staff_join_cooloff, stand_join_cooloff, booking_honeypot,
 booking_screen_error, booking_no_fill_time (a public booking that sent no
-fill time — an older guest page; booked as on live, counted here).
+fill time — an older guest page; booked as on live, counted here),
+booking_blocked (R2: an online booking refused because the owner blocked
+its phone or mailbox — no row is written for it, so it is counted here).
 """
 from __future__ import annotations
 

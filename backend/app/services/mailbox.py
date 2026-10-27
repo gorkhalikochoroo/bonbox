@@ -41,3 +41,46 @@ def count_same_mailbox(addresses, email: str | None) -> int:
     if not target:
         return 0
     return sum(1 for a in addresses if a and canonical_mailbox(a) == target)
+
+
+def mailbox_sql_match(column, email: str | None):
+    """SQL: `column` holds an address that canonical_mailbox folds to the
+    SAME mailbox as `email` — "+tags" dropped, and Gmail dots and
+    googlemail.com folded — for the per-contact COUNTS in SQL (R2, Manoj's
+    decision 5: no stored second copy of the address; it is folded in code
+    at booking time).
+
+    Portable on purpose: lower(), trim(), replace() and LIKE with an explicit
+    ESCAPE exist in Postgres and SQLite alike, so a per-contact limit stays
+    ONE COUNT and the tests (SQLite) cover the same predicate production
+    runs (Postgres). Folding in Python over fetched rows is how the 31 Aug
+    blackout happened — never that. LIKE wildcards in the address itself
+    ("_", "%") are escaped, so "a_b@x.dk" never matches "axb@x.dk".
+
+    None when `email` is not an address (no "@", nothing either side)."""
+    from sqlalchemy import and_, func, or_
+
+    canon = canonical_mailbox(email)
+    local, sep, domain = canon.rpartition("@")
+    if not sep or not local or not domain:
+        return None
+    col = func.lower(func.trim(column))
+    if local.startswith("+"):
+        # canonical_mailbox keeps a local part that STARTS with "+" whole;
+        # only the exact spelling is the same mailbox then.
+        return col == canon
+
+    def esc(s: str) -> str:
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    if domain == "gmail.com":
+        # Every dot goes, the domain's too: "a.nna+x@gmail.com" reads
+        # "anna+x@gmailcom". The domain test beside it keeps another domain
+        # that happens to read the same without dots out.
+        dotless = func.replace(col, ".", "")
+        same = []
+        for d in ("gmailcom", "googlemailcom"):
+            same.append(dotless == f"{local}@{d}")
+            same.append(dotless.like(f"{esc(local)}+%@{d}", escape="\\"))
+        return and_(or_(col.like("%@gmail.com"), col.like("%@googlemail.com")), or_(*same))
+    return or_(col == canon, col.like(f"{esc(local)}+%@{esc(domain)}", escape="\\"))

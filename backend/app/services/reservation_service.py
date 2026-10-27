@@ -82,6 +82,11 @@ DEFAULT_SETTINGS: dict = {
     # E-mail the owner about new online bookings and guest cancellations
     # (owner_booking_alerts caps them; push is opted into per device).
     "owner_booking_emails": True,
+    # Contacts the owner blocked or marked as spam (R2): keyed hashes and a
+    # masked hint only, never the address or the number — always written
+    # through services/contact_marks.py, never through PUT /settings, and
+    # never sent to the app as stored (GET /settings leaves it out).
+    "contact_blocks": [],
 }
 
 

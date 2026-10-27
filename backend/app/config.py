@@ -557,6 +557,25 @@ class Settings(BaseSettings):
     # OWNER_NIGHT_PING_WITHIN_HOURS from now.
     OWNER_SUMMARY_QUIET_FROM_HOUR: int = 22
     OWNER_SUMMARY_QUIET_TO_HOUR: int = 7
+    # ── R2 (27 Oct 2026): spam clean-up ─────────────────────────────────
+    # A contact the owner marked as spam (the next online booking from it is
+    # held quietly) or blocked (refused with the generic 409 not_accepting)
+    # is kept as a keyed hash plus a masked hint, never the address or the
+    # number (services/contact_marks.py), for this many days, at most this
+    # many entries a venue (the oldest spam marks go first).
+    BOOKING_CONTACT_MARK_DAYS: int = 180
+    BOOKING_CONTACT_MARKS_MAX: int = 200
+    # "Afvis alle fra denne bølge": the open online requests made within this
+    # many minutes of the one the owner opened (either side) are one wave.
+    BOOKING_SPAM_WAVE_MINUTES: int = 10
+    # Operator alert (jobs/abuse_monitor_job.py, abuse_booking_burst; alert
+    # only — nothing is blocked): in the last hour, one venue got this many
+    # online bookings, or the screen held this many across all venues, or the
+    # hidden trap field dropped this many; or the screen failed at all (it
+    # then confirms everything — the spam guard is off). 0 switches a count off.
+    BOOKING_ALERT_VENUE_PER_HOUR: int = 30
+    BOOKING_ALERT_HELD_PER_HOUR: int = 15
+    BOOKING_ALERT_DROPPED_PER_HOUR: int = 10
     # Wrong staff join / stand pairing codes from all addresses together:
     # JOIN_FAIL_GLOBAL_MAX within JOIN_FAIL_WINDOW_SEC pauses that door for
     # everyone for JOIN_COOLOFF_SEC (main.join_failure_brake).

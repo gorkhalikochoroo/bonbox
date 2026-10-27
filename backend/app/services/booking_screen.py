@@ -50,6 +50,10 @@ Rules, the first match wins (n = the venue's active tables or chairs;
   3. an EXPLICIT link in the guest's name — "http://", "https://" or
      "www.", any case, after NFKC                  → hold (link_in_name)
      — a dotted name ("Anne.Marie.Jensen") is a name.
+ 3b. (R2) the owner marked this phone or mailbox as spam
+     (services/contact_marks.py)                  → hold (marked_spam)
+     — robot-like, like 1–3. A BLOCKED contact never reaches the screen:
+       the router refuses it first with the generic 409 not_accepting.
   4. a REAL group request (party ≥ max(threshold, GROUP_FLOOR)): [V] with
      max(GROUP_REQUESTS_PER_DAY, n) already open today → hold
      (requests_full); otherwise → confirm (it is a request on its own)
@@ -134,6 +138,7 @@ from sqlalchemy import and_, func, or_
 from app.config import settings as app_config
 from app.models.audit_log import AuditLog
 from app.models.reservation import Reservation
+from app.services.mailbox import mailbox_sql_match
 from app.utils import abuse_signals
 from app.utils.text import has_explicit_link
 
@@ -161,8 +166,9 @@ NO_FILL_TIME_ACTION = "booking_no_fill_time"
 
 # Held reasons that say "probably not a person": the typed address gets no
 # mail at all (it would only relay a stranger's text), the owner no ping of
-# its own, and no summary starts because of it alone.
-BOT_REASONS = frozenset({"honeypot", "fast_fill", "link_in_name"})
+# its own, and no summary starts because of it alone. `marked_spam` (R2): the
+# owner marked this phone or mailbox as spam before (services/contact_marks).
+BOT_REASONS = frozenset({"honeypot", "fast_fill", "link_in_name", "marked_spam"})
 NO_GUEST_MAIL = BOT_REASONS
 # Held reasons whose booking gets no owner ping of its own — a summary
 # counts it instead.
@@ -172,9 +178,10 @@ SUMMARY_ONLY = BOT_REASONS | {"requests_full"}
 @dataclass(frozen=True)
 class Screen:
     action: str                # "confirm" | "hold" | "drop"
-    reason: str | None = None  # honeypot | fast_fill | link_in_name | requests_full
-                               # | plan_cap | contact_active | plan_day | venue_hour
-                               # | venue_day | sitting_full | date_full
+    reason: str | None = None  # honeypot | fast_fill | link_in_name | marked_spam
+                               # | requests_full | plan_cap | contact_active
+                               # | plan_day | venue_hour | venue_day
+                               # | sitting_full | date_full
 
 
 CONFIRM = Screen("confirm")
@@ -278,13 +285,17 @@ def _pending_hold(db):
 
 
 def _contact_match(email: str | None, phone: str | None):
-    """The same guest: the same e-mail (case and spaces ignored), or the same
-    last 8 digits of the phone whatever the separators. None when neither is
-    usable."""
+    """The same guest: the same mailbox (case, spaces, "+tags" and Gmail dots
+    ignored — R2), or the same last 8 digits of the phone whatever the
+    separators. None when neither is usable."""
     conds = []
-    e = (email or "").strip().lower()
-    if e:
-        conds.append(func.lower(func.trim(Reservation.guest_email)) == e)
+    # The same MAILBOX, not the same spelling (R2, decision 5): "anna+1@",
+    # "anna+2@" and "a.nna@gmail.com" are one guest — a +tag rotation used to
+    # give one person a fresh limit per spelling. Folded in SQL, still one
+    # COUNT (services/mailbox.mailbox_sql_match).
+    same_mailbox = mailbox_sql_match(Reservation.guest_email, email)
+    if same_mailbox is not None:
+        conds.append(same_mailbox)
     digits = _phone_digits(phone)
     if len(digits) >= 6:
         col = Reservation.guest_phone
@@ -663,6 +674,23 @@ def _speaks_appointments(owner) -> bool:
         return False
 
 
+def _marked_spam(settings, owner, payload, now_local) -> bool:
+    """Rule 3b: was this contact marked as spam by the owner (R2)?"""
+    try:
+        from app.services import contact_marks
+        entries = (settings or {}).get(contact_marks.KEY)
+        if not entries:
+            return False
+        return contact_marks.match(
+            entries, owner.id, email=getattr(payload, "guest_email", None),
+            phone=getattr(payload, "guest_phone", None),
+            today=(now_local.date() if now_local else datetime.utcnow().date()),
+        ) == "spam"
+    except Exception:  # noqa: BLE001 — fail open
+        _fail_open("marked_spam")
+        return False
+
+
 def _fail_open(rule: str) -> None:
     logger.warning("booking screen %s failed — confirming (fail-open)", rule, exc_info=True)
     abuse_signals.bump("booking_screen_error")
@@ -704,6 +732,12 @@ def screen_public_booking(db, *, owner, settings: dict, payload, is_request: boo
     # 3. An explicit link ("http://", "https://", "www.") where a name goes.
     if has_explicit_link(getattr(payload, "guest_name", None)):
         return Screen("hold", "link_in_name")
+    # 3b. (R2) The owner marked this phone or mailbox as spam before: held
+    #     quietly, robot-like, for the owner to look at — a group request
+    #     too. A BLOCKED contact never gets here: the router refuses it
+    #     first (409 not_accepting). Never raises (contact_marks.match).
+    if _marked_spam(settings, owner, payload, now_local):
+        return Screen("hold", "marked_spam")
 
     try:
         n = max(0, int(n_resources or 0))
