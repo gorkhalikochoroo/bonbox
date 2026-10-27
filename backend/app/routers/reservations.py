@@ -19,7 +19,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_, and_
 from sqlalchemy.orm import Session
@@ -329,7 +329,9 @@ def _allocate_slug(db: Session, base: str) -> str:
             .filter(BusinessProfile.reservation_slug == cand)
             .first()
         )
-        if exists is None:
+        # R9: never another venue's OLD link either — its printed QR codes
+        # still open that venue's page, and must not land on a new one.
+        if exists is None and rsvc.alias_profile(db, cand) is None:
             return cand
     raise HTTPException(status_code=500, detail={"error": "slug_collision"})
 
@@ -678,9 +680,19 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
         # Venue name — used by the settings "Add to your website" embed to label
         # the iframe title accurately (falls back to "BonBox" in the UI if null).
         "business_name": (getattr(user, "business_name", None) or "").strip() or None,
+        # R9: the old links that still open this page (newest first), each
+        # with its address, and how many are kept. Present = this server
+        # keeps old links, so the link card's warning can say "forwarded".
+        "slug_aliases": _alias_list(rsvc.slug_aliases(settings)),
+        "slug_alias_max": rsvc.SLUG_ALIAS_MAX,
+        # R9: the day adding the first table (or behandler) switched online
+        # booking on by itself — the switch's card says so until the owner
+        # flips the switch. None = the owner switched it, or it never happened.
+        "auto_enabled_at": _iso_or_none(settings.get("auto_enabled_at")),
         # Never the stored block list (R2): its keyed hashes stay on the
         # server — the owner's list comes masked from GET /contact-blocks.
-        "settings": {k: v for k, v in settings.items() if k != "contact_blocks"},
+        # Nor the server-owned keys R9 lists above.
+        "settings": {k: v for k, v in settings.items() if k not in _SERVER_ONLY_KEYS},
         # False ⇒ no opening hours on record: the page offers no times (the
         # engine no longer invents 11–22) and the owner's hours card says so.
         "hours_declared": rsvc.hours_declared(profile, settings),
@@ -713,6 +725,31 @@ def _month_cap_mode() -> str:
         return "requests" if plan_cap_requests_on() else "closed"
     except Exception:  # noqa: BLE001 — a label, never a 500 for the settings
         return "closed"
+
+
+# Settings keys only the server writes: the block list (R2, its own
+# endpoints), the old links (R9, POST /slug and DELETE /slug/aliases) and the
+# day booking switched itself on (R9, the first resource). GET /settings
+# leaves them out of `settings`; PUT /settings never takes them from a client
+# — an echo of an old copy, or a crafted one, could otherwise claim another
+# venue's old link or hide the switch-on note.
+_SERVER_ONLY_KEYS = ("contact_blocks", "slug_aliases", "auto_enabled_at")
+
+
+def _iso_or_none(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value[:10]).isoformat()
+    except ValueError:
+        return None
+
+
+def _alias_list(aliases: list[dict]) -> list[dict]:
+    """Old links as the owner's card shows them: slug, since, and the full
+    address a guest types (the /r/ form for a legacy reserved word)."""
+    return [{"slug": a["slug"], "since": a.get("since"),
+             "url": _public_reservation_url(a["slug"])} for a in aliases]
 
 
 # What the door needs from the venue's booking rules to say "free now" or
@@ -804,14 +841,26 @@ def update_settings(payload: SettingsUpdate, request: Request,
                 incoming["closed_dates"], _public_now_local().date())
         if "owner_booking_emails" in incoming:
             incoming["owner_booking_emails"] = bool(incoming["owner_booking_emails"])
+        # "Maks. gæster pr. tid" (R9): a whole number of guests 1–1000, or
+        # None for no cap — never a string the engine compares with `>`.
+        if "pacing_max_per_slot" in incoming:
+            incoming["pacing_max_per_slot"] = rsvc.pacing_cap(incoming)
         # Blocked and spam-marked contacts are written only by their own
         # endpoints (routers/reservation_spam.py): a settings save that
-        # echoes an old copy — or a crafted one — never replaces them.
-        incoming.pop("contact_blocks", None)
+        # echoes an old copy — or a crafted one — never replaces them. The
+        # same for the old links and the switch-on day (R9).
+        for key in _SERVER_ONLY_KEYS:
+            incoming.pop(key, None)
         merged.update(incoming)
         profile.reservation_settings_json = json.dumps(merged)
 
     if payload.reservations_enabled is not None:
+        # The owner's own tap (R9): from now on the switch is theirs, so the
+        # "switched on by itself" note goes.
+        current = rsvc.load_settings(profile)
+        if "auto_enabled_at" in current:
+            current.pop("auto_enabled_at", None)
+            profile.reservation_settings_json = json.dumps(current)
         profile.reservations_enabled = payload.reservations_enabled
         # Allocate a durable slug the first time reservations are turned on.
         if payload.reservations_enabled and not getattr(profile, "reservation_slug", None):
@@ -994,6 +1043,11 @@ def set_slug(payload: SlugUpdate, db: Session = Depends(get_db), user: User = De
     # shadowed by the SPA route). Guests would land on the app, not the booking.
     if desired in RESERVED_SLUGS:
         raise HTTPException(status_code=409, detail={"error": "slug_reserved"})
+    current = getattr(profile, "reservation_slug", None)
+    settings = rsvc.load_settings(profile)
+    if desired == current:
+        # Nothing to change — and nothing to turn into an old link.
+        return _slug_answer(desired, rsvc.slug_aliases(settings), [])
     clash = (
         db.query(BusinessProfile)
         .filter(BusinessProfile.reservation_slug == desired,
@@ -1002,9 +1056,66 @@ def set_slug(payload: SlugUpdate, db: Session = Depends(get_db), user: User = De
     )
     if clash:
         raise HTTPException(status_code=409, detail={"error": "slug_taken"})
+    # R9: another venue's OLD link is taken too — its printed QR codes and
+    # website button still open that venue's page.
+    holder = rsvc.alias_profile(db, desired)
+    if holder is not None and holder.user_id != user.id:
+        raise HTTPException(status_code=409, detail={"error": "slug_taken"})
+    # The link that was handed out until now keeps working: it becomes an
+    # old link that opens this page and moves the guest to the new address.
+    # Going back to one of the venue's own old links takes it off that list.
+    kept, dropped = rsvc.aliases_after_change(
+        settings, current, desired, _public_now_local().date())
+    settings["slug_aliases"] = kept
+    profile.reservation_settings_json = json.dumps(settings)
     profile.reservation_slug = desired
+    # Slugs are public addresses (the venue's own name), never a guest's data.
+    audit_service.record(
+        db, user, "reservation.slug_changed", "business_profile", profile.id,
+        before={"reservation_slug": current},
+        after={"reservation_slug": desired, "old_links": [a["slug"] for a in kept],
+               "dropped": [a["slug"] for a in dropped]},
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        # Another venue took it in the same instant (the unique index).
+        db.rollback()
+        raise HTTPException(status_code=409, detail={"error": "slug_taken"})
+    return _slug_answer(desired, kept, dropped)
+
+
+def _slug_answer(slug: str, aliases: list[dict], dropped: list[dict]) -> dict:
+    return {
+        "reservation_slug": slug,
+        "public_url": _public_reservation_url(slug),
+        # R9: the old links that still open the page, and any that just
+        # stopped (more than SLUG_ALIAS_MAX old links: the oldest goes).
+        "slug_aliases": _alias_list(aliases),
+        "slug_aliases_dropped": _alias_list(dropped),
+    }
+
+
+@router.delete("/slug/aliases/{alias}")
+def remove_slug_alias(alias: str = Path(..., max_length=80), db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """Stop an old link (R9): it no longer opens this page, and the name is
+    free for anyone. Only the owner's own old links; 404 for anything else."""
+    enforce_feature(user, "reservations")
+    profile = _profile(db, user)
+    settings = rsvc.load_settings(profile)
+    aliases = rsvc.slug_aliases(settings)
+    if profile is None or alias not in {a["slug"] for a in aliases}:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    kept = [a for a in aliases if a["slug"] != alias]
+    settings["slug_aliases"] = kept
+    profile.reservation_settings_json = json.dumps(settings)
+    audit_service.record(
+        db, user, "reservation.slug_alias_removed", "business_profile", profile.id,
+        before={"old_link": alias},
+    )
     db.commit()
-    return {"reservation_slug": desired, "public_url": _public_reservation_url(desired)}
+    return {"slug_aliases": _alias_list(kept)}
 
 
 # ─── resources ───────────────────────────────────────────────────────
@@ -1122,6 +1233,11 @@ def _activate_reservations_on_first_resource(
 
     profile.reservations_enabled = True
     profile.reservation_slug = slug
+    # R9: remember the day, so Indstillinger can say the switch went on by
+    # itself (until the owner flips it). The table's own answer says so too.
+    current = rsvc.load_settings(profile)
+    current["auto_enabled_at"] = _public_now_local().date().isoformat()
+    profile.reservation_settings_json = json.dumps(current)
     audit_service.record(
         db, user, "reservation.auto_enabled_on_first_resource",
         "business_profile", profile.id,
@@ -1174,12 +1290,17 @@ def create_resource(payload: ResourceCreate, request: Request,
     db.flush()
     audit_service.record(db, user, "reservation.resource_created", "bookable_resource", r.id)
     # The venue's FIRST bookable resource also opens the public page (see the
-    # helper). The response shape stays the bare resource dict — the settings
-    # panel is where the owner reads the switch and copies the link, and two
-    # call sites append this object straight into their resource list.
-    _activate_reservations_on_first_resource(db, user, had_resources_before=int(current))
+    # helper). The answer is the resource dict, plus — ONLY when this call
+    # flipped the switch — `reservations_activated` with the link (R9, the
+    # bulk route's own key): the owner is told it happened. The app takes
+    # the key off before it keeps the row; an older app keeps an unused key.
+    activated = _activate_reservations_on_first_resource(
+        db, user, had_resources_before=int(current))
     db.commit()
-    return _resource_dict(r)
+    out = _resource_dict(r)
+    if activated:
+        out["reservations_activated"] = activated
+    return out
 
 
 class SalonQuickSetup(BaseModel):

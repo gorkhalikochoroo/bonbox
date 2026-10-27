@@ -193,12 +193,20 @@ class PublicReservationCreate(BaseModel):
 
 
 def _resolve_owner(db: Session, slug: str) -> tuple[BusinessProfile, User]:
-    """slug → (profile, owner). 410 when not found or reservations off."""
+    """slug → (profile, owner). 410 when not found or reservations off.
+
+    R9: a venue's OLD link (one it changed away from) still resolves to it,
+    on every public route — the page, the times, the booking itself — so a
+    printed QR code or an old website button never says "not taking
+    bookings". The page answer then names the current link (canonical_slug)
+    and the page moves the guest there."""
     profile = (
         db.query(BusinessProfile)
         .filter(BusinessProfile.reservation_slug == slug)
         .first()
     )
+    if profile is None:
+        profile = rsvc.alias_profile(db, slug)
     if profile is None or not getattr(profile, "reservations_enabled", False):
         raise HTTPException(status_code=410, detail={"error": "not_accepting"})
     owner = db.query(User).filter(User.id == profile.user_id).first()
@@ -407,6 +415,11 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         # ({from, to, note, kind}) and, while a pause covers today, the last
         # paused day — the page says "opens again <the day after>".
         **_safe_closures(settings),
+        # R9: opened on an OLD link — the current one, so the page moves the
+        # guest's address bar there (and a shared link is the new one).
+        # Absent on the current link: the answer is exactly as before.
+        **({"canonical_slug": profile.reservation_slug}
+           if profile.reservation_slug and profile.reservation_slug != slug else {}),
     }
 
 
