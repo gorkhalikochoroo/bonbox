@@ -135,12 +135,14 @@ def test_online_party_ceiling_blocks_everything():
     assert slots == []  # over the online ceiling → must call
 
 
-# ── pacing: cap how many bookings start per window ─────────────────────
+# ── pacing: cap how many guests start per window ───────────────────────
 def test_pacing_blocks_when_window_full():
-    # Plenty of tables, but pacing allows only 1 new booking per 30-min window.
+    # Plenty of tables, but pacing allows only 2 guests per 30-min window
+    # (R9: the cap counts guests — it counted bookings, so this test had a
+    # cap of 1 booking). One couple already starts at 19:00.
     resources = [ResourceView(f"t{i}", 2) for i in range(5)]
-    busy = [BusyInterval("t0", _d(19), _d(20, 30))]  # one party already at 19:00
-    cfg = _cfg(pacing_max_per_slot=1, pacing_window_min=30)
+    busy = [BusyInterval("t0", _d(19), _d(20, 30), reservation_id="r0", party_size=2)]
+    cfg = _cfg(pacing_max_per_slot=2, pacing_window_min=30)
     slots = compute_slots(
         windows=_dinner_window(), resources=resources, busy=busy,
         party_size=2, config=cfg,

@@ -300,8 +300,10 @@ def test_a_booked_out_evening_is_full_not_closed(db):
 def test_pacing_cap_reads_full(db):
     # One booking at the last start (20:30) holds back every start in its
     # 4-hour pacing window, while the second table stays physically free.
+    # R9: the cap counts guests — 2 here, the couple _occupy books (it was a
+    # cap of 1 booking; in guests a party of 2 could never fit 1 anywhere).
     owner, profile, (t1, _t2) = _venue(
-        db, settings={"pacing_max_per_slot": 1, "pacing_window_min": 240})
+        db, settings={"pacing_max_per_slot": 2, "pacing_window_min": 240})
     _occupy(db, owner, t1, datetime(2030, 1, 8, 20, 30), datetime(2030, 1, 8, 22, 0))
     s = _summary(db, owner, profile)
     assert _day(s, TUE)["has_slots"] is False
@@ -312,11 +314,11 @@ def test_paced_day_reason_is_the_one_q1_switch(db, monkeypatch):
     # Default (Q1): a paced evening reads "full" (test_pacing_cap_reads_full).
     assert rsvc.PACED_DAY_REASON == "full"
     paced_owner, paced_profile, (t1, _t2) = _venue(
-        db, settings={"pacing_max_per_slot": 1, "pacing_window_min": 240})
+        db, settings={"pacing_max_per_slot": 2, "pacing_window_min": 240})
     _occupy(db, paced_owner, t1, datetime(2030, 1, 8, 20, 30), datetime(2030, 1, 8, 22, 0))
     booked_owner, booked_profile, (b1,) = _venue(
         db, tables=((4, False, None),),
-        settings={"pacing_max_per_slot": 1, "pacing_window_min": 240})
+        settings={"pacing_max_per_slot": 2, "pacing_window_min": 240})
     _occupy(db, booked_owner, b1, *_evening(TUE))
     # The owner's alternative ("kun tlf." for a paced night) is one constant:
     # only pacing flips; a night bookings fill stays "full".
@@ -563,7 +565,7 @@ def _golden_matrix(db) -> list[tuple]:
     for t in booked[2]:
         _occupy(db, booked[0], t, *_evening(TUE))
     paced = _venue(db, tables=((4, False, None), (4, False, None), (6, False, None)),
-                   settings={"pacing_max_per_slot": 1, "pacing_window_min": 240})
+                   settings={"pacing_max_per_slot": 2, "pacing_window_min": 240})
     _occupy(db, paced[0], paced[2][0], datetime(2030, 1, 8, 20, 30),
             datetime(2030, 1, 8, 22, 0))
     s_owner, s_profile = _salon(db, settings={"booking_hours": _SALON_WEEK})
