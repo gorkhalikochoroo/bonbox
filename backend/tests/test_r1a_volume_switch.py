@@ -150,24 +150,27 @@ def test_a_busy_hour(client, db, outbox, volume_both):
 
 
 def test_one_date_filling_fast(client, db, outbox, volume_both):
-    """Twelve bookings for one date over four hours at 6 tables (3 an hour,
-    spread over the day's sittings). Off: all confirmed while tables are
-    free. On: max(6, 1.5 × tables) = 9, then date_full."""
-    u, p, _ = restaurant(db, tables=6)
+    """Eighteen bookings for one evening (6 tables, 17–22, 90-min sittings —
+    room for exactly 18), three per round, one per sitting, rounds 3 h
+    apart and all inside 24 h. Off: all confirmed while tables are free. On
+    (R1b, capacity-relative per date): ⌈0.75 × 6 tables × 300 ÷ 90⌉ = 15,
+    then date_full. (R1a's fixed max(6, 1.5 × tables) = 9 held the 10th.)"""
+    evening = {k: "17:00-22:00" for k in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")}
+    u, p, _ = restaurant(db, tables=6, hours=evening)
     day = today_local() + timedelta(days=5)
-    slots = ("11:00", "12:30", "14:00", "15:30", "17:00", "18:30", "20:00", "21:30")
     got = []
-    for n in range(12):
-        r = book(client, p.reservation_slug, day=day, time=slots[n % len(slots)],
+    for n in range(18):
+        r = book(client, p.reservation_slug, day=day, time=("17:00", "18:30", "20:00")[n % 3],
                  name=f"Dato {n}", email=f"date{n}@x.test", ip=f"10.82.0.{n}", form_ms=38000)
+        assert r.status_code == 200, (n, r.text)
         got.append((r.json()["status"], _reason(db, r.json()["id"])))
         if n % 3 == 2:
-            _age(db, u, 61)
+            _age(db, u, 181)        # the next round is another burst window
     if volume_both:
-        assert [s for s, _ in got].count("confirmed") == 9
-        assert got[9:] == [("requested", "date_full")] * 3
+        assert got[:15] == [("confirmed", None)] * 15
+        assert got[15:] == [("requested", "date_full")] * 3
     else:
-        assert got == [("confirmed", None)] * 12
+        assert got == [("confirmed", None)] * 18
 
 
 def test_a_free_venues_day(client, db, outbox, volume_both):
@@ -222,12 +225,14 @@ def test_the_days_eleventh_group_request(client, db, outbox, volume_both):
 
 def test_a_venues_mail_share(client, db, outbox, volume_both):
     """The fleet under pressure (20 of its 40 guest mails used elsewhere) and
-    this venue past its share (6 confirmations today). Off: the next guest
-    is mailed — only the fleet and the venue's own ceilings apply, as before
-    R1. On: held back as venue_share, and the page is told."""
+    this venue past its share (12 confirmations today — R1b sizes a 6-table
+    venue's share max(9, 2 × 6) = 12; R1a's flat 15 % of the fleet was 6).
+    Off: the next guest is mailed — only the fleet and the venue's own
+    ceilings apply, as before R1. On: held back as venue_share, and the page
+    is told."""
     other, _p0, _ = restaurant(db, tables=2, name="Other")
     u, p, _ = restaurant(db, tables=6)
-    for owner, n in ((other, 20), (u, 6)):
+    for owner, n in ((other, 20), (u, 12)):
         for _ in range(n):
             db.add(NotificationLog(id=uuid.uuid4(), user_id=owner.id, staff_id=None,
                                    channel="email", event_type="guest_confirmation",
@@ -248,7 +253,9 @@ def test_a_venues_mail_share(client, db, outbox, volume_both):
 def test_a_solo_barbers_full_day_of_customers(client, db, outbox, clock, volume_both):
     """Fix-2 verify blocker B2: a 1-chair barber (30-min cuts, 09–18), nine
     customers book tomorrow over today, one every 70 minutes — nothing is a
-    burst. Off: all nine confirmed. On: the 7th is held (date_full)."""
+    burst. Off: all nine confirmed. On: R1a held the 7th (date_full, 6 for a
+    chair); R1b measures the chair's day (0.75 × 540 min ≈ 14 cuts), so all
+    nine are confirmed too (tests/test_r1b_volume_tuning.py holds the 15th)."""
     hours = {k: "09:00-18:00" for k in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")}
     s = salon(db, self_chair=True, stylist=None, booking_hours=hours)
     s["behandling"].duration_min = 30
@@ -263,11 +270,8 @@ def test_a_solo_barbers_full_day_of_customers(client, db, outbox, clock, volume_
         assert r.status_code == 200, r.text
         got.append((r.json()["status"], _reason(db, r.json()["id"])))
         clock.local += timedelta(minutes=70)
-    if volume_both:
-        assert got[:6] == [("confirmed", None)] * 6
-        assert got[6] == ("requested", "date_full")
-    else:
-        assert got == [("confirmed", None)] * 9
+    # Both states (R1b): a barber's ordinary day is never a "pattern".
+    assert got == [("confirmed", None)] * 9
 
 
 # ── what R1a keeps, with the switch off ────────────────────────────────

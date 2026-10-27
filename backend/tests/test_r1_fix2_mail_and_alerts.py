@@ -78,7 +78,10 @@ def test_a_drip_at_two_venues_no_longer_silences_a_third(client, db, outbox, clo
     monkeypatch.setattr(settings, "GUEST_EMAILS_FLEET_PER_DAY", 60)
     abuse_signals.reset()
     day = _friday()
-    venues = [restaurant(db, tables=6, name=f"Drip {k}") for k in range(2)]
+    # 7 tables (R1b): the venue's day (max(24, 4 × tables) = 28) stays out of
+    # this 27-booking drip, and the share — sized by the venue since R1b,
+    # max(9, 2 × 7) = 14 — is passed by both at the fleet's 30, as before.
+    venues = [restaurant(db, tables=7, name=f"Drip {k}") for k in range(2)]
     start = _at(day - timedelta(days=9), 10)
     answers = {0: [], 1: []}
     for hour in range(9):                     # 3 an hour at each venue, 9 hours
@@ -91,7 +94,7 @@ def test_a_drip_at_two_venues_no_longer_silences_a_third(client, db, outbox, clo
                 assert r.json()["status"] == "confirmed"
                 answers[k].append(r.json()["guest_mail"])
     # Free while the fleet had room; once the fleet had used half its day
-    # (30 of 60), a venue past its share (9) is held back — 15 each here.
+    # (30 of 60), a venue past its share (14 at 7 tables since R1b; 9 before) is held back — 15 each here.
     for k, (u, _p, _) in enumerate(venues):
         assert len(_sent_confirmations(db, u)) == 15
         # The page promised a mail exactly when one was coming.

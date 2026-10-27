@@ -213,12 +213,33 @@ def test_a_busy_week_of_real_guests_is_confirmed_at_once(client, db, outbox, clo
 
 
 # ── the attack bursts are still held ──────────────────────────────────────
+def _try_post(client, db, slug, day, t, **kw):
+    """_post, but a full room (409 slot_unavailable) is an outcome: a drip
+    close to a date's capacity meets it (R1b's date ceiling is 3/4 of it)."""
+    import app.routers.public_reservations as pr
+    pr._limiter.reset()
+    body = {"day": day.isoformat(), "time": t, "party_size": kw.get("party", 2),
+            "guest_name": kw.get("name", "Gæst"),
+            "guest_email": f"{uuid.uuid4().hex[:10]}@example.dk", "website": "",
+            "form_ms": kw.get("form_ms", 60000)}
+    r = client.post(f"/api/public/reservations/{slug}", json=body,
+                    headers={"CF-Connecting-IP": _ip()})
+    if r.status_code == 409 and r.json()["detail"]["error"] == "slot_unavailable":
+        return "full", None
+    assert r.status_code == 200, r.text
+    j = r.json()
+    return j["status"], (_reason(db, j["id"]) if j["status"] == "requested" else None)
+
+
 @pytest.mark.parametrize("tables", [4, 6, 10])
 def test_the_attack_bursts_are_still_held(client, db, outbox, clock, tables, volume_on):
     friday = _friday()
     base = datetime.combine(friday - timedelta(days=3), dtime(10, 0))
     sit_cap = max(3, math.ceil(tables / 2))
-    date_cap = max(6, math.ceil(1.5 * tables))
+    # R1b: one date takes 3/4 of what its hours can seat (17–22, 90-min
+    # sittings for two): ⌈0.75 × tables × 300 ÷ 90⌉ — 10, 15 and 25.
+    date_cap = max(6, math.ceil(round(0.75 * tables * 300 / 90, 6)))
+    day_cap = max(24, 4 * tables)
 
     # A1 — 20 posts in two minutes for Friday 19:00 (rotating addresses,
     # honest timing): half the tables confirmed, the rest held.
@@ -230,32 +251,47 @@ def test_the_attack_bursts_are_still_held(client, db, outbox, clock, tables, vol
     assert [s for s, _ in got].count("confirmed") == sit_cap
     assert {r for s, r in got if s == "requested"} == {"sitting_full"}
 
-    # A2 — a drip on ONE date, 3 an hour for 10 hours: at most the date ceiling.
+    # A2 — a drip on ONE date, 3 an hour for 10 hours: at most the date
+    # ceiling is confirmed (R1b: 3/4 of the date's capacity — the room may
+    # be full before it, the sitting rule may hold first), the rest is held.
     _u, slug = _venue(db, tables)
     times = ("17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00", "20:30")
     got = []
     for h in range(10):
         for j in range(3):
             clock.local = base + timedelta(hours=h, minutes=20 * j)
-            got.append(_post(client, db, slug, friday, times[(3 * h + j) % 8], form_ms=5000))
+            got.append(_try_post(client, db, slug, friday, times[(3 * h + j) % 8], form_ms=5000))
     confirmed = [s for s, _ in got].count("confirmed")
-    assert 0 < confirmed <= date_cap
-    assert "date_full" in {r for _, r in got}
+    assert 0 < confirmed <= date_cap, got
+    held = {r for s, r in got if s == "requested"}
+    assert held and held <= {"date_full", "sitting_full"}, got
 
-    # A3 — a drip spread over dates (1 an hour for a day) passes as bookings;
-    # what matters: real guests on the other dates are NOT held after it.
+    # A3 — a drip spread over dates (1 an hour for a day) passes as bookings.
+    # R1b (D1(a)): the venue's day is bounded again — at 4 and 6 tables the
+    # 24 passed reach max(24, 4 × tables), and a real guest on another date
+    # then waits for the owner's yes AS A PERSON (venue_day: mailed within
+    # the budget, the owner pinged); at 10 tables (40) they are confirmed.
+    # Once the drip is a day old, real guests are confirmed again.
     _u, slug = _venue(db, tables)
     for h in range(24):
-        clock.local = base + timedelta(hours=h)
+        clock.local = base + timedelta(hours=h, minutes=5)
         d = friday + timedelta(days=1 + h)
         d += timedelta(days=1) if d.weekday() == 0 else timedelta(0)
         _post(client, db, slug, d, "19:00", form_ms=5000, name=f"Spread {h}")
     real = []
     for k in range(5):
-        clock.local = base + timedelta(hours=24, minutes=10 * k)
+        clock.local = base + timedelta(hours=23, minutes=30 + 5 * k)
         d = friday - timedelta(days=1) if k % 2 else friday
         real.append(_post(client, db, slug, d, ("18:00", "18:30", "20:00", "17:30", "19:30")[k]))
-    assert real == [("confirmed", None)] * 5
+    if 24 >= day_cap:
+        assert real == [("requested", "venue_day")] * 5
+    else:
+        assert real == [("confirmed", None)] * 5
+    later = []
+    for k in range(3):
+        clock.local = base + timedelta(hours=48, minutes=10 * k)
+        later.append(_post(client, db, slug, friday + timedelta(days=7), ("18:00", "19:00", "20:00")[k]))
+    assert later == [("confirmed", None)] * 3
 
     # A5 — ten forms filled at bot speed: every one held, none confirmed.
     _u, slug = _venue(db, tables)

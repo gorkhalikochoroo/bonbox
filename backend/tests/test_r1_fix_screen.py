@@ -97,8 +97,26 @@ def test_a_flood_that_was_held_does_not_hold_the_next_real_guest(client, db, out
 def test_a_drip_spread_over_dates_holds_no_real_guest_on_another_date(client, db, outbox, volume_both):
     """Recheck S1 (24 Oct): 3 honest-looking posts an hour for 8 hours, a new
     date each round, were all confirmed — and from then on every real guest,
-    on every date, was held (the venue-wide 24-a-day ceiling). The day rule is
-    per DATE now."""
+    on every date, was held SILENTLY (the venue-wide 24-a-day ceiling). Fix
+    round 2 made the day rule per DATE.
+
+    R1b (D1(a), adopted): the venue's day is bounded again — 24 passed in
+    24 h at 6 tables (max(24, 4 × tables)) — so after this drip a real guest
+    on another date waits for the owner's yes; but as a PERSON (venue_day):
+    the page promises the "request received" mail, the guest gets it, and
+    the owner is told. With the switch off: confirmed, as before."""
+    from app.config import settings
+    # The venue's share of the fleet's guest mail is its own test (this
+    # drip alone puts a one-venue fleet under pressure); here the day rule.
+    settings_share = settings.BOOKING_VENUE_MAIL_SHARE_PCT
+    settings.BOOKING_VENUE_MAIL_SHARE_PCT = 0
+    try:
+        _drip_then_real_guests(client, db, outbox, volume_both)
+    finally:
+        settings.BOOKING_VENUE_MAIL_SHARE_PCT = settings_share
+
+
+def _drip_then_real_guests(client, db, outbox, volume_both):
     u, p, _ = restaurant(db, tables=6)
     for rnd in range(8):            # 3 an hour for 8 simulated hours = 24 passed
         for i in range(3):
@@ -110,23 +128,31 @@ def test_a_drip_spread_over_dates_holds_no_real_guest_on_another_date(client, db
     for k, d in enumerate((DAY + timedelta(days=20), DAY + timedelta(days=3), today_local() + timedelta(days=1))):
         r = book(client, p.reservation_slug, day=d, time="19:00", name="Mette Rigtig",
                  email=f"mette{k}@x.test", form_ms=48000)
-        assert r.json()["status"] == "confirmed", _reason(db, r.json()["id"])
+        if volume_both:
+            assert r.json()["status"] == "requested", r.text
+            assert _reason(db, r.json()["id"]) == "venue_day"
+            assert r.json()["guest_mail"] is True               # a person, mailed
+            assert [m for m in outbox if m["to"] == f"mette{k}@x.test"]
+        else:
+            assert r.json()["status"] == "confirmed", _reason(db, r.json()["id"])
 
 
 def test_a_drip_on_one_date_is_held_at_the_date_ceiling(client, db, outbox, volume_on):
-    """…but one date filling unusually fast is a pattern: max(6, 1.5 × 6
-    tables) = 9 online bookings made in 24 h for one date, then held."""
-    u, p, _ = restaurant(db, tables=6)
-    slots = ("11:00", "12:30", "14:00", "15:30", "17:00", "18:30", "20:00", "21:30")
+    """…but one date filling unusually fast is a pattern. R1b: measured
+    against what THAT date can seat — 6 tables, 17–22, 90-min sittings:
+    ⌈0.75 × 6 × 300 ÷ 90⌉ = 15 online bookings made in 24 h, then held (R1a's
+    fixed max(6, 1.5 × tables) held the 10th)."""
+    evening = {k: "17:00-22:00" for k in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")}
+    u, p, _ = restaurant(db, tables=6, hours=evening)
     got = []
-    for n in range(12):
-        r = book(client, p.reservation_slug, day=DAY, time=slots[n % len(slots)], name=f"Drip {n}",
-                 email=f"onedate{n}@x.test", ip=f"10.9.0.{n}")
+    for n in range(18):
+        r = book(client, p.reservation_slug, day=DAY, time=("17:00", "18:30", "20:00")[n % 3],
+                 name=f"Drip {n}", email=f"onedate{n}@x.test", ip=f"10.9.0.{n}")
         got.append((r.json()["status"], _reason(db, r.json()["id"])))
         if n % 3 == 2:
-            _age(db, u, 61)         # 3 an hour: the hour rule stays out of it
-    assert [s for s, _ in got].count("confirmed") == 9
-    assert got[9:] == [("requested", "date_full")] * 3
+            _age(db, u, 181)        # a round per 3 h: the hour and sitting rules stay out
+    assert [s for s, _ in got].count("confirmed") == 15
+    assert got[15:] == [("requested", "date_full")] * 3
     # Another date is untouched by it.
     other = book(client, p.reservation_slug, day=DAY + timedelta(days=1), time="19:00",
                  email="other-date@x.test", form_ms=52000)
@@ -176,9 +202,11 @@ def test_over_the_group_ceiling_a_request_is_held_quietly(client, db, outbox, vo
 
 # ── atk-a / atk-c: the slow drip ───────────────────────────────────────
 def test_a_fast_drip_on_one_evening_confirms_at_most_the_date_ceiling(client, db, outbox, volume_on):
-    """atk-a: 6 posts an hour for 4 hours, four sittings of one evening. At
-    most 9 (the date ceiling at 6 tables) are confirmed, never more than 3 at
-    one sitting within 3 hours (was 24 before R1, 12 after the fix round)."""
+    """atk-a: 6 posts an hour for 4 hours, four sittings of one evening. Never
+    more than 3 at one sitting within 3 hours (was 24 before R1, 12 after the
+    fix round). R1b: the date's own ceiling for this venue (11–23, 90 min) is
+    36, so the sitting rule is what bounds this drip — 16 confirmed, at most
+    3 per sitting per 3 h, the rest held as sitting_full."""
     u, p, _ = restaurant(db, tables=6)
     times = ("19:00", "21:00", "17:00", "13:00")
     confirmed = []
@@ -194,11 +222,18 @@ def test_a_fast_drip_on_one_evening_confirms_at_most_the_date_ceiling(client, db
                 this_hour += 1
         assert this_hour <= 6, (rnd, this_hour)      # max(6, 6 tables) an hour
         _age(db, u, 61)
-    assert len(confirmed) == 9                       # max(6, 1.5 × 6) for one date
+    # R1b: one sitting bounds it (the date's ceiling here is 36). Rounds 0–1
+    # give every sitting its 3 (12); round 2 is all held; in round 3 round 0
+    # has left the 3-hour window, and each sitting takes one more (4) — 16,
+    # every sitting 4 of its 6 tables.
+    assert len(confirmed) == 16, confirmed
     for t in times:                                  # a sitting: ≤ 3 made within 3 h
         for rnd in range(4):
             recent = [x for x in confirmed if x[1] == t and rnd - 2 <= x[0] <= rnd]
             assert len(recent) <= 3, (t, rnd, confirmed)
+    held = {_reason(db, x.id) for x in db.query(Reservation).filter(
+        Reservation.user_id == u.id, Reservation.status == "requested").all()}
+    assert held == {"sitting_full"}
 
 
 def test_a_drip_cannot_close_a_free_venue_for_the_month(client, db, outbox, volume_on):
