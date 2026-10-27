@@ -507,7 +507,11 @@ def test_salon_quick_setup_seeds_payroll_free_self_chair(client, db):
         assert chair.follows_opening_hours is True
         assert chair.staff_id is None
         assert chair.capacity_seats == 1
-        assert chair.label == "Ny Salon"
+        # R7's rule (fix round 27 Oct): the owner's chair is named for the
+        # person in it — with no name sent, "Behandler" — never the business
+        # name ("Ny Salon" read as a stylist on the guest page).
+        assert chair.label == "Behandler"
+        assert chair.label != u.business_name
 
         # Payroll containment: NO StaffMember created for the owner.
         assert db.query(StaffMember).filter(StaffMember.user_id == u.id).count() == 0
