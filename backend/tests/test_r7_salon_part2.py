@@ -311,6 +311,23 @@ def test_the_quick_setup_without_a_name_never_uses_the_business_name(client, db)
     assert s["user"].business_name not in labels
 
 
+def test_the_quick_setup_never_fails_on_the_name(client, db):
+    # One tap must open the page: an unusable name is the fallback, a long
+    # one is cut — never a refusal.
+    s = salon(db, stylist=None)
+    as_owner(s["user"])
+    r = client.post("/api/reservations/salon/quick-setup",
+                    json={"booking_hours": OPEN_FRI, "chair_name": "\u200b \t"})
+    assert r.status_code == 200, r.text
+    assert [c.label for c in _chairs(db, s)] == ["Behandler"]
+    other = salon(db, stylist=None)
+    as_owner(other["user"])
+    r = client.post("/api/reservations/salon/quick-setup",
+                    json={"booking_hours": OPEN_FRI, "chair_name": "A" * 120})
+    assert r.status_code == 200, r.text
+    assert [c.label for c in _chairs(db, other)] == ["A" * 80]
+
+
 # ── Rename (S12) ─────────────────────────────────────────────────────────
 def test_the_owners_chair_is_renamed_and_customers_see_it(client, db):
     s = salon(db, stylist=None, self_chair=True)

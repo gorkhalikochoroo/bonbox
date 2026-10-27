@@ -1192,6 +1192,15 @@ def _clean_stylist_name(raw) -> str:
     return s
 
 
+def _own_chair_name(raw) -> str:
+    """The owner's own chair from the one-tap first-run card: her name tidied
+    like _clean_stylist_name, but never a refusal — the tap must open the
+    page. Nothing usable = SELF_CHAIR_FALLBACK; longer than 80 = cut."""
+    s = " ".join(str(raw or "").split())
+    s = "".join(ch for ch in s if ch.isprintable()).strip()
+    return s[:STYLIST_NAME_MAX].strip() if s else SELF_CHAIR_FALLBACK
+
+
 def _stylist_dict(r: BookableResource, staff_name: str | None) -> dict:
     return {**_resource_dict(r), "staff_name": staff_name}
 
@@ -1301,8 +1310,7 @@ def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
         rsvc.start_new_salon_on_30(db, user.id, profile)
         # Her own name, as she typed it — never the business name (R7: the
         # guest page listed the salon itself as a stylist).
-        label = (_clean_stylist_name(payload.chair_name)
-                 if (payload.chair_name or "").strip() else SELF_CHAIR_FALLBACK)
+        label = _own_chair_name(payload.chair_name)
         chair = BookableResource(
             user_id=user.id, kind="provider", label=label,
             capacity_seats=1, combinable=False, staff_id=None,
