@@ -44,18 +44,29 @@ def postgres_engine_kwargs() -> dict:
     it the readiness probe — and any real request needing a fresh connection
     during an outage — blocks instead of failing fast. pool_pre_ping stays: a
     kept connection the pooler closed while idle is replaced, not used.
+
+    hide_parameters (fix round 27 Oct, review P3-8): a failed statement's
+    bound values never reach a log line or an exception message — a guest's
+    full phone number or mailbox (a LIKE pattern, a WHERE value) was printed
+    by every logger.warning(..., exc_info=True) around a failed read. The
+    statement itself and the database's own error text still are (nothing
+    reads parameter values from an error: /admin/recent-errors shows the
+    message and the traceback as text).
     """
     return {
         "pool_pre_ping": True,
         "pool_size": 15,
         "max_overflow": 0,
         "connect_args": {"connect_timeout": 5},
+        "hide_parameters": True,
     }
 
 
 if "sqlite" in settings.DATABASE_URL:
     connect_args = {"check_same_thread": False}
-    engine = create_engine(settings.DATABASE_URL, connect_args=connect_args)
+    # The same rule as Postgres: bound values never reach a log or an error.
+    engine = create_engine(settings.DATABASE_URL, connect_args=connect_args,
+                           hide_parameters=True)
 else:
     engine = create_engine(settings.DATABASE_URL, **postgres_engine_kwargs())
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
