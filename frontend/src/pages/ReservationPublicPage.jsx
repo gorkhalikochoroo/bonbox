@@ -67,6 +67,7 @@ import { rescueDay } from "../utils/bookingDay";
 import { GUEST_REFUSALS, guestRefusalOf } from "../utils/bookingRefusal";
 import { capFirst, dateLocale, fmtDayLabel, fmtDayShort } from "../utils/guestLocale";
 import { isFramed } from "../utils/framed";
+import { canonicalPath } from "../utils/bookingLink";
 import {
   ariaWord,
   bookAheadText,
@@ -1200,6 +1201,11 @@ export default function ReservationPublicPage() {
         if (!alive) return;
         setPage(r?.data || null);
         setLoadError("");
+        // R9: opened on an OLD link (the owner changed it): the server
+        // names the current one and the address bar moves there — query
+        // and hash kept, /r/ kept for the embed. Nothing else changes.
+        const to = canonicalPath(location.pathname, r?.data?.canonical_slug);
+        if (to) navigate({ pathname: to, search: location.search, hash: location.hash }, { replace: true });
       })
       .catch((err) => {
         if (!alive) return;
@@ -1215,6 +1221,9 @@ export default function ReservationPublicPage() {
     return () => {
       alive = false;
     };
+    // Only a new slug loads the page again; the location is read for the
+    // old-link move (R9) and must not refetch on a #details hash.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
   // ── Deep-link self-cancel from the email ─────────────────────────
