@@ -48,7 +48,27 @@ DAYTIME (08:00–22:00 venue time), and no deadline falls in the night:
     guest still hears an hour before the sitting; a breakfast too early for
     that → 21:00 the evening before, if the owner had their window by then;
   • asked late in the evening for the same night → open until the morning,
-    as the nightly run left it on live.
+    as the nightly run left it on live (superseded below: D-C).
+
+IN TIME FOR THE GUEST (D-C, option 1, 27 Oct 2026). Counting the owner's
+window in daytime pushed an evening request for tomorrow's breakfast to just
+before, at or after the sitting (asked 21:15 for 07:30 → declined 09:15),
+against the receipt's "inden dagen". So, on top of all of the above, an
+unanswered request is NEVER declined later than an hour before its sitting:
+
+  • the hour-before point falls by day (08:00–21:00) → declined then: asked
+    21:00 for 09:30 → the owner has 21:00–22:00 and 08:00–08:30, declined
+    08:30;
+  • it falls in the night → 21:00 the evening before, if the owner had an
+    hour of daytime by then; otherwise 08:00 or two hours before the sitting,
+    whichever is earlier (D2 as approved) — asked 21:15 for 07:30 → 05:30;
+  • never sooner than an hour after asking (fix round 2): a request made
+    less than two hours ahead still gets its hour, so it is the one case
+    still answered later than an hour before the sitting.
+
+It only ever pulls a deadline EARLIER than the R1a build did, never later.
+The sweep runs every 15 minutes on the quarter hour (main.py), so a deadline
+on a quarter hour is kept to the minute.
 """
 
 from __future__ import annotations
@@ -90,16 +110,34 @@ MIN_ANSWER_HOURS = 1
 
 
 # The owner's day (venue time, R1a fix round). The answer window is counted
-# in DAYTIME, OWNER_DAY_FROM_HOUR–OWNER_DAY_TO_HOUR, and a deadline is only
-# ever set from OWNER_DAY_FROM_HOUR to DECLINE_UNTIL_HOUR — the hourly sweep
-# then declines it before 22:00 whatever minute it runs at.
+# in DAYTIME, OWNER_DAY_FROM_HOUR–OWNER_DAY_TO_HOUR, and a deadline is set
+# by day from OWNER_DAY_FROM_HOUR to DECLINE_UNTIL_HOUR (the sweep then
+# declines it well before 22:00) — the night is for D-C's breakfast cases only.
 OWNER_DAY_FROM_HOUR = 8
 OWNER_DAY_TO_HOUR = 22
 DECLINE_UNTIL_HOUR = 21
 
+# D-C (27 Oct 2026). When the hour-before point falls in the night, the
+# evening before counts only if the owner had this much daytime by then …
+EVENING_BEFORE_DAYTIME_HOURS = 1
+# … otherwise the guest hears at 08:00, or this long before the sitting if
+# that is earlier (D2).
+NIGHT_TELL_BEFORE_START_HOURS = 2
+
+# How far ahead of a sitting the sweep looks. No deadline is earlier than
+# this before its sitting: the earliest is 21:00 the evening before a
+# breakfast that starts before 09:00 (under 12 h). It was 6 h, so a deadline
+# set for "21:00 the evening before" only fired at about 02:30 in the night.
+SWEEP_HORIZON_HOURS = 12
+
 
 def _at(t: datetime, hour: int) -> datetime:
     return t.replace(hour=hour, minute=0, second=0, microsecond=0)
+
+
+def _by_day(t: datetime) -> bool:
+    """08:00–21:00 venue wall-clock: a time a decline may be set for."""
+    return _at(t, OWNER_DAY_FROM_HOUR) <= t <= _at(t, DECLINE_UNTIL_HOUR)
 
 
 def owner_daytime_after(created_local: datetime, hours: float) -> datetime:
@@ -130,7 +168,7 @@ def _out_of_the_night(deadline: datetime, starts_at: datetime,
     for that (breakfast) is answered the EVENING before instead, if the
     owner had their daytime window by then; else the morning still wins (the
     owner's chance before the guest's notice)."""
-    if _at(deadline, OWNER_DAY_FROM_HOUR) <= deadline <= _at(deadline, DECLINE_UNTIL_HOUR):
+    if _by_day(deadline):
         return deadline
     if deadline.hour < OWNER_DAY_FROM_HOUR:
         morning = _at(deadline, OWNER_DAY_FROM_HOUR)
@@ -145,15 +183,11 @@ def _out_of_the_night(deadline: datetime, starts_at: datetime,
     return morning
 
 
-def answer_deadline(starts_at: datetime, created_local: datetime | None) -> datetime:
-    """When an unanswered request is declined (naive venue time). See the
-    module docstring; a row with no creation time is treated as old.
-
-    R1a fix round (24 Oct 2026): the owner's answer window — two hours, or
-    the shorter one a same-day request leaves — is counted in DAYTIME, and
-    the deadline never falls in the night. An evening request for tomorrow's
-    09:30 is declined at 09:00, not at 05:30 before anyone is up (verify S5).
-    """
+def daytime_deadline(starts_at: datetime, created_local: datetime | None) -> datetime:
+    """The R1a fix round's deadline (24 Oct 2026), before D-C: the owner's
+    answer window — two hours, or the shorter one a same-day request leaves —
+    counted in DAYTIME, and never set in the night. Kept on its own so the
+    sweep tests can show D-C only ever moves a deadline earlier."""
     far = starts_at - timedelta(hours=EXPIRE_BEFORE_START_HOURS)
     if created_local is None:
         return _out_of_the_night(far, starts_at, None)
@@ -164,6 +198,57 @@ def answer_deadline(starts_at: datetime, created_local: datetime | None) -> date
     window = min(timedelta(hours=ANSWER_WINDOW_HOURS), base - created_local)
     daytime = owner_daytime_after(created_local, window.total_seconds() / 3600)
     return _out_of_the_night(max(base, daytime), starts_at, daytime)
+
+
+def in_time_for_the_guest(deadline: datetime, starts_at: datetime,
+                          created_local: datetime | None) -> datetime:
+    """D-C, option 1 (27 Oct 2026): never later than an hour before the
+    sitting. A deadline already that early is kept. Otherwise:
+
+      • the hour-before point falls by day (08:00–21:00) → that point;
+      • it falls in the night → 21:00 the evening before, if the owner had
+        EVENING_BEFORE_DAYTIME_HOURS of daytime by then; else 08:00 or
+        NIGHT_TELL_BEFORE_START_HOURS before the sitting, whichever is
+        earlier;
+      • and never sooner than MIN_ANSWER_HOURS after asking — so only a
+        request made under two hours ahead is still answered later.
+
+    Only ever moves a deadline earlier. A row with no creation time keeps
+    its deadline (it is never later than the hour before anyway)."""
+    tell_by = starts_at - timedelta(hours=TELL_BEFORE_START_HOURS)
+    if deadline <= tell_by or created_local is None:
+        return deadline
+    if _by_day(tell_by):
+        target = tell_by
+    else:
+        if tell_by.hour < OWNER_DAY_FROM_HOUR:
+            evening = _at(tell_by - timedelta(days=1), DECLINE_UNTIL_HOUR)
+            morning = _at(tell_by, OWNER_DAY_FROM_HOUR)
+        else:  # after 21:00: the night that starts this evening
+            evening = _at(tell_by, DECLINE_UNTIL_HOUR)
+            morning = _at(tell_by + timedelta(days=1), OWNER_DAY_FROM_HOUR)
+        if owner_daytime_after(created_local, EVENING_BEFORE_DAYTIME_HOURS) <= evening:
+            target = evening
+        else:
+            target = min(morning,
+                         starts_at - timedelta(hours=NIGHT_TELL_BEFORE_START_HOURS))
+    return min(deadline,
+               max(target, created_local + timedelta(hours=MIN_ANSWER_HOURS)))
+
+
+def answer_deadline(starts_at: datetime, created_local: datetime | None) -> datetime:
+    """When an unanswered request is declined (naive venue time). See the
+    module docstring; a row with no creation time is treated as old.
+
+    The owner's window is counted in daytime (R1a fix round:
+    daytime_deadline), and the guest hears no later than an hour before the
+    sitting (D-C: in_time_for_the_guest). An evening request for tomorrow's
+    09:30 is declined at 08:30 — the owner had 21:00–22:00 and 08:00–08:30 —
+    never at 09:00 or after the breakfast; one for 07:30, asked at 21:15, at
+    05:30 (live: about 03:30).
+    """
+    return in_time_for_the_guest(daytime_deadline(starts_at, created_local),
+                                 starts_at, created_local)
 
 
 def _created_local(r) -> datetime | None:
@@ -179,11 +264,11 @@ def _created_local(r) -> datetime | None:
 def expire_stale_requests(db: Session | None = None, *, now_local: datetime | None = None) -> dict:
     """Decline requests the owner never answered, and tell the guest.
 
-    Runs every hour (main.py) and in the nightly maintenance — every hour so
-    each request is declined close to its own deadline (answer_deadline);
-    idempotent, it only touches rows still "requested". Never raises — a
-    failure here must not take the rest of maintenance down with it.
-    `now_local` (naive venue time) is for tests.
+    Runs every 15 minutes on the quarter hour (main.py, D-C) and in the
+    nightly maintenance — so each request is declined at its own deadline
+    (answer_deadline); idempotent, it only touches rows still "requested".
+    Never raises — a failure here must not take the rest of maintenance down
+    with it. `now_local` (naive venue time) is for tests.
     """
     own_session = db is None
     db = db or SessionLocal()
@@ -195,8 +280,9 @@ def expire_stale_requests(db: Session | None = None, *, now_local: datetime | No
         # naive UTC made the sweep fire two hours out in Danish summer:
         # the "six hours before" promise would really have been four.
         now = now_local or _now_local()
-        cutoff = now + timedelta(hours=EXPIRE_BEFORE_START_HOURS)
-        # Every deadline is at or after starts_at − 6 h, so only rows inside
+        cutoff = now + timedelta(hours=SWEEP_HORIZON_HOURS)
+        # Every deadline is at or after starts_at − SWEEP_HORIZON_HOURS (the
+        # evening before a breakfast is the earliest), so only rows inside
         # that horizon can be due; each one is then checked on its own.
         candidates = (
             db.query(Reservation)

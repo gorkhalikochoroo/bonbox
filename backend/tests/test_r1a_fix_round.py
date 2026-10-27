@@ -25,7 +25,10 @@ through the real public create path where it can be:
      answer go out past the per-address cap (by a small bound).
   6. No request is declined in the night: the owner's answer window is
      counted in daytime (08–22), and a deadline never falls after 21:00 or
-     before 08:00 — across both summer-time changes.
+     before 08:00 — across both summer-time changes. Since D-C (27 Oct
+     2026) the guest also hears no later than an hour before the sitting;
+     the night is used only for a breakfast too early for the morning (the
+     full sweep: tests/test_r1a_fix3_deadline_and_fill_time.py).
 
 Run: cd backend && python -m pytest tests/test_r1a_fix_round.py -q
 """
@@ -42,7 +45,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.jobs.reservation_request_expiry import (
-    answer_deadline, expire_stale_requests, owner_daytime_after,
+    answer_deadline, daytime_deadline, expire_stale_requests, owner_daytime_after,
 )
 from app.models.audit_log import AuditLog
 from app.models.reservation import Reservation
@@ -554,38 +557,41 @@ def test_a_group_requests_expiry_keeps_the_address_cap(db, outbox):
 # ═══ 6. Never declined in the night ══════════════════════════════════════
 
 def test_an_evening_request_for_the_morning_waits_for_the_owner(db, outbox):
-    """Verify S5: sent at 21:00 for 09:30 tomorrow — declined at 09:00 (the
-    owner's 21:00–22:00 and 08:00–09:00), never at 05:30."""
+    """Verify S5: sent at 21:00 for 09:30 tomorrow — never at 05:30 before
+    the owner is up. D-C: declined at 08:30, an hour before the sitting (the
+    owner's 21:00–22:00 and 08:00–08:30), no longer at 09:00."""
     u, _p, _ = restaurant(db)
     day = today_local() + timedelta(days=3)
     asked = _at(day - timedelta(days=1), 21)
     start = _at(day, 9, 30)
-    assert answer_deadline(start, asked) == _at(day, 9)
+    assert answer_deadline(start, asked) == _at(day, 8, 30)
     r = Reservation(user_id=u.id, guest_name="Morgen", guest_email="morgen@example.dk", party_size=10,
                     starts_at=start, ends_at=start + timedelta(hours=2), duration_min=120,
                     status="requested", source="public",
                     created_at=asked.replace(tzinfo=CPH).astimezone(timezone.utc).replace(tzinfo=None))
     db.add(r); db.commit()
-    for t in (_at(day, 3, 30), _at(day, 5, 30), _at(day, 7, 59), _at(day, 8, 30)):
+    for t in (_at(day, 3, 30), _at(day, 5, 30), _at(day, 7, 59), _at(day, 8, 29)):
         assert expire_stale_requests(db, now_local=t)["requests_expired"] == 0, t
-    assert expire_stale_requests(db, now_local=_at(day, 9))["requests_expired"] == 1
+    assert expire_stale_requests(db, now_local=_at(day, 8, 30))["requests_expired"] == 1
     assert reservation(db, r.id).cancel_reason == "request_expired_no_answer"
 
 
 @pytest.mark.parametrize("created,start,deadline", [
-    # winter time
-    ((2026, 11, 12, 21, 0), (2026, 11, 13, 9, 30), (2026, 11, 13, 9, 0)),
+    # winter time (D-C: an hour before the sitting, no longer 09:00)
+    ((2026, 11, 12, 21, 0), (2026, 11, 13, 9, 30), (2026, 11, 13, 8, 30)),
     ((2026, 11, 12, 23, 30), (2026, 11, 13, 13, 0), (2026, 11, 13, 10, 0)),
     ((2026, 11, 10, 10, 0), (2026, 11, 13, 11, 0), (2026, 11, 13, 8, 0)),    # was 05:00
     ((2026, 11, 10, 10, 0), (2026, 11, 13, 8, 30), (2026, 11, 12, 21, 0)),   # breakfast: the evening before
-    ((2026, 11, 12, 21, 30), (2026, 11, 12, 23, 0), (2026, 11, 13, 8, 30)),  # as the nightly run left it
+    # D-C: asked late for tonight — an hour after asking, before the sitting
+    # (it was left open until 08:30 the next morning, after the sitting)
+    ((2026, 11, 12, 21, 30), (2026, 11, 12, 23, 0), (2026, 11, 12, 22, 30)),
     ((2026, 11, 13, 15, 0), (2026, 11, 13, 17, 30), (2026, 11, 13, 16, 30)), # same day: unchanged
     # the spring-forward night (29 Mar 2026, 02:00 → 03:00)
-    ((2026, 3, 28, 21, 0), (2026, 3, 29, 9, 30), (2026, 3, 29, 9, 0)),
+    ((2026, 3, 28, 21, 0), (2026, 3, 29, 9, 30), (2026, 3, 29, 8, 30)),
     ((2026, 3, 28, 23, 0), (2026, 3, 29, 12, 0), (2026, 3, 29, 10, 0)),
     ((2026, 3, 27, 12, 0), (2026, 3, 29, 10, 0), (2026, 3, 29, 8, 0)),
     # the fall-back night (25 Oct 2026, 03:00 → 02:00)
-    ((2026, 10, 24, 21, 0), (2026, 10, 25, 9, 30), (2026, 10, 25, 9, 0)),
+    ((2026, 10, 24, 21, 0), (2026, 10, 25, 9, 30), (2026, 10, 25, 8, 30)),
     ((2026, 10, 24, 23, 0), (2026, 10, 25, 12, 0), (2026, 10, 25, 10, 0)),
     ((2026, 10, 23, 12, 0), (2026, 10, 25, 10, 0), (2026, 10, 25, 8, 0)),
 ])
@@ -594,18 +600,29 @@ def test_the_deadline_leaves_the_owner_a_daytime_window(created, start, deadline
 
 
 @pytest.mark.parametrize("day", [(2026, 1, 14), (2026, 3, 28), (2026, 7, 15), (2026, 10, 24)])
-def test_no_deadline_ever_falls_in_the_night(day):
+def test_no_deadline_falls_in_the_night_unless_the_sitting_needs_it(day):
     """Every request sent in a day (each half hour), for every sitting from
-    30 minutes to 3 days ahead: the deadline is between 08:00 and 21:00, and
-    the owner had their daytime window (2 h, or the shorter one a same-day
-    request leaves) before it — across a summer-time change."""
+    30 minutes to 3 days ahead: the deadline is between 08:00 and 21:00 —
+    unless D-C needs the night (the hour before the sitting is itself in
+    the night, or the request came in under two hours ahead) — and, unless
+    D-C moved it earlier to tell the guest in time, the owner had their
+    daytime window (2 h, or the shorter one a same-day request leaves)
+    before it — across a summer-time change."""
     base = datetime(*day)
     for k in range(48):
         created = base + timedelta(minutes=30 * k)
         for m in range(1, 145):
             start = created + timedelta(minutes=30 * m)
             d = answer_deadline(start, created)
-            assert d.replace(hour=8, minute=0) <= d <= d.replace(hour=21, minute=0), (created, start, d)
+            tell_by = start - timedelta(hours=1)
+            if not (d.replace(hour=8, minute=0) <= d <= d.replace(hour=21, minute=0)):
+                night_point = not (tell_by.replace(hour=8, minute=0) <= tell_by
+                                   <= tell_by.replace(hour=21, minute=0))
+                assert night_point or created + timedelta(hours=2) > start, (created, start, d)
+                continue
+            if d < daytime_deadline(start, created):
+                continue          # D-C moved it earlier to tell the guest in time —
+                                  # its own sweep: test_r1a_fix3_deadline_and_fill_time.py
             far = start - timedelta(hours=6)
             grace = min(created + timedelta(hours=2),
                         max(start - timedelta(hours=1), created + timedelta(hours=1)))
@@ -616,7 +633,8 @@ def test_no_deadline_ever_falls_in_the_night(day):
 
 def test_the_sweep_across_the_spring_forward_night(db, outbox):
     """created_at is UTC: a request at 21:00 CET on Saturday 28 Mar for 09:30
-    CEST on Sunday — still open at 05:30, declined at 09:00."""
+    CEST on Sunday — still open at 05:30, declined at 08:30 (D-C: an hour
+    before the sitting)."""
     u, _p, _ = restaurant(db)
     start = datetime(2026, 3, 29, 9, 30)
     r = Reservation(user_id=u.id, guest_name="Sommertid", guest_email="dst@example.dk", party_size=10,
@@ -624,8 +642,8 @@ def test_the_sweep_across_the_spring_forward_night(db, outbox):
                     status="requested", source="public", created_at=datetime(2026, 3, 28, 20, 0))
     db.add(r); db.commit()
     assert expire_stale_requests(db, now_local=datetime(2026, 3, 29, 5, 30))["requests_expired"] == 0
-    assert expire_stale_requests(db, now_local=datetime(2026, 3, 29, 8, 59))["requests_expired"] == 0
-    assert expire_stale_requests(db, now_local=datetime(2026, 3, 29, 9, 0))["requests_expired"] == 1
+    assert expire_stale_requests(db, now_local=datetime(2026, 3, 29, 8, 29))["requests_expired"] == 0
+    assert expire_stale_requests(db, now_local=datetime(2026, 3, 29, 8, 30))["requests_expired"] == 1
 
 
 def test_the_owners_decline_of_a_promised_request_reaches_the_guest(client, db, outbox, clock):
