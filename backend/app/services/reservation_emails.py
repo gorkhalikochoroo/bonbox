@@ -787,26 +787,49 @@ def _owner_budget_footer(lang: str, *, appointment: bool = False) -> str:
         n = int(app_config.OWNER_BOOKING_PINGS_PER_HOUR)
     except Exception:  # noqa: BLE001
         n = 3
+    night = _night_footer(lang)
     if lang == "da":
         where = "Tidsbestilling" if appointment else "Reservationer"
         text = (f"Du får højst {n} af disse i timen, derefter én samlet besked i timen. "
-                f"Slå e-mails om online-bookinger fra under {where} → Indstillinger.")
+                + night
+                + f"Slå e-mails om online-bookinger fra under {where} → Indstillinger.")
     else:
         where = "Appointments" if appointment else "Reservations"
         text = (f"You get at most {n} of these an hour, then one summary an hour. "
-                f"Turn off online-booking e-mails under {where} → Settings.")
+                + night
+                + f"Turn off online-booking e-mails under {where} → Settings.")
     return f'<p style="{_MUTED};margin-top:16px">{_e(text)}</p>'
 
 
+def _night_footer(lang: str) -> str:
+    """R1b: the quiet-night rule in one sentence (with a trailing space), or
+    "" while it is off — every promise in the footer stays true."""
+    try:
+        from app.services.owner_booking_alerts import night_quiet_on
+        if not night_quiet_on():
+            return ""
+        frm = int(app_config.OWNER_SUMMARY_QUIET_FROM_HOUR) % 24
+        to = int(app_config.OWNER_SUMMARY_QUIET_TO_HOUR) % 24
+        h = int(app_config.OWNER_NIGHT_PING_WITHIN_HOURS)
+    except Exception:  # noqa: BLE001
+        return ""
+    if lang == "da":
+        return (f"Om natten ({frm:02d}–{to:02d}) kun for bookinger, der starter inden for {h} timer; "
+                f"resten får du i én samlet besked kl. {to:02d}. ")
+    return (f"At night ({frm:02d}–{to:02d}) only for bookings that start within {h} hours; "
+            f"the rest comes in one summary at {to:02d}:00. ")
+
+
 def render_owner_booking_burst(venue: Venue, lang: str, n: int, booking_url: str,
-                               *, waiting: int = 0) -> tuple[str, str]:
+                               *, waiting: int = 0, cancelled: int = 0) -> tuple[str, str]:
     """The owner's hourly summary: ONE mail with the new online bookings and
     the requests waiting for an answer, and a link to the book — instead of a
     mail per booking. No guest data. (`venue` is kept for the shared
-    signature; the mail goes to the owner, so it says "your booking page".)"""
+    signature; the mail goes to the owner, so it says "your booking page".)
+    `cancelled` (R1b): guest cancellations the morning summary tells."""
     from app.services.notification_service import summary_words
     appointment = bool(getattr(venue, "appointment", False))
-    _title, body_text = summary_words(n, waiting, da=(lang == "da"))
+    _title, body_text = summary_words(n, waiting, da=(lang == "da"), cancelled=cancelled)
     counts = body_text.rsplit(". ", 1)[0]          # "12 nye · 3 venter på dit svar"
     if lang == "da":
         subject = f"Nye online-bookinger: {counts}"
@@ -826,9 +849,39 @@ def render_owner_booking_burst(venue: Venue, lang: str, n: int, booking_url: str
     return _subject(subject), _shell(lang, body, _owner_budget_footer(lang, appointment=appointment))
 
 
+def plans_url() -> str:
+    """The owner's plan page (the web app's /subscription) — the upgrade
+    nudge's link in an owner mail. Mail is not the iOS app: Apple's rule
+    about purchase links (3.1.1) is for the app's own screens."""
+    return f"{app_config.FRONTEND_URL.rstrip('/')}/subscription"
+
+
+def _plan_cap_line(lang: str, cap: int, *, appointment: bool = False) -> str:
+    """R1b: the plan's monthly cap is reached and online bookings come in as
+    requests (booking_screen rule 4b) — what happened and how to lift it, in
+    one paragraph with the plan page linked (the upgrade nudge). No price:
+    the plan page says that."""
+    cap = int(cap)
+    if lang == "da":
+        what, online = ("aftaler", "online-aftaler") if appointment else ("bookinger", "online-bookinger")
+        text = (f"Månedens {cap} {what} er brugt, så nye {online} kommer som forespørgsler, "
+                "du bekræfter. Med en plan uden månedlig grænse bekræftes de af sig selv.")
+        link = "Se planer"
+    else:
+        what, online = ("appointments", "online appointments") if appointment else ("bookings", "online bookings")
+        text = (f"This month's {cap} {what} are used, so new {online} come in as requests "
+                "you confirm. On a plan with no monthly limit they are confirmed by themselves.")
+        link = "See plans"
+    return (f'<p style="{_MUTED}">{_e(text)} '
+            f'<a href="{_e(plans_url())}">{_e(link)}</a></p>')
+
+
 def render_owner_new_booking(r, venue: Venue, lang: str, *, booking_url: str,
-                             now: datetime | None = None) -> tuple[str, str]:
-    """A guest booked via /r/<slug>: who, when, contact, notes, allergy."""
+                             now: datetime | None = None,
+                             plan_cap: int | None = None) -> tuple[str, str]:
+    """A guest booked via /r/<slug>: who, when, contact, notes, allergy.
+    `plan_cap` (R1b): the booking waits because the plan's monthly cap (this
+    number) is reached — one more paragraph says so, with the plan page."""
     is_request = r.status == "requested"
     when = format_when(r.starts_at, lang, now=now)
     appointment = _is_appointment(r, venue)
@@ -857,8 +910,10 @@ def render_owner_new_booking(r, venue: Venue, lang: str, *, booking_url: str,
         waiting = ((f"<p>The {'customer' if appointment else 'guest'} is waiting for your answer.</p>")
                    if is_request else "")
         cta = "Open and confirm" if is_request else "Open the booking"
+    nudge = (_plan_cap_line(lang, plan_cap, appointment=appointment)
+             if (is_request and plan_cap is not None and int(plan_cap) > 0) else "")
     body = (title + _owner_guest_block(r, lang, when=when, appointment=appointment) + service
-            + occasion + notes + allergy + waiting + _button(booking_url, cta))
+            + occasion + notes + allergy + waiting + _button(booking_url, cta) + nudge)
     return _subject(subject), _shell(lang, body, _owner_reply_hint(r, lang, appointment=appointment)
                                      + _owner_budget_footer(lang, appointment=appointment))
 
@@ -1048,9 +1103,11 @@ def fleet_guest_mail_capped(db: Session) -> int | None:
 
 
 def venue_mail_share() -> int | None:
-    """One venue's share of the fleet ceiling for the mails its online
-    bookings start (the confirmation / "request received"): ⌈SHARE_PCT % ×
-    GUEST_EMAILS_FLEET_PER_DAY⌉ in 24 h. None when either knob is off."""
+    """The fleet-wide part of one venue's share of the fleet ceiling for the
+    mails its online bookings start (the confirmation / "request
+    received"): ⌈SHARE_PCT % × GUEST_EMAILS_FLEET_PER_DAY⌉ in 24 h. None when
+    either knob is off. A venue's own share also grows with its size —
+    venue_mail_share_for (R1b)."""
     pct = int(app_config.BOOKING_VENUE_MAIL_SHARE_PCT)
     fleet = int(app_config.GUEST_EMAILS_FLEET_PER_DAY)
     if pct <= 0 or fleet <= 0:
@@ -1058,27 +1115,77 @@ def venue_mail_share() -> int | None:
     return max(1, -(-fleet * pct // 100))
 
 
+def venue_mail_share_for(n_resources: int) -> int | None:
+    """R1b: ONE venue's share, sized by the venue — max(SHARE_MIN,
+    SHARE_PER_RESOURCE × its tables or chairs, the fleet-wide part): a
+    2-table venue 9, a 6-table venue 12, a 10-table venue 20 at the live
+    fleet of 40, and 15 % of a raised fleet (2000 → 300). None when the share
+    is switched off (SHARE_PCT 0, or no fleet ceiling)."""
+    base = venue_mail_share()
+    if base is None:
+        return None
+    n = max(0, int(n_resources or 0))
+    return max(base, int(app_config.BOOKING_VENUE_MAIL_SHARE_MIN),
+               int(app_config.BOOKING_VENUE_MAIL_SHARE_PER_RESOURCE) * n)
+
+
+def fleet_pressure_last_24h(db: Session) -> int:
+    """Guest mails DELIVERED in the last 24 hours across every venue — the
+    venue share's pressure trigger — leaving the day-before REMINDERS out
+    (R1b): a busy venue's own reminders pushed the count over the trigger
+    and its own confirmations were then held back (fix-2 verify S8). The
+    fleet CEILING itself still counts every guest mail."""
+    since = utc_now() - timedelta(days=1)
+    return int(
+        db.query(func.count(NotificationLog.id))
+        .filter(
+            NotificationLog.channel == "email",
+            NotificationLog.status == "sent",
+            NotificationLog.event_type.in_(GUEST_EVENTS - {GUEST_REMINDER}),
+            NotificationLog.created_at >= since,
+        )
+        .scalar() or 0
+    )
+
+
+def _venue_size(db: Session, owner_id) -> int:
+    """The venue's active tables and chairs (one COUNT) — its share's size."""
+    from app.models.bookable_resource import BookableResource
+    return int(
+        db.query(func.count(BookableResource.id))
+        .filter(BookableResource.user_id == owner_id,
+                BookableResource.is_active.is_(True),
+                BookableResource.is_deleted.is_(False))
+        .scalar() or 0
+    )
+
+
 def venue_mail_share_capped(db: Session, owner_id) -> int | None:
     """The share when this venue has used it (confirmations DELIVERED in the
     last 24 h) AND the fleet is under pressure (it has delivered
-    BOOKING_VENUE_MAIL_SHARE_FROM_PCT of its day), else None. Raises when a
-    count fails — deliver() refuses. A slow drip at two venues used every
-    venue's guest mail for a day before this (recheck, 24 Oct: 21 + 19 of
-    the fleet's 40); a busy venue on a quiet day is not held back by it.
+    BOOKING_VENUE_MAIL_SHARE_FROM_PCT of its day — reminders left out,
+    R1b), else None. Raises when a count fails — deliver() refuses. A slow
+    drip at two venues used every venue's guest mail for a day before this
+    (recheck, 24 Oct: 21 + 19 of the fleet's 40); a busy venue on a quiet day
+    is not held back by it.
 
     R1a: a VOLUME rule — only with BOOKING_VOLUME_CEILINGS on (off by
     default): a busy 10-table venue's own confirmations were held back by
     it on a peak weekend (fix-2 verify S8). Off, the fleet and the venue's
-    own daily ceilings apply exactly as before R1."""
+    own daily ceilings apply exactly as before R1. R1b sizes the share by
+    the venue (venue_mail_share_for) and leaves reminders out of the
+    pressure."""
     from app.services.booking_screen import volume_ceilings_on
     if not volume_ceilings_on():
         return None
-    share = venue_mail_share()
-    if share is None:
+    if venue_mail_share() is None:
         return None
     from_pct = max(0, int(app_config.BOOKING_VENUE_MAIL_SHARE_FROM_PCT))
     fleet = int(app_config.GUEST_EMAILS_FLEET_PER_DAY)
-    if from_pct and guest_emails_sent_fleet_last_24h(db) < -(-fleet * from_pct // 100):
+    if from_pct and fleet_pressure_last_24h(db) < -(-fleet * from_pct // 100):
+        return None
+    share = venue_mail_share_for(_venue_size(db, owner_id))
+    if share is None:
         return None
     since = utc_now() - timedelta(days=1)
     n = int(
@@ -1511,9 +1618,12 @@ def _owner_opted_out(db, profile, r, event_type: str) -> bool:
     return True
 
 
-def send_owner_new_booking(db: Session | None, owner, profile, r) -> bool:
+def send_owner_new_booking(db: Session | None, owner, profile, r, *,
+                           plan_cap: int | None = None) -> bool:
     """The dependable companion to the owner push (which only lands when the
-    owner enabled notifications). Replying goes to the guest."""
+    owner enabled notifications). Replying goes to the guest. `plan_cap`
+    (R1b): the booking waits because the plan's monthly cap is reached — the
+    mail carries the upgrade nudge."""
     to = (getattr(owner, "email", None) or "").strip()
     if not to:
         return False
@@ -1521,7 +1631,8 @@ def send_owner_new_booking(db: Session | None, owner, profile, r) -> bool:
         return False
     lang = owner_lang(owner)
     subject, html = render_owner_new_booking(r, venue_context(owner, profile), lang,
-                                             booking_url=owner_booking_url(r, owner))
+                                             booking_url=owner_booking_url(r, owner),
+                                             plan_cap=plan_cap)
     return deliver(db, owner_id=r.user_id, reservation_id=r.id, event_type=OWNER_NEW_BOOKING,
                    to=to, subject=subject, html=html, reply_to=(r.guest_email or None))
 
@@ -1546,7 +1657,7 @@ def send_owner_guest_cancelled(db: Session | None, owner, profile, r, *,
 
 def send_owner_booking_burst(db: Session | None, owner, profile, n: int, *,
                              reservation_id, waiting: int = 0,
-                             today: str | None = None) -> bool:
+                             today: str | None = None, cancelled: int = 0) -> bool:
     """The one summary mail an hour for online bookings (see
     owner_booking_alerts). `reservation_id` is the log row's ledger key (a
     fresh id for a summary); the mail itself names no booking."""
@@ -1560,7 +1671,7 @@ def send_owner_booking_burst(db: Session | None, owner, profile, n: int, *,
     lang = owner_lang(owner)
     url = f"{app_config.FRONTEND_URL.rstrip('/')}/reservations" + (f"?date={today}" if today else "")
     subject, html = render_owner_booking_burst(venue_context(owner, profile), lang, n, url,
-                                               waiting=waiting)
+                                               waiting=waiting, cancelled=cancelled)
     return deliver(db, owner_id=owner.id, reservation_id=reservation_id,
                    event_type=OWNER_BOOKING_BURST, to=to, subject=subject, html=html)
 

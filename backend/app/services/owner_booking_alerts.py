@@ -34,6 +34,15 @@ venue_lock.py) on a ledger row (NotificationLog channel "budget"), so twelve
 bookings at the same instant cannot all read "under the budget". The pushes
 and e-mails themselves are sent outside the lock and log their own rows.
 
+R1b (27 Oct 2026, D3 — "quiet nights"): with OWNER_NIGHT_QUIET on (it
+follows BOOKING_VOLUME_CEILINGS when unset), in the quiet hours a booking or
+a guest cancellation pings only when it starts within
+OWNER_NIGHT_PING_WITHIN_HOURS (12) — tonight, or tomorrow's breakfast and
+lunch. Everything else is logged held back (QUIET_NIGHT) and told once, in
+the morning summary after the quiet hours: "3 nye · 1 aflyst · 2 venter på
+dit svar". An honest-looking script booking all night used to buzz the
+owner 3–4 times an hour (R1a N2).
+
 FAIL-OPEN: a failed count answers "send". A broken budget must never hide a
 real booking from the owner — the worst case is the old behaviour.
 """
@@ -68,6 +77,7 @@ OVER_BUDGET = "owner_ping_budget"         # a real booking / cancellation over t
 HELD_OVER_BUDGET = "held_over_budget"     # a held (person-like) booking over the budget
 HELD_FOR_SUMMARY = "held_for_summary"     # a held booking that never pings (requests_full)
 HELD_BOT = "held_bot"                     # a bot-like hold: never starts a summary
+QUIET_NIGHT = "quiet_night"               # R1b: a night ping for a booking > 12 h away
 # The held-back kinds that start a summary only outside the quiet hours.
 _HELD_TRIGGERS = (HELD_OVER_BUDGET, HELD_FOR_SUMMARY)
 # Every held-back kind about a HELD booking (the morning summary's question).
@@ -110,11 +120,51 @@ def _quiet_ended_at(now_local: datetime) -> datetime:
     return t if t <= now_local else t - timedelta(days=1)
 
 
+def _quiet_started_at(now_local: datetime) -> datetime:
+    """The venue-time instant the last finished quiet hours began (the 22:00
+    before _quiet_ended_at)."""
+    start = int(app_config.OWNER_SUMMARY_QUIET_FROM_HOUR) % 24
+    end = int(app_config.OWNER_SUMMARY_QUIET_TO_HOUR) % 24
+    return _quiet_ended_at(now_local) - timedelta(hours=(end - start) % 24)
+
+
+def night_quiet_on() -> bool:
+    """R1b (D3): are night pings limited to bookings starting soon?
+    OWNER_NIGHT_QUIET, which follows BOOKING_VOLUME_CEILINGS when unset; a
+    window of 0 hours, equal quiet hours or an unreadable setting read as
+    off — the owner then hears everything, as before."""
+    try:
+        from app.services.booking_screen import follows_volume_switch
+        return (int(app_config.OWNER_NIGHT_PING_WITHIN_HOURS) > 0
+                and follows_volume_switch(app_config.OWNER_NIGHT_QUIET))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def waits_for_morning(starts_at: datetime | None, *, now_utc: datetime) -> bool:
+    """Should the ping about a booking that starts at `starts_at` (naive
+    venue time) wait for the morning summary? Only with night_quiet_on, in
+    the quiet hours (22–07 venue time), and when the booking starts later
+    than OWNER_NIGHT_PING_WITHIN_HOURS from now. Never raises — False when in
+    doubt (the ping goes out, as before)."""
+    try:
+        if starts_at is None or not night_quiet_on():
+            return False
+        now_local = _local_of(now_utc)
+        if not in_quiet_hours(now_local):
+            return False
+        start = starts_at.replace(tzinfo=None) if starts_at.tzinfo else starts_at
+        return start > now_local + timedelta(hours=int(app_config.OWNER_NIGHT_PING_WITHIN_HOURS))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @dataclass(frozen=True)
 class Ping:
     decision: str        # "send" | "burst" | "suppress"
     new: int = 0         # online bookings made in the last hour (a summary)
     waiting: int = 0     # online requests waiting for the owner's answer
+    cancelled: int = 0   # R1b: guest cancellations the morning summary tells
 
 
 def _lock_key(owner_id) -> str:
@@ -180,6 +230,24 @@ def summary_counts(db, owner_id, *, now_utc: datetime, since: datetime | None = 
     from app.services.booking_screen import public_rows_since
     since = since or (now_utc - timedelta(hours=1))
     return public_rows_since(db, owner_id, since), waiting_requests(db, owner_id)
+
+
+def cancelled_since(db, owner_id, since: datetime) -> int:
+    """Online bookings a guest cancelled since `since` (naive UTC, the
+    cancelled_at clock) — the morning summary's "1 aflyst" (R1b). A request
+    a guest withdrew is not counted: it held no table."""
+    return int(
+        db.query(func.count(Reservation.id))
+        .filter(
+            Reservation.user_id == owner_id,
+            Reservation.source == "public",
+            Reservation.is_deleted.is_(False),
+            Reservation.status == "cancelled",
+            Reservation.cancel_reason == "guest_cancelled",
+            Reservation.cancelled_at >= since,
+        )
+        .scalar() or 0
+    )
 
 
 def decide(db, owner_id, *, now_utc: datetime, event: str = "reservation_created",
@@ -253,14 +321,15 @@ def send_summary(db, owner, profile, ping: Ping, *, today: str | None = None) ->
     digest). Each channel is best-effort."""
     try:
         from app.services.notification_service import notify_owner_booking_burst
-        notify_owner_booking_burst(db, owner, ping.new, waiting=ping.waiting, today=today)
+        notify_owner_booking_burst(db, owner, ping.new, waiting=ping.waiting, today=today,
+                                   cancelled=ping.cancelled)
     except Exception as exc:  # noqa: BLE001
         logger.warning("owner summary push failed: %s", type(exc).__name__)
     try:
         from app.services import reservation_emails
         reservation_emails.send_owner_booking_burst(
             db, owner, profile, ping.new, waiting=ping.waiting,
-            reservation_id=uuid.uuid4(), today=today)
+            reservation_id=uuid.uuid4(), today=today, cancelled=ping.cancelled)
     except Exception as exc:  # noqa: BLE001
         logger.warning("owner summary email failed: %s", type(exc).__name__)
 
@@ -285,9 +354,10 @@ def _held_back_since(db, owner_id, kinds, *, after: datetime | None,
 
 def _digest_due(db, owner_id, *, last_real, last_held, now_utc: datetime) -> str | None:
     """Why this venue's summary is due now — "hour" (a ping held back since
-    the last summary, an hour after it) or "morning" (held bookings nobody
-    told the owner about, once after the quiet hours) — or None. Runs under
-    the venue lock."""
+    the last summary, an hour after it), "night" (R1b: pings the quiet
+    hours held back for bookings further ahead, once after the quiet hours)
+    or "morning" (held bookings nobody told the owner about, once after the
+    quiet hours) — or None. Runs under the venue lock."""
     day_ago = now_utc - timedelta(days=1)
     hour_ago = now_utc - timedelta(hours=1)
     now_local = _local_of(now_utc)
@@ -305,9 +375,21 @@ def _digest_due(db, owner_id, *, last_real, last_held, now_utc: datetime) -> str
     quiet_end = _utc_of(_quiet_ended_at(now_local))
     if last is not None and last >= quiet_end:
         return None
+    # R1b: the night's own held-back pings (QUIET_NIGHT) — every one since
+    # the quiet hours began, whatever summary the night sent for a booking
+    # that started soon.
+    night_from = max(_night_started_utc(now_local), day_ago)
+    if _held_back_since(db, owner_id, (QUIET_NIGHT,), after=night_from, before=quiet_end):
+        return "night"
     if _held_back_since(db, owner_id, _HELD_KINDS, after=last or day_ago, before=quiet_end):
         return "morning"
     return None
+
+
+def _night_started_utc(now_local: datetime) -> datetime:
+    """Naive UTC a second before the last finished quiet hours began — the
+    lower bound for the night's held-back pings (the count is `>`)."""
+    return _utc_of(_quiet_started_at(now_local)) - timedelta(seconds=1)
 
 
 def flush_digests(db=None, *, now_utc: datetime | None = None) -> dict:
@@ -341,12 +423,13 @@ def flush_digests(db=None, *, now_utc: datetime | None = None) -> dict:
         )
         db.rollback()
         # Per venue: the newest held-back real ping and held-booking ping.
-        # A bot-like hold is listed (the morning summary may count it) but
-        # is never a trigger by itself.
+        # A bot-like hold, and a night ping held for the morning (R1b), is
+        # listed (the morning summary may count it) but is never a trigger
+        # by itself.
         venues: dict = {}
         for owner_id, why, at in rows:
             v = venues.setdefault(owner_id, {"real": None, "held": None})
-            if why == HELD_BOT:
+            if why in (HELD_BOT, QUIET_NIGHT):
                 continue
             key = "held" if why in _HELD_KINDS else "real"
             if v[key] is None or at > v[key]:
@@ -357,7 +440,17 @@ def flush_digests(db=None, *, now_utc: datetime | None = None) -> dict:
                 with venue_lock(db, _lock_key(owner_id)):
                     why = _digest_due(db, owner_id, last_real=v["real"], last_held=v["held"],
                                       now_utc=now_utc)
-                    if why is not None:
+                    if why == "night":
+                        # The night in one summary: what came in, what a
+                        # guest cancelled and what waits, since the quiet
+                        # hours began (R1b).
+                        since = max(_night_started_utc(_local_of(now_utc)), day_ago)
+                        new, waiting = summary_counts(db, owner_id, now_utc=now_utc, since=since)
+                        cancelled = cancelled_since(db, owner_id, since)
+                        if new + waiting + cancelled > 0:
+                            _spend(db, owner_id, BURST_EVENT)
+                            ping = Ping("burst", new=new, waiting=waiting, cancelled=cancelled)
+                    elif why is not None:
                         last = _last_summary_at(db, owner_id, day_ago)
                         since = last or (day_ago if why == "morning" else now_utc - timedelta(hours=1))
                         new, waiting = summary_counts(db, owner_id, now_utc=now_utc, since=since)

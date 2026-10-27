@@ -981,15 +981,20 @@ def notify_owner_new_reservation(db: Session, owner, reservation, *, cancelled: 
     return result
 
 
-def summary_words(n: int, waiting: int, *, da: bool) -> tuple[str, str]:
+def summary_words(n: int, waiting: int, *, da: bool, cancelled: int = 0) -> tuple[str, str]:
     """(title, body) of the owner's hourly summary — new online bookings and
-    the requests waiting for an answer. Shared by the push and the e-mail."""
+    the requests waiting for an answer. Shared by the push and the e-mail.
+    `cancelled` (R1b): guest cancellations, for the morning summary of the
+    night ("3 nye · 1 aflyst · 2 venter på dit svar"); 0 says nothing."""
     n, waiting = max(0, int(n or 0)), max(0, int(waiting or 0))
+    cancelled = max(0, int(cancelled or 0))
     if da:
         title = "BonBox · Nye online-bookinger"
         bits = []
         if n:
             bits.append(f"{n} nye")
+        if cancelled:
+            bits.append(f"{cancelled} aflyst")
         if waiting:
             bits.append(f"{waiting} venter på dit svar")
         body_text = (" · ".join(bits) or "Ingen nye") + ". Se dem i bogen."
@@ -998,6 +1003,8 @@ def summary_words(n: int, waiting: int, *, da: bool) -> tuple[str, str]:
         bits = []
         if n:
             bits.append(f"{n} new")
+        if cancelled:
+            bits.append(f"{cancelled} cancelled")
         if waiting:
             bits.append(f"{waiting} waiting for your answer")
         body_text = (" · ".join(bits) or "Nothing new") + ". See them in your book."
@@ -1005,16 +1012,17 @@ def summary_words(n: int, waiting: int, *, da: bool) -> tuple[str, str]:
 
 
 def notify_owner_booking_burst(db: Session, owner, n: int, *, waiting: int = 0,
-                               today: str | None = None) -> dict:
+                               today: str | None = None, cancelled: int = 0) -> dict:
     """ONE summary push instead of a buzz per booking, once the owner's hourly
     ping budget is spent (services/owner_booking_alerts.py): the new online
-    bookings and the requests waiting for an answer. Owner devices only, the
-    same tag every time (a newer summary replaces the older one on the lock
-    screen), no guest data. Writes one NotificationLog row (event
+    bookings and the requests waiting for an answer (and, in the morning
+    summary of a quiet night, the guests who cancelled — R1b). Owner devices
+    only, the same tag every time (a newer summary replaces the older one on
+    the lock screen), no guest data. Writes one NotificationLog row (event
     "owner_booking_burst"). Never raises."""
     result = {"attempted": 0, "sent": 0}
     da = owner_lang(owner) == "da"
-    title, body_text = summary_words(n, waiting, da=da)
+    title, body_text = summary_words(n, waiting, da=da, cancelled=cancelled)
     url = "/reservations" + (f"?date={today}" if today else "")
     payload = {"title": title, "body": body_text, "tag": "bonbox-booking-burst",
                "data": {"url": url}}
