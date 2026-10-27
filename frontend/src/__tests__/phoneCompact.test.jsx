@@ -461,7 +461,21 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // { onClick: 85, onChange: 61, onSubmit: 10, ariaLabel: 66,
     // ariaPressed: 4, role: 35, title: 26, id: 27, testid: 21, button: 57,
     // tKeys: 719 }.
-    "pages/ReservationsPage.jsx": { onClick: 81, onChange: 60, onSubmit: 11, ariaLabel: 61, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 3, role: 39, title: 24, id: 29, testid: 23, Button: 29, button: 54, Link: 5, disabled: 29, to: 5, href: 3, tKeys: 720 },
+    // Fix round 27 Oct (L) MOVED, nothing removed: the edit sheet
+    // (EditBookingSheet — 7 onClick, 7 onChange, 1 onSubmit, 2 aria-label,
+    // 1 aria-pressed, 3 role, 7 id, 5 Button, 2 button, 2 disabled) to
+    // components/reservations/EditBookingSheet.jsx, so the door screen's
+    // own build can load it on first use (MERGE §5 item 4); the sheets'
+    // keyboard hooks (the 2 role= in their dialog selector) to
+    // hooks/useSheetFocus.js; snapStart to utils/snapStart.js. 15 t() keys
+    // only those said left the page with them; each moved file is pinned
+    // below. Was { onClick: 81, onChange: 60, onSubmit: 11, ariaLabel: 61,
+    // ariaPressed: 3, role: 39, id: 29, Button: 29, button: 54,
+    // disabled: 29, tKeys: 720 }.
+    "pages/ReservationsPage.jsx": { onClick: 74, onChange: 53, onSubmit: 10, ariaLabel: 59, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 2, role: 34, title: 24, id: 22, testid: 23, Button: 24, button: 52, Link: 5, disabled: 27, to: 5, href: 3, tKeys: 705 },
+    "components/reservations/EditBookingSheet.jsx": { onClick: 7, onChange: 7, onSubmit: 1, ariaLabel: 2, ariaPressed: 1, role: 3, id: 7, Button: 5, button: 2, disabled: 2, tKeys: 30 },
+    "hooks/useSheetFocus.js": { role: 2, tKeys: 0 },
+    "utils/snapStart.js": { tKeys: 4 },
     "pages/InventoryPage.jsx": { onClick: 61, onChange: 38, onSubmit: 1, ariaLabel: 27, role: 1, title: 27, id: 7, Button: 5, button: 41, Link: 2, disabled: 3, to: 2, tKeys: 165 },
     "components/InventoryAutopilotPanel.jsx": { onClick: 5, onChange: 1, ariaLabel: 1, Button: 4, button: 1, disabled: 1, tKeys: 35 },
     "components/LiveKpisToday.jsx": { ariaLabel: 2, title: 1, tKeys: 14 },
