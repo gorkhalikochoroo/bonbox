@@ -658,7 +658,8 @@ describe("the strip's words belong to the party on screen", () => {
 });
 
 describe("party sizes on a phone", () => {
-  it("party 1–10 sit in a 2x5 grid at 40 px", async () => {
+  // Booking R4: 44 px on a phone (h-11!), 40 px from sm (sm:h-10!) — was 40 px.
+  it("party 1–10 sit in a 2x5 grid at 44 px (40 px from sm)", async () => {
     routes();
     renderAt();
     await settle();
@@ -670,9 +671,10 @@ describe("party sizes on a phone", () => {
     expect(group.className).not.toMatch(/(^|\s)overflow-x-auto(\s|$)/);
     expect(group.style.getPropertyValue("--party-cols-phone")).toBe("5");
     for (const c of chips) {
-      expect(c.className).toContain("h-10!");
+      expect(c.className).toMatch(/(^|\s)h-11!(\s|$)/);
+      expect(c.className).toMatch(/(^|\s)sm:h-10!(\s|$)/);
       expect(c.className).toContain("min-h-0!");
-      expect(c.className).not.toMatch(/(^|\s)h-11(\s|$)/);
+      expect(c.className).not.toMatch(/(^|\s)h-10!(\s|$)/);
     }
     chips[4].focus();
     fireEvent.keyDown(chips[4], { key: "ArrowRight" });
@@ -682,7 +684,7 @@ describe("party sizes on a phone", () => {
 
   it("a short phone screen keeps one swipe row on the standalone page only (fold ladder step 2)", async () => {
     // jsdom evaluates no media query: the classes are the contract. Under
-    // max-sm + max-height 700px the grid becomes the swipe row at 40px.
+    // max-sm + max-height 700px the grid becomes the swipe row at 44px (R4).
     const SHORT = "max-sm:[@media(max-height:700px)]:";
     routes();
     renderAt();
@@ -693,7 +695,7 @@ describe("party sizes on a phone", () => {
     for (const chip of within(group).getAllByRole("radio")) {
       expect(chip.className).toContain(`${SHORT}shrink-0`);
       expect(chip.className).toContain(`${SHORT}w-[max(2.5rem,calc((100vw-4.5rem)/7.5))]`);
-      expect(chip.className).toContain("h-10!");
+      expect(chip.className).toMatch(/(^|\s)h-11!(\s|$)/);
       expect(chip.className).toContain("min-h-0!");
     }
     cleanup();

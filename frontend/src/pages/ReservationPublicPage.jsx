@@ -202,6 +202,13 @@ const EMBED_GROUND = "min-[450px]:bg-transparent min-[450px]:px-4 min-[450px]:pt
 const EMBED_CARD =
   "min-[450px]:bg-white min-[450px]:rounded-[16px] " +
   "min-[450px]:shadow-[0_0_0_1px_rgb(16_24_40/0.05),0_1px_2px_rgb(16_24_40/0.04),0_16px_40px_-20px_rgb(16_24_40/0.18)]";
+// How wide the booking may get inside the frame (booking R4). The owner picks
+// the frame's width in the kit (utils/bookingEmbed EMBED_WIDTHS: 460 or 560)
+// and the snippet centres it in their column; the card follows the frame up
+// to 560. At 460 — every snippet before R4 — the card is as before (460 less
+// the ground's padding is 428, under the old 448 cap); only the flat look
+// (&flat=1, R3) gains 12 px there. Standalone keeps max-w-md.
+const EMBED_MAX = "max-w-[560px]";
 // A step enters over 220 ms from 4 px on the page's one curve (was 350 ms
 // from 8 px on the default ease). No fill mode: at rest there is no
 // transform, so nothing fixed inside is re-anchored.
@@ -476,8 +483,17 @@ const FORM_MS_MAX = 86_400_000;
 // grid is today's single swipe row instead, at 40px — standalone only (the
 // embed frame is content-sized). Taller phones keep the two-row grid. To undo:
 // drop PARTY_SHORT_RAIL / PARTY_CHIP_SHORT_RAIL. Never a chip under 40px.
+// Booking R4: party chips are 44px on a phone, 40px from sm (PARTY_CHIP_H).
+// The cost on this ladder, computed (the test campaign measures it): +8px for
+// the two-row grid (390×844 had +177px of room, 402×874 more), +4px for the
+// short-screen swipe row (375×667: the 28px it won back become 24px).
 const STEP1_SPACING = "space-y-6 max-sm:space-y-5";
 const PARTY_TITLE_GAP = "mb-2.5 max-sm:mb-2";
+// Party chips: 44px on a phone — Apple's touch minimum, and inside a
+// restaurant's page ours measured ~39px beside easyTable's 68px circles
+// (comparison.md #5) — and 40px from sm, as before (booking R4). min-h-0!
+// still releases the coarse-pointer floor, so the height is exactly this.
+const PARTY_CHIP_H = "h-11! sm:h-10!";
 // (Whole class names, so Tailwind sees them: the RAIL look, under the query.)
 const PARTY_SHORT_RAIL =
   "max-sm:[@media(max-height:700px)]:flex max-sm:[@media(max-height:700px)]:gap-2 " +
@@ -628,7 +644,13 @@ function VenueBadge({ logoUrl, name, size = "md" }) {
 // never a blank. `paused` hides the trust line in both layouts (C3), and
 // the "Book et bord" eyebrow too: nothing can be booked online right now.
 // The card's hours item follows PHONE_HOURS_ITEM (utils/venueHours, Q5).
-function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout = "card", isEmbed = false, todayIso, paused = false }) {
+//   `compact` (booking R4, the embed's &compact=1): the restaurant's own
+//   website already shows its logo, name and address, so the header is one
+//   row — the step dots (`dots`) and the DA/EN switch — over the trust line.
+//   The venue's name stays the page's one h1 for a screen reader. On a
+//   390×844 phone that puts "Vælg tid" above the fold under a host's sticky
+//   header (comparison.md, E3/E7).
+function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout = "card", isEmbed = false, todayIso, paused = false, compact = false, dots = null }) {
   const [hoursOpen, setHoursOpen] = useState(false);
   const name = page.business_name || null;
   const bookWords = apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table");
@@ -669,6 +691,31 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
       </a>
     );
   const trustText = t("rsvpTrustLine", "No account needed · Free cancellation");
+  // The two objections a stranger has before booking — "do I need an
+  // account?" and "am I locked in?" — answered before they scroll. As plain
+  // grey body text it read as legalese and was skipped; on a quiet strip with
+  // a green check it reads as reassurance. The strip itself is neutral: the
+  // green is spent on the one main action. (The card and the compact header.)
+  const trustStrip = (
+    <div className="flex items-center gap-2 rounded-xl bg-gray-50 dark:bg-white/5 px-3.5 py-2">
+      <Check className="w-4 h-4 shrink-0 text-bb-green" aria-hidden />
+      <p className="text-[13px] font-medium leading-snug text-gray-700 dark:text-gray-300">{trustText}</p>
+    </div>
+  );
+
+  if (compact && layout === "card") {
+    return (
+      <header data-testid="rsvp-compact-header" className="space-y-3">
+        <h1 className="sr-only">{name || bookWords}</h1>
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">{dots}</div>
+          <LangPill lang={lang} setLang={setLang} />
+        </div>
+        {/* Step 1 only, and not while paused — as in the full header. */}
+        {step === 1 && !paused && trustStrip}
+      </header>
+    );
+  }
 
   if (layout === "column") {
     // The desktop venue column: the same facts, given room. The trust line
@@ -778,19 +825,9 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
         <VenueHoursList hours={page.hours} todayIso={todayIso} lang={lang} t={t} apptWords={apptWords} variant="inline" id="rsvp-venue-hours" />
       )}
 
-      {/* The two objections a stranger has before booking — "do I need an
-          account?" and "am I locked in?" — answered before they scroll.
-          As plain grey body text it read as legalese and was skipped; on a
-          quiet strip with a green check it reads as reassurance. The strip
-          itself is neutral: the green is spent on the one main action. */}
-      {/* Not while online booking is paused: it advertises a booking
-          that isn't possible right now. */}
-      {step === 1 && !paused && (
-        <div className="flex items-center gap-2 rounded-xl bg-gray-50 dark:bg-white/5 px-3.5 py-2">
-          <Check className="w-4 h-4 shrink-0 text-bb-green" aria-hidden />
-          <p className="text-[13px] font-medium leading-snug text-gray-700 dark:text-gray-300">{trustText}</p>
-        </div>
-      )}
+      {/* The trust line (trustStrip). Not while online booking is paused:
+          it advertises a booking that isn't possible right now. */}
+      {step === 1 && !paused && trustStrip}
     </header>
   );
 }
@@ -927,6 +964,10 @@ export default function ReservationPublicPage() {
   // for a website that already frames the booking.
   const flat = searchParams.get("flat") === "1";
   const embedCard = isEmbed && !flat;
+  // Booking R4: the compact header (&compact=1) — embed only. The owner's kit
+  // offers it and a new snippet carries it by default; a snippet pasted
+  // before R4 has no such parameter and keeps the full header.
+  const compactHead = isEmbed && searchParams.get("compact") === "1";
   useLayoutEffect(() => {
     if (!embedCard || typeof document === "undefined") return undefined;
     const root = document.documentElement;
@@ -2239,7 +2280,7 @@ export default function ReservationPublicPage() {
         key="loading"
         className={`${rootMinH} ${ROOT_FINISH} bg-white dark:bg-gray-950 px-4 py-12` + (embedCard ? " " + EMBED_GROUND : "")}
       >
-        <div className={"max-w-md mx-auto space-y-4" + (embedCard ? " " + EMBED_CARD + " min-[450px]:px-4 min-[450px]:py-8" : "")}>
+        <div className={(isEmbed ? EMBED_MAX : "max-w-md") + " mx-auto space-y-4" + (embedCard ? " " + EMBED_CARD + " min-[450px]:px-4 min-[450px]:py-8" : "")}>
           <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-lg bg-gray-100 dark:bg-gray-800 h-8 w-2/3" />
           <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-xl bg-gray-100 dark:bg-gray-800 h-32" />
           <p className="text-sm text-gray-500 dark:text-gray-400 text-center pt-4">
@@ -2856,6 +2897,9 @@ export default function ReservationPublicPage() {
       isEmbed={isEmbed}
       todayIso={today}
       paused={paused}
+      // The compact header carries the step dots in its one row (R4).
+      compact={compactHead}
+      dots={!pausedStep1 ? <StepDots step={step} t={t} apptWords={apptWords} /> : null}
     />
   );
   return (
@@ -2882,7 +2926,7 @@ export default function ReservationPublicPage() {
       )}
       <main
         className={
-          "max-w-md mx-auto px-4 sm:px-6 pt-5 sm:pt-8 space-y-5 " +
+          (isEmbed ? EMBED_MAX : "max-w-md") + " mx-auto px-4 sm:px-6 pt-5 sm:pt-8 space-y-5 " +
           // In the grid, auto margins would size the card to its content
           // (it widened as the strip and the times arrived: a layout shift).
           (wide ? "w-full " : "") +
@@ -2897,8 +2941,9 @@ export default function ReservationPublicPage() {
             underneath. On a wide screen it lives in the column instead. */}
         {!wide && venueHeader("card")}
 
-        {/* No steps to show while paused: there is no flow. */}
-        {!pausedStep1 && <StepDots step={step} t={t} apptWords={apptWords} />}
+        {/* No steps to show while paused: there is no flow. The compact
+            header (R4) shows them in its own row. */}
+        {!pausedStep1 && !compactHead && <StepDots step={step} t={t} apptWords={apptWords} />}
 
         {/* The step area: exactly one of the paused panel, step 1 or step 2.
             It eases between heights (useAutoHeight) instead of jumping. */}
@@ -3031,10 +3076,12 @@ export default function ReservationPublicPage() {
                     so 8–10 — the group sizes — are visible without a swipe.
                     The 1 Aug rail (26ca4e98) existed because the old two-row
                     grid of 44px chips pushed the first time below the fold;
-                    these chips are 40px (h-10! + min-h-0!, which releases the
+                    these chips were 40px (h-10! + min-h-0!, which releases the
                     coarse-pointer 44px floor) and the fold is measured, not
                     assumed (spec p1 §6: first time row ≥ 8px above the bar at
-                    375×667, 390×844, 402×874). On a short phone screen
+                    375×667, 390×844, 402×874). Booking R4: 44px on a phone
+                    again (PARTY_CHIP_H) — the spacing and the short-screen
+                    rail now pay for it. On a short phone screen
                     (≤ 700px tall) the standalone page keeps the single swipe
                     row instead (fold ladder step 2, owner Q5: the live
                     bistro's two-row header left the times 16px under the
@@ -3066,15 +3113,16 @@ export default function ReservationPublicPage() {
                       role="radio"
                       aria-checked={party === n}
                       tabIndex={party === n ? 0 : -1}
-                      // 40px, never 44, grid and rail alike (min-h-0! releases
-                      // the coarse-pointer 44px floor). Rail (a ceiling above
-                      // 10): width from the screen, 7½ chips across, so a half
-                      // chip always sits at the edge and says the row goes on.
+                      // 44px on a phone, 40px from sm, grid and rail alike
+                      // (PARTY_CHIP_H; min-h-0! releases the coarse-pointer
+                      // floor). Rail (a ceiling above 10): width from the
+                      // screen, 7½ chips across, so a half chip always sits at
+                      // the edge and says the row goes on.
                       className={
                         partyGrid
-                          ? "w-full px-0 h-10! min-h-0! tabular-nums text-[15px] " +
+                          ? "w-full px-0 " + PARTY_CHIP_H + " min-h-0! tabular-nums text-[15px] " +
                             (isEmbed ? "" : PARTY_CHIP_SHORT_RAIL + " ") + FOCUS
-                          : "shrink-0 w-[max(2.5rem,calc((100vw-4.5rem)/7.5))] sm:w-auto h-10! min-h-0! px-3.5 snap-start tabular-nums text-[15px] " + FOCUS
+                          : "shrink-0 w-[max(2.5rem,calc((100vw-4.5rem)/7.5))] sm:w-auto " + PARTY_CHIP_H + " min-h-0! px-3.5 snap-start tabular-nums text-[15px] " + FOCUS
                       }
                     >
                       {n}
@@ -4116,7 +4164,10 @@ export default function ReservationPublicPage() {
               : { bottom: kbInset, paddingBottom: kbInset ? 0 : "env(safe-area-inset-bottom, 0px)" }
           }
         >
-          <div className="max-w-md mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
+          {/* Standalone, the bar spans the screen and its row is capped to
+              the card's column. In the embed it already sits inside the card
+              (R4: up to EMBED_MAX), so the row is the card's own width. */}
+          <div className={(isEmbed ? "" : "max-w-md mx-auto ") + "px-4 sm:px-6 py-3 flex items-center gap-3"}>
             {step === 1 ? (
               <>
                 {/* The whole selection stays in view — date, time and party —
