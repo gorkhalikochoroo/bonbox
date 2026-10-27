@@ -11,6 +11,9 @@
  *   4  The embed's ground pads 40 px below the card (pb-10): the card's
  *      shadow reaches 36 px and pb-6 cut it in a straight line. The same
  *      ground on every step and in the wait, so the posted height follows.
+ *   5  The salon's two selects and the waitlist's time select: the tile look
+ *      (rounded-xl, gray-50, a 6 % edge, pl-4 pr-10, weight 500), no native
+ *      chrome, a 16 px Lucide chevron at right-3.
  *
  * Run: cd frontend && TZ=UTC npx vitest run src/__tests__/fix27.g10Judge.test.jsx
  */
@@ -202,5 +205,50 @@ describe("4: the embed never cuts the card's shadow", () => {
       html.mockRestore();
       if (realParent) Object.defineProperty(window, "parent", realParent);
     }
+  });
+});
+
+describe("5: the selects wear the tile look with a Lucide chevron", () => {
+  const tileLook = (sel) => {
+    for (const c of ["appearance-none", "rounded-xl", "bg-gray-50", "border-gray-900/[0.06]", "pl-4", "pr-10", "font-medium", "h-12"]) {
+      expect(sel.className, c).toContain(c);
+    }
+    expect(sel.className).not.toMatch(/(^| )(rounded-lg|border-gray-200|bg-white|px-3)( |$)/);
+    const chevron = sel.parentElement.querySelector("svg");
+    expect(sel.parentElement.className).toContain("relative");
+    expect(chevron).not.toBeNull();
+    expect(chevron.getAttribute("class")).toContain("lucide-chevron-down");
+    expect(chevron.getAttribute("class")).toContain("right-3");
+    expect(chevron.getAttribute("class")).toContain("pointer-events-none");
+    expect(chevron.getAttribute("width")).toBe("16");
+  };
+
+  it("the salon's service and stylist selects", async () => {
+    routes({
+      page: { ...PAGE, business_type: "salon", providers: [{ id: "r1", name: "Mia" }] },
+      availability: () => ({ slots: [] }),
+    });
+    h.get.mockImplementation(((base) => (url, cfg) => {
+      if (url === "/public/reservations/x/behandlinger") {
+        return Promise.resolve({ data: { behandlinger: [{ id: 1, name: "Dameklip", duration_min: 45, price_kr: 450 }, { id: 2, name: "Herreklip", duration_min: 30 }] } });
+      }
+      return base(url, cfg);
+    })(h.get.getMockImplementation()));
+    renderAt();
+    await settle();
+    tileLook(document.getElementById("rsvp-behandling"));
+    tileLook(document.getElementById("rsvp-behandler"));
+  });
+
+  it("the waitlist's time select (source: the lazy full-night chunk)", () => {
+    const src = read("components/booking/FullNightOffer.jsx");
+    const at = src.indexOf('id="rsvp-wl-time"');
+    const block = src.slice(src.lastIndexOf('<div className="relative">', at), src.indexOf("</div>", at));
+    for (const c of ["appearance-none", "rounded-xl", "bg-gray-50", "border-gray-900/[0.06]", "pl-4", "pr-10", "font-medium"]) {
+      expect(block, c).toContain(c);
+    }
+    expect(block).toContain("<ChevronDown");
+    expect(block).toContain("right-3");
+    expect(read("pages/ReservationPublicPage.jsx")).toMatch(/FULL_NIGHT_KIT = \{[^}]*ChevronDown/);
   });
 });

@@ -178,7 +178,7 @@ function useLeave({ t, kit, confirm }, receipt, setReceipt) {
 }
 
 function WaitlistForm({ t, lang, kit, slug, day, party, offer, venue, phone, onJoined, onTableOpened, onCancel }) {
-  const { Button, Input } = kit;
+  const { Button, Input, ChevronDown } = kit;
   const [name, setName] = useState("");
   const [tel, setTel] = useState("");
   const [time, setTime] = useState("");
@@ -280,19 +280,32 @@ function WaitlistForm({ t, lang, kit, slug, day, party, offer, venue, phone, onJ
       {times.length > 0 && (
         <div>
           <label htmlFor="rsvp-wl-time" className={LABEL}>{t("rsvpWlPreferredTime", "When would suit you? (optional)")}</label>
-          <select
-            id="rsvp-wl-time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-            className={"w-full h-12 px-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-base text-gray-900 dark:text-gray-100 tabular-nums " + FOCUS}
-          >
-            <option value="">
-              {offer?.evening_full ? t("rsvpWlAnyTimeEvening", "Any time in the evening") : t("rsvpWlAnyTime", "Any time")}
-            </option>
-            {times.map((x) => (
-              <option key={x} value={x}>{x}</option>
-            ))}
-          </select>
+          {/* The page's tile look and a Lucide chevron, no native chrome
+              (G10 item 5) — as the salon's selects. */}
+          <div className="relative">
+            <select
+              id="rsvp-wl-time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              className={
+                "w-full h-12 appearance-none pl-4 pr-10 rounded-xl border bg-gray-50 border-gray-900/[0.06] " +
+                "dark:bg-white/[0.04] dark:border-white/[0.08] text-base font-medium text-gray-900 dark:text-gray-100 tabular-nums " + FOCUS
+              }
+            >
+              <option value="">
+                {offer?.evening_full ? t("rsvpWlAnyTimeEvening", "Any time in the evening") : t("rsvpWlAnyTime", "Any time")}
+              </option>
+              {times.map((x) => (
+                <option key={x} value={x}>{x}</option>
+              ))}
+            </select>
+            <ChevronDown
+              size={16}
+              strokeWidth={1.75}
+              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400"
+              aria-hidden="true"
+            />
+          </div>
         </div>
       )}
       {/* The trap field, as on the booking form: off-screen, out of the tab

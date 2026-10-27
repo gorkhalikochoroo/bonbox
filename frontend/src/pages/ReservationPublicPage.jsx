@@ -137,7 +137,7 @@ import { bookingModeFor, usesTableFloor, speaksAppointments } from "../config/ve
 
 // What that chunk needs from the page, handed over instead of imported there
 // (imported, the bundler moves these out of this chunk; FullNightOffer.jsx).
-const FULL_NIGHT_KIT = { api, Button, Input, BookingTile, Clock, Phone, fmtDayLabel, fmtDayShort };
+const FULL_NIGHT_KIT = { api, Button, Input, BookingTile, Clock, Phone, ChevronDown, fmtDayLabel, fmtDayShort };
 
 // ── Severity ladder ────────────────────────────────────────────────
 // Mirrors backend app/services/allergens.py SEVERITY_LEVELS. Stored as
@@ -242,6 +242,23 @@ const TEL_ACTION =
 // from 8 px on the default ease). No fill mode: at rest there is no
 // transform, so nothing fixed inside is re-anchored.
 const STEP_ENTER = "motion-safe:animate-[bbStep_220ms_cubic-bezier(0.22,1,0.36,1)]";
+// A native select in the page's tile look (G10 item 5, judge 27 Oct): no
+// native chrome, the times' own material, and a Lucide chevron on the right
+// (SelectChevron). The salon's two selects; the waitlist's time select wears
+// the same in FullNightOffer.jsx.
+const SELECT_TILE =
+  "w-full h-12 appearance-none pl-4 pr-10 rounded-xl border bg-gray-50 border-gray-900/[0.06] " +
+  "dark:bg-white/[0.04] dark:border-white/[0.08] text-base font-medium text-gray-900 dark:text-gray-100 ";
+function SelectChevron() {
+  return (
+    <ChevronDown
+      size={16}
+      strokeWidth={1.75}
+      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400"
+      aria-hidden="true"
+    />
+  );
+}
 // The main action's finish: a 1 px neutral contact shadow (never green) and,
 // while CTA_TOP_EDGE is on, an 8 % white top edge — the one concession to
 // "glossy", an edge, not a gradient. It stays only if it passes Manoj's look
@@ -3222,11 +3239,12 @@ export default function ReservationPublicPage() {
                       )}
                     </p>
                   ) : (
+                    <div className="relative">
                     <select
                       id="rsvp-behandling"
                       value={behandlingId}
                       onChange={(e) => setBehandlingId(e.target.value)}
-                      className="w-full h-12 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-base text-gray-900 dark:text-gray-100"
+                      className={SELECT_TILE + FOCUS}
                     >
                       <option value="">{t("rsvpPublicPickBehandling", "Vælg behandling")}</option>
                       {behandlinger.map((b) => {
@@ -3240,6 +3258,8 @@ export default function ReservationPublicPage() {
                         );
                       })}
                     </select>
+                    <SelectChevron />
+                    </div>
                   )}
                 </div>
                 {/* Behandler — Valgfri behandler is the default. Named behandlere
@@ -3253,11 +3273,12 @@ export default function ReservationPublicPage() {
                     {t("rsvpPublicPickBehandler", "Vælg behandler")}
                   </label>
                   {providers.length > 0 ? (
+                    <div className="relative">
                     <select
                       id="rsvp-behandler"
                       value={stylistId}
                       onChange={(e) => setStylistId(e.target.value)}
-                      className="w-full h-12 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-base text-gray-900 dark:text-gray-100"
+                      className={SELECT_TILE + FOCUS}
                     >
                       <option value="">{t("rsvpBookValgfri", "Any stylist")}</option>
                       {providers.map((p) => (
@@ -3266,6 +3287,8 @@ export default function ReservationPublicPage() {
                         </option>
                       ))}
                     </select>
+                    <SelectChevron />
+                    </div>
                   ) : (
                     <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-3 py-2.5 text-sm text-gray-600 dark:text-gray-300">
                       {t("rsvpBookValgfri", "Any stylist")} ·{" "}
