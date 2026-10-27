@@ -204,8 +204,14 @@ def _screen_and_join(db: Session, *, owner, profile, settings: dict, payload, da
             # list" — that would tell anyone with a number who is waiting).
             return pwl.stand_in_receipt(day, party, payload.preferred_time)
     if held:
-        if pwl.held_night_count(db, owner.id, day) >= pwl.HELD_PER_NIGHT:
-            abuse_signals.bump("waitlist_held_ceiling")
+        # Held rows have bounds of their own (a night here, and the fleet's
+        # day) and never count toward a real guest's; past them, or when a
+        # count can't be read, the join is dropped silently.
+        room = pwl.held_room(db, owner.id, day=day, now_utc=now_utc)
+        if room != "open":
+            abuse_signals.bump({"night_full": "waitlist_held_ceiling",
+                                "fleet_full": "waitlist_fleet_held_ceiling"}.get(
+                                    room, "waitlist_held_count_error"))
             return pwl.stand_in_receipt(day, party, payload.preferred_time)
     elif not pwl.gate_open(db, owner.id, day=day, today=today, now_utc=now_utc, count_hold=True):
         raise _unavailable()

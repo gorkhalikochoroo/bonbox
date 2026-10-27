@@ -46,7 +46,10 @@ like an online booking (services/booking_screen.py), and silently:
   • caps that close the online list (never the venue's own door list):
     PER_NIGHT entries a night, ACTIVE_MAX waiting at a venue, FLEET_PER_DAY
     across all venues. Any count error closes it (fail closed — the list is
-    an extra; a booking is never touched by it).
+    an extra; a booking is never touched by it). Held rows count toward none
+    of them; they have bounds of their own (HELD_PER_NIGHT, and
+    FLEET_HELD_PER_DAY across all venues), past which a held join is
+    dropped silently;
   • NO owner ping per join: there is nothing to do until a table frees, and
     then the freed-table nudge (inside the R1a ping budget) says who fits.
 
@@ -99,7 +102,12 @@ EVENING_FROM_HOUR = 17
 PER_NIGHT = 15        # online entries for one night at one venue (not held), any status
 ACTIVE_MAX = 25       # online entries waiting tonight or later at one venue (not held)
 HELD_PER_NIGHT = 15   # held (robot-like) entries kept for one night; more are dropped
-FLEET_PER_DAY = 300   # online entries at all venues in 24 h; 0 = off
+FLEET_PER_DAY = 300   # online entries at all venues in 24 h (not held); 0 = off
+# Held entries at all venues in 24 h (fix round 27 Oct): held rows never count
+# toward FLEET_PER_DAY — robots could otherwise close every venue's list for
+# a day — and have this bound of their own instead; past it a held join is
+# dropped silently (the same receipt, nothing written). 0 = off.
+FLEET_HELD_PER_DAY = 300
 RETENTION_DAYS = 30   # a public row's name and phone: at most 30 days after the night
 
 # The nearest free times offered on a full night.
@@ -422,10 +430,40 @@ def active_count(db, owner_id, today: date) -> int:
 
 
 def fleet_count(db, since_utc: datetime) -> int:
-    """Online entries at every venue since `since_utc` (any status)."""
+    """Online entries at every venue since `since_utc` (any status), held
+    ones left out (fix round 27 Oct: a robot's held rows closed every
+    venue's list for 24 h)."""
     return _count(
-        db.query(func.count(W.id)).filter(W.source == SOURCE, W.created_at >= since_utc)
+        db.query(func.count(W.id)).filter(W.source == SOURCE, W.created_at >= since_utc,
+                                          ~_held_exists_clause())
     )
+
+
+def fleet_held_count(db, since_utc: datetime) -> int:
+    """Online entries the screen held, at every venue since `since_utc`."""
+    return _count(
+        db.query(func.count(W.id)).filter(W.source == SOURCE, W.created_at >= since_utc,
+                                          _held_exists_clause())
+    )
+
+
+def held_room(db, owner_id, *, day: date, now_utc: datetime) -> str:
+    """May one more HELD entry be written? "open", "night_full"
+    (HELD_PER_NIGHT for this night here), "fleet_full" (FLEET_HELD_PER_DAY
+    at all venues in 24 h) or "unknown" (a count could not be read). Only
+    "open" writes; every other answer drops the join silently (fail closed —
+    a held row is never a real guest's only way in)."""
+    try:
+        if held_night_count(db, owner_id, day) >= HELD_PER_NIGHT:
+            return "night_full"
+        if FLEET_HELD_PER_DAY > 0 and \
+                fleet_held_count(db, now_utc - timedelta(days=1)) >= FLEET_HELD_PER_DAY:
+            return "fleet_full"
+        return "open"
+    except Exception:  # noqa: BLE001 — fail closed
+        logger.warning("waitlist held count failed — dropped", exc_info=True)
+        _rollback(db)
+        return "unknown"
 
 
 def gate_open(db, owner_id, *, day: date, today: date, now_utc: datetime,

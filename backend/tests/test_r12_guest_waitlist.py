@@ -542,7 +542,10 @@ def test_the_counts_see_real_rows_and_skip_held_rows(db, client):
     assert pwl.night_count(db, owner.id, FRI) == 1
     assert pwl.held_night_count(db, owner.id, FRI) == 1
     assert pwl.active_count(db, owner.id, NOW.date()) == 1
-    assert pwl.fleet_count(db, datetime(2000, 1, 1)) == 2
+    # Fix round 27 Oct (B): the fleet's real count leaves held rows out; the
+    # held ones have a count (and a ceiling) of their own.
+    assert pwl.fleet_count(db, datetime(2000, 1, 1)) == 1
+    assert pwl.fleet_held_count(db, datetime(2000, 1, 1)) == 1
 
 
 def test_the_fleet_ceiling_closes_every_list(db, client, monkeypatch):
@@ -913,3 +916,63 @@ def test_fix_a_the_monthly_cap_closes_the_list_as_on_availability(db, client):
     r = _join(client, profile, FRI, guest_phone="+45 22 22 22 22")
     assert r.status_code == 409 and r.json()["detail"]["error"] == "waitlist_unavailable"
     assert len(_rows(db, owner)) == 1
+
+
+# ── Fix round 27 Oct (B): held rows and the fleet's day ──────────────────
+# Review P3-6: held (robot) rows counted toward the 300-a-day fleet ceiling,
+# so robots could close the online list at EVERY venue for 24 h.
+def test_fix_b_held_rows_never_close_the_fleet_for_real_guests(db, client, monkeypatch):
+    monkeypatch.setattr(pwl, "FLEET_PER_DAY", 2)
+    owner, profile, tables = _venue(db)
+    _fill(db, owner, tables, FRI)
+    for i in range(4):                       # a robot's held flood at one venue
+        assert _join(client, profile, FRI, guest_phone=f"+45 5050{i:04d}",
+                     form_ms=50).status_code == 201
+        pubres._limiter.reset()
+    assert len(_held_ids(db, owner)) == 4
+    o2, p2, t2 = _venue(db)                  # a real guest elsewhere still joins
+    _fill(db, o2, t2, FRI)
+    assert _join(client, p2, FRI, guest_phone="+45 70707070").status_code == 201
+    pubres._limiter.reset()
+    assert _join(client, p2, FRI, guest_phone="+45 70707071").status_code == 201
+    pubres._limiter.reset()
+    # ...and the real ceiling still closes the fleet for real rows.
+    r = _join(client, p2, FRI, guest_phone="+45 70707072")
+    assert r.status_code == 409 and r.json()["detail"]["error"] == "waitlist_unavailable"
+
+
+def test_fix_b_held_rows_have_a_fleet_ceiling_of_their_own(db, client, monkeypatch):
+    from app.utils import abuse_signals
+    bumps = []
+    monkeypatch.setattr(abuse_signals, "bump", lambda kind, n=1: bumps.append(kind))
+    monkeypatch.setattr(pwl, "FLEET_HELD_PER_DAY", 2)
+    venues = []
+    for _ in range(3):
+        o, p, t = _venue(db)
+        _fill(db, o, t, FRI)
+        venues.append((o, p))
+    for i, (o, p) in enumerate(venues):
+        r = _join(client, p, FRI, guest_phone=f"+45 6060{i:04d}", form_ms=50)
+        assert r.status_code == 201 and r.json()["status"] == "waiting"   # silent
+        pubres._limiter.reset()
+    held = db.query(AuditLog).filter(AuditLog.action == pwl.HELD_ACTION).count()
+    assert held == 2                                   # the third was dropped
+    assert _rows(db, venues[2][0]) == []
+    assert "waitlist_fleet_held_ceiling" in bumps
+    # A real guest at the third venue is not touched by it.
+    assert _join(client, venues[2][1], FRI, guest_phone="+45 70707070").status_code == 201
+    assert len(_rows(db, venues[2][0])) == 1
+
+
+def test_fix_b_a_held_count_that_cannot_be_read_drops_silently(db, client, monkeypatch):
+    owner, profile, tables = _venue(db)
+    _fill(db, owner, tables, FRI)
+
+    def boom(*a, **k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(pwl, "held_night_count", boom)
+    r = _join(client, profile, FRI, form_ms=50)       # held → its count fails
+    assert r.status_code == 201 and r.json()["status"] == "waiting"
+    assert _rows(db, owner) == []
+    assert pwl.held_room(db, owner.id, day=FRI, now_utc=NOW) == "unknown"
