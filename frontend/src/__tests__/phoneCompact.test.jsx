@@ -325,7 +325,12 @@ describe("1f. the page edits: every added fragment is phone-only (or sm:-restore
     ["components/InventoryAutopilotPanel.jsx", "dark:text-gray-400 max-sm:flex-col max-sm:items-start max-sm:gap-0.5 max-sm:mb-3 max-sm:text-[13px]", ["dark:text-gray-400"]],
     ["pages/ReservationsPage.jsx", 'className="max-sm:-mt-2"', []],
     ["components/ui/TabPills.jsx", '"max-sm:h-10 max-sm:min-h-0! max-sm:min-w-10 max-sm:px-0 max-sm:rounded-none max-sm:text-[13px] "', []],
-    ["components/ui/TabPills.jsx", '"max-sm:flex-nowrap max-sm:gap-5 max-sm:overflow-x-auto max-sm:-mx-4 max-sm:px-4 "', []],
+    // R7 (track C) split the underline row into UNDERLINE_ROW + its gap, so
+    // the salon's five tabs can spread (phoneSpread). The default row keeps
+    // the same classes; the merge (27 Oct 2026) pins the new spelling.
+    ["components/ui/TabPills.jsx", '"max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:-mx-4 max-sm:px-4 "', []],
+    ["components/ui/TabPills.jsx", 'UNDERLINE_ROW + " max-sm:gap-5"', []],
+    ["components/ui/TabPills.jsx", 'UNDERLINE_ROW + " max-sm:gap-3 max-sm:justify-between"', []],
     ["components/SickCallNotificationCard.jsx", "flex items-center gap-2 flex-wrap max-sm:gap-y-1", ["flex", "items-center", "gap-2", "flex-wrap"]],
     ["components/SickCallNotificationCard.jsx", "text-gray-600 dark:text-gray-300 max-sm:order-1", ["text-gray-600", "dark:text-gray-300"]],
     ["components/SickCallNotificationCard.jsx", "dark:text-gray-400 max-sm:order-3 max-sm:basis-full max-sm:text-[13px] max-sm:leading-snug", ["dark:text-gray-400"]],
@@ -442,7 +447,21 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // closed-day chip) and 27 t() keys. Was { onClick: 86, onChange: 62,
     // onSubmit: 11, role: 34, id: 22, testid: 17, Button: 32, disabled: 30,
     // tKeys: 700 }.
-    "pages/ReservationsPage.jsx": { onClick: 85, onChange: 61, onSubmit: 10, ariaLabel: 66, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 4, role: 35, title: 26, id: 27, testid: 21, Button: 29, button: 57, Link: 5, disabled: 29, to: 5, href: 3, tKeys: 719 },
+    // The merge of tracks A, B and C (27 Oct 2026), recounted: R9's pins
+    // above + track C's R6–R11 change (track A's R5/R12 mounts change none
+    // of these counts) − R8's own "not saved" note (1 testid, 1 t() key),
+    // which gave way to R9's CardSaveBar on the hours card. Track C MOVED,
+    // nothing removed (audited at the merge): the hours editor's "Brug
+    // mandag på alle", closed box and Opens/Closes fields to
+    // WeekHoursEditor.jsx (R8); a service's Aktiv toggle and delete to
+    // BehandlingRow.jsx (R6); a chair's delete to StylistRow.jsx (R7); the
+    // allergy mark's title and label to AllergyWords.jsx (R11, now a
+    // sentence); "Det er mig" became a form with a name field (R7). ADDED:
+    // 1 onSubmit, 4 roles, 2 ids, 3 testids, 1 button, 2 t() keys net. Was
+    // { onClick: 85, onChange: 61, onSubmit: 10, ariaLabel: 66,
+    // ariaPressed: 4, role: 35, title: 26, id: 27, testid: 21, button: 57,
+    // tKeys: 719 }.
+    "pages/ReservationsPage.jsx": { onClick: 81, onChange: 60, onSubmit: 11, ariaLabel: 61, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 3, role: 39, title: 24, id: 29, testid: 23, Button: 29, button: 54, Link: 5, disabled: 29, to: 5, href: 3, tKeys: 720 },
     "pages/InventoryPage.jsx": { onClick: 61, onChange: 38, onSubmit: 1, ariaLabel: 27, role: 1, title: 27, id: 7, Button: 5, button: 41, Link: 2, disabled: 3, to: 2, tKeys: 165 },
     "components/InventoryAutopilotPanel.jsx": { onClick: 5, onChange: 1, ariaLabel: 1, Button: 4, button: 1, disabled: 1, tKeys: 35 },
     "components/LiveKpisToday.jsx": { ariaLabel: 2, title: 1, tKeys: 14 },

@@ -360,12 +360,15 @@ describe("the hours card in Indstillinger", () => {
   it("lunch + dinner on Friday, last booking 21.30 and every 30 min — one Gem", async () => {
     pageRoutes(settingsBody({ bookingHours: { ...WEEK, fri: "11:00-22:00" } }));
     await openSettings();
-    expect(screen.queryByTestId("hours-unsaved")).toBeNull();
+    // After the merge with R9 the card's one Gem is CardSaveBar, which says
+    // "Ikke gemt endnu" with R8's dirty rule (periods, last booking, step).
+    expect(within(hoursCard()).getByTestId("rsvp-hours-save").getAttribute("data-dirty")).toBe("false");
     fireEvent.click(within(row("fri")).getByRole("button", { name: `${da.rsvpHoursAddPeriod}, Fredag` }));
     expect(timesIn(row("fri"))).toEqual(["11:00", "14:30", "17:30", "22:00"]);
     fireEvent.click(within(screen.getByTestId("table-start-times-choice")).getByRole("radio", { name: "Hvert 30. min" }));
     fireEvent.change(screen.getByTestId("last-booking-fri-1"), { target: { value: "21:30" } });
-    expect(screen.getByTestId("hours-unsaved").textContent).toBe(da.rsvpHoursUnsaved);
+    expect(within(hoursCard()).getByTestId("rsvp-hours-save").getAttribute("data-dirty")).toBe("true");
+    expect(within(hoursCard()).getByTestId("rsvp-hours-save").textContent).toContain(da.rsvpCardUnsaved);
     expect(screen.getByTestId("last-booking-hint").textContent).toBe(da.rsvpLastBookingHint.replace("{min}", "90"));
     await saveHours();
     const body = putBody();
