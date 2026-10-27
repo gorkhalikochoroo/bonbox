@@ -7,7 +7,7 @@
  * toasts and the urgent beep on every poll during service (atk-k). Now the
  * change feed marks held rows (`held: true`) and the stand folds them into
  * ONE quiet "N online bookings to check" toast: no sound, no sticky red, no
- * "sent to kitchen". When the owner APPROVES a held booking with a severe
+ * "I'll tell the kitchen". When the owner APPROVES a held booking with a severe
  * allergy, the feed sends it again as kind "approved" — and THAT alerts like
  * any severe allergy (the 14 Jun rule, unchanged for real bookings).
  */
@@ -85,7 +85,8 @@ describe("the stand under a held flood", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     await poll();
     expect(screen.getByText("6 online bookings to check")).toBeTruthy();
-    expect(screen.queryByText("✓ Got it — sent to kitchen")).toBeNull();
+    // R2: the acknowledge button no longer claims "sent to kitchen".
+    expect(screen.queryByText("✓ Seen — I'll tell the kitchen")).toBeNull();
     expect(screen.queryByText("⚠ Severe allergy noted")).toBeNull();
     expect(snd.playUrgent).not.toHaveBeenCalled();
     expect(snd.playChime).not.toHaveBeenCalled();
@@ -101,7 +102,7 @@ describe("the stand under a held flood", () => {
     await poll();
     expect(screen.getByText("Booking confirmed")).toBeTruthy();
     expect(screen.getByText("⚠ Severe allergy noted")).toBeTruthy();
-    expect(screen.getByText("✓ Got it — sent to kitchen")).toBeTruthy();
+    expect(screen.getByText("✓ Seen — I'll tell the kitchen")).toBeTruthy();
     expect(snd.playUrgent).toHaveBeenCalledTimes(1);
   });
 

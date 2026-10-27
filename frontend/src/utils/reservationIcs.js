@@ -137,3 +137,17 @@ export function buildIcs({ uid, day, time, minutes, summary, location, descripti
   return lines.map(icsFold).join("\r\n") + "\r\n";
 }
 
+
+// How long the calendar event runs (R2, rubric V5). The booking's own length
+// from the server (`duration_min` on the create answer and on the receipt's
+// poll) — the engine's turn time for that party, or the service's length — and
+// only without it (an older server) the chosen service's length, then the old
+// 120 minutes. The file used to say 120 for every table booking while the
+// engine held 90, 105 or 120.
+export function icsMinutesFor({ server, linked, service } = {}) {
+  for (const v of [server, linked, service]) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= 5 && n <= 24 * 60) return Math.round(n);
+  }
+  return 120;
+}

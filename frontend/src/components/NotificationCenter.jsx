@@ -312,7 +312,7 @@ export default function NotificationCenter({ align = "right" }) {
                 <Switch on={live.enabled} set={live.setEnabled} label={t("liveAlertEnable") || "Enable alerts"} />
               </div>
               <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400 leading-snug">
-                {t("liveAlertHint") || "Pop + sound when a booking changes or an allergy is noted — on this screen."}
+                {t("liveAlertHint") || "A pop-up and a sound on this screen for new online bookings and guest cancellations."}
               </p>
               <div className={`mt-2 flex items-center justify-between ${live.enabled ? "" : "opacity-40 pointer-events-none"}`}>
                 <span className="text-[12.5px] text-gray-600 dark:text-gray-300">{t("liveAlertSound") || "Sound"}</span>

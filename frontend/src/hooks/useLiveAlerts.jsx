@@ -353,7 +353,9 @@ export function LiveAlertsProvider({ children }) {
 
   // Auto-dismiss — but NEVER a severe-allergy toast. A severe allergy is a
   // safety event: it stays on screen until a staff member deliberately taps
-  // "Got it — sent to kitchen" (Manoj's locked decision: tap-to-acknowledge).
+  // "Seen — I'll tell the kitchen" (Manoj's locked decision: tap-to-acknowledge;
+  // R2: it used to say "sent to kitchen", and nothing sends it — the person
+  // who taps it does).
   useEffect(() => {
     if (!toasts.length) return undefined;
     const timers = toasts
@@ -484,7 +486,7 @@ export function LiveAlertsProvider({ children }) {
                   onClick={(e) => { e.stopPropagation(); dismissToast(tt.id); }}
                   className="mt-2 w-full rounded-lg bg-red-600 hover:bg-red-700 text-white text-[12px] font-semibold py-1.5 transition"
                 >
-                  {t("liveAlertAck", "✓ Got it — sent to kitchen")}
+                  {t("liveAlertAck", "✓ Seen — I'll tell the kitchen")}
                 </button>
               )}
             </div>

@@ -33,7 +33,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useConfirm } from "../hooks/useConfirm";
-import { buildIcs, venueAddress } from "../utils/reservationIcs";
+import { buildIcs, icsMinutesFor, venueAddress } from "../utils/reservationIcs";
 import { saveFile } from "../utils/download";
 import {
   Calendar,
@@ -1245,6 +1245,8 @@ export default function ReservationPublicPage() {
           occasion: b.occasion || "",
           allergenTags: Array.isArray(b.allergen_tags) ? b.allergen_tags : [],
           allergySeverity: b.allergy_severity || "",
+          // The booking's own length, for the calendar file (R2).
+          durationMin: b.duration_min || null,
         });
       })
       .catch(() => {
@@ -2631,7 +2633,12 @@ export default function ReservationPublicPage() {
                         uid: `${result.id}@bonbox.dk`,
                         day: rDay,
                         time: rTime,
-                        minutes: isProvider ? chosenBehandling?.duration_min : 120,
+                        // The booking's real length (R2, rubric V5).
+                        minutes: icsMinutesFor({
+                          server: result?.duration_min,
+                          linked: linked?.durationMin,
+                          service: isProvider ? chosenBehandling?.duration_min : null,
+                        }),
                         // business_name, not name — the public payload has no
                         // `name` field at all.
                         summary: apptWords
@@ -3404,7 +3411,7 @@ export default function ReservationPublicPage() {
                     />
                     <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                       {selectedTable
-                        ? t("rsvpFloorPicked", "Fint valg — vi holder bordet til dig.")
+                        ? t("rsvpFloorPicked", "Fint valg — bordet er jeres, hvis det stadig er ledigt, når du booker.")
                         : t("rsvpFloorOptional", "Tryk på et ledigt bord — eller spring over, så finder vi det bedste ledige.")}
                     </p>
                   </>
