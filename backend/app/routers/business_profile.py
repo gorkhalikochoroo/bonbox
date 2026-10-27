@@ -643,7 +643,11 @@ from app.services.business_operating_service import (
     OperatingProfileError as _OPError,
     bulk_upsert_role_targets as _bulk_upsert_role_targets,
     delete_role_target as _delete_role_target,
-    get_or_create_profile as _get_or_create_profile,
+    # Its own name (R9): the brand/logo section below defines a module-level
+    # _get_or_create_profile(db, user) that rebinds the old alias, so GET
+    # /operating-profile called it with owner= and answered 500 — the
+    # Profile hours editor always opened empty.
+    get_or_create_profile as _op_get_or_create_profile,
     list_role_targets as _list_role_targets,
     parse_operating_hours as _parse_operating_hours,
     parse_peak_windows as _parse_peak_windows,
@@ -663,6 +667,29 @@ class _OperatingProfileResponse(BaseModel):
     open_days_mask: str | None
     operating_hours: dict[str, str]
     peak_windows: list[dict[str, _Any]]
+    # R9: how the booking page uses these hours, so the Profile cards can say
+    # it. None = the venue has no booking page (nothing to say). Else
+    # {"days": [weekdays the BOOKING hours decide — Reservationer →
+    # Indstillinger → Åbningstider], "chairs_only": a salon, whose chairs
+    # never read these hours}. A table venue's other days are booked on these.
+    booking_hours: dict[str, _Any] | None = None
+
+
+def _booking_hours_status(profile, user) -> dict | None:
+    """The booking page's use of the Profile hours (R9), fail-soft: a read
+    error says nothing rather than something wrong."""
+    try:
+        if not (getattr(profile, "reservation_slug", None)
+                or getattr(profile, "reservations_enabled", False)):
+            return None
+        from app.services import reservation_service as _rsvc
+        settings = _rsvc.load_settings(profile)
+        return {
+            "days": _rsvc.booking_hours_days(settings),
+            "chairs_only": (getattr(user, "business_type", None) or "").lower() == "salon",
+        }
+    except Exception:  # noqa: BLE001 — a note, never a 500 for the profile
+        return None
 
 
 class _RoleTargetBody(BaseModel):
@@ -690,11 +717,12 @@ def get_operating_profile(
     """Owner reads their operating profile (open days + hours + peak
     windows). Returns an empty shell when never set — frontend renders
     the onboarding form against a known shape."""
-    profile = _get_or_create_profile(db, owner=user)
+    profile = _op_get_or_create_profile(db, owner=user)
     return _OperatingProfileResponse(
         open_days_mask=profile.open_days_mask,
         operating_hours=_parse_operating_hours(profile),
         peak_windows=_parse_peak_windows(profile),
+        booking_hours=_booking_hours_status(profile, user),
     )
 
 
@@ -721,6 +749,7 @@ def update_operating_profile(
         open_days_mask=profile.open_days_mask,
         operating_hours=_parse_operating_hours(profile),
         peak_windows=_parse_peak_windows(profile),
+        booking_hours=_booking_hours_status(profile, user),
     )
 
 
