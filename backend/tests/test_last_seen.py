@@ -78,7 +78,7 @@ def db(SessionLocal):
 
 
 @pytest.fixture
-def client(SessionLocal):
+def client(SessionLocal, monkeypatch):
     def _get_test_db():
         s = SessionLocal()
         try:
@@ -87,6 +87,15 @@ def client(SessionLocal):
             s.close()
 
     app.dependency_overrides[get_db] = _get_test_db
+    # The role guards in app/main.py (member_read_guard on /auth/export-data,
+    # accountant_write_guard) read the caller's raw role through the GLOBAL
+    # app.database.SessionLocal, off the event loop — not through get_db —
+    # and fail CLOSED (503 role_check_unavailable) when that read raises.
+    # Without this the guard read the process's own database (CI: a fresh
+    # ci.db with no users table) and the export answered 503: the guard was
+    # right, the test never gave it the database the user lives in.
+    import app.database as _db_mod
+    monkeypatch.setattr(_db_mod, "SessionLocal", SessionLocal, raising=False)
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -455,6 +464,12 @@ def test_the_gdpr_export_carries_last_seen(client, db):
     u = _user(db)
     r = client.get("/api/auth/export-data", headers=_bearer(u))
     assert r.status_code == 200, r.text
+    # The guard really ran on the user's own row: a cashier seat is refused
+    # this path (the same request, a different role in the same database).
+    cashier = _user(db, role="cashier", owner_id=u.id)
+    _auth_limiter.reset()
+    refused = client.get("/api/auth/export-data", headers=_bearer(cashier))
+    assert refused.status_code == 403, refused.text
     rows = list(csv.reader(io.StringIO(r.text)))
     header = next(row for row in rows if row and row[0] == "id" and "email" in row)
     assert "last_seen_at" in header
