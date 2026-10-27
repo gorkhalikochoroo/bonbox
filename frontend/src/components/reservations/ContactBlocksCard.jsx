@@ -11,7 +11,10 @@
 // show. A phone or an e-mail typed here is sent once, coded, and forgotten.
 //
 // Remove ("Fjern") lets the contact book online again (useConfirm); a block
-// added here can be taken back from its toast (Fortryd).
+// added here can be taken back from its toast (Fortryd). "Glem" is the GDPR
+// path: a guest asks to be forgotten, the owner types the number or the
+// address they gave, and everything kept for it here goes — the owner never
+// has to find which masked row it was.
 import { useEffect, useState } from "react";
 import { ShieldBan, X } from "lucide-react";
 import api from "../../services/api";
@@ -109,6 +112,40 @@ export default function ContactBlocksCard({ t, lang = "da", apptWords = false })
     }
   };
 
+  const forget = async () => {
+    const body = contactPayload(value);
+    if (!body) {
+      setError(t("rsvpBlocksErrNoContact", "Type a phone number (at least 6 digits) or an e-mail address."));
+      return;
+    }
+    const ok = await confirm({
+      message: apptWords
+        ? t("rsvpBlocksForgetConfirmAppt", "Delete everything kept about {contact} on this list? Use it when a customer asks to be forgotten.", { contact: value.trim() })
+        : t("rsvpBlocksForgetConfirm", "Delete everything kept about {contact} on this list? Use it when a guest asks to be forgotten.", { contact: value.trim() }),
+      confirmLabel: t("rsvpBlocksForget", "Forget"),
+      destructive: true,
+    });
+    if (ok !== true || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api.post("/reservations/contact-blocks/erase", body);
+      take(res?.data);
+      setValue("");
+      const n = Number(res?.data?.removed) || 0;
+      toast({
+        severity: "info",
+        message: n
+          ? t("rsvpBlocksForgotten", "Forgotten: {n} kept about that contact deleted.", { n })
+          : t("rsvpBlocksNothingKept", "Nothing is kept about that contact."),
+      });
+    } catch {
+      setError(t("rsvpSettingsSaveError", "Couldn't save settings."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const remove = async (b) => {
     const ok = await confirm({
       message: t("rsvpBlocksRemoveConfirm", "Let {contact} book online again?", { contact: b.hint }),
@@ -149,7 +186,7 @@ export default function ContactBlocksCard({ t, lang = "da", apptWords = false })
           e.preventDefault();
           add();
         }}
-        className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-2 sm:items-end"
+        className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_auto] gap-2 sm:items-end"
       >
         <div className="min-w-0">
           <label htmlFor="rsvp-block-contact" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -166,17 +203,32 @@ export default function ContactBlocksCard({ t, lang = "da", apptWords = false })
             className={PHONE_CTRL}
           />
         </div>
-        <Button
-          type="submit"
-          variant="primary"
-          size="md"
-          busy={busy}
-          disabled={!value.trim() || busy}
-          data-testid="rsvp-block-add"
-          className={"h-10 " + PHONE_CTRL}
-        >
-          {t("rsvpBlocksAdd", "Block")}
-        </Button>
+        {/* Phone: the two actions as equal halves of one row; from sm the
+            wrapper dissolves into the form's grid. */}
+        <div className="grid grid-flow-col auto-cols-fr gap-2 sm:contents">
+          <Button
+            type="submit"
+            variant="primary"
+            size="md"
+            busy={busy}
+            disabled={!value.trim() || busy}
+            data-testid="rsvp-block-add"
+            className={"h-10 " + PHONE_CTRL}
+          >
+            {t("rsvpBlocksAdd", "Block")}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="md"
+            disabled={!value.trim() || busy}
+            onClick={forget}
+            data-testid="rsvp-block-forget"
+            className={"h-10 " + PHONE_CTRL}
+          >
+            {t("rsvpBlocksForget", "Forget")}
+          </Button>
+        </div>
       </form>
 
       {error && (

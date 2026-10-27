@@ -130,16 +130,35 @@ describe("Blokerede kontakter", () => {
     expect(screen.getAllByTestId("rsvp-block-row")).toHaveLength(1);
   });
 
+  it("Glem forgets everything kept for a typed contact (GDPR), after a destructive confirm", async () => {
+    h.get.mockResolvedValue({ data: LIST });
+    h.post.mockResolvedValue({ data: { blocks: [LIST.blocks[1]], days: 180, removed: 1 } });
+    render(<ContactBlocksCard t={tDa} />);
+    await settle();
+    fireEvent.change(screen.getByTestId("rsvp-block-input"), { target: { value: "12 34 56 78" } });
+    await act(async () => { fireEvent.click(screen.getByTestId("rsvp-block-forget")); });
+    await settle();
+    const opts = h.confirm.mock.calls[0][0];
+    expect(opts.destructive).toBe(true);
+    expect(opts.message).toBe(tDa("rsvpBlocksForgetConfirm", { contact: "12 34 56 78" }));
+    expect(h.post).toHaveBeenCalledWith("/reservations/contact-blocks/erase", { phone: "12 34 56 78" });
+    expect(h.toast.mock.calls[0][0].message).toBe(tDa("rsvpBlocksForgotten", { n: 1 }));
+    expect(screen.getAllByTestId("rsvp-block-row")).toHaveLength(1);
+  });
+
   it("the card's words are real in en and da", () => {
     for (const k of ["rsvpBlocksTitle", "rsvpBlocksHint", "rsvpBlocksAddLabel", "rsvpBlocksAddPlaceholder",
       "rsvpBlocksAdd", "rsvpBlocksAdded", "rsvpBlocksEmpty", "rsvpBlocksEmptyAppt", "rsvpBlocksBadgeBlock",
       "rsvpBlocksBadgeSpam", "rsvpBlocksUntil", "rsvpBlocksRemove", "rsvpBlocksRemoveConfirm",
-      "rsvpBlocksErrNoContact"]) {
+      "rsvpBlocksErrNoContact", "rsvpBlocksForget", "rsvpBlocksForgetConfirm", "rsvpBlocksForgetConfirmAppt",
+      "rsvpBlocksForgotten", "rsvpBlocksNothingKept"]) {
       expect(en[k], k).toBeTruthy();
       expect(da[k], k).toBeTruthy();
       expect(da[k], k).not.toBe(en[k]);
     }
     expect(da.rsvpBlocksEmptyAppt).not.toMatch(/gæst|bord/i);
+    expect(da.rsvpBlocksForgetConfirmAppt).not.toMatch(/gæst|bord/i);
+    expect(en.rsvpBlocksForgetConfirmAppt).not.toMatch(/guest|table/i);
   });
 });
 
