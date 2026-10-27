@@ -354,6 +354,12 @@ describe("Reservationer — the ways in", () => {
     resolve(dirname(fileURLToPath(import.meta.url)), "../pages/ReservationsPage.jsx"),
     "utf8",
   );
+  // R9: "Din bookingside" is its own component now (the real address, the
+  // warning before a change, the old links) — read where it lives.
+  const linkCard = readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), "../components/reservations/BookingLinkCard.jsx"),
+    "utf8",
+  );
   it("the page header links to the kit from every tab", () => {
     expect(src).toContain('websiteHref="/reservations?tab=settings&show=website"');
     expect(src).toContain('{t("rsvpWebEntry")}');
@@ -361,7 +367,9 @@ describe("Reservationer — the ways in", () => {
   it("Settings always renders the kit (it explains itself until the page is live)", () => {
     expect(src).toMatch(/<WebsiteBookingKit\s+publicUrl=\{publicUrl\}/);
     expect(src).not.toMatch(/enabled && publicUrl && \(\s*<WebsiteBookingKit/);
-    expect(src).toContain('get("show") === "website"');
+    // R9: ?show= lands on the kit (and, from the Profile hours, on hours).
+    expect(src).toContain('website: ["website", "website-title"]');
+    expect(src).toContain('hours: ["rsvp-hours", "rsvp-hours-title"]');
   });
   it("the header entry never cuts the title: icon-only below 390px, named and titled; wraps rather than cuts", () => {
     const entry = src.slice(src.indexOf('data-testid="rsvp-website-entry"'), src.indexOf("</Link>", src.indexOf('data-testid="rsvp-website-entry"')));
@@ -377,13 +385,17 @@ describe("Reservationer — the ways in", () => {
   // card had is still reachable — the QR (+ PNG), the link with Kopiér and
   // Åbn siden in the kit (asserted above), the custom link here.
   it("Din bookingside keeps the custom link; QR and link row live once, in the kit", () => {
-    expect(src).toContain('t("rsvpShareTitle", "Your booking page")');
-    expect(src).toContain('t("rsvpCustomLink", "Customise your link")');
-    expect(src).toContain('id="rsvp-slug"');
-    expect(src).not.toContain("<QRCodeSVG");
-    expect(src).not.toContain('t("rsvpCopy", "Copy")');
+    // R9: the card's markup moved to BookingLinkCard.jsx, nothing removed.
+    expect(linkCard).toContain('t("rsvpShareTitle", "Your booking page")');
+    expect(linkCard).toContain('t("rsvpCustomLink", "Customise your link")');
+    expect(linkCard).toContain('id="rsvp-slug"');
+    expect(linkCard).toContain('data-testid="rsvp-share-card"');
+    for (const s of [src, linkCard]) {
+      expect(s).not.toContain("<QRCodeSVG");
+      expect(s).not.toContain('t("rsvpCopy", "Copy")');
+    }
     // Order: the card, then the kit right under it.
-    expect(src.indexOf('data-testid="rsvp-share-card"')).toBeLessThan(src.indexOf("<WebsiteBookingKit"));
-    expect(src.indexOf('id="rsvp-slug"')).toBeLessThan(src.indexOf("<WebsiteBookingKit"));
+    expect(src.indexOf("<BookingLinkCard")).toBeGreaterThan(-1);
+    expect(src.indexOf("<BookingLinkCard")).toBeLessThan(src.indexOf("<WebsiteBookingKit"));
   });
 });
