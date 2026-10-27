@@ -1749,6 +1749,8 @@ export const da = {
     rsvpBlocksForgetNoneFound: "Intet fundet for {contact} i bookinger, på ventelisten eller på denne liste.",
     rsvpBlocksForgetNoneFoundAppt: "Intet fundet for {contact} i aftaler, på ventelisten eller på denne liste.",
     rsvpBlocksForgetNoneOnList: "Ingen linje for {contact} på denne liste.",
+    rsvpRoomUnknown: "Kunne ikke hente bordene — prøver igen.",
+    rsvpRoomUnknownAppt: "Kunne ikke hente pladserne — prøver igen.",
     // R9 (27 Oct 2026): indstillinger, der siger sandheden.
     rsvpCardUnsaved: "Ikke gemt endnu",
     rsvpLiveTitle: "Online-booking er slået til",

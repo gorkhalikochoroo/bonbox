@@ -3948,6 +3948,9 @@ function cockpitWhenUnknown(known, items) {
 // omit them (host-stand pop-out, tests) and it keeps its own state exactly as
 // before. Every internal setDay call passes a plain value, never a functional
 // updater, so the alias below is a faithful swap.
+// The room's own asks after a failed read of the tables (fix round 5).
+const ROOM_RETRY_MS = [5000, 15000, 30000];
+
 function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayChange, railSlot = null, onRoomRead = null }) {
   const { lang } = useLanguage();
   const confirm = useConfirm();
@@ -4412,8 +4415,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // A link that just opened a book is this device's pairing: /stand
       // reopens it after a restart (services/standAuth).
       if (isStandDevice) setStandToken(standTokenFromPath(location.pathname));
-      // The tables could not be read before; the network is back.
-      if (resourcesFailedRef.current) fetchResources();
+      // The tables could not be read before; the network is back. (While the
+      // room's own timed asks run, they ask — never two at once.)
+      if (resourcesFailedRef.current && !roomBackoffRef.current) fetchResources();
     },
     [isStandDevice, location.pathname, fetchResources, surfaceMatches],
   );
@@ -4491,6 +4495,37 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   useEffect(() => {
     fetchResources();
   }, [fetchResources]);
+
+  // Tables that could not be read (none on screen) are asked again on their
+  // own — 5 s, 15 s and 30 s apart — and after that with each reload of the
+  // book (acceptBook). Capped: three timed asks, then one per reload; an
+  // answer stops it (fix round 5, gate G: nothing re-asked for 45 s+ while
+  // every row read "Intet bord").
+  const roomBackoffRef = useRef(false);
+  useEffect(() => {
+    if (!resourcesFailed) return undefined;
+    let cancelled = false;
+    let timer = null;
+    let step = 0;
+    roomBackoffRef.current = true;
+    const next = () => {
+      if (cancelled) return;
+      if (step >= ROOM_RETRY_MS.length) {
+        roomBackoffRef.current = false;     // from here on, with the book's reloads
+        return;
+      }
+      timer = setTimeout(async () => {
+        step += 1;
+        await fetchResources();
+        if (!cancelled && resourcesFailedRef.current) next();
+      }, ROOM_RETRY_MS[step]);
+    };
+    next();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [resourcesFailed, fetchResources]);
 
   // Live book — the screen the owner stares at MID-SERVICE must not go stale.
   // Without this, a public booking, a cancellation, or a host-stand flip made
@@ -5944,6 +5979,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     () => resources.filter((r) => r.kind !== "provider" && r.is_active !== false),
     [resources],
   );
+  // The tables could not be read and none are on screen: UNKNOWN, never
+  // "no tables" (fix round 5, gate G). The book says so and keeps working.
+  const roomUnknown = resourcesFailed && resources.length === 0;
   // Tables another live booking holds during the open booking's time — the
   // drawer marks them instead of letting a pick bounce off a 409.
   const busyForSelected = useMemo(() => {
@@ -6143,7 +6181,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     // same six sizes saying "—", not yet tappable — so its arrival never
     // pushes the night down (102 px, CLS 0.456 on the door iPad, 20 Oct).
     // A failed read leaves them tappable (the seat sheet still works).
-    if (!resourcesLoaded) {
+    // (A failed read used to set resourcesLoaded and drop to "no tables":
+    // the strip vanished — fix round 5. It stays, "—", still tappable.)
+    if (!resourcesLoaded || resourcesFailed) {
       return WALK_IN_SIZES.map((size) => ({ size, unknown: true, pending: !resourcesFailed, freeNow: false, at: null }));
     }
     if (assignableTables.length === 0) return null;
@@ -6744,6 +6784,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               const seats = held.reduce((sum, id) => sum + (seatsById[String(id)] || 0), 0);
               // The desktop cell's "10/4", on the phone too.
               const over = seats > 0 && Number(r.party_size) > seats;
+              // The booking holds a table, but the tables could not be read:
+              // its name is unknown — never "Intet bord" (fix round 5; the
+              // book's line says the tables are being asked for again).
+              if (!tl && held.length && roomUnknown) return null;
               return tl
                 ? (
                   // Tables pushed together wrap inside the row, which wraps
@@ -7761,6 +7805,31 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         </div>
       )}
 
+      {/* The tables could not be read (fix round 5): said once, above every
+          lens — the list keeps working; the plan and the timeline wait for
+          the tables instead of drawing an empty room. */}
+      {roomUnknown && !bookUnavailable && (
+        <div
+          role="status"
+          data-room-unknown=""
+          className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-4 py-2.5 text-sm text-gray-800 dark:text-gray-100"
+        >
+          <WifiOff className="w-4 h-4 shrink-0 text-gray-500 dark:text-gray-400" aria-hidden />
+          <span className="font-medium">
+            {apptWords
+              ? t("rsvpRoomUnknownAppt", "Couldn't load the spaces — trying again.")
+              : t("rsvpRoomUnknown", "Couldn't load the tables — trying again.")}
+          </span>
+          <button
+            type="button"
+            onClick={() => fetchResources()}
+            className="font-medium underline underline-offset-2 hover:no-underline"
+          >
+            {t("tryAgain", "Try again")}
+          </button>
+        </div>
+      )}
+
       {/* ── Liste (the polished data-table) ── */}
       {view === "liste" && !bookUnavailable && (
         <>
@@ -8032,7 +8101,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           </div>
         );
       })()}
-      {view === "plan" && !bookUnavailable &&
+      {view === "plan" && !bookUnavailable && !roomUnknown &&
         (loading ? (
           <FloorSkeleton />
         ) : (
@@ -8053,7 +8122,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         ))}
 
       {/* ── Tidslinje (service timeline grid) ── */}
-      {view === "tidslinje" && !bookUnavailable &&
+      {view === "tidslinje" && !bookUnavailable && !roomUnknown &&
         (loading ? (
           <TimelineSkeleton />
         ) : (

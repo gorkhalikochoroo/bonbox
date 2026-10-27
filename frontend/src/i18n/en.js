@@ -1789,6 +1789,8 @@ export const en = {
     rsvpBlocksForgetNoneFound: "Nothing found for {contact} in bookings, on the waitlist or on this list.",
     rsvpBlocksForgetNoneFoundAppt: "Nothing found for {contact} in appointments, on the waitlist or on this list.",
     rsvpBlocksForgetNoneOnList: "No entry for {contact} on this list.",
+    rsvpRoomUnknown: "Couldn't load the tables — trying again.",
+    rsvpRoomUnknownAppt: "Couldn't load the spaces — trying again.",
     // R9 (27 Oct 2026): settings that tell the truth.
     rsvpCardUnsaved: "Not saved yet",
     rsvpLiveTitle: "Online booking is on",

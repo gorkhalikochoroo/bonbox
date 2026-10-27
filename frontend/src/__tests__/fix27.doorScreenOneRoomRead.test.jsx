@@ -196,41 +196,68 @@ describe("the door screen's book reads its tables once", () => {
     expect(dropIn()).not.toBeNull();
   });
 
-  it("a 429 is never asked again by itself: one more read per book reload at most, the lenses stay, and the reads stop once the tables answer", async () => {
+  // Fix round 5 (gate G): a failed read is never "no tables". The book says
+  // the tables are being asked for again, every row keeps quiet about its
+  // table, the lenses and the drop-in stay — and the tables are asked for on
+  // their own, 5 s, 15 s and 30 s apart (three times, capped), then once per
+  // reload of the book. The loop of P0-1 never comes back: bounded counts.
+  it("a 429 at open: said honestly, asked again on a capped backoff, then once per reload; the reads stop once the tables answer", async () => {
     roomAnswer = RATE_LIMITED;
     mount();
     await settle();
     expect(tableReads()).toBe(1);
     const booksAtOpen = bookReads();
-    const onePerReload = () => 1 + (bookReads() - booksAtOpen);
-    // A minute with no book reload (the first safety reload is at 75 s):
-    // not one more read.
-    for (let i = 0; i < 6; i += 1) await advance(10000);
-    expect(bookReads()).toBe(booksAtOpen);
+    const unknownLine = () => document.querySelector("[data-room-unknown]");
+    expect(unknownLine()?.textContent).toContain("Couldn't load the tables — trying again.");
+    expect(document.querySelectorAll("[data-no-table]")).toHaveLength(0);   // never "No table"
+    // The room's own asks: ~5 s, ~20 s and ~50 s after the failure.
+    await advance(4000);
     expect(tableReads()).toBe(1);
+    await advance(1000 + LATENCY * 3);
+    expect(tableReads()).toBe(2);
+    await advance(15000);
+    expect(tableReads()).toBe(3);
+    await advance(30000);
+    expect(tableReads()).toBe(4);
+    await advance(9000);                    // ~60 s: no fourth timed ask, no reload yet (75 s)
+    expect(bookReads()).toBe(booksAtOpen);
+    expect(tableReads()).toBe(4);
+    expect(unknownLine()).not.toBeNull();
+    expect(document.querySelectorAll("[data-no-table]")).toHaveLength(0);
     // "Could not ask" is not "no tables": the lenses and the drop-in stay.
     expect(lenses()).not.toBeNull();
     expect(dropIn()).not.toBeNull();
-    // Each book reload — the safety net's, the live check's — asks once more
-    // (R10), never more than once.
+    // From here, each book reload — the safety net's, the live check's —
+    // asks once more (R10), never more than once.
+    const reads0 = tableReads();
+    const books0 = bookReads();
     for (let i = 0; i < 4; i += 1) await advance(30000);
     await liveReload();
     await liveReload();
-    expect(bookReads()).toBeGreaterThanOrEqual(booksAtOpen + 3);
-    expect(tableReads()).toBe(onePerReload());
-    expect(lenses()).not.toBeNull();
-    expect(dropIn()).not.toBeNull();
-    // The tables answer on the next reload — and after that nobody asks again.
+    expect(bookReads()).toBeGreaterThanOrEqual(books0 + 3);
+    expect(tableReads() - reads0).toBe(bookReads() - books0);
+    // The tables answer on the next reload: the line goes, the row names its
+    // table, and nobody asks again.
     roomAnswer = ROOM;
     await liveReload();
     const answered = tableReads();
-    expect(answered).toBe(onePerReload());
+    expect(unknownLine()).toBeNull();
+    expect([...document.querySelectorAll("[data-row-tables]")].some((el) => el.textContent.includes("21"))).toBe(true);
     for (let i = 0; i < 3; i += 1) await liveReload();
     for (let i = 0; i < 10; i += 1) await advance(30000);
-    expect(bookReads()).toBeGreaterThan(booksAtOpen + 6);   // reloads went on (control)
+    expect(bookReads()).toBeGreaterThan(books0 + 6);   // reloads went on (control)
     expect(tableReads()).toBe(answered);
     expect(rememberedStandLayout()).toBe("table");
     expect(lenses()).not.toBeNull();
     expect(dropIn()).not.toBeNull();
+  });
+
+  it("the honest line in Danish and English, and its salon words", async () => {
+    const { da } = await import("../i18n/da");
+    const { en } = await import("../i18n/en");
+    expect(da.rsvpRoomUnknown).toBe("Kunne ikke hente bordene — prøver igen.");
+    expect(en.rsvpRoomUnknown).toBe("Couldn't load the tables — trying again.");
+    expect(da.rsvpRoomUnknownAppt).toBe("Kunne ikke hente pladserne — prøver igen.");
+    expect(en.rsvpRoomUnknownAppt).not.toMatch(/table/i);
   });
 });
