@@ -150,6 +150,36 @@ describe("Blokerede kontakter", () => {
     expect(screen.getAllByTestId("rsvp-block-row")).toHaveLength(1);
   });
 
+  // ── Fix round 27 Oct (G): no answer is not "no blocked contacts" ──────
+  it("a list that can't be read is said, with Prøv igen — never the empty state", async () => {
+    h.get.mockRejectedValueOnce(Object.assign(new Error("500"), { response: { status: 500 } }));
+    h.get.mockResolvedValueOnce({ data: LIST });
+    render(<ContactBlocksCard t={tDa} />);
+    await settle();
+    expect(screen.getByTestId("rsvp-blocks-load-failed").textContent).toContain(da.rsvpBlocksLoadFailed);
+    expect(screen.queryByTestId("rsvp-blocks-empty")).toBeNull();
+    expect(screen.queryAllByTestId("rsvp-block-row")).toHaveLength(0);
+    await act(async () => { fireEvent.click(screen.getByTestId("rsvp-blocks-retry")); });
+    await settle();
+    expect(h.get).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("rsvp-blocks-load-failed")).toBeNull();
+    expect(screen.getAllByTestId("rsvp-block-row")).toHaveLength(2);
+  });
+
+  it("an offline list is said too; only a 404 (an older server) is the empty state", async () => {
+    h.get.mockRejectedValueOnce(new Error("offline"));
+    render(<ContactBlocksCard t={tDa} />);
+    await settle();
+    expect(screen.getByTestId("rsvp-blocks-load-failed")).toBeTruthy();
+    cleanup();
+    h.get.mockRejectedValueOnce(Object.assign(new Error("404"), { response: { status: 404 } }));
+    render(<ContactBlocksCard t={tDa} />);
+    await settle();
+    expect(screen.queryByTestId("rsvp-blocks-load-failed")).toBeNull();
+    expect(screen.getByTestId("rsvp-blocks-empty")).toBeTruthy();
+    expect(da.rsvpBlocksLoadFailed).not.toBe(en.rsvpBlocksLoadFailed);
+  });
+
   // ── Fix round 27 Oct (F): a real erase, counted first ──────────────────
   const glem = async (preview, erase, props = {}) => {
     h.get.mockResolvedValue({ data: LIST });

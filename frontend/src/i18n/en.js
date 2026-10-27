@@ -1758,6 +1758,7 @@ export const en = {
     rsvpBlocksForgetConfirmAppt: "Delete everything kept about {contact} on this list? Use it when a customer asks to be forgotten.",
     rsvpBlocksForgotten: "Forgotten: {n} kept about that contact deleted.",
     rsvpBlocksNothingKept: "Nothing is kept about that contact.",
+    rsvpBlocksLoadFailed: "Couldn't load the blocked contacts — that isn't the same as none.",
     rsvpBlocksForgetTitle: "Forget {contact}?",
     rsvpBlocksForgetWhat: "Everything kept about them goes: {what}. Use it when a guest asks to be forgotten.",
     rsvpBlocksForgetWhatAppt: "Everything kept about them goes: {what}. Use it when a customer asks to be forgotten.",

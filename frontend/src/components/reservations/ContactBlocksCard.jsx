@@ -58,20 +58,35 @@ export default function ContactBlocksCard({ t, lang = "da", apptWords = false })
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState(null);
   const [error, setError] = useState("");
+  // The list could not be read (fix round 27 Oct): said, with Prøv igen —
+  // no answer is not "no blocked contacts".
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadTick, setLoadTick] = useState(0);
 
   const take = (data) => {
     setBlocks(Array.isArray(data?.blocks) ? data.blocks : []);
     if (Number(data?.days) > 0) setDays(Number(data.days));
+    setLoadFailed(false);
   };
 
   useEffect(() => {
     let alive = true;
     api.get("/reservations/contact-blocks")
       .then((res) => { if (alive) take(res?.data); })
-      // An older server has no list: the card says nothing is blocked.
-      .catch(() => { if (alive) setBlocks([]); });
+      // Only a 404 — an older server with no list at all — means nothing is
+      // blocked. Any other failure is said, never shown as an empty list.
+      .catch((e) => {
+        if (!alive) return;
+        if (e?.response?.status === 404) setBlocks([]);
+        else setLoadFailed(true);
+      });
     return () => { alive = false; };
-  }, []);
+  }, [loadTick]);
+
+  const retryLoad = () => {
+    setLoadFailed(false);
+    setLoadTick((n) => n + 1);
+  };
 
   const undoAdd = (created = [], upgraded = []) => async () => {
     try {
@@ -303,7 +318,25 @@ export default function ContactBlocksCard({ t, lang = "da", apptWords = false })
         <p role="alert" className="text-xs text-red-600 dark:text-red-400">{error}</p>
       )}
 
-      {blocks !== null && list.length === 0 ? (
+      {loadFailed && (
+        <div
+          role="alert"
+          data-testid="rsvp-blocks-load-failed"
+          className="rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5 text-[13px] text-amber-900 dark:text-amber-200"
+        >
+          <p>{t("rsvpBlocksLoadFailed", "Couldn't load the blocked contacts — that isn't the same as none.")}</p>
+          <button
+            type="button"
+            onClick={retryLoad}
+            data-testid="rsvp-blocks-retry"
+            className="mt-1 font-semibold underline underline-offset-2 hover:no-underline"
+          >
+            {t("tryAgain", "Try again")}
+          </button>
+        </div>
+      )}
+
+      {loadFailed ? null : blocks !== null && list.length === 0 ? (
         <p data-testid="rsvp-blocks-empty" className="text-[13px] text-gray-500 dark:text-gray-400">
           {apptWords
             ? t("rsvpBlocksEmptyAppt", "No blocked contacts. Mark an appointment as spam from the appointment itself.")

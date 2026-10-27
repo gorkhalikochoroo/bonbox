@@ -1718,6 +1718,7 @@ export const da = {
     rsvpBlocksForgetConfirmAppt: "Slet alt, der er gemt om {contact} på denne liste? Brug det, når en kunde beder om at blive glemt.",
     rsvpBlocksForgotten: "Glemt: {n} gemt om den kontakt er slettet.",
     rsvpBlocksNothingKept: "Der er intet gemt om den kontakt.",
+    rsvpBlocksLoadFailed: "Kunne ikke hente de blokerede kontakter — det er ikke det samme som ingen.",
     rsvpBlocksForgetTitle: "Glem {contact}?",
     rsvpBlocksForgetWhat: "Alt, der er gemt om dem, slettes: {what}. Brug det, når en gæst beder om at blive glemt.",
     rsvpBlocksForgetWhatAppt: "Alt, der er gemt om dem, slettes: {what}. Brug det, når en kunde beder om at blive glemt.",
