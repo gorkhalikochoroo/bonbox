@@ -477,3 +477,21 @@ def test_booking_hours_days_reads_both_shapes():
     }}) == ["mon", "tue", "wed"]
     assert rsvc.booking_hours_days({}) == []
     assert rsvc.booking_hours_days({"booking_hours": "x"}) == []
+
+
+# ── The app's "Nyt link" line spells a link as the server will ────────────
+
+@pytest.mark.parametrize("raw,want", [
+    ("Café Mocca", "cafe-mocca"),
+    ("Smørrebrød & Øl", "smoerrebroed-oel"),
+    ("Århus Bistro", "aarhus-bistro"),
+    ("  --Kaffe  bar--  ", "kaffe-bar"),
+    ("Ünïcode Café 1", "unicode-cafe-1"),
+    ("!!!", ""),
+])
+def test_the_link_spelling_the_app_previews(raw, want):
+    """frontend/src/utils/bookingLink.js slugPreview mirrors set_slug's
+    slugify(...)[:60].strip("-"); the same table is pinned on both sides
+    (r9.truthfulSettings.test.jsx)."""
+    from app.utils.text import slugify
+    assert slugify(raw, fallback="")[:60].strip("-") == want
