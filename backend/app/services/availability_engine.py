@@ -299,28 +299,50 @@ def time_grid(*, windows, duration_min: int, config: AvailabilityConfig,
             start += step
 
 
+def with_buffer(busy, buffer_min: int):
+    """The busy list with each interval's end moved `buffer_min` later — the
+    salon's "pause mellem kunder" (R6) behind every appointment already on a
+    chair. 0 (or less) returns the list unchanged, so a venue without a pause
+    runs exactly the arithmetic it always ran."""
+    if not buffer_min or buffer_min <= 0:
+        return busy
+    pad = timedelta(minutes=int(buffer_min))
+    return [BusyInterval(resource_id=b.resource_id, start=b.start, end=b.end + pad)
+            for b in busy]
+
+
 def compute_slots(*, windows, resources, busy, party_size: int,
                   config: AvailabilityConfig, now: datetime | None = None,
-                  duration_min: int | None = None) -> list[Slot]:
+                  duration_min: int | None = None,
+                  buffer_min: int = 0) -> list[Slot]:
     """Bookable slots for a party on a day. Returns only AVAILABLE slots,
-    each with the resource that would be assigned."""
+    each with the resource that would be assigned.
+
+    `buffer_min` (R6, salon chairs only): a pause after every appointment.
+    The candidate holds its chair for duration + pause, and each booking
+    already on a chair is read as ending `buffer_min` later — so exactly one
+    pause sits between two customers, whichever was booked first. The
+    service itself only has to END by closing (no pause is needed after the
+    day's last customer), and pacing still counts starts. 0 = unchanged."""
     # Online ceiling — bigger parties can't self-serve.
     if config.max_party_size is not None and party_size > config.max_party_size:
         return []
 
     duration = duration_min if duration_min is not None else turn_time_minutes(party_size, config)
     dur = timedelta(minutes=duration)
+    hold = timedelta(minutes=duration + max(0, int(buffer_min or 0)))
+    held = with_buffer(busy, buffer_min)
 
     out: list[Slot] = []
     for start in time_grid(windows=windows, duration_min=duration, config=config, now=now):
         if not _pacing_blocked(start, busy, config):
-            ids = assign_seats(party_size, start, start + dur, resources, busy, config)
+            ids = assign_seats(party_size, start, start + hold, resources, held, config)
             if ids:
                 out.append(Slot(
                     start=start, end=start + dur, resource_id=ids[0],
                     resource_ids=tuple(ids), available=True,
                     remaining=count_free_singles(
-                        party_size, start, start + dur, resources, busy,
+                        party_size, start, start + hold, resources, held,
                     ),
                 ))
     return out
@@ -353,7 +375,8 @@ def find_slot_resource(*, requested_start: datetime, party_size: int, windows,
 def find_slot_resources(*, requested_start: datetime, party_size: int, windows,
                         resources, busy, config: AvailabilityConfig,
                         now: datetime | None = None,
-                        duration_min: int | None = None) -> list[str] | None:
+                        duration_min: int | None = None,
+                        buffer_min: int = 0) -> list[str] | None:
     """Combo-aware sibling of `find_slot_resource` used by the booking-time
     race re-check. Same window / lead-time / pacing guards, but returns the
     full table set to assign — one id for a single table, or two+ when the
@@ -361,7 +384,10 @@ def find_slot_resources(*, requested_start: datetime, party_size: int, windows,
 
     The DB exclusion constraint is the real backstop: every id returned here
     gets its own occupancy row, and any that lost a concurrent race makes the
-    whole insert roll back (the caller re-runs this to pick a fresh set)."""
+    whole insert roll back (the caller re-runs this to pick a fresh set).
+
+    `buffer_min`: the salon's pause between customers, read exactly as
+    compute_slots reads it, so the guest page and the create path agree."""
     if config.max_party_size is not None and party_size > config.max_party_size:
         return None
     duration = duration_min if duration_min is not None else turn_time_minutes(party_size, config)
@@ -373,4 +399,6 @@ def find_slot_resources(*, requested_start: datetime, party_size: int, windows,
         return None
     if _pacing_blocked(requested_start, busy, config):
         return None
-    return assign_seats(party_size, requested_start, end, resources, busy, config)
+    hold_end = end + timedelta(minutes=max(0, int(buffer_min or 0)))
+    return assign_seats(party_size, requested_start, hold_end, resources,
+                        with_buffer(busy, buffer_min), config)

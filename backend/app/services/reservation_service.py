@@ -13,8 +13,10 @@ import json
 import logging
 import re
 import secrets
+import uuid
 from datetime import date, datetime, time, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -67,6 +69,10 @@ DEFAULT_SETTINGS: dict = {
     "retention_days": 90,            # GDPR purge window after service date
     # Appointment vertical default service length when none specified.
     "default_service_duration_min": 60,
+    # A salon's pause between customers (R6): minutes added after every
+    # appointment on a chair, 0/5/10/15. Online bookings only; the owner can
+    # still write a customer in closer. Read through service_buffer().
+    "service_buffer_min": 0,
     # SMS reminders (Pro): owner opt-in, off by default. sms_sender is the
     # alphanumeric sender ID shown on the text (max 11 chars).
     "sms_reminders": False,
@@ -116,9 +122,123 @@ def online_party_ceiling(settings: dict) -> int | None:
     return n if n >= 1 else None
 
 
+# Start times ("Starttider", R6). The steps an owner can pick; the reader
+# below still honours any sane stored value (5–120) so a venue that stored
+# something else by hand keeps its grid, and anything junk reads as 15 — a
+# string used to fail every public page with a 500, and a stored 1 built a
+# one-minute grid.
+SLOT_STEPS = (15, 30, 60)
+DEFAULT_SLOT_STEP = 15
+# A NEW salon starts on 30-minute start times (rubric S3): a 09:15 start
+# left a 15-minute hole no 30-minute service could fill. Restaurants, and
+# salons that already take bookings, keep 15 until the owner chooses.
+NEW_SALON_SLOT_STEP = 30
+# "Pause mellem kunder" (R6): the choices the owner has.
+SERVICE_BUFFERS = (0, 5, 10, 15)
+
+
+def slot_step(settings: dict) -> int:
+    """The start-time step the engine walks: a stored whole number 5–120,
+    else 15."""
+    raw = settings.get("slot_granularity_min", DEFAULT_SLOT_STEP)
+    if isinstance(raw, bool):
+        return DEFAULT_SLOT_STEP
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_SLOT_STEP
+    return n if 5 <= n <= 120 else DEFAULT_SLOT_STEP
+
+
+def clean_slot_step(raw) -> int | None:
+    """An owner's Starttider choice as the settings PUT stores it: one of
+    SLOT_STEPS, or None (dropped — the stored value stays)."""
+    if isinstance(raw, bool):
+        return None
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return n if n in SLOT_STEPS else None
+
+
+def service_buffer(settings: dict) -> int:
+    """The salon's pause after each appointment, in minutes: a stored whole
+    number 0–60, else 0 (no pause)."""
+    raw = settings.get("service_buffer_min", 0)
+    if isinstance(raw, bool) or raw is None:
+        return 0
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return n if 0 <= n <= 60 else 0
+
+
+def clean_service_buffer(raw) -> int | None:
+    """An owner's pause choice as the settings PUT stores it: one of
+    SERVICE_BUFFERS, or None (dropped)."""
+    if isinstance(raw, bool):
+        return None
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return n if n in SERVICE_BUFFERS else None
+
+
+def _online_buffer(settings: dict, buffer_min: int | None) -> int:
+    """The pause a chair check uses: the caller's explicit value (the owner's
+    own paths pass 0), else the venue's setting (online)."""
+    if buffer_min is None:
+        return service_buffer(settings)
+    return max(0, int(buffer_min))
+
+
+def start_new_salon_on_30(db: Session, user_id, profile: BusinessProfile | None) -> bool:
+    """Called just before a venue's chair is created (salon quick-setup, a
+    stylist station). A NEW salon — no chair ever (deleted ones count), no
+    table, and an owner who never picked Starttider — starts on 30-minute
+    start times. Returns True when it set them. Never raises: the chair the
+    owner asked for is the contract."""
+    if profile is None:
+        return False
+    try:
+        raw = json.loads(profile.reservation_settings_json or "{}")
+        if not isinstance(raw, dict):
+            raw = {}
+    except (ValueError, TypeError):
+        raw = {}
+    if raw.get("slot_step_chosen"):
+        return False
+    try:
+        had_chair = (
+            db.query(BookableResource.id)
+            .filter(BookableResource.user_id == user_id,
+                    BookableResource.kind == "provider")
+            .first()
+        ) is not None
+        has_table = (
+            db.query(BookableResource.id)
+            .filter(BookableResource.user_id == user_id,
+                    BookableResource.kind != "provider",
+                    BookableResource.is_deleted.is_(False))
+            .first()
+        ) is not None
+    except SQLAlchemyError:
+        logger.warning("new-salon start step: lookup failed", exc_info=True)
+        return False
+    if had_chair or has_table:
+        return False
+    merged = load_settings(profile)
+    merged["slot_granularity_min"] = NEW_SALON_SLOT_STEP
+    profile.reservation_settings_json = json.dumps(merged)
+    return True
+
+
 def build_config(settings: dict) -> AvailabilityConfig:
     return AvailabilityConfig(
-        slot_granularity_min=int(settings.get("slot_granularity_min", 15)),
+        slot_granularity_min=slot_step(settings),
         pacing_max_per_slot=settings.get("pacing_max_per_slot") or None,
         pacing_window_min=int(settings.get("pacing_window_min", 15)),
         turn_time_tiers=settings.get("turn_time_tiers") or [],
@@ -517,10 +637,16 @@ def _log_combo_overflow(views: list[ResourceView]) -> None:
 
 def available_slots(db: Session, *, profile: BusinessProfile, user_id, day: date,
                     party_size: int, now: datetime | None = None,
-                    duration_min: int | None = None) -> list[datetime]:
+                    duration_min: int | None = None,
+                    service_duration_min: int | None = None) -> list[datetime]:
     """Bookable start times for a party on a day. Restaurant uses the shared
     operating-hours window across all tables; appointment verticals union
-    each provider's shift window."""
+    each provider's shift window.
+
+    `service_duration_min` (R6) is the length a chair is checked for — the
+    service the guest chose, or the salon's shortest — and reaches ONLY the
+    chairs; tables keep `duration_min` / their turn time. Chairs also hold
+    the salon's pause between customers (service_buffer)."""
     settings = load_settings(profile)
     config = build_config(settings)
     resources = active_resources(db, user_id)
@@ -547,14 +673,16 @@ def available_slots(db: Session, *, profile: BusinessProfile, user_id, day: date
 
     # Appointment providers each have their own window (self-chair opening
     # hours, or an employed stylist's published shift).
+    buf = service_buffer(settings) if providers else 0
     for p in providers:
         windows = provider_windows(db, user_id, p, day, settings)
         if not windows:
             continue
-        dur = duration_min or settings.get("default_service_duration_min", 60)
+        dur = service_duration_min or duration_min or settings.get("default_service_duration_min", 60)
         for s in compute_slots(
             windows=windows, resources=_views([p]), busy=busy,
             party_size=party_size, config=config, now=now, duration_min=dur,
+            buffer_min=buf,
         ):
             starts.add(s.start)
 
@@ -851,7 +979,8 @@ def _held_by_pacing(db: Session, *, user_id, day: date, party_size: int,
 def classify_empty_day(db: Session, *, profile: BusinessProfile, user_id, day: date,
                        party_size: int, now: datetime, settings: dict | None = None,
                        resources: list | None = None,
-                       windows_for=None) -> str:
+                       windows_for=None,
+                       service_duration_min: int | None = None) -> str:
     """Why (day, party) has no online time — one of DAY_REASONS.
 
     PRECONDITION: the call the guest sees (available_slots /
@@ -896,7 +1025,9 @@ def classify_empty_day(db: Session, *, profile: BusinessProfile, user_id, day: d
     t_dur = turn_time_minutes(party_size, config)
     # A salon setting: read only when there are chairs (as available_slots),
     # so a junk value stored on a table venue can't fail its every day.
-    p_dur = int(settings.get("default_service_duration_min", 60)) if providers else 0
+    # The same chair length the strip asked available_slots about (R6).
+    p_dur = (int(service_duration_min or settings.get("default_service_duration_min", 60))
+             if providers else 0)
     t0 = datetime.combine(day, time(12, 0))
     viable: list[tuple[list, int]] = []
     if t_win and (group or assign_seats(party_size, t0, t0 + timedelta(minutes=t_dur),
@@ -972,7 +1103,8 @@ def empty_day_reason(db: Session, **kw) -> str:
 
 def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
                    start_date: date, days: int, party_size: int,
-                   now: datetime, with_reasons: bool = True) -> dict:
+                   now: datetime, with_reasons: bool = True,
+                   service_duration_min: int | None = None) -> dict:
     """Per-day open/closed overview for the public date strip + the public-surface
     monitor. Calls the SAME available_slots() a diner actually sees (or, for a
     group request, the same group_request_slots() /availability offers), so the
@@ -998,6 +1130,12 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
     # the owner's call, not the strip's. Counting tables here marked every day
     # "closed" for exactly the parties that were only ever asking.
     group = is_group_request(settings, party_size)
+    # A salon's chairs are checked for a REAL service length (R6, rubric
+    # S10): the one the guest chose, else the shortest the salon offers —
+    # a day is open when at least that fits. The hidden 60-minute default
+    # said a day was open while a 90-minute service had no time, or closed
+    # while a 30-minute gap was free. No service at all: the old default.
+    p_len = service_duration_min or shortest_service_min(db, user_id)
     # Loaded once for the classifier, and only when reasons are asked for:
     # the resources, and (lazily, at the first empty day) every published
     # shift in the range in one query — a salon pays no query per stylist per
@@ -1040,7 +1178,7 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
         else:
             slots = available_slots(
                 db, profile=profile, user_id=user_id, day=d,
-                party_size=party_size, now=now,
+                party_size=party_size, now=now, service_duration_min=p_len,
             )
         has = len(slots) > 0
         if has:
@@ -1061,6 +1199,7 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
                 profile=profile, user_id=user_id, day=d,
                 party_size=party_size, now=now, settings=settings,
                 resources=resources, windows_for=windows_for,
+                service_duration_min=p_len,
             ))
             if exc is not None:
                 if not failed:
@@ -1082,14 +1221,20 @@ def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
                              start: datetime, party_size: int,
                              now: datetime | None = None,
                              duration_min: int | None = None,
-                             owner_booking: bool = False) -> list[str] | None:
+                             owner_booking: bool = False,
+                             buffer_min: int | None = None) -> list[str] | None:
     """Server-side race re-check at booking time, combo-aware. Returns the full
     table set to assign — one id for a single table, or two+ when the party can
     only be seated by combining tables — or None if no longer bookable.
 
     Restaurant tables are checked first (and may combine); appointment
     providers each carry capacity 1 and never combine, so they return at most a
-    single id. The caller writes one occupancy row per id, atomically."""
+    single id. The caller writes one occupancy row per id, atomically.
+
+    `buffer_min` (R6): the pause a chair must keep around this appointment.
+    None = the salon's setting (an online booking); the owner's own paths
+    pass 0 — the owner may write a customer in closer than the guest page
+    offers. Tables never read it."""
     settings = load_settings(profile)
     config = build_config(settings)
     resources = active_resources(db, user_id)
@@ -1116,6 +1261,8 @@ def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
         if ids:
             return ids
 
+    # The owner's own bookings (owner_booking) keep no pause unless asked.
+    buf = _online_buffer(settings, 0 if (buffer_min is None and owner_booking) else buffer_min)
     for p in resources:
         if p.kind != "provider":
             continue
@@ -1124,7 +1271,7 @@ def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
         ids = find_slot_resources(
             requested_start=start, party_size=party_size, windows=windows,
             resources=_views([p]), busy=busy, config=config, now=now,
-            duration_min=dur,
+            duration_min=dur, buffer_min=buf,
         )
         if ids:
             return ids
@@ -1253,6 +1400,47 @@ def resolve_behandling_duration(db: Session, user_id, behandling_id) -> int:
     return int(b.duration_min)
 
 
+def shortest_service_min(db: Session, user_id) -> int | None:
+    """The shortest ACTIVE behandling's length, or None (no service, or a read
+    error — the caller then falls back to the venue default). The day strip
+    asks this when the guest has not chosen a service yet (R6)."""
+    try:
+        n = (
+            db.query(func.min(Behandling.duration_min))
+            .filter(Behandling.user_id == user_id, Behandling.active.is_(True))
+            .scalar()
+        )
+    except SQLAlchemyError as exc:
+        logger.warning("shortest service: read failed", exc_info=True)
+        _release_failed_read(db, exc)
+        return None
+    return int(n) if n else None
+
+
+def service_length(db: Session, user_id, behandling_id) -> int | None:
+    """The tenant's ACTIVE behandling's length, or None: no id, an id that is
+    not a UUID, another salon's, or an inactive one. Never the 60-minute
+    default — the strip then asks shortest_service_min instead."""
+    if not behandling_id:
+        return None
+    try:
+        bid = uuid.UUID(str(behandling_id))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    try:
+        n = (
+            db.query(Behandling.duration_min)
+            .filter(Behandling.id == bid, Behandling.user_id == user_id,
+                    Behandling.active.is_(True))
+            .scalar()
+        )
+    except SQLAlchemyError as exc:
+        logger.warning("service length: read failed", exc_info=True)
+        _release_failed_read(db, exc)
+        return None
+    return int(n) if n else None
+
+
 def available_provider_slots(db: Session, *, profile: BusinessProfile | None,
                              user_id, day: date, duration_min: int,
                              stylist_resource_id=None,
@@ -1287,6 +1475,7 @@ def available_provider_slots(db: Session, *, profile: BusinessProfile | None,
     dur = int(duration_min) if duration_min else int(
         settings.get("default_service_duration_min", 60))
 
+    buf = service_buffer(settings)
     providers = [
         r for r in active_resources(db, user_id) if r.kind == "provider"
     ]
@@ -1302,6 +1491,7 @@ def available_provider_slots(db: Session, *, profile: BusinessProfile | None,
         for s in compute_slots(
             windows=windows, resources=_views([p]), busy=busy,
             party_size=1, config=config, now=now, duration_min=dur,
+            buffer_min=buf,
         ):
             out.append({
                 "start": s.start.isoformat(),
@@ -1316,7 +1506,8 @@ def available_provider_slots(db: Session, *, profile: BusinessProfile | None,
 def recheck_provider_slot(db: Session, *, profile: BusinessProfile | None,
                           user_id, resource_id, start: datetime,
                           duration_min: int,
-                          now: datetime | None = None) -> str | None:
+                          now: datetime | None = None,
+                          buffer_min: int | None = None) -> str | None:
     """Booking-time race re-check for ONE specifically-requested stylist.
 
     Returns the provider id (as str) if THAT provider is still free for
@@ -1330,6 +1521,9 @@ def recheck_provider_slot(db: Session, *, profile: BusinessProfile | None,
 
     A non-provider / inactive / foreign / unknown resource_id → None (treated
     as "not bookable" rather than leaking which it was).
+
+    `buffer_min` (R6): None = the salon's pause (online); the owner's own
+    paths pass 0.
     """
     settings = load_settings(profile)
     config = build_config(settings)
@@ -1351,6 +1545,6 @@ def recheck_provider_slot(db: Session, *, profile: BusinessProfile | None,
     ids = find_slot_resources(
         requested_start=start, party_size=1, windows=windows,
         resources=_views([provider]), busy=busy, config=config, now=now,
-        duration_min=dur,
+        duration_min=dur, buffer_min=_online_buffer(settings, buffer_min),
     )
     return ids[0] if ids else None
