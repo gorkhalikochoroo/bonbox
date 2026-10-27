@@ -132,7 +132,11 @@ describe("Blokerede kontakter", () => {
 
   it("Glem forgets everything kept for a typed contact (GDPR), after a destructive confirm", async () => {
     h.get.mockResolvedValue({ data: LIST });
-    h.post.mockResolvedValue({ data: { blocks: [LIST.blocks[1]], days: 180, removed: 1 } });
+    // An older server (fix round 27 Oct): no preview route → the list-only
+    // confirm and toast, as before.
+    h.post.mockImplementation((url) => (url.endsWith("/erase-preview")
+      ? Promise.reject(Object.assign(new Error("405"), { response: { status: 405 } }))
+      : Promise.resolve({ data: { blocks: [LIST.blocks[1]], days: 180, removed: 1 } })));
     render(<ContactBlocksCard t={tDa} />);
     await settle();
     fireEvent.change(screen.getByTestId("rsvp-block-input"), { target: { value: "12 34 56 78" } });
@@ -144,6 +148,91 @@ describe("Blokerede kontakter", () => {
     expect(h.post).toHaveBeenCalledWith("/reservations/contact-blocks/erase", { phone: "12 34 56 78" });
     expect(h.toast.mock.calls[0][0].message).toBe(tDa("rsvpBlocksForgotten", { n: 1 }));
     expect(screen.getAllByTestId("rsvp-block-row")).toHaveLength(1);
+  });
+
+  // ── Fix round 27 Oct (F): a real erase, counted first ──────────────────
+  const glem = async (preview, erase, props = {}) => {
+    h.get.mockResolvedValue({ data: LIST });
+    h.post.mockImplementation((url) => {
+      const r = url.endsWith("/erase-preview") ? preview : erase;
+      return r instanceof Error ? Promise.reject(r) : Promise.resolve({ data: r });
+    });
+    render(<ContactBlocksCard t={tDa} {...props} />);
+    await settle();
+    fireEvent.change(screen.getByTestId("rsvp-block-input"), { target: { value: "12 34 56 78" } });
+    await act(async () => { fireEvent.click(screen.getByTestId("rsvp-block-forget")); });
+    await settle();
+  };
+  const PREVIEW = { would_erase: { blocks: 1, reservations: 3, waitlist: 1 }, future_kept: 2 };
+  const ERASED = { blocks: [], days: 180, removed: 1, erased: PREVIEW.would_erase, future_kept: 2 };
+
+  it("Glem counts first, says what goes and what upcoming bookings keep, then says what was deleted", async () => {
+    await glem(PREVIEW, ERASED);
+    expect(h.post.mock.calls[0]).toEqual(["/reservations/contact-blocks/erase-preview", { phone: "12 34 56 78" }]);
+    const opts = h.confirm.mock.calls[0][0];
+    expect(opts.destructive).toBe(true);
+    expect(opts.title).toBe("Glem 12 34 56 78?");
+    expect(opts.message).toContain("3 tidligere bookinger, 1 plads på ventelisten og 1 linje på denne liste");
+    expect(opts.message).toContain("2 kommende bookinger beholder kontakten til besøget — aflys dem først, hvis gæsten bad om det.");
+    expect(h.post.mock.calls[1]).toEqual(["/reservations/contact-blocks/erase", { phone: "12 34 56 78" }]);
+    const said = h.toast.mock.calls[0][0].message;
+    expect(said).toContain("Glemt: slettet fra 3 tidligere bookinger, 1 plads på ventelisten og 1 linje på denne liste.");
+    expect(said).toContain("2 kommende bookinger beholder kontakten til besøget");
+  });
+
+  it("a cancelled confirm erases nothing", async () => {
+    h.confirm.mockResolvedValue(false);
+    await glem(PREVIEW, ERASED);
+    expect(h.post).toHaveBeenCalledTimes(1);
+    expect(h.toast).not.toHaveBeenCalled();
+  });
+
+  it("a count that can't be read is said, and nothing is asked or erased", async () => {
+    await glem(Object.assign(new Error("500"), { response: { status: 500 } }), ERASED);
+    expect(h.confirm).not.toHaveBeenCalled();
+    expect(h.post).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert").textContent).toBe(da.rsvpBlocksForgetCheckFailed);
+  });
+
+  it("nothing to delete asks nothing — and still names the upcoming bookings kept", async () => {
+    await glem({ would_erase: { blocks: 0, reservations: 0, waitlist: 0 }, future_kept: 1 }, ERASED);
+    expect(h.confirm).not.toHaveBeenCalled();
+    expect(h.post).toHaveBeenCalledTimes(1);
+    expect(h.toast.mock.calls[0][0].message).toBe(`${da.rsvpBlocksForgetNothingYet} ${da.rsvpBlocksForgetFutureOne}`);
+    cleanup();
+    h.toast.mockReset();
+    h.post.mockReset();
+    await glem({ would_erase: { blocks: 0, reservations: 0, waitlist: 0 }, future_kept: 0 }, ERASED);
+    expect(h.toast.mock.calls[0][0].message).toBe(da.rsvpBlocksNothingKept);
+  });
+
+  it("an erase that doesn't answer is never called done", async () => {
+    await glem(PREVIEW, Object.assign(new Error("offline"), {}));
+    expect(screen.getByRole("alert").textContent).toBe(da.rsvpBlocksForgetUnsure);
+    expect(h.toast).not.toHaveBeenCalled();
+  });
+
+  it("a salon's card speaks of appointments and customers", async () => {
+    await glem({ would_erase: { blocks: 0, reservations: 1, waitlist: 0 }, future_kept: 1 }, ERASED,
+      { apptWords: true });
+    const msg = h.confirm.mock.calls[0][0].message;
+    expect(msg).toContain("1 tidligere aftale");
+    expect(msg).toContain(da.rsvpBlocksForgetFutureOneAppt);
+    expect(msg).not.toMatch(/gæst|booking/i);
+  });
+
+  it("the Glem words are real in en and da", () => {
+    for (const k of ["rsvpBlocksForgetTitle", "rsvpBlocksForgetWhat", "rsvpBlocksForgetWhatAppt",
+      "rsvpForgetPastOne", "rsvpForgetPastN", "rsvpForgetPastOneAppt", "rsvpForgetPastNAppt",
+      "rsvpForgetWaitOne", "rsvpForgetWaitN", "rsvpForgetListOne", "rsvpForgetListN",
+      "rsvpBlocksForgetFutureOne", "rsvpBlocksForgetFutureN", "rsvpBlocksForgetFutureOneAppt",
+      "rsvpBlocksForgetFutureNAppt", "rsvpBlocksForgottenFrom", "rsvpBlocksForgetNothingYet",
+      "rsvpBlocksForgetCheckFailed", "rsvpBlocksForgetUnsure"]) {
+      expect(en[k], k).toBeTruthy();
+      expect(da[k], k).toBeTruthy();
+      expect(da[k], k).not.toBe(en[k]);
+    }
+    expect(da.rsvpBlocksForgetFutureN).toBe("{n} kommende bookinger beholder kontakten til besøget — aflys dem først, hvis gæsten bad om det.");
   });
 
   it("the card's words are real in en and da", () => {

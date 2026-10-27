@@ -673,3 +673,170 @@ def test_the_monthly_counts_leave_spam_out(db):
                            R("cancelled", "owner_spam"), R("cancelled", "owner_spam")],
                           6, date(2026, 10, 1), date(2026, 10, 31))
     assert counts["bookings"] == 1 and counts["cancelled"] == 1
+
+
+# ── Fix round 27 Oct (F): "Glem" is a real erase, at this venue ───────────
+# Review P2-2: Glem only edited the block list while its toast said nothing
+# was kept; bookings kept the name, phone and allergy notes ~90 days and
+# waitlist rows up to 30. Now: exact phone / exact mailbox (R2's fold),
+# never a tail or a LIKE; waitlist rows and PAST bookings nulled as the
+# nightly purge nulls them; upcoming bookings counted and kept; counts-only
+# audit.
+def _now_cph():
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("Europe/Copenhagen")).replace(tzinfo=None, second=0, microsecond=0)
+
+
+def _row(db, owner, *, days, name, phone=None, email=None, status="confirmed", **extra):
+    start = _now_cph() + timedelta(days=days)
+    r = Reservation(id=uuid.uuid4(), user_id=owner.id, guest_name=name, guest_phone=phone,
+                    guest_email=email, party_size=2, starts_at=start,
+                    ends_at=start + timedelta(minutes=90), duration_min=90, status=status,
+                    is_deleted=False, source="public", **extra)
+    db.add(r)
+    db.commit()
+    return r.id
+
+
+def _wl(db, owner, *, name, phone, source="manual", days=1, status="waiting"):
+    from app.models.reservation_waitlist import ReservationWaitlistEntry as WL
+    w = WL(user_id=owner.id, guest_name=name, guest_phone=phone, party_size=2,
+           waitlist_date=(_now_cph() + timedelta(days=days)).date(), source=source, status=status)
+    db.add(w)
+    db.commit()
+    return w.id
+
+
+def _glem_world(client, db):
+    u, p, _ = restaurant(db)
+    other_u, other_p, _ = restaurant(db)
+    ids = {
+        # Anna, at this venue: the same number in three spellings, the same
+        # mailbox in three spellings.
+        "past_both": _row(db, u, days=-3, name="Anna Bord", phone="+45 12 34 56 78",
+                          email="A.nna+bord@Gmail.com", guest_notes="Vindue, tak",
+                          allergy_note="Nødder (alvorlig)", allergy_severity="severe",
+                          allergen_tags=["nuts"], occasion="birthday", note_intent="celebration",
+                          guest_consent_marketing=True),
+        "past_phone": _row(db, u, days=-10, name="Anna", phone="0045-1234-5678"),
+        "past_mail": _row(db, u, days=-20, name="A. Bord", email="anna@googlemail.com",
+                          status="completed"),
+        "cancelled_ahead": _row(db, u, days=4, name="Anna", phone="12345678",
+                                status="cancelled"),
+        "upcoming": _row(db, u, days=2, name="Anna", phone="12 34 56 78"),
+        # Not Anna: a foreign number with the same last 8 digits, another
+        # Gmail mailbox, a prefix-alike address.
+        "uk_tail": _row(db, u, days=-3, name="Brit", phone="+44 77 1234 5678"),
+        "other_mail": _row(db, u, days=-3, name="Anna B", email="anna.b@gmail.com"),
+        "prefix_mail": _row(db, u, days=-3, name="Annabel", email="annabel+x@gmail.com"),
+        # Anna at ANOTHER venue: never reached.
+        "other_venue": _row(db, other_u, days=-3, name="Anna", phone="12345678",
+                            email="anna@gmail.com"),
+    }
+    wl = {
+        "door": _wl(db, u, name="Anna", phone="0045 12345678"),
+        "online": _wl(db, u, name="Anna", phone="+45 12 34 56 78", source="public"),
+        "uk": _wl(db, u, name="Brit", phone="+447712345678"),
+        "other_venue": _wl(db, other_u, name="Anna", phone="12345678"),
+    }
+    as_owner(u)
+    blk = client.post("/api/reservations/contact-blocks",
+                      json={"phone": "+4512345678", "email": "anna@gmail.com"})
+    assert blk.status_code == 201
+    return u, p, other_u, ids, wl
+
+
+def test_fix_f_glem_previews_then_erases_only_this_contact_at_this_venue(client, db, outbox):
+    from app.models.reservation_waitlist import ReservationWaitlistEntry as WL
+    u, p, other_u, ids, wl = _glem_world(client, db)
+    body = {"phone": "12 34 56 78", "email": "anna+glem@gmail.com"}
+    prev = client.post("/api/reservations/contact-blocks/erase-preview", json=body)
+    assert prev.status_code == 200, prev.text
+    assert prev.json() == {"would_erase": {"blocks": 2, "reservations": 4, "waitlist": 2},
+                           "future_kept": 1}
+    db.expire_all()
+    assert reservation(db, ids["past_both"]).guest_name == "Anna Bord"     # a preview writes nothing
+    assert db.query(AuditLog).filter(AuditLog.action == "reservation.contact_erased").count() == 0
+
+    res = client.post("/api/reservations/contact-blocks/erase", json=body)
+    assert res.status_code == 200, res.text
+    out = res.json()
+    assert out["erased"] == {"blocks": 2, "reservations": 4, "waitlist": 2}
+    assert out["future_kept"] == 1 and out["removed"] == 2 and out["blocks"] == []
+    db.expire_all()
+    # Past (and cancelled) bookings: exactly the nightly purge's fields.
+    for k in ("past_both", "past_phone", "past_mail", "cancelled_ahead"):
+        r = reservation(db, ids[k])
+        assert (r.guest_name, r.guest_phone, r.guest_email, r.guest_notes) == (None,) * 4, k
+        assert r.purged_at is not None, k
+    r = reservation(db, ids["past_both"])
+    assert (r.allergy_note, r.allergy_severity, r.allergen_tags, r.occasion, r.note_intent) == (None,) * 5
+    assert r.guest_consent_marketing is False and r.party_size == 2 and r.status == "confirmed"
+    # The upcoming booking keeps its contact until the visit.
+    up = reservation(db, ids["upcoming"])
+    assert (up.guest_name, up.guest_phone, up.purged_at) == ("Anna", "12 34 56 78", None)
+    # Never a tail, never a lookalike mailbox, never another venue.
+    assert reservation(db, ids["uk_tail"]).guest_phone == "+44 77 1234 5678"
+    assert reservation(db, ids["other_mail"]).guest_email == "anna.b@gmail.com"
+    assert reservation(db, ids["prefix_mail"]).guest_email == "annabel+x@gmail.com"
+    assert reservation(db, ids["other_venue"]).guest_name == "Anna"
+    # Waitlist rows: nulled; a waiting one leaves the list.
+    for k in ("door", "online"):
+        w = db.get(WL, wl[k])
+        assert (w.guest_name, w.guest_phone, w.guest_email, w.note) == (None,) * 4, k
+        assert w.purged_at is not None and w.status == "cancelled", k
+    assert db.get(WL, wl["uk"]).guest_phone == "+447712345678"
+    assert db.get(WL, wl["other_venue"]).guest_name == "Anna"
+    # The audit row: counts only.
+    (a,) = db.query(AuditLog).filter(AuditLog.action == "reservation.contact_erased").all()
+    after = json.loads(a.after_state)
+    assert after == {"removed": 2, "blocks": 2, "reservations": 4, "waitlist": 2, "future_kept": 1}
+    for pii in ("anna", "1234", "gmail", "+45"):
+        assert pii not in (a.after_state or "").lower() and pii not in (a.before_state or "").lower()
+    # Again: nothing left to erase, the upcoming booking still counted.
+    again = client.post("/api/reservations/contact-blocks/erase", json=body).json()
+    assert again["erased"] == {"blocks": 0, "reservations": 0, "waitlist": 0}
+    assert again["future_kept"] == 1
+
+
+def test_fix_f_a_cancelled_upcoming_booking_is_then_forgotten(client, db, outbox):
+    u, p, other_u, ids, wl = _glem_world(client, db)
+    body = {"phone": "+45 12 34 56 78"}
+    assert client.post("/api/reservations/contact-blocks/erase", json=body).json()["future_kept"] == 1
+    db.expire_all()
+    up = reservation(db, ids["upcoming"])
+    up.status = "cancelled"                       # the owner cancels it first
+    db.commit()
+    out = client.post("/api/reservations/contact-blocks/erase", json=body).json()
+    assert out["erased"]["reservations"] == 1 and out["future_kept"] == 0
+    assert reservation(db, ids["upcoming"]).guest_name is None
+
+
+def test_fix_f_exact_phone_spellings_never_a_tail():
+    from app.services.guest_erase import phone_spellings
+    dk = ["004512345678", "12345678", "4512345678"]
+    for typed in ("12345678", "+45 12 34 56 78", "0045-1234-5678", "(+45) 12.34.56.78"):
+        assert phone_spellings(typed) == dk, typed
+    assert phone_spellings("+44 77 1234 5678") == ["00447712345678", "447712345678"]
+    assert phone_spellings("12345") == []
+    assert "12345678" not in phone_spellings("+44 77 1234 5678")
+
+
+def test_fix_f_a_preview_or_erase_that_fails_says_so_and_changes_nothing(client, db, outbox, monkeypatch):
+    from app.services import guest_erase
+    u, p, other_u, ids, wl = _glem_world(client, db)
+
+    def boom(*a, **k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(guest_erase, "counts", boom)
+    r = client.post("/api/reservations/contact-blocks/erase-preview", json={"phone": "12345678"})
+    assert r.status_code == 503
+    monkeypatch.setattr(guest_erase, "erase", boom)
+    r = client.post("/api/reservations/contact-blocks/erase", json={"phone": "12345678"})
+    assert r.status_code == 503
+    db.expire_all()
+    assert len(json.loads(_settings_json(db, p))["contact_blocks"]) == 2    # the list too
+    assert reservation(db, ids["past_both"]).guest_name == "Anna Bord"
+    assert client.post("/api/reservations/contact-blocks/erase-preview",
+                       json={"phone": "12"}).status_code == 422

@@ -13,8 +13,11 @@
 // Remove ("Fjern") lets the contact book online again (useConfirm); a block
 // added here can be taken back from its toast (Fortryd). "Glem" is the GDPR
 // path: a guest asks to be forgotten, the owner types the number or the
-// address they gave, and everything kept for it here goes — the owner never
-// has to find which masked row it was.
+// address they gave, and everything kept for it at this venue goes — the
+// owner never has to find which masked row it was. Fix round 27 Oct: it is a
+// real erase (the block list, the waitlist and PAST bookings — the server
+// counts first, the confirm says what goes, and that UPCOMING bookings keep
+// the contact until the visit), and the toast says what was deleted.
 import { useEffect, useState } from "react";
 import { ShieldBan, X } from "lucide-react";
 import api from "../../services/api";
@@ -22,6 +25,7 @@ import { useConfirm } from "../../hooks/useConfirm";
 import { useToast } from "../../hooks/useToast";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
+import { forgetParts, futureLine, joinParts } from "../../utils/forgetWords";
 
 // Phone: 40 px controls with 13 px text (the compact-controls rule).
 const PHONE_CTRL = "max-sm:h-10 max-sm:min-h-0! max-sm:text-[13px]";
@@ -112,35 +116,99 @@ export default function ContactBlocksCard({ t, lang = "da", apptWords = false })
     }
   };
 
+  // What the server would erase for this contact, counted first (nothing is
+  // erased yet). Three answers: the counts; null = an older server with no
+  // preview route (it only knows this list); or "failed" — never read as
+  // "nothing kept".
+  const preview = async (body) => {
+    try {
+      const res = await api.post("/reservations/contact-blocks/erase-preview", body);
+      return res?.data?.would_erase ? res.data : "failed";
+    } catch (e) {
+      const st = e?.response?.status;
+      return st === 404 || st === 405 ? null : "failed";
+    }
+  };
+
   const forget = async () => {
     const body = contactPayload(value);
     if (!body) {
       setError(t("rsvpBlocksErrNoContact", "Type a phone number (at least 6 digits) or an e-mail address."));
       return;
     }
-    const ok = await confirm({
-      message: apptWords
-        ? t("rsvpBlocksForgetConfirmAppt", "Delete everything kept about {contact} on this list? Use it when a customer asks to be forgotten.", { contact: value.trim() })
-        : t("rsvpBlocksForgetConfirm", "Delete everything kept about {contact} on this list? Use it when a guest asks to be forgotten.", { contact: value.trim() }),
-      confirmLabel: t("rsvpBlocksForget", "Forget"),
-      destructive: true,
-    });
-    if (ok !== true || busy) return;
+    if (busy) return;
+    const contact = value.trim();
     setBusy(true);
     setError("");
     try {
-      const res = await api.post("/reservations/contact-blocks/erase", body);
+      const seen = await preview(body);
+      if (seen === "failed") {
+        setError(t("rsvpBlocksForgetCheckFailed", "Couldn't check what is kept about that contact. Nothing was deleted — try again."));
+        return;
+      }
+      let ok;
+      if (seen) {
+        const parts = forgetParts(seen.would_erase, t, apptWords);
+        const later = futureLine(seen.future_kept, t, apptWords);
+        if (!parts.length) {
+          // Nothing to delete: say so (and what is kept), ask nothing.
+          toast({
+            severity: "info",
+            message: later
+              ? `${t("rsvpBlocksForgetNothingYet", "Nothing to delete yet.")} ${later}`
+              : t("rsvpBlocksNothingKept", "Nothing is kept about that contact."),
+          });
+          return;
+        }
+        const what = joinParts(parts, lang);
+        ok = await confirm({
+          title: t("rsvpBlocksForgetTitle", "Forget {contact}?", { contact }),
+          message: [
+            apptWords
+              ? t("rsvpBlocksForgetWhatAppt", "Everything kept about them goes: {what}. Use it when a customer asks to be forgotten.", { what })
+              : t("rsvpBlocksForgetWhat", "Everything kept about them goes: {what}. Use it when a guest asks to be forgotten.", { what }),
+            later,
+          ].filter(Boolean).join(" "),
+          confirmLabel: t("rsvpBlocksForget", "Forget"),
+          destructive: true,
+        });
+      } else {
+        // An older server: it erases this list only — and says so.
+        ok = await confirm({
+          message: apptWords
+            ? t("rsvpBlocksForgetConfirmAppt", "Delete everything kept about {contact} on this list? Use it when a customer asks to be forgotten.", { contact })
+            : t("rsvpBlocksForgetConfirm", "Delete everything kept about {contact} on this list? Use it when a guest asks to be forgotten.", { contact }),
+          confirmLabel: t("rsvpBlocksForget", "Forget"),
+          destructive: true,
+        });
+      }
+      if (ok !== true) return;
+      let res;
+      try {
+        res = await api.post("/reservations/contact-blocks/erase", body);
+      } catch {
+        setError(t("rsvpBlocksForgetUnsure", "We couldn't confirm the deletion. Tap Forget again — it only deletes what is still kept."));
+        return;
+      }
       take(res?.data);
       setValue("");
-      const n = Number(res?.data?.removed) || 0;
-      toast({
-        severity: "info",
-        message: n
-          ? t("rsvpBlocksForgotten", "Forgotten: {n} kept about that contact deleted.", { n })
-          : t("rsvpBlocksNothingKept", "Nothing is kept about that contact."),
-      });
-    } catch {
-      setError(t("rsvpSettingsSaveError", "Couldn't save settings."));
+      const done = res?.data?.erased;
+      if (done) {
+        const parts = forgetParts(done, t, apptWords);
+        const later = futureLine(res?.data?.future_kept, t, apptWords);
+        const head = parts.length
+          ? t("rsvpBlocksForgottenFrom", "Forgotten: deleted from {what}.", { what: joinParts(parts, lang) })
+          : t("rsvpBlocksNothingKept", "Nothing is kept about that contact.");
+        toast({ severity: "info", message: [head, later].filter(Boolean).join(" ") });
+      } else {
+        const n = Number(res?.data?.removed) || 0;
+        toast({
+          severity: "info",
+          message: n
+            ? t("rsvpBlocksForgotten", "Forgotten: {n} kept about that contact deleted.", { n })
+            : t("rsvpBlocksNothingKept", "Nothing is kept about that contact."),
+        });
+      }
     } finally {
       setBusy(false);
     }

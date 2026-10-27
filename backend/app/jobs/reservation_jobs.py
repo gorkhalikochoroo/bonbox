@@ -281,26 +281,13 @@ def purge_expired_reservations() -> int:
             .all()
         )
         from app.services import reservation_occupancy_service as occ_service
+        from app.services.guest_erase import null_reservation_guest_fields
         for r in rows:
             try:
-                r.guest_name = None
-                r.guest_email = None
-                r.guest_phone = None
-                r.guest_notes = None
-                r.allergen_tags = None
-                r.allergy_note = None
-                r.allergy_severity = None
-                r.occasion = None
-                # Rule-based AI signals are guest-derived (Art. 9-adjacent) too —
-                # purge them on the same schedule as the confirmed fields.
-                r.allergy_ai_tags = None
-                r.allergy_ai_severity = None
-                r.allergy_ai_generic = False
-                r.allergy_ai_confirmed = False
-                r.allergy_ai_matched = None
-                r.note_intent = None
-                r.guest_consent_marketing = False
-                r.purged_at = now
+                # The guest PII, the allergy fields and the rule-based AI
+                # signals (guest-derived, Art. 9-adjacent) — the ONE list
+                # "Glem" nulls too (services/guest_erase.py, fix round 27 Oct).
+                null_reservation_guest_fields(r, now)
                 # A row past purge_after is well after its service date — the
                 # slot is long gone. Release any still-active occupancy rows so
                 # the exclusion constraint isn't holding a stale future-dated

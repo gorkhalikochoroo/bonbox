@@ -22,8 +22,13 @@ stranger typed:
                                         or a booking's own
   DELETE /contact-blocks/{entry_id}     unblock (?keep_mark=1: a block back to
                                         a spam mark — the undo of an upgrade)
-  POST   /contact-blocks/erase          GDPR: remove every entry stored for a
-                                        phone or an address
+  POST   /contact-blocks/erase-preview  what "Glem" would erase, and the
+                                        upcoming bookings it keeps (counts)
+  POST   /contact-blocks/erase          GDPR: forget a phone or an address at
+                                        this venue — its block-list entries,
+                                        its waitlist rows and its PAST
+                                        bookings (services/guest_erase.py);
+                                        upcoming bookings are counted, kept
 
 Storage, hashing, retention and the erase path: services/contact_marks.py.
 "The month's quota back" needs no bookkeeping: the monthly cap counts only
@@ -436,23 +441,77 @@ class ContactErase(BaseModel):
     email: str | None = Field(default=None, max_length=255)
 
 
+def _erase_contact_ok(payload: ContactErase) -> None:
+    if not contact_marks.norm_email(payload.email) and not contact_marks.norm_phone(payload.phone):
+        raise HTTPException(status_code=422, detail={"error": "no_contact"})
+
+
+def _now_venue():
+    from app.routers.public_reservations import _now_local
+    return _now_local()
+
+
+@router.post("/contact-blocks/erase-preview")
+def erase_contact_preview(payload: ContactErase, db: Session = Depends(get_db),
+                          user: User = Depends(get_current_user)):
+    """What "Glem" would erase for this phone or address at this venue — and
+    the upcoming bookings it keeps — so the owner's confirm can say it
+    (fix round 27 Oct). Counts only; writes nothing. The contact rides in
+    the body, never in the address. A read that fails is a 503: "couldn't
+    check" is never "nothing kept"."""
+    enforce_feature(user, "reservations")
+    _erase_contact_ok(payload)
+    from app.services import guest_erase
+    profile = _profile(db, user)
+    _, blocks = contact_marks.erase_contact(
+        _entries(profile), user.id, email=payload.email, phone=payload.phone, today=_today())
+    try:
+        n = guest_erase.counts(db, user.id, email=payload.email, phone=payload.phone,
+                               now_local=_now_venue())
+    except Exception:  # noqa: BLE001
+        logger.warning("erase preview failed", exc_info=True)
+        raise HTTPException(status_code=503, detail={"error": "try_again"})
+    return {"would_erase": {"blocks": blocks, "reservations": n["reservations"],
+                            "waitlist": n["waitlist"]},
+            "future_kept": n["future_kept"]}
+
+
 @router.post("/contact-blocks/erase")
 def erase_contact_block(payload: ContactErase, db: Session = Depends(get_db),
                         user: User = Depends(get_current_user)):
-    """A guest asks to be forgotten (GDPR art. 17): every entry stored for
-    that phone or address goes, whichever it was. The owner types what the
-    guest gave them; nothing is shown back but the count."""
+    """A guest asks to be forgotten (GDPR art. 17), at THIS venue: every
+    entry on the block list for that phone or address goes, the waitlist
+    rows lose the name, phone, e-mail and note, and the PAST bookings lose
+    what the nightly purge nulls (services/guest_erase.py — exact matching,
+    never a tail or a LIKE). Upcoming bookings keep the contact until the
+    visit and are counted back (`future_kept`) — never erased silently. The
+    owner types what the guest gave them; nothing is shown back but counts,
+    and the audit row holds counts only."""
     enforce_feature(user, "reservations")
-    if not contact_marks.norm_email(payload.email) and not contact_marks.norm_phone(payload.phone):
-        raise HTTPException(status_code=422, detail={"error": "no_contact"})
+    _erase_contact_ok(payload)
+    from app.services import guest_erase
     profile = _profile(db, user)
     entries, removed = contact_marks.erase_contact(
         _entries(profile), user.id, email=payload.email, phone=payload.phone, today=_today())
+    try:
+        done = guest_erase.erase(db, user.id, email=payload.email, phone=payload.phone,
+                                 now_local=_now_venue(), now_utc=utc_now())
+    except Exception:  # noqa: BLE001 — nothing half-done: the whole erase rolls back
+        db.rollback()
+        logger.warning("contact erase failed", exc_info=True)
+        raise HTTPException(status_code=503, detail={"error": "try_again"})
     if removed:
         _save_entries(profile, entries)
+    erased = {"blocks": removed, "reservations": done["reservations"],
+              "waitlist": done["waitlist"]}
+    total = sum(erased.values())
+    if total:
         audit_service.record(db, user, "reservation.contact_erased", "business_profile",
-                             profile.id, after={"removed": removed})
+                             profile.id, after={"removed": removed, **erased,
+                                                "future_kept": done["future_kept"]})
         db.commit()
     out = _listing(entries)
-    out["removed"] = removed
+    out["removed"] = removed          # the block list's own count, as before
+    out["erased"] = erased            # everything erased, by kind
+    out["future_kept"] = done["future_kept"]
     return out
