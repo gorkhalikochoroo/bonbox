@@ -21,10 +21,11 @@ const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
   "focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-[rgb(var(--surface-card))]";
 
-// Phone: one row of eight 40 px squares (the compact-controls rule; min-h-0!
-// releases the coarse-pointer floor). From sm: 36 px squares in a row.
+// Phone: two rows of four 44 px squares. Eight in one row came out 35 px at
+// 390 (walk 27 Oct P3-3), under the 40 px tap floor. From sm: 40 px squares
+// in a row. min-h-0! releases the coarse-pointer floor so the size is exact.
 const SWATCH =
-  "relative aspect-square w-full min-h-0! sm:w-9 sm:h-9 rounded-lg transition-[box-shadow,scale] duration-150 " +
+  "relative w-11 h-11 min-h-0! sm:w-10 sm:h-10 rounded-lg transition-[box-shadow,scale] duration-150 " +
   "inline-flex items-center justify-center disabled:cursor-not-allowed " + FOCUS;
 
 function announce() {
@@ -130,7 +131,7 @@ export default function BookingAccentRow({ t }) {
           <div
             role="radiogroup"
             aria-labelledby="rsvp-accent-label"
-            className="grid grid-cols-8 gap-1.5 sm:flex sm:flex-wrap sm:gap-2"
+            className="grid grid-cols-4 gap-3 w-fit sm:flex sm:flex-wrap sm:gap-2"
           >
             <button
               type="button"

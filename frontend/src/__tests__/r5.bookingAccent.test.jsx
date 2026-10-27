@@ -309,15 +309,23 @@ describe("the owner's row (Reservationer → Indstillinger)", () => {
     expect(screen.getAllByRole("radio")).toHaveLength(8);
   });
 
-  it("phone: one row of eight 40 px squares (min-h-0! releases the touch floor); sm: 36 px", async () => {
+  // Fix round 27 Oct (walk P3-3): "one row of eight 40 px squares" measured
+  // 35 px at 390 — eight in a row cannot be 40 there. Two rows of four 44 px
+  // squares on a phone; 40 px from sm.
+  it("phone: two rows of four 44 px squares (min-h-0! releases the touch floor); sm: 40 px", async () => {
     brand(null);
     render(<BookingAccentRow t={tDa} />);
     await settle();
     const group = screen.getByRole("radiogroup");
-    expect(group.className).toContain("grid-cols-8");
-    for (const r of within(group).getAllByRole("radio")) {
+    expect(group.className).toContain("grid-cols-4");
+    expect(group.className).not.toContain("grid-cols-8");
+    const radios = within(group).getAllByRole("radio");
+    expect(radios).toHaveLength(8);
+    for (const r of radios) {
       expect(r.className).toContain("min-h-0!");
-      expect(r.className).toContain("sm:w-9");
+      expect(r.className).toMatch(/(^| )w-11 h-11( |$)/);
+      expect(r.className).toContain("sm:w-10 sm:h-10");
+      expect(r.className).not.toContain("w-full");
     }
   });
 
