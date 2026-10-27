@@ -271,3 +271,53 @@ def test_a_row_without_purge_after_is_never_replayed(client, db, outbox):
     first = _post(client, p.reservation_slug, "tap-y", time="21:00")
     again = _post(client, p.reservation_slug, "tap-y", time="21:00")
     assert again.json()["id"] == first.json()["id"]
+
+
+# ═══ Fix round 5 (gate V8): the replay layer on its own ══════════════════
+# create's outer catch replays any 409 that has a committed twin, so breaking
+# _replay_or_409 alone left every end-to-end test above green. These call it
+# directly, in the state a lost insert leaves the session in.
+def _lost_insert(db, owner, key):
+    """The session as the losing twin leaves it: its own INSERT of the same
+    key failed at flush (the unique index), the transaction rolled back."""
+    import pytest as _pytest
+    from datetime import datetime as _dt
+    from sqlalchemy.exc import IntegrityError
+    start = _dt.combine(DAY, _dt.min.time()).replace(hour=20)
+    db.add(Reservation(user_id=owner.id, guest_name="Twin", party_size=2, starts_at=start,
+                       ends_at=start + timedelta(minutes=90), duration_min=90, status="confirmed",
+                       source="public", idempotency_key=key, purge_after=start + timedelta(days=90)))
+    with _pytest.raises(IntegrityError):
+        db.flush()
+
+
+def test_replay_or_409_rolls_back_and_hands_back_this_venues_twin(client, db, outbox):
+    u, p, _ = restaurant(db)
+    first = _post(client, p.reservation_slug, "tap-v8")
+    assert first.status_code == 200, first.text
+    _lost_insert(db, u, "tap-v8")
+    out = pubres._replay_or_409(db, u, "tap-v8")
+    assert out["id"] == first.json()["id"]
+    assert out["status"] == first.json()["status"] and out["booking_token"]
+    assert set(out) == set(first.json()) - {"guest_mail"}
+    db.expire_all()
+    assert len(_rows(db, u)) == 1                       # the lost insert left nothing
+
+
+def test_replay_or_409_is_a_clean_409_with_no_twin_or_another_venues(client, db, outbox):
+    import pytest as _pytest
+    from fastapi import HTTPException
+    u, p, _ = restaurant(db)
+    b_u, b_p, _ = restaurant(db)
+    theirs = _post(client, b_p.reservation_slug, "theirs-v8")
+    assert theirs.status_code == 200
+    _lost_insert(db, u, "theirs-v8")
+    with _pytest.raises(HTTPException) as e:
+        pubres._replay_or_409(db, u, "theirs-v8")          # another venue's booking: never
+    assert e.value.status_code == 409 and e.value.detail == {"error": "slot_unavailable"}
+    with _pytest.raises(HTTPException) as e:
+        pubres._replay_or_409(db, u, "nobody-v8", "stylist_unavailable")
+    assert e.value.status_code == 409 and e.value.detail == {"error": "stylist_unavailable"}
+    with _pytest.raises(HTTPException) as e:
+        pubres._replay_or_409(db, u, None)
+    assert e.value.status_code == 409
