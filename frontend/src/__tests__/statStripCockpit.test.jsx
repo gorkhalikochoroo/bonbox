@@ -13,7 +13,7 @@
  *     truncates it.
  */
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import StatStrip from "../components/ui/StatStrip";
 
 const cellOf = (label) => screen.getByText(label).closest("button, div.min-w-0");
@@ -107,5 +107,46 @@ describe("StatStrip on a phone — no blank box in a short last row", () => {
   it("full rows stay three across", () => {
     render(<StatStrip items={six(["a", "o", "w"])} />);
     expect(["Covers", "Seated now", "Next arrival"].map(spanOf)).toEqual(["col-span-2", "col-span-2", "col-span-2"]);
+  });
+});
+
+// Fix round 27 Oct (judge, frame 14): on a tablet (sm to lg) every cell shows
+// three across, and the door iPad's five read 3 + 2 beside a blank sixth box.
+// The short row shares the width there too; from lg it is one row of six.
+describe("StatStrip on a tablet — no blank sixth cell", () => {
+  const tabletSpanOf = (label) =>
+    cellOf(label).className.split(/\s+/).find((c) => /^sm:col-span-\d$/.test(c));
+  const five = [
+    { key: "c", label: "Covers", value: 22 },
+    { key: "s", label: "Seated now", value: 0 },
+    { key: "n", label: "Next arrival", value: "19.00" },
+    { key: "a", label: "Awaiting", value: 2, hideOnPhone: true },
+    { key: "w", label: "On waitlist", value: 1, hideOnPhone: true },
+  ];
+
+  it("five: three across, then two sharing the row (the quiet cells show on a tablet)", () => {
+    const { container } = render(<StatStrip items={five} />);
+    expect(["Covers", "Seated now", "Next arrival"].map(tabletSpanOf)).toEqual(["sm:col-span-2", "sm:col-span-2", "sm:col-span-2"]);
+    expect(["Awaiting", "On waitlist"].map(tabletSpanOf)).toEqual(["sm:col-span-3", "sm:col-span-3"]);
+    const grid = container.firstChild;
+    expect(grid.className).toContain("grid-cols-6");
+    expect(grid.className).not.toContain("sm:grid-cols-3");
+    for (const l of ["Covers", "Awaiting"]) expect(cellOf(l).className).toContain("lg:col-span-1");
+  });
+
+  it("four: two by two; seven: a lone last cell takes the row", () => {
+    render(<StatStrip items={five.slice(0, 4)} />);
+    expect(["Covers", "Seated now", "Next arrival", "Awaiting"].map(tabletSpanOf)).toEqual([
+      "sm:col-span-3", "sm:col-span-3", "sm:col-span-3", "sm:col-span-3",
+    ]);
+    cleanup();
+    render(<StatStrip items={[...five, { key: "x", label: "Extra", value: 1 }, { key: "y", label: "More", value: 2 }]} />);
+    expect(tabletSpanOf("More")).toBe("sm:col-span-6");
+  });
+
+  it("the phone's spans are untouched (quiet cells hidden there)", () => {
+    render(<StatStrip items={five} />);
+    const phone = (l) => cellOf(l).className.split(/\s+/).find((c) => /^col-span-\d$/.test(c));
+    expect(["Covers", "Seated now", "Next arrival"].map(phone)).toEqual(["col-span-2", "col-span-2", "col-span-2"]);
   });
 });

@@ -35,16 +35,32 @@ const SHORT_LABEL_AT = {
   xl: ["xl:hidden", "max-xl:hidden"],
 };
 
+// Whole class names (Tailwind reads this file for them).
+const SPANS = {
+  phone: { third: "col-span-2", half: "col-span-3", full: "col-span-6" },
+  tablet: { third: "sm:col-span-2", half: "sm:col-span-3", full: "sm:col-span-6" },
+};
+// The span of each cell on a 6-column grid three across: 2, and the cells of
+// a short last row share the full width (2 left → 3 each, 1 left → 6).
+// Exactly four is two by two: three and a lone full-width fourth read as a
+// leftover.
+function spansFor(keys, kind) {
+  const tail = keys.length === 4 ? 4 : keys.length % 3;
+  const tailKeys = new Set(tail ? keys.slice(-tail) : []);
+  const s = SPANS[kind];
+  const tailSpan = tail === 1 ? s.full : s.half;
+  return (k) => (tailKeys.has(k) ? tailSpan : s.third);
+}
+
 export default function StatStrip({ items, className = "", shortBelow = "sm" }) {
   // On a phone the strip is three across and quiet cells hide, so its last row
-  // is often short — four cells left one stat beside a blank white box. The
-  // phone grid is 6 columns with each cell spanning 2; the cells of a short
-  // last row share the full width instead (2 left → 3 each). Exactly four is
-  // two by two: three and a lone full-width fourth read as a leftover.
-  const phoneKeys = items.filter((i) => !i.hideOnPhone).map((i) => i.key || i.label);
-  const tail = phoneKeys.length === 4 ? 4 : phoneKeys.length % 3;
-  const tailKeys = new Set(tail ? phoneKeys.slice(-tail) : []);
-  const tailSpan = tail === 1 ? "col-span-6" : "col-span-3";
+  // is often short — four cells left one stat beside a blank white box. On a
+  // tablet (sm to lg) every cell shows, three across: the door iPad's five
+  // read 3 + 2 beside a blank sixth box (judge 27 Oct, frame 14). Both are
+  // the 6-column grid with the short row sharing the width; from lg one row.
+  const keyOf = (i) => i.key || i.label;
+  const phoneSpan = spansFor(items.filter((i) => !i.hideOnPhone).map(keyOf), "phone");
+  const tabletSpan = spansFor(items.map(keyOf), "tablet");
   return (
     // The dividers are each cell's right + bottom hairline, drawn as an
     // outside box-shadow and clipped by the card at its edges. Unlike a
@@ -53,7 +69,7 @@ export default function StatStrip({ items, className = "", shortBelow = "sm" }) 
     // on a phone whenever a quiet cell hides.
     <div
       className={
-        "grid grid-cols-6 sm:grid-cols-3 lg:grid-cols-6 overflow-hidden rounded-xl border " +
+        "grid grid-cols-6 overflow-hidden rounded-xl border " +
         "border-[rgb(var(--surface-line))] bg-[rgb(var(--surface-card))] " +
         className
       }
@@ -61,7 +77,8 @@ export default function StatStrip({ items, className = "", shortBelow = "sm" }) 
       {items.map(({ key, ...item }) => (
         <StatStripCell
           key={key || item.label}
-          phoneSpan={tailKeys.has(key || item.label) ? tailSpan : "col-span-2"}
+          phoneSpan={phoneSpan(key || item.label)}
+          tabletSpan={tabletSpan(key || item.label)}
           shortBelow={shortBelow}
           {...item}
         />
@@ -92,6 +109,7 @@ function StatStripCell({
   selected = false,
   hideOnPhone = false,
   phoneSpan = "col-span-2",
+  tabletSpan = "sm:col-span-2",
   shortBelow = "sm",
 }) {
   const [shortCls, fullCls] = SHORT_LABEL_AT[shortBelow] || SHORT_LABEL_AT.sm;
@@ -99,7 +117,7 @@ function StatStripCell({
   const valueClass = ACCENT_VALUE_CLASS[accent] || ACCENT_VALUE_CLASS.neutral;
   const cls =
     (hideOnPhone ? "hidden sm:block " : "block ") +
-    phoneSpan + " sm:col-span-1 min-w-0 px-3 py-2 max-sm:py-1.5 text-left " +
+    phoneSpan + " " + tabletSpan + " lg:col-span-1 min-w-0 px-3 py-2 max-sm:py-1.5 text-left " +
     "shadow-[1px_0_0_0_rgb(var(--surface-line)),0_1px_0_0_rgb(var(--surface-line))] " +
     (selected ? "bg-[rgb(var(--surface-subtle))] " : "") +
     (isClickable
