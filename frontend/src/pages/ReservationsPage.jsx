@@ -7929,19 +7929,23 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       />
 
       {/* R11 (B10): a table may have opened and someone waiting fits it —
-          said above the night, where the host looks, not under the last row.
-          One tap: the Venteliste, the matches ringed, Giv besked / Book. */}
-      {freedNudge && freedNudge.day === day && waitlistCount !== 0 && !bookUnavailable && (
+          said where the host is looking, never under the last row: a card
+          floating over the foot of the page (it moves nothing — in the page
+          it would push the night down mid-service). One tap: the Venteliste,
+          the matches ringed, Giv besked / Book. */}
+      {freedNudge && freedNudge.day === day && waitlistCount !== 0 && !bookUnavailable && createPortal(
         <FreedTableNudge
           matches={freedNudge.matches}
           t={t}
           apptWords={apptWords}
+          raised={!!walkInDone && !(walkIns && view !== "plan")}
           onShow={() => {
             setSpotMatches([...freedNudge.matches]);
             focusWaitlist();
           }}
           onDismiss={() => setFreedNudge(null)}
-        />
+        />,
+        document.body,
       )}
 
       {error && (

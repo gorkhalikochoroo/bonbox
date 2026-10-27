@@ -351,7 +351,7 @@ describe("allergies on the rows", () => {
 describe("the freed-table nudge", () => {
   const BO = { id: "w1", guest_name: "Bo Mikkelsen", party_size: 4, status: "waiting" };
 
-  it("a cancel here: who fits is named at the top of the book, and one tap shows the Venteliste", async () => {
+  it("a cancel here: who fits is named over the page (moving nothing), and one tap shows the Venteliste", async () => {
     WAITLIST = [BO];
     api.patch.mockImplementation((url) => (/\/status$/.test(url)
       ? Promise.resolve({ data: { ...HANSEN, status: "cancelled", waitlist_matches: [BO] } })
@@ -371,9 +371,11 @@ describe("the freed-table nudge", () => {
     expect(nudge.textContent).toContain("A table may have opened");
     expect(nudge.textContent).toContain("1 on the waitlist fits");
     expect(nudge.textContent).toContain("Bo Mikkelsen");
-    // Above the night: before the list and before the Venteliste.
-    const wl = document.getElementById("rsvp-venteliste");
-    expect(nudge.compareDocumentPosition(wl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Where the host looks, moving nothing: a card floating over the page
+    // (fixed, in <body>), never a block pushed into the night.
+    expect(nudge.parentElement).toBe(document.body);
+    expect(nudge.className).toContain("fixed");
+    expect(document.getElementById("rsvp-venteliste").contains(nudge)).toBe(false);
     // This screen's own cancel brought the matches — no second question.
     expect(api.get.mock.calls.filter(([u]) => u === "/reservations/waitlist/matches").length).toBe(0);
     fireEvent.click(within(nudge).getByRole("button", { name: "See the waitlist" }));

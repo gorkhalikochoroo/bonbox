@@ -12,6 +12,13 @@
  * tap takes them to the Venteliste with the parties ringed, where Giv besked
  * and Book already live.
  *
+ * It FLOATS (fixed, over the foot of the page — bottom-left from a tablet
+ * up, above the phone's bottom bar on a phone) rather than sitting in the
+ * page: in the page it would push the whole night down the moment a table
+ * frees on another screen — a layout shift in the middle of service, the
+ * thing R11 removes from the door screen (rubric B11). `raised` lifts it on a
+ * phone above the drop-in line that floats in the same place.
+ *
  * Honest by construction: "kan være blevet ledigt" — a cancel frees a table
  * only maybe (a party may be running over); nothing is held, nobody is
  * messaged. Dismissable; a new freed table brings it back.
@@ -20,7 +27,7 @@ import { BellRing, Users, X } from "lucide-react";
 import Button from "../ui/Button";
 import { guestText } from "../../utils/guestText";
 
-export default function FreedTableNudge({ matches, t, apptWords = false, onShow, onDismiss }) {
+export default function FreedTableNudge({ matches, t, apptWords = false, onShow, onDismiss, raised = false }) {
   const list = Array.isArray(matches) ? matches.filter(Boolean) : [];
   if (!list.length) return null;
   const named = list.filter((m) => m && m.guest_name);
@@ -29,7 +36,11 @@ export default function FreedTableNudge({ matches, t, apptWords = false, onShow,
       role="status"
       aria-live="polite"
       data-freed-nudge=""
-      className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] px-3 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2"
+      className={
+        "fixed z-50 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md md:left-5 md:translate-x-0 md:bottom-5 " +
+        (raised ? "bottom-[calc(env(safe-area-inset-bottom)+148px)]" : "bottom-[calc(env(safe-area-inset-bottom)+72px)]") +
+        " rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] bg-white dark:bg-[rgb(var(--surface-raised))] shadow-lg px-3 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2"
+      }
     >
       <div className="flex items-start gap-2.5 min-w-0 flex-1 basis-64">
         <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
