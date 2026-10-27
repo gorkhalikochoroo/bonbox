@@ -24,13 +24,9 @@ export default function BookingHoursSourceNote({ status: given = undefined, load
   const { t } = useLanguage();
   // A shop or a workshop speaks of customers and "Tidsbestilling" (its
   // menu). The note never breaks its card: no session context = the
-  // restaurant's words.
-  let user = null;
-  try {
-    user = useAuth()?.user || null;
-  } catch {
-    user = null;
-  }
+  // restaurant's words. Called at the top, unconditionally (rules of hooks);
+  // `optional` answers null outside an AuthProvider instead of throwing.
+  const user = useAuth({ optional: true })?.user || null;
   const appt = speaksAppointments(user?.business_type);
   const [fetched, setFetched] = useState(null);
   useEffect(() => {

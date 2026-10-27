@@ -327,8 +327,11 @@ export function AuthProvider({ children }) {
   );
 }
 
-export function useAuth() {
+// `optional` (fix round 5): null outside an AuthProvider instead of a throw —
+// for a note that must never break its card (BookingHoursSourceNote), called
+// unconditionally at the top like any hook, never inside a try/catch.
+export function useAuth({ optional = false } = {}) {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  if (!ctx && !optional) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
 }
