@@ -20,12 +20,21 @@ Locks under test:
     cannot push a real booking out of the 20 results.
   • "Gem alligevel" that keeps a too-big party on its table says so ("kept").
 
+THE CLOCK IS PINNED (fix round 6, 27 Oct): every test runs at 14.00 on a
+Wednesday in Copenhagen. A drop-in is seated "now" for 90 minutes inside the
+venue's 00:00–23:59 day, so after about 22.29 the sitting ran past midnight
+and the engine answered 409 room_full — three tests went red every late
+evening, on live main too. The venue clock (services/tz_utils) and the UTC
+clock (utils/time) are the only clocks this path reads; both are pinned.
+
 Run: cd backend && python3 -m pytest tests/test_reservation_occupied_table.py -x -q
 """
 
 import json
 import uuid
+from datetime import datetime as _real_datetime
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -57,6 +66,27 @@ _SETTINGS = {
     "combine_enabled": False,
     "retention_days": 90,
 }
+
+
+# 14.00 on Wednesday 9 January 2030, Copenhagen — a normal service hour,
+# far from midnight and from the 06:00 business-day cutoff.
+_PINNED = _real_datetime(2030, 1, 9, 14, 0, tzinfo=ZoneInfo("Europe/Copenhagen"))
+
+
+class _PinnedDatetime(_real_datetime):
+    @classmethod
+    def now(cls, tz=None):
+        if tz is None:
+            return _PINNED.astimezone().replace(tzinfo=None)
+        return _PINNED.astimezone(tz)
+
+
+@pytest.fixture(autouse=True)
+def _pinned_clock(monkeypatch):
+    import app.services.tz_utils as tz_utils
+    import app.utils.time as utc_time
+    monkeypatch.setattr(tz_utils, "datetime", _PinnedDatetime)
+    monkeypatch.setattr(utc_time, "datetime", _PinnedDatetime)
 
 
 @pytest.fixture
