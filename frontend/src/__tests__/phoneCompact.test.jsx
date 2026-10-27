@@ -472,7 +472,12 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // below. Was { onClick: 81, onChange: 60, onSubmit: 11, ariaLabel: 61,
     // ariaPressed: 3, role: 39, id: 29, Button: 29, button: 54,
     // disabled: 29, tKeys: 720 }.
-    "pages/ReservationsPage.jsx": { onClick: 74, onChange: 53, onSubmit: 10, ariaLabel: 59, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 2, role: 34, title: 24, id: 22, testid: 23, Button: 24, button: 52, Link: 5, disabled: 27, to: 5, href: 3, tKeys: 705 },
+    // Fix round 5 (27 Oct) ADDED, nothing removed: the door screen's "couldn't
+    // load the tables — trying again" line (+1 role, +1 button with its
+    // onClick "Try again") and its 3 t() keys (rsvpRoomUnknown,
+    // rsvpRoomUnknownAppt, tryAgain). Was { onClick: 74, role: 34,
+    // button: 52, tKeys: 705 }.
+    "pages/ReservationsPage.jsx": { onClick: 75, onChange: 53, onSubmit: 10, ariaLabel: 59, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 2, role: 35, title: 24, id: 22, testid: 23, Button: 24, button: 53, Link: 5, disabled: 27, to: 5, href: 3, tKeys: 708 },
     "components/reservations/EditBookingSheet.jsx": { onClick: 7, onChange: 7, onSubmit: 1, ariaLabel: 2, ariaPressed: 1, role: 3, id: 7, Button: 5, button: 2, disabled: 2, tKeys: 30 },
     "hooks/useSheetFocus.js": { role: 2, tKeys: 0 },
     "utils/snapStart.js": { tKeys: 4 },
