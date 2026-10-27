@@ -44,6 +44,7 @@ from app.models.user import User
 from app.services import audit_service, reservation_service as rsvc
 from app.services import booking_screen
 from app.services import owner_booking_alerts
+from app.services import public_waitlist
 from app.services import reservation_emails
 from app.services import venue_identity
 from app.services import reservation_occupancy_service as occ_service
@@ -386,6 +387,11 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         "max_party_size": rsvc.online_party_ceiling(settings),
         "group_request_threshold": settings.get("group_request_threshold"),
         "guest_can_pick_table": bool(settings.get("guest_can_pick_table")),
+        # The owner's switch for the guest waitlist on a full night (booking
+        # R12, on unless switched off). The switch only: whether tonight's
+        # online list still takes names is /availability's answer, and no cap
+        # or plan ever shows here.
+        "waitlist_on": public_waitlist.waitlist_on(settings),
         "max_advance_days": settings.get("max_advance_days"),
         "lead_time_min": settings.get("lead_time_min"),
         # Best-effort default UI language for this venue's public page — Danish
@@ -562,7 +568,29 @@ def availability(request: Request, slug: str = Path(...),
             db, profile=profile, user_id=owner.id, day=target,
             party_size=party, now=_now_local(), settings=settings,
         )
+    # A full night is never a dead end (booking R12, rubric G5): the nearest
+    # free times and, when the owner has it on, the waitlist for that night.
+    # Additive and only on a full night (or a full evening on a day with
+    # earlier times) of a table venue — an open evening is byte-identical.
+    body.update(_full_night_offer(db, owner, profile, settings, target, party, slots,
+                                  body.get("reason")))
     return body
+
+
+def _full_night_offer(db: Session, owner: User, profile: BusinessProfile, settings: dict,
+                      day, party: int, slots: list, reason) -> dict:
+    """public_waitlist.full_offer, fail-soft: a failure offers nothing extra
+    (the page then says what it said before) and never fails the times."""
+    try:
+        return public_waitlist.full_offer(
+            db, owner=owner, profile=profile, settings=settings, day=day, party=party,
+            slots=slots, reason=reason, now_local=_now_local(), now_utc=utc_now(),
+        ) or {}
+    except Exception as exc:  # noqa: BLE001 — an offer, never a 500
+        rsvc._release_failed_read(db, exc)
+        logger.warning("full-night offer failed for owner %s", getattr(owner, "id", None),
+                       exc_info=True)
+        return {}
 
 
 @router.get("/{slug}/availability-summary")

@@ -82,6 +82,10 @@ DEFAULT_SETTINGS: dict = {
     # E-mail the owner about new online bookings and guest cancellations
     # (owner_booking_alerts caps them; push is opted into per device).
     "owner_booking_emails": True,
+    # On a full night a guest may put themselves on the Venteliste from the
+    # booking page (booking R12, services/public_waitlist.py). On for every
+    # table venue (Manoj, 19 Oct); one switch off in Indstillinger.
+    "public_waitlist": True,
 }
 
 
