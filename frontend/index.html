@@ -232,7 +232,13 @@
           // tablet. Nobody could test "is the web host stand good enough"
           // because an installed host stand had never actually existed.
           var isStand = /^\/reservations\/stand\/?$/.test(location.pathname);
-          window.__BONBOX_IS_STAND = isStand;
+          // R10 — a PAIRED door screen: /stand (the code page, and the start
+          // page of the installed stand app) and /stand/<token> (its book).
+          // These fell through to the generic manifest (start_url "/"), so
+          // the home-screen icon of a paired iPad opened the owner app's
+          // front door instead of tonight's book.
+          var isStandDevice = /^\/stand(\/|$)/.test(location.pathname);
+          window.__BONBOX_IS_STAND = isStand || isStandDevice;
 
           function setManifest(href) {
             var link = document.querySelector('link[rel="manifest"]');
@@ -273,6 +279,19 @@
             } else {
               // Android/desktop staff route → per-staff manifest, first paint.
               setManifest("/portal/" + token + "/app.webmanifest");
+            }
+          } else if (isStandDevice) {
+            if (isIOS) {
+              // iOS → NO manifest, as for the staff portal and the owner's
+              // stand: Add to Home Screen then bookmarks THIS address —
+              // /stand/<token>, the device's own book — so the icon opens
+              // tonight's book on every cold start.
+              setManifest(null);
+            } else {
+              // Android/desktop → the paired device's own manifest: start_url
+              // /stand, which reopens the pairing this device remembers
+              // (services/standAuth) — no token in a static file.
+              setManifest("/stand-device.webmanifest");
             }
           } else if (isStand) {
             if (isIOS) {
