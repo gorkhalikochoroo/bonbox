@@ -1264,6 +1264,22 @@ export default function ReservationPublicPage() {
   // Focus target for the confirmation headline — see the success screen.
   const resultHeadingRef = useRef(null);
   const [submitError, setSubmitError] = useState(""); // "" | error-key
+  // A refusal said UNDER the main button is a tap that changed nothing (walk
+  // 27 Oct P3-1: at 390×844 the details step's "For mange forsøg…" drew at
+  // 770 px, under the fixed bar at 767, page unscrolled). Whichever box says
+  // it (step 1's or the details step's) is brought up clear of the bar.
+  const submitErrorBoxRef = useRef(null);
+  useEffect(() => {
+    const box = submitErrorBoxRef.current;
+    if (!submitError || !box) return;
+    const vv = window.visualViewport;
+    const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+    const barTop = barRef.current ? Math.min(barRef.current.getBoundingClientRect().top, viewBottom) : viewBottom;
+    const r = box.getBoundingClientRect();
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const by = r.bottom > barTop - 8 ? r.bottom - (barTop - 8) : r.top < 0 ? r.top - 16 : 0;
+    if (by) window.scrollBy({ top: by, behavior: reduce ? "auto" : "smooth" });
+  }, [submitError, step]);
   const [result, setResult] = useState(null); // {id, status, booking_token}
   // The booking a link points at (email self-cancel link, reload, bookmark):
   // {day, time, party, name} from the server, rendered on the receipt instead
@@ -3449,6 +3465,7 @@ export default function ReservationPublicPage() {
                   stay filled. */}
               {submitError && step === 1 && (
                 <div
+                  ref={submitErrorBoxRef}
                   role="alert"
                   className="mb-2.5 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/70 dark:bg-amber-900/10 px-3 py-2"
                 >
@@ -4282,7 +4299,7 @@ export default function ReservationPublicPage() {
 
             {/* Submit-error surfaces */}
             {submitError && (
-              <div role="alert" className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 flex items-start gap-2">
+              <div ref={submitErrorBoxRef} role="alert" className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 flex items-start gap-2">
                 <AlertCircle
                   size={16}
                   strokeWidth={1.75}
