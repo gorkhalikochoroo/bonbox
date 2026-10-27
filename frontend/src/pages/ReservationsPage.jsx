@@ -5439,6 +5439,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         cancel_reason: removingWalkIn ? "walk_in_removed" : status === "cancelled" ? "owner_cancelled" : null,
         ...(removingWalkIn || silentHeldDecline ? { notify_guest: false } : {}),
         ...(confirmsNoTable ? { if_no_table: opts.ifNoTable === "confirm" ? "confirm" : "ask" } : {}),
+        ...(opts.moveTo ? { starts_at: opts.moveTo } : {}),
       });
       // Where the confirmed group sits now — said, as every other change on
       // the book is (R11). Or that it sits nowhere yet, on purpose.
@@ -5447,7 +5448,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       if (status === "confirmed" && placedAt) {
         toast({
           severity: "success",
-          message: opts.movedTo
+          // The new time only when the server says it moved (an older server
+          // ignores the move and confirms at the time it had).
+          message: opts.movedTo && (!opts.moveTo || resp?.data?.moved_to)
             ? t("rsvpMovedConfirmed", "Moved to {time} and confirmed — {name} has {tables}.", {
                 time: hm(opts.movedTo), name: guestText(r.guest_name) || t("rsvpGuest", "Guest"), tables: placedAt,
               })
@@ -5644,25 +5647,21 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   };
 
   // R11 (B7): "Flyt til 21.45 og bekræft" — the request moves to a time the
-  // server said tables fit (the guest is e-mailed the new time, as any move
-  // of a request is), then Bekræft runs as usual: the tables are picked and
-  // held, or the sheet comes back with what is true now.
+  // server said tables fit and is confirmed there, in ONE request (fix round
+  // 27 Oct): moved and confirmed together or not at all, and the guest gets
+  // ONE mail — the confirmation, naming the new time and the one asked for.
+  // Bekræft's own answers apply: the tables are picked and held, or the
+  // sheet comes back with what is true now (nothing moved).
   const moveAndConfirm = async (r, hhmm) => {
     const date = String(r.starts_at || "").slice(0, 10) || day;
     const starts = `${date}T${hhmm}:00`;
     setNoFitBusy(true);
     try {
-      await api.patch(`/reservations/reservations/${r.id}`, { starts_at: starts });
-    } catch (e) {
-      setNoFitBusy(false);
       setNoFit(null);
-      await fetchBook(day);
-      setError(bookFailWords(e, t, t("rsvpActionError", "Action failed. Please try again."), { apptWords }));
-      return;
+      await setStatus({ ...r, starts_at: starts }, "confirmed", null, { movedTo: hhmm, moveTo: starts });
+    } finally {
+      setNoFitBusy(false);
     }
-    setNoFitBusy(false);
-    setNoFit(null);
-    await setStatus({ ...r, starts_at: starts }, "confirmed", null, { movedTo: hhmm });
   };
 
   // Seat a walk-in NOW on a free table → the table goes occupied (seated).

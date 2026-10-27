@@ -243,3 +243,24 @@ describe("every R11 word, in English and Danish", () => {
     });
   });
 });
+
+// Fix round 27 Oct (K): "Flyt til … og bekræft" is ONE request — the move
+// rides on the confirm (moved and confirmed together or not at all), so the
+// guest gets ONE mail: the confirmation naming the new time. The edit PATCH
+// that sent the separate "moved" mail is gone from this path.
+describe("move and confirm is one step", () => {
+  const page = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "pages", "ReservationsPage.jsx"), "utf8");
+  const body = page.slice(page.indexOf("const moveAndConfirm = async"), page.indexOf("// Seat a walk-in NOW"));
+
+  it("sends no separate edit, and hands the new start to Bekræft", () => {
+    expect(body).toContain("moveAndConfirm");
+    expect(body).not.toMatch(/api\.patch\(/);
+    expect(body).toMatch(/moveTo: starts/);
+  });
+
+  it("Bekræft carries it as starts_at, and says the new time only when the server moved it", () => {
+    expect(page).toContain("...(opts.moveTo ? { starts_at: opts.moveTo } : {}),");
+    expect(page).toContain("opts.movedTo && (!opts.moveTo || resp?.data?.moved_to)");
+  });
+});

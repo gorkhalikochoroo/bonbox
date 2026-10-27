@@ -408,3 +408,91 @@ def test_tables_for_request_picks_like_the_engine(db, party, expect):
     start = datetime.combine(DAY, datetime.min.time()).replace(hour=19)
     ids = rsvc.tables_for_request(db, profile=p, user_id=u.id, start=start, party_size=party)
     assert [next(k for k, v in tb.items() if str(v.id) == i) for i in ids] == expect
+
+
+# ── Fix round 27 Oct (K): "Flyt til … og bekræft" — one step, ONE mail ──
+# R11 mailed the guest twice: the "moved" mail (the edit), then the
+# confirmation. Now the move rides on the confirm: moved and confirmed
+# together or not at all, and the one mail is the confirmation, naming the
+# new time and the one the guest asked for.
+def _guest_mails(outbox, to):
+    return [m for m in outbox if m["to"] == to]
+
+
+def test_fix_k_move_and_confirm_is_one_step_and_one_mail(client, db, outbox):
+    u, p, _ = restaurant(db, tables=0)
+    tb = _tables(db, u, [("Bord 8", 8, "inde", False)])
+    assert _phone_booking(client, u, time="20:00", party=8).status_code == 201   # Bord 8 20–22
+    guest = "selskab@example.com"
+    r = book(client, p.reservation_slug, day=DAY, time="20:30", party=8, name="Selskab Nørgaard",
+             email=guest)
+    rid = r.json()["id"]
+    assert r.json()["status"] == "requested"
+    before = len(_guest_mails(outbox, guest))
+    asked = _confirm(client, u, rid, if_no_table="ask")
+    assert asked.status_code == 409 and asked.json()["detail"]["error"] == "no_table_fits"
+
+    res = _confirm(client, u, rid, if_no_table="ask", starts_at=f"{DAY.isoformat()}T17:30:00")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["status"] == "confirmed" and body["moved_to"].startswith(f"{DAY.isoformat()}T17:30")
+    assert body["tables_assigned"]["labels"] == ["Bord 8"]
+    row = reservation(db, rid)
+    assert row.starts_at == datetime.combine(DAY, datetime.min.time()).replace(hour=17, minute=30)
+    assert row.ends_at - row.starts_at == timedelta(minutes=row.duration_min)
+    assert _labels_held(db, rid) == ["Bord 8"]
+    # ONE mail: the confirmation, with the new time and the one asked for.
+    mails = _guest_mails(outbox, guest)[before:]
+    assert len(mails) == 1, [m["subject"] for m in mails]
+    m = mails[0]
+    assert "17.30" in m["subject"] or "17:30" in m["subject"]
+    assert ("bekræftet" in m["subject"]) or ("confirmed" in m["subject"])
+    assert ("Du bad om" in m["html"]) or ("You asked for" in m["html"])
+    assert "20.30" in m["html"] or "20:30" in m["html"]
+    # The move is in the audit row (times only).
+    a = (db.query(AuditLog).filter(AuditLog.entity_id == row.id,
+                                   AuditLog.action == "reservation.confirmed").one())
+    assert "17:30" in (a.after_state or "") and "20:30" in (a.before_state or "")
+
+
+def test_fix_k_a_move_that_still_does_not_fit_changes_nothing(client, db, outbox):
+    u, p, _ = restaurant(db, tables=0)
+    _tables(db, u, [("Bord 8", 8, "inde", False)])
+    assert _phone_booking(client, u, time="20:00", party=8).status_code == 201
+    guest = "selskab2@example.com"
+    rid = book(client, p.reservation_slug, day=DAY, time="20:30", party=8, name="Selskab B",
+               email=guest).json()["id"]
+    before = len(_guest_mails(outbox, guest))
+    res = _confirm(client, u, rid, if_no_table="ask", starts_at=f"{DAY.isoformat()}T21:00:00")
+    assert res.status_code == 409 and res.json()["detail"]["error"] == "no_table_fits"
+    row = reservation(db, rid)
+    assert row.status == "requested"
+    assert row.starts_at == datetime.combine(DAY, datetime.min.time()).replace(hour=20, minute=30)
+    assert len(_guest_mails(outbox, guest)) == before
+
+
+def test_fix_k_only_a_tableless_request_can_be_moved_on_confirm(client, db, outbox):
+    u, p, _ = restaurant(db, tables=0)
+    _tables(db, u, [("Bord 4", 4, "inde", False)])
+    rid = book(client, p.reservation_slug, day=DAY, time="19:00", party=2, name="Par",
+               email="par@example.com").json()["id"]
+    assert reservation(db, rid).status == "confirmed"
+    as_owner(u)
+    res = client.patch(f"/api/reservations/reservations/{rid}/status",
+                       json={"status": "seated", "starts_at": f"{DAY.isoformat()}T18:00:00"})
+    assert res.status_code == 409 and res.json()["detail"]["error"] == "not_movable"
+
+
+def test_fix_k_the_confirmation_mail_names_the_new_time_in_both_languages():
+    from types import SimpleNamespace
+    from app.services import reservation_emails as mail
+    r = SimpleNamespace(starts_at=datetime(2030, 1, 11, 17, 30), party_size=8, guest_name="Selskab",
+                        service_name=None, allergen_tags=None, allergy_note=None, guest_lang=None)
+    venue = SimpleNamespace(name="Bistro", address="Gade 1", phone="12345678", reply_to=None,
+                            booking_url=None, business_type="restaurant", lang="da")
+    for lang, label in (("da", "Du bad om"), ("en", "You asked for")):
+        subject, html = mail.render_guest_request_confirmed(
+            r, venue, lang, old_starts_at=datetime(2030, 1, 11, 20, 30))
+        assert label in html and "<s>" in html
+        plain_s, plain_h = mail.render_guest_request_confirmed(r, venue, lang)
+        assert label not in plain_h and "<s>" not in plain_h

@@ -291,6 +291,12 @@ class StatusUpdate(BaseModel):
     # done); "confirm" confirms it without a table, as before R11 — the
     # default, so an older app is never stopped from confirming.
     if_no_table: str = Field(default="confirm", pattern="^(ask|confirm)$")
+    # "Flyt til 21.45 og bekræft" (R11 sheet; fix round 27 Oct): confirm a
+    # request that holds no table at a NEW start (naive venue time) in ONE
+    # step — moved and confirmed together or not at all, and ONE mail to the
+    # guest (the confirmation, naming the new time and the one asked for).
+    # Only requested → confirmed.
+    starts_at: datetime | None = None
 
 
 # ─── Behandlinger (salon service catalog) schemas — S2 ───────────────
@@ -3757,9 +3763,29 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
     # that none fit before anything changes.
     tables_assigned = None
     no_table_fits = None
-    if (held is None and prev_status == "requested" and payload.status == "confirmed"
-            and payload.resource_id is None and r.resource_id is None
-            and not r.combined_resource_ids and not r.service_name):
+    tableless_request = (held is None and prev_status == "requested"
+                         and payload.status == "confirmed"
+                         and payload.resource_id is None and r.resource_id is None
+                         and not r.combined_resource_ids and not r.service_name)
+    # "Flyt til … og bekræft": the move rides on the confirm (fix round 27
+    # Oct, R11 note) — the tables below are picked at the NEW start, and a
+    # refusal (409) changes nothing, the time included.
+    move_from_start = None
+    if payload.starts_at is not None:
+        if not tableless_request:
+            raise HTTPException(status_code=409, detail={"error": "not_movable"})
+        new_start = payload.starts_at.replace(tzinfo=None) if payload.starts_at.tzinfo \
+            else payload.starts_at
+        if new_start != r.starts_at:
+            move_from_start = r.starts_at
+            # The sitting and the retention as the edit's move sets them.
+            duration = int(r.duration_min or 0) or max(
+                1, int((r.ends_at - r.starts_at).total_seconds() // 60))
+            retention = int(rsvc.load_settings(_profile(db, user)).get("retention_days", 90))
+            r.starts_at = new_start
+            r.ends_at = new_start + timedelta(minutes=duration)
+            r.purge_after = new_start + timedelta(days=retention)
+    if tableless_request:
         tables_assigned, no_table_fits = _tables_on_confirm(db, user, r, payload.if_no_table)
     # Seating (or reopening) onto a table someone is still sitting at: refuse,
     # and say who — before anything on this booking changes.
@@ -3922,7 +3948,7 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                 # Approval (requested → confirmed) or seating an already-held
                 # row: ensure exactly one active occupancy row exists.
                 occ_service.sync_occupancy_for_status(db, r)
-        moved_from = early_from or restored_from
+        moved_from = early_from or restored_from or move_from_start
         audit_service.record(
             db, user, f"reservation.{payload.status}", "reservation", r.id,
             **({"before": {"starts_at": moved_from.isoformat()},
@@ -3942,9 +3968,17 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
     guest_mail_skipped = None
     if payload.notify_guest and payload.status != prev_status:
         if prev_status == "requested" and payload.status == "confirmed":
+            # Moved and confirmed in one step: ONE mail, the confirmation,
+            # naming the new time and the one the guest asked for.
+            moved_kw = {}
+            if move_from_start is not None:
+                old_local = reservation_emails.to_naive_local(move_from_start, user)
+                new_local = reservation_emails.to_naive_local(r.starts_at, user)
+                moved_kw = {"old_starts_at": old_local.isoformat() if old_local else None,
+                            "new_starts_at": new_local.isoformat() if new_local else None}
             guest_mail_skipped = _queue_guest_email(
                 background_tasks, user, r, "request_confirmed", db=db,
-                prev_status=prev_status)
+                prev_status=prev_status, **moved_kw)
         elif payload.status == "cancelled" and prev_status in ("requested", "confirmed"):
             # A HELD booking: a bot-like hold's typed address never hears (the
             # decline must not mail every stranger a bot typed in); a
@@ -3981,6 +4015,10 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         # The booked time the seating moved away from — the app says so; a
         # booking moving from 18.00 to 17.07 without a word looked like a bug.
         out["moved_from"] = early_from.isoformat()
+    if move_from_start is not None:
+        # "Flyt til … og bekræft" was done here: the app says the new time
+        # only when the server says it moved (an older server ignores it).
+        out["moved_to"] = r.starts_at.isoformat()
     if early_kept:
         out["early_kept"] = early_kept
     if restore_blocked:

@@ -625,27 +625,61 @@ def render_guest_cancelled_by_venue(r, venue: Venue, lang: str, *, was_request: 
 
 
 def render_guest_request_confirmed(r, venue: Venue, lang: str, *, cancel_url: str | None = None,
-                                   now: datetime | None = None) -> tuple[str, str]:
-    """(d) The venue accepted a group request (requested → confirmed)."""
+                                   now: datetime | None = None,
+                                   old_starts_at: datetime | None = None) -> tuple[str, str]:
+    """(d) The venue accepted a group request (requested → confirmed).
+
+    `old_starts_at` (fix round 27 Oct): the venue moved the request to a new
+    time AND confirmed it in one step ("Flyt til … og bekræft") — this one
+    mail then says so plainly, the new time first and the time the guest
+    asked for struck through, so the change is never hidden inside a
+    "confirmed", and never a second mail."""
     when = format_when(r.starts_at, lang, now=now)
     appointment = _is_appointment(r, venue)
+    moved = old_starts_at is not None and old_starts_at != r.starts_at
     if lang == "da":
         subject = f"{venue.name} — din forespørgsel er bekræftet: {when}"
-        lead = (("<p>Gode nyheder: vi har bekræftet din forespørgsel, og tiden er "
-                 "reserveret til dig.</p>") if appointment else
-                ("<p>Gode nyheder: vi har bekræftet din forespørgsel, og bordet er "
-                 "reserveret til jer.</p>"))
+        if moved:
+            lead = (("<p>Gode nyheder: vi har bekræftet din forespørgsel — til et nyt "
+                     "tidspunkt, og tiden er reserveret til dig.</p>") if appointment else
+                    ("<p>Gode nyheder: vi har bekræftet din forespørgsel — til et nyt "
+                     "tidspunkt, og bordet er reserveret til jer.</p>"))
+        else:
+            lead = (("<p>Gode nyheder: vi har bekræftet din forespørgsel, og tiden er "
+                     "reserveret til dig.</p>") if appointment else
+                    ("<p>Gode nyheder: vi har bekræftet din forespørgsel, og bordet er "
+                     "reserveret til jer.</p>"))
         allergy = _allergy_line(r, lang, "Allergi noteret")
         outro = "<p>Vi glæder os til at se dig.</p>" if appointment else "<p>Vi glæder os til at se jer.</p>"
+        new_label, old_label = "Ny tid:", "Du bad om:"
+        call = _call_us(venue, "Passer den nye tid ikke? Ring til os på") if moved else ""
     else:
         subject = f"{venue.name} — your request is confirmed: {when}"
-        lead = ("<p>Good news: we've confirmed your request and your time is held.</p>"
-                if appointment else
-                "<p>Good news: we've confirmed your request and your table is held.</p>")
+        if moved:
+            lead = ("<p>Good news: we've confirmed your request — at a new time, and your "
+                    "time is held.</p>" if appointment else
+                    "<p>Good news: we've confirmed your request — at a new time, and your "
+                    "table is held.</p>")
+        else:
+            lead = ("<p>Good news: we've confirmed your request and your time is held.</p>"
+                    if appointment else
+                    "<p>Good news: we've confirmed your request and your table is held.</p>")
         allergy = _allergy_line(r, lang, "Allergy noted")
         outro = "<p>We look forward to seeing you.</p>"
+        new_label, old_label = "New time:", "You asked for:"
+        call = _call_us(venue, "If the new time doesn't work for you, call us on") if moved else ""
+    if moved:
+        old_when = format_when(old_starts_at, lang, now=now)
+        lines = [f"<strong>{_e(venue.name)}</strong>",
+                 f"{new_label} <strong>{_e(when)}</strong> · {_what(r, lang)}",
+                 f'<span style="{_MUTED}">{old_label} <s>{_e(old_when)}</s></span>']
+        if venue.address:
+            lines.append(_e(venue.address))
+        details = "<p>" + "<br>".join(lines) + "</p>"
+    else:
+        details = _details(r, venue, lang, when=when)
     body = (
-        _hello(r, lang) + lead + _details(r, venue, lang, when=when) + allergy
+        _hello(r, lang) + lead + details + allergy + call
         + _cancel_line(cancel_url, lang, is_request=False, appointment=appointment)
         + outro
     )
@@ -1517,16 +1551,20 @@ def send_guest_cancelled_by_venue(db: Session | None, owner, profile, r, *,
                    subject=subject, html=html, reply_to=venue.reply_to)
 
 
-def send_guest_request_confirmed(db: Session | None, owner, profile, r) -> bool:
-    """(d) The owner accepted a group request that is still ahead."""
+def send_guest_request_confirmed(db: Session | None, owner, profile, r, *,
+                                 old_starts_at: datetime | None = None) -> bool:
+    """(d) The owner accepted a group request that is still ahead —
+    `old_starts_at`: moved to a new time in the same step (one mail)."""
     if db is None or not r.guest_email or r.status != "confirmed":
         return False
     if not starts_in_future(r, owner):
         return False
     lang = guest_language(r, profile, owner)
     venue = venue_context(owner, profile, guest_lang=getattr(r, "guest_lang", None))
+    old_local = to_naive_local(old_starts_at, owner) if old_starts_at is not None else None
     subject, html = render_guest_request_confirmed(r, venue, lang,
-                                                   cancel_url=guest_cancel_url(profile, r))
+                                                   cancel_url=guest_cancel_url(profile, r),
+                                                   old_starts_at=old_local)
     return deliver(db, owner_id=r.user_id, reservation_id=r.id,
                    event_type=GUEST_REQUEST_CONFIRMED, to=r.guest_email,
                    subject=subject, html=html, reply_to=venue.reply_to)
@@ -1708,7 +1746,14 @@ def run_venue_change(reservation_id: str, owner_id: str, change: str, *,
             return
         profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == owner_id).first()
         if change == "request_confirmed":
-            send_guest_request_confirmed(db, owner, profile, r)
+            # Moved and confirmed in one step: the confirmation names the
+            # new time — unless it was moved AGAIN since (that edit sends its
+            # own mail; this one then says the time as it stands).
+            old = None
+            if old_starts_at and new_starts_at and r.starts_at is not None \
+                    and to_naive_local(r.starts_at, owner).isoformat() == new_starts_at:
+                old = datetime.fromisoformat(old_starts_at)
+            send_guest_request_confirmed(db, owner, profile, r, old_starts_at=old)
         elif change == "cancelled_by_venue":
             send_guest_cancelled_by_venue(db, owner, profile, r,
                                           was_request=(prev_status == "requested"))
