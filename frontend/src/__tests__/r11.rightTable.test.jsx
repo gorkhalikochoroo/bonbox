@@ -213,12 +213,14 @@ describe("Bekræft on a group", () => {
   });
 
   it("Move to 21.45 and confirm: the time moves first, then the tables are picked", async () => {
+    // Fix round 27 Oct (K): one request — the server moves the request and
+    // picks the tables at the new time together (one mail to the guest), so
+    // there is no separate PATCH of the booking any more.
     api.patch.mockImplementation((url, body) => {
-      if (url === "/reservations/reservations/g1") return Promise.resolve({ data: { ...GROUP, starts_at: at("21:45") } });
       if (/\/status$/.test(url) && statusCalls().length === 1) return Promise.reject(http(409, NO_FIT));
       if (/\/status$/.test(url)) {
         return Promise.resolve({ data: { ...GROUP, status: "confirmed", starts_at: at("21:45"), resource_id: "t8",
-          tables_assigned: { ids: ["t8"], labels: ["Bord 8"] } } });
+          moved_to: at("21:45"), tables_assigned: { ids: ["t8"], labels: ["Bord 8"] } } });
       }
       return Promise.resolve({ data: body });
     });
@@ -229,11 +231,8 @@ describe("Bekræft on a group", () => {
     await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: /Move to 21.45 and confirm/ })); });
     await waitFor(() => expect(statusCalls().length).toBe(2));
     const order = api.patch.mock.calls.map(([u]) => u);
-    const moveAt = order.indexOf("/reservations/reservations/g1");
-    expect(moveAt).toBeGreaterThan(0);
-    expect(api.patch.mock.calls[moveAt][1]).toEqual({ starts_at: at("21:45") });
-    expect(order.lastIndexOf("/reservations/reservations/g1/status")).toBeGreaterThan(moveAt);
-    expect(statusCalls()[1][1]).toMatchObject({ status: "confirmed", if_no_table: "ask" });
+    expect(order).not.toContain("/reservations/reservations/g1");
+    expect(statusCalls()[1][1]).toMatchObject({ status: "confirmed", if_no_table: "ask", starts_at: at("21:45") });
     await waitFor(() => expect(toastMessages()).toContain("Moved to 21.45 and confirmed — Selskab Nørgaard has Bord 8."));
   });
 
