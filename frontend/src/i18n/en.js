@@ -1638,6 +1638,8 @@ export const en = {
     rsvpWlHeldLabel: "Check before you contact them",
     rsvpWlHeldRobot: "Joined online in a way that looks automated.",
     rsvpWlHeldSame: "The same number is already waiting on several nights.",
+    rsvpWlHeldSpam: "You marked this number as spam. It is never texted from here.",
+    rsvpWlNotifySpam: "You marked this number as spam, so no message was sent.",
     rsvpWlGuestLeft: "They've left the waitlist.",
     rsvpPublicWaitlistSetting: "Guests can join the waitlist when you're fully booked",
     rsvpPublicWaitlistSettingHint: "Only on nights with no free table, at most 15 a night. It isn't a booking — you contact the guest if a table frees up.",

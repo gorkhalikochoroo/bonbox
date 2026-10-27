@@ -791,3 +791,125 @@ def test_the_new_routes_do_not_shadow_the_booking_door():
     from app.routers import public_waitlist as router_mod
     src = inspect.getsource(router_mod)
     assert "from __future__ import annotations" not in src.split('"""', 2)[2]
+
+
+# ── Fix round 27 Oct (A): the owner's blocks and spam marks, the plan's cap ─
+# Review P2-3 / backend F2: a blocked or spam-marked phone joined the online
+# list (201, a working receipt), stood first in the Venteliste and was named
+# in the freed-table push. Manoj's decision: a block gets the list's one
+# "call us" answer (like a blocked booking), a spam mark is HELD (marked_spam),
+# and the plan's monthly-cap close applies as on /availability. A join carries
+# a phone only (no e-mail field), so the phone's spellings are what matter.
+def _mark(db, owner, profile, mode, *, phone=None, email=None):
+    from app.services import contact_marks
+    db.refresh(profile)
+    stored = json.loads(profile.reservation_settings_json or "{}")
+    entries, _, _ = contact_marks.add(stored.get(contact_marks.KEY) or [], owner.id,
+                                      phone=phone, email=email, mode=mode, today=NOW.date())
+    stored[contact_marks.KEY] = entries
+    profile.reservation_settings_json = json.dumps(stored)
+    db.commit()
+
+
+@pytest.mark.parametrize("marked,typed", [
+    ("12345678", "+45 12 34 56 78"),
+    ("+45 12 34 56 78", "12345678"),
+    ("0045-1234-5678", "+4512345678"),
+])
+def test_fix_a_a_blocked_phone_gets_the_one_answer(db, client, monkeypatch, marked, typed):
+    from app.utils import abuse_signals
+    bumps = []
+    monkeypatch.setattr(abuse_signals, "bump", lambda kind, n=1: bumps.append(kind))
+    owner, profile, tables = _venue(db)
+    _fill(db, owner, tables, FRI)
+    # The block as the owner makes it: from a booking's phone AND mailbox
+    # (+tag and Gmail dots folded); the join only has the phone to match on.
+    _mark(db, owner, profile, "block", phone=marked, email="A.nna+bord@Gmail.com")
+    r = _join(client, profile, FRI, guest_phone=typed)
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["error"] == "waitlist_unavailable"   # never "blocked"
+    assert _rows(db, owner) == []
+    assert db.query(AuditLog).filter(AuditLog.user_id == owner.id).count() == 0
+    assert bumps.count("waitlist_blocked") == 1
+    # Another phone still joins.
+    assert _join(client, profile, FRI, guest_phone="+45 87 65 43 21").status_code == 201
+
+
+@pytest.mark.parametrize("marked,typed", [
+    ("+4512345678", "12 34 56 78"),
+    ("12 34 56 78", "+45 12345678"),
+])
+def test_fix_a_a_spam_marked_phone_is_held_and_never_offered(db, client, monkeypatch, marked, typed):
+    sent = _sms(monkeypatch)
+    owner, profile, tables = _venue(db)
+    _fill(db, owner, tables, FRI)
+    _mark(db, owner, profile, "spam", phone=marked, email="s.pam+1@gmail.com")
+    r = _join(client, profile, FRI, guest_phone=typed, guest_name="Spam")
+    assert r.status_code == 201 and r.json()["waitlist_token"]       # the same receipt
+    (w,) = _rows(db, owner)
+    assert w.guest_name == "Spam" and w.guest_phone == typed          # stored as typed
+    assert pwl.held_reasons(db, owner.id, [w.id]) == {str(w.id): "marked_spam"}
+    # Never offered on a freed table (nor named in its push).
+    from app.routers.reservations import _waitlist_matches
+    assert _waitlist_matches(db, owner, waitlist_date=FRI, capacity=4) == []
+    _join(client, profile, FRI, guest_phone="+45 11 11 11 11", guest_name="Real")
+    assert [m["guest_name"] for m in _waitlist_matches(db, owner, waitlist_date=FRI,
+                                                       capacity=4)] == ["Real"]
+    # The Venteliste lists it after the real guest, marked.
+    _as_owner(owner)
+    lst = client.get("/api/reservations/waitlist", params={"day": FRI.isoformat()}).json()
+    assert [e["guest_name"] for e in lst["waitlist"]] == ["Real", "Spam"]
+    assert lst["waitlist"][1]["held_reason"] == "marked_spam"
+    # Notify never texts it, and never marks it notified.
+    n = client.post(f"/api/reservations/waitlist/{w.id}/notify")
+    assert n.status_code == 409 and n.json()["detail"]["error"] == "held_spam"
+    assert sent == []
+    db.expire_all()
+    assert db.get(W, w.id).status == "waiting" and int(db.get(W, w.id).notify_count or 0) == 0
+
+
+def test_fix_a_a_held_mark_that_cannot_be_read_texts_nobody(db):
+    class _Broken:
+        def query(self, *a, **k):
+            raise RuntimeError("db down")
+
+        def rollback(self):
+            pass
+
+    entry = W(id=uuid.uuid4(), user_id=uuid.uuid4(), source="public")
+    assert pwl.notify_check(_Broken(), entry) == "unknown"
+    door = W(id=uuid.uuid4(), user_id=uuid.uuid4(), source="manual")
+    assert pwl.notify_check(_Broken(), door) == "ok"     # a door entry is never held
+
+
+def test_fix_a_a_notify_that_cannot_check_sends_nothing(db, client, monkeypatch):
+    sent = _sms(monkeypatch)
+    owner, profile, tables = _venue(db)
+    _fill(db, owner, tables, FRI)
+    _join(client, profile, FRI)
+    (w,) = _rows(db, owner)
+    monkeypatch.setattr(pwl, "notify_check", lambda db, entry: "unknown")
+    _as_owner(owner)
+    r = client.post(f"/api/reservations/waitlist/{w.id}/notify")
+    assert r.status_code == 503 and sent == []
+    db.expire_all()
+    assert db.get(W, w.id).status == "waiting"
+
+
+def test_fix_a_the_monthly_cap_closes_the_list_as_on_availability(db, client):
+    owner, profile, tables = _venue(db, plan="free")
+    _fill(db, owner, tables, FRI)
+    assert _join(client, profile, FRI, guest_phone="+45 11 11 11 11").status_code == 201
+    pubres._limiter.reset()
+    for i in range(20):    # the Free month: 20 confirmed bookings made this month
+        db.add(Reservation(id=uuid.uuid4(), user_id=owner.id, guest_name="Gæst", party_size=2,
+                           starts_at=datetime(2030, 1, 7, 12, 0), ends_at=datetime(2030, 1, 7, 13, 0),
+                           duration_min=60, status="confirmed", is_deleted=False, source="public",
+                           created_at=datetime(2030, 1, 2, 12, 0)))
+    db.commit()
+    a = client.get(f"/api/public/reservations/{profile.reservation_slug}/availability",
+                   params={"day": FRI.isoformat(), "party": 2}).json()
+    assert a.get("closed_reason") == "not_accepting" or a.get("reason") == "not_accepting"
+    r = _join(client, profile, FRI, guest_phone="+45 22 22 22 22")
+    assert r.status_code == 409 and r.json()["detail"]["error"] == "waitlist_unavailable"
+    assert len(_rows(db, owner)) == 1

@@ -11,7 +11,8 @@ ceiling used up), staff_join_cooloff, stand_join_cooloff, booking_honeypot,
 booking_screen_error, booking_no_fill_time (a public booking that sent no
 fill time — an older guest page; booked as on live, counted here),
 booking_blocked (R2: an online booking refused because the owner blocked
-its phone or mailbox — no row is written for it, so it is counted here).
+its phone or mailbox — no row is written for it, so it is counted here),
+waitlist_blocked (the same for an online waitlist join, fix round 27 Oct).
 """
 from __future__ import annotations
 

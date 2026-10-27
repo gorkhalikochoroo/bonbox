@@ -149,6 +149,18 @@ def join_waitlist(request: Request, slug: str = Path(...),
         raise _unavailable()
     if not pwl.is_table_venue(owner, rsvc.active_resources(db, owner.id)):
         raise _unavailable()
+    # A phone the owner BLOCKED (R2) gets the one "call us" answer — the same
+    # as a blocked booking's not_accepting, never "you are blocked". No row and
+    # no audit row (a blocked script posting all night must not fill the audit
+    # table); the abuse monitor counts it. A phone marked as SPAM goes on to
+    # the screen and is held there (pwl.screen_join, marked_spam).
+    if pwl.contact_mark(settings, owner.id, payload.guest_phone, today) == "block":
+        abuse_signals.bump("waitlist_blocked")
+        raise _unavailable()
+    # The plan's monthly cap closes the booking page (as on /availability):
+    # the waitlist on that page is closed with it.
+    if pub._cap_closes_page(db, owner):
+        raise _unavailable()
 
     # One join at a time per venue, from the counts to the commit (the
     # booking door's lesson: twelve posts at once all read "under the cap").
@@ -162,7 +174,8 @@ def _screen_and_join(db: Session, *, owner, profile, settings: dict, payload, da
     today = now_local.date()
     now_utc = utc_now()
     party = int(payload.party_size)
-    screen = pwl.screen_join(db, owner_id=owner.id, payload=payload, today=today)
+    screen = pwl.screen_join(db, owner_id=owner.id, payload=payload, today=today,
+                             settings=settings)
     if screen.action == "drop":
         # The trap field at robot speed: nothing is written but a count.
         audit_service.record(db, owner, pwl.DROPPED_ACTION, "business_profile", profile.id,

@@ -149,6 +149,55 @@ describe("online entries on the host's list", () => {
   });
 });
 
+describe("a phone the owner marked as spam (fix round 27 Oct)", () => {
+  const SPAM = {
+    id: "s", guest_name: "Spam", guest_phone: "+45 12 34 56 78", party_size: 2, waitlist_date: DAY,
+    desired_from: null, desired_to: null, status: "waiting", source: "public", note: null,
+    notify_count: 0, created_at: null, held: true, held_reason: "marked_spam",
+  };
+
+  it("says why, and offers no Notify on that row only", async () => {
+    h.get.mockResolvedValue({ data: { waitlist: [ROWS[2], SPAM], day: DAY, active_count: 2 } });
+    render(<WaitlistSection day={DAY} />);
+    await settle();
+    const row = rowOf("Spam");
+    expect(row.textContent).toContain(da.rsvpWlHeldLabel);
+    expect(row.textContent).toContain(da.rsvpWlHeldSpam);
+    expect(within(row).queryByRole("button", { name: da.rsvpWlNotify })).toBeNull();
+    expect(within(row).getByRole("button", { name: da.rsvpWlBook })).toBeTruthy();
+    expect(within(rowOf("Door")).getByRole("button", { name: da.rsvpWlNotify })).toBeTruthy();
+    // The other held reasons keep Notify (the owner checks, then decides).
+    cleanup();
+    h.get.mockResolvedValue({ data: { waitlist: ROWS, day: DAY, active_count: ROWS.length } });
+    render(<WaitlistSection day={DAY} />);
+    await settle();
+    expect(within(rowOf("Bot")).getByRole("button", { name: da.rsvpWlNotify })).toBeTruthy();
+  });
+
+  it("a server that refuses it (held_spam) is said, never 'sent'", async () => {
+    h.post.mockRejectedValue(Object.assign(new Error("x"), {
+      response: { status: 409, data: { detail: { error: "held_spam" } } },
+    }));
+    render(<WaitlistSection day={DAY} />);
+    await settle();
+    await act(async () => {
+      fireEvent.click(within(rowOf("Door")).getByRole("button", { name: da.rsvpWlNotify }));
+    });
+    await settle();
+    const said = h.toast.mock.calls.map((c) => c[0]).join(" | ") + " " + document.body.textContent;
+    expect(said).toContain(da.rsvpWlNotifySpam);
+    expect(said).not.toContain(da.rsvpWlSmsSent);
+  });
+
+  it("has real en and da words", () => {
+    for (const k of ["rsvpWlHeldSpam", "rsvpWlNotifySpam"]) {
+      expect(typeof en[k]).toBe("string");
+      expect(typeof da[k]).toBe("string");
+      expect(da[k]).not.toBe(en[k]);
+    }
+  });
+});
+
 describe("the owner's switch", () => {
   it("shows on from the defaults and saves one tap", async () => {
     h.put.mockResolvedValue({ data: { settings: { public_waitlist: false } } });

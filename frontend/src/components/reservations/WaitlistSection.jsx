@@ -46,9 +46,18 @@ const whoOf = (entry, t) => guestText(entry?.guest_name) || t("rsvpGuest", "Gues
 // The screen held this online entry (robot-like, or the same number on
 // several nights): what the owner reads under the name.
 function heldWhy(reason, t) {
+  if (reason === "marked_spam") {
+    return t("rsvpWlHeldSpam", "You marked this number as spam. It is never texted from here.");
+  }
   return reason === "contact_active"
     ? t("rsvpWlHeldSame", "The same number is already waiting on several nights.")
     : t("rsvpWlHeldRobot", "Joined online in a way that looks automated.");
+}
+
+// A phone the owner marked as spam (R2) is never notified: the server refuses
+// it (409 held_spam), so the button is not offered on that row.
+function notifyOffered(entry) {
+  return !(entry?.held && entry?.held_reason === "marked_spam");
 }
 
 const inputCls =
@@ -286,7 +295,10 @@ export default function WaitlistSection({
       );
       reloadWaitlist();
     } catch (err) {
-      if (err?.response?.status === 409 && err?.response?.data?.detail?.error === "non_notifiable") {
+      if (err?.response?.status === 409 && err?.response?.data?.detail?.error === "held_spam") {
+        flashToast(t("rsvpWlNotifySpam", "You marked this number as spam, so no message was sent."));
+        reloadWaitlist();
+      } else if (err?.response?.status === 409 && err?.response?.data?.detail?.error === "non_notifiable") {
         // An online guest took themselves off the list (booking R12).
         flashToast(t("rsvpWlGuestLeft", "They've left the waitlist."));
         reloadWaitlist();
@@ -632,10 +644,12 @@ export default function WaitlistSection({
                   {/* Actions — ≥44px taps, wrap on narrow screens */}
                   <div className="flex items-center gap-1.5 shrink-0">
                     {/* 40px — these are tapped on the host stand mid-service. */}
-                    <Button variant="secondary" size="md" className="h-10" disabled={busy}
-                      iconLeft={<Bell className="w-4 h-4" />} onClick={() => notify(e)}>
-                      {t("rsvpWlNotify", "Notify")}
-                    </Button>
+                    {notifyOffered(e) && (
+                      <Button variant="secondary" size="md" className="h-10" disabled={busy}
+                        iconLeft={<Bell className="w-4 h-4" />} onClick={() => notify(e)}>
+                        {t("rsvpWlNotify", "Notify")}
+                      </Button>
+                    )}
                     {/* While the time row is open its own Book is the one —
                         two "Book" buttons side by side asked which. */}
                     {/* Hidden, not removed, while its time row is open: removing

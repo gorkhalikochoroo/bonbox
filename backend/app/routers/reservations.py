@@ -4209,6 +4209,10 @@ def list_waitlist(day: date | None = Query(default=None),
         item["held"] = reason is not None
         item["held_reason"] = reason
         out.append(item)
+    # The first row is the first REAL guest (fix round 27 Oct): a held entry
+    # — a robot's, or a phone the owner marked as spam — keeps its mark but
+    # is listed after the others, FIFO within each group.
+    out = [i for i in out if not i["held"]] + [i for i in out if i["held"]]
     return {"waitlist": out, "day": d.isoformat(), "active_count": len(rows)}
 
 
@@ -4299,6 +4303,16 @@ def notify_waitlist(entry_id: UUID, request: Request,
         raise HTTPException(status_code=409, detail={"error": "non_notifiable"})
     if int(w.notify_count or 0) >= 2:
         raise HTTPException(status_code=429, detail={"error": "notify_cap"})
+    # An online entry held because the owner marked the phone as SPAM (R2) is
+    # never notified — no SMS, no "notified" mark. A held mark that cannot be
+    # read sends nothing either (fix round 27 Oct: a stranger's number is
+    # never texted on a guess).
+    from app.services import public_waitlist as _pwl
+    check = _pwl.notify_check(db, w)
+    if check == "refused":
+        raise HTTPException(status_code=409, detail={"error": "held_spam"})
+    if check != "ok":
+        raise HTTPException(status_code=503, detail={"error": "try_again"})
 
     channel, sms_sent, sms_limit = "call", False, False
     if w.guest_phone and has_feature(user, "sms_reminders") and sms_configured():

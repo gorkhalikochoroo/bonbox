@@ -35,6 +35,11 @@ like an online booking (services/booking_screen.py), and silently:
     dem", it is never offered in a freed-table nudge and never counts
     against a real guest's caps; at most HELD_PER_NIGHT a night, the rest
     dropped;
+  • a phone the owner BLOCKED (R2, services/contact_marks.py) gets the list's
+    one "call us" answer, like a blocked booking; a phone the owner marked as
+    SPAM is stored HELD (`marked_spam`, fix round 27 Oct): never offered in a
+    freed-table nudge, listed after the real guests, and never sent the
+    Notify SMS (reservations.notify_waitlist refuses it);
   • the same phone already on CONTACT_ACTIVE_MAX future online lists here →
     held (a person-like hold); the same phone on the same night → no second
     row (the guest gets the same receipt);
@@ -311,6 +316,43 @@ def held_reasons(db, owner_id, entry_ids) -> dict:
     return out
 
 
+# Held reasons the owner's Notify never texts: the owner marked this phone as
+# spam (R2). The other held reasons say "check before you contact them" and
+# leave the choice to the owner.
+NO_NOTIFY_REASONS = frozenset({"marked_spam"})
+
+
+def notify_check(db, entry) -> str:
+    """May the owner's Notify text this entry? Three answers, never a
+    guessed one: "ok", "refused" (an online entry held because the owner
+    marked the phone as spam) or "unknown" (the held mark could not be read —
+    the caller sends nothing). A door entry is always "ok"."""
+    import json
+    if getattr(entry, "source", None) != SOURCE:
+        return "ok"
+    try:
+        rows = (
+            db.query(AuditLog.after_state)
+            .filter(AuditLog.user_id == entry.user_id,
+                    AuditLog.entity_type == ENTITY,
+                    AuditLog.entity_id == entry.id,
+                    AuditLog.action == HELD_ACTION)
+            .all()
+        )
+    except Exception:  # noqa: BLE001 — "couldn't check" is never "ok"
+        logger.warning("waitlist notify check failed", exc_info=True)
+        _rollback(db)
+        return "unknown"
+    for (after,) in rows:
+        try:
+            reason = (json.loads(after) or {}).get("reason") if after else None
+        except (TypeError, ValueError):
+            reason = None
+        if reason in NO_NOTIFY_REASONS:
+            return "refused"
+    return "ok"
+
+
 def entry_lang(db, entry) -> str | None:
     """"da" / "en": the language the guest joined in (on the join's audit
     row), else None (→ the venue's language). Never raises."""
@@ -461,13 +503,29 @@ def contact_nights(db, owner_id, phone: str | None, today: date) -> int:
 @dataclass(frozen=True)
 class Screen:
     action: str                 # "join" | "hold" | "drop"
-    reason: str | None = None   # honeypot | fast_fill | link_in_name | contact_active
+    reason: str | None = None   # honeypot | fast_fill | link_in_name | marked_spam
+                                # | contact_active
 
 
-def screen_join(db, *, owner_id, payload, today: date) -> Screen:
-    """Rules 1–3 of booking_screen (the robot's signals, silent) and rule 5
-    (the same guest holding several), for a waitlist join. Rule 5 FAILS
-    OPEN like the booking screen: a broken count joins the guest."""
+def contact_mark(settings: dict | None, owner_id, phone: str | None, today: date) -> str | None:
+    """"block" | "spam" | None — the owner's R2 mark on this phone (the same
+    keyed hash of the last 8 digits as a booking's, so "+45 12 34 56 78" and
+    "12345678" are one contact). A join carries no e-mail. Never raises:
+    contact_marks.match reads junk as no match — the same reading as the
+    booking door's block check."""
+    from app.services import contact_marks
+    entries = (settings or {}).get(contact_marks.KEY)
+    if not entries:
+        return None
+    return contact_marks.match(entries, owner_id, phone=phone, today=today)
+
+
+def screen_join(db, *, owner_id, payload, today: date, settings: dict | None = None) -> Screen:
+    """Rules 1–3 of booking_screen (the robot's signals, silent), rule 3b
+    (the owner marked this phone as spam — held, robot-like) and rule 5 (the
+    same guest holding several), for a waitlist join. Rule 5 FAILS OPEN like
+    the booking screen: a broken count joins the guest. A BLOCKED phone never
+    gets here: the router answers it first."""
     form_ms = getattr(payload, "form_ms", None)
     fast = booking_screen._fast(form_ms)
     if (getattr(payload, "website", None) or "").strip():
@@ -478,6 +536,8 @@ def screen_join(db, *, owner_id, payload, today: date) -> Screen:
         abuse_signals.bump("waitlist_no_fill_time")
     if has_explicit_link(getattr(payload, "guest_name", None)):
         return Screen("hold", "link_in_name")
+    if contact_mark(settings, owner_id, getattr(payload, "guest_phone", None), today) == "spam":
+        return Screen("hold", "marked_spam")
     try:
         cmax = int(app_config.BOOKING_CONTACT_ACTIVE_MAX)
         if cmax > 0 and contact_nights(db, owner_id, getattr(payload, "guest_phone", None),
