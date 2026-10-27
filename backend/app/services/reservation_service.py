@@ -1552,6 +1552,114 @@ def recheck_and_assign(db: Session, *, profile: BusinessProfile, user_id,
     return ids[0] if ids else None
 
 
+# ── A request the owner confirms (R11, rubric B7) ───────────────────────
+# A group request holds no table while it waits — the owner decides. When the
+# owner says yes, the party needs tables NOW, or the 8-top goes to the next
+# phone booking and eight people arrive with a confirmation to "Intet bord"
+# (20 Oct walk, T11). The pick below is the engine's own seating rule — the
+# smallest single table that seats the party, else combinable tables pushed
+# together in one zone, up to the venue's own max_combo_size — exactly what
+# the owner's phone bookings and the public page use. Only the GUEST-side
+# limits are left out: the online party ceiling, pacing and the lead time
+# bind the public page, never the owner accepting a party (decision 3: the
+# owner is the authority on her own book).
+REQUEST_FIT_TIMES = 3  # nearest other start times offered when none fit
+
+
+def owner_seating_config(settings: dict) -> AvailabilityConfig:
+    """The venue's seating rule as the OWNER books: its turn times and its
+    table-joining rule, without the online party ceiling, pacing or lead
+    time."""
+    return dataclasses.replace(
+        build_config(settings), max_party_size=None, pacing_max_per_slot=None,
+        lead_time_min=0,
+    )
+
+
+def _table_views(db: Session, user_id) -> list[ResourceView]:
+    return _views([r for r in active_resources(db, user_id) if r.kind != "provider"])
+
+
+def request_sitting_min(profile: BusinessProfile | None, party_size: int,
+                        duration_min: int | None = None) -> int:
+    """How long a request's party holds its tables: the booking's own length
+    when it has one, else the venue's turn time for the party."""
+    if duration_min:
+        return int(duration_min)
+    return turn_time_minutes(max(1, int(party_size or 1)),
+                             owner_seating_config(load_settings(profile)))
+
+
+def tables_for_request(db: Session, *, profile: BusinessProfile | None, user_id,
+                       start: datetime, party_size: int,
+                       duration_min: int | None = None) -> list[str] | None:
+    """The tables a request gets when the owner confirms it — one id, or the
+    joined set (len ≥ 2) — free for the whole sitting, read from occupancy
+    (the source the exclusion constraint guards). None when nothing seats the
+    party then, or the venue has no tables. A request holds no occupancy, so
+    nothing of its own is in the way."""
+    views = _table_views(db, user_id)
+    if not views or start is None:
+        return None
+    settings = load_settings(profile)
+    config = owner_seating_config(settings)
+    party = max(1, int(party_size or 1))
+    dur = request_sitting_min(profile, party, duration_min)
+    busy = busy_for_day(db, user_id, start.date())
+    if config.combine_enabled:
+        _log_combo_overflow(views)
+    ids = assign_seats(party, start, start + timedelta(minutes=dur), views, busy, config)
+    return [str(x) for x in ids] if ids else None
+
+
+def request_fit_facts(db: Session, *, profile: BusinessProfile | None, user_id,
+                      start: datetime, party_size: int,
+                      duration_min: int | None = None,
+                      now: datetime | None = None,
+                      max_times: int = REQUEST_FIT_TIMES) -> dict:
+    """What the owner is told when no table fits a request she confirms:
+    the largest table, the seats on tables free for the whole sitting at that
+    time, and the nearest other start times THAT DAY where the party fits by
+    the same rule (owner windows; none in the past). Pure read."""
+    views = _table_views(db, user_id)
+    settings = load_settings(profile)
+    config = owner_seating_config(settings)
+    party = max(1, int(party_size or 1))
+    dur = request_sitting_min(profile, party, duration_min)
+    out = {
+        "party_size": party,
+        "at": start.strftime("%H:%M") if start else None,
+        "sitting_min": dur,
+        "largest_table": max((v.capacity_seats for v in views), default=0),
+        "total_seats": sum(v.capacity_seats for v in views),
+        "free_seats": 0,
+        "times": [],
+        "hours_declared": hours_declared(profile, settings),
+    }
+    if not views or start is None:
+        return out
+    busy = busy_for_day(db, user_id, start.date())
+    end = start + timedelta(minutes=dur)
+    out["free_seats"] = sum(
+        v.capacity_seats for v in views
+        if all(not (b.resource_id == v.id and b.start < end and start < b.end) for b in busy)
+    )
+    windows = owner_windows(restaurant_windows(profile, start.date(), settings))
+    if not windows and not out["hours_declared"]:
+        # Undeclared hours: the whole day is the owner's (recheck_and_assign_combo).
+        day0 = datetime.combine(start.date(), time(0, 0))
+        windows = [TimeWindow(start=day0, end=day0 + timedelta(days=1))]
+    fits = []
+    for s in time_grid(windows=windows, duration_min=dur, config=config, now=now):
+        if s == start:
+            continue
+        if assign_seats(party, s, s + timedelta(minutes=dur), views, busy, config):
+            fits.append(s)
+    fits.sort(key=lambda s: (abs((s - start).total_seconds()), s))
+    out["times"] = [s.strftime("%H:%M") for s in sorted(fits[:max(0, int(max_times))])]
+    return out
+
+
 def resolve_duration(profile: BusinessProfile, party_size: int,
                      service_duration_min: int | None = None) -> int:
     settings = load_settings(profile)

@@ -285,6 +285,12 @@ class StatusUpdate(BaseModel):
     # Default yes. False = a quiet correction — a duplicate or test booking the
     # guest should not hear about.
     notify_guest: bool = True
+    # Confirming a request that holds no table (R11, rubric B7): the server
+    # gives it the tables the engine would. When none fit, "ask" answers 409
+    # no_table_fits before anything changes (the app then offers what can be
+    # done); "confirm" confirms it without a table, as before R11 — the
+    # default, so an older app is never stopped from confirming.
+    if_no_table: str = Field(default="confirm", pattern="^(ask|confirm)$")
 
 
 # ─── Behandlinger (salon service catalog) schemas — S2 ───────────────
@@ -3478,6 +3484,57 @@ def _assign_held_on_approval(db: Session, user: User, r: Reservation, held: dict
     r.combined_resource_ids = [str(x) for x in ids] if len(ids) > 1 else None
 
 
+def _venue_has_tables(db: Session, user: User) -> bool:
+    return db.query(BookableResource.id).filter(
+        BookableResource.user_id == user.id,
+        BookableResource.is_active.is_(True),
+        BookableResource.is_deleted.is_(False),
+        BookableResource.kind != "provider",
+    ).first() is not None
+
+
+def _tables_on_confirm(db: Session, user: User, r: Reservation,
+                       if_no_table: str) -> tuple[dict | None, dict | None]:
+    """R11 (rubric B7) — the tables a request sits at once the owner confirms
+    it. Sets resource_id / combined_resource_ids; the caller's occupancy step
+    (sync_occupancy_for_status) then holds every table of the set, in the
+    same transaction as the status change.
+
+    Returns (tables_assigned, no_table_fits):
+      • tables fit → ({"ids": [...], "labels": [...]}, None);
+      • the venue has no table at all → (None, None): nothing to assign, the
+        request is confirmed as before;
+      • none fit, and the app asked (if_no_table "ask") → 409 no_table_fits
+        BEFORE anything changes, with what the owner can do about it;
+      • none fit otherwise → (None, facts): confirmed without a table, as
+        before R11, and said in the answer."""
+    profile = _profile(db, user)
+    party = int(r.party_size or 1)
+    ids = rsvc.tables_for_request(db, profile=profile, user_id=user.id, start=r.starts_at,
+                                  party_size=party, duration_min=r.duration_min)
+    if ids:
+        r.resource_id = UUID(ids[0])
+        r.combined_resource_ids = ids if len(ids) > 1 else None
+        label_of = {
+            str(x.id): x.label
+            for x in db.query(BookableResource.id, BookableResource.label)
+            .filter(BookableResource.user_id == user.id,
+                    BookableResource.id.in_([UUID(i) for i in ids]))
+            .all()
+        }
+        return {"ids": ids, "labels": [label_of.get(i) for i in ids]}, None
+    if not _venue_has_tables(db, user):
+        return None, None
+    facts = rsvc.request_fit_facts(
+        db, profile=profile, user_id=user.id, start=r.starts_at, party_size=party,
+        duration_min=r.duration_min,
+        now=now_local(user).replace(tzinfo=None, second=0, microsecond=0),
+    )
+    if if_no_table == "ask":
+        raise HTTPException(status_code=409, detail={"error": "no_table_fits", **facts})
+    return None, facts
+
+
 @router.patch("/reservations/{reservation_id}/status")
 def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                   background_tasks: BackgroundTasks,
@@ -3505,6 +3562,15 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
             and payload.resource_id is None and r.resource_id is None
             and not r.combined_resource_ids):
         _assign_held_on_approval(db, user, r, held)
+    # A request that holds no table — a group request, by design — gets its
+    # tables when the owner confirms it (R11, rubric B7), or the owner hears
+    # that none fit before anything changes.
+    tables_assigned = None
+    no_table_fits = None
+    if (held is None and prev_status == "requested" and payload.status == "confirmed"
+            and payload.resource_id is None and r.resource_id is None
+            and not r.combined_resource_ids and not r.service_name):
+        tables_assigned, no_table_fits = _tables_on_confirm(db, user, r, payload.if_no_table)
     # Seating (or reopening) onto a table someone is still sitting at: refuse,
     # and say who — before anything on this booking changes.
     if payload.status == "seated" and prev_status != "seated":
@@ -3715,6 +3781,12 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         # Over the venue's daily guest-mail ceiling: the change is saved, the
         # guest was not e-mailed — the app tells the owner (da/en).
         out["guest_email_skipped"] = guest_mail_skipped
+    # R11 (B7): where a confirmed request now sits — or that it sits nowhere
+    # yet because no table fits (confirmed without a table on purpose).
+    if tables_assigned:
+        out["tables_assigned"] = tables_assigned
+    if no_table_fits:
+        out["no_table_fits"] = no_table_fits
     if early_from is not None:
         # The booked time the seating moved away from — the app says so; a
         # booking moving from 18.00 to 17.07 without a word looked like a bug.
