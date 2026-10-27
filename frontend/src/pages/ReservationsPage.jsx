@@ -425,8 +425,11 @@ export default function ReservationsPage() {
   // device last had — a table venue unless it learned otherwise — so the
   // lens switch, the drop-in button and the drop-in row are there from the
   // first paint instead of pushing the night down when the tables arrive.
+  // A read that FAILED is no answer either (P0-1, walk 27 Oct: after a 429
+  // the lenses and the drop-in vanished a second after open): the shape
+  // stays until a read gets through.
   const standGuessTables =
-    isStandDevice && pageResourcesRead === null && rememberedStandLayout() !== "provider";
+    isStandDevice && pageResourcesRead !== true && rememberedStandLayout() !== "provider";
   const tablePlan = usesTableFloor(businessType) || hasTableResources || standGuessTables;
   useEffect(() => {
     if (isStandDevice && pageResourcesRead === true) {
@@ -477,7 +480,12 @@ export default function ReservationsPage() {
     // Gulv tab. The device was showing a host stand with no floor plan.
     // The venue's entitlement is enforced server-side on the wrapped endpoint,
     // so the client gate is the owner's concern, not the device's.
-    if (!isStandDevice && (!isReady || !hasFeature("reservations"))) return;
+    // P0-1 (walk 27 Oct): the paired device's tables now come from its BOOK's
+    // own read, handed up (roomRead below) — one read on open, not two, and
+    // the book's one retry per reload after a failed read (R10, acceptBook)
+    // brings the answer up here too. Nothing here asks again by itself.
+    if (isStandDevice) return undefined;
+    if (!isReady || !hasFeature("reservations")) return undefined;
     let alive = true;
     api
       .get("/reservations/resources")
@@ -497,6 +505,18 @@ export default function ReservationsPage() {
       alive = false;
     };
   }, [isReady, hasFeature, isStandDevice]);
+
+  // The paired device's book read its tables: an array is the answer, null a
+  // read that failed with no room on screen yet. "We could not ask" is never
+  // "there are none": a room once read stays (as in the book, R10).
+  const roomRead = useCallback((list) => {
+    if (Array.isArray(list)) {
+      setPageResources(list);
+      setPageResourcesRead(true);
+    } else {
+      setPageResourcesRead((was) => (was === true ? true : false));
+    }
+  }, []);
 
   // Push 7 — a shop or a workshop (booking mode "none": no Floor tab, no
   // behandler) with nothing the availability engine can book. The engine
@@ -686,6 +706,7 @@ export default function ReservationsPage() {
               day={bookDay}
               onDayChange={setBookDay}
               railSlot={isHostStand ? null : railSlot}
+              onRoomRead={isStandDevice ? roomRead : null}
             />
           </div>
         </div>
@@ -3927,7 +3948,7 @@ function cockpitWhenUnknown(known, items) {
 // omit them (host-stand pop-out, tests) and it keeps its own state exactly as
 // before. Every internal setDay call passes a plain value, never a functional
 // updater, so the alias below is a faithful swap.
-function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayChange, railSlot = null }) {
+function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayChange, railSlot = null, onRoomRead = null }) {
   const { lang } = useLanguage();
   const confirm = useConfirm();
   // Host-stand pop-out chrome lives in THIS component's return (the top bar +
@@ -4296,10 +4317,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // asked again as soon as a book gets through (acceptBook below).
   const resourcesOkRef = useRef(false);
   const resourcesFailedRef = useRef(false);
+  // The paired device's page learns its tables from THIS read (P0-1): a ref,
+  // so fetchResources keeps its identity and is never asked again for it.
+  const onRoomReadRef = useRef(onRoomRead);
+  onRoomReadRef.current = onRoomRead;
   const fetchResources = useCallback(async () => {
     try {
       const res = await api.get("/reservations/resources");
       setResources(Array.isArray(res.data?.resources) ? res.data.resources : []);
+      onRoomReadRef.current?.(Array.isArray(res.data?.resources) ? res.data.resources : null);
       // Decorative room objects, kept in their OWN state. Never merged into
       // `resources` — deriveFloorState, the seat gauge and every table picker
       // iterate that array and must keep counting only bookable things.
@@ -4316,6 +4342,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     } catch {
       // A room that was already read stays as it was (R10).
       if (resourcesOkRef.current) return;
+      onRoomReadRef.current?.(null);
       setFixtures([]);
       // The empty array is what the gauge and the pickers need in order to
       // render at all — but it is NOT an answer about how many tables this

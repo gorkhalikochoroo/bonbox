@@ -326,6 +326,37 @@ export function EntitlementsProvider({ children }) {
   );
 }
 
+// Used outside the provider — a no-op safe default rather than a throw, so a
+// stray <Locked> on a public page doesn't crash. `isReady: true` because
+// there's nothing to wait FOR — the consumer should treat this as a settled
+// Free shape, not a loading state (otherwise public landing pages would
+// render skeletons forever).
+//
+// ONE object for the life of the page, never a new one per render. The door
+// screen's own build (R11, stand/StandApp.jsx) mounts no provider, and a new
+// hasFeature on every render re-ran ReservationsPage's /resources read (an
+// effect that lists hasFeature) on every render it caused itself: 5,127 reads
+// in 25 s from one paired iPad, then 429s that emptied the room (walk 27 Oct,
+// P0-1). An effect that lists these helpers now runs once.
+const OUTSIDE_PROVIDER = {
+  data: DEFAULT_FREE_FALLBACK,
+  loading: false,
+  isReady: true,
+  error: null,
+  refresh: () => Promise.resolve(DEFAULT_FREE_FALLBACK),
+  plan: "free",
+  rawPlan: "free",
+  isPaid: false,
+  inTrial: false,
+  trialDaysRemaining: null,
+  trialEndsAt: null,
+  hasFeature: () => false,
+  isAtCap: () => false,
+  cap: () => undefined,
+  minPlanForFeature: () => null,
+  planSnapshot: () => null,
+};
+
 /**
  * useEntitlements — pull the user's tier entitlements + helpers.
  *
@@ -346,28 +377,6 @@ export function EntitlementsProvider({ children }) {
  */
 export function useEntitlements() {
   const ctx = useContext(EntitlementsContext);
-  if (ctx) return ctx;
-  // Used outside the provider — return a no-op safe default rather
-  // than throwing, so a stray <Locked> on a public page doesn't crash.
-  // `isReady: true` here because there's nothing to wait FOR — the
-  // consumer should treat this as a settled Free shape, not a loading
-  // state (otherwise public landing pages would render skeletons forever).
-  return {
-    data: DEFAULT_FREE_FALLBACK,
-    loading: false,
-    isReady: true,
-    error: null,
-    refresh: () => Promise.resolve(DEFAULT_FREE_FALLBACK),
-    plan: "free",
-    rawPlan: "free",
-    isPaid: false,
-    inTrial: false,
-    trialDaysRemaining: null,
-    trialEndsAt: null,
-    hasFeature: () => false,
-    isAtCap: () => false,
-    cap: () => undefined,
-    minPlanForFeature: () => null,
-    planSnapshot: () => null,
-  };
+  return ctx || OUTSIDE_PROVIDER;
 }
+
