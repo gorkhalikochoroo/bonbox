@@ -646,7 +646,7 @@ export default function ReservationsPage() {
 
       {/* R9: adding the first table (or behandler) switched online booking
           on — said here, on whichever tab did it, until dismissed. */}
-      {!isHostStand && <BookingLiveNotice t={t} />}
+      {!__STAND_BUILD__ && !isHostStand && <BookingLiveNotice t={t} />}
 
       {/* Two columns from xl (1280px) up — the rail is additive, so below that
           breakpoint this collapses to exactly the single column shipped
@@ -1316,7 +1316,7 @@ function ReservationDrawer({
           <SpamMarkedLine r={r} t={t} apptWords={apptWords} />
           {/* R2: an open online request made with many others — decline the
               whole wave in one go (asks the server how big it is). */}
-          {onSpamDone && <SpamWaveBox r={r} t={t} apptWords={apptWords} onDone={onSpamDone} />}
+          {!__STAND_BUILD__ && onSpamDone && <SpamWaveBox r={r} t={t} apptWords={apptWords} onDone={onSpamDone} />}
 
           {hasAllergy && (
             <div
@@ -1561,7 +1561,7 @@ function ReservationDrawer({
                   </button>
                 ))}
                 {/* R2: "Spam" — online bookings only, a quiet word like the rest. */}
-                {onSpamDone && <SpamButton r={r} t={t} apptWords={apptWords} busy={busy} onDone={onSpamDone} />}
+                {!__STAND_BUILD__ && onSpamDone && <SpamButton r={r} t={t} apptWords={apptWords} busy={busy} onDone={onSpamDone} />}
               </div>
             )}
           </div>
@@ -7527,7 +7527,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
 
       {/* R1b: the plan's monthly cap is reached — what it does now, and the
           upgrade nudge (web only). Not on the stand pop-out. */}
-      {!salonFirstRun && !standalone && (
+      {!__STAND_BUILD__ && !salonFirstRun && !standalone && (
         <PlanCapBanner monthCap={publicPage?.monthCap} t={t} apptWords={apptWords} />
       )}
 

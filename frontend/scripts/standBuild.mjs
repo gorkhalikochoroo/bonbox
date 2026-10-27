@@ -80,6 +80,17 @@ export const STAND_SKIP_FILES = [
   "components/reservations/UpcomingRail.jsx",
   "components/reservations/WebsiteBookingKit.jsx",
   "components/reservations/WeekHoursEditor.jsx",
+  // The merge of tracks A, B and C (27 Oct 2026): the owner-only cards and
+  // the page notice that tracks A (R5, R12) and B (R2, R9) added — drawn only
+  // in SettingsSection or behind __STAND_BUILD__ — so their words stay out
+  // of the door screen's dictionary too (R11's budget, rubric B11).
+  "components/reservations/BookingAccentRow.jsx",
+  "components/reservations/BookingLinkCard.jsx",
+  "components/reservations/BookingLiveNotice.jsx",
+  "components/reservations/CardSaveBar.jsx",
+  "components/reservations/ContactBlocksCard.jsx",
+  "components/reservations/PublicWaitlistSwitch.jsx",
+  "components/reservations/SettingsJumpRow.jsx",
 ];
 /** Top-level functions (column 0 `function Name(` … column 0 `}`) never drawn
  *  on the door screen — the owner's tabs and cards. */
