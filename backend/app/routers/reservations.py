@@ -65,6 +65,9 @@ from app.services.tz_utils import now_local, business_today_local, business_day_
 from app.services.sms_service import send_sms, sms_configured
 from sqlalchemy.exc import IntegrityError
 from app.utils.time import utc_now
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -767,6 +770,23 @@ def update_settings(payload: SettingsUpdate, request: Request,
                 incoming["closed_dates"], _public_now_local().date())
         if "owner_booking_emails" in incoming:
             incoming["owner_booking_emails"] = bool(incoming["owner_booking_emails"])
+        # Starttider (R6): 15, 30 or 60 only. A valid choice is the OWNER's
+        # from now on — a new-salon default never overwrites it.
+        incoming.pop("slot_step_chosen", None)
+        if "slot_granularity_min" in incoming:
+            step = rsvc.clean_slot_step(incoming["slot_granularity_min"])
+            if step is None:
+                incoming.pop("slot_granularity_min")
+            else:
+                incoming["slot_granularity_min"] = step
+                incoming["slot_step_chosen"] = True
+        # Pause mellem kunder (R6): 0, 5, 10 or 15 minutes only.
+        if "service_buffer_min" in incoming:
+            buf = rsvc.clean_service_buffer(incoming["service_buffer_min"])
+            if buf is None:
+                incoming.pop("service_buffer_min")
+            else:
+                incoming["service_buffer_min"] = buf
         merged.update(incoming)
         profile.reservation_settings_json = json.dumps(merged)
 
@@ -1117,6 +1137,14 @@ def create_resource(payload: ResourceCreate, request: Request,
                     BookableResource.is_deleted.is_(False))
             .scalar()
         ) + 1
+    if payload.kind == "provider":
+        # A new salon's first chair: start times every 30 min (R6).
+        prof = _profile(db, user)
+        if prof is None:
+            prof = BusinessProfile(user_id=user.id)
+            db.add(prof)
+            db.flush()
+        rsvc.start_new_salon_on_30(db, user.id, prof)
     r = BookableResource(
         user_id=user.id, kind=payload.kind, label=payload.label,
         capacity_seats=payload.capacity_seats, zone=payload.zone,
@@ -1201,6 +1229,8 @@ def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
             .count()
         )
         enforce_cap(user, "bookable_resources_max", int(current))
+        # A new salon starts on 30-minute start times (R6, rubric S3).
+        rsvc.start_new_salon_on_30(db, user.id, profile)
         label = (
             (getattr(user, "business_name", None)
              or getattr(profile, "company_name", None) or "Behandler").strip()[:120]
@@ -1228,6 +1258,41 @@ def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
     db.commit()
     return {**get_settings(db, user),
             "hours_kept": bool(has_saved and not payload.replace_hours)}
+
+
+@router.get("/salon/attention")
+def salon_attention(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """What a salon owner should act on (R6) — read-only, owner-only:
+
+      * next_week: next week's shifts for the stylists customers book on
+        Vagtplan (None when no stylist is on shifts). 0 published means 0
+        online times that week; the Aftaler card offers "Kopiér sidste uge"
+        (it lands as Kladde and still needs Udgiv) or a link to publish.
+      * absence_conflicts: upcoming appointments on a stylist's Ferie / Syg /
+        Barns sygedag / Andet day, so she can move them.
+
+    Each half fails soft on its own: a read error answers None / nothing,
+    never a 500 that would blank the book's top."""
+    from app.services import salon_attention as sa
+
+    enforce_feature(user, "reservations")
+    now = now_local(user)
+    out: dict = {"next_week": None, "absence_conflicts": {"count": 0, "items": []}}
+    try:
+        out["next_week"] = sa.next_week_shifts(db, user.id, now.date())
+    except Exception:  # noqa: BLE001 — a hint, never a failure
+        logger.warning("salon attention: next week failed", exc_info=True)
+        db.rollback()
+    try:
+        settings = rsvc.load_settings(_profile(db, user))
+        out["absence_conflicts"] = sa.absence_conflicts(
+            db, user.id, now_local=now.replace(tzinfo=None),
+            horizon_days=int(settings.get("max_advance_days", 60) or 60),
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("salon attention: absence conflicts failed", exc_info=True)
+        db.rollback()
+    return out
 
 
 @router.post("/resources/bulk", status_code=201)
@@ -2192,10 +2257,12 @@ def _create_provider_booking(db: Session, user: User, profile, payload: "ManualR
         # Named stylist → must be that exact provider, free, in a published
         # shift. FAIL CLOSED: a None means taken/unavailable → 409, NO reassign.
         _assert_owned_resource(db, user, payload.stylist_resource_id)
+        # buffer_min=0: the salon's pause between customers (R6) shapes the
+        # guest page; the owner may still write a customer in closer.
         picked = rsvc.recheck_provider_slot(
             db, profile=profile, user_id=user.id,
             resource_id=payload.stylist_resource_id, start=payload.starts_at,
-            duration_min=duration, now=None,
+            duration_min=duration, now=None, buffer_min=0,
         )
         if picked is None:
             raise HTTPException(
@@ -2215,7 +2282,7 @@ def _create_provider_booking(db: Session, user: User, profile, payload: "ManualR
         # assign_combo checks tables first (a salon has none) then each provider.
         resource_ids = rsvc.recheck_and_assign_combo(
             db, profile=profile, user_id=user.id, start=payload.starts_at,
-            party_size=1, now=None, duration_min=duration,
+            party_size=1, now=None, duration_min=duration, buffer_min=0,
         )
         if not resource_ids:
             raise HTTPException(status_code=409, detail={"error": "no_provider_available"})
@@ -3033,7 +3100,8 @@ def _assign_held_on_approval(db: Session, user: User, r: Reservation, held: dict
         # the guest's own booking passed).
         if rsvc.recheck_provider_slot(db, profile=profile, user_id=user.id,
                                       resource_id=pick[0], start=start,
-                                      duration_min=duration, now=None):
+                                      duration_min=duration, now=None,
+                                      buffer_min=0):
             ids = pick
     elif pick and _held_pick_free(db, user, pick, start, end, r.id):
         ids = pick
@@ -3775,10 +3843,15 @@ def update_behandling(behandling_id: UUID, payload: BehandlingUpdate,
     # Only overwrite the fields the caller actually sent (None = "leave it"),
     # so a partial PATCH (e.g. just toggling `active`) doesn't blank the rest.
     if payload.name is not None:
-        b.name = payload.name.strip()
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail={"error": "name_required"})
+        b.name = name
     if payload.duration_min is not None:
         b.duration_min = payload.duration_min
-    if payload.price_kr is not None:
+    # The price is the one field that may be cleared (R6, edit in place): an
+    # explicit `"price_kr": null` removes it; leaving the key out keeps it.
+    if "price_kr" in payload.model_fields_set:
         b.price_kr = payload.price_kr
     if payload.active is not None:
         b.active = payload.active
