@@ -116,6 +116,42 @@ GUEST_EVENTS = frozenset({
     GUEST_REQUEST_CONFIRMED, GUEST_MOVED, GUEST_REMINDER, GUEST_REQUEST_EXPIRED,
 })
 
+# F4 (Manoj, 27 Oct 2026): the fleet guest-mail ceiling
+# (GUEST_EMAILS_FLEET_PER_DAY, 40 in a rolling day on Resend Free) is shared
+# by priority. A mail that ANSWERS or CHANGES a booking may use the whole
+# ceiling; every other guest mail goes out only while the fleet has sent
+# fewer than half of it — so a month of reminders can no longer use up the
+# day a decline needs (the month simulation: 145 reminders, 10
+# confirmations and a decline suppressed on 20 of 27 days).
+# Every guest mail type is listed in exactly one of the two sets (a test
+# pins it); a type in neither — a guest mail added later and not classified
+# — counts as non-essential.
+ESSENTIAL_GUEST_EVENTS = frozenset({
+    GUEST_CONFIRMATION,        # the booking confirmed, or "request received"
+    GUEST_REQUEST_CONFIRMED,   # the request is confirmed (also moved + confirmed in one)
+    GUEST_REQUEST_EXPIRED,     # the request is declined (nobody answered in time)
+    GUEST_CANCELLED_BY_VENUE,  # the venue declined or cancelled it
+    GUEST_CANCELLED_BY_GUEST,  # the guest's own cancellation, confirmed
+    GUEST_MOVED,               # the venue moved it to a new time
+    # (No waitlist guest mail exists: the online waitlist reaches a guest by
+    # SMS. One added later belongs here — it answers the guest.)
+})
+NON_ESSENTIAL_GUEST_EVENTS = frozenset({
+    GUEST_REMINDER,            # the day-before reminder
+})
+
+
+def guest_mail_is_essential(event_type: str | None) -> bool:
+    """Does this guest mail answer or change a booking (F4)? Anything not
+    listed as essential — a reminder, or a type nobody classified — is not."""
+    return event_type in ESSENTIAL_GUEST_EVENTS
+
+
+def is_guest_mail(event_type: str | None) -> bool:
+    """A mail to a guest: a listed guest type, or any `guest_*` type (one
+    added later is still held to the guest ceilings — as non-essential)."""
+    return event_type in GUEST_EVENTS or str(event_type or "").startswith("guest_")
+
 # NotificationLog.subject — a fixed, PII-free label per event.
 _LOG_LABELS = {
     GUEST_CONFIRMATION: "Guest email: booking confirmation",
@@ -1125,15 +1161,25 @@ def guest_emails_sent_fleet_last_24h(db: Session) -> int:
     )
 
 
-def fleet_guest_mail_capped(db: Session) -> int | None:
-    """The fleet-wide ceiling (every venue together) when it is reached, else
-    None. Holds when a caller spreads bookings over many venues and IP
+def fleet_guest_mail_capped(db: Session, event_type: str | None = None) -> int | None:
+    """The fleet-wide ceiling (every venue together) this mail has reached,
+    else None. Holds when a caller spreads bookings over many venues and IP
     addresses. Read at call time; GUEST_EMAILS_FLEET_PER_DAY <= 0 is off.
-    Raises when the count fails — deliver() then refuses to send."""
-    cap = app_config.GUEST_EMAILS_FLEET_PER_DAY
+    Raises when the count fails — deliver() then refuses to send.
+
+    F4: an essential guest mail (guest_mail_is_essential — no `event_type`
+    reads as one, the confirmation's own check) may use the whole ceiling;
+    any other guest mail only while the fleet has sent fewer than HALF of it
+    (40 → it stops at 20), so the rest of the day is kept for the mails that
+    answer a booking."""
+    cap = int(app_config.GUEST_EMAILS_FLEET_PER_DAY)
     if cap <= 0:
         return None
-    return cap if guest_emails_sent_fleet_last_24h(db) >= cap else None
+    sent = guest_emails_sent_fleet_last_24h(db)
+    if event_type is None or guest_mail_is_essential(event_type):
+        return cap if sent >= cap else None
+    # Non-essential: only while under half the ceiling (2 × sent < cap).
+    return -(-cap // 2) if 2 * sent >= cap else None
 
 
 def venue_mail_share() -> int | None:
@@ -1390,7 +1436,7 @@ def deliver(db: Session | None, *, owner_id, reservation_id, event_type: str,
     A confirmation (the mail an online booking starts) also counts against
     the venue's share of the fleet ceiling (venue_mail_share)."""
     to = (to or "").strip()
-    is_guest = event_type in GUEST_EVENTS
+    is_guest = is_guest_mail(event_type)
     if not to:
         return False
     if is_guest and db is None:
@@ -1414,9 +1460,13 @@ def deliver(db: Session | None, *, owner_id, reservation_id, event_type: str,
                 # This venue's share of the fleet ceiling for the mails its
                 # online bookings start: one venue cannot use up the fleet.
                 capped, reason = True, "venue_share"
-            if not capped and fleet_guest_mail_capped(db) is not None:
-                # Every venue together: the fleet-wide daily ceiling.
-                capped, reason = True, "fleet_capped"
+            if not capped and fleet_guest_mail_capped(db, event_type) is not None:
+                # Every venue together: the fleet-wide daily ceiling — the
+                # whole of it for a mail that answers or changes a booking,
+                # half of it for a reminder (F4: the rest is kept for the
+                # answers).
+                capped, reason = True, ("fleet_capped" if guest_mail_is_essential(event_type)
+                                        else "fleet_reserved")
             if (not capped and event_type in OWNER_INITIATED_GUEST_EVENTS
                     and mailbox_guest_mail_capped(db, owner_id, to) is not None):
                 # One stranger's inbox: the per-mailbox bound.
@@ -1426,6 +1476,9 @@ def deliver(db: Session | None, *, owner_id, reservation_id, event_type: str,
         if capped:
             if reason == "fleet_capped":
                 abuse_signals.bump("guest_mail_fleet")
+            elif reason == "fleet_reserved":
+                # A reminder held back so the day's answers still go out.
+                abuse_signals.bump("guest_mail_fleet_reserved")
             elif reason == "venue_share":
                 # The operator hears about this too (abuse monitor,
                 # abuse_guest_mail): a drip at one venue, or a venue so busy
