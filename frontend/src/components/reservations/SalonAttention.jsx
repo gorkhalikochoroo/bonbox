@@ -23,7 +23,7 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, CalendarX2, ChevronRight, Copy } from "lucide-react";
 import api from "../../services/api";
 import Button from "../ui/Button";
-import { fmtClosureRange } from "../../utils/closures";
+import { fmtClosureRange, fmtDayMonth } from "../../utils/closures";
 import { guestText } from "../../utils/guestText";
 
 export const CONFLICTS_SHOWN = 5;
@@ -116,7 +116,8 @@ function WeekCard({ nw, t, lang, onCopied }) {
     action = <Link to={href} data-testid="salon-week-publish" className={LINK}>{t("rsvpWeekPublishCta", "Publish in Schedule")}<ChevronRight className="w-3.5 h-3.5" aria-hidden /></Link>;
   } else {
     body = t("rsvpWeekEmptyBody", "From Monday {date}, customers can't book a time with your stylists online.", {
-      date: fmtClosureRange(nw.week_start, null, lang),
+      // "Fra mandag 2. nov" — the sentence names the weekday itself.
+      date: fmtDayMonth(nw.week_start, lang),
     });
     action = Number(nw.this_week) > 0 ? (
       <Button

@@ -254,7 +254,9 @@ describe("next week without published shifts", () => {
     mountAttention();
     const card = await screen.findByTestId("salon-week-empty");
     expect(within(card).getByText(da.rsvpWeekEmptyTitle)).toBeTruthy();
-    expect(card.textContent).toContain(`Fra mandag ${fmtClosureRange("2026-11-02", null, "da")} kan kunderne ikke booke`);
+    // The sentence names the weekday once (judge 27 Oct: "Fra mandag man 2. nov").
+    expect(card.textContent).toContain("Fra mandag 2. nov kan kunderne ikke booke");
+    expect(card.textContent).not.toContain(`mandag ${fmtClosureRange("2026-11-02", null, "da")}`);
     fireEvent.click(within(card).getByRole("button", { name: da.rsvpWeekCopyBtn }));
     await waitFor(() => expect(h.post).toHaveBeenCalledWith("/staff/schedules/copy-week", {
       source_week: "2026-10-26", target_week: "2026-11-02",

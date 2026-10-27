@@ -51,6 +51,19 @@ export function fmtClosureRange(from, to, lang) {
   }
 }
 
+// "2. nov" (en: "2 Nov") — for a sentence that already names the weekday
+// ("Fra mandag {date}"): fmtClosureRange's "man 2. nov" said it twice
+// ("Fra mandag man 2. nov", judge 27 Oct, frame 13).
+export function fmtDayMonth(iso, lang) {
+  if (!iso) return "";
+  try {
+    const p = parts(iso, lang);
+    return lang === "en" ? `${p.day} ${p.mon}` : `${p.day}. ${p.mon}`;
+  } catch {
+    return iso;
+  }
+}
+
 // The presets: the NEXT occurrence of each holiday that has not ended.
 //   xmasEve  24/12           xmas  24/12–26/12           newYear 31/12–1/1
 export function closurePresets(today = todayIso()) {
