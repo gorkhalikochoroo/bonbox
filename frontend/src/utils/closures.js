@@ -88,3 +88,16 @@ export const CLOSURE_ERRORS = {
   too_many: ["rsvpClosureErrTooMany", "You can have at most 60 closed dates. Remove an old one first."],
   in_the_past: ["rsvpClosureErrPast", "That date has passed."],
 };
+
+// The closure covering `iso` (a "closed" entry wins over a pause on the same
+// day — the server's closure_on), or null. R9: the owner's new-booking sheet
+// says when the chosen day is closed for ONLINE booking (the owner can still
+// book it — decision 3).
+export function closureOn(closures, iso) {
+  if (!iso) return null;
+  const list = (Array.isArray(closures) ? closures : [])
+    .filter((c) => c && c.from && c.from <= iso && (c.to || c.from) >= iso);
+  if (list.length === 0) return null;
+  list.sort((a, b) => (a.kind === "closed" ? 0 : 1) - (b.kind === "closed" ? 0 : 1) || (a.from < b.from ? -1 : 1));
+  return list[0];
+}

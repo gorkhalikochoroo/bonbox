@@ -27,6 +27,8 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
+// R9: what the booking page does with these hours, said under them.
+import BookingHoursSourceNote from "./BookingHoursSourceNote";
 
 
 const DAY_KEYS = [
@@ -51,6 +53,8 @@ export default function OperatingProfileSection() {
   const [saving, setSaving] = useState(false);
   const [savedToast, setSavedToast] = useState("");
   const [error, setError] = useState("");
+  // How the booking page uses these hours (GET answer's booking_hours).
+  const [bookingStatus, setBookingStatus] = useState(null);
 
   // Initial load — pull all three resources in parallel.
   useEffect(() => {
@@ -67,6 +71,7 @@ export default function OperatingProfileSection() {
       setOpenDaysSet(new Set(mask.split("")));
       // operating_hours is a dict { mon: "10:00-22:00" | "closed", ... }
       setHours(op.operating_hours || {});
+      setBookingStatus(op.booking_hours ?? null);
       const cat = catRes.data || {};
       setVertical(cat.vertical || "restaurant");
       setCatalog(cat.roles || []);
@@ -243,6 +248,9 @@ export default function OperatingProfileSection() {
               {t("operatingProfilePickDaysFirst") || "Pick days above to set hours."}
             </div>
           )}
+        </div>
+        <div className="mt-2">
+          <BookingHoursSourceNote status={bookingStatus} />
         </div>
       </div>
 

@@ -40,6 +40,8 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useSmartTelemetry } from "../hooks/useSmartTelemetry";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { useBranch } from "./BranchSelector";
+// R9: what the booking page does with these hours, said under them.
+import BookingHoursSourceNote from "./BookingHoursSourceNote";
 
 
 const DAY_LABELS = {
@@ -266,6 +268,9 @@ export default function SmartStaffingCard({ onEditClick }) {
                   </div>
                 );
               })}
+            </div>
+            <div className="mt-2">
+              <BookingHoursSourceNote load />
             </div>
           </div>
 
