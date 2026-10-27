@@ -2547,6 +2547,29 @@ export const en = {
     rsvpStandMintError: "Couldn't make a code. Try again.",
     rsvpStandRevokeError: "Couldn't remove the device.",
     rsvpStandInstallHint: "Opens straight to the host stand",
+    // R10 — the door iPad stays on (27 Oct 2026): the book stays on screen when
+    // a refresh fails, a dead stand link says so in words, a paired screen can
+    // disconnect itself, and failures are words, never server codes.
+    rsvpBookOffline: "Offline · showing the book from {time}",
+    rsvpBookUnavailableTitle: "Couldn't load the book",
+    rsvpBookUnavailableTitleAppt: "Couldn't load the appointments",
+    rsvpBookUnavailableAuto: "Trying again by itself — nothing is lost.",
+    rsvpErrNoNet: "Couldn't reach BonBox — check the connection and try again.",
+    rsvpErrGone: "That booking isn't in the book any more. The book has been updated.",
+    rsvpErrGoneAppt: "That appointment isn't in the book any more. The book has been updated.",
+    rsvpErrPlan: "Reservations aren't part of the venue's plan right now. Ask the owner to check the subscription.",
+    rsvpErrBusy: "Too many tries in a row. Wait a moment and try again.",
+    rsvpStandGoneTitle: "This screen isn't connected any more",
+    rsvpStandGoneBody: "The owner removed it, or it was disconnected. Ask the owner for a new code under Reservations → Settings.",
+    rsvpStandGoneBodyAppt: "The owner removed it, or it was disconnected. Ask the owner for a new code under Appointments → Settings.",
+    rsvpStandGoneNewCode: "Enter a new code",
+    rsvpStandUnpair: "Disconnect this screen",
+    rsvpStandUnpairHint: "A new code is needed to connect again",
+    rsvpStandUnpairTitle: "Disconnect this screen?",
+    rsvpStandUnpairBody: "The book closes on this screen. To use it again, the owner makes a new code under Settings.",
+    rsvpStandUnpairYes: "Disconnect",
+    rsvpStandUnpairOffline: "Disconnected on this screen. BonBox couldn't be reached — the owner can also remove it under Settings.",
+    standPairReopening: "Opening the book…",
     // ── Insights (Indsigt) tab — owner reservation analytics. Keys prefixed
     //    rsvpIns*. Figures are based on BOOKED guests (Σ party size), labelled
     //    accordingly. DK terms: gæster = guests, couvert = covers. ──

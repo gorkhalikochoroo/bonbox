@@ -2494,6 +2494,29 @@ export const da = {
     rsvpStandMintError: "Kunne ikke lave en kode. Pr\u00f8v igen.",
     rsvpStandRevokeError: "Kunne ikke fjerne enheden.",
     rsvpStandInstallHint: "\u00c5bner direkte p\u00e5 v\u00e6rt-sk\u00e6rmen",
+    // R10 — vært-skærmen bliver på (27. okt 2026): bogen bliver på skærmen, når
+    // en opdatering fejler, et dødt skærm-link siges med ord, en forbundet skærm
+    // kan afbryde sig selv, og fejl er ord, aldrig serverkoder.
+    rsvpBookOffline: "Offline · viser bogen fra {time}",
+    rsvpBookUnavailableTitle: "Kunne ikke hente bogen",
+    rsvpBookUnavailableTitleAppt: "Kunne ikke hente aftalerne",
+    rsvpBookUnavailableAuto: "Prøver igen af sig selv — intet er tabt.",
+    rsvpErrNoNet: "Kunne ikke nå BonBox — tjek forbindelsen, og prøv igen.",
+    rsvpErrGone: "Den reservation er ikke i bogen længere. Bogen er opdateret.",
+    rsvpErrGoneAppt: "Den aftale er ikke i bogen længere. Bogen er opdateret.",
+    rsvpErrPlan: "Reservationer er ikke med i stedets abonnement lige nu. Bed ejeren om at tjekke abonnementet.",
+    rsvpErrBusy: "For mange forsøg i træk. Vent et øjeblik, og prøv igen.",
+    rsvpStandGoneTitle: "Denne skærm er ikke forbundet længere",
+    rsvpStandGoneBody: "Ejeren har fjernet den, eller den er blevet afbrudt. Bed ejeren om en ny kode under Reservationer → Indstillinger.",
+    rsvpStandGoneBodyAppt: "Ejeren har fjernet den, eller den er blevet afbrudt. Bed ejeren om en ny kode under Tidsbestilling → Indstillinger.",
+    rsvpStandGoneNewCode: "Indtast ny kode",
+    rsvpStandUnpair: "Afbryd denne skærm",
+    rsvpStandUnpairHint: "Der skal en ny kode til for at forbinde igen",
+    rsvpStandUnpairTitle: "Afbryd denne skærm?",
+    rsvpStandUnpairBody: "Bogen lukker på denne skærm. Skal den bruges igen, laver ejeren en ny kode under Indstillinger.",
+    rsvpStandUnpairYes: "Afbryd",
+    rsvpStandUnpairOffline: "Afbrudt på denne skærm. BonBox kunne ikke nås — ejeren kan også fjerne den under Indstillinger.",
+    standPairReopening: "Åbner bogen…",
     // ── Indsigt-fane — ejerens reservationsanalyse. Nøgler med rsvpIns*-præfiks.
     //    Tal er baseret på BOOKEDE gæster (Σ antal personer), markeret derefter. ──
     rsvpTabInsights: "Indsigt",
