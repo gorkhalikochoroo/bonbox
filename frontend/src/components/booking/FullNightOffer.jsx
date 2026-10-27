@@ -55,6 +55,11 @@ function telHref(phone) {
   return s ? `tel:${encodeURIComponent(s)}` : null;
 }
 
+// A phone number never breaks across lines ("+45 22 33 44 / 66", G10 item
+// 7): its spaces become no-break spaces — on screen only, the number itself
+// is kept as the guest typed it.
+const keepTogether = (s) => String(s).replace(/ /g, "\u00a0");
+
 function partyText(n, t) {
   return Number(n) === 1 ? t("rsvpPartyOne", "1 guest") : t("rsvpPartyN", "{n} guests", { n });
 }
@@ -79,7 +84,7 @@ function useLinkKeeper() {
 // The guest's receipt: on the full night after joining, and at the top of the
 // page when the guest comes back through the link.
 function Receipt({ t, lang, kit, receipt, venue, phone, typedPhone, onLeave, leaving, leaveError }) {
-  const { Button, Clock } = kit;
+  const { Clock } = kit;
   const status = receipt?.status || "waiting";
   const day = receipt?.waitlist_date;
   const dayText = day ? kit.fmtDayLabel(day, lang) : "";
@@ -101,7 +106,7 @@ function Receipt({ t, lang, kit, receipt, venue, phone, typedPhone, onLeave, lea
             </p>
             <p className={QUIET}>
               {typedPhone
-                ? t("rsvpWlDone", "It isn't a booking yet. If a table frees up, {venue} may contact you on {phone}.", { venue: venueName, phone: typedPhone })
+                ? t("rsvpWlDone", "It isn't a booking yet. If a table frees up, {venue} may contact you on {phone}.", { venue: venueName, phone: keepTogether(typedPhone) })
                 : t("rsvpWlDoneNoPhone", "It isn't a booking yet. If a table frees up, {venue} may contact you by phone.", { venue: venueName })}
             </p>
           </>
@@ -128,12 +133,20 @@ function Receipt({ t, lang, kit, receipt, venue, phone, typedPhone, onLeave, lea
           {canLeave ? (
             <>
               <p className={QUIET}>{t("rsvpWlKeepPage", "Keep this page — you can also leave the list here.")}</p>
-              <Button variant="ghost" size="md" className="h-10 min-h-0! -ml-3.5" busy={leaving} onClick={onLeave}>
+              {/* A quiet bordered button, as the call button (G10 item 7) —
+                  a ghost read as loose text under the receipt. */}
+              <button
+                type="button"
+                className={TEL_ACTION + " disabled:opacity-60"}
+                disabled={leaving}
+                aria-busy={leaving ? "true" : undefined}
+                onClick={onLeave}
+              >
                 {t("rsvpWlLeave", "Take me off the waitlist")}
-              </Button>
+              </button>
             </>
           ) : telHref(phone) ? (
-            <p className={QUIET}>{t("rsvpWlLeaveCall", "To come off the list, call {phone}.", { phone })}</p>
+            <p className={QUIET}>{t("rsvpWlLeaveCall", "To come off the list, call {phone}.", { phone: keepTogether(phone) })}</p>
           ) : null}
           {leaveError && (
             <p role="alert" className="text-[13px] text-red-600 dark:text-red-400">

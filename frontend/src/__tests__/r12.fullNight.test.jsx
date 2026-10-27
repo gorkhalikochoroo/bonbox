@@ -296,7 +296,8 @@ describe("joining the list", () => {
     const receipt = await screen.findByTestId("rsvp-wl-receipt");
     expect(receipt.textContent).toContain(da.rsvpWlDoneTitle);
     expect(receipt.textContent).toContain("omkring kl. 19:30");
-    expect(receipt.textContent).toContain("kan Bistro Test kontakte dig på +45 20 30 40 50");
+    // The number never breaks across lines: no-break spaces on screen (G10 item 7).
+    expect(receipt.textContent).toContain("kan Bistro Test kontakte dig på +45\u00a020\u00a030\u00a040\u00a050");
     expect(within(receipt).getByRole("button", { name: da.rsvpWlLeave })).toBeTruthy();
     expect(where().get("wl")).toBe("w-1");
     expect(where().get("wt")).toBe("tok-1");
@@ -415,7 +416,8 @@ describe("joining the list", () => {
     });
     const receipt = await screen.findByTestId("rsvp-wl-receipt");
     expect(within(receipt).queryByRole("button", { name: da.rsvpWlLeave })).toBeNull();
-    expect(receipt.textContent).toContain("Vil du af listen, så ring på +45 12 34 56 78.");
+    // No-break spaces in the number on screen (G10 item 7).
+    expect(receipt.textContent).toContain("Vil du af listen, så ring på +45\u00a012\u00a034\u00a056\u00a078.");
     expect(where().get("wl")).toBeNull();
   });
 });
@@ -565,5 +567,37 @@ describe("G10 item 3: the full night has one main green and full rows", () => {
     expect(await screen.findByTestId("rsvp-wl-receipt")).toBeTruthy();
     expect(screen.queryByTestId("rsvp-cta-bar")).toBeNull();
     expect(screen.queryByRole("button", { name: da.rsvpPickTimeShort })).toBeNull();
+  });
+});
+
+// Design judge G10 item 7: the receipt's numbers never break across lines,
+// and "Meld mig af ventelisten" is a quiet bordered button (as the call
+// button), not loose ghost text.
+describe("G10 item 7: the waitlist receipt", () => {
+  it("the leave button is bordered like the call button; the typed number keeps together", async () => {
+    routes();
+    h.post.mockResolvedValue({ data: {
+      id: "w-1", status: "waiting", waitlist_date: THU, party_size: 2, preferred_time: null,
+      erased: false, waitlist_token: "tok-1",
+    } });
+    renderAt();
+    await settle();
+    await pickThursday();
+    fireEvent.click(joinCta());
+    const form = screen.getByTestId("rsvp-wl-form");
+    type(within(form).getByLabelText(da.rsvpName), "Agnes Holm");
+    type(within(form).getByLabelText(da.rsvpWlPhone), "+45 22 33 44 66");
+    await act(async () => {
+      fireEvent.click(within(form).getByRole("button", { name: da.rsvpWlOfferCta }));
+    });
+    await settle();
+    const receipt = await screen.findByTestId("rsvp-wl-receipt");
+    expect(receipt.textContent).toContain("+45\u00a022\u00a033\u00a044\u00a066");
+    expect(receipt.textContent).not.toContain("+45 22");
+    const leave = within(receipt).getByRole("button", { name: da.rsvpWlLeave });
+    for (const c of ["border", "border-gray-200", "h-10", "rounded-lg", "text-[13px]"]) expect(leave.className, c).toContain(c);
+    expect(leave.className).not.toContain("-ml-3.5");
+    // What was sent is what the guest typed (the spaces are for the eye only).
+    expect(h.post.mock.calls[0][1].guest_phone).toBe("+45 22 33 44 66");
   });
 });
