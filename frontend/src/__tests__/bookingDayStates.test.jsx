@@ -506,7 +506,8 @@ describe("the time area names the reason and offers the next step", () => {
     fireEvent.click(within(times).getByRole("button", { name: da.rsvpOtherDate }));
     await settle(2);
     expect(screen.getByRole("dialog")).toBeTruthy();
-    expect(screen.getByRole("button", { name: da.rsvpNextMonth })).toBeTruthy();
+    // The month grid is its own chunk since booking R12: it arrives a beat later.
+    expect(await screen.findByRole("button", { name: da.rsvpNextMonth })).toBeTruthy();
   });
 
   it("embed: 'Anden dato' in the empty time area opens the calendar right under it", async () => {
@@ -524,7 +525,7 @@ describe("the time area names the reason and offers the next step", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     const here = screen.getByTestId("rsvp-calendar-at-empty");
     expect(btn.parentElement.contains(here)).toBe(true);
-    expect(within(here).getByRole("button", { name: da.rsvpNextMonth })).toBeTruthy();
+    expect(await within(here).findByRole("button", { name: da.rsvpNextMonth })).toBeTruthy();
     // Exactly one calendar: none under the strip.
     expect(screen.getAllByRole("button", { name: da.rsvpNextMonth })).toHaveLength(1);
     // The header's "Anden dato" moves it back under the strip.

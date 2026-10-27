@@ -112,7 +112,13 @@ import { useDelayedFlag } from "../hooks/useDelayedFlag";
 import { useAutoHeight } from "../hooks/useAutoHeight";
 import Input from "../components/ui/Input";
 import Sheet from "../components/ui/Sheet";
-import MonthCalendar from "../components/MonthCalendar";
+// The month grid behind "Anden dato" — its own chunk (R12: the page's 30 kB
+// budget, rubric G14). Most guests pick from the strip and never open it.
+const loadMonthCalendar = () => import("../components/MonthCalendar");
+const MonthCalendar = lazy(loadMonthCalendar);
+const warmCalendar = () => {
+  loadMonthCalendar().catch(() => {});
+};
 // Booking R5 ("trim what the booking page loads"): the 2D table picker is its
 // own chunk. Only a venue that lets guests pick a table ever shows it (and
 // only after a time is picked), so the page's first download no longer
@@ -553,6 +559,7 @@ function DateCalendar({ value, min, max, dayMap, reasons, maxAdvance, party, app
           <X className="w-5 h-5" aria-hidden="true" />
         </button>
       </div>
+      <Suspense fallback={<div className="h-[19rem]" aria-hidden="true" />}>
       <MonthCalendar
         value={value}
         min={min}
@@ -569,6 +576,7 @@ function DateCalendar({ value, min, max, dayMap, reasons, maxAdvance, party, app
           legend: calendarLegend(t, maxAdvance),
         }}
       />
+      </Suspense>
     </div>
   );
 }
@@ -3275,6 +3283,9 @@ export default function ReservationPublicPage() {
                   // the calendar never clutters the default clean strip.
                   <button
                     type="button"
+                    // The month grid's chunk starts on the press (R12).
+                    onPointerDown={warmCalendar}
+                    onFocus={warmCalendar}
                     onClick={() => {
                       setCalendarAt("header");
                       setShowDateInput((v) => !(v && calendarAt === "header"));
@@ -3586,6 +3597,8 @@ export default function ReservationPublicPage() {
                         <div>
                           <button
                             type="button"
+                            onPointerDown={warmCalendar}
+                            onFocus={warmCalendar}
                             onClick={() => {
                               setCalendarAt("empty");
                               setShowDateInput(true);
