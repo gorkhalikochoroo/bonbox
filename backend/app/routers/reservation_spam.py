@@ -367,7 +367,11 @@ def _fresh_entries(db: Session, profile: BusinessProfile) -> list:
     the store too (the retention)."""
     raw = _entries(profile)
     cleaned = contact_marks.clean(raw, _today())
-    if len(cleaned) != len(raw if isinstance(raw, list) else []):
+    # Saved whenever cleaning changed anything — an expiry, a duplicate, a
+    # malformed id given a new one (else that id would change on every read
+    # and its "Fjern" would never find it).
+    if json.dumps(cleaned, sort_keys=True) != json.dumps(raw if isinstance(raw, list) else [],
+                                                         sort_keys=True):
         _save_entries(profile, cleaned)
         db.commit()
     return cleaned

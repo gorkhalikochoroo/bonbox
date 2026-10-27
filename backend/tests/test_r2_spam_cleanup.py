@@ -253,6 +253,38 @@ def test_undo_has_a_time_limit(client, db, outbox):
     assert undo.status_code == 409 and undo.json()["detail"]["error"] == "undo_expired"
 
 
+def test_the_guests_receipt_never_says_spam(client, db, outbox):
+    """A booking marked as spam reads "cancelled by the venue" on the guest's
+    receipt; a request that held no table reads "declined" — never "spam"."""
+    u, p, _ = restaurant(db)
+    slug = p.reservation_slug
+    conf = book(client, slug, day=DAY, time="18:00", email="b1@example.com").json()
+    req = book(client, slug, day=DAY, time="19:00", email="b2@example.com", form_ms=300,
+               ip="10.8.8.8").json()
+    assert req["status"] == "requested"
+    as_owner(u)
+    for x in (conf, req):
+        assert _spam(client, x["id"]).status_code == 200
+    seen = {x["id"]: client.get(f"/api/public/reservations/booking/{x['id']}",
+                                params={"token": x["booking_token"]}).json()["outcome"]
+            for x in (conf, req)}
+    assert seen == {conf["id"]: "cancelled_by_venue", req["id"]: "declined"}
+
+
+def test_a_malformed_stored_id_is_fixed_once_so_fjern_finds_it(client, db, outbox):
+    u, p, _ = restaurant(db)
+    as_owner(u)
+    client.post("/api/reservations/contact-blocks", json={"phone": "55667788"})
+    raw = json.loads(_settings_json(db, p))
+    raw["contact_blocks"][0]["id"] = "not-an-id"
+    p.reservation_settings_json = json.dumps(raw)
+    db.commit()
+    first = client.get("/api/reservations/contact-blocks").json()["blocks"][0]["id"]
+    assert first != "not-an-id"
+    assert client.get("/api/reservations/contact-blocks").json()["blocks"][0]["id"] == first
+    assert client.delete(f"/api/reservations/contact-blocks/{first}").status_code == 200
+
+
 # ── A wave ────────────────────────────────────────────────────────────────
 
 def _request(db, owner, *, minutes_ago: float, status="requested", source="public", name="Bølge"):

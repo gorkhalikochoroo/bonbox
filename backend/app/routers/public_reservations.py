@@ -1587,6 +1587,12 @@ _OUTCOME_BY_REASON = {
 def booking_outcome(r) -> str | None:
     if r.status != "cancelled":
         return None
+    if r.cancel_reason == "owner_spam":
+        # Marked as spam by the owner (R2): the guest's receipt never says
+        # "spam". A request that held no table reads as declined — the words
+        # an owner's decline gets — and a booking as cancelled by the venue.
+        held_none = r.resource_id is None and not (r.combined_resource_ids or None)
+        return "declined" if held_none else "cancelled_by_venue"
     return _OUTCOME_BY_REASON.get(r.cancel_reason or "", "cancelled_by_venue")
 
 
