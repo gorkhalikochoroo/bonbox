@@ -40,7 +40,7 @@ from app.utils import abuse_signals
 from app.utils.time import utc_now
 from tests._r1_booking_harness import (  # noqa: F401 — fixtures
     active_occupancy, as_owner, book, client, db, engine_and_session, outbox,
-    reservation, restaurant, salon, shift, today_local,
+    reservation, restaurant, salon, shift, today_local, volume_on,
 )
 
 DAY = today_local() + timedelta(days=5)
@@ -873,17 +873,44 @@ def test_fix_j_summary_counts_leave_out_the_owners_spam(client, db, outbox):
     now = utc_now()
     since = now - timedelta(hours=1)
     assert alerts.summary_counts(db, u.id, now_utc=now, since=since) == (3, 0)
-    assert bs.public_rows_since(db, u.id, since) == 3
-    # passed = public − held, both without the spam: the three real ones.
-    assert bs.held_since(db, u.id, since) == 0
-    assert bs.passed_since(db, u.id, since) == 3
+    assert bs.news_since(db, u.id, since) == 3
+    # The SCREEN keeps counting everything (fix round 4, review2 #2): 3 real,
+    # 4 cleaned up as spam, 1 held as marked_spam — passed = public − held.
+    assert bs.public_rows_since(db, u.id, since) == 8
+    assert bs.held_since(db, u.id, since) == 1
+    assert bs.passed_since(db, u.id, since) == 7
     # Both directions of the correlated EXISTS: a hold for another reason
     # still counts as waiting news.
     other = book(client, p.reservation_slug, day=DAY + timedelta(days=3), time="12:00",
                  name="Http://x", email="person@example.com").json()["id"]
     assert _held_reason(db, other) == "link_in_name"
     assert alerts.summary_counts(db, u.id, now_utc=now, since=since) == (4, 1)
-    assert bs.held_since(db, u.id, since) == 1 and bs.passed_since(db, u.id, since) == 3
+    assert bs.held_since(db, u.id, since) == 2 and bs.passed_since(db, u.id, since) == 7
+
+
+def test_fix_r4_cleaning_a_burst_up_as_spam_never_reopens_the_venue_hour(client, db, outbox, volume_on):
+    """Review2 #2: with the ceilings on, the hour's max(6, tables) online
+    bookings passed; the owner marks all six as spam; the next one is STILL
+    held (venue_hour). The summaries leave the spam out — the screen never."""
+    from app.services import booking_screen as bs
+    from app.services import owner_booking_alerts as alerts
+    u, p, _ = restaurant(db, tables=2)
+    ids = []
+    for i in range(6):
+        r = book(client, p.reservation_slug, day=DAY + timedelta(days=i), time="12:00",
+                 name=f"Bot {i}", email=f"burst{i}@example.com", ip=f"10.9.0.{i}")
+        assert r.json()["status"] == "confirmed", r.text
+        ids.append(r.json()["id"])
+    as_owner(u)
+    for rid in ids:
+        assert _spam(client, rid).status_code == 200
+    since = utc_now() - timedelta(hours=1)
+    assert alerts.summary_counts(db, u.id, now_utc=utc_now(), since=since)[0] == 0   # no news
+    assert bs.passed_since(db, u.id, since) == 6                                    # the screen still sees them
+    nxt = book(client, p.reservation_slug, day=DAY + timedelta(days=8), time="12:00",
+               name="Next One", email="next@example.com", ip="10.9.1.1")
+    assert nxt.json()["status"] == "requested", nxt.text
+    assert _held_reason(db, nxt.json()["id"]) == "venue_hour"
 
 
 def test_fix_j_no_summary_when_only_spam_was_held_back(client, db, outbox):

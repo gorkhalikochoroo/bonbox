@@ -408,8 +408,25 @@ def owners_spam():
 
 def public_rows_since(db, owner_id, since_utc: datetime) -> int:
     """Public bookings (any status) created since `since_utc` (naive UTC, the
-    created_at clock) — the owner's spam left out (owners_spam): what the
-    summaries call "nye"."""
+    created_at clock) — ALL of them. The screen's volume rules count every
+    online booking, the owner's spam included (fix round 4, review2 #2): a
+    burst the owner then cleaned up as spam must still hold the next one,
+    or an attacker's own bookings, once cleaned, would reopen the door."""
+    return _count(
+        db.query(func.count(Reservation.id)).filter(
+            Reservation.user_id == owner_id,
+            Reservation.source == "public",
+            Reservation.is_deleted.is_(False),
+            Reservation.created_at >= since_utc,
+        )
+    )
+
+
+def news_since(db, owner_id, since_utc: datetime) -> int:
+    """What the owner's summaries call "nye": public_rows_since without the
+    owner's spam (owners_spam — fix round 27 Oct, backend F3: after a
+    clean-up at 22:01 the night's summaries still said "37 nye"). Summaries
+    only; the screen counts with public_rows_since."""
     return _count(
         db.query(func.count(Reservation.id)).filter(
             Reservation.user_id == owner_id,
@@ -422,19 +439,14 @@ def public_rows_since(db, owner_id, since_utc: datetime) -> int:
 
 
 def held_since(db, owner_id, since_utc: datetime) -> int:
-    """Bookings this screen HELD since `since_utc` (one audit row each) — the
-    owner's spam left out, exactly as public_rows_since leaves it out, so
-    passed_since stays their difference (a booking the owner cleaned up as
-    spam counts toward neither)."""
+    """Bookings this screen HELD since `since_utc` (one audit row each) — all
+    of them, as public_rows_since counts all (passed_since is their
+    difference)."""
     return _count(
-        db.query(func.count(AuditLog.id))
-        .join(Reservation, Reservation.id == AuditLog.entity_id)
-        .filter(
+        db.query(func.count(AuditLog.id)).filter(
             AuditLog.user_id == owner_id,
-            AuditLog.entity_type == "reservation",
             AuditLog.action == HELD_ACTION,
             AuditLog.created_at >= since_utc,
-            ~owners_spam(),
         )
     )
 

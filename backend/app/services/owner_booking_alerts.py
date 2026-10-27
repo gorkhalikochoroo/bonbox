@@ -230,10 +230,11 @@ def waiting_requests(db, owner_id, now_local: datetime | None = None) -> int:
 
 def summary_counts(db, owner_id, *, now_utc: datetime, since: datetime | None = None) -> tuple[int, int]:
     """(new online bookings since `since` — default the last hour, waiting
-    requests) for the summary."""
-    from app.services.booking_screen import public_rows_since
+    requests) for the summary — both without the owner's spam (F3). The
+    screen's own counts keep it (booking_screen.public_rows_since)."""
+    from app.services.booking_screen import news_since
     since = since or (now_utc - timedelta(hours=1))
-    return public_rows_since(db, owner_id, since), waiting_requests(db, owner_id)
+    return news_since(db, owner_id, since), waiting_requests(db, owner_id)
 
 
 def cancelled_since(db, owner_id, since: datetime) -> int:
