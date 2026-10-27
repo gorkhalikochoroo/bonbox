@@ -1072,3 +1072,24 @@ def test_fix_c_a_repeat_check_that_cannot_be_read_says_call_us(db, client, monke
     r = _join(client, profile, FRI)
     assert r.status_code == 409 and r.json()["detail"]["error"] == "waitlist_unavailable"
     assert _rows(db, owner) == []
+
+
+# ── Fix round 27 Oct (D): a party above "Maks. gæster pr. tid" ─────────────
+# Review P3-4: pacing counts the new party too (R9), so a party bigger than
+# the cap on its own can never book online — yet every night read "Fuldt"
+# with a waitlist offer. It is a call ("no_fit"), on an empty floor too.
+def test_fix_d_a_party_above_the_pacing_cap_is_by_phone_never_full(db, client):
+    owner, profile, tables = _venue(db, tables=(8, 8), settings={"pacing_max_per_slot": 4})
+    body = _avail(client, profile, FRI, party=6)               # an empty Friday
+    assert body["slots"] == [] and body["reason"] == "no_fit"
+    for k in ("evening_full", "nearest", "waitlist_open", "waitlist_times"):
+        assert k not in body
+    r = _join(client, profile, FRI, party_size=6)
+    assert r.status_code == 409 and r.json()["detail"]["error"] == "waitlist_unavailable"
+    assert _rows(db, owner) == []
+    # The cap itself still books, and the strip says the same as the day.
+    assert _avail(client, profile, FRI, party=4)["slots"]
+    assert rsvc.classify_empty_day(db, profile=profile, user_id=owner.id, day=FRI,
+                                   party_size=6, now=NOW) == "no_fit"
+    # A group request is never paced: it still asks, at the night's times.
+    assert _avail(client, profile, FRI, party=9)["slots"]

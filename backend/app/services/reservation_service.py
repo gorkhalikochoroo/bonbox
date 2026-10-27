@@ -1412,6 +1412,13 @@ def classify_empty_day(db: Session, *, profile: BusinessProfile, user_id, day: d
     # 3. Above the online ceiling (party-wide, clock-free).
     if config.max_party_size is not None and party_size > config.max_party_size:
         return "no_fit"
+    # 3b. Above the owner's "Maks. gæster pr. tid" on its own (party-wide,
+    #     clock-free): pacing counts the new party too (R9), so no start on
+    #     any day can ever take it online — a call, never "full" with a
+    #     waitlist offer every night (fix round 27 Oct, review P3-4). A group
+    #     request holds no table and is never paced.
+    if not group and config.pacing_max_per_slot and party_size > config.pacing_max_per_slot:
+        return "no_fit"
     # 4. Nothing seats the party even on an empty floor (party-wide, clock-free).
     #    A group request holds no table, so any table venue "fits" it.
     t_dur = turn_time_minutes(party_size, config)
