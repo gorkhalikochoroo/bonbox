@@ -326,6 +326,10 @@ describe("appointments on a stylist's absence day", () => {
     const row = within(card).getByTestId("salon-absence-conflict");
     expect(row.textContent).toContain("Kunde 1");
     expect(row.textContent).toContain(`${fmtClosureRange("2026-10-31", null, "da")} 14.00 · Klip · Mia (Ferie)`);
+    // The why is never cut off: the details line wraps (judge 27 Oct: "Mia (F…" at 390).
+    const details = within(row).getByText((txt) => txt.includes("Mia (Ferie)"));
+    expect(details.className).not.toContain("truncate");
+    expect(details.className).toContain("break-words");
     fireEvent.click(within(row).getByRole("button", { name: "Flyt aftalen med Kunde 1" }));
     expect(onOpenBooking).toHaveBeenCalledWith(item(1));
   });

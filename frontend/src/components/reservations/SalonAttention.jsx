@@ -178,7 +178,10 @@ function ConflictsCard({ ac, t, lang, onOpenBooking }) {
               <li key={c.id} data-testid="salon-absence-conflict" className="flex items-center gap-3 px-3 py-2">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13px] font-medium text-gray-900 dark:text-gray-100">{name}</p>
-                  <p className="truncate text-[12px] text-gray-500 dark:text-gray-400 tabular-nums">{details}</p>
+                  {/* Wraps, never cuts: the stylist's "(Ferie)" is the reason
+                      the row is here, and at 390 the line ended "Mia (F…"
+                      (judge 27 Oct, frame 13). */}
+                  <p className="break-words text-[12px] text-gray-500 dark:text-gray-400 tabular-nums">{details}</p>
                 </div>
                 <Button
                   type="button"
