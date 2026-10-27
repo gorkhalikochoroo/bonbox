@@ -565,10 +565,16 @@ describe("owner hours card seeds from open_hours only when that is what the engi
     expect(screen.getByText(da.rsvpHoursNotSet)).toBeTruthy();
   });
 
+  // R7 (27 Oct 2026): a salon's suggestion is a salon week (Tue–Fri 09–17,
+  // Sat 09–14, Mon + Sun closed), not the restaurant's 11–22 — and never the
+  // Profile hours (Mon 10–17, Tue closed here). A salon books only on the
+  // hours saved on this card, so the "not saved" banner stays until then.
   it("(d) a salon is never seeded from Profile hours", async () => {
     body = settingsBody({}, { hours_declared: true, open_hours: OPEN });
     await openOwner("salon");
-    expect(day(da.rsvpDayMon)).toEqual(["11:00", "22:00"]);
-    expect(day(da.rsvpDayTue)).toEqual(["11:00", "22:00"]);
+    expect(day(da.rsvpDayMon)).toBe("closed");
+    expect(day(da.rsvpDayTue)).toEqual(["09:00", "17:00"]);
+    expect(day(da.rsvpDaySat)).toEqual(["09:00", "14:00"]);
+    expect(screen.getByText(da.rsvpHoursNotSetProvider)).toBeTruthy();
   });
 });
