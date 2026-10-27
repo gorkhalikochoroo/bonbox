@@ -532,6 +532,11 @@ def test_credential_reaches_no_owner_config_route(client, db):
         # Read-only, four rule keys + the hours — /settings itself stays out
         # (test_owner_config_paths_404_under_the_stand_prefix).
         "/stand/{token}/booking-rules",
+        # R10 "Afbryd denne skærm": the device switches off ITS OWN link. It
+        # only ever removes reach (the owner's "Fjern" flag), reads nothing,
+        # and 404s like any dead token afterwards
+        # (test_r10_door_stays_on.py).
+        "/stand/{token}/unpair",
     }
     assert wrapped == allowed, (
         "the stand credential's reach changed — this is a security boundary, "
