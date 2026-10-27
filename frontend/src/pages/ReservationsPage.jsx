@@ -91,7 +91,7 @@ import {
   unwatchBook,
   watchBook,
 } from "../lib/bookLive";
-import { clearStandToken, setStandToken, standTokenFromPath } from "../services/standAuth";
+import { clearStandToken, rememberStandLayout, rememberedStandLayout, setStandToken, standTokenFromPath } from "../services/standAuth";
 import { bookFailWords } from "../utils/bookFailWords";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -123,6 +123,11 @@ import {
 } from "../utils/hostStand";
 import InsightsSection from "../components/reservations/InsightsSection";
 import WaitlistSection from "../components/reservations/WaitlistSection";
+import NoTableFitsSheet from "../components/reservations/NoTableFitsSheet";
+import AllergyLine, { AllergyIcon } from "../components/reservations/AllergyWords";
+import { allergyFacts, allergySentence } from "../utils/allergyWords";
+import FreedTableNudge from "../components/reservations/FreedTableNudge";
+import { freedSince } from "../utils/freedTables";
 import { BookUnavailable, StandNotConnected } from "../components/reservations/BookStates";
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
 import BookingNameRow from "../components/reservations/BookingNameRow";
@@ -392,7 +397,19 @@ export default function ReservationsPage() {
   // A real TABLE plan exists → the 2D table-plan view + table-style authoring.
   // (A salon with leftover tables from an earlier setup also counts, so the
   // grandfather/clear-tables path stays reachable.)
-  const tablePlan = usesTableFloor(businessType) || hasTableResources;
+  // R11 (B11): a paired door screen has no session, so the venue type is
+  // unknown until /resources answers. Until then it keeps the shape this
+  // device last had — a table venue unless it learned otherwise — so the
+  // lens switch, the drop-in button and the drop-in row are there from the
+  // first paint instead of pushing the night down when the tables arrive.
+  const standGuessTables =
+    isStandDevice && pageResourcesRead === null && rememberedStandLayout() !== "provider";
+  const tablePlan = usesTableFloor(businessType) || hasTableResources || standGuessTables;
+  useEffect(() => {
+    if (isStandDevice && pageResourcesRead === true) {
+      rememberStandLayout(hasTableResources ? "table" : "provider");
+    }
+  }, [isStandDevice, pageResourcesRead, hasTableResources]);
   // The authoring tab is visible for table venues, venues with existing
   // tables, AND provider venues that need to author stylist (behandler)
   // stations — without it a fresh salon could never create a bookable
@@ -797,11 +814,12 @@ function TablesCell({ r, labelById, t, seatsById = null, zoneById = null, apptWo
     );
   }
   // A live booking with no table is something the host has to fix — say so,
-  // like the phone row does, instead of a bare dash.
+  // like the phone row does, instead of a bare dash. Amber: it needs the
+  // host (R11 — a confirmed group "Intet bord" read as a quiet grey fact).
   if (["confirmed", "seated"].includes(r.status)) {
     return (
-      <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
-        <AlertTriangle className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" aria-hidden />
+      <span className="inline-flex items-center gap-1 text-sm font-medium text-amber-700 dark:text-amber-300 whitespace-nowrap" data-no-table="">
+        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" aria-hidden />
         {apptWords ? t("rsvpNoTableShortAppt", "No space") : t("rsvpNoTableShort", "No table")}
       </span>
     );
@@ -858,8 +876,11 @@ function FlagsCell({ r, t }) {
   return (
     <div className="flex items-center gap-1.5 text-gray-400 dark:text-gray-500">
       {hasAllergy && (
-        <AlertTriangle
-          // A cancelled booking's allergy is history — grey, not an alarm.
+        <AllergyIcon
+          // An octagon for severe, a triangle otherwise (R11, B8) — never
+          // colour alone. A cancelled booking's allergy is history — grey.
+          level={severe ? "severe" : "allergy"}
+          role="img"
           className={"w-4 h-4 " + (r.status === "cancelled" ? "text-gray-400 dark:text-gray-500" : severe ? "text-red-600 dark:text-red-400" : "text-amber-500 dark:text-amber-400")}
           aria-label={severe ? t("rsvpSevSevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
           title={allergyTitle || (severe ? t("rsvpSevSevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy"))}
@@ -1267,7 +1288,7 @@ function ReservationDrawer({
               }
             >
               <div className="font-semibold flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4" aria-hidden />
+                <AllergyIcon level={severe ? "severe" : "allergy"} className="w-4 h-4" aria-hidden />
                 {severe ? t("rsvpSevSevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
               </div>
               {allergyText && <div className="mt-0.5">{allergyText}</div>}
@@ -3283,7 +3304,8 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                           34px lane (11 + 2 + ~14). */}
                       <span className="text-[11px] leading-tight truncate mt-0.5 flex items-center gap-0.5">
                         {allergy && (
-                          <AlertTriangle
+                          <AllergyIcon
+                            level={allergy === "severe" ? "severe" : "allergy"}
                             className={"w-3 h-3 shrink-0 " + (allergy === "severe" ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
                             aria-hidden
                           />
@@ -3394,7 +3416,8 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                             lines fit with room to spare. */}
                         <span className="text-[11px] leading-tight truncate flex items-center gap-0.5 mt-0.5">
                           {allergy && (
-                            <AlertTriangle
+                            <AllergyIcon
+                              level={allergy === "severe" ? "severe" : "allergy"}
                               className={"w-3 h-3 shrink-0 " + (allergy === "severe" ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
                               aria-hidden
                             />
@@ -4251,6 +4274,24 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // backend surfaces when a booking is cancelled/no-showed (a table just freed).
   const [waitlistCount, setWaitlistCount] = useState(0);
   const [spotMatches, setSpotMatches] = useState([]);
+  // R11 (B7): a group confirmed onto no table — {r, facts} from the server's
+  // 409 no_table_fits — and the sheet's own busy flag (move + confirm).
+  const [noFit, setNoFit] = useState(null);
+  const [noFitBusy, setNoFitBusy] = useState(false);
+  // R11 (B10): the freed-table nudge above the night — {matches, day} — and
+  // the bookings THIS screen freed (their matches came with the answer, so a
+  // reload must not ask again for them).
+  const [freedNudge, setFreedNudge] = useState(null);
+  const selfFreedRef = useRef(new Set());
+  const waitlistCountRef = useRef(0);
+  useEffect(() => { waitlistCountRef.current = waitlistCount; }, [waitlistCount]);
+  // Waiting parties that fit a table that just freed: ringed in the
+  // Venteliste (spotMatches) AND named at the top of the book (the nudge).
+  const surfaceMatches = useCallback((m, forDay) => {
+    if (!Array.isArray(m) || m.length === 0) return;
+    setSpotMatches(m);
+    setFreedNudge({ matches: m, day: forDay });
+  }, []);
   // Bumped on every successful book refetch → tells WaitlistSection to resync
   // so the Venteliste is "spot on" the instant a booking changes (status flip,
   // table move/clear, new booking, walk-in), not just on a day change.
@@ -4599,6 +4640,20 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const acceptBook = useCallback(
     (forDay, body) => {
       const book = body || null;
+      // R11 (B10): a booking that freed a table since the last read of this
+      // same day — changed on another screen, so no answer brought its
+      // waiting matches here. Ask once per booking (the stand's door is
+      // wrapped: /stand/<token>/waitlist/matches). Nobody waiting: no ask.
+      const prevBook = dataRef.current;
+      if (prevBook && book && shownDayRef.current === forDay && waitlistCountRef.current !== 0) {
+        const ids = freedSince(prevBook.reservations, book.reservations, selfFreedRef.current);
+        for (const id of ids) {
+          selfFreedRef.current.add(id);
+          api.get("/reservations/waitlist/matches", { params: { freed_reservation_id: id } })
+            .then((res) => surfaceMatches(res?.data?.matches, forDay))
+            .catch(() => {});
+        }
+      }
       setData(book);
       dataRef.current = book;
       shownDayRef.current = forDay;
@@ -4620,7 +4675,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // The tables could not be read before; the network is back.
       if (resourcesFailedRef.current) fetchResources();
     },
-    [isStandDevice, location.pathname, fetchResources],
+    [isStandDevice, location.pathname, fetchResources, surfaceMatches],
   );
 
   // A read of the book failed. Three honest outcomes, never a blank night:
@@ -5172,6 +5227,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     const silentHeldDecline = status === "cancelled" && r.status === "requested"
       && isHeldForCheck(r, publicPage?.groupThreshold) && r.guest_mailed === false
       && r.held?.bot !== false;
+    // R11 (B7): confirming a request that holds no table — a group — gives it
+    // the tables the engine would. The app asks to hear first when none fit
+    // (409 no_table_fits → NoTableFitsSheet); "Bekræft uden bord" says
+    // "confirm" on purpose.
+    const confirmsNoTable = status === "confirmed" && r.status === "requested"
+      && !isProvider && heldOf(r).length === 0;
     if (removingWalkIn) {
       if (
         !(await confirm({
@@ -5282,12 +5343,37 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         status,
         cancel_reason: removingWalkIn ? "walk_in_removed" : status === "cancelled" ? "owner_cancelled" : null,
         ...(removingWalkIn || silentHeldDecline ? { notify_guest: false } : {}),
+        ...(confirmsNoTable ? { if_no_table: opts.ifNoTable === "confirm" ? "confirm" : "ask" } : {}),
       });
+      // Where the confirmed group sits now — said, as every other change on
+      // the book is (R11). Or that it sits nowhere yet, on purpose.
+      const placed = resp?.data?.tables_assigned;
+      const placedAt = Array.isArray(placed?.labels) ? placed.labels.filter(Boolean).join(" + ") : "";
+      if (status === "confirmed" && placedAt) {
+        toast({
+          severity: "success",
+          message: opts.movedTo
+            ? t("rsvpMovedConfirmed", "Moved to {time} and confirmed — {name} has {tables}.", {
+                time: hm(opts.movedTo), name: guestText(r.guest_name) || t("rsvpGuest", "Guest"), tables: placedAt,
+              })
+            : t("rsvpConfirmedTables", "Confirmed — {name} has {tables}.", {
+                name: guestText(r.guest_name) || t("rsvpGuest", "Guest"), tables: placedAt,
+              }),
+        });
+      } else if (status === "confirmed" && resp?.data?.no_table_fits) {
+        toast({
+          severity: "notice",
+          message: apptWords
+            ? t("rsvpConfirmedNoTableAppt", "{name} is confirmed without a space — give them a space before they arrive.", { name: guestText(r.guest_name) || t("rsvpColGuestAppt", "Customer") })
+            : t("rsvpConfirmedNoTable", "{name} is confirmed without a table — give them tables before they arrive.", { name: guestText(r.guest_name) || t("rsvpGuest", "Guest") }),
+        });
+      }
       // A cancel/no-show may have freed a table — surface the waiting parties
       // that fit (the backend already filtered by capacity + local day). This
       // only SHOWS them; the owner still taps Notify / Book.
       const m = resp?.data?.waitlist_matches;
-      if (Array.isArray(m) && m.length) setSpotMatches(m);
+      if (status === "cancelled" || status === "no_show") selfFreedRef.current.add(r.id);
+      if (Array.isArray(m) && m.length) surfaceMatches(m, day);
       // The server could not do the obvious thing — say so, never silently.
       const kept = resp?.data?.early_kept;
       if (kept) {
@@ -5405,6 +5491,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       }
     } catch (e) {
       const d = e?.response?.data?.detail || {};
+      // R11 (B7): no table fits the group — nothing changed on the server.
+      // The book reloads (the optimistic "confirmed" goes back to a request)
+      // and the sheet says so and offers what can be done.
+      if (e?.response?.status === 409 && d.error === "no_table_fits" && confirmsNoTable) {
+        await fetchBook(day);
+        setNoFit({ r, facts: d });
+        return;
+      }
       if (e?.response?.status === 409 && d.error === "table_occupied" && d.occupant && !opts.retried) {
         await fetchBook(day);
         const ok = await occupiedConfirm({
@@ -5434,6 +5528,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       await fetchBook(day);
       if (heldConflict) {
         toast({ severity: "notice", message: heldConflict });
+      } else if (confirmsNoTable && e?.response?.status === 409 && d.error === "slot_unavailable") {
+        // The tables the server picked went to another screen in the same
+        // instant (the exclusion constraint) — a second tap picks afresh.
+        setError(apptWords
+          ? t("rsvpConfirmTakenAgainAppt", "That space was taken a moment ago. Tap Confirm again.")
+          : t("rsvpConfirmTakenAgain", "Those tables were taken a moment ago. Tap Confirm again."));
       } else {
         setError(
           d.error === "table_occupied"
@@ -5446,6 +5546,28 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     } finally {
       setActioningId(null);
     }
+  };
+
+  // R11 (B7): "Flyt til 21.45 og bekræft" — the request moves to a time the
+  // server said tables fit (the guest is e-mailed the new time, as any move
+  // of a request is), then Bekræft runs as usual: the tables are picked and
+  // held, or the sheet comes back with what is true now.
+  const moveAndConfirm = async (r, hhmm) => {
+    const date = String(r.starts_at || "").slice(0, 10) || day;
+    const starts = `${date}T${hhmm}:00`;
+    setNoFitBusy(true);
+    try {
+      await api.patch(`/reservations/reservations/${r.id}`, { starts_at: starts });
+    } catch (e) {
+      setNoFitBusy(false);
+      setNoFit(null);
+      await fetchBook(day);
+      setError(bookFailWords(e, t, t("rsvpActionError", "Action failed. Please try again."), { apptWords }));
+      return;
+    }
+    setNoFitBusy(false);
+    setNoFit(null);
+    await setStatus({ ...r, starts_at: starts }, "confirmed", null, { movedTo: hhmm });
   };
 
   // Seat a walk-in NOW on a free table → the table goes occupied (seated).
@@ -5837,7 +5959,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // parties that now fit. Same SHOW-only contract as cancel/no-show: we
       // highlight them, the owner still taps Notify / Book.
       const m = patchResp?.data?.waitlist_matches;
-      if (Array.isArray(m) && m.length) setSpotMatches(m);
+      if (!many && !next) selfFreedRef.current.add(r.id);
+      if (Array.isArray(m) && m.length) surfaceMatches(m, day);
       const res = await api.get("/reservations/book", { params: { day } });
       setData(res.data || null);
       // Resync the Venteliste against the just-changed book.
@@ -6239,7 +6362,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const combine = useMemo(() => comboRules(bookingRules), [bookingRules]);
   const joinNow = joinCapable ? combine : null;
   const walkIns = useMemo(() => {
-    if (!showStandNow || !tableFloor || assignableTables.length === 0) return null;
+    if (!showStandNow || !tableFloor) return null;
+    // R11 (B11): until the tables are known the row is drawn already — the
+    // same six sizes saying "—", not yet tappable — so its arrival never
+    // pushes the night down (102 px, CLS 0.456 on the door iPad, 20 Oct).
+    // A failed read leaves them tappable (the seat sheet still works).
+    if (!resourcesLoaded) {
+      return WALK_IN_SIZES.map((size) => ({ size, unknown: true, pending: !resourcesFailed, freeNow: false, at: null }));
+    }
+    if (assignableTables.length === 0) return null;
     // Without the venue's turn times and closing time there is no "free now"
     // and no "approx." — a 90-minute guess in a room that never closes told
     // the door "free now" where the owner's stand said "approx. 20.30". The
@@ -6253,7 +6384,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       closeMs: closeMsFor(day, openHours),
       combine: joinNow,
     });
-  }, [showStandNow, tableFloor, assignableTables, reservations, nowTs, bookingRules, day, openHours, rulesLoaded, joinNow]);
+  }, [showStandNow, tableFloor, assignableTables, reservations, nowTs, bookingRules, day, openHours, rulesLoaded, joinNow, resourcesLoaded, resourcesFailed]);
   // What the seat sheet pre-picks for n guests: the seating the drop-in row
   // counts for them, by the same rule (seatingNow) — a single table, or the
   // joined set. Only once the rules are in; until then the sheet guesses.
@@ -6563,52 +6694,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               {r.guest_phone}
             </div>
           )}
-          {/* ANY allergy reads here, beside the name — not only a severe one.
-              It used to be severe-only, so a nuts-or-gluten booking with no
-              severity set existed on this screen as a single 16px amber
-              triangle in the last column on the right. A host scanning the
-              list mid-service reads names, not the right margin. Severe stays
-              red and keeps its own weight; everything else is amber, so the
-              hierarchy the flags column already had is preserved rather than
-              flattened. The flag icon stays where it is — this adds a second
-              place to notice, it does not move the first. */}
-          {(() => {
-            const severe = r.allergy_severity === "severe";
-            const hasAllergy =
-              (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
-              !!r.allergy_note ||
-              !!r.allergy_severity;
-            if (!hasAllergy) return null;
-            const detail = [
-              (r.allergen_tags || []).map((k) => t(`allergen_${k}`, k)).join(", "),
-              guestText(r.allergy_note),
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            return (
-              <div
-                className={
-                  // The icon in the Flags column says THAT there is an
-                  // allergy; this line is the only place that says WHAT —
-                  // "nødder" vs "ingen bisque". amber-600 on white measured
-                  // 3.19:1, under AA for normal text, so the one string a
-                  // kitchen decision depends on was the faintest on the row.
-                  // The severe branch already passes at 4.83:1; left alone.
-                  "text-[12px] font-medium truncate " +
-                  (r.status === "cancelled"
-                    ? "text-gray-500 dark:text-gray-400"
-                    : severe
-                      ? "text-red-600 dark:text-red-400"
-                      : "text-amber-700 dark:text-amber-400")
-                }
-                title={detail || undefined}
-              >
-                {/* A severity with no tags and no note still has to say
-                    something, or the row renders an empty line. */}
-                {detail || t("rsvpAllergyFlag", "Allergy")}
-              </div>
-            );
-          })()}
+          {/* ANY allergy reads here, beside the name — not only a severe one —
+              and in WORDS (R11, rubric B8): the level ("Alvorlig",
+              "Intolerans", "Allergi"; "Mulig allergi" for the AI's
+              unconfirmed reading), the allergens, then the guest's note. It
+              used to be the detail in red or amber alone, so "severe" existed
+              only as a colour. The flag icon stays where it is — this adds a
+              second place to notice, it does not move the first. */}
+          <AllergyLine r={r} t={t} cancelled={r.status === "cancelled"} />
           {/* The guest's note, on the row — it was only in the drawer, so a
               birthday cake or a high chair meant opening every booking. */}
           {(r.occasion || r.guest_notes) && (
@@ -6803,13 +6896,18 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         <div className="min-w-0 flex-1 leading-tight">
           <div className={"text-sm font-medium text-gray-900 dark:text-gray-100 truncate" + (r.status === "cancelled" ? " line-through" : "")}>
             {guestText(r.guest_name) || "—"}
+            {/* The mark beside the name: an octagon for severe, a triangle
+                otherwise — never colour alone (R11, B8); the words are on the
+                allergy line under the table and status. */}
             {hasAllergy && r.status !== "cancelled" && (
-              <AlertTriangle
+              <AllergyIcon
+                level={allergyFacts(r).level}
                 className={
                   "inline w-3.5 h-3.5 ml-1 -mt-0.5 " +
-                  (r.allergy_severity === "severe" ? "text-red-500" : "text-amber-500")
+                  (r.allergy_severity === "severe" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400")
                 }
-                aria-label={t("rsvpAllergyFlag", "Allergy")}
+                role="img"
+                aria-label={allergySentence(r, t)}
               />
             )}
           </div>
@@ -6881,8 +6979,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                   </span>
                 )
                 : (
-                  <span className="shrink-0 inline-flex items-center gap-0.5 whitespace-nowrap text-gray-700 dark:text-gray-200">
-                    <AlertTriangle className="w-3 h-3 text-gray-500 dark:text-gray-400" aria-hidden />
+                  // Amber: a live booking with no table needs the host (R11).
+                  <span className="shrink-0 inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-amber-700 dark:text-amber-300" data-no-table="">
+                    <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400" aria-hidden />
                     {apptWords ? t("rsvpNoTableShortAppt", "No space") : t("rsvpNoTableShort", "No table")}
                   </span>
                 );
@@ -6925,14 +7024,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               words and the note — on the row, not behind a tap. */}
           {/* The allergy in its colour, the note in grey: one red line made
               "barnestol" read like an allergy. */}
-          {r.status !== "cancelled" && (r.allergy_note || r.guest_notes || r.occasion) && (
+          {/* R11 (B8): the allergy in WORDS on its own line — the level
+              ("Alvorlig", "Intolerans", "Allergi", "Mulig allergi"), the
+              allergens (ticked ones were not on this row at all) and the
+              guest's note. The other notes follow in grey, never in the
+              allergy's colour. */}
+          {r.status !== "cancelled" && <AllergyLine r={r} t={t} className="mt-0.5" />}
+          {r.status !== "cancelled" && (r.guest_notes || r.occasion) && (
             <div className="mt-0.5 text-[12px] truncate text-gray-500 dark:text-gray-400">
-              {r.allergy_note && (
-                <span className={r.allergy_severity === "severe" ? "font-medium text-red-600 dark:text-red-400" : "font-medium text-amber-700 dark:text-amber-400"}>
-                  {guestText(r.allergy_note)}
-                </span>
-              )}
-              {r.allergy_note && (r.occasion || r.guest_notes) ? " · " : ""}
               {[r.occasion, r.guest_notes].filter(Boolean).map(guestText).join(" · ")}
             </div>
           )}
@@ -7628,8 +7727,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                     key={o.size}
                     type="button"
                     data-walkin={o.size}
-                    data-walkin-state={o.unknown ? "unknown" : o.freeNow ? "free" : atText ? "wait" : "none"}
-                    disabled={seating}
+                    data-walkin-state={o.pending ? "pending" : o.unknown ? "unknown" : o.freeNow ? "free" : atText ? "wait" : "none"}
+                    disabled={seating || o.pending}
                     onClick={() => walkInTap(o)}
                     aria-label={aria}
                     title={aria}
@@ -7820,6 +7919,22 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           },
         ])}
       />
+
+      {/* R11 (B10): a table may have opened and someone waiting fits it —
+          said above the night, where the host looks, not under the last row.
+          One tap: the Venteliste, the matches ringed, Giv besked / Book. */}
+      {freedNudge && freedNudge.day === day && waitlistCount !== 0 && !bookUnavailable && (
+        <FreedTableNudge
+          matches={freedNudge.matches}
+          t={t}
+          apptWords={apptWords}
+          onShow={() => {
+            setSpotMatches([...freedNudge.matches]);
+            focusWaitlist();
+          }}
+          onDismiss={() => setFreedNudge(null)}
+        />
+      )}
 
       {error && (
         <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
@@ -8087,7 +8202,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           with a party actually waiting. */}
       <div
         id="rsvp-venteliste"
-        className={"scroll-mt-4" + (view === "liste" ? "" : " hidden")}
+        // R11 (B11): not drawn until the book's first answer — it sat in the
+        // viewport under the list's skeleton and was pushed down 615 px when
+        // the rows came (desktop CLS 0.218, 20 Oct). Still mounted, so its
+        // count reaches the cockpit as before.
+        className={"scroll-mt-4" + (view === "liste" && (data || loadError) ? "" : " hidden")}
+        data-venteliste-shown={view === "liste" && (data || loadError) ? "" : undefined}
       >
         <WaitlistSection
           day={day}
@@ -8204,6 +8324,30 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             setAssignError("");
             setDeepLinkPulse(false);
           }}
+        />
+      )}
+
+      {/* R11 (B7): Bekræft on a group, and no table fits — said plainly, with
+          what the host can do about it. Nothing changed on the server yet. */}
+      {noFit && (
+        <NoTableFitsSheet
+          r={noFit.r}
+          facts={noFit.facts}
+          t={t}
+          busy={noFitBusy}
+          apptWords={apptWords}
+          onPickTables={() => {
+            const fresh = reservations.find((x) => x.id === noFit.r.id) || noFit.r;
+            setNoFit(null);
+            openOnTables(fresh);
+          }}
+          onMoveTo={(hhmm) => moveAndConfirm(noFit.r, hhmm)}
+          onConfirmAnyway={() => {
+            const r = noFit.r;
+            setNoFit(null);
+            setStatus(r, "confirmed", null, { ifNoTable: "confirm" });
+          }}
+          onClose={() => setNoFit(null)}
         />
       )}
 

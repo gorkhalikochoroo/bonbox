@@ -41,6 +41,7 @@ import {
   Plus,
   Minus,
   AlertTriangle,
+  OctagonAlert,
 } from "lucide-react";
 import api from "../services/api";
 import { haptic } from "../utils/haptics";
@@ -594,7 +595,11 @@ function TableNode({
                 aria-label={allergy === "severe" ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
                 role="img"
               >
-                <AlertTriangle className="w-2.5 h-2.5 text-white" aria-hidden />
+                {/* An octagon for severe, a triangle otherwise — the shape
+                    says it too, not only the colour (R11, B8). */}
+                {allergy === "severe"
+                  ? <OctagonAlert className="w-2.5 h-2.5 text-white" aria-hidden />
+                  : <AlertTriangle className="w-2.5 h-2.5 text-white" aria-hidden />}
               </span>
             )}
             <span

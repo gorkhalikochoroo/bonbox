@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle } from "lucide-react";
+import { AllergyIcon } from "./AllergyWords";
 import { fmtTime } from "../../utils/floorState";
 import { hasAllergy, UPCOMING_MAX_ROWS } from "../../utils/upcomingArrivals";
 import { guestText } from "../../utils/guestText";
@@ -83,7 +83,10 @@ export default function UpcomingRail({
                         {guestText(r.guest_name) || t("rsvpPartyOf", "Party of {n}", { n: r.party_size })}
                       </span>
                       {allergy && (
-                        <AlertTriangle
+                        // An octagon for severe, a triangle otherwise (R11, B8).
+                        <AllergyIcon
+                          level={severe ? "severe" : "allergy"}
+                          role="img"
                           className={"w-3 h-3 shrink-0 " + (severe ? "text-red-600 dark:text-red-400" : "text-amber-500 dark:text-amber-400")}
                           aria-label={severe ? t("rsvpSevSevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
                         />
