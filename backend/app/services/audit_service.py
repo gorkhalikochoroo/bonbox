@@ -10,6 +10,14 @@ Design notes:
     NEVER block a legitimate business mutation. We log the error and
     move on. The alternative (block the mutation if audit fails) would
     let a DB hiccup take down user actions, which is worse.
+  • …but never the CALLER's error (fix round 27 Oct, backend F1). The
+    caller's own pending change is flushed first, OUTSIDE the guard: its
+    unique or exclusion conflict (two venues taking one link, two screens
+    seating two parties on one table) reaches the caller's IntegrityError
+    handler and becomes a 409. It used to be flushed inside the guard,
+    swallowed, and the caller's commit then failed with PendingRollbackError
+    — a 500. The audit row itself goes in a SAVEPOINT: if IT fails, only the
+    savepoint is rolled back and the caller's change still commits.
   • Size discipline — `before` and `after` should include identity
     fields (id, user_id, status) plus only the fields that changed.
     Don't dump 50-field model blobs into the JSON snapshots.
@@ -44,6 +52,31 @@ def _serialize(state: dict | None) -> str | None:
         return repr(state)[:5000]  # cap, never let an audit row blow up
 
 
+def _flush_callers_change(db) -> None:
+    """Flush what the CALLER changed before the audit row exists — outside
+    every guard, so its IntegrityError (a lost race) reaches the caller's
+    handler. A stand-in session without flush (a test's fake) has nothing
+    pending to flush."""
+    flush = getattr(db, "flush", None)
+    if flush is not None:
+        flush()
+
+
+def _savepoint(db: Session):
+    """db.begin_nested() with the caller's transaction really open first —
+    the house pattern (stripe_billing._savepoint_in_open_transaction):
+    pysqlite opens a transaction lazily, at the first write, so a SAVEPOINT
+    issued before it would start the transaction itself and its RELEASE
+    would COMMIT what ran inside it, outside the caller's transaction.
+    Postgres opens the transaction at the first statement: no change."""
+    conn = db.connection()
+    if conn.dialect.name == "sqlite":
+        raw = conn.connection.dbapi_connection
+        if raw is not None and not raw.in_transaction:
+            conn.exec_driver_sql("BEGIN")
+    return db.begin_nested()
+
+
 def record(
     db: Session,
     user: User | UUID,
@@ -74,6 +107,9 @@ def record(
           tenant owner (future admin support). Defaults to user.id.
       actor_type: 'user' | 'system.retention' | 'system.payment_match' | 'admin'.
     """
+    # The caller's own change first, outside the guard: its error is the
+    # caller's to answer (a 409), never swallowed here.
+    _flush_callers_change(db)
     try:
         user_id = user.id if hasattr(user, "id") else user
         if actor_id is None and actor_type == "user":
@@ -90,8 +126,8 @@ def record(
             before_state=_serialize(before),
             after_state=_serialize(after),
         )
-        db.add(log)
-        db.flush()
+        with _savepoint(db):
+            db.add(log)
     except Exception as e:
         # Never let audit-log failure block a real mutation. Log loudly.
         logger.exception(
@@ -120,6 +156,7 @@ def record_many(
     """
     if not rows:
         return
+    _flush_callers_change(db)   # the caller's own change first (see record)
     try:
         user_id = user.id if hasattr(user, "id") else user
         if actor_id is None and actor_type == "user":

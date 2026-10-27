@@ -243,29 +243,35 @@ def undo_spam(reservation_id: UUID, db: Session = Depends(get_db),
     except (TypeError, ValueError):
         after = {}
     prev = after.get("prev_status")
-    if r.status == "cancelled" and r.cancel_reason == SPAM_REASON and prev in SPAM_FROM:
-        if prev == "confirmed":
-            ids = [x for x in (r.combined_resource_ids or ([r.resource_id] if r.resource_id else [])) if x]
-            if ids:
-                from app.routers.reservations import _held_pick_free
-                if not _held_pick_free(db, user, ids, r.starts_at, r.ends_at, r.id):
-                    raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
-        r.status = prev
-        r.cancelled_at = None
-        r.cancel_reason = None
-        if prev == "confirmed":
-            occ_service.sync_occupancy_for_status(db, r)
-    profile = _profile(db, user)
-    today = _today()
-    entries = _entries(profile)
-    for eid in after.get("created") or []:
-        entries, _ = contact_marks.remove(entries, str(eid), today=today)
-    for eid in after.get("upgraded") or []:
-        entries, _ = contact_marks.remove(entries, str(eid), today=today, keep_mark=True)
-    _save_entries(profile, contact_marks.clean(entries, today))
-    audit_service.record(db, user, UNDO_ACTION, "reservation", r.id,
-                         after={"status": r.status})
+    # Every write of the undo inside one handler (fix round 27 Oct, backend
+    # F1): a guest who took the freed table meanwhile (the exclusion
+    # constraint) is a 409 wherever the flush comes — an autoflush on the next
+    # read, the explicit flush, the commit — and never a conflict the audit
+    # write swallows into a 500.
     try:
+        if r.status == "cancelled" and r.cancel_reason == SPAM_REASON and prev in SPAM_FROM:
+            if prev == "confirmed":
+                ids = [x for x in (r.combined_resource_ids or ([r.resource_id] if r.resource_id else [])) if x]
+                if ids:
+                    from app.routers.reservations import _held_pick_free
+                    if not _held_pick_free(db, user, ids, r.starts_at, r.ends_at, r.id):
+                        raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+            r.status = prev
+            r.cancelled_at = None
+            r.cancel_reason = None
+            if prev == "confirmed":
+                occ_service.sync_occupancy_for_status(db, r)
+        profile = _profile(db, user)
+        today = _today()
+        entries = _entries(profile)
+        for eid in after.get("created") or []:
+            entries, _ = contact_marks.remove(entries, str(eid), today=today)
+        for eid in after.get("upgraded") or []:
+            entries, _ = contact_marks.remove(entries, str(eid), today=today, keep_mark=True)
+        _save_entries(profile, contact_marks.clean(entries, today))
+        db.flush()
+        audit_service.record(db, user, UNDO_ACTION, "reservation", r.id,
+                             after={"status": r.status})
         db.commit()
     except IntegrityError:
         # Postgres: the table was taken meanwhile (the exclusion constraint).

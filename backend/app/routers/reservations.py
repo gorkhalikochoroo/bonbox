@@ -1139,14 +1139,19 @@ def set_slug(payload: SlugUpdate, db: Session = Depends(get_db), user: User = De
     settings["slug_aliases"] = kept
     profile.reservation_settings_json = json.dumps(settings)
     profile.reservation_slug = desired
-    # Slugs are public addresses (the venue's own name), never a guest's data.
-    audit_service.record(
-        db, user, "reservation.slug_changed", "business_profile", profile.id,
-        before={"reservation_slug": current},
-        after={"reservation_slug": desired, "old_links": [a["slug"] for a in kept],
-               "dropped": [a["slug"] for a in dropped]},
-    )
     try:
+        # The link's own write first (fix round 27 Oct, backend F1): another
+        # venue taking it in the same instant (the unique index) must reach
+        # this handler as a 409 — never be swallowed by the audit write and
+        # end as a 500 at the commit.
+        db.flush()
+        # Slugs are public addresses (the venue's own name), never a guest's data.
+        audit_service.record(
+            db, user, "reservation.slug_changed", "business_profile", profile.id,
+            before={"reservation_slug": current},
+            after={"reservation_slug": desired, "old_links": [a["slug"] for a in kept],
+                   "dropped": [a["slug"] for a in dropped]},
+        )
         db.commit()
     except IntegrityError:
         # Another venue took it in the same instant (the unique index).
@@ -3541,18 +3546,22 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
             db.rollback()
             raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
 
-    audit_service.record(
-        db, user, "reservation.edited", "reservation", r.id,
-        before=before,
-        # Deliberately records THAT the allergy changed, never what it says.
-        # Audit rows outlive the reservation's purge_after, so putting Art. 9
-        # health text in here would leave health data behind after the booking
-        # it belongs to has been erased.
-        after={"starts_at": r.starts_at.isoformat() if r.starts_at else None,
-               "party_size": r.party_size,
-               **({"allergy_changed": True} if allergy_touched else {})},
-    )
     try:
+        # The edit's own writes first (fix round 27 Oct, backend F1): a table
+        # taken meanwhile (the exclusion constraint) is a 409 here, never a
+        # conflict the audit write swallows and the commit turns into a 500.
+        db.flush()
+        audit_service.record(
+            db, user, "reservation.edited", "reservation", r.id,
+            before=before,
+            # Deliberately records THAT the allergy changed, never what it says.
+            # Audit rows outlive the reservation's purge_after, so putting Art. 9
+            # health text in here would leave health data behind after the booking
+            # it belongs to has been erased.
+            after={"starts_at": r.starts_at.isoformat() if r.starts_at else None,
+                   "party_size": r.party_size,
+                   **({"allergy_changed": True} if allergy_touched else {})},
+        )
         db.commit()
     except IntegrityError:
         db.rollback()
