@@ -214,6 +214,21 @@ function dayShort(i, t) {
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 const MINUTE_OPTIONS = ["00", "15", "30", "45"];
 
+/** The date in a `?week=YYYY-MM-DD` query, or null (absent, malformed, or a
+ *  day that does not exist). Read once, when the page opens. */
+export function weekFromQuery(search) {
+  try {
+    const q = new URLSearchParams(search || "").get("week");
+    if (!q || !/^\d{4}-\d{2}-\d{2}$/.test(q)) return null;
+    const d = new Date(`${q}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return null;
+    const back = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return back === q ? d : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Returns Monday of the week containing the given date */
 function getWeekStart(date) {
   const d = new Date(date);
@@ -1167,8 +1182,10 @@ export default function StaffSchedulePage() {
   // module-array reference, so it's safe in hook dep arrays.
   const roles = rolesFor(user?.business_type);
 
-  // Week navigation
-  const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
+  // Week navigation. ?week=YYYY-MM-DD opens that date's week — the salon's
+  // "next week has no published shifts" card (Reservationer → Aftaler, R6)
+  // lands the owner on the week she still has to Udgiv. Anything else: now.
+  const [weekStart, setWeekStart] = useState(() => getWeekStart(weekFromQuery(location.search) || new Date()));
   const weekDates = useMemo(() => getWeekDates(weekStart), [weekStart]);
 
   // Data. `staff` and `shifts` now come from useAsyncData further down (they

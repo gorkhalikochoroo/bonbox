@@ -114,6 +114,9 @@ import WaitlistSection from "../components/reservations/WaitlistSection";
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
 import BookingNameRow from "../components/reservations/BookingNameRow";
 import ClosuresCard, { PauseControl } from "../components/reservations/ClosuresCard";
+import BehandlingRow from "../components/reservations/BehandlingRow";
+import SalonRhythmCard from "../components/reservations/SalonRhythmCard";
+import SalonAttention from "../components/reservations/SalonAttention";
 import { isHeldForCheck, heldWhy, heldWanted } from "../utils/bookingHeld";
 import { activePause, fmtClosureRange, todayIso } from "../utils/closures";
 import { canPurchaseInApp } from "../utils/platform";
@@ -7065,6 +7068,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         </div>
       )}
 
+      {/* What a salon owner must act on (R6): next week without published
+          shifts ("Kopiér sidste uge"), and appointments on a stylist's Ferie
+          or Syg day ("Flyt" opens the booking). Owner session only. */}
+      {isProvider && !standalone && !salonFirstRun && !salonNeedsSetup && (
+        <SalonAttention t={t} lang={lang} refreshKey={bookTick} onOpenBooking={openOtherDay} />
+      )}
+
       {!salonFirstRun && (
         <>
       {/* Toolbar: day controls (left) + view toggle (right). Every control is
@@ -9276,7 +9286,7 @@ function BehandlingerSection({ t }) {
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
           {t(
             "rsvpBehandlingerIntro",
-            "List the behandlinger you offer with a duration and an optional price. Durations are informational and the price is display-only for now — this doesn't take bookings or charge yet.",
+            "List the services you offer with a duration and an optional price. The duration sets the booking length when a customer books this service; the price is display-only and never charges.",
           )}
         </p>
       </div>
@@ -9374,53 +9384,16 @@ function BehandlingerSection({ t }) {
         </div>
       ) : (
         <ul className="space-y-2">
+          {/* Each row edits in place (R6): Rediger → name, length, price → Gem. */}
           {items.map((b) => (
-            <li
+            <BehandlingRow
               key={b.id}
-              className={
-                "rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] px-4 py-3 flex items-center justify-between gap-3 " +
-                (b.active ? "" : "opacity-60")
-              }
-            >
-              <div className="min-w-0 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-gray-400 shrink-0" aria-hidden />
-                <span className="min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-100">
-                  {b.name}
-                </span>
-                <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
-                  {t("rsvpBehandlingDurationValue", "{n} min", { n: b.duration_min })}
-                </span>
-                <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
-                  {b.price_kr != null ? formatKr(b.price_kr, { decimals: 0 }) : "—"}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => toggleActive(b)}
-                  aria-pressed={!!b.active}
-                  aria-label={t("rsvpBehandlingActiveLabel", "Active")}
-                  title={t("rsvpBehandlingActiveLabel", "Active")}
-                  className={
-                    "h-11 px-3 inline-flex items-center gap-1.5 rounded-lg border text-xs font-medium transition-colors " +
-                    (b.active
-                      ? "border-gray-900 bg-gray-900 text-white dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900"
-                      : "border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200")
-                  }
-                >
-                  <CheckCircle2 className="w-4 h-4" aria-hidden />
-                  <span className="hidden sm:inline">{t("rsvpBehandlingActiveLabel", "Active")}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => removeItem(b)}
-                  aria-label={t("delete", "Delete")}
-                  className="w-11 h-11 inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 text-gray-400 hover:text-red-600 hover:border-red-300"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
-              </div>
-            </li>
+              b={b}
+              t={t}
+              onToggle={toggleActive}
+              onRemove={removeItem}
+              onSaved={(next) => setItems((prev) => prev.map((x) => (x.id === next.id ? { ...x, ...next } : x)))}
+            />
           ))}
         </ul>
       )}
@@ -10092,6 +10065,11 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
 
       {/* Closed dates and pauses (R1 B5) — right after the hours. */}
       <ClosuresCard t={t} lang={lang} closures={data?.closures} onChanged={setClosures} apptWords={apptWords} />
+
+      {/* A salon's start times and break between customers (R6). */}
+      {isProvider && data && (
+        <SalonRhythmCard t={t} lang={lang} settings={data.settings} onSaved={applyData} />
+      )}
 
       {/* Availability settings (kept simple — a few numbers). <form> so
           Enter saves from any field on a host-stand keyboard. */}
