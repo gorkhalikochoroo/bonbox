@@ -75,12 +75,24 @@ import {
   Gauge,
   ListOrdered,
   Loader2,
+  WifiOff,
+  Unplug,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { haptic } from "../utils/haptics";
 import { getSoundStatus, subscribeSound, testSound } from "../utils/sound";
 import { RESERVATIONS_CHANGED_EVENT } from "../lib/liveAlertKinds";
+import {
+  BOOK_FRESH_EVENT,
+  BOOK_UNREACHABLE_EVENT,
+  WAKE_GAP_MS,
+  safetyReloadMs,
+  unwatchBook,
+  watchBook,
+} from "../lib/bookLive";
+import { clearStandToken, setStandToken, standTokenFromPath } from "../services/standAuth";
+import { bookFailWords } from "../utils/bookFailWords";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
@@ -111,6 +123,7 @@ import {
 } from "../utils/hostStand";
 import InsightsSection from "../components/reservations/InsightsSection";
 import WaitlistSection from "../components/reservations/WaitlistSection";
+import { BookUnavailable, StandNotConnected } from "../components/reservations/BookStates";
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
 import BookingNameRow from "../components/reservations/BookingNameRow";
 import ClosuresCard, { PauseControl } from "../components/reservations/ClosuresCard";
@@ -4053,7 +4066,10 @@ function StandInstallItem({ t, className, apptWords = false }) {
   );
 }
 
-function StandMenu({ t, onLogout, apptWords = false }) {
+// `onUnpair` (R10): a PAIRED device (/stand/<token>) has no session to log
+// out of — its "Log ud" sent the door iPad to the OWNER login. There the end
+// action is "Afbryd denne skærm": the device lets go of its own link.
+function StandMenu({ t, onLogout, apptWords = false, onUnpair = null }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const canClose = typeof window !== "undefined" && !!window.opener;
@@ -4111,7 +4127,25 @@ function StandMenu({ t, onLogout, apptWords = false }) {
           </a>
           <StandInstallItem t={t} className={item} apptWords={apptWords} />
           <div className="h-px bg-gray-200 dark:bg-gray-800" />
-          {canClose ? (
+          {onUnpair ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={() => {
+                setOpen(false);
+                onUnpair();
+              }}
+            >
+              <Unplug className="w-4 h-4 shrink-0 text-gray-400" aria-hidden />
+              <span className="min-w-0">
+                {t("rsvpStandUnpair", "Disconnect this screen")}
+                <span className="block text-[11px] text-gray-500 dark:text-gray-400">
+                  {t("rsvpStandUnpairHint", "A new code is needed to connect again")}
+                </span>
+              </span>
+            </button>
+          ) : canClose ? (
             <button
               type="button"
               role="menuitem"
@@ -4141,6 +4175,20 @@ function StandMenu({ t, onLogout, apptWords = false }) {
         </div>
       )}
     </div>
+  );
+}
+
+// R10: a cockpit drawn without a book says "—", never a confident 0. A door
+// iPad restarted while the wifi was down read "0 gæster · 0 sidder" over a
+// night that simply could not be read. The waitlist cell keeps its own
+// three-state count (WaitlistSection), and "next" already says "—".
+const COCKPIT_COUNTS = new Set(["covers", "seated", "awaiting", "occupancy"]);
+function cockpitWhenUnknown(known, items) {
+  if (known) return items;
+  return items.map((it) =>
+    COCKPIT_COUNTS.has(it.key)
+      ? { ...it, value: "—", helper: "", tone: "neutral", accent: "neutral", onClick: null, selected: false }
+      : it,
   );
 }
 
@@ -4253,6 +4301,37 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // looking at still true?" — see the stale chip in the toolbar.
   const [lastOkAt, setLastOkAt] = useState(() => Date.now());
   const [liveFailed, setLiveFailed] = useState(false);
+  // R10 — the door iPad stays on.
+  // The day whose book `data` holds. A refresh of THAT day that fails keeps
+  // it on screen (the last good book); another day's book is never shown
+  // under this day's name.
+  const shownDayRef = useRef(null);
+  const dataRef = useRef(null);
+  // The first load of a day failed: there is no book to show. In words, never
+  // the server's code, and never the empty state's "Ingen reservationer".
+  const [loadError, setLoadError] = useState("");
+  // Consecutive polls that could not reach BonBox (lib/bookLive), and what
+  // the browser itself says about the network.
+  const [pollFailures, setPollFailures] = useState(0);
+  const [browserOffline, setBrowserOffline] = useState(() => {
+    try {
+      return typeof navigator !== "undefined" && navigator.onLine === false;
+    } catch {
+      return false;
+    }
+  });
+  // A paired door screen whose link answers 404, confirmed by a second read:
+  // removed by the owner, or unpaired. One calm screen instead of the book (V10).
+  const [standGone, setStandGone] = useState(false);
+  // The revision of the book on screen; non-null once the server is known to
+  // send them, which lets the safety-net reload slow down.
+  const [bookRev, setBookRev] = useState(null);
+  const watchIdRef = useRef(null);
+  if (watchIdRef.current === null) watchIdRef.current = `book-${Math.random().toString(36).slice(2)}`;
+  const lastFetchAtRef = useRef(0);
+  // A reload of the book on screen is under way (no skeleton any more —
+  // the refresh icon turns instead, so a tap is answered at once).
+  const [refreshing, setRefreshing] = useState(false);
   const [actioningId, setActioningId] = useState(null);
   // Filters (Liste view).
   const [q, setQ] = useState("");
@@ -4456,33 +4535,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     }
   };
 
-  const fetchBook = useCallback(
-    async (forDay) => {
-      setLoading(true);
-      setError("");
-      try {
-        const res = await api.get("/reservations/book", { params: { day: forDay } });
-        setData(res.data || null);
-        // When the book last actually ARRIVED. See the stale-book signal below.
-        setLastOkAt(Date.now());
-        setLiveFailed(false);
-        // Signal the Venteliste to resync against the freshly-loaded book.
-        setBookTick((n) => n + 1);
-      } catch (e) {
-        setError(
-          e?.response?.data?.detail?.error ||
-            t("rsvpBookError", "Couldn't load the reservation book."),
-        );
-        setData(null);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [t],
-  );
-
   // Resources power the zone filter + table-label resolution (and, next
   // phases, the floor + timeline rails). Soft-fail: the book still works.
+  // R10: a refresh that fails keeps the room already on screen — tables do
+  // not vanish because the wifi blinked — and a first load that failed is
+  // asked again as soon as a book gets through (acceptBook below).
+  const resourcesOkRef = useRef(false);
+  const resourcesFailedRef = useRef(false);
   const fetchResources = useCallback(async () => {
     try {
       const res = await api.get("/reservations/resources");
@@ -4497,23 +4556,143 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       setVenueSeats(Number.isFinite(vs) ? vs : null);
       const he = res.data?.book_has_entries;
       setBookHasEntries(typeof he === "boolean" ? he : null);
+      resourcesOkRef.current = true;
+      resourcesFailedRef.current = false;
       setResourcesFailed(false);
     } catch {
+      // A room that was already read stays as it was (R10).
+      if (resourcesOkRef.current) return;
       setFixtures([]);
       // The empty array is what the gauge and the pickers need in order to
       // render at all — but it is NOT an answer about how many tables this
       // venue has, and `resourcesLoaded` in the finally made it look like one.
       setResources([]);
       setVenueSeats(null);
+      resourcesFailedRef.current = true;
       setResourcesFailed(true);
     } finally {
       setResourcesLoaded(true);
     }
   }, []);
 
+  // ── R10: the door iPad stays on ───────────────────────────────────────
+  // The day on screen, readable from handlers that outlive a render.
+  const dayRef = useRef(day);
+  dayRef.current = day;
+  const bookRevRef = useRef(null);
+  bookRevRef.current = bookRev;
+
+  // A 404 on a PAIRED device may mean its link is dead. Asked once more
+  // through the cheapest wrapped read before the book gives way to "not
+  // connected": a stray 404 must never take the door's book away mid-service.
+  const confirmStandGone = useCallback(async () => {
+    try {
+      await api.get("/reservations/changes", { _noRetry: true });
+      return false;
+    } catch (e) {
+      return e?.response?.status === 404;
+    }
+  }, []);
+
+  // A book for `forDay` arrived: show it, and tell the 20-second check
+  // (lib/bookLive) which day is on screen and the revision it carries.
+  const acceptBook = useCallback(
+    (forDay, body) => {
+      const book = body || null;
+      setData(book);
+      dataRef.current = book;
+      shownDayRef.current = forDay;
+      // When the book last actually ARRIVED. See the Offline line below.
+      setLastOkAt(Date.now());
+      lastFetchAtRef.current = Date.now();
+      setLiveFailed(false);
+      setPollFailures(0);
+      setLoadError("");
+      setStandGone(false);
+      const rev = book && typeof book.rev === "string" && book.rev ? book.rev : null;
+      setBookRev(rev);
+      watchBook(watchIdRef.current, forDay, rev);
+      // Signal the Venteliste to resync against the freshly-loaded book.
+      setBookTick((n) => n + 1);
+      // A link that just opened a book is this device's pairing: /stand
+      // reopens it after a restart (services/standAuth).
+      if (isStandDevice) setStandToken(standTokenFromPath(location.pathname));
+      // The tables could not be read before; the network is back.
+      if (resourcesFailedRef.current) fetchResources();
+    },
+    [isStandDevice, location.pathname, fetchResources],
+  );
+
+  // A read of the book failed. Three honest outcomes, never a blank night:
+  //   • a paired device whose link is dead → one calm "not connected" screen,
+  //     and the guests leave the screen with it;
+  //   • this day's book is on screen → it STAYS, and the toolbar says
+  //     "Offline · viser bogen fra 19.42";
+  //   • no book for this day yet → words (never the server's code), and the
+  //     page asks again by itself.
+  const bookFailed = useCallback(
+    async (forDay, e, { quiet = false } = {}) => {
+      if (isStandDevice && e?.response?.status === 404 && (await confirmStandGone())) {
+        setStandGone(true);
+        setData(null);
+        dataRef.current = null;
+        shownDayRef.current = null;
+        setBookRev(null);
+        unwatchBook(watchIdRef.current);
+        return;
+      }
+      if (dataRef.current && shownDayRef.current === forDay) {
+        setLiveFailed(true);
+        return;
+      }
+      if (quiet) return; // the load of this day says its own failure
+      setData(null);
+      dataRef.current = null;
+      shownDayRef.current = null;
+      setLoadError(
+        bookFailWords(e, t, t("rsvpBookError", "Couldn't load the reservation book."), { apptWords, load: true }),
+      );
+    },
+    [isStandDevice, confirmStandGone, t, apptWords],
+  );
+
+  const fetchBook = useCallback(
+    async (forDay) => {
+      // This day's book is on screen: refresh it in place — no skeleton
+      // flash after every tap, and a failure keeps it.
+      const inPlace = !!dataRef.current && shownDayRef.current === forDay;
+      if (!inPlace) {
+        setLoading(true);
+        // The check must not compare another day's revision meanwhile.
+        watchBook(watchIdRef.current, forDay, null);
+      } else {
+        setRefreshing(true);
+      }
+      setError("");
+      try {
+        const res = await api.get("/reservations/book", { params: { day: forDay } });
+        // A later day change superseded this answer: it is not this day's book.
+        if (dayRef.current !== forDay) return;
+        acceptBook(forDay, res.data);
+      } catch (e) {
+        if (dayRef.current !== forDay) return;
+        await bookFailed(forDay, e);
+      } finally {
+        if (dayRef.current === forDay) setLoading(false);
+        if (inPlace) setRefreshing(false);
+      }
+    },
+    [acceptBook, bookFailed],
+  );
+
+  // Load the book when the DAY changes — not when a callback's identity
+  // does (a dictionary arriving gives `t` a new identity, which re-read the
+  // whole book for nothing).
+  const fetchBookRef = useRef(fetchBook);
+  fetchBookRef.current = fetchBook;
   useEffect(() => {
-    fetchBook(day);
-  }, [day, fetchBook]);
+    fetchBookRef.current(day);
+  }, [day]);
   useEffect(() => {
     fetchResources();
   }, [fetchResources]);
@@ -4521,34 +4700,109 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // Live book — the screen the owner stares at MID-SERVICE must not go stale.
   // Without this, a public booking, a cancellation, or a host-stand flip made
   // on another device stays invisible until someone hunts for the manual
-  // refresh button. Two honest signals, no websockets (single-worker backend):
-  //   1. Refetch the moment the screen wakes / tab refocuses (the phone was in
-  //      a pocket for 20 minutes — same pattern as the timeline's now-line).
-  //   2. A gentle 75s poll, TODAY only (a past/future day's book doesn't drift
-  //      mid-service) and only while visible (don't drain the host-stand).
+  // refresh button. Honest signals, no websockets (single-worker backend):
+  //   1. The 20-second check (useLiveAlerts + lib/bookLive) asks the server
+  //      for the revision of the day on screen; a different one reloads the
+  //      book here (R10: every change, by anyone, within ~20 s).
+  //   2. The moment the screen wakes / tab refocuses — unless the revision
+  //      check is live, which asks the same question for less.
+  //   3. A safety-net reload, TODAY only and only while visible: every ~2 min
+  //      once revisions are known to work, every ~75 s against a server that
+  //      sends none.
   // SILENT: no setLoading, so the list never flashes or jumps under the thumb;
   // an in-flight ref stops overlapping fetches from racing each other.
   const liveRefreshInFlight = useRef(false);
   const refreshBookSilently = useCallback(async () => {
     if (liveRefreshInFlight.current) return;
+    const forDay = dayRef.current;
     liveRefreshInFlight.current = true;
     try {
-      const res = await api.get("/reservations/book", { params: { day } });
-      setData(res.data || null);
-      setLastOkAt(Date.now());
-      setLiveFailed(false);
-      setBookTick((n) => n + 1); // Venteliste resyncs against the fresh book
-    } catch {
+      const res = await api.get("/reservations/book", { params: { day: forDay } });
+      if (dayRef.current !== forDay) return;
+      acceptBook(forDay, res.data);
+    } catch (e) {
       // Silent no longer means INVISIBLE. The poll used to swallow every
       // failure while the now-line, the ETAs and the "forsinket" chips kept
       // ticking off the 60s clock — so a stand whose wifi had dropped looked
-      // MORE alive than one that was merely quiet. The retry path is
-      // unchanged; the toolbar just stops pretending (see `bookStale`).
-      setLiveFailed(true);
+      // MORE alive than one that was merely quiet. The book stays; the
+      // toolbar says how old it is (see `bookOffline`).
+      if (dayRef.current !== forDay) return;
+      await bookFailed(forDay, e, { quiet: true });
     } finally {
       liveRefreshInFlight.current = false;
     }
-  }, [day]);
+  }, [acceptBook, bookFailed]);
+
+  // The handlers below outlive a render; they call the newest reload through
+  // this ref, so a re-render never restarts their timers.
+  const refreshRef = useRef(refreshBookSilently);
+  refreshRef.current = refreshBookSilently;
+
+  // What the 20-second check learns (lib/bookLive), and what the browser
+  // itself says about the network.
+  useEffect(() => {
+    const onFresh = (e) => {
+      if (e?.detail?.day && e.detail.day !== dayRef.current) return;
+      // Proven current: the book on screen is what the server has now.
+      setLastOkAt(Date.now());
+      setLiveFailed(false);
+      setPollFailures(0);
+    };
+    const onUnreachable = (e) => {
+      const n = Number(e?.detail?.failures);
+      setPollFailures(Number.isFinite(n) && n >= 0 ? n : 1);
+    };
+    const onOnline = () => setBrowserOffline(false);
+    const onOffline = () => setBrowserOffline(true);
+    window.addEventListener(BOOK_FRESH_EVENT, onFresh);
+    window.addEventListener(BOOK_UNREACHABLE_EVENT, onUnreachable);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener(BOOK_FRESH_EVENT, onFresh);
+      window.removeEventListener(BOOK_UNREACHABLE_EVENT, onUnreachable);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+  // Leaving the page: the check stops asking about this book.
+  useEffect(() => {
+    const id = watchIdRef.current;
+    return () => unwatchBook(id);
+  }, []);
+
+  // No book for this day could be read: ask again by itself — sooner at
+  // first, then less often (5 s, 10 s … at most a minute, each a little
+  // random so a room of screens does not ask together), and at once when the
+  // network comes back. Stops the moment a book arrives.
+  useEffect(() => {
+    if (!loadError || standGone) return undefined;
+    let cancelled = false;
+    let timer = null;
+    let attempt = 0;
+    const tryNow = async () => {
+      if (cancelled) return;
+      if (document.visibilityState === "visible") await refreshRef.current();
+      if (!cancelled) plan();
+    };
+    const plan = () => {
+      attempt += 1;
+      const span = Math.min(5000 * 2 ** (attempt - 1), 60000);
+      timer = setTimeout(tryNow, Math.round(span * (1 - 0.2 * Math.random())));
+    };
+    const onOnline = () => {
+      clearTimeout(timer);
+      timer = setTimeout(tryNow, Math.round(Math.random() * 1500));
+    };
+    plan();
+    window.addEventListener("online", onOnline);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      window.removeEventListener("online", onOnline);
+    };
+  }, [loadError, standGone]);
+
   // Roll the host stand onto the new day. `day` is set once at mount and the
   // poll below only arms while day === today, so a stand left running by the
   // door was pinned to yesterday AND had stopped polling by morning — while the
@@ -4564,28 +4818,57 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   }, [standalone, day, setDay]);
 
   useEffect(() => {
+    const visible = () => document.visibilityState === "visible";
     const onWake = () => {
-      if (document.visibilityState === "visible") refreshBookSilently();
+      if (!visible()) return;
+      // The revision check is live: the poll wakes with the screen and
+      // reloads only if the day moved — no full reload per wake.
+      if (bookRevRef.current) return;
+      // One reload per wake: visibilitychange and focus fire together.
+      if (Date.now() - lastFetchAtRef.current < WAKE_GAP_MS) return;
+      refreshRef.current();
+    };
+    // The live poll saw a booking arrive or the day move (R10): reload now,
+    // on whichever day is open. The page's OWN "I just changed something"
+    // (no detail) is followed by its own reload — this one waits a moment and
+    // is skipped when that reload has already landed, so one tap is one
+    // request, not two.
+    const pending = new Set();
+    const onChanged = (e) => {
+      if (e?.detail?.from === "live") {
+        refreshRef.current();
+        return;
+      }
+      const askedAt = Date.now();
+      const id = setTimeout(() => {
+        pending.delete(id);
+        if (lastFetchAtRef.current < askedAt) refreshRef.current();
+      }, 1500);
+      pending.add(id);
     };
     document.addEventListener("visibilitychange", onWake);
     window.addEventListener("focus", onWake);
-    // The live-alert poll (every ~20 s) saw a booking arrive, move or cancel:
-    // reload now, on whichever day is open — not on the next 75 s tick, which
-    // only runs on today's view.
-    window.addEventListener(RESERVATIONS_CHANGED_EVENT, onWake);
-    let pollId;
-    if (day === serviceDayIso()) {
-      pollId = setInterval(() => {
-        if (document.visibilityState === "visible") refreshBookSilently();
-      }, 75000);
-    }
+    window.addEventListener(RESERVATIONS_CHANGED_EVENT, onChanged);
+    // The safety net: a full quiet reload, today only, visible only.
+    let timer = null;
+    let alive = true;
+    const plan = () => {
+      timer = setTimeout(() => {
+        if (!alive) return;
+        if (visible() && Date.now() - lastFetchAtRef.current > WAKE_GAP_MS) refreshRef.current();
+        plan();
+      }, safetyReloadMs(!!bookRevRef.current));
+    };
+    if (day === serviceDayIso()) plan();
     return () => {
+      alive = false;
+      clearTimeout(timer);
+      pending.forEach((id) => clearTimeout(id));
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("focus", onWake);
-      window.removeEventListener(RESERVATIONS_CHANGED_EVENT, onWake);
-      if (pollId) clearInterval(pollId);
+      window.removeEventListener(RESERVATIONS_CHANGED_EVENT, onChanged);
     };
-  }, [day, refreshBookSilently]);
+  }, [day]);
 
   // Provider venues only — load the active behandlinger catalog the New-
   // booking sheet offers. Soft-fail: no catalog → the sheet shows the
@@ -4653,9 +4936,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       await fetchResources();
       await fetchBehandlinger();
     } catch (e) {
+      // Words, never the server's code (R10, V10).
       setSalonSetupError(
-        e?.response?.data?.detail?.error ||
-          t("rsvpSalonSetupError", "Couldn't open for booking. Try again."),
+        bookFailWords(e, t, t("rsvpSalonSetupError", "Couldn't open for booking. Try again."), { apptWords }),
       );
     } finally {
       setSalonSetupBusy(false);
@@ -5145,6 +5428,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           ? t("rsvpHeldApproveNoTableAppt", "No space is free at {time} any more. Open the appointment and pick a space yourself, or decline it.", { time: fmtTime(r.starts_at) })
           : t("rsvpHeldApproveNoTable", "No table is free at {time} any more. Open the booking and place it yourself, or decline it.", { time: fmtTime(r.starts_at) }))
         : null;
+      // Read the book again FIRST: the reload clears the page's error line,
+      // so a refusal said before it was gone before anyone read it (R10 —
+      // a lost race said in words, and left on screen). Never the code.
+      await fetchBook(day);
       if (heldConflict) {
         toast({ severity: "notice", message: heldConflict });
       } else {
@@ -5153,10 +5440,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             ? t("rsvpTableStillTaken", "{table} is still taken — finish the party there first, or pick another table.", {
                 table: d.occupant?.table || t("rsvpTableFallback", "Table"),
               })
-            : d.error || t("rsvpActionError", "Action failed. Please try again."),
+            : bookFailWords(e, t, t("rsvpActionError", "Action failed. Please try again."), { apptWords }),
         );
       }
-      await fetchBook(day);
     } finally {
       setActioningId(null);
     }
@@ -5243,9 +5529,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               table: occupant || t("rsvpTableFallback", "Table"),
             });
       } else {
-        msg = code || (apptWords
+        // Words, never the server's code (R10, V10).
+        msg = bookFailWords(e, t, apptWords
           ? t("rsvpSeatErrorAppt", "Couldn't check the customer in.")
-          : t("rsvpSeatError", "Couldn't seat the guests."));
+          : t("rsvpSeatError", "Couldn't seat the guests."), { apptWords });
       }
       // A 409 means the room moved under the stand — another host, another
       // device, or a view up to 60 s old. Read the book again, so the sheet
@@ -5508,7 +5795,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         setRoomFull(warningFrom(d, form.time, totalCapacity));
       } else {
         setCreateError(
-          d.error || t("rsvpCreateError", "Couldn't create the booking."),
+          bookFailWords(e, t, t("rsvpCreateError", "Couldn't create the booking."), { apptWords }),
         );
       }
     } finally {
@@ -5580,7 +5867,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           : (next && labelById[next]) || t("rsvpTableFallback", "Table");
         setAssignError(t("rsvpTableTaken", "{label} is taken at that time.", { label }));
       } else {
-        setAssignError(d.error || t("rsvpAssignError", "Couldn't assign the table."));
+        setAssignError(bookFailWords(e, t, t("rsvpAssignError", "Couldn't assign the table."), { apptWords }));
       }
     } finally {
       setAssigning(false);
@@ -5610,8 +5897,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // register, tap again", not as "this is broken", and a guest's allergy
       // silently stays unconfirmed. Say it instead.
       setAllergyError(
-        e?.response?.data?.detail?.error ||
-          t("rsvpAllergyActionError", "Couldn't save that. The allergy is unchanged."),
+        bookFailWords(e, t, t("rsvpAllergyActionError", "Couldn't save that. The allergy is unchanged."), { apptWords }),
       );
       await fetchBook(day);
     } finally {
@@ -6679,15 +6965,25 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     );
   };
 
-  /* Is the screen still telling the truth? Only claim "stale" when all three
-     are true, so the chip never cries wolf:
-       • the last silent poll actually FAILED (not merely "no poll ran" — a
-         past or future day is never polled and never drifts),
-       • the book on screen is older than two poll cycles (~3 min), and
-       • we are not already showing the full load-error state.
-     `nowTs` ticks every 60s, so this re-evaluates on its own. */
-  const bookStale =
-    liveFailed && !error && !loading && nowTs - lastOkAt > 180000;
+  /* Is the screen still telling the truth? (R10, rubric B5.) The book on
+     screen is never taken away because a refresh failed — it stays, and this
+     says how old it is: "Offline · viser bogen fra 19.42". Claimed only when
+     it is true, so the line never cries wolf:
+       • a reload of THIS day's book failed (after the client's own retries,
+         about half a minute), or
+       • two polls in a row could not reach BonBox (~35 s), or
+       • the browser itself reports no network;
+     and only over a book that is actually on screen. A poll that answers —
+     or a matching revision — clears it. (Before R10: a 3-minute wait, and a
+     failed reload blanked the night instead.) */
+  const bookOffline =
+    !!data && !standGone && (liveFailed || pollFailures >= 2 || browserOffline);
+  // Kept for readers of the old name: the same signal.
+  const bookStale = bookOffline;
+  /* No book for this day could be read (a restart while the wifi was down).
+     The list, the floor and the timeline would each say "nothing booked" —
+     the lie R10 removes — so a calm card stands in their place instead. */
+  const bookUnavailable = !data && !loading && !!loadError && !standGone;
 
   /* A TABLE venue that has not set up a single table. The empty book used to
      promise "Bookings will appear here as they come in" — they cannot: with
@@ -6735,6 +7031,63 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       <ExternalLink className="w-5 h-5 max-sm:w-[18px] max-sm:h-[18px]" />
     </button>
   ) : null;
+
+  // R10 "Afbryd denne skærm" (paired device only). Asked first — the screen
+  // then needs a new code from the owner — and the device lets go of its
+  // own link on the server, so a URL left in the history stops opening the
+  // book. If BonBox cannot be reached the screen still forgets it here, and
+  // says the owner can remove it from Indstillinger.
+  async function unpairThisScreen() {
+    const ok = await confirm({
+      title: t("rsvpStandUnpairTitle", "Disconnect this screen?"),
+      message: t(
+        "rsvpStandUnpairBody",
+        "The book closes on this screen. To use it again, the owner makes a new code under Settings.",
+      ),
+      confirmLabel: t("rsvpStandUnpairYes", "Disconnect"),
+      destructive: true,
+    });
+    if (ok !== true) return;
+    let reached = true;
+    try {
+      // Rewritten to /stand/<token>/unpair on this device (services/standAuth).
+      await api.post("/reservations/unpair", {});
+    } catch (e) {
+      // 404: already gone — which is what was asked for.
+      reached = e?.response?.status === 404;
+    }
+    clearStandToken();
+    unwatchBook(watchIdRef.current);
+    if (!reached) {
+      toast({
+        severity: "notice",
+        message: t(
+          "rsvpStandUnpairOffline",
+          "Disconnected on this screen. BonBox couldn't be reached — the owner can also remove it under Settings.",
+        ),
+      });
+    }
+    navigate("/stand", { replace: true, state: { fresh: true } });
+  }
+
+  // R10: a paired door screen whose link is dead shows one calm screen —
+  // what happened and the one thing to do — and no guests (V10).
+  if (standGone) {
+    return (
+      <StandNotConnected
+        t={t}
+        apptWords={apptWords}
+        busy={loading}
+        onRetry={() => fetchBook(day)}
+        onNewCode={() => {
+          // The dead link is forgotten here, so /stand asks for a code
+          // instead of reopening it.
+          clearStandToken();
+          navigate("/stand", { replace: true, state: { fresh: true } });
+        }}
+      />
+    );
+  }
 
   return (
     <div
@@ -6890,6 +7243,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                   navigate("/login");
                 }
               }}
+              onUnpair={isStandDevice ? unpairThisScreen : null}
             />
           </div>
         </div>
@@ -7089,26 +7443,29 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             type="button"
             onClick={() => fetchBook(day)}
             aria-label={t("rsvpRefresh", "Refresh")}
+            aria-busy={refreshing || undefined}
             className={
               "inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1 " +
               PHONE_TOOL + " " + PHONE_TOOL_SQUARE
             }
           >
-            <RefreshCw className="w-5 h-5 max-sm:w-[18px] max-sm:h-[18px]" />
+            <RefreshCw className={"w-5 h-5 max-sm:w-[18px] max-sm:h-[18px]" + (refreshing ? " animate-spin" : "")} />
           </button>
           {!tableFloor && standPopOut}
           {/* The stand used to go stale in complete silence while the now-line
               kept moving. This names the one fact that matters — WHEN what you
               are reading arrived — and sits next to the refresh that fixes it.
-              No spinner, no modal: service does not stop for a dialog. */}
+              No spinner, no modal, no red: service does not stop for a
+              dialog, and the book on screen is still the last true one. */}
           {bookStale && (
             <span
               role="status"
-              className="inline-flex items-center gap-1.5 min-h-[44px] px-1 text-[12px] leading-snug font-medium text-gray-700 dark:text-gray-200 max-sm:basis-full max-sm:min-h-0"
+              data-book-offline=""
+              className="inline-flex items-center gap-1.5 min-h-[44px] px-1 text-[12px] leading-snug font-medium text-gray-600 dark:text-gray-300 max-sm:basis-full max-sm:min-h-0"
             >
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden />
+              <WifiOff className="w-3.5 h-3.5 shrink-0" aria-hidden />
               <span className="tabular-nums">
-                {t("rsvpBookStale", "Updated {time} · can't reach BonBox", {
+                {t("rsvpBookOffline", "Offline · showing the book from {time}", {
                   time: fmtTime(new Date(lastOkAt).toISOString()),
                 })}
               </span>
@@ -7344,7 +7701,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       )}
       <StatStrip
         shortBelow="xl"
-        items={[
+        items={cockpitWhenUnknown(!!data, [
           {
             key: "covers",
             // A salon, a shop, a workshop: customers and appointments, not
@@ -7459,13 +7816,26 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             onClick: focusWaitlist,
             hideOnPhone: waitlistCount === 0,
           },
-        ]}
+        ])}
       />
 
       {error && (
         <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
           {error}
         </div>
+      )}
+
+      {/* R10: no book for this day could be read. Said once, calmly, in
+          words — and the page keeps asking by itself — instead of a list,
+          a floor and a timeline that would each say "nothing booked". */}
+      {bookUnavailable && (
+        <BookUnavailable
+          t={t}
+          message={loadError}
+          offline={browserOffline}
+          apptWords={apptWords}
+          onRetry={() => fetchBook(day)}
+        />
       )}
 
       {/* Honest dead-link note — a deep-link pointed at a booking that's since
@@ -7489,7 +7859,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       )}
 
       {/* ── Liste (the polished data-table) ── */}
-      {view === "liste" && (
+      {view === "liste" && !bookUnavailable && (
         <>
           {/* Phone: the search sits in the open, with Filter beside it — it
               was behind the Filter chip, and the other-day results landed
@@ -7754,7 +8124,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           </div>
         );
       })()}
-      {view === "plan" &&
+      {view === "plan" && !bookUnavailable &&
         (loading ? (
           <FloorSkeleton />
         ) : (
@@ -7775,7 +8145,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         ))}
 
       {/* ── Tidslinje (service timeline grid) ── */}
-      {view === "tidslinje" &&
+      {view === "tidslinje" && !bookUnavailable &&
         (loading ? (
           <TimelineSkeleton />
         ) : (
