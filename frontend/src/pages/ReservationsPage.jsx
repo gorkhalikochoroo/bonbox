@@ -75,6 +75,7 @@ import {
   Gauge,
   ListOrdered,
   Loader2,
+  CalendarOff,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
@@ -120,7 +121,15 @@ import PlanCapBanner, { PlanCapHeldNudge, monthCapFromSettings } from "../compon
 // block list in Indstillinger.
 import { SpamButton, SpamWaveBox, SpamMarkedLine } from "../components/reservations/SpamActions";
 import ContactBlocksCard from "../components/reservations/ContactBlocksCard";
-import { activePause, fmtClosureRange, todayIso } from "../utils/closures";
+// R9 (27 Oct 2026): settings that tell the truth — the link card with old
+// links, one save per card, the phone's jump row, "booking went on".
+import BookingLinkCard from "../components/reservations/BookingLinkCard";
+import BookingLiveNotice from "../components/reservations/BookingLiveNotice";
+import CardSaveBar from "../components/reservations/CardSaveBar";
+import SettingsJumpRow from "../components/reservations/SettingsJumpRow";
+import { announceActivation, takeActivation } from "../utils/bookingActivation";
+import { hoursSource, pacingGap } from "../utils/settingsTruth";
+import { activePause, closureOn, fmtClosureRange, todayIso } from "../utils/closures";
 import { canPurchaseInApp } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
 import { formatKr } from "../utils/currency";
@@ -733,6 +742,10 @@ export default function ReservationsPage() {
         className="max-sm:-mt-2"
       />
       )}
+
+      {/* R9: adding the first table (or behandler) switched online booking
+          on — said here, on whichever tab did it, until dismissed. */}
+      {!isHostStand && <BookingLiveNotice t={t} />}
 
       {/* Two columns from xl (1280px) up — the rail is additive, so below that
           breakpoint this collapses to exactly the single column shipped
@@ -2467,6 +2480,9 @@ function NewBookingSheet({
   tables = [],
   openHours = null,
   bookingRules = null,
+  // R9: the owner's closed dates and pauses (GET /settings) — a chip says
+  // when the chosen day is closed for online booking.
+  closures = [],
 }) {
   // Opened from a past day's book, a new booking still starts today.
   const [date, setDate] = useState(() => (day < serviceDayIso() ? serviceDayIso() : day));
@@ -2775,6 +2791,25 @@ function NewBookingSheet({
             {t("rsvpClosedThatDayShort", "You're closed that day.")}
           </p>
         )}
+        {/* R9: the day is closed (or paused) for ONLINE booking — the owner
+            can still write a booking in (decision 3), and is told why
+            guests found no time that day. */}
+        {(() => {
+          const shut = closureOn(closures, date);
+          if (!shut) return null;
+          return (
+            <p role="status" data-testid="nb-closure-chip" className="-mt-2 flex items-start gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-2.5 py-1.5 text-[12px] leading-snug text-gray-700 dark:text-gray-200">
+              <CalendarOff className="w-3.5 h-3.5 mt-0.5 shrink-0 text-gray-400" aria-hidden />
+              <span>
+                {shut.kind === "pause"
+                  ? t("rsvpNewPausedDay", "Online booking is paused that day. You can still book here.")
+                  : shut.note
+                    ? t("rsvpNewClosedDayNote", "Closed for online booking that day ({note}). You can still book here.", { note: shut.note })
+                    : t("rsvpNewClosedDay", "Closed for online booking that day. You can still book here.")}
+              </span>
+            </p>
+          );
+        })()}
         {timeNote && !dayTimes.closed && (
           <p role="status" className="-mt-2 text-[12px] text-gray-600 dark:text-gray-300">{timeNote}</p>
         )}
@@ -3699,6 +3734,11 @@ function SalonFirstRunCard({
           setHourDay={setHourDay}
           onApplyMonToAll={applyMonToAll}
         />
+        {/* R9: not a third set of hours — the card writes the same booking
+            hours as Indstillinger → Åbningstider. */}
+        <p data-testid="salon-hours-same" className="text-xs text-gray-500 dark:text-gray-400">
+          {t("rsvpSalonHoursSame", "These are the same hours as Settings → Opening hours (bookings): change them here or there. The opening hours under Profile are not used for bookings.")}
+        </p>
       </div>
 
       {/* No service yet: a customer picks a behandling before any time, so
@@ -4433,6 +4473,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           // R1b: the plan's monthly cap — used, cap and what reaching it
           // does — for the book's banner (PlanCapBanner).
           monthCap: monthCapFromSettings(r.data),
+          // R9: closed dates and pauses, so the new-booking sheet can say
+          // the chosen day is closed for ONLINE booking (still bookable here).
+          closures: Array.isArray(r.data?.closures) ? r.data.closures : [],
         });
         // The salon first-run card shows the hours the owner already SAVED
         // (not the suggestion), unless they have started editing the card.
@@ -8011,6 +8054,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           day={day}
           openHours={openHours}
           bookingRules={bookingRules}
+          closures={publicPage?.closures || []}
           t={t}
           busy={creating}
           warning={roomFull}
@@ -8254,7 +8298,10 @@ function FloorSection({ t, businessType }) {
         zone: null,
         follows_opening_hours: true,
       });
-      setResources((prev) => [...prev, res.data]);
+      // R9: the first chair can switch online booking on — say so.
+      const { resource, activated } = takeActivation(res.data);
+      setResources((prev) => [...prev, resource]);
+      announceActivation(activated, "stylist");
     } catch (e) {
       if (e?.response?.status === 402) {
         const d = e?.response?.data?.detail || e?.response?.data || {};
@@ -8288,7 +8335,9 @@ function FloorSection({ t, businessType }) {
         combinable: false,
         zone: null,
       });
-      setResources((prev) => [...prev, res.data]);
+      const { resource, activated } = takeActivation(res.data);
+      setResources((prev) => [...prev, resource]);
+      announceActivation(activated, "stylist");
       setStaffId("");
       setLabel("");
     } catch (e) {
@@ -8378,7 +8427,9 @@ function FloorSection({ t, businessType }) {
         zone: zone.trim() || null,
         combinable,
       });
-      setResources((prev) => [...prev, res.data]);
+      const { resource, activated } = takeActivation(res.data);
+      setResources((prev) => [...prev, resource]);
+      announceActivation(activated, placeWords ? "place" : "table");
       setLabel("");
       setSeats("2");
       setZone("");
@@ -8450,6 +8501,9 @@ function FloorSection({ t, businessType }) {
         capped: res.data?.capped ?? 0,
       });
       setBulkRows((prev) => prev.map((r) => ({ ...r, count: "" })));
+      // R9: quick setup's answer already said when it switched online
+      // booking on; now the owner hears it.
+      announceActivation(takeActivation(res.data).activated, placeWords ? "place" : "table");
       // Partial-cap → reuse the existing upgrade nudge (same payload shape).
       if (res.data?.cap_info) {
         const d = res.data.cap_info;
@@ -9490,6 +9544,20 @@ function requestsEveryOnline(v) {
   return Number.isFinite(n) && n !== 0 && n <= 1;
 }
 
+// R9: which cards take a settings answer (SettingsSection.applyData's
+// `parts`) — all three on a load, only the saved one after a save.
+const ALL_SETTINGS_PARTS = ["form", "hours", "sms"];
+const NO_SETTINGS_PARTS = [];
+// The rules card as one comparable string — every value as text (a loaded
+// 60 and a typed "60" are the same) and the table-time bands — so the card
+// knows when it holds changes that are not saved.
+function formSnapshot(form, tierDraft) {
+  const vals = Object.fromEntries(
+    Object.entries(form || {}).map(([k, v]) => [k, typeof v === "boolean" ? v : String(v ?? "")]),
+  );
+  return JSON.stringify({ vals, tiers: (tierDraft || []).map((tr) => [tr.up_to, String(tr.minutes ?? "")]) });
+}
+
 function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = false }) {
   // SettingsSection only mounts after the parent's `if (!isReady) return null`
   // gate, so entitlements are already settled here — reading hasFeature is
@@ -9529,10 +9597,8 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   const [error, setError] = useState("");
   const [savingToggle, setSavingToggle] = useState(false);
 
-  // Slug editor.
-  const [slugDraft, setSlugDraft] = useState("");
-  const [slugSaving, setSlugSaving] = useState(false);
-  const [slugError, setSlugError] = useState("");
+  // The link (slug) editor lives in BookingLinkCard (R9): the real address,
+  // the warning before a change, the old links that still work.
 
   // Availability numbers (subset of settings — kept simple).
   const [form, setForm] = useState({
@@ -9572,49 +9638,66 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   const [hoursSaved, setHoursSaved] = useState(false);
   // E-mails to the owner about online bookings (R1 D6): on unless switched off.
   const [savingOwnerEmails, setSavingOwnerEmails] = useState(false);
+  // One save per card (R9): what each card held when it was last loaded or
+  // saved, so the card can say "Ikke gemt endnu" — and so a save of one
+  // card never puts another card's unsaved changes back.
+  const [formBase, setFormBase] = useState("");
+  const [hoursBase, setHoursBase] = useState("");
 
-  const applyData = useCallback((d) => {
+  // `parts`: which cards take the server's answer — every card on a load;
+  // only the saved card after a save (R9). A switch or a link change takes
+  // none: every card keeps what the owner is typing.
+  const applyData = useCallback((d, parts = ALL_SETTINGS_PARTS) => {
     setData(d);
-    setSlugDraft(d?.reservation_slug || "");
     const s = d?.settings || {};
-    const loadedTiers = (Array.isArray(s.turn_time_tiers) ? s.turn_time_tiers : [])
-      .filter((tr) => tr?.up_to && tr?.minutes)
-      .sort((a, b) => a.up_to - b.up_to);
-    setTiers(loadedTiers);
-    setTierDraft(loadedTiers.map((tr) => ({ up_to: tr.up_to, minutes: String(tr.minutes) })));
-    // Bigger parties are held at least as long as the last band — the field
-    // said 90 for a size actually held 120. Show what applies.
-    const lastTier = loadedTiers.length ? Number(loadedTiers[loadedTiers.length - 1].minutes) : 0;
-    const effDefault =
-      s.default_duration_min != null && lastTier
-        ? Math.max(Number(s.default_duration_min) || 0, lastTier)
-        : s.default_duration_min;
-    loadedDurationRef.current = effDefault ?? "";
-    setLoadedRequestFrom(s.group_request_threshold ?? "");
-    if (requestsEveryOnline(s.group_request_threshold)) setRequestSwitchSeen(true);
-    setForm({
-      max_party_size: s.max_party_size ?? "",
-      group_request_threshold: s.group_request_threshold ?? "",
-      lead_time_min: s.lead_time_min ?? "",
-      max_advance_days: s.max_advance_days ?? "",
-      pacing_max_per_slot: s.pacing_max_per_slot ?? "",
-      default_duration_min: effDefault ?? "",
-      // combine_enabled defaults on (matches the backend); only flips off if
-      // the owner explicitly disabled combining.
-      combine_enabled: s.combine_enabled !== false,
-      guest_can_pick_table: !!s.guest_can_pick_table,
-      max_combo_size: s.max_combo_size ?? "",
-      contact_phone: s.contact_phone ?? "",
-    });
-    setSms({
-      enabled: !!s.sms_reminders,
-      sender: s.sms_sender ?? "",
-    });
-    setHours(cardBookingHours(s.booking_hours, {
-      openHours: d?.open_hours,
-      hoursDeclared: d?.hours_declared,
-      isProvider: isProviderRef.current,
-    }));
+    if (parts.includes("form")) {
+      const loadedTiers = (Array.isArray(s.turn_time_tiers) ? s.turn_time_tiers : [])
+        .filter((tr) => tr?.up_to && tr?.minutes)
+        .sort((a, b) => a.up_to - b.up_to);
+      setTiers(loadedTiers);
+      setTierDraft(loadedTiers.map((tr) => ({ up_to: tr.up_to, minutes: String(tr.minutes) })));
+      // Bigger parties are held at least as long as the last band — the field
+      // said 90 for a size actually held 120. Show what applies.
+      const lastTier = loadedTiers.length ? Number(loadedTiers[loadedTiers.length - 1].minutes) : 0;
+      const effDefault =
+        s.default_duration_min != null && lastTier
+          ? Math.max(Number(s.default_duration_min) || 0, lastTier)
+          : s.default_duration_min;
+      loadedDurationRef.current = effDefault ?? "";
+      setLoadedRequestFrom(s.group_request_threshold ?? "");
+      if (requestsEveryOnline(s.group_request_threshold)) setRequestSwitchSeen(true);
+      const nextForm = {
+        max_party_size: s.max_party_size ?? "",
+        group_request_threshold: s.group_request_threshold ?? "",
+        lead_time_min: s.lead_time_min ?? "",
+        max_advance_days: s.max_advance_days ?? "",
+        pacing_max_per_slot: s.pacing_max_per_slot ?? "",
+        default_duration_min: effDefault ?? "",
+        // combine_enabled defaults on (matches the backend); only flips off if
+        // the owner explicitly disabled combining.
+        combine_enabled: s.combine_enabled !== false,
+        guest_can_pick_table: !!s.guest_can_pick_table,
+        max_combo_size: s.max_combo_size ?? "",
+        contact_phone: s.contact_phone ?? "",
+      };
+      setForm(nextForm);
+      setFormBase(formSnapshot(nextForm, loadedTiers.map((tr) => ({ up_to: tr.up_to, minutes: String(tr.minutes) }))));
+    }
+    if (parts.includes("sms")) {
+      setSms({
+        enabled: !!s.sms_reminders,
+        sender: s.sms_sender ?? "",
+      });
+    }
+    if (parts.includes("hours")) {
+      const nextHours = cardBookingHours(s.booking_hours, {
+        openHours: d?.open_hours,
+        hoursDeclared: d?.hours_declared,
+        isProvider: isProviderRef.current,
+      });
+      setHours(nextHours);
+      setHoursBase(JSON.stringify(serializeBookingHours(nextHours)));
+    }
   }, []);
 
   const fetchSettings = useCallback(async () => {
@@ -9637,6 +9720,16 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
     fetchSettings();
   }, [fetchSettings]);
 
+  // A re-read that keeps the page on screen (R9): the name row's save used
+  // the full load, which blanked Indstillinger to "Loading…" and remounted
+  // every card — a half-typed closed date or blocked number was lost.
+  const refreshSettings = useCallback(async (parts = NO_SETTINGS_PARTS) => {
+    try {
+      const res = await api.get("/reservations/settings");
+      if (res?.data) applyData(res.data, parts);
+    } catch { /* the page keeps what it shows */ }
+  }, [applyData]);
+
   const toggleEnabled = async () => {
     if (!data) return;
     const next = !data.reservations_enabled;
@@ -9646,7 +9739,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
       const res = await api.put("/reservations/settings", {
         reservations_enabled: next,
       });
-      applyData(res.data || null);
+      applyData(res.data || null, NO_SETTINGS_PARTS);
     } catch (e) {
       setError(
         e?.response?.data?.detail?.error ||
@@ -9657,40 +9750,10 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
     }
   };
 
-  const saveSlug = async () => {
-    const desired = slugDraft.trim().toLowerCase();
-    if (!desired || desired.length < 2) {
-      setSlugError(t("rsvpSlugTooShort", "Pick at least 2 characters."));
-      return;
-    }
-    setSlugSaving(true);
-    setSlugError("");
-    try {
-      const res = await api.post("/reservations/slug", { slug: desired });
-      setData((prev) =>
-        prev
-          ? {
-              ...prev,
-              reservation_slug: res.data?.reservation_slug || desired,
-              public_url: res.data?.public_url || prev.public_url,
-            }
-          : prev,
-      );
-    } catch (e) {
-      const code = e?.response?.data?.detail?.error;
-      if (code === "slug_reserved") {
-        setSlugError(
-          t("rsvpSlugReserved", "That word is reserved — pick a different link."),
-        );
-      } else if (e?.response?.status === 409) {
-        setSlugError(t("rsvpSlugTaken", "That link is taken — try another."));
-      } else {
-        setSlugError(code || t("rsvpSlugError", "Couldn't update the link."));
-      }
-    } finally {
-      setSlugSaving(false);
-    }
-  };
+  // A changed link (BookingLinkCard, R9): only the link and its old links
+  // change; every card keeps what the owner is typing.
+  const onLinkSaved = (ans) =>
+    setData((prev) => (prev ? { ...prev, ...ans } : prev));
 
   const saveForm = async () => {
     setSavingForm(true);
@@ -9737,7 +9800,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
     settings.contact_phone = form.contact_phone.trim().slice(0, 40) || null;
     try {
       const res = await api.put("/reservations/settings", { settings });
-      applyData(res.data || null);
+      applyData(res.data || null, ["form"]);
       setFormSaved(true);
       setTimeout(() => setFormSaved(false), 2500);
     } catch (e) {
@@ -9766,7 +9829,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
     };
     try {
       const res = await api.put("/reservations/settings", { settings });
-      applyData(res.data || null);
+      applyData(res.data || null, ["sms"]);
       setSmsSaved(true);
       setTimeout(() => setSmsSaved(false), 2500);
     } catch (e) {
@@ -9774,8 +9837,9 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
         e?.response?.data?.detail?.error ||
           t("rsvpSettingsSaveError", "Couldn't save settings."),
       );
-      // Re-sync from server on failure so the toggle reflects truth.
-      fetchSettings();
+      // Re-sync from server on failure so the toggle reflects truth — the
+      // SMS card only; the others keep what is typed (R9).
+      refreshSettings(["sms"]);
     } finally {
       setSavingSms(false);
     }
@@ -9790,7 +9854,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
     setError("");
     try {
       const res = await api.put("/reservations/settings", { settings: { owner_booking_emails: next } });
-      applyData(res.data || null);
+      applyData(res.data || null, NO_SETTINGS_PARTS);
     } catch (e) {
       setError(
         e?.response?.data?.detail?.error ||
@@ -9842,7 +9906,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
       const res = await api.put("/reservations/settings", {
         settings: { booking_hours: serializeBookingHours(hours) },
       });
-      applyData(res.data || null);
+      applyData(res.data || null, ["hours"]);
       setHoursSaved(true);
       setTimeout(() => setHoursSaved(false), 2500);
     } catch (e) {
@@ -9863,19 +9927,23 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   // back-navigation does not yank the page there again.
   const location = useLocation();
   const navigate = useNavigate();
-  const wantsWebsite = new URLSearchParams(location.search).get("show") === "website";
+  // R9: ?show=hours (the Profile hours' note) lands on the hours card the
+  // same way.
+  const showParam = new URLSearchParams(location.search).get("show");
+  const showTarget = { website: ["website", "website-title"], hours: ["rsvp-hours", "rsvp-hours-title"] }[showParam] || null;
   useEffect(() => {
-    if (loading || !wantsWebsite) return;
-    const el = document.getElementById("website");
+    if (loading || !showTarget) return;
+    const el = document.getElementById(showTarget[0]);
     if (el) {
       el.scrollIntoView?.({ block: "start", behavior: "smooth" });
-      document.getElementById("website-title")?.focus?.({ preventScroll: true });
+      document.getElementById(showTarget[1])?.focus?.({ preventScroll: true });
     }
     const params = new URLSearchParams(location.search);
     params.delete("show");
     const qs = params.toString();
     navigate({ search: qs ? `?${qs}` : "" }, { replace: true });
-  }, [loading, wantsWebsite, location.search, navigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, showParam, location.search, navigate]);
 
   if (loading) {
     return <div className="text-sm text-gray-600 dark:text-gray-500">{t("loading", "Loading…")}</div>;
@@ -9887,6 +9955,39 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   // nothing the engine can book is not live: no "Din bookingside", and the
   // website kit explains itself instead of handing out the link (Push 7).
   const live = enabled && !onlineNotReady;
+  // R9: a card holding changes that are not saved says so beside its Gem.
+  const formDirty = !!formBase && formSnapshot(form, tierDraft) !== formBase;
+  const hoursDirty = !!hoursBase && JSON.stringify(serializeBookingHours(hours)) !== hoursBase;
+  // Where the online times come from (the hours card's line): this card,
+  // the Profile hours, both, or — a salon — the chairs read this card only.
+  const hoursFrom = hoursSource({
+    bookingHours: data?.settings?.booking_hours,
+    hoursDeclared: data?.hours_declared,
+    isProvider,
+  });
+  // "Maks. gæster pr. tid" counts guests (R9): the party sizes it leaves
+  // with no online time, said under the field.
+  const paceGap = tableRules
+    ? pacingGap({
+        pacing: form.pacing_max_per_slot,
+        maxParty: onlineBooksOne ? 1 : form.max_party_size === "" ? 10 : form.max_party_size,
+        requestFrom: form.group_request_threshold,
+      })
+    : null;
+  // The day the first table switched online booking on by itself (R9),
+  // until the owner flips the switch.
+  const autoOnDay = enabled && data?.auto_enabled_at ? data.auto_enabled_at : null;
+  // R9: the phone's jump row — the cards a first-week owner looks for.
+  const jumpItems = [
+    // The link card when the page is live (the address and its old links),
+    // else the kit, which says what to switch on first.
+    { id: live && publicUrl ? "rsvp-link" : "website", label: t("rsvpJumpLink", "Link & QR") },
+    { id: "rsvp-hours", label: t("rsvpJumpHours", "Hours") },
+    { id: "rsvp-closures", label: t("rsvpJumpClosures", "Closed dates") },
+    { id: "rsvp-rules", label: t("rsvpJumpRules", "Rules") },
+    { id: "rsvp-messages", label: t("rsvpJumpMessages", "Messages") },
+    { id: "rsvp-devices", label: t("rsvpJumpDevices", "Devices") },
+  ];
 
   return (
     <div className="space-y-5">
@@ -9896,6 +9997,9 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
         </div>
       )}
 
+      {/* R9: the phone's way through a long page (desktop unchanged). */}
+      <SettingsJumpRow t={t} items={jumpItems} />
+
       {/* The name on the booking page — before the page is live too (R1 C). */}
       <BookingNameRow
         t={t}
@@ -9904,7 +10008,9 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
         // false "no name yet".
         publicName={data && "public_name" in data ? data.public_name || null : data?.business_name || null}
         tradingName={data?.business_name || ""}
-        onSaved={fetchSettings}
+        // A quiet re-read (R9): the full load blanked the page and every
+        // card's half-typed input with it.
+        onSaved={() => refreshSettings()}
         apptWords={apptWords}
       />
 
@@ -9956,6 +10062,17 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
               : t("rsvpAcceptOff", "Turn on to publish your booking page.")}
           </p>
           )}
+          {/* R9: it went on by itself, when the first table (behandler,
+              place) was added — said until the owner flips the switch. */}
+          {autoOnDay && !onlineNotReady && (
+            <p data-testid="rsvp-auto-on" className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+              {(isProvider
+                ? t("rsvpAutoOnStylist", "Switched on by itself on {date}, when you added your first stylist. Not ready? Turn it off here.", { date: fmtClosureRange(autoOnDay, null, lang) })
+                : onlineBooksOne
+                  ? t("rsvpAutoOnPlace", "Switched on by itself on {date}, when you added your first space. Not ready? Turn it off here.", { date: fmtClosureRange(autoOnDay, null, lang) })
+                  : t("rsvpAutoOnTable", "Switched on by itself on {date}, when you added your first table. Not ready? Turn it off here.", { date: fmtClosureRange(autoOnDay, null, lang) }))}
+            </p>
+          )}
         </div>
         {/* 44px-tall tap target (host-stand touch), with the visual switch
             track centred inside it. Not ready: only the way off. */}
@@ -10000,60 +10117,21 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           (Kopiér + Åbn siden) and the QR (with Hent PNG) live ONCE, in the kit
           right below: this card used to repeat both, so Settings showed two
           QR codes and two copy-link rows one card apart. Only for a page
-          that can take a booking (live — Push 7). */}
+          that can take a booking (live — Push 7). R9: its own component —
+          the real address, a warning before a change, the old links. */}
       {live && publicUrl && (
-        <div
-          data-testid="rsvp-share-card"
-          className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
-        >
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-            {t("rsvpShareTitle", "Your booking page")}
-          </h2>
-
-          {/* Slug editor — <form> so Enter saves from the field. */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!slugSaving && slugDraft.trim() !== (data?.reservation_slug || "")) saveSlug();
-            }}
-            className="space-y-2"
-          >
-            <label
-              htmlFor="rsvp-slug"
-              className="block text-xs font-medium text-gray-700 dark:text-gray-300"
-            >
-              {t("rsvpCustomLink", "Customise your link")}
-            </label>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center flex-1 min-w-0 h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent">
-                <span className="px-3 text-sm text-gray-400 dark:text-gray-500 border-r border-gray-200 dark:border-gray-700 shrink-0 self-stretch flex items-center">
-                  /r/
-                </span>
-                <input
-                  id="rsvp-slug"
-                  type="text"
-                  value={slugDraft}
-                  onChange={(e) => setSlugDraft(e.target.value)}
-                  placeholder={t("rsvpSlugPh", "cafe-mocca")}
-                  maxLength={60}
-                  className="flex-1 min-w-0 px-3 h-full text-base sm:text-sm bg-transparent outline-none text-gray-900 dark:text-gray-100"
-                />
-              </div>
-              <Button
-                type="submit"
-                variant="primary"
-                size="lg"
-                busy={slugSaving}
-                disabled={slugDraft.trim() === (data?.reservation_slug || "")}
-              >
-                {t("save", "Save")}
-              </Button>
-            </div>
-            {slugError && (
-              <p className="text-xs text-red-600 dark:text-red-400">{slugError}</p>
-            )}
-          </form>
-        </div>
+        <BookingLinkCard
+          t={t}
+          lang={lang}
+          publicUrl={publicUrl}
+          slug={data?.reservation_slug || ""}
+          // Absent from an older server: then the old link really stops,
+          // and the warning says so.
+          aliases={Array.isArray(data?.slug_aliases) ? data.slug_aliases : undefined}
+          aliasMax={data?.slug_alias_max || 5}
+          apptWords={apptWords}
+          onSaved={onLinkSaved}
+        />
       )}
 
       {/* Book bord på din hjemmeside — the one place for link, button, QR,
@@ -10077,9 +10155,9 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           These feed the slot generator (reservation_service reads
           booking_hours first, before any fallback), so the times guests see
           come from when the owner actually opens, not a hard-coded default. */}
-      <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3">
+      <div id="rsvp-hours" className="scroll-mt-24 rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+          <h2 id="rsvp-hours-title" tabIndex={-1} className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2 focus:outline-none">
             <Clock className="w-4 h-4 text-gray-400" aria-hidden />
             {t("rsvpHoursTitle", "Opening hours (bookings)")}
           </h2>
@@ -10114,6 +10192,25 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           </div>
         )}
 
+        {/* R9: which hours decide online times — one rule, said the same
+            way here, on the salon's first-run card and under the Profile
+            hours: these decide; the Profile hours only fill a weekday that
+            has none here (never for a salon's chair). */}
+        {hoursFrom !== "none" && (
+          <p data-testid="rsvp-hours-source" data-source={hoursFrom} className="text-[12px] leading-snug text-gray-600 dark:text-gray-300">
+            {{
+              booking: apptWords
+                ? t("rsvpHoursSourceBookingAppt", "Customers book in these hours. The opening hours under Profile don't change them.")
+                : t("rsvpHoursSourceBooking", "Guests book in these hours. The opening hours under Profile don't change them."),
+              profile: apptWords
+                ? t("rsvpHoursSourceProfileAppt", "Right now customers book in your opening hours from Profile (shown here). Save here to make them your booking hours; Profile then no longer changes them.")
+                : t("rsvpHoursSourceProfile", "Right now guests book in your opening hours from Profile (shown here). Save here to make them your booking hours; Profile then no longer changes them."),
+              mixed: t("rsvpHoursSourceMixed", "Days saved here decide. A day not saved here follows the opening hours under Profile — Save sets every day here."),
+              chairs: t("rsvpHoursSourceChairs", "Your chair is booked in these hours only — not in the opening hours under Profile. The first-run card on Appointments sets these same hours."),
+            }[hoursFrom]}
+          </p>
+        )}
+
         <WeekHoursEditor
           t={t}
           hours={hours}
@@ -10121,35 +10218,31 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           onApplyMonToAll={applyMonToAll}
         />
 
-        <div className="flex items-center justify-end gap-3 pt-1">
-          {hoursSaved && (
-            <span className="text-xs text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1">
-              <Check className="w-3.5 h-3.5" /> {t("rsvpSaved", "Saved")}
-            </span>
-          )}
-          <Button
-            type="button"
-            variant="primary"
-            size="lg"
-            busy={savingHours}
-            onClick={saveHours}
-          >
-            {t("save", "Save")}
-          </Button>
-        </div>
+        {/* One Gem for this card, and it saves this card (R9). */}
+        <CardSaveBar
+          t={t}
+          dirty={hoursDirty}
+          saved={hoursSaved}
+          busy={savingHours}
+          onSave={saveHours}
+          testId="rsvp-hours-save"
+        />
       </div>
 
       {/* Closed dates and pauses (R1 B5) — right after the hours. */}
-      <ClosuresCard t={t} lang={lang} closures={data?.closures} onChanged={setClosures} apptWords={apptWords} />
+      <div id="rsvp-closures" className="scroll-mt-24">
+        <ClosuresCard t={t} lang={lang} closures={data?.closures} onChanged={setClosures} apptWords={apptWords} />
+      </div>
 
       {/* Availability settings (kept simple — a few numbers). <form> so
           Enter saves from any field on a host-stand keyboard. */}
       <form
+        id="rsvp-rules"
         onSubmit={(e) => {
           e.preventDefault();
           if (!savingForm) saveForm();
         }}
-        className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
+        className="scroll-mt-24 rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
       >
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
           {t("rsvpAvailTitle", "Availability rules")}
@@ -10316,12 +10409,33 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
             onChange={(v) => setForm((f) => ({ ...f, max_advance_days: v }))}
           />
           {tableRules && (
-          <NumberField
-            label={apptWords ? t("rsvpPacingAppt", "Max people per time") : t("rsvpPacing", "Max covers per slot")}
-            hint={t("rsvpPacingHint", "Leave blank for no pacing cap.")}
-            value={form.pacing_max_per_slot}
-            onChange={(v) => setForm((f) => ({ ...f, pacing_max_per_slot: v }))}
-          />
+          <div className="min-w-0">
+            {/* R9: it counts GUESTS, as it says — each booking with its
+                party, online only. It counted bookings × tables. */}
+            <NumberField
+              label={apptWords ? t("rsvpPacingAppt", "Max people per time") : t("rsvpPacing", "Max covers per slot")}
+              hint={apptWords
+                ? t("rsvpPacingGuestsHintAppt", "People booked online for the same quarter of an hour, counted with everyone in each booking. You can still book more in yourself. Blank = no limit.")
+                : t("rsvpPacingGuestsHint", "Guests booked online for the same quarter of an hour, counted with everyone in each booking. You can still book more in yourself. Blank = no limit.")}
+              value={form.pacing_max_per_slot}
+              onChange={(v) => setForm((f) => ({ ...f, pacing_max_per_slot: v }))}
+            />
+            {paceGap && (
+              <p data-testid="rsvp-pacing-gap" className="mt-1 text-[11px] leading-snug text-amber-700 dark:text-amber-300">
+                {paceGap.to === null
+                  ? (apptWords
+                    ? t("rsvpPacingGapOpenAppt", "Bookings of {from} or more people can't book online with this limit.", { from: paceGap.from })
+                    : t("rsvpPacingGapOpen", "Parties of {from} or more can't book online with this limit.", { from: paceGap.from }))
+                  : paceGap.from === paceGap.to
+                    ? (apptWords
+                      ? t("rsvpPacingGapOneAppt", "Bookings of {n} people can't book online with this limit.", { n: paceGap.from })
+                      : t("rsvpPacingGapOne", "Parties of {n} can't book online with this limit.", { n: paceGap.from }))
+                    : (apptWords
+                      ? t("rsvpPacingGapAppt", "Bookings of {from}–{to} people can't book online with this limit.", { from: paceGap.from, to: paceGap.to })
+                      : t("rsvpPacingGap", "Parties of {from}–{to} can't book online with this limit.", { from: paceGap.from, to: paceGap.to }))}
+              </p>
+            )}
+          </div>
           )}
         </div>
         {/* Table combining — flag tables as combinable on the Floor tab; this
@@ -10379,24 +10493,25 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           </label>
         </div>
         </>)}
-        <div className="flex items-center justify-end gap-3">
-          {formSaved && (
-            <span className="text-xs text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1">
-              <Check className="w-3.5 h-3.5" /> {t("rsvpSaved", "Saved")}
-            </span>
-          )}
-          <Button type="submit" variant="primary" size="lg" busy={savingForm}>
-            {t("save", "Save")}
-          </Button>
-        </div>
+        {/* One Gem for this card, and it saves this card (R9) — on a phone
+            it follows the owner down the card while there are changes. */}
+        <CardSaveBar
+          t={t}
+          dirty={formDirty}
+          saved={formSaved}
+          busy={savingForm}
+          submit
+          testId="rsvp-rules-save"
+        />
       </form>
 
       {/* E-mails to the owner about online bookings (R1 D6): the switch for
           the one channel that lands without a device. At most 3 an hour,
           then one summary — the same budget as the push. */}
       <div
+        id="rsvp-messages"
         data-testid="rsvp-owner-emails"
-        className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 flex items-center justify-between gap-4"
+        className="scroll-mt-24 rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 flex items-center justify-between gap-4"
       >
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
@@ -10564,7 +10679,9 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
 
       {/* Pair a device with a short code — the alternative to typing the
           owner's email and password on a tablet that lives at the door. */}
-      <StandDevices t={t} apptWords={apptWords} />
+      <div id="rsvp-devices" className="scroll-mt-24">
+        <StandDevices t={t} apptWords={apptWords} />
+      </div>
     </div>
   );
 }
