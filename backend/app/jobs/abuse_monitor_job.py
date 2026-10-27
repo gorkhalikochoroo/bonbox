@@ -15,6 +15,15 @@ MonitorState row per kind:
   abuse_stand_join  host-stand pairing paused for everyone (global cool-off)
   abuse_signups     unusual number of new accounts (alert only, nothing blocked)
   abuse_no_edge     requests arriving without the edge address header
+  abuse_booking_burst  (R2) a burst at the anonymous booking door: one venue
+                    got BOOKING_ALERT_VENUE_PER_HOUR online bookings in the
+                    last hour, or the screen held BOOKING_ALERT_HELD_PER_HOUR
+                    across all venues, or the hidden trap field dropped
+                    BOOKING_ALERT_DROPPED_PER_HOUR — or the screen failed at
+                    all (it then confirms everything: the spam guard is off).
+                    Counted from the audit rows every online booking writes
+                    (one indexed query per count, on action + created_at);
+                    alert only, nothing is blocked.
 
 Per row: a tripped tick on a HEALTHY row → BROKEN, one ErrorLog row
 (/admin/recent-errors, method=MONITOR), and the alert e-mail + push — unless
@@ -61,6 +70,7 @@ SERVICES = (
     "abuse_stand_join",
     "abuse_signups",
     "abuse_no_edge",
+    "abuse_booking_burst",
 )
 
 _LABELS = {
@@ -70,6 +80,7 @@ _LABELS = {
     "abuse_stand_join": "host-stand pairing cool-off",
     "abuse_signups": "signup burst",
     "abuse_no_edge": "missing edge header",
+    "abuse_booking_burst": "online booking burst",
 }
 
 
@@ -165,6 +176,31 @@ def _signup_counts(db, now) -> tuple[int, int]:
     return int(hour or 0), int(day or 0)
 
 
+def _booking_counts(db, now) -> tuple[int, int, int, int]:
+    """(the busiest venue's online bookings, venues with any, held, dropped)
+    in the last hour — from the audit rows the booking door writes for every
+    online booking (reservation.created_public), every hold
+    (reservation.held_public) and every trap drop (reservation.public_dropped).
+    Counts only; the venue is never named."""
+    from app.models.audit_log import AuditLog
+    since = now - timedelta(hours=1)
+    per_venue = (
+        db.query(func.count(AuditLog.id))
+        .filter(AuditLog.action == "reservation.created_public", AuditLog.created_at >= since)
+        .group_by(AuditLog.user_id)
+        .all()
+    )
+    top = max((int(n or 0) for (n,) in per_venue), default=0)
+
+    def count(action: str) -> int:
+        return int(
+            db.query(func.count(AuditLog.id))
+            .filter(AuditLog.action == action, AuditLog.created_at >= since)
+            .scalar() or 0
+        )
+    return top, len(per_venue), count("reservation.held_public"), count("reservation.public_dropped")
+
+
 def _evaluate(db, sig: dict, now) -> dict:
     from app.services.abuse_caps import magic_link_counts
     from app.services.reservation_emails import guest_emails_sent_fleet_last_24h, venue_mail_share
@@ -220,6 +256,23 @@ def _evaluate(db, sig: dict, now) -> dict:
         _on(limit) and n_no_edge >= limit,
         f"edge={n_edge} no_edge={n_no_edge}",
         dict(when=when, n=n_no_edge, e=n_edge),
+    )
+
+    # R2: bursts at the booking door, not only at the mail ceilings.
+    top, venues, held, dropped = _booking_counts(db, now)
+    errors = g("booking_screen_error")
+    V = getattr(s, "BOOKING_ALERT_VENUE_PER_HOUR", 0)
+    Hh = getattr(s, "BOOKING_ALERT_HELD_PER_HOUR", 0)
+    Dd = getattr(s, "BOOKING_ALERT_DROPPED_PER_HOUR", 0)
+    checks["abuse_booking_burst"] = (
+        (_on(V) and top >= V) or (_on(Hh) and held >= Hh) or (_on(Dd) and dropped >= Dd)
+        or errors > 0,
+        f"top_venue_1h={top} venues_1h={venues} held_1h={held} dropped_1h={dropped} "
+        f"screen_errors={errors} blocked={g('booking_blocked')} trap={g('booking_honeypot')} "
+        f"no_fill_time={g('booking_no_fill_time')} alert_venue={V} alert_held={Hh} "
+        f"alert_dropped={Dd}",
+        dict(when=when, top=top, venues=venues, held=held, dropped=dropped, errors=errors,
+             blocked=g("booking_blocked"), V=V, H=Hh, D=Dd),
     )
     return checks
 
@@ -351,6 +404,35 @@ def alert_copy(service: str, c: dict) -> tuple[str, list[str], str, str]:
             ],
             "BonBox: signup burst",
             f"{c['h']} new accounts in the last hour.",
+        )
+    if service == "abuse_booking_burst":
+        lines = [
+            f"Unusual activity at the online booking door at {c['when']} UTC. In the last hour: "
+            f"the busiest venue got {c['top']} online bookings (alert at {c['V']}); "
+            f"{c['venues']} venues got any. The spam screen held {c['held']} for the owners' OK "
+            f"(alert at {c['H']}) and the hidden trap field dropped {c['dropped']} "
+            f"(alert at {c['D']}). Refused from blocked contacts in the last 2 minutes: "
+            f"{c['blocked']}.",
+        ]
+        if int(c.get("errors") or 0):
+            lines.append(
+                f"The spam screen FAILED {c['errors']} times in the last 2 minutes. It then "
+                "confirms every booking (fail-open), so the spam guard is off until it works "
+                "again — check /admin/recent-errors and the logs for 'booking screen'.")
+        lines += [
+            "Nothing is blocked by this alert. Held bookings wait for each owner's yes and hold "
+            "no table; owners can mark spam, block a contact or decline a whole wave from the "
+            "booking.",
+            "Check /admin/recent-errors and the busiest venue's book. If it is real traffic, "
+            "raise BOOKING_ALERT_VENUE_PER_HOUR / BOOKING_ALERT_HELD_PER_HOUR / "
+            "BOOKING_ALERT_DROPPED_PER_HOUR in Render (0 switches one off).",
+        ]
+        return (
+            "BonBox: unusual online-booking activity",
+            lines,
+            "BonBox: online-booking burst",
+            (f"Spam screen failing ({c['errors']}). " if int(c.get("errors") or 0) else "")
+            + f"Busiest venue {c['top']}/h, held {c['held']}/h, trap {c['dropped']}/h.",
         )
     # abuse_no_edge
     return (
