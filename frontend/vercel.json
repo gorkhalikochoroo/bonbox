@@ -5,6 +5,14 @@
       "destination": "https://api.bonbox.dk/api/portal/:token/manifest.webmanifest"
     },
     {
+      "source": "/stand",
+      "destination": "/stand.html"
+    },
+    {
+      "source": "/stand/:path*",
+      "destination": "/stand.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/"
     }

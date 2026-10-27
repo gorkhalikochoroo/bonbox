@@ -17,7 +17,8 @@ export default defineConfig([
     ],
     languageOptions: {
       ecmaVersion: 2020,
-      globals: globals.browser,
+      // __STAND_BUILD__: the door screen's own build (vite.config.js define).
+      globals: { ...globals.browser, __STAND_BUILD__: 'readonly' },
       parserOptions: {
         ecmaVersion: 'latest',
         ecmaFeatures: { jsx: true },

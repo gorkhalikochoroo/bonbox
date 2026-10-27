@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build --config vite.stand.config.js",
     "build:app": "vite build && npx cap sync",
     "build:scheduler": "VITE_APP_MODE=scheduler VITE_API_URL=https://api.bonbox.dk/api vite build --mode production --outDir dist-scheduler --emptyOutDir",
     "build:scheduler-app": "npm run build:scheduler && BONBOX_TARGET=scheduler npx cap sync ios",
