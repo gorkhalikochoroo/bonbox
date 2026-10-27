@@ -66,6 +66,7 @@ import { contactState } from "../utils/guestContact";
 import { rescueDay, seedStep1 } from "../utils/bookingDay";
 import { GUEST_REFUSALS, guestRefusalOf } from "../utils/bookingRefusal";
 import { capFirst, dateLocale, fmtDayLabel, fmtDayShort } from "../utils/guestLocale";
+import { accentStyle, accentTokens } from "../utils/accentColor";
 import { isFramed } from "../utils/framed";
 import {
   ariaWord,
@@ -219,8 +220,11 @@ const STEP_ENTER = "motion-safe:animate-[bbStep_220ms_cubic-bezier(0.22,1,0.36,1
 // on a real phone (judge, call 2); false drops it, nothing depends on it.
 // Disabled, neither. The transition lives in index.css (.bb-cta).
 const CTA_TOP_EDGE = true;
+// `bb-accent-main` (R5): under the venue's accent colour the main button
+// wears it, its text picked by contrast (index.css "BOOKING ACCENT").
 const CTA_FINISH =
-  "bb-cta disabled:shadow-none " +
+  "bb-cta bb-accent-main disabled:shadow-none " +
+
   (CTA_TOP_EDGE
     ? "shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_1px_2px_rgb(16_24_40/0.18)]"
     : "shadow-[0_1px_2px_rgb(16_24_40/0.18)]");
@@ -331,7 +335,7 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords =
                 <span
                   className={
                     "block text-[10px] leading-none h-3 mt-1 font-medium " +
-                    (slot === s ? "text-white/80 dark:text-gray-900/70" : "text-bb-green-dark dark:text-emerald-400")
+                    (slot === s ? "bb-pick-quiet text-white/80 dark:text-gray-900/70" : "text-bb-green-dark dark:text-emerald-400")
                   }
                 >
                   {note}
@@ -396,7 +400,7 @@ function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = fals
         const reason = reasons ? reasons[iso] : null;
         const word = closed ? chipWord(reason, t) : null;
         const active = value === iso;
-        const quiet = active ? "text-white/75 dark:text-gray-500" : "text-gray-500 dark:text-gray-400";
+        const quiet = active ? "bb-pick-quiet text-white/75 dark:text-gray-500" : "text-gray-500 dark:text-gray-400";
         return (
           <button
             key={iso}
@@ -1031,6 +1035,14 @@ export default function ReservationPublicPage() {
   const [page, setPage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(""); // "" | "closed" | "generic"
+
+  // ── The venue's own colour (booking R5) ───────────────────────────
+  // business_profile.accent_color, chosen by the owner in settings (never
+  // from the link: a ?accent= cannot repaint the page). The picked chips and
+  // the main button wear it, with the text picked by contrast
+  // (utils/accentColor.js) — a light gold gets the ink, never white. No
+  // colour → null → BonBox's own look, exactly as before.
+  const accent = useMemo(() => accentTokens(page?.accent_color), [page?.accent_color]);
 
   // ── Step state ───────────────────────────────────────────────────
   const [step, setStep] = useState(1); // 1 = date+party+slot, 2 = details
@@ -2905,6 +2917,8 @@ export default function ReservationPublicPage() {
   return (
     <div
       data-testid="rsvp-root"
+      data-bb-accent={accent ? "" : undefined}
+      style={accentStyle(accent)}
       className={`${rootMinH} ${ROOT_FINISH} bg-white dark:bg-gray-950 ${
         // Tablet/desktop: the booking sits on a card over a quiet ground,
         // instead of a narrow column floating on a white page. Embedded,
@@ -3894,7 +3908,7 @@ export default function ReservationPublicPage() {
                               className={
                                 "h-9 px-3.5 rounded-xl border text-[13px] transition-colors duration-200 ease-out " + FOCUS + " " +
                                 (on
-                                  ? "bg-bb-green-dark border-bb-green-dark text-white font-medium"
+                                  ? "bb-pick bg-bb-green-dark border-bb-green-dark text-white font-medium"
                                   : "bg-white border-gray-200 text-gray-800 hover:border-gray-400 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200")
                               }
                             >
@@ -3921,7 +3935,7 @@ export default function ReservationPublicPage() {
                                 className={
                                   "h-10 rounded-xl border text-[13px] transition-colors duration-200 ease-out " + FOCUS + " " +
                                   (allergySeverity === k
-                                    ? "bg-gray-900 border-gray-900 text-white font-semibold dark:bg-white dark:border-white dark:text-gray-900"
+                                    ? "bb-pick bg-gray-900 border-gray-900 text-white font-semibold dark:bg-white dark:border-white dark:text-gray-900"
                                     : "bg-white border-gray-200 text-gray-800 hover:border-gray-400 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200")
                                 }
                               >
@@ -3970,7 +3984,7 @@ export default function ReservationPublicPage() {
                             className={
                               "h-9 px-3.5 rounded-xl border text-[13.5px] transition-colors duration-200 ease-out " + FOCUS + " " +
                               (on
-                                ? "bg-gray-900 border-gray-900 text-white font-medium dark:bg-white dark:border-white dark:text-gray-900"
+                                ? "bb-pick bg-gray-900 border-gray-900 text-white font-medium dark:bg-white dark:border-white dark:text-gray-900"
                                 : "bg-white border-gray-200 text-gray-800 hover:border-gray-400 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-200")
                             }
                           >

@@ -23,6 +23,7 @@ import { Check, Copy, Download, ExternalLink, Globe, Mail, Monitor, Smartphone }
 import TabPills from "../ui/TabPills";
 import { saveFile } from "../../utils/download";
 import { platform } from "../../utils/platform";
+import { BOOKING_LOOK_EVENT } from "../../utils/accentColor";
 import {
   BUTTON_STYLE,
   EMBED_WIDTHS,
@@ -271,6 +272,14 @@ export default function WebsiteBookingKit({
   const [previewH, setPreviewH] = useState(640);
   const qrRef = useRef(null);
   const frameRef = useRef(null);
+  // Booking R5: the owner changed the page's colour (BookingAccentRow) — the
+  // open preview reloads, so it shows what guests now get.
+  const [look, setLook] = useState(0);
+  useEffect(() => {
+    const bump = () => setLook((n) => n + 1);
+    window.addEventListener(BOOKING_LOOK_EVENT, bump);
+    return () => window.removeEventListener(BOOKING_LOOK_EVENT, bump);
+  }, []);
   const pickDevice = (d) => {
     if (d === device) return;
     // The other frame is another width: its height comes from its own
@@ -604,6 +613,7 @@ export default function WebsiteBookingKit({
                   // same /r/ route and ?embed=1 the snippet loads.
                   <div className="mx-auto w-full max-w-[375px] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
                     <iframe
+                      key={look}
                       ref={frameRef}
                       src={kit.preview}
                       title={t("rsvpWebPreviewTitle")}
@@ -616,6 +626,7 @@ export default function WebsiteBookingKit({
                 )}
                 {canFramePreview && device === "computer" && (
                   <HostPreview
+                    key={look}
                     src={kit.preview}
                     width={width}
                     height={previewH}

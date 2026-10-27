@@ -113,6 +113,7 @@ import InsightsSection from "../components/reservations/InsightsSection";
 import WaitlistSection from "../components/reservations/WaitlistSection";
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
 import BookingNameRow from "../components/reservations/BookingNameRow";
+import BookingAccentRow from "../components/reservations/BookingAccentRow";
 import ClosuresCard, { PauseControl } from "../components/reservations/ClosuresCard";
 import { isHeldForCheck, heldWhy, heldWanted } from "../utils/bookingHeld";
 import { activePause, fmtClosureRange, todayIso } from "../utils/closures";
@@ -9858,6 +9859,9 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
         onSaved={fetchSettings}
         apptWords={apptWords}
       />
+
+      {/* The page's colour, right under its name (booking R5). */}
+      <BookingAccentRow t={t} />
 
       {/* On/off toggle (+ the pause, while the page is live) */}
       <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3">

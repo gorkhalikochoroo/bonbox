@@ -33,8 +33,11 @@ export const TILE_HOVER =
 
 // The contact shadow composes with the focus ring (Tailwind 4 stacks
 // --tw-shadow under --tw-ring-shadow), so a focused pick keeps both.
+// `bb-pick` (R5): under a venue's accent colour ([data-bb-accent] on the
+// page root, index.css "BOOKING ACCENT") the pick wears that colour instead
+// of the ink, with its text picked by contrast. Without one, nothing changes.
 export const TILE_PICKED =
-  "bb-tile border bg-gray-900 border-gray-900 text-white " +
+  "bb-tile bb-pick border bg-gray-900 border-gray-900 text-white " +
   "shadow-[0_1px_2px_rgb(16_24_40/0.16),0_2px_6px_-2px_rgb(16_24_40/0.18)] " +
   "dark:bg-gray-100 dark:border-gray-100 dark:text-gray-900 dark:shadow-[0_1px_2px_rgb(0_0_0/0.45)]";
 

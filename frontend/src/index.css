@@ -1424,3 +1424,46 @@ body:has([aria-modal="true"]) .bonbox-ai-fab { display: none !important; }
   :root.bb-embed-card,
   :root.bb-embed-card body { background-color: transparent !important; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BOOKING ACCENT (R5, 27 Oct 2026) — the owner's colour on the public
+   booking page: the picked chips (party, day, time) and the main button.
+   Only under [data-bb-accent], which the page sets on its root when the
+   venue has a colour (business_profile.accent_color); without it nothing
+   here applies and the page keeps BonBox's own look (ink chips, green
+   button). The colours come in as custom properties from
+   utils/accentColor.js, already checked: text ≥ 4.5:1 on the fill (a light
+   gold gets the ink, not white), the edge ≥ 3:1 from the ground.
+   Unlayered on purpose, like the rest of this file: it must win over the
+   Tailwind utilities on the same elements (bg-gray-900, bg-bb-green-dark).
+   Meaning colours are untouched: emerald on the receipt still says
+   "confirmed", the disabled button stays grey.
+   ═══════════════════════════════════════════════════════════════════════ */
+[data-bb-accent] .bb-pick {
+  background-color: var(--bb-accent);
+  border-color: var(--bb-accent-edge);
+  color: var(--bb-accent-fg);
+}
+.dark [data-bb-accent] .bb-pick { border-color: var(--bb-accent-edge-dark); }
+/* The softer lines inside a picked tile (day name, month, "2 left"). */
+[data-bb-accent] .bb-pick .bb-pick-quiet { color: var(--bb-accent-fg-quiet); }
+/* The main button: its fill, its text, a 1 px edge (only visible where the
+   colour is close to the ground) and its focus ring. Hover only where a
+   pointer hovers. A busy button keeps its colour while it sends. */
+[data-bb-accent] .bb-accent-main:not(:disabled),
+[data-bb-accent] .bb-accent-main[aria-busy="true"] {
+  background-color: var(--bb-accent);
+  color: var(--bb-accent-fg);
+  --tw-inset-ring-shadow: inset 0 0 0 1px var(--bb-accent-edge);
+  --tw-ring-color: var(--bb-accent-edge);
+}
+.dark [data-bb-accent] .bb-accent-main:not(:disabled),
+.dark [data-bb-accent] .bb-accent-main[aria-busy="true"] {
+  --tw-inset-ring-shadow: inset 0 0 0 1px var(--bb-accent-edge-dark);
+  --tw-ring-color: var(--bb-accent-edge-dark);
+}
+@media (hover: hover) and (pointer: fine) {
+  [data-bb-accent] .bb-accent-main:not(:disabled):hover { background-color: var(--bb-accent-hover); }
+}
+/* The owner's preview swatch in Reservationer → Indstillinger draws the same
+   two pieces with the same rules (components/reservations/BookingAccentRow). */
