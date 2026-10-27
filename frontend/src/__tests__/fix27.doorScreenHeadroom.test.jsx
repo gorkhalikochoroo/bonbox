@@ -68,11 +68,25 @@ describe("a sheet loaded on first use", () => {
 describe("the book's page", () => {
   const page = read("pages/ReservationsPage.jsx");
 
-  it("loads both sheets on first use in the door screen's build only", () => {
-    expect(page).toMatch(/const NoTableFitsSheet = __STAND_BUILD__\s*\?\s*standSheet\(\(\) => import\("\.\.\/components\/reservations\/NoTableFitsSheet"\)\)\s*:\s*NoTableFitsSheetStatic;/);
-    expect(page).toMatch(/const EditBookingSheet = __STAND_BUILD__\s*\?\s*standSheet\(\(\) => import\("\.\.\/components\/reservations\/EditBookingSheet"\)\)\s*:\s*EditBookingSheetStatic;/);
+  it("loads both sheets on first use in the door screen's build only (a module swap)", async () => {
+    const { STAND_SWAPS, standFiles } = await import("../../scripts/standBuild.mjs");
+    expect(STAND_SWAPS["components/reservations/NoTableFitsSheet.jsx"]).toBe("stand/standNoTableFitsSheet.jsx");
+    expect(STAND_SWAPS["components/reservations/EditBookingSheet.jsx"]).toBe("stand/standEditBookingSheet.jsx");
+    for (const [stand, real] of [["stand/standNoTableFitsSheet.jsx", "NoTableFitsSheet"],
+      ["stand/standEditBookingSheet.jsx", "EditBookingSheet"]]) {
+      const src = read(stand);
+      expect(src).toContain(`standSheet(() => import("../components/reservations/${real}.jsx"))`);
+      expect(src).not.toMatch(/^import .*components\/reservations/m);   // never a static import
+    }
+    // The owner app imports both as before; the page no longer holds the edit sheet.
+    expect(page).toContain('import NoTableFitsSheet from "../components/reservations/NoTableFitsSheet";');
+    expect(page).toContain('import EditBookingSheet from "../components/reservations/EditBookingSheet";');
     expect(page).not.toMatch(/^function EditBookingSheet\(/m);
     expect(read("components/reservations/EditBookingSheet.jsx")).toMatch(/^export default function EditBookingSheet\(/m);
+    // The door screen's words still hold what the sheets say (read through the lazy import).
+    const files = [...standFiles()].map((f) => f.split("/src/")[1]);
+    expect(files).toContain("stand/standEditBookingSheet.jsx");
+    expect(files).toContain("components/reservations/EditBookingSheet.jsx");
   });
 
   it("never draws the plan-cap nudge on the door screen", () => {

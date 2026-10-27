@@ -54,6 +54,12 @@ export const STAND_SWAPS = {
   // Full dictionaries (another language, the safety net): the app build's
   // own files, never a second copy (appDictionaries below).
   "lib/localeStore.js": "stand/standLocales.js",
+  // The two sheets the door screen opens least (fix round 27 Oct; MERGE §5
+  // item 4): loaded on first use, fetched quietly once the book has had the
+  // screen a while, "Prøv igen" if that fails (stand/standSheet.jsx). Each
+  // stand-in's own import reaches the real sheet, in a lazy chunk.
+  "components/reservations/NoTableFitsSheet.jsx": "stand/standNoTableFitsSheet.jsx",
+  "components/reservations/EditBookingSheet.jsx": "stand/standEditBookingSheet.jsx",
 };
 
 // The app build lists its dictionary files here (in dist/, removed again by

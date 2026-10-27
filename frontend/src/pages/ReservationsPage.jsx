@@ -124,9 +124,11 @@ import {
 } from "../utils/hostStand";
 import InsightsSection from "../components/reservations/InsightsSection";
 import WaitlistSection from "../components/reservations/WaitlistSection";
-import NoTableFitsSheetStatic from "../components/reservations/NoTableFitsSheet";
-import EditBookingSheetStatic from "../components/reservations/EditBookingSheet";
-import standSheet from "../stand/standSheet";
+// The door screen's own build swaps these two for stand/standNoTableFitsSheet
+// and stand/standEditBookingSheet (scripts/standBuild.mjs STAND_SWAPS): loaded
+// on first use there (fix round 27 Oct; MERGE §5 item 4).
+import NoTableFitsSheet from "../components/reservations/NoTableFitsSheet";
+import EditBookingSheet from "../components/reservations/EditBookingSheet";
 import { useEscToClose, useSheetFocus } from "../hooks/useSheetFocus";
 import { snapStart } from "../utils/snapStart";
 import AllergyLine, { AllergyIcon } from "../components/reservations/AllergyWords";
@@ -175,17 +177,6 @@ import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../utils/dailyCloseDay";
 import { parseServerTime } from "../utils/serverTime";
 import { guestText } from "../utils/guestText";
 
-// The two sheets the door screen opens least (R11's other trims; MERGE §5
-// item 4, fix round 27 Oct): its own build loads them on first use, fetched
-// quietly once the book has had the screen a while, with "Prøv igen" if the
-// fetch fails (stand/standSheet.jsx) — the 200 kB budget keeps headroom.
-// The owner app (and vitest) imports them as before.
-const NoTableFitsSheet = __STAND_BUILD__
-  ? standSheet(() => import("../components/reservations/NoTableFitsSheet"))
-  : NoTableFitsSheetStatic;
-const EditBookingSheet = __STAND_BUILD__
-  ? standSheet(() => import("../components/reservations/EditBookingSheet"))
-  : EditBookingSheetStatic;
 
 // Status → status-pill styling. Colour is BUDGETED, status-only (design
 // doctrine): it appears where it MEANS something and recedes where it

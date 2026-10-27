@@ -73,7 +73,10 @@ describe("what the door screen reaches", () => {
   });
   it("never the app's shell modules it swaps out, a dictionary, or an owner-only card", () => {
     for (const f of Object.keys(STAND_SWAPS)) {
-      if (f === "components/FloorPlan.jsx") continue; // the stand-in's own import reaches it
+      // The stand-in's own (lazy) import reaches these — the plan, and the
+      // two sheets loaded on first use (fix round 27 Oct).
+      if (["components/FloorPlan.jsx", "components/reservations/NoTableFitsSheet.jsx",
+        "components/reservations/EditBookingSheet.jsx"].includes(f)) continue;
       expect(files, f).not.toContain(f);
     }
     expect(files.some((f) => f.startsWith("i18n/"))).toBe(false);
