@@ -240,8 +240,10 @@ def test_a_db_error_returns_a_dict_and_keeps_the_counts(monkeypatch):
 
 def test_alerts_carry_no_address_and_no_ip(h, monkeypatch):
     _add_users(h.Session, 20)
+    # booking_screen_error: R2's booking-burst kind trips on a failing screen.
     h.tick(magic_link_fleet=2, magic_link_domain=1, guest_mail_fleet=3,
-           staff_join_cooloff=1, stand_join_cooloff=1, no_edge=50, edge=7)
+           staff_join_cooloff=1, stand_join_cooloff=1, no_edge=50, edge=7,
+           booking_screen_error=1)
     assert {h.row(s).state for s in amj.SERVICES} == {"BROKEN"}
     # The 20 accounts stay in the window; raise the bar so every kind goes quiet.
     monkeypatch.setattr(settings, "SIGNUP_ALERT_PER_HOUR", 1000)
@@ -261,7 +263,8 @@ def test_alerts_carry_no_address_and_no_ip(h, monkeypatch):
 
 def test_service_names_fit_the_column():
     assert all(len(s) <= 50 for s in amj.SERVICES)
-    assert len(set(amj.SERVICES)) == 6
+    # R2 (27 Oct 2026) ADDED abuse_booking_burst; nothing removed. Was 6.
+    assert len(set(amj.SERVICES)) == 7
     assert "frontend_prod" not in amj.SERVICES
 
 

@@ -109,8 +109,11 @@ def test_a_drip_at_two_venues_no_longer_silences_a_third(client, db, outbox, clo
     clock.local = start + timedelta(hours=9, minutes=5)
     r = book(client, p3.reservation_slug, day=day, time="19:00", name="Mette Rigtig",
              email="mette@example.dk", form_ms=52000)
-    assert r.json() | {"id": None, "booking_token": None} == {
-        "id": None, "booking_token": None, "status": "confirmed", "guest_mail": True}
+    # R2: the answer also carries the booking's length (duration_min) for the
+    # receipt's calendar file.
+    assert r.json() | {"id": None, "booking_token": None, "duration_min": None} == {
+        "id": None, "booking_token": None, "duration_min": None, "status": "confirmed",
+        "guest_mail": True}
     assert [x.status for x in logs(db, u3, channel="email", event_type="guest_confirmation")] == ["sent"]
     assert [m["to"] for m in outbox if m["to"] == "mette@example.dk"] == ["mette@example.dk"]
 
