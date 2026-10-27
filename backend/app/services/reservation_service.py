@@ -13,8 +13,10 @@ import json
 import logging
 import re
 import secrets
+import uuid
 from datetime import date, datetime, time, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -28,7 +30,7 @@ from app.models.staff import Schedule
 from app.services.availability_engine import (
     AvailabilityConfig, BusyInterval, ResourceView, TimeWindow,
     assign_seats, combinable_zone_overflow, compute_slots, find_slot_resource,
-    find_slot_resources, time_grid, turn_time_minutes,
+    find_slot_resources, time_grid, turn_time_minutes, window_admits,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,10 @@ DEFAULT_SETTINGS: dict = {
     "retention_days": 90,            # GDPR purge window after service date
     # Appointment vertical default service length when none specified.
     "default_service_duration_min": 60,
+    # A salon's pause between customers (R6): minutes added after every
+    # appointment on a chair, 0/5/10/15. Online bookings only; the owner can
+    # still write a customer in closer. Read through service_buffer().
+    "service_buffer_min": 0,
     # SMS reminders (Pro): owner opt-in, off by default. sms_sender is the
     # alphanumeric sender ID shown on the text (max 11 chars).
     "sms_reminders": False,
@@ -144,9 +150,123 @@ def pacing_cap(settings: dict) -> int | None:
     return min(n, PACING_MAX) if n >= 1 else None
 
 
+# Start times ("Starttider", R6). The steps an owner can pick; the reader
+# below still honours any sane stored value (5–120) so a venue that stored
+# something else by hand keeps its grid, and anything junk reads as 15 — a
+# string used to fail every public page with a 500, and a stored 1 built a
+# one-minute grid.
+SLOT_STEPS = (15, 30, 60)
+DEFAULT_SLOT_STEP = 15
+# A NEW salon starts on 30-minute start times (rubric S3): a 09:15 start
+# left a 15-minute hole no 30-minute service could fill. Restaurants, and
+# salons that already take bookings, keep 15 until the owner chooses.
+NEW_SALON_SLOT_STEP = 30
+# "Pause mellem kunder" (R6): the choices the owner has.
+SERVICE_BUFFERS = (0, 5, 10, 15)
+
+
+def slot_step(settings: dict) -> int:
+    """The start-time step the engine walks: a stored whole number 5–120,
+    else 15."""
+    raw = settings.get("slot_granularity_min", DEFAULT_SLOT_STEP)
+    if isinstance(raw, bool):
+        return DEFAULT_SLOT_STEP
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_SLOT_STEP
+    return n if 5 <= n <= 120 else DEFAULT_SLOT_STEP
+
+
+def clean_slot_step(raw) -> int | None:
+    """An owner's Starttider choice as the settings PUT stores it: one of
+    SLOT_STEPS, or None (dropped — the stored value stays)."""
+    if isinstance(raw, bool):
+        return None
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return n if n in SLOT_STEPS else None
+
+
+def service_buffer(settings: dict) -> int:
+    """The salon's pause after each appointment, in minutes: a stored whole
+    number 0–60, else 0 (no pause)."""
+    raw = settings.get("service_buffer_min", 0)
+    if isinstance(raw, bool) or raw is None:
+        return 0
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return n if 0 <= n <= 60 else 0
+
+
+def clean_service_buffer(raw) -> int | None:
+    """An owner's pause choice as the settings PUT stores it: one of
+    SERVICE_BUFFERS, or None (dropped)."""
+    if isinstance(raw, bool):
+        return None
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return n if n in SERVICE_BUFFERS else None
+
+
+def _online_buffer(settings: dict, buffer_min: int | None) -> int:
+    """The pause a chair check uses: the caller's explicit value (the owner's
+    own paths pass 0), else the venue's setting (online)."""
+    if buffer_min is None:
+        return service_buffer(settings)
+    return max(0, int(buffer_min))
+
+
+def start_new_salon_on_30(db: Session, user_id, profile: BusinessProfile | None) -> bool:
+    """Called just before a venue's chair is created (salon quick-setup, a
+    stylist station). A NEW salon — no chair ever (deleted ones count), no
+    table, and an owner who never picked Starttider — starts on 30-minute
+    start times. Returns True when it set them. Never raises: the chair the
+    owner asked for is the contract."""
+    if profile is None:
+        return False
+    try:
+        raw = json.loads(profile.reservation_settings_json or "{}")
+        if not isinstance(raw, dict):
+            raw = {}
+    except (ValueError, TypeError):
+        raw = {}
+    if raw.get("slot_step_chosen"):
+        return False
+    try:
+        had_chair = (
+            db.query(BookableResource.id)
+            .filter(BookableResource.user_id == user_id,
+                    BookableResource.kind == "provider")
+            .first()
+        ) is not None
+        has_table = (
+            db.query(BookableResource.id)
+            .filter(BookableResource.user_id == user_id,
+                    BookableResource.kind != "provider",
+                    BookableResource.is_deleted.is_(False))
+            .first()
+        ) is not None
+    except SQLAlchemyError:
+        logger.warning("new-salon start step: lookup failed", exc_info=True)
+        return False
+    if had_chair or has_table:
+        return False
+    merged = load_settings(profile)
+    merged["slot_granularity_min"] = NEW_SALON_SLOT_STEP
+    profile.reservation_settings_json = json.dumps(merged)
+    return True
+
+
 def build_config(settings: dict) -> AvailabilityConfig:
     return AvailabilityConfig(
-        slot_granularity_min=int(settings.get("slot_granularity_min", 15)),
+        slot_granularity_min=slot_step(settings),
         pacing_max_per_slot=pacing_cap(settings),
         pacing_window_min=int(settings.get("pacing_window_min", 15)),
         turn_time_tiers=settings.get("turn_time_tiers") or [],
@@ -166,11 +286,255 @@ def _parse_hhmm(s: str) -> time | None:
         return None
 
 
+# ── Booking hours: one or two periods a day (R8, rubric R4 / R8) ─────────
+# A weekday's value in `booking_hours` is one of:
+#   "closed"
+#   "HH:MM-HH:MM"                          one period (every value before R8)
+#   [{"open": "HH:MM", "close": "HH:MM", "last": "HH:MM"?}, …]   1–2 periods
+# The list shape is written only when it says more than the string can: two
+# periods (lunch and dinner), or a last booking time the owner chose. Old
+# strings keep working everywhere, and every reader goes through
+# day_periods(), so no reader can disagree with another about a day.
+MAX_PERIODS = 2
+# The shape this server reads and writes. GET /reservations/settings says
+# so, and a client sends it back with its hours: a client that does not
+# (an older app) cannot show a two-period day, and its echo of that day
+# must not overwrite it (keep_period_days).
+HOURS_SHAPE = 2
+HOURS_PROBLEMS = ("bad_value", "bad_time", "too_many", "overlap", "last_outside")
+_HHMM_RE = re.compile(r"\s*(\d{1,2}):(\d{2})\s*")
+
+
+def _period_from(item) -> dict | None:
+    """One stored period → {"open": time, "close": time, "last": time|None},
+    or None when it cannot be read. Lenient, as restaurant_windows always
+    was: an old string takes its first two parts."""
+    if isinstance(item, str):
+        parts = item.split("-")
+        if len(parts) < 2:
+            return None
+        o, c, last = _parse_hhmm(parts[0]), _parse_hhmm(parts[1]), None
+    elif isinstance(item, dict):
+        o_raw, c_raw, l_raw = item.get("open"), item.get("close"), item.get("last")
+        o = _parse_hhmm(o_raw) if isinstance(o_raw, str) else None
+        c = _parse_hhmm(c_raw) if isinstance(c_raw, str) else None
+        last = _parse_hhmm(l_raw) if isinstance(l_raw, str) and l_raw.strip() else None
+    else:
+        return None
+    if not o or not c:
+        return None
+    return {"open": o, "close": c, "last": last}
+
+
+def day_periods(spec) -> list[dict] | None:
+    """The periods one weekday's booking-hours value declares, in the order
+    stored: [] for "closed", None when it declares nothing readable (missing,
+    junk). An old "17:00-22:00" reads as one period with no last booking
+    time. At most MAX_PERIODS are read."""
+    if spec == "closed":
+        return []
+    if isinstance(spec, str):
+        p = _period_from(spec)
+        return [p] if p else None
+    if isinstance(spec, list):
+        out = [p for p in (_period_from(x) for x in spec[:MAX_PERIODS]) if p]
+        return out or None
+    return None
+
+
+def spec_windows(spec, day: date, *, with_last: bool = True) -> list[TimeWindow]:
+    """A weekday's value → the day's open windows. A close at or before the
+    open runs past midnight. `with_last`: carry the owner's last booking
+    time (tables); a salon's chair never reads it (its last start is
+    closing minus the service). A last booking time outside its period is
+    ignored, never stretched."""
+    out: list[TimeWindow] = []
+    for p in day_periods(spec) or []:
+        start = datetime.combine(day, p["open"])
+        end = datetime.combine(day, p["close"])
+        if end <= start:                       # crosses midnight
+            end += timedelta(days=1)
+        last = None
+        if with_last and p["last"] is not None:
+            lt = datetime.combine(day, p["last"])
+            if lt < start:
+                lt += timedelta(days=1)
+            if lt <= end:
+                last = lt
+        out.append(TimeWindow(start=start, end=end, last_start=last))
+    return out
+
+
+def _day_declares(v) -> bool:
+    """Does one stored weekday value declare open hours? An old string
+    counts exactly as it always did ("-" in it); a list needs a readable
+    period."""
+    if isinstance(v, str):
+        return "-" in v
+    if isinstance(v, list):
+        return bool(day_periods(v))
+    return False
+
+
+def booking_hours_saved(bh) -> bool:
+    """Has the owner SAVED booking hours — any weekday "closed" or with open
+    hours? (The salon first-run card keeps saved hours; the capacity card
+    asks for them.)"""
+    return isinstance(bh, dict) and any(v == "closed" or _day_declares(v) for v in bh.values())
+
+
+def _norm_hhmm(raw) -> str | None:
+    """"9:05" / "09:05" → "09:05"; anything else (24:00, 7:5, junk) → None."""
+    if not isinstance(raw, str):
+        return None
+    m = _HHMM_RE.fullmatch(raw)
+    if not m:
+        return None
+    h, mi = int(m.group(1)), int(m.group(2))
+    if h > 23 or mi > 59:
+        return None
+    return f"{h:02d}:{mi:02d}"
+
+
+def _mins(hhmm: str) -> int:
+    h, m = hhmm.split(":")
+    return int(h) * 60 + int(m)
+
+
+def _clean_day_hours(value) -> tuple[object | None, str | None]:
+    """One weekday as an owner sent it → (the value to store, None), or
+    (None, problem). (None, None) = leave the day unset.
+
+    Periods are sorted by opening; each must end at or before the next one
+    opens (only the last may run past midnight); a last booking time must
+    lie inside its period. One period without a last booking time is stored
+    as the old "HH:MM-HH:MM" string, so a week saved without the new
+    controls reads exactly as before."""
+    if value is None or value == "":
+        return None, None
+    if value == "closed":
+        return "closed", None
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, list):
+        items = value
+    else:
+        return None, "bad_value"
+    if not items:
+        return None, "bad_value"
+    if len(items) > MAX_PERIODS:
+        return None, "too_many"
+    spans = []
+    for it in items:
+        if isinstance(it, str):
+            parts = it.split("-")
+            if len(parts) != 2:
+                return None, "bad_time"
+            o, c, last = _norm_hhmm(parts[0]), _norm_hhmm(parts[1]), None
+        elif isinstance(it, dict):
+            o, c = _norm_hhmm(it.get("open")), _norm_hhmm(it.get("close"))
+            raw_last = it.get("last")
+            last = None
+            if raw_last not in (None, ""):
+                last = _norm_hhmm(raw_last)
+                if last is None:
+                    return None, "bad_time"
+        else:
+            return None, "bad_value"
+        if not o or not c:
+            return None, "bad_time"
+        a, b = _mins(o), _mins(c)
+        if b <= a:                             # past midnight (or all day)
+            b += 1440
+        if last is not None:
+            x = _mins(last)
+            if x < a:
+                x += 1440
+            if x > b:
+                return None, "last_outside"
+        spans.append((a, b, o, c, last))
+    spans.sort(key=lambda s: s[0])
+    for prev, nxt in zip(spans, spans[1:]):
+        if prev[1] > nxt[0]:
+            return None, "overlap"
+    if len(spans) == 1 and spans[0][4] is None:
+        return f"{spans[0][2]}-{spans[0][3]}", None
+    return [
+        {"open": o, "close": c, **({"last": last} if last else {})}
+        for _a, _b, o, c, last in spans
+    ], None
+
+
+def clean_booking_hours(raw, *, strict: bool = True) -> tuple[dict, dict | None]:
+    """An owner's weekly booking hours → (what to store, problem).
+
+    Only mon..sun are kept. `strict` (a client that reads periods): the
+    first weekday that cannot be stored stops the save with
+    {"day": "tue", "problem": one of HOURS_PROBLEMS}. Not strict (the salon
+    quick-setup, as before R8): such a day is dropped and the rest kept."""
+    out: dict = {}
+    if not isinstance(raw, dict):
+        return out, ({"day": None, "problem": "bad_value"} if strict else None)
+    for k in _WEEKDAY_KEYS:
+        if k not in raw:
+            continue
+        value, problem = _clean_day_hours(raw.get(k))
+        if problem:
+            if strict:
+                return {}, {"day": k, "problem": problem}
+            continue
+        if value is not None:
+            out[k] = value
+    return out, None
+
+
+def keep_period_days(stored, incoming):
+    """Hours from a client that cannot show periods (it sent no hours_shape:
+    an older app, or one still cached). Such a client shows a two-period
+    day — or one with a last booking time — as its plain suggestion, and
+    sends that back with every save. Each such day is kept as stored. Only
+    "closed" passes: it takes a tap, never an echo. Every other day is
+    taken as sent, as before R8."""
+    if not isinstance(stored, dict) or not isinstance(incoming, dict):
+        return incoming
+    out = dict(incoming)
+    for k, v in stored.items():
+        if k in out and isinstance(v, list) and out[k] != "closed":
+            out[k] = v
+    return out
+
+
+def owner_windows(windows: list[TimeWindow]) -> list[TimeWindow]:
+    """The windows the OWNER may book on. The last booking time binds the
+    guest page; the owner keeps the classic rule as well (a sitting that
+    ends by closing), so "sidste booking 20:00" never refuses the owner a
+    20:15 for two that is done by 22:00 — and a 21:00 past closing is
+    hers too when the last booking time allows it (decision 3: the owner
+    is the authority on her own book)."""
+    out: list[TimeWindow] = []
+    for w in windows:
+        if w.last_start is not None:
+            out.append(dataclasses.replace(w, last_start=None))
+        out.append(w)
+    return out
+
+
+def request_start_ok(windows: list[TimeWindow], start: datetime) -> bool:
+    """A group request's preferred time is inside an open window: from its
+    opening up to the last booking time when the owner set one, else
+    before closing (as before R8)."""
+    for w in windows:
+        if w.start <= start and (start <= w.last_start if w.last_start is not None
+                                 else start < w.end):
+            return True
+    return False
+
+
 def hours_declared(profile: BusinessProfile | None, settings: dict) -> bool:
     """Has the venue told us when it is open — booking hours, or the
     business's opening hours — for at least one day?"""
     bh = settings.get("booking_hours")
-    if isinstance(bh, dict) and any(isinstance(v, str) and "-" in v for v in bh.values()):
+    if isinstance(bh, dict) and any(_day_declares(v) for v in bh.values()):
         return True
     raw = getattr(profile, "operating_hours_json", None) if profile else None
     if raw:
@@ -231,20 +595,14 @@ def restaurant_windows(profile: BusinessProfile | None, day: date,
     (11:00–22:00 every day), and a venue's page went live on those invented
     hours the moment it added its first table: a café closing at 17:00 and
     shut on Mondays took bookings for Monday at 21:00.
-    Closes past midnight roll to the next day (e.g. '18:00-02:00')."""
-    spec, _source = _day_spec(profile, settings, _WEEKDAY_KEYS[day.weekday()])
-    if spec is None or spec == "closed" or "-" not in str(spec):
-        return []
-    open_s, close_s = str(spec).split("-")[:2]
+    Closes past midnight roll to the next day (e.g. '18:00-02:00').
 
-    o, c = _parse_hhmm(open_s), _parse_hhmm(close_s)
-    if not o or not c:
+    R8: a day may hold two periods (lunch and dinner) — one window each —
+    and a period may carry the owner's last booking time (`last_start`)."""
+    spec, _source = _day_spec(profile, settings, _WEEKDAY_KEYS[day.weekday()])
+    if spec is None:
         return []
-    start = datetime.combine(day, o)
-    end = datetime.combine(day, c)
-    if end <= start:                       # crosses midnight
-        end += timedelta(days=1)
-    return [TimeWindow(start=start, end=end)]
+    return spec_windows(spec, day, with_last=True)
 
 
 # A fixed Monday. restaurant_windows() and _opening_hours_windows() read only
@@ -253,22 +611,32 @@ def restaurant_windows(profile: BusinessProfile | None, day: date,
 _REFERENCE_MONDAY = date(2026, 1, 5)
 
 
-def _hhmm_pairs(windows: list[TimeWindow]) -> list[list[str]]:
-    return [[w.start.strftime("%H:%M"), w.end.strftime("%H:%M")] for w in windows]
+def _hhmm_pairs(windows: list[TimeWindow], with_last: bool = False) -> list[list[str]]:
+    """[["17:00", "22:00"], …]; with `with_last`, a window with a last
+    booking time gets it third: ["17:00", "22:00", "21:00"]."""
+    return [
+        [w.start.strftime("%H:%M"), w.end.strftime("%H:%M")]
+        + ([w.last_start.strftime("%H:%M")] if with_last and w.last_start is not None else [])
+        for w in windows
+    ]
 
 
-def week_windows(profile: BusinessProfile | None, settings: dict) -> dict:
+def week_windows(profile: BusinessProfile | None, settings: dict,
+                 with_last: bool = False) -> dict:
     """{"mon": [["17:00", "22:00"]], "tue": [], ..., "sun": [...]}: the table
     engine's bookable window for each weekday, Monday first, straight from
     restaurant_windows(). An empty list is a day with no window (closed,
     undeclared or unreadable — the engine books nothing). A close earlier
-    than the open runs past midnight (["18:00", "02:00"]).
+    than the open runs past midnight (["18:00", "02:00"]). Lunch and dinner
+    are two windows (R8). `with_last` adds a window's last booking time
+    third (the owner's pickers and the stand; never the guest's list).
 
     The ONE week the owner's hours card, the booking pickers, the host stand
     (reservations._open_hours_by_weekday) and the guest page's hours list
     (public_week) read, so they can never disagree."""
     return {
-        key: _hhmm_pairs(restaurant_windows(profile, _REFERENCE_MONDAY + timedelta(days=i), settings))
+        key: _hhmm_pairs(restaurant_windows(profile, _REFERENCE_MONDAY + timedelta(days=i), settings),
+                         with_last)
         for i, key in enumerate(_WEEKDAY_KEYS)
     }
 
@@ -285,7 +653,8 @@ def public_week(profile: BusinessProfile | None, settings: dict,
     Chosen per resource kind, exactly as available_slots() picks windows:
       * tables only: each weekday from restaurant_windows() (the booking
         hours when set for that day, else the Profile hours);
-      * providers only, every one a self-chair (follows_opening_hours): the
+      * providers only, every one on the opening hours (follows_opening_hours:
+        the owner's self-chair, or an R7 stylist who follows the hours): the
         booking hours only (_opening_hours_windows) — never the Profile hours;
       * a provider on stylist shifts (or a legacy row), tables and providers
         together, or no active resource: None. Shifts add or remove any day,
@@ -344,22 +713,18 @@ def _opening_hours_windows(settings: dict, day: date) -> list[TimeWindow]:
     consults operating_hours_json / fallback_open (that would invent working
     hours a salon owner never declared, breaking the honesty gate). No entry /
     "closed" / unparseable spec ⇒ [] (no slots that day). A close ≤ open rolls
-    to the next day so a late salon (e.g. "12:00-01:00") still works."""
+    to the next day so a late salon (e.g. "12:00-01:00") still works.
+
+    R8: two periods a day (a lunch break) are two windows. A chair never
+    reads a last booking time: its last start stays closing minus the
+    service (and the pause)."""
     bh = settings.get("booking_hours")
     if not isinstance(bh, dict):
         return []
     spec = bh.get(_WEEKDAY_KEYS[day.weekday()])
-    if not spec or spec == "closed" or "-" not in spec:
+    if not spec:
         return []
-    parts = spec.split("-")
-    o, c = _parse_hhmm(parts[0]), _parse_hhmm(parts[1])
-    if not o or not c:
-        return []
-    start = datetime.combine(day, o)
-    end = datetime.combine(day, c)
-    if end <= start:                       # crosses midnight (late salon)
-        end += timedelta(days=1)
-    return [TimeWindow(start=start, end=end)]
+    return spec_windows(spec, day, with_last=False)
 
 
 # Absence rows that take a stylist off the book: an absence that is waiting
@@ -404,10 +769,17 @@ def provider_windows(db: Session, user_id, resource, day: date,
         while her shift is still published.
 
     A provider row that is neither (a legacy NULL-staff row with
-    follows_opening_hours False) ⇒ [] — it never silently lights up."""
-    if getattr(resource, "follows_opening_hours", False):
-        return _opening_hours_windows(settings, day)
+    follows_opening_hours False) ⇒ [] — it never silently lights up.
+
+    R7: a stylist added by name on Behandlere may follow the opening hours
+    too (follows_opening_hours with a staff_id) — bookable whenever the salon
+    is open, no Vagtplan shifts. Her Ferie / Syg / … still takes her off
+    that day, exactly as it does a stylist on shifts."""
     staff_id = getattr(resource, "staff_id", None)
+    if getattr(resource, "follows_opening_hours", False):
+        if staff_id and (str(staff_id), day) in _absent(db, user_id, [staff_id], day, day):
+            return []
+        return _opening_hours_windows(settings, day)
     if not staff_id:
         return []
     if (str(staff_id), day) in _absent(db, user_id, [staff_id], day, day):
@@ -451,6 +823,8 @@ def _batched_provider_windows(db: Session, user_id, resources, start: date,
     staff_ids = [r.staff_id for r in resources
                  if r.kind == "provider" and r.staff_id
                  and not getattr(r, "follows_opening_hours", False)]
+    # Every stylist's absences — on shifts or on the opening hours (R7).
+    all_staff = [r.staff_id for r in resources if r.kind == "provider" and r.staff_id]
     by_day: dict = {}
     if staff_ids:
         rows = (
@@ -467,12 +841,14 @@ def _batched_provider_windows(db: Session, user_id, resources, start: date,
         for row in rows:
             by_day.setdefault((row.staff_id, row.date), []).append(row)
     # The days each stylist is away, in one query for the whole range.
-    away = _absent(db, user_id, staff_ids, start, end)
+    away = _absent(db, user_id, all_staff, start, end)
 
     def windows_for(resource, day: date) -> list[TimeWindow]:
-        if getattr(resource, "follows_opening_hours", False):
-            return _opening_hours_windows(settings, day)
         staff_id = getattr(resource, "staff_id", None)
+        if getattr(resource, "follows_opening_hours", False):
+            if staff_id and (str(staff_id), day) in away:
+                return []
+            return _opening_hours_windows(settings, day)
         if not staff_id:
             return []
         if (str(staff_id), day) in away:
@@ -559,10 +935,16 @@ def _log_combo_overflow(views: list[ResourceView]) -> None:
 
 def available_slots(db: Session, *, profile: BusinessProfile, user_id, day: date,
                     party_size: int, now: datetime | None = None,
-                    duration_min: int | None = None) -> list[datetime]:
+                    duration_min: int | None = None,
+                    service_duration_min: int | None = None) -> list[datetime]:
     """Bookable start times for a party on a day. Restaurant uses the shared
     operating-hours window across all tables; appointment verticals union
-    each provider's shift window."""
+    each provider's shift window.
+
+    `service_duration_min` (R6) is the length a chair is checked for — the
+    service the guest chose, or the salon's shortest — and reaches ONLY the
+    chairs; tables keep `duration_min` / their turn time. Chairs also hold
+    the salon's pause between customers (service_buffer)."""
     settings = load_settings(profile)
     config = build_config(settings)
     resources = active_resources(db, user_id)
@@ -589,14 +971,16 @@ def available_slots(db: Session, *, profile: BusinessProfile, user_id, day: date
 
     # Appointment providers each have their own window (self-chair opening
     # hours, or an employed stylist's published shift).
+    buf = service_buffer(settings) if providers else 0
     for p in providers:
         windows = provider_windows(db, user_id, p, day, settings)
         if not windows:
             continue
-        dur = duration_min or settings.get("default_service_duration_min", 60)
+        dur = service_duration_min or duration_min or settings.get("default_service_duration_min", 60)
         for s in compute_slots(
             windows=windows, resources=_views([p]), busy=busy,
             party_size=party_size, config=config, now=now, duration_min=dur,
+            buffer_min=buf,
         ):
             starts.add(s.start)
 
@@ -987,7 +1371,8 @@ def _held_by_pacing(db: Session, *, user_id, day: date, party_size: int,
 def classify_empty_day(db: Session, *, profile: BusinessProfile, user_id, day: date,
                        party_size: int, now: datetime, settings: dict | None = None,
                        resources: list | None = None,
-                       windows_for=None) -> str:
+                       windows_for=None,
+                       service_duration_min: int | None = None) -> str:
     """Why (day, party) has no online time — one of DAY_REASONS.
 
     PRECONDITION: the call the guest sees (available_slots /
@@ -1032,7 +1417,9 @@ def classify_empty_day(db: Session, *, profile: BusinessProfile, user_id, day: d
     t_dur = turn_time_minutes(party_size, config)
     # A salon setting: read only when there are chairs (as available_slots),
     # so a junk value stored on a table venue can't fail its every day.
-    p_dur = int(settings.get("default_service_duration_min", 60)) if providers else 0
+    # The same chair length the strip asked available_slots about (R6).
+    p_dur = (int(service_duration_min or settings.get("default_service_duration_min", 60))
+             if providers else 0)
     t0 = datetime.combine(day, time(12, 0))
     viable: list[tuple[list, int]] = []
     if t_win and (group or assign_seats(party_size, t0, t0 + timedelta(minutes=t_dur),
@@ -1108,7 +1495,8 @@ def empty_day_reason(db: Session, **kw) -> str:
 
 def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
                    start_date: date, days: int, party_size: int,
-                   now: datetime, with_reasons: bool = True) -> dict:
+                   now: datetime, with_reasons: bool = True,
+                   service_duration_min: int | None = None) -> dict:
     """Per-day open/closed overview for the public date strip + the public-surface
     monitor. Calls the SAME available_slots() a diner actually sees (or, for a
     group request, the same group_request_slots() /availability offers), so the
@@ -1134,6 +1522,12 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
     # the owner's call, not the strip's. Counting tables here marked every day
     # "closed" for exactly the parties that were only ever asking.
     group = is_group_request(settings, party_size)
+    # A salon's chairs are checked for a REAL service length (R6, rubric
+    # S10): the one the guest chose, else the shortest the salon offers —
+    # a day is open when at least that fits. The hidden 60-minute default
+    # said a day was open while a 90-minute service had no time, or closed
+    # while a 30-minute gap was free. No service at all: the old default.
+    p_len = service_duration_min or shortest_service_min(db, user_id)
     # Loaded once for the classifier, and only when reasons are asked for:
     # the resources, and (lazily, at the first empty day) every published
     # shift in the range in one query — a salon pays no query per stylist per
@@ -1176,7 +1570,7 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
         else:
             slots = available_slots(
                 db, profile=profile, user_id=user_id, day=d,
-                party_size=party_size, now=now,
+                party_size=party_size, now=now, service_duration_min=p_len,
             )
         has = len(slots) > 0
         if has:
@@ -1197,6 +1591,7 @@ def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
                 profile=profile, user_id=user_id, day=d,
                 party_size=party_size, now=now, settings=settings,
                 resources=resources, windows_for=windows_for,
+                service_duration_min=p_len,
             ))
             if exc is not None:
                 if not failed:
@@ -1218,7 +1613,8 @@ def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
                              start: datetime, party_size: int,
                              now: datetime | None = None,
                              duration_min: int | None = None,
-                             owner_booking: bool = False) -> list[str] | None:
+                             owner_booking: bool = False,
+                             buffer_min: int | None = None) -> list[str] | None:
     """Server-side race re-check at booking time, combo-aware. Returns the full
     table set to assign — one id for a single table, or two+ when the party can
     only be seated by combining tables — or None if no longer bookable.
@@ -1230,7 +1626,12 @@ def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
     `owner_booking` (R9): the owner's own booking, edit or approval is not
     paced. "Maks. gæster pr. tid" is a rule for ONLINE bookings — the owner
     naming a table never met it, and auto-pick answered "no table fits" at a
-    time when tables were free. The owner is the authority on the room."""
+    time when tables were free. The owner is the authority on the room.
+
+    `buffer_min` (R6): the pause a chair must keep around this appointment.
+    None = the salon's setting (an online booking); the owner's own paths
+    pass 0 — the owner may write a customer in closer than the guest page
+    offers. Tables never read it."""
     settings = load_settings(profile)
     config = build_config(settings)
     if owner_booking:
@@ -1241,6 +1642,10 @@ def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
     tables = [r for r in resources if r.kind != "provider"]
     if tables:
         windows = restaurant_windows(profile, start.date(), settings)
+        if owner_booking:
+            # The last booking time binds the guest page; the owner keeps
+            # the classic rule as well (R8, owner_windows).
+            windows = owner_windows(windows)
         if not windows and owner_booking and not hours_declared(profile, settings):
             # The OWNER booking a caller in by hand is the authority on when the
             # venue is open. Undeclared hours keep the public page shut (no
@@ -1259,6 +1664,8 @@ def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
         if ids:
             return ids
 
+    # The owner's own bookings (owner_booking) keep no pause unless asked.
+    buf = _online_buffer(settings, 0 if (buffer_min is None and owner_booking) else buffer_min)
     for p in resources:
         if p.kind != "provider":
             continue
@@ -1267,7 +1674,7 @@ def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
         ids = find_slot_resources(
             requested_start=start, party_size=party_size, windows=windows,
             resources=_views([p]), busy=busy, config=config, now=now,
-            duration_min=dur,
+            duration_min=dur, buffer_min=buf,
         )
         if ids:
             return ids
@@ -1286,6 +1693,114 @@ def recheck_and_assign(db: Session, *, profile: BusinessProfile, user_id,
         party_size=party_size, now=now, duration_min=duration_min,
     )
     return ids[0] if ids else None
+
+
+# ── A request the owner confirms (R11, rubric B7) ───────────────────────
+# A group request holds no table while it waits — the owner decides. When the
+# owner says yes, the party needs tables NOW, or the 8-top goes to the next
+# phone booking and eight people arrive with a confirmation to "Intet bord"
+# (20 Oct walk, T11). The pick below is the engine's own seating rule — the
+# smallest single table that seats the party, else combinable tables pushed
+# together in one zone, up to the venue's own max_combo_size — exactly what
+# the owner's phone bookings and the public page use. Only the GUEST-side
+# limits are left out: the online party ceiling, pacing and the lead time
+# bind the public page, never the owner accepting a party (decision 3: the
+# owner is the authority on her own book).
+REQUEST_FIT_TIMES = 3  # nearest other start times offered when none fit
+
+
+def owner_seating_config(settings: dict) -> AvailabilityConfig:
+    """The venue's seating rule as the OWNER books: its turn times and its
+    table-joining rule, without the online party ceiling, pacing or lead
+    time."""
+    return dataclasses.replace(
+        build_config(settings), max_party_size=None, pacing_max_per_slot=None,
+        lead_time_min=0,
+    )
+
+
+def _table_views(db: Session, user_id) -> list[ResourceView]:
+    return _views([r for r in active_resources(db, user_id) if r.kind != "provider"])
+
+
+def request_sitting_min(profile: BusinessProfile | None, party_size: int,
+                        duration_min: int | None = None) -> int:
+    """How long a request's party holds its tables: the booking's own length
+    when it has one, else the venue's turn time for the party."""
+    if duration_min:
+        return int(duration_min)
+    return turn_time_minutes(max(1, int(party_size or 1)),
+                             owner_seating_config(load_settings(profile)))
+
+
+def tables_for_request(db: Session, *, profile: BusinessProfile | None, user_id,
+                       start: datetime, party_size: int,
+                       duration_min: int | None = None) -> list[str] | None:
+    """The tables a request gets when the owner confirms it — one id, or the
+    joined set (len ≥ 2) — free for the whole sitting, read from occupancy
+    (the source the exclusion constraint guards). None when nothing seats the
+    party then, or the venue has no tables. A request holds no occupancy, so
+    nothing of its own is in the way."""
+    views = _table_views(db, user_id)
+    if not views or start is None:
+        return None
+    settings = load_settings(profile)
+    config = owner_seating_config(settings)
+    party = max(1, int(party_size or 1))
+    dur = request_sitting_min(profile, party, duration_min)
+    busy = busy_for_day(db, user_id, start.date())
+    if config.combine_enabled:
+        _log_combo_overflow(views)
+    ids = assign_seats(party, start, start + timedelta(minutes=dur), views, busy, config)
+    return [str(x) for x in ids] if ids else None
+
+
+def request_fit_facts(db: Session, *, profile: BusinessProfile | None, user_id,
+                      start: datetime, party_size: int,
+                      duration_min: int | None = None,
+                      now: datetime | None = None,
+                      max_times: int = REQUEST_FIT_TIMES) -> dict:
+    """What the owner is told when no table fits a request she confirms:
+    the largest table, the seats on tables free for the whole sitting at that
+    time, and the nearest other start times THAT DAY where the party fits by
+    the same rule (owner windows; none in the past). Pure read."""
+    views = _table_views(db, user_id)
+    settings = load_settings(profile)
+    config = owner_seating_config(settings)
+    party = max(1, int(party_size or 1))
+    dur = request_sitting_min(profile, party, duration_min)
+    out = {
+        "party_size": party,
+        "at": start.strftime("%H:%M") if start else None,
+        "sitting_min": dur,
+        "largest_table": max((v.capacity_seats for v in views), default=0),
+        "total_seats": sum(v.capacity_seats for v in views),
+        "free_seats": 0,
+        "times": [],
+        "hours_declared": hours_declared(profile, settings),
+    }
+    if not views or start is None:
+        return out
+    busy = busy_for_day(db, user_id, start.date())
+    end = start + timedelta(minutes=dur)
+    out["free_seats"] = sum(
+        v.capacity_seats for v in views
+        if all(not (b.resource_id == v.id and b.start < end and start < b.end) for b in busy)
+    )
+    windows = owner_windows(restaurant_windows(profile, start.date(), settings))
+    if not windows and not out["hours_declared"]:
+        # Undeclared hours: the whole day is the owner's (recheck_and_assign_combo).
+        day0 = datetime.combine(start.date(), time(0, 0))
+        windows = [TimeWindow(start=day0, end=day0 + timedelta(days=1))]
+    fits = []
+    for s in time_grid(windows=windows, duration_min=dur, config=config, now=now):
+        if s == start:
+            continue
+        if assign_seats(party, s, s + timedelta(minutes=dur), views, busy, config):
+            fits.append(s)
+    fits.sort(key=lambda s: (abs((s - start).total_seconds()), s))
+    out["times"] = [s.strftime("%H:%M") for s in sorted(fits[:max(0, int(max_times))])]
+    return out
 
 
 def resolve_duration(profile: BusinessProfile, party_size: int,
@@ -1396,6 +1911,47 @@ def resolve_behandling_duration(db: Session, user_id, behandling_id) -> int:
     return int(b.duration_min)
 
 
+def shortest_service_min(db: Session, user_id) -> int | None:
+    """The shortest ACTIVE behandling's length, or None (no service, or a read
+    error — the caller then falls back to the venue default). The day strip
+    asks this when the guest has not chosen a service yet (R6)."""
+    try:
+        n = (
+            db.query(func.min(Behandling.duration_min))
+            .filter(Behandling.user_id == user_id, Behandling.active.is_(True))
+            .scalar()
+        )
+    except SQLAlchemyError as exc:
+        logger.warning("shortest service: read failed", exc_info=True)
+        _release_failed_read(db, exc)
+        return None
+    return int(n) if n else None
+
+
+def service_length(db: Session, user_id, behandling_id) -> int | None:
+    """The tenant's ACTIVE behandling's length, or None: no id, an id that is
+    not a UUID, another salon's, or an inactive one. Never the 60-minute
+    default — the strip then asks shortest_service_min instead."""
+    if not behandling_id:
+        return None
+    try:
+        bid = uuid.UUID(str(behandling_id))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    try:
+        n = (
+            db.query(Behandling.duration_min)
+            .filter(Behandling.id == bid, Behandling.user_id == user_id,
+                    Behandling.active.is_(True))
+            .scalar()
+        )
+    except SQLAlchemyError as exc:
+        logger.warning("service length: read failed", exc_info=True)
+        _release_failed_read(db, exc)
+        return None
+    return int(n) if n else None
+
+
 def available_provider_slots(db: Session, *, profile: BusinessProfile | None,
                              user_id, day: date, duration_min: int,
                              stylist_resource_id=None,
@@ -1430,6 +1986,7 @@ def available_provider_slots(db: Session, *, profile: BusinessProfile | None,
     dur = int(duration_min) if duration_min else int(
         settings.get("default_service_duration_min", 60))
 
+    buf = service_buffer(settings)
     providers = [
         r for r in active_resources(db, user_id) if r.kind == "provider"
     ]
@@ -1445,6 +2002,7 @@ def available_provider_slots(db: Session, *, profile: BusinessProfile | None,
         for s in compute_slots(
             windows=windows, resources=_views([p]), busy=busy,
             party_size=1, config=config, now=now, duration_min=dur,
+            buffer_min=buf,
         ):
             out.append({
                 "start": s.start.isoformat(),
@@ -1459,7 +2017,8 @@ def available_provider_slots(db: Session, *, profile: BusinessProfile | None,
 def recheck_provider_slot(db: Session, *, profile: BusinessProfile | None,
                           user_id, resource_id, start: datetime,
                           duration_min: int,
-                          now: datetime | None = None) -> str | None:
+                          now: datetime | None = None,
+                          buffer_min: int | None = None) -> str | None:
     """Booking-time race re-check for ONE specifically-requested stylist.
 
     Returns the provider id (as str) if THAT provider is still free for
@@ -1473,6 +2032,9 @@ def recheck_provider_slot(db: Session, *, profile: BusinessProfile | None,
 
     A non-provider / inactive / foreign / unknown resource_id → None (treated
     as "not bookable" rather than leaking which it was).
+
+    `buffer_min` (R6): None = the salon's pause (online); the owner's own
+    paths pass 0.
     """
     settings = load_settings(profile)
     config = build_config(settings)
@@ -1494,6 +2056,6 @@ def recheck_provider_slot(db: Session, *, profile: BusinessProfile | None,
     ids = find_slot_resources(
         requested_start=start, party_size=1, windows=windows,
         resources=_views([provider]), busy=busy, config=config, now=now,
-        duration_min=dur,
+        duration_min=dur, buffer_min=_online_buffer(settings, buffer_min),
     )
     return ids[0] if ids else None

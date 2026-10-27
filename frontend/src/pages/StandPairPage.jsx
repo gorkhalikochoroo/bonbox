@@ -10,14 +10,22 @@
  * flat chrome: a vertical gradient fill, a 1px top inset highlight, and a
  * colour-matched drop shadow on the raised elements. Everything else in the
  * app stays flat — gloss is for the surfaces someone is handed.
+ *
+ * R10 — A PAIRED DEVICE NEVER ASKS AGAIN. /stand is also where a paired
+ * screen lands after a restart: the start page of the installed stand app on
+ * Android, a bookmark, a typed bonbox.dk/stand. A device that has opened a
+ * book through its link remembers it (services/standAuth), and this page then
+ * goes straight to tonight's book instead of asking for a code the host does
+ * not have. "Enter a new code" on a dead link and "Disconnect this screen"
+ * arrive here with { fresh: true } and get the code box.
  */
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ArrowRight } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { ArrowRight, Loader2 } from "lucide-react";
 
 import api from "../services/api";
 import BonBoxMark from "../components/BonBoxMark";
-import { setStandToken } from "../services/standAuth";
+import { rememberedStandToken, setStandToken } from "../services/standAuth";
 import { useLanguage } from "../hooks/useLanguage";
 
 // Same 32-character alphabet the server mints from — no I/O/0/1, because these
@@ -29,6 +37,12 @@ const LEN = 6;
 export default function StandPairPage() {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Decided once, before the first paint: a paired device goes straight to
+  // its book and never flashes the code box at a host who has no code.
+  const [reopen] = useState(() =>
+    location?.state?.fresh ? null : rememberedStandToken(),
+  );
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -36,8 +50,12 @@ export default function StandPairPage() {
   const inputRef = useRef(null);
 
   useEffect(() => {
+    if (reopen) {
+      navigate(`/stand/${reopen}`, { replace: true });
+      return;
+    }
     inputRef.current?.focus();
-  }, []);
+  }, [reopen, navigate]);
 
   const clean = (raw) =>
     String(raw || "")
@@ -81,6 +99,17 @@ export default function StandPairPage() {
   };
 
   const full = clean(code).length === LEN;
+
+  if (reopen) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center px-5 py-10 bg-[#f8fafc]" role="status">
+        <span className="inline-flex items-center gap-2 text-[14px] text-slate-500">
+          <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+          {t("standPairReopening", "Opening the book…")}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div

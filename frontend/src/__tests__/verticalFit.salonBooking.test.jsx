@@ -122,19 +122,34 @@ describe("booking settings follow the booking mode", () => {
 });
 
 describe("Behandlere — 'Det er mig'", () => {
-  it("a salon with no self-chair can add herself; the row follows the opening hours", async () => {
+  // R7 (27 Oct 2026): her chair carries HER name — it used to take the
+  // business name, and the guest page listed "Frisør Saks" as a stylist.
+  it("a salon with no self-chair can add herself under her own name; the row follows the opening hours", async () => {
     routes();
-    h.post.mockResolvedValue({ data: { id: "r1", kind: "provider", label: "Frisør Saks", follows_opening_hours: true, is_active: true } });
+    h.post.mockResolvedValue({ data: { id: "r1", kind: "provider", label: "Anna", follows_opening_hours: true, is_active: true } });
     renderOwner("/reservations?tab=floor");
     const cta = await screen.findByRole("button", { name: da.rsvpSelfChairCta });
     expect(da.rsvpSelfChairCta).toBe("Det er mig");
+    fireEvent.change(screen.getByLabelText(da.rsvpSelfChairNameLabel), { target: { value: "  Anna " } });
     await act(async () => { fireEvent.click(cta); });
     await settle();
     expect(h.post).toHaveBeenCalledWith("/reservations/resources", expect.objectContaining({
-      kind: "provider", follows_opening_hours: true, label: "Frisør Saks", capacity_seats: 1,
+      kind: "provider", follows_opening_hours: true, label: "Anna", capacity_seats: 1,
     }));
     expect(screen.queryByTestId("self-chair-card")).toBeNull();
     expect(screen.getByText(da.rsvpProviderFollowsHours)).toBeInTheDocument();
+  });
+
+  it("with no name typed her chair is 'Indehaver' — never the business name", async () => {
+    routes();
+    h.post.mockResolvedValue({ data: { id: "r1", kind: "provider", label: "Indehaver", follows_opening_hours: true, is_active: true } });
+    renderOwner("/reservations?tab=floor");
+    const cta = await screen.findByRole("button", { name: da.rsvpSelfChairCta });
+    await act(async () => { fireEvent.click(cta); });
+    await settle();
+    const body = h.post.mock.calls.find(([u]) => u === "/reservations/resources")[1];
+    expect(body.label).toBe(da.rsvpSelfChairDefaultName);
+    expect(body.label).not.toBe("Frisør Saks");
   });
 
   it("is not offered when the list could not be read (never a second chair)", async () => {

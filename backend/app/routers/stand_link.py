@@ -300,6 +300,36 @@ def stand_join(payload: JoinRequest, request: Request, db: Session = Depends(get
     }
 
 
+# ── Device side: let go of the book ───────────────────────────────────
+
+
+@router.post("/{token}/unpair")
+@limiter.limit("10/minute")
+def stand_unpair(token: str, request: Request, db: Session = Depends(get_db)):
+    """"Afbryd denne skærm" — the device gives up its own link (R10).
+
+    The stand's ⋯ menu used to end in "Log ud": the owner's logout, then the
+    owner LOGIN page. On a paired door iPad there is no session to end, so the
+    one way out sent front-of-house to a screen asking for the owner's
+    password — and the token stayed alive in the browser history.
+
+    This only ever REDUCES reach: it switches off the link it is called with
+    (the same `active` flag the owner's "Fjern" uses), so a URL left in the
+    history stops opening the book. It reaches no other link, no owner data,
+    nothing to read. Single-shot: a second call 404s like any dead token. The
+    owner sees the device as removed in their list, and the audit row says the
+    device did it."""
+    link = resolve_stand(db, token)
+    user = _owner(db, link)
+    link.active = False
+    link.revoked_at = utc_now()
+    audit_service.record(db, user, "stand.link_unpaired", "stand_link", link.id,
+                         before={"active": True}, after={"active": False},
+                         actor_type="stand_device")
+    db.commit()
+    return {"ok": True}
+
+
 # ── The wrapped surface — this IS the allow-list ──────────────────────
 # Each wrapper delegates to the owner handler with the user re-derived from the
 # link row. Adding reach means adding a wrapper here; there is no other door.
@@ -356,6 +386,7 @@ def stand_booking_rules(token: str, db: Session = Depends(get_db)):
 def stand_changes(
     token: str,
     since: str | None = Query(default=None),
+    day: date | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     """The live-alert change feed — the reason a host stand exists.
@@ -368,9 +399,15 @@ def stand_changes(
     Read-only and already PII-minimal at the source (first name + a severity
     flag; the allergy note itself never enters this payload), which is what makes
     it safe on an unlocked device in a public room.
+
+    R10 — `day` adds that day's book revision (an opaque hash, no data), so a
+    change made on the owner's phone reaches the door within one poll. Passed
+    through EXPLICITLY: this wrapper calls the owner handler directly, so a
+    parameter left out would arrive as FastAPI's Query() default object, not
+    None (see stand_book's note).
     """
     _, user = _bind(db, token)
-    return R.list_changes(since=since, db=db, user=user)
+    return R.list_changes(since=since, day=day, db=db, user=user)
 
 
 @router.get("/{token}/month-load")

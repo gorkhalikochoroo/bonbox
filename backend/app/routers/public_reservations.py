@@ -626,13 +626,18 @@ def availability_summary(request: Request, slug: str = Path(...),
                          start: str = Query(..., alias="from"),
                          days: int = Query(14, ge=1, le=30),
                          party: int = Query(ge=1, le=100),
+                         behandling_id: str | None = Query(default=None, max_length=64),
                          db: Session = Depends(get_db)):
     """Multi-day open/closed overview so the public page can render a date strip
     and AUTO-ADVANCE to the next open day (never dead-ends on a closed today).
     Uses the same slots the diner sees (via rsvc.summarize_days), so the strip
     can't disagree — for a group-request party that is the venue's time grid,
     so a day is open whenever the venue is. Shared with the public-surface
-    monitor."""
+    monitor.
+
+    A salon's chairs are checked for a real service length (R6): the
+    `behandling_id` the guest chose (this salon's, active — anything else is
+    ignored), else the shortest service the salon offers."""
     profile, owner = _resolve_owner(db, slug)
     try:
         base = datetime.strptime(start, "%Y-%m-%d").date()
@@ -674,6 +679,7 @@ def availability_summary(request: Request, slug: str = Path(...),
     summary = rsvc.summarize_days(
         db, profile=profile, user_id=owner.id, start_date=base,
         days=days, party_size=party, now=_now_local(),
+        service_duration_min=rsvc.service_length(db, owner.id, behandling_id),
     )
     return {"from": base.isoformat(), "party_size": party, **summary}
 
@@ -1412,7 +1418,9 @@ def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: U
         # ask for a closed Monday — or for 18:00 on a day already over, which
         # the page then promised to answer "inden dagen".
         windows = rsvc.restaurant_windows(profile, start.date(), settings)
-        if start <= _now_local() or not any(w.start <= start < w.end for w in windows):
+        # Inside lunch or dinner (R8: two windows), up to a last booking
+        # time the owner set — never in the gap between them.
+        if start <= _now_local() or not rsvc.request_start_ok(windows, start):
             raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
     if not is_request:
         # ALWAYS gate the slot through the engine FIRST. recheck_and_assign_combo

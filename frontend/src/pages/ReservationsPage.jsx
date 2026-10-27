@@ -28,7 +28,7 @@
 // `api` client + auth/CSRF path as EventsPage (no bespoke fetch wrapper).
 //
 // DK terminology lock: revisor / MOMS etc. stay Danish across locales.
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WEEKDAY_KEY, toMin, sittingMinutes, openTimesFor, overrunsClose, windowsFor, windowAt, hm, bookableHoursFromSettings } from "../utils/bookingTimes";
 import { warningFrom, roomFullText } from "../utils/bookingRefusal";
 import { createPortal } from "react-dom";
@@ -76,12 +76,24 @@ import {
   ListOrdered,
   Loader2,
   CalendarOff,
+  WifiOff,
+  Unplug,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { haptic } from "../utils/haptics";
 import { getSoundStatus, subscribeSound, testSound } from "../utils/sound";
 import { RESERVATIONS_CHANGED_EVENT } from "../lib/liveAlertKinds";
+import {
+  BOOK_FRESH_EVENT,
+  BOOK_UNREACHABLE_EVENT,
+  WAKE_GAP_MS,
+  safetyReloadMs,
+  unwatchBook,
+  watchBook,
+} from "../lib/bookLive";
+import { clearStandToken, rememberStandLayout, rememberedStandLayout, setStandToken, standTokenFromPath } from "../services/standAuth";
+import { bookFailWords } from "../utils/bookFailWords";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
@@ -112,6 +124,12 @@ import {
 } from "../utils/hostStand";
 import InsightsSection from "../components/reservations/InsightsSection";
 import WaitlistSection from "../components/reservations/WaitlistSection";
+import NoTableFitsSheet from "../components/reservations/NoTableFitsSheet";
+import AllergyLine, { AllergyIcon } from "../components/reservations/AllergyWords";
+import { allergyFacts, allergySentence } from "../utils/allergyWords";
+import FreedTableNudge from "../components/reservations/FreedTableNudge";
+import { freedSince } from "../utils/freedTables";
+import { BookUnavailable, StandNotConnected } from "../components/reservations/BookStates";
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
 import BookingNameRow from "../components/reservations/BookingNameRow";
 import BookingAccentRow from "../components/reservations/BookingAccentRow";
@@ -132,6 +150,19 @@ import SettingsJumpRow from "../components/reservations/SettingsJumpRow";
 import { announceActivation, takeActivation } from "../utils/bookingActivation";
 import { hoursSource, pacingGap } from "../utils/settingsTruth";
 import { activePause, closureOn, fmtClosureRange, todayIso } from "../utils/closures";
+import BehandlingRow from "../components/reservations/BehandlingRow";
+import SalonRhythmCard from "../components/reservations/SalonRhythmCard";
+import WeekHoursEditor from "../components/reservations/WeekHoursEditor";
+import StartTimesChoice from "../components/reservations/StartTimesChoice";
+import {
+  DAY_KEYS, HOURS_SHAPE, cardBookingHours, defaultBookingHours, defaultSalonHours,
+  hasSavedBookingHours, hoursProblem, hoursProblemWords, lastBookingSitting,
+  parseBookingHours, serializeBookingHours, slotStepOf, snapLasts,
+} from "../utils/bookingHours";
+import SalonAttention from "../components/reservations/SalonAttention";
+import SalonWeekCapacity, { SalonDayCapacity } from "../components/reservations/SalonCapacity";
+import StylistRow, { isOwnChair, tidyName, STYLIST_NAME_MAX } from "../components/reservations/StylistRow";
+import StylistAddCard from "../components/reservations/StylistAddCard";
 import { canPurchaseInApp } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
 import { formatKr } from "../utils/currency";
@@ -301,166 +332,10 @@ function shortDayLabel(iso, t, locale) {
   return `${head} ${d}/${m}`.trim();
 }
 
-// Booking hours (per weekday) ↔ the "HH:MM-HH:MM" | "closed" dict the engine
-// reads (reservation_service.restaurant_windows). Mon-first to match DK weeks.
-const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-function defaultBookingHours() {
-  const o = {};
-  DAY_KEYS.forEach((k) => {
-    o[k] = { closed: false, open: "11:00", close: "22:00" };
-  });
-  return o;
-}
-function parseBookingHours(bh) {
-  const out = defaultBookingHours();
-  if (bh && typeof bh === "object") {
-    DAY_KEYS.forEach((k) => {
-      const v = bh[k];
-      if (v === "closed") out[k] = { closed: true, open: "11:00", close: "22:00" };
-      else if (typeof v === "string" && v.includes("-")) {
-        const [open, close] = v.split("-");
-        out[k] = { closed: false, open: open || "11:00", close: close || "22:00" };
-      }
-    });
-  }
-  return out;
-}
-// What the hours card shows on load (booking push p3): what the TABLE
-// engine books. A weekday the booking hours don't set is booked on the
-// Profile opening hours (reservation_service.restaurant_windows), and the
-// server's `open_hours` is that week — so when the venue has declared hours,
-// such a day shows its real hours (or closed) instead of the 11–22
-// suggestion the engine never books. Days the booking hours set read as
-// before. A fresh account (nothing declared) keeps the suggestions and its
-// "Ikke gemt endnu" banner. Never for a salon: its self-chair reads only the
-// booking hours, so Profile hours there would show times nobody can book.
-// Nothing is saved until the owner presses Gem.
-function cardBookingHours(bh, { openHours, hoursDeclared, isProvider } = {}) {
-  const out = parseBookingHours(bh);
-  if (isProvider || hoursDeclared !== true || !openHours || typeof openHours !== "object") return out;
-  if (!DAY_KEYS.some((k) => Array.isArray(openHours[k]) && openHours[k].length > 0)) return out;
-  DAY_KEYS.forEach((k) => {
-    if (bh && typeof bh === "object" && bh[k]) return; // the booking hours decide it
-    const w = openHours[k];
-    if (!Array.isArray(w)) return;
-    out[k] = w.length === 0
-      ? { closed: true, open: "11:00", close: "22:00" }
-      : { closed: false, open: w[0][0] || "11:00", close: w[0][1] || "22:00" };
-  });
-  return out;
-}
-function serializeBookingHours(hours) {
-  const out = {};
-  DAY_KEYS.forEach((k) => {
-    const d = hours[k];
-    out[k] = d.closed ? "closed" : `${d.open}-${d.close}`;
-  });
-  return out;
-}
-// Has the owner SAVED booking hours (any weekday "closed" or "HH:MM-HH:MM")?
-// The backend's test for the same thing (salon_quick_setup has_saved): the
-// first-run card then shows these hours, and keeps them unless edited.
-function hasSavedBookingHours(bh) {
-  return !!bh && typeof bh === "object" &&
-    Object.values(bh).some((v) => v === "closed" || (typeof v === "string" && v.includes("-")));
-}
-// Salon-flavored starting hours for the first-run card — the SAME shape
-// defaultBookingHours() returns, but a typical salon week (Tue–Fri 09–17,
-// Sat 09–14, Mon + Sun closed). A suggestion only; the owner confirms/edits
-// before we persist it via /reservations/salon/quick-setup.
-function defaultSalonHours() {
-  const o = {};
-  DAY_KEYS.forEach((k) => {
-    o[k] = { closed: false, open: "09:00", close: "17:00" };
-  });
-  o.sat = { closed: false, open: "09:00", close: "14:00" };
-  o.mon = { closed: true, open: "09:00", close: "17:00" };
-  o.sun = { closed: true, open: "09:00", close: "17:00" };
-  return o;
-}
-
-// Weekday opening-hours editor — the one weekday-rows grid shared by the
-// Settings section and the salon first-run card. Presentational: the parent
-// owns the `hours` state plus the setHourDay / applyMonToAll handlers (the
-// SAME helpers that serialize to the {mon:"HH:MM-HH:MM"|"closed", …} dict the
-// availability engine reads). Pass `onApplyMonToAll` to surface the "copy
-// Monday to every day" shortcut above the rows.
-function WeekHoursEditor({ t, hours, setHourDay, onApplyMonToAll }) {
-  // Static t() keys (not template literals) so the i18n grep can verify each
-  // has an EN+DA entry. DK weeks start Monday.
-  const dayLabel = {
-    mon: t("rsvpDayMon", "Mon"),
-    tue: t("rsvpDayTue", "Tue"),
-    wed: t("rsvpDayWed", "Wed"),
-    thu: t("rsvpDayThu", "Thu"),
-    fri: t("rsvpDayFri", "Fri"),
-    sat: t("rsvpDaySat", "Sat"),
-    sun: t("rsvpDaySun", "Sun"),
-  };
-  return (
-    <div className="space-y-2">
-      {onApplyMonToAll && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={onApplyMonToAll}
-            className="shrink-0 text-xs font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200 underline-offset-2 hover:underline"
-          >
-            {t("rsvpHoursCopyMon", "Apply Monday to all")}
-          </button>
-        </div>
-      )}
-      <div className="divide-y divide-gray-100 dark:divide-gray-800">
-        {DAY_KEYS.map((k) => {
-          const d = hours[k];
-          const isOpen = !d.closed;
-          return (
-            <div key={k} className="flex items-center gap-3 py-2 flex-wrap">
-              <span className="w-9 shrink-0 text-sm font-medium text-gray-700 dark:text-gray-300">
-                {dayLabel[k]}
-              </span>
-              {/* Open / closed — 44px tap target for the host stand. */}
-              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none shrink-0 min-h-[44px]">
-                <input
-                  type="checkbox"
-                  checked={isOpen}
-                  onChange={(e) => setHourDay(k, { closed: !e.target.checked })}
-                  className="w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 accent-gray-900 dark:accent-gray-100 focus:ring-gray-400"
-                />
-                <span className="text-xs text-gray-500 dark:text-gray-400 w-12">
-                  {isOpen ? t("rsvpHoursOpen", "Open") : t("rsvpHoursClosed", "Closed")}
-                </span>
-              </label>
-              {isOpen ? (
-                <div className="inline-flex items-center gap-1.5">
-                  <input
-                    type="time"
-                    value={d.open}
-                    onChange={(e) => setHourDay(k, { open: e.target.value })}
-                    aria-label={t("rsvpHoursOpenAt", "Opens")}
-                    className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
-                  />
-                  <span className="text-gray-400" aria-hidden>–</span>
-                  <input
-                    type="time"
-                    value={d.close}
-                    onChange={(e) => setHourDay(k, { close: e.target.value })}
-                    aria-label={t("rsvpHoursCloseAt", "Closes")}
-                    className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
-                  />
-                </div>
-              ) : (
-                <span className="text-sm text-gray-400 dark:text-gray-500">
-                  {t("rsvpHoursClosedDay", "Closed all day")}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+// Booking hours — the card's state, the stored shape (one or two periods a
+// day, a last booking time), parsing, saving and the checks: utils/
+// bookingHours.js (R8). The weekday rows: components/reservations/
+// WeekHoursEditor.jsx.
 
 // Tab ids — kept as a const so the ?tab= deep-link (e.g. from the Insights
 // "Turn on SMS reminders" action) can validate against the real set.
@@ -538,7 +413,19 @@ export default function ReservationsPage() {
   // A real TABLE plan exists → the 2D table-plan view + table-style authoring.
   // (A salon with leftover tables from an earlier setup also counts, so the
   // grandfather/clear-tables path stays reachable.)
-  const tablePlan = usesTableFloor(businessType) || hasTableResources;
+  // R11 (B11): a paired door screen has no session, so the venue type is
+  // unknown until /resources answers. Until then it keeps the shape this
+  // device last had — a table venue unless it learned otherwise — so the
+  // lens switch, the drop-in button and the drop-in row are there from the
+  // first paint instead of pushing the night down when the tables arrive.
+  const standGuessTables =
+    isStandDevice && pageResourcesRead === null && rememberedStandLayout() !== "provider";
+  const tablePlan = usesTableFloor(businessType) || hasTableResources || standGuessTables;
+  useEffect(() => {
+    if (isStandDevice && pageResourcesRead === true) {
+      rememberStandLayout(hasTableResources ? "table" : "provider");
+    }
+  }, [isStandDevice, pageResourcesRead, hasTableResources]);
   // The authoring tab is visible for table venues, venues with existing
   // tables, AND provider venues that need to author stylist (behandler)
   // stations — without it a fresh salon could never create a bookable
@@ -649,7 +536,9 @@ export default function ReservationsPage() {
   // re-derived from the link row. So this client gate is both wrong and
   // redundant here — if the venue genuinely lacks the feature, the API returns
   // 402 and the page surfaces that honestly instead of guessing.
-  if (!isStandDevice) {
+  // __STAND_BUILD__ (R11): the door screen's own build is only ever a paired
+  // device, so the owner's gate and its upgrade card are left out of it.
+  if (!__STAND_BUILD__ && !isStandDevice) {
     if (!isReady) return null;
     if (!hasFeature("reservations")) {
     return (
@@ -700,10 +589,10 @@ export default function ReservationsPage() {
       {/* BookSection's own standalone wrapper already sets full-bleed padding
           and safe-area insets, and its header already prints the venue name and
           "Vært-skærm" — the owner wrapper and title would double both. */}
-      {!isHostStand && (
+      {!__STAND_BUILD__ && !isHostStand && (
         <PageTitle t={t} isProvider={apptWords} websiteHref="/reservations?tab=settings&show=website" />
       )}
-      {!isHostStand && (
+      {!__STAND_BUILD__ && !isHostStand && (
       <TabPills
         tabs={[
           // Salon (provider) reads "Aftaler" (the appointment book) instead of
@@ -732,13 +621,23 @@ export default function ReservationsPage() {
             ? [{ id: "behandlinger", label: t("rsvpTabBehandlinger", "Services") }]
             : []),
           { id: "insights", label: t("rsvpTabInsights", "Insights") },
-          { id: "settings", label: t("rsvpTabSettings", "Settings") },
+          // A salon has five sections. On a 390px phone the fifth was cut
+          // (DA 310px of words + 80px of gaps in a 358px row — rubric S12):
+          // there Indstillinger stands as the gear (the word stays as its
+          // name for a screen reader) and the gaps share the row. sm: up and
+          // every other venue are unchanged.
+          {
+            id: "settings",
+            label: t("rsvpTabSettings", "Settings"),
+            ...(isProvider ? { phoneIcon: Settings } : {}),
+          },
         ]}
         activeId={tab}
         onChange={changeTab}
         ariaLabel={apptWords ? t("rsvpTabsAriaAppt", "Appointment book sections") : t("rsvpTabsAria", "Reservation sections")}
         size="lg"
         phone="underline"
+        phoneSpread={isProvider}
         // Phone: 8px under the title row instead of the column's 16 — the
         // tabs belong to the title (they are the page's sections).
         className="max-sm:-mt-2"
@@ -766,7 +665,7 @@ export default function ReservationsPage() {
         >
           {/* A host never changes the date mid-service, and the month grid was
               holding the prime top-left of a screen read at arm's length. */}
-          {!isHostStand && (
+          {!__STAND_BUILD__ && !isHostStand && (
           <div className="hidden min-[1680px]:block min-[1680px]:sticky min-[1680px]:top-6">
             <DayRail day={bookDay} onPick={setBookDay} t={t} apptWords={apptWords} />
             <div ref={setRailSlot} className="mt-4 empty:hidden" />
@@ -784,12 +683,13 @@ export default function ReservationsPage() {
           </div>
         </div>
       )}
-      {tab === "floor" && showFloor && <FloorSection t={t} businessType={user?.business_type} />}
-      {tab === "behandlinger" && isProvider && <BehandlingerSection t={t} />}
+      {/* The owner's tabs — never in the door screen's own build (R11). */}
+      {!__STAND_BUILD__ && tab === "floor" && showFloor && <FloorSection t={t} businessType={user?.business_type} />}
+      {!__STAND_BUILD__ && tab === "behandlinger" && isProvider && <BehandlingerSection t={t} />}
       {/* Insights mounts lazily (only when its tab is open) so it never blocks
           the Book view's first paint; the fetch fires on mount. */}
-      {tab === "insights" && <InsightsSection t={t} zones={insightsZones} />}
-      {tab === "settings" && (
+      {!__STAND_BUILD__ && tab === "insights" && <InsightsSection t={t} zones={insightsZones} />}
+      {!__STAND_BUILD__ && tab === "settings" && (
         <SettingsSection t={t} user={user} tablePlan={tablePlan} onlineNotReady={onlineNotReady} />
       )}
     </div>
@@ -937,11 +837,12 @@ function TablesCell({ r, labelById, t, seatsById = null, zoneById = null, apptWo
     );
   }
   // A live booking with no table is something the host has to fix — say so,
-  // like the phone row does, instead of a bare dash.
+  // like the phone row does, instead of a bare dash. Amber: it needs the
+  // host (R11 — a confirmed group "Intet bord" read as a quiet grey fact).
   if (["confirmed", "seated"].includes(r.status)) {
     return (
-      <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">
-        <AlertTriangle className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" aria-hidden />
+      <span className="inline-flex items-center gap-1 text-sm font-medium text-amber-700 dark:text-amber-300 whitespace-nowrap" data-no-table="">
+        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" aria-hidden />
         {apptWords ? t("rsvpNoTableShortAppt", "No space") : t("rsvpNoTableShort", "No table")}
       </span>
     );
@@ -998,8 +899,11 @@ function FlagsCell({ r, t }) {
   return (
     <div className="flex items-center gap-1.5 text-gray-400 dark:text-gray-500">
       {hasAllergy && (
-        <AlertTriangle
-          // A cancelled booking's allergy is history — grey, not an alarm.
+        <AllergyIcon
+          // An octagon for severe, a triangle otherwise (R11, B8) — never
+          // colour alone. A cancelled booking's allergy is history — grey.
+          level={severe ? "severe" : "allergy"}
+          role="img"
           className={"w-4 h-4 " + (r.status === "cancelled" ? "text-gray-400 dark:text-gray-500" : severe ? "text-red-600 dark:text-red-400" : "text-amber-500 dark:text-amber-400")}
           aria-label={severe ? t("rsvpSevSevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
           title={allergyTitle || (severe ? t("rsvpSevSevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy"))}
@@ -1085,19 +989,24 @@ function FloorView({ reservations, resources, t, businessType, onSelect, onSeatN
   }, [reservations]);
 
   return (
-    <FloorPlan
-      cells={cells}
-      nowMs={nowMs}
-      t={t}
-      businessType={businessType}
-      onSelect={onSelect}
-      onSeatNow={onSeatNow}
-      nextBookingId={nextBookingId}
-      onResourcesChanged={onResourcesChanged}
-      canArrange={canArrange}
-      fixtures={fixtures}
-      fitToScreen={fitToScreen}
-    />
+    // The door screen's own build loads the plan the first time the Plan
+    // lens opens (src/stand/standFloorPlan.jsx, R11): its skeleton stands in
+    // meanwhile. In the owner app nothing waits here.
+    <Suspense fallback={<FloorSkeleton />}>
+      <FloorPlan
+        cells={cells}
+        nowMs={nowMs}
+        t={t}
+        businessType={businessType}
+        onSelect={onSelect}
+        onSeatNow={onSeatNow}
+        nextBookingId={nextBookingId}
+        onResourcesChanged={onResourcesChanged}
+        canArrange={canArrange}
+        fixtures={fixtures}
+        fitToScreen={fitToScreen}
+      />
+    </Suspense>
   );
 }
 
@@ -1419,7 +1328,7 @@ function ReservationDrawer({
               }
             >
               <div className="font-semibold flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4" aria-hidden />
+                <AllergyIcon level={severe ? "severe" : "allergy"} className="w-4 h-4" aria-hidden />
                 {severe ? t("rsvpSevSevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
               </div>
               {allergyText && <div className="mt-0.5">{allergyText}</div>}
@@ -3459,7 +3368,8 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                           34px lane (11 + 2 + ~14). */}
                       <span className="text-[11px] leading-tight truncate mt-0.5 flex items-center gap-0.5">
                         {allergy && (
-                          <AlertTriangle
+                          <AllergyIcon
+                            level={allergy === "severe" ? "severe" : "allergy"}
                             className={"w-3 h-3 shrink-0 " + (allergy === "severe" ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
                             aria-hidden
                           />
@@ -3570,7 +3480,8 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus, ope
                             lines fit with room to spare. */}
                         <span className="text-[11px] leading-tight truncate flex items-center gap-0.5 mt-0.5">
                           {allergy && (
-                            <AlertTriangle
+                            <AllergyIcon
+                              level={allergy === "severe" ? "severe" : "allergy"}
                               className={"w-3 h-3 shrink-0 " + (allergy === "severe" ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
                               aria-hidden
                             />
@@ -3703,6 +3614,10 @@ function SalonFirstRunCard({
   // Åbningstider), not a suggestion: the label says so, and the tap keeps
   // them unless the owner edits a day here (R1 A1).
   hoursSaved = false,
+  // Her name for her own chair — what customers read in "Vælg behandler".
+  // It used to be the business name (R7). Optional: blank = "Indehaver".
+  chairName = "",
+  onChairName = null,
 }) {
   return (
     <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 space-y-5 max-w-2xl">
@@ -3730,11 +3645,15 @@ function SalonFirstRunCard({
             ? t("rsvpSalonHoursSaved", "Your saved hours. Change them if you need to")
             : t("rsvpSalonHoursSuggestion", "Suggested — change if it doesn't fit")}
         </div>
+        {/* A stored second period (a lunch break) is shown and can be
+            taken away here; adding one lives in Indstillinger (R8), so the
+            first booking stays one tap. */}
         <WeekHoursEditor
           t={t}
           hours={hours}
           setHourDay={setHourDay}
           onApplyMonToAll={applyMonToAll}
+          addMode="day"
         />
         {/* R9: not a third set of hours — the card writes the same booking
             hours as Indstillinger → Åbningstider. */}
@@ -3742,6 +3661,24 @@ function SalonFirstRunCard({
           {t("rsvpSalonHoursSame", "These are the same hours as Settings → Opening hours (bookings): change them here or there. The opening hours under Profile are not used for bookings.")}
         </p>
       </div>
+
+      {onChairName && (
+        <div className="max-w-sm">
+          <label htmlFor="salon-first-run-name" className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">
+            {t("rsvpSelfChairNameLabel", "Your name (customers see it)")}
+          </label>
+          <input
+            id="salon-first-run-name"
+            type="text"
+            value={chairName}
+            onChange={(e) => onChairName(e.target.value)}
+            placeholder={t("rsvpSelfChairNamePh", "e.g. Anna")}
+            maxLength={STYLIST_NAME_MAX}
+            autoComplete="given-name"
+            className="w-full h-11 max-sm:h-10 max-sm:min-h-0! px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
+          />
+        </div>
+      )}
 
       {/* No service yet: a customer picks a behandling before any time, so
           the page can take no booking (R1 A4). Amber — it needs the owner. */}
@@ -4221,7 +4158,10 @@ function StandInstallItem({ t, className, apptWords = false }) {
   );
 }
 
-function StandMenu({ t, onLogout, apptWords = false }) {
+// `onUnpair` (R10): a PAIRED device (/stand/<token>) has no session to log
+// out of — its "Log ud" sent the door iPad to the OWNER login. There the end
+// action is "Afbryd denne skærm": the device lets go of its own link.
+function StandMenu({ t, onLogout, apptWords = false, onUnpair = null }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const canClose = typeof window !== "undefined" && !!window.opener;
@@ -4279,7 +4219,25 @@ function StandMenu({ t, onLogout, apptWords = false }) {
           </a>
           <StandInstallItem t={t} className={item} apptWords={apptWords} />
           <div className="h-px bg-gray-200 dark:bg-gray-800" />
-          {canClose ? (
+          {onUnpair ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={() => {
+                setOpen(false);
+                onUnpair();
+              }}
+            >
+              <Unplug className="w-4 h-4 shrink-0 text-gray-400" aria-hidden />
+              <span className="min-w-0">
+                {t("rsvpStandUnpair", "Disconnect this screen")}
+                <span className="block text-[11px] text-gray-500 dark:text-gray-400">
+                  {t("rsvpStandUnpairHint", "A new code is needed to connect again")}
+                </span>
+              </span>
+            </button>
+          ) : canClose ? (
             <button
               type="button"
               role="menuitem"
@@ -4309,6 +4267,20 @@ function StandMenu({ t, onLogout, apptWords = false }) {
         </div>
       )}
     </div>
+  );
+}
+
+// R10: a cockpit drawn without a book says "—", never a confident 0. A door
+// iPad restarted while the wifi was down read "0 gæster · 0 sidder" over a
+// night that simply could not be read. The waitlist cell keeps its own
+// three-state count (WaitlistSection), and "next" already says "—".
+const COCKPIT_COUNTS = new Set(["covers", "seated", "awaiting", "occupancy"]);
+function cockpitWhenUnknown(known, items) {
+  if (known) return items;
+  return items.map((it) =>
+    COCKPIT_COUNTS.has(it.key)
+      ? { ...it, value: "—", helper: "", tone: "neutral", accent: "neutral", onClick: null, selected: false }
+      : it,
   );
 }
 
@@ -4371,6 +4343,24 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // backend surfaces when a booking is cancelled/no-showed (a table just freed).
   const [waitlistCount, setWaitlistCount] = useState(0);
   const [spotMatches, setSpotMatches] = useState([]);
+  // R11 (B7): a group confirmed onto no table — {r, facts} from the server's
+  // 409 no_table_fits — and the sheet's own busy flag (move + confirm).
+  const [noFit, setNoFit] = useState(null);
+  const [noFitBusy, setNoFitBusy] = useState(false);
+  // R11 (B10): the freed-table nudge above the night — {matches, day} — and
+  // the bookings THIS screen freed (their matches came with the answer, so a
+  // reload must not ask again for them).
+  const [freedNudge, setFreedNudge] = useState(null);
+  const selfFreedRef = useRef(new Set());
+  const waitlistCountRef = useRef(0);
+  useEffect(() => { waitlistCountRef.current = waitlistCount; }, [waitlistCount]);
+  // Waiting parties that fit a table that just freed: ringed in the
+  // Venteliste (spotMatches) AND named at the top of the book (the nudge).
+  const surfaceMatches = useCallback((m, forDay) => {
+    if (!Array.isArray(m) || m.length === 0) return;
+    setSpotMatches(m);
+    setFreedNudge({ matches: m, day: forDay });
+  }, []);
   // Bumped on every successful book refetch → tells WaitlistSection to resync
   // so the Venteliste is "spot on" the instant a booking changes (status flip,
   // table move/clear, new booking, walk-in), not just on a day change.
@@ -4421,6 +4411,37 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // looking at still true?" — see the stale chip in the toolbar.
   const [lastOkAt, setLastOkAt] = useState(() => Date.now());
   const [liveFailed, setLiveFailed] = useState(false);
+  // R10 — the door iPad stays on.
+  // The day whose book `data` holds. A refresh of THAT day that fails keeps
+  // it on screen (the last good book); another day's book is never shown
+  // under this day's name.
+  const shownDayRef = useRef(null);
+  const dataRef = useRef(null);
+  // The first load of a day failed: there is no book to show. In words, never
+  // the server's code, and never the empty state's "Ingen reservationer".
+  const [loadError, setLoadError] = useState("");
+  // Consecutive polls that could not reach BonBox (lib/bookLive), and what
+  // the browser itself says about the network.
+  const [pollFailures, setPollFailures] = useState(0);
+  const [browserOffline, setBrowserOffline] = useState(() => {
+    try {
+      return typeof navigator !== "undefined" && navigator.onLine === false;
+    } catch {
+      return false;
+    }
+  });
+  // A paired door screen whose link answers 404, confirmed by a second read:
+  // removed by the owner, or unpaired. One calm screen instead of the book (V10).
+  const [standGone, setStandGone] = useState(false);
+  // The revision of the book on screen; non-null once the server is known to
+  // send them, which lets the safety-net reload slow down.
+  const [bookRev, setBookRev] = useState(null);
+  const watchIdRef = useRef(null);
+  if (watchIdRef.current === null) watchIdRef.current = `book-${Math.random().toString(36).slice(2)}`;
+  const lastFetchAtRef = useRef(0);
+  // A reload of the book on screen is under way (no skeleton any more —
+  // the refresh icon turns instead, so a tap is answered at once).
+  const [refreshing, setRefreshing] = useState(false);
   const [actioningId, setActioningId] = useState(null);
   // Filters (Liste view).
   const [q, setQ] = useState("");
@@ -4483,7 +4504,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         // (not the suggestion), unless they have started editing the card.
         const savedHours = r.data?.settings?.booking_hours;
         if (hasSavedBookingHours(savedHours) && !salonHoursDirtyRef.current) {
-          setSalonHours(parseBookingHours(savedHours));
+          setSalonHours(parseBookingHours(savedHours, defaultSalonHours));
           setSalonHoursSaved(true);
         }
       })
@@ -4575,6 +4596,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const salonHoursDirtyRef = useRef(false);
   const [salonSetupBusy, setSalonSetupBusy] = useState(false);
   const [salonSetupError, setSalonSetupError] = useState("");
+  // Her name for her own chair (R7) — never the business name.
+  const [salonChairName, setSalonChairName] = useState("");
 
   // ── Deep-link: /reservations?booking=<id>&date=<iso> ──────────────────
   // A live host-stand alert, the 8am brief, or a push lands the owner on the
@@ -4628,33 +4651,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     }
   };
 
-  const fetchBook = useCallback(
-    async (forDay) => {
-      setLoading(true);
-      setError("");
-      try {
-        const res = await api.get("/reservations/book", { params: { day: forDay } });
-        setData(res.data || null);
-        // When the book last actually ARRIVED. See the stale-book signal below.
-        setLastOkAt(Date.now());
-        setLiveFailed(false);
-        // Signal the Venteliste to resync against the freshly-loaded book.
-        setBookTick((n) => n + 1);
-      } catch (e) {
-        setError(
-          e?.response?.data?.detail?.error ||
-            t("rsvpBookError", "Couldn't load the reservation book."),
-        );
-        setData(null);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [t],
-  );
-
   // Resources power the zone filter + table-label resolution (and, next
   // phases, the floor + timeline rails). Soft-fail: the book still works.
+  // R10: a refresh that fails keeps the room already on screen — tables do
+  // not vanish because the wifi blinked — and a first load that failed is
+  // asked again as soon as a book gets through (acceptBook below).
+  const resourcesOkRef = useRef(false);
+  const resourcesFailedRef = useRef(false);
   const fetchResources = useCallback(async () => {
     try {
       const res = await api.get("/reservations/resources");
@@ -4669,23 +4672,157 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       setVenueSeats(Number.isFinite(vs) ? vs : null);
       const he = res.data?.book_has_entries;
       setBookHasEntries(typeof he === "boolean" ? he : null);
+      resourcesOkRef.current = true;
+      resourcesFailedRef.current = false;
       setResourcesFailed(false);
     } catch {
+      // A room that was already read stays as it was (R10).
+      if (resourcesOkRef.current) return;
       setFixtures([]);
       // The empty array is what the gauge and the pickers need in order to
       // render at all — but it is NOT an answer about how many tables this
       // venue has, and `resourcesLoaded` in the finally made it look like one.
       setResources([]);
       setVenueSeats(null);
+      resourcesFailedRef.current = true;
       setResourcesFailed(true);
     } finally {
       setResourcesLoaded(true);
     }
   }, []);
 
+  // ── R10: the door iPad stays on ───────────────────────────────────────
+  // The day on screen, readable from handlers that outlive a render.
+  const dayRef = useRef(day);
+  dayRef.current = day;
+  const bookRevRef = useRef(null);
+  bookRevRef.current = bookRev;
+
+  // A 404 on a PAIRED device may mean its link is dead. Asked once more
+  // through the cheapest wrapped read before the book gives way to "not
+  // connected": a stray 404 must never take the door's book away mid-service.
+  const confirmStandGone = useCallback(async () => {
+    try {
+      await api.get("/reservations/changes", { _noRetry: true });
+      return false;
+    } catch (e) {
+      return e?.response?.status === 404;
+    }
+  }, []);
+
+  // A book for `forDay` arrived: show it, and tell the 20-second check
+  // (lib/bookLive) which day is on screen and the revision it carries.
+  const acceptBook = useCallback(
+    (forDay, body) => {
+      const book = body || null;
+      // R11 (B10): a booking that freed a table since the last read of this
+      // same day — changed on another screen, so no answer brought its
+      // waiting matches here. Ask once per booking (the stand's door is
+      // wrapped: /stand/<token>/waitlist/matches). Nobody waiting: no ask.
+      const prevBook = dataRef.current;
+      if (prevBook && book && shownDayRef.current === forDay && waitlistCountRef.current !== 0) {
+        const ids = freedSince(prevBook.reservations, book.reservations, selfFreedRef.current);
+        for (const id of ids) {
+          selfFreedRef.current.add(id);
+          api.get("/reservations/waitlist/matches", { params: { freed_reservation_id: id } })
+            .then((res) => surfaceMatches(res?.data?.matches, forDay))
+            .catch(() => {});
+        }
+      }
+      setData(book);
+      dataRef.current = book;
+      shownDayRef.current = forDay;
+      // When the book last actually ARRIVED. See the Offline line below.
+      setLastOkAt(Date.now());
+      lastFetchAtRef.current = Date.now();
+      setLiveFailed(false);
+      setPollFailures(0);
+      setLoadError("");
+      setStandGone(false);
+      const rev = book && typeof book.rev === "string" && book.rev ? book.rev : null;
+      setBookRev(rev);
+      watchBook(watchIdRef.current, forDay, rev);
+      // Signal the Venteliste to resync against the freshly-loaded book.
+      setBookTick((n) => n + 1);
+      // A link that just opened a book is this device's pairing: /stand
+      // reopens it after a restart (services/standAuth).
+      if (isStandDevice) setStandToken(standTokenFromPath(location.pathname));
+      // The tables could not be read before; the network is back.
+      if (resourcesFailedRef.current) fetchResources();
+    },
+    [isStandDevice, location.pathname, fetchResources, surfaceMatches],
+  );
+
+  // A read of the book failed. Three honest outcomes, never a blank night:
+  //   • a paired device whose link is dead → one calm "not connected" screen,
+  //     and the guests leave the screen with it;
+  //   • this day's book is on screen → it STAYS, and the toolbar says
+  //     "Offline · viser bogen fra 19.42";
+  //   • no book for this day yet → words (never the server's code), and the
+  //     page asks again by itself.
+  const bookFailed = useCallback(
+    async (forDay, e, { quiet = false } = {}) => {
+      if (isStandDevice && e?.response?.status === 404 && (await confirmStandGone())) {
+        setStandGone(true);
+        setData(null);
+        dataRef.current = null;
+        shownDayRef.current = null;
+        setBookRev(null);
+        unwatchBook(watchIdRef.current);
+        return;
+      }
+      if (dataRef.current && shownDayRef.current === forDay) {
+        setLiveFailed(true);
+        return;
+      }
+      if (quiet) return; // the load of this day says its own failure
+      setData(null);
+      dataRef.current = null;
+      shownDayRef.current = null;
+      setLoadError(
+        bookFailWords(e, t, t("rsvpBookError", "Couldn't load the reservation book."), { apptWords, load: true }),
+      );
+    },
+    [isStandDevice, confirmStandGone, t, apptWords],
+  );
+
+  const fetchBook = useCallback(
+    async (forDay) => {
+      // This day's book is on screen: refresh it in place — no skeleton
+      // flash after every tap, and a failure keeps it.
+      const inPlace = !!dataRef.current && shownDayRef.current === forDay;
+      if (!inPlace) {
+        setLoading(true);
+        // The check must not compare another day's revision meanwhile.
+        watchBook(watchIdRef.current, forDay, null);
+      } else {
+        setRefreshing(true);
+      }
+      setError("");
+      try {
+        const res = await api.get("/reservations/book", { params: { day: forDay } });
+        // A later day change superseded this answer: it is not this day's book.
+        if (dayRef.current !== forDay) return;
+        acceptBook(forDay, res.data);
+      } catch (e) {
+        if (dayRef.current !== forDay) return;
+        await bookFailed(forDay, e);
+      } finally {
+        if (dayRef.current === forDay) setLoading(false);
+        if (inPlace) setRefreshing(false);
+      }
+    },
+    [acceptBook, bookFailed],
+  );
+
+  // Load the book when the DAY changes — not when a callback's identity
+  // does (a dictionary arriving gives `t` a new identity, which re-read the
+  // whole book for nothing).
+  const fetchBookRef = useRef(fetchBook);
+  fetchBookRef.current = fetchBook;
   useEffect(() => {
-    fetchBook(day);
-  }, [day, fetchBook]);
+    fetchBookRef.current(day);
+  }, [day]);
   useEffect(() => {
     fetchResources();
   }, [fetchResources]);
@@ -4693,34 +4830,109 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // Live book — the screen the owner stares at MID-SERVICE must not go stale.
   // Without this, a public booking, a cancellation, or a host-stand flip made
   // on another device stays invisible until someone hunts for the manual
-  // refresh button. Two honest signals, no websockets (single-worker backend):
-  //   1. Refetch the moment the screen wakes / tab refocuses (the phone was in
-  //      a pocket for 20 minutes — same pattern as the timeline's now-line).
-  //   2. A gentle 75s poll, TODAY only (a past/future day's book doesn't drift
-  //      mid-service) and only while visible (don't drain the host-stand).
+  // refresh button. Honest signals, no websockets (single-worker backend):
+  //   1. The 20-second check (useLiveAlerts + lib/bookLive) asks the server
+  //      for the revision of the day on screen; a different one reloads the
+  //      book here (R10: every change, by anyone, within ~20 s).
+  //   2. The moment the screen wakes / tab refocuses — unless the revision
+  //      check is live, which asks the same question for less.
+  //   3. A safety-net reload, TODAY only and only while visible: every ~2 min
+  //      once revisions are known to work, every ~75 s against a server that
+  //      sends none.
   // SILENT: no setLoading, so the list never flashes or jumps under the thumb;
   // an in-flight ref stops overlapping fetches from racing each other.
   const liveRefreshInFlight = useRef(false);
   const refreshBookSilently = useCallback(async () => {
     if (liveRefreshInFlight.current) return;
+    const forDay = dayRef.current;
     liveRefreshInFlight.current = true;
     try {
-      const res = await api.get("/reservations/book", { params: { day } });
-      setData(res.data || null);
-      setLastOkAt(Date.now());
-      setLiveFailed(false);
-      setBookTick((n) => n + 1); // Venteliste resyncs against the fresh book
-    } catch {
+      const res = await api.get("/reservations/book", { params: { day: forDay } });
+      if (dayRef.current !== forDay) return;
+      acceptBook(forDay, res.data);
+    } catch (e) {
       // Silent no longer means INVISIBLE. The poll used to swallow every
       // failure while the now-line, the ETAs and the "forsinket" chips kept
       // ticking off the 60s clock — so a stand whose wifi had dropped looked
-      // MORE alive than one that was merely quiet. The retry path is
-      // unchanged; the toolbar just stops pretending (see `bookStale`).
-      setLiveFailed(true);
+      // MORE alive than one that was merely quiet. The book stays; the
+      // toolbar says how old it is (see `bookOffline`).
+      if (dayRef.current !== forDay) return;
+      await bookFailed(forDay, e, { quiet: true });
     } finally {
       liveRefreshInFlight.current = false;
     }
-  }, [day]);
+  }, [acceptBook, bookFailed]);
+
+  // The handlers below outlive a render; they call the newest reload through
+  // this ref, so a re-render never restarts their timers.
+  const refreshRef = useRef(refreshBookSilently);
+  refreshRef.current = refreshBookSilently;
+
+  // What the 20-second check learns (lib/bookLive), and what the browser
+  // itself says about the network.
+  useEffect(() => {
+    const onFresh = (e) => {
+      if (e?.detail?.day && e.detail.day !== dayRef.current) return;
+      // Proven current: the book on screen is what the server has now.
+      setLastOkAt(Date.now());
+      setLiveFailed(false);
+      setPollFailures(0);
+    };
+    const onUnreachable = (e) => {
+      const n = Number(e?.detail?.failures);
+      setPollFailures(Number.isFinite(n) && n >= 0 ? n : 1);
+    };
+    const onOnline = () => setBrowserOffline(false);
+    const onOffline = () => setBrowserOffline(true);
+    window.addEventListener(BOOK_FRESH_EVENT, onFresh);
+    window.addEventListener(BOOK_UNREACHABLE_EVENT, onUnreachable);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener(BOOK_FRESH_EVENT, onFresh);
+      window.removeEventListener(BOOK_UNREACHABLE_EVENT, onUnreachable);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+  // Leaving the page: the check stops asking about this book.
+  useEffect(() => {
+    const id = watchIdRef.current;
+    return () => unwatchBook(id);
+  }, []);
+
+  // No book for this day could be read: ask again by itself — sooner at
+  // first, then less often (5 s, 10 s … at most a minute, each a little
+  // random so a room of screens does not ask together), and at once when the
+  // network comes back. Stops the moment a book arrives.
+  useEffect(() => {
+    if (!loadError || standGone) return undefined;
+    let cancelled = false;
+    let timer = null;
+    let attempt = 0;
+    const tryNow = async () => {
+      if (cancelled) return;
+      if (document.visibilityState === "visible") await refreshRef.current();
+      if (!cancelled) plan();
+    };
+    const plan = () => {
+      attempt += 1;
+      const span = Math.min(5000 * 2 ** (attempt - 1), 60000);
+      timer = setTimeout(tryNow, Math.round(span * (1 - 0.2 * Math.random())));
+    };
+    const onOnline = () => {
+      clearTimeout(timer);
+      timer = setTimeout(tryNow, Math.round(Math.random() * 1500));
+    };
+    plan();
+    window.addEventListener("online", onOnline);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      window.removeEventListener("online", onOnline);
+    };
+  }, [loadError, standGone]);
+
   // Roll the host stand onto the new day. `day` is set once at mount and the
   // poll below only arms while day === today, so a stand left running by the
   // door was pinned to yesterday AND had stopped polling by morning — while the
@@ -4736,28 +4948,57 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   }, [standalone, day, setDay]);
 
   useEffect(() => {
+    const visible = () => document.visibilityState === "visible";
     const onWake = () => {
-      if (document.visibilityState === "visible") refreshBookSilently();
+      if (!visible()) return;
+      // The revision check is live: the poll wakes with the screen and
+      // reloads only if the day moved — no full reload per wake.
+      if (bookRevRef.current) return;
+      // One reload per wake: visibilitychange and focus fire together.
+      if (Date.now() - lastFetchAtRef.current < WAKE_GAP_MS) return;
+      refreshRef.current();
+    };
+    // The live poll saw a booking arrive or the day move (R10): reload now,
+    // on whichever day is open. The page's OWN "I just changed something"
+    // (no detail) is followed by its own reload — this one waits a moment and
+    // is skipped when that reload has already landed, so one tap is one
+    // request, not two.
+    const pending = new Set();
+    const onChanged = (e) => {
+      if (e?.detail?.from === "live") {
+        refreshRef.current();
+        return;
+      }
+      const askedAt = Date.now();
+      const id = setTimeout(() => {
+        pending.delete(id);
+        if (lastFetchAtRef.current < askedAt) refreshRef.current();
+      }, 1500);
+      pending.add(id);
     };
     document.addEventListener("visibilitychange", onWake);
     window.addEventListener("focus", onWake);
-    // The live-alert poll (every ~20 s) saw a booking arrive, move or cancel:
-    // reload now, on whichever day is open — not on the next 75 s tick, which
-    // only runs on today's view.
-    window.addEventListener(RESERVATIONS_CHANGED_EVENT, onWake);
-    let pollId;
-    if (day === serviceDayIso()) {
-      pollId = setInterval(() => {
-        if (document.visibilityState === "visible") refreshBookSilently();
-      }, 75000);
-    }
+    window.addEventListener(RESERVATIONS_CHANGED_EVENT, onChanged);
+    // The safety net: a full quiet reload, today only, visible only.
+    let timer = null;
+    let alive = true;
+    const plan = () => {
+      timer = setTimeout(() => {
+        if (!alive) return;
+        if (visible() && Date.now() - lastFetchAtRef.current > WAKE_GAP_MS) refreshRef.current();
+        plan();
+      }, safetyReloadMs(!!bookRevRef.current));
+    };
+    if (day === serviceDayIso()) plan();
     return () => {
+      alive = false;
+      clearTimeout(timer);
+      pending.forEach((id) => clearTimeout(id));
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("focus", onWake);
-      window.removeEventListener(RESERVATIONS_CHANGED_EVENT, onWake);
-      if (pollId) clearInterval(pollId);
+      window.removeEventListener(RESERVATIONS_CHANGED_EVENT, onChanged);
     };
-  }, [day, refreshBookSilently]);
+  }, [day]);
 
   // Provider venues only — load the active behandlinger catalog the New-
   // booking sheet offers. Soft-fail: no catalog → the sheet shows the
@@ -4798,13 +5039,26 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   };
   const openSalonForBooking = async () => {
     if (salonSetupBusy) return; // guard against double-submit
+    // Two periods that overlap, or a time left empty, never reach the
+    // server: the card says which day (R8).
+    const problem = hoursProblem(salonHours, { withLast: false });
+    if (problem) {
+      setSalonSetupError(hoursProblemWords(problem, t, lang));
+      return;
+    }
     setSalonSetupBusy(true);
     setSalonSetupError("");
     try {
       await api.post("/reservations/salon/quick-setup", {
-        booking_hours: serializeBookingHours(salonHours),
+        // A chair never reads a last booking time; none is sent.
+        booking_hours: serializeBookingHours(salonHours, { withLast: false }),
+        // This card shows two periods a day: its week is the owner's (R8).
+        hours_shape: HOURS_SHAPE,
         // Saved hours stay unless the owner edited them on this card.
         replace_hours: salonHoursDirtyRef.current,
+        // What customers call her chair (R7): her name, else "Indehaver".
+        chair_name: tidyName(salonChairName).slice(0, STYLIST_NAME_MAX) ||
+          t("rsvpSelfChairDefaultName", "Owner"),
       });
       // Refetch so the self-chair now appears (providerStations > 0 → the
       // first-run card falls away and the live book + New-booking sheet
@@ -4812,9 +5066,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       await fetchResources();
       await fetchBehandlinger();
     } catch (e) {
+      // Words, never the server's code (R10, V10).
       setSalonSetupError(
-        e?.response?.data?.detail?.error ||
-          t("rsvpSalonSetupError", "Couldn't open for booking. Try again."),
+        bookFailWords(e, t, t("rsvpSalonSetupError", "Couldn't open for booking. Try again."), { apptWords }),
       );
     } finally {
       setSalonSetupBusy(false);
@@ -5068,6 +5322,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     const silentHeldDecline = status === "cancelled" && r.status === "requested"
       && isHeldForCheck(r, publicPage?.groupThreshold) && r.guest_mailed === false
       && r.held?.bot !== false;
+    // R11 (B7): confirming a request that holds no table — a group — gives it
+    // the tables the engine would. The app asks to hear first when none fit
+    // (409 no_table_fits → NoTableFitsSheet); "Bekræft uden bord" says
+    // "confirm" on purpose.
+    const confirmsNoTable = status === "confirmed" && r.status === "requested"
+      && !isProvider && heldOf(r).length === 0;
     if (removingWalkIn) {
       if (
         !(await confirm({
@@ -5178,12 +5438,37 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         status,
         cancel_reason: removingWalkIn ? "walk_in_removed" : status === "cancelled" ? "owner_cancelled" : null,
         ...(removingWalkIn || silentHeldDecline ? { notify_guest: false } : {}),
+        ...(confirmsNoTable ? { if_no_table: opts.ifNoTable === "confirm" ? "confirm" : "ask" } : {}),
       });
+      // Where the confirmed group sits now — said, as every other change on
+      // the book is (R11). Or that it sits nowhere yet, on purpose.
+      const placed = resp?.data?.tables_assigned;
+      const placedAt = Array.isArray(placed?.labels) ? placed.labels.filter(Boolean).join(" + ") : "";
+      if (status === "confirmed" && placedAt) {
+        toast({
+          severity: "success",
+          message: opts.movedTo
+            ? t("rsvpMovedConfirmed", "Moved to {time} and confirmed — {name} has {tables}.", {
+                time: hm(opts.movedTo), name: guestText(r.guest_name) || t("rsvpGuest", "Guest"), tables: placedAt,
+              })
+            : t("rsvpConfirmedTables", "Confirmed — {name} has {tables}.", {
+                name: guestText(r.guest_name) || t("rsvpGuest", "Guest"), tables: placedAt,
+              }),
+        });
+      } else if (status === "confirmed" && resp?.data?.no_table_fits) {
+        toast({
+          severity: "notice",
+          message: apptWords
+            ? t("rsvpConfirmedNoTableAppt", "{name} is confirmed without a space — give them a space before they arrive.", { name: guestText(r.guest_name) || t("rsvpColGuestAppt", "Customer") })
+            : t("rsvpConfirmedNoTable", "{name} is confirmed without a table — give them tables before they arrive.", { name: guestText(r.guest_name) || t("rsvpGuest", "Guest") }),
+        });
+      }
       // A cancel/no-show may have freed a table — surface the waiting parties
       // that fit (the backend already filtered by capacity + local day). This
       // only SHOWS them; the owner still taps Notify / Book.
       const m = resp?.data?.waitlist_matches;
-      if (Array.isArray(m) && m.length) setSpotMatches(m);
+      if (status === "cancelled" || status === "no_show") selfFreedRef.current.add(r.id);
+      if (Array.isArray(m) && m.length) surfaceMatches(m, day);
       // The server could not do the obvious thing — say so, never silently.
       const kept = resp?.data?.early_kept;
       if (kept) {
@@ -5301,6 +5586,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       }
     } catch (e) {
       const d = e?.response?.data?.detail || {};
+      // R11 (B7): no table fits the group — nothing changed on the server.
+      // The book reloads (the optimistic "confirmed" goes back to a request)
+      // and the sheet says so and offers what can be done.
+      if (e?.response?.status === 409 && d.error === "no_table_fits" && confirmsNoTable) {
+        await fetchBook(day);
+        setNoFit({ r, facts: d });
+        return;
+      }
       if (e?.response?.status === 409 && d.error === "table_occupied" && d.occupant && !opts.retried) {
         await fetchBook(day);
         const ok = await occupiedConfirm({
@@ -5324,21 +5617,52 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           ? t("rsvpHeldApproveNoTableAppt", "No space is free at {time} any more. Open the appointment and pick a space yourself, or decline it.", { time: fmtTime(r.starts_at) })
           : t("rsvpHeldApproveNoTable", "No table is free at {time} any more. Open the booking and place it yourself, or decline it.", { time: fmtTime(r.starts_at) }))
         : null;
+      // Read the book again FIRST: the reload clears the page's error line,
+      // so a refusal said before it was gone before anyone read it (R10 —
+      // a lost race said in words, and left on screen). Never the code.
+      await fetchBook(day);
       if (heldConflict) {
         toast({ severity: "notice", message: heldConflict });
+      } else if (confirmsNoTable && e?.response?.status === 409 && d.error === "slot_unavailable") {
+        // The tables the server picked went to another screen in the same
+        // instant (the exclusion constraint) — a second tap picks afresh.
+        setError(apptWords
+          ? t("rsvpConfirmTakenAgainAppt", "That space was taken a moment ago. Tap Confirm again.")
+          : t("rsvpConfirmTakenAgain", "Those tables were taken a moment ago. Tap Confirm again."));
       } else {
         setError(
           d.error === "table_occupied"
             ? t("rsvpTableStillTaken", "{table} is still taken — finish the party there first, or pick another table.", {
                 table: d.occupant?.table || t("rsvpTableFallback", "Table"),
               })
-            : d.error || t("rsvpActionError", "Action failed. Please try again."),
+            : bookFailWords(e, t, t("rsvpActionError", "Action failed. Please try again."), { apptWords }),
         );
       }
-      await fetchBook(day);
     } finally {
       setActioningId(null);
     }
+  };
+
+  // R11 (B7): "Flyt til 21.45 og bekræft" — the request moves to a time the
+  // server said tables fit (the guest is e-mailed the new time, as any move
+  // of a request is), then Bekræft runs as usual: the tables are picked and
+  // held, or the sheet comes back with what is true now.
+  const moveAndConfirm = async (r, hhmm) => {
+    const date = String(r.starts_at || "").slice(0, 10) || day;
+    const starts = `${date}T${hhmm}:00`;
+    setNoFitBusy(true);
+    try {
+      await api.patch(`/reservations/reservations/${r.id}`, { starts_at: starts });
+    } catch (e) {
+      setNoFitBusy(false);
+      setNoFit(null);
+      await fetchBook(day);
+      setError(bookFailWords(e, t, t("rsvpActionError", "Action failed. Please try again."), { apptWords }));
+      return;
+    }
+    setNoFitBusy(false);
+    setNoFit(null);
+    await setStatus({ ...r, starts_at: starts }, "confirmed", null, { movedTo: hhmm });
   };
 
   // Seat a walk-in NOW on a free table → the table goes occupied (seated).
@@ -5422,9 +5746,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               table: occupant || t("rsvpTableFallback", "Table"),
             });
       } else {
-        msg = code || (apptWords
+        // Words, never the server's code (R10, V10).
+        msg = bookFailWords(e, t, apptWords
           ? t("rsvpSeatErrorAppt", "Couldn't check the customer in.")
-          : t("rsvpSeatError", "Couldn't seat the guests."));
+          : t("rsvpSeatError", "Couldn't seat the guests."), { apptWords });
       }
       // A 409 means the room moved under the stand — another host, another
       // device, or a view up to 60 s old. Read the book again, so the sheet
@@ -5687,7 +6012,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         setRoomFull(warningFrom(d, form.time, totalCapacity));
       } else {
         setCreateError(
-          d.error || t("rsvpCreateError", "Couldn't create the booking."),
+          bookFailWords(e, t, t("rsvpCreateError", "Couldn't create the booking."), { apptWords }),
         );
       }
     } finally {
@@ -5729,7 +6054,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // parties that now fit. Same SHOW-only contract as cancel/no-show: we
       // highlight them, the owner still taps Notify / Book.
       const m = patchResp?.data?.waitlist_matches;
-      if (Array.isArray(m) && m.length) setSpotMatches(m);
+      if (!many && !next) selfFreedRef.current.add(r.id);
+      if (Array.isArray(m) && m.length) surfaceMatches(m, day);
       const res = await api.get("/reservations/book", { params: { day } });
       setData(res.data || null);
       // Resync the Venteliste against the just-changed book.
@@ -5759,7 +6085,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           : (next && labelById[next]) || t("rsvpTableFallback", "Table");
         setAssignError(t("rsvpTableTaken", "{label} is taken at that time.", { label }));
       } else {
-        setAssignError(d.error || t("rsvpAssignError", "Couldn't assign the table."));
+        setAssignError(bookFailWords(e, t, t("rsvpAssignError", "Couldn't assign the table."), { apptWords }));
       }
     } finally {
       setAssigning(false);
@@ -5789,8 +6115,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // register, tap again", not as "this is broken", and a guest's allergy
       // silently stays unconfirmed. Say it instead.
       setAllergyError(
-        e?.response?.data?.detail?.error ||
-          t("rsvpAllergyActionError", "Couldn't save that. The allergy is unchanged."),
+        bookFailWords(e, t, t("rsvpAllergyActionError", "Couldn't save that. The allergy is unchanged."), { apptWords }),
       );
       await fetchBook(day);
     } finally {
@@ -6132,7 +6457,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const combine = useMemo(() => comboRules(bookingRules), [bookingRules]);
   const joinNow = joinCapable ? combine : null;
   const walkIns = useMemo(() => {
-    if (!showStandNow || !tableFloor || assignableTables.length === 0) return null;
+    if (!showStandNow || !tableFloor) return null;
+    // R11 (B11): until the tables are known the row is drawn already — the
+    // same six sizes saying "—", not yet tappable — so its arrival never
+    // pushes the night down (102 px, CLS 0.456 on the door iPad, 20 Oct).
+    // A failed read leaves them tappable (the seat sheet still works).
+    if (!resourcesLoaded) {
+      return WALK_IN_SIZES.map((size) => ({ size, unknown: true, pending: !resourcesFailed, freeNow: false, at: null }));
+    }
+    if (assignableTables.length === 0) return null;
     // Without the venue's turn times and closing time there is no "free now"
     // and no "approx." — a 90-minute guess in a room that never closes told
     // the door "free now" where the owner's stand said "approx. 20.30". The
@@ -6146,7 +6479,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       closeMs: closeMsFor(day, openHours),
       combine: joinNow,
     });
-  }, [showStandNow, tableFloor, assignableTables, reservations, nowTs, bookingRules, day, openHours, rulesLoaded, joinNow]);
+  }, [showStandNow, tableFloor, assignableTables, reservations, nowTs, bookingRules, day, openHours, rulesLoaded, joinNow, resourcesLoaded, resourcesFailed]);
   // What the seat sheet pre-picks for n guests: the seating the drop-in row
   // counts for them, by the same rule (seatingNow) — a single table, or the
   // joined set. Only once the rules are in; until then the sheet guesses.
@@ -6456,52 +6789,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               {r.guest_phone}
             </div>
           )}
-          {/* ANY allergy reads here, beside the name — not only a severe one.
-              It used to be severe-only, so a nuts-or-gluten booking with no
-              severity set existed on this screen as a single 16px amber
-              triangle in the last column on the right. A host scanning the
-              list mid-service reads names, not the right margin. Severe stays
-              red and keeps its own weight; everything else is amber, so the
-              hierarchy the flags column already had is preserved rather than
-              flattened. The flag icon stays where it is — this adds a second
-              place to notice, it does not move the first. */}
-          {(() => {
-            const severe = r.allergy_severity === "severe";
-            const hasAllergy =
-              (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
-              !!r.allergy_note ||
-              !!r.allergy_severity;
-            if (!hasAllergy) return null;
-            const detail = [
-              (r.allergen_tags || []).map((k) => t(`allergen_${k}`, k)).join(", "),
-              guestText(r.allergy_note),
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            return (
-              <div
-                className={
-                  // The icon in the Flags column says THAT there is an
-                  // allergy; this line is the only place that says WHAT —
-                  // "nødder" vs "ingen bisque". amber-600 on white measured
-                  // 3.19:1, under AA for normal text, so the one string a
-                  // kitchen decision depends on was the faintest on the row.
-                  // The severe branch already passes at 4.83:1; left alone.
-                  "text-[12px] font-medium truncate " +
-                  (r.status === "cancelled"
-                    ? "text-gray-500 dark:text-gray-400"
-                    : severe
-                      ? "text-red-600 dark:text-red-400"
-                      : "text-amber-700 dark:text-amber-400")
-                }
-                title={detail || undefined}
-              >
-                {/* A severity with no tags and no note still has to say
-                    something, or the row renders an empty line. */}
-                {detail || t("rsvpAllergyFlag", "Allergy")}
-              </div>
-            );
-          })()}
+          {/* ANY allergy reads here, beside the name — not only a severe one —
+              and in WORDS (R11, rubric B8): the level ("Alvorlig",
+              "Intolerans", "Allergi"; "Mulig allergi" for the AI's
+              unconfirmed reading), the allergens, then the guest's note. It
+              used to be the detail in red or amber alone, so "severe" existed
+              only as a colour. The flag icon stays where it is — this adds a
+              second place to notice, it does not move the first. */}
+          <AllergyLine r={r} t={t} cancelled={r.status === "cancelled"} />
           {/* The guest's note, on the row — it was only in the drawer, so a
               birthday cake or a high chair meant opening every booking. */}
           {(r.occasion || r.guest_notes) && (
@@ -6696,13 +6991,18 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         <div className="min-w-0 flex-1 leading-tight">
           <div className={"text-sm font-medium text-gray-900 dark:text-gray-100 truncate" + (r.status === "cancelled" ? " line-through" : "")}>
             {guestText(r.guest_name) || "—"}
+            {/* The mark beside the name: an octagon for severe, a triangle
+                otherwise — never colour alone (R11, B8); the words are on the
+                allergy line under the table and status. */}
             {hasAllergy && r.status !== "cancelled" && (
-              <AlertTriangle
+              <AllergyIcon
+                level={allergyFacts(r).level}
                 className={
                   "inline w-3.5 h-3.5 ml-1 -mt-0.5 " +
-                  (r.allergy_severity === "severe" ? "text-red-500" : "text-amber-500")
+                  (r.allergy_severity === "severe" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400")
                 }
-                aria-label={t("rsvpAllergyFlag", "Allergy")}
+                role="img"
+                aria-label={allergySentence(r, t)}
               />
             )}
           </div>
@@ -6774,8 +7074,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                   </span>
                 )
                 : (
-                  <span className="shrink-0 inline-flex items-center gap-0.5 whitespace-nowrap text-gray-700 dark:text-gray-200">
-                    <AlertTriangle className="w-3 h-3 text-gray-500 dark:text-gray-400" aria-hidden />
+                  // Amber: a live booking with no table needs the host (R11).
+                  <span className="shrink-0 inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-amber-700 dark:text-amber-300" data-no-table="">
+                    <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400" aria-hidden />
                     {apptWords ? t("rsvpNoTableShortAppt", "No space") : t("rsvpNoTableShort", "No table")}
                   </span>
                 );
@@ -6818,14 +7119,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               words and the note — on the row, not behind a tap. */}
           {/* The allergy in its colour, the note in grey: one red line made
               "barnestol" read like an allergy. */}
-          {r.status !== "cancelled" && (r.allergy_note || r.guest_notes || r.occasion) && (
+          {/* R11 (B8): the allergy in WORDS on its own line — the level
+              ("Alvorlig", "Intolerans", "Allergi", "Mulig allergi"), the
+              allergens (ticked ones were not on this row at all) and the
+              guest's note. The other notes follow in grey, never in the
+              allergy's colour. */}
+          {r.status !== "cancelled" && <AllergyLine r={r} t={t} className="mt-0.5" />}
+          {r.status !== "cancelled" && (r.guest_notes || r.occasion) && (
             <div className="mt-0.5 text-[12px] truncate text-gray-500 dark:text-gray-400">
-              {r.allergy_note && (
-                <span className={r.allergy_severity === "severe" ? "font-medium text-red-600 dark:text-red-400" : "font-medium text-amber-700 dark:text-amber-400"}>
-                  {guestText(r.allergy_note)}
-                </span>
-              )}
-              {r.allergy_note && (r.occasion || r.guest_notes) ? " · " : ""}
               {[r.occasion, r.guest_notes].filter(Boolean).map(guestText).join(" · ")}
             </div>
           )}
@@ -6858,15 +7159,25 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     );
   };
 
-  /* Is the screen still telling the truth? Only claim "stale" when all three
-     are true, so the chip never cries wolf:
-       • the last silent poll actually FAILED (not merely "no poll ran" — a
-         past or future day is never polled and never drifts),
-       • the book on screen is older than two poll cycles (~3 min), and
-       • we are not already showing the full load-error state.
-     `nowTs` ticks every 60s, so this re-evaluates on its own. */
-  const bookStale =
-    liveFailed && !error && !loading && nowTs - lastOkAt > 180000;
+  /* Is the screen still telling the truth? (R10, rubric B5.) The book on
+     screen is never taken away because a refresh failed — it stays, and this
+     says how old it is: "Offline · viser bogen fra 19.42". Claimed only when
+     it is true, so the line never cries wolf:
+       • a reload of THIS day's book failed (after the client's own retries,
+         about half a minute), or
+       • two polls in a row could not reach BonBox (~35 s), or
+       • the browser itself reports no network;
+     and only over a book that is actually on screen. A poll that answers —
+     or a matching revision — clears it. (Before R10: a 3-minute wait, and a
+     failed reload blanked the night instead.) */
+  const bookOffline =
+    !!data && !standGone && (liveFailed || pollFailures >= 2 || browserOffline);
+  // Kept for readers of the old name: the same signal.
+  const bookStale = bookOffline;
+  /* No book for this day could be read (a restart while the wifi was down).
+     The list, the floor and the timeline would each say "nothing booked" —
+     the lie R10 removes — so a calm card stands in their place instead. */
+  const bookUnavailable = !data && !loading && !!loadError && !standGone;
 
   /* A TABLE venue that has not set up a single table. The empty book used to
      promise "Bookings will appear here as they come in" — they cannot: with
@@ -6895,7 +7206,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // /reservations/stand in a new tab — a dedicated host-stand display. Hidden
   // while already inside the pop-out. On a phone it sits after the lens
   // switch, under Refresh — or beside Refresh when there is no lens switch.
-  const standPopOut = !standalone ? (
+  const standPopOut = !__STAND_BUILD__ && !standalone ? (
     <button
       type="button"
       onClick={() =>
@@ -6915,6 +7226,65 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     </button>
   ) : null;
 
+  // R10 "Afbryd denne skærm" (paired device only). Asked first — the screen
+  // then needs a new code from the owner — and the device lets go of its
+  // own link on the server, so a URL left in the history stops opening the
+  // book. If BonBox cannot be reached the screen still forgets it here, and
+  // says the owner can remove it from Indstillinger.
+  async function unpairThisScreen() {
+    const ok = await confirm({
+      title: t("rsvpStandUnpairTitle", "Disconnect this screen?"),
+      message: t(
+        "rsvpStandUnpairBody",
+        "The book closes on this screen. To use it again, the owner makes a new code under Settings.",
+      ),
+      confirmLabel: t("rsvpStandUnpairYes", "Disconnect"),
+      destructive: true,
+    });
+    if (ok !== true) return;
+    let reached = true;
+    try {
+      // Rewritten to /stand/<token>/unpair on this device (services/standAuth).
+      await api.post("/reservations/unpair", {});
+    } catch (e) {
+      // The stand's own 404 ({error: "not_found"}): the link is already gone,
+      // which is what was asked for. Any other failure — no network, or a
+      // server without this route yet — left it alive: say so.
+      reached = e?.response?.status === 404 && e?.response?.data?.detail?.error === "not_found";
+    }
+    clearStandToken();
+    unwatchBook(watchIdRef.current);
+    if (!reached) {
+      toast({
+        severity: "notice",
+        message: t(
+          "rsvpStandUnpairOffline",
+          "Disconnected on this screen. BonBox couldn't be reached — the owner can also remove it under Settings.",
+        ),
+      });
+    }
+    navigate("/stand", { replace: true, state: { fresh: true } });
+  }
+
+  // R10: a paired door screen whose link is dead shows one calm screen —
+  // what happened and the one thing to do — and no guests (V10).
+  if (standGone) {
+    return (
+      <StandNotConnected
+        t={t}
+        apptWords={apptWords}
+        busy={loading}
+        onRetry={() => fetchBook(day)}
+        onNewCode={() => {
+          // The dead link is forgotten here, so /stand asks for a code
+          // instead of reopening it.
+          clearStandToken();
+          navigate("/stand", { replace: true, state: { fresh: true } });
+        }}
+      />
+    );
+  }
+
   return (
     <div
       className={
@@ -6928,7 +7298,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           only beside the floor PLAN: there the host sees the room but not the
           queue. Beside Liste or Tidslinje it repeated what the page already
           shows. A day that is over has nothing coming, so no list at all. */}
-      {railSlot && !loading && view === "plan" && day >= todayIso &&
+      {!__STAND_BUILD__ && railSlot && !loading && view === "plan" && day >= todayIso &&
         createPortal(
           <UpcomingRail
             t={t}
@@ -7069,6 +7439,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                   navigate("/login");
                 }
               }}
+              onUnpair={isStandDevice ? unpairThisScreen : null}
             />
           </div>
         </div>
@@ -7077,7 +7448,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           gets a calm "confirm your hours → open for booking" card in place of
           the empty, confusing book. One tap seeds the self-chair + enables
           reservations; the live book renders the moment a station exists. */}
-      {salonFirstRun && (
+      {!__STAND_BUILD__ && salonFirstRun && (
         <SalonFirstRunCard
           t={t}
           hours={salonHours}
@@ -7088,12 +7459,14 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           error={salonSetupError}
           onOpen={openSalonForBooking}
           hoursSaved={salonHoursSaved}
+          chairName={salonChairName}
+          onChairName={setSalonChairName}
         />
       )}
 
       {/* A salon with bookings but no behandler yet (a café that became a
           salon): the book stays, with one line on what opens online booking. */}
-      {salonNeedsSetup && !salonFirstRun && !standalone && (
+      {!__STAND_BUILD__ && salonNeedsSetup && !salonFirstRun && !standalone && (
         <div
           role="status"
           data-testid="salon-setup-nudge"
@@ -7156,6 +7529,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           upgrade nudge (web only). Not on the stand pop-out. */}
       {!salonFirstRun && !standalone && (
         <PlanCapBanner monthCap={publicPage?.monthCap} t={t} apptWords={apptWords} />
+      )}
+
+      {/* What a salon owner must act on (R6): next week without published
+          shifts ("Kopiér sidste uge"), and appointments on a stylist's Ferie
+          or Syg day ("Flyt" opens the booking). Owner session only. */}
+      {!__STAND_BUILD__ && isProvider && !standalone && !salonFirstRun && !salonNeedsSetup && (
+        <SalonAttention t={t} lang={lang} refreshKey={bookTick} onOpenBooking={openOtherDay} />
       )}
 
       {!salonFirstRun && (
@@ -7265,26 +7645,29 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             type="button"
             onClick={() => fetchBook(day)}
             aria-label={t("rsvpRefresh", "Refresh")}
+            aria-busy={refreshing || undefined}
             className={
               "inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1 " +
               PHONE_TOOL + " " + PHONE_TOOL_SQUARE
             }
           >
-            <RefreshCw className="w-5 h-5 max-sm:w-[18px] max-sm:h-[18px]" />
+            <RefreshCw className={"w-5 h-5 max-sm:w-[18px] max-sm:h-[18px]" + (refreshing ? " animate-spin" : "")} />
           </button>
           {!tableFloor && standPopOut}
           {/* The stand used to go stale in complete silence while the now-line
               kept moving. This names the one fact that matters — WHEN what you
               are reading arrived — and sits next to the refresh that fixes it.
-              No spinner, no modal: service does not stop for a dialog. */}
+              No spinner, no modal, no red: service does not stop for a
+              dialog, and the book on screen is still the last true one. */}
           {bookStale && (
             <span
               role="status"
-              className="inline-flex items-center gap-1.5 min-h-[44px] px-1 text-[12px] leading-snug font-medium text-gray-700 dark:text-gray-200 max-sm:basis-full max-sm:min-h-0"
+              data-book-offline=""
+              className="inline-flex items-center gap-1.5 min-h-[44px] px-1 text-[12px] leading-snug font-medium text-gray-600 dark:text-gray-300 max-sm:basis-full max-sm:min-h-0"
             >
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden />
+              <WifiOff className="w-3.5 h-3.5 shrink-0" aria-hidden />
               <span className="tabular-nums">
-                {t("rsvpBookStale", "Updated {time} · can't reach BonBox", {
+                {t("rsvpBookOffline", "Offline · showing the book from {time}", {
                   time: fmtTime(new Date(lastOkAt).toISOString()),
                 })}
               </span>
@@ -7445,8 +7828,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                     key={o.size}
                     type="button"
                     data-walkin={o.size}
-                    data-walkin-state={o.unknown ? "unknown" : o.freeNow ? "free" : atText ? "wait" : "none"}
-                    disabled={seating}
+                    data-walkin-state={o.pending ? "pending" : o.unknown ? "unknown" : o.freeNow ? "free" : atText ? "wait" : "none"}
+                    disabled={seating || o.pending}
                     onClick={() => walkInTap(o)}
                     aria-label={aria}
                     title={aria}
@@ -7512,9 +7895,15 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           count, or occupancy at the 85% warn threshold, always renders.
           Covers, Seated now and Next arrival always show: those are the three
           a host reads during service. */}
+      {/* A salon's day in one line (R7, rubric S5): "2 kan bookes samtidig
+          (dig og Mia)" — who customers can book on the day shown. Owner page
+          only; the stand is a service screen. */}
+      {!__STAND_BUILD__ && isProvider && !standalone && !salonNeedsSetup && (
+        <SalonDayCapacity t={t} lang={lang} day={day} />
+      )}
       <StatStrip
         shortBelow="xl"
-        items={[
+        items={cockpitWhenUnknown(!!data, [
           {
             key: "covers",
             // A salon, a shop, a workshop: customers and appointments, not
@@ -7629,13 +8018,46 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             onClick: focusWaitlist,
             hideOnPhone: waitlistCount === 0,
           },
-        ]}
+        ])}
       />
+
+      {/* R11 (B10): a table may have opened and someone waiting fits it —
+          said where the host is looking, never under the last row: a card
+          floating over the foot of the page (it moves nothing — in the page
+          it would push the night down mid-service). One tap: the Venteliste,
+          the matches ringed, Giv besked / Book. */}
+      {freedNudge && freedNudge.day === day && waitlistCount !== 0 && !bookUnavailable && createPortal(
+        <FreedTableNudge
+          matches={freedNudge.matches}
+          t={t}
+          apptWords={apptWords}
+          raised={!!walkInDone && !(walkIns && view !== "plan")}
+          onShow={() => {
+            setSpotMatches([...freedNudge.matches]);
+            focusWaitlist();
+          }}
+          onDismiss={() => setFreedNudge(null)}
+        />,
+        document.body,
+      )}
 
       {error && (
         <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
           {error}
         </div>
+      )}
+
+      {/* R10: no book for this day could be read. Said once, calmly, in
+          words — and the page keeps asking by itself — instead of a list,
+          a floor and a timeline that would each say "nothing booked". */}
+      {bookUnavailable && (
+        <BookUnavailable
+          t={t}
+          message={loadError}
+          offline={browserOffline}
+          apptWords={apptWords}
+          onRetry={() => fetchBook(day)}
+        />
       )}
 
       {/* Honest dead-link note — a deep-link pointed at a booking that's since
@@ -7659,7 +8081,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       )}
 
       {/* ── Liste (the polished data-table) ── */}
-      {view === "liste" && (
+      {view === "liste" && !bookUnavailable && (
         <>
           {/* Phone: the search sits in the open, with Filter beside it — it
               was behind the Filter chip, and the other-day results landed
@@ -7885,7 +8307,12 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           with a party actually waiting. */}
       <div
         id="rsvp-venteliste"
-        className={"scroll-mt-4" + (view === "liste" ? "" : " hidden")}
+        // R11 (B11): not drawn until the book's first answer — it sat in the
+        // viewport under the list's skeleton and was pushed down 615 px when
+        // the rows came (desktop CLS 0.218, 20 Oct). Still mounted, so its
+        // count reaches the cockpit as before.
+        className={"scroll-mt-4" + (view === "liste" && (data || loadError) ? "" : " hidden")}
+        data-venteliste-shown={view === "liste" && (data || loadError) ? "" : undefined}
       >
         <WaitlistSection
           day={day}
@@ -7924,7 +8351,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           </div>
         );
       })()}
-      {view === "plan" &&
+      {view === "plan" && !bookUnavailable &&
         (loading ? (
           <FloorSkeleton />
         ) : (
@@ -7945,7 +8372,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         ))}
 
       {/* ── Tidslinje (service timeline grid) ── */}
-      {view === "tidslinje" &&
+      {view === "tidslinje" && !bookUnavailable &&
         (loading ? (
           <TimelineSkeleton />
         ) : (
@@ -8003,6 +8430,30 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             setAssignError("");
             setDeepLinkPulse(false);
           }}
+        />
+      )}
+
+      {/* R11 (B7): Bekræft on a group, and no table fits — said plainly, with
+          what the host can do about it. Nothing changed on the server yet. */}
+      {noFit && (
+        <NoTableFitsSheet
+          r={noFit.r}
+          facts={noFit.facts}
+          t={t}
+          busy={noFitBusy}
+          apptWords={apptWords}
+          onPickTables={() => {
+            const fresh = reservations.find((x) => x.id === noFit.r.id) || noFit.r;
+            setNoFit(null);
+            openOnTables(fresh);
+          }}
+          onMoveTo={(hhmm) => moveAndConfirm(noFit.r, hhmm)}
+          onConfirmAnyway={() => {
+            const r = noFit.r;
+            setNoFit(null);
+            setStatus(r, "confirmed", null, { ifNoTable: "confirm" });
+          }}
+          onClose={() => setNoFit(null)}
         />
       )}
 
@@ -8171,6 +8622,8 @@ function ZonePresetChips({ profile, t, value, onPick }) {
 function FloorSection({ t, businessType }) {
   const confirm = useConfirm();
   const { user } = useAuth();
+  // The week card's dates (R7) read in the owner's language.
+  const { lang } = useLanguage();
   // Account venue archetype — drives the section's vocabulary (heading,
   // intro, empty state, icon) and the suggested zone-preset chips.
   const profile = venueProfile(businessType);
@@ -8276,17 +8729,53 @@ function FloorSection({ t, businessType }) {
 
   const chosenStaff = staffMembers.find((s) => String(s.id) === String(staffId)) || null;
 
+  // Who customers can book, per day (R7): re-read after every change here.
+  const [capTick, setCapTick] = useState(0);
+  const bumpCapacity = () => setCapTick((n) => n + 1);
+
+  // People on the Vagtplan roster with no chair yet — the only ones the
+  // "from Vagtplan" picker below still offers (R7).
+  const rosterUnbound = useMemo(() => {
+    const bound = new Set(
+      resources.filter((r) => r.kind === "provider" && r.staff_id).map((r) => String(r.staff_id)),
+    );
+    return staffMembers.filter((s) => !bound.has(String(s.id)));
+  }, [resources, staffMembers]);
+
+  // A new stylist starts the way the salon already works: on shifts when a
+  // stylist already works Vagtplan shifts, else on the opening hours (R7).
+  const salonRunsShifts = resources.some(
+    (r) => r.kind === "provider" && r.staff_id && !r.follows_opening_hours && r.is_active !== false,
+  );
+
+  // The Free plan's 3-staff lock, read BEFORE the owner types a name (the
+  // server refuses the same count — GET /staff/members is that roster).
+  // Tri-state on isReady, as Vagtplan's own panel: never a lock that flashes.
+  const ent = useEntitlements();
+  const atStaffCap =
+    isProvider && ent?.isReady && typeof ent?.isAtCap === "function" &&
+    ent.isAtCap("staff_members", staffMembers.length);
+  const staffCap = atStaffCap
+    ? {
+        limit: typeof ent.cap === "function" ? ent.cap("staff_members") : null,
+        upgradeTo: ent.plan === "free" ? "starter" : ent.plan === "starter" ? "pro" : null,
+      }
+    : null;
+
   // "Det er mig" — a solo stylist adds HERSELF as a behandler. Before, the only
   // way in was a staff member with published Vagtplan shifts, so a one-chair
   // salon could not add herself (vertical-fit audit, Oct 2026). This is the
   // owner "self-chair" the Aftaler first-run card makes: a provider row with
   // no staff member whose availability is the saved opening hours
   // (follows_opening_hours — no hours saved = no times, never invented).
-  // Any self-chair, active or not — never a second one.
-  const selfChair = resources.find(
-    (r) => r.kind === "provider" && r.follows_opening_hours,
-  );
+  // Any self-chair, active or not — never a second one. A stylist added by
+  // name may follow the opening hours too (R7); she has a staff member, so
+  // she is not the owner's chair (isOwnChair).
+  const selfChair = resources.find((r) => isOwnChair(r));
   const [selfSaving, setSelfSaving] = useState(false);
+  // What customers call her — never the business name (R7: the guest page
+  // listed "Salon Saks" beside "Mia"). Blank = "Indehaver".
+  const [selfName, setSelfName] = useState("");
   const addSelfChair = async () => {
     setSelfSaving(true);
     setError("");
@@ -8294,7 +8783,7 @@ function FloorSection({ t, businessType }) {
     try {
       const res = await api.post("/reservations/resources", {
         kind: "provider",
-        label: (user?.business_name || "").trim().slice(0, 120) || t("rsvpSelfChairLabel", "Me"),
+        label: tidyName(selfName).slice(0, STYLIST_NAME_MAX) || t("rsvpSelfChairDefaultName", "Owner"),
         capacity_seats: 1,
         combinable: false,
         zone: null,
@@ -8304,6 +8793,8 @@ function FloorSection({ t, businessType }) {
       const { resource, activated } = takeActivation(res.data);
       setResources((prev) => [...prev, resource]);
       announceActivation(activated, "stylist");
+      setSelfName("");
+      bumpCapacity();
     } catch (e) {
       if (e?.response?.status === 402) {
         const d = e?.response?.data?.detail || e?.response?.data || {};
@@ -8342,6 +8833,7 @@ function FloorSection({ t, businessType }) {
       announceActivation(activated, "stylist");
       setStaffId("");
       setLabel("");
+      bumpCapacity();
     } catch (e) {
       if (e?.response?.status === 402) {
         const d = e?.response?.data?.detail || e?.response?.data || {};
@@ -8580,8 +9072,13 @@ function FloorSection({ t, businessType }) {
         : placeWords
           ? t("rsvpTableDeleteConfirmAppt", "Remove this space?")
           : t("rsvpTableDeleteConfirm", "Remove this table?");
+    // A stylist keeps her place on the Vagtplan roster (and her plan seat)
+    // when her chair goes — say so, she was added here in one step (R7).
+    const staysNote = isProvider && r.staff_id && staffName
+      ? " " + t("rsvpStylistDeleteStays", "{name} stays on the staff list in the Schedule.", { name: staffName })
+      : "";
     const message = isProvider
-      ? staffName && staffName !== label
+      ? (staffName && staffName !== label
         ? t(
             "rsvpProviderDeleteBodyStaff",
             "{staff} works this station. It leaves the floor and the timeline and takes no more appointments — putting it back means setting it up again.",
@@ -8590,7 +9087,7 @@ function FloorSection({ t, businessType }) {
         : t(
             "rsvpProviderDeleteBody",
             "The station leaves the floor and the timeline and takes no more appointments — putting it back means setting it up again.",
-          )
+          )) + staysNote
       : placeWords
         ? r.zone
           ? t(
@@ -8621,6 +9118,38 @@ function FloorSection({ t, businessType }) {
     } catch {
       fetchResources();
     }
+    if (isProvider) bumpCapacity();
+  };
+
+  // A stylist added by name (R7): her chair joins the list, and a new person
+  // joins the roster this tab counts seats from.
+  const onStylistAdded = (added) => {
+    const row = added?.resource;
+    if (row?.id) setResources((prev) => [...prev.filter((x) => x.id !== row.id), row]);
+    if (added?.created_staff && added?.staff?.id) {
+      setStaffMembers((prev) =>
+        prev.some((s) => String(s.id) === String(added.staff.id)) ? prev : [...prev, added.staff],
+      );
+    }
+    setError("");
+    setCapMsg(null);
+    bumpCapacity();
+    // R9: the first stylist can switch online booking on — say so. R7's
+    // route reports it as `activation` (takeActivation reads every shape).
+    announceActivation(takeActivation(added).activated, "stylist");
+  };
+
+  // A chair renamed or switched (R7): the row, and a renamed stylist's name
+  // on the roster, so every row and the picker below say the same name.
+  const onStylistSaved = (row) => {
+    if (!row?.id) return;
+    setResources((prev) => prev.map((x) => (x.id === row.id ? { ...x, ...row } : x)));
+    if (row.staff_id && row.staff_name) {
+      setStaffMembers((prev) =>
+        prev.map((s) => (String(s.id) === String(row.staff_id) ? { ...s, name: row.staff_name } : s)),
+      );
+    }
+    bumpCapacity();
   };
 
   // Rows in the SAME (sort_order, label) order GET /resources returns, so the
@@ -8680,8 +9209,8 @@ function FloorSection({ t, businessType }) {
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {t(
-              "rsvpProvidersIntro",
-              "Add each stylist as a bookable station. Their published shifts decide when customers can book them.",
+              "rsvpStylistsIntro",
+              "Add the people customers book. Each one can be booked whenever the salon is open, or on their shifts in the Schedule.",
             )}
           </p>
         </div>
@@ -8735,11 +9264,15 @@ function FloorSection({ t, businessType }) {
 
       {/* "Det er mig" — the owner as behandler, offered until she is one. */}
       {isProvider && !loading && listRead && !selfChair && (
-        <div
-          className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 flex flex-col sm:flex-row sm:items-center gap-3"
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!selfSaving) addSelfChair();
+          }}
+          className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 max-sm:p-3 space-y-3"
           data-testid="self-chair-card"
         >
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
               {t("rsvpSelfChairTitle", "Do you take customers yourself?")}
             </h2>
@@ -8747,42 +9280,73 @@ function FloorSection({ t, businessType }) {
               {t("rsvpSelfChairBody", "Add yourself as a stylist. Your times follow the opening hours under Settings — no rota needed.")}
             </p>
           </div>
-          <Button
-            type="button"
-            variant="primary"
-            size="lg"
-            busy={selfSaving}
-            onClick={addSelfChair}
-            iconLeft={<Check className="w-4 h-4" />}
-            className="justify-center"
-          >
-            {t("rsvpSelfChairCta", "That's me")}
-          </Button>
-        </div>
+          {/* Her name, as customers will read it in "Vælg behandler" — the
+              chair used to take the business name (R7). */}
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+            <div className="min-w-0 flex-1">
+              <label htmlFor="self-chair-name" className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">
+                {t("rsvpSelfChairNameLabel", "Your name (customers see it)")}
+              </label>
+              <input
+                id="self-chair-name"
+                type="text"
+                value={selfName}
+                onChange={(e) => setSelfName(e.target.value)}
+                placeholder={t("rsvpSelfChairNamePh", "e.g. Anna")}
+                maxLength={STYLIST_NAME_MAX}
+                autoComplete="given-name"
+                className="w-full h-11 max-sm:h-10 max-sm:min-h-0! px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
+              />
+            </div>
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              busy={selfSaving}
+              iconLeft={<Check className="w-4 h-4" />}
+              className="justify-center max-sm:h-10 max-sm:min-h-0! max-sm:text-[13px]"
+            >
+              {t("rsvpSelfChairCta", "That's me")}
+            </Button>
+          </div>
+        </form>
       )}
 
-      {/* Provider add-form — a stylist picker + optional label override. The
-          station's availability is its staff member's published shifts. */}
+      {/* A stylist by name (R7): the staff member and her chair in one step,
+          booked on the opening hours or on her shifts. */}
       {isProvider && (
+        <StylistAddCard
+          t={t}
+          defaultFollows={!salonRunsShifts}
+          staffCap={staffCap}
+          onAdded={onStylistAdded}
+        />
+      )}
+
+      {/* Someone already on the Vagtplan roster, with no chair yet: the
+          picker + optional station name, booked on her published shifts.
+          Shown only while there is such a person. */}
+      {isProvider && rosterUnbound.length > 0 && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
             if (!saving) addProviderStation();
           }}
-          className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
+          data-testid="stylist-from-roster"
+          className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 max-sm:p-3 space-y-3"
         >
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-            {t("rsvpAddStation", "Add a station")}
+            {t("rsvpStylistFromRoster", "Or pick someone from the Schedule")}
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <select
               value={staffId}
               onChange={(e) => setStaffId(e.target.value)}
               aria-label={t("rsvpProviderPickStaff", "Choose a stylist")}
-              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
+              className="h-11 max-sm:h-10 max-sm:min-h-0! px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             >
               <option value="">{t("rsvpProviderPickStaff", "Choose a stylist")}</option>
-              {staffMembers.map((s) => (
+              {rosterUnbound.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name || s.full_name || String(s.id)}
                 </option>
@@ -8794,7 +9358,7 @@ function FloorSection({ t, businessType }) {
               onChange={(e) => setLabel(e.target.value)}
               placeholder={t("rsvpStationLabelPh", "Station name (optional)")}
               maxLength={120}
-              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
+              className="h-11 max-sm:h-10 max-sm:min-h-0! px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
             />
           </div>
           <p className="text-xs text-gray-400 dark:text-gray-500">
@@ -8803,8 +9367,9 @@ function FloorSection({ t, businessType }) {
               "A stylist is bookable only during their published shifts. Add shifts on the Schedule page.",
             )}
           </p>
-          <div className="flex justify-end">
-            <Button type="submit" variant="primary" size="lg" busy={saving} iconLeft={<Plus className="w-4 h-4" />}>
+          <div className="flex sm:justify-end">
+            <Button type="submit" variant="secondary" size="lg" busy={saving} iconLeft={<Plus className="w-4 h-4" />}
+              className="max-sm:w-full max-sm:h-10 max-sm:min-h-0! max-sm:text-[13px] justify-center">
               {t("rsvpAddStationBtn", "Add station")}
             </Button>
           </div>
@@ -9071,53 +9636,22 @@ function FloorSection({ t, businessType }) {
           </p>
         </div>
       ) : isProvider ? (
+        // One row per chair (R7): the name customers see, how she is booked
+        // (the opening hours, or her shifts), rename and switch in place.
         <ul className="space-y-2">
           {resources
             .filter((r) => r.kind === "provider")
-            .map((r) => {
-              const staffName = r.staff_name || staffNameById[String(r.staff_id)] || "";
-              return (
-                <li
-                  key={r.id}
-                  className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] px-4 py-3 flex items-center justify-between gap-3"
-                >
-                  <div className="min-w-0 flex items-center gap-2">
-                    <VenueIcon className="w-4 h-4 text-gray-400 shrink-0" aria-hidden />
-                    <span className="min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-100">
-                      {r.label}
-                    </span>
-                    {r.staff_id ? (
-                      staffName && staffName !== r.label ? (
-                        <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400 truncate">
-                          {staffName}
-                        </span>
-                      ) : null
-                    ) : r.follows_opening_hours ? (
-                      // The owner "self-chair": no staff member, but bookable —
-                      // it follows the confirmed weekly opening hours. Neutral
-                      // gray, NOT the amber "needs a stylist" warning.
-                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-                        {t("rsvpProviderFollowsHours", "Follows opening hours")}
-                      </span>
-                    ) : (
-                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
-                        {t("rsvpProviderNoStaff", "No stylist")}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => removeResource(r)}
-                      aria-label={t("delete", "Delete")}
-                      className="w-11 h-11 inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 text-gray-400 hover:text-red-600 hover:border-red-300"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
+            .map((r) => (
+              <StylistRow
+                key={r.id}
+                r={r}
+                t={t}
+                staffName={r.staff_name || staffNameById[String(r.staff_id)] || ""}
+                businessName={user?.business_name || ""}
+                onSaved={onStylistSaved}
+                onRemove={removeResource}
+              />
+            ))}
         </ul>
       ) : (
         <ul className="space-y-2">
@@ -9237,6 +9771,9 @@ function FloorSection({ t, businessType }) {
           ))}
         </ul>
       )}
+
+      {/* Who customers can book, the next 7 days (R7, rubric S5). */}
+      {isProvider && !loading && <SalonWeekCapacity t={t} lang={lang} refreshKey={capTick} />}
     </div>
   );
 }
@@ -9381,7 +9918,7 @@ function BehandlingerSection({ t }) {
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
           {t(
             "rsvpBehandlingerIntro",
-            "List the behandlinger you offer with a duration and an optional price. Durations are informational and the price is display-only for now — this doesn't take bookings or charge yet.",
+            "List the services you offer with a duration and an optional price. The duration sets the booking length when a customer books this service; the price is display-only and never charges.",
           )}
         </p>
       </div>
@@ -9479,53 +10016,16 @@ function BehandlingerSection({ t }) {
         </div>
       ) : (
         <ul className="space-y-2">
+          {/* Each row edits in place (R6): Rediger → name, length, price → Gem. */}
           {items.map((b) => (
-            <li
+            <BehandlingRow
               key={b.id}
-              className={
-                "rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] px-4 py-3 flex items-center justify-between gap-3 " +
-                (b.active ? "" : "opacity-60")
-              }
-            >
-              <div className="min-w-0 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-gray-400 shrink-0" aria-hidden />
-                <span className="min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-100">
-                  {b.name}
-                </span>
-                <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
-                  {t("rsvpBehandlingDurationValue", "{n} min", { n: b.duration_min })}
-                </span>
-                <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
-                  {b.price_kr != null ? formatKr(b.price_kr, { decimals: 0 }) : "—"}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => toggleActive(b)}
-                  aria-pressed={!!b.active}
-                  aria-label={t("rsvpBehandlingActiveLabel", "Active")}
-                  title={t("rsvpBehandlingActiveLabel", "Active")}
-                  className={
-                    "h-11 px-3 inline-flex items-center gap-1.5 rounded-lg border text-xs font-medium transition-colors " +
-                    (b.active
-                      ? "border-gray-900 bg-gray-900 text-white dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900"
-                      : "border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200")
-                  }
-                >
-                  <CheckCircle2 className="w-4 h-4" aria-hidden />
-                  <span className="hidden sm:inline">{t("rsvpBehandlingActiveLabel", "Active")}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => removeItem(b)}
-                  aria-label={t("delete", "Delete")}
-                  className="w-11 h-11 inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 text-gray-400 hover:text-red-600 hover:border-red-300"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
-              </div>
-            </li>
+              b={b}
+              t={t}
+              onToggle={toggleActive}
+              onRemove={removeItem}
+              onSaved={(next) => setItems((prev) => prev.map((x) => (x.id === next.id ? { ...x, ...next } : x)))}
+            />
           ))}
         </ul>
       )}
@@ -9630,7 +10130,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   const loadedDurationRef = useRef("");
   // Opening / booking hours, per weekday. Owner-settable so slots come from
   // when they actually open — not a hard-coded default.
-  const [hours, setHours] = useState(() => defaultBookingHours());
+  const [hours, setHours] = useState(() => (isProvider ? defaultSalonHours() : defaultBookingHours()));
   // applyData is a stable callback; it reads the venue mode from here.
   const isProviderRef = useRef(isProvider);
   useEffect(() => {
@@ -9638,6 +10138,14 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   }, [isProvider]);
   const [savingHours, setSavingHours] = useState(false);
   const [hoursSaved, setHoursSaved] = useState(false);
+  // R8: the hours card's own words when a save cannot happen ("Tirsdag: de
+  // to perioder overlapper …"), and the weekday they are about — said on
+  // the card, not at the top of a long page.
+  const [hoursError, setHoursError] = useState("");
+  const [hoursProblemDay, setHoursProblemDay] = useState(null);
+  // Starttider for a table venue (R8, rubric R9): 15 / 30 / 60, saved with
+  // the hours card's Gem. The same key a salon picks on its rhythm card.
+  const [stepDraft, setStepDraft] = useState(15);
   // E-mails to the owner about online bookings (R1 D6): on unless switched off.
   const [savingOwnerEmails, setSavingOwnerEmails] = useState(false);
   // One save per card (R9): what each card held when it was last loaded or
@@ -9698,7 +10206,15 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
         isProvider: isProviderRef.current,
       });
       setHours(nextHours);
-      setHoursBase(JSON.stringify(serializeBookingHours(nextHours)));
+      // The week as loaded, serialized as R8 saves it (periods, and a last
+      // booking time on a table venue) — anything else on the card is
+      // unsaved. Starttider are saved with this card's Gem (R8), so they
+      // are this card's too.
+      setHoursBase(JSON.stringify(
+        serializeBookingHours(nextHours, { withLast: !isProviderRef.current })));
+      setStepDraft(slotStepOf(s));
+      setHoursError("");
+      setHoursProblemDay(null);
     }
   }, []);
 
@@ -9882,12 +10398,20 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   };
 
   // Patch one weekday's hours (open/close time or closed flag).
-  const setHourDay = (key, patch) =>
+  // Any change on the card clears its last "can't save" words.
+  const clearHoursProblem = () => {
+    setHoursError("");
+    setHoursProblemDay(null);
+  };
+  const setHourDay = (key, patch) => {
+    clearHoursProblem();
     setHours((h) => ({ ...h, [key]: { ...h[key], ...patch } }));
+  };
 
   // Convenience: copy Monday's row to every day (the common "same every day"
-  // case — set once, fan out).
-  const applyMonToAll = () =>
+  // case — set once, fan out). Its periods and last booking times too (R8).
+  const applyMonToAll = () => {
+    clearHoursProblem();
     setHours((h) => {
       const mon = h.mon;
       const next = {};
@@ -9896,26 +10420,66 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
       });
       return next;
     });
+  };
+
+  // Starttider (R8): a chosen last booking time follows the new grid.
+  const pickStep = (n) => {
+    clearHoursProblem();
+    setStepDraft(n);
+    setHours((h) => snapLasts(h, n));
+  };
+
+  // What the server reads (R8): two periods a day and a last booking time.
+  // An older server is never sent a shape it cannot read: the card then
+  // offers neither (a stored second period is still shown).
+  const hoursV2 = Number(data?.hours_shape) >= HOURS_SHAPE;
+  // The last booking time binds the table engine only; a salon's chair ends
+  // its service by closing, so a salon's card neither shows nor sends one.
+  const lastOn = hoursV2 && !isProvider;
+  const storedStep = slotStepOf(data?.settings);
+  const stepChanged = !isProvider && stepDraft !== storedStep;
+  // One save per card (R9): the hours card holds unsaved changes when its
+  // week (two periods and last booking times, R8) or its Starttider differ
+  // from what it last loaded or saved — CardSaveBar says so beside its Gem.
+  const hoursDirty = !!hoursBase && (
+    JSON.stringify(serializeBookingHours(hours, { withLast: !isProvider })) !== hoursBase
+    || stepChanged
+  );
 
   // Persist booking hours through the SAME PUT /reservations/settings path —
-  // serialized to the {mon:"HH:MM-HH:MM"|"closed", …} dict the availability
-  // engine reads (reservation_service.restaurant_windows).
+  // serialized to the {mon: "HH:MM-HH:MM" | "closed" | [periods], …} dict the
+  // availability engine reads (reservation_service.day_periods), with the
+  // start-time step when it changed. Checked first, the server's own rules
+  // (utils/bookingHours.hoursProblem); a 422 bad_hours says the same words.
   const saveHours = async () => {
+    const problem = hoursProblem(hours, { withLast: !isProvider });
+    if (problem) {
+      setHoursProblemDay(problem.day);
+      setHoursError(hoursProblemWords(problem, t, lang));
+      setHoursSaved(false);
+      return;
+    }
     setSavingHours(true);
     setHoursSaved(false);
+    clearHoursProblem();
     setError("");
     try {
-      const res = await api.put("/reservations/settings", {
-        settings: { booking_hours: serializeBookingHours(hours) },
-      });
+      const settings = { booking_hours: serializeBookingHours(hours, { withLast: !isProvider }) };
+      if (stepChanged) settings.slot_granularity_min = stepDraft;
+      const res = await api.put("/reservations/settings", { settings, hours_shape: HOURS_SHAPE });
+      // Only the hours card takes the answer (R9): every other card keeps
+      // what the owner is typing.
       applyData(res.data || null, ["hours"]);
       setHoursSaved(true);
       setTimeout(() => setHoursSaved(false), 2500);
     } catch (e) {
-      setError(
-        e?.response?.data?.detail?.error ||
-          t("rsvpHoursSaveError", "Couldn't save opening hours."),
-      );
+      const detail = e?.response?.data?.detail;
+      if (detail?.error === "bad_hours") {
+        setHoursProblemDay(detail.day || null);
+        setHoursError(hoursProblemWords(detail, t, lang));
+      } else {
+        setHoursError(t("rsvpHoursSaveError", "Couldn't save opening hours."));
+      }
     } finally {
       setSavingHours(false);
     }
@@ -9959,7 +10523,7 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   const live = enabled && !onlineNotReady;
   // R9: a card holding changes that are not saved says so beside its Gem.
   const formDirty = !!formBase && formSnapshot(form, tierDraft) !== formBase;
-  const hoursDirty = !!hoursBase && JSON.stringify(serializeBookingHours(hours)) !== hoursBase;
+  // hoursDirty: above, beside the hours card's save (R8's rule, R9's base).
   // Where the online times come from (the hours card's line): this card,
   // the Profile hours, both, or — a salon — the chairs read this card only.
   const hoursFrom = hoursSource({
@@ -10173,7 +10737,12 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
             {t("rsvpHoursTitle", "Opening hours (bookings)")}
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {apptWords
+            {isProvider
+              // A salon: the hours steer the owner's chair and the stylists
+              // who follow them; a stylist on Vagtplan is booked in her
+              // shifts — "only while you're open" was not true for her (V3).
+              ? t("rsvpHoursHintSalon", "These hours steer your own chair and the stylists who follow the opening hours. Stylists on shifts are booked on their shifts.")
+              : apptWords
               ? t("rsvpHoursHintProvider", "Customers can only book while you're open. Set the hours for each day.")
               : t(
                 "rsvpHoursHint",
@@ -10185,8 +10754,12 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
         {/* No hours saved yet: the editor below shows SUGGESTED hours, and the
             booking page offers no times until real ones are saved. It used to
             show 11–22 every day as if the owner had set them — and the page
-            went live on those invented hours. */}
-        {data?.hours_declared === false && (
+            went live on those invented hours. A salon books only on the
+            hours saved HERE (never the Profile hours), so for a salon the
+            banner stays until these are saved (R7). */}
+        {(isProvider
+          ? !!data && !hasSavedBookingHours(data?.settings?.booking_hours)
+          : data?.hours_declared === false) && (
           <div
             role="status"
             className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-[13px] text-gray-800 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-100"
@@ -10222,14 +10795,58 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           </p>
         )}
 
+        {/* R8: lunch and dinner on one day ("Tilføj periode"), and for a
+            table venue the last booking time of each period, in words and
+            settable, under the day's times. */}
         <WeekHoursEditor
           t={t}
+          lang={lang}
           hours={hours}
           setHourDay={setHourDay}
           onApplyMonToAll={applyMonToAll}
+          allowAddPeriod={hoursV2}
+          addMode={apptWords ? "day" : "meal"}
+          lastBooking={lastOn
+            ? { step: stepDraft, sitting: lastBookingSitting(data?.settings, { booksOne: onlineBooksOne }), apptWords }
+            : null}
+          problemDay={hoursProblemDay}
         />
 
-        {/* One Gem for this card, and it saves this card (R9). */}
+        {/* Starttider 15 / 30 / 60 (R8, rubric R9) — a salon picks hers on
+            "Tider for aftaler" below. Saved with this card's Gem. */}
+        {!isProvider && data && (
+          <StartTimesChoice
+            t={t}
+            lang={lang}
+            value={stepDraft}
+            onPick={pickStep}
+            hours={hours}
+            apptWords={apptWords}
+            busy={savingHours}
+          />
+        )}
+
+        {/* The rule behind "(auto)", said once (rubric R8). */}
+        {lastOn && (
+          <p className="text-xs text-gray-500 dark:text-gray-400" data-testid="last-booking-hint">
+            {onlineBooksOne
+              ? t("rsvpLastBookingHintAppt", "Auto = closing time minus the length of a booking ({min} min). Pick a time and customers can book up to and including it.", {
+                min: lastBookingSitting(data?.settings, { booksOne: true }),
+              })
+              : t("rsvpLastBookingHint", "Auto = closing time minus the table time ({min} min for 2 guests). Pick a time and every party can book up to and including it — even if they stay past closing.", {
+                min: lastBookingSitting(data?.settings),
+              })}
+          </p>
+        )}
+
+        {hoursError && (
+          <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+            {hoursError}
+          </p>
+        )}
+
+        {/* One Gem for this card, and it saves this card (R9) — with R8's
+            dirty rule (periods, last booking times, Starttider). */}
         <CardSaveBar
           t={t}
           dirty={hoursDirty}
@@ -10244,6 +10861,14 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
       <div id="rsvp-closures" className="scroll-mt-24">
         <ClosuresCard t={t} lang={lang} closures={data?.closures} onChanged={setClosures} apptWords={apptWords} />
       </div>
+
+      {/* A salon's start times and break between customers (R6). */}
+      {isProvider && data && (
+        // Saved on the tap; the answer refreshes the page's settings but no
+        // other card's fields (R9: a save never puts back another card's
+        // unsaved changes).
+        <SalonRhythmCard t={t} lang={lang} settings={data.settings} onSaved={(d) => applyData(d, NO_SETTINGS_PARTS)} />
+      )}
 
       {/* Availability settings (kept simple — a few numbers). <form> so
           Enter saves from any field on a host-stand keyboard. */}

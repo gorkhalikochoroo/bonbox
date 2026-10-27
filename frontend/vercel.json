@@ -5,6 +5,14 @@
       "destination": "https://api.bonbox.dk/api/portal/:token/manifest.webmanifest"
     },
     {
+      "source": "/stand",
+      "destination": "/stand.html"
+    },
+    {
+      "source": "/stand/:path*",
+      "destination": "/stand.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/"
     }
@@ -20,7 +28,7 @@
       ]
     },
     {
-      "source": "/(favicon\\.svg|manifest\\.json|stand\\.webmanifest|icon-.*\\.png|apple-touch-icon\\.png|robots\\.txt|sitemap\\.xml)",
+      "source": "/(favicon\\.svg|manifest\\.json|stand\\.webmanifest|stand-device\\.webmanifest|icon-.*\\.png|apple-touch-icon\\.png|robots\\.txt|sitemap\\.xml)",
       "headers": [
         {
           "key": "Cache-Control",

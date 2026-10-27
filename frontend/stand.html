@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- The door screen (R11, rubric B11): /stand and /stand/<token> are served
+         this page, not index.html (vercel.json; scripts/standBuild.mjs standHtml
+         for `vite` and `vite preview`). It loads src/stand/main.jsx — the book,
+         the pairing page and the live alerts — and none of the owner app's
+         shell. Its words are preloaded with the code (the stand build writes
+         that script in, after the charset). -->
+    <script>
+      (function () {
+        // The shell's lang, from the same key the app uses, before the
+        // browser's translation detector reads it (see index.html).
+        var l = null;
+        try { l = localStorage.getItem("lang"); } catch (e) { l = null; }
+        if (!l) {
+          var list = [];
+          try { list = [].concat(navigator.languages || []).concat(navigator.language ? [navigator.language] : []); } catch (e) { list = []; }
+          l = /(^|,)(da|fo)/.test(list.join(",").toLowerCase()) ? "da" : "en";
+        }
+        if (/^[a-z]{2}$/.test(l)) document.documentElement.lang = l;
+      })();
+    </script>
+    <link rel="icon" href="/favicon.ico?v=3" sizes="16x16 32x32" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png?v=3" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png?v=3" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=3" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="robots" content="noindex" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Vært-skærm" />
+    <script>
+      // The manifest, chosen during the parse — the same rule index.html has
+      // for these two addresses (R10): iOS ships NONE, so Add to Home Screen
+      // bookmarks this exact address (/stand/<token>, tonight's book);
+      // Android and desktop get the paired device's own manifest (start_url
+      // /stand, which reopens the pairing this device remembers).
+      (function () {
+        try {
+          var ua = navigator.userAgent || "";
+          var isIOS = /iphone|ipad|ipod/i.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(ua));
+          window.__BONBOX_IS_IOS = isIOS;
+          window.__BONBOX_IS_STAND = true;
+          if (!isIOS) {
+            var link = document.createElement("link");
+            link.setAttribute("rel", "manifest");
+            link.setAttribute("href", "/stand-device.webmanifest");
+            document.head.appendChild(link);
+          }
+        } catch (e) { /* no manifest: the page still works */ }
+      })();
+    </script>
+    <title>BonBox · Vært-skærm</title>
+  </head>
+  <body>
+    <script>
+      // White page (never the app's paper), dark only when chosen — as
+      // index.html draws these two addresses. The browser bar stays white on
+      // the pairing page (/stand), dark on a dark book.
+      (function () {
+        document.documentElement.classList.add("bb-page-white");
+        try {
+          if (localStorage.getItem("theme") === "dark") {
+            document.documentElement.classList.add("dark");
+            var p = location.pathname.replace(/\/+$/, "") || "/";
+            if (p !== "/stand") {
+              var tc = document.querySelector('meta[name="theme-color"]');
+              if (tc) tc.setAttribute("content", "#1f2937");
+            }
+          } else {
+            document.documentElement.classList.remove("dark");
+          }
+        } catch (e) { /* storage blocked: light */ }
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/stand/main.jsx"></script>
+    <script>
+      // The same service worker as the app (network first for pages, so this
+      // page is fetched fresh when online; the last one when offline).
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker.register("/sw.js").then(function (reg) { reg.update(); }).catch(function () {});
+        });
+      }
+    </script>
+  </body>
+</html>

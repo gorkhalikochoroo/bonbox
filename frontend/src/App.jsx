@@ -1,6 +1,5 @@
 import { Component, lazy, Suspense, useEffect, useLayoutEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from "react-router-dom";
-import { setStandToken } from "./services/standAuth";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { reportClientError } from "./utils/reportClientError";
 import { jumpToTop } from "./utils/jumpToTop";
 import { verifySkipActive, verifyWallExempt } from "./utils/verifySkip";
@@ -455,13 +454,16 @@ const ReservationsPage = lazyRetry(() => import("./pages/ReservationsPage"));
 const StandPairPage = lazyRetry(() => import("./pages/StandPairPage"));
 
 /**
- * A paired host-stand device. Adopts the token from the path BEFORE the page
- * mounts — the api client reads it synchronously on every request, so it has to
- * be set before ReservationsPage fires its first fetch, not in an effect after.
+ * A paired host-stand device. The api client reads the token straight from
+ * the address bar on every request (services/standAuth, R10) — so the very
+ * first request of a cold start is already the stand's, even the ones sent
+ * before this route renders (the dictionary gate holds every route while the
+ * live-alert poll above them is already asking). Adopting it here, in render,
+ * was too late: 13 of 13 cold starts went to the owner login. The device
+ * REMEMBERS the link once a book has loaded through it (BookSection), so
+ * /stand reopens it after a restart.
  */
 function StandTokenRoute() {
-  const { standToken } = useParams();
-  setStandToken(standToken);
   return <ReservationsPage />;
 }
 // Public gavekort page — the recipient's live card at /g/:token (no auth;

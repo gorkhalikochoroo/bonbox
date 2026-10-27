@@ -65,6 +65,9 @@ from app.services.tz_utils import now_local, business_today_local, business_day_
 from app.services.sms_service import send_sms, sms_configured
 from sqlalchemy.exc import IntegrityError
 from app.utils.time import utc_now
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -126,6 +129,11 @@ def _norm_shape(v) -> str:
 class SettingsUpdate(BaseModel):
     reservations_enabled: bool | None = None
     settings: dict | None = None
+    # The booking-hours shape the client reads (R8): 2 = it shows two
+    # periods a day and a last booking time, so its hours are checked and
+    # stored as sent. Absent (an older app) = it cannot show those days,
+    # and they are kept as stored (rsvc.keep_period_days).
+    hours_shape: int | None = None
 
 
 class SlugUpdate(BaseModel):
@@ -277,6 +285,12 @@ class StatusUpdate(BaseModel):
     # Default yes. False = a quiet correction — a duplicate or test booking the
     # guest should not hear about.
     notify_guest: bool = True
+    # Confirming a request that holds no table (R11, rubric B7): the server
+    # gives it the tables the engine would. When none fit, "ask" answers 409
+    # no_table_fits before anything changes (the app then offers what can be
+    # done); "confirm" confirms it without a table, as before R11 — the
+    # default, so an older app is never stopped from confirming.
+    if_no_table: str = Field(default="confirm", pattern="^(ask|confirm)$")
 
 
 # ─── Behandlinger (salon service catalog) schemas — S2 ───────────────
@@ -338,22 +352,13 @@ def _allocate_slug(db: Session, base: str) -> str:
 
 def _valid_booking_hours(raw) -> dict:
     """Sanitize an owner-submitted weekly opening-hours dict: keep only the
-    mon..sun keys whose value is "closed" or a parseable "HH:MM-HH:MM"; drop
-    everything else so junk can never reach the availability engine. This is the
-    single validation gate for the hours the owner confirms — the self-chair's
-    slots are built ONLY from what survives here."""
-    out: dict = {}
-    if not isinstance(raw, dict):
-        return out
-    for k in rsvc._WEEKDAY_KEYS:
-        v = raw.get(k)
-        if v == "closed":
-            out[k] = "closed"
-        elif isinstance(v, str) and "-" in v:
-            a, b = v.split("-", 1)
-            if rsvc._parse_hhmm(a) and rsvc._parse_hhmm(b):
-                out[k] = f"{a.strip()}-{b.strip()}"
-    return out
+    mon..sun keys whose value is "closed", a parseable "HH:MM-HH:MM", or (R8)
+    one or two periods that do not overlap; drop everything else so junk can
+    never reach the availability engine. This is the single validation gate
+    for the hours the owner confirms on the salon first-run card — the
+    self-chair's slots are built ONLY from what survives here."""
+    clean, _problem = rsvc.clean_booking_hours(raw, strict=False)
+    return clean
 
 
 def _resource_dict(r: BookableResource) -> dict:
@@ -491,6 +496,9 @@ def list_changes(
     since: str | None = Query(
         None, description="ISO-8601 cutoff; returns bookings created/changed/cancelled after this."
     ),
+    day: date | None = Query(
+        None, description="R10: the business day open on this screen; adds that day's book revision."
+    ),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -505,16 +513,31 @@ def list_changes(
     row). Read-only, so no audit row. A fresh client sends `since=<server_time it
     last saw>` and NEVER replays history on first load: missing/malformed `since`
     → empty list. Capped at 50 to bound the payload during a booking rush.
+
+    R10 — `day`: the business day a book on this screen shows. The answer then
+    also carries that day's revision (services/book_revision): the screen
+    compares it with the revision its /book answer carried and reloads
+    quietly when they differ, so a change made by ANYONE on ANY screen — the
+    owner's phone booking, a host seating a walk-in, a move, a cancel, the
+    Venteliste — shows everywhere within one poll. Only a reload: no toast and
+    no sound (the alert rules below are unchanged). Without `day` nothing
+    extra is read, so a screen with no book open pays nothing for it.
     """
     server_time = utc_now().isoformat()
+    book: dict = {}
+    if day is not None:
+        from app.services.book_revision import revision_or_none
+        lo, hi = business_day_window_local(user, day)
+        book = {"book_day": day.isoformat(),
+                "book_rev": revision_or_none(db, user.id, day, lo, hi)}
     if not since:
-        return {"server_time": server_time, "changes": []}
+        return {"server_time": server_time, "changes": [], **book}
     try:
         cutoff = datetime.fromisoformat(since.replace("Z", "+00:00"))
         if cutoff.tzinfo is not None:
             cutoff = cutoff.astimezone(timezone.utc).replace(tzinfo=None)
     except (ValueError, TypeError):
-        return {"server_time": server_time, "changes": []}
+        return {"server_time": server_time, "changes": [], **book}
 
     rows = (
         db.query(Reservation)
@@ -568,7 +591,7 @@ def list_changes(
         c["held"] = str(r.id) in held
         changes.append(c)
     changes.extend(approved.values())
-    return {"server_time": server_time, "changes": changes}
+    return {"server_time": server_time, "changes": changes, **book}
 
 
 # The owner's yes to a held booking: confirming it, or seating it straight
@@ -647,9 +670,14 @@ def _open_hours_by_weekday(profile, settings, user) -> dict:
     An empty list is a closed day; an empty dict means it could not be read.
     The same week the guest page's hours list is built from
     (rsvc.week_windows), so the owner card, the pickers, the stand and the
-    page share one function. `user` stays for the call sites."""
+    page share one function. `user` stays for the call sites.
+
+    R8: lunch and dinner are two windows; a window with the owner's last
+    booking time carries it third (["17:30", "22:00", "21:00"]) so the
+    owner's pickers offer what the engine takes. Readers that destructure
+    [open, close] are unaffected."""
     try:
-        return rsvc.week_windows(profile, settings)
+        return rsvc.week_windows(profile, settings, with_last=True)
     except Exception:  # noqa: BLE001 — context for the pickers, never a 500
         return {}
 
@@ -700,6 +728,10 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
         # so the owner's own time pickers offer open times — the new-booking
         # sheet listed 06:00–23:45 and defaulted to 07:15.
         "open_hours": _open_hours_by_weekday(profile, settings, user),
+        # R8: this server reads two periods a day and a last booking time.
+        # The hours card offers them only when it sees this, and sends it
+        # back with the hours (SettingsUpdate.hours_shape).
+        "hours_shape": rsvc.HOURS_SHAPE,
         "allergen_set": allergen_set_for(btype),
         "severity_levels": list(SEVERITY_LEVELS),
         "resources_cap": get_cap(user, "bookable_resources_max"),
@@ -827,6 +859,23 @@ def update_settings(payload: SettingsUpdate, request: Request,
     if payload.settings is not None:
         merged = rsvc.load_settings(profile)
         incoming = dict(payload.settings)
+        # Booking hours (R8): one or two periods a day, each with an optional
+        # last booking time. A client that reads that shape (hours_shape 2)
+        # has its week checked — a day that cannot be stored stops the save
+        # with 422 {error: "bad_hours", day, problem}, nothing half-saved. An
+        # older client is taken as sent, as before, except that a day it
+        # could not show (two periods, or a last booking time) keeps what is
+        # stored: its echo of the suggestion must not overwrite lunch and
+        # dinner.
+        if "booking_hours" in incoming:
+            if (payload.hours_shape or 0) >= rsvc.HOURS_SHAPE:
+                clean_hours, problem = rsvc.clean_booking_hours(incoming["booking_hours"])
+                if problem:
+                    raise HTTPException(status_code=422, detail={"error": "bad_hours", **problem})
+                incoming["booking_hours"] = clean_hours
+            else:
+                incoming["booking_hours"] = rsvc.keep_period_days(
+                    merged.get("booking_hours"), incoming["booking_hours"])
         if "turn_time_tiers" in incoming:
             incoming["turn_time_tiers"] = _clean_tiers(incoming["turn_time_tiers"])
         if "default_duration_min" in incoming:
@@ -845,6 +894,23 @@ def update_settings(payload: SettingsUpdate, request: Request,
         # None for no cap — never a string the engine compares with `>`.
         if "pacing_max_per_slot" in incoming:
             incoming["pacing_max_per_slot"] = rsvc.pacing_cap(incoming)
+        # Starttider (R6): 15, 30 or 60 only. A valid choice is the OWNER's
+        # from now on — a new-salon default never overwrites it.
+        incoming.pop("slot_step_chosen", None)
+        if "slot_granularity_min" in incoming:
+            step = rsvc.clean_slot_step(incoming["slot_granularity_min"])
+            if step is None:
+                incoming.pop("slot_granularity_min")
+            else:
+                incoming["slot_granularity_min"] = step
+                incoming["slot_step_chosen"] = True
+        # Pause mellem kunder (R6): 0, 5, 10 or 15 minutes only.
+        if "service_buffer_min" in incoming:
+            buf = rsvc.clean_service_buffer(incoming["service_buffer_min"])
+            if buf is None:
+                incoming.pop("service_buffer_min")
+            else:
+                incoming["service_buffer_min"] = buf
         # Blocked and spam-marked contacts are written only by their own
         # endpoints (routers/reservation_spam.py): a settings save that
         # echoes an old copy — or a crafted one — never replaces them. The
@@ -1274,6 +1340,14 @@ def create_resource(payload: ResourceCreate, request: Request,
                     BookableResource.is_deleted.is_(False))
             .scalar()
         ) + 1
+    if payload.kind == "provider":
+        # A new salon's first chair: start times every 30 min (R6).
+        prof = _profile(db, user)
+        if prof is None:
+            prof = BusinessProfile(user_id=user.id)
+            db.add(prof)
+            db.flush()
+        rsvc.start_new_salon_on_30(db, user.id, prof)
     r = BookableResource(
         user_id=user.id, kind=payload.kind, label=payload.label,
         capacity_seats=payload.capacity_seats, zone=payload.zone,
@@ -1303,6 +1377,75 @@ def create_resource(payload: ResourceCreate, request: Request,
     return out
 
 
+# ─── Salon stylists by name (R7, 27 Oct 2026) ─────────────────────────
+# What customers see for a chair: the stylist's name, else the chair label.
+STYLIST_NAME_MAX = 80
+# The owner's own chair when she gave no name: the DK-locked word the guest
+# page already falls back to (public_reservations providers) — never the
+# business name, which listed the salon itself as a stylist.
+SELF_CHAIR_FALLBACK = "Behandler"
+
+
+def _clean_stylist_name(raw) -> str:
+    """A person's name as the owner typed it: runs of whitespace become one
+    space, invisible and control characters go, trimmed. 1–80 characters,
+    else 422 {"error": "name_required" | "name_too_long"}."""
+    s = " ".join(str(raw or "").split())
+    s = "".join(ch for ch in s if ch.isprintable()).strip()
+    if not s:
+        raise HTTPException(status_code=422, detail={"error": "name_required"})
+    if len(s) > STYLIST_NAME_MAX:
+        raise HTTPException(status_code=422,
+                            detail={"error": "name_too_long", "max": STYLIST_NAME_MAX})
+    return s
+
+
+def _own_chair_name(raw) -> str:
+    """The owner's own chair from the one-tap first-run card: her name tidied
+    like _clean_stylist_name, but never a refusal — the tap must open the
+    page. Nothing usable = SELF_CHAIR_FALLBACK; longer than 80 = cut."""
+    s = " ".join(str(raw or "").split())
+    s = "".join(ch for ch in s if ch.isprintable()).strip()
+    return s[:STYLIST_NAME_MAX].strip() if s else SELF_CHAIR_FALLBACK
+
+
+def _stylist_dict(r: BookableResource, staff_name: str | None) -> dict:
+    return {**_resource_dict(r), "staff_name": staff_name}
+
+
+def _salon_runs_shifts(db: Session, user: User) -> bool:
+    """Does the salon already run a stylist on Vagtplan shifts? Then a new
+    stylist starts on shifts too; otherwise on the opening hours."""
+    return (
+        db.query(BookableResource.id)
+        .filter(
+            BookableResource.user_id == user.id,
+            BookableResource.kind == "provider",
+            BookableResource.is_active.is_(True),
+            BookableResource.is_deleted.is_(False),
+            BookableResource.staff_id.isnot(None),
+            BookableResource.follows_opening_hours.is_(False),
+        )
+        .first()
+    ) is not None
+
+
+class StylistCreate(BaseModel):
+    # A new person by name — or someone already on the Vagtplan roster.
+    # Exactly one of the two.
+    name: str | None = Field(default=None, max_length=200)
+    staff_id: UUID | None = None
+    # True: bookable whenever the salon is open (the hours card), like the
+    # owner's own chair. False: only on her published Vagtplan shifts.
+    # None: shifts when the salon already runs a stylist on shifts, else hours.
+    follows_opening_hours: bool | None = None
+
+
+class StylistUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+    follows_opening_hours: bool | None = None
+
+
 class SalonQuickSetup(BaseModel):
     # The owner-confirmed weekly opening hours ({mon..sun: "HH:MM-HH:MM"|"closed"}).
     # Sanitized server-side by _valid_booking_hours before it is ever stored.
@@ -1311,6 +1454,13 @@ class SalonQuickSetup(BaseModel):
     # saved (Indstillinger → Åbningstider) are kept otherwise: the card's
     # suggestion used to overwrite them on the "Åbn for booking" tap.
     replace_hours: bool = False
+    # What customers call the owner's own chair (R7). It used to be the
+    # business name, so the guest page listed "Salon Saks" beside "Mia".
+    # Blank = "Behandler"; the owner can rename it on Behandlere.
+    chair_name: str | None = Field(default=None, max_length=200)
+    # R8: 2 = the card shows two periods a day. Without it (an older app) a
+    # stored two-period day is kept when the card's hours replace the week.
+    hours_shape: int | None = None
 
 
 @router.post("/salon/quick-setup")
@@ -1336,11 +1486,14 @@ def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
     #    this is the ONLY write that makes the self-chair produce any slots.
     #    Hours the owner already saved stay, unless they edited them here.
     saved = rsvc.load_settings(profile).get("booking_hours")
-    has_saved = isinstance(saved, dict) and any(
-        v == "closed" or (isinstance(v, str) and "-" in v) for v in saved.values())
+    # Two periods a day count as saved hours too (R8).
+    has_saved = rsvc.booking_hours_saved(saved)
     if payload.booking_hours is not None and (not has_saved or payload.replace_hours):
         merged = rsvc.load_settings(profile)
-        merged["booking_hours"] = _valid_booking_hours(payload.booking_hours)
+        new_hours = _valid_booking_hours(payload.booking_hours)
+        if (payload.hours_shape or 0) < rsvc.HOURS_SHAPE:
+            new_hours = rsvc.keep_period_days(saved, new_hours)
+        merged["booking_hours"] = new_hours
         profile.reservation_settings_json = json.dumps(merged)
 
     # 2. Find-or-create the self-chair (idempotent — never a second chair, and
@@ -1351,6 +1504,10 @@ def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
             BookableResource.user_id == user.id,
             BookableResource.kind == "provider",
             BookableResource.follows_opening_hours.is_(True),
+            # The owner's own chair has no staff member. A stylist added on
+            # Behandlere may follow the opening hours too (R7) — she is not
+            # the owner, and must not stop the owner's chair being made.
+            BookableResource.staff_id.is_(None),
             BookableResource.is_deleted.is_(False),
         )
         .first()
@@ -1363,11 +1520,11 @@ def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
             .count()
         )
         enforce_cap(user, "bookable_resources_max", int(current))
-        label = (
-            (getattr(user, "business_name", None)
-             or getattr(profile, "company_name", None) or "Behandler").strip()[:120]
-            or "Behandler"
-        )
+        # A new salon starts on 30-minute start times (R6, rubric S3).
+        rsvc.start_new_salon_on_30(db, user.id, profile)
+        # Her own name, as she typed it — never the business name (R7: the
+        # guest page listed the salon itself as a stylist).
+        label = _own_chair_name(payload.chair_name)
         chair = BookableResource(
             user_id=user.id, kind="provider", label=label,
             capacity_seats=1, combinable=False, staff_id=None,
@@ -1390,6 +1547,266 @@ def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
     db.commit()
     return {**get_settings(db, user),
             "hours_kept": bool(has_saved and not payload.replace_hours)}
+
+
+@router.get("/salon/attention")
+def salon_attention(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """What a salon owner should act on (R6) — read-only, owner-only:
+
+      * next_week: next week's shifts for the stylists customers book on
+        Vagtplan (None when no stylist is on shifts). 0 published means 0
+        online times that week; the Aftaler card offers "Kopiér sidste uge"
+        (it lands as Kladde and still needs Udgiv) or a link to publish.
+      * absence_conflicts: upcoming appointments on a stylist's Ferie / Syg /
+        Barns sygedag / Andet day, so she can move them.
+
+    Each half fails soft on its own: a read error answers None / nothing,
+    never a 500 that would blank the book's top."""
+    from app.services import salon_attention as sa
+
+    enforce_feature(user, "reservations")
+    now = now_local(user)
+    out: dict = {"next_week": None, "absence_conflicts": {"count": 0, "items": []}}
+    try:
+        out["next_week"] = sa.next_week_shifts(db, user.id, now.date())
+    except Exception:  # noqa: BLE001 — a hint, never a failure
+        logger.warning("salon attention: next week failed", exc_info=True)
+        db.rollback()
+    try:
+        settings = rsvc.load_settings(_profile(db, user))
+        out["absence_conflicts"] = sa.absence_conflicts(
+            db, user.id, now_local=now.replace(tzinfo=None),
+            horizon_days=int(settings.get("max_advance_days", 60) or 60),
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("salon attention: absence conflicts failed", exc_info=True)
+        db.rollback()
+    return out
+
+
+@router.get("/salon/capacity")
+def salon_capacity_days(start: date | None = Query(default=None),
+                        days: int = Query(default=7, ge=1, le=14),
+                        db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    """Who customers can book online, per day (R7, rubric S5): "2 kan bookes
+    samtidig (dig og Mia)". Read-only, owner-only; from the same windows the
+    booking engine books on. `start` defaults to the venue's today."""
+    from app.services import salon_attention as sa
+
+    enforce_feature(user, "reservations")
+    first = start or now_local(user).date()
+    profile = _profile(db, user)
+    saved = rsvc.load_settings(profile).get("booking_hours")
+    return {
+        "start": first.isoformat(),
+        "days": sa.salon_capacity(db, user.id, profile, start=first, days=days),
+        # A chair on the opening hours books nothing until the hours card is
+        # saved — the card says so, with the way there (no dead end).
+        "hours_saved": rsvc.booking_hours_saved(saved),
+        "follows_hours": db.query(BookableResource.id).filter(
+            BookableResource.user_id == user.id,
+            BookableResource.kind == "provider",
+            BookableResource.is_active.is_(True),
+            BookableResource.is_deleted.is_(False),
+            BookableResource.follows_opening_hours.is_(True),
+        ).first() is not None,
+    }
+
+
+@router.post("/salon/stylists", status_code=201)
+def add_salon_stylist(payload: StylistCreate, db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """Add a stylist from Behandlere in one step (R7, rubric S11).
+
+    By NAME: creates the staff member (the same Free 3-staff lock and the
+    same seat count as Vagtplan's own add, `staff_members`) and her chair in
+    ONE transaction — a cap refusal leaves nothing behind. A name already on
+    the roster without a chair is that person (no second "Mia", no seat).
+    By STAFF_ID: someone already on the roster gets a chair (no new seat).
+    A stylist who already has a chair → 409 stylist_exists.
+
+    Her times: the opening hours (like the owner's own chair, no shifts
+    needed; Ferie/Syg still take her off) or her published Vagtplan shifts.
+    The salon's first chair also opens the page and starts it on 30-minute
+    start times, exactly as POST /resources does."""
+    from app.models.staff import StaffMember
+    from app.routers.staff import count_active_staff
+
+    enforce_feature(user, "reservations")
+    if (payload.name is None) == (payload.staff_id is None):
+        raise HTTPException(status_code=422, detail={"error": "name_or_staff"})
+
+    member = None
+    name = None
+    if payload.staff_id is not None:
+        member = (
+            db.query(StaffMember)
+            .filter(StaffMember.id == payload.staff_id,
+                    StaffMember.user_id == user.id,
+                    StaffMember.active.is_(True),
+                    StaffMember.is_deleted.isnot(True))
+            .first()
+        )
+        if member is None:
+            raise HTTPException(status_code=404, detail={"error": "not_found"})
+    else:
+        name = _clean_stylist_name(payload.name)
+        want = name.casefold()
+        member = next(
+            (m for m in (
+                db.query(StaffMember)
+                .filter(StaffMember.user_id == user.id,
+                        StaffMember.active.is_(True),
+                        StaffMember.is_deleted.isnot(True))
+                .order_by(StaffMember.created_at)
+                .all()
+            ) if " ".join((m.name or "").split()).casefold() == want),
+            None,
+        )
+
+    if member is not None:
+        existing = (
+            db.query(BookableResource.id)
+            .filter(BookableResource.user_id == user.id,
+                    BookableResource.kind == "provider",
+                    BookableResource.staff_id == member.id,
+                    BookableResource.is_deleted.is_(False))
+            .first()
+        )
+        if existing is not None:
+            raise HTTPException(status_code=409, detail={
+                "error": "stylist_exists", "resource_id": str(existing[0]),
+                "name": member.name,
+            })
+
+    current = (
+        db.query(BookableResource)
+        .filter(BookableResource.user_id == user.id, BookableResource.is_deleted.is_(False))
+        .count()
+    )
+    # Both gates before any write: a refusal leaves no orphan staff member.
+    if member is None:
+        enforce_cap(user, "staff_members", count_active_staff(db, user.id))
+    enforce_cap(user, "bookable_resources_max", int(current))
+
+    follows = (bool(payload.follows_opening_hours)
+               if payload.follows_opening_hours is not None
+               else not _salon_runs_shifts(db, user))
+
+    created_staff = False
+    if member is None:
+        member = StaffMember(
+            user_id=user.id, name=name,
+            # A salon's role word (config/staffRoles.js ROLES_SALON[0]).
+            role="Frisør" if (getattr(user, "business_type", None) or "").lower() == "salon" else "Behandler",
+        )
+        db.add(member)
+        db.flush()
+        created_staff = True
+
+    prof = _profile(db, user)
+    if prof is None:
+        prof = BusinessProfile(user_id=user.id)
+        db.add(prof)
+        db.flush()
+    rsvc.start_new_salon_on_30(db, user.id, prof)
+    sort_order = int(
+        db.query(func.coalesce(func.max(BookableResource.sort_order), -1))
+        .filter(BookableResource.user_id == user.id, BookableResource.is_deleted.is_(False))
+        .scalar()
+    ) + 1
+    r = BookableResource(
+        user_id=user.id, kind="provider", label=(member.name or "")[:120] or SELF_CHAIR_FALLBACK,
+        capacity_seats=1, combinable=False, staff_id=member.id,
+        follows_opening_hours=follows, sort_order=sort_order,
+    )
+    db.add(r)
+    db.flush()
+    audit_service.record(
+        db, user, "reservation.stylist_added", "bookable_resource", r.id,
+        after={"created_staff": created_staff, "follows_opening_hours": follows},
+    )
+    activation = _activate_reservations_on_first_resource(db, user, had_resources_before=int(current))
+    db.commit()
+    return {
+        "resource": _stylist_dict(r, member.name),
+        "staff": {"id": str(member.id), "name": member.name},
+        "created_staff": created_staff,
+        "activation": activation,
+    }
+
+
+@router.patch("/salon/stylists/{resource_id}")
+def update_salon_stylist(resource_id: UUID, payload: StylistUpdate,
+                         db: Session = Depends(get_db),
+                         user: User = Depends(get_current_user)):
+    """Rename a chair, or switch how a stylist is booked (R7, rubric S12).
+
+    The name is the one customers see: the owner's own chair renames its
+    label; a stylist's chair renames the PERSON (StaffMember.name — the same
+    name Vagtplan and the guest page show) and the chair's label when that
+    was her old name (a label the owner chose, e.g. "Stol 2", stays).
+
+    follows_opening_hours switches a stylist between the opening hours and
+    her Vagtplan shifts. The owner's own chair always follows the hours, and
+    a chair with no one on it cannot start to (it would book nobody)."""
+    from app.models.staff import StaffMember
+
+    enforce_feature(user, "reservations")
+    r = (
+        db.query(BookableResource)
+        .filter(BookableResource.id == resource_id,
+                BookableResource.user_id == user.id,
+                BookableResource.kind == "provider",
+                BookableResource.is_deleted.is_(False))
+        .first()
+    )
+    if r is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    member = None
+    if r.staff_id:
+        member = (
+            db.query(StaffMember)
+            .filter(StaffMember.id == r.staff_id,
+                    StaffMember.user_id == user.id,
+                    StaffMember.is_deleted.isnot(True))
+            .first()
+        )
+    before = {"follows_opening_hours": bool(r.follows_opening_hours),
+              "renamed": False}
+    after = dict(before)
+
+    if payload.follows_opening_hours is not None:
+        want = bool(payload.follows_opening_hours)
+        if not r.staff_id:
+            if want != bool(r.follows_opening_hours):
+                raise HTTPException(status_code=422, detail={
+                    "error": "chair_needs_a_stylist" if want else "own_chair_follows_hours",
+                })
+        else:
+            r.follows_opening_hours = want
+            after["follows_opening_hours"] = want
+
+    if payload.name is not None:
+        name = _clean_stylist_name(payload.name)
+        if member is not None:
+            old = " ".join((member.name or "").split())
+            label = " ".join((r.label or "").split())
+            if name != old:
+                member.name = name
+                after["renamed"] = True
+            if not label or label == old:
+                r.label = name[:120]
+        elif name != (r.label or ""):
+            r.label = name[:120]
+            after["renamed"] = True
+
+    if after != before:
+        audit_service.record(db, user, "reservation.stylist_updated", "bookable_resource",
+                             r.id, before=before, after=after)
+    db.commit()
+    return _stylist_dict(r, member.name if member is not None else None)
 
 
 @router.post("/resources/bulk", status_code=201)
@@ -1993,6 +2410,12 @@ def reservation_book(
     # service now uses (business_day_window_local), so owner book and insights
     # bucket a booking into the identical business day.
     lo, hi = business_day_window_local(user, target)
+    # R10: the revision of what this answer sends (services/book_revision).
+    # Read BEFORE the rows, never after: a write landing between the two then
+    # makes the revision older than the rows — one extra quiet reload — and
+    # never newer, which would hide that write from the 20-second check.
+    from app.services.book_revision import revision_or_none
+    rev = revision_or_none(db, user.id, target, lo, hi)
     rows = (
         db.query(Reservation)
         .filter(
@@ -2066,6 +2489,10 @@ def reservation_book(
         "date": target.isoformat(),
         "reservations": dicts,
         "summary": {"total": len(rows), "covers": covers, "by_status": by_status},
+        # R10: the day's revision as of this answer (None = could not tell —
+        # the screen then keeps its slower full reload). The 20-second
+        # /changes?day= poll compares against it.
+        "rev": rev,
     }
 
 
@@ -2273,10 +2700,11 @@ def _room_full_detail(db: Session, user: User, party_size: int,
         # closed ("Lukket kl. 06 — åbent 11:30–22:00") instead of the
         # unexplained "no table can be booked at that time".
         if start is not None and not _no_hours:
-            _open = [
-                [w.start.strftime("%H:%M"), w.end.strftime("%H:%M")]
-                for w in rsvc.restaurant_windows(_profile, start.date(), _settings)
-            ]
+            # Lunch and dinner are two windows; a last booking time rides
+            # third, so the sheet never says "past closing" for a start the
+            # last booking time allows (R8).
+            _open = rsvc._hhmm_pairs(
+                rsvc.restaurant_windows(_profile, start.date(), _settings), with_last=True)
     except Exception:  # noqa: BLE001 — context only; never break the 409
         _no_hours = False
     try:
@@ -2360,10 +2788,12 @@ def _create_provider_booking(db: Session, user: User, profile, payload: "ManualR
         # Named stylist → must be that exact provider, free, in a published
         # shift. FAIL CLOSED: a None means taken/unavailable → 409, NO reassign.
         _assert_owned_resource(db, user, payload.stylist_resource_id)
+        # buffer_min=0: the salon's pause between customers (R6) shapes the
+        # guest page; the owner may still write a customer in closer.
         picked = rsvc.recheck_provider_slot(
             db, profile=profile, user_id=user.id,
             resource_id=payload.stylist_resource_id, start=payload.starts_at,
-            duration_min=duration, now=None,
+            duration_min=duration, now=None, buffer_min=0,
         )
         if picked is None:
             raise HTTPException(
@@ -2383,7 +2813,7 @@ def _create_provider_booking(db: Session, user: User, profile, payload: "ManualR
         # assign_combo checks tables first (a salon has none) then each provider.
         resource_ids = rsvc.recheck_and_assign_combo(
             db, profile=profile, user_id=user.id, start=payload.starts_at,
-            party_size=1, now=None, duration_min=duration,
+            party_size=1, now=None, duration_min=duration, buffer_min=0,
         )
         if not resource_ids:
             raise HTTPException(status_code=409, detail={"error": "no_provider_available"})
@@ -2844,14 +3274,15 @@ class ReservationEdit(BaseModel):
 
 def _sitting_inside_hours(profile, settings: dict, start: datetime, end: datetime) -> bool:
     """The whole sitting inside an open window — the rule the booking engine
-    applies to a new booking. No hours on record: the owner is the authority,
-    as on create. Yesterday's window counts too, for a 00:30 after a late
-    close."""
+    applies to the owner's own booking. No hours on record: the owner is the
+    authority, as on create. Yesterday's window counts too, for a 00:30
+    after a late close. R8: a start by the period's last booking time fits
+    even when the sitting runs past closing (rsvc.owner_windows)."""
     if not rsvc.hours_declared(profile, settings):
         return True
     for d in (start.date(), start.date() - timedelta(days=1)):
-        for w in rsvc.restaurant_windows(profile, d, settings):
-            if w.start <= start and end <= w.end:
+        for w in rsvc.owner_windows(rsvc.restaurant_windows(profile, d, settings)):
+            if rsvc.window_admits(w, start, end):
                 return True
     return False
 
@@ -3201,7 +3632,8 @@ def _assign_held_on_approval(db: Session, user: User, r: Reservation, held: dict
         # the guest's own booking passed).
         if rsvc.recheck_provider_slot(db, profile=profile, user_id=user.id,
                                       resource_id=pick[0], start=start,
-                                      duration_min=duration, now=None):
+                                      duration_min=duration, now=None,
+                                      buffer_min=0):
             ids = pick
     elif pick and _held_pick_free(db, user, pick, start, end, r.id):
         ids = pick
@@ -3218,6 +3650,66 @@ def _assign_held_on_approval(db: Session, user: User, r: Reservation, held: dict
         raise HTTPException(status_code=409, detail={"error": "slot_unavailable", "held": True})
     r.resource_id = UUID(str(ids[0]))
     r.combined_resource_ids = [str(x) for x in ids] if len(ids) > 1 else None
+
+
+def _label_order(label) -> tuple:
+    """"Bord 2" before "Bord 10": digits compare as numbers, words by letter."""
+    parts = re.split(r"(\d+)", str(label or "").casefold())
+    return tuple((0, int(p)) if p.isdigit() else (1, p) for p in parts)
+
+
+def _venue_has_tables(db: Session, user: User) -> bool:
+    return db.query(BookableResource.id).filter(
+        BookableResource.user_id == user.id,
+        BookableResource.is_active.is_(True),
+        BookableResource.is_deleted.is_(False),
+        BookableResource.kind != "provider",
+    ).first() is not None
+
+
+def _tables_on_confirm(db: Session, user: User, r: Reservation,
+                       if_no_table: str) -> tuple[dict | None, dict | None]:
+    """R11 (rubric B7) — the tables a request sits at once the owner confirms
+    it. Sets resource_id / combined_resource_ids; the caller's occupancy step
+    (sync_occupancy_for_status) then holds every table of the set, in the
+    same transaction as the status change.
+
+    Returns (tables_assigned, no_table_fits):
+      • tables fit → ({"ids": [...], "labels": [...]}, None);
+      • the venue has no table at all → (None, None): nothing to assign, the
+        request is confirmed as before;
+      • none fit, and the app asked (if_no_table "ask") → 409 no_table_fits
+        BEFORE anything changes, with what the owner can do about it;
+      • none fit otherwise → (None, facts): confirmed without a table, as
+        before R11, and said in the answer."""
+    profile = _profile(db, user)
+    party = int(r.party_size or 1)
+    ids = rsvc.tables_for_request(db, profile=profile, user_id=user.id, start=r.starts_at,
+                                  party_size=party, duration_min=r.duration_min)
+    if ids:
+        label_of = {
+            str(x.id): x.label
+            for x in db.query(BookableResource.id, BookableResource.label)
+            .filter(BookableResource.user_id == user.id,
+                    BookableResource.id.in_([UUID(i) for i in ids]))
+            .all()
+        }
+        # In the order the floor reads them — "Bord 2 + Bord 10", as the
+        # app's table picker saves a joined set — not the engine's id order.
+        ids = sorted(ids, key=lambda i: _label_order(label_of.get(i)))
+        r.resource_id = UUID(ids[0])
+        r.combined_resource_ids = ids if len(ids) > 1 else None
+        return {"ids": ids, "labels": [label_of.get(i) for i in ids]}, None
+    if not _venue_has_tables(db, user):
+        return None, None
+    facts = rsvc.request_fit_facts(
+        db, profile=profile, user_id=user.id, start=r.starts_at, party_size=party,
+        duration_min=r.duration_min,
+        now=now_local(user).replace(tzinfo=None, second=0, microsecond=0),
+    )
+    if if_no_table == "ask":
+        raise HTTPException(status_code=409, detail={"error": "no_table_fits", **facts})
+    return None, facts
 
 
 @router.patch("/reservations/{reservation_id}/status")
@@ -3247,6 +3739,15 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
             and payload.resource_id is None and r.resource_id is None
             and not r.combined_resource_ids):
         _assign_held_on_approval(db, user, r, held)
+    # A request that holds no table — a group request, by design — gets its
+    # tables when the owner confirms it (R11, rubric B7), or the owner hears
+    # that none fit before anything changes.
+    tables_assigned = None
+    no_table_fits = None
+    if (held is None and prev_status == "requested" and payload.status == "confirmed"
+            and payload.resource_id is None and r.resource_id is None
+            and not r.combined_resource_ids and not r.service_name):
+        tables_assigned, no_table_fits = _tables_on_confirm(db, user, r, payload.if_no_table)
     # Seating (or reopening) onto a table someone is still sitting at: refuse,
     # and say who — before anything on this booking changes.
     if payload.status == "seated" and prev_status != "seated":
@@ -3457,6 +3958,12 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         # Over the venue's daily guest-mail ceiling: the change is saved, the
         # guest was not e-mailed — the app tells the owner (da/en).
         out["guest_email_skipped"] = guest_mail_skipped
+    # R11 (B7): where a confirmed request now sits — or that it sits nowhere
+    # yet because no table fits (confirmed without a table on purpose).
+    if tables_assigned:
+        out["tables_assigned"] = tables_assigned
+    if no_table_fits:
+        out["no_table_fits"] = no_table_fits
     if early_from is not None:
         # The booked time the seating moved away from — the app says so; a
         # booking moving from 18.00 to 17.07 without a word looked like a bug.
@@ -3981,10 +4488,15 @@ def update_behandling(behandling_id: UUID, payload: BehandlingUpdate,
     # Only overwrite the fields the caller actually sent (None = "leave it"),
     # so a partial PATCH (e.g. just toggling `active`) doesn't blank the rest.
     if payload.name is not None:
-        b.name = payload.name.strip()
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail={"error": "name_required"})
+        b.name = name
     if payload.duration_min is not None:
         b.duration_min = payload.duration_min
-    if payload.price_kr is not None:
+    # The price is the one field that may be cleared (R6, edit in place): an
+    # explicit `"price_kr": null` removes it; leaving the key out keeps it.
+    if "price_kr" in payload.model_fields_set:
         b.price_kr = payload.price_kr
     if payload.active is not None:
         b.active = payload.active

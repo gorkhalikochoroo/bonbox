@@ -1550,15 +1550,26 @@ export default function ReservationPublicPage() {
   // on error dayMap stays null and the single-day flow + phone fallback still run.
   // One person for a salon, a shop or a workshop — as the page asks.
   const summaryParty = isProvider || apptWords ? 1 : (party || 2);
+  // A salon's strip counts the service the customer chose (R6): a 90-minute
+  // colour does not fit a day whose only gap is 45 minutes. Before a choice
+  // the server counts the shortest service the salon offers.
+  const summaryService = isProvider && behandlingId ? String(behandlingId) : "";
   useEffect(() => {
     if (!page) return;
     let alive = true;
-    // R5: index.html may have asked this very question already.
-    bootOr("summary", { slug, from: today, days: 14, party: summaryParty }, () =>
+    // The strip's question, with the chosen service when there is one (R6).
+    const askSummary = () =>
       api.get(`/public/reservations/${slug}/availability-summary`, {
-        params: { from: today, days: 14, party: summaryParty },
-      }),
-    )
+        params: {
+          from: today, days: 14, party: summaryParty,
+          ...(summaryService ? { behandling_id: summaryService } : {}),
+        },
+      });
+    // R5: index.html may have asked this very question already — always
+    // without a service, so a chosen service's question is asked here.
+    (summaryService
+      ? askSummary()
+      : bootOr("summary", { slug, from: today, days: 14, party: summaryParty }, askSummary))
       .then((res) => {
         if (!alive) return;
         const list = Array.isArray(res.data?.days) ? res.data.days : [];
@@ -1607,7 +1618,7 @@ export default function ReservationPublicPage() {
     };
     // re-run when party changes (open days depend on party size), and when a
     // refusal says the strip is out of date (summaryNonce)
-  }, [page, slug, summaryParty, today, summaryNonce, waitFull]);
+  }, [page, slug, summaryParty, summaryService, today, summaryNonce, waitFull]);
   const dayReasons = reasonsFor && reasonsFor.party === summaryParty ? reasonsFor.reasons : null;
 
   // ── Per-venue document title + OG tags ────────────────────────────

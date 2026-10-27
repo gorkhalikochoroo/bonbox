@@ -56,13 +56,21 @@
  */
 import React, { useEffect, useRef } from "react";
 
+const UNDERLINE_ROW =
+  "max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:-mx-4 max-sm:px-4 " +
+  "max-sm:border-b max-sm:border-[rgb(var(--surface-line))] " +
+  "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+
 const PHONE_ROW = {
   // gap-5, not 6: with every tab at least 40px wide (PHONE_TAB below) the
   // four Danish Reservations tabs still fit a 360px row without scrolling.
-  underline:
-    "max-sm:flex-nowrap max-sm:gap-5 max-sm:overflow-x-auto max-sm:-mx-4 max-sm:px-4 " +
-    "max-sm:border-b max-sm:border-[rgb(var(--surface-line))] " +
-    "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+  underline: UNDERLINE_ROW + " max-sm:gap-5",
+  // phoneSpread (R7): five sections on one phone row — the salon's
+  // Aftaler · Behandlere · Behandlinger · Indsigt · ⚙. The gaps share what
+  // the row has left (at least 12px), so the five fit from a 358px phone up;
+  // a row that still does not fit scrolls exactly as before (space-between
+  // with no free space starts at the left edge).
+  underlineSpread: UNDERLINE_ROW + " max-sm:gap-3 max-sm:justify-between",
   segmented:
     "max-sm:flex-nowrap max-sm:gap-0 max-sm:rounded-lg max-sm:border " +
     "max-sm:border-[rgb(var(--surface-line))] max-sm:bg-[rgb(var(--surface-card))]",
@@ -103,8 +111,12 @@ export default function TabPills({
   ariaLabel = "View",
   size = "md",
   phone = null,
+  // Underline rows only: spread the tabs over the phone row (see
+  // PHONE_ROW.underlineSpread). Off by default — every other row unchanged.
+  phoneSpread = false,
 }) {
-  const phoneRow = PHONE_ROW[phone] || "";
+  const phoneRow =
+    (phone === "underline" && phoneSpread ? PHONE_ROW.underlineSpread : PHONE_ROW[phone]) || "";
   const phoneTab = PHONE_TAB[phone] || null;
   const rowRef = useRef(null);
 
@@ -188,7 +200,17 @@ export default function TabPills({
                 : "")
             }
           >
-            <span>{tab.label}</span>
+            {/* A tab may stand as an icon on a phone (`phoneIcon`, a Lucide
+                component): the word stays as its accessible name, and is
+                shown from sm: up. */}
+            {tab.phoneIcon ? (
+              <>
+                <tab.phoneIcon className="sm:hidden w-[18px] h-[18px]" strokeWidth={1.75} aria-hidden />
+                <span className="max-sm:sr-only">{tab.label}</span>
+              </>
+            ) : (
+              <span>{tab.label}</span>
+            )}
             {typeof tab.count === "number" && (
               <span
                 className={

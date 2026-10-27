@@ -424,9 +424,17 @@ export function on401(path, reqUrl = "") {
     path === "/contact" || path === "/privacy" || path === "/terms" ||
     path === "/cookies" ||
     path.startsWith("/r/") || path.startsWith("/e/") || path.startsWith("/t/");
+  // R10 — a paired door screen (/stand, /stand/<token>) has no session and
+  // must never be sent to the owner login: 13 of 13 cold starts of a door
+  // iPad ended on "Velkommen tilbage" because one early request went out as
+  // the owner's. Its own failures are said on the stand itself ("Offline",
+  // "Denne skærm er ikke forbundet"). Nor is an owner token that happens to
+  // live in this browser wiped from here — the stand never sends it.
+  // (/reservations/stand is the OWNER's pop-out, a real session: unchanged.)
+  const isStandDevice = path === "/stand" || path.startsWith("/stand/");
   return {
-    redirect: !isAuthPage && !isLinkLanding && !isAuthProbe && !isPublicRoute,
-    wipeToken: !isAuthPage,
+    redirect: !isAuthPage && !isLinkLanding && !isAuthProbe && !isPublicRoute && !isStandDevice,
+    wipeToken: !isAuthPage && !isStandDevice,
   };
 }
 

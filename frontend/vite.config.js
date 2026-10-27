@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { bookingGraph, buildBookingDict } from './scripts/bookingDict.mjs'
 import { bookingBootScript } from './scripts/bookingBoot.mjs'
+import { appDictionaries, standHtml, standWords } from './scripts/standBuild.mjs'
 
 // ── The landing's boot dictionary (push 9, E) ─────────────────────
 // `virtual:bonbox-boot-dict` = { da: {...}, en: {...} } holding only the keys
@@ -224,7 +225,16 @@ function bookingBoot() {
 export default defineConfig({
   // bookingBoot AFTER the two preloads: each inserts right after <meta
   // charset>, so the last one to run ends up first in <head>.
-  plugins: [react(), preloadDictionary(), preloadLanding(), bookingBoot(), bootDictionary(), bookingDictionary()],
+  // standHtml: /stand and /stand/<token> get stand.html in `vite` and
+  // `vite preview`, as vercel.json does in production (R11 — the door
+  // screen's own build, vite.stand.config.js). standWords: its words module
+  // resolves in dev and vitest too (the app's own build never imports it).
+  // appDictionaries: the app build lists its dictionary files for the door
+  // screen's build, which loads those instead of a second copy.
+  plugins: [
+    react(), preloadDictionary(), preloadLanding(), bookingBoot(), bootDictionary(), bookingDictionary(),
+    standHtml(), standWords(), appDictionaries(),
+  ],
   // Force the automatic JSX runtime everywhere — production already
   // uses it via @vitejs/plugin-react, but vitest's transform pipeline
   // sometimes falls back to the classic runtime which requires
@@ -240,6 +250,10 @@ export default defineConfig({
   // whose build_id != the current server build = a stale/skewed deploy
   // (exactly the ReservationsPage chunk-mismatch class we're hunting).
   define: {
+    // R11: false in the app (and vitest); true in the door screen's own build
+    // (vite.stand.config.js), where ReservationsPage's owner-only tabs and
+    // cards behind it are left out.
+    __STAND_BUILD__: 'false',
     __BUILD_ID__: JSON.stringify(
       (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 8) ||
       ('t' + Date.now().toString(36))

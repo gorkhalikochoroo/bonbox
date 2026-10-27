@@ -39,12 +39,27 @@ export function sittingMinutes(party, rules) {
 }
 
 // Window [a, b) in minutes, a close at or before the open meaning "past
-// midnight"; a time before the open is read as after midnight.
-function inWindow([a, b], hhmm) {
+// midnight"; a time before the open is read as after midnight. A window may
+// carry the owner's last booking time third (R8: ["17:30", "22:00", "21:00"]);
+// `last` is then its minute on the same line, else null.
+function inWindow([a, b, l], hhmm) {
   const start = toMin(a);
   const end = toMin(b) <= start ? toMin(b) + 1440 : toMin(b);
   const t0 = toMin(hhmm) < start ? toMin(hhmm) + 1440 : toMin(hhmm);
-  return { start, end, t0 };
+  let last = null;
+  if (l) {
+    const x = toMin(l) < start ? toMin(l) + 1440 : toMin(l);
+    if (x <= end) last = x;
+  }
+  return { start, end, t0, last };
+}
+
+// The owner's own booking may start in the window when the sitting ends by
+// closing, or — R8 — by the window's last booking time, even if the party
+// then stays past closing (reservation_service.owner_windows).
+function ownerFits(w, hhmm, sitting) {
+  const { start, end, t0, last } = inWindow(w, hhmm);
+  return t0 >= start && (t0 + sitting <= end || (last != null && t0 <= last));
 }
 
 // The hours the owner's pickers may treat as KNOWN, from GET
@@ -84,19 +99,18 @@ export function openTimesFor(dateIso, openHours, sitting = 0) {
   const wins = windowsFor(dateIso, openHours);
   if (!wins) return { times: QUARTER_TIMES, closed: false, known: false };
   if (wins.length === 0) return { times: QUARTER_TIMES, closed: true, known: true };
-  const fits = (q, s) => wins.some((w) => {
-    const { start, end, t0 } = inWindow(w, q);
-    return t0 >= start && t0 + s <= end;
-  });
+  const fits = (q, s) => wins.some((w) => ownerFits(w, q, s));
   let times = QUARTER_TIMES.filter((q) => fits(q, sitting));
   if (!times.length) times = QUARTER_TIMES.filter((q) => fits(q, 0));
   return { times: times.length ? times : QUARTER_TIMES, closed: false, known: true };
 }
 
 // True when the start is inside an open window but the sitting runs past its
-// close — the one reason an empty room still refuses a time.
+// close — the one reason an empty room still refuses a time. Not when the
+// window's last booking time (R8) allows that start.
 export function overrunsClose(wins, hhmm, sitting) {
   if (!Array.isArray(wins) || !hhmm || !sitting) return false;
+  if (wins.some((w) => ownerFits(w, hhmm, sitting))) return false;
   return wins.some((w) => {
     const { start, end, t0 } = inWindow(w, hhmm);
     return t0 >= start && t0 < end && t0 + sitting > end;
