@@ -929,7 +929,19 @@ function mapsHref(address, city) {
 }
 
 export default function ReservationPublicPage() {
-  const { slug } = useParams();
+  const { slug: routeSlug } = useParams();
+  // The slug the page ASKS with (walk 27 Oct P3-4). Opened on an old link,
+  // the venue's first answer names the current one (R9): from then on the
+  // page asks with that, and the address bar moving there is the same venue,
+  // so nothing is asked twice (it was 9 requests instead of 3). Any other
+  // address is another venue, asked about as before.
+  const [asking, setAsking] = useState(() => ({
+    route: routeSlug,
+    slug: peekBootPage(routeSlug)?.canonical_slug || routeSlug,
+  }));
+  const sameVenue = routeSlug === asking.route || routeSlug === asking.slug;
+  if (!sameVenue) setAsking({ route: routeSlug, slug: routeSlug });
+  const slug = sameVenue ? asking.slug : routeSlug;
   const [searchParams, setSearchParams] = useSearchParams();
   const { t, lang, setLang } = useLanguage();
   const confirm = useConfirm();
@@ -1067,8 +1079,10 @@ export default function ReservationPublicPage() {
   // Booking R5: index.html asked for it while the code was downloading. When
   // that answer is ALREADY here, the first render is the page itself — no
   // skeleton frame — with step 1 seeded in the same state (seedStep1 below).
-  const [bootPage] = useState(() => peekBootPage(slug));
+  const [bootPage] = useState(() => peekBootPage(routeSlug));
   const bootSeeded = useRef(bootPage ? slug : null);
+  // This venue's answer, already in state, that came on its OLD link (P3-4).
+  const landed = useRef(null);
   const [page, setPage] = useState(bootPage);
   const [loading, setLoading] = useState(!bootPage);
   const [loadError, setLoadError] = useState(""); // "" | "closed" | "generic"
@@ -1415,6 +1429,10 @@ export default function ReservationPublicPage() {
     let alive = true;
     // Already in state from index.html's answer (R5): nothing to fetch for
     // this venue. Said once; a later venue (or a remount) fetches as before.
+    if (landed.current === slug) {
+      landed.current = null;
+      return undefined;
+    }
     if (bootSeeded.current === slug) {
       bootSeeded.current = null;
       markBootPageUsed();
@@ -1437,6 +1455,12 @@ export default function ReservationPublicPage() {
         // names the current one and the address bar moves there — query
         // and hash kept, /r/ kept for the embed. Nothing else changes.
         const to = canonicalPath(location.pathname, data?.canonical_slug);
+        if (to && data.canonical_slug !== slug) {
+          // P3-4: this answer IS the current link's venue — the page asks
+          // with that link from now on and never asks for the page again.
+          landed.current = data.canonical_slug;
+          setAsking((a) => ({ route: a.route, slug: data.canonical_slug }));
+        }
         if (to) navigate({ pathname: to, search: location.search, hash: location.hash }, { replace: true });
         // Step 1's first answers in the SAME update as the page (booking R3):
         // the date strip's first paint already shows the day chosen. Seeded

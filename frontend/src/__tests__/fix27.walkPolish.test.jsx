@@ -9,11 +9,15 @@
  *   P3-2  On the door iPad (portrait), a toast ("The booking for … is
  *         cancelled") covered the freed-table card's title: the card now tells
  *         the toast stack its top edge, and toasts rise above it.
+ *   P3-4  An old link opened cold asked 9 times instead of 3 (the venue on the
+ *         old link, then everything again on the new one). The answer is
+ *         reused, the address moves to the current link, and every question
+ *         after it is asked once, with the current link.
  *
  * Run: cd frontend && TZ=UTC npx vitest run src/__tests__/fix27.walkPolish.test.jsx
  */
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
@@ -24,6 +28,7 @@ vi.mock("../services/api", () => ({
   default: {
     get: (...a) => h.get(...a), post: (...a) => h.post(...a), put: (...a) => h.put(...a),
     patch: (...a) => h.patch(...a), delete: vi.fn(),
+    get defaults() { return { baseURL: "https://api.bonbox.dk/api" }; },
   },
 }));
 vi.mock("../hooks/useLanguage", async () => {
@@ -184,5 +189,85 @@ describe("P3-2: a toast never covers the freed-table card's title", () => {
     // Dismissed (or nobody fits any more): the toasts go back down.
     rerender(<ToastProvider><Door matches={[]} /></ToastProvider>);
     expect(lift()).toBe("");
+  });
+});
+
+describe("P3-4: an old link opened cold asks once, with the current link", () => {
+  let where = null;
+  function Where() {
+    where = useLocation();
+    return null;
+  }
+  const renderGuest = (path) => render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/r/:slug" element={<><ReservationPublicPage /><Where /></>} />
+        <Route path="/:slug" element={<><ReservationPublicPage /><Where /></>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  const OLD_PAGE = { ...PAGE, canonical_slug: "havnen" };
+  const asked = () => h.get.mock.calls.map(([u]) => u);
+  let resetBoot;
+  beforeEach(async () => {
+    where = null;
+    ({ resetBootForTests: resetBoot } = await import("../lib/bookingBoot"));
+    resetBoot();
+    delete window.__bbBooking;
+    h.get.mockImplementation((url) => {
+      if (url === "/public/reservations/gammel") return Promise.resolve({ data: OLD_PAGE });
+      if (url === "/public/reservations/havnen") return Promise.resolve({ data: PAGE });
+      if (/\/availability-summary$/.test(url)) return Promise.resolve({ data: summary() });
+      if (/\/availability$/.test(url)) return Promise.resolve({ data: { slots: ["19:00", "19:30"], slot_remaining: {} } });
+      return Promise.resolve({ data: {} });
+    });
+  });
+  afterEach(() => { delete window.__bbBooking; });
+
+  it("three questions: the venue on the old link, then the strip and the times on the current one", async () => {
+    renderGuest("/gammel?party=2#tider");
+    await settle();
+    expect(where.pathname).toBe("/havnen");
+    expect(where.search).toBe("?party=2");
+    expect(where.hash).toBe("#tider");
+    expect(screen.getAllByText(/Bistro Nørrebro/).length).toBeGreaterThan(0);
+    expect(asked()).toEqual([
+      "/public/reservations/gammel",
+      "/public/reservations/havnen/availability-summary",
+      "/public/reservations/havnen/availability",
+    ]);
+    // The booking itself goes to the current link too.
+    h.post.mockResolvedValue({ data: { id: "b1", status: "confirmed", booking_token: "tok" } });
+    await toDetails();
+    await submit();
+    expect(h.post.mock.calls[0][0]).toBe("/public/reservations/havnen");
+  });
+
+  it("index.html already asked on the old link: nothing is asked again, and the address moves", async () => {
+    const BASE = "https://api.bonbox.dk/api";
+    const answer = (data) => ({ promise: Promise.resolve({ ok: true, status: 200, data }), done: { ok: true, status: 200, data } });
+    window.__bbBooking = {
+      slug: "gammel", embed: false,
+      page: { base: BASE, url: `${BASE}/public/reservations/gammel`, ...answer(OLD_PAGE) },
+      summary: { base: BASE, from: TODAY, days: 14, party: 2, ...answer(summary()) },
+      avail: { base: BASE, day: TODAY, party: 2, ...answer({ slots: ["19:00", "19:30"], slot_remaining: {} }) },
+    };
+    renderGuest("/gammel");
+    await settle();
+    expect(where.pathname).toBe("/havnen");
+    expect(screen.getAllByText(/Bistro Nørrebro/).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("radio").some((r) => r.textContent.trim() === "19:00")).toBe(true);
+    expect(asked()).toEqual([]);
+  });
+
+  it("another venue's address is asked about as before", async () => {
+    const { unmount } = renderGuest("/havnen");
+    await settle();
+    expect(asked()).toContain("/public/reservations/havnen");
+    unmount();
+    h.get.mockClear();
+    renderGuest("/gammel");
+    await settle();
+    expect(asked()[0]).toBe("/public/reservations/gammel");
   });
 });

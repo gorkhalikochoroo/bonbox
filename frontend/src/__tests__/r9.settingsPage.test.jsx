@@ -324,7 +324,14 @@ describe("the guest page on an old link", () => {
     expect(where.pathname).toBe("/r/havnen");
     expect(where.search).toBe("?embed=1&party=2");
     expect(where.hash).toBe("#tider");
-    expect(h.get.mock.calls.some(([u]) => u === "/public/reservations/havnen")).toBe(true);
+    // Fix round 27 Oct (walk P3-4): the page now carries on with the NEW
+    // link — its venue is not asked for a second time, and every question
+    // after the first goes to the new link, none to the old one.
+    const urls = h.get.mock.calls.map(([u]) => u);
+    expect(urls.filter((u) => u === "/public/reservations/gammel")).toHaveLength(1);
+    expect(urls.filter((u) => u === "/public/reservations/havnen")).toHaveLength(0);
+    expect(urls.some((u) => u.startsWith("/public/reservations/havnen/"))).toBe(true);
+    expect(urls.some((u) => u.startsWith("/public/reservations/gammel/"))).toBe(false);
   });
 
   it("the root form moves to the root form", async () => {

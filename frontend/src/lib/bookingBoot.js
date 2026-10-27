@@ -29,10 +29,21 @@ function boot() {
 
 const apiBase = () => String(api.defaults?.baseURL || "").replace(/\/+$/, "");
 
+// The same venue: the slug index.html asked with, or the current link its
+// page answer named — opened on an OLD link (R9), the page asks with the
+// current one (walk 27 Oct P3-4), and index.html's answers are still that
+// venue's.
+function sameVenue(b, slug) {
+  if (!slug) return false;
+  if (b.slug === slug) return true;
+  const p = b.page && b.page.done;
+  return !!(p && p.ok && p.data && p.data.canonical_slug === slug);
+}
+
 function probeFor(kind, want) {
   if (taken.has(kind)) return null;
   const b = boot();
-  if (!b || b.slug !== want.slug) return null;
+  if (!b || !sameVenue(b, want.slug)) return null;
   const pr = b[kind];
   if (!pr || !pr.promise || typeof pr.promise.then !== "function") return null;
   if (!apiBase() || pr.base !== apiBase()) return null;
