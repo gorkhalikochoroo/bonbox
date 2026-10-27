@@ -3484,6 +3484,12 @@ def _assign_held_on_approval(db: Session, user: User, r: Reservation, held: dict
     r.combined_resource_ids = [str(x) for x in ids] if len(ids) > 1 else None
 
 
+def _label_order(label) -> tuple:
+    """"Bord 2" before "Bord 10": digits compare as numbers, words by letter."""
+    parts = re.split(r"(\d+)", str(label or "").casefold())
+    return tuple((0, int(p)) if p.isdigit() else (1, p) for p in parts)
+
+
 def _venue_has_tables(db: Session, user: User) -> bool:
     return db.query(BookableResource.id).filter(
         BookableResource.user_id == user.id,
@@ -3513,8 +3519,6 @@ def _tables_on_confirm(db: Session, user: User, r: Reservation,
     ids = rsvc.tables_for_request(db, profile=profile, user_id=user.id, start=r.starts_at,
                                   party_size=party, duration_min=r.duration_min)
     if ids:
-        r.resource_id = UUID(ids[0])
-        r.combined_resource_ids = ids if len(ids) > 1 else None
         label_of = {
             str(x.id): x.label
             for x in db.query(BookableResource.id, BookableResource.label)
@@ -3522,6 +3526,11 @@ def _tables_on_confirm(db: Session, user: User, r: Reservation,
                     BookableResource.id.in_([UUID(i) for i in ids]))
             .all()
         }
+        # In the order the floor reads them — "Bord 2 + Bord 10", as the
+        # app's table picker saves a joined set — not the engine's id order.
+        ids = sorted(ids, key=lambda i: _label_order(label_of.get(i)))
+        r.resource_id = UUID(ids[0])
+        r.combined_resource_ids = ids if len(ids) > 1 else None
         return {"ids": ids, "labels": [label_of.get(i) for i in ids]}, None
     if not _venue_has_tables(db, user):
         return None, None

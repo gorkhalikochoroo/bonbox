@@ -127,7 +127,7 @@ def test_combinable_tables_in_one_zone_are_pushed_together_and_both_held(client,
     rid = _request(client, p)
     r = _confirm(client, u, rid, if_no_table="ask")
     assert r.status_code == 200, r.text
-    assert r.json()["tables_assigned"]["labels"] == ["Bord 1", "Bord 2"]
+    assert r.json()["tables_assigned"]["labels"] == ["Bord 1", "Bord 2"]  # floor order
     row = reservation(db, rid)
     assert sorted(row.combined_resource_ids) == sorted([str(tb["Bord 1"].id), str(tb["Bord 2"].id)])
     assert _labels_held(db, rid) == ["Bord 1", "Bord 2"]
@@ -384,6 +384,20 @@ def test_the_settings_json_is_untouched_by_a_confirm(client, db, outbox):
     assert _confirm(client, u, rid, if_no_table="ask").status_code == 200
     db.refresh(p)
     assert json.loads(p.reservation_settings_json) == before
+
+
+def test_a_joined_set_reads_in_floor_order_whatever_the_ids(client, db, outbox):
+    """"Bord 2 + Bord 10", never "Bord 10 + Bord 2" — the engine orders by
+    id, the floor by label; the toast and the row read the floor's order."""
+    u, p, _ = restaurant(db, tables=0)
+    _tables(db, u, [("Bord 10", 4, "inde", True), ("Bord 2", 4, "inde", True)])
+    for i in range(4):
+        rid = _request(client, p, time=f"{11 + 2 * i}:00", name=f"Gruppe {i}")  # never overlapping
+        body = _confirm(client, u, rid, if_no_table="ask", notify_guest=False).json()
+        assert body["tables_assigned"]["labels"] == ["Bord 2", "Bord 10"]
+        row = reservation(db, rid)
+        assert str(row.resource_id) == body["tables_assigned"]["ids"][0]
+        assert row.combined_resource_ids == body["tables_assigned"]["ids"]
 
 
 @pytest.mark.parametrize("party,expect", [(2, ["Bord 2"]), (3, ["Bord 4"]), (6, ["Bord 8"])])
