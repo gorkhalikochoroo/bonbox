@@ -43,6 +43,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import api from "../services/api";
+import { announceActivation, takeActivation } from "../utils/bookingActivation";
 import { haptic } from "../utils/haptics";
 import Button from "./ui/Button";
 import RoomShell from "./RoomShell";
@@ -1451,6 +1452,9 @@ export default function FloorPlan({
         pos_y: 45,
         shape: "round",
       });
+      // R9: the venue's first table can switch online booking on — the
+      // page's notice says so (the answer carries the link once).
+      announceActivation(takeActivation(res.data).activated, placeWords ? "place" : "table");
       const id = String(res.data?.id ?? "");
       if (id) {
         setDraft((prev) => ({
