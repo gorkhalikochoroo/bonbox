@@ -581,8 +581,10 @@ def test_another_salons_absences_stay_its_own(client, db, outbox):
     assert _attention(client, other)["absence_conflicts"] == {"count": 0, "items": []}
 
 
-def test_attention_needs_the_reservations_feature(client, db):
-    s = salon(db, plan="free")
-    as_owner(s["user"])
+def test_attention_is_owner_only(client, db):
+    from app.main import app
+    from app.services.auth import get_current_user
+    salon(db)
+    app.dependency_overrides.pop(get_current_user, None)
     r = client.get("/api/reservations/salon/attention")
-    assert r.status_code in (200, 402, 403)
+    assert r.status_code in (401, 403), r.text
