@@ -1252,6 +1252,19 @@ body.modal-open {
 @media (prefers-reduced-motion: reduce) {
   [data-anim] { animation: none !important; }
 }
+/* The embed as ONE card on the restaurant's own ground, from 450 px. The
+   page marks <html> with .bb-embed-card while it shows the card (never with
+   &flat=1, never on the standalone page); html and body go transparent so the
+   host's own colour shows around the card. Below 450 px the widget IS the
+   page there, so it stays flat and white. (Booking R3. It paints the page
+   ground, so it lives here with the chrome, ABOVE the room block —
+   chromeTokens.test.js reads everything from .bb-room-wall on as the room's
+   drawing and holds it to never painting body; fix round 5, 27 Oct.) */
+@media (min-width: 450px) {
+  :root.bb-embed-card,
+  :root.bb-embed-card body { background-color: transparent !important; }
+}
+
 /* ── Reservations room shell ─────────────────────────────────────────────
    Walls, drafting grid and paper floor behind the owner's 2D floor plan —
    the same plan language as the marketing floor plan
@@ -1413,16 +1426,6 @@ body:has([aria-modal="true"]) .bonbox-ai-fab { display: none !important; }
     color 160ms var(--bb-ease),
     box-shadow 160ms var(--bb-ease),
     scale 200ms var(--bb-ease);
-}
-
-/* The embed as ONE card on the restaurant's own ground, from 450 px. The
-   page marks <html> with .bb-embed-card while it shows the card (never with
-   &flat=1, never on the standalone page); html and body go transparent so the
-   host's own colour shows around the card. Below 450 px the widget IS the
-   page there, so it stays flat and white. */
-@media (min-width: 450px) {
-  :root.bb-embed-card,
-  :root.bb-embed-card body { background-color: transparent !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
