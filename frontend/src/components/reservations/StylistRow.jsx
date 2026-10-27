@@ -65,13 +65,13 @@ export function stylistChanges(r, shown, draft) {
 /** "Kan bookes": the opening hours or her shifts — a two-way radio group. */
 export function BookableChoice({ t, value, onChange, name = "stylist-bookable" }) {
   const opts = [
-    { v: true, label: t("rsvpStylistModeHours", "When the salon is open"), Icon: Clock },
-    { v: false, label: t("rsvpStylistModeShifts", "On their shifts"), Icon: CalendarClock },
+    { v: true, label: t("rsvpStylistModeHours", "Opening hours"), Icon: Clock },
+    { v: false, label: t("rsvpStylistModeShifts", "Their shifts"), Icon: CalendarClock },
   ];
   return (
     <div>
       <p id={`${name}-label`} className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5">
-        {t("rsvpStylistBookableLabel", "Can be booked")}
+        {t("rsvpStylistBookableLabel", "Bookable during")}
       </p>
       <div role="radiogroup" aria-labelledby={`${name}-label`} className="grid grid-cols-2 gap-2">
         {opts.map(({ v, label, Icon }) => {
