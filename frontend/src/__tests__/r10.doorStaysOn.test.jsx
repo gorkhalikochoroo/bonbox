@@ -373,6 +373,30 @@ describe("the paired door device's book", () => {
     expect(rememberedStandToken()).toBeNull();
   });
 
+  it("a link that is already gone is no failure; a server without the route is", async () => {
+    setStandToken("tok-door-1");
+    renderAt(DEVICE);
+    await waitFor(() => expect(guestOnScreen()).toBe(true));
+    api.post.mockImplementation(() => Promise.reject(http(404, "not_found")));
+    fireEvent.click(screen.getByRole("button", { name: "Mere" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Disconnect this screen/ }));
+    await waitFor(() => expect(screen.getByText("PAIR PAGE")).toBeTruthy());
+    expect(h.toast).not.toHaveBeenCalled();
+  });
+
+  it("an older server without the unpair route: the screen lets go and says the owner can remove it", async () => {
+    setStandToken("tok-door-1");
+    renderAt(DEVICE);
+    await waitFor(() => expect(guestOnScreen()).toBe(true));
+    // FastAPI's own 404 for a missing route carries no {error: "not_found"}.
+    api.post.mockImplementation(() => Promise.reject({ response: { status: 404, data: { detail: "Not Found" } } }));
+    fireEvent.click(screen.getByRole("button", { name: "Mere" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Disconnect this screen/ }));
+    await waitFor(() => expect(screen.getByText("PAIR PAGE")).toBeTruthy());
+    expect(h.toast).toHaveBeenCalledWith(expect.objectContaining({ severity: "notice" }));
+    expect(rememberedStandToken()).toBeNull();
+  });
+
   it("the owner's own pop-out keeps its Log ud", async () => {
     h.user = { id: "u1", business_type: "restaurant", business_name: "Havnen", role: "owner" };
     renderAt("/reservations/stand");

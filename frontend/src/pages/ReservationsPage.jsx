@@ -7053,8 +7053,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       // Rewritten to /stand/<token>/unpair on this device (services/standAuth).
       await api.post("/reservations/unpair", {});
     } catch (e) {
-      // 404: already gone — which is what was asked for.
-      reached = e?.response?.status === 404;
+      // The stand's own 404 ({error: "not_found"}): the link is already gone,
+      // which is what was asked for. Any other failure — no network, or a
+      // server without this route yet — left it alive: say so.
+      reached = e?.response?.status === 404 && e?.response?.data?.detail?.error === "not_found";
     }
     clearStandToken();
     unwatchBook(watchIdRef.current);
