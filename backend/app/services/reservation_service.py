@@ -30,7 +30,7 @@ from app.models.staff import Schedule
 from app.services.availability_engine import (
     AvailabilityConfig, BusyInterval, ResourceView, TimeWindow,
     assign_seats, combinable_zone_overflow, compute_slots, find_slot_resource,
-    find_slot_resources, time_grid, turn_time_minutes,
+    find_slot_resources, time_grid, turn_time_minutes, window_admits,
 )
 
 logger = logging.getLogger(__name__)
@@ -258,11 +258,255 @@ def _parse_hhmm(s: str) -> time | None:
         return None
 
 
+# ── Booking hours: one or two periods a day (R8, rubric R4 / R8) ─────────
+# A weekday's value in `booking_hours` is one of:
+#   "closed"
+#   "HH:MM-HH:MM"                          one period (every value before R8)
+#   [{"open": "HH:MM", "close": "HH:MM", "last": "HH:MM"?}, …]   1–2 periods
+# The list shape is written only when it says more than the string can: two
+# periods (lunch and dinner), or a last booking time the owner chose. Old
+# strings keep working everywhere, and every reader goes through
+# day_periods(), so no reader can disagree with another about a day.
+MAX_PERIODS = 2
+# The shape this server reads and writes. GET /reservations/settings says
+# so, and a client sends it back with its hours: a client that does not
+# (an older app) cannot show a two-period day, and its echo of that day
+# must not overwrite it (keep_period_days).
+HOURS_SHAPE = 2
+HOURS_PROBLEMS = ("bad_value", "bad_time", "too_many", "overlap", "last_outside")
+_HHMM_RE = re.compile(r"\s*(\d{1,2}):(\d{2})\s*")
+
+
+def _period_from(item) -> dict | None:
+    """One stored period → {"open": time, "close": time, "last": time|None},
+    or None when it cannot be read. Lenient, as restaurant_windows always
+    was: an old string takes its first two parts."""
+    if isinstance(item, str):
+        parts = item.split("-")
+        if len(parts) < 2:
+            return None
+        o, c, last = _parse_hhmm(parts[0]), _parse_hhmm(parts[1]), None
+    elif isinstance(item, dict):
+        o_raw, c_raw, l_raw = item.get("open"), item.get("close"), item.get("last")
+        o = _parse_hhmm(o_raw) if isinstance(o_raw, str) else None
+        c = _parse_hhmm(c_raw) if isinstance(c_raw, str) else None
+        last = _parse_hhmm(l_raw) if isinstance(l_raw, str) and l_raw.strip() else None
+    else:
+        return None
+    if not o or not c:
+        return None
+    return {"open": o, "close": c, "last": last}
+
+
+def day_periods(spec) -> list[dict] | None:
+    """The periods one weekday's booking-hours value declares, in the order
+    stored: [] for "closed", None when it declares nothing readable (missing,
+    junk). An old "17:00-22:00" reads as one period with no last booking
+    time. At most MAX_PERIODS are read."""
+    if spec == "closed":
+        return []
+    if isinstance(spec, str):
+        p = _period_from(spec)
+        return [p] if p else None
+    if isinstance(spec, list):
+        out = [p for p in (_period_from(x) for x in spec[:MAX_PERIODS]) if p]
+        return out or None
+    return None
+
+
+def spec_windows(spec, day: date, *, with_last: bool = True) -> list[TimeWindow]:
+    """A weekday's value → the day's open windows. A close at or before the
+    open runs past midnight. `with_last`: carry the owner's last booking
+    time (tables); a salon's chair never reads it (its last start is
+    closing minus the service). A last booking time outside its period is
+    ignored, never stretched."""
+    out: list[TimeWindow] = []
+    for p in day_periods(spec) or []:
+        start = datetime.combine(day, p["open"])
+        end = datetime.combine(day, p["close"])
+        if end <= start:                       # crosses midnight
+            end += timedelta(days=1)
+        last = None
+        if with_last and p["last"] is not None:
+            lt = datetime.combine(day, p["last"])
+            if lt < start:
+                lt += timedelta(days=1)
+            if lt <= end:
+                last = lt
+        out.append(TimeWindow(start=start, end=end, last_start=last))
+    return out
+
+
+def _day_declares(v) -> bool:
+    """Does one stored weekday value declare open hours? An old string
+    counts exactly as it always did ("-" in it); a list needs a readable
+    period."""
+    if isinstance(v, str):
+        return "-" in v
+    if isinstance(v, list):
+        return bool(day_periods(v))
+    return False
+
+
+def booking_hours_saved(bh) -> bool:
+    """Has the owner SAVED booking hours — any weekday "closed" or with open
+    hours? (The salon first-run card keeps saved hours; the capacity card
+    asks for them.)"""
+    return isinstance(bh, dict) and any(v == "closed" or _day_declares(v) for v in bh.values())
+
+
+def _norm_hhmm(raw) -> str | None:
+    """"9:05" / "09:05" → "09:05"; anything else (24:00, 7:5, junk) → None."""
+    if not isinstance(raw, str):
+        return None
+    m = _HHMM_RE.fullmatch(raw)
+    if not m:
+        return None
+    h, mi = int(m.group(1)), int(m.group(2))
+    if h > 23 or mi > 59:
+        return None
+    return f"{h:02d}:{mi:02d}"
+
+
+def _mins(hhmm: str) -> int:
+    h, m = hhmm.split(":")
+    return int(h) * 60 + int(m)
+
+
+def _clean_day_hours(value) -> tuple[object | None, str | None]:
+    """One weekday as an owner sent it → (the value to store, None), or
+    (None, problem). (None, None) = leave the day unset.
+
+    Periods are sorted by opening; each must end at or before the next one
+    opens (only the last may run past midnight); a last booking time must
+    lie inside its period. One period without a last booking time is stored
+    as the old "HH:MM-HH:MM" string, so a week saved without the new
+    controls reads exactly as before."""
+    if value is None or value == "":
+        return None, None
+    if value == "closed":
+        return "closed", None
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, list):
+        items = value
+    else:
+        return None, "bad_value"
+    if not items:
+        return None, "bad_value"
+    if len(items) > MAX_PERIODS:
+        return None, "too_many"
+    spans = []
+    for it in items:
+        if isinstance(it, str):
+            parts = it.split("-")
+            if len(parts) != 2:
+                return None, "bad_time"
+            o, c, last = _norm_hhmm(parts[0]), _norm_hhmm(parts[1]), None
+        elif isinstance(it, dict):
+            o, c = _norm_hhmm(it.get("open")), _norm_hhmm(it.get("close"))
+            raw_last = it.get("last")
+            last = None
+            if raw_last not in (None, ""):
+                last = _norm_hhmm(raw_last)
+                if last is None:
+                    return None, "bad_time"
+        else:
+            return None, "bad_value"
+        if not o or not c:
+            return None, "bad_time"
+        a, b = _mins(o), _mins(c)
+        if b <= a:                             # past midnight (or all day)
+            b += 1440
+        if last is not None:
+            x = _mins(last)
+            if x < a:
+                x += 1440
+            if x > b:
+                return None, "last_outside"
+        spans.append((a, b, o, c, last))
+    spans.sort(key=lambda s: s[0])
+    for prev, nxt in zip(spans, spans[1:]):
+        if prev[1] > nxt[0]:
+            return None, "overlap"
+    if len(spans) == 1 and spans[0][4] is None:
+        return f"{spans[0][2]}-{spans[0][3]}", None
+    return [
+        {"open": o, "close": c, **({"last": last} if last else {})}
+        for _a, _b, o, c, last in spans
+    ], None
+
+
+def clean_booking_hours(raw, *, strict: bool = True) -> tuple[dict, dict | None]:
+    """An owner's weekly booking hours → (what to store, problem).
+
+    Only mon..sun are kept. `strict` (a client that reads periods): the
+    first weekday that cannot be stored stops the save with
+    {"day": "tue", "problem": one of HOURS_PROBLEMS}. Not strict (the salon
+    quick-setup, as before R8): such a day is dropped and the rest kept."""
+    out: dict = {}
+    if not isinstance(raw, dict):
+        return out, ({"day": None, "problem": "bad_value"} if strict else None)
+    for k in _WEEKDAY_KEYS:
+        if k not in raw:
+            continue
+        value, problem = _clean_day_hours(raw.get(k))
+        if problem:
+            if strict:
+                return {}, {"day": k, "problem": problem}
+            continue
+        if value is not None:
+            out[k] = value
+    return out, None
+
+
+def keep_period_days(stored, incoming):
+    """Hours from a client that cannot show periods (it sent no hours_shape:
+    an older app, or one still cached). Such a client shows a two-period
+    day — or one with a last booking time — as its plain suggestion, and
+    sends that back with every save. Each such day is kept as stored. Only
+    "closed" passes: it takes a tap, never an echo. Every other day is
+    taken as sent, as before R8."""
+    if not isinstance(stored, dict) or not isinstance(incoming, dict):
+        return incoming
+    out = dict(incoming)
+    for k, v in stored.items():
+        if k in out and isinstance(v, list) and out[k] != "closed":
+            out[k] = v
+    return out
+
+
+def owner_windows(windows: list[TimeWindow]) -> list[TimeWindow]:
+    """The windows the OWNER may book on. The last booking time binds the
+    guest page; the owner keeps the classic rule as well (a sitting that
+    ends by closing), so "sidste booking 20:00" never refuses the owner a
+    20:15 for two that is done by 22:00 — and a 21:00 past closing is
+    hers too when the last booking time allows it (decision 3: the owner
+    is the authority on her own book)."""
+    out: list[TimeWindow] = []
+    for w in windows:
+        if w.last_start is not None:
+            out.append(dataclasses.replace(w, last_start=None))
+        out.append(w)
+    return out
+
+
+def request_start_ok(windows: list[TimeWindow], start: datetime) -> bool:
+    """A group request's preferred time is inside an open window: from its
+    opening up to the last booking time when the owner set one, else
+    before closing (as before R8)."""
+    for w in windows:
+        if w.start <= start and (start <= w.last_start if w.last_start is not None
+                                 else start < w.end):
+            return True
+    return False
+
+
 def hours_declared(profile: BusinessProfile | None, settings: dict) -> bool:
     """Has the venue told us when it is open — booking hours, or the
     business's opening hours — for at least one day?"""
     bh = settings.get("booking_hours")
-    if isinstance(bh, dict) and any(isinstance(v, str) and "-" in v for v in bh.values()):
+    if isinstance(bh, dict) and any(_day_declares(v) for v in bh.values()):
         return True
     raw = getattr(profile, "operating_hours_json", None) if profile else None
     if raw:
@@ -323,20 +567,14 @@ def restaurant_windows(profile: BusinessProfile | None, day: date,
     (11:00–22:00 every day), and a venue's page went live on those invented
     hours the moment it added its first table: a café closing at 17:00 and
     shut on Mondays took bookings for Monday at 21:00.
-    Closes past midnight roll to the next day (e.g. '18:00-02:00')."""
-    spec, _source = _day_spec(profile, settings, _WEEKDAY_KEYS[day.weekday()])
-    if spec is None or spec == "closed" or "-" not in str(spec):
-        return []
-    open_s, close_s = str(spec).split("-")[:2]
+    Closes past midnight roll to the next day (e.g. '18:00-02:00').
 
-    o, c = _parse_hhmm(open_s), _parse_hhmm(close_s)
-    if not o or not c:
+    R8: a day may hold two periods (lunch and dinner) — one window each —
+    and a period may carry the owner's last booking time (`last_start`)."""
+    spec, _source = _day_spec(profile, settings, _WEEKDAY_KEYS[day.weekday()])
+    if spec is None:
         return []
-    start = datetime.combine(day, o)
-    end = datetime.combine(day, c)
-    if end <= start:                       # crosses midnight
-        end += timedelta(days=1)
-    return [TimeWindow(start=start, end=end)]
+    return spec_windows(spec, day, with_last=True)
 
 
 # A fixed Monday. restaurant_windows() and _opening_hours_windows() read only
@@ -345,22 +583,32 @@ def restaurant_windows(profile: BusinessProfile | None, day: date,
 _REFERENCE_MONDAY = date(2026, 1, 5)
 
 
-def _hhmm_pairs(windows: list[TimeWindow]) -> list[list[str]]:
-    return [[w.start.strftime("%H:%M"), w.end.strftime("%H:%M")] for w in windows]
+def _hhmm_pairs(windows: list[TimeWindow], with_last: bool = False) -> list[list[str]]:
+    """[["17:00", "22:00"], …]; with `with_last`, a window with a last
+    booking time gets it third: ["17:00", "22:00", "21:00"]."""
+    return [
+        [w.start.strftime("%H:%M"), w.end.strftime("%H:%M")]
+        + ([w.last_start.strftime("%H:%M")] if with_last and w.last_start is not None else [])
+        for w in windows
+    ]
 
 
-def week_windows(profile: BusinessProfile | None, settings: dict) -> dict:
+def week_windows(profile: BusinessProfile | None, settings: dict,
+                 with_last: bool = False) -> dict:
     """{"mon": [["17:00", "22:00"]], "tue": [], ..., "sun": [...]}: the table
     engine's bookable window for each weekday, Monday first, straight from
     restaurant_windows(). An empty list is a day with no window (closed,
     undeclared or unreadable — the engine books nothing). A close earlier
-    than the open runs past midnight (["18:00", "02:00"]).
+    than the open runs past midnight (["18:00", "02:00"]). Lunch and dinner
+    are two windows (R8). `with_last` adds a window's last booking time
+    third (the owner's pickers and the stand; never the guest's list).
 
     The ONE week the owner's hours card, the booking pickers, the host stand
     (reservations._open_hours_by_weekday) and the guest page's hours list
     (public_week) read, so they can never disagree."""
     return {
-        key: _hhmm_pairs(restaurant_windows(profile, _REFERENCE_MONDAY + timedelta(days=i), settings))
+        key: _hhmm_pairs(restaurant_windows(profile, _REFERENCE_MONDAY + timedelta(days=i), settings),
+                         with_last)
         for i, key in enumerate(_WEEKDAY_KEYS)
     }
 
@@ -437,22 +685,18 @@ def _opening_hours_windows(settings: dict, day: date) -> list[TimeWindow]:
     consults operating_hours_json / fallback_open (that would invent working
     hours a salon owner never declared, breaking the honesty gate). No entry /
     "closed" / unparseable spec ⇒ [] (no slots that day). A close ≤ open rolls
-    to the next day so a late salon (e.g. "12:00-01:00") still works."""
+    to the next day so a late salon (e.g. "12:00-01:00") still works.
+
+    R8: two periods a day (a lunch break) are two windows. A chair never
+    reads a last booking time: its last start stays closing minus the
+    service (and the pause)."""
     bh = settings.get("booking_hours")
     if not isinstance(bh, dict):
         return []
     spec = bh.get(_WEEKDAY_KEYS[day.weekday()])
-    if not spec or spec == "closed" or "-" not in spec:
+    if not spec:
         return []
-    parts = spec.split("-")
-    o, c = _parse_hhmm(parts[0]), _parse_hhmm(parts[1])
-    if not o or not c:
-        return []
-    start = datetime.combine(day, o)
-    end = datetime.combine(day, c)
-    if end <= start:                       # crosses midnight (late salon)
-        end += timedelta(days=1)
-    return [TimeWindow(start=start, end=end)]
+    return spec_windows(spec, day, with_last=False)
 
 
 # Absence rows that take a stylist off the book: an absence that is waiting
@@ -1255,6 +1499,10 @@ def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
     tables = [r for r in resources if r.kind != "provider"]
     if tables:
         windows = restaurant_windows(profile, start.date(), settings)
+        if owner_booking:
+            # The last booking time binds the guest page; the owner keeps
+            # the classic rule as well (R8, owner_windows).
+            windows = owner_windows(windows)
         if not windows and owner_booking and not hours_declared(profile, settings):
             # The OWNER booking a caller in by hand is the authority on when the
             # venue is open. Undeclared hours keep the public page shut (no

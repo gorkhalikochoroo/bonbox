@@ -67,9 +67,26 @@ class BusyInterval:
 
 @dataclass(frozen=True)
 class TimeWindow:
-    """An open interval the business accepts bookings within."""
+    """An open interval the business accepts bookings within.
+
+    `last_start` (R8, "sidste booking"): the latest START the owner takes in
+    this window. None = the classic rule — the whole sitting ends by `end`,
+    so the last start is closing minus the table time. When set, the START
+    decides (start <= last_start) and a sitting may run past `end`: "we
+    close at 22, last booking 21:00". Always within [start, end]."""
     start: datetime
     end: datetime
+    last_start: datetime | None = None
+
+
+def window_admits(w: TimeWindow, start: datetime, end: datetime) -> bool:
+    """Does window `w` take a booking held from `start` to `end`? With a last
+    booking time the start alone decides; without one the whole hold must
+    end by closing. The ONE rule the grid and the booking-time re-check
+    share, so the page and the create path can never disagree."""
+    if w.last_start is not None:
+        return w.start <= start <= w.last_start
+    return w.start <= start and end <= w.end
 
 
 @dataclass(frozen=True)
@@ -287,14 +304,21 @@ def time_grid(*, windows, duration_min: int, config: AvailabilityConfig,
     compute_slots walks exactly this grid and keeps the starts a table can
     take; a group request (no table held until the owner approves) offers the
     grid itself as preferred times. One walk, so the two can never disagree
-    about opening hours, interval or lead time."""
+    about opening hours, interval or lead time.
+
+    R8: a day may have two windows (lunch and dinner); each grid starts at
+    its own opening. A window with a last booking time (`last_start`) offers
+    every step up to and including it, whatever the sitting's length. A
+    start two windows share (one ending as the next opens) is given once."""
     dur = timedelta(minutes=duration_min)
     step = timedelta(minutes=max(1, config.slot_granularity_min))
     earliest = (now + timedelta(minutes=config.lead_time_min)) if now else None
+    seen: set = set()
     for w in windows:
         start = w.start
-        while start + dur <= w.end:
-            if earliest is None or start >= earliest:
+        while (start <= w.last_start) if w.last_start is not None else (start + dur <= w.end):
+            if start not in seen and (earliest is None or start >= earliest):
+                seen.add(start)
                 yield start
             start += step
 
@@ -362,8 +386,8 @@ def find_slot_resource(*, requested_start: datetime, party_size: int, windows,
     duration = duration_min if duration_min is not None else turn_time_minutes(party_size, config)
     end = requested_start + timedelta(minutes=duration)
 
-    # Must sit inside an open window.
-    if not any(w.start <= requested_start and end <= w.end for w in windows):
+    # Must sit inside an open window (or start by its last booking time).
+    if not any(window_admits(w, requested_start, end) for w in windows):
         return None
     if now and requested_start < now + timedelta(minutes=config.lead_time_min):
         return None
@@ -393,7 +417,7 @@ def find_slot_resources(*, requested_start: datetime, party_size: int, windows,
     duration = duration_min if duration_min is not None else turn_time_minutes(party_size, config)
     end = requested_start + timedelta(minutes=duration)
 
-    if not any(w.start <= requested_start and end <= w.end for w in windows):
+    if not any(window_admits(w, requested_start, end) for w in windows):
         return None
     if now and requested_start < now + timedelta(minutes=config.lead_time_min):
         return None

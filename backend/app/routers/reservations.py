@@ -129,6 +129,11 @@ def _norm_shape(v) -> str:
 class SettingsUpdate(BaseModel):
     reservations_enabled: bool | None = None
     settings: dict | None = None
+    # The booking-hours shape the client reads (R8): 2 = it shows two
+    # periods a day and a last booking time, so its hours are checked and
+    # stored as sent. Absent (an older app) = it cannot show those days,
+    # and they are kept as stored (rsvc.keep_period_days).
+    hours_shape: int | None = None
 
 
 class SlugUpdate(BaseModel):
@@ -339,22 +344,13 @@ def _allocate_slug(db: Session, base: str) -> str:
 
 def _valid_booking_hours(raw) -> dict:
     """Sanitize an owner-submitted weekly opening-hours dict: keep only the
-    mon..sun keys whose value is "closed" or a parseable "HH:MM-HH:MM"; drop
-    everything else so junk can never reach the availability engine. This is the
-    single validation gate for the hours the owner confirms — the self-chair's
-    slots are built ONLY from what survives here."""
-    out: dict = {}
-    if not isinstance(raw, dict):
-        return out
-    for k in rsvc._WEEKDAY_KEYS:
-        v = raw.get(k)
-        if v == "closed":
-            out[k] = "closed"
-        elif isinstance(v, str) and "-" in v:
-            a, b = v.split("-", 1)
-            if rsvc._parse_hhmm(a) and rsvc._parse_hhmm(b):
-                out[k] = f"{a.strip()}-{b.strip()}"
-    return out
+    mon..sun keys whose value is "closed", a parseable "HH:MM-HH:MM", or (R8)
+    one or two periods that do not overlap; drop everything else so junk can
+    never reach the availability engine. This is the single validation gate
+    for the hours the owner confirms on the salon first-run card — the
+    self-chair's slots are built ONLY from what survives here."""
+    clean, _problem = rsvc.clean_booking_hours(raw, strict=False)
+    return clean
 
 
 def _resource_dict(r: BookableResource) -> dict:
@@ -626,9 +622,14 @@ def _open_hours_by_weekday(profile, settings, user) -> dict:
     An empty list is a closed day; an empty dict means it could not be read.
     The same week the guest page's hours list is built from
     (rsvc.week_windows), so the owner card, the pickers, the stand and the
-    page share one function. `user` stays for the call sites."""
+    page share one function. `user` stays for the call sites.
+
+    R8: lunch and dinner are two windows; a window with the owner's last
+    booking time carries it third (["17:30", "22:00", "21:00"]) so the
+    owner's pickers offer what the engine takes. Readers that destructure
+    [open, close] are unaffected."""
     try:
-        return rsvc.week_windows(profile, settings)
+        return rsvc.week_windows(profile, settings, with_last=True)
     except Exception:  # noqa: BLE001 — context for the pickers, never a 500
         return {}
 
@@ -667,6 +668,10 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
         # so the owner's own time pickers offer open times — the new-booking
         # sheet listed 06:00–23:45 and defaulted to 07:15.
         "open_hours": _open_hours_by_weekday(profile, settings, user),
+        # R8: this server reads two periods a day and a last booking time.
+        # The hours card offers them only when it sees this, and sends it
+        # back with the hours (SettingsUpdate.hours_shape).
+        "hours_shape": rsvc.HOURS_SHAPE,
         "allergen_set": allergen_set_for(btype),
         "severity_levels": list(SEVERITY_LEVELS),
         "resources_cap": get_cap(user, "bookable_resources_max"),
@@ -756,6 +761,23 @@ def update_settings(payload: SettingsUpdate, request: Request,
     if payload.settings is not None:
         merged = rsvc.load_settings(profile)
         incoming = dict(payload.settings)
+        # Booking hours (R8): one or two periods a day, each with an optional
+        # last booking time. A client that reads that shape (hours_shape 2)
+        # has its week checked — a day that cannot be stored stops the save
+        # with 422 {error: "bad_hours", day, problem}, nothing half-saved. An
+        # older client is taken as sent, as before, except that a day it
+        # could not show (two periods, or a last booking time) keeps what is
+        # stored: its echo of the suggestion must not overwrite lunch and
+        # dinner.
+        if "booking_hours" in incoming:
+            if (payload.hours_shape or 0) >= rsvc.HOURS_SHAPE:
+                clean_hours, problem = rsvc.clean_booking_hours(incoming["booking_hours"])
+                if problem:
+                    raise HTTPException(status_code=422, detail={"error": "bad_hours", **problem})
+                incoming["booking_hours"] = clean_hours
+            else:
+                incoming["booking_hours"] = rsvc.keep_period_days(
+                    merged.get("booking_hours"), incoming["booking_hours"])
         if "turn_time_tiers" in incoming:
             incoming["turn_time_tiers"] = _clean_tiers(incoming["turn_time_tiers"])
         if "default_duration_min" in incoming:
@@ -1250,6 +1272,9 @@ class SalonQuickSetup(BaseModel):
     # business name, so the guest page listed "Salon Saks" beside "Mia".
     # Blank = "Behandler"; the owner can rename it on Behandlere.
     chair_name: str | None = Field(default=None, max_length=200)
+    # R8: 2 = the card shows two periods a day. Without it (an older app) a
+    # stored two-period day is kept when the card's hours replace the week.
+    hours_shape: int | None = None
 
 
 @router.post("/salon/quick-setup")
@@ -1275,11 +1300,14 @@ def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
     #    this is the ONLY write that makes the self-chair produce any slots.
     #    Hours the owner already saved stay, unless they edited them here.
     saved = rsvc.load_settings(profile).get("booking_hours")
-    has_saved = isinstance(saved, dict) and any(
-        v == "closed" or (isinstance(v, str) and "-" in v) for v in saved.values())
+    # Two periods a day count as saved hours too (R8).
+    has_saved = rsvc.booking_hours_saved(saved)
     if payload.booking_hours is not None and (not has_saved or payload.replace_hours):
         merged = rsvc.load_settings(profile)
-        merged["booking_hours"] = _valid_booking_hours(payload.booking_hours)
+        new_hours = _valid_booking_hours(payload.booking_hours)
+        if (payload.hours_shape or 0) < rsvc.HOURS_SHAPE:
+            new_hours = rsvc.keep_period_days(saved, new_hours)
+        merged["booking_hours"] = new_hours
         profile.reservation_settings_json = json.dumps(merged)
 
     # 2. Find-or-create the self-chair (idempotent — never a second chair, and
@@ -1389,8 +1417,7 @@ def salon_capacity_days(start: date | None = Query(default=None),
         "days": sa.salon_capacity(db, user.id, profile, start=first, days=days),
         # A chair on the opening hours books nothing until the hours card is
         # saved — the card says so, with the way there (no dead end).
-        "hours_saved": isinstance(saved, dict) and any(
-            v == "closed" or (isinstance(v, str) and "-" in v) for v in saved.values()),
+        "hours_saved": rsvc.booking_hours_saved(saved),
         "follows_hours": db.query(BookableResource.id).filter(
             BookableResource.user_id == user.id,
             BookableResource.kind == "provider",
@@ -2471,10 +2498,11 @@ def _room_full_detail(db: Session, user: User, party_size: int,
         # closed ("Lukket kl. 06 — åbent 11:30–22:00") instead of the
         # unexplained "no table can be booked at that time".
         if start is not None and not _no_hours:
-            _open = [
-                [w.start.strftime("%H:%M"), w.end.strftime("%H:%M")]
-                for w in rsvc.restaurant_windows(_profile, start.date(), _settings)
-            ]
+            # Lunch and dinner are two windows; a last booking time rides
+            # third, so the sheet never says "past closing" for a start the
+            # last booking time allows (R8).
+            _open = rsvc._hhmm_pairs(
+                rsvc.restaurant_windows(_profile, start.date(), _settings), with_last=True)
     except Exception:  # noqa: BLE001 — context only; never break the 409
         _no_hours = False
     try:
@@ -3044,14 +3072,15 @@ class ReservationEdit(BaseModel):
 
 def _sitting_inside_hours(profile, settings: dict, start: datetime, end: datetime) -> bool:
     """The whole sitting inside an open window — the rule the booking engine
-    applies to a new booking. No hours on record: the owner is the authority,
-    as on create. Yesterday's window counts too, for a 00:30 after a late
-    close."""
+    applies to the owner's own booking. No hours on record: the owner is the
+    authority, as on create. Yesterday's window counts too, for a 00:30
+    after a late close. R8: a start by the period's last booking time fits
+    even when the sitting runs past closing (rsvc.owner_windows)."""
     if not rsvc.hours_declared(profile, settings):
         return True
     for d in (start.date(), start.date() - timedelta(days=1)):
-        for w in rsvc.restaurant_windows(profile, d, settings):
-            if w.start <= start and end <= w.end:
+        for w in rsvc.owner_windows(rsvc.restaurant_windows(profile, d, settings)):
+            if rsvc.window_admits(w, start, end):
                 return True
     return False
 
