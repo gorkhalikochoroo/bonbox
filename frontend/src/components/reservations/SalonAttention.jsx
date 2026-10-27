@@ -28,7 +28,7 @@ import { guestText } from "../../utils/guestText";
 
 export const CONFLICTS_SHOWN = 5;
 
-const ABSENCE_KIND = {
+export const ABSENCE_KIND = {
   ferie: ["absenceKindFerie", "Holiday"],
   sick: ["absenceKindSick", "Sick"],
   barns_syg: ["absenceKindBarns", "Child's sick day"],
