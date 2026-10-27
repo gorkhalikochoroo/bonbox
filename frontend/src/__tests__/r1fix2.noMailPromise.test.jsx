@@ -155,6 +155,18 @@ describe("the receipt and the e-mail promise", () => {
     expect(screen.queryByText(da.rsvpRequestNextToday)).toBeNull();
   });
 
+  // Fix round 4 (review2 #6): a guest abroad. The browser is in UTC and it
+  // is 23.30 there on the 23rd — already 00.30 on the 24th at the venue. The
+  // answer comes "today" at the venue, 13.00: never "i morgen".
+  it("'i dag' is the venue's day, not the browser's — a guest in another time zone", async () => {
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 23, 23, 30)));
+    expect(new Date().getDate()).toBe(23);                       // the browser's own date (TZ=UTC)
+    await bookWith({ status: "requested", guest_mail: true, answer_by: "2026-10-24T13:00",
+      venue_today: "2026-10-24" });
+    expect(document.body.textContent).toContain("senest i dag kl. 13.00");
+    expect(document.body.textContent).not.toContain("i morgen kl. 13.00");
+  });
+
   it("…and tomorrow, and another day, in the guest's words", async () => {
     const { answerByWords } = await import("../utils/guestLocale");
     const { en } = await import("../i18n/en");

@@ -160,3 +160,17 @@ def test_a_confirmed_booking_has_no_answer_by(client, db, outbox):
     day = today_local() + timedelta(days=3)
     r = book(client, p.reservation_slug, day=day, time="19:00", party=2)
     assert r.json()["status"] == "confirmed" and r.json()["answer_by"] is None
+
+
+# ── Fix round 4 (review2 #6): the venue's date beside answer_by ─────────
+def test_the_answer_carries_the_venues_own_date(client, db, outbox, monkeypatch):
+    """The receipt words "i dag" / "i morgen" from the venue's date, never
+    the guest's browser's: the create answer and the poll carry it."""
+    from datetime import datetime as _dt
+    from app.routers import public_reservations as pubres
+    fixed = _dt(2030, 1, 8, 0, 30)                     # 00.30 at the venue
+    monkeypatch.setattr(pubres, "_now_local", lambda: fixed)
+    assert pubres._venue_today() == "2030-01-08"
+    replay = pubres._replay(type("R", (), {"id": "x", "status": "requested", "booking_token": None,
+                                           "duration_min": 90, "starts_at": None})())
+    assert replay["venue_today"] == "2030-01-08"

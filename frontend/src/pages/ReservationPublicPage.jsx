@@ -1548,6 +1548,7 @@ export default function ReservationPublicPage() {
           durationMin: b.duration_min || null,
           // F5: a request's "svar senest …" — the server's own deadline.
           answerBy: b.answer_by || null,
+          venueToday: b.venue_today || null,
         });
       })
       .catch(() => {
@@ -2669,14 +2670,19 @@ export default function ReservationPublicPage() {
       // an unanswered request is declined) — so the promise names it and is
       // always kept. An older server sends none: the old words.
       const answerBy = linked ? linked.answerBy : result?.answer_by;
-      const by = answerBy ? answerByWords(answerBy, today, lang, t) : "";
+      // "i dag" / "i morgen" are the VENUE's days (fix round 4, review2 #6):
+      // the server sends its date with the time; a guest abroad whose
+      // browser is on another date read the wrong word. An older server
+      // sends none: the page's own day, as before.
+      const venueDay = (linked ? linked.venueToday : result?.venue_today) || today;
+      const by = answerBy ? answerByWords(answerBy, venueDay, lang, t) : "";
       body = noMailComing
         ? t("rsvpRequestNextNoMail", "The venue will answer as soon as they can. Keep this page — the answer shows here.")
         : by && sentEmail
           ? t("rsvpRequestNextByEmail", "We'll reply to {email} by {when} at the latest.", { email: sentEmail, when: by })
           : by && !sentPhone
             ? t("rsvpRequestNextBy", "You'll have our answer by {when} at the latest.", { when: by })
-            : rDay === today
+            : rDay === venueDay
               ? t("rsvpRequestNextToday", "We'll get back to you shortly.")
               : sentEmail
                 ? t("rsvpRequestNextEmail", "We'll reply to {email} before the day.", { email: sentEmail })

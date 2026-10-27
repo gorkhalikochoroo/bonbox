@@ -319,6 +319,16 @@ def _answer_by(r) -> str | None:
         return None
 
 
+def _venue_today() -> str | None:
+    """The venue's own date ("YYYY-MM-DD"), sent beside answer_by so the
+    receipt's "i dag" / "i morgen" are the venue's days, never the guest's
+    browser's (fix round 4, review2 #6: a guest abroad read the wrong word)."""
+    try:
+        return _now_local().date().isoformat()
+    except Exception:  # noqa: BLE001 — the page then words the date in full
+        return None
+
+
 def _receipt_token(r) -> str:
     """The booking-poll token the receipt page keeps. Same lifetime as the
     email link — until the booking plus 48 h (min 24 h): a phone-only guest
@@ -507,7 +517,7 @@ def _replay(prior) -> dict:
     return {"id": str(prior.id), "status": prior.status,
             "booking_token": _receipt_token(prior),
             "duration_min": prior.duration_min,
-            "answer_by": _answer_by(prior)}
+            "answer_by": _answer_by(prior), "venue_today": _venue_today()}
 
 
 _HEX_COLOUR = re.compile(r"#[0-9A-Fa-f]{6}")
@@ -1325,7 +1335,7 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
             # (R2, rubric V5: it said 120 min for every booking).
             "duration_min": r.duration_min,
             # F5: a held appointment's "svar senest …" (None when confirmed).
-            "answer_by": _answer_by(r)}
+            "answer_by": _answer_by(r), "venue_today": _venue_today()}
 
 
 @router.post("/{slug}")
@@ -1650,7 +1660,7 @@ def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: U
             "duration_min": r.duration_min,
             # F5: a request's "svar senest …" — the time it is declined at
             # if nobody answers (None for a confirmed booking).
-            "answer_by": _answer_by(r)}
+            "answer_by": _answer_by(r), "venue_today": _venue_today()}
 
 
 def _guest_mail_plan(db: Session, owner: User, r: Reservation,
@@ -1764,6 +1774,7 @@ def poll(request: Request, reservation_id: UUID = Path(...),
         "outcome": booking_outcome(r),
         # F5: a request's "svar senest …" (None for anything but a request).
         "answer_by": _answer_by(r),
+        "venue_today": _venue_today(),
     }
 
 
