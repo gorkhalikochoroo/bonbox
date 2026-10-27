@@ -209,7 +209,10 @@ def _spend(db, owner_id, event: str) -> None:
 
 def waiting_requests(db, owner_id, now_local: datetime | None = None) -> int:
     """Online requests still waiting for the owner: public, `requested`, not
-    yet past. Held bookings and group requests alike."""
+    yet past. Held bookings and group requests alike — but never one held
+    because the owner had marked its contact as spam (fix round 27 Oct,
+    backend F3: the owner's own spam is not news)."""
+    from app.services.booking_screen import marked_spam_hold
     now_local = now_local or _now_local()
     return int(
         db.query(func.count(Reservation.id))
@@ -219,6 +222,7 @@ def waiting_requests(db, owner_id, now_local: datetime | None = None) -> int:
             Reservation.status == "requested",
             Reservation.is_deleted.is_(False),
             Reservation.starts_at >= now_local,
+            ~marked_spam_hold(),
         )
         .scalar() or 0
     )

@@ -840,3 +840,73 @@ def test_fix_f_a_preview_or_erase_that_fails_says_so_and_changes_nothing(client,
     assert reservation(db, ids["past_both"]).guest_name == "Anna Bord"
     assert client.post("/api/reservations/contact-blocks/erase-preview",
                        json={"phone": "12"}).status_code == 422
+
+
+# ── Fix round 27 Oct (J): the owner's spam is never news ─────────────────
+# Backend F3: after a clean-up at 22:01 the night's summaries still said
+# "37 nye" (and "51 nye" at 07:00) — public_rows_since counted online rows of
+# any status. Rows the owner cancelled as spam, and rows held because the
+# owner had marked the contact as spam, now count toward no summary; with
+# nothing real left, no summary is sent at all.
+def _spam_world(client, db, *, real=3, junk=4):
+    u, p, _ = restaurant(db)
+    real_ids = [book(client, p.reservation_slug, day=DAY, time=f"{12 + i}:00", name=f"Gæst {i}",
+                     email=f"gaest{i}@example.com").json()["id"] for i in range(real)]
+    junk_ids = [book(client, p.reservation_slug, day=DAY + timedelta(days=1), time=f"{12 + i}:00",
+                     name=f"Bot {i}", email=f"bot{i}@example.com").json()["id"] for i in range(junk)]
+    as_owner(u)
+    for rid in junk_ids:
+        assert _spam(client, rid).status_code == 200
+    # The marked contact books again: held quietly (marked_spam), "requested".
+    again = book(client, p.reservation_slug, day=DAY + timedelta(days=2), time="12:00",
+                 name="Bot igen", email="bot0@example.com").json()["id"]
+    assert _held_reason(db, again) == "marked_spam"
+    return u, p, real_ids, junk_ids, again
+
+
+def test_fix_j_summary_counts_leave_out_the_owners_spam(client, db, outbox):
+    from app.services import booking_screen as bs
+    from app.services import owner_booking_alerts as alerts
+    from app.routers.reservation_spam import SPAM_REASON
+    assert bs.SPAM_CANCEL_REASON == SPAM_REASON
+    u, p, real_ids, junk_ids, again = _spam_world(client, db)
+    now = utc_now()
+    since = now - timedelta(hours=1)
+    assert alerts.summary_counts(db, u.id, now_utc=now, since=since) == (3, 0)
+    assert bs.public_rows_since(db, u.id, since) == 3
+    # passed = public − held, both without the spam: the three real ones.
+    assert bs.held_since(db, u.id, since) == 0
+    assert bs.passed_since(db, u.id, since) == 3
+    # Both directions of the correlated EXISTS: a hold for another reason
+    # still counts as waiting news.
+    other = book(client, p.reservation_slug, day=DAY + timedelta(days=3), time="12:00",
+                 name="Http://x", email="person@example.com").json()["id"]
+    assert _held_reason(db, other) == "link_in_name"
+    assert alerts.summary_counts(db, u.id, now_utc=now, since=since) == (4, 1)
+    assert bs.held_since(db, u.id, since) == 1 and bs.passed_since(db, u.id, since) == 3
+
+
+def test_fix_j_no_summary_when_only_spam_was_held_back(client, db, outbox):
+    from app.services import owner_booking_alerts as alerts
+    u, p, real_ids, junk_ids, again = _spam_world(client, db, real=0, junk=5)
+    # Pings held back over the budget while the junk came in (before the
+    # clean-up), as the night of the attack logged them.
+    for _ in range(5):
+        db.add(NotificationLog(id=uuid.uuid4(), user_id=u.id, staff_id=None, channel="push",
+                               event_type="reservation_created", status=alerts.SUPPRESSED,
+                               error_message=alerts.OVER_BUDGET,
+                               created_at=utc_now() - timedelta(minutes=20)))
+    db.commit()
+    before = [x for x in db.query(NotificationLog).filter(
+        NotificationLog.user_id == u.id, NotificationLog.event_type == alerts.BURST_EVENT).all()]
+    out = alerts.flush_digests(db, now_utc=utc_now() + timedelta(minutes=70))
+    assert out["owner_digests_sent"] == 0
+    after = db.query(NotificationLog).filter(
+        NotificationLog.user_id == u.id, NotificationLog.event_type == alerts.BURST_EVENT).all()
+    assert len(after) == len(before)                     # no push, no mail, no ledger row
+    # One real booking among them: the summary says exactly that one.
+    real = book(client, p.reservation_slug, day=DAY, time="19:00", name="Ægte",
+                email="aegte@example.com").json()["id"]
+    assert reservation(db, real).status == "confirmed"
+    now = utc_now()
+    assert alerts.summary_counts(db, u.id, now_utc=now, since=now - timedelta(hours=1)) == (1, 0)

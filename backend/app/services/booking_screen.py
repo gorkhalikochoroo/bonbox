@@ -133,7 +133,8 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, exists, func, or_
+from sqlalchemy.orm import aliased
 
 from app.config import settings as app_config
 from app.models.audit_log import AuditLog
@@ -376,26 +377,64 @@ def contact_limit_reached(db, owner_id, *, email: str | None, phone: str | None,
     return same_max > 0 and on_day >= same_max
 
 
+# The owner's spam (R2): a booking cancelled with "Spam" or "Afvis alle fra
+# denne bølge" (routers/reservation_spam.SPAM_REASON), and one held because
+# the owner had marked its contact as spam (rule 3b). Never news for the
+# owner's summaries (fix round 27 Oct, backend F3: after a clean-up at 22:01
+# the night's summaries still said "37 nye" about the rows just cleaned).
+SPAM_CANCEL_REASON = "owner_spam"
+
+
+def marked_spam_hold():
+    """SQL: this booking was HELD because its contact was marked as spam (its
+    held_public audit row says reason "marked_spam" — held_after writes the
+    reason first; the JSON is ours, never guest text). Correlated on
+    Reservation.id, through an alias so it never binds to an outer audit row."""
+    a = aliased(AuditLog)
+    return exists().where(and_(
+        a.entity_type == "reservation",
+        a.entity_id == Reservation.id,
+        a.action == HELD_ACTION,
+        a.after_state.like('%"reason": "marked\\_spam"%', escape="\\"),
+    ))
+
+
+def owners_spam():
+    """SQL: the owner's spam — cancelled as spam, or held as marked_spam."""
+    return or_(and_(Reservation.status == "cancelled",
+                    Reservation.cancel_reason == SPAM_CANCEL_REASON),
+               marked_spam_hold())
+
+
 def public_rows_since(db, owner_id, since_utc: datetime) -> int:
     """Public bookings (any status) created since `since_utc` (naive UTC, the
-    created_at clock)."""
+    created_at clock) — the owner's spam left out (owners_spam): what the
+    summaries call "nye"."""
     return _count(
         db.query(func.count(Reservation.id)).filter(
             Reservation.user_id == owner_id,
             Reservation.source == "public",
             Reservation.is_deleted.is_(False),
             Reservation.created_at >= since_utc,
+            ~owners_spam(),
         )
     )
 
 
 def held_since(db, owner_id, since_utc: datetime) -> int:
-    """Bookings this screen HELD since `since_utc` (one audit row each)."""
+    """Bookings this screen HELD since `since_utc` (one audit row each) — the
+    owner's spam left out, exactly as public_rows_since leaves it out, so
+    passed_since stays their difference (a booking the owner cleaned up as
+    spam counts toward neither)."""
     return _count(
-        db.query(func.count(AuditLog.id)).filter(
+        db.query(func.count(AuditLog.id))
+        .join(Reservation, Reservation.id == AuditLog.entity_id)
+        .filter(
             AuditLog.user_id == owner_id,
+            AuditLog.entity_type == "reservation",
             AuditLog.action == HELD_ACTION,
             AuditLog.created_at >= since_utc,
+            ~owners_spam(),
         )
     )
 
