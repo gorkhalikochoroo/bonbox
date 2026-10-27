@@ -364,7 +364,9 @@ describe("4 · one elevation in the embed, from 450 px", () => {
     await settle();
     const root = screen.getByTestId("rsvp-root");
     expect(root.className).toContain("min-[450px]:bg-transparent");
-    expect(root.className).toContain("min-[450px]:pb-6");
+    // G10 item 4 (judge 27 Oct): 40 px below the card — the shadow reaches 36 px.
+    expect(root.className).toContain("min-[450px]:pb-10");
+    expect(root.className).not.toContain("min-[450px]:pb-6");
     const main = document.querySelector("main");
     expect(main.className).toContain("min-[450px]:bg-white");
     expect(main.className).toContain("min-[450px]:rounded-[16px]");

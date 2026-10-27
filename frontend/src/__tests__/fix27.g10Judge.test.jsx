@@ -8,6 +8,9 @@
  *      drawn and 44 px to the finger (an after: box); on a desktop it is the
  *      card's, in its top row beside the steps, and the venue column loses
  *      its pt-8.
+ *   4  The embed's ground pads 40 px below the card (pb-10): the card's
+ *      shadow reaches 36 px and pb-6 cut it in a straight line. The same
+ *      ground on every step and in the wait, so the posted height follows.
  *
  * Run: cd frontend && TZ=UTC npx vitest run src/__tests__/fix27.g10Judge.test.jsx
  */
@@ -158,5 +161,46 @@ describe("2: the language switch", () => {
     expect(screen.getAllByRole("group", { name: "Sprog · Language" })).toHaveLength(1);
     // The wait's desktop look is the page's: its column has no pt-8 either.
     expect(read("components/booking/bookingWait.js")).not.toContain('el("div", "pt-8 space-y-6"');
+  });
+});
+
+describe("4: the embed never cuts the card's shadow", () => {
+  async function toDetails() {
+    await act(async () => { fireEvent.click(timeTile("19:00")); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Fortsæt/ })); });
+    await settle(4);
+  }
+
+  it("40 px of ground below the card, the same on step 1, step 2 and in the wait", async () => {
+    const { EMBED_GROUND, skeletonHtml } = await import("../components/booking/bookingWait");
+    expect(EMBED_GROUND).toContain("min-[450px]:pb-10");
+    expect(EMBED_GROUND).not.toContain("pb-6");
+    // The wait index.html draws in the frame: the same ground, so the height
+    // the frame first posts is the page's.
+    expect(skeletonHtml("embedCard")).toContain("min-[450px]:pb-10");
+    routes();
+    const posted = [];
+    const parent = { postMessage: (m) => posted.push(m) };
+    const realParent = Object.getOwnPropertyDescriptor(window, "parent");
+    Object.defineProperty(window, "parent", { configurable: true, get: () => parent });
+    const html = vi.spyOn(document.documentElement, "getBoundingClientRect");
+    try {
+      // The frame's height is its document's: the root, padding and all.
+      html.mockReturnValue({ height: 640, width: 460, top: 0, left: 0, bottom: 640, right: 460 });
+      renderAt("/r/x?embed=1");
+      await settle();
+      const root = screen.getByTestId("rsvp-root");
+      expect(root.className).toContain("min-[450px]:pb-10");
+      expect(posted.at(-1)).toEqual({ type: "bonbox:height", height: 640 });
+      html.mockReturnValue({ height: 912, width: 460, top: 0, left: 0, bottom: 912, right: 460 });
+      await toDetails();
+      expect(document.getElementById("rsvp-name")).not.toBeNull();
+      expect(screen.getByTestId("rsvp-root").className).toContain("min-[450px]:pb-10");
+      window.dispatchEvent(new Event("resize"));
+      expect(posted.at(-1)).toEqual({ type: "bonbox:height", height: 912 });
+    } finally {
+      html.mockRestore();
+      if (realParent) Object.defineProperty(window, "parent", realParent);
+    }
   });
 });

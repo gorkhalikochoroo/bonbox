@@ -19,8 +19,12 @@
 // Grayscale anti-aliasing on the guest page only (R3).
 export const ROOT_FINISH = "antialiased";
 // The embed's ground from 450 px: transparent (the host's colour shows), and
-// padding round the one card so its shadow is never cut by the frame.
-export const EMBED_GROUND = "min-[450px]:bg-transparent min-[450px]:px-4 min-[450px]:pt-4 min-[450px]:pb-6";
+// padding round the one card so its shadow is never cut by the frame. 40 px
+// below it (G10 item 4, judge 27 Oct): the card's shadow reaches 36 px down
+// (16 px offset + 40 px blur − 20 px spread) and pb-6 cut it in a straight
+// line at the frame's edge. The frame posts its whole height (the padding
+// with it), on every step — the host sizes it to fit.
+export const EMBED_GROUND = "min-[450px]:bg-transparent min-[450px]:px-4 min-[450px]:pt-4 min-[450px]:pb-10";
 // The one elevation: white, 16 px corners (the hero rung), a 5 % ring and
 // one soft shadow. Light only — the embed forces light.
 export const EMBED_CARD =
