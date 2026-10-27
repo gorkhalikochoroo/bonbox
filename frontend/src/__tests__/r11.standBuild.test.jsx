@@ -17,13 +17,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
-  STAND_JS_BUDGET, STAND_JS_HARD_CEILING, STAND_SKIP_FILES, STAND_SKIP_FUNCTIONS, STAND_SWAPS,
-  cutFunctions, importsOf, keysIn, standBudget, standFiles, standHtml, standJsBytes, standWordsFor,
+  APP_DICTS_FILE, STAND_JS_BUDGET, STAND_JS_HARD_CEILING, STAND_SKIP_FILES, STAND_SKIP_FUNCTIONS, STAND_SWAPS,
+  appDictionaries, appDictionariesIn, cutFunctions, importsOf, keysIn, standBudget, standFiles, standHtml,
+  standJsBytes, standWordsFor,
 } from "../../scripts/standBuild.mjs";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -187,6 +189,47 @@ describe("the budget guard", () => {
   });
 });
 
+describe("one copy of each dictionary in dist/ (the app's)", () => {
+  it("the app build lists its dictionary files", () => {
+    const emitted = [];
+    const bundle = {
+      a: { type: "chunk", fileName: "assets/da-x1.js", facadeModuleId: "/r/frontend/src/i18n/da.js" },
+      b: { type: "chunk", fileName: "assets/no-x2.js", facadeModuleId: "/r/frontend/src/i18n/no.js" },
+      c: { type: "chunk", fileName: "assets/index-x3.js", facadeModuleId: "/r/frontend/src/main.jsx" },
+      d: { type: "asset", fileName: "assets/x.css" },
+    };
+    appDictionaries().generateBundle.call({ emitFile: (f) => emitted.push(f) }, {}, bundle);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].fileName).toBe(APP_DICTS_FILE);
+    expect(JSON.parse(emitted[0].source)).toEqual({ da: "/assets/da-x1.js", no: "/assets/no-x2.js" });
+  });
+  it("the door screen's build bakes the list in (only safe entries) and removes the file", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "r11-dicts-"));
+    try {
+      const out = dir; // an absolute outDir wins over the frontend folder
+      fs.writeFileSync(path.join(dir, APP_DICTS_FILE), JSON.stringify({
+        da: "/assets/da-x1.js", en: "/assets/en-x2.js", evil: "https://x.test/a.js", tr: "javascript:alert(1)",
+      }));
+      const plugin = appDictionariesIn(out);
+      const id = plugin.resolveId("virtual:bonbox-app-dicts");
+      const code = plugin.load.call({ warn: vi.fn() }, id);
+      expect(code).toBe('export default {"da":"/assets/da-x1.js","en":"/assets/en-x2.js"};');
+      plugin.closeBundle();
+      expect(fs.existsSync(path.join(dir, APP_DICTS_FILE))).toBe(false);
+      // Built without the app first: a warning and an empty list, never a guess.
+      const warn = vi.fn();
+      expect(plugin.load.call({ warn }, id)).toBe("export default {};");
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it("the door screen never reaches lib/localeStore.js (the dictionaries' loaders)", () => {
+    expect([...standFiles()].map(rel)).not.toContain("lib/localeStore.js");
+    expect([...standFiles()].map(rel)).toContain("stand/standLocales.js");
+  });
+});
+
 describe("the wiring", () => {
   it("stand.html: its own entry, the manifest rule, no app boot probes", () => {
     const html = read("stand.html");
@@ -216,12 +259,12 @@ describe("the wiring", () => {
   it("the app's config: __STAND_BUILD__ false; the door screen's: true, its own page, into the same dist", () => {
     const app = read("vite.config.js");
     expect(app).toMatch(/__STAND_BUILD__: 'false'/);
-    expect(app).toMatch(/standHtml\(\), standWords\(\)/);
+    expect(app).toMatch(/standHtml\(\), standWords\(\), appDictionaries\(\)/);
     const stand = read("vite.stand.config.js");
     expect(stand).toMatch(/__STAND_BUILD__: 'true'/);
     expect(stand).toMatch(/stand\.html/);
     expect(stand).toMatch(/emptyOutDir: false/);
-    expect(stand).toMatch(/standModules\(\), standWords\(\), standBudget\(\)/);
+    expect(stand).toMatch(/standModules\(\), standWords\(\), standBudget\(\), appDictionariesIn\('dist'\)/);
     expect(stand).toMatch(/moduleSideEffects: \(id\) => \/\\\.css/);
   });
   it("ReservationsPage leaves the owner's tabs and cards out of the door screen's build", () => {

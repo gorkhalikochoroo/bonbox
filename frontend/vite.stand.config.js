@@ -11,10 +11,12 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import app from './vite.config.js'
-import { standBudget, standModules, standWords } from './scripts/standBuild.mjs'
+import { appDictionariesIn, standBudget, standModules, standWords } from './scripts/standBuild.mjs'
 
 export default defineConfig({
-  plugins: [react(), standModules(), standWords(), standBudget()],
+  // appDictionariesIn: the app build's own dictionary files (never a second
+  // copy in dist/ — src/stand/standLocales.js).
+  plugins: [react(), standModules(), standWords(), standBudget(), appDictionariesIn('dist')],
   esbuild: app.esbuild,
   define: { ...app.define, __STAND_BUILD__: 'true' },
   resolve: app.resolve,

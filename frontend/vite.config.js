@@ -2,7 +2,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
-import { standHtml, standWords } from './scripts/standBuild.mjs'
+import { appDictionaries, standHtml, standWords } from './scripts/standBuild.mjs'
 
 // ── The landing's boot dictionary (push 9, E) ─────────────────────
 // `virtual:bonbox-boot-dict` = { da: {...}, en: {...} } holding only the keys
@@ -145,7 +145,9 @@ export default defineConfig({
   // `vite preview`, as vercel.json does in production (R11 — the door
   // screen's own build, vite.stand.config.js). standWords: its words module
   // resolves in dev and vitest too (the app's own build never imports it).
-  plugins: [react(), preloadDictionary(), preloadLanding(), bootDictionary(), standHtml(), standWords()],
+  // appDictionaries: the app build lists its dictionary files for the door
+  // screen's build, which loads those instead of a second copy.
+  plugins: [react(), preloadDictionary(), preloadLanding(), bootDictionary(), standHtml(), standWords(), appDictionaries()],
   // Force the automatic JSX runtime everywhere — production already
   // uses it via @vitejs/plugin-react, but vitest's transform pipeline
   // sometimes falls back to the classic runtime which requires

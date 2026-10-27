@@ -51,7 +51,15 @@ export const STAND_SWAPS = {
   // The plan, loaded the first time the Plan lens opens (the door screen
   // opens on the list). The stand module's own import reaches the real one.
   "components/FloorPlan.jsx": "stand/standFloorPlan.jsx",
+  // Full dictionaries (another language, the safety net): the app build's
+  // own files, never a second copy (appDictionaries below).
+  "lib/localeStore.js": "stand/standLocales.js",
 };
+
+// The app build lists its dictionary files here (in dist/, removed again by
+// the door screen's build, which bakes the list in).
+export const APP_DICTS_FILE = ".bonbox-app-dicts.json";
+const APP_DICTS_ID = "virtual:bonbox-app-dicts";
 
 // What the door screen's code NEVER runs: owner-only cards that
 // ReservationsPage imports at the top and draws only behind __STAND_BUILD__
@@ -125,7 +133,6 @@ export function standFiles(entries = STAND_ENTRIES) {
   const skip = new Set(STAND_SKIP_FILES.map(abs));
   const seen = new Set();
   const stack = [...entries];
-  const replacements = new Set(swaps.values());
   while (stack.length) {
     const file = stack.pop();
     if (seen.has(file) || skip.has(file) || isDictionary(file) || !fs.existsSync(file)) continue;
@@ -134,9 +141,10 @@ export function standFiles(entries = STAND_ENTRIES) {
     for (const spec of importsOf(src)) {
       const target = resolveLocal(spec, file);
       if (!target || target.includes(`${path.sep}node_modules${path.sep}`)) continue;
-      // A replacement's own import of the module it stands for is the real
-      // one (standFloorPlan.jsx loads the real plan) — as in standModules().
-      stack.push(swaps.has(target) && !replacements.has(file) ? swaps.get(target) : target);
+      // A replacement's import of the very module it stands for is the real
+      // one (standFloorPlan.jsx loads the real plan); every other import is
+      // swapped as usual — as in standModules().
+      stack.push(swaps.has(target) && swaps.get(target) !== file ? swaps.get(target) : target);
     }
   }
   return seen;
@@ -241,17 +249,16 @@ export async function standWordsFor(entries = STAND_ENTRIES, stamp = "") {
 /** In the stand build only: the app shell's modules → the door screen's. */
 export function standModules() {
   const swaps = new Map(Object.entries(STAND_SWAPS).map(([a, b]) => [abs(a), abs(b)]));
-  const replacements = new Set(swaps.values());
   return {
     name: "bonbox-stand-modules",
     enforce: "pre",
     async resolveId(source, importer, options) {
       if (!importer || !source.startsWith(".")) return null;
-      // A replacement reaches the real module it stands for.
-      if (replacements.has(importer.split("?")[0])) return null;
       const hit = await this.resolve(source, importer, { ...options, skipSelf: true });
       const id = hit && hit.id ? hit.id.split("?")[0] : null;
-      if (id && swaps.has(id)) return swaps.get(id);
+      // A replacement's import of the very module it stands for reaches the
+      // real one (standFloorPlan.jsx loads the real plan).
+      if (id && swaps.has(id) && swaps.get(id) !== importer.split("?")[0]) return swaps.get(id);
       return null;
     },
   };
@@ -383,6 +390,60 @@ export function standBudget(budget = STAND_JS_BUDGET) {
       if (worst > budget) console.warn(`\n⚠️  OVER BUDGET — ${line}\n`);
       else if (this.info) this.info(line);
       else console.log(line);
+    },
+  };
+}
+
+/** The APP build: list its dictionary files ({ code: "/assets/da-….js" })
+ *  for the door screen's build, which loads them instead of building a
+ *  second copy (src/stand/standLocales.js). */
+export function appDictionaries() {
+  return {
+    name: "bonbox-app-dictionaries",
+    apply: "build",
+    generateBundle(_opts, bundle) {
+      const files = {};
+      for (const c of Object.values(bundle)) {
+        const m = c.type === "chunk" && c.facadeModuleId &&
+          c.facadeModuleId.split("?")[0].match(/[\\/]src[\\/]i18n[\\/]([a-z]{2})\.js$/);
+        if (m) files[m[1]] = "/" + c.fileName;
+      }
+      if (Object.keys(files).length) {
+        this.emitFile({ type: "asset", fileName: APP_DICTS_FILE, source: JSON.stringify(files) });
+      }
+    },
+  };
+}
+
+/** The DOOR SCREEN build: the app build's list, as virtual:bonbox-app-dicts
+ *  (empty when the app was not built first: no safety net, never a wrong
+ *  file), and the list removed from dist/ afterwards. In dev and vitest the
+ *  real lib/localeStore.js is used, so this only runs in the stand build. */
+export function appDictionariesIn(outDir) {
+  const file = () => path.resolve(FRONTEND, outDir, APP_DICTS_FILE);
+  return {
+    name: "bonbox-app-dictionaries-in",
+    resolveId(id) {
+      return id === APP_DICTS_ID ? "\0" + APP_DICTS_ID : null;
+    },
+    load(id) {
+      if (id !== "\0" + APP_DICTS_ID) return null;
+      let list = {};
+      try {
+        list = JSON.parse(fs.readFileSync(file(), "utf8"));
+      } catch {
+        this.warn(`no ${APP_DICTS_FILE} in ${outDir}/ — build the app first (npm run build); the door screen gets no full-dictionary safety net`);
+      }
+      const safe = Object.fromEntries(Object.entries(list).filter(([k, v]) =>
+        /^[a-z]{2}$/.test(k) && typeof v === "string" && /^\/assets\/[\w.-]+\.js$/.test(v)));
+      return `export default ${JSON.stringify(safe)};`;
+    },
+    closeBundle() {
+      try {
+        fs.rmSync(file(), { force: true });
+      } catch {
+        /* nothing to remove */
+      }
     },
   };
 }
