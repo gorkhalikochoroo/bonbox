@@ -764,11 +764,10 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
     // ground the column stands on. The hours are always open.
     return (
       <div className="space-y-6">
-        {/* The language pill sits beside the tile, not at the column's far
-            edge, where it floated in the gutter next to the card. */}
+        {/* The language switch is the booking card's, in its top row beside
+            the steps (G10 item 2) — the column is the venue's alone. */}
         <div className="flex items-center gap-4">
           <VenueBadge logoUrl={page.logo_url} name={name} size="lg" />
-          <LangPill lang={lang} setLang={setLang} />
         </div>
         <div className="space-y-1.5">
           {eyebrow && (
@@ -3116,7 +3115,7 @@ export default function ReservationPublicPage() {
           is a <header> too) and the card is its main region, so a screen
           reader's landmark list reads venue, then booking. */}
       {wide && (
-        <header data-testid="rsvp-venue-column" className="sticky top-10 self-start pt-8">
+        <header data-testid="rsvp-venue-column" className="sticky top-10 self-start">
           {venueHeader("column")}
         </header>
       )}
@@ -3138,8 +3137,16 @@ export default function ReservationPublicPage() {
         {!wide && venueHeader("card")}
 
         {/* No steps to show while paused: there is no flow. The compact
-            header (R4) shows them in its own row. */}
-        {!pausedStep1 && !compactHead && <StepDots step={step} t={t} apptWords={apptWords} />}
+            header (R4) shows them in its own row. On a desktop the card's top
+            row carries the language switch beside them (G10 item 2). */}
+        {wide ? (
+          <div data-testid="rsvp-card-top" className="flex items-center justify-between gap-3">
+            <div className="min-w-0">{!pausedStep1 && <StepDots step={step} t={t} apptWords={apptWords} />}</div>
+            <LangPill lang={lang} setLang={setLang} />
+          </div>
+        ) : (
+          !pausedStep1 && !compactHead && <StepDots step={step} t={t} apptWords={apptWords} />
+        )}
 
         {/* The step area: exactly one of the paused panel, step 1 or step 2.
             It eases between heights (useAutoHeight) instead of jumping. */}
@@ -4496,12 +4503,15 @@ export default function ReservationPublicPage() {
 // name is pronounced in that language. The group is named in both.
 const LANG_NAMES = { da: "Dansk", en: "English" };
 
+// G10 (judge 27 Oct, item 2): a segmented switch in the page's own shapes —
+// a 12 px track and 8 px segments, not a capsule. 32 px drawn (min-h-0!
+// releases the touch floor), 44 px to the finger: the after: box.
 function LangPill({ lang, setLang }) {
   return (
     <div
       role="group"
       aria-label="Sprog · Language"
-      className="shrink-0 flex items-center p-0.5 rounded-full bg-gray-100 dark:bg-gray-800"
+      className="shrink-0 flex items-center p-0.5 rounded-xl bg-gray-100 dark:bg-gray-800"
     >
       {["da", "en"].map((code) => (
         <button
@@ -4513,7 +4523,8 @@ function LangPill({ lang, setLang }) {
           aria-label={LANG_NAMES[code]}
           title={LANG_NAMES[code]}
           className={
-            "h-8 min-w-[40px] px-2.5 rounded-full text-[11px] font-semibold uppercase tracking-wide transition-colors duration-200 ease-out " + FOCUS + " " +
+            "relative after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-[''] " +
+            "h-8 min-h-0! min-w-[40px] px-2.5 rounded-lg text-[11px] font-semibold uppercase tracking-wide transition-colors duration-200 ease-out " + FOCUS + " " +
             (lang === code
               ? "bg-white text-gray-900 shadow-sm dark:bg-gray-600 dark:text-white"
               : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200")

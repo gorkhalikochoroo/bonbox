@@ -53,7 +53,7 @@ export function skeletonTree(variant) {
   if (variant === "wide") {
     return el("div", `min-h-screen ${ROOT_FINISH} bg-gray-50 dark:bg-gray-950 pt-10 pb-12`, [
       el("div", "grid grid-cols-[minmax(0,1fr)_28rem] gap-12 max-w-5xl mx-auto px-8 items-start", [
-        el("div", "pt-8 space-y-6", [
+        el("div", "space-y-6", [
           el("div", `${BREATHE} rounded-xl bg-gray-200/70 dark:bg-gray-800 w-16 h-16`),
           el("div", `${BREATHE} rounded-lg bg-gray-200/70 dark:bg-gray-800 h-8 w-2/3`),
         ]),

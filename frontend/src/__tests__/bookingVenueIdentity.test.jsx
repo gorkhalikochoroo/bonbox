@@ -320,10 +320,13 @@ describe("desktop: the venue on the left, the booking on the right", () => {
     expect(within(banner).getByRole("heading", { level: 1 }).textContent).toBe("Bistro Nørrebro");
     const main = screen.getByRole("main");
     expect(within(main).getAllByRole("radio").some((r) => r.textContent.trim() === "19:00")).toBe(true);
-    // The language pill sits beside the tile, not at the column's far edge.
-    const tileRow = banner.querySelector(".w-16.h-16").parentElement;
-    expect(within(tileRow).getByRole("group", { name: /Sprog/ })).toBeTruthy();
-    expect(tileRow.className).not.toMatch(/justify-between/);
+    // G10 (judge 27 Oct, item 2): the language switch is the card's, in its
+    // top row beside the step dots — no longer in the venue column.
+    expect(within(banner).queryByRole("group", { name: /Sprog/ })).toBeNull();
+    const top = within(main).getByTestId("rsvp-card-top");
+    expect(within(top).getByRole("group", { name: /Sprog/ })).toBeTruthy();
+    expect(within(top).getByRole("progressbar")).toBeTruthy();
+    expect(banner.className).not.toMatch(/(^| )pt-8( |$)/);
   });
 
   it("(card) the phone card is the main region with the venue's header inside it", async () => {

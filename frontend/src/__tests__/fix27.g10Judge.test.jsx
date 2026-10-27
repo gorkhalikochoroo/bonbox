@@ -4,10 +4,14 @@
  *
  *   1  The scarcity line ("Sidste bord", "2 tilbage"): 11 px quiet grey,
  *      weight 500; white/80 on the picked tile.
+ *   2  The language switch: a rounded-xl track with rounded-lg segments, 32 px
+ *      drawn and 44 px to the finger (an after: box); on a desktop it is the
+ *      card's, in its top row beside the steps, and the venue column loses
+ *      its pt-8.
  *
  * Run: cd frontend && TZ=UTC npx vitest run src/__tests__/fix27.g10Judge.test.jsx
  */
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
@@ -107,5 +111,52 @@ describe("1: the scarcity line is 11 px quiet grey, white/80 on the picked tile"
     await act(async () => { fireEvent.click(timeTile("19:00")); });
     expect(note("19:00").className).toContain("text-white/80");
     expect(note("19:00").className).not.toContain("text-gray-500");
+  });
+});
+
+describe("2: the language switch", () => {
+  const realMatch = window.matchMedia;
+  afterEach(() => { window.matchMedia = realMatch; });
+  const stubWide = () => {
+    window.matchMedia = vi.fn((q) => ({
+      matches: /min-width:\s*1024px/.test(q), media: q,
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
+    }));
+  };
+  const segmentsOf = (group) => within(group).getAllByRole("button");
+
+  it("a rounded-xl track, rounded-lg segments at 32 px, 44 px to the finger — no capsule", async () => {
+    routes();
+    renderAt();
+    await settle();
+    const group = screen.getByRole("group", { name: "Sprog · Language" });
+    expect(group.className).toContain("rounded-xl");
+    expect(group.className).not.toContain("rounded-full");
+    for (const b of segmentsOf(group)) {
+      expect(b.className).toContain("rounded-lg");
+      expect(b.className).not.toContain("rounded-full");
+      expect(b.className).toContain("h-8");
+      expect(b.className).toContain("min-h-0!");
+      expect(b.className).toMatch(/(^| )relative( |$)/);
+      expect(b.className).toContain("after:absolute");
+      expect(b.className).toContain("after:-inset-y-1.5");     // 32 + 2 × 6 = 44
+      expect(b.className).toContain("min-w-[40px]");
+    }
+  });
+
+  it("desktop: in the card's top row beside the steps; the venue column is the venue's alone, without pt-8", async () => {
+    stubWide();
+    routes();
+    renderAt();
+    await settle();
+    const column = screen.getByTestId("rsvp-venue-column");
+    expect(within(column).queryByRole("group", { name: "Sprog · Language" })).toBeNull();
+    expect(column.className).not.toMatch(/(^| )pt-8( |$)/);
+    const top = within(screen.getByRole("main")).getByTestId("rsvp-card-top");
+    expect(within(top).getByRole("group", { name: "Sprog · Language" })).toBeTruthy();
+    expect(within(top).getByRole("progressbar")).toBeTruthy();
+    expect(screen.getAllByRole("group", { name: "Sprog · Language" })).toHaveLength(1);
+    // The wait's desktop look is the page's: its column has no pt-8 either.
+    expect(read("components/booking/bookingWait.js")).not.toContain('el("div", "pt-8 space-y-6"');
   });
 });
