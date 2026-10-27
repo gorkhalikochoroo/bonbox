@@ -116,6 +116,13 @@ import BookingNameRow from "../components/reservations/BookingNameRow";
 import ClosuresCard, { PauseControl } from "../components/reservations/ClosuresCard";
 import BehandlingRow from "../components/reservations/BehandlingRow";
 import SalonRhythmCard from "../components/reservations/SalonRhythmCard";
+import WeekHoursEditor from "../components/reservations/WeekHoursEditor";
+import StartTimesChoice from "../components/reservations/StartTimesChoice";
+import {
+  DAY_KEYS, HOURS_SHAPE, cardBookingHours, defaultBookingHours, defaultSalonHours,
+  hasSavedBookingHours, hoursProblem, hoursProblemWords, lastBookingSitting,
+  parseBookingHours, serializeBookingHours, slotStepOf, snapLasts,
+} from "../utils/bookingHours";
 import SalonAttention from "../components/reservations/SalonAttention";
 import SalonWeekCapacity, { SalonDayCapacity } from "../components/reservations/SalonCapacity";
 import StylistRow, { isOwnChair, tidyName, STYLIST_NAME_MAX } from "../components/reservations/StylistRow";
@@ -291,172 +298,10 @@ function shortDayLabel(iso, t, locale) {
   return `${head} ${d}/${m}`.trim();
 }
 
-// Booking hours (per weekday) ↔ the "HH:MM-HH:MM" | "closed" dict the engine
-// reads (reservation_service.restaurant_windows). Mon-first to match DK weeks.
-const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-function defaultBookingHours() {
-  const o = {};
-  DAY_KEYS.forEach((k) => {
-    o[k] = { closed: false, open: "11:00", close: "22:00" };
-  });
-  return o;
-}
-// `suggest` makes the week a day falls back to when nothing is saved for it
-// (and the times a closed day reopens on): the restaurant's 11–22, or a
-// salon's week (R7 — a salon's card suggested 11–22, rubric S12).
-function parseBookingHours(bh, suggest = defaultBookingHours) {
-  const out = suggest();
-  if (bh && typeof bh === "object") {
-    DAY_KEYS.forEach((k) => {
-      const v = bh[k];
-      const base = out[k];
-      if (v === "closed") out[k] = { closed: true, open: base.open, close: base.close };
-      else if (typeof v === "string" && v.includes("-")) {
-        const [open, close] = v.split("-");
-        out[k] = { closed: false, open: open || base.open, close: close || base.close };
-      }
-    });
-  }
-  return out;
-}
-// What the hours card shows on load (booking push p3): what the TABLE
-// engine books. A weekday the booking hours don't set is booked on the
-// Profile opening hours (reservation_service.restaurant_windows), and the
-// server's `open_hours` is that week — so when the venue has declared hours,
-// such a day shows its real hours (or closed) instead of the 11–22
-// suggestion the engine never books. Days the booking hours set read as
-// before. A fresh account (nothing declared) keeps the suggestions and its
-// "Ikke gemt endnu" banner. Never for a salon: its self-chair reads only the
-// booking hours, so Profile hours there would show times nobody can book —
-// a salon's unsaved days show the salon's suggestion instead (R7).
-// Nothing is saved until the owner presses Gem.
-function cardBookingHours(bh, { openHours, hoursDeclared, isProvider } = {}) {
-  if (isProvider) return parseBookingHours(bh, defaultSalonHours);
-  const out = parseBookingHours(bh);
-  if (hoursDeclared !== true || !openHours || typeof openHours !== "object") return out;
-  if (!DAY_KEYS.some((k) => Array.isArray(openHours[k]) && openHours[k].length > 0)) return out;
-  DAY_KEYS.forEach((k) => {
-    if (bh && typeof bh === "object" && bh[k]) return; // the booking hours decide it
-    const w = openHours[k];
-    if (!Array.isArray(w)) return;
-    out[k] = w.length === 0
-      ? { closed: true, open: "11:00", close: "22:00" }
-      : { closed: false, open: w[0][0] || "11:00", close: w[0][1] || "22:00" };
-  });
-  return out;
-}
-function serializeBookingHours(hours) {
-  const out = {};
-  DAY_KEYS.forEach((k) => {
-    const d = hours[k];
-    out[k] = d.closed ? "closed" : `${d.open}-${d.close}`;
-  });
-  return out;
-}
-// Has the owner SAVED booking hours (any weekday "closed" or "HH:MM-HH:MM")?
-// The backend's test for the same thing (salon_quick_setup has_saved): the
-// first-run card then shows these hours, and keeps them unless edited.
-function hasSavedBookingHours(bh) {
-  return !!bh && typeof bh === "object" &&
-    Object.values(bh).some((v) => v === "closed" || (typeof v === "string" && v.includes("-")));
-}
-// Salon-flavored starting hours for the first-run card — the SAME shape
-// defaultBookingHours() returns, but a typical salon week (Tue–Fri 09–17,
-// Sat 09–14, Mon + Sun closed). A suggestion only; the owner confirms/edits
-// before we persist it via /reservations/salon/quick-setup.
-function defaultSalonHours() {
-  const o = {};
-  DAY_KEYS.forEach((k) => {
-    o[k] = { closed: false, open: "09:00", close: "17:00" };
-  });
-  o.sat = { closed: false, open: "09:00", close: "14:00" };
-  o.mon = { closed: true, open: "09:00", close: "17:00" };
-  o.sun = { closed: true, open: "09:00", close: "17:00" };
-  return o;
-}
-
-// Weekday opening-hours editor — the one weekday-rows grid shared by the
-// Settings section and the salon first-run card. Presentational: the parent
-// owns the `hours` state plus the setHourDay / applyMonToAll handlers (the
-// SAME helpers that serialize to the {mon:"HH:MM-HH:MM"|"closed", …} dict the
-// availability engine reads). Pass `onApplyMonToAll` to surface the "copy
-// Monday to every day" shortcut above the rows.
-function WeekHoursEditor({ t, hours, setHourDay, onApplyMonToAll }) {
-  // Static t() keys (not template literals) so the i18n grep can verify each
-  // has an EN+DA entry. DK weeks start Monday.
-  const dayLabel = {
-    mon: t("rsvpDayMon", "Mon"),
-    tue: t("rsvpDayTue", "Tue"),
-    wed: t("rsvpDayWed", "Wed"),
-    thu: t("rsvpDayThu", "Thu"),
-    fri: t("rsvpDayFri", "Fri"),
-    sat: t("rsvpDaySat", "Sat"),
-    sun: t("rsvpDaySun", "Sun"),
-  };
-  return (
-    <div className="space-y-2">
-      {onApplyMonToAll && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={onApplyMonToAll}
-            className="shrink-0 text-xs font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200 underline-offset-2 hover:underline"
-          >
-            {t("rsvpHoursCopyMon", "Apply Monday to all")}
-          </button>
-        </div>
-      )}
-      <div className="divide-y divide-gray-100 dark:divide-gray-800">
-        {DAY_KEYS.map((k) => {
-          const d = hours[k];
-          const isOpen = !d.closed;
-          return (
-            <div key={k} className="flex items-center gap-3 py-2 flex-wrap">
-              <span className="w-9 shrink-0 text-sm font-medium text-gray-700 dark:text-gray-300">
-                {dayLabel[k]}
-              </span>
-              {/* Open / closed — 44px tap target for the host stand. */}
-              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none shrink-0 min-h-[44px]">
-                <input
-                  type="checkbox"
-                  checked={isOpen}
-                  onChange={(e) => setHourDay(k, { closed: !e.target.checked })}
-                  className="w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 accent-gray-900 dark:accent-gray-100 focus:ring-gray-400"
-                />
-                <span className="text-xs text-gray-500 dark:text-gray-400 w-12">
-                  {isOpen ? t("rsvpHoursOpen", "Open") : t("rsvpHoursClosed", "Closed")}
-                </span>
-              </label>
-              {isOpen ? (
-                <div className="inline-flex items-center gap-1.5">
-                  <input
-                    type="time"
-                    value={d.open}
-                    onChange={(e) => setHourDay(k, { open: e.target.value })}
-                    aria-label={t("rsvpHoursOpenAt", "Opens")}
-                    className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
-                  />
-                  <span className="text-gray-400" aria-hidden>–</span>
-                  <input
-                    type="time"
-                    value={d.close}
-                    onChange={(e) => setHourDay(k, { close: e.target.value })}
-                    aria-label={t("rsvpHoursCloseAt", "Closes")}
-                    className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100 focus:border-transparent"
-                  />
-                </div>
-              ) : (
-                <span className="text-sm text-gray-400 dark:text-gray-500">
-                  {t("rsvpHoursClosedDay", "Closed all day")}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+// Booking hours — the card's state, the stored shape (one or two periods a
+// day, a last booking time), parsing, saving and the checks: utils/
+// bookingHours.js (R8). The weekday rows: components/reservations/
+// WeekHoursEditor.jsx.
 
 // Tab ids — kept as a const so the ?tab= deep-link (e.g. from the Insights
 // "Turn on SMS reminders" action) can validate against the real set.
@@ -3700,11 +3545,15 @@ function SalonFirstRunCard({
             ? t("rsvpSalonHoursSaved", "Your saved hours. Change them if you need to")
             : t("rsvpSalonHoursSuggestion", "Suggested — change if it doesn't fit")}
         </div>
+        {/* A stored second period (a lunch break) is shown and can be
+            taken away here; adding one lives in Indstillinger (R8), so the
+            first booking stays one tap. */}
         <WeekHoursEditor
           t={t}
           hours={hours}
           setHourDay={setHourDay}
           onApplyMonToAll={applyMonToAll}
+          addMode="day"
         />
       </div>
 
@@ -4777,11 +4626,21 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   };
   const openSalonForBooking = async () => {
     if (salonSetupBusy) return; // guard against double-submit
+    // Two periods that overlap, or a time left empty, never reach the
+    // server: the card says which day (R8).
+    const problem = hoursProblem(salonHours, { withLast: false });
+    if (problem) {
+      setSalonSetupError(hoursProblemWords(problem, t, lang));
+      return;
+    }
     setSalonSetupBusy(true);
     setSalonSetupError("");
     try {
       await api.post("/reservations/salon/quick-setup", {
-        booking_hours: serializeBookingHours(salonHours),
+        // A chair never reads a last booking time; none is sent.
+        booking_hours: serializeBookingHours(salonHours, { withLast: false }),
+        // This card shows two periods a day: its week is the owner's (R8).
+        hours_shape: HOURS_SHAPE,
         // Saved hours stay unless the owner edited them on this card.
         replace_hours: salonHoursDirtyRef.current,
         // What customers call her chair (R7): her name, else "Indehaver".
@@ -9631,6 +9490,16 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   }, [isProvider]);
   const [savingHours, setSavingHours] = useState(false);
   const [hoursSaved, setHoursSaved] = useState(false);
+  // R8: the hours card's own words when a save cannot happen ("Tirsdag: de
+  // to perioder overlapper …"), and the weekday they are about — said on
+  // the card, not at the top of a long page.
+  const [hoursError, setHoursError] = useState("");
+  const [hoursProblemDay, setHoursProblemDay] = useState(null);
+  // Starttider for a table venue (R8, rubric R9): 15 / 30 / 60, saved with
+  // the hours card's Gem. The same key a salon picks on its rhythm card.
+  const [stepDraft, setStepDraft] = useState(15);
+  // The week as loaded, serialized — anything else on the card is unsaved.
+  const loadedHoursRef = useRef("");
   // E-mails to the owner about online bookings (R1 D6): on unless switched off.
   const [savingOwnerEmails, setSavingOwnerEmails] = useState(false);
 
@@ -9671,11 +9540,17 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
       enabled: !!s.sms_reminders,
       sender: s.sms_sender ?? "",
     });
-    setHours(cardBookingHours(s.booking_hours, {
+    const loadedHours = cardBookingHours(s.booking_hours, {
       openHours: d?.open_hours,
       hoursDeclared: d?.hours_declared,
       isProvider: isProviderRef.current,
-    }));
+    });
+    setHours(loadedHours);
+    loadedHoursRef.current = JSON.stringify(
+      serializeBookingHours(loadedHours, { withLast: !isProviderRef.current }));
+    setStepDraft(slotStepOf(s));
+    setHoursError("");
+    setHoursProblemDay(null);
   }, []);
 
   const fetchSettings = useCallback(async () => {
@@ -9877,12 +9752,20 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
   };
 
   // Patch one weekday's hours (open/close time or closed flag).
-  const setHourDay = (key, patch) =>
+  // Any change on the card clears its last "can't save" words.
+  const clearHoursProblem = () => {
+    setHoursError("");
+    setHoursProblemDay(null);
+  };
+  const setHourDay = (key, patch) => {
+    clearHoursProblem();
     setHours((h) => ({ ...h, [key]: { ...h[key], ...patch } }));
+  };
 
   // Convenience: copy Monday's row to every day (the common "same every day"
-  // case — set once, fan out).
-  const applyMonToAll = () =>
+  // case — set once, fan out). Its periods and last booking times too (R8).
+  const applyMonToAll = () => {
+    clearHoursProblem();
     setHours((h) => {
       const mon = h.mon;
       const next = {};
@@ -9891,26 +9774,61 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
       });
       return next;
     });
+  };
+
+  // Starttider (R8): a chosen last booking time follows the new grid.
+  const pickStep = (n) => {
+    clearHoursProblem();
+    setStepDraft(n);
+    setHours((h) => snapLasts(h, n));
+  };
+
+  // What the server reads (R8): two periods a day and a last booking time.
+  // An older server is never sent a shape it cannot read: the card then
+  // offers neither (a stored second period is still shown).
+  const hoursV2 = Number(data?.hours_shape) >= HOURS_SHAPE;
+  // The last booking time binds the table engine only; a salon's chair ends
+  // its service by closing, so a salon's card neither shows nor sends one.
+  const lastOn = hoursV2 && !isProvider;
+  const storedStep = slotStepOf(data?.settings);
+  const stepChanged = !isProvider && stepDraft !== storedStep;
+  const hoursDirty = !!data && (
+    JSON.stringify(serializeBookingHours(hours, { withLast: !isProvider })) !== loadedHoursRef.current
+    || stepChanged
+  );
 
   // Persist booking hours through the SAME PUT /reservations/settings path —
-  // serialized to the {mon:"HH:MM-HH:MM"|"closed", …} dict the availability
-  // engine reads (reservation_service.restaurant_windows).
+  // serialized to the {mon: "HH:MM-HH:MM" | "closed" | [periods], …} dict the
+  // availability engine reads (reservation_service.day_periods), with the
+  // start-time step when it changed. Checked first, the server's own rules
+  // (utils/bookingHours.hoursProblem); a 422 bad_hours says the same words.
   const saveHours = async () => {
+    const problem = hoursProblem(hours, { withLast: !isProvider });
+    if (problem) {
+      setHoursProblemDay(problem.day);
+      setHoursError(hoursProblemWords(problem, t, lang));
+      setHoursSaved(false);
+      return;
+    }
     setSavingHours(true);
     setHoursSaved(false);
+    clearHoursProblem();
     setError("");
     try {
-      const res = await api.put("/reservations/settings", {
-        settings: { booking_hours: serializeBookingHours(hours) },
-      });
+      const settings = { booking_hours: serializeBookingHours(hours, { withLast: !isProvider }) };
+      if (stepChanged) settings.slot_granularity_min = stepDraft;
+      const res = await api.put("/reservations/settings", { settings, hours_shape: HOURS_SHAPE });
       applyData(res.data || null);
       setHoursSaved(true);
       setTimeout(() => setHoursSaved(false), 2500);
     } catch (e) {
-      setError(
-        e?.response?.data?.detail?.error ||
-          t("rsvpHoursSaveError", "Couldn't save opening hours."),
-      );
+      const detail = e?.response?.data?.detail;
+      if (detail?.error === "bad_hours") {
+        setHoursProblemDay(detail.day || null);
+        setHoursError(hoursProblemWords(detail, t, lang));
+      } else {
+        setHoursError(t("rsvpHoursSaveError", "Couldn't save opening hours."));
+      }
     } finally {
       setSavingHours(false);
     }
@@ -10184,19 +10102,66 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
           </div>
         )}
 
+        {/* R8: lunch and dinner on one day ("Tilføj periode"), and for a
+            table venue the last booking time of each period, in words and
+            settable, under the day's times. */}
         <WeekHoursEditor
           t={t}
+          lang={lang}
           hours={hours}
           setHourDay={setHourDay}
           onApplyMonToAll={applyMonToAll}
+          allowAddPeriod={hoursV2}
+          addMode={apptWords ? "day" : "meal"}
+          lastBooking={lastOn
+            ? { step: stepDraft, sitting: lastBookingSitting(data?.settings, { booksOne: onlineBooksOne }), apptWords }
+            : null}
+          problemDay={hoursProblemDay}
         />
 
+        {/* Starttider 15 / 30 / 60 (R8, rubric R9) — a salon picks hers on
+            "Tider for aftaler" below. Saved with this card's Gem. */}
+        {!isProvider && data && (
+          <StartTimesChoice
+            t={t}
+            lang={lang}
+            value={stepDraft}
+            onPick={pickStep}
+            hours={hours}
+            apptWords={apptWords}
+            busy={savingHours}
+          />
+        )}
+
+        {/* The rule behind "(auto)", said once (rubric R8). */}
+        {lastOn && (
+          <p className="text-xs text-gray-500 dark:text-gray-400" data-testid="last-booking-hint">
+            {onlineBooksOne
+              ? t("rsvpLastBookingHintAppt", "Auto = closing time minus the length of a booking ({min} min). Pick a time and customers can book up to and including it.", {
+                min: lastBookingSitting(data?.settings, { booksOne: true }),
+              })
+              : t("rsvpLastBookingHint", "Auto = closing time minus the table time ({min} min for 2 guests). Pick a time and every party can book up to and including it — even if they stay past closing.", {
+                min: lastBookingSitting(data?.settings),
+              })}
+          </p>
+        )}
+
+        {hoursError && (
+          <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+            {hoursError}
+          </p>
+        )}
+
         <div className="flex items-center justify-end gap-3 pt-1">
-          {hoursSaved && (
+          {hoursSaved ? (
             <span className="text-xs text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1">
               <Check className="w-3.5 h-3.5" /> {t("rsvpSaved", "Saved")}
             </span>
-          )}
+          ) : hoursDirty && !savingHours ? (
+            <span className="text-xs text-amber-700 dark:text-amber-400" data-testid="hours-unsaved">
+              {t("rsvpHoursUnsaved", "Changes not saved yet")}
+            </span>
+          ) : null}
           <Button
             type="button"
             variant="primary"

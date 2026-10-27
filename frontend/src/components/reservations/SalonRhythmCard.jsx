@@ -29,7 +29,9 @@ export function exampleTimes(step, lang = "da", count = 3) {
   });
 }
 
-function Choice({ label, options, value, onPick, busy, testid }) {
+// The one segmented choice of the rhythm cards; the restaurant's Starttider
+// (R8, StartTimesChoice) uses it too.
+export function Choice({ label, options, value, onPick, busy, testid }) {
   return (
     <div
       role="radiogroup"
