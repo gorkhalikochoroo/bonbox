@@ -129,6 +129,8 @@ from app.routers import tickets as tickets_router
 # /r/<slug> booking surface. Generic bookable-resource engine.
 from app.routers import reservations as reservations_router
 from app.routers import reservation_insights as reservation_insights_router
+# R2 (27 Oct 2026): the owner's spam clean-up — Spam, Bloker, a whole wave.
+from app.routers import reservation_spam as reservation_spam_router
 from app.routers import public_reservations as public_reservations_router
 from app.routers import stand_link as stand_link_router
 from app.routers import public_gavekort as public_gavekort_router
@@ -5820,6 +5822,9 @@ app.include_router(stand_link_router.router, prefix="/api", tags=["Host stand"])
 # Mounted under the SAME prefix as the owner reservation router (separate file
 # to keep that router from growing further). Authed + tenant-scoped + fail-soft.
 app.include_router(reservation_insights_router.router, prefix="/api/reservations", tags=["Reservations"])
+# Spam clean-up on the owner's book (R2): mark a booking as spam, block a
+# contact, decline a wave — same prefix, separate file (routers/reservation_spam.py).
+app.include_router(reservation_spam_router.router, prefix="/api/reservations", tags=["Reservations"])
 # Gavekort (gift cards) — owner issues / tracks / redeems / voids. Authed +
 # tenant-scoped (404 cross-tenant) + feature-gated + per-tier cap. Redeem is
 # DB-enforced single-spend (conditional atomic decrement + UNIQUE idempotency).

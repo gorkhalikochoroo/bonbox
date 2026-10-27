@@ -1026,8 +1026,9 @@ def _compute_source_mix(bucketed, weeks: float) -> dict:
     for b in bucketed:
         r = b["r"]
         # A drop-in removed again (seated by mistake) never was a visit — it
-        # counted as a walk-in in the channel mix.
-        if getattr(r, "cancel_reason", None) == "walk_in_removed":
+        # counted as a walk-in in the channel mix. Nor was an online booking
+        # the owner marked as spam (R2) a channel's booking.
+        if getattr(r, "cancel_reason", None) in ("walk_in_removed", "owner_spam"):
             continue
         src = (r.source or "public")
         counts[src] += 1

@@ -569,38 +569,60 @@ def list_changes(
     return {"server_time": server_time, "changes": changes}
 
 
+# The owner's yes to a held booking: confirming it, or seating it straight
+# away (R2 — a held party with a severe allergy that turned up and was sat
+# down at once never alerted the stand: only "confirmed" was read).
+_APPROVAL_ACTIONS = ("reservation.confirmed", "reservation.seated")
+
+
 def _approved_severe_changes(db: Session, user: User, cutoff: datetime, label_by_id: dict) -> list:
     """Held online bookings with a SEVERE allergy that the owner approved
-    after `cutoff` — kind "approved", for the stand's severe alert. One
-    audit query on (user_id, created_at); fail-soft (none)."""
+    after `cutoff` — confirmed, or seated directly — kind "approved", for the
+    stand's severe alert. Said ONCE per booking: only when its FIRST approval
+    (confirm or seat, whichever came first) is after the cutoff, so a
+    confirmed booking seated later, or a seating undone and redone, never
+    alerts again. Two audit queries on (user_id, created_at) and
+    (entity_type, entity_id); fail-soft (none)."""
     try:
         from app.models.audit_log import AuditLog
         from app.services import booking_screen
-        ids = [eid for (eid,) in (
+        ids = list({eid for (eid,) in (
             db.query(AuditLog.entity_id)
             .filter(AuditLog.user_id == user.id,
                     AuditLog.created_at > cutoff,
-                    AuditLog.action == "reservation.confirmed")
+                    AuditLog.action.in_(_APPROVAL_ACTIONS))
             .limit(50)
             .all()
-        ) if eid]
+        ) if eid})
         if not ids:
             return []
         rows = (
             db.query(Reservation)
             .filter(Reservation.user_id == user.id, Reservation.id.in_(ids),
                     Reservation.is_deleted.is_(False), Reservation.source == "public",
-                    Reservation.status == "confirmed",
+                    Reservation.status.in_(("confirmed", "seated")),
                     Reservation.allergy_severity == "severe")
             .all()
         )
         if not rows:
             return []
         held = booking_screen.held_info(db, user.id, [r.id for r in rows])
+        first = dict(
+            db.query(AuditLog.entity_id, func.min(AuditLog.created_at))
+            .filter(AuditLog.user_id == user.id,
+                    AuditLog.entity_type == "reservation",
+                    AuditLog.entity_id.in_([r.id for r in rows]),
+                    AuditLog.action.in_(_APPROVAL_ACTIONS))
+            .group_by(AuditLog.entity_id)
+            .all()
+        )
         out = []
         for r in rows:
             if str(r.id) not in held:
                 continue
+            first_yes = first.get(r.id)
+            if first_yes is None or first_yes <= cutoff:
+                continue                   # its approval was said in an earlier poll
             c = _reservation_change_dict(r, label_by_id, cutoff)
             c["kind"] = "approved"
             c["held"] = False
@@ -656,7 +678,9 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
         # Venue name — used by the settings "Add to your website" embed to label
         # the iframe title accurately (falls back to "BonBox" in the UI if null).
         "business_name": (getattr(user, "business_name", None) or "").strip() or None,
-        "settings": settings,
+        # Never the stored block list (R2): its keyed hashes stay on the
+        # server — the owner's list comes masked from GET /contact-blocks.
+        "settings": {k: v for k, v in settings.items() if k != "contact_blocks"},
         # False ⇒ no opening hours on record: the page offers no times (the
         # engine no longer invents 11–22) and the owner's hours card says so.
         "hours_declared": rsvc.hours_declared(profile, settings),
@@ -780,6 +804,10 @@ def update_settings(payload: SettingsUpdate, request: Request,
                 incoming["closed_dates"], _public_now_local().date())
         if "owner_booking_emails" in incoming:
             incoming["owner_booking_emails"] = bool(incoming["owner_booking_emails"])
+        # Blocked and spam-marked contacts are written only by their own
+        # endpoints (routers/reservation_spam.py): a settings save that
+        # echoes an old copy — or a crafted one — never replaces them.
+        incoming.pop("contact_blocks", None)
         merged.update(incoming)
         profile.reservation_settings_json = json.dumps(merged)
 

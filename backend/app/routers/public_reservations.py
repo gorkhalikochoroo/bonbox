@@ -1172,7 +1172,10 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
     else:  # direct callers without a request — still best-effort, never raises
         _send_booking_notifications(str(r.id), str(owner.id), hold_reason, held_mail_ok)
     return {"id": str(r.id), "status": r.status, "booking_token": _receipt_token(r),
-            "guest_mail": guest_mail}
+            "guest_mail": guest_mail,
+            # The appointment's real length, for the receipt's calendar file
+            # (R2, rubric V5: it said 120 min for every booking).
+            "duration_min": r.duration_min}
 
 
 @router.post("/{slug}")
@@ -1201,7 +1204,8 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
         )
         if prior:
             return {"id": str(prior.id), "status": prior.status,
-                    "booking_token": _receipt_token(prior)}
+                    "booking_token": _receipt_token(prior),
+                    "duration_min": prior.duration_min}
 
     # Parse requested datetime (naive local).
     try:
@@ -1241,6 +1245,18 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     if _closure_for(settings, start.date()) is not None:
         raise HTTPException(status_code=409, detail={"error": "date_closed"})
 
+    # A contact the owner BLOCKED (R2, services/contact_marks.py — a keyed
+    # hash of the phone or mailbox, never the number itself): refused with
+    # the venue's generic answer, the same 409 a capped page gives — the
+    # page says the venue is not taking online bookings and offers the phone.
+    # Never "you are blocked". No row and no audit row: a blocked script
+    # posting all night must not fill the audit table; the abuse monitor
+    # counts it. A contact merely marked as SPAM goes on to the screen and is
+    # held quietly there (rule 3b).
+    if _contact_blocked(owner, settings, payload, today):
+        abuse_signals.bump("booking_blocked")
+        raise HTTPException(status_code=409, detail={"error": "not_accepting"})
+
     salon = bool(payload.behandling_id or payload.stylist_id)
     is_request = (not salon) and rsvc.is_group_request(settings, payload.party_size)
 
@@ -1254,6 +1270,21 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
             start=start, settings=settings, idempotency_key=idempotency_key,
             salon=salon, is_request=is_request, at_plan_cap=at_plan_cap,
         )
+
+
+def _contact_blocked(owner: User, settings: dict, payload, today) -> bool:
+    """Is the booking's phone or mailbox on the owner's block list? Fail-open:
+    a broken read never refuses a guest."""
+    try:
+        from app.services import contact_marks
+        entries = settings.get(contact_marks.KEY)
+        if not entries:
+            return False
+        return contact_marks.match(entries, owner.id, email=payload.guest_email,
+                                   phone=payload.guest_phone, today=today) == "block"
+    except Exception:  # noqa: BLE001
+        logger.warning("contact block check failed — not refusing", exc_info=True)
+        return False
 
 
 def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: User,
@@ -1423,7 +1454,11 @@ def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: U
     background_tasks.add_task(_send_booking_notifications, str(r.id), str(owner.id),
                               hold_reason, held_mail_ok)
     return {"id": str(r.id), "status": r.status, "booking_token": _receipt_token(r),
-            "guest_mail": guest_mail}
+            "guest_mail": guest_mail,
+            # The sitting's real length (the engine's turn time for this
+            # party), for the receipt's calendar file (R2, rubric V5: the
+            # .ics said 120 min while the engine held 90, 105 or 120).
+            "duration_min": r.duration_min}
 
 
 def _guest_mail_plan(db: Session, owner: User, r: Reservation,
@@ -1520,6 +1555,9 @@ def poll(request: Request, reservation_id: UUID = Path(...),
     return {
         "id": str(r.id), "status": r.status, "party_size": r.party_size,
         "starts_at": r.starts_at.isoformat() if r.starts_at else None,
+        # The sitting's or the appointment's real length — the receipt's
+        # calendar file reads it (R2, rubric V5).
+        "duration_min": r.duration_min,
         "guest_name": r.guest_name,
         # What the guest told the venue, so a receipt reopened from the email
         # link or a reload can show it — in the language they booked in.
