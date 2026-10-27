@@ -879,9 +879,11 @@ def test_book_again_opens_the_booking_page_in_the_guests_language(client, db, ou
 # duration_min: the sitting's real length, which the receipt's calendar file
 # reads (R2 cd15c3d9, rubric V5 — put in the create answer and this poll on
 # purpose). Not personal data; every private field stays out (below).
+# answer_by (F5, 27 Oct 2026): a request's "svar senest …" — None for a
+# confirmed booking; a time, never personal data.
 _LOOKUP_FIELDS = {"id", "status", "party_size", "starts_at", "duration_min", "guest_name",
                   "occasion", "allergen_tags", "allergy_severity", "guest_lang",
-                  "outcome"}
+                  "outcome", "answer_by"}
 
 
 def test_the_booking_lookup_returns_what_the_guest_told_the_venue(client, db, outbox):

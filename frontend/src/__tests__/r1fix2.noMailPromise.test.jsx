@@ -146,9 +146,46 @@ describe("the receipt and the e-mail promise", () => {
       da.rsvpEmailOnItsWay.replace("{email}", "sita@example.com"));
   });
 
+  // F5 (27 Oct 2026): the server says when the answer comes at the latest —
+  // the time an unanswered request is declined — and the receipt names it,
+  // so the promise always holds (a same-day dinner waits until 2 h before).
+  it("a request names the server's own answer time: today", async () => {
+    await bookWith({ status: "requested", guest_mail: true, answer_by: "2026-10-23T17:00" });
+    expect(document.body.textContent).toContain("Vi svarer dig på sita@example.com senest i dag kl. 17.00.");
+    expect(screen.queryByText(da.rsvpRequestNextToday)).toBeNull();
+  });
+
+  it("…and tomorrow, and another day, in the guest's words", async () => {
+    const { answerByWords } = await import("../utils/guestLocale");
+    const { en } = await import("../i18n/en");
+    const tt = (dict) => (k, fb, v) => (dict[k] ?? fb).replace(/\{(\w+)\}/g, (m, n) => (v && v[n] !== undefined ? String(v[n]) : m));
+    expect(answerByWords("2026-10-24T06:30", TODAY, "da", tt(da))).toBe("i morgen kl. 06.30");
+    expect(answerByWords("2026-10-24T06:30", TODAY, "en", tt(en))).toBe("tomorrow at 06:30");
+    expect(answerByWords("2026-10-23T18:00", TODAY, "en", tt(en))).toBe("today at 18:00");
+    expect(answerByWords("2026-10-27T13:00", TODAY, "da", tt(da))).toMatch(/^tirsdag 27\. oktober kl\. 13\.00$/);
+    expect(answerByWords(null, TODAY, "da", tt(da))).toBe("");
+  });
+
+  it("a request too late to send online asks the guest to call, with the venue's phone, and keeps the form", async () => {
+    routes();
+    h.post.mockRejectedValue(Object.assign(new Error("409"), {
+      response: { status: 409, data: { detail: { error: "request_too_late" } } },
+    }));
+    renderAt();
+    await settle();
+    await toDetails();
+    await submit();
+    expect(document.body.textContent).toContain(da.rsvpErrRequestTooLate);
+    expect(screen.getByTestId("rsvp-refusal-call").getAttribute("href")).toContain("12");
+    expect(document.getElementById("rsvp-name").value).toBe("Sita Sharma");
+    expect(document.getElementById("rsvp-email").value).toBe("sita@example.com");
+  });
+
   it("the new sentences exist in Danish and English, and differ", async () => {
     const { en } = await import("../i18n/en");
-    for (const k of ["rsvpRequestNextNoMail", "rsvpNoMailReceipt"]) {
+    for (const k of ["rsvpRequestNextNoMail", "rsvpNoMailReceipt", "rsvpRequestNextBy",
+      "rsvpRequestNextByEmail", "rsvpWhenToday", "rsvpWhenTomorrow", "rsvpWhenDay",
+      "rsvpErrRequestTooLate"]) {
       expect(typeof da[k]).toBe("string");
       expect(typeof en[k]).toBe("string");
       expect(da[k]).not.toBe(en[k]);

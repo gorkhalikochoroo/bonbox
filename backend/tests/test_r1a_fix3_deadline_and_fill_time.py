@@ -73,16 +73,19 @@ def _by_day(t: datetime) -> bool:
     # evening requests for tomorrow's breakfast (the S6 cases)
     ((2026, 11, 12, 21, 0), (2026, 11, 13, 9, 30), (2026, 11, 13, 8, 30),
      "the owner has 21:00–22:00 and 08:00–08:30"),
-    ((2026, 11, 12, 21, 15), (2026, 11, 13, 7, 30), (2026, 11, 13, 5, 30),
-     "no hour of daytime by 21:00: 2 h before (R1a: 09:15, after the sitting)"),
-    ((2026, 11, 12, 19, 30), (2026, 11, 13, 7, 30), (2026, 11, 12, 21, 0),
-     "an hour of daytime by 21:00: the evening before"),
-    ((2026, 11, 12, 20, 0), (2026, 11, 13, 7, 30), (2026, 11, 12, 21, 0),
-     "exactly an hour by 21:00 still counts"),
-    ((2026, 11, 12, 20, 15), (2026, 11, 13, 8, 30), (2026, 11, 13, 6, 30),
-     "08:00 or 2 h before, whichever is earlier"),
-    ((2026, 11, 12, 23, 30), (2026, 11, 13, 7, 0), (2026, 11, 13, 5, 0),
-     "asked near midnight"),
+    # F5 (27 Oct 2026) replaced D-C's night rule (21:00 the evening before,
+    # or 08:00 / 2 h before): a breakfast is declined at its hour-before
+    # point, when the café owner is in. D-C's value in each comment.
+    ((2026, 11, 12, 21, 15), (2026, 11, 13, 7, 30), (2026, 11, 13, 6, 30),
+     "F5: an hour before (D-C: 05:30; R1a: 09:15, after the sitting)"),
+    ((2026, 11, 12, 19, 30), (2026, 11, 13, 7, 30), (2026, 11, 13, 6, 30),
+     "F5: never the evening before — 06:30 (D-C: 21:00 the evening before)"),
+    ((2026, 11, 12, 20, 0), (2026, 11, 13, 7, 30), (2026, 11, 13, 6, 30),
+     "F5: an hour before (D-C: 21:00 the evening before)"),
+    ((2026, 11, 12, 20, 15), (2026, 11, 13, 8, 30), (2026, 11, 13, 7, 30),
+     "F5: an hour before (D-C: 06:30, 2 h before)"),
+    ((2026, 11, 12, 23, 30), (2026, 11, 13, 7, 0), (2026, 11, 13, 6, 0),
+     "asked near midnight — F5: an hour before (D-C: 05:00)"),
     ((2026, 11, 12, 22, 0), (2026, 11, 13, 10, 30), (2026, 11, 13, 9, 30),
      "a 10:30 breakfast: the owner has 08:00–09:30"),
     ((2026, 11, 10, 10, 0), (2026, 11, 13, 8, 30), (2026, 11, 12, 21, 0),
@@ -92,11 +95,11 @@ def _by_day(t: datetime) -> bool:
      "asked at 06:00: the owner has 08:00–08:30 (R1a: 10:00)"),
     ((2026, 11, 13, 5, 30), (2026, 11, 13, 7, 0), (2026, 11, 13, 6, 30),
      "asked 90 min ahead: still an hour to answer"),
-    ((2026, 11, 13, 7, 0), (2026, 11, 13, 8, 0), (2026, 11, 13, 8, 0),
-     "asked an hour ahead: an hour to answer (R1a: 09:00)"),
+    ((2026, 11, 13, 7, 0), (2026, 11, 13, 8, 0), (2026, 11, 13, 7, 45),
+     "asked an hour ahead — F5: never at the sitting, 15 min before (D-C: 08:00; R1a: 09:00)"),
     # the same night, late
-    ((2026, 11, 12, 20, 0), (2026, 11, 12, 22, 30), (2026, 11, 12, 21, 0),
-     "tonight at 22:30: 21:00, the owner had 20:00–21:00 (R1a: next morning)"),
+    ((2026, 11, 12, 20, 0), (2026, 11, 12, 22, 30), (2026, 11, 12, 21, 30),
+     "tonight at 22:30 — F5: an hour before (D-C: 21:00; R1a: next morning)"),
     ((2026, 11, 12, 21, 30), (2026, 11, 12, 23, 0), (2026, 11, 12, 22, 30),
      "asked 90 min ahead: an hour to answer (R1a: next morning)"),
     # unchanged where the R1a deadline already told the guest in time
@@ -104,9 +107,9 @@ def _by_day(t: datetime) -> bool:
     ((2026, 11, 12, 23, 30), (2026, 11, 13, 13, 0), (2026, 11, 13, 10, 0), "lunch"),
     ((2026, 11, 10, 10, 0), (2026, 11, 13, 19, 0), (2026, 11, 13, 13, 0), "6 h before"),
     # both summer-time changes
-    ((2026, 3, 28, 21, 15), (2026, 3, 29, 7, 30), (2026, 3, 29, 5, 30), "spring night"),
+    ((2026, 3, 28, 21, 15), (2026, 3, 29, 7, 30), (2026, 3, 29, 6, 30), "spring night (F5; D-C 05:30)"),
     ((2026, 3, 28, 21, 0), (2026, 3, 29, 9, 30), (2026, 3, 29, 8, 30), "spring morning"),
-    ((2026, 10, 24, 21, 15), (2026, 10, 25, 7, 30), (2026, 10, 25, 5, 30), "autumn night"),
+    ((2026, 10, 24, 21, 15), (2026, 10, 25, 7, 30), (2026, 10, 25, 6, 30), "autumn night (F5; D-C 05:30)"),
     ((2026, 10, 24, 21, 0), (2026, 10, 25, 9, 30), (2026, 10, 25, 8, 30), "autumn morning"),
 ])
 def test_the_decisions_examples(created, start, deadline, why):
@@ -137,12 +140,17 @@ def _pairs():
 
 
 def _violations(deadline_fn) -> dict:
-    """What D-C promises, checked for `deadline_fn` over every pair. Each
-    list holds (created, start, deadline) examples (at most 5)."""
+    """What D-C and F5 (27 Oct 2026) promise, checked for `deadline_fn` over
+    every pair. Each list holds (created, start, deadline) examples (at most
+    5). F5: never after the sitting (rre.latest_decline: the last quarter
+    hour 15 min before it); a same-day request waits until 2 h before; a
+    breakfast's night deadline is its hour-before point."""
     out = {k: [] for k in ("before_an_hour_after_asking", "after_the_hour_before",
-                           "later_than_r1a", "night_not_needed", "before_sweep_horizon",
-                           "evening_breakfast_late")}
-    counts = {"pairs": 0, "moved": 0, "night": 0, "evening_before": 0}
+                           "after_the_sitting", "later_than_r1a", "night_not_needed",
+                           "before_sweep_horizon", "evening_breakfast_late",
+                           "same_day_too_early")}
+    counts = {"pairs": 0, "moved": 0, "night": 0, "evening_before": 0,
+              "same_day_later": 0, "capped": 0}
 
     def bad(kind, *ex):
         if len(out[kind]) < 5:
@@ -154,32 +162,41 @@ def _violations(deadline_fn) -> dict:
         d = deadline_fn(start, created)
         old = daytime_deadline(start, created)
         tell_by = start - H
-        counts["moved"] += d < old
-        # never sooner than an hour after asking
-        if d < created + H:
+        cap = rre.latest_decline(start)
+        same_day = created.date() == start.date()
+        counts["moved"] += d != old
+        # F5: never after the sitting has started — at the latest the last
+        # quarter hour 15 minutes before it
+        if d > cap:
+            bad("after_the_sitting", created, start, d)
+        counts["capped"] += d == cap and d < created + H
+        # never sooner than an hour after asking — unless the sitting comes
+        # first (F5: a request made under 75 min ahead gets until the cap)
+        if d < min(created + H, cap):
             bad("before_an_hour_after_asking", created, start, d)
         # never later than an hour before the sitting — unless asked under
-        # 2 h ahead, which gets exactly its hour
+        # 2 h ahead, which gets its hour (within the cap)
         if d > max(tell_by, created + H):
             bad("after_the_hour_before", created, start, d)
-        # only ever earlier than the R1a build
+        # later than the R1a build only for a same-day request, which waits
+        # until 2 h before the sitting (F5: asked 12:51 for 20:00 → 18:00)
         if d > old:
-            bad("later_than_r1a", created, start, d)
+            if same_day and d == start - 2 * H:
+                counts["same_day_later"] += 1
+            else:
+                bad("later_than_r1a", created, start, d)
+        if same_day and d < start - 2 * H:
+            bad("same_day_too_early", created, start, d)
         # the sweep looks SWEEP_HORIZON_HOURS ahead: no deadline before that
         if d < start - timedelta(hours=rre.SWEEP_HORIZON_HOURS):
             bad("before_sweep_horizon", created, start, d)
-        # a deadline in the night only where D-C needs it: the hour-before
-        # point is in the night and the owner had no hour of daytime by
-        # 21:00 the evening before (→ 2 h before the sitting), or the
-        # request came in under 2 h ahead (→ an hour after asking)
+        # a deadline in the night only where the rules need it: a
+        # breakfast's hour-before point, an hour after asking, the cap, or a
+        # same-day request's 2 h before (R1a's own never falls in the night)
         if not _by_day(d):
             counts["night"] += 1
-            evening = (_at(tell_by - timedelta(days=1), 21) if tell_by.hour < 8
-                       else _at(tell_by, 21))
-            two_before = (not _by_day(tell_by)
-                          and owner_daytime_after(created, 1) > evening
-                          and d == start - 2 * H)
-            if not (two_before or d == created + H):
+            allowed = {tell_by, created + H, cap} | ({start - 2 * H} if same_day else set())
+            if d not in allowed:
                 bad("night_not_needed", created, start, d)
         if d == _at(d, 21) and d.date() < start.date():
             counts["evening_before"] += 1
@@ -199,6 +216,9 @@ def test_the_sweep_keeps_every_promise_across_summer_time():
     # deadlines — some into the night, some to the evening before.
     assert c["pairs"] > 45_000
     assert c["moved"] > 500 and c["night"] > 50 and c["evening_before"] > 50, c
+    # F5 is not vacuous either: same-day requests waited longer, and late
+    # ones were kept before their sitting.
+    assert c["same_day_later"] > 500 and c["capped"] > 50, c
 
 
 def test_the_sweep_catches_the_r1a_deadline():
@@ -216,6 +236,13 @@ def test_the_sweep_catches_a_deadline_without_the_hour_to_answer():
     made 90 minutes ahead would be declined 30 minutes after asking."""
     res = _violations(lambda s, c: min(answer_deadline(s, c), s - H))
     assert "before_an_hour_after_asking" in res["violations"], res["violations"]
+
+
+def test_the_sweep_catches_a_decline_after_the_sitting():
+    """F5's break: an hour after asking whatever the sitting (D-C's floor
+    without F5's cap) — asked 20:40 for 21:30 was declined at 21:45."""
+    res = _violations(lambda s, c: max(answer_deadline(s, c), c + H))
+    assert "after_the_sitting" in res["violations"], res["violations"]
 
 
 def test_the_sweep_catches_a_night_decline_nobody_needed():
@@ -239,10 +266,11 @@ def _request(db, owner, *, asked: datetime, starts: datetime, email=None):
 
 
 @pytest.mark.parametrize("asked,start,deadline", [
-    # the autumn night (25 Oct 2026, 03:00 CEST → 02:00 CET)
-    ((2026, 10, 24, 21, 15), (2026, 10, 25, 7, 30), (2026, 10, 25, 5, 30)),
+    # the autumn night (25 Oct 2026, 03:00 CEST → 02:00 CET) — F5: an hour
+    # before the breakfast (D-C: 05:30)
+    ((2026, 10, 24, 21, 15), (2026, 10, 25, 7, 30), (2026, 10, 25, 6, 30)),
     # the spring night (29 Mar 2026, 02:00 CET → 03:00 CEST)
-    ((2026, 3, 28, 21, 15), (2026, 3, 29, 7, 30), (2026, 3, 29, 5, 30)),
+    ((2026, 3, 28, 21, 15), (2026, 3, 29, 7, 30), (2026, 3, 29, 6, 30)),
     ((2026, 3, 28, 21, 0), (2026, 3, 29, 9, 30), (2026, 3, 29, 8, 30)),
 ])
 def test_the_sweep_declines_a_breakfast_request_in_time_across_dst(db, outbox, asked, start,

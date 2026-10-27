@@ -75,11 +75,11 @@ def _request(db, owner, *, asked: datetime, starts: datetime, party=10, email="s
 @pytest.mark.parametrize("lead_h,deadline_after_asking_min", [
     (72, 72 * 60 - 360),      # days ahead: 6 h before the sitting
     (10, 240),                # 10 h ahead: 6 h before (4 h after asking)
-    (7, 120),                 # 7 h ahead: the 2-hour answer window
+    (7, 300),                 # 7 h ahead, the same day — F5: until 2 h before (was 120)
     (3, 120),                 # 3 h ahead: 2 h to answer, told 1 h before
     (2.5, 90),                # 2.5 h ahead: told 1 h before (90 min to answer)
     (1.5, 60),                # 1.5 h ahead: never less than an hour to answer
-    (0.5, 60),                # 30 min ahead: still an hour
+    (0.5, 15),                # 30 min ahead — F5: never after the sitting, 15 min before (was 60)
 ])
 def test_the_deadline_respects_when_the_request_was_made(lead_h, deadline_after_asking_min):
     asked = datetime(2026, 11, 13, 15, 0)
@@ -119,12 +119,16 @@ def test_a_far_future_request_expires_on_schedule(db, outbox):
     assert reservation(db, r.id).status == "cancelled"
 
 
-def test_a_request_made_very_late_still_gets_an_hour(db, outbox):
+def test_a_request_made_very_late_is_declined_before_its_sitting(db, outbox):
+    """F5 (27 Oct 2026): the sitting comes first. A request made 30 minutes
+    ahead was kept for an hour — and declined half an hour AFTER its sitting
+    started. It now has until 15 minutes before it (the owner's 15 minutes;
+    one leaving less is not taken online at all: request_too_late)."""
     u, _p, _ = restaurant(db)
     asked = _now_cph()
     r = _request(db, u, asked=asked, starts=asked + timedelta(minutes=30))
-    assert expire_stale_requests(db, now_local=asked + timedelta(minutes=50))["requests_expired"] == 0
-    assert expire_stale_requests(db, now_local=asked + timedelta(minutes=65))["requests_expired"] == 1
+    assert expire_stale_requests(db, now_local=asked + timedelta(minutes=10))["requests_expired"] == 0
+    assert expire_stale_requests(db, now_local=asked + timedelta(minutes=15))["requests_expired"] == 1
     assert reservation(db, r.id).status == "cancelled"
 
 

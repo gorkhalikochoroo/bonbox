@@ -111,9 +111,10 @@ def test_a_drip_at_two_venues_no_longer_silences_a_third(client, db, outbox, clo
              email="mette@example.dk", form_ms=52000)
     # R2: the answer also carries the booking's length (duration_min) for the
     # receipt's calendar file.
+    # answer_by (F5): a confirmed booking has no "svar senest" — None.
     assert r.json() | {"id": None, "booking_token": None, "duration_min": None} == {
         "id": None, "booking_token": None, "duration_min": None, "status": "confirmed",
-        "guest_mail": True}
+        "guest_mail": True, "answer_by": None}
     assert [x.status for x in logs(db, u3, channel="email", event_type="guest_confirmation")] == ["sent"]
     assert [m["to"] for m in outbox if m["to"] == "mette@example.dk"] == ["mette@example.dk"]
 

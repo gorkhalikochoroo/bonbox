@@ -302,6 +302,22 @@ def _cap_closes_page(db: Session, owner: User) -> bool:
 
 
 
+def _answer_by(r) -> str | None:
+    """F5: when a REQUEST gets its answer at the latest ("svar senest …") —
+    the quarter hour the expiry sweep declines it at if nobody answers
+    (jobs/reservation_request_expiry.answer_by, on the row's own creation
+    time, exactly as the sweep reads it). None for anything but a request."""
+    if getattr(r, "status", None) != "requested" or r.starts_at is None:
+        return None
+    try:
+        from app.jobs import reservation_request_expiry as rre
+        created = rre._created_local(r) or _now_local()
+        return rre.answer_by(r.starts_at, created).isoformat(timespec="minutes")
+    except Exception:  # noqa: BLE001 — no time is better than a wrong one
+        logger.warning("answer_by failed for %s", getattr(r, "id", None), exc_info=True)
+        return None
+
+
 def _receipt_token(r) -> str:
     """The booking-poll token the receipt page keeps. Same lifetime as the
     email link — until the booking plus 48 h (min 24 h): a phone-only guest
@@ -434,6 +450,16 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         **({"canonical_slug": profile.reservation_slug}
            if profile.reservation_slug and profile.reservation_slug != slug else {}),
     }
+
+
+def _replay(prior) -> dict:
+    """The answer for a create the same guest already made (the same
+    X-Idempotency-Key at this venue): the booking that exists, never a second
+    one and never an error — a double tap shows the receipt."""
+    return {"id": str(prior.id), "status": prior.status,
+            "booking_token": _receipt_token(prior),
+            "duration_min": prior.duration_min,
+            "answer_by": _answer_by(prior)}
 
 
 _HEX_COLOUR = re.compile(r"#[0-9A-Fa-f]{6}")
@@ -1245,7 +1271,9 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
             "guest_mail": guest_mail,
             # The appointment's real length, for the receipt's calendar file
             # (R2, rubric V5: it said 120 min for every booking).
-            "duration_min": r.duration_min}
+            "duration_min": r.duration_min,
+            # F5: a held appointment's "svar senest …" (None when confirmed).
+            "answer_by": _answer_by(r)}
 
 
 @router.post("/{slug}")
@@ -1273,9 +1301,7 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
             .first()
         )
         if prior:
-            return {"id": str(prior.id), "status": prior.status,
-                    "booking_token": _receipt_token(prior),
-                    "duration_min": prior.duration_min}
+            return _replay(prior)
 
     # Parse requested datetime (naive local).
     try:
@@ -1390,6 +1416,17 @@ def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: U
         return {"id": str(uuid4()), "status": "requested", "booking_token": "",
                 "guest_mail": False}
     hold_reason = screen.reason if screen.action == "hold" else None
+
+    # F5 (27 Oct 2026): a request the owner would have less than 15 minutes
+    # to answer before it is declined — the sitting comes first — is not
+    # taken online: the page asks the guest to call (request_too_late; the
+    # guest's details stay in the form). A held booking is stored as a
+    # request too. A start already past is the request check's own 409.
+    if is_request or hold_reason:
+        from app.jobs import reservation_request_expiry as rre
+        now_local = _now_local()
+        if start > now_local and rre.request_too_late(start, now_local):
+            raise HTTPException(status_code=409, detail={"error": "request_too_late"})
 
     # What the guest typed — name, notes, allergy note, occasion — is stored
     # EXACTLY as typed, as on live: the kitchen and the AI allergy reading
@@ -1530,7 +1567,10 @@ def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: U
             # The sitting's real length (the engine's turn time for this
             # party), for the receipt's calendar file (R2, rubric V5: the
             # .ics said 120 min while the engine held 90, 105 or 120).
-            "duration_min": r.duration_min}
+            "duration_min": r.duration_min,
+            # F5: a request's "svar senest …" — the time it is declined at
+            # if nobody answers (None for a confirmed booking).
+            "answer_by": _answer_by(r)}
 
 
 def _guest_mail_plan(db: Session, owner: User, r: Reservation,
@@ -1642,6 +1682,8 @@ def poll(request: Request, reservation_id: UUID = Path(...),
         "allergy_severity": r.allergy_severity,
         "guest_lang": r.guest_lang,
         "outcome": booking_outcome(r),
+        # F5: a request's "svar senest …" (None for anything but a request).
+        "answer_by": _answer_by(r),
     }
 
 

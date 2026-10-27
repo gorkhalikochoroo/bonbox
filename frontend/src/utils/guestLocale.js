@@ -50,3 +50,18 @@ export function fmtDayLabel(isoStr, lang) {
     return isoStr;
   }
 }
+
+// F5: "i dag kl. 18.00" / "i morgen kl. 06.30" / "fredag 14. november kl.
+// 13.00" — when a request's answer comes at the latest (`answer_by`, naive
+// venue time "YYYY-MM-DDTHH:MM"). `today` is the page's own venue day.
+export function answerByWords(iso, today, lang, t) {
+  const [d, tm] = String(iso || "").split("T");
+  if (!d || !tm) return "";
+  const time = lang === "da" ? tm.slice(0, 5).replace(":", ".") : tm.slice(0, 5);
+  const next = new Date(`${today}T12:00:00`);
+  next.setDate(next.getDate() + 1);
+  const tomorrow = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+  if (d === today) return t("rsvpWhenToday", "today at {time}", { time });
+  if (d === tomorrow) return t("rsvpWhenTomorrow", "tomorrow at {time}", { time });
+  return t("rsvpWhenDay", "{day} at {time}", { day: fmtDayLabel(d, lang), time });
+}

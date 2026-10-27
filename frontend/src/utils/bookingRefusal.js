@@ -78,6 +78,9 @@ export const GUEST_REFUSALS = {
   stylist_unavailable: { back: true, refetch: true, refreshSummary: false, newIntent: true, call: false },
   date_closed: { back: true, refetch: true, refreshSummary: true, newIntent: true, call: false },
   requests_full: { back: false, refetch: false, refreshSummary: false, newIntent: true, call: true },
+  // F5 (27 Oct 2026): a request the venue would have under 15 minutes to
+  // answer before the sitting — not taken online; the guest calls.
+  request_too_late: { back: false, refetch: false, refreshSummary: false, newIntent: true, call: true },
   too_many_tries: { back: false, refetch: false, refreshSummary: false, newIntent: false, call: false },
 };
 

@@ -65,7 +65,7 @@ import { venueMonogram } from "../utils/venueMonogram";
 import { contactState } from "../utils/guestContact";
 import { rescueDay, seedStep1 } from "../utils/bookingDay";
 import { GUEST_REFUSALS, guestRefusalOf } from "../utils/bookingRefusal";
-import { capFirst, dateLocale, fmtDayLabel, fmtDayShort } from "../utils/guestLocale";
+import { answerByWords, capFirst, dateLocale, fmtDayLabel, fmtDayShort } from "../utils/guestLocale";
 import { accentStyle, accentTokens } from "../utils/accentColor";
 import { isFramed } from "../utils/framed";
 import { canonicalPath } from "../utils/bookingLink";
@@ -1483,6 +1483,8 @@ export default function ReservationPublicPage() {
           allergySeverity: b.allergy_severity || "",
           // The booking's own length, for the calendar file (R2).
           durationMin: b.duration_min || null,
+          // F5: a request's "svar senest …" — the server's own deadline.
+          answerBy: b.answer_by || null,
         });
       })
       .catch(() => {
@@ -2593,15 +2595,24 @@ export default function ReservationPublicPage() {
       // ONE sentence on what happens next, naming the channel the guest gave.
       // The screen used to say it four times: this line, "save this page",
       // a spinning pill, and a paragraph under it.
+      // F5: the server says when the answer comes at the latest (the time
+      // an unanswered request is declined) — so the promise names it and is
+      // always kept. An older server sends none: the old words.
+      const answerBy = linked ? linked.answerBy : result?.answer_by;
+      const by = answerBy ? answerByWords(answerBy, today, lang, t) : "";
       body = noMailComing
         ? t("rsvpRequestNextNoMail", "The venue will answer as soon as they can. Keep this page — the answer shows here.")
-        : rDay === today
-          ? t("rsvpRequestNextToday", "We'll get back to you shortly.")
-          : sentEmail
-            ? t("rsvpRequestNextEmail", "We'll reply to {email} before the day.", { email: sentEmail })
-            : sentPhone
-              ? t("rsvpRequestNextPhone", "We'll call you on {phone} to confirm.", { phone: sentPhone })
-              : t("rsvpRequestNextLater", "We'll get back to you before the day.");
+        : by && sentEmail
+          ? t("rsvpRequestNextByEmail", "We'll reply to {email} by {when} at the latest.", { email: sentEmail, when: by })
+          : by && !sentPhone
+            ? t("rsvpRequestNextBy", "You'll have our answer by {when} at the latest.", { when: by })
+            : rDay === today
+              ? t("rsvpRequestNextToday", "We'll get back to you shortly.")
+              : sentEmail
+                ? t("rsvpRequestNextEmail", "We'll reply to {email} before the day.", { email: sentEmail })
+                : sentPhone
+                  ? t("rsvpRequestNextPhone", "We'll call you on {phone} to confirm.", { phone: sentPhone })
+                  : t("rsvpRequestNextLater", "We'll get back to you before the day.");
     } else if (withdrawn) {
       HeroIcon = XCircle;
       heroWrap = "bg-gray-100 dark:bg-gray-800";
@@ -4611,6 +4622,8 @@ function submitErrorMessage(code, t) {
       return t("rsvpErrDateClosed", "We're not taking online bookings that day. Please pick another day.");
     case "requests_full":
       return t("rsvpErrRequestsFull", "We can't take more requests online today. Call us and we'll sort it out.");
+    case "request_too_late":
+      return t("rsvpErrRequestTooLate", "It's too close to that time to send a request online. Call us and we'll sort it out.");
     case "too_many_tries":
       return t("rsvpErrTooManyTries", "Too many tries in a short time. Wait a minute and try again. Your details are kept.");
     case "invalid_email":

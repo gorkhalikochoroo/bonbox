@@ -69,6 +69,27 @@ unanswered request is NEVER declined later than an hour before its sitting:
 It only ever pulls a deadline EARLIER than the R1a build did, never later.
 The sweep runs every 15 minutes on the quarter hour (main.py), so a deadline
 on a quarter hour is kept to the minute.
+
+WHAT A REAL OWNER WOULD CALL RIGHT (F5, Manoj, 27 Oct 2026 — the month and
+night simulations' cases). On top of the above:
+
+  • never declined after the sitting has started: at the latest
+    LATEST_DECLINE_BEFORE_START_MIN (15) before it, on the quarter hour the
+    sweep runs at (asked 20:40 for 21:30 → 21:15, it was 21:45);
+  • a request that would leave the owner less than MIN_OWNER_ANSWER_MIN
+    (15) to answer is not taken online — the guest page says "ring til os"
+    (request_too_late; routers/public_reservations);
+  • asked the SAME DAY → it waits until SAME_DAY_WAIT_BEFORE_START_HOURS (2)
+    before the sitting: asked 12:51 for 20:00 → 18:00, not 15:00 (the
+    owner's 16:30 look still finds it);
+  • a breakfast whose hour-before point falls in the night is declined AT
+    that point — the café owner is in by then: asked 21:30 for 08:00 →
+    07:00 (D-C: 06:00); asked 19:30 for 07:30 → 06:30, never the evening
+    before (D-C: 21:00). D-C's "21:00 the evening before / 08:00 or two
+    hours before" pull is gone; R1a's own evening before (a breakfast asked
+    days ahead) is unchanged.
+answer_by() is what the guest is told ("senest …"): the deadline on the
+quarter hour the sweep declines it at — never a promise it cannot keep.
 """
 
 from __future__ import annotations
@@ -117,12 +138,20 @@ OWNER_DAY_FROM_HOUR = 8
 OWNER_DAY_TO_HOUR = 22
 DECLINE_UNTIL_HOUR = 21
 
-# D-C (27 Oct 2026). When the hour-before point falls in the night, the
-# evening before counts only if the owner had this much daytime by then …
-EVENING_BEFORE_DAYTIME_HOURS = 1
-# … otherwise the guest hears at 08:00, or this long before the sitting if
-# that is earlier (D2).
-NIGHT_TELL_BEFORE_START_HOURS = 2
+# D-C's night rule (21:00 the evening before if the owner had an hour of
+# daytime by then, else 08:00 or two hours before the sitting) was replaced
+# by F5: the hour-before point, night or day (in_time_for_the_guest).
+
+# F5 (27 Oct 2026). Never declined after the sitting starts: at the latest
+# this long before it, on the sweep's quarter hour …
+LATEST_DECLINE_BEFORE_START_MIN = 15
+# … and a request that would leave the owner less than this to answer is not
+# taken online ("ring til os").
+MIN_OWNER_ANSWER_MIN = 15
+# A request made the same day waits until this long before the sitting.
+SAME_DAY_WAIT_BEFORE_START_HOURS = 2
+# The sweep's cadence (main.py: CronTrigger minute="0,15,30,45").
+SWEEP_EVERY_MIN = 15
 
 # How far ahead of a sitting the sweep looks. No deadline is earlier than
 # this before its sitting: the earliest is 21:00 the evening before a
@@ -203,37 +232,40 @@ def daytime_deadline(starts_at: datetime, created_local: datetime | None) -> dat
 def in_time_for_the_guest(deadline: datetime, starts_at: datetime,
                           created_local: datetime | None) -> datetime:
     """D-C, option 1 (27 Oct 2026): never later than an hour before the
-    sitting. A deadline already that early is kept. Otherwise:
-
-      • the hour-before point falls by day (08:00–21:00) → that point;
-      • it falls in the night → 21:00 the evening before, if the owner had
-        EVENING_BEFORE_DAYTIME_HOURS of daytime by then; else 08:00 or
-        NIGHT_TELL_BEFORE_START_HOURS before the sitting, whichever is
-        earlier;
-      • and never sooner than MIN_ANSWER_HOURS after asking — so only a
-        request made under two hours ahead is still answered later.
+    sitting. A deadline already that early is kept. Otherwise the hour-before
+    point — by day, and (F5) in the night too: a breakfast's request is
+    declined an hour before it, when the café owner is in (asked 21:30 for
+    08:00 → 07:00; asked 19:30 for 07:30 → 06:30), never the evening before
+    and never earlier ("08:00 or two hours before", D-C's night rule, gave
+    06:00 and 21:00 there) — and never sooner than MIN_ANSWER_HOURS after
+    asking, so only a request made under two hours ahead is still answered
+    later (F5's cap then keeps it before the sitting: answer_deadline).
 
     Only ever moves a deadline earlier. A row with no creation time keeps
     its deadline (it is never later than the hour before anyway)."""
     tell_by = starts_at - timedelta(hours=TELL_BEFORE_START_HOURS)
     if deadline <= tell_by or created_local is None:
         return deadline
-    if _by_day(tell_by):
-        target = tell_by
-    else:
-        if tell_by.hour < OWNER_DAY_FROM_HOUR:
-            evening = _at(tell_by - timedelta(days=1), DECLINE_UNTIL_HOUR)
-            morning = _at(tell_by, OWNER_DAY_FROM_HOUR)
-        else:  # after 21:00: the night that starts this evening
-            evening = _at(tell_by, DECLINE_UNTIL_HOUR)
-            morning = _at(tell_by + timedelta(days=1), OWNER_DAY_FROM_HOUR)
-        if owner_daytime_after(created_local, EVENING_BEFORE_DAYTIME_HOURS) <= evening:
-            target = evening
-        else:
-            target = min(morning,
-                         starts_at - timedelta(hours=NIGHT_TELL_BEFORE_START_HOURS))
     return min(deadline,
-               max(target, created_local + timedelta(hours=MIN_ANSWER_HOURS)))
+               max(tell_by, created_local + timedelta(hours=MIN_ANSWER_HOURS)))
+
+
+def _quarter_floor(t: datetime) -> datetime:
+    """The sweep's quarter hour at or before `t`."""
+    t = t.replace(second=0, microsecond=0)
+    return t - timedelta(minutes=t.minute % SWEEP_EVERY_MIN)
+
+
+def _quarter_ceil(t: datetime) -> datetime:
+    """The sweep's quarter hour at or after `t` — when it really runs."""
+    f = _quarter_floor(t)
+    return f if f == t else f + timedelta(minutes=SWEEP_EVERY_MIN)
+
+
+def latest_decline(starts_at: datetime) -> datetime:
+    """F5: never after the sitting starts — the last quarter hour at least
+    LATEST_DECLINE_BEFORE_START_MIN before it (21:30 → 21:15; 21:20 → 21:00)."""
+    return _quarter_floor(starts_at - timedelta(minutes=LATEST_DECLINE_BEFORE_START_MIN))
 
 
 def answer_deadline(starts_at: datetime, created_local: datetime | None) -> datetime:
@@ -245,10 +277,34 @@ def answer_deadline(starts_at: datetime, created_local: datetime | None) -> date
     sitting (D-C: in_time_for_the_guest). An evening request for tomorrow's
     09:30 is declined at 08:30 — the owner had 21:00–22:00 and 08:00–08:30 —
     never at 09:00 or after the breakfast; one for 07:30, asked at 21:15, at
-    05:30 (live: about 03:30).
+    06:30 (F5; D-C: 05:30, live: about 03:30).
+
+    F5 (27 Oct 2026): a request made the same day waits until two hours
+    before the sitting (asked 12:51 for 20:00 → 18:00), and none is ever
+    declined later than latest_decline() — the sitting comes first (asked
+    20:40 for 21:30 → 21:15, it was 21:45).
     """
-    return in_time_for_the_guest(daytime_deadline(starts_at, created_local),
-                                 starts_at, created_local)
+    deadline = in_time_for_the_guest(daytime_deadline(starts_at, created_local),
+                                     starts_at, created_local)
+    if created_local is not None and created_local.date() == starts_at.date():
+        deadline = max(deadline,
+                       starts_at - timedelta(hours=SAME_DAY_WAIT_BEFORE_START_HOURS))
+    return min(deadline, latest_decline(starts_at))
+
+
+def answer_by(starts_at: datetime, created_local: datetime | None) -> datetime:
+    """What the guest is promised ("svar senest …"): the quarter hour the
+    sweep declines an unanswered request at — answer_deadline, rounded up to
+    the run that acts on it, so the promise is never broken by the cadence."""
+    return _quarter_ceil(answer_deadline(starts_at, created_local))
+
+
+def request_too_late(starts_at: datetime, created_local: datetime) -> bool:
+    """F5: would this request leave the owner less than MIN_OWNER_ANSWER_MIN
+    to answer before it is declined? Then it is not taken online — the guest
+    is asked to call (a sitting already started is the caller's own 409)."""
+    return answer_deadline(starts_at, created_local) - created_local \
+        < timedelta(minutes=MIN_OWNER_ANSWER_MIN)
 
 
 def _created_local(r) -> datetime | None:
