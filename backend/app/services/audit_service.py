@@ -6,18 +6,28 @@ business_profile.logo_upload, payment_suggestion.accept, etc.) to leave
 an immutable trail for Bogføringsloven §9 compliance + dispute defense.
 
 Design notes:
-  • Defensive — wrapped in try/except so an audit-log write failure can
-    NEVER block a legitimate business mutation. We log the error and
-    move on. The alternative (block the mutation if audit fails) would
-    let a DB hiccup take down user actions, which is worse.
+  • Defensive — wrapped in try/except so an audit-log write failure is
+    logged here and never raised from here. It does NOT let the mutation
+    through without its row: see ATOMIC below (the failed flush has rolled
+    the transaction back, so the caller's commit fails — as it always
+    effectively did before 27 Oct).
   • …but never the CALLER's error (fix round 27 Oct, backend F1). The
     caller's own pending change is flushed first, OUTSIDE the guard: its
     unique or exclusion conflict (two venues taking one link, two screens
     seating two parties on one table) reaches the caller's IntegrityError
     handler and becomes a 409. It used to be flushed inside the guard,
     swallowed, and the caller's commit then failed with PendingRollbackError
-    — a 500. The audit row itself goes in a SAVEPOINT: if IT fails, only the
-    savepoint is rolled back and the caller's change still commits.
+    — a 500.
+  • ATOMIC with the caller's change (fix round 4, 27 Oct, review2 #4). An
+    audit row that cannot be written is logged here, and the failed flush
+    leaves the caller's transaction rolled back: its commit raises and
+    NEITHER the change nor its row is kept. Many rows are state, not just a
+    log — the waitlist's HELD and left marks, daily_close.lock (the
+    Bogføringsloven trail), spam and its undo, the usage counters billing
+    reads — and a change must never commit without its row.
+    `best_effort=True` (opt-in, plain logging that carries no state only)
+    puts the row in a SAVEPOINT instead: if it fails, only the savepoint is
+    rolled back and the change still commits. No caller opts in today.
   • Size discipline — `before` and `after` should include identity
     fields (id, user_id, status) plus only the fields that changed.
     Don't dump 50-field model blobs into the JSON snapshots.
@@ -81,13 +91,16 @@ def record(
     ip_address: str | None = None,
     actor_id: UUID | None = None,
     actor_type: str = "user",
+    best_effort: bool = False,
 ) -> None:
-    """Insert one audit row. Best-effort: failures are logged, not raised.
+    """Insert one audit row, atomic with the caller's change (see above).
 
     Args:
       db: active SQLAlchemy session — the caller is responsible for the
           commit. We add+flush so the row is visible in the same
           transaction (atomic with the parent mutation), but don't commit.
+          A row that cannot be written is logged, and the session is left
+          rolled back: the caller's commit fails, nothing is kept.
       user: the User or user_id this audit row belongs to (tenant key).
       action: namespaced verb like 'invoice.mark_paid'. Required.
       entity_type: 'invoice', 'business_profile', 'payment_suggestion', ...
@@ -98,6 +111,8 @@ def record(
       actor_id: if mutation was performed by a different user than the
           tenant owner (future admin support). Defaults to user.id.
       actor_type: 'user' | 'system.retention' | 'system.payment_match' | 'admin'.
+      best_effort: opt-in, for plain logging that carries no state: the row
+          goes in a SAVEPOINT, and if it fails the change still commits.
     """
     # The caller's own change first, outside the guard: its error is the
     # caller's to answer (a 409), never swallowed here.
@@ -118,13 +133,19 @@ def record(
             before_state=_serialize(before),
             after_state=_serialize(after),
         )
-        with _savepoint(db):
+        if best_effort:
+            with _savepoint(db):
+                db.add(log)
+        else:
             db.add(log)
+            db.flush()
     except Exception as e:
-        # Never let audit-log failure block a real mutation. Log loudly.
+        # Logged loudly. Atomic (the default): the failed flush has rolled
+        # the caller's transaction back, so its commit fails and the change
+        # goes with the row. best_effort: only the savepoint went.
         logger.exception(
-            "audit.record FAILED action=%s entity=%s:%s user=%s err=%s",
-            action, entity_type, entity_id, user, e,
+            "audit.record FAILED action=%s entity=%s:%s user=%s best_effort=%s err=%s",
+            action, entity_type, entity_id, user, best_effort, e,
         )
 
 

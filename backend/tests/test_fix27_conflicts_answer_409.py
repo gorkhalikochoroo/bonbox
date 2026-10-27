@@ -6,8 +6,10 @@ there, the session was left rolled back, and the route's db.commit() then
 raised PendingRollbackError — a 500 where the route meant a 409 (and the page
 only says "Tryk Bekræft igen" on a 409). The data stayed correct; the answer
 did not. Now the caller's change is flushed OUTSIDE the guard (and the three
-routes flush it inside their own IntegrityError handler), and the audit row
-goes in a SAVEPOINT, so a failing audit row never takes the change with it.
+routes flush it inside their own IntegrityError handler). The audit row stays
+ATOMIC with the change (fix round 4, review2 #4): a row that cannot be written
+takes the change with it; only `best_effort=True` (plain logging) puts it in a
+SAVEPOINT that never takes the change with it.
 
 SQLite has neither the slug's unique index nor the occupancy exclusion
 constraint the way production does, so these tests give the in-memory
@@ -213,15 +215,33 @@ def test_fix_i_record_never_swallows_the_callers_own_conflict(db, engine_and_ses
     assert db.query(AuditLog).filter(AuditLog.user_id == uid).count() == 0
 
 
-def test_fix_i_a_failing_audit_row_never_takes_the_change_with_it(db):
+def test_fix_i_a_best_effort_audit_row_never_takes_the_change_with_it(db):
+    """The opt-in (fix round 4): plain logging that carries no state may go
+    in a SAVEPOINT — if it fails, the change still commits."""
     u, p, _ = restaurant(db, tables=0)
     uid, pid = u.id, p.id
     p.company_name = "Nyt Navn"
     # An audit row that cannot be written on its own (action is NOT NULL).
-    audit_service.record(db, uid, None, "business_profile", pid)
+    audit_service.record(db, uid, None, "business_profile", pid, best_effort=True)
     audit_service.record(db, uid, "business_profile.renamed", "business_profile", pid)
     db.commit()
     db.expire_all()
     assert db.get(BusinessProfile, pid).company_name == "Nyt Navn"
     assert [a.action for a in db.query(AuditLog).filter(AuditLog.user_id == uid).all()] == [
         "business_profile.renamed"]
+
+
+def test_fix_i_by_default_a_failing_audit_row_takes_the_change_with_it(db):
+    """Atomic by default (fix round 4, review2 #4): a change never commits
+    without its row — the row may BE the state (a held mark, a lock)."""
+    import pytest
+    u, p, _ = restaurant(db, tables=0)
+    uid, pid, before = u.id, p.id, p.company_name
+    p.company_name = "Nyt Navn"
+    audit_service.record(db, uid, None, "business_profile", pid)     # cannot be written
+    with pytest.raises(Exception):
+        db.commit()
+    db.rollback()
+    db.expire_all()
+    assert db.get(BusinessProfile, pid).company_name == before
+    assert db.query(AuditLog).filter(AuditLog.user_id == uid).count() == 0
