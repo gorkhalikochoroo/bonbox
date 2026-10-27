@@ -42,6 +42,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 from app.services.bonbox_pdf_kit import money_dk
+from app.services.logo_service import readable_ink, readable_on
 
 logger = logging.getLogger("bonbox.gavekort_pdf")
 
@@ -264,9 +265,23 @@ def build_gavekort_pdf(
     # ONE accent per card. Foil is always gold; minimal honours the owner accent.
     b = _read_profile(profile)
     if tpl_key == "foil":
-        accent = colors.HexColor(T["default_accent"])
+        accent_hex = T["default_accent"]
     else:
-        accent = colors.HexColor(b["accent_color"] or T["default_accent"])
+        accent_hex = b["accent_color"] or T["default_accent"]
+    accent = colors.HexColor(accent_hex)
+    # Booking R5: the owner's palette gained a LIGHT colour (gold). Words are
+    # never written in a colour they cannot be read in: on the minimal card the
+    # monogram's letters take the paper or the ink, whichever reads on the
+    # accent, and the GAVEKORT eyebrow is the accent deepened just enough to
+    # read on the paper (AA). The bar, the hairline and the square keep the
+    # owner's exact colour. The foil card is unchanged (its gold on near-black
+    # already reads).
+    if tpl_key == "foil":
+        accent_text = accent
+        mono_text = paper
+    else:
+        accent_text = colors.HexColor(readable_ink(accent_hex, T["paper"]))
+        mono_text = colors.HexColor(readable_on(accent_hex, light=T["paper"], dark=T["ink"]))
 
     # ── Card geometry (credit-card 1.586 : 1), centred, upper-middle ─────
     page_w, page_h = A4
@@ -351,7 +366,7 @@ def build_gavekort_pdf(
         if T["monogram_fill"]:
             c.setFillColor(accent)
             c.roundRect(content_left, mono_y, ms, ms, 7, stroke=0, fill=1)
-            c.setFillColor(paper)
+            c.setFillColor(mono_text)
         else:
             c.setStrokeColor(accent)
             c.setLineWidth(1.2)
@@ -382,7 +397,7 @@ def build_gavekort_pdf(
 
     # Right eyebrow — "GAVEKORT", letter-spaced, in the accent.
     _draw_tracked(
-        c, 0, top_y - 9, "GAVEKORT", "Helvetica-Bold", 8.5, 2.0, accent,
+        c, 0, top_y - 9, "GAVEKORT", "Helvetica-Bold", 8.5, 2.0, accent_text,
         right_edge=content_right,
     )
 

@@ -359,6 +359,13 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         # error (the page falls back to the typographic monogram). Not PII.
         "logo_url": (logo_signed_url(profile.logo_url)
                      if getattr(profile, "logo_url", None) else None),
+        # The owner's accent colour (Profile → Logo & accent, or Reservationer
+        # → Indstillinger → "Farve", booking R5): the picked chips and the
+        # main button wear it. A #RRGGBB or None (= BonBox's own look). The
+        # page picks the text colour by contrast (utils/accentColor.js), so a
+        # light colour such as gold gets dark text. Never from the URL: the
+        # owner chooses it in settings, a link cannot repaint the page.
+        "accent_color": _public_accent(profile),
         "business_type": btype,
         # Provider stations (salon stylists) for the public "book with <behandler>"
         # picker. PII-safe: only public label + resource id. [] for table venues.
@@ -396,6 +403,22 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         # paused day — the page says "opens again <the day after>".
         **_safe_closures(settings),
     }
+
+
+_HEX_COLOUR = re.compile(r"#[0-9A-Fa-f]{6}")
+
+
+def _public_accent(profile) -> str | None:
+    """The stored accent as a canonical #RRGGBB, or None. Fail-closed: a value
+    that is not a plain six-digit colour (a legacy row, a palette NAME stored by
+    an older client) is no colour at all — the page keeps BonBox's look."""
+    raw = getattr(profile, "accent_color", None) if profile is not None else None
+    if not isinstance(raw, str):
+        return None
+    value = raw.strip()
+    if not _HEX_COLOUR.fullmatch(value):
+        return None
+    return value.upper()
 
 
 def _safe_closures(settings: dict) -> dict:

@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
+import re
 from typing import Tuple
 from uuid import UUID
 
@@ -280,6 +281,15 @@ def delete_logo(storage_key: str) -> bool:
 # Picked to work in both light and dark contexts. Each maps to its
 # semantic role: green=success/growth, blue=trust, slate=professional,
 # terracotta=warm/hospitality, charcoal=austere, burgundy=premium.
+#
+# Booking R5 (27 Oct 2026): the same colour now paints the public booking
+# page (the picked chips and the main button), so a restaurant's page can
+# carry its own colour. "gold" was added for the many Copenhagen restaurants
+# whose sites are gold/brass (nepalibhancha.dk is #D9A868). It is a LIGHT
+# colour: white text on it is ~2.3:1, so every surface that writes on the
+# accent picks its text by contrast instead of assuming white —
+# utils/accentColor.js on the web, readable_on() below for the gavekort PDF.
+# The invoice PDF only draws a thin bar in it (no text).
 
 ACCENT_COLOR_PALETTE: dict[str, str] = {
     "emerald":   "#10B981",
@@ -288,7 +298,64 @@ ACCENT_COLOR_PALETTE: dict[str, str] = {
     "terracotta":"#C2410C",
     "charcoal":  "#1F2937",
     "burgundy":  "#9F1239",
+    "gold":      "#C9A45C",
 }
+
+
+def _hex_rgb(value: str) -> tuple[int, int, int] | None:
+    v = (value or "").strip()
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", v):
+        return None
+    return int(v[1:3], 16), int(v[3:5], 16), int(v[5:7], 16)
+
+
+def _luminance(rgb: tuple[int, int, int]) -> float:
+    def lin(c: int) -> float:
+        s = c / 255
+        return s / 12.92 if s <= 0.04045 else ((s + 0.055) / 1.055) ** 2.4
+    r, g, b = rgb
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+
+
+def contrast_ratio(a: str, b: str) -> float:
+    """WCAG contrast ratio of two #RRGGBB colours (1.0 when either is not a
+    colour, so a caller never mistakes garbage for a pass)."""
+    ra, rb = _hex_rgb(a), _hex_rgb(b)
+    if ra is None or rb is None:
+        return 1.0
+    la, lb = _luminance(ra), _luminance(rb)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _mix(a: str, b: str, t: float) -> str:
+    ra, rb = _hex_rgb(a), _hex_rgb(b)
+    if ra is None or rb is None:
+        return a
+    return "#" + "".join(f"{round(x + (y - x) * t):02X}" for x, y in zip(ra, rb))
+
+
+def readable_on(background: str, light: str = "#FFFFFF", dark: str = "#14120F") -> str:
+    """The text colour to write ON `background`: `light` when it reads (AA,
+    4.5:1), else whichever of the two reads better. A light accent (gold,
+    emerald) gets dark text instead of an unreadable white one."""
+    if contrast_ratio(light, background) >= 4.5:
+        return light
+    return light if contrast_ratio(light, background) >= contrast_ratio(dark, background) else dark
+
+
+def readable_ink(accent: str, ground: str, minimum: float = 4.5) -> str:
+    """The accent as TEXT on `ground`: unchanged when it already reads (AA),
+    else darkened in small steps until it does — a gold eyebrow stays gold,
+    only deep enough to read on paper. Never raises; garbage comes back as is."""
+    if _hex_rgb(accent) is None or _hex_rgb(ground) is None:
+        return accent
+    step = 0.0
+    out = accent
+    while contrast_ratio(out, ground) < minimum and step < 1.0:
+        step = round(step + 0.04, 2)
+        out = _mix(accent, "#000000", step)
+    return out
 
 
 def validate_accent_color(value: str | None) -> str | None:

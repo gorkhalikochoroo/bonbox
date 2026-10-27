@@ -1100,7 +1100,11 @@ def update_brand(
         "logo_position": profile.logo_position,
     }
 
-    if data.accent_color is not None:
+    # An explicit null (or "") clears the colour — "Standard" in Profile and in
+    # Reservationer → Indstillinger (booking R5). It used to be read as "not
+    # sent", so the Default swatch saved nothing and a colour, once picked,
+    # could never be taken off again. A field left out stays as it is.
+    if "accent_color" in data.model_fields_set:
         try:
             profile.accent_color = validate_accent_color(data.accent_color)
         except ValueError as e:
