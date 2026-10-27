@@ -406,7 +406,8 @@ describe("the time area names the reason and offers the next step", () => {
     await settle();
     await screen.findByText("Vi kan ikke finde et bord til 7 online.");
     expect(screen.getByText(da.rsvpNoFitCallHint)).toBeTruthy();
-    const tel = screen.getByRole("link", { name: /Ring til os: \+45 12 34 56 78/ });
+    // The number keeps together on screen (no-break spaces, fix round 5).
+    const tel = screen.getByRole("link", { name: /Ring til os: \+45\u00a012\u00a034\u00a056\u00a078/ });
     expect(tel.className).toContain("h-10");
     expect(tel.className).toContain("min-h-0!");
     expect(tel.className).toContain("text-[13px]");

@@ -329,3 +329,38 @@ describe("G11: 44 px to the finger, and no time alone on its row", () => {
     }
   });
 });
+
+// ── Fix round 5 (gate): a phone number never breaks across lines ─────────
+// The booking receipt's "Ring til os" number wrapped mid-number at 402 pt
+// ("+45 70 70 70 / 01"). On screen its spaces are no-break spaces — the
+// tel: link and what is sent keep the number exactly as it was given.
+describe("the venue's number on screen keeps together", () => {
+  const NB = "+45\u00a012\u00a034\u00a056\u00a078";
+
+  it("the receipt's Ring til os: no-break spaces, the tel: link unchanged", async () => {
+    routes();
+    h.post.mockResolvedValue({ data: { id: "b1", status: "confirmed", booking_token: "tok" } });
+    renderAt();
+    await settle();
+    await toDetails();
+    await submit();
+    const links = [...document.querySelectorAll('a[href^="tel:"]')];
+    const receipt = links.find((a) => a.closest("dd"));
+    expect(receipt).toBeTruthy();
+    expect(receipt.textContent).toBe(NB);
+    expect(receipt.getAttribute("href")).toBe("tel:%2B4512345678");
+    for (const a of links) expect(a.textContent).not.toContain("+45 12");
+  });
+
+  it("a refusal's Ring til os sentence too", async () => {
+    routes();
+    reject(409, "requests_full");
+    renderAt();
+    await settle();
+    await toDetails();
+    await submit();
+    const call = screen.getByTestId("rsvp-refusal-call");
+    expect(call.textContent).toContain(NB);
+    expect(call.textContent).not.toContain("+45 12");
+  });
+});

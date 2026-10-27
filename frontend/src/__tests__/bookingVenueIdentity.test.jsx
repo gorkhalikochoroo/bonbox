@@ -293,7 +293,8 @@ describe("desktop: the venue on the left, the booking on the right", () => {
     expect(within(col).getByRole("heading", { level: 2 }).textContent).toBe("Åbningstider");
     expect(rowsOf(col).map((r) => r.dd)).toEqual(["17:00–22:00", "17:00–23:00", "Lukket"]);
     expect(col.querySelector("button[aria-controls]")).toBeNull();
-    expect(within(col).getByRole("link", { name: /12 34 56 78/ })).toBeTruthy();
+    // The number keeps together on screen (no-break spaces, fix round 5).
+    expect(within(col).getByRole("link", { name: /12\u00a034\u00a056\u00a078/ })).toBeTruthy();
     expect(col.textContent).toContain(da.rsvpTrustLine);
     expect(document.querySelectorAll("h1")).toHaveLength(1);
     // One header (the column); the card does not render its own.

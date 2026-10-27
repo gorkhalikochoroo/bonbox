@@ -347,7 +347,7 @@ function WaitlistForm({ t, lang, kit, slug, day, party, offer, venue, phone, onJ
             ? t("rsvpWlErrNotFull", "A table just opened up — pick a time.")
             : error === "unavailable"
               ? telHref(phone)
-                ? t("rsvpWlErrUnavailable", "We can't add you to the waitlist right now. Call us: {phone}", { phone })
+                ? t("rsvpWlErrUnavailable", "We can't add you to the waitlist right now. Call us: {phone}", { phone: keepTogether(phone) })
                 : t("rsvpWlErrUnavailableNoPhone", "We can't add you to the waitlist right now.")
               : error === "too_many"
                 ? t("rsvpWlErrTooMany", "Too many tries — try again later.")
@@ -468,7 +468,7 @@ export function FullNight({
       {telHref(phone) && !(receipt && receipt.status === "waiting") && (
         <a href={telHref(phone)} className={TEL_ACTION}>
           <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-          <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone })}</span>
+          <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: keepTogether(phone) })}</span>
         </a>
       )}
     </div>

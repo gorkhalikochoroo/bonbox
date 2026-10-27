@@ -747,7 +747,7 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
     tel && (
       <a href={tel} className={HIT_44 + "inline-flex items-center gap-1.5 min-h-8! rounded-md " + linkCls + " " + FOCUS}>
         <Phone size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
-        <span className="tabular-nums whitespace-nowrap">{page.phone}</span>
+        <span className="tabular-nums whitespace-nowrap">{phoneShown(page.phone)}</span>
       </a>
     );
   const trustText = t("rsvpTrustLine", "No account needed · Free cancellation");
@@ -937,6 +937,14 @@ function groupSlots(slots, apptWords = false) {
 // encodeURIComponent, never raw concatenation. The phone is stripped to
 // digits + a leading "+" for the tel: scheme; the maps query is a single
 // encoded component. JSX never renders these as HTML.
+// A phone number never breaks across lines ("+45 70 70 70 / 01" on the
+// receipt at 402 pt — gate, fix round 5): its spaces become no-break spaces,
+// ON SCREEN ONLY. The tel: link, what is sent and what is stored keep the
+// number exactly as it was given. The waitlist receipt does the same.
+function phoneShown(phone) {
+  return String(phone || "").replace(/ /g, "\u00a0");
+}
+
 function telHref(phone) {
   if (!phone) return null;
   // Keep digits and a single leading +. Drop spaces, parens, dashes.
@@ -2590,7 +2598,7 @@ export default function ReservationPublicPage() {
                 className="inline-flex w-full items-center justify-center gap-2 h-11 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
               >
                 <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-                <span className="tabular-nums">{page.phone}</span>
+                <span className="tabular-nums">{phoneShown(page.phone)}</span>
               </a>
             )}
           </div>
@@ -2687,7 +2695,7 @@ export default function ReservationPublicPage() {
               : sentEmail
                 ? t("rsvpRequestNextEmail", "We'll reply to {email} before the day.", { email: sentEmail })
                 : sentPhone
-                  ? t("rsvpRequestNextPhone", "We'll call you on {phone} to confirm.", { phone: sentPhone })
+                  ? t("rsvpRequestNextPhone", "We'll call you on {phone} to confirm.", { phone: phoneShown(sentPhone) })
                   : t("rsvpRequestNextLater", "We'll get back to you before the day.");
     } else if (withdrawn) {
       HeroIcon = XCircle;
@@ -2759,7 +2767,7 @@ export default function ReservationPublicPage() {
           })
         : sentPhone
           ? t("rsvpPhoneOnlyReceipt", "We have your number, {phone}. Keep this page as your receipt.", {
-              phone: sentPhone,
+              phone: phoneShown(sentPhone),
             })
           : t("rsvpNoEmailSaved", "Save this page — we don't have your email.");
     }
@@ -2958,7 +2966,7 @@ export default function ReservationPublicPage() {
                         href={telHref(page.phone)}
                         className="relative after:absolute after:inset-x-0 after:-inset-y-[11px] after:content-[''] min-h-0! hover:underline"
                       >
-                        {page.phone}
+                        {phoneShown(page.phone)}
                       </a>
                     </dd>
                   </div>
@@ -3205,7 +3213,7 @@ export default function ReservationPublicPage() {
             {telHref(page.phone) ? (
               <a href={telHref(page.phone)} className={TEL_ACTION}>
                 <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-                <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: page.phone })}</span>
+                <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: phoneShown(page.phone) })}</span>
               </a>
             ) : (
               <p className="text-[13px] text-gray-500 dark:text-gray-400">
@@ -3399,7 +3407,7 @@ export default function ReservationPublicPage() {
                           href={telHref(page.phone)}
                           className="font-medium text-gray-700 dark:text-gray-200 underline"
                         >
-                          {page.phone}
+                          {phoneShown(page.phone)}
                         </a>
                       </>
                     ) : (
@@ -3468,7 +3476,7 @@ export default function ReservationPublicPage() {
                   {telHref(page.phone) && (
                     <a href={telHref(page.phone)} data-testid="rsvp-paused-call" className="ml-[23px] inline-flex items-center gap-1 font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2">
                       <Phone size={13} strokeWidth={1.75} aria-hidden="true" />
-                      {t("rsvpNoSlotsCall", "Call us: {phone}", { phone: page.phone })}
+                      {t("rsvpNoSlotsCall", "Call us: {phone}", { phone: phoneShown(page.phone) })}
                     </a>
                   )}
                 </div>
@@ -3635,7 +3643,7 @@ export default function ReservationPublicPage() {
                         <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
                         <span>
                           {t("rsvpNoSlotsCall", "Call us: {phone}", {
-                            phone: page.phone,
+                            phone: phoneShown(page.phone),
                           })}
                         </span>
                       </a>
@@ -3662,7 +3670,7 @@ export default function ReservationPublicPage() {
                       {telHref(page.phone) && (
                         <a href={telHref(page.phone)} className={TEL_ACTION}>
                           <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-                          <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: page.phone })}</span>
+                          <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: phoneShown(page.phone) })}</span>
                         </a>
                       )}
                     </div>
@@ -3683,7 +3691,7 @@ export default function ReservationPublicPage() {
                           </p>
                           <a href={telHref(page.phone)} className={TEL_ACTION}>
                             <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-                            <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: page.phone })}</span>
+                            <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: phoneShown(page.phone) })}</span>
                           </a>
                         </div>
                       ) : (
@@ -3738,7 +3746,7 @@ export default function ReservationPublicPage() {
                       {telHref(page.phone) && (
                         <a href={telHref(page.phone)} className={TEL_ACTION}>
                           <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-                          <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: page.phone })}</span>
+                          <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: phoneShown(page.phone) })}</span>
                         </a>
                       )}
                       {/* Later days may exist past the strip: the calendar,
@@ -4391,7 +4399,7 @@ export default function ReservationPublicPage() {
                   {GUEST_REFUSALS[submitError]?.call && telHref(page.phone) && (
                     <a href={telHref(page.phone)} className={TEL_ACTION} data-testid="rsvp-refusal-call">
                       <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-                      <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: page.phone })}</span>
+                      <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: phoneShown(page.phone) })}</span>
                     </a>
                   )}
                 </div>

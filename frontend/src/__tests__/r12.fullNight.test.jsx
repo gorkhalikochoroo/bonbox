@@ -340,7 +340,8 @@ describe("joining the list", () => {
   });
 
   it.each([
-    [409, { error: "waitlist_unavailable" }, "Vi kan ikke skrive dig på ventelisten lige nu. Ring til os: +45 12 34 56 78"],
+    // The number keeps together on screen (no-break spaces, fix round 5).
+    [409, { error: "waitlist_unavailable" }, "Vi kan ikke skrive dig på ventelisten lige nu. Ring til os: +45\u00a012\u00a034\u00a056\u00a078"],
     [429, {}, "For mange forsøg — prøv igen senere."],
     [500, {}, "Noget gik galt"],
   ])("a %s keeps what was typed and says so", async (status, detail, words) => {
