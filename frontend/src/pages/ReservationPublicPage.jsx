@@ -701,7 +701,9 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
   // The address: opens the map. min-h-8! (32pt): the global 44pt touch rule
   // sits outside Tailwind's layers, so only the important form beats it.
   // With a long address the number wraps under it, and two 44pt rows left a
-  // loose gap.
+  // loose gap. The finger still gets 44 px: an after: box 6 px above and
+  // below what is drawn (walk 27 Oct G11; the hours toggle does the same).
+  const HIT_44 = "relative after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-[''] ";
   const addressItem = () => {
     if (!where) return null;
     const inner = (
@@ -710,7 +712,7 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
         <span className="truncate">{where}</span>
       </>
     );
-    const cls = "inline-flex items-center gap-1.5 max-w-full min-w-0 min-h-8! rounded-md " + FOCUS;
+    const cls = HIT_44 + "inline-flex items-center gap-1.5 max-w-full min-w-0 min-h-8! rounded-md " + FOCUS;
     return map ? (
       <a href={map} target="_blank" rel="noopener noreferrer" className={cls + " " + linkCls}>{inner}</a>
     ) : (
@@ -721,7 +723,7 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
   // questions. tel: built from digits via encodeURIComponent.
   const phoneItem = () =>
     tel && (
-      <a href={tel} className={"inline-flex items-center gap-1.5 min-h-8! rounded-md " + linkCls + " " + FOCUS}>
+      <a href={tel} className={HIT_44 + "inline-flex items-center gap-1.5 min-h-8! rounded-md " + linkCls + " " + FOCUS}>
         <Phone size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
         <span className="tabular-nums whitespace-nowrap">{page.phone}</span>
       </a>
@@ -2917,7 +2919,11 @@ export default function ReservationPublicPage() {
                       {t("rsvpCallVenueLabel", "Call us")}
                     </dt>
                     <dd className="min-w-0 text-right text-[15px] font-medium text-gray-900 dark:text-gray-100 tabular-nums">
-                      <a href={telHref(page.phone)} className="min-h-0! hover:underline">
+                      {/* 22 px of text, 44 px to the finger (walk 27 Oct G11). */}
+                      <a
+                        href={telHref(page.phone)}
+                        className="relative after:absolute after:inset-x-0 after:-inset-y-[11px] after:content-[''] min-h-0! hover:underline"
+                      >
                         {page.phone}
                       </a>
                     </dd>

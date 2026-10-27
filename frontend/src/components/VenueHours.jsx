@@ -24,6 +24,9 @@ export function VenueHoursToggle({ hours, todayIso, t, apptWords = false, open, 
       aria-controls={controls}
       onClick={onToggle}
       className={
+        // 32 px drawn (the meta row's height), 44 px to the finger: the
+        // after: box reaches 6 px above and below (walk 27 Oct G11).
+        "relative after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-[''] " +
         "inline-flex items-center gap-1.5 min-h-8! rounded-md text-[13px] whitespace-nowrap tabular-nums " +
         "hover:text-gray-900 dark:hover:text-gray-100 transition-colors duration-200 " + focusClass
       }

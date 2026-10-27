@@ -13,6 +13,10 @@
  *         old link, then everything again on the new one). The answer is
  *         reused, the address moves to the current link, and every question
  *         after it is asked once, with the current link.
+ *   G11   The hours row and the phone link draw 32 px (the meta row's height)
+ *         but give the finger 44 px; a time never sits alone on its last row
+ *         when the tiles carry a note ("Sidste bord": 4 + 1 at 390, 5 + 1 at
+ *         1440) — the columns shrink, never grow (the note needs the width).
  *
  * Run: cd frontend && TZ=UTC npx vitest run src/__tests__/fix27.walkPolish.test.jsx
  */
@@ -269,5 +273,59 @@ describe("P3-4: an old link opened cold asks once, with the current link", () =>
     renderGuest("/gammel");
     await settle();
     expect(asked()[0]).toBe("/public/reservations/gammel");
+  });
+});
+
+describe("G11: 44 px to the finger, and no time alone on its row", () => {
+  const D = (windows, by = "opening") => ({ windows, by });
+  const WEEK = {
+    mon: D([["17:00", "22:00"]]), tue: D([["17:00", "22:00"]]), wed: D([["17:00", "22:00"]]), thu: D([["17:00", "22:00"]]),
+    fri: D([["17:00", "23:00"]]), sat: D([["17:00", "23:00"]]), sun: D([]),
+  };
+  // after:-inset-y-1.5 on a 32 px box: 6 px above and below → 44 px.
+  const hit44 = (el) => {
+    expect(el.className).toMatch(/(^| )relative( |$)/);
+    expect(el.className).toContain("after:absolute");
+    expect(el.className).toContain("after:inset-x-0");
+    expect(el.className).toContain("after:content-['']");
+    expect(el.className).toContain("min-h-8!");
+    expect(el.className).toContain("after:-inset-y-1.5");
+  };
+
+  it("the hours row and the phone link on a phone: 32 px drawn, a 44 px hit box", async () => {
+    h.get.mockImplementation((url) => {
+      if (url === "/public/reservations/x") return Promise.resolve({ data: { ...PAGE, hours: { days: WEEK } } });
+      if (url === "/public/reservations/x/availability-summary") return Promise.resolve({ data: summary() });
+      if (url === "/public/reservations/x/availability") return Promise.resolve({ data: { slots: ["19:00"], slot_remaining: {} } });
+      return Promise.resolve({ data: {} });
+    });
+    renderAt();
+    await settle();
+    hit44(screen.getByRole("button", { expanded: false, name: new RegExp(da.rsvpVenueHoursTodayLabel) }));
+    const tel = [...document.querySelectorAll('a[href^="tel:"]')].find((a) => a.className.includes("min-h-8!"));
+    expect(tel).toBeTruthy();
+    hit44(tel);
+  });
+
+  it("the venue column's phone link: 22 px of text, 44 px to the finger", () => {
+    const src = fs.readFileSync(path.join(SRC, "pages/ReservationPublicPage.jsx"), "utf8");
+    expect(src).toContain(`className="relative after:absolute after:inset-x-0 after:-inset-y-[11px] after:content-[''] min-h-0! hover:underline"`);
+  });
+
+  it("noted times: 5 read 3 + 2 on a phone, 6 read 4 + 2 from 450 px; never more columns than without notes", async () => {
+    const { timeGridCols } = await import("../components/booking/bookingTiles");
+    const cols = (c, prefix) => Number(new RegExp(`(?:^| )${prefix.replace(/[[\]]/g, "\\$&")}grid-cols-(\\d)`).exec(c)[1]);
+    expect(cols(timeGridCols(5, { notes: true }), "")).toBe(3);
+    expect(cols(timeGridCols(6, { notes: true }), "min-[450px]:")).toBe(4);
+    for (let n = 2; n <= 60; n += 1) {
+      const c = timeGridCols(n, { notes: true });
+      const phone = cols(c, "");
+      const wide = cols(c, "min-[450px]:");
+      expect(phone).toBeLessThanOrEqual(4);
+      expect(wide).toBeLessThanOrEqual(5);
+      // Alone on the last row only where both widths leave one over.
+      if (n % 12 !== 1) expect(n <= phone || n % phone !== 1, `phone n=${n} cols=${phone}`).toBe(true);
+      if (n % 20 !== 1) expect(n <= wide || n % wide !== 1, `wide n=${n} cols=${wide}`).toBe(true);
+    }
   });
 });

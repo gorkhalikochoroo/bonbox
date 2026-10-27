@@ -87,9 +87,18 @@ describe("time columns: no time alone on its last row", () => {
       expect(n <= wide || n % wide !== 1, `wide n=${n} cols=${wide}`).toBe(true);
     }
   });
-  it("with a scarcity note under the digits the columns stay at their base (the note needs the width)", () => {
-    expect(timeGridCols(11, { notes: true })).toBe("grid-cols-4 min-[450px]:grid-cols-5");
-    expect(timeGridCols(9, { notes: true })).toBe("grid-cols-4 min-[450px]:grid-cols-5");
+  // Fix round 27 Oct (walk G11): with notes the columns still never GROW (the
+  // note needs the width), but they shrink to keep a time from being alone —
+  // 11 noted times used to read 5 + 5 + 1 from 450 px, 9 read 4 + 4 + 1 on a phone.
+  it("with a scarcity note under the digits the columns never grow past their base (the note needs the width)", () => {
+    expect(timeGridCols(11, { notes: true })).toBe("grid-cols-4 min-[450px]:grid-cols-4");
+    expect(timeGridCols(9, { notes: true })).toBe("grid-cols-3 min-[450px]:grid-cols-5");
+    expect(timeGridCols(8, { notes: true })).toBe("grid-cols-4 min-[450px]:grid-cols-5");
+    for (let n = 1; n <= 60; n++) {
+      const c = timeGridCols(n, { notes: true });
+      expect(cols(c, ""), `phone n=${n}`).toBeLessThanOrEqual(4);
+      expect(cols(c, "min-[450px]:"), `wide n=${n}`).toBeLessThanOrEqual(5);
+    }
   });
   it("every class it can return is written out whole in the module (Tailwind must see it)", () => {
     const mod = read("components/booking/bookingTiles.js");

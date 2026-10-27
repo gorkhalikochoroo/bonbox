@@ -68,8 +68,10 @@ export const skeletonTileClass = (i) => SKELETON_TILE + (i >= 12 ? " max-[450px]
  * When the count would leave one time alone, the next candidate is taken:
  * phone 4 → 5 → 3, from 450 px 5 → 6 → 4. 11 times → 6 + 5 from 450 px,
  * 9 times → 5 + 4 on a phone, 21 → 3 rows of 7 on a phone.
- * With a scarcity note under the digits ("Sidste bord") the columns stay put:
- * a narrower chip would cut the note.
+ * With a scarcity note under the digits ("Sidste bord") the columns never
+ * grow — a narrower chip would cut the note — but they may shrink to keep a
+ * time from sitting alone (walk 27 Oct G11: 5 noted times read 4 + 1 at 390,
+ * 6 read 5 + 1 at 1440): phone 4 → 3, from 450 px 5 → 4.
  * Whole class names (Tailwind reads this file for them).
  */
 const PHONE_COLS = { 3: "grid-cols-3", 4: "grid-cols-4", 5: "grid-cols-5" };
@@ -78,8 +80,8 @@ const balanced = (n, candidates) => candidates.find((c) => n <= c || n % c !== 1
 
 export function timeGridCols(n, { notes = false } = {}) {
   const count = Number(n) || 0;
-  const phone = notes ? 4 : balanced(count, [4, 5, 3]);
-  const wide = notes ? 5 : balanced(count, [5, 6, 4]);
+  const phone = balanced(count, notes ? [4, 3] : [4, 5, 3]);
+  const wide = balanced(count, notes ? [5, 4] : [5, 6, 4]);
   return `${PHONE_COLS[phone]} ${WIDE_COLS[wide]}`;
 }
 
