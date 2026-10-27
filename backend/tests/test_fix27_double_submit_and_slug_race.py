@@ -227,3 +227,47 @@ def test_the_salon_quick_setup_mints_another_link_when_one_is_taken_meanwhile(
     assert taken["done"]
     prof = _slug_of(db, u)
     assert prof.reservation_slug.startswith("saks-") and prof.reservations_enabled is True
+
+
+# ═══ Fix round 4 (review2 #5): never the demo seeder's bookings ══════════
+def _seeded(db, owner, *, key, purge_after=None):
+    from datetime import datetime as _dt
+    start = _dt.combine(DAY, _dt.min.time()).replace(hour=19)
+    r = Reservation(user_id=owner.id, guest_name="Sofie Holm", party_size=2, starts_at=start,
+                    ends_at=start + timedelta(minutes=90), duration_min=90, status="confirmed",
+                    source="public", idempotency_key=key, purge_after=purge_after)
+    db.add(r)
+    db.commit()
+    return r
+
+
+def test_a_demo_key_never_replays_a_seeded_booking(client, db, outbox):
+    """The seeder's key is "demo-<user>-<n>", and the user id is in the
+    venue's public logo path: a replay would hand out a sample booking's id
+    and booking token."""
+    u, p, _ = restaurant(db)
+    seeded = _seeded(db, u, key=f"demo-{u.id}-1")
+    r = _post(client, p.reservation_slug, f"demo-{u.id}-1", time="20:00")
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] != str(seeded.id)
+    assert str(seeded.id) not in r.text
+    assert pubres._prior_for_key(db, u, f"demo-{u.id}-1") is None
+    db.expire_all()
+    mine = db.query(Reservation).filter(Reservation.id == uuid.UUID(r.json()["id"])).one()
+    assert mine.idempotency_key is None                  # the namespace is dropped
+    assert db.get(Reservation, seeded.id).idempotency_key == f"demo-{u.id}-1"
+
+
+def test_a_row_without_purge_after_is_never_replayed(client, db, outbox):
+    """Every booking the public door writes has purge_after; one without it
+    (seeded, imported) is never handed back on a key."""
+    u, p, _ = restaurant(db)
+    odd = _seeded(db, u, key="tap-x")
+    assert pubres._prior_for_key(db, u, "tap-x") is None
+    r = _post(client, p.reservation_slug, "tap-x", time="20:00")
+    assert r.status_code in (200, 409), r.text
+    assert str(odd.id) not in r.text
+    # Control: the guest's own booking on a key is still replayed.
+    first = _post(client, p.reservation_slug, "tap-y", time="21:00")
+    again = _post(client, p.reservation_slug, "tap-y", time="21:00")
+    assert again.json()["id"] == first.json()["id"]

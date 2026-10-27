@@ -453,17 +453,33 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
     }
 
 
+# The demo seeder's key namespace (services/demo_seed: "demo-<user>-<n>").
+DEMO_KEY_PREFIX = "demo-"
+
+
+def _seeders_key(idempotency_key: str | None) -> bool:
+    return bool(idempotency_key) and idempotency_key.startswith(DEMO_KEY_PREFIX)
+
+
 def _prior_for_key(db: Session, owner: User, idempotency_key: str | None):
     """The booking this venue already holds for this X-Idempotency-Key, or
     None. Scoped to the owner: the key is client-supplied and NOT globally
     unique, so another venue's colliding key must never hand back that
-    tenant's booking and token."""
-    if not idempotency_key:
+    tenant's booking and token.
+
+    Only a guest's own online booking is ever handed back (fix round 4,
+    review2 #5): never the demo seeder's sample bookings — their keys are
+    "demo-<user>-<n>" and the user id is in the venue's public logo path, so
+    a replay handed out their id and booking token — and never a row without
+    purge_after (every booking this door writes has one; a seeded row has
+    none)."""
+    if not idempotency_key or _seeders_key(idempotency_key):
         return None
     return (
         db.query(Reservation)
         .filter(Reservation.user_id == owner.id,
-                Reservation.idempotency_key == idempotency_key)
+                Reservation.idempotency_key == idempotency_key,
+                Reservation.purge_after.isnot(None))
         .first()
     )
 
@@ -1324,6 +1340,12 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
                        idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key", max_length=80),
                        db: Session = Depends(get_db)):
     profile, owner = _resolve_owner(db, slug)
+
+    # The demo seeder's namespace is not a guest's to use (fix round 4): such
+    # a key is dropped, so it can neither reach a sample booking nor make a
+    # guest's booking look like seeded data that "clear demo" would delete.
+    if _seeders_key(idempotency_key):
+        idempotency_key = None
 
     # Idempotency — same key returns the same reservation. MUST be scoped to
     # this owner: idempotency_key is client-supplied and NOT globally unique, so
