@@ -752,8 +752,14 @@ def test_fix_f_glem_previews_then_erases_only_this_contact_at_this_venue(client,
     body = {"phone": "12 34 56 78", "email": "anna+glem@gmail.com"}
     prev = client.post("/api/reservations/contact-blocks/erase-preview", json=body)
     assert prev.status_code == 200, prev.text
-    assert prev.json() == {"would_erase": {"blocks": 2, "reservations": 4, "waitlist": 2},
-                           "future_kept": 1}
+    got = prev.json()
+    assert got["would_erase"] == {"blocks": 2, "reservations": 4, "waitlist": 2}
+    assert got["future_kept"] == 1
+    # The confirm names the entries that go (masked as the list shows them),
+    # and what stays (fix round 4, review2 #3): nothing here.
+    assert sorted((e["kind"], e["hint"]) for e in got["block_entries"]) == [
+        ("email", "a•••@gmail.com"), ("phone", "•• •• •• 78")]
+    assert got["blocks_kept"] == {"shared": 0, "unsure": []}
     db.expire_all()
     assert reservation(db, ids["past_both"]).guest_name == "Anna Bord"     # a preview writes nothing
     assert db.query(AuditLog).filter(AuditLog.action == "reservation.contact_erased").count() == 0
@@ -817,7 +823,10 @@ def test_fix_f_exact_phone_spellings_never_a_tail():
     dk = ["004512345678", "12345678", "4512345678"]
     for typed in ("12345678", "+45 12 34 56 78", "0045-1234-5678", "(+45) 12.34.56.78"):
         assert phone_spellings(typed) == dk, typed
-    assert phone_spellings("+44 77 1234 5678") == ["00447712345678", "447712345678"]
+    # A trunk-0 country (fix round 4, review2 #3): the national form with
+    # its 0 and the "(0)" form are the same number too — never a tail.
+    assert phone_spellings("+44 77 1234 5678") == [
+        "004407712345678", "00447712345678", "07712345678", "4407712345678", "447712345678"]
     assert phone_spellings("12345") == []
     assert "12345678" not in phone_spellings("+44 77 1234 5678")
 
@@ -937,3 +946,120 @@ def test_fix_j_no_summary_when_only_spam_was_held_back(client, db, outbox):
     assert reservation(db, real).status == "confirmed"
     now = utc_now()
     assert alerts.summary_counts(db, u.id, now_utc=now, since=now - timedelta(hours=1)) == (1, 0)
+
+
+# ── Fix round 4 (review2 #3): "Glem" finds every spelling, and only it ────
+# The national form of a trunk-0 country's number and its international form
+# are one number, both ways; a door's free-text phone pasted with a no-break
+# space or direction marks is that number too; a different number that only
+# shares the last 8 digits is never erased and keeps its block.
+NBSP, LRM, RLM, LRE, PDF = "\u00a0", "\u200e", "\u200f", "\u202a", "\u202c"
+
+
+def _glem(client, body, preview=False):
+    path = "erase-preview" if preview else "erase"
+    r = client.post(f"/api/reservations/contact-blocks/{path}", json=body)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_fix_r4_a_uk_number_is_found_national_and_international(client, db, outbox):
+    u, p, _ = restaurant(db)
+    intl = _row(db, u, days=-3, name="Brit", phone="+44 7700 900123")
+    nat = _row(db, u, days=-4, name="Brit", phone="07700 900123")
+    paren = _row(db, u, days=-5, name="Brit", phone="+44 (0)7700 900123")
+    other = _row(db, u, days=-3, name="Else", phone="+44 7700 900124")
+    as_owner(u)
+    got = _glem(client, {"phone": "07700 900123"}, preview=True)
+    assert got["would_erase"]["reservations"] == 3
+    out = _glem(client, {"phone": "+44 7700 900123"})
+    assert out["erased"]["reservations"] == 3
+    db.expire_all()
+    for rid in (intl, nat, paren):
+        assert reservation(db, rid).guest_phone is None
+    assert reservation(db, other).guest_phone == "+44 7700 900124"
+
+
+def test_fix_r4_a_swedish_070_number_both_ways(client, db, outbox):
+    u, p, _ = restaurant(db)
+    intl = _row(db, u, days=-3, name="Sven", phone="+46 70 123 45 67")
+    nat = _wl(db, u, name="Sven", phone="070-123 45 67")
+    as_owner(u)
+    out = _glem(client, {"phone": "070 123 45 67"})
+    assert out["erased"] == {"blocks": 0, "reservations": 1, "waitlist": 1}
+    db.expire_all()
+    assert reservation(db, intl).guest_phone is None
+
+
+def test_fix_r4_a_door_phone_pasted_with_nbsp_and_direction_marks(client, db, outbox):
+    from app.models.reservation_waitlist import ReservationWaitlistEntry as WL
+    u, p, _ = restaurant(db)
+    pasted = f"{LRE}+45{NBSP}12{NBSP}34{NBSP}56{NBSP}78{PDF}"
+    door = _wl(db, u, name="Anna", phone=pasted)
+    row = _row(db, u, days=-3, name="Anna", phone=f"{LRM}12 34 56 78{RLM}")
+    as_owner(u)
+    # Typed with the marks, too: the same two rows.
+    assert _glem(client, {"phone": f"{RLM}+45{NBSP}12345678{LRM}"}, preview=True)["would_erase"] == {
+        "blocks": 0, "reservations": 1, "waitlist": 1}
+    out = _glem(client, {"phone": "+45 12 34 56 78"})
+    assert out["erased"] == {"blocks": 0, "reservations": 1, "waitlist": 1}
+    db.expire_all()
+    assert db.get(WL, door).guest_phone is None
+    assert reservation(db, row).guest_phone is None
+
+
+def test_fix_r4_a_neighbour_with_the_same_last_8_digits_stays_blocked(client, db, outbox):
+    """Two numbers end in the same 8 digits; only one asks to be forgotten.
+    The door still matches on the last 8 (the screen's same-guest rule), so
+    both are blocked by one entry; "Glem" takes the asker's keys out of it
+    and the neighbour's block stays — named in the preview as kept."""
+    from app.services import contact_marks
+    u, p, _ = restaurant(db)
+    as_owner(u)
+    assert client.post("/api/reservations/contact-blocks", json={"phone": "+44 77 1234 5678"}).status_code == 201
+    # Only the neighbour is blocked: the asker's number finds no entry of its own.
+    got = _glem(client, {"phone": "+45 12 34 56 78"}, preview=True)
+    assert got["would_erase"]["blocks"] == 0 and got["block_entries"] == []
+    out = _glem(client, {"phone": "+45 12 34 56 78"})
+    assert out["erased"]["blocks"] == 0 and len(out["blocks"]) == 1
+    entries = json.loads(_settings_json(db, p))["contact_blocks"]
+    assert contact_marks.match(entries, u.id, phone="+44 77 1234 5678",
+                               today=today_local()) == "block"
+    # Both blocked by one entry: the asker's keys go, the neighbour keeps it.
+    assert client.post("/api/reservations/contact-blocks", json={"phone": "+45 12 34 56 78"}).status_code == 201
+    got = _glem(client, {"phone": "12345678"}, preview=True)
+    assert got["would_erase"]["blocks"] == 0
+    assert got["blocks_kept"]["shared"] == 1
+    out = _glem(client, {"phone": "12345678"})
+    assert out["blocks_kept"]["shared"] == 1 and len(out["blocks"]) == 1
+    db.expire_all()
+    entries = json.loads(_settings_json(db, p))["contact_blocks"]
+    assert contact_marks.match(entries, u.id, phone="+44 77 1234 5678",
+                               today=today_local()) == "block"
+    # The asker's own key is gone: asked again, nothing of theirs is left.
+    d = contact_marks.erase_contact_detail(entries, u.id, phone="12345678", today=today_local())
+    assert d["gone"] == [] and d["shared"] == 0
+
+
+def test_fix_r4_an_entry_without_whole_number_keys_is_kept_and_named(client, db, outbox):
+    """An entry from before round 4 holds only the last-8 key: it cannot be
+    told apart from a neighbour's, so it is kept and named, never erased."""
+    from app.services import contact_marks
+    u, p, _ = restaurant(db)
+    as_owner(u)
+    assert client.post("/api/reservations/contact-blocks", json={"phone": "+45 12 34 56 78"}).status_code == 201
+    db.expire_all()
+    prof = db.get(type(p), p.id)
+    settings = json.loads(prof.reservation_settings_json)
+    for e in settings["contact_blocks"]:
+        e.pop("fs", None)
+    prof.reservation_settings_json = json.dumps(settings)
+    db.commit()
+    got = _glem(client, {"phone": "12345678"}, preview=True)
+    assert got["would_erase"]["blocks"] == 0
+    assert [e["hint"] for e in got["blocks_kept"]["unsure"]] == ["•• •• •• 78"]
+    out = _glem(client, {"phone": "12345678"})
+    assert out["erased"]["blocks"] == 0 and len(out["blocks"]) == 1
+    assert [e["hint"] for e in out["blocks_kept"]["unsure"]] == ["•• •• •• 78"]
+    assert contact_marks.match(json.loads(_settings_json(db, p))["contact_blocks"], u.id,
+                               phone="12345678", today=today_local()) == "block"

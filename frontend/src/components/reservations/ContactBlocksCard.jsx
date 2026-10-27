@@ -25,7 +25,7 @@ import { useConfirm } from "../../hooks/useConfirm";
 import { useToast } from "../../hooks/useToast";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
-import { forgetParts, futureLine, joinParts } from "../../utils/forgetWords";
+import { forgetParts, futureLine, joinParts, keptLines, noneFoundLine } from "../../utils/forgetWords";
 
 // Phone: 40 px controls with 13 px text (the compact-controls rule).
 const PHONE_CTRL = "max-sm:h-10 max-sm:min-h-0! max-sm:text-[13px]";
@@ -163,15 +163,19 @@ export default function ContactBlocksCard({ t, lang = "da", apptWords = false })
       }
       let ok;
       if (seen) {
-        const parts = forgetParts(seen.would_erase, t, apptWords);
+        // The entries of the list that go are named, and what stays is said
+        // (fix round 4, review2 #3).
+        const parts = forgetParts(seen.would_erase, t, apptWords, seen.block_entries);
+        const kept = keptLines(seen.blocks_kept, t, apptWords);
         const later = futureLine(seen.future_kept, t, apptWords);
         if (!parts.length) {
-          // Nothing to delete: say so (and what is kept), ask nothing.
+          // Nothing to delete: say what was searched (and what is kept), ask
+          // nothing — never "nothing is kept".
           toast({
             severity: "info",
-            message: later
-              ? `${t("rsvpBlocksForgetNothingYet", "Nothing to delete yet.")} ${later}`
-              : t("rsvpBlocksNothingKept", "Nothing is kept about that contact."),
+            message: later || kept.length
+              ? [t("rsvpBlocksForgetNothingYet", "Nothing to delete yet."), ...kept, later].filter(Boolean).join(" ")
+              : noneFoundLine(contact, t, apptWords),
           });
           return;
         }
@@ -182,6 +186,7 @@ export default function ContactBlocksCard({ t, lang = "da", apptWords = false })
             apptWords
               ? t("rsvpBlocksForgetWhatAppt", "Everything kept about them goes: {what}. Use it when a customer asks to be forgotten.", { what })
               : t("rsvpBlocksForgetWhat", "Everything kept about them goes: {what}. Use it when a guest asks to be forgotten.", { what }),
+            ...kept,
             later,
           ].filter(Boolean).join(" "),
           confirmLabel: t("rsvpBlocksForget", "Forget"),
@@ -209,19 +214,23 @@ export default function ContactBlocksCard({ t, lang = "da", apptWords = false })
       setValue("");
       const done = res?.data?.erased;
       if (done) {
-        const parts = forgetParts(done, t, apptWords);
+        // What was found and erased — and what stays — never more than
+        // was searched (fix round 4, review2 #3).
+        const parts = forgetParts(done, t, apptWords, res?.data?.block_entries);
+        const kept = keptLines(res?.data?.blocks_kept, t, apptWords);
         const later = futureLine(res?.data?.future_kept, t, apptWords);
         const head = parts.length
           ? t("rsvpBlocksForgottenFrom", "Forgotten: deleted from {what}.", { what: joinParts(parts, lang) })
-          : t("rsvpBlocksNothingKept", "Nothing is kept about that contact.");
-        toast({ severity: "info", message: [head, later].filter(Boolean).join(" ") });
+          : noneFoundLine(contact, t, apptWords);
+        toast({ severity: "info", message: [head, ...kept, later].filter(Boolean).join(" ") });
       } else {
+        // An older server: it searched this list only — and says only that.
         const n = Number(res?.data?.removed) || 0;
         toast({
           severity: "info",
           message: n
             ? t("rsvpBlocksForgotten", "Forgotten: {n} kept about that contact deleted.", { n })
-            : t("rsvpBlocksNothingKept", "Nothing is kept about that contact."),
+            : t("rsvpBlocksForgetNoneOnList", "No entry for {contact} on this list.", { contact }),
         });
       }
     } finally {

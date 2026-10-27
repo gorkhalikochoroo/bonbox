@@ -469,7 +469,7 @@ def erase_contact_preview(payload: ContactErase, db: Session = Depends(get_db),
     _erase_contact_ok(payload)
     from app.services import guest_erase
     profile = _profile(db, user)
-    _, blocks = contact_marks.erase_contact(
+    d = contact_marks.erase_contact_detail(
         _entries(profile), user.id, email=payload.email, phone=payload.phone, today=_today())
     try:
         n = guest_erase.counts(db, user.id, email=payload.email, phone=payload.phone,
@@ -477,8 +477,14 @@ def erase_contact_preview(payload: ContactErase, db: Session = Depends(get_db),
     except Exception:  # noqa: BLE001
         logger.warning("erase preview failed", exc_info=True)
         raise HTTPException(status_code=503, detail={"error": "try_again"})
-    return {"would_erase": {"blocks": blocks, "reservations": n["reservations"],
+    return {"would_erase": {"blocks": len(d["gone"]), "reservations": n["reservations"],
                             "waitlist": n["waitlist"]},
+            # Which entries of the list go (masked, as the list shows them),
+            # and what stays: an entry shared with another number that has
+            # the same last digits, one that cannot be told apart (fix round
+            # 4, review2 #3) — the confirm names them, never "everything".
+            "block_entries": d["gone"],
+            "blocks_kept": {"shared": d["shared"], "unsure": d["unsure"]},
             "future_kept": n["future_kept"]}
 
 
@@ -497,8 +503,9 @@ def erase_contact_block(payload: ContactErase, db: Session = Depends(get_db),
     _erase_contact_ok(payload)
     from app.services import guest_erase
     profile = _profile(db, user)
-    entries, removed = contact_marks.erase_contact(
+    d = contact_marks.erase_contact_detail(
         _entries(profile), user.id, email=payload.email, phone=payload.phone, today=_today())
+    entries, removed, shared = d["entries"], len(d["gone"]), d["shared"]
     try:
         done = guest_erase.erase(db, user.id, email=payload.email, phone=payload.phone,
                                  now_local=_now_venue(), now_utc=utc_now())
@@ -506,18 +513,21 @@ def erase_contact_block(payload: ContactErase, db: Session = Depends(get_db),
         db.rollback()
         logger.warning("contact erase failed", exc_info=True)
         raise HTTPException(status_code=503, detail={"error": "try_again"})
-    if removed:
+    if removed or shared:
         _save_entries(profile, entries)
     erased = {"blocks": removed, "reservations": done["reservations"],
               "waitlist": done["waitlist"]}
     total = sum(erased.values())
-    if total:
+    if total or shared:
         audit_service.record(db, user, "reservation.contact_erased", "business_profile",
                              profile.id, after={"removed": removed, **erased,
+                                                **({"blocks_shared": shared} if shared else {}),
                                                 "future_kept": done["future_kept"]})
         db.commit()
     out = _listing(entries)
     out["removed"] = removed          # the block list's own count, as before
     out["erased"] = erased            # everything erased, by kind
+    out["block_entries"] = d["gone"]  # which entries went (masked)
+    out["blocks_kept"] = {"shared": shared, "unsure": d["unsure"]}
     out["future_kept"] = done["future_kept"]
     return out

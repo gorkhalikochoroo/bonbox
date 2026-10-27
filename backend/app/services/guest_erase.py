@@ -20,9 +20,13 @@ owner types:
 
 MATCHING IS EXACT — never a tail and never a LIKE (a tail of 8 digits is
 someone else's number abroad; a LIKE pattern can reach further than meant):
-  • the phone: its digits, separators and "+" ignored, compared by equality
-    with the few spellings ONE number has (`phone_spellings`: a Danish
-    number with or without 45 / 0045, any other with or without 00);
+  • the phone: its digits — every separator, kind of space and invisible
+    format character ignored (utils/phone_forms.SQL_STRIP: a no-break space
+    or a direction mark pasted into the door's free-text field) — compared
+    by equality with the spellings ONE number has (`phone_spellings`: a
+    Danish number with or without 45 / 0045; a trunk-0 country's number
+    international or national, both ways — "+44 7700 900123" is
+    "07700 900123" (fix round 4, review2 #3); any other with or without 00);
   • the address: the same mailbox as R2 folds it (case, a "+tag", Gmail
     dots and googlemail.com — services/mailbox.canonical_mailbox), compared
     with equality, substr() and length() only (both exist in Postgres and
@@ -34,15 +38,14 @@ The audit row carries counts only — never a name, a number or an address.
 """
 from __future__ import annotations
 
-import re
 from datetime import datetime
 
 from sqlalchemy import and_, func, or_
 
 from app.models.reservation import Reservation
 from app.models.reservation_waitlist import ReservationWaitlistEntry as W
-from app.services.booking_screen import _PHONE_SEPARATORS
 from app.services.mailbox import canonical_mailbox
+from app.utils import phone_forms
 
 # A booking still ahead keeps its contact until the visit (it is counted,
 # never erased silently).
@@ -77,28 +80,20 @@ def null_reservation_guest_fields(r, now: datetime) -> None:
 # ── Exact matching ───────────────────────────────────────────────────────
 
 def phone_spellings(phone: str | None) -> list[str]:
-    """The digit strings ONE phone number can be stored as (separators and
-    "+" already gone): a Danish number (8 digits, or 45 / 0045 + 8 digits)
-    as 12345678, 4512345678 and 004512345678; any other as typed, with or
-    without a leading 00. [] under 6 digits."""
-    digits = re.sub(r"\D", "", phone or "")
-    if len(digits) < 6:
-        return []
-    core = digits[2:] if digits.startswith("00") else digits
-    if len(core) == 10 and core.startswith("45"):
-        national = core[2:]
-    elif len(core) == 8:
-        national = core
-    else:
-        national = None
-    if national is not None:
-        return sorted({national, "45" + national, "0045" + national})
-    return sorted({core, "00" + core})
+    """The digit strings ONE phone number can be stored as (utils/
+    phone_forms.spellings): a Danish number (8 digits, or 45 / 0045 + 8
+    digits) as 12345678, 4512345678 and 004512345678; a trunk-0 country's
+    number with its country code (with or without 00, with or without the
+    "(0)") and nationally with the 0 — both ways; any other as typed, with
+    or without a leading 00. [] under 6 digits."""
+    return phone_forms.spellings(phone)
 
 
 def _digits(column):
+    """SQL: the column's digits — every separator, space and invisible
+    format character a pasted number carries removed (phone_forms.SQL_STRIP)."""
     col = column
-    for ch in _PHONE_SEPARATORS:
+    for ch in phone_forms.SQL_STRIP:
         col = func.replace(col, ch, "")
     return col
 

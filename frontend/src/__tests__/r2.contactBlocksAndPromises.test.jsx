@@ -233,7 +233,49 @@ describe("Blokerede kontakter", () => {
     h.toast.mockReset();
     h.post.mockReset();
     await glem({ would_erase: { blocks: 0, reservations: 0, waitlist: 0 }, future_kept: 0 }, ERASED);
-    expect(h.toast.mock.calls[0][0].message).toBe(da.rsvpBlocksNothingKept);
+    // What was searched — never "nothing is kept" (fix round 4, review2 #3).
+    expect(h.toast.mock.calls[0][0].message).toBe(tDa("rsvpBlocksForgetNoneFound", { contact: "12 34 56 78" }));
+  });
+
+  // ── Fix round 4 (review2 #3): the entries that go are named; what stays is said ──
+  it("the confirm names the list's entry that goes, and the toast says what went", async () => {
+    const entry = { id: "a1b2c3d4", kind: "phone", hint: "•• •• •• 78", mode: "block" };
+    await glem({ ...PREVIEW, block_entries: [entry], blocks_kept: { shared: 0, unsure: [] } },
+      { ...ERASED, block_entries: [entry], blocks_kept: { shared: 0, unsure: [] } });
+    const msg = h.confirm.mock.calls[0][0].message;
+    expect(msg).toContain("3 tidligere bookinger, 1 plads på ventelisten og linjen •• •• •• 78 på denne liste");
+    expect(h.toast.mock.calls[0][0].message).toContain(
+      "Glemt: slettet fra 3 tidligere bookinger, 1 plads på ventelisten og linjen •• •• •• 78 på denne liste.");
+  });
+
+  it("an entry shared with another number, and one that can't be told apart, are said to stay", async () => {
+    const unsure = [{ id: "e5f6a7b8", kind: "phone", hint: "•• •• •• 12", mode: "spam" }];
+    const preview = { would_erase: { blocks: 0, reservations: 1, waitlist: 0 }, future_kept: 0,
+      block_entries: [], blocks_kept: { shared: 1, unsure } };
+    await glem(preview, { ...ERASED, erased: preview.would_erase, block_entries: [],
+      blocks_kept: { shared: 1, unsure }, future_kept: 0 });
+    const msg = h.confirm.mock.calls[0][0].message;
+    expect(msg).toContain(da.rsvpForgetSharedOne);
+    expect(msg).toContain(tDa("rsvpForgetUnsure", { hints: "•• •• •• 12" }));
+    expect(msg).not.toMatch(/linje(n)? .*på denne liste,|linje på denne liste og/);
+    const said = h.toast.mock.calls[0][0].message;
+    expect(said).toContain("Glemt: slettet fra 1 tidligere booking.");
+    expect(said).toContain(da.rsvpForgetSharedOne);
+    expect(said).toContain(tDa("rsvpForgetUnsure", { hints: "•• •• •• 12" }));
+  });
+
+  it("nothing found, but an entry stays: it is named, never 'nothing is kept'", async () => {
+    const unsure = [{ id: "e5f6a7b8", kind: "phone", hint: "•• •• •• 12", mode: "spam" }];
+    await glem({ would_erase: { blocks: 0, reservations: 0, waitlist: 0 }, future_kept: 0,
+      block_entries: [], blocks_kept: { shared: 0, unsure } }, ERASED);
+    expect(h.confirm).not.toHaveBeenCalled();
+    expect(h.toast.mock.calls[0][0].message).toBe(
+      `${da.rsvpBlocksForgetNothingYet} ${tDa("rsvpForgetUnsure", { hints: "•• •• •• 12" })}`);
+  });
+
+  it("an erase that found nothing says what it searched", async () => {
+    await glem(PREVIEW, { ...ERASED, removed: 0, erased: { blocks: 0, reservations: 0, waitlist: 0 }, future_kept: 0 });
+    expect(h.toast.mock.calls[0][0].message).toBe(tDa("rsvpBlocksForgetNoneFound", { contact: "12 34 56 78" }));
   });
 
   it("an erase that doesn't answer is never called done", async () => {
@@ -257,12 +299,19 @@ describe("Blokerede kontakter", () => {
       "rsvpForgetWaitOne", "rsvpForgetWaitN", "rsvpForgetListOne", "rsvpForgetListN",
       "rsvpBlocksForgetFutureOne", "rsvpBlocksForgetFutureN", "rsvpBlocksForgetFutureOneAppt",
       "rsvpBlocksForgetFutureNAppt", "rsvpBlocksForgottenFrom", "rsvpBlocksForgetNothingYet",
-      "rsvpBlocksForgetCheckFailed", "rsvpBlocksForgetUnsure"]) {
+      "rsvpBlocksForgetCheckFailed", "rsvpBlocksForgetUnsure",
+      "rsvpForgetListNamedOne", "rsvpForgetListNamedN", "rsvpForgetSharedOne", "rsvpForgetSharedN",
+      "rsvpForgetSharedOneAppt", "rsvpForgetSharedNAppt", "rsvpForgetUnsure", "rsvpForgetUnsureAppt",
+      "rsvpBlocksForgetNoneFound", "rsvpBlocksForgetNoneFoundAppt", "rsvpBlocksForgetNoneOnList"]) {
       expect(en[k], k).toBeTruthy();
       expect(da[k], k).toBeTruthy();
       expect(da[k], k).not.toBe(en[k]);
     }
     expect(da.rsvpBlocksForgetFutureN).toBe("{n} kommende bookinger beholder kontakten til besøget — aflys dem først, hvis gæsten bad om det.");
+    for (const k of ["rsvpForgetSharedOneAppt", "rsvpForgetSharedNAppt", "rsvpForgetUnsureAppt", "rsvpBlocksForgetNoneFoundAppt"]) {
+      expect(da[k], k).not.toMatch(/gæst|booking/i);
+      expect(en[k], k).not.toMatch(/guest|booking/i);
+    }
   });
 
   it("the card's words are real in en and da", () => {

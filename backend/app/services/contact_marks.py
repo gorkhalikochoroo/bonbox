@@ -23,7 +23,13 @@ STORE THE MINIMUM (GDPR). No address and no number is stored here. An entry:
   - `hint`: a masked form the owner recognises ("•• •• •• 78",
     "s•••@gmail.com") — the only readable trace, for the list and the undo;
   - `kind` (phone | email), `mode` (block | spam), `at` and `until` (dates),
-    a random `id`.
+    a random `id`;
+  - `fs` (phone entries, fix round 4 — review2 #3): the same keyed hashes of
+    the WHOLE number's canonical forms (utils/phone_forms.keys), one set per
+    number the entry was made for. The door still matches on `h` (the last
+    8 digits, the screen's same-guest rule); "Glem" erases an entry only
+    when its `fs` names the number asked about — a different number that
+    shares the last 8 digits keeps its block.
 RETENTION: an entry ends at `until` = `at` + BOOKING_CONTACT_MARK_DAYS (180)
 and is ignored from then on; expired entries are dropped on every owner read
 and write. ERASE: the owner removes one; a data subject's request is met by
@@ -49,6 +55,7 @@ from datetime import date, timedelta
 
 from app.config import settings as app_config
 from app.services.mailbox import canonical_mailbox
+from app.utils import phone_forms
 
 KEY = "contact_blocks"
 KINDS = ("phone", "email")
@@ -133,6 +140,29 @@ def _candidate_hashes(owner_id, email, phone) -> set[str]:
     return out
 
 
+# The whole number's exact keys (`fs`): never more than this many on an
+# entry (a few numbers that share their last 8 digits, two forms each).
+_FS_MAX = 16
+
+
+def _full_hashes(owner_id, phone, *, all_keys: bool = True) -> set[str]:
+    """The keyed hashes of the WHOLE number's canonical forms — under every
+    key (a lookup) or the current one only (a write)."""
+    secrets = _secrets() if all_keys else (_secrets() or [""])[:1]
+    return {_digest(owner_id, "phone_full", k, s)
+            for k in phone_forms.keys(phone) for s in secrets}
+
+
+def _fs_of(e) -> list[str]:
+    raw = e.get("fs") if isinstance(e, dict) else None
+    out = []
+    for x in raw if isinstance(raw, list) else []:
+        x = str(x)
+        if _HEX32.match(x) and x not in out:
+            out.append(x)
+    return out[:_FS_MAX]
+
+
 def hint_phone(norm: str) -> str:
     """"•• •• •• 78" — the last two digits, always the same shape."""
     return "•• •• •• " + (norm or "")[-2:]
@@ -177,10 +207,15 @@ def clean(raw, today: date) -> list[dict]:
         hint = str(e.get("hint") or "")[:60]
         entry = {"id": eid, "kind": kind, "h": h, "hint": hint, "mode": mode,
                  "at": at.isoformat(), "until": until.isoformat()}
+        fs = _fs_of(e) if kind == "phone" else []
+        if fs:
+            entry["fs"] = fs
         prev = by_h.get(h)
         if prev is None:
             by_h[h] = entry
             continue
+        if fs:
+            prev["fs"] = (prev.get("fs", []) + [x for x in fs if x not in prev.get("fs", [])])[:_FS_MAX]
         if prev["mode"] != "block" and mode == "block":
             prev["mode"] = "block"
         if entry["until"] > prev["until"]:
@@ -238,6 +273,7 @@ def add(entries, owner_id, *, email=None, phone=None, mode: str, today: date
     secret = (_secrets() or [""])[0]
     until = (today + timedelta(days=retention_days())).isoformat()
     created, upgraded = [], []
+    full = sorted(_full_hashes(owner_id, phone, all_keys=False))
     for kind, norm in _contacts(email, phone):
         cand = {_digest(owner_id, kind, norm, s) for s in _secrets()}
         h = _digest(owner_id, kind, norm, secret)
@@ -250,10 +286,15 @@ def add(entries, owner_id, *, email=None, phone=None, mode: str, today: date
             existing["at"] = today.isoformat()
             if until > existing["until"]:
                 existing["until"] = until
+            if kind == "phone" and full:
+                have = existing.get("fs", [])
+                existing["fs"] = (have + [x for x in full if x not in have])[:_FS_MAX]
             continue
         e = {"id": _secrets_mod.token_hex(4), "kind": kind, "h": h,
              "hint": hint_phone(norm) if kind == "phone" else hint_email(norm),
              "mode": mode, "at": today.isoformat(), "until": until}
+        if kind == "phone" and full:
+            e["fs"] = full
         current.append(e)
         created.append(e["id"])
     out = clean(current, today)
@@ -278,16 +319,55 @@ def remove(entries, entry_id: str, *, today: date, keep_mark: bool = False
     return out, changed
 
 
-def erase_contact(entries, owner_id, *, email=None, phone=None, today: date
-                  ) -> tuple[list[dict], int]:
-    """GDPR erasure by contact: drop every entry stored for this phone or
-    mailbox (either key). → (the new list, how many went)."""
+def erase_contact_detail(entries, owner_id, *, email=None, phone=None, today: date) -> dict:
+    """GDPR erasure by contact (fix round 4, review2 #3). The last 8 digits
+    (`h`) only PREFILTER; a phone entry goes only when its whole-number keys
+    (`fs`) name this number:
+      • an entry made for this number alone goes;
+      • one shared with another number that has the same last 8 digits
+        loses this number's keys and stays for the other ("shared");
+      • one made for another number only stays, untouched;
+      • one without whole-number keys cannot be told apart and stays, named
+        to the owner ("unsure") — never erased, never claimed as erased.
+    A mailbox entry is exact already (the mailbox is the key) and goes.
+    → {"entries": the new list, "gone": [as the app sees them],
+       "shared": n, "unsure": [as the app sees them]}."""
     current = clean(entries, today)
+    out = {"entries": current, "gone": [], "shared": 0, "unsure": []}
     cand = _candidate_hashes(owner_id, email, phone)
     if not cand:
-        return current, 0
-    keep = [e for e in current if e["h"] not in cand]
-    return keep, len(current) - len(keep)
+        return out
+    full = _full_hashes(owner_id, phone)
+    keep, gone, unsure, shared = [], [], [], 0
+    for e in current:
+        if e["h"] not in cand:
+            keep.append(e)
+            continue
+        if e["kind"] != "phone":
+            gone.append(e)
+            continue
+        fs = e.get("fs") or []
+        if not fs:
+            keep.append(e)
+            unsure.append(e)
+            continue
+        rest = [x for x in fs if x not in full]
+        if len(rest) == len(fs):
+            keep.append(e)                       # another number's entry
+        elif rest:
+            keep.append({**e, "fs": rest})       # this number's keys go
+            shared += 1
+        else:
+            gone.append(e)
+    return {"entries": keep, "gone": public_list(gone), "shared": shared,
+            "unsure": public_list(unsure)}
+
+
+def erase_contact(entries, owner_id, *, email=None, phone=None, today: date
+                  ) -> tuple[list[dict], int]:
+    """erase_contact_detail as (the new list, how many entries went)."""
+    d = erase_contact_detail(entries, owner_id, email=email, phone=phone, today=today)
+    return d["entries"], len(d["gone"])
 
 
 def public_list(entries) -> list[dict]:
