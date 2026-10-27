@@ -28,7 +28,7 @@
 // `api` client + auth/CSRF path as EventsPage (no bespoke fetch wrapper).
 //
 // DK terminology lock: revisor / MOMS etc. stay Danish across locales.
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WEEKDAY_KEY, toMin, sittingMinutes, openTimesFor, overrunsClose, windowsFor, windowAt, hm, bookableHoursFromSettings } from "../utils/bookingTimes";
 import { warningFrom, roomFullText } from "../utils/bookingRefusal";
 import { createPortal } from "react-dom";
@@ -520,7 +520,9 @@ export default function ReservationsPage() {
   // re-derived from the link row. So this client gate is both wrong and
   // redundant here — if the venue genuinely lacks the feature, the API returns
   // 402 and the page surfaces that honestly instead of guessing.
-  if (!isStandDevice) {
+  // __STAND_BUILD__ (R11): the door screen's own build is only ever a paired
+  // device, so the owner's gate and its upgrade card are left out of it.
+  if (!__STAND_BUILD__ && !isStandDevice) {
     if (!isReady) return null;
     if (!hasFeature("reservations")) {
     return (
@@ -571,10 +573,10 @@ export default function ReservationsPage() {
       {/* BookSection's own standalone wrapper already sets full-bleed padding
           and safe-area insets, and its header already prints the venue name and
           "Vært-skærm" — the owner wrapper and title would double both. */}
-      {!isHostStand && (
+      {!__STAND_BUILD__ && !isHostStand && (
         <PageTitle t={t} isProvider={apptWords} websiteHref="/reservations?tab=settings&show=website" />
       )}
-      {!isHostStand && (
+      {!__STAND_BUILD__ && !isHostStand && (
       <TabPills
         tabs={[
           // Salon (provider) reads "Aftaler" (the appointment book) instead of
@@ -643,7 +645,7 @@ export default function ReservationsPage() {
         >
           {/* A host never changes the date mid-service, and the month grid was
               holding the prime top-left of a screen read at arm's length. */}
-          {!isHostStand && (
+          {!__STAND_BUILD__ && !isHostStand && (
           <div className="hidden min-[1680px]:block min-[1680px]:sticky min-[1680px]:top-6">
             <DayRail day={bookDay} onPick={setBookDay} t={t} apptWords={apptWords} />
             <div ref={setRailSlot} className="mt-4 empty:hidden" />
@@ -661,12 +663,13 @@ export default function ReservationsPage() {
           </div>
         </div>
       )}
-      {tab === "floor" && showFloor && <FloorSection t={t} businessType={user?.business_type} />}
-      {tab === "behandlinger" && isProvider && <BehandlingerSection t={t} />}
+      {/* The owner's tabs — never in the door screen's own build (R11). */}
+      {!__STAND_BUILD__ && tab === "floor" && showFloor && <FloorSection t={t} businessType={user?.business_type} />}
+      {!__STAND_BUILD__ && tab === "behandlinger" && isProvider && <BehandlingerSection t={t} />}
       {/* Insights mounts lazily (only when its tab is open) so it never blocks
           the Book view's first paint; the fetch fires on mount. */}
-      {tab === "insights" && <InsightsSection t={t} zones={insightsZones} />}
-      {tab === "settings" && (
+      {!__STAND_BUILD__ && tab === "insights" && <InsightsSection t={t} zones={insightsZones} />}
+      {!__STAND_BUILD__ && tab === "settings" && (
         <SettingsSection t={t} user={user} tablePlan={tablePlan} onlineNotReady={onlineNotReady} />
       )}
     </div>
@@ -966,19 +969,24 @@ function FloorView({ reservations, resources, t, businessType, onSelect, onSeatN
   }, [reservations]);
 
   return (
-    <FloorPlan
-      cells={cells}
-      nowMs={nowMs}
-      t={t}
-      businessType={businessType}
-      onSelect={onSelect}
-      onSeatNow={onSeatNow}
-      nextBookingId={nextBookingId}
-      onResourcesChanged={onResourcesChanged}
-      canArrange={canArrange}
-      fixtures={fixtures}
-      fitToScreen={fitToScreen}
-    />
+    // The door screen's own build loads the plan the first time the Plan
+    // lens opens (src/stand/standFloorPlan.jsx, R11): its skeleton stands in
+    // meanwhile. In the owner app nothing waits here.
+    <Suspense fallback={<FloorSkeleton />}>
+      <FloorPlan
+        cells={cells}
+        nowMs={nowMs}
+        t={t}
+        businessType={businessType}
+        onSelect={onSelect}
+        onSeatNow={onSeatNow}
+        nextBookingId={nextBookingId}
+        onResourcesChanged={onResourcesChanged}
+        canArrange={canArrange}
+        fixtures={fixtures}
+        fitToScreen={fitToScreen}
+      />
+    </Suspense>
   );
 }
 
@@ -7111,7 +7119,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // /reservations/stand in a new tab — a dedicated host-stand display. Hidden
   // while already inside the pop-out. On a phone it sits after the lens
   // switch, under Refresh — or beside Refresh when there is no lens switch.
-  const standPopOut = !standalone ? (
+  const standPopOut = !__STAND_BUILD__ && !standalone ? (
     <button
       type="button"
       onClick={() =>
@@ -7203,7 +7211,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           only beside the floor PLAN: there the host sees the room but not the
           queue. Beside Liste or Tidslinje it repeated what the page already
           shows. A day that is over has nothing coming, so no list at all. */}
-      {railSlot && !loading && view === "plan" && day >= todayIso &&
+      {!__STAND_BUILD__ && railSlot && !loading && view === "plan" && day >= todayIso &&
         createPortal(
           <UpcomingRail
             t={t}
@@ -7353,7 +7361,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           gets a calm "confirm your hours → open for booking" card in place of
           the empty, confusing book. One tap seeds the self-chair + enables
           reservations; the live book renders the moment a station exists. */}
-      {salonFirstRun && (
+      {!__STAND_BUILD__ && salonFirstRun && (
         <SalonFirstRunCard
           t={t}
           hours={salonHours}
@@ -7371,7 +7379,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
 
       {/* A salon with bookings but no behandler yet (a café that became a
           salon): the book stays, with one line on what opens online booking. */}
-      {salonNeedsSetup && !salonFirstRun && !standalone && (
+      {!__STAND_BUILD__ && salonNeedsSetup && !salonFirstRun && !standalone && (
         <div
           role="status"
           data-testid="salon-setup-nudge"
@@ -7433,7 +7441,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       {/* What a salon owner must act on (R6): next week without published
           shifts ("Kopiér sidste uge"), and appointments on a stylist's Ferie
           or Syg day ("Flyt" opens the booking). Owner session only. */}
-      {isProvider && !standalone && !salonFirstRun && !salonNeedsSetup && (
+      {!__STAND_BUILD__ && isProvider && !standalone && !salonFirstRun && !salonNeedsSetup && (
         <SalonAttention t={t} lang={lang} refreshKey={bookTick} onOpenBooking={openOtherDay} />
       )}
 
@@ -7797,7 +7805,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       {/* A salon's day in one line (R7, rubric S5): "2 kan bookes samtidig
           (dig og Mia)" — who customers can book on the day shown. Owner page
           only; the stand is a service screen. */}
-      {isProvider && !standalone && !salonNeedsSetup && (
+      {!__STAND_BUILD__ && isProvider && !standalone && !salonNeedsSetup && (
         <SalonDayCapacity t={t} lang={lang} day={day} />
       )}
       <StatStrip
