@@ -280,6 +280,18 @@ def _at_month_cap(db: Session, owner: User) -> bool:
         return False
 
 
+def _cap_closes_page(db: Session, owner: User) -> bool:
+    """Does the plan's monthly cap close the booking page right now? Only
+    when the cap is reached AND the cap does not take requests instead
+    (R1b, booking_screen.plan_cap_requests_on — off unless the volume switch
+    or BOOKING_PLAN_CAP_REQUESTS says so). With requests on, the page stays
+    open at the cap: every day keeps its times, and a booking made there
+    waits for the owner's yes (plan_cap) — never "not accepting"."""
+    if booking_screen.plan_cap_requests_on():
+        return False
+    return _at_month_cap(db, owner)
+
+
 
 def _receipt_token(r) -> str:
     """The booking-poll token the receipt page keeps. Same lifetime as the
@@ -474,7 +486,9 @@ def availability(request: Request, slug: str = Path(...),
     # older client sees an empty `slots` array and renders its normal
     # no-availability state, which is already the honest outcome. `reason`
     # (additive, only when `slots` is empty) speaks the day-strip vocabulary.
-    if _at_month_cap(db, owner):
+    # R1b: when the cap takes requests (_cap_closes_page), the page stays
+    # open and nothing here changes — the booking itself waits for the owner.
+    if _cap_closes_page(db, owner):
         return {"date": day, "party_size": party, "slots": [],
                 "group_request": False, "closed_reason": "not_accepting",
                 "reason": "not_accepting"}
@@ -565,7 +579,7 @@ def availability_summary(request: Request, slug: str = Path(...),
     # of walking the whole horizon looking for an evening that cannot exist.
     # The top-level `closed_reason` (the name /availability already uses) lets
     # the page show one "paused" panel instead of a strip of dead days.
-    if _at_month_cap(db, owner):
+    if _cap_closes_page(db, owner):
         return {
             "from": base.isoformat(), "party_size": party, "next_open_day": None,
             "closed_reason": "not_accepting",
@@ -754,7 +768,7 @@ def provider_availability(request: Request, slug: str = Path(...),
     # offered times here, and the create endpoint then refused the booking
     # (409) after the guest had typed their details. Under the cap nothing
     # changes, and a billing error fails open (_at_month_cap).
-    if _at_month_cap(db, owner):
+    if _cap_closes_page(db, owner):
         return {**empty, "closed_reason": "not_accepting", "reason": "not_accepting"}
     closure = _closure_for(settings, target)
     if closure:
@@ -802,13 +816,18 @@ def _send_confirmation(owner: User, profile: BusinessProfile, r: Reservation,
 
 
 def _notify_owner_email(owner: User, profile: BusinessProfile, r: Reservation,
-                        db: Session | None = None) -> bool:
+                        db: Session | None = None, *, hold_reason: str | None = None) -> bool:
     """Owner email for a new online booking, in the owner's language — the
     dependable companion to the device push (which only lands when the owner
     enabled notifications). Carries the guest's contact so the owner can call
-    back; replying goes to the guest. Never blocks the booking."""
+    back; replying goes to the guest. Never blocks the booking.
+    `hold_reason` "plan_cap" (R1b): the plan's monthly cap is reached — the
+    mail says so and how to lift it (the upgrade nudge)."""
     try:
-        return reservation_emails.send_owner_new_booking(db, owner, profile, r)
+        plan_cap = None
+        if hold_reason == "plan_cap":
+            plan_cap = booking_screen.monthly_cap(owner)
+        return reservation_emails.send_owner_new_booking(db, owner, profile, r, plan_cap=plan_cap)
     except Exception as exc:  # noqa: BLE001 — best-effort
         logger.warning("owner reservation email failed: %s", type(exc).__name__)
         return False
@@ -885,6 +904,14 @@ def _send_booking_notifications(reservation_id: str, owner_id: str,
             owner_booking_alerts.log_suppressed(
                 db, owner.id, "reservation_created", why=owner_booking_alerts.HELD_FOR_SUMMARY)
             return
+        # R1b (D3): at night (22–07) only a booking that starts within
+        # OWNER_NIGHT_PING_WITHIN_HOURS pings; the rest waits for the 07:00
+        # summary (owner_booking_alerts.waits_for_morning; off unless the
+        # volume switch or OWNER_NIGHT_QUIET says so).
+        if owner_booking_alerts.waits_for_morning(r.starts_at, now_utc=utc_now()):
+            owner_booking_alerts.log_suppressed(
+                db, owner.id, "reservation_created", why=owner_booking_alerts.QUIET_NIGHT)
+            return
         held = hold_reason is not None
         ping = owner_booking_alerts.decide(db, owner.id, now_utc=utc_now(),
                                            event="reservation_created", held=held)
@@ -894,7 +921,7 @@ def _send_booking_notifications(reservation_id: str, owner_id: str,
                 notify_owner_new_reservation(db, owner, r)  # owner device push
             except Exception as exc:  # noqa: BLE001
                 logger.warning("owner reservation notify failed: %s", exc)
-            _notify_owner_email(owner, profile, r, db)       # owner email
+            _notify_owner_email(owner, profile, r, db, hold_reason=hold_reason)  # owner email
         elif ping.decision == "burst":
             owner_booking_alerts.send_summary(db, owner, profile, ping,
                                               today=_now_local().date().isoformat())
@@ -952,6 +979,14 @@ def _send_guest_cancel_notifications(reservation_id: str, owner_id: str,
         if hold_reason in booking_screen.BOT_REASONS:
             owner_booking_alerts.log_suppressed(
                 db, owner.id, "reservation_cancelled", why=owner_booking_alerts.HELD_BOT)
+            db.commit()
+            return
+        # R1b (D3): at night a cancellation pings only when its booking
+        # starts within OWNER_NIGHT_PING_WITHIN_HOURS — the table freed for
+        # tonight or tomorrow's breakfast; the rest is in the 07:00 summary.
+        if owner_booking_alerts.waits_for_morning(r.starts_at, now_utc=utc_now()):
+            owner_booking_alerts.log_suppressed(
+                db, owner.id, "reservation_cancelled", why=owner_booking_alerts.QUIET_NIGHT)
             db.commit()
             return
 
@@ -1191,7 +1226,13 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     # L7 — owner's monthly cap → generic 409 (no tier leak to the visitor).
     # Counting semantics live in _month_reservations_used; read that comment
     # before changing anything here.
-    if _at_month_cap(db, owner):
+    # R1b: when the cap takes requests (booking_screen.plan_cap_requests_on),
+    # the booking goes in as a request on no table (plan_cap) instead — the
+    # guest reads "Forespørgsel modtaget", the owner decides and is nudged to
+    # upgrade. A group request is a request already. Never a tier word to the
+    # guest either way.
+    at_plan_cap = _at_month_cap(db, owner)
+    if at_plan_cap and not booking_screen.plan_cap_requests_on():
         raise HTTPException(status_code=409, detail={"error": "not_accepting"})
 
     # A date the owner closed for online booking (Lukkedage og pauser) — on
@@ -1211,26 +1252,31 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
         return _screen_and_book(
             db, background_tasks, owner=owner, profile=profile, payload=payload,
             start=start, settings=settings, idempotency_key=idempotency_key,
-            salon=salon, is_request=is_request,
+            salon=salon, is_request=is_request, at_plan_cap=at_plan_cap,
         )
 
 
 def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: User,
                      profile: BusinessProfile, payload, start: datetime, settings: dict,
-                     idempotency_key, salon: bool, is_request: bool):
-    """The screen and the write, under the venue lock (create_reservation)."""
+                     idempotency_key, salon: bool, is_request: bool,
+                     at_plan_cap: bool = False):
+    """The screen and the write, under the venue lock (create_reservation).
+    `at_plan_cap`: the plan's monthly cap is reached and it takes requests
+    (R1b) — the screen holds the booking as plan_cap."""
     try:
         sitting_min = (rsvc.resolve_behandling_duration(db, owner.id, payload.behandling_id)
                        if salon else rsvc.resolve_duration(profile, payload.party_size))
     except Exception:  # noqa: BLE001 — the sitting rule just skips
         sitting_min = None
+    n_tables, n_chairs = _resource_counts(db, owner.id)
 
     # Guest-invisible screening (services/booking_screen.py), on the text as
     # it was typed (a link in the name is one of its signals).
     screen = booking_screen.screen_public_booking(
         db, owner=owner, settings=settings, payload=payload, is_request=is_request,
-        n_resources=_bookable_count(db, owner.id), now_utc=utc_now(),
+        n_resources=n_tables + n_chairs, now_utc=utc_now(),
         now_local=_now_local(), start=start, duration_min=sitting_min, chairs=salon,
+        profile=profile, n_tables=n_tables, n_chairs=n_chairs, at_plan_cap=at_plan_cap,
     )
     if screen.action == "drop":
         # The trap field, filled at bot speed. No row, no message — and never
@@ -1415,6 +1461,21 @@ def _guest_mail_plan(db: Session, owner: User, r: Reservation,
         except Exception:  # noqa: BLE001
             pass
         return False, (False if hold_reason else None)
+
+
+def _resource_counts(db: Session, user_id) -> tuple[int, int]:
+    """(tables, chairs) — the venue's size for the screen's ceilings (R1b:
+    a chair's day is not a table's). One GROUP BY; a read error counts
+    (0, 0) and the ceilings use their floors."""
+    try:
+        return booking_screen.resource_counts(db, user_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("resource counts failed", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return 0, 0
 
 
 def _bookable_count(db: Session, user_id) -> int:

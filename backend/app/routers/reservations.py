@@ -675,7 +675,20 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
         # -1 means unlimited; the UI renders nothing in that case.
         "reservations_used_this_month": _month_usage(db, user),
         "reservations_cap": get_cap(user, "reservations_per_month"),
+        # R1b: what the cap does once it is reached — "requests" (the page
+        # stays open; online bookings wait for the owner's yes) or "closed"
+        # (the page takes no more online bookings this month). The book's
+        # banner reads it, with the upgrade nudge.
+        "month_cap_mode": _month_cap_mode(),
     }
+
+
+def _month_cap_mode() -> str:
+    try:
+        from app.services.booking_screen import plan_cap_requests_on
+        return "requests" if plan_cap_requests_on() else "closed"
+    except Exception:  # noqa: BLE001 — a label, never a 500 for the settings
+        return "closed"
 
 
 # What the door needs from the venue's booking rules to say "free now" or
@@ -1885,6 +1898,12 @@ def reservation_book(
                 # The drawer names the real limit, not a hard-coded 3.
                 from app.config import settings as _cfg
                 d["held"]["limit"] = int(_cfg.BOOKING_CONTACT_ACTIVE_MAX)
+            elif h.get("reason") == "plan_cap":
+                # R1b: the plan's monthly cap the drawer names ("Månedens 20
+                # bookinger er brugt"); unknown or unlimited → none.
+                cap = booking_screen.monthly_cap(user)
+                if cap:
+                    d["held"]["limit"] = int(cap)
         # Did the guest get an e-mail from us about this booking? The owner's
         # decline of a held booking says whether the guest will hear.
         d["guest_mailed"] = r.confirmation_sent_at is not None

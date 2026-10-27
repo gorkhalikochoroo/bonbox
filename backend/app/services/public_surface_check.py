@@ -25,7 +25,9 @@ from app.services import venue_identity
 _HORIZON_DAYS = 14
 _PROBE_PARTY = 2
 # Codes that say something true about the page but are not a defect.
-_INFO_CODES = ("owner_closed",)
+# monthly_cap_requests (R1b): the plan's monthly cap is reached and the page
+# stays open, taking online bookings as requests the owner confirms.
+_INFO_CODES = ("owner_closed", "monthly_cap_requests")
 
 
 def check_slug(db, *, profile, owner, now) -> dict:
@@ -92,12 +94,17 @@ def check_slug(db, *, profile, owner, now) -> dict:
         from app.routers.public_reservations import _month_reservations_used
         from app.services.billing import at_cap, get_cap
 
+        from app.services.booking_screen import plan_cap_requests_on
+
         used = _month_reservations_used(db, owner)
         cap = get_cap(owner, "reservations_per_month")
         detail["reservations_used_this_month"] = used
         detail["reservations_cap"] = cap
         if at_cap(owner, "reservations_per_month", used):
-            codes.append("monthly_cap_reached")
+            # R1b: with the cap taking requests the page is alive — a true
+            # fact for the operator (info), never the urgent dead-page code.
+            codes.append("monthly_cap_requests" if plan_cap_requests_on()
+                         else "monthly_cap_reached")
     except Exception as e:  # inconclusive — never flag on our own probe error
         detail["cap_check_error"] = str(e)[:160]
 
