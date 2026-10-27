@@ -33,6 +33,16 @@
  * rewrites the poll onto /stand/<token>/changes, which the backend wraps with
  * the same tenant-scoped, PII-minimal handler. Logged out AND unpaired is still
  * inert.
+ *
+ * R10 — THE SAME POLL KEEPS EVERY OPEN BOOK CURRENT. While a book is on screen
+ * the poll also names its day (lib/bookLive), and the server answers that
+ * day's revision. A different revision means someone changed the day — the
+ * owner's phone booking, a host's walk-in, a move, the Venteliste — and the
+ * book reloads quietly: no toast, no sound, the rules above unchanged. So a
+ * change shows on every screen within ~20 s instead of up to 75 s. That part
+ * runs even with the alerts switched off on this device: a quiet book is not
+ * a stale one. The loop schedules itself with a random spread, backs off while
+ * BonBox cannot be reached, and asks once per wake.
  */
 import {
   createContext,
@@ -51,9 +61,16 @@ import { playCancel, playChime, playUrgent, prepareSoundWhenIdle, unlockSound } 
 import { onApiIdle } from "../services/apiActivity";
 import { useGuestSurface } from "../lib/guestSurface";
 import { RESERVATIONS_CHANGED_EVENT, alertSoundFor, splitHeld } from "../lib/liveAlertKinds";
+import {
+  BOOK_FRESH_EVENT,
+  BOOK_UNREACHABLE_EVENT,
+  WAKE_GAP_MS,
+  bookRevVerdict,
+  nextPollDelay,
+  watchedBook,
+} from "../lib/bookLive";
 import { guestText } from "../utils/guestText";
 
-const POLL_MS = 20000;
 const FEED_CAP = 25;
 const TOAST_MS = 9000;
 
@@ -131,9 +148,11 @@ export function LiveAlertsProvider({ children }) {
   const enabledRef = useRef(enabled);
   const soundRef = useRef(sound);
   const activeRef = useRef(active);
+  const isStandRef = useRef(isStand);
   useEffect(() => { enabledRef.current = enabled; }, [enabled]);
   useEffect(() => { soundRef.current = sound; }, [sound]);
   useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { isStandRef.current = isStand; }, [isStand]);
 
   const setEnabled = useCallback((v) => {
     setEnabledState(v);
@@ -233,40 +252,56 @@ export function LiveAlertsProvider({ children }) {
     [t],
   );
 
+  // The loop below reads these through refs, so a language load (a new `t`)
+  // never restarts it — a restart used to send an extra poll at once.
+  const describeRef = useRef(describe);
+  const tRef = useRef(t);
+  useEffect(() => { describeRef.current = describe; }, [describe]);
+  useEffect(() => { tRef.current = t; }, [t]);
+
   // ── The poll loop ───────────────────────────────────────────────────
   useEffect(() => {
     if (!active) return undefined;
 
+    // Every (re)start primes afresh: a door screen re-paired to another venue,
+    // or a session that came back, never replays what happened meanwhile.
+    lastSeenRef.current = null;
     let cancelled = false;
-    const tick = async () => {
-      if (cancelled) return;
-      if (!enabledRef.current || !activeRef.current) return;
-      if (typeof document !== "undefined" && document.hidden) return; // visible-only
-      const since = lastSeenRef.current;
+    let timer = null;
+    let failures = 0; // consecutive polls that could not reach BonBox
+    let inFlight = false;
+    let lastAskedAt = 0;
+
+    const emit = (name, detail) => {
       try {
-        const res = await api.get("/reservations/changes", {
-          params: since ? { since } : {},
-          _noRetry: true,
-        });
-        if (cancelled) return;
-        const serverTime = res?.data?.server_time;
-        const changes = Array.isArray(res?.data?.changes) ? res.data.changes : [];
-        // First successful poll just anchors lastSeen — never alerts on history.
-        if (!since) {
-          lastSeenRef.current = serverTime || new Date().toISOString();
-          return;
-        }
-        lastSeenRef.current = serverTime || lastSeenRef.current;
+        window.dispatchEvent(new CustomEvent(name, { detail }));
+      } catch {
+        /* no window — nothing listening either */
+      }
+    };
 
-        const fresh = changes.filter((c) => {
-          const key = `${c.id}:${c.updated_at || ""}`;
-          if (seenRef.current.has(key)) return false;
-          seenRef.current.add(key);
-          return true;
-        });
-        if (!fresh.length) return;
+    // The alerts half: toasts, the feed and ONE sound per poll, exactly as
+    // before R10. Returns true when fresh guest events arrived.
+    const alertOn = (since, data) => {
+      const serverTime = data?.server_time;
+      const changes = Array.isArray(data?.changes) ? data.changes : [];
+      // First successful poll just anchors lastSeen — never alerts on history.
+      if (!since) {
+        lastSeenRef.current = serverTime || new Date().toISOString();
+        return false;
+      }
+      lastSeenRef.current = serverTime || lastSeenRef.current;
 
-        const items = fresh.map(describe);
+      const fresh = changes.filter((c) => {
+        const key = `${c.id}:${c.updated_at || ""}`;
+        if (seenRef.current.has(key)) return false;
+        seenRef.current.add(key);
+        return true;
+      });
+      if (!fresh.length) return false;
+      const t = tRef.current;
+      {
+        const items = fresh.map((c) => describeRef.current(c));
 
         // Feed (newest first, capped) + unread badge.
         setFeed((cur) => [...items, ...cur].slice(0, FEED_CAP));
@@ -325,31 +360,121 @@ export function LiveAlertsProvider({ children }) {
           else if (kind === "cancel") playCancel();
           else if (kind === "chime") playChime();
         }
-
-        // Tell an open booking list to reload now, instead of on its own
-        // 75-second cycle (which only runs on today's view).
-        try {
-          window.dispatchEvent(new CustomEvent(RESERVATIONS_CHANGED_EVENT));
-        } catch {
-          /* no window — nothing listening either */
-        }
-      } catch {
-        // Network blip / 401 mid-session — stay silent, try again next tick.
       }
+      return true;
+    };
+
+    // One poll. Resolves true when BonBox answered, false when it could not
+    // be reached.
+    const tick = async () => {
+      if (!activeRef.current) return true;
+      const book = watchedBook();
+      const alerts = enabledRef.current;
+      // Alerts off: carry no old anchor, so switching them on again primes
+      // afresh instead of replaying everything since (the book half still
+      // runs — a quiet device must not show a stale book).
+      if (!alerts) lastSeenRef.current = null;
+      // Alerts off and no book open: nothing to ask.
+      if (!alerts && !book) return true;
+      const since = alerts ? lastSeenRef.current : null;
+      const params = {};
+      if (since) params.since = since;
+      if (book && book.day) params.day = book.day;
+      let res;
+      try {
+        res = await api.get("/reservations/changes", { params, _noRetry: true });
+      } catch (e) {
+        // A paired door screen whose link was removed gets 404 on every poll.
+        // The book says so on screen; this only stops asking every 20 s.
+        if (isStandRef.current && e?.response?.status === 404) failures = Math.max(failures, 4);
+        return false;
+      }
+      if (cancelled) return true;
+      const data = res?.data || {};
+
+      // The book on screen (R10): reload quietly when the day moved; say
+      // "current" when it did not (that is what clears the Offline line).
+      const verdict = bookRevVerdict(book, data);
+      let reload = verdict === "changed";
+      if (verdict === "same") emit(BOOK_FRESH_EVENT, { day: book.day });
+
+      if (alerts && alertOn(since, data)) reload = true;
+
+      // Tell an open booking list to reload now — ONE reload per poll however
+      // the change was learned. `from: "live"` tells it apart from the page's
+      // own "I just changed something" event, after which the page reloads
+      // itself anyway.
+      if (reload) emit(RESERVATIONS_CHANGED_EVENT, { from: "live" });
+      return true;
+    };
+
+    const schedule = (ms) => {
+      if (cancelled) return;
+      clearTimeout(timer);
+      timer = setTimeout(run, Math.max(0, ms));
+    };
+
+    async function run() {
+      if (cancelled) return;
+      // Visible screens only. A hidden one asks nothing; the wake below asks
+      // at once when it shows again.
+      if ((typeof document !== "undefined" && document.hidden) || inFlight) {
+        schedule(nextPollDelay({ failures, bookOpen: !!watchedBook() }));
+        return;
+      }
+      inFlight = true;
+      lastAskedAt = Date.now();
+      let ok = true;
+      try {
+        ok = await tick();
+      } catch {
+        ok = true; // a rendering slip is not the network
+      } finally {
+        inFlight = false;
+      }
+      if (cancelled) return;
+      if (ok) {
+        // Back after a gap: an open book drops its Offline line (a revision
+        // that matches says so too, but an older server sends none).
+        if (failures > 0) emit(BOOK_UNREACHABLE_EVENT, { failures: 0 });
+        failures = 0;
+      } else {
+        failures += 1;
+        emit(BOOK_UNREACHABLE_EVENT, { failures });
+      }
+      schedule(nextPollDelay({ failures, bookOpen: !!watchedBook() }));
+    }
+
+    // A screen waking up (unlocked iPad, tab shown, page back from the
+    // back-forward cache) asks at once — but once: these events often fire
+    // together, and a burst of them is still one question.
+    const wake = () => {
+      if (cancelled || (typeof document !== "undefined" && document.hidden)) return;
+      if (inFlight || Date.now() - lastAskedAt < WAKE_GAP_MS) return;
+      schedule(0);
+    };
+    // The network came back: ask soon, at a random moment in the next two
+    // seconds, so every screen in the building (or the country, after an
+    // outage) does not ask in the same instant.
+    const onOnline = () => {
+      failures = 0;
+      schedule(Math.round(Math.random() * 2000));
     };
 
     // Prime lastSeen immediately so the first real tick has an anchor, but
     // don't alert on the priming call.
-    tick();
-    const id = setInterval(tick, POLL_MS);
-    const onVisible = () => { if (!document.hidden) tick(); };
-    document.addEventListener("visibilitychange", onVisible);
+    run();
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("pageshow", wake);
+    window.addEventListener("online", onOnline);
     return () => {
       cancelled = true;
-      clearInterval(id);
-      document.removeEventListener("visibilitychange", onVisible);
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("pageshow", wake);
+      window.removeEventListener("online", onOnline);
     };
-  }, [active, describe, t]);
+  }, [active]);
 
   // Auto-dismiss — but NEVER a severe-allergy toast. A severe allergy is a
   // safety event: it stays on screen until a staff member deliberately taps
