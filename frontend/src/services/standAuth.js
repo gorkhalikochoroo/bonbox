@@ -119,3 +119,32 @@ export function standRewrite(url) {
   const tail = url.slice("/reservations".length);
   return `/stand/${token}${tail}`;
 }
+
+// ── The door screen's shape (R11, rubric B11) ─────────────────────────────
+// A paired device has no session, so it does not know the venue's type until
+// /resources answers — and the table chrome (the lens switch, the drop-in
+// button and the drop-in row) used to pop in then, pushing the whole night
+// down on the door iPad (CLS 0.81, 20 Oct). The device keeps the shape it
+// last had — "table" or "provider" — so the first paint after a restart is
+// already the right one. Not a credential and not personal: one word.
+const LAYOUT_KEY = "bonbox_stand_layout";
+
+/** "table" | "provider" | null (never learned on this device). */
+export function rememberedStandLayout() {
+  try {
+    const v = localStorage.getItem(LAYOUT_KEY);
+    return v === "table" || v === "provider" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remember what the tables said ("table" when the venue has any). */
+export function rememberStandLayout(kind) {
+  try {
+    if (kind !== "table" && kind !== "provider") return;
+    if (localStorage.getItem(LAYOUT_KEY) !== kind) localStorage.setItem(LAYOUT_KEY, kind);
+  } catch {
+    /* private mode: the next restart guesses "table" again */
+  }
+}
