@@ -1336,12 +1336,19 @@ export default function ReservationPublicPage() {
   // on error dayMap stays null and the single-day flow + phone fallback still run.
   // One person for a salon, a shop or a workshop — as the page asks.
   const summaryParty = isProvider || apptWords ? 1 : (party || 2);
+  // A salon's strip counts the service the customer chose (R6): a 90-minute
+  // colour does not fit a day whose only gap is 45 minutes. Before a choice
+  // the server counts the shortest service the salon offers.
+  const summaryService = isProvider && behandlingId ? String(behandlingId) : "";
   useEffect(() => {
     if (!page) return;
     let alive = true;
     api
       .get(`/public/reservations/${slug}/availability-summary`, {
-        params: { from: today, days: 14, party: summaryParty },
+        params: {
+          from: today, days: 14, party: summaryParty,
+          ...(summaryService ? { behandling_id: summaryService } : {}),
+        },
       })
       .then((res) => {
         if (!alive) return;
@@ -1387,7 +1394,7 @@ export default function ReservationPublicPage() {
     };
     // re-run when party changes (open days depend on party size), and when a
     // refusal says the strip is out of date (summaryNonce)
-  }, [page, slug, summaryParty, today, summaryNonce]);
+  }, [page, slug, summaryParty, summaryService, today, summaryNonce]);
   const dayReasons = reasonsFor && reasonsFor.party === summaryParty ? reasonsFor.reasons : null;
 
   // ── Per-venue document title + OG tags ────────────────────────────
