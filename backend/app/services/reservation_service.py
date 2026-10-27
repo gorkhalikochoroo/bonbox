@@ -1277,31 +1277,51 @@ def aliases_after_change(settings, old: str | None, new: str,
     return rest[:SLUG_ALIAS_MAX], rest[SLUG_ALIAS_MAX:]
 
 
-def alias_profile(db: Session, slug) -> BusinessProfile | None:
-    """The venue whose OLD link this is, or None.
+def alias_lookup(db: Session, slug) -> tuple[str, BusinessProfile | None]:
+    """Whose OLD link is `slug`? ("found", profile) | ("none", None) |
+    ("unknown", None) — the lookup failed, which is never "free".
 
     One indexed-free probe, run only when no venue has `slug` as its link
     (the public pages) or before a slug is handed out: a LIKE on the settings
-    text narrows the rows, the parsed list decides. Every write of the list
-    goes through json.dumps with its default separators, so the needle
-    `"slug": "<slug>"` matches exactly how it is stored; a slug holds only
-    [a-z0-9-], so it carries no LIKE wildcard."""
+    text narrows the rows, the PARSED top-level `slug_aliases` list decides —
+    any other key that happens to hold the same text (a closure note, or a
+    {"n": {"slug": ...}} an owner stored through PUT /settings) never counts.
+    Every write of the list goes through json.dumps with its default
+    separators, so the needle `"slug": "<slug>"` matches how it is stored; a
+    slug holds only [a-z0-9-], so it carries no LIKE wildcard.
+
+    Fix round 27 Oct (review P2-1): NO LIMIT and a fixed order (the oldest
+    profile first, then its id). With `.limit(25)` and no order, 25 accounts
+    planting decoys made a venue's old link answer 410 and let another venue
+    claim it. Only (id, settings) are read for the candidates."""
     if not is_slug_shape(slug):
-        return None
+        return "none", None
     try:
         rows = (
-            db.query(BusinessProfile)
-            .filter(BusinessProfile.reservation_settings_json.like(f'%"slug": "{slug}"%'))
-            .limit(25)
+            db.query(BusinessProfile.id, BusinessProfile.reservation_settings_json)
+            .filter(BusinessProfile.reservation_settings_json.like('%"slug_aliases"%'),
+                    BusinessProfile.reservation_settings_json.like(f'%"slug": "{slug}"%'))
+            .order_by(BusinessProfile.created_at.asc(), BusinessProfile.id.asc())
             .all()
         )
+        for pid, raw in rows:
+            try:
+                stored = json.loads(raw) if raw else None
+            except (TypeError, ValueError):
+                continue
+            if isinstance(stored, dict) and any(a["slug"] == slug for a in slug_aliases(stored)):
+                return "found", db.query(BusinessProfile).filter(BusinessProfile.id == pid).first()
     except SQLAlchemyError:
         logger.warning("old-link lookup failed for %r", slug, exc_info=True)
-        return None
-    for p in rows:
-        if any(a["slug"] == slug for a in slug_aliases(load_settings(p))):
-            return p
-    return None
+        return "unknown", None
+    return "none", None
+
+
+def alias_profile(db: Session, slug) -> BusinessProfile | None:
+    """The venue whose OLD link this is, or None (none, or the lookup failed
+    — the public page then answers as for an unknown link). A caller that
+    HANDS OUT a slug asks alias_lookup and treats a failure as taken."""
+    return alias_lookup(db, slug)[1]
 
 
 def booking_hours_days(settings) -> list[str]:

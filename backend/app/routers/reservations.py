@@ -344,8 +344,9 @@ def _allocate_slug(db: Session, base: str) -> str:
             .first()
         )
         # R9: never another venue's OLD link either — its printed QR codes
-        # still open that venue's page, and must not land on a new one.
-        if exists is None and rsvc.alias_profile(db, cand) is None:
+        # still open that venue's page, and must not land on a new one. A
+        # lookup that failed is never "free" (fix round 27 Oct).
+        if exists is None and rsvc.alias_lookup(db, cand)[0] == "none":
             return cand
     raise HTTPException(status_code=500, detail={"error": "slug_collision"})
 
@@ -1123,8 +1124,11 @@ def set_slug(payload: SlugUpdate, db: Session = Depends(get_db), user: User = De
     if clash:
         raise HTTPException(status_code=409, detail={"error": "slug_taken"})
     # R9: another venue's OLD link is taken too — its printed QR codes and
-    # website button still open that venue's page.
-    holder = rsvc.alias_profile(db, desired)
+    # website button still open that venue's page. A lookup that failed is
+    # never "free": the owner tries again (fix round 27 Oct).
+    found, holder = rsvc.alias_lookup(db, desired)
+    if found == "unknown":
+        raise HTTPException(status_code=503, detail={"error": "try_again"})
     if holder is not None and holder.user_id != user.id:
         raise HTTPException(status_code=409, detail={"error": "slug_taken"})
     # The link that was handed out until now keeps working: it becomes an

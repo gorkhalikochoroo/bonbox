@@ -495,3 +495,70 @@ def test_the_link_spelling_the_app_previews(raw, want):
     (r9.truthfulSettings.test.jsx)."""
     from app.utils.text import slugify
     assert slugify(raw, fallback="")[:60].strip("-") == want
+
+
+# ── Fix round 27 Oct (E): decoys never hide or free an old link ───────────
+# Review P2-1: the lookup was a LIKE on the settings text with .limit(25) and
+# no order, and PUT /settings stores any top-level key — 25+ accounts holding
+# {"n": {"slug": "cafe-x"}} made V's old link answer 410, and POST /slug then
+# handed it to someone else (V's printed QR → a stranger's page).
+def _decoys(db, slug, n=30):
+    out = []
+    for i in range(n):
+        du, dp, _ = restaurant(db, tables=0)
+        if i % 2:
+            set_settings(db, dp, n={"slug": slug})
+        else:   # passes both LIKE needles; only the parse can tell
+            set_settings(db, dp, n={"slug_aliases": [{"slug": slug}]}, m="slug_aliases")
+        out.append(du)
+    return out
+
+
+def test_fix_e_thirty_decoys_never_break_an_old_link(client, db, outbox):
+    attackers = _decoys(db, "cafe-x")           # planted BEFORE the venue exists
+    u, p, _ = restaurant(db)
+    as_owner(u)
+    assert _change(client, "cafe-x").status_code == 200
+    assert _change(client, "cafe-y").status_code == 200     # cafe-x is now an old link
+    page = client.get("/api/public/reservations/cafe-x")
+    assert page.status_code == 200, page.text
+    assert page.json()["canonical_slug"] == "cafe-y"
+    assert client.get("/api/public/reservations/cafe-x/availability",
+                      params={"day": DAY.isoformat(), "party": 2}).status_code == 200
+    assert rsvc.alias_lookup(db, "cafe-x") == ("found", p)
+    # ...and nobody can claim it, however many decoys they planted.
+    as_owner(attackers[0])
+    r = _change(client, "cafe-x")
+    assert r.status_code == 409 and r.json()["detail"]["error"] == "slug_taken"
+    db.refresh(p)
+    assert p.reservation_slug == "cafe-y"
+
+
+def test_fix_e_a_decoy_alone_is_never_an_old_link(client, db, outbox):
+    attackers = _decoys(db, "ledig", n=4)
+    assert rsvc.alias_lookup(db, "ledig") == ("none", None)
+    assert client.get("/api/public/reservations/ledig").status_code == 410
+    as_owner(attackers[1])                       # a decoy blocks no one either
+    assert _change(client, "ledig").status_code == 200
+
+
+def test_fix_e_the_order_is_fixed_the_oldest_holder_first(db):
+    a_u, a_p, _ = restaurant(db, tables=0)
+    b_u, b_p, _ = restaurant(db, tables=0)
+    # Both hold the same old link (never minted so; only a race could).
+    for prof in (b_p, a_p):
+        set_settings(db, prof, slug_aliases=[{"slug": "delt", "since": "2026-10-27"}])
+    a_p.created_at, b_p.created_at = datetime(2026, 1, 1), datetime(2026, 2, 1)
+    db.commit()
+    for _ in range(3):
+        assert rsvc.alias_lookup(db, "delt") == ("found", a_p)
+
+
+def test_fix_e_a_lookup_that_fails_never_hands_the_slug_out(client, db, outbox, monkeypatch):
+    u, p, _ = restaurant(db)
+    as_owner(u)
+    monkeypatch.setattr(rsvc, "alias_lookup", lambda db, slug: ("unknown", None))
+    r = _change(client, "maaske-ledig")
+    assert r.status_code == 503
+    db.refresh(p)
+    assert p.reservation_slug != "maaske-ledig"
