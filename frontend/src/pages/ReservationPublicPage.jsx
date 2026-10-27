@@ -121,9 +121,16 @@ import MonthCalendar from "../components/MonthCalendar";
 const loadFloorMap = () => import("../components/PublicFloorMap");
 const PublicFloorMap = lazy(loadFloorMap);
 const FLOOR_WAIT = "animate-pulse h-44 rounded-xl bg-gray-100 dark:bg-gray-800";
+// R12: a full night's nearest times and the guest waitlist, their own chunk.
+const loadFullNight = () => import("../components/booking/FullNightOffer");
+const FullNightOffer = lazy(loadFullNight);
 import { VenueHoursList, VenueHoursToggle } from "../components/VenueHours";
 import { PHONE_HOURS_ITEM, hasVenueWeek } from "../utils/venueHours";
 import { bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
+
+// What that chunk needs from the page, handed over instead of imported there
+// (imported, the bundler moves these out of this chunk; FullNightOffer.jsx).
+const FULL_NIGHT_KIT = { api, Button, Input, BookingTile, Clock, Phone, fmtDayLabel, fmtDayShort };
 
 // ── Severity ladder ────────────────────────────────────────────────
 // Mirrors backend app/services/allergens.py SEVERITY_LEVELS. Stored as
@@ -369,7 +376,7 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords =
 // is disabled and its bottom word says why — "lukket" only for a day the
 // venue's hours say closed; "fuldt", "kun tlf.", "for sent"; anything the
 // page can't name keeps the month name (utils/dayState.js).
-function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = false, value, onPick, t, lang }) {
+function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = false, value, onPick, t, lang, fullTappable = false }) {
   const rail = Array.from({ length: railLength(maxAdvance) }, (_, i) => addDays(today, i));
   // A day picked in the calendar beyond the rail joins it at the end — the
   // row stays in date order, and the effect below scrolls it into view.
@@ -412,6 +419,9 @@ function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = fals
         // Why it is closed: null reasons (summary not in, or failed) → no word.
         const reason = reasons ? reasons[iso] : null;
         const word = closed ? chipWord(reason, t) : null;
+        // R12: a "fuldt" night stays a button when the venue takes waitlist
+        // names — the time area then offers the nearest times and the list.
+        const off = closed && !(fullTappable && reason === "full");
         const active = value === iso;
         const quiet = active ? "bb-pick-quiet text-white/75 dark:text-gray-500" : "text-gray-500 dark:text-gray-400";
         return (
@@ -419,8 +429,8 @@ function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = fals
             key={iso}
             ref={(el) => { refs.current[iso] = el; }}
             type="button"
-            disabled={closed}
-            onClick={() => !closed && onPick(iso)}
+            disabled={off}
+            onClick={() => !off && onPick(iso)}
             role="radio"
             aria-checked={active}
             tabIndex={active || (!days.includes(value) && idx === 0) ? 0 : -1}
@@ -436,17 +446,17 @@ function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = fals
               "flex flex-col items-center justify-center gap-1",
               // The tiles of the other two pickers (bookingTiles.js). A closed
               // day is not a button: no box, its faded day and word say it.
-              active ? TILE_PICKED : closed ? TILE_CLOSED : TILE_REST + " " + TILE_HOVER,
-              closed ? "cursor-not-allowed" : "",
+              active ? TILE_PICKED : off ? TILE_CLOSED : TILE_REST + " " + TILE_HOVER,
+              off ? "cursor-not-allowed" : "",
             ].join(" ")}
           >
             {/* A disabled day fades its weekday and digit; its state word
                 ("fuldt", "kun tlf.") is the message, so it stays at gray-500
                 (≈ 4.8:1) — under the chip-wide opacity-45 it read ≈ 1.9:1. */}
-            <span className={"text-[11px] font-medium leading-none capitalize " + quiet + (closed ? " opacity-45" : "")}>
+            <span className={"text-[11px] font-medium leading-none capitalize " + quiet + (off ? " opacity-45" : "")}>
               {part(iso, { weekday: "short" })}
             </span>
-            <span className={"text-lg font-semibold leading-none tabular-nums" + (closed ? " opacity-45" : "")}>
+            <span className={"text-lg font-semibold leading-none tabular-nums" + (off ? " opacity-45" : "")}>
               {part(iso, { day: "numeric" })}
             </span>
             {/* One line, always: from 450 px a 1-week window is 8 columns of
@@ -1130,6 +1140,9 @@ export default function ReservationPublicPage() {
   // another day or party can never show its reason here (build plan C5 —
   // p2 and p4 add their fields to this one object).
   const [availMeta, setAvailMeta] = useState(null);
+  // R12: the day the guest picked themselves (a tap, the calendar, a ?d=
+  // link) — a full one stays picked (utils/bookingDay.rescueDay).
+  const pickedDay = useRef(searchParams.get("d") || "");
   // Online booking is paused (the venue can't take online bookings now — the
   // server says "not_accepting" and never why). Set by the summary,
   // /availability, /provider-availability or a 409; it stays for the rest of
@@ -1155,6 +1168,9 @@ export default function ReservationPublicPage() {
   // offered the 14 EU food allergens "so the kitchen can plan" and
   // "Forretningsmiddag").
   const noteOnly = apptWords && !isProvider;
+  // R12: a full night is a choice here (the owner's waitlist switch is on,
+  // and guests book tables).
+  const waitFull = !!page?.waitlist_on && !isProvider && !apptWords;
   const [behandlinger, setBehandlinger] = useState([]);
   const [behandlingId, setBehandlingId] = useState("");
   const [stylistId, setStylistId] = useState(""); // "" = Valgfri behandler
@@ -1549,7 +1565,11 @@ export default function ReservationPublicPage() {
         // calendar (or a ?d= link) beyond the summary's 14 days is not in the
         // map at all — it used to be treated as closed and silently swapped
         // for the next open day the moment the party size changed.
-        setDay((cur) => rescueDay(cur, map, res.data?.next_open_day));
+        const keep = waitFull && list.some((d) => d.date === pickedDay.current && d.reason === "full")
+          ? pickedDay.current : null;
+        setDay((cur) => rescueDay(cur, map, res.data?.next_open_day, keep));
+        // R12: fetch the full night's chunk ahead when the strip shows one.
+        if (waitFull && list.some((d) => d.reason === "full")) loadFullNight().catch(() => {});
       })
       .catch(() => {
         if (alive) {
@@ -1564,7 +1584,7 @@ export default function ReservationPublicPage() {
     };
     // re-run when party changes (open days depend on party size), and when a
     // refusal says the strip is out of date (summaryNonce)
-  }, [page, slug, summaryParty, today, summaryNonce]);
+  }, [page, slug, summaryParty, today, summaryNonce, waitFull]);
   const dayReasons = reasonsFor && reasonsFor.party === summaryParty ? reasonsFor.reasons : null;
 
   // ── Per-venue document title + OG tags ────────────────────────────
@@ -1761,7 +1781,10 @@ export default function ReservationPublicPage() {
               : {},
           );
           setGroupRequest(!!res.data?.group_request);
-          setAvailMeta({ key: metaKey, reason: res.data?.reason || "", closure: res.data?.closure || null });
+          setAvailMeta({
+            key: metaKey, reason: res.data?.reason || "", closure: res.data?.closure || null,
+            full: res.data?.nearest ? res.data : null,
+          });
           // The venue is at its monthly booking ceiling — every time we could
           // show would be refused by the create endpoint. Say so HERE, at the
           // top of the flow, instead of letting the guest pick a table and type
@@ -1870,6 +1893,9 @@ export default function ReservationPublicPage() {
   const dayReason =
     (availMeta && availMeta.key === selKey && availMeta.reason) ||
     (dayReasons ? dayReasons[day] || null : null);
+  // R12: the server's offer for this night when it is full (raw answer).
+  const fullNight = (availMeta && availMeta.key === selKey && availMeta.full) || null;
+  const eveningFull = !!fullNight?.evening_full;
   // The server sends a shop or a workshop no catalogue (allergens.py); an
   // older server still sent the food set — never shown there either.
   const allergenSet = useMemo(
@@ -1968,6 +1994,20 @@ export default function ReservationPublicPage() {
   const nowMs = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
   const mountedAt = useRef(nowMs());
   const [hpWebsite, setHpWebsite] = useState("");
+
+  // ── R12: a full night — the nearest free times and the waitlist ──────
+  // FullNightOffer (its own chunk) draws them and keeps the receipt; the page
+  // hands it its state, setters and helpers (`host`). The signed link goes in
+  // the address bar (?wl=&wt=), so a reload or a bookmark brings it back.
+  const wlHost = {
+    t, lang, slug, day, party, slot, page, offer: fullNight, setSlot, setDay, setSubmitError,
+    setSummaryNonce, fetchAvailability, fetchedDay, pickedDay, confirm, kit: FULL_NIGHT_KIT,
+  };
+  const fullBlock = (
+    <Suspense fallback={null}>
+      <FullNightOffer host={wlHost} />
+    </Suspense>
+  );
 
   function newIdempotencyKey() {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -2910,6 +2950,7 @@ export default function ReservationPublicPage() {
       t={t}
       lang={lang}
       onPick={(iso) => {
+        pickedDay.current = iso;
         setDay(iso);
         setShowDateInput(false);
       }}
@@ -3028,6 +3069,12 @@ export default function ReservationPublicPage() {
             aria-label={apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
             className={STEP1_SPACING + " outline-none " + STEP_ENTER}
           >
+            {/* R12: back through the waitlist link — the guest's place first. */}
+            {searchParams.get("wt") && (
+              <Suspense fallback={null}>
+                <FullNightOffer host={wlHost} back />
+              </Suspense>
+            )}
             {/* Provider (salon): behandling → behandler come FIRST. The chosen
                 behandling drives slot length (server-resolved); behandler
                 defaults to Valgfri behandler. */}
@@ -3274,9 +3321,13 @@ export default function ReservationPublicPage() {
                 party={party}
                 apptWords={apptWords}
                 value={day}
-                onPick={setDay}
+                onPick={(iso) => {
+                  pickedDay.current = iso;
+                  setDay(iso);
+                }}
                 t={t}
                 lang={lang}
+                fullTappable={waitFull}
               />
               {/* The owner's words for the days they closed on the strip
                   ("tor 24. dec · Lukket juleaften", R1 B4). The strip only
@@ -3484,6 +3535,9 @@ export default function ReservationPublicPage() {
                         </Button>
                       )}
                     </div>
+                  ) : !isProvider && dayReason === "full" && fullNight ? (
+                    // R12: the nearest free times and the waitlist for it.
+                    fullBlock
                   ) : nextOpenDay && nextOpenDay > day ? (
                     // Not bookable this day but open later — NEVER a dead end.
                     // The real reason ("Fuldt booket til 2 gæster denne dag.")
@@ -3574,6 +3628,8 @@ export default function ReservationPublicPage() {
                     apptWords={apptWords}
                   />
               )}
+              {/* R12: the evening is full while earlier times are free. */}
+              {timesShowGrid && eveningFull && fullBlock}
             </div>
             {/* ── Pick your table on the 2D floor (matches the owner room) ──
                 Honesty gate #1 (+ grandfather): TABLE venues (dining/bar) show the

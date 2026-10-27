@@ -7,8 +7,16 @@ import { speaksAppointments } from "../config/venueProfiles";
  * A date outside the summary (picked in the calendar, or a ?d= link further
  * out) is unknown, not closed — it stays, and the time list says whether the
  * place is open that day.
+ *
+ * `keep` (booking R12): a FULL night the guest picked themselves (a tap, the
+ * calendar, a ?d= link) when the venue takes waitlist names. It stays: the
+ * page offers the nearest free times and the waitlist for it instead of
+ * jumping away. The page's own first day (today) is never kept, so a full
+ * tonight still moves on to the next open day and the times stay on the
+ * first screen.
  */
-export function rescueDay(cur, map, nextOpen) {
+export function rescueDay(cur, map, nextOpen, keep = null) {
+  if (cur && keep && cur === keep) return cur;
   if (cur && (!(cur in (map || {})) || map[cur])) return cur;
   return nextOpen || cur;
 }
