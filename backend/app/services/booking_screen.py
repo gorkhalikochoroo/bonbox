@@ -43,7 +43,10 @@ Rules, the first match wins (n = the venue's active tables or chairs;
      — no fill time at all is UNKNOWN, never a robot (R1a fix round): a
        page loaded before the frontend deploy, or a deploy Vercel never
        made, sends none, and those are real guests. It books as on live
-       and is counted for the abuse monitor (booking_no_fill_time).
+       and is counted for the abuse monitor (booking_no_fill_time) — and,
+       since D-D (27 Oct 2026), by one audit row with no personal data per
+       booking written (NO_FILL_TIME_ACTION), so it can be counted after a
+       push and R1b can set the end date once old pages are gone.
   3. an EXPLICIT link in the guest's name — "http://", "https://" or
      "www.", any case, after NFKC                  → hold (link_in_name)
      — a dotted name ("Anne.Marie.Jensen") is a name.
@@ -120,6 +123,12 @@ _USES_QUOTA = ("confirmed", "seated", "completed", "no_show")
 _PHONE_SEPARATORS = (" ", "-", "(", ")", ".", "/", "+")
 
 HELD_ACTION = "reservation.held_public"
+# One audit row per online booking WRITTEN without a fill time (D-D, 27 Oct
+# 2026): the in-process abuse counter is drained and thrown away, so nobody
+# could see how many old guest pages still book. The row carries no personal
+# data — the venue (user_id), the booking's id and when; no name, address,
+# IP or state. Post-push checks count it; R1b sets the end date from it.
+NO_FILL_TIME_ACTION = "booking_no_fill_time"
 
 # Held reasons that say "probably not a person": the typed address gets no
 # mail at all (it would only relay a stranger's text), the owner no ping of
@@ -161,6 +170,25 @@ def _fast(form_ms) -> bool:
         return int(form_ms) < int(app_config.BOOKING_MIN_FILL_MS)
     except (TypeError, ValueError):
         return False
+
+
+def fill_time_unknown(payload) -> bool:
+    """The client sent no fill time (or junk, which the request model reads
+    as none) — an older guest page. It books as on live (R1a fix round)."""
+    return getattr(payload, "form_ms", None) is None
+
+
+def record_no_fill_time(db, owner, payload, reservation_id) -> None:
+    """D-D: the countable trace of a booking written without a fill time —
+    one audit row, no personal data (NO_FILL_TIME_ACTION). Call it with the
+    booking's own audit rows, before their commit, so it exists exactly when
+    the booking does: a refused post (409, closed date) and an idempotent
+    replay write none. Best-effort: audit_service.record never raises, and
+    it never changes how the booking is handled."""
+    if reservation_id is None or not fill_time_unknown(payload):
+        return
+    from app.services import audit_service
+    audit_service.record(db, owner, NO_FILL_TIME_ACTION, "reservation", reservation_id)
 
 
 def real_group_size(settings: dict) -> int:

@@ -1124,6 +1124,8 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
         audit_service.record(db, owner, booking_screen.HELD_ACTION, "reservation", r.id,
                              after=booking_screen.held_after(
                                  hold_reason, resource_ids, pinned=bool(payload.stylist_id)))
+    # D-D: a page that sent no fill time — one countable row, no personal data.
+    booking_screen.record_no_fill_time(db, owner, payload, r.id)
     db.commit()
     guest_mail, held_mail_ok = _guest_mail_plan(db, owner, r, hold_reason)
     # Same post-commit notifications as the table path, OFF the request path
@@ -1362,6 +1364,10 @@ def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: U
     if hold_reason:
         audit_service.record(db, owner, booking_screen.HELD_ACTION, "reservation", r.id,
                              after=booking_screen.held_after(hold_reason, resource_ids))
+    # D-D: a page that sent no fill time — one countable row, no personal
+    # data (booking_screen.NO_FILL_TIME_ACTION). The booking itself is
+    # handled exactly as on live.
+    booking_screen.record_no_fill_time(db, owner, payload, r.id)
     db.commit()
     guest_mail, held_mail_ok = _guest_mail_plan(db, owner, r, hold_reason)
     # Notifications (guest confirmation email + owner push + owner email) run OFF
