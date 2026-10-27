@@ -84,11 +84,14 @@ function WithGoogleAuth({ children }) {
  */
 function GuestPage({ children }) {
   useLayoutEffect(() => markGuestSurface(), []);
-  // A quiet, language-free spinner — the app's own loader says "Loading…" in
-  // English on a Danish restaurant's page. Grey, and only after 600 ms
-  // (booking R3): a normal load goes from blank straight to the page.
+  // While the page's own code downloads: the page's own wait (booking R5) —
+  // the very skeleton index.html already painted before any code arrived
+  // (components/booking/bookingWait.js), so React's first commit changes
+  // nothing on screen and the guest never sees a blank white box. It was a
+  // grey spinner after 600 ms (R3), a blank page before that. Language-free:
+  // no words are here yet.
   return (
-    <Suspense fallback={<GuestSpinner />}>
+    <Suspense fallback={<BookingSkeleton variant={variantForHere()} />}>
       {children}
     </Suspense>
   );
@@ -314,6 +317,8 @@ import PillarGate from "./components/PillarGate";
 import AccountLanguageSync from "./components/AccountLanguageSync";
 import { isGuestSurface, markGuestSurface, wasGuestPath } from "./lib/guestSurface";
 import GuestSpinner from "./components/GuestSpinner";
+import BookingSkeleton from "./components/booking/BookingSkeleton";
+import { variantForHere } from "./components/booking/bookingWait";
 
 /**
  * Self-contained ErrorBoundary for the cookie banner. If anything inside the

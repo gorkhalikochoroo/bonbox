@@ -85,9 +85,12 @@ describe("the guest wait: grey, and only after 600 ms", () => {
     expect(container.textContent.trim()).toBe("…");
   });
 
-  it("App.jsx: the guest route's Suspense and the PageLoader on a guest surface both use it; the app's own loader is unchanged", () => {
+  // Booking R5: the guest route's Suspense shows the page's own skeleton (the
+  // markup index.html already painted — r5.bookingWait.test.jsx); the
+  // PageLoader on a guest surface keeps this grey, late spinner.
+  it("App.jsx: the PageLoader on a guest surface uses it, the guest route waits on the page's skeleton (R5); the app's own loader is unchanged", () => {
     const app = read("App.jsx");
-    expect(app).toContain('<Suspense fallback={<GuestSpinner />}>');
+    expect(app).toContain('<Suspense fallback={<BookingSkeleton variant={variantForHere()} />}>');
     expect(app).toMatch(/function PageLoader\(\) \{[\s\S]{0,400}if \(isGuestSurface\(\)\) return <GuestSpinner testId="page-loader" \/>;/);
     // Owner app loader: untouched (surgical — no global change).
     expect(app).toContain('className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-3"');

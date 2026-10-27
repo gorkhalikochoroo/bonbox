@@ -290,6 +290,14 @@
               // tablet is not forced into portrait.
               setManifest("/stand.webmanifest");
             }
+          } else if (window.__bbBooking) {
+            // A restaurant's public booking page (booking R5; marked by the
+            // parse-time booking script vite.config.js writes above this
+            // one): NO manifest. A guest who adds the page to their home
+            // screen gets that restaurant's booking page (iOS and Android
+            // bookmark the current address), not the BonBox owner app
+            // (start_url "/") — and the browser fetches one file less.
+            setManifest(null);
           } else {
             // Owner / marketing / any non-portal route → generic manifest.
             setManifest("/manifest.json");
@@ -437,11 +445,28 @@
         }
       })();
     </script>
-    <div id="root"></div>
+    <div id="root"><script>
+      // Booking R5: on a restaurant's booking page the first paint is the
+      // page's own wait — its skeleton, chosen by the parse-time booking script
+      // in <head> (scripts/bookingBoot.mjs, window.__bbBooking.ph) — never a
+      // blank white box while the app's code downloads on a slow phone.
+      // React's first commit replaces it with the same markup
+      // (components/booking/bookingWait.js). Every other page: nothing.
+      (function () {
+        try {
+          var b = window.__bbBooking;
+          if (b && b.ph) document.currentScript.insertAdjacentHTML("beforebegin", b.ph);
+        } catch (e) {}
+      })();
+    </script></div>
     <script type="module" src="/src/main.jsx"></script>
     <script>
-      // Register service worker for PWA + force update
-      if ("serviceWorker" in navigator) {
+      // Register service worker for PWA + force update. Not on a restaurant's
+      // booking page (booking R5): a guest's booking form — often inside the
+      // restaurant's own website — is not the owner app, and the worker's
+      // install fetched ten more files (icons, two share images) on the
+      // guest's phone. A worker an owner already has keeps working.
+      if ("serviceWorker" in navigator && !window.__bbBooking) {
         window.addEventListener("load", () => {
           navigator.serviceWorker.register("/sw.js").then(function(reg) {
             // Check for updates every page load

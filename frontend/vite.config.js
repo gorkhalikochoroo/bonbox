@@ -3,6 +3,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { bookingGraph, buildBookingDict } from './scripts/bookingDict.mjs'
+import { bookingBootScript } from './scripts/bookingBoot.mjs'
 
 // ── The landing's boot dictionary (push 9, E) ─────────────────────
 // `virtual:bonbox-boot-dict` = { da: {...}, en: {...} } holding only the keys
@@ -172,9 +173,51 @@ function bookingDictionary() {
   }
 }
 
+// ── The booking page's parse-time script (booking R5) ─────────────
+// scripts/bookingBoot.mjs: on a booking address only, it marks the page for
+// the scripts after it, picks the skeleton the first paint shows (instead of
+// a blank white box on a slow phone), starts the page's own chunk with the
+// app's (build: modulepreload of the ReservationPublicPage chunk and its own
+// imports the page does not already preload) and its data with the page.
+// Inserted right after <meta charset>, AHEAD of the dictionary and landing
+// preloads (it runs after them in this list and inserts at the same spot),
+// so the dictionary preload already knows it is on the booking page.
+// The API address is resolved here: Vite's %VITE_API_URL% replacement runs
+// before this hook, so a script added now would keep the raw token.
+function bookingBoot() {
+  let apiUrl = ''
+  return {
+    name: 'bonbox-booking-boot',
+    configResolved(config) {
+      apiUrl = (config.env && config.env.VITE_API_URL) || ''
+    },
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        let preload = []
+        const chunks = Object.values(ctx.bundle || {})
+        const page = chunks.find((c) => c.type === 'chunk' && c.facadeModuleId &&
+          /[\\/]src[\\/]pages[\\/]ReservationPublicPage\.jsx$/.test(c.facadeModuleId))
+        if (page) {
+          preload = [page.fileName, ...(page.imports || [])]
+            .filter((f, i, all) => all.indexOf(f) === i && !html.includes('/' + f))
+            .map((f) => '/' + f)
+        }
+        const script = bookingBootScript({ apiUrl, preload })
+        const charset = '<meta charset="UTF-8" />'
+        return html.includes(charset)
+          ? html.replace(charset, charset + script)
+          : html.replace('</head>', script + '</head>')
+      },
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), preloadDictionary(), preloadLanding(), bootDictionary(), bookingDictionary()],
+  // bookingBoot AFTER the two preloads: each inserts right after <meta
+  // charset>, so the last one to run ends up first in <head>.
+  plugins: [react(), preloadDictionary(), preloadLanding(), bookingBoot(), bootDictionary(), bookingDictionary()],
   // Force the automatic JSX runtime everywhere — production already
   // uses it via @vitejs/plugin-react, but vitest's transform pipeline
   // sometimes falls back to the classic runtime which requires

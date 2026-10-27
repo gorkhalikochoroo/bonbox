@@ -29,7 +29,7 @@
 //
 // DK terminology lock applies: revisor / MOMS etc. stay Danish in all
 // locales. The public copy here defaults to Danish (DK-first market).
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useConfirm } from "../hooks/useConfirm";
@@ -90,6 +90,8 @@ import { loadLocale, loadedLocales } from "../lib/localeStore";
 // first render (lib/pageDict.js, vite.config.js bonbox-booking-dict).
 import "../lib/bookingDict";
 import { pageDictFor } from "../lib/pageDict";
+// Booking R5: the data index.html already asked for (lib/bookingBoot.js).
+import { bootOr, markBootPageUsed, peekBootPage } from "../lib/bookingBoot";
 import Button from "../components/ui/Button";
 import BookingTile from "../components/booking/BookingTile";
 import EarnedText from "../components/booking/EarnedText";
@@ -104,12 +106,21 @@ import {
   skeletonTileClass,
   timeGridCols,
 } from "../components/booking/bookingTiles";
+import BookingSkeleton from "../components/booking/BookingSkeleton";
+import { EMBED_CARD, EMBED_GROUND, EMBED_MAX, ROOT_FINISH, skeletonVariant } from "../components/booking/bookingWait";
 import { useDelayedFlag } from "../hooks/useDelayedFlag";
 import { useAutoHeight } from "../hooks/useAutoHeight";
 import Input from "../components/ui/Input";
 import Sheet from "../components/ui/Sheet";
 import MonthCalendar from "../components/MonthCalendar";
-import PublicFloorMap from "../components/PublicFloorMap";
+// Booking R5 ("trim what the booking page loads"): the 2D table picker is its
+// own chunk. Only a venue that lets guests pick a table ever shows it (and
+// only after a time is picked), so the page's first download no longer
+// carries it and its table drawings. Fetched as soon as the venue turns out
+// to offer it (prefetch below), so by the time a time is picked it is here.
+const loadFloorMap = () => import("../components/PublicFloorMap");
+const PublicFloorMap = lazy(loadFloorMap);
+const FLOOR_WAIT = "animate-pulse h-44 rounded-xl bg-gray-100 dark:bg-gray-800";
 import { VenueHoursList, VenueHoursToggle } from "../components/VenueHours";
 import { PHONE_HOURS_ITEM, hasVenueWeek } from "../utils/venueHours";
 import { bookingModeFor, usesTableFloor, speaksAppointments } from "../config/venueProfiles";
@@ -196,25 +207,23 @@ const TEL_ACTION =
   "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors duration-200 " + FOCUS;
 
 // ── Finish (booking R3, "Refined, finished", judge 24 Oct 2026) ─────
-// Grayscale anti-aliasing on the guest page only — the crisper, lighter
-// Inter. Never global: the owner app is pixel-fitted (check by eye on a
-// device before merge).
-const ROOT_FINISH = "antialiased";
-// The embed's ground from 450 px: transparent (the host's colour shows), and
-// padding round the one card so its shadow is never cut by the frame.
-const EMBED_GROUND = "min-[450px]:bg-transparent min-[450px]:px-4 min-[450px]:pt-4 min-[450px]:pb-6";
-// The one elevation: white, 16 px corners (the hero rung), a 5 % ring and
-// one soft shadow. Light only — the embed forces light.
-const EMBED_CARD =
-  "min-[450px]:bg-white min-[450px]:rounded-[16px] " +
-  "min-[450px]:shadow-[0_0_0_1px_rgb(16_24_40/0.05),0_1px_2px_rgb(16_24_40/0.04),0_16px_40px_-20px_rgb(16_24_40/0.18)]";
-// How wide the booking may get inside the frame (booking R4). The owner picks
-// the frame's width in the kit (utils/bookingEmbed EMBED_WIDTHS: 460 or 560)
-// and the snippet centres it in their column; the card follows the frame up
-// to 560. At 460 — every snippet before R4 — the card is as before (460 less
-// the ground's padding is 428, under the old 448 cap); only the flat look
-// (&flat=1, R3) gains 12 px there. Standalone keeps max-w-md.
-const EMBED_MAX = "max-w-[560px]";
+// ROOT_FINISH: grayscale anti-aliasing on the guest page only — the crisper,
+// lighter Inter. Never global: the owner app is pixel-fitted (check by eye on
+// a device before merge).
+// EMBED_GROUND: the embed's ground from 450 px: transparent (the host's
+// colour shows), and padding round the one card so its shadow is never cut by
+// the frame.
+// EMBED_CARD: the one elevation: white, 16 px corners (the hero rung), a 5 %
+// ring and one soft shadow. Light only — the embed forces light.
+// EMBED_MAX: how wide the booking may get inside the frame (booking R4). The
+// owner picks the frame's width in the kit (utils/bookingEmbed EMBED_WIDTHS:
+// 460 or 560) and the snippet centres it in their column; the card follows
+// the frame up to 560. At 460 — every snippet before R4 — the card is as
+// before (460 less the ground's padding is 428, under the old 448 cap); only
+// the flat look (&flat=1, R3) gains 12 px there. Standalone keeps max-w-md.
+// R5: the four live in components/booking/bookingWait.js, which the wait
+// (index.html's first paint, the route's fallback, this page's own loading
+// state) shares with the page, so the wait and the page never disagree.
 // A step enters over 220 ms from 4 px on the page's one curve (was 350 ms
 // from 8 px on the default ease). No fill mode: at rest there is no
 // transform, so nothing fixed inside is re-anchored.
@@ -229,7 +238,6 @@ const CTA_TOP_EDGE = true;
 // wears it, its text picked by contrast (index.css "BOOKING ACCENT").
 const CTA_FINISH =
   "bb-cta bb-accent-main disabled:shadow-none " +
-
   (CTA_TOP_EDGE
     ? "shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_1px_2px_rgb(16_24_40/0.18)]"
     : "shadow-[0_1px_2px_rgb(16_24_40/0.18)]");
@@ -1037,8 +1045,13 @@ export default function ReservationPublicPage() {
   }, [isEmbed]);
 
   // ── Page data (GET /public/reservations/{slug}) ──────────────────
-  const [page, setPage] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Booking R5: index.html asked for it while the code was downloading. When
+  // that answer is ALREADY here, the first render is the page itself — no
+  // skeleton frame — with step 1 seeded in the same state (seedStep1 below).
+  const [bootPage] = useState(() => peekBootPage(slug));
+  const bootSeeded = useRef(bootPage ? slug : null);
+  const [page, setPage] = useState(bootPage);
+  const [loading, setLoading] = useState(!bootPage);
   const [loadError, setLoadError] = useState(""); // "" | "closed" | "generic"
 
   // ── The venue's own colour (booking R5) ───────────────────────────
@@ -1054,8 +1067,15 @@ export default function ReservationPublicPage() {
 
   // Step 1 selections. Pre-fill from ?d=YYYY-MM-DD&party=N if present.
   const today = useMemo(() => isoDay(new Date()), []);
-  const [day, setDay] = useState("");
-  const [party, setParty] = useState(2);
+  // Seeded with the page when index.html's answer was already here (R5) —
+  // the same seed the load effect gives a page that arrives later.
+  const [firstSeed] = useState(() =>
+    bootPage
+      ? seedStep1(bootPage, { d: searchParams.get("d"), party: searchParams.get("party") }, isoDay(new Date()))
+      : null,
+  );
+  const [day, setDay] = useState(firstSeed ? firstSeed.day : "");
+  const [party, setParty] = useState(firstSeed ? firstSeed.party : 2);
   const [slot, setSlot] = useState("");
   // The one-tap date strip is the primary picker; the native date field is a
   // quiet escape hatch for a far-out date, revealed on demand so it never
@@ -1352,11 +1372,17 @@ export default function ReservationPublicPage() {
   }, [searchParams]);
   useEffect(() => {
     let alive = true;
+    // Already in state from index.html's answer (R5): nothing to fetch for
+    // this venue. Said once; a later venue (or a remount) fetches as before.
+    if (bootSeeded.current === slug) {
+      bootSeeded.current = null;
+      markBootPageUsed();
+      return undefined;
+    }
     // No synchronous setLoading(true) — initial useState(true) covers
     // first mount; the .finally below flips it (keeps the effect free of
     // React 19's set-state-in-effect rule, matching EventPublicPage).
-    api
-      .get(`/public/reservations/${slug}`)
+    bootOr("page", { slug }, () => api.get(`/public/reservations/${slug}`))
       .then((r) => {
         if (!alive) return;
         const data = r?.data || null;
@@ -1488,10 +1514,12 @@ export default function ReservationPublicPage() {
   useEffect(() => {
     if (!page) return;
     let alive = true;
-    api
-      .get(`/public/reservations/${slug}/availability-summary`, {
+    // R5: index.html may have asked this very question already.
+    bootOr("summary", { slug, from: today, days: 14, party: summaryParty }, () =>
+      api.get(`/public/reservations/${slug}/availability-summary`, {
         params: { from: today, days: 14, party: summaryParty },
-      })
+      }),
+    )
       .then((res) => {
         if (!alive) return;
         const list = Array.isArray(res.data?.days) ? res.data.days : [];
@@ -1714,9 +1742,12 @@ export default function ReservationPublicPage() {
           setClosedReason(res.data?.closed_reason || "");
           if (res.data?.closed_reason === "not_accepting") setPaused(true);
         } else {
-          const res = await api.get(`/public/reservations/${slug}/availability`, {
-            params: { day: forDay, party: forParty },
-          });
+          // R5: index.html may have asked this very question already.
+          const res = await bootOr("avail", { slug, day: forDay, party: forParty }, () =>
+            api.get(`/public/reservations/${slug}/availability`, {
+              params: { day: forDay, party: forParty },
+            }),
+          );
           if (stale()) {
             if (res.data?.closed_reason === "not_accepting") setPaused(true);
             return;
@@ -1790,6 +1821,12 @@ export default function ReservationPublicPage() {
   // A chosen TIME defines the room snapshot (which tables are free then). Any
   // change to day/party/slot resets the pick. Group requests don't pick a
   // table — the venue assigns on approval — so we skip the floor there.
+  // R5: a venue that lets guests pick a table — fetch the picker's code now,
+  // while the guest is still choosing a day and a time.
+  useEffect(() => {
+    if (page?.guest_can_pick_table) loadFloorMap().catch(() => {});
+  }, [page?.guest_can_pick_table]);
+
   useEffect(() => {
     setSelectedTable(null);
     // Honesty gate #1 (+ grandfather). A PROVIDER venue (salon) books people,
@@ -2269,45 +2306,22 @@ export default function ReservationPublicPage() {
 
   // ── Renders ───────────────────────────────────────────────────────
   if (loading) {
-    const loadingWord = t("rsvpLoading", "Loading…");
-    if (wide) {
-      // The desktop skeleton stands in the loaded page's own two-column
-      // frame (the venue column, the card on the right), so the layout
-      // doesn't jump from one centred column to two when the page arrives.
-      return (
-        <div key="loading" className={`${rootMinH} ${ROOT_FINISH} bg-gray-50 dark:bg-gray-950 pt-10 pb-12`}>
-          <div className="grid grid-cols-[minmax(0,1fr)_28rem] gap-12 max-w-5xl mx-auto px-8 items-start">
-            <div className="pt-8 space-y-6" aria-hidden="true">
-              <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-xl bg-gray-200/70 dark:bg-gray-800 w-16 h-16" />
-              <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-lg bg-gray-200/70 dark:bg-gray-800 h-8 w-2/3" />
-            </div>
-            <div className="w-full rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 px-6 py-8 space-y-4">
-              <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-lg bg-gray-100 dark:bg-gray-800 h-8 w-2/3" />
-              <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-xl bg-gray-100 dark:bg-gray-800 h-32" />
-              <p className="text-sm text-gray-500 dark:text-gray-400 text-center pt-4">{loadingWord}</p>
-            </div>
-          </div>
-        </div>
-      );
-    }
+    // The wait (components/booking/bookingWait.js): on a desktop it
+    // stands in the loaded page's own two-column frame (the venue column, the
+    // card on the right), so the layout doesn't jump from one centred column
+    // to two when the page arrives; in the embed's card mode it already
+    // stands in the card (on the host's ground from 450 px), so the frame
+    // never shows a white slab that then turns into a card. Booking R5: the
+    // SAME markup index.html paints before any code has arrived and the
+    // route shows while this page's code downloads — one look from the first
+    // paint to the page. Keyed: React must not reuse this node for the
+    // loaded page's wrapper (on a desktop that reuse moved it ~290px).
     return (
-      // Keyed: React must not reuse this centred node for the loaded page's
-      // wrapper (on a desktop that reuse moved it ~290px, a layout shift).
-      // In the embed's card mode the wait already stands in the card (on
-      // the host's ground from 450 px), so the frame never shows a white
-      // slab that then turns into a card.
-      <div
+      <BookingSkeleton
         key="loading"
-        className={`${rootMinH} ${ROOT_FINISH} bg-white dark:bg-gray-950 px-4 py-12` + (embedCard ? " " + EMBED_GROUND : "")}
-      >
-        <div className={(isEmbed ? EMBED_MAX : "max-w-md") + " mx-auto space-y-4" + (embedCard ? " " + EMBED_CARD + " min-[450px]:px-4 min-[450px]:py-8" : "")}>
-          <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-lg bg-gray-100 dark:bg-gray-800 h-8 w-2/3" />
-          <div className="motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite] rounded-xl bg-gray-100 dark:bg-gray-800 h-32" />
-          <p className="text-sm text-gray-500 dark:text-gray-400 text-center pt-4">
-            {loadingWord}
-          </p>
-        </div>
-      </div>
+        variant={skeletonVariant({ embed: isEmbed, flat, wide })}
+        word={t("rsvpLoading", "Loading…")}
+      />
     );
   }
 
@@ -3574,16 +3588,18 @@ export default function ReservationPublicPage() {
                   {t("rsvpFloorPickTitle", "Vælg dit bord")}
                 </h2>
                 {floorLoading ? (
-                  <div className="animate-pulse h-44 rounded-xl bg-gray-100 dark:bg-gray-800" />
+                  <div className={FLOOR_WAIT} />
                 ) : floor.some((tb) => tb.status === "free") ? (
                   <>
-                    <PublicFloorMap
-                      tables={floor}
-                      selectedId={selectedTable}
-                      onSelect={setSelectedTable}
-                      t={t}
-                      bookingMode={usesTableFloor(page.business_type) ? bookingModeFor(page.business_type) : "table"}
-                    />
+                    <Suspense fallback={<div className={FLOOR_WAIT} />}>
+                      <PublicFloorMap
+                        tables={floor}
+                        selectedId={selectedTable}
+                        onSelect={setSelectedTable}
+                        t={t}
+                        bookingMode={usesTableFloor(page.business_type) ? bookingModeFor(page.business_type) : "table"}
+                      />
+                    </Suspense>
                     <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                       {selectedTable
                         ? t("rsvpFloorPicked", "Fint valg — vi holder bordet til dig.")
