@@ -32,6 +32,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
 from sqlalchemy import and_, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
@@ -450,6 +451,37 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         **({"canonical_slug": profile.reservation_slug}
            if profile.reservation_slug and profile.reservation_slug != slug else {}),
     }
+
+
+def _prior_for_key(db: Session, owner: User, idempotency_key: str | None):
+    """The booking this venue already holds for this X-Idempotency-Key, or
+    None. Scoped to the owner: the key is client-supplied and NOT globally
+    unique, so another venue's colliding key must never hand back that
+    tenant's booking and token."""
+    if not idempotency_key:
+        return None
+    return (
+        db.query(Reservation)
+        .filter(Reservation.user_id == owner.id,
+                Reservation.idempotency_key == idempotency_key)
+        .first()
+    )
+
+
+def _replay_or_409(db: Session, owner: User, idempotency_key: str | None,
+                   error: str = "slot_unavailable") -> dict:
+    """After a write lost a race (fix round 27 Oct): when it was this guest's
+    own double tap — the same key, committed by the twin request a moment
+    earlier — the answer is that booking (the receipt, never an error); any
+    other clash is a clean 409, never a 500."""
+    try:
+        db.rollback()
+    except Exception:  # noqa: BLE001
+        pass
+    prior = _prior_for_key(db, owner, idempotency_key)
+    if prior is not None:
+        return _replay(prior)
+    raise HTTPException(status_code=409, detail={"error": error})
 
 
 def _replay(prior) -> dict:
@@ -1235,8 +1267,11 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
         # Held for the owner's OK: no chair, no occupancy — a request like a
         # group request, so nothing (the boot backfill, an owner edit)
         # mistakes it for a hold. The chosen chair waits on the audit row.
-        db.add(r)
-        db.flush()
+        try:
+            db.add(r)
+            db.flush()
+        except IntegrityError:
+            return _replay_or_409(db, owner, idempotency_key)
     else:
         try:
             occ_service.create_reservation_with_occupancy(
@@ -1246,9 +1281,10 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
             )
         except occ_service.SlotUnavailable:
             # Pinned-stylist race loss surfaces as the stylist-specific 409 (still
-            # fail-closed — reassign=False never re-picked another provider).
+            # fail-closed — reassign=False never re-picked another provider) —
+            # unless it was this guest's own double tap (the same key).
             err = "stylist_unavailable" if payload.stylist_id else "slot_unavailable"
-            raise HTTPException(status_code=409, detail={"error": err})
+            return _replay_or_409(db, owner, idempotency_key, err)
 
     audit_service.record(db, owner, "reservation.created_public", "reservation", r.id)
     if hold_reason:
@@ -1294,12 +1330,7 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     # a colliding key from another restaurant would otherwise leak that tenant's
     # reservation + a valid booking_token back to this visitor.
     if idempotency_key:
-        prior = (
-            db.query(Reservation)
-            .filter(Reservation.user_id == owner.id,
-                    Reservation.idempotency_key == idempotency_key)
-            .first()
-        )
+        prior = _prior_for_key(db, owner, idempotency_key)
         if prior:
             return _replay(prior)
 
@@ -1360,12 +1391,27 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     # the booking's commit (services/venue_lock.py): twelve posts at the same
     # instant all read "under the ceiling" and all went through (security
     # review, atk_b_race). Only fast database work happens under it.
-    with venue_lock(db, f"bb-create:{owner.id}"):
-        return _screen_and_book(
-            db, background_tasks, owner=owner, profile=profile, payload=payload,
-            start=start, settings=settings, idempotency_key=idempotency_key,
-            salon=salon, is_request=is_request, at_plan_cap=at_plan_cap,
-        )
+    try:
+        with venue_lock(db, f"bb-create:{owner.id}"):
+            return _screen_and_book(
+                db, background_tasks, owner=owner, profile=profile, payload=payload,
+                start=start, settings=settings, idempotency_key=idempotency_key,
+                salon=salon, is_request=is_request, at_plan_cap=at_plan_cap,
+            )
+    except HTTPException as exc:
+        # A double tap's twin that lost to the first at a CHECK, not at the
+        # insert (fix round 27 Oct): the first took the last table or chair,
+        # or the minute crossed a limit — but the booking WAS made. With the
+        # same key here, the answer is that booking, never an error.
+        if exc.status_code == 409 and idempotency_key:
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            prior = _prior_for_key(db, owner, idempotency_key)
+            if prior is not None:
+                return _replay(prior)
+        raise
 
 
 def _contact_blocked(owner: User, settings: dict, payload, today) -> bool:
@@ -1390,6 +1436,12 @@ def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: U
     """The screen and the write, under the venue lock (create_reservation).
     `at_plan_cap`: the plan's monthly cap is reached and it takes requests
     (R1b) — the screen holds the booking as plan_cap."""
+    # The same key again, now under the lock (fix round 27 Oct): a double
+    # tap's twin read "no booking yet" before the first one committed and
+    # then waited here — the first has committed now, so this is a replay.
+    prior = _prior_for_key(db, owner, idempotency_key)
+    if prior is not None:
+        return _replay(prior)
     try:
         sitting_min = (rsvc.resolve_behandling_duration(db, owner.id, payload.behandling_id)
                        if salon else rsvc.resolve_duration(profile, payload.party_size))
@@ -1524,10 +1576,14 @@ def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: U
     if not holds_table:
         # Group request, or a HELD booking — does NOT hold a table (no
         # occupancy row) until the owner approves (→ confirmed assigns +
-        # occupies). Plain insert.
-        db.add(r)
-        db.flush()
-        db.commit()
+        # occupies). Plain insert. A twin with the same key that committed
+        # first (the unique key) → its replay, never a 500.
+        try:
+            db.add(r)
+            db.flush()
+            db.commit()
+        except IntegrityError:
+            return _replay_or_409(db, owner, idempotency_key)
     else:
         # Confirmed booking — insert reservation + an active occupancy row in
         # one transaction. On the Postgres exclusion violation (a concurrent
@@ -1542,7 +1598,9 @@ def _screen_and_book(db: Session, background_tasks: BackgroundTasks, *, owner: U
                 now=_now_local(),
             )
         except occ_service.SlotUnavailable:
-            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+            # A lost table race — or this guest's own double tap, whose twin
+            # committed the same key first: then the answer is that booking.
+            return _replay_or_409(db, owner, idempotency_key)
 
     # Audit commits durably WITH the booking (a cheap DB write — it stays on the
     # request path so the booking's audit trail is guaranteed before we respond).

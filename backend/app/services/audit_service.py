@@ -64,17 +64,9 @@ def _flush_callers_change(db) -> None:
 
 def _savepoint(db: Session):
     """db.begin_nested() with the caller's transaction really open first —
-    the house pattern (stripe_billing._savepoint_in_open_transaction):
-    pysqlite opens a transaction lazily, at the first write, so a SAVEPOINT
-    issued before it would start the transaction itself and its RELEASE
-    would COMMIT what ran inside it, outside the caller's transaction.
-    Postgres opens the transaction at the first statement: no change."""
-    conn = db.connection()
-    if conn.dialect.name == "sqlite":
-        raw = conn.connection.dbapi_connection
-        if raw is not None and not raw.in_transaction:
-            conn.exec_driver_sql("BEGIN")
-    return db.begin_nested()
+    the house pattern, shared in app/utils/savepoint.py."""
+    from app.utils.savepoint import savepoint
+    return savepoint(db)
 
 
 def record(

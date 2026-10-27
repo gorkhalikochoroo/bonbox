@@ -329,6 +329,28 @@ def _profile(db: Session, user: User) -> BusinessProfile | None:
     return db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
 
 
+def _claim_slug(db: Session, profile: BusinessProfile, base: str) -> str:
+    """Mint a link for `profile` AND claim it (fix round 27 Oct). Each
+    candidate is written in its own SAVEPOINT: a venue that took the same
+    one in the same instant (the unique index — two owners switching on
+    their page at once) costs only that savepoint, and the next candidate is
+    tried — never a 500 that also threw away the owner's other changes."""
+    from sqlalchemy.exc import IntegrityError as _Clash
+
+    from app.utils.savepoint import savepoint
+    for _ in range(3):
+        cand = _allocate_slug(db, base)
+        try:
+            with savepoint(db):
+                profile.reservation_slug = cand
+                db.flush()
+            return cand
+        except _Clash:
+            logger.info("slug %r taken in the same instant — minting another", cand)
+            continue
+    raise HTTPException(status_code=409, detail={"error": "slug_taken"})
+
+
 def _allocate_slug(db: Session, base: str) -> str:
     import random
     from app.utils.text import public_slug
@@ -938,7 +960,7 @@ def update_settings(payload: SettingsUpdate, request: Request,
         # Allocate a durable slug the first time reservations are turned on.
         if payload.reservations_enabled and not getattr(profile, "reservation_slug", None):
             base = getattr(profile, "company_name", None) or "booking"
-            profile.reservation_slug = _allocate_slug(db, base)
+            _claim_slug(db, profile, base)
 
     audit_service.record(db, user, "reservation.settings_updated", "business_profile", profile.id)
     db.commit()
@@ -1301,7 +1323,7 @@ def _activate_reservations_on_first_resource(
         return None
 
     try:
-        slug = _allocate_slug(db, (
+        slug = _claim_slug(db, profile, (
             getattr(profile, "company_name", None)
             or getattr(user, "business_name", None)
             or "booking"
@@ -1555,7 +1577,7 @@ def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
     if not getattr(profile, "reservation_slug", None):
         base = (getattr(profile, "company_name", None)
                 or getattr(user, "business_name", None) or "booking")
-        profile.reservation_slug = _allocate_slug(db, base)
+        _claim_slug(db, profile, base)
 
     audit_service.record(db, user, "reservation.salon_quick_setup",
                          "business_profile", profile.id)
