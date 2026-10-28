@@ -2496,7 +2496,7 @@ export const da = {
     rsvpWebSendDevHint: "Åbner din egen mail med link, kode og vejledning. BonBox sender ikke noget.",
     rsvpWebMailBody: "Hej\n\nVil du sætte vores booking på hjemmesiden?\n\nIndsæt koden i en HTML- eller Indlejr-blok. WordPress: Tilpasset HTML. Elementor: HTML. Wix: Embed HTML (gør boksen ca. 800 px høj). Squarespace: Code. Siden skal køre på https.\n\n{iframe}\n\nFjernes scriptet, står den i 720 px med et link under. Eller link bare hertil: {link}\n\nVises den ikke? Tilføj {origin} til frame-src og script-src.\n\nTak!",
     rsvpWebCspTitle: "Vises bookingen ikke?",
-    rsvpWebCspHint: "Nogle hjemmesider blokerer indhold fra andre sider med en sikkerhedsindstilling (Content-Security-Policy). Bed den, der laver jeres hjemmeside, om at tilføje {origin} til frame-src og script-src.",
+    rsvpWebCspHint: "Nogle hjemmesider blokerer indhold fra andre sider med en sikkerhedsindstilling (Content-Security-Policy). Bed den, der laver din hjemmeside, om at tilføje {origin} til frame-src og script-src.",
     rsvpEmbedMailSubject: "Booking på vores hjemmeside",
     rsvpEmbedButtonLabel: "Book bord",
     rsvpEmbedOpenInNewTab: "Åbn booking i nyt vindue →",
