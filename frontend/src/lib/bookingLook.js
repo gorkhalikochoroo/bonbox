@@ -35,8 +35,10 @@
 //           site the owner forced to the other theme, or no surface: our own
 //           card (white / gray-900).
 //   tint    the quiet surface a step off the card (dark: 6 % white; light:
-//           4 % black) — the trust strip, the tracks, fields and the receipt's
-//           ticket in a looked dark frame (index.css).
+//           4 % black) — the trust strip, the tracks, fields, the receipt's
+//           ticket, the step-2 summary and allergy panel in a looked dark
+//           frame (index.css); tint2 (18 % / 10 %) the off-switch track and
+//           the inactive step marks, which carry no text.
 //   ink     the site's text colour when it reads at AA (4.5:1) on EVERY quiet
 //           surface it can sit on — the card, the tint, and in light also the
 //           page's own gray-50 / gray-100 (the trust strip, the tiles, the
@@ -96,7 +98,7 @@ export function lookFrom(q, R, F) {
   if (!dk) { cd = pl && L(pl) >= 0.18 ? M(W, pl, 0.3) : W; while (L(cd) < 0.93 && i++ < 40) cd = M(cd, W, 0.1); }
   else if (pl && L(pl) < 0.18) { cd = M(pl, W, 0.07); while (L(cd) > 0.035 && i++ < 40) cd = M(cd, K, 0.1); }
   else cd = "#111827";
-  var tn = dk ? M(cd, W, 0.06) : M(cd, K, 0.04), Q = dk ? [cd, tn] : [cd, tn, "#F9FAFB", "#F3F4F6"];
+  var tn = dk ? M(cd, W, 0.06) : M(cd, K, 0.04), t2 = dk ? M(cd, W, 0.18) : M(cd, K, 0.1), Q = dk ? [cd, tn] : [cd, tn, "#F9FAFB", "#F3F4F6"];
   var lo = function (x) { var r = 99, j; for (j = 0; j < Q.length; j++) r = Math.min(r, C(x, Q[j])); return r; };
   if (ink && lo(ink) >= 4.5) { so = ink; for (i = 0; i < 4; i++) { c = M(ink, cd, [0.45, 0.35, 0.25, 0.15][i]); if (lo(c) >= 4.5) { so = c; break; } } } else ink = null;
   if (ac) {
@@ -108,7 +110,7 @@ export function lookFrom(q, R, F) {
       for (i = 1; C(A.edge, cd) < 3 && i <= 25; i++) A.edge = M(ac, dk ? W : K, i * 0.04);
     }
   }
-  return { dark: dk, card: cd, tint: tn, ink: ink, soft: so, accent: A, radius: en(R, "radius"), font: en(F, "font"), scheme: en(["light", "dark", "ld"], "scheme") };
+  return { dark: dk, card: cd, tint: tn, tint2: t2, ink: ink, soft: so, accent: A, radius: en(R, "radius"), font: en(F, "font"), scheme: en(["light", "dark", "ld"], "scheme") };
 }
 
 /** Paint a look (lookFrom's result) on the document: classes and custom
@@ -118,7 +120,7 @@ export function lookFrom(q, R, F) {
 export function applyLook(d, L, R, F) {
   var r = d.documentElement, s = r.style, c = r.classList, A = L.accent || {}, k, i;
   var v = {
-    "--bb-card": L.card, "--bb-card-bar": L.card + "EB", "--bb-tint": L.tint, "--bb-ink": L.ink, "--bb-ink-soft": L.soft,
+    "--bb-card": L.card, "--bb-card-bar": L.card + "EB", "--bb-tint": L.tint, "--bb-tint-2": L.tint2, "--bb-ink": L.ink, "--bb-ink-soft": L.soft,
     "--bb-h-accent": A.bg, "--bb-h-fg": A.fg, "--bb-h-fg-quiet": A.quiet, "--bb-h-hover": A.hover, "--bb-h-edge": A.edge
   };
   for (k in v) if (v[k]) s.setProperty(k, v[k]); else s.removeProperty(k);

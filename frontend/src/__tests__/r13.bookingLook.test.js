@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LOOK_FONTS, LOOK_RADII, LOOK_RADII_PX, applyLook, lookFrom } from "../lib/bookingLook";
 import { ACCENT_PRESETS, accentTokens, contrast, luminance } from "../utils/accentColor";
-import { bookingBootSource, lookSource } from "../../scripts/bookingBoot.mjs";
+import { LOOK_WAIT_MS, bookingBootSource, lookSource } from "../../scripts/bookingBoot.mjs";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) => fs.readFileSync(path.join(SRC, rel), "utf8");
@@ -40,7 +40,7 @@ describe("nothing without look=1", () => {
     (q) => expect(look(q)).toBeNull(),
   );
   it("look=1 alone is today's light card, nothing else", () => {
-    expect(look("?embed=1&look=1")).toEqual({ dark: false, card: "#FFFFFF", tint: "#F5F5F5", ink: null, soft: null, accent: null, radius: null, font: null, scheme: null });
+    expect(look("?embed=1&look=1")).toEqual({ dark: false, card: "#FFFFFF", tint: "#F5F5F5", tint2: "#E6E6E6", ink: null, soft: null, accent: null, radius: null, font: null, scheme: null });
   });
 });
 
@@ -190,6 +190,10 @@ describe("the trust line and every soft line read at AA on the surfaces they sit
     expect(css).toContain(":root.bb-look.dark .dark\\:bg-gray-950:not(.bb-ground) { background-color: var(--bb-card); }");
     expect(css).toMatch(/:root\.bb-look\.dark \.dark\\:bg-gray-900,\s*:root\.bb-look\.dark \.dark\\:bg-gray-800 \{ background-color: var\(--bb-tint\); \}/);
     expect(css).toContain(":root.bb-look.dark .dark\\:bg-gray-600 { background-color: var(--bb-card); }");
+    // fix round 2: step 2's date summary, allergy panel and info cards; the switch track and step marks
+    expect(css).toMatch(/:root\.bb-look\.dark \.dark\\:bg-gray-900\\\/60,\s*:root\.bb-look\.dark \.dark\\:bg-gray-800\\\/60 \{ background-color: var\(--bb-tint\); \}/);
+    expect(css).toContain(":root.bb-look.dark .dark\\:bg-gray-700 { background-color: var(--bb-tint-2); }");
+    expect(look("?look=1&surface=0b0b0b").tint2).toMatch(/^#[0-9A-F]{6}$/);
     expect(read("pages/ReservationPublicPage.jsx")).toContain("bb-solid bg-gray-50 dark:bg-gray-950 px-4 py-10");
   });
 });
@@ -327,14 +331,15 @@ describe("applyLook: classes and custom properties on <html>, set and cleared", 
     expect(start).toBeLessThan(css.indexOf(".bb-room-wall {"));
     const block = css.slice(start, css.indexOf(".bb-room-wall {"));
     const colours = [...block.matchAll(/(?:background-color|color|border-color):\s*([^;]+);/g)].map((m) => m[1].trim());
-    for (const c of colours) expect(c).toMatch(/^(var\(--bb-[a-z-]+\)|transparent)$/);
+    for (const c of colours) expect(c).toMatch(/^(var\(--bb-[a-z0-9-]+\)|transparent)( !important)?$/);
   });
 });
 
 // ── The parse-time script ─────────────────────────────────────────────
 function boot(search, { framed = true } = {}) {
   const listeners = [];
-  const parent = { name: "parent" };
+  const toParent = [];
+  const parent = { name: "parent", postMessage: (msg, origin) => toParent.push({ msg, origin }) };
   const w = {
     matchMedia: () => ({ matches: false }), fetch: undefined, AbortController,
     addEventListener: (type, fn) => listeners.push({ type, fn }),
@@ -347,7 +352,7 @@ function boot(search, { framed = true } = {}) {
     w, { pathname: "/r/cafe", search, protocol: "https:", hostname: "localhost" }, doc, undefined,
   );
   const send = (data, source = parent) => listeners.filter((l) => l.type === "message").forEach((l) => l.fn({ data, source }));
-  return { b: w.__bbBooking, listeners, send };
+  return { b: w.__bbBooking, listeners, send, toParent };
 }
 
 describe("the parse-time script paints the look before the first paint", () => {
@@ -379,6 +384,49 @@ describe("the parse-time script paints the look before the first paint", () => {
     expect(html().classList.contains("dark")).toBe(true);
     send({ type: "bonbox:look", q: "look=1&theme=light" });
     expect(html().classList.contains("dark")).toBe(false);
+  });
+
+  it("a bare look=1 (every new snippet): the default look, nothing painted, 'ready' to the parent — shown with the look in the same step", () => {
+    const { b, send, toParent } = boot("?embed=1&compact=1&look=1");
+    expect(b.look).toMatchObject({ dark: false, card: "#FFFFFF" }); // the default, so the page mounts in look mode
+    expect(html().classList.contains("bb-look")).toBe(true);
+    expect(html().classList.contains("bb-look-wait")).toBe(true);
+    expect(toParent).toEqual([{ msg: { type: "bonbox:ready" }, origin: "*" }]);
+    send({ type: "bonbox:look", q: "look=1&surface=0b0b0b&ink=eeeeee" });
+    // the look and the reveal together: nothing light was ever shown on this dark site
+    expect(html().classList.contains("dark")).toBe(true);
+    expect(html().classList.contains("bb-look-wait")).toBe(false);
+  });
+
+  it("no look by LOOK_WAIT_MS (a blocked or stripped host script): the default look shows, and a late look still applies", () => {
+    vi.useFakeTimers();
+    try {
+      const { send } = boot("?embed=1&look=1");
+      expect(html().classList.contains("bb-look-wait")).toBe(true);
+      vi.advanceTimersByTime(LOOK_WAIT_MS - 1);
+      expect(html().classList.contains("bb-look-wait")).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(html().classList.contains("bb-look-wait")).toBe(false);
+      expect(html().classList.contains("dark")).toBe(false); // the default light card
+      send({ type: "bonbox:look", q: "look=1&surface=0b0b0b" });
+      expect(html().classList.contains("dark")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(LOOK_WAIT_MS).toBeLessThanOrEqual(1500);
+  });
+
+  it("an address that carries its look (the owner's kit preview) is painted at once: no wait, no ready", () => {
+    const { toParent } = boot("?embed=1&look=1&surface=f4efe6&ink=2b2118");
+    expect(html().classList.contains("bb-look-wait")).toBe(false);
+    expect(html().classList.contains("bb-look")).toBe(true);
+    expect(toParent).toEqual([]);
+  });
+
+  it("CSS: waiting paints nothing — html and body transparent, the page hidden", () => {
+    const css = read("index.css");
+    expect(css).toMatch(/:root\.bb-look-wait,\s*:root\.bb-look-wait body \{ background-color: transparent !important; \}/);
+    expect(css).toContain(":root.bb-look-wait body { visibility: hidden; }");
   });
 
   it("an old embed address (no look=1): no look, nothing a look message can change, the page as before", () => {
@@ -417,6 +465,15 @@ describe("the parse-time script paints the look before the first paint", () => {
     expect(posted).toHaveLength(1);
     expect(posted[0].msg).toEqual({ type: "bonbox:height", height: 641 });
     expect(posted[0].origin).toBe("*");
+    rect.mockRestore();
+  });
+
+  it("…and a frame that takes looks answers a hello with 'ready' too (the host script came after the frame was up)", () => {
+    const { send, toParent } = boot("?embed=1&look=1");
+    toParent.length = 0;
+    const rect = vi.spyOn(html(), "getBoundingClientRect").mockReturnValue({ height: 500, width: 460, top: 0, left: 0, right: 460, bottom: 500 });
+    send({ type: "bonbox:hello" });
+    expect(toParent.map((p) => p.msg)).toEqual([{ type: "bonbox:ready" }, { type: "bonbox:height", height: 500 }]);
     rect.mockRestore();
   });
 

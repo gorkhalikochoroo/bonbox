@@ -80,6 +80,12 @@ function host({ css = "", body = '<main>{SNIPPET}</main>', look = AUTO, snippet 
     if (type === "message") listeners.push(fn);
     return realAdd.call(this, type, fn, opts);
   };
+  // What the script says to each frame (R13 fix round 2: looks travel by message only).
+  const posted = [];
+  for (const f of document.querySelectorAll("iframe[data-bonbox-booking]")) {
+    f.contentWindow.postMessage = (msg, origin) => posted.push({ frame: f, msg, origin });
+  }
+  const srcBefore = [...document.querySelectorAll("iframe[data-bonbox-booking]")].map((f) => f.getAttribute("src"));
   try {
     if (before) before(document.querySelector("iframe[data-bonbox-booking]"));
     runScriptOf(s, protocol);
@@ -90,11 +96,16 @@ function host({ css = "", body = '<main>{SNIPPET}</main>', look = AUTO, snippet 
   const rec = { style, observers, listeners };
   pasted.push(rec);
   const frame = document.querySelector("iframe[data-bonbox-booking]");
+  // the frame (look=1 in its address) says it is ready for its look
+  const ready = (f = frame) =>
+    window.dispatchEvent(new MessageEvent("message", { data: { type: "bonbox:ready" }, origin: ORIGIN, source: f.contentWindow }));
+  const looks = (f = frame) => posted.filter((p) => p.frame === f && p.msg.type === "bonbox:look");
   const q = () => {
-    const src = frame.getAttribute("src");
-    return src.slice(src.indexOf("look=1"));
+    if (!looks().length) ready();
+    const l = looks();
+    return l.length ? l[l.length - 1].msg.q : null;
   };
-  return { frame, q };
+  return { frame, q, ready, looks, posted, srcBefore };
 }
 const heightFrom = (frame, height = 700) =>
   window.dispatchEvent(new MessageEvent("message", { data: { type: "bonbox:height", height }, origin: ORIGIN, source: frame.contentWindow }));
@@ -136,11 +147,11 @@ const CREAM_BODY = `
   </section>`;
 
 describe("a cream site in Georgia with pill buttons", () => {
-  it("reads its surface, ink, button colour + text, round corners and Georgia — before the frame loads", () => {
+  it("reads its surface, ink, button colour + text, round corners and Georgia — sent the moment the frame is ready", () => {
     const { frame, q } = host({ css: CREAM, body: CREAM_BODY });
     expect(q()).toBe("look=1&surface=f4efe6&ink=2b2118&accent=7c4a1e&accent_ink=ffffff&radius=round&font=georgia");
-    // the frame's own address: the snippet's query first, then the look
-    expect(frame.getAttribute("src")).toBe(`${ORIGIN}/r/cafe?embed=1&compact=1&` + q());
+    // the frame's own address is the snippet's, look=1 included, and never changes (one load)
+    expect(frame.getAttribute("src")).toBe(`${ORIGIN}/r/cafe?embed=1&compact=1&look=1`);
     expect(frame.style.borderRadius).toBe(LOOK_FRAME_RADIUS.round);
     // …and the frame makes a light, cream-tinted card of it, with the brown on the picks
     const look = lookFrom("?embed=1&compact=1&" + q(), LOOK_RADII, LOOK_FONTS);
@@ -289,7 +300,7 @@ describe("the frame's own color-scheme, mirrored (else the browser paints the fr
   };
   it.each([
     ["dark", "&scheme=dark"], ["only dark", "&scheme=dark"], ["light dark", "&scheme=ld"], ["dark light", "&scheme=ld"],
-    ["light", "&scheme=light"], ["normal", ""], ["", ""],
+    ["light", ""], ["normal", ""], ["", ""], // light is the frame's own (the snippet pins it): nothing to say
   ])("color-scheme %j → %j", (value, want) => {
     withScheme(value);
     const q = host({ css: "body { background-color: #0b0b0b; }", body: "<div>{SNIPPET}</div>" }).q();
@@ -304,49 +315,90 @@ describe("a site that switches to dark after the frame is up", () => {
     html.dark body { background-color: #101010; color: #f0f0f0; }
     .b { background-color: #1d4ed8; color: #ffffff; border-radius: 6px; }`;
 
-  it("reads it again and posts the new look to the frame (no reload), only to the booking origin, at most five times", async () => {
-    const { frame, q } = host({ css: CSS, body: '<button class="b">Book</button>{SNIPPET}' });
-    const first = q();
-    expect(first).toBe("look=1&surface=ffffff&ink=1a1a1a&accent=1d4ed8&accent_ink=ffffff&radius=sharp&font=georgia");
-    const posted = [];
-    frame.contentWindow.postMessage = (msg, origin) => posted.push({ msg, origin });
-    // the frame says its height: it is up
-    window.dispatchEvent(new MessageEvent("message", { data: { type: "bonbox:height", height: 700 }, origin: ORIGIN, source: frame.contentWindow }));
+  it("reads it again and posts the new look to the frame (no reload), only to the booking origin, at most five changes", async () => {
+    const { frame, q, looks, srcBefore } = host({ css: CSS, body: '<button class="b">Book</button>{SNIPPET}' });
+    expect(q()).toBe("look=1&surface=ffffff&ink=1a1a1a&accent=1d4ed8&accent_ink=ffffff&radius=sharp&font=georgia");
+    heightFrom(frame);
     expect(frame.style.height).toBe("700px");
-    expect(posted).toEqual([]); // nothing new to say yet
+    expect(looks()).toHaveLength(1); // the height says nothing new
 
     document.documentElement.classList.add("dark");
-    await new Promise((r) => setTimeout(r, 260));
-    expect(posted).toHaveLength(1);
-    expect(posted[0].origin).toBe(ORIGIN);
-    expect(posted[0].msg).toEqual({
+    await wait(300);
+    expect(looks()).toHaveLength(2);
+    expect(looks()[1].origin).toBe(ORIGIN);
+    expect(looks()[1].msg).toEqual({
       type: "bonbox:look",
       q: "look=1&surface=101010&ink=f0f0f0&accent=1d4ed8&accent_ink=ffffff&radius=sharp&font=georgia",
     });
-    expect(posted[0].msg.q).toMatch(SAFE_Q);
-    expect(frame.getAttribute("src")).toContain(first); // never reloaded
+    expect(looks()[1].msg.q).toMatch(SAFE_Q);
+    expect(frame.getAttribute("src")).toBe(srcBefore[0]); // never reloaded
 
-    // flip-flopping: at most five changes are sent per page view
+    // flip-flopping: the first look is free, then at most five changes per page view
     for (let i = 0; i < 8; i += 1) {
       document.documentElement.classList.toggle("dark");
       await wait(300);
     }
-    expect(posted).toHaveLength(5);
+    expect(looks()).toHaveLength(6);
   });
 
-  it("a look found before the frame is up is sent with its first height, once", async () => {
-    const { frame } = host({ css: CSS, body: '<button class="b">Book</button>{SNIPPET}' });
-    const posted = [];
-    frame.contentWindow.postMessage = (msg, origin) => posted.push({ msg, origin });
+  it("a look found before the frame is ready is the one sent on its ready (and again on a later ready)", async () => {
+    const { frame, ready, looks, srcBefore } = host({ css: CSS, body: '<button class="b">Book</button>{SNIPPET}' });
     document.documentElement.classList.add("dark");
-    await new Promise((r) => setTimeout(r, 260));
-    expect(posted).toEqual([]); // the frame is not up: nothing sent, nothing reloaded
-    const send = () =>
-      window.dispatchEvent(new MessageEvent("message", { data: { type: "bonbox:height", height: 640 }, origin: ORIGIN, source: frame.contentWindow }));
-    send();
-    send();
-    expect(posted).toHaveLength(1);
-    expect(posted[0].msg.q).toMatch(/surface=101010/);
+    await wait(300);
+    expect(looks()).toEqual([]); // the frame is not ready: nothing sent, nothing reloaded
+    ready();
+    expect(looks()).toHaveLength(1);
+    expect(looks()[0].msg.q).toMatch(/surface=101010/);
+    ready(); // the frame answered a hello too
+    expect(looks()).toHaveLength(2);
+    expect(looks()[1].msg.q).toBe(looks()[0].msg.q);
+    expect(frame.getAttribute("src")).toBe(srcBefore[0]);
+  });
+
+  it("a ready from another origin or another window gets nothing", () => {
+    const { frame, looks } = host({ css: CSS, body: '<button class="b">Book</button>{SNIPPET}' });
+    window.dispatchEvent(new MessageEvent("message", { data: { type: "bonbox:ready" }, origin: "https://evil.example", source: frame.contentWindow }));
+    window.dispatchEvent(new MessageEvent("message", { data: { type: "bonbox:ready" }, origin: ORIGIN, source: window }));
+    expect(looks()).toEqual([]);
+  });
+});
+
+describe("exactly one load of the frame (R13 fix round 2)", () => {
+  // The frame's src is never set by the script — not at once, not on a hello, ready or theme switch: a
+  // second load painted the plain white card first (4 of 8 runs, every slow or async run).
+  const watchSrc = (f) => {
+    const sets = [];
+    Object.defineProperty(f, "src", {
+      configurable: true,
+      get: () => f.getAttribute("src"),
+      set: (v) => {
+        sets.push(v);
+      },
+    });
+    f.__sets = sets;
+  };
+  it.each(["at once (a sync script)", "after the frame is up (async: hello)"])("%s", async (when) => {
+    const { frame, ready, srcBefore } = host({ css: CREAM, body: CREAM_BODY, before: watchSrc });
+    if (when.includes("hello")) heightFrom(frame);
+    ready();
+    document.documentElement.classList.add("dark");
+    await wait(300);
+    ready();
+    expect(frame.__sets).toEqual([]);
+    expect(frame.getAttribute("src")).toBe(srcBefore[0]);
+    expect(frame.getAttribute("src")).toBe(`${ORIGIN}/r/cafe?embed=1&compact=1&look=1`);
+  });
+
+  it("the snippet itself: look=1 in the frame's address, color-scheme:light on the <iframe> (no box, script or no script)", () => {
+    const on = iframeSnippet({ ...base, compact: true, look: AUTO });
+    expect(on).toContain('src="https://www.bonbox.dk/r/cafe?embed=1&amp;compact=1&amp;look=1"');
+    expect(on).toContain('style="display:block;border:0;width:100%;border-radius:16px;color-scheme:light"');
+    const off = iframeSnippet({ ...base, compact: true, hosted: true });
+    expect(off).not.toContain("look=1");
+    expect(off).toContain(";color-scheme:light\"");
+    // R4: neither
+    const r4 = iframeSnippet({ ...base, compact: true });
+    expect(r4).not.toMatch(/look=1|color-scheme/);
   });
 });
 
@@ -437,6 +489,7 @@ describe("the new snippet is short, and its hand-off mail stays one mailto: link
               const iframe = iframeSnippet({ publicUrl: url, label, venueName, fallbackLabel: d.rsvpEmbedOpenInNewTab, compact: true, flat: true, width, look, hosted: true });
               const href = mailtoHref({ subject: d.rsvpEmbedMailSubject, body: d.rsvpWebMailBody.replace("{iframe}", iframe).replace("{link}", url) });
               expect(new URLSearchParams(href.slice("mailto:?".length)).get("body")).toContain(iframe);
+              expect(iframe.length).toBeLessThanOrEqual(850);
               worst = Math.max(worst, href.length);
             }
           }
@@ -462,20 +515,19 @@ describe("the re-read budget (R13 fix round)", () => {
     .b { background-color: #1d4ed8; color: #ffffff; border-radius: 6px; }`;
 
   it("40 class flips that change nothing (a sticky header) spend nothing: a real change afterwards still reaches the frame", async () => {
-    const { frame } = host({ css: CSS, body: '<button class="b">Book</button>{SNIPPET}' });
-    const posted = [];
-    frame.contentWindow.postMessage = (msg) => posted.push(msg);
-    heightFrom(frame);
+    const { ready, looks } = host({ css: CSS, body: '<button class="b">Book</button>{SNIPPET}' });
+    ready();
+    expect(looks()).toHaveLength(1);
     for (let i = 0; i < 40; i += 1) {
       document.body.classList.toggle("is-scrolled");
       await wait(i % 8 === 0 ? 300 : 5);
     }
     await wait(300);
-    expect(posted).toEqual([]);
+    expect(looks()).toHaveLength(1);
     document.documentElement.classList.add("dark");
     await wait(300);
-    expect(posted).toHaveLength(1);
-    expect(posted[0].q).toMatch(/surface=101010/);
+    expect(looks()).toHaveLength(2);
+    expect(looks()[1].msg.q).toMatch(/surface=101010/);
   });
 
   it("after the five changes, a color-scheme change is still followed (else the browser paints the frame an opaque box)", async () => {
@@ -485,20 +537,18 @@ describe("the re-read budget (R13 fix round)", () => {
       const st = real(el);
       return el.tagName === "IFRAME" ? new Proxy(st, { get: (t, k) => (k === "colorScheme" ? scheme : Reflect.get(t, k)) }) : st;
     });
-    const { frame } = host({ css: CSS, body: '<button class="b">Book</button>{SNIPPET}' });
-    const posted = [];
-    frame.contentWindow.postMessage = (msg) => posted.push(msg);
-    heightFrom(frame);
+    const { ready, looks } = host({ css: CSS, body: '<button class="b">Book</button>{SNIPPET}' });
+    ready();
     for (let i = 0; i < 7; i += 1) {
       document.documentElement.classList.toggle("dark");
       await wait(300);
     }
-    expect(posted).toHaveLength(5); // the budget is spent
+    expect(looks()).toHaveLength(6); // the first look and five changes: the budget is spent
     scheme = "dark";
     document.documentElement.classList.toggle("dark");
     await wait(300);
-    expect(posted).toHaveLength(6);
-    expect(posted[5].q).toContain("&scheme=dark");
+    expect(looks()).toHaveLength(7);
+    expect(looks()[6].msg.q).toContain("&scheme=dark");
   });
 });
 
@@ -559,6 +609,6 @@ describe("snippets without the opt-in are the R4 snippet, byte for byte", () => 
     expect(frames).toHaveLength(2);
     expect(frames[0].getAttribute("src")).toBe(`${ORIGIN}/r/cafe?embed=1&compact=1`);
     expect(frame.getAttribute("src")).toBe(`${ORIGIN}/r/cafe?embed=1&compact=1`); // querySelector finds the old one first
-    expect(frames[1].getAttribute("src")).toMatch(/&look=1&/);
+    expect(frames[1].getAttribute("src")).toMatch(/&look=1$/);
   });
 });

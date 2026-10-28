@@ -1309,6 +1309,20 @@ body.modal-open {
 :root.bb-look.dark .dark\:bg-gray-900,
 :root.bb-look.dark .dark\:bg-gray-800 { background-color: var(--bb-tint); }
 :root.bb-look.dark .dark\:bg-gray-600 { background-color: var(--bb-card); }
+/* …and on step 2 (fix round 2): the date summary, the opened allergy panel,
+   the info cards; the off-switch track and the inactive step marks (no text
+   on them) a stronger tint. */
+:root.bb-look.dark .dark\:bg-gray-900\/60,
+:root.bb-look.dark .dark\:bg-gray-800\/60 { background-color: var(--bb-tint); }
+:root.bb-look.dark .dark\:bg-gray-700 { background-color: var(--bb-tint-2); }
+/* R13 fix round 2: a frame waiting for its look (a bare `look=1`, every new
+   snippet) paints nothing — html and body transparent, the page hidden —
+   until the look arrives by message or LOOK_WAIT_MS passes
+   (scripts/bookingBoot.mjs). The snippet's color-scheme:light on the
+   <iframe> matches this document, so the browser adds no box either. */
+:root.bb-look-wait,
+:root.bb-look-wait body { background-color: transparent !important; }
+:root.bb-look-wait body { visibility: hidden; }
 /* Corners on our ladder (sharp / soft / round), from the site's button:
    card, tile, button (src/lib/bookingLook.js LOOK_RADII_PX is this table). */
 :root.bb-r-sharp { --bb-r-card: 4px; --bb-r-tile: 4px; --bb-r-btn: 4px; }

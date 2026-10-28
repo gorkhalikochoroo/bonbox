@@ -150,7 +150,7 @@ function heightScript(origin) {
 // one with "Tilpas automatisk" off) is the R4 snippet, byte for byte.
 
 /** A new snippet's frame title, in mail characters at most (see iframeSnippet). */
-export const TITLE_BUDGET = 120;
+export const TITLE_BUDGET = 75;
 
 /** The hosted embed script (v1): its path on the booking origin. */
 export const EMBED_SCRIPT_PATH = "/static/embed1.js";
@@ -217,11 +217,20 @@ export function iframeSnippet({
   // The owner's colour is the exception, so only it is written out:
   // data-bonbox-accent="own"; no attribute = the site's button colour.
   const attrs = lk ? ` data-bonbox-look="${lk.mode}"` + (lk.accent === "own" ? ` data-bonbox-accent="own"` : "") : "";
+  // R13 fix round 2. With the look, the frame's address says `look=1` from
+  // the start ("a look comes by message"): the frame paints nothing until
+  // the hosted script sends it (or 1.3 s pass) and the script never changes
+  // the src — one load, never a white card first. A new snippet's <iframe>
+  // also says color-scheme:light, the frame document's own scheme: a site
+  // with `color-scheme: dark` can no longer make the browser put an opaque
+  // box behind the frame, script or no script.
+  const query = embedQuery({ flat, compact }) + (lk ? "&look=1" : "");
+  const frameStyle = "display:block;border:0;width:100%;border-radius:16px" + (lk || hosted ? ";color-scheme:light" : "");
   return (
     `<div data-bonbox-booking-wrap style="width:100%;max-width:${w}px;margin:0 auto">\n` +
-    `  <iframe data-bonbox-booking${attrs} src="${escapeAttr(src + embedQuery({ flat, compact }))}"\n` +
+    `  <iframe data-bonbox-booking${attrs} src="${escapeAttr(src + query)}"\n` +
     `    title="${escapeAttr(title)}" width="100%" height="720" loading="lazy"\n` +
-    `    style="display:block;border:0;width:100%;border-radius:16px"></iframe>\n` +
+    `    style="${frameStyle}"></iframe>\n` +
     `  <p data-bonbox-booking-link style="margin:8px 0 0;text-align:center;font:400 14px/1.4 system-ui,sans-serif">\n` +
     `    <a href="${escapeAttr(publicUrl)}" target="_blank" rel="noopener">${escapeAttr(fallbackLabel)}</a>\n` +
     `  </p>\n` +

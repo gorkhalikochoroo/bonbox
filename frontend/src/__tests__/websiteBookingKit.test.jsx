@@ -196,7 +196,7 @@ describe("WebsiteBookingKit — 2. Indlejr", () => {
     await act(async () => fireEvent.click(screen.getByTestId("website-copy-embed")));
     const code = writeText.mock.calls[0][0];
     // Booking R4: a new snippet carries the compact header by default.
-    expect(code).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;compact=1"');
+    expect(code).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;compact=1&amp;look=1"');
     // R13 fix round: the sizing comes from the hosted script on the booking origin (one file for every
     // new snippet); it listens for the page's bonbox:height from that origin only.
     expect(code).toContain('<script src="https://www.bonbox.dk/static/embed1.js"></script>');
@@ -282,7 +282,7 @@ describe("WebsiteBookingKit — 3. Vejledning", () => {
     expect(btn).toHaveTextContent("Kopiér kode");
     await act(async () => fireEvent.click(btn));
     const fromGuide = writeText.mock.calls[0][0];
-    expect(fromGuide).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;compact=1"');
+    expect(fromGuide).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;compact=1&amp;look=1"');
     expect(btn).toHaveTextContent("Kopieret");
     // Same builder output as the Indlejr tab's own copy button.
     fireEvent.click(screen.getByRole("tab", { name: "Indlejr" }));
@@ -324,7 +324,7 @@ describe("WebsiteBookingKit — send to whoever makes the website", () => {
     expect(body).toContain(`Eller link bare hertil: ${PUBLIC}`);
     expect(href.length).toBeLessThanOrEqual(2000);
     expect(body).toContain(`<a href="${PUBLIC}"`);
-    expect(body).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;compact=1"');
+    expect(body).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;compact=1&amp;look=1"');
     expect(body).toContain("HTML- eller Indlejr-blok");
     expect(body).not.toMatch(/\{(link|button|iframe)\}/);
   });

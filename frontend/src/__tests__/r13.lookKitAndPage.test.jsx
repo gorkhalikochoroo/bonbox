@@ -240,6 +240,13 @@ describe("the booking page on its own follows the phone's dark mode", () => {
     expect(now).not.toBe(meta);
     expect(now.getAttribute("content")).toBe("#ffffff");
     now.remove();
+    // fix round 2: the canvas under Safari's bottom bar — <html> says its new scheme (and ground)
+    expect(html().style.colorScheme).toBe("light");
+    state.on = true;
+    act(() => listeners.forEach((fn) => fn()));
+    expect(html().style.colorScheme).toBe("dark");
+    cleanup();
+    expect(html().style.colorScheme || "").toBe(""); // cleared when the page goes
   });
 
   it("a light phone stays light; a stored 'dark' stays dark", async () => {

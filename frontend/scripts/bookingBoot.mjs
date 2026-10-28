@@ -45,26 +45,46 @@ const js = (v) => JSON.stringify(v).replace(/</g, "\\u003c");
 // r13.bookingLook.test.js runs the joined copy).
 const oneLine = (fn) => fn.toString().replace(/\n\s*/g, " ");
 
-/** The look half of the script (R13): runs only in an embed with `look=1`. */
+/** How long a frame whose snippet promised a look by message waits for it,
+ *  painting nothing, before it shows the default look (a blocked or stripped
+ *  host script). */
+export const LOOK_WAIT_MS = 1300;
+
+/** The look half of the script (R13): runs only in an embed with `look=1`.
+ *  An address with look values (the owner's kit preview) is painted with
+ *  them at once. A BARE `look=1` (every new snippet, R13 fix round 2) means
+ *  "the look comes by message": the frame takes the default look, paints
+ *  nothing (html.bb-look-wait: transparent, body hidden — the snippet's
+ *  `color-scheme:light` on the <iframe> matches this document, so no box
+ *  either), tells its parent {type:"bonbox:ready"} and shows itself the
+ *  moment the look arrives — in the same task as the look, so the first
+ *  thing painted is the restaurant's look — or after LOOK_WAIT_MS with the
+ *  default. The frame loads once: the host script never touches its src. */
 export function lookSource() {
   return (
     `var LR=${js(LOOK_RADII)},LF=${js(LOOK_FONTS)},lookFrom=${oneLine(lookFrom)},applyLook=${oneLine(applyLook)};` +
     "var LK=lookFrom(q,LR,LF);" +
     "if(LK){B.look=LK;applyLook(D,LK,LR,LF);" +
+    'var RT=D.documentElement,show=function(){RT.classList.remove("bb-look-wait")};' +
+    'if(!/[?&](theme|scheme|surface|ink|accent|accent_ink|radius|font)=/.test(q)){' +
+    'RT.classList.add("bb-look-wait");B.waitT=setTimeout(show,' + LOOK_WAIT_MS + ');' +
+    'try{if(w.parent!==w)w.parent.postMessage({type:"bonbox:ready"},"*")}catch(y){}}' +
     'w.addEventListener("message",function(ev){try{var x=ev.data;' +
     'if(ev.source!==w.parent||!x||x.type!=="bonbox:look"||typeof x.q!=="string"||x.q.length>400)return;' +
-    'var N=lookFrom("?"+x.q,LR,LF);if(N){B.look=N;applyLook(D,N,LR,LF)}}catch(y){}})}'
+    'var N=lookFrom("?"+x.q,LR,LF);if(N){B.look=N;applyLook(D,N,LR,LF);clearTimeout(B.waitT);show()}}catch(y){}})}'
   );
 }
 
 /** R13 fix: the host's embed script may arrive after the frame is up (a
  *  builder that makes scripts async): it asks {type:"bonbox:hello"} and the
- *  frame says its height again, to its own parent only. Old snippets never
- *  ask, so nothing changes for them. */
+ *  frame says its height again — and, waiting for a look, that it is ready
+ *  for one — to its own parent only. Old snippets never ask, so nothing
+ *  changes for them. */
 export function helloSource() {
   return (
     'if(w.addEventListener)w.addEventListener("message",function(ev){try{' +
     'if(ev.source!==w.parent||!ev.data||ev.data.type!=="bonbox:hello")return;' +
+    'if(B.look)w.parent.postMessage({type:"bonbox:ready"},"*");' +
     'var h=Math.ceil(D.documentElement.getBoundingClientRect().height);' +
     'if(h>0)w.parent.postMessage({type:"bonbox:height",height:h},"*")}catch(y){}});'
   );

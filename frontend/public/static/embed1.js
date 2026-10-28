@@ -12,10 +12,13 @@
  *   - with data-bonbox-look (the owner left "match my website" on): reads
  *     this page's look — the surface behind the box, its text colour, the
  *     main button (colour, text colour, corners), a system font, the frame's
- *     color-scheme — and hands the frame hex digits and fixed words only: in
- *     its address before it loads, later (a theme switch on this page) as a
- *     message to the booking origin. The frame checks every value again
- *     (src/lib/bookingLook.js).
+ *     color-scheme — and hands the frame hex digits and fixed words only, as
+ *     a message to the booking origin. The frame's address already says
+ *     look=1 ("a look comes by message"): it paints nothing until the look
+ *     arrives (at most 1.3 s), tells this page {type:"bonbox:ready"}, and is
+ *     answered at once — and again after a theme switch on this page. This
+ *     file never changes a frame's src: every frame loads exactly once. The
+ *     frame checks every value again (src/lib/bookingLook.js).
  * It reads styles only, sends nothing anywhere else and stores nothing.
  * The v1 contract — data-bonbox-booking, data-bonbox-look="auto|light|dark",
  * data-bonbox-accent="own", data-bonbox-booking-wrap, data-bonbox-booking-link
@@ -50,20 +53,27 @@
     } catch (x) { /* the frame is gone */ }
   }
 
-  /* The booking says its height: size its frame (a bounded whole number, set
-     !important so a theme's iframe rule can't pin it) and hide the link. */
+  /* The booking speaks, from its own origin only: "ready" for a look (it
+     waits, painting nothing, until it has one) — it gets the look at once;
+     its height — its frame is sized (a bounded whole number, set
+     !important so a theme's iframe rule can't pin it) and the link hidden. */
   w.addEventListener("message", function (e) {
-    var dt = e.data, h = dt && Math.round(+dt.height), a, i, f, wr, l;
-    if (e.origin !== o || !dt || dt.type !== "bonbox:height" || !(h > 0 && h < 20000)) return;
+    var dt = e.data, a, i, f, h, wr, l;
+    if (e.origin !== o || !dt) return;
     a = all();
     for (i = 0; i < a.length; i++) {
       f = a[i];
       if (f.contentWindow !== e.source) continue;
-      if (!f.bbOn) {
-        f.bbOn = 1;
-        /* a look this page found after the frame's address was set */
-        if (f.bbQ != null && f.bbQ !== f.bbS) send(f, f.bbQ);
+      if (dt.type === "bonbox:ready") {
+        f.bbR = 1;
+        if (f.getAttribute("data-bonbox-look")) {
+          if (f.bbQ == null) f.bbQ = look(f)[0];
+          send(f, f.bbQ);
+        }
+        continue;
       }
+      h = Math.round(+dt.height);
+      if (dt.type !== "bonbox:height" || !(h > 0 && h < 20000)) continue;
       f.style.setProperty("height", h + "px", "important");
       wr = f.closest && f.closest("[data-bonbox-booking-wrap]");
       l = wr && wr.querySelector("[data-bonbox-booking-link]");
@@ -168,8 +178,10 @@
     var c = (wr && wr.parentElement) || d.body, styled = !!(d.styleSheets && d.styleSheets.length);
     var q = "look=1", s = surface(c), k, b, x;
     if (m === "light" || m === "dark") q += "&theme=" + m;
+    /* The snippet pins the <iframe> to color-scheme:light, the frame's own;
+       only a site that overrides that (an !important rule) is mirrored. */
     x = cs(f).colorScheme || "";
-    x = /dark/.test(x) ? (/light/.test(x) ? "ld" : "dark") : /light/.test(x) ? "light" : "";
+    x = /dark/.test(x) ? (/light/.test(x) ? "ld" : "dark") : "";
     if (x) q += "&scheme=" + x;
     if (s) q += "&surface=" + s;
     /* an unstyled document (Wix's Embed HTML box) has the browser's colours
@@ -208,30 +220,26 @@
         } catch (x) { /* not up yet: it will say its height itself */ }
       }
       if (!f.getAttribute("data-bonbox-look")) continue;
-      if (f.bbB == null) f.bbB = f.getAttribute("src") || "";
       r = look(f);
       q = r[0];
       if (r[1]) f.style.borderRadius = RADIUS[r[1]];
       if (q === f.bbQ) continue;
       /* Five changes per page view at most — except a color-scheme change,
          always followed: a frame whose scheme differs from its <iframe>'s
-         gets an opaque box from the browser. */
-      if (f.bbQ != null && schemeOf(q) === schemeOf(f.bbQ)) {
+         gets an opaque box from the browser. The first look is free. */
+      if (f.bbS != null && schemeOf(q) === schemeOf(f.bbS)) {
         if (U > 4) continue;
         U++;
       }
       f.bbQ = q;
-      if (f.bbS == null) {
-        f.bbS = q;
-        f.src = f.bbB + (f.bbB.indexOf("?") < 0 ? "?" : "&") + q;
-      } else if (f.bbOn) {
-        send(f, q);
-      }
+      /* Not ready yet: its "ready" fetches this look. */
+      if (f.bbR) send(f, q);
     }
   }
   /* Read again when the page may have changed its look — the rest of the page
      parsed, the phone's dark mode, a class or data-theme on <html> / <body>.
-     Debounced; reading costs nothing against the five changes. */
+     Debounced; reading costs nothing against the five changes (a change
+     counts only once the frame has had a look). */
   function again() {
     clearTimeout(T);
     T = setTimeout(run, 250);

@@ -164,18 +164,31 @@ export function followSystemTheme() {
   const apply = () => root.classList.toggle("dark", stored || !!mq?.matches);
   const onChange = () => {
     apply();
-    syncThemeColor(root.classList.contains("dark"));
+    const dark = root.classList.contains("dark");
+    syncThemeColor(dark);
     // R13 fix: Safari kept the dark toolbar band after a live dark → light
     // switch — it reads theme-color when the tag arrives, not when its
     // content changes. A fresh tag with the new content repaints it.
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.replaceWith(meta.cloneNode(true));
+    // …and the band UNDER its bottom bar is the page's canvas, which Safari
+    // samples late: say the new ground and scheme on <html> itself
+    // (fix round 2; cleared when the page goes).
+    try {
+      root.style.colorScheme = dark ? "dark" : "light";
+      const ground = window.getComputedStyle(document.body || root).backgroundColor;
+      if (ground) root.style.backgroundColor = ground;
+    } catch {
+      /* no computed style: nothing to say */
+    }
   };
   apply();
   mq?.addEventListener?.("change", onChange);
   return () => {
     mq?.removeEventListener?.("change", onChange);
     root.classList.toggle("dark", stored);
+    root.style.removeProperty("color-scheme");
+    root.style.removeProperty("background-color");
   };
 }
 

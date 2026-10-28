@@ -64,7 +64,8 @@ describe("the options, and what a new snippet carries by default", () => {
     expect(screen.getByTestId("website-embed-compact").checked).toBe(true);
     expect(screen.getByTestId("website-embed-flat").checked).toBe(false);
     expect(code()).toContain('style="width:100%;max-width:460px;margin:0 auto"');
-    expect(code()).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;compact=1"');
+    // R13 fix round 2: a new snippet's frame says look=1 from the start (the look comes by message).
+    expect(code()).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;compact=1&amp;look=1"');
     expect(screen.getByText("Kompakt top")).toBeInTheDocument();
     expect(screen.getByText(da.rsvpWebEmbedCompactHint)).toBeInTheDocument();
   });
@@ -73,7 +74,7 @@ describe("the options, and what a new snippet carries by default", () => {
     renderKit();
     openEmbed();
     fireEvent.click(screen.getByTestId("website-embed-compact"));
-    expect(code()).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1"');
+    expect(code()).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;look=1"');
     expect(screen.getByTestId("website-preview").getAttribute("src")).toBe(`${APP}/r/cafe-mirabelle?embed=1` + LOOK_Q);
   });
 
@@ -98,7 +99,7 @@ describe("the options, and what a new snippet carries by default", () => {
     renderKit();
     openEmbed();
     fireEvent.click(screen.getByTestId("website-embed-flat"));
-    expect(code()).toContain("?embed=1&amp;flat=1&amp;compact=1\"");
+    expect(code()).toContain("?embed=1&amp;flat=1&amp;compact=1&amp;look=1\"");
     expect(screen.getByRole("radio", { name: /Computer/ })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByTestId("website-preview").getAttribute("src")).toBe(`${APP}/r/cafe-mirabelle?embed=1&flat=1&compact=1` + LOOK_Q);
   });
@@ -128,7 +129,7 @@ describe("the options, and what a new snippet carries by default", () => {
     await act(async () => fireEvent.click(screen.getByTestId("website-copy-embed")));
     expect(writeText).toHaveBeenCalledWith(code());
     expect(writeText.mock.calls[0][0]).toContain("max-width:560px");
-    expect(writeText.mock.calls[0][0]).toContain('?embed=1"');
+    expect(writeText.mock.calls[0][0]).toContain('?embed=1&amp;look=1"');
   });
 });
 

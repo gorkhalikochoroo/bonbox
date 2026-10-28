@@ -58,7 +58,7 @@ describe("&flat=1 — the embed without its card", () => {
       expect(screen.getByText(dict.rsvpWebEmbedFlat)).toBeTruthy();
       expect(screen.getByText(dict.rsvpWebEmbedFlatHint)).toBeTruthy();
       // Booking R4: the kit's default also carries the compact header.
-      expect(screen.getByTestId("website-embed-code").textContent).toContain("?embed=1&amp;compact=1\"");
+      expect(screen.getByTestId("website-embed-code").textContent).toContain("?embed=1&amp;compact=1&amp;look=1\""); // R13: look=1
       fireEvent.click(box);
       expect(screen.getByTestId("website-embed-code").textContent).toContain("?embed=1&amp;flat=1");
       expect(screen.getByTestId("website-preview").getAttribute("src")).toBe("https://www.bonbox.dk/r/cafe-mirabelle?embed=1&flat=1&compact=1" + LOOK_Q);
