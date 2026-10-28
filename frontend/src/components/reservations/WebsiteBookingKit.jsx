@@ -33,6 +33,7 @@ import {
   LOOK_SAMPLE_IDS,
   SITE_BUILDERS,
   buttonSnippet,
+  embedOriginFor,
   guideNoteKeys,
   guideStepKeys,
   iframeSnippet,
@@ -426,7 +427,7 @@ export default function WebsiteBookingKit({
     // and where it goes; the full guides live in the kit.
     const mail = mailtoHref({
       subject: t("rsvpEmbedMailSubject"),
-      body: t("rsvpWebMailBody", { link: publicUrl, iframe }),
+      body: t("rsvpWebMailBody", { link: publicUrl, iframe, origin: embedOriginFor(publicUrl) }),
     });
     const lookQuery = sampleLookQuery(sample, lk);
     return { button, iframe, mail, preview: previewSrcFor(publicUrl, appOrigin, { flat, compact, lookQuery }) };
@@ -864,6 +865,14 @@ export default function WebsiteBookingKit({
               </div>
             </div>
           )}
+
+          {/* A site whose Content-Security-Policy blocks other sites' frames
+              and scripts shows only the link under the frame (lamfuz.dk, 28
+              Oct): say what to allow. */}
+          <div className="border-t border-gray-100 dark:border-gray-800 pt-4 space-y-1" data-testid="website-csp-help">
+            <p className={HEAD}>{t("rsvpWebCspTitle")}</p>
+            <p className={HINT}>{t("rsvpWebCspHint", { origin: embedOriginFor(publicUrl) })}</p>
+          </div>
 
           {/* Most owners don't edit their own site — hand the whole thing to
               whoever does, in one tap. */}

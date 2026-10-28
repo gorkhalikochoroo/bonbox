@@ -518,7 +518,7 @@ describe("the new snippet is short, and its hand-off mail stays one mailto: link
           for (const look of [AUTO, { mode: "dark", accent: "own" }, null]) {
             for (const width of [460, 560]) {
               const iframe = iframeSnippet({ publicUrl: url, label, venueName, fallbackLabel: d.rsvpEmbedOpenInNewTab, compact: true, flat: true, width, look, hosted: true });
-              const href = mailtoHref({ subject: d.rsvpEmbedMailSubject, body: d.rsvpWebMailBody.replace("{iframe}", iframe).replace("{link}", url) });
+              const href = mailtoHref({ subject: d.rsvpEmbedMailSubject, body: d.rsvpWebMailBody.replace("{iframe}", iframe).replace("{link}", url).replace("{origin}", ORIGIN) });
               expect(new URLSearchParams(href.slice("mailto:?".length)).get("body")).toContain(iframe);
               expect(iframe.length).toBeLessThanOrEqual(850);
               worst = Math.max(worst, href.length);

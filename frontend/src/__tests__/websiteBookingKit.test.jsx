@@ -328,6 +328,19 @@ describe("WebsiteBookingKit — send to whoever makes the website", () => {
     expect(body).toContain("HTML- eller Indlejr-blok");
     expect(body).not.toMatch(/\{(link|button|iframe)\}/);
   });
+
+  // R14 (28 Oct): a site whose Content-Security-Policy blocks other sites'
+  // frames and scripts (lamfuz.dk) shows only the link — the kit and the mail
+  // say what to allow, with the booking's own origin filled in.
+  it("tells the owner and the web person what to allow when the site blocks the booking", () => {
+    renderKit();
+    const help = screen.getByTestId("website-csp-help");
+    expect(help).toHaveTextContent("Vises bookingen ikke?");
+    expect(help).toHaveTextContent("tilføje https://www.bonbox.dk til frame-src og script-src");
+    const body = new URLSearchParams(screen.getByTestId("website-mailto").getAttribute("href").slice("mailto:?".length)).get("body");
+    expect(body).toContain("Vises den ikke? Tilføj https://www.bonbox.dk til frame-src og script-src.");
+    expect(body).not.toContain("{origin}");
+  });
 });
 
 describe("WebsiteBookingKit — wording", () => {
