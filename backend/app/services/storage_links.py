@@ -177,10 +177,24 @@ def current_storage_host() -> str | None:
     return _host((settings.SUPABASE_URL or "").strip())
 
 
+_retired_config_logged = False
+
+
 def configured_project_is_retired() -> bool:
     """True when SUPABASE_URL itself names a retired project — new uploads
-    would then be signed on a host that is going away."""
-    return current_storage_host() in RETIRED_STORAGE_HOSTS
+    would then be signed on a host that is going away. Reported, never
+    blocking (storage-switch plan §5.2): CRITICAL once per process here, and
+    in /api/admin/storage-links."""
+    global _retired_config_logged
+    retired = current_storage_host() in RETIRED_STORAGE_HOSTS
+    if retired and not _retired_config_logged:
+        _retired_config_logged = True
+        logger.critical(
+            "Storage: SUPABASE_URL names a retired project. Uploads are kept, but "
+            "their links sit on a host that is going away: point SUPABASE_URL at "
+            "the live project."
+        )
+    return retired
 
 
 def _note(reason: str, source: str, host: str | None = None) -> None:
@@ -212,10 +226,21 @@ def is_retired_link(value) -> bool:
     """True when `value` is a link on a retired storage host. Every write
     path refuses a NEW one (fix round 2): since the move only a client can
     send one, and on a pre-cutover row it would be signed on every read.
-    Any scheme, any case; a lookalike host is not a retired host."""
+    Any scheme, any case; a lookalike host is not a retired host.
+
+    Never true for the host storage is configured on (storage-switch plan
+    §5.1): on 23 Oct SUPABASE_URL still named Ireland, every upload handed
+    out an Ireland link, and refusing it stopped receipt photos from saving.
+    That case is reported by configured_project_is_retired(), not blocked."""
     if not value or not isinstance(value, str):
         return False
-    return _host(value.strip()) in RETIRED_STORAGE_HOSTS
+    host = _host(value.strip())
+    if host not in RETIRED_STORAGE_HOSTS:
+        return False
+    if host == current_storage_host():
+        configured_project_is_retired()  # logs the misconfiguration once
+        return False
+    return True
 
 
 def _bucket_of(url: str) -> str | None:

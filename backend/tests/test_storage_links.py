@@ -1639,3 +1639,36 @@ def test_real_backend_exists_logs_no_key_on_a_transport_error(monkeypatch, caplo
     assert f"Supabase exists check failed: {exc.__name__}" in caplog.text
     for needle in _exists_needles(k):
         assert needle not in caplog.text, needle
+
+
+# ── Storage-switch plan §5.1/§5.2 (re-ship, 28 Oct 2026) ────────────────────
+# On 23 Oct SUPABASE_URL still named Ireland: every upload handed out an
+# Ireland link and the write-path guard refused it with 422, so receipt
+# photos could not be saved and the release was rolled back. The configured
+# host is never a "retired link"; the misconfiguration is reported instead.
+
+def test_the_configured_host_is_never_a_retired_link(monkeypatch):
+    k = _key(OWNER)
+    monkeypatch.setattr(sl, "_retired_config_logged", False)
+    monkeypatch.setattr(settings, "SUPABASE_URL", FRA_HOST)
+    assert sl.is_retired_link(_irl(k))
+    assert not sl.configured_project_is_retired()
+    monkeypatch.setattr(settings, "SUPABASE_URL", IRL_HOST)
+    assert not sl.is_retired_link(_irl(k))
+    assert sl.configured_project_is_retired()
+    assert sl._retired_config_logged  # CRITICAL logged once, never blocking
+
+
+def test_create_paths_keep_saving_when_storage_is_configured_on_ireland(env, backend, monkeypatch):
+    db, _ = env
+    u = _owner(db)
+    monkeypatch.setattr(settings, "SUPABASE_URL", IRL_HOST)
+    irl = _irl(_key(u.id, n="h"))
+    app.dependency_overrides[get_current_user] = lambda: u
+    c = TestClient(app)
+    exp = {"date": "2026-10-28", "amount": 5, "description": "upload on Ireland", "payment_method": "card"}
+    r = c.post("/api/expenses", json={**exp, "receipt_photo": irl})
+    assert r.status_code == 201, r.text
+    r = c.post("/api/sales/from-receipt", params={"amount": 10, "receipt_path": irl})
+    assert r.status_code == 201, r.text
+    assert db.query(Expense).filter(Expense.user_id == u.id).count() == 1
