@@ -47,6 +47,11 @@
 //   radius  the site's button corners on our ladder: sharp / soft / round.
 //   font    a system font from a short list (the booking page's CSP allows
 //           fonts from 'self' only — no Google Fonts), else Inter stays.
+//   scheme  the <iframe>'s own color-scheme on the host (light / dark / ld =
+//           "light dark"), declared on this document too: when the two
+//           differ, the browser paints the frame an OPAQUE canvas (CSS Color
+//           Adjust), a box round the card on a dark site. None sent, none
+//           declared — exactly as before.
 
 /** The corner ladder ids (the site's button corners): sharp / soft / round.
  *  Their px live in index.css (.bb-r-sharp …: card, tile, button), so the
@@ -93,7 +98,7 @@ export function lookFrom(q, R, F) {
       for (i = 1; C(A.edge, cd) < 3 && i <= 25; i++) A.edge = M(ac, dk ? W : K, i * 0.04);
     }
   }
-  return { dark: dk, card: cd, ink: ink, soft: so, accent: A, radius: en(R, "radius"), font: en(F, "font") };
+  return { dark: dk, card: cd, ink: ink, soft: so, accent: A, radius: en(R, "radius"), font: en(F, "font"), scheme: en(["light", "dark", "ld"], "scheme") };
 }
 
 /** Paint a look (lookFrom's result) on the document: classes and custom
@@ -107,6 +112,7 @@ export function applyLook(d, L, R, F) {
     "--bb-h-accent": A.bg, "--bb-h-fg": A.fg, "--bb-h-fg-quiet": A.quiet, "--bb-h-hover": A.hover, "--bb-h-edge": A.edge
   };
   for (k in v) if (v[k]) s.setProperty(k, v[k]); else s.removeProperty(k);
+  s.colorScheme = L.scheme == "ld" ? "light dark" : L.scheme || "";
   for (i = 0; i < R.length; i++) c.toggle("bb-r-" + R[i], L.radius == R[i]);
   for (i = 0; i < F.length; i++) c.toggle("bb-f-" + F[i], L.font == F[i]);
   c.add("bb-look");

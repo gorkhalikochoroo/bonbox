@@ -23,7 +23,7 @@ const base = { publicUrl: "https://www.bonbox.dk/cafe", label: "Book bord", venu
 const AUTO = { mode: "auto", accent: "site" };
 // Every query the script may send: hex digits and fixed words, in its order.
 const SAFE_Q =
-  /^look=1(&theme=(light|dark))?(&surface=([0-9a-f]{6}|photo))?(&ink=[0-9a-f]{6})?(&accent=[0-9a-f]{6}(&accent_ink=[0-9a-f]{6})?)?(&radius=(sharp|soft|round))?(&font=(system|helvetica|georgia|times))?$/;
+  /^look=1(&theme=(light|dark))?(&scheme=(light|dark|ld))?(&surface=([0-9a-f]{6}|photo))?(&ink=[0-9a-f]{6})?(&accent=[0-9a-f]{6}(&accent_ink=[0-9a-f]{6})?)?(&radius=(sharp|soft|round))?(&font=(system|helvetica|georgia|times))?$/;
 
 const scriptOf = (snippet) =>
   snippet.slice(snippet.indexOf("<script>") + "<script>".length, snippet.indexOf("</" + "script>"));
@@ -240,6 +240,26 @@ describe("the owner's override", () => {
     expect(lookOf({ mode: '"><script>', accent: "x" })).toEqual({ mode: "auto", accent: "site" });
     expect(lookOf(null)).toBeNull();
     expect(lookOf("auto")).toBeNull();
+  });
+});
+
+describe("the frame's own color-scheme, mirrored (else the browser paints the frame an opaque box)", () => {
+  // jsdom knows no color-scheme: the iframe's computed value is stubbed, the rest is real.
+  const withScheme = (value) => {
+    const real = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el) => {
+      const st = real(el);
+      return el.tagName === "IFRAME" ? new Proxy(st, { get: (t, k) => (k === "colorScheme" ? value : Reflect.get(t, k)) }) : st;
+    });
+  };
+  it.each([
+    ["dark", "&scheme=dark"], ["only dark", "&scheme=dark"], ["light dark", "&scheme=ld"], ["dark light", "&scheme=ld"],
+    ["light", "&scheme=light"], ["normal", ""], ["", ""],
+  ])("color-scheme %j → %j", (value, want) => {
+    withScheme(value);
+    const q = host({ css: "body { background-color: #0b0b0b; }", body: "<div>{SNIPPET}</div>" }).q();
+    expect(q).toBe("look=1" + want + "&surface=0b0b0b");
+    expect(q).toMatch(SAFE_Q);
   });
 });
 

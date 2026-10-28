@@ -154,7 +154,13 @@ function heightScript(origin, look = false) {
 //   font     the body's or a heading's first family, when it is one of the
 //            system fonts the frame can paint (LOOK_FONTS); else nothing and
 //            Inter stays;
-//   theme    only when the owner forced Lys / Mørk (data-bonbox-look).
+//   theme    only when the owner forced Lys / Mørk (data-bonbox-look);
+//   scheme   the frame element's own color-scheme (light / dark / "light
+//            dark" = ld), when the site sets one: a frame whose document
+//            declares another scheme than its <iframe> gets an OPAQUE canvas
+//            from the browser (CSS Color Adjust) — a white or black box round
+//            the card on exactly the dark sites R13 is for. The frame
+//            declares the same one, so its ground stays see-through.
 // It sends hex digits and fixed words only, and only to the booking origin:
 // first in the frame's address (`look=1&…`, before it loads), later as a
 // {type:'bonbox:look', q} message once the frame has said its height (the
@@ -216,6 +222,7 @@ function lq(f){
 var m=f.getAttribute('data-bonbox-look'),w=f.closest&&f.closest('[data-bonbox-booking-wrap]'),c=(w&&w.parentElement)||document.body;
 var st=!!(document.styleSheets&&document.styleSheets.length),q='look=1',s=sf(c),k,b,x;
 if(m==='light'||m==='dark')q+='&theme='+m;
+x=cs(f).colorScheme||'';x=/dark/.test(x)?(/light/.test(x)?'ld':'dark'):/light/.test(x)?'light':'';if(x)q+='&scheme='+x;
 if(s)q+='&surface='+s;
 k=st&&hx(cs(c).color);if(k)q+='&ink='+k;
 b=bt(w,s);

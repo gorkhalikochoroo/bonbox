@@ -40,7 +40,7 @@ describe("nothing without look=1", () => {
     (q) => expect(look(q)).toBeNull(),
   );
   it("look=1 alone is today's light card, nothing else", () => {
-    expect(look("?embed=1&look=1")).toEqual({ dark: false, card: "#FFFFFF", ink: null, soft: null, accent: null, radius: null, font: null });
+    expect(look("?embed=1&look=1")).toEqual({ dark: false, card: "#FFFFFF", ink: null, soft: null, accent: null, radius: null, font: null, scheme: null });
   });
 });
 
@@ -81,6 +81,19 @@ describe("strict validation: only hex and fixed words, everything else ignored",
       const colours = [l.card, l.ink, l.soft, ...(l.accent ? Object.values(l.accent) : [])].filter(Boolean);
       for (const c of colours) expect(c).toMatch(/^#[0-9a-fA-F]{6}$/);
     }
+  });
+});
+
+describe("the frame's color-scheme mirrors the <iframe>'s on the host (an opaque box otherwise)", () => {
+  it("light / dark / ld only; declared on <html>, and cleared with the next look", () => {
+    for (const v of ["dark", "light", "ld"]) expect(look("?look=1&scheme=" + v).scheme).toBe(v);
+    for (const v of ["Dark", "light%20dark", "normal", "only", "dark;x", "__proto__"]) expect(look("?look=1&scheme=" + v).scheme).toBeNull();
+    applyLook(document, look("?look=1&scheme=ld&surface=0b0b0b"), LOOK_RADII, LOOK_FONTS);
+    expect(html().style.colorScheme).toBe("light dark");
+    applyLook(document, look("?look=1&scheme=dark"), LOOK_RADII, LOOK_FONTS);
+    expect(html().style.colorScheme).toBe("dark");
+    applyLook(document, look("?look=1"), LOOK_RADII, LOOK_FONTS);
+    expect(html().style.colorScheme || "").toBe("");
   });
 });
 
