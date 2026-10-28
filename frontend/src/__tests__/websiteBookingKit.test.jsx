@@ -197,8 +197,15 @@ describe("WebsiteBookingKit — 2. Indlejr", () => {
     const code = writeText.mock.calls[0][0];
     // Booking R4: a new snippet carries the compact header by default.
     expect(code).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;compact=1"');
-    expect(code).toContain("bonbox:height");
-    expect(code).toContain("var o='https://www.bonbox.dk'");
+    // R13 fix round: the sizing comes from the hosted script on the booking origin (one file for every
+    // new snippet); it listens for the page's bonbox:height from that origin only.
+    expect(code).toContain('<script src="https://www.bonbox.dk/static/embed1.js"></script>');
+    const { readFileSync } = await import("node:fs");
+    const { dirname, resolve } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const hosted = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../public/static/embed1.js"), "utf8");
+    expect(hosted).toContain('dt.type !== "bonbox:height"');
+    expect(hosted).toContain("e.origin !== o");
     expect(code).toContain("Åbn booking i nyt vindue →");
     expect(screen.getByText(/skal køre på https/)).toBeInTheDocument();
   });
@@ -303,7 +310,7 @@ describe("WebsiteBookingKit — 3. Vejledning", () => {
 });
 
 describe("WebsiteBookingKit — send to whoever makes the website", () => {
-  it("opens a pre-filled mail with the link, the button and the embed — BonBox sends nothing", () => {
+  it("opens a pre-filled mail with the link and the embed — BonBox sends nothing", () => {
     renderKit();
     const a = screen.getByTestId("website-mailto");
     expect(a).toHaveTextContent("Send til den, der laver din hjemmeside");
@@ -313,7 +320,9 @@ describe("WebsiteBookingKit — send to whoever makes the website", () => {
     const q = new URLSearchParams(href.slice("mailto:?".length));
     expect(q.get("subject")).toBe("Booking på vores hjemmeside");
     const body = q.get("body");
-    expect(body).toContain(`Vores bookinglink:\n${PUBLIC}\n`);
+    // R13 fix round: one mailto: link of at most 2,000 characters — the link and the whole snippet
+    expect(body).toContain(`Eller link bare hertil: ${PUBLIC}`);
+    expect(href.length).toBeLessThanOrEqual(2000);
     expect(body).toContain(`<a href="${PUBLIC}"`);
     expect(body).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1&amp;compact=1"');
     expect(body).toContain("HTML- eller Indlejr-blok");

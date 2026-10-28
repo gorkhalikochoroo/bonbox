@@ -41,7 +41,7 @@ const { en } = await import("../i18n/en");
 const WebsiteBookingKit = (await import("../components/reservations/WebsiteBookingKit")).default;
 const { MATCH_DEFAULT } = await import("../components/reservations/WebsiteBookingKit");
 const ReservationPublicPage = (await import("../pages/ReservationPublicPage")).default;
-const { LOOK_SAMPLES, iframeSnippet, sampleLookQuery } = await import("../utils/bookingEmbed");
+const { EMBED_SCRIPT_PATH, LOOK_SAMPLES, iframeSnippet, sampleLookQuery } = await import("../utils/bookingEmbed");
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) => fs.readFileSync(path.join(SRC, rel), "utf8");
@@ -81,31 +81,33 @@ const frame = () => screen.getByTestId("website-preview");
 const pick = (group, value) => fireEvent.click(within(screen.getByTestId(group)).getByRole("radio", { name: value }));
 
 describe("the kit: match the website, by default, with the owner's override", () => {
-  it("a new snippet opts in: data-bonbox-look=auto, data-bonbox-accent=site, and the detection script", () => {
+  it("a new snippet opts in: data-bonbox-look=auto and the hosted script (the site's button colour is the default)", () => {
     expect(MATCH_DEFAULT).toBe(true);
     renderKit();
     expect(screen.getByTestId("website-embed-match").checked).toBe(true);
     expect(screen.getByText(da.rsvpWebMatch)).toBeTruthy();
-    expect(code()).toContain('<iframe data-bonbox-booking data-bonbox-look="auto" data-bonbox-accent="site" src=');
-    expect(code()).toContain("bonbox:look");
+    expect(code()).toContain('<iframe data-bonbox-booking data-bonbox-look="auto" src=');
+    expect(code()).toContain(`<script src="https://www.bonbox.dk${EMBED_SCRIPT_PATH}"></script>`);
+    expect(code().length).toBeLessThan(1024);
   });
 
   it("Farver and Knapfarve are written into the snippet", () => {
     renderKit();
     pick("website-look-mode", da.rsvpWebColoursDark);
-    expect(code()).toContain('data-bonbox-look="dark" data-bonbox-accent="site"');
+    expect(code()).toContain('data-bonbox-look="dark" src=');
     pick("website-look-mode", da.rsvpWebColoursLight);
     pick("website-look-accent", da.rsvpWebButtonColourOwn);
     expect(code()).toContain('data-bonbox-look="light" data-bonbox-accent="own"');
     expect(within(screen.getByTestId("website-look-accent")).getByRole("radio", { name: da.rsvpWebButtonColourOwn })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("switched off: the R4 snippet, byte for byte — no attribute, no detection, the overrides hidden", () => {
+  it("switched off: the same short snippet without the opt-in (sized like R4's), the overrides hidden", () => {
     renderKit();
     fireEvent.click(screen.getByTestId("website-embed-match"));
-    const r4 = iframeSnippet({ publicUrl: PUBLIC, label: da.rsvpEmbedButtonLabel, venueName: "Café Mirabelle", fallbackLabel: da.rsvpEmbedOpenInNewTab, compact: true });
-    expect(code()).toBe(r4);
+    const off = iframeSnippet({ publicUrl: PUBLIC, label: da.rsvpEmbedButtonLabel, venueName: "Café Mirabelle", fallbackLabel: da.rsvpEmbedOpenInNewTab, compact: true, hosted: true });
+    expect(code()).toBe(off);
     expect(code()).not.toMatch(/data-bonbox-look|bonbox:look/);
+    expect(code()).toContain(`<script src="https://www.bonbox.dk${EMBED_SCRIPT_PATH}"></script>`);
     expect(screen.queryByTestId("website-embed-look")).toBeNull();
     expect(screen.queryByTestId("website-look-sample")).toBeNull();
     expect(frame().getAttribute("src")).toBe("https://www.bonbox.dk/r/cafe-mirabelle?embed=1&compact=1");
@@ -138,6 +140,19 @@ describe("the kit: match the website, by default, with the owner's override", ()
     expect(head.style.color).toBe("rgb(237, 237, 237)");
     expect(screen.getByTestId("website-preview-host").style.backgroundColor).toBe("rgb(18, 18, 18)");
     expect(within(screen.getByTestId("website-preview-host")).getByTestId("website-preview").style.borderRadius).toBe("4px");
+  });
+
+  it("the hand-off mail: one mailto: link of at most 2,000 characters with the whole snippet (R13 fix round)", () => {
+    renderKit();
+    for (const flip of [null, "website-embed-match"]) {
+      if (flip) fireEvent.click(screen.getByTestId(flip));
+      const href = screen.getByTestId("website-mailto").getAttribute("href");
+      expect(href.length).toBeLessThanOrEqual(2000);
+      const body = new URLSearchParams(href.slice("mailto:?".length)).get("body");
+      expect(body).toContain(code());
+      expect(body).toContain(PUBLIC);
+      expect(body).not.toMatch(/\{(link|button|iframe)\}/);
+    }
   });
 
   it("English owner: real words, no raw keys", () => {
@@ -209,6 +224,24 @@ describe("the booking page on its own follows the phone's dark mode", () => {
     expect(html().classList.contains("dark")).toBe(false);
   });
 
+  it("a live switch replaces the theme-color tag (Safari repaints its toolbar only for a new tag)", async () => {
+    const state = { on: true };
+    const listeners = phone(state);
+    const meta = document.createElement("meta");
+    meta.setAttribute("name", "theme-color");
+    meta.setAttribute("content", "#1f2937");
+    document.head.appendChild(meta);
+    routes();
+    renderAt("/r/x");
+    await settle();
+    state.on = false;
+    act(() => listeners.forEach((fn) => fn()));
+    const now = document.querySelector('meta[name="theme-color"]');
+    expect(now).not.toBe(meta);
+    expect(now.getAttribute("content")).toBe("#ffffff");
+    now.remove();
+  });
+
   it("a light phone stays light; a stored 'dark' stays dark", async () => {
     phone({ on: false });
     routes();
@@ -253,6 +286,25 @@ describe("an embed with the restaurant's look", () => {
     expect(html().classList.contains("dark")).toBe(false);
     expect(screen.getByTestId("rsvp-cta-bar").className).toContain("bg-white/92! dark:bg-gray-950/90!");
     expect(screen.getByTestId("rsvp-root").className).toContain("bb-ground"); // the flat embed's hook (inert without .bb-look)
+  });
+});
+
+describe("the main button's corners follow the site (R13 fix round)", () => {
+  it("the bar's buttons wear --bb-r-btn (12 px without a look), never the important rounded-xl that beat it", async () => {
+    html().classList.add("bb-look", "bb-r-round");
+    routes();
+    renderAt("/r/x?embed=1&compact=1&look=1&radius=round");
+    await settle();
+    const bar = screen.getByTestId("rsvp-cta-bar");
+    const buttons = within(bar).getAllByRole("button");
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const b of buttons) {
+      expect(b.className).toContain("rounded-[var(--bb-r-btn,12px)]!");
+      expect(b.className).not.toContain("rounded-xl!");
+    }
+    const page = read("pages/ReservationPublicPage.jsx");
+    expect(page.match(/rounded-\[var\(--bb-r-btn,12px\)\]!/g)).toHaveLength(3); // Vælg tid, Fortsæt / Tilføj dit navn, Tilbage
+    expect(read("index.css")).toContain(":root.bb-r-round { --bb-r-card: 24px; --bb-r-tile: 22px; --bb-r-btn: 9999px; }");
   });
 });
 

@@ -2822,7 +2822,7 @@ export default function ReservationPublicPage() {
     const mapUrl = mapsHref(page.address, page.city);
 
     return (
-      <div className={`${rootMinH} ${ROOT_FINISH} bg-gray-50 dark:bg-gray-950 px-4 py-10`}>
+      <div className={`${rootMinH} ${ROOT_FINISH} bb-solid bg-gray-50 dark:bg-gray-950 px-4 py-10`}>
         <div className="max-w-md mx-auto space-y-6 text-center">
           {/* The guest may open this from an email on another device, where
               the page falls back to the venue's language — the switch has to
@@ -4432,7 +4432,7 @@ export default function ReservationPublicPage() {
                   variant="main"
                   size="lg"
                   onClick={needsTime ? revealTimes : goToDetails}
-                  className={"shrink-0 min-w-[9.5rem] px-6 h-[52px]! rounded-xl! text-[15px]! font-semibold! tracking-[-0.009em] " + CTA_FINISH}
+                  className={"shrink-0 min-w-[9.5rem] px-6 h-[52px]! rounded-[var(--bb-r-btn,12px)]! text-[15px]! font-semibold! tracking-[-0.009em] " + CTA_FINISH}
                   iconRight={needsTime ? null : <ArrowRight className="w-[18px] h-[18px]" aria-hidden="true" />}
                 >
                   <EarnedText text={needsTime ? t("rsvpPickTimeShort") : t("rsvpContinue")} />
@@ -4447,7 +4447,7 @@ export default function ReservationPublicPage() {
                   variant="secondary"
                   size="lg"
                   aria-label={t("rsvpBack")}
-                  className="w-[52px]! h-[52px]! rounded-xl! px-0 shrink-0 dark:bg-white/10! dark:hover:bg-white/15!"
+                  className="w-[52px]! h-[52px]! rounded-[var(--bb-r-btn,12px)]! px-0 shrink-0 dark:bg-white/10! dark:hover:bg-white/15!"
                   onClick={backToChoices}
                 >
                   <ChevronLeft className="w-5 h-5" aria-hidden="true" />
@@ -4459,7 +4459,7 @@ export default function ReservationPublicPage() {
                   // the button into the way back instead of a dead grey block.
                   onClick={needsTime ? backToChoices : onSubmit}
                   busy={submitting}
-                  className={"flex-1 h-[52px]! rounded-xl! text-[15px]! font-semibold! tracking-[-0.009em] " + CTA_FINISH}
+                  className={"flex-1 h-[52px]! rounded-[var(--bb-r-btn,12px)]! text-[15px]! font-semibold! tracking-[-0.009em] " + CTA_FINISH}
                   iconRight={
                     needsTime || !canSubmit ? null : <ArrowRight className="w-[18px] h-[18px]" aria-hidden="true" />
                   }

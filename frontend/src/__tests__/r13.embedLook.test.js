@@ -1,23 +1,37 @@
 /**
- * Booking R13 — the snippet's HOST half: what the script reads on the
- * restaurant's page (utils/bookingEmbed.js, LOOK_JS), run here in jsdom on
- * stand-in websites:
+ * Booking R13 — the snippet's HOST half. A new snippet loads ONE hosted
+ * script (frontend/public/static/embed1.js, /static/embed1.js on the booking
+ * origin — R13 fix round: the inline look made the snippet 5.7 kB and the
+ * hand-off mail 10 kB); it is run here in jsdom on stand-in websites:
  *   - a cream site in Georgia with pill buttons;
  *   - a black site with square gold buttons;
  *   - a photo behind the booking;
  *   - a site with no button (and one whose only button is its own ground);
- *   - a site that switches to dark (a class on <html>) after the frame is up;
+ *   - a site that switches to dark (a class on <html>) after the frame is up,
+ *     the five-change budget (spent only on real changes; a color-scheme
+ *     change always followed), a script that arrives after the frame is up;
  *   - fonts: a system font passes, a web font does not, a heading can stand
  *     in for the body, an unstyled document (Wix's Embed HTML box) gives none;
  *   - the owner's override (data-bonbox-look / data-bonbox-accent);
  *   - what leaves the page: hex digits and fixed words only, to the booking
  *     origin only — even from a hostile stylesheet;
+ *   - the new snippet is short and its hand-off mail is a mailto: link of at
+ *     most 2,000 characters in every case; the file's cache header;
  *   - the old snippets: no opt-in, the R4 snippet byte for byte.
  */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LOOK_FRAME_RADIUS, LOOK_SAMPLES, iframeSnippet, lookOf, sampleLookQuery } from "../utils/bookingEmbed";
+import {
+  EMBED_SCRIPT_PATH, LOOK_FRAME_RADIUS, LOOK_SAMPLES, iframeSnippet, lookOf, mailtoHref, sampleLookQuery,
+} from "../utils/bookingEmbed";
 import { LOOK_FONTS, LOOK_RADII, lookFrom } from "../lib/bookingLook";
+import { da } from "../i18n/da";
+import { en } from "../i18n/en";
 
+const FRONTEND = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const HOSTED = fs.readFileSync(path.join(FRONTEND, "public", EMBED_SCRIPT_PATH), "utf8");
 const ORIGIN = "https://www.bonbox.dk";
 const base = { publicUrl: "https://www.bonbox.dk/cafe", label: "Book bord", venueName: "Café", fallbackLabel: "Åbn booking →" };
 const AUTO = { mode: "auto", accent: "site" };
@@ -30,14 +44,28 @@ const scriptOf = (snippet) =>
 
 // Build a host page: its stylesheet in <head>, its markup in <body> with the
 // snippet's markup where the owner pasted it ({SNIPPET}), then run the
-// snippet's script the way the browser would (innerHTML never runs one).
+// snippet's script the way the browser would (innerHTML never runs one): an
+// inline one (R4) as written, a <script src> as the hosted file, with
+// document.currentScript pointing at that tag.
 const pasted = [];
-function host({ css = "", body = '<main>{SNIPPET}</main>', look = AUTO, snippet = null, styled = true } = {}) {
-  const s = snippet || iframeSnippet({ ...base, compact: true, look });
+function runScriptOf(s, protocol = "https:") {
+  const src = /<script src="([^"]+)">/.exec(s);
+  if (!src) return new Function("location", scriptOf(s))({ protocol });
+  const tag = document.createElement("script");
+  tag.src = src[1];
+  Object.defineProperty(document, "currentScript", { value: tag, configurable: true });
+  try {
+    new Function("location", HOSTED)({ protocol });
+  } finally {
+    delete document.currentScript;
+  }
+}
+function host({ css = "", body = '<main>{SNIPPET}</main>', look = AUTO, snippet = null, styled = true, protocol = "https:", before = null } = {}) {
+  const s = snippet || iframeSnippet({ ...base, compact: true, look, hosted: true });
   const style = document.createElement("style");
   style.textContent = css;
   if (styled) document.head.appendChild(style);
-  document.body.innerHTML = body.replace("{SNIPPET}", s.replace(/<script>[\s\S]*<\/script>/, ""));
+  document.body.innerHTML = body.replace("{SNIPPET}", s.replace(/<script[\s\S]*<\/script>/, ""));
   const observers = [];
   const RealMO = window.MutationObserver;
   window.MutationObserver = class extends RealMO {
@@ -53,7 +81,8 @@ function host({ css = "", body = '<main>{SNIPPET}</main>', look = AUTO, snippet 
     return realAdd.call(this, type, fn, opts);
   };
   try {
-    new Function("location", scriptOf(s))({ protocol: "https:" });
+    if (before) before(document.querySelector("iframe[data-bonbox-booking]"));
+    runScriptOf(s, protocol);
   } finally {
     window.addEventListener = realAdd;
     window.MutationObserver = RealMO;
@@ -67,6 +96,9 @@ function host({ css = "", body = '<main>{SNIPPET}</main>', look = AUTO, snippet 
   };
   return { frame, q };
 }
+const heightFrom = (frame, height = 700) =>
+  window.dispatchEvent(new MessageEvent("message", { data: { type: "bonbox:height", height }, origin: ORIGIN, source: frame.contentWindow }));
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 beforeEach(() => {
   // jsdom lays nothing out: every element is 120 × 40 unless it says otherwise.
@@ -84,6 +116,7 @@ afterEach(() => {
     for (const fn of p.listeners) window.removeEventListener("message", fn);
   }
   pasted.length = 0;
+  delete window.__bonboxEmbed1;
   document.body.innerHTML = "";
   document.documentElement.className = "";
 });
@@ -235,7 +268,9 @@ describe("the owner's override", () => {
   });
 
   it("the snippet carries the choice as data- attributes; garbage choices fall back to auto / site", () => {
-    expect(iframeSnippet({ ...base, look: AUTO })).toContain('<iframe data-bonbox-booking data-bonbox-look="auto" data-bonbox-accent="site" src=');
+    expect(iframeSnippet({ ...base, look: AUTO })).toContain('<iframe data-bonbox-booking data-bonbox-look="auto" src=');
+    // the site's colour is the default, so only the owner's is written out
+    expect(iframeSnippet({ ...base, look: AUTO })).not.toContain("data-bonbox-accent");
     expect(iframeSnippet({ ...base, look: { mode: "dark", accent: "own" } })).toContain('data-bonbox-look="dark" data-bonbox-accent="own"');
     expect(lookOf({ mode: '"><script>', accent: "x" })).toEqual({ mode: "auto", accent: "site" });
     expect(lookOf(null)).toBeNull();
@@ -294,7 +329,7 @@ describe("a site that switches to dark after the frame is up", () => {
     // flip-flopping: at most five changes are sent per page view
     for (let i = 0; i < 8; i += 1) {
       document.documentElement.classList.toggle("dark");
-      await new Promise((r) => setTimeout(r, 200));
+      await wait(300);
     }
     expect(posted).toHaveLength(5);
   });
@@ -339,21 +374,131 @@ describe("only hex digits and fixed words leave the page", () => {
   });
 });
 
-describe("the script itself", () => {
-  it("is ES5 with no line comments and parses on one line (builders paste it as-is)", () => {
-    const body = scriptOf(iframeSnippet({ ...base, look: AUTO }));
-    expect(body).not.toMatch(/(^|[^:])\/\//m);
-    expect(body).not.toMatch(/=>|\blet\b|\bconst\b|`/);
-    expect(() => new Function(body.replace(/\n/g, " "))).not.toThrow();
+describe("the hosted script itself (/static/embed1.js)", () => {
+  it("is plain ES5 that parses, and posts only to the booking origin it came from", () => {
+    expect(() => new Function(HOSTED)).not.toThrow();
+    expect(HOSTED).not.toMatch(/=>|\blet\b|\bconst\b|`/);
+    expect(HOSTED.match(/postMessage\([^)]*\)/g)).toEqual([
+      'postMessage({ type: "bonbox:look", q: q }, o)',
+      'postMessage({ type: "bonbox:hello" }, o)',
+    ]);
+    expect(HOSTED).toContain("o = new URL(me.src).origin;");
   });
 
-  it("posts only to the booking origin it was built for", () => {
-    const body = scriptOf(iframeSnippet({ ...base, look: AUTO }));
-    expect(body.match(/postMessage\([^)]*\)/g)).toEqual([
-      "postMessage({type:'bonbox:look',q:a[i].bbQ},o)",
-      "postMessage({type:'bonbox:look',q:q},o)",
-    ]);
-    expect(body).toContain(`var o='${ORIGIN}';`);
+  it("one copy serves every frame: a second snippet on the page re-reads, never adds a second set of listeners", () => {
+    const first = host({ css: CREAM, body: CREAM_BODY });
+    expect(first.q()).toMatch(/^look=1&surface=f4efe6/);
+    const listenersBefore = pasted[0].listeners.length;
+    runScriptOf(iframeSnippet({ ...base, look: AUTO }));
+    expect(pasted[0].listeners.length).toBe(listenersBefore);
+  });
+
+  it("a frame already up when the file arrives (a builder that makes scripts async) is asked to say its height", () => {
+    const asked = [];
+    host({
+      css: CREAM,
+      body: CREAM_BODY,
+      before: (f) => {
+        f.contentWindow.postMessage = (msg, origin) => asked.push({ msg, origin });
+      },
+    });
+    expect(asked).toContainEqual({ msg: { type: "bonbox:hello" }, origin: ORIGIN });
+  });
+
+  it("on a plain-http page the https frame can never load: the box hides, the link stays", () => {
+    const { frame } = host({ css: CREAM, body: CREAM_BODY, protocol: "http:" });
+    expect(frame.style.display).toBe("none");
+    expect(document.querySelector("[data-bonbox-booking-link]").style.display).toBe("");
+  });
+});
+
+describe("the new snippet is short, and its hand-off mail stays one mailto: link (R13 fix round)", () => {
+  it("about 0.7 kB: the frame, the link and one <script src> from the booking origin — no inline code", () => {
+    const s = iframeSnippet({ ...base, compact: true, look: AUTO });
+    expect(s.length).toBeLessThan(1024);
+    expect(s).toContain(`<script src="${ORIGIN}${EMBED_SCRIPT_PATH}"></script>`);
+    expect(s).not.toMatch(/<script>|addEventListener|getComputedStyle/);
+    // "Tilpas automatisk" off: the same short snippet without the opt-in
+    const off = iframeSnippet({ ...base, compact: true, hosted: true });
+    expect(off).toContain(`<script src="${ORIGIN}${EMBED_SCRIPT_PATH}"></script>`);
+    expect(off).not.toContain("data-bonbox-look");
+    // a local build loads its own copy
+    expect(iframeSnippet({ ...base, publicUrl: "http://127.0.0.1:5200/cafe", look: AUTO })).toContain('<script src="http://127.0.0.1:5200/static/embed1.js">');
+  });
+
+  it("≤ 2,000 characters in every case, with the complete snippet inside (da + en, longest names and slugs)", () => {
+    let worst = 0;
+    const url = "https://www.bonbox.dk/" + "a".repeat(60); // the longest slug the backend allows
+    for (const d of [da, en]) {
+      for (const label of [d.rsvpEmbedButtonLabel, d.rsvpWebButtonLabelProvider]) {
+        for (const venueName of ["Café Mirabelle", "Ææ Øø Åå ".repeat(14).slice(0, 120), '&"<>&"<>'.repeat(15), "x".repeat(120)]) {
+          for (const look of [AUTO, { mode: "dark", accent: "own" }, null]) {
+            for (const width of [460, 560]) {
+              const iframe = iframeSnippet({ publicUrl: url, label, venueName, fallbackLabel: d.rsvpEmbedOpenInNewTab, compact: true, flat: true, width, look, hosted: true });
+              const href = mailtoHref({ subject: d.rsvpEmbedMailSubject, body: d.rsvpWebMailBody.replace("{iframe}", iframe).replace("{link}", url) });
+              expect(new URLSearchParams(href.slice("mailto:?".length)).get("body")).toContain(iframe);
+              worst = Math.max(worst, href.length);
+            }
+          }
+        }
+      }
+    }
+    expect(worst).toBeLessThanOrEqual(2000);
+  });
+
+  it("the file is served with an hour's cache (and a day stale while it revalidates), never as an immutable asset", () => {
+    const v = JSON.parse(fs.readFileSync(path.join(FRONTEND, "vercel.json"), "utf8"));
+    const rule = v.headers.find((h) => h.source === "/static/(.*)");
+    expect(rule.headers).toEqual([{ key: "Cache-Control", value: "public, max-age=3600, stale-while-revalidate=86400" }]);
+    expect(EMBED_SCRIPT_PATH.startsWith("/assets/")).toBe(false);
+    expect(fs.existsSync(path.join(FRONTEND, "public", EMBED_SCRIPT_PATH))).toBe(true);
+  });
+});
+
+describe("the re-read budget (R13 fix round)", () => {
+  const CSS = `
+    body { background-color: #ffffff; color: #1a1a1a; }
+    html.dark body { background-color: #101010; color: #f0f0f0; }
+    .b { background-color: #1d4ed8; color: #ffffff; border-radius: 6px; }`;
+
+  it("40 class flips that change nothing (a sticky header) spend nothing: a real change afterwards still reaches the frame", async () => {
+    const { frame } = host({ css: CSS, body: '<button class="b">Book</button>{SNIPPET}' });
+    const posted = [];
+    frame.contentWindow.postMessage = (msg) => posted.push(msg);
+    heightFrom(frame);
+    for (let i = 0; i < 40; i += 1) {
+      document.body.classList.toggle("is-scrolled");
+      await wait(i % 8 === 0 ? 300 : 5);
+    }
+    await wait(300);
+    expect(posted).toEqual([]);
+    document.documentElement.classList.add("dark");
+    await wait(300);
+    expect(posted).toHaveLength(1);
+    expect(posted[0].q).toMatch(/surface=101010/);
+  });
+
+  it("after the five changes, a color-scheme change is still followed (else the browser paints the frame an opaque box)", async () => {
+    let scheme = "light";
+    const real = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el) => {
+      const st = real(el);
+      return el.tagName === "IFRAME" ? new Proxy(st, { get: (t, k) => (k === "colorScheme" ? scheme : Reflect.get(t, k)) }) : st;
+    });
+    const { frame } = host({ css: CSS, body: '<button class="b">Book</button>{SNIPPET}' });
+    const posted = [];
+    frame.contentWindow.postMessage = (msg) => posted.push(msg);
+    heightFrom(frame);
+    for (let i = 0; i < 7; i += 1) {
+      document.documentElement.classList.toggle("dark");
+      await wait(300);
+    }
+    expect(posted).toHaveLength(5); // the budget is spent
+    scheme = "dark";
+    document.documentElement.classList.toggle("dark");
+    await wait(300);
+    expect(posted).toHaveLength(6);
+    expect(posted[5].q).toContain("&scheme=dark");
   });
 });
 

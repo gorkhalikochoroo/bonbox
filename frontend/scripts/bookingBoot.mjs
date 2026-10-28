@@ -57,6 +57,31 @@ export function lookSource() {
   );
 }
 
+/** R13 fix: the host's embed script may arrive after the frame is up (a
+ *  builder that makes scripts async): it asks {type:"bonbox:hello"} and the
+ *  frame says its height again, to its own parent only. Old snippets never
+ *  ask, so nothing changes for them. */
+export function helloSource() {
+  return (
+    'if(w.addEventListener)w.addEventListener("message",function(ev){try{' +
+    'if(ev.source!==w.parent||!ev.data||ev.data.type!=="bonbox:hello")return;' +
+    'var h=Math.ceil(D.documentElement.getBoundingClientRect().height);' +
+    'if(h>0)w.parent.postMessage({type:"bonbox:height",height:h},"*")}catch(y){}});'
+  );
+}
+
+/** R13 fix: the booking page on its own decides `.dark` here, in <head>,
+ *  before anything is painted (a stored "dark", or the phone's dark mode) —
+ *  in <body> it came one frame late now and then (a paper flash at 1440).
+ *  index.html's body script keeps the same answer. */
+export function darkSource() {
+  return (
+    'var dk=false;try{dk=w.localStorage.getItem("theme")==="dark"}catch(x){}' +
+    'try{dk=dk||w.matchMedia("(prefers-color-scheme: dark)").matches===true}catch(x){}' +
+    'if(dk)D.documentElement.classList.add("dark");'
+  );
+}
+
 export function bookingBootSource({ apiUrl = "", preload = [] } = {}) {
   const ph = Object.fromEntries(SKELETON_VARIANTS.map((v) => [v, skeletonHtml(v)]));
   return (
@@ -76,7 +101,7 @@ export function bookingBootSource({ apiUrl = "", preload = [] } = {}) {
     'var wide=!e&&!fr&&!!w.matchMedia&&w.matchMedia("(min-width: 1024px)").matches;' +
     'B.ph=P[e?(f?"embedFlat":"embedCard"):(wide?"wide":"plain")];' +
     'if(e&&!f)D.documentElement.classList.add("bb-embed-card");' +
-    "if(e){" + lookSource() + "}" +
+    "if(e){" + lookSource() + helloSource() + "}else{" + darkSource() + "}" +
     'for(var i=0;i<J.length;i++){var k=D.createElement("link");k.rel="modulepreload";k.crossOrigin="";k.href=J[i];D.head.appendChild(k)}' +
     'var a=A;if(a.charAt(0)!=="h"){var hn=l.hostname;a=(hn==="bonbox.dk"||/\\.bonbox\\.dk$/.test(hn))?"https://api.bonbox.dk/api":""}' +
     "if(!a||!w.fetch)return;" +

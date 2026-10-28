@@ -419,10 +419,14 @@ export default function WebsiteBookingKit({
       compact,
       width,
       look: lk,
+      hosted: true,
     });
+    // The whole snippet rides in the mail, which stays a mailto: link every
+    // mail program keeps whole (≤ 2,000 characters, R13 fix round): the code
+    // and where it goes; the full guides live in the kit.
     const mail = mailtoHref({
       subject: t("rsvpEmbedMailSubject"),
-      body: t("rsvpWebMailBody", { link: publicUrl, button, iframe }),
+      body: t("rsvpWebMailBody", { link: publicUrl, iframe }),
     });
     const lookQuery = sampleLookQuery(sample, lk);
     return { button, iframe, mail, preview: previewSrcFor(publicUrl, appOrigin, { flat, compact, lookQuery }) };

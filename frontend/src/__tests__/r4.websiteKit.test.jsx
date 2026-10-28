@@ -110,8 +110,9 @@ describe("the options, and what a new snippet carries by default", () => {
     const body = mailBody();
     expect(body).toContain("max-width:560px;margin:0 auto");
     expect(body).toContain("?embed=1&amp;compact=1");
-    expect(body).toContain('<div style="text-align:center">');
-    expect(body).toContain("Hvor koden skal ind:");
+    // R13 fix round: the button snippet left the mail (it stays in the kit); where the code goes is one line
+    expect(body).not.toContain('<div style="text-align:center">');
+    expect(body).toContain("Indsæt koden i en HTML- eller Indlejr-blok.");
     expect(body).toContain("Tilpasset HTML");
     expect(body).toContain("Elementor");
     expect(body).toContain("Embed HTML");

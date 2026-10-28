@@ -105,7 +105,7 @@ export function embedWidthOf(width) {
 // page the frame can never load (frame-ancestors is https:), so it hides
 // the empty box at once and the link under it is the way in.
 // ES5 and no // comments: site builders paste it as-is, some on one line.
-function heightScript(origin, look = false) {
+function heightScript(origin) {
   return (
     `  <script>\n` +
     `  (function(){\n` +
@@ -120,14 +120,12 @@ function heightScript(origin, look = false) {
     `      var a=all();\n` +
     `      for(var i=0;i<a.length;i++){\n` +
     `        if(a[i].contentWindow!==e.source)continue;\n` +
-    (look ? LOOK_ON : "") +
     `        a[i].style.setProperty('height',h+'px','important');\n` +
     `        var w=a[i].closest&&a[i].closest('[data-bonbox-booking-wrap]');\n` +
     `        var l=w&&w.querySelector('[data-bonbox-booking-link]');\n` +
     `        if(l)l.style.display='none';\n` +
     `      }\n` +
     `    });\n` +
-    (look ? LOOK_JS : "") +
     `  })();\n` +
     // Split so this file never contains a literal closing script tag.
     `  <` + `/script>\n`
@@ -136,121 +134,30 @@ function heightScript(origin, look = false) {
 
 // ── The restaurant's look (booking R13) ──────────────────────────────
 // Manoj, 27–28 Oct 2026: the booking matches the website it sits in,
-// automatically, with an owner override. In a NEW snippet that opted in
-// (data-bonbox-look on the frame; the kit's default), the script below reads
-// the host page ONCE before the frame opens — then again on a theme switch
-// (the phone's prefers-color-scheme, a class or data-theme change on <html> /
-// <body>, the rest of the page parsed), at most five changes per page view:
-//   surface  the first ancestor of the box with a background: its colour,
-//            or "photo" for a background image (or gradient);
-//   ink      the box's text colour (the page's own, not a browser default:
-//            an unstyled document — Wix's Embed HTML box — gives none);
-//   accent   the colour most of the page's visible buttons share (<button>,
-//            submit inputs, role=button, and any class with "btn" or
-//            "button"/"Button" in it — WordPress, Elementor, Squarespace and
-//            Wix button classes among them), never one that is the surface's
-//            own; its text colour (accent_ink) and its corners (radius:
-//            sharp / soft / round) with it;
-//   font     the body's or a heading's first family, when it is one of the
-//            system fonts the frame can paint (LOOK_FONTS); else nothing and
-//            Inter stays;
-//   theme    only when the owner forced Lys / Mørk (data-bonbox-look);
-//   scheme   the frame element's own color-scheme (light / dark / "light
-//            dark" = ld), when the site sets one: a frame whose document
-//            declares another scheme than its <iframe> gets an OPAQUE canvas
-//            from the browser (CSS Color Adjust) — a white or black box round
-//            the card on exactly the dark sites R13 is for. The frame
-//            declares the same one, so its ground stays see-through.
-// It sends hex digits and fixed words only, and only to the booking origin:
-// first in the frame's address (`look=1&…`, before it loads), later as a
-// {type:'bonbox:look', q} message once the frame has said its height (the
-// guest's half-filled booking is never reloaded). The frame trusts none of
-// it: it validates every value again (src/lib/bookingLook.js).
+// automatically, with an owner override. A NEW snippet that opted in
+// (data-bonbox-look on the frame; the kit's default) loads ONE small script
+// from the booking's own origin — /static/embed1.js (frontend/public/static/
+// embed1.js, cached for an hour, vercel.json) — instead of carrying the code
+// inline: the snippet stays about 0.9 kB (R4's inline one is 1.4 kB) and the
+// hand-off mail fits a mailto: link that every mail program keeps whole
+// (R13 fix round: the inline look made it 5.7 kB, the mail 10 kB). The file
+// sizes the frame like R4's inline script, and reads the host page's look
+// (its surface, text colour, main button, a system font, the frame's
+// color-scheme) for the frame — hex digits and fixed words only, to the
+// booking origin only; the frame checks every value again
+// (src/lib/bookingLook.js).
 // A snippet without data-bonbox-look (every one pasted before R13, and a new
 // one with "Tilpas automatisk" off) is the R4 snippet, byte for byte.
-// ES5 and no line comments: builders paste it as-is, some on one line. No
-// indentation either: the hand-off mail carries the snippet in a mailto:
-// link, where every space costs three characters.
 
-/** The frame's corner (the card's rung) for each ladder step. */
+/** A new snippet's frame title, in mail characters at most (see iframeSnippet). */
+export const TITLE_BUDGET = 120;
+
+/** The hosted embed script (v1): its path on the booking origin. */
+export const EMBED_SCRIPT_PATH = "/static/embed1.js";
+
+/** The frame's corner (the card's rung) for each ladder step (embed1.js
+ *  sets the same on the frame). */
 export const LOOK_FRAME_RADIUS = { sharp: "4px", soft: "16px", round: "24px" };
-
-// Under the height listener: the first height says the frame is up; a look
-// the page found after the frame's address was set is sent then.
-const LOOK_ON =
-  `        if(!a[i].bbOn){a[i].bbOn=1;if(a[i].bbQ!=null&&a[i].bbQ!==a[i].bbS){a[i].bbS=a[i].bbQ;a[i].contentWindow.postMessage({type:'bonbox:look',q:a[i].bbQ},o);}}\n`;
-
-const LOOK_JS = String.raw`var cv,U=0,N=0,T;
-function rgb(c){
-var m=/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s\/]+([\d.]+)(%?))?\s*\)$/.exec(c||'');
-if(m)return [+m[1],+m[2],+m[3],m[4]==null?1:(m[5]?m[4]/100:+m[4])];
-if(!c||c==='transparent')return null;
-try{
-if(!cv)cv=document.createElement('canvas').getContext('2d');
-if(!cv)return null;
-cv.fillStyle='#010203';cv.fillStyle=c;
-if(cv.fillStyle==='#010203')return null;
-cv.clearRect(0,0,1,1);cv.fillRect(0,0,1,1);
-var p=cv.getImageData(0,0,1,1).data;return [p[0],p[1],p[2],p[3]/255];
-}catch(x){return null;}
-}
-function hx(c){var v=rgb(c);if(!v||v[3]<0.5)return null;return ((1<<24)+(Math.round(v[0])<<16)+(Math.round(v[1])<<8)+Math.round(v[2])).toString(16).slice(1);}
-function lu(h){var n=parseInt(h,16),r=0,i,s;for(i=0;i<3;i++){s=((n>>(16-8*i))&255)/255;r+=[0.2126,0.7152,0.0722][i]*(s<=0.04045?s/12.92:Math.pow((s+0.055)/1.055,2.4));}return r;}
-function ct(a,b){var x=lu(a),y=lu(b);return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05);}
-function cs(e){return window.getComputedStyle(e);}
-function sf(e){for(;e&&e.nodeType===1;e=e.parentElement){var s=cs(e),g=s.backgroundImage;if(g&&g!=='none')return 'photo';var h=hx(s.backgroundColor);if(h)return h;}return null;}
-function ff(e){var f=e&&cs(e).fontFamily;if(!f)return null;var n=f.split(',')[0].replace(/["']/g,'').replace(/^\s+|\s+$/g,'').toLowerCase();return /^(system-ui|-apple-system|blinkmacsystemfont|segoe ui|roboto)$/.test(n)?'system':/^(helvetica neue|helvetica|arial)$/.test(n)?'helvetica':n==='georgia'?'georgia':/^times( new roman)?$/.test(n)?'times':null;}
-function bt(w,s0){
-var q=document.querySelectorAll('button,[type=submit],[type=button],[role=button],[class*=btn],[class*=utton]'),n={},b=null,i,e,s,r,h;
-for(i=0;i<q.length&&i<80;i++){
-e=q[i];if(w&&w.contains(e))continue;
-s=cs(e);if(s.display==='none'||s.visibility==='hidden'||parseFloat(s.opacity)===0)continue;
-r=e.getBoundingClientRect();if(r.width<24||r.height<16)continue;
-h=hx(s.backgroundColor);if(!h||(s0&&s0!=='photo'&&ct(h,s0)<1.3))continue;
-n[h]=(n[h]||0)+1;if(!b||n[h]>n[b.h])b={h:h,s:s,r:r};
-}
-return b;
-}
-function rd(b){
-if(!b)return null;
-var t=b.s.borderTopLeftRadius||b.s.borderRadius||'',v=parseFloat(t)||0;
-if(/%/.test(t))return v>=25?'round':v>0?'soft':'sharp';
-if(v>=24||(v>0&&b.r.height>0&&v>=b.r.height/2-1))return 'round';
-return v<=6?'sharp':'soft';
-}
-function lq(f){
-var m=f.getAttribute('data-bonbox-look'),w=f.closest&&f.closest('[data-bonbox-booking-wrap]'),c=(w&&w.parentElement)||document.body;
-var st=!!(document.styleSheets&&document.styleSheets.length),q='look=1',s=sf(c),k,b,x;
-if(m==='light'||m==='dark')q+='&theme='+m;
-x=cs(f).colorScheme||'';x=/dark/.test(x)?(/light/.test(x)?'ld':'dark'):/light/.test(x)?'light':'';if(x)q+='&scheme='+x;
-if(s)q+='&surface='+s;
-k=st&&hx(cs(c).color);if(k)q+='&ink='+k;
-b=bt(w,s);
-if(b&&f.getAttribute('data-bonbox-accent')!=='own'){q+='&accent='+b.h;x=hx(b.s.color);if(x)q+='&accent_ink='+x;}
-x=rd(b);if(x)q+='&radius='+x;
-k=st&&(ff(document.body)||ff(document.querySelector('h1,h2')));if(k)q+='&font='+k;
-return [q,x];
-}
-function run(){
-var a=all(),i,f,r,q;
-for(i=0;i<a.length;i++){
-f=a[i];if(!f.getAttribute('data-bonbox-look'))continue;
-if(f.bbB==null)f.bbB=f.getAttribute('src')||'';
-r=lq(f);q=r[0];
-if(r[1])f.style.borderRadius={sharp:'4px',soft:'16px',round:'24px'}[r[1]];
-if(q===f.bbQ)continue;
-if(f.bbQ!=null){if(U>4)continue;U++;}
-f.bbQ=q;
-if(f.bbS==null){f.bbS=q;f.src=f.bbB+(f.bbB.indexOf('?')<0?'?':'&')+q;}
-else if(f.bbOn){f.bbS=q;f.contentWindow.postMessage({type:'bonbox:look',q:q},o);}
-}
-}
-function again(){if(N>29)return;clearTimeout(T);T=setTimeout(function(){N++;run();},150);}
-run();
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',again);
-try{var mq=window.matchMedia('(prefers-color-scheme: dark)');if(mq.addEventListener)mq.addEventListener('change',again);else if(mq.addListener)mq.addListener(again);}catch(x){}
-if(window.MutationObserver){var mo=new MutationObserver(again),op={attributes:true,attributeFilter:['class','data-theme']};mo.observe(document.documentElement,op);if(document.body)mo.observe(document.body,op);}
-`;
 
 /**
  * The booking form inside the owner's page.
@@ -283,17 +190,33 @@ export function iframeSnippet({
   flat = false,
   compact = false,
   width = EMBED_WIDTH_DEFAULT,
-  // Booking R13: the restaurant's look. null (the default, and "Tilpas
-  // automatisk" off) = the R4 snippet, byte for byte. Otherwise
-  // { mode: "auto" | "light" | "dark", accent: "site" | "own" }.
+  // Booking R13: the restaurant's look — { mode: "auto" | "light" | "dark",
+  // accent: "site" | "own" } — or null.
   look = null,
+  // Booking R13 fix round: a NEW snippet (the kit always asks for one) loads
+  // the hosted script (/static/embed1.js) instead of carrying R4's inline
+  // one, with or without the look: short enough for a mailto: link. Without
+  // `hosted` and without a look this is the R4 snippet, byte for byte — the
+  // code owners have pasted since R4 (pinned by the tests).
+  hosted = false,
 }) {
   const src = embedSrcFor(publicUrl);
   const origin = embedOriginFor(publicUrl);
-  const title = `${label} — ${venueName || "BonBox"}`;
-  const w = embedWidthOf(width);
   const lk = lookOf(look);
-  const attrs = lk ? ` data-bonbox-look="${lk.mode}" data-bonbox-accent="${lk.accent}"` : "";
+  // A new snippet travels in a mailto: link (≤ 2,000 characters in every
+  // case), so the frame's title (what a screen reader names it) keeps the
+  // venue's name only as far as TITLE_BUDGET mail characters go — a name
+  // full of æøå or "&" costs many. The R4 form is unchanged.
+  let title = `${label} — ${venueName || "BonBox"}`;
+  if (lk || hosted) {
+    let name = String(venueName || "BonBox");
+    while (name && encodeURIComponent(escapeAttr(`${label} — ${name}…`)).length > TITLE_BUDGET) name = name.slice(0, -1);
+    if (name !== String(venueName || "BonBox")) title = `${label} — ${name.trimEnd()}…`;
+  }
+  const w = embedWidthOf(width);
+  // The owner's colour is the exception, so only it is written out:
+  // data-bonbox-accent="own"; no attribute = the site's button colour.
+  const attrs = lk ? ` data-bonbox-look="${lk.mode}"` + (lk.accent === "own" ? ` data-bonbox-accent="own"` : "") : "";
   return (
     `<div data-bonbox-booking-wrap style="width:100%;max-width:${w}px;margin:0 auto">\n` +
     `  <iframe data-bonbox-booking${attrs} src="${escapeAttr(src + embedQuery({ flat, compact }))}"\n` +
@@ -302,7 +225,7 @@ export function iframeSnippet({
     `  <p data-bonbox-booking-link style="margin:8px 0 0;text-align:center;font:400 14px/1.4 system-ui,sans-serif">\n` +
     `    <a href="${escapeAttr(publicUrl)}" target="_blank" rel="noopener">${escapeAttr(fallbackLabel)}</a>\n` +
     `  </p>\n` +
-    heightScript(origin, !!lk) +
+    (lk || hosted ? `  <script src="${escapeAttr(origin + EMBED_SCRIPT_PATH)}"><` + `/script>\n` : heightScript(origin)) +
     `</div>`
   );
 }

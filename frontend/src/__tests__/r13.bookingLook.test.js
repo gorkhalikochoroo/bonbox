@@ -17,7 +17,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LOOK_FONTS, LOOK_RADII, LOOK_RADII_PX, applyLook, lookFrom } from "../lib/bookingLook";
 import { ACCENT_PRESETS, accentTokens, contrast, luminance } from "../utils/accentColor";
 import { bookingBootSource, lookSource } from "../../scripts/bookingBoot.mjs";
@@ -40,7 +40,7 @@ describe("nothing without look=1", () => {
     (q) => expect(look(q)).toBeNull(),
   );
   it("look=1 alone is today's light card, nothing else", () => {
-    expect(look("?embed=1&look=1")).toEqual({ dark: false, card: "#FFFFFF", ink: null, soft: null, accent: null, radius: null, font: null, scheme: null });
+    expect(look("?embed=1&look=1")).toEqual({ dark: false, card: "#FFFFFF", tint: "#F5F5F5", ink: null, soft: null, accent: null, radius: null, font: null, scheme: null });
   });
 });
 
@@ -149,6 +149,51 @@ describe("the ink: the site's text colour when it reads at AA on the card, else 
   });
 });
 
+describe("the trust line and every soft line read at AA on the surfaces they sit on (R13 fix round)", () => {
+  // The fix round's sweep (r13/test/scripts/sweep_soft.mjs): 1,197 site surfaces × inks. The softer ink
+  // (text-gray-500…700 under .bb-ink) was only checked against the card; on the trust strip — white 5 % over
+  // a dark card, gray-50 on a light one — it read 4.29–4.48:1 on many dark sites.
+  const over = (fg, a, bg) => {
+    const x = parseInt(fg.slice(1), 16), y = parseInt(bg.slice(1), 16);
+    return "#" + [16, 8, 0].map((i) => Math.round(((x >> i) & 255) * a + ((y >> i) & 255) * (1 - a)).toString(16).padStart(2, "0")).join("");
+  };
+  it("0 of the sweep's pairs fall under 4.5:1 — on the card, the strip, the tracks and the look's tint", () => {
+    const fails = [];
+    let total = 0;
+    for (let g = 0; g <= 0x70; g += 2) {
+      for (const ink of ["ffffff", "ededed", "e9e4da", "d4d4d4", "cccccc", "000000", "222222", "3b2f22", "555555"]) {
+        const grey = g.toString(16).padStart(2, "0").repeat(3);
+        for (const surf of [grey, "f4ede1", "ffffff", "fafafa", "eeeeee"]) {
+          const l = look(`?look=1&surface=${surf}&ink=${ink}`);
+          if (!l.ink) continue;
+          total += 1;
+          const quiet = l.dark ? [l.card, over("#ffffff", 0.05, l.card), over("#ffffff", 0.04, l.card), l.tint] : [l.card, "#f9fafb", "#f3f4f6", l.tint];
+          for (const bg of quiet) {
+            if (contrast(l.soft, bg) < 4.5 || contrast(l.ink, bg) < 4.5) fails.push({ surf, ink, bg, soft: l.soft });
+          }
+        }
+      }
+    }
+    expect(total).toBeGreaterThan(1000);
+    expect(fails).toEqual([]);
+  });
+
+  it("the tint: one step off the card (dark: 6 % white, light: 4 % black), on <html> as --bb-tint", () => {
+    expect(look("?look=1&surface=0b0b0b").tint).toBe(over("#ffffff", 0.06, look("?look=1&surface=0b0b0b").card).toUpperCase());
+    applyLook(document, look("?look=1&surface=0b0b0b"), LOOK_RADII, LOOK_FONTS);
+    expect(html().style.getPropertyValue("--bb-tint")).toMatch(/^#[0-9A-F]{6}$/);
+  });
+
+  it("CSS: no navy left in a looked dark frame — grounds take the card, fields / ticket / tracks the tint; the receipt's ground the card", () => {
+    const css = read("index.css");
+    expect(css).toContain(":root.bb-look .bb-solid { background-color: var(--bb-card); }");
+    expect(css).toContain(":root.bb-look.dark .dark\\:bg-gray-950:not(.bb-ground) { background-color: var(--bb-card); }");
+    expect(css).toMatch(/:root\.bb-look\.dark \.dark\\:bg-gray-900,\s*:root\.bb-look\.dark \.dark\\:bg-gray-800 \{ background-color: var\(--bb-tint\); \}/);
+    expect(css).toContain(":root.bb-look.dark .dark\\:bg-gray-600 { background-color: var(--bb-card); }");
+    expect(read("pages/ReservationPublicPage.jsx")).toContain("bb-solid bg-gray-50 dark:bg-gray-950 px-4 py-10");
+  });
+});
+
 describe("the accent: the site's button colour through the R5 guard, else the owner's, else ours", () => {
   it("gold on a black site passes, with the button's own dark text", () => {
     const a = look("?look=1&surface=0b0b0b&accent=c9a45c&accent_ink=111111").accent;
@@ -226,12 +271,12 @@ describe("corners: the site's button on our ladder", () => {
     expect(css).toMatch(/:root\.bb-look \.bb-tile,\s*:root\.bb-look \.bb-sk \{ border-radius: var\(--bb-r-tile, 12px\); \}/);
   });
 
-  // The host script's mapping (bookingEmbed.js rd()), run on its own.
+  // The host script's mapping (public/static/embed1.js corners()), run on its own.
   const body = (() => {
-    const src = read("utils/bookingEmbed.js");
-    return src.slice(src.indexOf("\nfunction rd(b){"), src.indexOf("\nfunction lq(f){"));
+    const src = fs.readFileSync(path.join(SRC, "..", "public", "static", "embed1.js"), "utf8");
+    return src.slice(src.indexOf("  function corners(b) {"), src.indexOf("  /* The look query for one frame"));
   })();
-  const rd = new Function(body + "; return rd;")();
+  const rd = new Function(body + "; return corners;")();
   it.each([
     ["0px", 40, "sharp"], ["4px", 40, "sharp"], ["6px", 44, "sharp"], ["8px", 40, "soft"], ["12px", 48, "soft"],
     ["19px", 40, "round"], ["20px", 40, "round"], ["999px", 40, "round"], ["24px", 80, "round"],
@@ -313,7 +358,8 @@ describe("the parse-time script paints the look before the first paint", () => {
     expect(html().classList.contains("bb-look")).toBe(true);
     expect(html().classList.contains("bb-embed-card")).toBe(true);
     expect(html().style.getPropertyValue("--bb-card")).toBe(b.look.card);
-    expect(listeners.filter((l) => l.type === "message")).toHaveLength(1);
+    // the look's listener, and the one that answers {type:"bonbox:hello"}
+    expect(listeners.filter((l) => l.type === "message")).toHaveLength(2);
   });
 
   it("later looks come only from the frame's own parent, read by the same strict function", () => {
@@ -335,10 +381,12 @@ describe("the parse-time script paints the look before the first paint", () => {
     expect(html().classList.contains("dark")).toBe(false);
   });
 
-  it("an old embed address (no look=1): no look, no listener, the page as before", () => {
-    const { b, listeners } = boot("?embed=1&compact=1&theme=dark&surface=000000");
+  it("an old embed address (no look=1): no look, nothing a look message can change, the page as before", () => {
+    const { b, listeners, send } = boot("?embed=1&compact=1&theme=dark&surface=000000");
     expect(b.look).toBeUndefined();
-    expect(listeners).toEqual([]);
+    // only the passive height answer to {type:"bonbox:hello"}, which an old snippet never sends
+    expect(listeners).toHaveLength(1);
+    send({ type: "bonbox:look", q: "look=1&theme=dark&surface=000000" });
     expect(html().classList.contains("bb-look")).toBe(false);
     expect(html().classList.contains("dark")).toBe(false);
   });
@@ -347,6 +395,53 @@ describe("the parse-time script paints the look before the first paint", () => {
     const { b } = boot("?look=1&theme=dark&surface=000000", { framed: false });
     expect(b.look).toBeUndefined();
     expect(html().classList.contains("bb-look")).toBe(false);
+  });
+
+  it("a frame asked {type:'bonbox:hello'} by its own parent says its height again (the host's script came late)", () => {
+    const posted = [];
+    const parent = { name: "parent", postMessage: (msg, origin) => posted.push({ msg, origin }) };
+    const listeners = [];
+    const w = { matchMedia: () => ({ matches: false }), AbortController, addEventListener: (t, fn) => listeners.push({ t, fn }) };
+    w.self = w;
+    w.top = parent;
+    w.parent = parent;
+    const doc = { createElement: (tag) => ({ tag }), head: { appendChild() {} }, documentElement: html() };
+    new Function("window", "location", "document", "fetch", bookingBootSource({ apiUrl: "" }))(
+      w, { pathname: "/r/cafe", search: "?embed=1&compact=1", protocol: "https:", hostname: "localhost" }, doc, undefined,
+    );
+    const say = (data, source = parent) => listeners.filter((l) => l.t === "message").forEach((l) => l.fn({ data, source }));
+    const rect = vi.spyOn(html(), "getBoundingClientRect").mockReturnValue({ height: 640.2, width: 460, top: 0, left: 0, right: 460, bottom: 640 });
+    say({ type: "bonbox:hello" }, { name: "someone else" });
+    expect(posted).toEqual([]);
+    say({ type: "bonbox:hello" });
+    expect(posted).toHaveLength(1);
+    expect(posted[0].msg).toEqual({ type: "bonbox:height", height: 641 });
+    expect(posted[0].origin).toBe("*");
+    rect.mockRestore();
+  });
+
+  it("the booking page on its own decides dark in <head> (no paper frame first): a dark phone or a stored 'dark'", () => {
+    const run = ({ osDark = false, stored = null, search = "" } = {}) => {
+      html().className = "";
+      const w = {
+        matchMedia: (q) => ({ matches: osDark && q === "(prefers-color-scheme: dark)" }), AbortController,
+        localStorage: { getItem: (k) => (k === "theme" ? stored : null) },
+      };
+      w.self = w;
+      w.top = w;
+      w.parent = w;
+      const doc = { createElement: (tag) => ({ tag }), head: { appendChild() {} }, documentElement: html() };
+      new Function("window", "location", "document", "fetch", bookingBootSource({ apiUrl: "" }))(
+        w, { pathname: "/cafe-nordlys", search, protocol: "https:", hostname: "localhost" }, doc, undefined,
+      );
+      return html().classList.contains("dark");
+    };
+    expect(run({ osDark: true })).toBe(true);
+    expect(run({ stored: "dark" })).toBe(true);
+    expect(run({})).toBe(false);
+    expect(run({ stored: "light" })).toBe(false);
+    // an embed never: its theme is the look's, or light (as before)
+    expect(run({ osDark: true, search: "?embed=1" })).toBe(false);
   });
 
   it("the look half is a function body index.html can carry: no </script, parses, runs the same code", () => {

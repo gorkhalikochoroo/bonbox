@@ -328,10 +328,13 @@ describe("i18n: every new R4 key in real en + da", () => {
     if (!SAME.has(k)) expect(da[k]).not.toBe(en[k]);
   });
 
-  it("the hand-off mail names where the code goes, keeps its three slots, in both languages", () => {
+  // R13 fix round: the mail is ONE mailto: link a mail program keeps whole (≤ 2,000 characters, r13.embedLook):
+  // the link and the whole snippet stay, the ready-made button left the mail (it stays in the kit).
+  it("the hand-off mail names where the code goes, keeps its two slots, in both languages", () => {
     for (const d of [da, en]) {
       const body = d.rsvpWebMailBody;
-      for (const slot of ["{link}", "{button}", "{iframe}"]) expect(body).toContain(slot);
+      for (const slot of ["{link}", "{iframe}"]) expect(body).toContain(slot);
+      expect(body).not.toContain("{button}");
       for (const word of ["WordPress", "Elementor", "Wix", "Squarespace", "720 px", "https"]) expect(body).toContain(word);
     }
     expect(da.rsvpWebMailBody).toContain("Tilpasset HTML");

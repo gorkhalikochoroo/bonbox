@@ -106,7 +106,8 @@ describe("booking settings follow the booking mode", () => {
     expect(code).not.toContain("Book bord");
     const mail = decodeURIComponent(document.querySelector('a[href^="mailto:"]').getAttribute("href"));
     expect(mail).toContain('title="Book tid — Frisør Saks"');
-    expect(mail).toContain(">Book tid</a>");
+    // R13 fix round: the ready-made button left the mail (≤ 2,000 characters); no table word in it either.
+    expect(mail).not.toContain("Book bord");
     expect(mail).not.toContain("Book bord");
   });
 

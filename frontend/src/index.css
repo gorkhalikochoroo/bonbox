@@ -1299,6 +1299,16 @@ body.modal-open {
 }
 /* The sticky action bar rests on the card's own colour (92 %). */
 :root.bb-look .bb-look-bar { background-color: var(--bb-card-bar); }
+/* R13 fix: no navy left in a looked dark frame. The page's own dark surfaces
+   take the look's card (grounds, the selected segment) and its tint (fields,
+   the receipt's ticket, tracks, quiet buttons); the receipt's ground is the
+   card in light too (.bb-solid). The ink and its softer line are AA on both
+   (src/lib/bookingLook.js). The ground of the card mode keeps its own rules. */
+:root.bb-look .bb-solid { background-color: var(--bb-card); }
+:root.bb-look.dark .dark\:bg-gray-950:not(.bb-ground) { background-color: var(--bb-card); }
+:root.bb-look.dark .dark\:bg-gray-900,
+:root.bb-look.dark .dark\:bg-gray-800 { background-color: var(--bb-tint); }
+:root.bb-look.dark .dark\:bg-gray-600 { background-color: var(--bb-card); }
 /* Corners on our ladder (sharp / soft / round), from the site's button:
    card, tile, button (src/lib/bookingLook.js LOOK_RADII_PX is this table). */
 :root.bb-r-sharp { --bb-r-card: 4px; --bb-r-tile: 4px; --bb-r-btn: 4px; }

@@ -165,6 +165,11 @@ export function followSystemTheme() {
   const onChange = () => {
     apply();
     syncThemeColor(root.classList.contains("dark"));
+    // R13 fix: Safari kept the dark toolbar band after a live dark → light
+    // switch — it reads theme-color when the tag arrives, not when its
+    // content changes. A fresh tag with the new content repaints it.
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.replaceWith(meta.cloneNode(true));
   };
   apply();
   mq?.addEventListener?.("change", onChange);
