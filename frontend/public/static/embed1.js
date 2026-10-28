@@ -146,10 +146,13 @@
     return null;
   }
   /* The colour most of the page's visible buttons share — never the
-     surface's own — with its style and box. */
+     surface's own — with its style and box. A site whose buttons are only
+     outlines (no fill; Madklubben, Geranium on 28 Oct) lends its outline
+     colour instead, marked so its text colour is not sent: on our filled
+     button that would be the fill's own colour (the frame picks one). */
   function button(wr, sf) {
     var q = d.querySelectorAll("button,[type=submit],[type=button],[role=button],[class*=btn],[class*=utton]");
-    var n = {}, b = null, i, e, s, r, h;
+    var n = {}, o = {}, b = null, ob = null, i, e, s, r, h;
     for (i = 0; i < q.length && i < 80; i++) {
       e = q[i];
       if (wr && wr.contains(e)) continue;
@@ -158,11 +161,19 @@
       r = e.getBoundingClientRect();
       if (r.width < 24 || r.height < 16) continue;
       h = hx(s.backgroundColor);
-      if (!h || (sf && sf !== "photo" && ct(h, sf) < 1.3)) continue;
-      n[h] = (n[h] || 0) + 1;
-      if (!b || n[h] > n[b.h]) b = { h: h, s: s, r: r };
+      if (h) {
+        if (sf && sf !== "photo" && ct(h, sf) < 1.3) continue;
+        n[h] = (n[h] || 0) + 1;
+        if (!b || n[h] > n[b.h]) b = { h: h, s: s, r: r };
+        continue;
+      }
+      /* no fill: an outline at least 1px wide that stands out from its ground */
+      h = (parseFloat(s.borderTopWidth) || 0) >= 1 && s.borderTopStyle !== "none" && hx(s.borderTopColor);
+      if (!h || (sf && sf !== "photo" && ct(h, sf) < 3)) continue;
+      o[h] = (o[h] || 0) + 1;
+      if (!ob || o[h] > o[ob.h]) ob = { h: h, s: s, r: r, outline: true };
     }
-    return b;
+    return b || ob;
   }
   /* Its corners on the booking's ladder: sharp / soft / round. */
   function corners(b) {
@@ -191,7 +202,7 @@
     b = button(wr, s);
     if (b && f.getAttribute("data-bonbox-accent") !== "own") {
       q += "&accent=" + b.h;
-      x = hx(b.s.color);
+      x = !b.outline && hx(b.s.color);
       if (x) q += "&accent_ink=" + x;
     }
     x = corners(b);

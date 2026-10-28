@@ -240,6 +240,37 @@ describe("no button to match", () => {
   });
 });
 
+describe("a monochrome site whose buttons are only outlines (28 Oct, Madklubben / Geranium)", () => {
+  const MONO = `
+    body { background-color: #ffffff; color: #111111; }
+    .ol { background-color: transparent; color: #111111; border: 1px solid #111111; border-radius: 999px; }`;
+  it("lends the outline colour, with no text colour: the frame fills black and picks white text", () => {
+    const { q } = host({ css: MONO, body: '<a class="btn ol">Book bord</a><a class="btn ol">Take away</a>{SNIPPET}' });
+    expect(q()).toBe("look=1&surface=ffffff&ink=111111&accent=111111&radius=round");
+    const look = lookFrom("?" + q(), LOOK_RADII, LOOK_FONTS);
+    expect(look.accent.bg).toBe("#111111");
+    expect(look.accent.fg).toBe("#FFFFFF");
+  });
+
+  it("a filled button still wins over any number of outlines", () => {
+    const { q } = host({
+      css: MONO + ` .brand { background-color: #b91c1c; color: #ffffff; border-radius: 8px; }`,
+      body: '<a class="btn ol">A</a><a class="btn ol">B</a><a class="btn ol">C</a><a class="btn brand">Book</a>{SNIPPET}',
+    });
+    expect(q()).toMatch(/&accent=b91c1c&accent_ink=ffffff&radius=soft/);
+  });
+
+  it("a faint hairline outline is not a brand colour, and a border of style none counts for nothing", () => {
+    const { q } = host({
+      css: `body { background-color: #ffffff; color: #111111; }
+        .hair { background-color: transparent; border: 1px solid #eeeeee; }
+        .none { background-color: transparent; border: 0 none #111111; }`,
+      body: '<button class="hair">A</button><button class="none">B</button>{SNIPPET}',
+    });
+    expect(q()).toBe("look=1&surface=ffffff&ink=111111");
+  });
+});
+
 describe("fonts: a short list of system fonts, or Inter stays", () => {
   const run = (css, body = "<main>{SNIPPET}</main>", styled = true) => host({ css, body, styled }).q();
   it.each([
