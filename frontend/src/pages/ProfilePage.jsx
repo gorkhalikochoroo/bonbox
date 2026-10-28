@@ -636,13 +636,15 @@ export default function ProfilePage() {
 
   const uploadLogo = async (file) => {
     if (!file) return;
-    if (!["image/png", "image/jpeg"].includes(file.type)) {
-      setBrandMsg(t("profLogoFormatError", "Logo must be PNG or JPEG (SVG not allowed)"));
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      setBrandMsg(t("profLogoFormatError", "Logo must be PNG, JPEG or WebP (SVG not allowed)"));
       setTimeout(() => setBrandMsg(""), 5000);
       return;
     }
-    if (file.size > 1_000_000) {
-      setBrandMsg(t("profLogoTooLargeError", "Logo too large (max 1 MB)"));
+    // 10 MB, the same as the server (logo_service.MAX_LOGO_BYTES): a phone photo
+    // of a logo is 2–6 MB, and the server shrinks it to a small PNG anyway.
+    if (file.size > 10_000_000) {
+      setBrandMsg(t("profLogoTooLargeError", "Logo too large (max 10 MB)"));
       setTimeout(() => setBrandMsg(""), 5000);
       return;
     }
@@ -1654,7 +1656,7 @@ export default function ProfilePage() {
                         </span>
                         <input
                           type="file"
-                          accept="image/png,image/jpeg"
+                          accept="image/png,image/jpeg,image/webp"
                           onChange={(e) => uploadLogo(e.target.files?.[0])}
                           disabled={logoUploading}
                           className="hidden"
@@ -1668,7 +1670,7 @@ export default function ProfilePage() {
                     </div>
                   </div>
                   <p className={HINT_CLASS}>
-                    {t("brandLogoHint") || "PNG or JPEG, max 1 MB. Auto-resized + EXIF stripped for privacy."}
+                    {t("brandLogoHint") || "PNG, JPEG or WebP, max 10 MB. Auto-resized + EXIF stripped for privacy."}
                   </p>
                 </div>
 

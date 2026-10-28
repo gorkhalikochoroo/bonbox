@@ -631,7 +631,12 @@ def test_the_logo_and_chat_photo_decoders_are_png_and_jpeg_only():
 
     from app.services import chat_image, logo_service
 
-    for mod in (logo_service, chat_image):
+    # Every Image.open in these modules names a fixed decoder list, so a file
+    # never falls through to another Pillow plugin. The logo also takes WebP
+    # (28 Oct 2026: logos saved from a website; receipts already decode WebP,
+    # and the logo gives WebP its pixel ceiling without the 2x slack).
+    for mod, formats in ((logo_service, 'formats=["PNG", "JPEG", "WEBP"]'),
+                         (chat_image, 'formats=["PNG", "JPEG"]')):
         src = _inspect.getsource(mod)
         assert "Image.open(" in src
-        assert src.count("Image.open(") == src.count('formats=["PNG", "JPEG"]'), mod.__name__
+        assert src.count("Image.open(") == src.count(formats), mod.__name__

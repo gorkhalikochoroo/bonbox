@@ -38,14 +38,16 @@ logger = logging.getLogger(__name__)
 # Hard limit. Logos are SMALL — anything larger is either a customer
 # uploading a 4K screenshot by accident or a malware payload trying to
 # OOM the server. Either way we reject before processing.
-MAX_LOGO_BYTES = 1_000_000  # 1 MB
+MAX_LOGO_BYTES = 10_000_000  # 10 MB — a phone photo of a logo is 2–6 MB; it is
+# downscaled to MAX_OUTPUT_DIM and re-encoded as a small PNG below (28 Oct 2026:
+# 1 MB refused most phone photos).
 
 # Output dimensions. PDFs are typically rendered at 72-150 DPI; even
 # 800x800 is overkill but gives Retina display headroom. Pillow
 # preserves aspect ratio via thumbnail().
 MAX_OUTPUT_DIM = 800
 
-# Decode-pixel ceiling — a decompression-bomb defence. The 1 MB size cap
+# Decode-pixel ceiling — a decompression-bomb defence. The 10 MB size cap
 # above bounds the file on disk, not the canvas it decodes to: a tiny
 # highly-compressed file can still declare a 169M px image and force a
 # ~0.5 GB in-memory RGB allocation. Pillow's own default only trips above
@@ -68,6 +70,9 @@ MAX_DECODE_PIXELS = 16_000_000
 # touches it. PNG and JPEG only.
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _JPEG_MAGIC_PREFIX = b"\xff\xd8\xff"
+# WebP: "RIFF" <4-byte size> "WEBP" — logos saved from a website are often WebP.
+_RIFF_MAGIC = b"RIFF"
+_WEBP_TAG = b"WEBP"
 
 
 def _verify_magic_bytes(raw: bytes) -> str:
@@ -89,9 +94,11 @@ def _verify_magic_bytes(raw: bytes) -> str:
         return "png"
     if raw.startswith(_JPEG_MAGIC_PREFIX):
         return "jpeg"
+    if raw.startswith(_RIFF_MAGIC) and raw[8:12] == _WEBP_TAG:
+        return "webp"
     raise HTTPException(
         http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-        "Logo must be PNG or JPEG. SVG, GIF, HEIC, and other formats are not supported.",
+        "Logo must be PNG, JPEG or WebP. SVG, GIF, HEIC, and other formats are not supported.",
     )
 
 
@@ -124,13 +131,16 @@ def _strip_and_optimize(raw: bytes, inferred_fmt: str) -> bytes:
 
     try:
         # One of the process-wide decode slots (image_guard: at most 2 photo
-        # decodes at once). PNG / JPEG decoders only (the magic bytes said
-        # one of the two), so a file that fails both parses never falls
+        # decodes at once). PNG / JPEG / WebP decoders only (the magic bytes
+        # said one of the three), so a file that fails them never falls
         # through to another Pillow plugin (INFRA-03).
-        with decode_slot(), Image.open(io.BytesIO(raw), formats=["PNG", "JPEG"]) as img:
+        with decode_slot(), Image.open(io.BytesIO(raw), formats=["PNG", "JPEG", "WEBP"]) as img:
             # Decompression-bomb guard on the header size, before any decode
-            # (see MAX_DECODE_PIXELS — no process-global is touched).
-            if img.width * img.height > 2 * MAX_DECODE_PIXELS:
+            # (see MAX_DECODE_PIXELS — no process-global is touched). WebP's
+            # decoder needs more memory per pixel (image_guard), so it gets
+            # the ceiling itself, without the 2x slack.
+            pixel_limit = MAX_DECODE_PIXELS if inferred_fmt == "webp" else 2 * MAX_DECODE_PIXELS
+            if img.width * img.height > pixel_limit:
                 raise HTTPException(
                     http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
                     "Logo file is corrupt, unreadable, or too large to process",
@@ -149,6 +159,11 @@ def _strip_and_optimize(raw: bytes, inferred_fmt: str) -> bytes:
                     "Logo format inconsistent (polyglot file rejected)",
                 )
             if inferred_fmt == "jpeg" and pillow_fmt not in ("jpeg", "mpo"):
+                raise HTTPException(
+                    http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    "Logo format inconsistent (polyglot file rejected)",
+                )
+            if inferred_fmt == "webp" and pillow_fmt != "webp":
                 raise HTTPException(
                     http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
                     "Logo format inconsistent (polyglot file rejected)",
@@ -211,7 +226,7 @@ def upload_logo(user_id: UUID | str, raw_bytes: bytes) -> Tuple[str, int]:
     if len(raw_bytes) > MAX_LOGO_BYTES:
         raise HTTPException(
             http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            f"Logo too large (max {MAX_LOGO_BYTES // 1000} KB)",
+            f"Logo too large (max {MAX_LOGO_BYTES // 1_000_000} MB)",
         )
 
     # Step 1: magic bytes

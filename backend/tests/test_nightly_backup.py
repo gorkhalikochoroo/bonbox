@@ -841,7 +841,12 @@ class _FakeStorageAPI:
         import httpx
         self.requests.append(request)
         assert request.headers["apikey"] == self.key
-        assert request.headers["authorization"] == f"Bearer {self.key}"
+        # Supabase's new keys (sb_…) are not JWTs: apikey header only. A Bearer
+        # copy makes Storage answer 400 "Invalid Compact JWS" (28 Oct 2026).
+        if self.key.startswith("sb_"):
+            assert "authorization" not in request.headers
+        else:
+            assert request.headers["authorization"] == f"Bearer {self.key}"
         path = request.url.path
         if request.method == "GET" and path.startswith("/storage/v1/bucket/"):
             b = path[len("/storage/v1/bucket/"):]

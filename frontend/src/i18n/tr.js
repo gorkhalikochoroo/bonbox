@@ -5491,7 +5491,7 @@ export const tr = {
   brandTitle: "Marka ve logo — faktura üzerinde",
   brandDesc: "Kendi faktura'n nasıl görünsün, sen seç. Logo + Kopenhag paletimizden bir vurgu rengi.",
   brandLogoLabel: "Logo",
-  brandLogoHint: "PNG veya JPEG, maks. 1 MB. Otomatik boyutlandırılır + gizlilik için EXIF silinir.",
+  brandLogoHint: "PNG, JPEG veya WebP, maks. 10 MB. Otomatik boyutlandırılır + gizlilik için EXIF silinir.",
   brandUploadLogo: "Logo yükle",
   brandReplaceLogo: "Değiştir",
   brandRemoveLogo: "Kaldır",

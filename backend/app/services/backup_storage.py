@@ -76,7 +76,8 @@ class SupabaseBucket:
             raise BackupStorageError("bucket client needs url, key and bucket")
         self.base = url.rstrip("/") + "/storage/v1"
         self.bucket = bucket
-        self._headers = {"Authorization": f"Bearer {service_key}", "apikey": service_key}
+        from app.services.storage import supabase_key_headers
+        self._headers = supabase_key_headers(service_key)
         self._client = client or httpx.Client(timeout=httpx.Timeout(timeout, connect=10.0))
 
     def _err(self, what: str, resp: httpx.Response) -> BackupStorageError:

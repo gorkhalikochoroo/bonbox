@@ -1018,7 +1018,7 @@ def upload_logo_endpoint(
     db: Session = Depends(get_db),
     user: User = Depends(_require_brand_access),
 ):
-    """Upload a new logo. PNG or JPEG, max 1 MB.
+    """Upload a new logo. PNG, JPEG or WebP, max 10 MB (stored as a small PNG).
 
     Multi-layer validation pipeline (every step can reject):
       1. Size check (HTTP-level via FastAPI's request size config)
@@ -1038,7 +1038,7 @@ def upload_logo_endpoint(
     if len(raw) > MAX_LOGO_BYTES:
         raise HTTPException(
             413,
-            f"Logo too large (max {MAX_LOGO_BYTES // 1000} KB)",
+            f"Logo too large (max {MAX_LOGO_BYTES // 1_000_000} MB)",
         )
 
     profile = _get_or_create_profile(db, user)

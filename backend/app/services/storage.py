@@ -141,6 +141,20 @@ class StorageBackend(ABC):
 
 # ─── Supabase backend (production) ─────────────────────────────────────
 
+def supabase_key_headers(key: str) -> dict[str, str]:
+    """Auth headers for a Supabase key, in either key format.
+
+    Supabase's new API keys (``sb_secret_…`` / ``sb_publishable_…``) are not
+    JWTs: they go on the ``apikey`` header only. Sent as
+    ``Authorization: Bearer`` as well, Storage tries to verify them as a JWT
+    and answers 400 ``Invalid Compact JWS`` — every logo upload failed that
+    way on 28 Oct 2026. Legacy keys are JWTs and keep both headers.
+    """
+    if key.startswith("sb_"):
+        return {"apikey": key}
+    return {"Authorization": f"Bearer {key}", "apikey": key}
+
+
 class SupabaseStorageBackend(StorageBackend):
     """Uses Supabase Storage REST API directly via httpx — no extra
     SDK dep. Service-role key goes only on the backend; never sent to
@@ -158,10 +172,7 @@ class SupabaseStorageBackend(StorageBackend):
     def __init__(self, url: str, service_key: str, bucket: str):
         self.base = url.rstrip("/") + "/storage/v1"
         self.bucket = bucket
-        self._headers = {
-            "Authorization": f"Bearer {service_key}",
-            "apikey": service_key,
-        }
+        self._headers = supabase_key_headers(service_key)
         # Connection pool with sane timeouts. 30s upload covers a 10MB
         # JPEG over a slow connection; reads are usually sub-second.
         self._client = httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0))
