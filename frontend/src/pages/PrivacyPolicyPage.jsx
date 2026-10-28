@@ -6,7 +6,7 @@ import { CookieSettingsButton } from "../components/CookieConsent";
 // changes it on its own (the backup processor row + R-h's Analytics-consent
 // sentences), so it has its own release-time date there, never earlier than
 // TERMS_VERSION.
-import { PRIVACY_UPDATED, termsDate, IRELAND_COPY_ROW, IRELAND_COPY_DELETE_BY } from "../legal/terms";
+import { PRIVACY_UPDATED, termsDate, IRELAND_COPY_ROW, IRELAND_COPY_DELETE_BY, IRELAND_COPY_DELETED_ON } from "../legal/terms";
 import BonBoxMark from "../components/BonBoxMark";
 import BonBoxWordmark from "../components/BonBoxWordmark";
 
@@ -76,6 +76,22 @@ const FALLBACK_COPY_ROW = {
   da: ["Supabase", `Tidligere database og fillagring. Efter flytningen til Frankfurt den 20. oktober 2026 beholdes en kopi som reserve; den slettes senest ${termsDate(IRELAND_COPY_DELETE_BY, "da")}. Indtil da hentes billeder af bilag, der blev uploadet før flytningen, stadig fra denne kopi.`, "EU (Irland)", "En kopi af alle konto- og virksomhedsdata og de filer, du havde uploadet, pr. 20. oktober 2026"],
 };
 const fallbackCopyRows = (lang) => (IRELAND_COPY_ROW ? [FALLBACK_COPY_ROW[lang]] : []);
+// Deleted (28 Oct 2026): with the row off, one plain sentence under the table
+// says the copy is gone — the page that promised "deleted by 30 November"
+// now says when it happened. It never names the old place (frankfurtEverywhere:
+// the old location appears nowhere on the page once the row is off).
+const OLD_COPY_DELETED = {
+  en: `The fallback copy we kept in our previous database project after the move to Frankfurt on 20 October 2026 was deleted on ${termsDate(IRELAND_COPY_DELETED_ON, "en")}.`,
+  da: `Den reservekopi, vi beholdt i vores tidligere databaseprojekt efter flytningen til Frankfurt den 20. oktober 2026, blev slettet den ${termsDate(IRELAND_COPY_DELETED_ON, "da")}.`,
+};
+function OldCopyDeleted({ lang }) {
+  if (IRELAND_COPY_ROW) return null;
+  return (
+    <p className="text-sm text-gray-500 dark:text-gray-400" data-testid="privacy-old-copy-deleted">
+      {OLD_COPY_DELETED[lang]}
+    </p>
+  );
+}
 
 const CHROME = {
   en: { terms: "Terms", cookies: "Cookies", cookieSettings: "Cookie settings", back: "Back to BonBox" },
@@ -264,6 +280,7 @@ function PrivacyEn() {
           <p className="text-sm text-gray-500 dark:text-gray-400" data-testid="privacy-location-note">
             &ldquo;Not confirmed&rdquo; means we have not yet confirmed where that provider processes the data. It may be outside the EU/EEA (see &ldquo;International data transfers&rdquo;).
           </p>
+          <OldCopyDeleted lang="en" />
           <p>
             We do not sell your data, and we do not share it for advertising. Your books stay in our
             database. In BonBox, you see them, and so do the team members and the revisor you give
@@ -547,6 +564,7 @@ function PrivacyDa() {
           <p className="text-sm text-gray-500 dark:text-gray-400" data-testid="privacy-location-note">
             »Ikke bekræftet« betyder, at vi endnu ikke har bekræftet, hvor udbyderen behandler dataene. Det kan være uden for EU/EØS (se »Internationale dataoverførsler«).
           </p>
+          <OldCopyDeleted lang="da" />
           <p>
             Vi sælger ikke dine data, og vi deler dem ikke til annoncering. Dit regnskab bliver i vores
             database. I BonBox ser du det, og det gør de teammedlemmer og den revisor, du giver adgang,

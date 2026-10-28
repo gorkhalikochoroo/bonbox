@@ -18,7 +18,7 @@ processed. `/privacy` gives the same answer under "Who has access to your data".
 |---|---|
 | API (`bonbox-api`, one worker) | Render, region **Frankfurt (EU)**. No persistent storage on the server. |
 | Database and uploaded files (primary) | Supabase project `qwogfearhfhaunqpuvgd`, region **eu-central-1 (Frankfurt)**, since 20 Oct 2026. Files are in Storage bucket `receipts`. |
-| Old primary (fallback copy) | Supabase project `ahlqhztujpeccmaivkhr`, region eu-west-1 (Ireland). Unchanged copy of the database and files as of 20 Oct 2026, kept as a fallback until Manoj says delete. Not live: never restore into it or point the API at it without a decision. Remove this row when it is deleted. |
+| Old primary (deleted) | Supabase project `ahlqhztujpeccmaivkhr`, region eu-west-1 (Ireland). The fallback copy of the database and files kept after the 20 Oct 2026 move was **deleted on 28 Oct 2026** (Manoj, after the receipt re-link release went live and its check said safe to delete). Nothing is stored there any more and its URLs no longer answer. The code still recognises its old links (`RETIRED_PROJECT_REFS`) and reads them from Frankfurt; the restore script still refuses it as a target. |
 | Backup project | Supabase project `bonbox-backup`, region **eu-central-1 (Frankfurt)**. Empty until the nightly backup release is live; then it holds encrypted nightly copies of the database and the files. |
 | Frontend | Vercel, global CDN. Static files only, no customer data. |
 | Domain and DNS (`bonbox.dk`, every mail record: MX, SPF, DKIM, DMARC) | Simply.com (registrar and DNS). |
@@ -103,7 +103,8 @@ level (section e).
        nothing.
        The script refuses to write into a protected project: the live
        primary `qwogfearhfhaunqpuvgd` (Frankfurt), the old primary
-       `ahlqhztujpeccmaivkhr` (Ireland, the fallback copy), and whatever
+       `ahlqhztujpeccmaivkhr` (Ireland; its fallback copy was deleted on
+       28 Oct 2026, the ref stays refused), and whatever
        project `$SUPABASE_URL` / `$DATABASE_URL` name, in any URL form
        (pooler on 5432 or 6543, the `db.<ref>.supabase.co` host, the
        `https://<ref>.supabase.co` photo target). Photos go back into a

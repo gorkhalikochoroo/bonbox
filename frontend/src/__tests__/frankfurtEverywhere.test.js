@@ -19,6 +19,10 @@
  *   • /privacy renders the Frankfurt main row and, while the constant is
  *     true, the fallback row with its deletion day — and with the constant
  *     false, no row and no Ireland anywhere on the page.
+ *   • 28 Oct 2026: the old project was deleted. The constant is pinned off
+ *     ("no Ireland copy kept") and the page says, in one sentence per
+ *     language, that the copy was deleted on that day — never naming the
+ *     old place.
  * The push-day date itself is privacyUpdatedPushDay.test.js. The committed
  * Vagtplan bundle is schedulerBundleVagtplan.test.js.
  */
@@ -44,7 +48,7 @@ import { nl } from "../i18n/nl";
 import { no_ } from "../i18n/no";
 import { pt } from "../i18n/pt";
 import { sv } from "../i18n/sv";
-import { IRELAND_COPY_ROW, IRELAND_COPY_DELETE_BY, PRIVACY_UPDATED, TERMS_VERSION, termsDate } from "../legal/terms";
+import { IRELAND_COPY_ROW, IRELAND_COPY_DELETE_BY, IRELAND_COPY_DELETED_ON, PRIVACY_UPDATED, TERMS_VERSION, termsDate } from "../legal/terms";
 
 // Every spelling of the old location a pack could carry, plus the region id.
 const IRELAND = /Irland|Ireland|İrlanda|Irlanda|Irlande|Ierland|Irlanti|आयरल्यान्ड|ไอร์แลนด์|アイルランド|爱尔兰|Dublin|eu-west-1/;
@@ -238,11 +242,19 @@ describe("/privacy: Frankfurt main row; the fallback copy only behind IRELAND_CO
 
   // Security fix round (23 Oct): the copy is not a passive reserve. A receipt picture is stored as a full signed URL on
   // the host that was live at upload (backend services/receipt_ocr.py signs for a year), and the move copied the rows
-  // without re-signing them, so pictures uploaded before 20 Oct still load from the old project. The row says so until
-  // the old project is deleted (and the packet makes "0 rows point at Ireland" the condition for that deletion).
-  it("the fallback row says pre-move receipt pictures still load from the copy, as long as uploads are stored as signed URLs", () => {
+  // without re-signing them, so pictures uploaded before 20 Oct still load from the old project. The row said so until
+  // the old project was deleted (and the packet made "0 rows point at Ireland" the condition for that deletion).
+  // 28 Oct: the receipt re-link release (74db5a43) reads every pre-move link from Frankfurt at read time
+  // (services/storage_links.py, RETIRED_PROJECT_REFS) and new uploads sign with the shared TTL on the configured
+  // project, so nothing loads from the old project any more — which is what let it be deleted and the row go off.
+  it("the row is off because nothing loads from the old project: pre-move links are re-linked to Frankfurt; its own words stay", () => {
     const ocr = fs.readFileSync(path.join(SRC, "../../backend/app/services/receipt_ocr.py"), "utf8");
-    expect(ocr).toMatch(/signed = storage\.signed_url\(key, ttl_seconds=one_year\)/);
+    expect(ocr).toMatch(/signed = storage\.signed_url\(key, ttl_seconds=RECEIPT_URL_TTL_SECONDS\)/);
+    const links = fs.readFileSync(path.join(SRC, "../../backend/app/services/storage_links.py"), "utf8");
+    expect(links).toMatch(/^RETIRED_PROJECT_REFS = \("ahlqhztujpeccmaivkhr",\)$/m);
+    expect(links).toMatch(/^def client_receipt_ref\(/m);
+    expect(IRELAND_COPY_ROW).toBe(false);
+    // The row's text, kept for the forced-on state below, still reads as it did.
     expect(FALLBACK.da[1]).toMatch(/Indtil da hentes billeder af bilag, der blev uploadet før flytningen, stadig fra denne kopi\.$/);
     expect(FALLBACK.en[1]).toMatch(/Until then, receipt pictures uploaded before the move are still loaded from this copy\.$/);
     // the sentence never names the old place itself: Ireland stays in the Location column only
@@ -316,6 +328,38 @@ describe("/privacy: Frankfurt main row; the fallback copy only behind IRELAND_CO
       expect(at(en_)).toHaveLength(state ? 3 : 2);
     }
   });
+
+  // 28 Oct 2026 (~14:10 CET): Manoj deleted the old project after the receipt re-link release went live and its check
+  // said safe to delete. Pinned: no Ireland copy kept — the row is off as committed, and the page says when it went.
+  it("the old project is deleted: the fallback row is off as committed (no Ireland copy kept)", () => {
+    expect(IRELAND_COPY_ROW).toBe(false);
+    expect(IRELAND_COPY_DELETED_ON).toBe("2026-10-28");
+    expect(IRELAND_COPY_DELETED_ON > "2026-10-20").toBe(true);
+    expect(IRELAND_COPY_DELETED_ON <= IRELAND_COPY_DELETE_BY).toBe(true);
+  });
+
+  const DELETED = {
+    en: "The fallback copy we kept in our previous database project after the move to Frankfurt on 20 October 2026 was deleted on 28 October 2026.",
+    da: "Den reservekopi, vi beholdt i vores tidligere databaseprojekt efter flytningen til Frankfurt den 20. oktober 2026, blev slettet den 28. oktober 2026.",
+  };
+  for (const lang of ["da", "en"]) {
+    it(`${lang}: one plain sentence says the copy was deleted on 28 October 2026, right under the location note, never naming the old place`, () => {
+      const { container } = renderPrivacy(lang);
+      const line = container.querySelector('[data-testid="privacy-old-copy-deleted"]');
+      expect(line).not.toBeNull();
+      expect(line.textContent).toBe(DELETED[lang]);
+      expect(line.textContent).not.toMatch(IRELAND);
+      expect(line.previousElementSibling?.getAttribute("data-testid")).toBe("privacy-location-note");
+      expect(container.querySelectorAll('[data-testid="privacy-old-copy-deleted"]')).toHaveLength(1);
+      expect(container.textContent).not.toMatch(/slettes senest|will be deleted by/);
+    });
+
+    it(`${lang}: the two states never meet — with the row forced on there is no "deleted" sentence`, () => {
+      force.copyRow = true;
+      const { container } = renderPrivacy(lang);
+      expect(container.querySelector('[data-testid="privacy-old-copy-deleted"]')).toBeNull();
+    });
+  }
 
   it("PRIVACY_UPDATED is a day after the last /privacy date (2026-10-12) and not before the Terms", () => {
     expect(PRIVACY_UPDATED).toMatch(/^\d{4}-\d{2}-\d{2}$/);

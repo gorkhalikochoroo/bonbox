@@ -91,13 +91,23 @@ export const PRIVACY_UPDATED = "2026-10-28";
    Old project still there → true. Deleted → false: the row disappears from
    /privacy in both languages (src/__tests__/frankfurtEverywhere.test.js and
    backupPrivacyRow / push3Privacy hold both cases); re-run those tests and
-   rebuild the Vagtplan bundle (npm run build:scheduler-app). */
-export const IRELAND_COPY_ROW = true;
+   rebuild the Vagtplan bundle (npm run build:scheduler-app).
+
+   28 Oct 2026: DELETED. Manoj deleted the old project at ~14:10 CET, after the
+   receipt re-link release (74db5a43) went live and its check said safe to
+   delete. The row is off for good; /privacy says instead, in one sentence,
+   that the copy was deleted on IRELAND_COPY_DELETED_ON (privacy-old-copy-
+   deleted). The tests now pin that no copy is kept in the old project. */
+export const IRELAND_COPY_ROW = false;
 /* 23 Oct 2026: moved from 2026-10-31. Receipt pictures uploaded before the move
    are still loaded from the old project through stored links, so it is deleted
    only after a backend release re-links them to Frankfurt and a check shows no
-   row still points at the old project. */
+   row still points at the old project. (Kept for the row's text while the row
+   is off; the copy was deleted before this day.) */
 export const IRELAND_COPY_DELETE_BY = "2026-11-30";
+/* The Copenhagen day the old project — and with it the fallback copy — was
+   deleted (Manoj, in Supabase; releases.md 28 Oct ~14:10 CET). */
+export const IRELAND_COPY_DELETED_ON = "2026-10-28";
 
 /** Add accept_terms: true to a sign-up request body — only when the caller
     says the page showed the acceptance line (opts.acceptTerms === true).

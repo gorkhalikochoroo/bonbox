@@ -50,17 +50,20 @@ describe("committed staff web bundle (ios-scheduler/App/App/public)", () => {
   // /privacy fallback-copy row, and only while IRELAND_COPY_ROW is on. If
   // this fails after a text change or after switching the constant, run
   // `npm run build:scheduler-app` and commit the folder.
-  it("names Frankfurt as the database location; Ireland only in /privacy's fallback-copy row while it is on", async () => {
+  // 28 Oct 2026: the old project is deleted and the row is off for good, so
+  // the bundle must carry no Ireland at all, and the "deleted" sentence.
+  it("names Frankfurt as the database location; no Ireland at all (the fallback copy was deleted on 28 Oct 2026)", async () => {
     const { IRELAND_COPY_ROW } = await import("../legal/terms");
+    expect(IRELAND_COPY_ROW).toBe(false);
+    expect(bundle).toContain("The fallback copy we kept in our previous database project");
+    expect(bundle).toContain("Den reservekopi, vi beholdt i vores tidligere databaseprojekt");
     const dir = path.join(PUBLIC, "assets");
     const IRELAND = /Irland|Ireland|İrlanda|आयरल्यान्ड|ไอร์แลนด์|eu-west-1/g;
     const hits = fs.readdirSync(dir).filter((f) => f.endsWith(".js")).flatMap((f) => {
       const src = fs.readFileSync(path.join(dir, f), "utf8");
       return [...src.matchAll(IRELAND)].map((m) => ({ file: f.replace(/-[\w-]+\.js$/, ""), at: src.slice(m.index - 4, m.index + m[0].length + 1) }));
     });
-    expect(hits).toEqual(IRELAND_COPY_ROW
-      ? [{ file: "PrivacyPolicyPage", at: "EU (Ireland)" }, { file: "PrivacyPolicyPage", at: "EU (Irland)" }]
-      : []);
+    expect(hits).toEqual([]);
     for (const text of [
       "Lavet i København · database i EU (Frankfurt, Tyskland)",
       "Made in Copenhagen · database in the EU (Frankfurt, Germany)",

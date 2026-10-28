@@ -5,10 +5,11 @@
  * before it leaves BonBox — in EN and DA, right after the main Supabase row.
  *
  * Frankfurt move (Landing v6 + Frankfurt release): the main row is the
- * Frankfurt project now; while the old project's fallback copy exists
- * (IRELAND_COPY_ROW in legal/terms.js) a third Supabase row follows the
- * backup row. frankfurtEverywhere.test.js holds that row's text and both
- * states of the constant.
+ * Frankfurt project now; while the old project's fallback copy existed
+ * (IRELAND_COPY_ROW in legal/terms.js) a third Supabase row followed the
+ * backup row. The copy was deleted on 28 Oct 2026: the constant is off and
+ * this file pins it — two Supabase rows, no third. frankfurtEverywhere.test.js
+ * holds that row's text, both states of the constant and the "deleted" line.
  *
  * The backend sibling (backend/tests/test_nightly_backup.py,
  * test_privacy_names_the_encrypted_backup_copy) ties the same rows to the
@@ -68,8 +69,9 @@ describe("/privacy: the encrypted backup copy is a processor row of its own", ()
       const i = rows.findIndex((r) => r[0] === "Supabase");
       expect(rows[i]).toEqual(ROWS[lang].main);
       expect(rows[i + 1]).toEqual(ROWS[lang].backup);
-      // main + backup, + the old project's fallback copy while it exists
-      expect(rows.filter((r) => r[0] === "Supabase")).toHaveLength(IRELAND_COPY_ROW ? 3 : 2);
+      // main + backup only: the old project's fallback copy was deleted on 28 Oct 2026
+      expect(IRELAND_COPY_ROW).toBe(false);
+      expect(rows.filter((r) => r[0] === "Supabase")).toHaveLength(2);
     });
   }
 

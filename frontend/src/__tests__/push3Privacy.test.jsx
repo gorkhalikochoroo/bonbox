@@ -11,7 +11,8 @@
  *   • Processors: a location only where confirmed (Supabase: Frankfurt
  *     since the move of 20 Oct 2026, Render: Frankfurt, Companies House: UK;
  *     the Supabase backup project: Frankfurt; the old project's fallback
- *     copy, while it exists: Ireland); the rest say "Not confirmed". The
+ *     copy was Ireland until it was deleted on 28 Oct 2026 — no row, no
+ *     Ireland location now); the rest say "Not confirmed". The
  *     list names every service the code can send data to.
  *
  * The backend sibling (backend/tests/test_privacy_matches_code.py) holds the
@@ -140,11 +141,11 @@ describe("processors: complete, and a location only where confirmed", () => {
     en: ["EU (Frankfurt, Germany)", "EU (Germany, Frankfurt)", "Global CDN", "Global", "United Kingdom", "Not confirmed"],
     da: ["EU (Frankfurt, Tyskland)", "EU (Tyskland, Frankfurt)", "Globalt CDN", "Globalt", "Storbritannien", "Ikke bekræftet"],
   };
-  // The old project's location is allowed only while its fallback row exists.
-  if (IRELAND_COPY_ROW) {
-    ALLOWED.en.push("EU (Ireland)");
-    ALLOWED.da.push("EU (Irland)");
-  }
+  // The old project's location was allowed only while its fallback row
+  // existed; the copy was deleted on 28 Oct 2026, so no Ireland location now.
+  it("the old project's fallback copy is deleted: its row is off", () => {
+    expect(IRELAND_COPY_ROW).toBe(false);
+  });
   for (const lang of ["en", "da"]) {
     it(`${lang}: every service the code calls is listed, with a confirmed location or 'not confirmed'`, () => {
       const { container } = renderPage(PrivacyPolicyPage, lang);
@@ -158,11 +159,12 @@ describe("processors: complete, and a location only where confirmed", () => {
       for (const r of rows) expect(ALLOWED[lang]).toContain(r[2]);
       const loc = Object.fromEntries(rows.map((r) => [r[0], r[2]]));
       // Supabase rows: the main project (Frankfurt) first, then the separate
-      // backup project (Frankfurt) of the nightly backup, then — while it
-      // exists — the old project's fallback copy (Ireland).
+      // backup project (Frankfurt) of the nightly backup — and nothing else:
+      // the old project's fallback copy (Ireland) was deleted on 28 Oct 2026.
       expect(rows.filter((r) => r[0] === "Supabase").map((r) => r[2])).toEqual(lang === "da"
-        ? ["EU (Frankfurt, Tyskland)", "EU (Tyskland, Frankfurt)", ...(IRELAND_COPY_ROW ? ["EU (Irland)"] : [])]
-        : ["EU (Frankfurt, Germany)", "EU (Germany, Frankfurt)", ...(IRELAND_COPY_ROW ? ["EU (Ireland)"] : [])]);
+        ? ["EU (Frankfurt, Tyskland)", "EU (Tyskland, Frankfurt)"]
+        : ["EU (Frankfurt, Germany)", "EU (Germany, Frankfurt)"]);
+      expect(container.textContent).not.toMatch(/Irland|Ireland/);
       expect(loc.Render).toBe(lang === "da" ? "EU (Frankfurt, Tyskland)" : "EU (Frankfurt, Germany)");
       expect(screen.getByTestId("privacy-location-note")).toBeTruthy();
     });

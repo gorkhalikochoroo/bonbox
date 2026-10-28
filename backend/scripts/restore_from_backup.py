@@ -40,7 +40,8 @@ Safety:
     "<bucket>" (photos bucket), so a pasted URL cannot write by accident.
   • It refuses a DB target in a protected project — the live primary
     (qwogfearhfhaunqpuvgd, Frankfurt, since 20 Oct 2026), the old primary
-    kept as a fallback copy (ahlqhztujpeccmaivkhr, Ireland), and whatever
+    (ahlqhztujpeccmaivkhr, Ireland; its fallback copy was deleted on
+    28 Oct 2026, the ref stays refused), and whatever
     project $SUPABASE_URL / $DATABASE_URL name — or equal to $DATABASE_URL:
     restore into a NEW project or a local database, then repoint the app.
     Photos may go back into a protected project's bucket only with
@@ -115,7 +116,8 @@ from app.utils.time import utc_now  # noqa: E402
 # old Ireland ref, so only the exact $DATABASE_URL match protected production:
 # a pooler URL on the other port, the db.<ref>.supabase.co host, or the photo
 # bucket at https://<ref>.supabase.co all got through. The old primary stays
-# refused too: it is an unchanged fallback copy ("never restore into it").
+# refused too: it held the unchanged fallback copy ("never restore into it")
+# until that copy was deleted on 28 Oct 2026; the ref stays on the list.
 # And the refs $SUPABASE_URL / $DATABASE_URL name are added at run time (as
 # backup_service derives the main project from settings.SUPABASE_URL), so the
 # next move cannot leave the guard naming the wrong project again.
