@@ -94,7 +94,7 @@ describe("the kit: match the website, by default, with the owner's override", ()
   it("Farver and Knapfarve are written into the snippet", () => {
     renderKit();
     // R14 (judge, 28 Oct): one layout — every option row puts its label above its pills
-    for (const id of ["website-look-mode", "website-look-accent"]) expect(screen.getByTestId(id).parentElement.className).toContain("flex-col");
+    for (const id of ["website-embed-width", "website-look-mode", "website-look-accent"]) expect(screen.getByTestId(id).parentElement.className).toContain("flex-col");
     pick("website-look-mode", da.rsvpWebColoursDark);
     expect(code()).toContain('data-bonbox-look="dark" src=');
     pick("website-look-mode", da.rsvpWebColoursLight);

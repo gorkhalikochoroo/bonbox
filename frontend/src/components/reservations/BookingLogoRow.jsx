@@ -19,7 +19,7 @@ import { venueMonogram } from "../../utils/venueMonogram";
 // Phone: 40 px controls with 13 px text (the compact-controls rule); 36 px
 // from sm, like the rows around it.
 const LINK =
-  "inline-flex items-center justify-center gap-1.5 shrink-0 h-10 sm:h-9 min-h-0! px-3 rounded-lg text-[13px] font-medium " +
+  "inline-flex items-center justify-center gap-1.5 shrink-0 h-10 sm:h-9 min-h-0! px-3 rounded-lg text-[13px] sm:text-sm font-medium " +
   "bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 " +
   "dark:shadow-[inset_0_0_0_1px_var(--color-gray-700)] transition-colors focus-visible:outline-none focus-visible:ring-2 " +
   "focus-visible:ring-[rgb(var(--brand-green-accent))] focus-visible:ring-offset-2";

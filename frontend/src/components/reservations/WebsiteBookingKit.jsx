@@ -616,7 +616,8 @@ export default function WebsiteBookingKit({
                     header, and the card (R3). The code above and the preview
                     below follow every choice at once. */}
                 <div className="space-y-3 pt-1" data-testid="website-embed-options">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  {/* Label above its pills, like the option rows below (R14). */}
+                  <div className="flex flex-col items-start gap-1.5">
                     <span id="website-embed-width-label" className="text-[13px] font-medium text-gray-800 dark:text-gray-200">
                       {t("rsvpWebEmbedWidth")}
                     </span>
