@@ -325,7 +325,7 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords =
         <div
           className="mb-3 flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-gray-800"
           role="group"
-          aria-label={t("rsvpPickTime", "Vælg tidspunkt")}
+          aria-label={t("rsvpPickTime")}
         >
           {groups.map((g) => (
             <button
@@ -437,7 +437,7 @@ function DateStrip({ today, dayMap, reasons, maxAdvance, party, apptWords = fals
     <div
       ref={railRef}
       role="radiogroup"
-      aria-label={t("rsvpPickDate", "Pick a date")}
+      aria-label={t("rsvpPickDate")}
       onKeyDown={rovingKeyDown}
       style={{ "--rail-cols": dateRailCols(rail.length) }}
       className={RAIL + " relative " + DATE_GRID}
@@ -572,11 +572,11 @@ function DateCalendar({ value, min, max, dayMap, reasons, maxAdvance, party, app
     // (safe-area insets), which beats a class.
     <div className="px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="flex items-center justify-between mb-2">
-        <p className={SECTION_TITLE}>{t("rsvpPickDate", "Pick a date")}</p>
+        <p className={SECTION_TITLE}>{t("rsvpPickDate")}</p>
         <button
           type="button"
           onClick={onClose}
-          aria-label={t("close", "Close")}
+          aria-label={t("close")}
           className="-mr-2 w-10 h-10 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
         >
           <X className="w-5 h-5" aria-hidden="true" />
@@ -592,8 +592,8 @@ function DateCalendar({ value, min, max, dayMap, reasons, maxAdvance, party, app
         onPick={onPick}
         locale={dateLocale(lang)}
         labels={{
-          prev: t("rsvpPrevMonth", "Previous month"),
-          next: t("rsvpNextMonth", "Next month"),
+          prev: t("rsvpPrevMonth"),
+          next: t("rsvpNextMonth"),
           stateOf: (iso) => ariaWord(reasons ? reasons[iso] : null, t, { party, apptWords }),
           notYet: (iso) => bookingOpensAria(iso, t, { maxAdvance, lang }),
           legend: calendarLegend(t, maxAdvance),
@@ -621,8 +621,8 @@ function hhmmOf(iso) {
 // "1 gæst" / "2 gæster" — the plural key alone produced "1 gæster". A business
 // booked for a time (a salon, a shop, a workshop) counts people: "1 person".
 function partyLabel(n, t, appt = false) {
-  if (appt) return Number(n) === 1 ? t("rsvpPersonOne", "1 person") : t("rsvpPersonN", "{n} people", { n });
-  return Number(n) === 1 ? t("rsvpPartyOne", "1 guest") : t("rsvpPartyN", "{n} guests", { n });
+  if (appt) return Number(n) === 1 ? t("rsvpPersonOne") : t("rsvpPersonN", { n });
+  return Number(n) === 1 ? t("rsvpPartyOne") : t("rsvpPartyN", { n });
 }
 
 // The receipt's two actions (Calendar | Directions): one kind of button.
@@ -711,7 +711,7 @@ function VenueBadge({ logoUrl, name, size = "md" }) {
 function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout = "card", isEmbed = false, todayIso, paused = false, compact = false, dots = null }) {
   const [hoursOpen, setHoursOpen] = useState(false);
   const name = page.business_name || null;
-  const bookWords = apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table");
+  const bookWords = apptWords ? t("rsvpBookATime") : t("rsvpBookATable");
   const showHours = !isEmbed && hasVenueWeek(page.hours);
   const cardHours = showHours && PHONE_HOURS_ITEM;
   const eyebrow = !!name && !paused;
@@ -750,7 +750,7 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
         <span className="tabular-nums whitespace-nowrap">{phoneShown(page.phone)}</span>
       </a>
     );
-  const trustText = t("rsvpTrustLine", "No account needed · Free cancellation");
+  const trustText = t("rsvpTrustLine");
   // The two objections a stranger has before booking — "do I need an
   // account?" and "am I locked in?" — answered before they scroll. As plain
   // grey body text it read as legalese and was skipped; on a quiet strip with
@@ -1292,12 +1292,12 @@ export default function ReservationPublicPage() {
     if (allergenTags.length) {
       bits.push(
         allergenTags.length === 1
-          ? t("rsvpExtrasOneAllergen", "1 allergi")
-          : t("rsvpExtrasNAllergens", "{n} allergier").replace("{n}", allergenTags.length),
+          ? t("rsvpExtrasOneAllergen")
+          : t("rsvpExtrasNAllergens").replace("{n}", allergenTags.length),
       );
     }
-    if (allergyNote.trim()) bits.push(t("rsvpExtrasAllergyNote", "allergi-note"));
-    if (guestNotes.trim()) bits.push(t("rsvpExtrasNote", "besked"));
+    if (allergyNote.trim()) bits.push(t("rsvpExtrasAllergyNote"));
+    if (guestNotes.trim()) bits.push(t("rsvpExtrasNote"));
     return bits.join(" · ");
   }, [occasion, allergenTags, allergyNote, guestNotes, t]);
 
@@ -1720,38 +1720,38 @@ export default function ReservationPublicPage() {
     const title = venue
       ? (!showsBooking
         ? (apptWords
-          ? t("rsvpDocTitleProvider", "Book an appointment · {venue}", { venue })
-          : t("rsvpDocTitle", "Book a table · {venue}", { venue }))
+          ? t("rsvpDocTitleProvider", { venue })
+          : t("rsvpDocTitle", { venue }))
         : withdrawn
-          ? t("rsvpDocTitleWithdrawn", "Request withdrawn · {venue}", { venue })
+          ? t("rsvpDocTitleWithdrawn", { venue })
           : declined
-            ? t("rsvpDocTitleDeclined", "Request not confirmed · {venue}", { venue })
+            ? t("rsvpDocTitleDeclined", { venue })
             : cancelled
               // A time, not a reservation, for a salon, a shop or a workshop
               // (Push 8 review: "Reservation aflyst · Cykelværkstedet Amager").
               ? (apptWords
-                ? t("rsvpDocTitleCancelledAppt", "Appointment cancelled · {venue}", { venue })
-                : t("rsvpDocTitleCancelled", "Booking cancelled · {venue}", { venue }))
+                ? t("rsvpDocTitleCancelledAppt", { venue })
+                : t("rsvpDocTitleCancelled", { venue }))
               : resultStatus === "requested"
-                ? t("rsvpDocTitleRequest", "Request received · {venue}", { venue })
+                ? t("rsvpDocTitleRequest", { venue })
                 : apptWords
-                  ? t("rsvpDocTitleBookedProvider", "Appointment confirmed · {venue}", { venue })
-                  : t("rsvpDocTitleBooked", "Reservation confirmed · {venue}", { venue }))
+                  ? t("rsvpDocTitleBookedProvider", { venue })
+                  : t("rsvpDocTitleBooked", { venue }))
       : (!showsBooking
-        ? (apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table"))
+        ? (apptWords ? t("rsvpBookATime") : t("rsvpBookATable"))
         : withdrawn
-          ? t("rsvpWithdrawnTitle", "Request withdrawn")
+          ? t("rsvpWithdrawnTitle")
           : declined
-            ? t("rsvpDeclinedTitle", "We couldn't confirm your request")
+            ? t("rsvpDeclinedTitle")
             : cancelled
               ? (apptWords
-                ? t("rsvpCancelledTitleAppt", "Appointment cancelled")
-                : t("rsvpCancelledTitle", "Reservation cancelled"))
+                ? t("rsvpCancelledTitleAppt")
+                : t("rsvpCancelledTitle"))
               : resultStatus === "requested"
-                ? t("rsvpRequestTitle", "Request received")
+                ? t("rsvpRequestTitle")
                 : apptWords
-                  ? t("rsvpConfirmedTitleProvider", "Appointment confirmed")
-                  : t("rsvpConfirmedTitle", "Reservation confirmed"));
+                  ? t("rsvpConfirmedTitleProvider")
+                  : t("rsvpConfirmedTitle"));
     document.title = title;
     const setMeta = (prop, val) => {
       let m = document.querySelector(`meta[property="${prop}"]`);
@@ -1766,8 +1766,8 @@ export default function ReservationPublicPage() {
     setMeta("og:description", !venue
       ? title
       : apptWords
-        ? t("rsvpOgDescProvider", "Book an appointment at {venue}.", { venue })
-        : t("rsvpOgDesc", "Reserve a table at {venue}.", { venue }));
+        ? t("rsvpOgDescProvider", { venue })
+        : t("rsvpOgDesc", { venue }));
     try { setMeta("og:url", window.location.href); } catch { /* noop */ }
     return () => { document.title = prev; };
   }, [page, t, result, resultStatus, linkState, cancelledFrom, liveOutcome, isProvider, apptWords]);
@@ -2419,26 +2419,23 @@ export default function ReservationPublicPage() {
       isReq
         ? {
             // A request holds no table — "the table is freed" was untrue.
-            title: t("rsvpWithdrawConfirmTitle", "Withdraw your request?"),
-            message: t("rsvpWithdrawConfirmBody", "We'll let the venue know. This can't be undone."),
-            confirmLabel: t("rsvpWithdrawConfirmYes", "Yes, withdraw"),
-            cancelLabel: t("rsvpWithdrawConfirmNo", "Keep request"),
+            title: t("rsvpWithdrawConfirmTitle"),
+            message: t("rsvpWithdrawConfirmBody"),
+            confirmLabel: t("rsvpWithdrawConfirmYes"),
+            cancelLabel: t("rsvpWithdrawConfirmNo"),
             destructive: true,
           }
         : {
             title: apptWords
-              ? t("rsvpCancelConfirmTitleAppt", "Cancel the appointment?")
-              : t("rsvpCancelConfirmTitle", "Aflys reservationen?"),
+              ? t("rsvpCancelConfirmTitleAppt")
+              : t("rsvpCancelConfirmTitle"),
             message: apptWords
-              ? t("rsvpCancelConfirmBodyProvider", "The time is freed right away, and this can't be undone. You're welcome to book again.")
-              : t(
-                "rsvpCancelConfirmBody",
-                "Bordet bliver frigivet med det samme, og du kan ikke fortryde. Du er velkommen til at booke igen.",
-              ),
-            confirmLabel: t("rsvpCancelConfirmYes", "Ja, aflys"),
+              ? t("rsvpCancelConfirmBodyProvider")
+              : t("rsvpCancelConfirmBody"),
+            confirmLabel: t("rsvpCancelConfirmYes"),
             cancelLabel: apptWords
-              ? t("rsvpCancelConfirmNoAppt", "Keep the appointment")
-              : t("rsvpCancelConfirmNo", "Behold reservationen"),
+              ? t("rsvpCancelConfirmNoAppt")
+              : t("rsvpCancelConfirmNo"),
             destructive: true,
           },
     );
@@ -2515,13 +2512,10 @@ export default function ReservationPublicPage() {
             aria-hidden="true"
           />
           <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
-            {t("rsvpNotFound", "Vi kunne ikke finde siden")}
+            {t("rsvpNotFound")}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            {t(
-              "rsvpNotFoundHint",
-              "Linket kan være forkert, eller stedet tager ikke imod reservationer lige nu.",
-            )}
+            {t("rsvpNotFoundHint")}
           </p>
         </div>
       </div>
@@ -2565,7 +2559,7 @@ export default function ReservationPublicPage() {
         {/* Grey, and only after 600 ms (.bb-late): a link that opens fast
             goes straight to the receipt. */}
         <div className="bb-late">
-          <Loader2 className="w-6 h-6 animate-spin text-gray-400" aria-label={t("loading", "Loading…")} />
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400" aria-label={t("loading")} />
         </div>
       </div>
     );
@@ -2578,19 +2572,16 @@ export default function ReservationPublicPage() {
             <AlertCircle size={28} strokeWidth={1.75} className="text-gray-500" aria-hidden="true" />
           </div>
           <h1 className="text-[22px] font-semibold tracking-tight text-gray-900 dark:text-gray-100">
-            {t("rsvpLinkFailedTitle", "We couldn't open this booking")}
+            {t("rsvpLinkFailedTitle")}
           </h1>
           <p className="text-sm text-gray-600 dark:text-gray-300">
             {apptWords
-              ? t("rsvpLinkFailedBodyProvider", "The link may have expired. Call us about an existing appointment — or book a new time.")
-              : t(
-                "rsvpLinkFailedBody",
-                "The link may have expired. Call us about an existing booking — or book a new table.",
-              )}
+              ? t("rsvpLinkFailedBodyProvider")
+              : t("rsvpLinkFailedBody")}
           </p>
           <div className="space-y-2">
             <Button variant="main" size="lg" className="w-full" onClick={startOver}>
-              {apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
+              {apptWords ? t("rsvpBookATime") : t("rsvpBookATable")}
             </Button>
             {telHref(page.phone) && (
               <a
@@ -2656,8 +2647,8 @@ export default function ReservationPublicPage() {
     let heroWrap = "bg-emerald-50 dark:bg-emerald-900/20";
     let heroIconCls = "text-emerald-600 dark:text-emerald-400";
     let title = apptWords
-      ? t("rsvpConfirmedTitleProvider", "Appointment confirmed")
-      : t("rsvpConfirmedTitle", "Reservation bekræftet");
+      ? t("rsvpConfirmedTitleProvider")
+      : t("rsvpConfirmedTitle");
     let body = t(
       "rsvpConfirmedBody",
       // The email sentence used to live here too, hedged as "hvis du har
@@ -2670,7 +2661,7 @@ export default function ReservationPublicPage() {
       HeroIcon = Clock;
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
-      title = t("rsvpRequestTitle", "Forespørgsel modtaget");
+      title = t("rsvpRequestTitle");
       // ONE sentence on what happens next, naming the channel the guest gave.
       // The screen used to say it four times: this line, "save this page",
       // a spinning pill, and a paragraph under it.
@@ -2685,66 +2676,57 @@ export default function ReservationPublicPage() {
       const venueDay = (linked ? linked.venueToday : result?.venue_today) || today;
       const by = answerBy ? answerByWords(answerBy, venueDay, lang, t) : "";
       body = noMailComing
-        ? t("rsvpRequestNextNoMail", "The venue will answer as soon as they can. Keep this page — the answer shows here.")
+        ? t("rsvpRequestNextNoMail")
         : by && sentEmail
-          ? t("rsvpRequestNextByEmail", "We'll reply to {email} by {when} at the latest.", { email: sentEmail, when: by })
+          ? t("rsvpRequestNextByEmail", { email: sentEmail, when: by })
           : by && !sentPhone
-            ? t("rsvpRequestNextBy", "You'll have our answer by {when} at the latest.", { when: by })
+            ? t("rsvpRequestNextBy", { when: by })
             : rDay === venueDay
-              ? t("rsvpRequestNextToday", "We'll get back to you shortly.")
+              ? t("rsvpRequestNextToday")
               : sentEmail
-                ? t("rsvpRequestNextEmail", "We'll reply to {email} before the day.", { email: sentEmail })
+                ? t("rsvpRequestNextEmail", { email: sentEmail })
                 : sentPhone
-                  ? t("rsvpRequestNextPhone", "We'll call you on {phone} to confirm.", { phone: phoneShown(sentPhone) })
-                  : t("rsvpRequestNextLater", "We'll get back to you before the day.");
+                  ? t("rsvpRequestNextPhone", { phone: phoneShown(sentPhone) })
+                  : t("rsvpRequestNextLater");
     } else if (withdrawn) {
       HeroIcon = XCircle;
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
-      title = t("rsvpWithdrawnTitle", "Request withdrawn");
-      body = t("rsvpWithdrawnBody", "We've been told. You're welcome to send a new request.");
+      title = t("rsvpWithdrawnTitle");
+      body = t("rsvpWithdrawnBody");
     } else if (declined) {
       HeroIcon = XCircle;
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
-      title = t("rsvpDeclinedTitle", "We couldn't confirm your request");
-      body = t(
-        "rsvpDeclinedBody",
-        "Sorry — we can't take you at that time. Call us and we'll find something, or send a new request.",
-      );
+      title = t("rsvpDeclinedTitle");
+      body = t("rsvpDeclinedBody");
     } else if (venueCancelled) {
       HeroIcon = XCircle;
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
       title = apptWords
-        ? t("rsvpCancelledTitleAppt", "Appointment cancelled")
-        : t("rsvpCancelledTitle", "Reservation aflyst");
+        ? t("rsvpCancelledTitleAppt")
+        : t("rsvpCancelledTitle");
       body = apptWords
-        ? t("rsvpCancelledByVenueBodyAppt", "Sorry — we've had to cancel your appointment. Call us, or book another day.")
-        : t(
-          "rsvpCancelledByVenueBody",
-          "Sorry — we've had to cancel your reservation. Call us, or book another day.",
-        );
+        ? t("rsvpCancelledByVenueBodyAppt")
+        : t("rsvpCancelledByVenueBody");
     } else if (isCancelled) {
       HeroIcon = XCircle;
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
       title = apptWords
-        ? t("rsvpCancelledTitleAppt", "Appointment cancelled")
-        : t("rsvpCancelledTitle", "Reservation aflyst");
+        ? t("rsvpCancelledTitleAppt")
+        : t("rsvpCancelledTitle");
       body = apptWords
-        ? t("rsvpCancelledBodyProvider", "Your appointment is cancelled and the time is freed. You're welcome to book again.")
-        : t(
-          "rsvpCancelledBody",
-          "Din reservation er aflyst, og bordet er frigivet. Du er velkommen til at booke igen.",
-        );
+        ? t("rsvpCancelledBodyProvider")
+        : t("rsvpCancelledBody");
     } else if (isDone) {
       heroWrap = "bg-gray-100 dark:bg-gray-800";
       heroIconCls = "text-gray-500 dark:text-gray-400";
-      title = t("rsvpDoneTitle", "Tak for besøget");
+      title = t("rsvpDoneTitle");
       body = apptWords
-        ? t("rsvpDoneBodyAppt", "This appointment is closed.")
-        : t("rsvpDoneBody", "Denne reservation er afsluttet.");
+        ? t("rsvpDoneBodyAppt")
+        : t("rsvpDoneBody");
     }
 
     // Human-friendly reference code — first 8 chars of the UUID, upper-cased,
@@ -2760,16 +2742,16 @@ export default function ReservationPublicPage() {
     let deliveryLine = null;
     if (!linked && isConfirmed) {
       deliveryLine = noMailComing
-        ? t("rsvpNoMailReceipt", "We can't send a confirmation e-mail right now. Keep this page — it's your receipt.")
+        ? t("rsvpNoMailReceipt")
         : emailGiven
-        ? t("rsvpEmailOnItsWay", "A confirmation is on its way to {email}.", {
+        ? t("rsvpEmailOnItsWay", {
             email: sentEmail,
           })
         : sentPhone
-          ? t("rsvpPhoneOnlyReceipt", "We have your number, {phone}. Keep this page as your receipt.", {
+          ? t("rsvpPhoneOnlyReceipt", {
               phone: phoneShown(sentPhone),
             })
-          : t("rsvpNoEmailSaved", "Save this page — we don't have your email.");
+          : t("rsvpNoEmailSaved");
     }
     // What the kitchen was told, including how serious — the guest's proof
     // that "severe" reached the restaurant.
@@ -2803,31 +2785,31 @@ export default function ReservationPublicPage() {
       !linked ? allergyNote.trim() || null : null,
     ].filter(Boolean).join(" · ");
     const rows = [
-      { k: "when", label: t("rsvpRowWhen", "When"), value: capFirst(fmtDayLabel(rDay, lang)) },
+      { k: "when", label: t("rsvpRowWhen"), value: capFirst(fmtDayLabel(rDay, lang)) },
       rTime
         ? {
             k: "time",
             // A request's time is the one the guest asked for, until the venue
             // confirms it — on a reopened receipt too.
-            label: isRequest || withdrawn || declined ? t("rsvpRowWishedTime", "Preferred time") : t("rsvpTimeLabel", "Time"),
+            label: isRequest || withdrawn || declined ? t("rsvpRowWishedTime") : t("rsvpTimeLabel"),
             value: rTime,
           }
         : null,
       isProvider
         ? chosenBehandling
-          ? { k: "svc", label: t("rsvpColBehandling", "Service"), value: chosenBehandling.name }
+          ? { k: "svc", label: t("rsvpColBehandling"), value: chosenBehandling.name }
           : null
         : apptWords
           // One customer is the booking; more than one is worth a line.
-          ? Number(rParty) > 1 ? { k: "party", label: t("rsvpRowPeople", "People"), value: String(rParty) } : null
-          : { k: "party", label: t("rsvpRowGuests", "Guests"), value: String(rParty) },
+          ? Number(rParty) > 1 ? { k: "party", label: t("rsvpRowPeople"), value: String(rParty) } : null
+          : { k: "party", label: t("rsvpRowGuests"), value: String(rParty) },
       isProvider
-        ? { k: "who", label: t("rsvpColBehandler", "Stylist"), value: chosenStylistName || t("rsvpBookValgfri", "Any stylist") }
+        ? { k: "who", label: t("rsvpColBehandler"), value: chosenStylistName || t("rsvpBookValgfri") }
         : null,
-      rName ? { k: "name", label: t("rsvpGuestLabel", "Name"), value: rName } : null,
-      rOccasion ? { k: "occ", label: t("rsvpRowOccasion", "Occasion"), value: rOccasion } : null,
-      kitchen ? { k: "kitchen", label: t("rsvpRowKitchen", "Kitchen"), value: kitchen } : null,
-      !linked && guestNotes.trim() ? { k: "note", label: t("rsvpRowNote", "Note"), value: guestNotes.trim() } : null,
+      rName ? { k: "name", label: t("rsvpGuestLabel"), value: rName } : null,
+      rOccasion ? { k: "occ", label: t("rsvpRowOccasion"), value: rOccasion } : null,
+      kitchen ? { k: "kitchen", label: t("rsvpRowKitchen"), value: kitchen } : null,
+      !linked && guestNotes.trim() ? { k: "note", label: t("rsvpRowNote"), value: guestNotes.trim() } : null,
     ].filter(Boolean);
     const address = venueAddress(page.address, page.city);
     const mapUrl = mapsHref(page.address, page.city);
@@ -2877,7 +2859,7 @@ export default function ReservationPublicPage() {
           {isRequest && (
             <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/60 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500" aria-hidden="true" />
-              {t("rsvpStatusPending", "Awaiting confirmation")}
+              {t("rsvpStatusPending")}
             </div>
           )}
           {/* Only when a request the guest sent HERE flips to confirmed —
@@ -2890,7 +2872,7 @@ export default function ReservationPublicPage() {
               aria-live="polite"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
-              {t("rsvpStatusConfirmed", "Bekræftet")}
+              {t("rsvpStatusConfirmed")}
             </div>
           )}
 
@@ -2906,18 +2888,18 @@ export default function ReservationPublicPage() {
                       so the receipt and the calendar agree. */}
                   {page.business_name ||
                     (apptWords
-                      ? t("rsvpIcsSummaryNoVenueProvider", "Appointment")
-                      : t("rsvpIcsSummaryNoVenue", "Table reservation"))}
+                      ? t("rsvpIcsSummaryNoVenueProvider")
+                      : t("rsvpIcsSummaryNoVenue"))}
                 </p>
                 {/* A cancelled / withdrawn / declined receipt must not look like a
                     live booking at a glance — it's stamped, and the rows dim. */}
                 {isCancelled ? (
                   <p className="shrink-0 rounded-md border border-gray-400 dark:border-gray-500 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-600 dark:text-gray-300">
                     {withdrawn
-                      ? t("rsvpStampWithdrawn", "Withdrawn")
+                      ? t("rsvpStampWithdrawn")
                       : declined
-                        ? t("rsvpStampDeclined", "Declined")
-                        : t("rsvpStampCancelled", "Cancelled")}
+                        ? t("rsvpStampDeclined")
+                        : t("rsvpStampCancelled")}
                   </p>
                 ) : refCode && (
                   <p className="shrink-0 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-500 dark:text-gray-400 tabular-nums">
@@ -2938,7 +2920,7 @@ export default function ReservationPublicPage() {
                 {address && (
                   <div className="flex items-baseline justify-between gap-4 py-2">
                     <dt className="min-w-[88px] shrink-0 whitespace-nowrap text-[13.5px] text-gray-500 dark:text-gray-400">
-                      {t("rsvpRowWhere", "Where")}
+                      {t("rsvpRowWhere")}
                     </dt>
                     <dd className="min-w-0 text-right text-[15px] font-medium text-gray-900 dark:text-gray-100 break-words">
                       {mapUrl ? (
@@ -2958,7 +2940,7 @@ export default function ReservationPublicPage() {
                 {telHref(page.phone) && (
                   <div className="flex items-baseline justify-between gap-4 py-2">
                     <dt className="min-w-[88px] shrink-0 whitespace-nowrap text-[13.5px] text-gray-500 dark:text-gray-400">
-                      {t("rsvpCallVenueLabel", "Call us")}
+                      {t("rsvpCallVenueLabel")}
                     </dt>
                     <dd className="min-w-0 text-right text-[15px] font-medium text-gray-900 dark:text-gray-100 tabular-nums">
                       {/* 22 px of text, 44 px to the finger (walk 27 Oct G11). */}
@@ -2985,7 +2967,7 @@ export default function ReservationPublicPage() {
             // Nothing left to add to a calendar or navigate to — the one
             // useful thing is to book again, which the copy already invites.
             <Button variant="main" size="lg" className="w-full" onClick={startOver}>
-              {withdrawn || declined ? t("rsvpNewRequest", "Send a new request") : t("rsvpBookAgain", "Book again")}
+              {withdrawn || declined ? t("rsvpNewRequest") : t("rsvpBookAgain")}
             </Button>
           ) : (
             !isDone && (
@@ -3013,11 +2995,11 @@ export default function ReservationPublicPage() {
                         // `name` field at all.
                         summary: apptWords
                           ? (page.business_name
-                            ? t("rsvpIcsSummaryProvider", "Appointment at {venue}", { venue: page.business_name })
-                            : t("rsvpIcsSummaryNoVenueProvider", "Appointment"))
+                            ? t("rsvpIcsSummaryProvider", { venue: page.business_name })
+                            : t("rsvpIcsSummaryNoVenueProvider"))
                           : page.business_name
-                            ? t("rsvpIcsSummary", "Bord hos {venue}", { venue: page.business_name })
-                            : t("rsvpIcsSummaryNoVenue", "Bordreservation"),
+                            ? t("rsvpIcsSummary", { venue: page.business_name })
+                            : t("rsvpIcsSummaryNoVenue"),
                         location: address,
                         description: [refCode, rName].filter(Boolean).join(" · "),
                       });
@@ -3026,13 +3008,13 @@ export default function ReservationPublicPage() {
                       // deliver nothing, so the outcome is read, not dropped.
                       const out = await saveFile(ics, "reservation.ics", {
                         type: "text/calendar;charset=utf-8",
-                        title: t("rsvpAddToCalendar", "Føj til kalender"),
+                        title: t("rsvpAddToCalendar"),
                       });
                       setCalError(out.ok ? "" : t("calendarAddFailed"));
                     }}
                   >
                     <CalendarPlus size={16} strokeWidth={1.75} aria-hidden="true" />
-                    <span>{t("rsvpAddToCalendarShort", "Calendar")}</span>
+                    <span>{t("rsvpAddToCalendarShort")}</span>
                   </button>
                 )}
                 {mapUrl && (
@@ -3043,7 +3025,7 @@ export default function ReservationPublicPage() {
                     className={RECEIPT_ACTION}
                   >
                     <MapPin size={16} strokeWidth={1.75} aria-hidden="true" />
-                    <span>{t("rsvpDirections", "Directions")}</span>
+                    <span>{t("rsvpDirections")}</span>
                   </a>
                 )}
               </div>
@@ -3068,17 +3050,14 @@ export default function ReservationPublicPage() {
                 className="w-full text-gray-500! dark:text-gray-400!"
               >
                 {isRequest
-                  ? t("rsvpWithdrawRequest", "Withdraw request")
+                  ? t("rsvpWithdrawRequest")
                   : apptWords
-                    ? t("rsvpCancelOrChangeAppt", "Cancel this appointment")
-                    : t("rsvpCancelOrChange", "Cancel this booking")}
+                    ? t("rsvpCancelOrChangeAppt")
+                    : t("rsvpCancelOrChange")}
               </Button>
               {cancelError && (
                 <p role="alert" className="text-xs text-red-600 dark:text-red-400">
-                  {t(
-                    "rsvpCancelError",
-                    "Kunne ikke aflyse. Prøv igen, eller kontakt stedet direkte.",
-                  )}
+                  {t("rsvpCancelError")}
                 </p>
               )}
             </div>
@@ -3207,17 +3186,17 @@ export default function ReservationPublicPage() {
           >
             <p className="text-[15px] font-medium leading-snug text-gray-700 dark:text-gray-300">
               {submitError === "not_accepting"
-                ? t("rsvpErrClosed", "Online booking was paused while you were booking.")
-                : t("rsvpNotAcceptingOnline", "Online booking is paused right now.")}
+                ? t("rsvpErrClosed")
+                : t("rsvpNotAcceptingOnline")}
             </p>
             {telHref(page.phone) ? (
               <a href={telHref(page.phone)} className={TEL_ACTION}>
                 <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-                <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: phoneShown(page.phone) })}</span>
+                <span>{t("rsvpNoSlotsCall", { phone: phoneShown(page.phone) })}</span>
               </a>
             ) : (
               <p className="text-[13px] text-gray-500 dark:text-gray-400">
-                {t("rsvpContactVenueDirect", "Contact the venue directly to book.")}
+                {t("rsvpContactVenueDirect")}
               </p>
             )}
           </section>
@@ -3226,7 +3205,7 @@ export default function ReservationPublicPage() {
           <section
             ref={stepFocusRef}
             tabIndex={-1}
-            aria-label={apptWords ? t("rsvpBookATime", "Book an appointment") : t("rsvpBookATable", "Book a table")}
+            aria-label={apptWords ? t("rsvpBookATime") : t("rsvpBookATable")}
             className={STEP1_SPACING + " outline-none " + STEP_ENTER}
           >
             {/* R12: back through the waitlist link — the guest's place first. */}
@@ -3245,14 +3224,11 @@ export default function ReservationPublicPage() {
                     htmlFor="rsvp-behandling"
                     className={SECTION_TITLE + " mb-2.5"}
                   >
-                    {t("rsvpPublicPickBehandling", "Vælg behandling")}
+                    {t("rsvpPublicPickBehandling")}
                   </label>
                   {behandlinger.length === 0 ? (
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {t(
-                        "rsvpBehandlingNoneOnPage",
-                        "No services are bookable online right now.",
-                      )}
+                      {t("rsvpBehandlingNoneOnPage")}
                     </p>
                   ) : (
                     <div className="relative">
@@ -3262,9 +3238,9 @@ export default function ReservationPublicPage() {
                       onChange={(e) => setBehandlingId(e.target.value)}
                       className={SELECT_TILE + FOCUS}
                     >
-                      <option value="">{t("rsvpPublicPickBehandling", "Vælg behandling")}</option>
+                      <option value="">{t("rsvpPublicPickBehandling")}</option>
                       {behandlinger.map((b) => {
-                        const mins = t("rsvpBehandlingMinutes", "{n} min", { n: b.duration_min });
+                        const mins = t("rsvpBehandlingMinutes", { n: b.duration_min });
                         const price = b.price_kr != null ? ` · ${b.price_kr} kr.` : "";
                         return (
                           <option key={b.id} value={String(b.id)}>
@@ -3286,7 +3262,7 @@ export default function ReservationPublicPage() {
                     htmlFor="rsvp-behandler"
                     className={SECTION_TITLE + " mb-2.5"}
                   >
-                    {t("rsvpPublicPickBehandler", "Vælg behandler")}
+                    {t("rsvpPublicPickBehandler")}
                   </label>
                   {providers.length > 0 ? (
                     <div className="relative">
@@ -3296,7 +3272,7 @@ export default function ReservationPublicPage() {
                       onChange={(e) => setStylistId(e.target.value)}
                       className={SELECT_TILE + FOCUS}
                     >
-                      <option value="">{t("rsvpBookValgfri", "Any stylist")}</option>
+                      <option value="">{t("rsvpBookValgfri")}</option>
                       {providers.map((p) => (
                         <option key={p.id} value={String(p.id)}>
                           {p.name || p.label}
@@ -3307,9 +3283,9 @@ export default function ReservationPublicPage() {
                     </div>
                   ) : (
                     <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-3 py-2.5 text-sm text-gray-600 dark:text-gray-300">
-                      {t("rsvpBookValgfri", "Any stylist")} ·{" "}
+                      {t("rsvpBookValgfri")} ·{" "}
                       <span className="text-gray-500 dark:text-gray-400">
-                        {t("rsvpBookValgfriHint", "We'll match you with the first free stylist.")}
+                        {t("rsvpBookValgfriHint")}
                       </span>
                     </div>
                   )}
@@ -3324,7 +3300,7 @@ export default function ReservationPublicPage() {
             {!apptWords && (
               <div>
                 <h2 className={SECTION_TITLE + " " + PARTY_TITLE_GAP}>
-                  {t("rsvpPartySize", "Party size")}
+                  {t("rsvpPartySize")}
                 </h2>
                 {/* Party sizes 1–10 on a phone: a static grid of two rows of
                     five (partyColsPhone: one row up to 7, then 4+4, 5+4, 5+5),
@@ -3347,7 +3323,7 @@ export default function ReservationPublicPage() {
                 <div
                   ref={partyRailRef}
                   role="radiogroup"
-                  aria-label={t("rsvpPartySize", "Party size")}
+                  aria-label={t("rsvpPartySize")}
                   onKeyDown={rovingKeyDown}
                   style={{
                     "--party-cols": partyOptions.length <= 8 ? partyOptions.length : Math.ceil(partyOptions.length / 2),
@@ -3400,7 +3376,7 @@ export default function ReservationPublicPage() {
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5">
                     {telHref(page.phone) ? (
                       <>
-                        {t("rsvpPartyOverMaxCall", "More than {n} of you? Give us a call", {
+                        {t("rsvpPartyOverMaxCall", {
                           n: maxParty,
                         })}{" "}
                         <a
@@ -3411,9 +3387,7 @@ export default function ReservationPublicPage() {
                         </a>
                       </>
                     ) : (
-                      t(
-                        "rsvpPartyOverMaxNote",
-                        "More than {n} of you? Put the exact number in the message field on the next step.",
+                      t("rsvpPartyOverMaxNote",
                         { n: maxParty },
                       )
                     )}
@@ -3426,7 +3400,7 @@ export default function ReservationPublicPage() {
             <div>
               <div className="flex items-center justify-between mb-2.5">
                 <h2 className={SECTION_TITLE}>
-                  {t("rsvpPickDate", "Pick a date")}
+                  {t("rsvpPickDate")}
                 </h2>
                 {maxAdvance < 14 ? (
                   // The whole booking window is on the strip (the last
@@ -3454,7 +3428,7 @@ export default function ReservationPublicPage() {
                     className={"-my-3 inline-flex items-center gap-1 rounded-md text-[13px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors " + FOCUS}
                   >
                     <Calendar size={13} strokeWidth={1.75} aria-hidden="true" />
-                    {t("rsvpOtherDate", "Other date")}
+                    {t("rsvpOtherDate")}
                   </button>
                 )}
               </div>
@@ -3471,12 +3445,12 @@ export default function ReservationPublicPage() {
                 >
                   <p className="flex items-start gap-2">
                     <PauseCircle size={15} strokeWidth={1.75} className="mt-0.5 shrink-0 text-gray-500" aria-hidden="true" />
-                    <span>{t("rsvpPausedUntil", "Online booking is paused until and including {date}.", { date: fmtDayLabel(page.paused_until, lang) })}</span>
+                    <span>{t("rsvpPausedUntil", { date: fmtDayLabel(page.paused_until, lang) })}</span>
                   </p>
                   {telHref(page.phone) && (
                     <a href={telHref(page.phone)} data-testid="rsvp-paused-call" className="ml-[23px] inline-flex items-center gap-1 font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2">
                       <Phone size={13} strokeWidth={1.75} aria-hidden="true" />
-                      {t("rsvpNoSlotsCall", "Call us: {phone}", { phone: phoneShown(page.phone) })}
+                      {t("rsvpNoSlotsCall", { phone: phoneShown(page.phone) })}
                     </a>
                   )}
                 </div>
@@ -3532,7 +3506,7 @@ export default function ReservationPublicPage() {
               {showDateInput && !isEmbed && (
                 <Sheet
                   onClose={() => setShowDateInput(false)}
-                  ariaLabel={t("rsvpPickDate", "Pick a date")}
+                  ariaLabel={t("rsvpPickDate")}
                   panelClassName="bg-white dark:bg-gray-900 sm:max-w-sm"
                 >
                   {calendar}
@@ -3562,8 +3536,8 @@ export default function ReservationPublicPage() {
               )}
               <h2 id="rsvp-times" className={SECTION_TITLE + " mb-2.5 scroll-mt-6"}>
                 {groupRequest
-                  ? t("rsvpPickWishedTime", "Preferred time")
-                  : t("rsvpPickTime", "Vælg tidspunkt")}
+                  ? t("rsvpPickWishedTime")
+                  : t("rsvpPickTime")}
               </h2>
               {groupRequest && slotGroups.length > 0 && (
                 <p className="-mt-1 mb-3 text-[13px] leading-snug text-gray-500 dark:text-gray-400">
@@ -3571,13 +3545,8 @@ export default function ReservationPublicPage() {
                       request there means every appointment is one (its owner
                       approves each) — not "Selskaber på 1 … I ønsker". */}
                   {apptWords
-                    ? t(
-                      "rsvpGroupWishedTimeHintAppt",
-                      "Every appointment is sent as a request — pick the time you'd like and we'll confirm it.",
-                    )
-                    : t(
-                      "rsvpGroupWishedTimeHint",
-                      "Parties of {n} are sent as a request — pick the time you'd like and we'll confirm it.",
+                    ? t("rsvpGroupWishedTimeHintAppt")
+                    : t("rsvpGroupWishedTimeHint",
                       { n: party },
                     )}
                 </p>
@@ -3592,7 +3561,7 @@ export default function ReservationPublicPage() {
               {isProvider && !behandlingId ? (
                 // Provider: no behandling chosen yet → don't imply "no times".
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {t("rsvpPublicPickBehandling", "Vælg behandling")}
+                  {t("rsvpPublicPickBehandling")}
                 </p>
               ) : slotsLoading && slotGroups.length === 0 ? (
                 // The skeleton is the shape of the times that replace it
@@ -3606,7 +3575,7 @@ export default function ReservationPublicPage() {
               ) : slotsError ? (
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {t("rsvpSlotsError", "Couldn't load times — please try again.")}
+                    {t("rsvpSlotsError")}
                   </p>
                   <Button
                     variant="secondary"
@@ -3618,7 +3587,7 @@ export default function ReservationPublicPage() {
                         : fetchAvailability(day, party)
                     }
                   >
-                    {t("rsvpRetry", "Try again")}
+                    {t("rsvpRetry")}
                   </Button>
                 </div>
               ) : closedReason === "not_accepting" || paused ? (
@@ -3630,10 +3599,7 @@ export default function ReservationPublicPage() {
                   // venue is open, it just can't take another ONLINE booking.
                   <div className="space-y-3">
                     <p className="text-sm text-gray-600 dark:text-gray-300">
-                      {t(
-                        "rsvpNotAcceptingOnline",
-                        "Online booking is paused right now.",
-                      )}
+                      {t("rsvpNotAcceptingOnline")}
                     </p>
                     {telHref(page.phone) && (
                       <a
@@ -3642,7 +3608,7 @@ export default function ReservationPublicPage() {
                       >
                         <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
                         <span>
-                          {t("rsvpNoSlotsCall", "Call us: {phone}", {
+                          {t("rsvpNoSlotsCall", {
                             phone: phoneShown(page.phone),
                           })}
                         </span>
@@ -3665,12 +3631,12 @@ export default function ReservationPublicPage() {
                     // "Anden dato" here — nothing checked the other days.
                     <div className="space-y-3">
                       <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {reasonSentence(dayReason, t, sentenceCtx) || t("rsvpNoSlotsDay", "No available times on this day.")}
+                        {reasonSentence(dayReason, t, sentenceCtx) || t("rsvpNoSlotsDay")}
                       </p>
                       {telHref(page.phone) && (
                         <a href={telHref(page.phone)} className={TEL_ACTION}>
                           <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-                          <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: phoneShown(page.phone) })}</span>
+                          <span>{t("rsvpNoSlotsCall", { phone: phoneShown(page.phone) })}</span>
                         </a>
                       )}
                     </div>
@@ -3687,21 +3653,21 @@ export default function ReservationPublicPage() {
                       {telHref(page.phone) ? (
                         <div className="space-y-1.5">
                           <p className="text-[13px] text-gray-500 dark:text-gray-400">
-                            {t("rsvpNoFitCallHint", "We're happy to sort it out by phone.")}
+                            {t("rsvpNoFitCallHint")}
                           </p>
                           <a href={telHref(page.phone)} className={TEL_ACTION}>
                             <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-                            <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: phoneShown(page.phone) })}</span>
+                            <span>{t("rsvpNoSlotsCall", { phone: phoneShown(page.phone) })}</span>
                           </a>
                         </div>
                       ) : (
                         <p className="text-[13px] text-gray-500 dark:text-gray-400">
-                          {t("rsvpContactVenueDirect", "Contact the venue directly to book.")}
+                          {t("rsvpContactVenueDirect")}
                         </p>
                       )}
                       {nextOpenDay && nextOpenDay > day && (
                         <Button size="lg" onClick={() => setDay(nextOpenDay)}>
-                          {t("rsvpJumpNextOpen", "Show {day}", { day: fmtDayLabel(nextOpenDay, lang) })}
+                          {t("rsvpJumpNextOpen", { day: fmtDayLabel(nextOpenDay, lang) })}
                         </Button>
                       )}
                     </div>
@@ -3716,12 +3682,12 @@ export default function ReservationPublicPage() {
                     // EARLIER next open day, and a jump back would be odd.
                     <div className="space-y-3">
                       <p className="text-sm text-gray-600 dark:text-gray-300">
-                        {(reasonSentence(dayReason, t, sentenceCtx) || t("rsvpNoSlotsDay", "No available times on this day.")) +
+                        {(reasonSentence(dayReason, t, sentenceCtx) || t("rsvpNoSlotsDay")) +
                           " " +
-                          t("rsvpNextOpenDay", "Next available day: {day}", { day: fmtDayLabel(nextOpenDay, lang) })}
+                          t("rsvpNextOpenDay", { day: fmtDayLabel(nextOpenDay, lang) })}
                       </p>
                       <Button size="lg" onClick={() => setDay(nextOpenDay)}>
-                        {t("rsvpJumpNextOpen", "Show {day}", { day: fmtDayLabel(nextOpenDay, lang) })}
+                        {t("rsvpJumpNextOpen", { day: fmtDayLabel(nextOpenDay, lang) })}
                       </Button>
                     </div>
                   ) : (
@@ -3734,7 +3700,7 @@ export default function ReservationPublicPage() {
                     <div className="space-y-3">
                       <p className="text-sm text-gray-500 dark:text-gray-400">
                         {nextOpenDay
-                          ? reasonSentence(dayReason, t, sentenceCtx) || t("rsvpNoSlotsDay", "No available times on this day.")
+                          ? reasonSentence(dayReason, t, sentenceCtx) || t("rsvpNoSlotsDay")
                           : (() => {
                               const why = ["closed", "closed_date", "paused_date", "full", "too_late"].includes(dayReason)
                                 ? reasonSentence(dayReason, t, sentenceCtx)
@@ -3746,7 +3712,7 @@ export default function ReservationPublicPage() {
                       {telHref(page.phone) && (
                         <a href={telHref(page.phone)} className={TEL_ACTION}>
                           <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-                          <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: phoneShown(page.phone) })}</span>
+                          <span>{t("rsvpNoSlotsCall", { phone: phoneShown(page.phone) })}</span>
                         </a>
                       )}
                       {/* Later days may exist past the strip: the calendar,
@@ -3766,7 +3732,7 @@ export default function ReservationPublicPage() {
                             className={"inline-flex items-center gap-1.5 h-10 min-h-0! rounded-md text-[13px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors " + FOCUS}
                           >
                             <Calendar size={13} strokeWidth={1.75} aria-hidden="true" />
-                            {t("rsvpOtherDate", "Other date")}
+                            {t("rsvpOtherDate")}
                           </button>
                           {/* The embed draws the calendar HERE, under the tap
                               (the frame never scrolls to the strip). */}
@@ -3818,7 +3784,7 @@ export default function ReservationPublicPage() {
             {page.guest_can_pick_table && (usesTableFloor(page.business_type) || floor.length > 0) && !groupRequest && slot && (floorLoading || floor.length > 0) && (
               <div>
                 <h2 className={SECTION_TITLE + " mb-2.5"}>
-                  {t("rsvpFloorPickTitle", "Vælg dit bord")}
+                  {t("rsvpFloorPickTitle")}
                 </h2>
                 {floorLoading ? (
                   <div className={FLOOR_WAIT} />
@@ -3835,13 +3801,13 @@ export default function ReservationPublicPage() {
                     </Suspense>
                     <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                       {selectedTable
-                        ? t("rsvpFloorPicked", "Fint valg — bordet er jeres, hvis det stadig er ledigt, når du booker.")
-                        : t("rsvpFloorOptional", "Tryk på et ledigt bord — eller spring over, så finder vi det bedste ledige.")}
+                        ? t("rsvpFloorPicked")
+                        : t("rsvpFloorOptional")}
                     </p>
                   </>
                 ) : (
                   <div className="rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 p-3 text-sm text-gray-600 dark:text-gray-300">
-                    {t("rsvpFloorAllTaken", "Bordene til {n} er fyldt på dette tidspunkt — vi sætter jer ved det bedste ledige bord.", { n: party })}
+                    {t("rsvpFloorAllTaken", { n: party })}
                   </div>
                 )}
               </div>
@@ -3857,7 +3823,7 @@ export default function ReservationPublicPage() {
               tabIndex={-1}
               className="text-xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 outline-none"
             >
-              {t("rsvpYourDetails", "Your details")}
+              {t("rsvpYourDetails")}
             </h2>
             {/* Recap of the picks from step 1. Provider (salon): behandling +
                 behandler + duration + dato/tid (e.g. "Klip · Marta · 30 min ·
@@ -3880,13 +3846,13 @@ export default function ReservationPublicPage() {
                   )}
                   <span aria-hidden="true"> · </span>
                   <span className={chosenStylistName ? "font-medium" : ""}>
-                    {chosenStylistName || t("rsvpBookValgfri", "Any stylist")}
+                    {chosenStylistName || t("rsvpBookValgfri")}
                   </span>
                   {chosenBehandling && (
                     <>
                       <span aria-hidden="true"> · </span>
                       <span>
-                        {t("rsvpBehandlingMinutes", "{n} min", {
+                        {t("rsvpBehandlingMinutes", {
                           n: chosenBehandling.duration_min,
                         })}
                       </span>
@@ -3924,7 +3890,7 @@ export default function ReservationPublicPage() {
               )}
               </span>
               <span className="shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400">
-                {t("rsvpEditPicks", "Change")}
+                {t("rsvpEditPicks")}
               </span>
             </button>
 
@@ -3937,7 +3903,7 @@ export default function ReservationPublicPage() {
                   htmlFor="rsvp-name"
                   className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1.5"
                 >
-                  {t("rsvpName", "Navn")}
+                  {t("rsvpName")}
                 </label>
                 <Input
                   id="rsvp-name"
@@ -3946,11 +3912,11 @@ export default function ReservationPublicPage() {
                   value={guestName}
                   onChange={(e) => setGuestName(e.target.value)}
                   onBlur={() => setNameTouched(true)}
-                  placeholder={t("rsvpNamePh", "Anna Hansen")}
+                  placeholder={t("rsvpNamePh")}
                   invalid={nameTouched && !nameValid}
                   error={
                     nameTouched && !nameValid
-                      ? t("rsvpNameRequired", "Indtast dit navn.")
+                      ? t("rsvpNameRequired")
                       : null
                   }
                   autoComplete="name"
@@ -3972,20 +3938,20 @@ export default function ReservationPublicPage() {
                   is required). Email gets the "why" helper. */}
               <div className="space-y-3">
                 <p className="block text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {t("rsvpContactHow", "How should we reach you?")}
+                  {t("rsvpContactHow")}
                 </p>
                 {/* One choice, then one field. Two always-visible boxes under a
                     line saying "only one is needed" made the guest do the
                     reasoning; a segment answers it before they start typing. */}
                 <div
                   role="radiogroup"
-                  aria-label={t("rsvpContactHow", "How should we reach you?")}
+                  aria-label={t("rsvpContactHow")}
                   onKeyDown={rovingKeyDown}
                   className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-gray-800"
                 >
                   {[
-                    { k: "email", label: t("rsvpContactEmailLabel", "Email") },
-                    { k: "phone", label: t("rsvpContactPhoneLabel", "Telefon") },
+                    { k: "email", label: t("rsvpContactEmailLabel") },
+                    { k: "phone", label: t("rsvpContactPhoneLabel") },
                   ].map((m) => (
                     <button
                       key={m.k}
@@ -4017,21 +3983,21 @@ export default function ReservationPublicPage() {
                     type="email"
                     size="lg"
                     className="rounded-xl!"
-                    aria-label={t("rsvpContactEmailLabel", "Email")}
+                    aria-label={t("rsvpContactEmailLabel")}
                     value={guestEmail}
                     onChange={(e) => {
                       setGuestEmail(e.target.value);
                       if (submitError === "invalid_email") setSubmitError("");
                     }}
                     onBlur={() => setContactTouched(true)}
-                    placeholder={t("rsvpEmailPh", "anna@eksempel.dk")}
+                    placeholder={t("rsvpEmailPh")}
                     invalid={contactTouched && contact.activeInvalid}
                     error={
                       contactTouched && contact.activeInvalid
-                        ? t("rsvpEmailCheck", "Check your email — e.g. anna@example.com")
+                        ? t("rsvpEmailCheck")
                         : null
                     }
-                    hint={t("rsvpEmailWhy", "So we can send your confirmation.")}
+                    hint={t("rsvpEmailWhy")}
                     autoComplete="email"
                     inputMode="email"
                     maxLength={255}
@@ -4049,26 +4015,26 @@ export default function ReservationPublicPage() {
                     type="tel"
                     size="lg"
                     className="rounded-xl!"
-                    aria-label={t("rsvpContactPhoneLabel", "Phone")}
+                    aria-label={t("rsvpContactPhoneLabel")}
                     value={guestPhone}
                     onChange={(e) => {
                       setGuestPhone(e.target.value);
                       if (submitError === "invalid_phone") setSubmitError("");
                     }}
                     onBlur={() => setContactTouched(true)}
-                    placeholder={t("rsvpPhonePh", "+45 12 34 56 78")}
+                    placeholder={t("rsvpPhonePh")}
                     invalid={contactTouched && contact.activeInvalid}
                     error={
                       contactTouched && contact.activeInvalid
-                        ? t("rsvpPhoneCheck", "Check your phone number — e.g. +45 12 34 56 78")
+                        ? t("rsvpPhoneCheck")
                         : null
                     }
                     // A request is confirmed by a call; "we only call if
                     // something changes" contradicted the receipt after it.
                     hint={
                       groupRequest
-                        ? t("rsvpPhoneWhyRequest", "We'll call you to confirm your request.")
-                        : t("rsvpPhoneWhy", "We only call if something changes.")
+                        ? t("rsvpPhoneWhyRequest")
+                        : t("rsvpPhoneWhy")
                     }
                     autoComplete="tel"
                     inputMode="tel"
@@ -4084,10 +4050,7 @@ export default function ReservationPublicPage() {
                 )}
                 {contactTouched && !contactValid && !contact.activeInvalid && (
                   <p role="alert" className="text-xs text-red-600 dark:text-red-400">
-                    {t(
-                      "rsvpContactRequired",
-                      "Add an email or phone so we can confirm your booking.",
-                    )}
+                    {t("rsvpContactRequired")}
                   </p>
                 )}
               </div>
@@ -4114,15 +4077,15 @@ export default function ReservationPublicPage() {
                 <span className="min-w-0 flex-1">
                   <span className="block text-[14.5px] font-semibold text-gray-900 dark:text-gray-100">
                     {noteOnly
-                      ? t("rsvpExtrasTitleNote", "A note for us?")
-                      : t("rsvpExtrasTitle", "Allergies, occasion or a note?")}
+                      ? t("rsvpExtrasTitleNote")
+                      : t("rsvpExtrasTitle")}
                   </span>
                   <span className="block text-[12.5px] text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
                     {extrasSummary || (noteOnly
-                      ? t("rsvpExtrasHintNote", "Optional — e.g. what it is about")
+                      ? t("rsvpExtrasHintNote")
                       : isProvider
-                        ? t("rsvpExtrasHintProvider", "Optional — so we can take care of you")
-                        : t("rsvpExtrasHint", "Optional — so the kitchen can plan for you"))}
+                        ? t("rsvpExtrasHintProvider")
+                        : t("rsvpExtrasHint"))}
                   </span>
                 </span>
                 <ChevronDown
@@ -4142,19 +4105,19 @@ export default function ReservationPublicPage() {
                     <div className="space-y-2.5">
                       <div>
                         <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                          {t("rsvpXAllergies", "Allergies or diet")}
+                          {t("rsvpXAllergies")}
                         </p>
                         <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mt-0.5">
                           {/* A venue with no name reads "the venue" — never "null". */}
                           {!page.business_name
                             ? (isProvider
-                              ? t("rsvpAllergySharedProviderUnnamed", "Shared only with the venue, so they can take care of you.")
-                              : t("rsvpAllergySharedUnnamed", "Shared only with the venue, so the kitchen can plan."))
+                              ? t("rsvpAllergySharedProviderUnnamed")
+                              : t("rsvpAllergySharedUnnamed"))
                             : isProvider
-                              ? t("rsvpAllergySharedProvider", "Shared only with {venue}, so they can take care of you.", {
+                              ? t("rsvpAllergySharedProvider", {
                                   venue: page.business_name,
                                 })
-                              : t("rsvpAllergyShared", "Shared only with {venue}, so the kitchen can plan.", {
+                              : t("rsvpAllergyShared", {
                                   venue: page.business_name,
                                 })}
                         </p>
@@ -4185,9 +4148,9 @@ export default function ReservationPublicPage() {
                       {allergenTags.length > 0 && (
                         <div className="pt-1 space-y-2 motion-safe:animate-[fadeIn_0.25s_ease-out]">
                           <p className="text-[13px] font-medium text-gray-700 dark:text-gray-300">
-                            {t("rsvpSeverity", "Hvor alvorligt?")}
+                            {t("rsvpSeverity")}
                           </p>
-                          <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label={t("rsvpSeverity", "Hvor alvorligt?")}>
+                          <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label={t("rsvpSeverity")}>
                             {SEVERITY_KEYS.map((k) => (
                               <button
                                 key={k}
@@ -4209,14 +4172,11 @@ export default function ReservationPublicPage() {
                           <textarea
                             id="rsvp-allergy-note"
                             aria-label={isProvider
-                              ? t("rsvpXAllergyDetailProvider", "Tell us more")
-                              : t("rsvpXAllergyDetail", "Tell the kitchen more")}
+                              ? t("rsvpXAllergyDetailProvider")
+                              : t("rsvpXAllergyDetail")}
                             value={allergyNote}
                             onChange={(e) => setAllergyNote(e.target.value)}
-                            placeholder={t(
-                              "rsvpAllergyNotePh",
-                              "F.eks. svær nøddeallergi — ingen spor af nødder.",
-                            )}
+                            placeholder={t("rsvpAllergyNotePh")}
                             rows={2}
                             maxLength={2000}
                             className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 px-3.5 py-2.5 text-[15px] leading-snug resize-none focus:outline-none focus:border-gray-900 dark:focus:border-gray-300"
@@ -4232,7 +4192,7 @@ export default function ReservationPublicPage() {
                   {!noteOnly && (
                   <div className="space-y-2.5">
                     <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                      {t("rsvpXOccasion", "Occasion")}
+                      {t("rsvpXOccasion")}
                     </p>
                     <div className="flex flex-wrap gap-1.5">
                       {OCCASION_KEYS.map((k) => {
@@ -4261,18 +4221,15 @@ export default function ReservationPublicPage() {
 
                   <div className="space-y-2">
                     <label htmlFor="rsvp-notes" className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
-                      {t("rsvpXNote", "A note for us")}
+                      {t("rsvpXNote")}
                     </label>
                     <textarea
                       id="rsvp-notes"
                       value={guestNotes}
                       onChange={(e) => setGuestNotes(e.target.value)}
                       placeholder={apptWords
-                        ? t("rsvpNotesPhProvider", "Anything we should know before you come?")
-                        : t(
-                          "rsvpNotesPh",
-                          "Ønsker du et bestemt bord, en barnestol, eller andet?",
-                        )}
+                        ? t("rsvpNotesPhProvider")
+                        : t("rsvpNotesPh")}
                       rows={3}
                       maxLength={2000}
                       className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 px-3.5 py-3 text-[15px] leading-snug resize-none focus:outline-none focus:border-gray-900 dark:focus:border-gray-300"
@@ -4294,15 +4251,12 @@ export default function ReservationPublicPage() {
             >
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {t("rsvpMarketing", "Send mig nyheder og tilbud")}
+                  {t("rsvpMarketing")}
                 </span>
                 <span className="block text-xs text-gray-500 dark:text-gray-400 leading-relaxed mt-0.5">
                   {apptWords
-                    ? t("rsvpMarketingHintAppt", "Optional — this only covers newsletters, not the confirmation of your appointment.")
-                    : t(
-                      "rsvpMarketingHint",
-                      "Valgfrit. Du modtager altid din reservationsbekræftelse; dette dækker kun nyhedsbreve.",
-                    )}
+                    ? t("rsvpMarketingHintAppt")
+                    : t("rsvpMarketingHint")}
                 </span>
               </span>
               <span
@@ -4330,23 +4284,13 @@ export default function ReservationPublicPage() {
                   none, never "null". */}
               {!page.business_name
                 ? (apptWords
-                  ? t(
-                    "rsvpPrivacyVenueApptUnnamed",
-                    "Your details go to the venue for this appointment — and for news only if you switch it on.",
-                  )
-                  : t(
-                    "rsvpPrivacyVenueUnnamed",
-                    "Your details go to the venue for this booking — and for news only if you switch it on.",
-                  ))
+                  ? t("rsvpPrivacyVenueApptUnnamed")
+                  : t("rsvpPrivacyVenueUnnamed"))
                 : apptWords
-                  ? t(
-                    "rsvpPrivacyVenueAppt",
-                    "Your details go to {venue} for this appointment — and for news only if you switch it on.",
+                  ? t("rsvpPrivacyVenueAppt",
                     { venue: page.business_name },
                   )
-                  : t(
-                    "rsvpPrivacyVenue",
-                    "Your details go to {venue} for this booking — and for news only if you switch it on.",
+                  : t("rsvpPrivacyVenue",
                     { venue: page.business_name },
                   )}{" "}
               <a
@@ -4355,7 +4299,7 @@ export default function ReservationPublicPage() {
                 rel="noopener noreferrer"
                 className={"min-h-0! underline rounded-sm hover:text-gray-900 dark:hover:text-gray-100 " + FOCUS}
               >
-                {t("rsvpPrivacyLink", "Privacy policy")}
+                {t("rsvpPrivacyLink")}
               </a>
             </p>
 
@@ -4372,7 +4316,7 @@ export default function ReservationPublicPage() {
               data-testid="rsvp-hp"
               className="absolute -left-[10000px] top-auto h-px w-px overflow-hidden"
             >
-              <label htmlFor="rsvp-bbt">{t("rsvpHpLabel", "Leave this field empty")}</label>
+              <label htmlFor="rsvp-bbt">{t("rsvpHpLabel")}</label>
               <input
                 id="rsvp-bbt"
                 type="text"
@@ -4404,7 +4348,7 @@ export default function ReservationPublicPage() {
                   {GUEST_REFUSALS[submitError]?.call && telHref(page.phone) && (
                     <a href={telHref(page.phone)} className={TEL_ACTION} data-testid="rsvp-refusal-call">
                       <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-                      <span>{t("rsvpNoSlotsCall", "Call us: {phone}", { phone: phoneShown(page.phone) })}</span>
+                      <span>{t("rsvpNoSlotsCall", { phone: phoneShown(page.phone) })}</span>
                     </a>
                   )}
                 </div>
@@ -4463,7 +4407,7 @@ export default function ReservationPublicPage() {
                     as="p"
                     className="text-[13px] text-gray-500 dark:text-gray-400 truncate"
                     text={groupRequest
-                        ? t("rsvpGroupTimeNote", "{party} · request", {
+                        ? t("rsvpGroupTimeNote", {
                             party: partyLabel(party, t, apptWords),
                           })
                         : isProvider && chosenBehandling
@@ -4481,7 +4425,7 @@ export default function ReservationPublicPage() {
                   className={"shrink-0 min-w-[9.5rem] px-6 h-[52px]! rounded-xl! text-[15px]! font-semibold! tracking-[-0.009em] " + CTA_FINISH}
                   iconRight={needsTime ? null : <ArrowRight className="w-[18px] h-[18px]" aria-hidden="true" />}
                 >
-                  <EarnedText text={needsTime ? t("rsvpPickTimeShort", "Pick a time") : t("rsvpContinue", "Continue")} />
+                  <EarnedText text={needsTime ? t("rsvpPickTimeShort") : t("rsvpContinue")} />
                 </Button>
               </>
             ) : (
@@ -4492,7 +4436,7 @@ export default function ReservationPublicPage() {
                 <Button
                   variant="secondary"
                   size="lg"
-                  aria-label={t("rsvpBack", "Tilbage")}
+                  aria-label={t("rsvpBack")}
                   className="w-[52px]! h-[52px]! rounded-xl! px-0 shrink-0 dark:bg-white/10! dark:hover:bg-white/15!"
                   onClick={backToChoices}
                 >
@@ -4515,23 +4459,23 @@ export default function ReservationPublicPage() {
                       missing — the label becomes the instruction. When the
                       instruction changes, the new words fade up (EarnedText). */}
                   <EarnedText text={needsTime
-                    ? t("rsvpPickTimeCta", "Vælg et tidspunkt")
+                    ? t("rsvpPickTimeCta")
                     : !nameValid
-                      ? t("rsvpCtaNeedName", "Tilføj dit navn")
+                      ? t("rsvpCtaNeedName")
                       : contact.activeInvalid && contactTouched
                         ? contactMode === "phone"
-                          ? t("rsvpCtaCheckPhone", "Check your phone number")
-                          : t("rsvpCtaCheckEmail", "Check your email")
+                          ? t("rsvpCtaCheckPhone")
+                          : t("rsvpCtaCheckEmail")
                         : !contactValid
                           ? contactMode === "phone"
-                            ? t("rsvpCtaNeedPhone", "Tilføj dit telefonnummer")
-                            : t("rsvpCtaNeedEmail", "Tilføj din email")
+                            ? t("rsvpCtaNeedPhone")
+                            : t("rsvpCtaNeedEmail")
                           : noArrow(
                               groupRequest
-                                ? t("rsvpSendRequest", "Send forespørgsel")
+                                ? t("rsvpSendRequest")
                                 : apptWords
-                                  ? t("rsvpConfirmTime", "Confirm appointment")
-                                  : t("rsvpConfirm", "Bekræft reservation"),
+                                  ? t("rsvpConfirmTime")
+                                  : t("rsvpConfirm"),
                             )} />
                 </Button>
               </>
@@ -4635,8 +4579,8 @@ function StepDots({ step, t, apptWords = false }) {
       aria-valuemax={2}
       aria-valuenow={step}
       // Read as "Step 1 of 2", not as a bare number.
-      aria-valuetext={t("rsvpStepOf", "Step {n} of {total}", { n: step, total: 2 })}
-      aria-label={apptWords ? t("rsvpStepAriaAppt", "Booking step") : t("rsvpStepAria", "Reservation step")}
+      aria-valuetext={t("rsvpStepOf", { n: step, total: 2 })}
+      aria-label={apptWords ? t("rsvpStepAriaAppt") : t("rsvpStepAria")}
     >
       {/* 6 px dots, the current one 20 px wide, easing over 220 ms on the
           page's one curve (were 8 px / 24 px on a 150 ms default ease —
@@ -4682,14 +4626,11 @@ function ClosedScreen({ t, name, rootMinH = "min-h-screen" }) {
             the one guests actually read. */}
         <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
           {name
-            ? t("rsvpClosedNamed", "{name} tager ikke imod reservationer", { name })
-            : t("rsvpClosed", "Dette link er ikke åbent for booking")}
+            ? t("rsvpClosedNamed", { name })
+            : t("rsvpClosed")}
         </h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          {t(
-            "rsvpClosedHint",
-            "Tjek lige linket, eller kontakt stedet direkte for at booke.",
-          )}
+          {t("rsvpClosedHint")}
         </p>
       </div>
     </div>
@@ -4710,39 +4651,27 @@ function severityFallback(key) {
 function submitErrorMessage(code, t) {
   switch (code) {
     case "slot_unavailable":
-      return t(
-        "rsvpErrSlot",
-        "Beklager — tidspunktet blev lige optaget. Vælg venligst en anden tid.",
-      );
+      return t("rsvpErrSlot");
     case "stylist_unavailable":
       // Named-behandler race-loss — fail closed, never silently rebook.
-      return t(
-        "rsvpErrStylist",
-        "Den behandler blev lige booket på det tidspunkt. Vælg et andet tidspunkt, eller vælg Valgfri behandler.",
-      );
+      return t("rsvpErrStylist");
     case "party_too_large":
-      return t(
-        "rsvpErrParty",
-        "Selskabet er større end vi kan booke online — kontakt stedet direkte.",
-      );
+      return t("rsvpErrParty");
     case "not_accepting":
-      return t(
-        "rsvpErrClosed",
-        "Online booking was paused while you were booking.",
-      );
+      return t("rsvpErrClosed");
     case "date_closed":
-      return t("rsvpErrDateClosed", "We're not taking online bookings that day. Please pick another day.");
+      return t("rsvpErrDateClosed");
     case "requests_full":
-      return t("rsvpErrRequestsFull", "We can't take more requests online today. Call us and we'll sort it out.");
+      return t("rsvpErrRequestsFull");
     case "request_too_late":
-      return t("rsvpErrRequestTooLate", "It's too close to that time to send a request online. Call us and we'll sort it out.");
+      return t("rsvpErrRequestTooLate");
     case "too_many_tries":
-      return t("rsvpErrTooManyTries", "Too many tries in a short time. Wait a minute and try again. Your details are kept.");
+      return t("rsvpErrTooManyTries");
     case "invalid_email":
-      return t("rsvpEmailCheck", "Check your email — e.g. anna@example.com");
+      return t("rsvpEmailCheck");
     case "invalid_phone":
-      return t("rsvpPhoneCheck", "Check your phone number — e.g. +45 12 34 56 78");
+      return t("rsvpPhoneCheck");
     default:
-      return t("rsvpErrGeneric", "Noget gik galt. Prøv igen om et øjeblik.");
+      return t("rsvpErrGeneric");
   }
 }
