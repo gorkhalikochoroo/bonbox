@@ -19,6 +19,7 @@ import { LanguageProvider, detectInitialLanguage, useLanguage } from "./hooks/us
 import { ConfirmProvider } from "./hooks/useConfirm";
 import { ToastProvider } from "./hooks/useToast";
 import { useThemeColorSync } from "./hooks/useThemeColorSync";
+import { settleOn } from "./utils/settleOn";
 import { isLandingPath, landingFirstPaint, mightBeSignedIn } from "./lib/landingBoot";
 import { isQuietGuestPage } from "./lib/embedMode";
 import { isBookingPath } from "./lib/bookingPath";
@@ -1108,6 +1109,9 @@ export function ScrollManager() {
     let observer = null;
     let timeout = 0;
     let done = false;
+    // Booking R13 fix: after the first scroll, keep the anchor at the top
+    // while the page above it is still growing (utils/settleOn).
+    let stopSettling = () => {};
 
     const cleanup = () => {
       if (raf) cancelAnimationFrame(raf);
@@ -1125,7 +1129,10 @@ export function ScrollManager() {
       // components/landing/v6/engine.js) opens /#s1, /#s2 and /#s6 on that
       // scene itself; scrolling the element into view would land inside its
       // sticky frame, on no scene in particular. Everything else as before.
-      if (!el.closest("[data-bb-own-anchors]")) el.scrollIntoView({ block: "start" });
+      if (!el.closest("[data-bb-own-anchors]")) {
+        el.scrollIntoView({ block: "start" });
+        stopSettling = settleOn(el);
+      }
       cleanup();
       return true;
     };
@@ -1144,7 +1151,10 @@ export function ScrollManager() {
       } catch { /* MutationObserver unavailable — rAF path already ran */ }
     }
 
-    return cleanup;
+    return () => {
+      cleanup();
+      stopSettling();
+    };
   }, [pathname, hash]);
   return null;
 }
