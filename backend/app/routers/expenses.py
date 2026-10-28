@@ -43,6 +43,7 @@ from app.services.receipt_ocr import parse_expense_receipt
 from app.services.ai_limits import AIBusyError, counted_use, vision_slot
 from app.services.image_guard import UnsupportedImageError, refusal_message, sniff_image_format
 from app.services.owner_language import owner_lang
+from app.services.storage_links import client_receipt_ref, is_retired_link
 from app.services.billing import PLAN_CAPS, get_cap, effective_plan
 from app.utils.time import utc_now
 
@@ -1462,7 +1463,10 @@ def link_bilag(
     Multi-barrier: auth → tenant (404) → target must be booked and without a
     bilag (409) → exactly one source; a draft must be this owner's pending
     draft with a bilag; a stored path must be this owner's (422) → locked
-    period keeps its VAT fields → audit row expense.bilag_linked.
+    period keeps its VAT fields → audit row expense.bilag_linked. A link on
+    the retired storage project is never written: a typed one is refused
+    (422), a pre-move draft's is stored as its Frankfurt link (503 and
+    nothing written when that cannot be done now).
     """
     target = (
         db.query(Expense)
@@ -1512,11 +1516,42 @@ def link_bilag(
                 "message_da": "Udkastet har allerede et bilagsnummer — godkend eller ret det i stedet.",
             })
         photo = draft.receipt_photo
+        relinked = False
+        if is_retired_link(photo):
+            # A draft from before the Frankfurt move still links its photo on
+            # the retired project. Moved as is, that link would sit on the
+            # typed expense — a row the read path never re-links when it was
+            # written after the move — and break when the project is deleted.
+            # It is stored as the Frankfurt link to the same file instead, on
+            # the DRAFT's rules (its owner, its created_at). If that cannot be
+            # done now, nothing is written (no partial link).
+            out = client_receipt_ref(photo, draft.user_id, created_at=draft.created_at,
+                                     source="expenses")
+            if not out or not isinstance(out, str) or is_retired_link(out):
+                # "a few minutes", not "a minute": after a failed signing the
+                # same object is not asked again for SIGN_FAIL_BACKOFF_SECONDS
+                # (5 min), so a retry sooner gets this answer again.
+                raise HTTPException(status_code=503, detail={
+                    "code": "bilag_relink_unavailable",
+                    "message": "The receipt picture could not be moved right now. Nothing was changed — try again in a few minutes.",
+                    "message_da": "Bilagsbilledet kunne ikke flyttes lige nu. Intet er ændret — prøv igen om nogle minutter.",
+                })
+            photo = out
+            relinked = True
         source = draft.receipt_source or "scan"
         vkey = draft.vendor_key
         # A foreign receipt's printed VAT is not DKK købsmoms: never copied.
         vat_amount, vat_rate = (None, None) if draft.currency else (draft.vat_amount, draft.vat_rate)
     else:
+        relinked = False
+        if is_retired_link(body.receipt_photo):
+            # Since the Frankfurt move no upload hands out a link on the
+            # retired project, so only a typed one can arrive here.
+            raise HTTPException(status_code=422, detail={
+                "code": "retired_receipt_link",
+                "message": "That receipt link points at the old server. Upload the picture again.",
+                "message_da": "Bilagslinket peger på den gamle server. Upload billedet igen.",
+            })
         if not _receipt_path_owned(user.id, body.receipt_photo):
             raise HTTPException(status_code=422, detail="receipt_photo is not one of your stored receipts")
         photo = body.receipt_photo
@@ -1606,6 +1641,7 @@ def link_bilag(
                 "date": target.date.isoformat() if target.date else None,
                 "receipt_photo": photo,
                 "receipt_source": source,
+                **({"receipt_relinked": True} if relinked else {}),
                 "filled": filled,
                 "locked_period": locked,
                 **(draft_info or {"source": "upload"}),

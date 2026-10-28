@@ -1037,10 +1037,14 @@ def _upload_to_supabase(
     # 5-year retention is satisfied at the storage layer (the bytes
     # persist); the URL just needs occasional regeneration via a
     # follow-up endpoint we'll add when retention becomes a real query.
-    one_year = 60 * 60 * 24 * 365
-    signed = storage.signed_url(key, ttl_seconds=one_year)
+    # The TTL is shared with the read-time re-link (services/storage_links)
+    # so a re-linked receipt lives exactly as long as a fresh upload. The
+    # URL's host is the configured project's (SupabaseStorageBackend.
+    # signed_url prefixes settings.SUPABASE_URL) — never a retired one.
+    from app.services.storage_links import RECEIPT_URL_TTL_SECONDS
+    signed = storage.signed_url(key, ttl_seconds=RECEIPT_URL_TTL_SECONDS)
     if signed:
-        print(f"[Storage] Uploaded receipt to Supabase: {key}")
+        print("[Storage] Uploaded receipt to Supabase")   # never the key (owner id + file name)
         return signed
     # Upload succeeded but signing failed → return the storage key as
     # a fallback marker. Callers store it in receipt_photo; until the

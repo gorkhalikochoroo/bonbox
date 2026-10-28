@@ -1,7 +1,7 @@
 import uuid
 import datetime
 from typing import Any
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 # Channel synonym map — accept Aloha/Restwave/Pos+ wording from CSV imports etc.
@@ -233,3 +233,12 @@ class SaleResponse(BaseModel):
     ticket_breakdown: dict | None = None
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _client_receipt_link(cls, data, handler):
+        """receipt_photo as a client should get it (services/storage_links):
+        a photo on the retired storage project is handed out as a link to the
+        same file in the current one. The ORM row is never touched."""
+        from app.services.storage_links import relink_response_model
+        return relink_response_model(handler(data), data, "sales")

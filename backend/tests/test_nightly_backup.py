@@ -1465,6 +1465,112 @@ def test_restore_takes_the_db_target_from_the_environment(fernet, key, db_env, b
     assert "DATABASE_URL" in out and "secretpw" not in out
 
 
+# ── the guard protects the LIVE project (receipt-relink release, 23 Oct) ──
+# Since the 20 Oct move the live primary is Frankfurt. The guard used to name
+# only the old Ireland ref, so a Frankfurt URL in any form other than the
+# exact $DATABASE_URL — or the photo bucket — got through.
+
+FRANKFURT_REF = "qwogfearhfhaunqpuvgd"
+IRELAND_REF = "ahlqhztujpeccmaivkhr"
+
+
+@pytest.mark.parametrize("target", [
+    f"postgresql://postgres.{FRANKFURT_REF}:pw@aws-1-eu-central-1.pooler.supabase.com:5432/postgres",
+    f"postgresql://postgres.{FRANKFURT_REF}:pw@aws-1-eu-central-1.pooler.supabase.com:6543/postgres",
+    f"postgresql://postgres:pw@db.{FRANKFURT_REF}.supabase.co:5432/postgres",
+    f"postgresql+psycopg2://postgres:pw@DB.{FRANKFURT_REF.upper()}.SUPABASE.CO:5432/postgres",
+    f"postgresql://postgres.{IRELAND_REF}:pw@aws-0-eu-west-1.pooler.supabase.com:6543/postgres",
+    f"postgresql://postgres:pw@db.{IRELAND_REF}.supabase.co:5432/postgres",
+])
+def test_restore_refuses_every_form_of_a_protected_db(target):
+    assert restore._refuse_main(target, {}) == (
+        "target is in the main production project; restore into a new project")
+
+
+def test_restore_main_ref_is_the_live_frankfurt_project():
+    assert restore.MAIN_PROJECT_REF == FRANKFURT_REF
+    assert IRELAND_REF in restore.RETIRED_PROJECT_REFS
+    assert restore.protected_project_refs({}) == {FRANKFURT_REF, IRELAND_REF}
+
+
+def test_restore_also_protects_the_project_the_environment_names():
+    """The next move must not leave the guard stale: the refs SUPABASE_URL /
+    DATABASE_URL name are refused too (backup_service derives the main
+    project from SUPABASE_URL the same way)."""
+    new = "abcdefghijklmnopqrst"
+    target = f"postgresql://postgres.{new}:pw@aws-1-eu-central-1.pooler.supabase.com:6543/postgres"
+    assert restore._refuse_main(target, {}) is None                     # a fresh project: allowed
+    assert restore._refuse_main(target, {"SUPABASE_URL": f"https://{new}.supabase.co"})
+    assert restore._refuse_main(
+        target, {"DATABASE_URL": f"postgresql://postgres.{new}:pw@aws-1-eu-central-1.pooler.supabase.com:5432/postgres"})
+    assert restore._refuse_main(target, {"DATABASE_URL": f"postgresql://postgres:pw@db.{new}.supabase.co:5432/postgres"})
+    # values naming no project add nothing — never an empty ref matching everything
+    for env in ({"SUPABASE_URL": ""}, {"DATABASE_URL": "sqlite:///./ci.db"},
+                {"DATABASE_URL": "postgresql://u:p@db.internal:5432/app"},
+                {"SUPABASE_URL": "https://x.supabase.co"}):
+        assert restore.protected_project_refs(env) == {FRANKFURT_REF, IRELAND_REF}
+
+
+def test_restore_refuses_a_connection_that_lands_in_frankfurt(fernet, key, db_env, buckets, monkeypatch):
+    """The URL names no project (an IP, a tunnel), but the server it reaches
+    is the live one: the connected host/login check refuses before anything
+    is read or written."""
+    _, dst = buckets
+    _run(fernet, db_env, buckets)
+
+    class _Conn:
+        closed = False
+        info = SimpleNamespace(host="10.0.0.5", user=f"postgres.{FRANKFURT_REF}", dbname="postgres")
+
+        def close(self):
+            self.closed = True
+
+    conn = _Conn()
+    import psycopg2
+    monkeypatch.setattr(psycopg2, "connect", lambda *a, **k: conn)
+    args = restore.build_parser().parse_args(
+        ["--db-target", "postgresql://u:p@10.0.0.5:5432/postgres", "--source-dir", str(dst.root)])
+    res = restore.run_db(dst, fernet, args, {"BACKUP_ENCRYPTION_KEY": key})
+    assert not res["ok"] and res["error"] == "refused: target is in the main production project"
+    assert conn.closed
+
+
+def test_restore_photos_into_frankfurt_need_allow_main_project(fernet, key, db_env, buckets, monkeypatch):
+    """https://<frankfurt>.supabase.co as the photo target was not treated as
+    the main project at all. Now it needs --allow-main-project AND
+    --confirm-target, and still never overwrites an object."""
+    import httpx
+    from app.services.backup_storage import SupabaseBucket
+    src, dst = buckets
+    paths = [f"{UID_A}/expense/{'a' * 64}.jpg", f"{UID_A}/kasserapport/{'b' * 64}.jpg"]
+    for i, p in enumerate(paths):
+        _put(src, p, _photo(i))
+    _run(fernet, db_env, buckets)
+    api = _FakeStorageAPI("target-key")
+    api.buckets["receipts"][paths[0]] = b"already here"
+    real_init = SupabaseBucket.__init__
+    monkeypatch.setattr(SupabaseBucket, "__init__", lambda self, url, k, b, **kw: real_init(
+        self, url, k, b, client=httpx.Client(transport=httpx.MockTransport(api))))
+    env = {"BACKUP_ENCRYPTION_KEY": key,
+           "RESTORE_TARGET_SUPABASE_URL": f"https://{FRANKFURT_REF}.supabase.co",
+           "RESTORE_TARGET_SUPABASE_SERVICE_KEY": "target-key"}
+    base = ["--skip-db", "--source-dir", str(dst.root), "--photos-target-bucket", "receipts"]
+    assert restore.main(base + ["--confirm-target", "receipts"], env=env) == 1     # live project
+    assert paths[1] not in api.buckets["receipts"]
+    assert restore.main(base + ["--allow-main-project"], env=env) == 1             # unconfirmed
+    assert paths[1] not in api.buckets["receipts"]
+    assert restore.main(base + ["--allow-main-project", "--confirm-target", "receipts"], env=env) == 0
+    assert api.buckets["receipts"][paths[0]] == b"already here"
+    assert api.buckets["receipts"][paths[1]] == src.download(paths[1])
+
+
+def test_incident_runbook_names_the_guard_as_it_is():
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "docs/runbooks/INCIDENT.md").read_text(encoding="utf-8")
+    assert "still names the old project" not in text
+    assert f"the live\n       primary `{FRANKFURT_REF}`" in text
+
+
 # ── /privacy: the backup project is a processor row (EN + DA) ───────────
 
 def test_privacy_names_the_encrypted_backup_copy(key):

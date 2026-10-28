@@ -101,13 +101,16 @@ level (section e).
        `APP_SECRET_KEY` that was live when the copy was taken, both from the
        password manager. Until that release is live, the backup project holds
        nothing.
-       **Until the release after Landing v6 + Frankfurt:** the script's
-       main-project guard (`MAIN_PROJECT_REF`, and the photo-bucket check
-       behind `--allow-main-project`) still names the old project
-       `ahlqhztujpeccmaivkhr`, not the live Frankfurt one. Its
-       `$DATABASE_URL` check still refuses the URL in the environment, but
-       check by hand that no target is `qwogfearhfhaunqpuvgd` unless you mean
-       to overwrite production.
+       The script refuses to write into a protected project: the live
+       primary `qwogfearhfhaunqpuvgd` (Frankfurt), the old primary
+       `ahlqhztujpeccmaivkhr` (Ireland, the fallback copy), and whatever
+       project `$SUPABASE_URL` / `$DATABASE_URL` name, in any URL form
+       (pooler on 5432 or 6543, the `db.<ref>.supabase.co` host, the
+       `https://<ref>.supabase.co` photo target). Photos go back into a
+       protected project's bucket only with `--allow-main-project` plus
+       `--confirm-target <bucket>`, and never overwrite an object that is
+       there. (Until the receipt-relink release the guard still named only
+       Ireland, so only the exact `$DATABASE_URL` match protected Frankfurt.)
 2. **Preserve evidence.**
    - Do **not** purge `error_logs` or delete triage notes.
    - Export the `/admin` recent errors and triage notes for the incident

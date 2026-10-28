@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 # Upper bound for a stored receipt URL. Sized for a Supabase 1-year signed
 # URL (597 chars today) with headroom for a longer bucket path or token,
@@ -141,6 +141,12 @@ class ExpenseCreate(BaseModel):
             raise ValueError(
                 f"receipt_photo path too long (max {RECEIPT_PHOTO_MAX_LEN} chars)"
             )
+        from app.services.storage_links import is_retired_link
+        if is_retired_link(v):
+            # No upload hands out a link on the retired storage project since
+            # the Frankfurt move, so only a typed one can arrive; stored, it
+            # would only ever be a dead link (receipt fix round 2).
+            raise ValueError("receipt_photo points at the retired storage project")
         return v
 
     @field_validator("currency", mode="before")
@@ -236,6 +242,16 @@ class ExpenseResponse(BaseModel):
     date_source: str | None = None
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _client_receipt_link(cls, data, handler):
+        """receipt_photo as a client should get it: a photo stored on the
+        retired storage project is handed out as a link to the same file in
+        the current one (services/storage_links). Only this response model
+        changes — the ORM row is never touched, so nothing is written."""
+        from app.services.storage_links import relink_response_model
+        return relink_response_model(handler(data), data, "expenses")
 
 
 class ExpenseApproveBatch(BaseModel):
