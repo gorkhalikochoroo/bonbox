@@ -28,6 +28,9 @@ import {
   BUTTON_STYLE,
   EMBED_WIDTHS,
   EMBED_WIDTH_DEFAULT,
+  LOOK_FRAME_RADIUS,
+  LOOK_SAMPLES,
+  LOOK_SAMPLE_IDS,
   SITE_BUILDERS,
   buttonSnippet,
   guideNoteKeys,
@@ -36,6 +39,7 @@ import {
   mailtoHref,
   previewSrcFor,
   qrFileName,
+  sampleLookQuery,
 } from "../../utils/bookingEmbed";
 
 // Booking R4: a new snippet carries the compact header (&compact=1) unless the
@@ -43,6 +47,38 @@ import {
 // address, and without them "Vælg tid" sits above the fold on a 390×844
 // phone. Snippets pasted before R4 keep the full header. One line to flip.
 export const COMPACT_DEFAULT = true;
+
+// Booking R13 (Manoj, 27–28 Oct): a new snippet matches the restaurant's
+// website — its background, text colour, button colour, corners and font,
+// read on their page by the snippet and checked in the frame — unless the
+// owner switches it off. Off = the R4 snippet, byte for byte. Snippets
+// already pasted carry no opt-in and stay exactly as they are.
+export const MATCH_DEFAULT = true;
+
+// The owner's override, in the snippet as data- attributes.
+const LOOK_MODE_LABEL = { auto: "rsvpWebColoursAuto", light: "rsvpWebColoursLight", dark: "rsvpWebColoursDark" };
+const LOOK_ACCENT_LABEL = { site: "rsvpWebButtonColourSite", own: "rsvpWebButtonColourOwn" };
+const SAMPLE_LABEL = { light: "rsvpWebSampleLight", dark: "rsvpWebSampleDark", photo: "rsvpWebSamplePhoto" };
+// The stand-in "photo" site: flat shapes of a dim room (no photo of anyone's
+// venue ships with the app, no gradient).
+const SAMPLE_PHOTO =
+  'url("data:image/svg+xml,' +
+  encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 300' preserveAspectRatio='xMidYMid slice'>" +
+      "<rect width='400' height='300' fill='#2a211b'/><rect y='190' width='400' height='110' fill='#1c1612'/>" +
+      "<rect x='40' y='60' width='90' height='120' fill='#3a2e25'/><rect x='270' y='40' width='100' height='150' fill='#34291f'/>" +
+      "<rect x='196' y='0' width='8' height='46' fill='#151110'/><circle cx='200' cy='70' r='26' fill='#c8a46e'/>" +
+      "<rect x='110' y='200' width='180' height='14' fill='#4a3a2c'/></svg>",
+  ).replace(/['()]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase()) +
+  '")';
+// What each sample site looks like around the frame (its own page).
+function sampleGround(id) {
+  const s = LOOK_SAMPLES[id];
+  if (!s) return undefined;
+  return s.surface === "photo"
+    ? { backgroundColor: "#2a211b", backgroundImage: SAMPLE_PHOTO, backgroundSize: "cover", backgroundPosition: "center" }
+    : { backgroundColor: "#" + s.surface };
+}
 
 // The width choices' words (EMBED_WIDTHS).
 const WIDTH_LABEL = { 460: "rsvpWebEmbedWidthStd", 560: "rsvpWebEmbedWidthWide" };
@@ -99,13 +135,66 @@ function OptionCheck({ checked, onChange, label, hint, testId }) {
   );
 }
 
+// One labelled row of pills for a one-of choice (R13: colours, button
+// colour, sample site) — the width row's look and roles.
+function ChoiceRow({ id, label, options, value, onPick, word }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <span id={id + "-label"} className="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+        {label}
+      </span>
+      <div role="radiogroup" aria-labelledby={id + "-label"} data-testid={id} className="flex flex-wrap gap-1.5">
+        {options.map((k) => (
+          <button
+            key={k}
+            type="button"
+            role="radio"
+            aria-checked={value === k}
+            data-value={k}
+            onClick={() => onPick(k)}
+            className={pillClass(value === k)}
+          >
+            {word(k)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// The stand-in website's own top line in the computer preview (R13): its
+// name in its own ink and its own button — what the booking just matched.
+// With "Din BonBox-farve" the button is still the site's; the booking keeps
+// the owner's colour.
+function SampleHeader({ id, t }) {
+  const s = LOOK_SAMPLES[id];
+  if (!s) return null;
+  const font = { georgia: "Georgia, serif", helvetica: '"Helvetica Neue", Helvetica, Arial, sans-serif', system: "system-ui, sans-serif" }[s.font];
+  return (
+    <div
+      data-testid="website-preview-sample-header"
+      className="mx-auto mb-4 flex max-w-[560px] items-center justify-between gap-3 px-1"
+      style={{ color: "#" + s.ink, fontFamily: font }}
+    >
+      <span className="text-[15px] font-semibold truncate">{t("rsvpWebSampleSite")}</span>
+      <span
+        aria-hidden="true"
+        className="shrink-0 px-3 py-1.5 text-[12px] font-semibold"
+        style={{ background: "#" + s.accent, color: "#" + s.accent_ink, borderRadius: { sharp: 2, soft: 8, round: 9999 }[s.radius] }}
+      >
+        {t("rsvpWebSampleButton")}
+      </span>
+    </div>
+  );
+}
+
 // "On your page, on a computer": the booking at the width the owner chose,
 // centred on a light ground that stands in for their website — the card,
 // its shadow and the centring as their guests will see them. Scaled down
 // (never up) when the owner's own screen is narrower than that width, so a
 // phone shows the whole thing. The frame itself is the chosen width, so the
 // page inside lays out exactly as it will there.
-function HostPreview({ src, width, height, frameRef, title }) {
+function HostPreview({ src, width, height, frameRef, title, ground, header = null, frameRadius }) {
   const boxRef = useRef(null);
   const [avail, setAvail] = useState(0);
   useLayoutEffect(() => {
@@ -121,7 +210,12 @@ function HostPreview({ src, width, height, frameRef, title }) {
   // Unmeasured (0) = full size; never above 1.
   const scale = avail > 0 ? Math.min(1, avail / width) : 1;
   return (
-    <div data-testid="website-preview-host" className="rounded-xl bg-gray-100 dark:bg-gray-100 px-3 py-5 sm:px-5 sm:py-8">
+    <div
+      data-testid="website-preview-host"
+      className="rounded-xl bg-gray-100 dark:bg-gray-100 px-3 py-5 sm:px-5 sm:py-8"
+      style={ground}
+    >
+      {header}
       <div ref={boxRef} className="w-full">
         <div
           className="mx-auto overflow-hidden"
@@ -139,6 +233,7 @@ function HostPreview({ src, width, height, frameRef, title }) {
               height,
               transform: scale < 1 ? `scale(${scale})` : undefined,
               transformOrigin: "0 0",
+              borderRadius: frameRadius,
             }}
             className="block border-0"
           />
@@ -265,6 +360,12 @@ export default function WebsiteBookingKit({
   // in the owner's column, and which preview — a phone, or their page on a
   // computer (the only place the width and the card show).
   const [compact, setCompact] = useState(COMPACT_DEFAULT);
+  // Booking R13: match the website (default on), the owner's override, and
+  // the sample site the preview shows it on.
+  const [match, setMatch] = useState(MATCH_DEFAULT);
+  const [lookMode, setLookMode] = useState("auto");
+  const [lookAccent, setLookAccent] = useState("site");
+  const [sample, setSample] = useState("light");
   const [width, setWidth] = useState(EMBED_WIDTH_DEFAULT);
   const [device, setDevice] = useState("phone");
   const [builder, setBuilder] = useState(SITE_BUILDERS[0].id);
@@ -307,6 +408,7 @@ export default function WebsiteBookingKit({
 
   const kit = useMemo(() => {
     if (!live) return null;
+    const lk = match ? { mode: lookMode, accent: lookAccent } : null;
     const button = buttonSnippet({ publicUrl, label });
     const iframe = iframeSnippet({
       publicUrl,
@@ -316,13 +418,15 @@ export default function WebsiteBookingKit({
       flat,
       compact,
       width,
+      look: lk,
     });
     const mail = mailtoHref({
       subject: t("rsvpEmbedMailSubject"),
       body: t("rsvpWebMailBody", { link: publicUrl, button, iframe }),
     });
-    return { button, iframe, mail, preview: previewSrcFor(publicUrl, appOrigin, { flat, compact }) };
-  }, [live, publicUrl, label, venueName, appOrigin, t, flat, compact, width]);
+    const lookQuery = sampleLookQuery(sample, lk);
+    return { button, iframe, mail, preview: previewSrcFor(publicUrl, appOrigin, { flat, compact, lookQuery }) };
+  }, [live, publicUrl, label, venueName, appOrigin, t, flat, compact, width, match, lookMode, lookAccent, sample]);
 
   // The preview sizes itself exactly like the owner's page will: from the
   // booking page's own height messages, trusted only from that frame.
@@ -545,6 +649,35 @@ export default function WebsiteBookingKit({
                     label={t("rsvpWebEmbedFlat")}
                     hint={t("rsvpWebEmbedFlatHint")}
                   />
+                  {/* Booking R13: match the website (on by default), with
+                      the owner's two overrides under it. */}
+                  <OptionCheck
+                    checked={match}
+                    onChange={setMatch}
+                    testId="website-embed-match"
+                    label={t("rsvpWebMatch")}
+                    hint={t("rsvpWebMatchHint")}
+                  />
+                  {match && (
+                    <div className="space-y-2 pl-6" data-testid="website-embed-look">
+                      <ChoiceRow
+                        id="website-look-mode"
+                        label={t("rsvpWebColours")}
+                        options={Object.keys(LOOK_MODE_LABEL)}
+                        value={lookMode}
+                        onPick={setLookMode}
+                        word={(k) => t(LOOK_MODE_LABEL[k])}
+                      />
+                      <ChoiceRow
+                        id="website-look-accent"
+                        label={t("rsvpWebButtonColour")}
+                        options={Object.keys(LOOK_ACCENT_LABEL)}
+                        value={lookAccent}
+                        onPick={setLookAccent}
+                        word={(k) => t(LOOK_ACCENT_LABEL[k])}
+                      />
+                    </div>
+                  )}
                 </div>
                 <p className={HINT}>
                   {/* The failure an owner can't see: on a plain-http site the
@@ -608,10 +741,30 @@ export default function WebsiteBookingKit({
                     </a>
                   </div>
                 </div>
+                {canFramePreview && match && (
+                  // R13: the same booking on three stand-in websites — what
+                  // the snippet reads from a light page, a dark page and a
+                  // photo, sent to the real page exactly as it would be.
+                  <div className="space-y-1">
+                    <ChoiceRow
+                      id="website-look-sample"
+                      label={t("rsvpWebSample")}
+                      options={LOOK_SAMPLE_IDS}
+                      value={sample}
+                      onPick={setSample}
+                      word={(k) => t(SAMPLE_LABEL[k])}
+                    />
+                    <p className={HINT}>{t("rsvpWebSampleHint")}</p>
+                  </div>
+                )}
                 {canFramePreview && device === "phone" && (
                   // A phone-width frame around the REAL booking page — the
                   // same /r/ route and ?embed=1 the snippet loads.
-                  <div className="mx-auto w-full max-w-[375px] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
+                  <div
+                    data-testid="website-preview-phone"
+                    className="mx-auto w-full max-w-[375px] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden"
+                    style={match ? sampleGround(sample) : undefined}
+                  >
                     <iframe
                       key={look}
                       ref={frameRef}
@@ -632,6 +785,9 @@ export default function WebsiteBookingKit({
                     height={previewH}
                     frameRef={frameRef}
                     title={t("rsvpWebPreviewTitle")}
+                    ground={match ? sampleGround(sample) : undefined}
+                    frameRadius={match ? LOOK_FRAME_RADIUS[LOOK_SAMPLES[sample].radius] : undefined}
+                    header={match ? <SampleHeader id={sample} t={t} /> : null}
                   />
                 )}
               </div>

@@ -24,11 +24,13 @@ export const ROOT_FINISH = "antialiased";
 // (16 px offset + 40 px blur − 20 px spread) and pb-6 cut it in a straight
 // line at the frame's edge. The frame posts its whole height (the padding
 // with it), on every step — the host sizes it to fit.
-export const EMBED_GROUND = "min-[450px]:bg-transparent min-[450px]:px-4 min-[450px]:pt-4 min-[450px]:pb-10";
+// `bb-ground` / `bb-card` (R13): where the restaurant's look (index.css
+// "BOOKING LOOK") paints its card colour — the wait and the page alike.
+export const EMBED_GROUND = "bb-ground min-[450px]:bg-transparent min-[450px]:px-4 min-[450px]:pt-4 min-[450px]:pb-10";
 // The one elevation: white, 16 px corners (the hero rung), a 5 % ring and
 // one soft shadow. Light only — the embed forces light.
 export const EMBED_CARD =
-  "min-[450px]:bg-white min-[450px]:rounded-[16px] " +
+  "bb-card min-[450px]:bg-white min-[450px]:rounded-[16px] " +
   "min-[450px]:shadow-[0_0_0_1px_rgb(16_24_40/0.05),0_1px_2px_rgb(16_24_40/0.04),0_16px_40px_-20px_rgb(16_24_40/0.18)]";
 // How wide the booking may get inside the frame (booking R4).
 export const EMBED_MAX = "max-w-[560px]";
@@ -61,7 +63,8 @@ export function skeletonTree(variant) {
           el("div", `${BREATHE} rounded-xl bg-gray-200/70 dark:bg-gray-800 w-16 h-16`),
           el("div", `${BREATHE} rounded-lg bg-gray-200/70 dark:bg-gray-800 h-8 w-2/3`),
         ]),
-        el("div", "w-full rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900 px-6 py-8 space-y-4", [
+        // The page's computer card (R13: one card look with the embed's).
+        el("div", "w-full rounded-[16px] bg-white shadow-[0_0_0_1px_rgb(16_24_40/0.05),0_1px_2px_rgb(16_24_40/0.04),0_16px_40px_-20px_rgb(16_24_40/0.18)] dark:bg-gray-900 dark:shadow-[0_0_0_1px_rgb(255_255_255/0.08)] px-6 py-8 space-y-4", [
           el("div", `${BREATHE} rounded-lg bg-gray-100 dark:bg-gray-800 h-8 w-2/3`),
           el("div", `${BREATHE} rounded-xl bg-gray-100 dark:bg-gray-800 h-32`),
           el("p", WORD, null),
@@ -73,7 +76,8 @@ export function skeletonTree(variant) {
   const card = variant === "embedCard";
   return el(
     "div",
-    `${embed ? "" : "min-h-screen"} ${ROOT_FINISH} bg-white dark:bg-gray-950 px-4 py-12` + (card ? " " + EMBED_GROUND : ""),
+    `${embed ? "" : "min-h-screen"} ${ROOT_FINISH} bg-white dark:bg-gray-950 px-4 py-12` +
+      (card ? " " + EMBED_GROUND : embed ? " bb-ground" : ""),
     [
       el(
         "div",

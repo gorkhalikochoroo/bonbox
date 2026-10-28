@@ -60,7 +60,7 @@ import {
 import api from "../services/api";
 import { slotNote } from "../utils/slotNote";
 import { markGuestSurface } from "../lib/guestSurface";
-import { forceLightTheme } from "../utils/themeColor";
+import { embedTheme, followSystemTheme } from "../utils/themeColor";
 import { venueMonogram } from "../utils/venueMonogram";
 import { contactState } from "../utils/guestContact";
 import { rescueDay, seedStep1 } from "../utils/bookingDay";
@@ -758,7 +758,7 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
   // green is spent on the one main action. (The card and the compact header.)
   const trustStrip = (
     <div className="flex items-center gap-2 rounded-xl bg-gray-50 dark:bg-white/5 px-3.5 py-2">
-      <Check className="w-4 h-4 shrink-0 text-bb-green" aria-hidden />
+      <Check className="w-4 h-4 shrink-0 text-bb-green-dark" aria-hidden />
       <p className="text-[13px] font-medium leading-snug text-gray-700 dark:text-gray-300">{trustText}</p>
     </div>
   );
@@ -802,7 +802,7 @@ function VenueHeader({ page, t, lang, setLang, apptWords = false, step, layout =
             {phoneItem()}
             {!paused && (
               <p className="inline-flex items-center gap-1.5 min-h-8 font-medium text-gray-700 dark:text-gray-300">
-                <Check className="w-3.5 h-3.5 shrink-0 text-bb-green" aria-hidden />
+                <Check className="w-3.5 h-3.5 shrink-0 text-bb-green-dark" aria-hidden />
                 <span>{trustText}</span>
               </p>
             )}
@@ -1027,11 +1027,15 @@ export default function ReservationPublicPage() {
   const wideQuery = useMediaQuery("(min-width: 1024px)");
   const wide = wideQuery && !isEmbed && !framed;
 
-  // Embedded = always LIGHT, whatever theme this browser stored: the frame
-  // sits in the owner's (light) website, and the owner's dark-mode preview of
-  // it must show what guests get. Layout effect, so the first paint after a
-  // client-side mount is already light. See forceLightTheme (utils/themeColor).
-  useLayoutEffect(() => (isEmbed ? forceLightTheme() : undefined), [isEmbed]);
+  // Embedded = LIGHT, whatever theme this browser stored: the frame sits in
+  // the owner's website, and the owner's dark-mode preview of it must show
+  // what guests get. Layout effect, so the first paint after a client-side
+  // mount is already light. See forceLightTheme (utils/themeColor).
+  // Booking R13: unless the snippet opted in to the restaurant's look — then
+  // the parse-time script gave the frame its theme (a dark site, the dark
+  // card) and it stays (embedTheme). On its own, the page follows the
+  // phone's dark mode (followSystemTheme), not only a stored theme.
+  useLayoutEffect(() => (isEmbed ? embedTheme() : followSystemTheme()), [isEmbed]);
 
   // ── One elevation in the embed (booking R3, judge change 4) ──────
   // From 450 px the embedded booking is ONE white card on the restaurant's
@@ -1047,6 +1051,9 @@ export default function ReservationPublicPage() {
   // offers it and a new snippet carries it by default; a snippet pasted
   // before R4 has no such parameter and keeps the full header.
   const compactHead = isEmbed && searchParams.get("compact") === "1";
+  // R13: the restaurant's look is on (index.css "BOOKING LOOK"): the action
+  // bar rests on the look's card colour instead of white / gray-950.
+  const [looked] = useState(() => isEmbed && document.documentElement.classList.contains("bb-look"));
   useLayoutEffect(() => {
     if (!embedCard || typeof document === "undefined") return undefined;
     const root = document.documentElement;
@@ -3125,7 +3132,7 @@ export default function ReservationPublicPage() {
         // the host site is the ground: from 450 px the frame is transparent
         // and pads the one card (EMBED_GROUND); with &flat=1, nothing.
         isEmbed
-          ? (embedCard ? EMBED_GROUND : "")
+          ? (embedCard ? EMBED_GROUND : "bb-ground")
           : (pausedStep1 || fullNightOnScreen ? "pb-12" : "pb-32") + " sm:pt-10 sm:pb-12 sm:bg-gray-50 sm:dark:bg-gray-950"
       }`}
     >
@@ -3146,7 +3153,9 @@ export default function ReservationPublicPage() {
           (wide ? "w-full " : "") +
           (isEmbed
             ? (embedCard ? EMBED_CARD : "")
-            : "sm:rounded-xl sm:border sm:border-gray-200 sm:bg-white sm:shadow-sm dark:sm:border-gray-800 dark:sm:bg-gray-900")
+            // One card look on a computer and in the embed (R13, judge): 16 px
+            // corners, a 5 % ring and one soft shadow (EMBED_CARD's).
+            : "sm:rounded-[16px] sm:bg-white sm:shadow-[0_0_0_1px_rgb(16_24_40/0.05),0_1px_2px_rgb(16_24_40/0.04),0_16px_40px_-20px_rgb(16_24_40/0.18)] dark:sm:bg-gray-900 dark:sm:shadow-[0_0_0_1px_rgb(255_255_255/0.08)]")
         }
       >
         {/* ── Venue identity (brand logo or typographic monogram) ──
@@ -4373,11 +4382,12 @@ export default function ReservationPublicPage() {
                   // pushed it 16px past both edges). Tablet/desktop: the booking
                 // card's own sticky footer — a full-width bar cut across the
                 // card at 1280 and floated 190px below it at 768.
-                "fixed glass bottom-0 inset-x-0 sm:sticky sm:inset-x-auto sm:-mx-6 sm:rounded-b-xl sm:transform-none!") +
+                "fixed glass bottom-0 inset-x-0 sm:sticky sm:inset-x-auto sm:-mx-6 sm:rounded-b-[16px] sm:transform-none!") +
             // It rests on a hairline, white at .92; its shadow comes only
             // while it floats over content (.bb-cta-bar, index.css). As a
             // frosted .85 bar with a gray-200 rule it read as a plain line.
-            " bb-cta-bar z-40 border-t border-gray-900/[0.07] dark:border-white/[0.08] bg-white/92! dark:bg-gray-950/90!"
+            " bb-cta-bar z-40 border-t border-gray-900/[0.07] dark:border-white/[0.08] " +
+            (looked ? "bb-look-bar" : "bg-white/92! dark:bg-gray-950/90!")
           }
           style={
             isEmbed

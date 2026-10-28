@@ -16,6 +16,9 @@ import { en } from "../i18n/en";
 
 vi.mock("../utils/download", () => ({ saveFile: vi.fn(async () => ({ ok: true })) }));
 import WebsiteBookingKit, { COMPACT_DEFAULT } from "../components/reservations/WebsiteBookingKit";
+import { sampleLookQuery } from "../utils/bookingEmbed";
+// Booking R13: a new snippet matches the website by default; the preview shows it on the light sample site.
+const LOOK_Q = "&" + sampleLookQuery("light", { mode: "auto", accent: "site" });
 
 const makeT = (dict) => (key, vars) => {
   const s = dict[key] ?? key;
@@ -71,7 +74,7 @@ describe("the options, and what a new snippet carries by default", () => {
     openEmbed();
     fireEvent.click(screen.getByTestId("website-embed-compact"));
     expect(code()).toContain('src="https://www.bonbox.dk/r/cafe-mirabelle?embed=1"');
-    expect(screen.getByTestId("website-preview").getAttribute("src")).toBe(`${APP}/r/cafe-mirabelle?embed=1`);
+    expect(screen.getByTestId("website-preview").getAttribute("src")).toBe(`${APP}/r/cafe-mirabelle?embed=1` + LOOK_Q);
   });
 
   it("560 px: the code widens and the preview turns to the computer, at that width", () => {
@@ -85,7 +88,7 @@ describe("the options, and what a new snippet carries by default", () => {
     const host = screen.getByTestId("website-preview-host");
     const frame = within(host).getByTestId("website-preview");
     expect(frame.style.width).toBe("560px");
-    expect(frame.getAttribute("src")).toBe(`${APP}/r/cafe-mirabelle?embed=1&compact=1`);
+    expect(frame.getAttribute("src")).toBe(`${APP}/r/cafe-mirabelle?embed=1&compact=1` + LOOK_Q);
     // Back to 460: same frame, narrower.
     fireEvent.click(screen.getByRole("radio", { name: "Standard · 460 px" }));
     expect(within(screen.getByTestId("website-preview-host")).getByTestId("website-preview").style.width).toBe("460px");
@@ -97,7 +100,7 @@ describe("the options, and what a new snippet carries by default", () => {
     fireEvent.click(screen.getByTestId("website-embed-flat"));
     expect(code()).toContain("?embed=1&amp;flat=1&amp;compact=1\"");
     expect(screen.getByRole("radio", { name: /Computer/ })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByTestId("website-preview").getAttribute("src")).toBe(`${APP}/r/cafe-mirabelle?embed=1&flat=1&compact=1`);
+    expect(screen.getByTestId("website-preview").getAttribute("src")).toBe(`${APP}/r/cafe-mirabelle?embed=1&flat=1&compact=1` + LOOK_Q);
   });
 
   it("the hand-off mail carries the snippet as chosen, and where it goes", () => {

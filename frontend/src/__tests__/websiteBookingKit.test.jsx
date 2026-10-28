@@ -16,6 +16,9 @@ const saveFile = vi.fn(async () => ({ ok: true, channel: "download" }));
 vi.mock("../utils/download", () => ({ saveFile: (...a) => saveFile(...a) }));
 
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
+import { sampleLookQuery } from "../utils/bookingEmbed";
+// Booking R13: a new snippet matches the website by default; the preview shows it on the light sample site.
+const LOOK_Q = "&" + sampleLookQuery("light", { mode: "auto", accent: "site" });
 
 // The app's t(): dictionary lookup + {var} substitution, no fallbacks — a
 // missing key renders as the raw key, which the assertions below catch.
@@ -205,7 +208,7 @@ describe("WebsiteBookingKit — 2. Indlejr", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Indlejr" }));
     const frame = screen.getByTestId("website-preview");
     expect(frame.tagName).toBe("IFRAME");
-    expect(frame).toHaveAttribute("src", "https://www.bonbox.dk/r/cafe-mirabelle?embed=1&compact=1");
+    expect(frame).toHaveAttribute("src", "https://www.bonbox.dk/r/cafe-mirabelle?embed=1&compact=1" + LOOK_Q);
     expect(frame).toHaveAttribute("title", "Forhåndsvisning af din bookingside");
     expect(frame.parentElement.className).toContain("max-w-[375px]");
   });
@@ -213,7 +216,7 @@ describe("WebsiteBookingKit — 2. Indlejr", () => {
   it("a local build previews its own page, not production's", () => {
     renderKit({ appOrigin: "http://127.0.0.1:15977" });
     fireEvent.click(screen.getByRole("tab", { name: "Indlejr" }));
-    expect(screen.getByTestId("website-preview")).toHaveAttribute("src", "http://127.0.0.1:15977/r/cafe-mirabelle?embed=1&compact=1");
+    expect(screen.getByTestId("website-preview")).toHaveAttribute("src", "http://127.0.0.1:15977/r/cafe-mirabelle?embed=1&compact=1" + LOOK_Q);
   });
 
   it("sizes the preview from the frame's own height messages only", () => {

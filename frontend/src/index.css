@@ -1265,6 +1265,81 @@ body.modal-open {
   :root.bb-embed-card body { background-color: transparent !important; }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   BOOKING LOOK (R13, 28 Oct 2026) — the embed matches the restaurant's
+   website. Only under :root.bb-look, which the booking page's parse-time
+   script (scripts/bookingBoot.mjs running src/lib/bookingLook.js) sets in
+   a frame whose snippet opted in (data-bonbox-look, `look=1`). Every value
+   is a custom property that script computed from validated hex / enum
+   parameters — never a raw string from the address. Without .bb-look
+   nothing here applies: every snippet pasted before R13 is unchanged.
+   Unlayered, and here with the page-ground rules (above the room block,
+   chromeTokens.test.js). The site's button colour (.bb-hacc) wins over the
+   owner's ([data-bb-accent], R5, further down) by specificity, never by
+   source order; a colour that fails the guard never gets .bb-hacc.
+   ═══════════════════════════════════════════════════════════════════════ */
+/* The ground: the card's colour wherever the booking IS the page (below
+   450 px, and &flat=1). From 450 px the card mode stays transparent round
+   the one card (html/body: the .bb-embed-card rule above wins, !important). */
+:root.bb-look,
+:root.bb-look body,
+:root.bb-look.bb-page-white,
+:root.bb-look.bb-page-white body,
+:root.bb-look .bb-ground { background-color: var(--bb-card); }
+@media (min-width: 450px) {
+  :root.bb-look.bb-embed-card .bb-ground { background-color: transparent; }
+  :root.bb-look .bb-card { background-color: var(--bb-card); border-radius: var(--bb-r-card, 16px); }
+  :root.bb-look.dark .bb-card {
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 16px 40px -20px rgb(0 0 0 / 0.55);
+  }
+  :root.bb-look.bb-embed-card .bb-look-bar {
+    border-bottom-left-radius: var(--bb-r-card, 16px);
+    border-bottom-right-radius: var(--bb-r-card, 16px);
+  }
+}
+/* The sticky action bar rests on the card's own colour (92 %). */
+:root.bb-look .bb-look-bar { background-color: var(--bb-card-bar); }
+/* Corners on our ladder (sharp / soft / round), from the site's button:
+   card, tile, button (src/lib/bookingLook.js LOOK_RADII_PX is this table). */
+:root.bb-r-sharp { --bb-r-card: 4px; --bb-r-tile: 4px; --bb-r-btn: 4px; }
+:root.bb-r-soft { --bb-r-card: 16px; --bb-r-tile: 12px; --bb-r-btn: 12px; }
+:root.bb-r-round { --bb-r-card: 24px; --bb-r-tile: 22px; --bb-r-btn: 9999px; }
+:root.bb-look .bb-tile,
+:root.bb-look .bb-sk { border-radius: var(--bb-r-tile, 12px); }
+:root.bb-look .bb-cta { border-radius: var(--bb-r-btn, 12px); }
+/* The site's text colour, only when it reads at AA on the card (else no
+   .bb-ink and our greys stay). The softer line keeps 5:1. */
+:root.bb-ink .text-gray-900,
+:root.bb-ink .text-gray-800 { color: var(--bb-ink); }
+:root.bb-ink .text-gray-700,
+:root.bb-ink .text-gray-600,
+:root.bb-ink .text-gray-500 { color: var(--bb-ink-soft); }
+/* The site's font: a system font from a short list (LOOK_FONTS; the page's
+   CSP loads fonts from 'self' only). Inter stays on the tiles: lining
+   figures for times, days and party sizes. */
+:root.bb-f-system body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+:root.bb-f-helvetica body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+:root.bb-f-georgia body { font-family: Georgia, "Times New Roman", Times, serif; }
+:root.bb-f-times body { font-family: "Times New Roman", Times, Georgia, serif; }
+:root.bb-look [class~="bb-tile"] { font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+/* The site's button colour on the picks and the main button. */
+:root.bb-look.bb-hacc .bb-pick {
+  background-color: var(--bb-h-accent);
+  border-color: var(--bb-h-edge);
+  color: var(--bb-h-fg);
+}
+:root.bb-look.bb-hacc .bb-pick .bb-pick-quiet { color: var(--bb-h-fg-quiet); }
+:root.bb-look.bb-hacc .bb-accent-main:not(:disabled),
+:root.bb-look.bb-hacc .bb-accent-main[aria-busy="true"] {
+  background-color: var(--bb-h-accent);
+  color: var(--bb-h-fg);
+  --tw-inset-ring-shadow: inset 0 0 0 1px var(--bb-h-edge);
+  --tw-ring-color: var(--bb-h-edge);
+}
+@media (hover: hover) and (pointer: fine) {
+  :root.bb-look.bb-hacc .bb-accent-main:not(:disabled):hover { background-color: var(--bb-h-hover); }
+}
+
 /* ── Reservations room shell ─────────────────────────────────────────────
    Walls, drafting grid and paper floor behind the owner's 2D floor plan —
    the same plan language as the marketing floor plan
@@ -1470,3 +1545,4 @@ body:has([aria-modal="true"]) .bonbox-ai-fab { display: none !important; }
 }
 /* The owner's preview swatch in Reservationer → Indstillinger draws the same
    two pieces with the same rules (components/reservations/BookingAccentRow). */
+

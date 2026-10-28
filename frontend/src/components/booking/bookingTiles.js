@@ -53,8 +53,9 @@ export function tileClass({ picked = false, closed = false } = {}) {
 // The skeleton is the shape of what replaces it: tiles of the same material,
 // 44 px at 12 px corners, the grid's own columns, three rows reserved — the
 // block used to jump from 104 to 148 px when the times landed.
+// `bb-sk` (R13): the restaurant's corners reach the waiting tiles too.
 export const SKELETON_TILE =
-  "h-11 rounded-xl bg-gray-50 border border-gray-900/[0.06] " +
+  "bb-sk h-11 rounded-xl bg-gray-50 border border-gray-900/[0.06] " +
   "dark:bg-white/[0.04] dark:border-white/[0.08] motion-safe:animate-[bbBreathe_1.6s_ease-in-out_infinite]";
 export const SKELETON_GRID = "grid grid-cols-4 min-[450px]:grid-cols-5 gap-2";
 /** 3 rows: 12 tiles below 450 px (4 across), 15 from 450 px (5 across). */

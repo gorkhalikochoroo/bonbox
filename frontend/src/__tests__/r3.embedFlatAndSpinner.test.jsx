@@ -10,6 +10,9 @@ import { describe, expect, it, vi } from "vitest";
 import { da } from "../i18n/da";
 import { en } from "../i18n/en";
 import { embedQuery, iframeSnippet, previewSrcFor } from "../utils/bookingEmbed";
+import { sampleLookQuery } from "../utils/bookingEmbed";
+// Booking R13: a new snippet matches the website by default; the preview shows it on the light sample site.
+const LOOK_Q = "&" + sampleLookQuery("light", { mode: "auto", accent: "site" });
 import GuestSpinner from "../components/GuestSpinner";
 
 vi.mock("../utils/download", () => ({ saveFile: vi.fn(async () => ({ ok: true })) }));
@@ -58,7 +61,7 @@ describe("&flat=1 — the embed without its card", () => {
       expect(screen.getByTestId("website-embed-code").textContent).toContain("?embed=1&amp;compact=1\"");
       fireEvent.click(box);
       expect(screen.getByTestId("website-embed-code").textContent).toContain("?embed=1&amp;flat=1");
-      expect(screen.getByTestId("website-preview").getAttribute("src")).toBe("https://www.bonbox.dk/r/cafe-mirabelle?embed=1&flat=1&compact=1");
+      expect(screen.getByTestId("website-preview").getAttribute("src")).toBe("https://www.bonbox.dk/r/cafe-mirabelle?embed=1&flat=1&compact=1" + LOOK_Q);
       expect(view.container.textContent).not.toMatch(/rsvpWebEmbedFlat/);
       view.unmount();
     }

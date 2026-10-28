@@ -23,15 +23,39 @@
 //      takes them over only when they are exactly what it would ask
 //      (lib/bookingBoot.js); a wrong guess costs one spare request, never a
 //      wrong page. Each gives up after 15 s and the page asks again itself.
+//   5. (booking R13) in an embed whose snippet opted in (`look=1`), paints
+//      the restaurant's look before the first paint: src/lib/bookingLook.js
+//      reads the address strictly and sets classes and custom properties on
+//      <html> (index.css "BOOKING LOOK"); later looks come from the host
+//      page as {type:"bonbox:look", q} messages — only from the frame's own
+//      parent, read by the same function. No `look=1`, nothing changes.
 // Everything is inside try/catch: this script can only ever add speed.
 import { RESERVED_SLUGS } from "../src/lib/bookingPath.js";
 import { SKELETON_VARIANTS, skeletonHtml } from "../src/components/booking/bookingWait.js";
+import { LOOK_FONTS, LOOK_RADII, applyLook, lookFrom } from "../src/lib/bookingLook.js";
 
 export const PROBE_TIMEOUT_MS = 15000;
 
 /** The <script> element's text (without the tags). */
 // JSON that is safe inside an inline <script>: no "</script" can end it early.
 const js = (v) => JSON.stringify(v).replace(/</g, "\\u003c");
+
+// A function's own source on one line (bookingLook.js keeps its bodies free
+// of comments and ends every statement with ";", so joining lines is safe —
+// r13.bookingLook.test.js runs the joined copy).
+const oneLine = (fn) => fn.toString().replace(/\n\s*/g, " ");
+
+/** The look half of the script (R13): runs only in an embed with `look=1`. */
+export function lookSource() {
+  return (
+    `var LR=${js(LOOK_RADII)},LF=${js(LOOK_FONTS)},lookFrom=${oneLine(lookFrom)},applyLook=${oneLine(applyLook)};` +
+    "var LK=lookFrom(q,LR,LF);" +
+    "if(LK){B.look=LK;applyLook(D,LK,LR,LF);" +
+    'w.addEventListener("message",function(ev){try{var x=ev.data;' +
+    'if(ev.source!==w.parent||!x||x.type!=="bonbox:look"||typeof x.q!=="string"||x.q.length>400)return;' +
+    'var N=lookFrom("?"+x.q,LR,LF);if(N){B.look=N;applyLook(D,N,LR,LF)}}catch(y){}})}'
+  );
+}
 
 export function bookingBootSource({ apiUrl = "", preload = [] } = {}) {
   const ph = Object.fromEntries(SKELETON_VARIANTS.map((v) => [v, skeletonHtml(v)]));
@@ -52,6 +76,7 @@ export function bookingBootSource({ apiUrl = "", preload = [] } = {}) {
     'var wide=!e&&!fr&&!!w.matchMedia&&w.matchMedia("(min-width: 1024px)").matches;' +
     'B.ph=P[e?(f?"embedFlat":"embedCard"):(wide?"wide":"plain")];' +
     'if(e&&!f)D.documentElement.classList.add("bb-embed-card");' +
+    "if(e){" + lookSource() + "}" +
     'for(var i=0;i<J.length;i++){var k=D.createElement("link");k.rel="modulepreload";k.crossOrigin="";k.href=J[i];D.head.appendChild(k)}' +
     'var a=A;if(a.charAt(0)!=="h"){var hn=l.hostname;a=(hn==="bonbox.dk"||/\\.bonbox\\.dk$/.test(hn))?"https://api.bonbox.dk/api":""}' +
     "if(!a||!w.fetch)return;" +

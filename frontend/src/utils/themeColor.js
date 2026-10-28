@@ -130,6 +130,50 @@ export function forceLightTheme() {
   };
 }
 
+/**
+ * embedTheme — booking R13. An embed whose snippet opted in to the
+ * restaurant's look (`look=1`) got its theme from the parse-time script
+ * (<html class="bb-look">, src/lib/bookingLook.js): a dark site gets the dark
+ * card, and the page leaves it alone. Every other embed is light, exactly as
+ * before (forceLightTheme above).
+ */
+export function embedTheme() {
+  if (typeof document !== "undefined" && document.documentElement.classList.contains("bb-look")) return () => {};
+  return forceLightTheme();
+}
+
+/**
+ * followSystemTheme — booking R13. The booking page opened on its own
+ * follows the phone's dark mode (prefers-color-scheme), not only a theme
+ * stored by the owner app: a guest's phone at night gets the dark page that
+ * was already designed for it. index.html's pre-paint does the same before
+ * the first paint; this keeps it while the page is mounted (and follows a
+ * switch of the phone's setting). The stored choice is never written: stored
+ * "dark" stays dark, and on leaving the page <html> is back to what it says.
+ */
+export function followSystemTheme() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
+  const root = document.documentElement;
+  let stored = false;
+  try {
+    stored = localStorage.getItem("theme") === "dark";
+  } catch {
+    /* storage blocked: the phone decides alone */
+  }
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  const apply = () => root.classList.toggle("dark", stored || !!mq?.matches);
+  const onChange = () => {
+    apply();
+    syncThemeColor(root.classList.contains("dark"));
+  };
+  apply();
+  mq?.addEventListener?.("change", onChange);
+  return () => {
+    mq?.removeEventListener?.("change", onChange);
+    root.classList.toggle("dark", stored);
+  };
+}
+
 /** The theme-color value for this theme on this path. */
 export function themeColorFor(isDark, path, { guest = false } = {}) {
   // Dark: exactly what shipped — card rung, white on the light-only pages.
