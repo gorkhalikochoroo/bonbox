@@ -19,6 +19,8 @@ import { useEffect } from "react";
 
 export const AUTO_HEIGHT_MS = 280;
 export const AUTO_HEIGHT_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+/** How far content may paint past the clipped edge while it eases. */
+export const CLIP_MARGIN = "8px";
 
 function reducedMotion() {
   try {
@@ -43,6 +45,7 @@ export function useAutoHeight(node, { enabled = true, duration = AUTO_HEIGHT_MS 
       el.style.height = "";
       el.style.transition = "";
       el.style.overflowY = "";
+      el.style.removeProperty("overflow-clip-margin");
     };
     const settle = () => {
       animating = false;
@@ -58,6 +61,12 @@ export function useAutoHeight(node, { enabled = true, duration = AUTO_HEIGHT_MS 
       rest = to;
       if (!from || Math.abs(to - from) < 2) return;
       el.style.overflowY = "clip";
+      // R13 judge: the step that enters (4 px) and the times that arrive
+      // (3 px) move up into place WHILE the box eases; with a hard clip their
+      // last row lost its bottom edge for those frames (a pill its lower
+      // curve). They may paint CLIP_MARGIN past the edge; at rest nothing is
+      // clipped at all (measured: the last row ends exactly on the box).
+      el.style.setProperty("overflow-clip-margin", CLIP_MARGIN);
       el.style.transition = "none";
       el.style.height = `${from}px`;
       void el.offsetHeight; // commit the start frame

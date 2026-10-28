@@ -323,7 +323,7 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords =
     >
       {groups.length > 1 && (
         <div
-          className="mb-3 flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-gray-800"
+          className="bb-seg mb-3 flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-gray-800"
           role="group"
           aria-label={t("rsvpPickTime")}
         >
@@ -3956,7 +3956,7 @@ export default function ReservationPublicPage() {
                   role="radiogroup"
                   aria-label={t("rsvpContactHow")}
                   onKeyDown={rovingKeyDown}
-                  className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-gray-800"
+                  className="bb-seg flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-gray-800"
                 >
                   {[
                     { k: "email", label: t("rsvpContactEmailLabel") },
@@ -4516,7 +4516,7 @@ function LangPill({ lang, setLang }) {
     <div
       role="group"
       aria-label="Sprog · Language"
-      className="shrink-0 flex items-center p-0.5 rounded-xl bg-gray-100 dark:bg-gray-800"
+      className="bb-seg shrink-0 flex items-center p-0.5 rounded-xl bg-gray-100 dark:bg-gray-800"
     >
       {["da", "en"].map((code) => (
         <button

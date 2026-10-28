@@ -39,6 +39,14 @@
 //           ticket, the step-2 summary and allergy panel in a looked dark
 //           frame (index.css); tint2 (18 % / 10 %) the off-switch track and
 //           the inactive step marks, which carry no text.
+//   fill    light only (judge, fix round 3): the page's quiet greys follow the
+//           site — the tiles and the trust strip the card 3 % toward the
+//           site's ink (fill), the tracks 6 % (fill2), the hairlines 8 %
+//           (line); BonBox's cool gray-50 / gray-100 had a blue cast on a
+//           warm card. Without a darker site ink, toward ours (#111827).
+//   raise   dark only: a selected segment (DA/EN, the services, e-mail /
+//           phone) — the card 12 % toward white, raised off its tint track
+//           (it read pressed in as the card colour).
 //   ink     the site's text colour when it reads at AA (4.5:1) on EVERY quiet
 //           surface it can sit on — the card, the tint, and in light also the
 //           page's own gray-50 / gray-100 (the trust strip, the tiles, the
@@ -98,7 +106,9 @@ export function lookFrom(q, R, F) {
   if (!dk) { cd = pl && L(pl) >= 0.18 ? M(W, pl, 0.3) : W; while (L(cd) < 0.93 && i++ < 40) cd = M(cd, W, 0.1); }
   else if (pl && L(pl) < 0.18) { cd = M(pl, W, 0.07); while (L(cd) > 0.035 && i++ < 40) cd = M(cd, K, 0.1); }
   else cd = "#111827";
-  var tn = dk ? M(cd, W, 0.06) : M(cd, K, 0.04), t2 = dk ? M(cd, W, 0.18) : M(cd, K, 0.1), Q = dk ? [cd, tn] : [cd, tn, "#F9FAFB", "#F3F4F6"];
+  var tn = dk ? M(cd, W, 0.06) : M(cd, K, 0.04), t2 = dk ? M(cd, W, 0.18) : M(cd, K, 0.1);
+  var dir = ink && L(ink) < L(cd) ? ink : "#111827", f1 = M(cd, dir, 0.03), f2 = M(cd, dir, 0.06), ln = M(cd, dir, 0.08), rs = M(cd, W, 0.12);
+  var Q = dk ? [cd, tn, rs] : [cd, tn, "#F9FAFB", "#F3F4F6", f1, f2];
   var lo = function (x) { var r = 99, j; for (j = 0; j < Q.length; j++) r = Math.min(r, C(x, Q[j])); return r; };
   if (ink && lo(ink) >= 4.5) { so = ink; for (i = 0; i < 4; i++) { c = M(ink, cd, [0.45, 0.35, 0.25, 0.15][i]); if (lo(c) >= 4.5) { so = c; break; } } } else ink = null;
   if (ac) {
@@ -110,7 +120,7 @@ export function lookFrom(q, R, F) {
       for (i = 1; C(A.edge, cd) < 3 && i <= 25; i++) A.edge = M(ac, dk ? W : K, i * 0.04);
     }
   }
-  return { dark: dk, card: cd, tint: tn, tint2: t2, ink: ink, soft: so, accent: A, radius: en(R, "radius"), font: en(F, "font"), scheme: en(["light", "dark", "ld"], "scheme") };
+  return { dark: dk, card: cd, tint: tn, tint2: t2, fill: f1, fill2: f2, line: ln, raise: rs, ink: ink, soft: so, accent: A, radius: en(R, "radius"), font: en(F, "font"), scheme: en(["light", "dark", "ld"], "scheme") };
 }
 
 /** Paint a look (lookFrom's result) on the document: classes and custom
@@ -120,7 +130,8 @@ export function lookFrom(q, R, F) {
 export function applyLook(d, L, R, F) {
   var r = d.documentElement, s = r.style, c = r.classList, A = L.accent || {}, k, i;
   var v = {
-    "--bb-card": L.card, "--bb-card-bar": L.card + "EB", "--bb-tint": L.tint, "--bb-tint-2": L.tint2, "--bb-ink": L.ink, "--bb-ink-soft": L.soft,
+    "--bb-card": L.card, "--bb-card-bar": L.card + "EB", "--bb-tint": L.tint, "--bb-tint-2": L.tint2,
+    "--bb-fill": L.fill, "--bb-fill-2": L.fill2, "--bb-line": L.line, "--bb-raise": L.raise, "--bb-ink": L.ink, "--bb-ink-soft": L.soft,
     "--bb-h-accent": A.bg, "--bb-h-fg": A.fg, "--bb-h-fg-quiet": A.quiet, "--bb-h-hover": A.hover, "--bb-h-edge": A.edge
   };
   for (k in v) if (v[k]) s.setProperty(k, v[k]); else s.removeProperty(k);

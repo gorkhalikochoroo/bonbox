@@ -459,7 +459,8 @@
               ["/", "/v2", "/join", "/stand", "/login/magic", "/login/claim"].indexOf(p) !== -1;
             if (!lightOnly) {
               var tc = document.querySelector('meta[name="theme-color"]');
-              if (tc) tc.setAttribute("content", "#1f2937");
+              // a restaurant's booking page: its own ground (R13 fix round 3)
+              if (tc) tc.setAttribute("content", bb && !bb.embed ? "#030712" : "#1f2937");
             }
           } else {
             document.documentElement.classList.remove("dark");
@@ -470,7 +471,7 @@
         if (osDark && !looked) {
           document.documentElement.classList.add("dark");
           var gc = document.querySelector('meta[name="theme-color"]');
-          if (gc) gc.setAttribute("content", "#1f2937");
+          if (gc) gc.setAttribute("content", "#030712");
         }
         // Light on a paper route: the paper bar now, not on React's first
         // commit. Every other route keeps the static white.

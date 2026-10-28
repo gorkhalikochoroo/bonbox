@@ -93,12 +93,14 @@ export function helloSource() {
 /** R13 fix: the booking page on its own decides `.dark` here, in <head>,
  *  before anything is painted (a stored "dark", or the phone's dark mode) —
  *  in <body> it came one frame late now and then (a paper flash at 1440).
- *  index.html's body script keeps the same answer. */
+ *  index.html's body script keeps the same answer. It is marked
+ *  html.bb-guest too (fix round 3): in dark its ground is the page's own
+ *  gray-950, not the app's #111827 (index.css). */
 export function darkSource() {
   return (
     'var dk=false;try{dk=w.localStorage.getItem("theme")==="dark"}catch(x){}' +
     'try{dk=dk||w.matchMedia("(prefers-color-scheme: dark)").matches===true}catch(x){}' +
-    'if(dk)D.documentElement.classList.add("dark");'
+    'D.documentElement.classList.add("bb-guest");if(dk)D.documentElement.classList.add("dark");'
   );
 }
 

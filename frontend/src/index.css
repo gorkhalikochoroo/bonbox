@@ -1308,13 +1308,39 @@ body.modal-open {
 :root.bb-look.dark .dark\:bg-gray-950:not(.bb-ground) { background-color: var(--bb-card); }
 :root.bb-look.dark .dark\:bg-gray-900,
 :root.bb-look.dark .dark\:bg-gray-800 { background-color: var(--bb-tint); }
-:root.bb-look.dark .dark\:bg-gray-600 { background-color: var(--bb-card); }
+/* A selected segment (DA/EN, the services, e-mail / phone) is raised off its
+   tint track — as the card colour it read pressed in (judge, fix round 3). */
+:root.bb-look.dark .dark\:bg-gray-600 { background-color: var(--bb-raise); }
 /* …and on step 2 (fix round 2): the date summary, the opened allergy panel,
    the info cards; the off-switch track and the inactive step marks (no text
    on them) a stronger tint. */
 :root.bb-look.dark .dark\:bg-gray-900\/60,
 :root.bb-look.dark .dark\:bg-gray-800\/60 { background-color: var(--bb-tint); }
 :root.bb-look.dark .dark\:bg-gray-700 { background-color: var(--bb-tint-2); }
+/* Fix round 3 (judge): in a light look the page's quiet greys follow the site
+   — tiles and the trust strip take the card 3 % toward the site's ink, the
+   tracks 6 %, the hairlines 8 % — instead of BonBox's cool gray-50 / gray-100
+   (a blue cast on a warm card). The receipt's ground stays the card. The
+   current step's dot is the site's ink. All text stays AA on them
+   (src/lib/bookingLook.js). */
+:root.bb-look:not(.dark) .bg-gray-50:not(.bb-solid) { background-color: var(--bb-fill); }
+:root.bb-look:not(.dark) .bg-gray-100 { background-color: var(--bb-fill-2); }
+:root.bb-look:not(.dark) .border-gray-900\/\[0\.06\],
+:root.bb-look:not(.dark) .border-gray-900\/\[0\.07\] { border-color: var(--bb-line); }
+@media (hover: hover) and (pointer: fine) {
+  :root.bb-look:not(.dark) .bb-tile.bg-gray-50:not(.bb-pick):hover { background-color: var(--bb-fill-2); }
+}
+:root.bb-ink [role="progressbar"] > [data-current="true"] { background-color: var(--bb-ink); }
+/* The segmented switches (DA/EN, the services, e-mail / phone: .bb-seg)
+   follow the site's corners too: a pill on a round site, square on a sharp
+   one; their segments sit one padding inside. */
+:root.bb-look .bb-seg { border-radius: var(--bb-r-tile, 12px); }
+:root.bb-look .bb-seg > button { border-radius: max(0px, calc(var(--bb-r-tile, 12px) - 4px)); }
+/* The booking page on its own, in dark (fix round 3): <html> and <body> are
+   the page's own ground (gray-950), like its theme-color — Safari painted its
+   bars from the app's #111827 next to a #030712 page. */
+:root.dark.bb-guest,
+:root.dark.bb-guest body { background-color: var(--color-gray-950); }
 /* R13 fix round 2: a frame waiting for its look (a bare `look=1`, every new
    snippet) paints nothing — html and body transparent, the page hidden —
    until the look arrives by message or LOOK_WAIT_MS passes

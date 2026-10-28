@@ -40,7 +40,8 @@ describe("nothing without look=1", () => {
     (q) => expect(look(q)).toBeNull(),
   );
   it("look=1 alone is today's light card, nothing else", () => {
-    expect(look("?embed=1&look=1")).toEqual({ dark: false, card: "#FFFFFF", tint: "#F5F5F5", tint2: "#E6E6E6", ink: null, soft: null, accent: null, radius: null, font: null, scheme: null });
+    expect(look("?embed=1&look=1")).toEqual({ dark: false, card: "#FFFFFF", tint: "#F5F5F5", tint2: "#E6E6E6",
+      fill: "#F8F8F9", fill2: "#F1F1F2", line: "#ECEDEE", raise: "#FFFFFF", ink: null, soft: null, accent: null, radius: null, font: null, scheme: null });
   });
 });
 
@@ -189,7 +190,8 @@ describe("the trust line and every soft line read at AA on the surfaces they sit
     expect(css).toContain(":root.bb-look .bb-solid { background-color: var(--bb-card); }");
     expect(css).toContain(":root.bb-look.dark .dark\\:bg-gray-950:not(.bb-ground) { background-color: var(--bb-card); }");
     expect(css).toMatch(/:root\.bb-look\.dark \.dark\\:bg-gray-900,\s*:root\.bb-look\.dark \.dark\\:bg-gray-800 \{ background-color: var\(--bb-tint\); \}/);
-    expect(css).toContain(":root.bb-look.dark .dark\\:bg-gray-600 { background-color: var(--bb-card); }");
+    // fix round 3 (judge): the selected segment is raised off its track, not the card colour
+    expect(css).toContain(":root.bb-look.dark .dark\\:bg-gray-600 { background-color: var(--bb-raise); }");
     // fix round 2: step 2's date summary, allergy panel and info cards; the switch track and step marks
     expect(css).toMatch(/:root\.bb-look\.dark \.dark\\:bg-gray-900\\\/60,\s*:root\.bb-look\.dark \.dark\\:bg-gray-800\\\/60 \{ background-color: var\(--bb-tint\); \}/);
     expect(css).toContain(":root.bb-look.dark .dark\\:bg-gray-700 { background-color: var(--bb-tint-2); }");
@@ -331,7 +333,8 @@ describe("applyLook: classes and custom properties on <html>, set and cleared", 
     expect(start).toBeLessThan(css.indexOf(".bb-room-wall {"));
     const block = css.slice(start, css.indexOf(".bb-room-wall {"));
     const colours = [...block.matchAll(/(?:background-color|color|border-color):\s*([^;]+);/g)].map((m) => m[1].trim());
-    for (const c of colours) expect(c).toMatch(/^(var\(--bb-[a-z0-9-]+\)|transparent)( !important)?$/);
+    // the look's own custom properties, transparent, or the page's own gray-950 token (the guest ground in dark)
+    for (const c of colours) expect(c).toMatch(/^(var\(--bb-[a-z0-9-]+\)|var\(--color-gray-950\)|transparent)( !important)?$/);
   });
 });
 

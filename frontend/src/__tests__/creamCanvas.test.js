@@ -135,7 +135,9 @@ describe("2. dark is unchanged", () => {
     ["/login/magic", "#ffffff"], ["/login/claim", "#ffffff"], ["/s/tok", "#ffffff"],
   ])("dark theme-color on %s is still %s", (path, want) => {
     expect(themeColorFor(true, path)).toBe(want);
-    expect(themeColorFor(true, path, { guest: true })).toBe(want); // the guest flag is a light-only input
+    // R13 fix round 3: a mounted restaurant booking page (the guest flag) is its own ground in dark,
+    // gray-950 — Safari painted its bars #1f2937 / #111827 next to a #030712 page.
+    expect(themeColorFor(true, path, { guest: true })).toBe("#030712");
   });
 });
 
@@ -248,14 +250,15 @@ describe("3. the browser bar in light", () => {
       expect(meta.getAttribute("content")).toBe(PAPER);
     });
 
-    it("dark ignores the guest mark, exactly as before", () => {
+    it("dark: the guest mark gives the booking page's own ground (R13 fix round 3), the app's card rung again when it drops", () => {
       document.documentElement.classList.add("dark");
       mount("/cafe-nordlys");
       expect(meta.getAttribute("content")).toBe("#1f2937");
       let unmark;
       act(() => { unmark = markGuestSurface(); });
-      expect(meta.getAttribute("content")).toBe("#1f2937");
+      expect(meta.getAttribute("content")).toBe("#030712");
       act(() => unmark());
+      expect(meta.getAttribute("content")).toBe("#1f2937");
     });
   });
 });

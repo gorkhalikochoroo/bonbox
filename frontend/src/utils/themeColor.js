@@ -33,7 +33,7 @@ import { isGuestSurface } from "../lib/guestSurface";
  * paints the right bar and ground before the bundle arrives (paper on an app
  * route, the static white everywhere else). Dark is unchanged.
  */
-export const THEME_COLOR = Object.freeze({ light: "#f6f4ec", dark: "#1f2937", page: "#ffffff" });
+export const THEME_COLOR = Object.freeze({ light: "#f6f4ec", dark: "#1f2937", page: "#ffffff", guestDark: "#030712" });
 
 /**
  * Light-mode routes that draw on the paper — the ONLY routes whose browser bar
@@ -194,8 +194,10 @@ export function followSystemTheme() {
 
 /** The theme-color value for this theme on this path. */
 export function themeColorFor(isDark, path, { guest = false } = {}) {
-  // Dark: exactly what shipped — card rung, white on the light-only pages.
-  if (isDark) return isLightOnlyPath(path) ? THEME_COLOR.page : THEME_COLOR.dark;
+  // Dark: the card rung, white on the light-only pages — and a restaurant's
+  // booking page its own ground, gray-950 (R13 fix round 3: Safari painted
+  // its bars #111827 / #1f2937 next to a #030712 page).
+  if (isDark) return guest ? THEME_COLOR.guestDark : isLightOnlyPath(path) ? THEME_COLOR.page : THEME_COLOR.dark;
   // Light: paper on a known paper route, white everywhere else. A mounted guest
   // page is white even if it somehow sat on a paper path.
   return guest || isWhitePagePath(path) ? THEME_COLOR.page : THEME_COLOR.light;
