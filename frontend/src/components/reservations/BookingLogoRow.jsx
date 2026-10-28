@@ -20,8 +20,8 @@ import { venueMonogram } from "../../utils/venueMonogram";
 // from sm, like the rows around it.
 const LINK =
   "inline-flex items-center justify-center gap-1.5 shrink-0 h-10 sm:h-9 min-h-0! px-3 rounded-lg text-[13px] font-medium " +
-  "border border-gray-200 dark:border-gray-700 bg-white dark:bg-transparent text-gray-800 dark:text-gray-200 " +
-  "hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors focus-visible:outline-none focus-visible:ring-2 " +
+  "bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 " +
+  "dark:shadow-[inset_0_0_0_1px_var(--color-gray-700)] transition-colors focus-visible:outline-none focus-visible:ring-2 " +
   "focus-visible:ring-[rgb(var(--brand-green-accent))] focus-visible:ring-offset-2";
 
 export default function BookingLogoRow({ t, publicName = null }) {

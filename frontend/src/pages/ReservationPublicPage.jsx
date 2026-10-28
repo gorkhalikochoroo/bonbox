@@ -377,7 +377,9 @@ function TimeGrid({ groups, slot, onPick, slotRemaining, loading, t, apptWords =
               }
             >
               <span className="leading-none">{s}</span>
-              {withNotes && (
+              {/* Judge, 28 Oct: a tile with no note centres its time — an
+                  empty note line held it high in the 52 px row. */}
+              {note && (
                 // G10 (judge 27 Oct): 11 px (10 was under the floor) in quiet
                 // grey — green no longer says "free" on a page whose green is
                 // the main action. The picked tile keeps its white/80.

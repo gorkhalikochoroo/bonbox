@@ -105,7 +105,7 @@ export function lookFrom(q, R, F) {
   var dk = th ? th == "dark" : sf == "photo" || (pl ? L(pl) < 0.18 : !!ink && L(ink) > 0.5);
   if (!dk) { cd = pl && L(pl) >= 0.18 ? M(W, pl, 0.3) : W; while (L(cd) < 0.93 && i++ < 40) cd = M(cd, W, 0.1); }
   else if (pl && L(pl) < 0.18) { cd = M(pl, W, 0.07); while (L(cd) > 0.035 && i++ < 40) cd = M(cd, K, 0.1); }
-  else cd = "#111827";
+  else cd = "#171717";
   var tn = dk ? M(cd, W, 0.06) : M(cd, K, 0.04), t2 = dk ? M(cd, W, 0.18) : M(cd, K, 0.1);
   var dir = ink && L(ink) < L(cd) ? ink : "#111827", f1 = M(cd, dir, 0.03), f2 = M(cd, dir, 0.06), ln = M(cd, dir, 0.08), rs = M(cd, W, 0.12);
   var Q = dk ? [cd, tn, rs] : [cd, tn, "#F9FAFB", "#F3F4F6", f1, f2];

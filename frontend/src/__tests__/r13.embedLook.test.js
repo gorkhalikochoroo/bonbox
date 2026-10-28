@@ -188,7 +188,7 @@ describe("a photo behind the booking", () => {
       body: '<div class="hero"><div>{SNIPPET}</div></div>',
     });
     expect(q()).toMatch(/^look=1&surface=photo&ink=ffffff/);
-    expect(lookFrom("?" + q(), LOOK_RADII, LOOK_FONTS)).toMatchObject({ dark: true, card: "#111827" });
+    expect(lookFrom("?" + q(), LOOK_RADII, LOOK_FONTS)).toMatchObject({ dark: true, card: "#171717" });
     document.body.innerHTML = "";
     const g = host({
       css: `.band { background-image: linear-gradient(#fff, #000); }`,
@@ -304,7 +304,7 @@ describe("the owner's override", () => {
     const dark = host({ css: CREAM, body: CREAM_BODY, look: { mode: "dark", accent: "own" } }).q();
     expect(dark).toBe("look=1&theme=dark&surface=f4efe6&ink=2b2118&radius=round&font=georgia");
     // forced dark on a cream site: our dark card; the site's dark ink fails on it, so ours
-    expect(lookFrom("?" + dark, LOOK_RADII, LOOK_FONTS)).toMatchObject({ dark: true, card: "#111827", ink: null, accent: null });
+    expect(lookFrom("?" + dark, LOOK_RADII, LOOK_FONTS)).toMatchObject({ dark: true, card: "#171717", ink: null, accent: null });
     document.body.innerHTML = "";
     expect(host({ css: CREAM, body: CREAM_BODY, look: { mode: "light", accent: "site" } }).q()).toMatch(/^look=1&theme=light&/);
   });

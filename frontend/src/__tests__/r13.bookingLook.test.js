@@ -128,10 +128,11 @@ describe("the card: a slightly lifted version of the site's surface", () => {
   });
 
   it("a photo, no surface on a dark page, or a theme the owner forced against the site: our own card", () => {
-    expect(look("?look=1&surface=photo").card).toBe("#111827");
-    expect(look("?look=1&theme=dark&surface=f4efe6").card).toBe("#111827");
+    // R14 (judge, 28 Oct): a neutral near-black — our cool navy read blue on warm photos
+    expect(look("?look=1&surface=photo").card).toBe("#171717");
+    expect(look("?look=1&theme=dark&surface=f4efe6").card).toBe("#171717");
     expect(look("?look=1&theme=light&surface=0b0b0b").card).toBe("#FFFFFF");
-    expect(look("?look=1&theme=dark").card).toBe("#111827");
+    expect(look("?look=1&theme=dark").card).toBe("#171717");
   });
 });
 
@@ -297,7 +298,9 @@ describe("fonts: system fonts only", () => {
   it("the list, and its stacks in index.css: nothing to download", () => {
     expect(LOOK_FONTS).toEqual(["system", "helvetica", "georgia", "times"]);
     const css = read("index.css");
-    for (const id of LOOK_FONTS) expect(css).toMatch(new RegExp(`:root\\.bb-f-${id} body \\{ font-family: [^;]*(serif|sans-serif); \\}`));
+    for (const id of LOOK_FONTS) expect(css).toMatch(new RegExp(`:root\\.bb-f-${id} body \\{ font-family: [^;]*(serif|sans-serif);( font-variant-numeric: lining-nums;)? \\}`));
+    // R14 (judge, 28 Oct): the serif looks set lining figures, so "28" reads the same in the tile and the summary
+    for (const id of ["georgia", "times"]) expect(css).toMatch(new RegExp(`:root\\.bb-f-${id} body \\{[^}]*font-variant-numeric: lining-nums;`));
     const block = css.slice(css.indexOf("BOOKING LOOK (R13"), css.indexOf(".bb-room-wall {"));
     expect(block).not.toMatch(/url\(|@import|@font-face|googleapis|gstatic/);
     // Inter stays on the tiles (lining figures)

@@ -47,6 +47,9 @@ describe("the logo row in Reservationer → Indstillinger", () => {
     const link = screen.getByTestId("rsvp-booking-logo-link");
     expect(link.getAttribute("href")).toBe("/profile#brand");
     expect(link.textContent).toBe(da.rsvpLogoChange);
+    // R14 (judge, 28 Oct): the same quiet filled button as "Ret" beside it, not an outline
+    expect(link.className).toContain("bg-gray-100");
+    expect(link.className).not.toMatch(/(^| )border( |$)/);
     expect(screen.getByText(da.rsvpLogoLabel)).toBeTruthy();
     expect(h.get).toHaveBeenCalledWith("/business/brand");
   });

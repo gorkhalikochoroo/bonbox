@@ -293,6 +293,21 @@ describe("2 · tiles", () => {
     expect(t.className).not.toContain("font-semibold");
   });
 
+  // R14 (design judge, 28 Oct): in a row that carries notes every tile is 52 px; a time
+  // without a note had an empty note line under it and sat high. Only a real note adds a line.
+  it("a time with no note has no empty note line, so it sits in the middle of its 52 px tile", async () => {
+    routes({ avail: () => ({ slots: ["19:00", "19:15", "19:30"], slot_remaining: { "19:00": 1, "19:30": 9 } }) });
+    renderAt();
+    await settle();
+    const [withNote, plain] = timeRadios();
+    expect(withNote.className).toContain("h-[52px]");
+    expect(plain.className).toContain("h-[52px]");
+    const noteLine = (tile) => tile.querySelector('[class*="text-[11px]"]');
+    expect(noteLine(withNote)?.textContent).toBe(da.rsvpSlotLastTable);
+    expect(noteLine(plain)).toBeNull();
+    expect(plain.textContent).toBe("19:15");
+  });
+
   it("a closed day has no box: transparent fill and line, still disabled with its word", async () => {
     routes({ sum: () => summary([null, "closed"]) });
     renderAt();

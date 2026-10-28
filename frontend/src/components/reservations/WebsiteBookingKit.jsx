@@ -140,7 +140,7 @@ function OptionCheck({ checked, onChange, label, hint, testId }) {
 // colour, sample site) — the width row's look and roles.
 function ChoiceRow({ id, label, options, value, onPick, word }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <div className="flex flex-col items-start gap-1.5">
       <span id={id + "-label"} className="text-[13px] font-medium text-gray-800 dark:text-gray-200">
         {label}
       </span>

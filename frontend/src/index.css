@@ -1369,8 +1369,8 @@ body.modal-open {
    figures for times, days and party sizes. */
 :root.bb-f-system body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
 :root.bb-f-helvetica body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
-:root.bb-f-georgia body { font-family: Georgia, "Times New Roman", Times, serif; }
-:root.bb-f-times body { font-family: "Times New Roman", Times, Georgia, serif; }
+:root.bb-f-georgia body { font-family: Georgia, "Times New Roman", Times, serif; font-variant-numeric: lining-nums; }
+:root.bb-f-times body { font-family: "Times New Roman", Times, Georgia, serif; font-variant-numeric: lining-nums; }
 :root.bb-look [class~="bb-tile"] { font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 /* The site's button colour on the picks and the main button. */
 :root.bb-look.bb-hacc .bb-pick {
