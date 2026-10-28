@@ -79,7 +79,7 @@ export const PRIVACY_PUSH_DAY_PLACEHOLDER = "2099-12-31";
    Supabase row moves to Frankfurt and, while it exists, the old project's
    fallback copy gets its own row (IRELAND_COPY_ROW below). The value is the
    placeholder until the packet step on push day; it was "2026-10-12". */
-export const PRIVACY_UPDATED = "2026-10-23";
+export const PRIVACY_UPDATED = "2026-10-28";
 
 /* The fallback copy in the old Supabase project (database and files moved to
    Frankfurt on 20 Oct 2026; the old project is kept unchanged as a fallback
