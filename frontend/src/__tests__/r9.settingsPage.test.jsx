@@ -273,6 +273,12 @@ describe("quick setup's first tables say booking went on", () => {
 });
 
 describe("the new-booking sheet on a day closed for online booking", () => {
+  // Midday, so the calendar day (todayIso) and the sheet's service day agree: between
+  // 00:00 and 06:00 the sheet rightly still opens on yesterday's service day (DK 06:00
+  // cutoff), which made this test fail at night only (CI on 28 Oct, 02:27).
+  beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-10-28T11:00:00Z")); });
+  afterEach(() => { vi.useRealTimers(); });
+
   it("says so, and the booking can still be made", async () => {
     h.settings = baseSettings({ closures: [{ id: "c1", from: todayIso(), to: todayIso(), kind: "closed", note: "Privat fest", bookings: 0 }] });
     await mount("/reservations");
