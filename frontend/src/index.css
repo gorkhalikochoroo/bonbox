@@ -1389,6 +1389,59 @@ body.modal-open {
 @media (hover: hover) and (pointer: fine) {
   :root.bb-look.bb-hacc .bb-accent-main:not(:disabled):hover { background-color: var(--bb-h-hover); }
 }
+/* ── FROSTED GLASS (R15, Manoj 28 Oct 2026) ───────────────────────────────
+   On a photo, where the host's browser can blur it, embed1.js blurs the
+   photo behind the <iframe> and the look says glass=1: html.bb-glass (with
+   .bb-look and .dark, src/lib/bookingLook.js). The card is ONE translucent
+   dark layer, on <html> — the canvas, so it covers the whole frame whatever
+   the document's height — and nothing under it paints: body, the ground,
+   the card, the receipt, the action bar and the plain grounds go clear (no
+   double darkening). The tint / tint-2 / raise / line custom properties are
+   translucent white in this mode, so the fields, tracks, tiles and the
+   selected segment are overlays on the glass. No outer shadow and, from
+   450 px, no room round the card: it fills the frame edge to edge and the
+   frame's own corners (the look's, set by embed1.js) clip the blur to it.
+   Over a pure-white patch of photo every text keeps 4.5:1: the ink and its
+   softer line, the placeholders (the softer line), the alerts and the
+   warning (their own light tints), the disabled main button (the ink on a
+   12 % raise) — r15.glassCard.test.jsx. No navy hairline or hover is left
+   on the warm glass. Without .bb-glass nothing here applies. */
+:root.bb-look.dark.bb-glass:not(.bb-look-wait) { background-color: var(--bb-glass) !important; }
+:root.bb-look.dark.bb-glass body,
+:root.bb-look.dark.bb-glass .bb-ground,
+:root.bb-look.dark.bb-glass .bb-card,
+:root.bb-look.dark.bb-glass .bb-solid,
+:root.bb-look.dark.bb-glass .bb-look-bar,
+:root.bb-look.dark.bb-glass .dark\:bg-gray-950:not(.bb-ground) { background-color: transparent; }
+:root.bb-look.dark.bb-glass .bb-card { box-shadow: none; }
+/* The bar's own frosting (.glass-static) has only the frame's own glass
+   behind it: Chromium painted a grey block under its first line. */
+:root.bb-look.dark.bb-glass .bb-look-bar { -webkit-backdrop-filter: none; backdrop-filter: none; }
+@media (min-width: 450px) {
+  :root.bb-look.dark.bb-glass.bb-embed-card .bb-ground { padding: 0; }
+}
+:root.bb-look.dark.bb-glass .dark\:border-gray-700,
+:root.bb-look.dark.bb-glass .dark\:border-gray-800 { border-color: var(--bb-line); }
+/* the back button's hairline (Button "secondary") and the logo / monogram
+   tile's ring */
+:root.bb-look.dark.bb-glass .dark\:shadow-\[inset_0_0_0_1px_var\(--color-gray-700\)\] { --tw-shadow: inset 0 0 0 1px var(--bb-line); }
+:root.bb-look.dark.bb-glass .dark\:ring-gray-700 { --tw-ring-color: var(--bb-line); }
+/* the receipt's quiet "Aflys" is an important utility (dark:text-gray-400!),
+   which no rule here can outrank: its colour variable is re-pointed on the
+   element itself */
+:root.bb-look.dark.bb-glass .dark\:text-gray-400\! { --color-gray-400: var(--bb-ink-soft); }
+:root.bb-look.dark.bb-glass .dark\:placeholder-gray-500::placeholder { color: var(--bb-ink-soft); }
+:root.bb-look.dark.bb-glass .dark\:text-red-400,
+:root.bb-look.dark.bb-glass .dark\:text-rose-400 { color: var(--bb-alert); }
+:root.bb-look.dark.bb-glass .dark\:text-amber-200 { color: var(--bb-warn); }
+:root.bb-look.dark.bb-glass .dark\:disabled\:bg-gray-700:disabled:not([aria-busy="true"]) {
+  background-color: var(--bb-raise);
+  color: var(--bb-ink);
+}
+@media (hover: hover) and (pointer: fine) {
+  :root.bb-look.dark.bb-glass .dark\:hover\:bg-gray-800:hover,
+  :root.bb-look.dark.bb-glass .dark\:hover\:bg-gray-700:hover { background-color: var(--bb-raise); }
+}
 
 /* ── Reservations room shell ─────────────────────────────────────────────
    Walls, drafting grid and paper floor behind the owner's 2D floor plan —

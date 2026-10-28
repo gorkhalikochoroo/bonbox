@@ -41,7 +41,8 @@ describe("nothing without look=1", () => {
   );
   it("look=1 alone is today's light card, nothing else", () => {
     expect(look("?embed=1&look=1")).toEqual({ dark: false, card: "#FFFFFF", tint: "#F5F5F5", tint2: "#E6E6E6",
-      fill: "#F8F8F9", fill2: "#F1F1F2", line: "#ECEDEE", raise: "#FFFFFF", ink: null, soft: null, accent: null, radius: null, font: null, scheme: null });
+      fill: "#F8F8F9", fill2: "#F1F1F2", line: "#ECEDEE", raise: "#FFFFFF", ink: null, soft: null, accent: null, radius: null, font: null, scheme: null,
+      glass: null, alert: null, warn: null }); // R15: no frosted glass without a photo and glass=1
   });
 });
 

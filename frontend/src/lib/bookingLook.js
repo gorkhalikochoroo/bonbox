@@ -70,6 +70,20 @@
 //           differ, the browser paints the frame an OPAQUE canvas (CSS Color
 //           Adjust), a box round the card on a dark site. None sent, none
 //           declared — exactly as before.
+//   glass   (R15, Manoj 28 Oct 2026: on a bright warm photo the #171717 card
+//           read as a heavy black block) `glass=1` — only "1", only with
+//           surface=photo, only in a dark look; the host sends it only where
+//           it blurs the photo behind the <iframe> itself (embed1.js). The
+//           card is then ONE translucent dark layer on <html> (LOOK_GLASS.card,
+//           index.css "FROSTED GLASS"); the tint, tint2, raise and line are
+//           translucent white on it; the ink is the site's only when it holds
+//           4.5:1 on the lightest surface text sits on — a selected segment on
+//           its track (≈ 17 % white) — over a PURE WHITE patch of photo, else
+//           white; the softer line, the alert (red) and the warning (amber)
+//           hold 4.5:1 on a field inside a panel (≈ 12 %) over white. The
+//           accent goes through the guard against the opaque card, unchanged.
+//           LOOK_GLASS.card's alpha is the lightest (1/255 steps) where all of
+//           that holds with a 2 % margin (r15.glassCard.test.jsx): 0.72.
 
 /** The corner ladder ids (the site's button corners): sharp / soft / round.
  *  Their px live in index.css (.bb-r-sharp …: card, tile, button), so the
@@ -82,6 +96,14 @@ export const LOOK_RADII_PX = { sharp: [4, 4, 4], soft: [16, 12, 12], round: [24,
  *  .bb-f-*). System fonts only: nothing to download, and the booking page's
  *  CSP (vercel.json, font-src 'self' data:) would refuse a Google font. */
 export const LOOK_FONTS = ["system", "helvetica", "georgia", "times"];
+
+/** Frosted glass on a photo (R15): what lookFrom paints in glass mode — the
+ *  card, rgb(17 17 17 / 0.72), and the translucent white surfaces on it (6 %
+ *  fields, tracks and the strip; 18 % the off-switch track and the inactive
+ *  step marks, no text; 12 % a selected segment, a hover, the disabled main
+ *  button, and the hairlines). lookFrom's body carries the same literals: it
+ *  is copied into index.html and may not reach outside itself. */
+export const LOOK_GLASS = { card: "#111111B8", tint: "#FFFFFF0F", tint2: "#FFFFFF2E", raise: "#FFFFFF1F", line: "#FFFFFF1F" };
 
 /**
  * The look an embed address asks for, computed and safe — or null.
@@ -103,6 +125,7 @@ export function lookFrom(q, R, F) {
   var th = p.theme == "dark" || p.theme == "light" ? p.theme : null, sf = p.surface == "photo" ? "photo" : hx("surface"), pl = sf == "photo" ? null : sf;
   var ink = hx("ink"), ac = hx("accent"), ai = hx("accent_ink"), A = null, so = null, i = 0, cd, f, c, e;
   var dk = th ? th == "dark" : sf == "photo" || (pl ? L(pl) < 0.18 : !!ink && L(ink) > 0.5);
+  var gl = p.glass == "1" && sf == "photo" && dk, G = "#111111", al = null, wn = null, gw, ws, wi;
   if (!dk) { cd = pl && L(pl) >= 0.18 ? M(W, pl, 0.3) : W; while (L(cd) < 0.93 && i++ < 40) cd = M(cd, W, 0.1); }
   else if (pl && L(pl) < 0.18) { cd = M(pl, W, 0.07); while (L(cd) > 0.035 && i++ < 40) cd = M(cd, K, 0.1); }
   else cd = "#171717";
@@ -120,7 +143,15 @@ export function lookFrom(q, R, F) {
       for (i = 1; C(A.edge, cd) < 3 && i <= 25; i++) A.edge = M(ac, dk ? W : K, i * 0.04);
     }
   }
-  return { dark: dk, card: cd, tint: tn, tint2: t2, fill: f1, fill2: f2, line: ln, raise: rs, ink: ink, soft: so, accent: A, radius: en(R, "radius"), font: en(F, "font"), scheme: en(["light", "dark", "ld"], "scheme") };
+  if (gl) {
+    gw = M(W, G, 0.7216); ws = M(M(gw, W, 0.06), W, 0.06); wi = M(M(gw, W, 0.06), W, 0.12);
+    tn = "#FFFFFF0F"; t2 = "#FFFFFF2E"; rs = "#FFFFFF1F"; ln = rs;
+    if (!ink || C(ink, wi) < 4.5) ink = W;
+    so = ink; for (i = 0; i < 5; i++) { c = M(ink, G, [0.45, 0.35, 0.25, 0.15, 0.1][i]); if (C(c, ws) >= 4.5) { so = c; break; } }
+    for (al = "#F87171", i = 1; C(al, ws) < 4.5 && i <= 10; i++) al = M("#F87171", W, i / 10);
+    for (wn = "#FDE68A", i = 1; C(wn, ws) < 4.5 && i <= 10; i++) wn = M("#FDE68A", W, i / 10);
+  }
+  return { dark: dk, card: cd, tint: tn, tint2: t2, fill: f1, fill2: f2, line: ln, raise: rs, ink: ink, soft: so, accent: A, radius: en(R, "radius"), font: en(F, "font"), scheme: en(["light", "dark", "ld"], "scheme"), glass: gl ? G + "B8" : null, alert: al, warn: wn };
 }
 
 /** Paint a look (lookFrom's result) on the document: classes and custom
@@ -132,7 +163,8 @@ export function applyLook(d, L, R, F) {
   var v = {
     "--bb-card": L.card, "--bb-card-bar": L.card + "EB", "--bb-tint": L.tint, "--bb-tint-2": L.tint2,
     "--bb-fill": L.fill, "--bb-fill-2": L.fill2, "--bb-line": L.line, "--bb-raise": L.raise, "--bb-ink": L.ink, "--bb-ink-soft": L.soft,
-    "--bb-h-accent": A.bg, "--bb-h-fg": A.fg, "--bb-h-fg-quiet": A.quiet, "--bb-h-hover": A.hover, "--bb-h-edge": A.edge
+    "--bb-h-accent": A.bg, "--bb-h-fg": A.fg, "--bb-h-fg-quiet": A.quiet, "--bb-h-hover": A.hover, "--bb-h-edge": A.edge,
+    "--bb-glass": L.glass, "--bb-alert": L.alert, "--bb-warn": L.warn
   };
   for (k in v) if (v[k]) s.setProperty(k, v[k]); else s.removeProperty(k);
   s.colorScheme = L.scheme == "ld" ? "light dark" : L.scheme || "";
@@ -142,4 +174,5 @@ export function applyLook(d, L, R, F) {
   c.toggle("dark", !!L.dark);
   c.toggle("bb-ink", !!L.ink);
   c.toggle("bb-hacc", !!L.accent);
+  c.toggle("bb-glass", !!L.glass);
 }

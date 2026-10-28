@@ -29,11 +29,13 @@ import {
   EMBED_WIDTHS,
   EMBED_WIDTH_DEFAULT,
   LOOK_FRAME_RADIUS,
+  LOOK_GLASS_BLUR,
   LOOK_SAMPLES,
   LOOK_SAMPLE_IDS,
   SITE_BUILDERS,
   buttonSnippet,
   embedOriginFor,
+  glassSupported,
   guideNoteKeys,
   guideStepKeys,
   iframeSnippet,
@@ -195,7 +197,7 @@ function SampleHeader({ id, t }) {
 // (never up) when the owner's own screen is narrower than that width, so a
 // phone shows the whole thing. The frame itself is the chosen width, so the
 // page inside lays out exactly as it will there.
-function HostPreview({ src, width, height, frameRef, title, ground, header = null, frameRadius }) {
+function HostPreview({ src, width, height, frameRef, title, ground, header = null, frameRadius, glass = null }) {
   const boxRef = useRef(null);
   const [avail, setAvail] = useState(0);
   useLayoutEffect(() => {
@@ -235,6 +237,7 @@ function HostPreview({ src, width, height, frameRef, title, ground, header = nul
               transform: scale < 1 ? `scale(${scale})` : undefined,
               transformOrigin: "0 0",
               borderRadius: frameRadius,
+              ...glass,
             }}
             className="block border-0"
           />
@@ -367,6 +370,9 @@ export default function WebsiteBookingKit({
   const [lookMode, setLookMode] = useState("auto");
   const [lookAccent, setLookAccent] = useState("site");
   const [sample, setSample] = useState("light");
+  // Booking R15: on the photo sample the frame is glass where this browser
+  // can blur — as embed1.js does on a real photo site.
+  const [canGlass] = useState(() => glassSupported());
   const [width, setWidth] = useState(EMBED_WIDTH_DEFAULT);
   const [device, setDevice] = useState("phone");
   const [builder, setBuilder] = useState(SITE_BUILDERS[0].id);
@@ -429,9 +435,11 @@ export default function WebsiteBookingKit({
       subject: t("rsvpEmbedMailSubject"),
       body: t("rsvpWebMailBody", { link: publicUrl, iframe, origin: embedOriginFor(publicUrl) }),
     });
-    const lookQuery = sampleLookQuery(sample, lk);
-    return { button, iframe, mail, preview: previewSrcFor(publicUrl, appOrigin, { flat, compact, lookQuery }) };
-  }, [live, publicUrl, label, venueName, appOrigin, t, flat, compact, width, match, lookMode, lookAccent, sample]);
+    const lookQuery = sampleLookQuery(sample, lk, { glass: canGlass });
+    // The blur goes on the preview frame exactly when its look says glass.
+    const glass = /&glass=1$/.test(lookQuery) ? { backdropFilter: LOOK_GLASS_BLUR, WebkitBackdropFilter: LOOK_GLASS_BLUR } : null;
+    return { button, iframe, mail, glass, preview: previewSrcFor(publicUrl, appOrigin, { flat, compact, lookQuery }) };
+  }, [live, publicUrl, label, venueName, appOrigin, t, flat, compact, width, match, lookMode, lookAccent, sample, canGlass]);
 
   // The preview sizes itself exactly like the owner's page will: from the
   // booking page's own height messages, trusted only from that frame.
@@ -778,7 +786,7 @@ export default function WebsiteBookingKit({
                       title={t("rsvpWebPreviewTitle")}
                       loading="lazy"
                       data-testid="website-preview"
-                      style={{ height: previewH }}
+                      style={{ height: previewH, ...kit.glass }}
                       className="block w-full border-0"
                     />
                   </div>
@@ -793,6 +801,7 @@ export default function WebsiteBookingKit({
                     title={t("rsvpWebPreviewTitle")}
                     ground={match ? sampleGround(sample) : undefined}
                     frameRadius={match ? LOOK_FRAME_RADIUS[LOOK_SAMPLES[sample].radius] : undefined}
+                    glass={kit.glass}
                     header={match ? <SampleHeader id={sample} t={t} /> : null}
                   />
                 )}

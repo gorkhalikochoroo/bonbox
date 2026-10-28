@@ -19,6 +19,12 @@
  *     answered at once — and again after a theme switch on this page. This
  *     file never changes a frame's src: every frame loads exactly once. The
  *     frame checks every value again (src/lib/bookingLook.js).
+ *   - on a photo (R15), where the browser can blur: blurs the photo behind
+ *     the frame — backdrop-filter on the <iframe> itself, together with the
+ *     look that says &glass=1 (the frame then paints a translucent card that
+ *     fills it edge to edge, so the frame's corners shape the blur). Nowhere
+ *     else, never before the frame has its look; without support nothing new
+ *     is sent and the frame keeps its opaque card.
  * It reads styles only, sends nothing anywhere else and stores nothing.
  * The v1 contract — data-bonbox-booking, data-bonbox-look="auto|light|dark",
  * data-bonbox-accent="own", data-bonbox-booking-wrap, data-bonbox-booking-link
@@ -42,12 +48,25 @@
   var http = location.protocol === "http:" && o.indexOf("https:") === 0;
   var RADIUS = { sharp: "4px", soft: "16px", round: "24px" };
   var U = 0, T, cv;
+  /* Frosted glass (R15): a little blur and saturation, where the browser says
+     it can blur (Safari before 18 knows only the -webkit- spelling). The
+     owner's kit previews the same (src/utils/bookingEmbed.js). */
+  var BLUR = "blur(22px) saturate(1.3)", GL = false;
+  try {
+    var S = w.CSS;
+    GL = !!(S && S.supports && (S.supports("backdrop-filter", "blur(1px)") || S.supports("-webkit-backdrop-filter", "blur(1px)")));
+  } catch (x) { /* no CSS.supports: no glass */ }
 
   function all() {
     return d.querySelectorAll("iframe[data-bonbox-booking]");
   }
   function send(f, q) {
+    var g = /&glass=1/.test(q) ? BLUR : "";
     f.bbS = q;
+    /* the blur goes on and off with the look that asks for it: never ahead
+       of the frame's card, never left behind when the site toggles away */
+    f.style.setProperty("-webkit-backdrop-filter", g);
+    f.style.setProperty("backdrop-filter", g);
     try {
       f.contentWindow.postMessage({ type: "bonbox:look", q: q }, o);
     } catch (x) { /* the frame is gone */ }
@@ -209,6 +228,8 @@
     if (x) q += "&radius=" + x;
     k = styled && (font(d.body) || font(d.querySelector("h1,h2")));
     if (k) q += "&font=" + k;
+    /* a photo, where we can blur it: glass (never with the owner's "Lys") */
+    if (GL && s === "photo" && m !== "light") q += "&glass=1";
     return [q, x];
   }
   function schemeOf(q) {

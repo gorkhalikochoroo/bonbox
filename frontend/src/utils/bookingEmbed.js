@@ -261,13 +261,36 @@ export const LOOK_SAMPLES = {
 };
 export const LOOK_SAMPLE_IDS = ["light", "dark", "photo"];
 
+// ── Frosted glass on a photo (booking R15, Manoj 28 Oct 2026) ─────────
+// On a photo the hosted script blurs the photo behind the frame (the
+// <iframe> itself carries the backdrop-filter) and sends glass=1; the frame
+// paints a translucent card (src/lib/bookingLook.js). Only where the browser
+// can blur. The kit's photo sample does the same, so the owner sees what
+// guests get.
+
+/** The blur behind the frame — public/static/embed1.js says the same. */
+export const LOOK_GLASS_BLUR = "blur(22px) saturate(1.3)";
+
+/** Can this browser blur what is behind an element? Either spelling (Safari
+ *  before 18 knows only -webkit-). No CSS.supports, or one that throws: no. */
+export function glassSupported(win = typeof window === "undefined" ? undefined : window) {
+  try {
+    const S = win && win.CSS;
+    return !!(S && S.supports && (S.supports("backdrop-filter", "blur(1px)") || S.supports("-webkit-backdrop-filter", "blur(1px)")));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The look query a sample site gives the frame (the kit's preview), in the
  * script's own order: look, theme (only when the owner forced one), surface,
- * ink, accent + accent_ink (only "Fra din hjemmeside"), radius, font.
+ * ink, accent + accent_ink (only "Fra din hjemmeside"), radius, font — and
+ * glass=1 last, for the photo where the owner's browser can blur
+ * (`glass: true`; never with "Lys"), as the script would add it.
  * "" when the look is off.
  */
-export function sampleLookQuery(sampleId, look) {
+export function sampleLookQuery(sampleId, look, { glass = false } = {}) {
   const lk = lookOf(look);
   const s = LOOK_SAMPLES[sampleId];
   if (!lk || !s) return "";
@@ -275,7 +298,8 @@ export function sampleLookQuery(sampleId, look) {
   if (lk.mode !== "auto") q += "&theme=" + lk.mode;
   q += "&surface=" + s.surface + "&ink=" + s.ink;
   if (lk.accent === "site") q += "&accent=" + s.accent + "&accent_ink=" + s.accent_ink;
-  return q + "&radius=" + s.radius + "&font=" + s.font;
+  q += "&radius=" + s.radius + "&font=" + s.font;
+  return glass && s.surface === "photo" && lk.mode !== "light" ? q + "&glass=1" : q;
 }
 
 /**
