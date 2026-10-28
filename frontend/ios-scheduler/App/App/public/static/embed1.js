@@ -19,7 +19,7 @@
  *     answered at once — and again after a theme switch on this page. This
  *     file never changes a frame's src: every frame loads exactly once. The
  *     frame checks every value again (src/lib/bookingLook.js).
- *   - on a photo (R15), where the browser can blur: blurs the photo behind
+ *   - on a cover photo (R15), where the browser can blur: blurs the photo behind
  *     the frame — backdrop-filter on the <iframe> itself, together with the
  *     look that says &glass=1 (the frame then paints a translucent card that
  *     fills it edge to edge, so the frame's corners shape the blur). Nowhere
@@ -141,13 +141,18 @@
   function cs(e) {
     return w.getComputedStyle(e);
   }
-  /* The first ancestor with a background: its colour, or "photo". */
-  function surface(e) {
+  /* The first ancestor with a background: its colour, or "photo" — and
+     pc.cover when it is an image drawn at "cover", any layer (glass only
+     then, R15 fix 1: not a gradient, texture, logo or stretched image). */
+  function surface(e, pc) {
     var s, g, h;
     for (; e && e.nodeType === 1; e = e.parentElement) {
       s = cs(e);
       g = s.backgroundImage;
-      if (g && g !== "none") return "photo";
+      if (g && g !== "none") {
+        pc.cover = /url\(/.test(g) && /cover/.test(s.backgroundSize);
+        return "photo";
+      }
       h = hx(s.backgroundColor);
       if (h) return h;
     }
@@ -206,7 +211,7 @@
   function look(f) {
     var m = f.getAttribute("data-bonbox-look"), wr = f.closest && f.closest("[data-bonbox-booking-wrap]");
     var c = (wr && wr.parentElement) || d.body, styled = !!(d.styleSheets && d.styleSheets.length);
-    var q = "look=1", s = surface(c), k, b, x;
+    var q = "look=1", pc = {}, s = surface(c, pc), k, b, x;
     if (m === "light" || m === "dark") q += "&theme=" + m;
     /* The snippet pins the <iframe> to color-scheme:light, the frame's own;
        only a site that overrides that (an !important rule) is mirrored. */
@@ -228,8 +233,8 @@
     if (x) q += "&radius=" + x;
     k = styled && (font(d.body) || font(d.querySelector("h1,h2")));
     if (k) q += "&font=" + k;
-    /* a photo, where we can blur it: glass (never with the owner's "Lys") */
-    if (GL && s === "photo" && m !== "light") q += "&glass=1";
+    /* a cover photo, where we can blur it: glass (never with the owner's "Lys") */
+    if (GL && pc.cover && m !== "light") q += "&glass=1";
     return [q, x];
   }
   function schemeOf(q) {
