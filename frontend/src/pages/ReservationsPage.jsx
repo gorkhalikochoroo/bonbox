@@ -139,6 +139,7 @@ import { BookUnavailable, StandNotConnected } from "../components/reservations/B
 import WebsiteBookingKit from "../components/reservations/WebsiteBookingKit";
 import BookingNameRow from "../components/reservations/BookingNameRow";
 import BookingAccentRow from "../components/reservations/BookingAccentRow";
+import BookingLogoRow from "../components/reservations/BookingLogoRow";
 import PublicWaitlistSwitch from "../components/reservations/PublicWaitlistSwitch";
 import ClosuresCard, { PauseControl } from "../components/reservations/ClosuresCard";
 import { isHeldForCheck, heldWhy, heldWanted, heldForPlanCap, heldLooksLikeBot, botApprovalConfirm } from "../utils/bookingHeld";
@@ -10387,6 +10388,13 @@ function SettingsSection({ t, user = null, tablePlan = null, onlineNotReady = fa
         // card's half-typed input with it.
         onSaved={() => refreshSettings()}
         apptWords={apptWords}
+      />
+
+      {/* The page's logo, next to its name (booking R13): the same logo the
+          booking page shows, or its monogram; the logo is changed in Profil. */}
+      <BookingLogoRow
+        t={t}
+        publicName={data && "public_name" in data ? data.public_name || null : data?.business_name || null}
       />
 
       {/* The page's colour, right under its name (booking R5). */}
