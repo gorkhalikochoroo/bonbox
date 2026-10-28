@@ -1402,10 +1402,11 @@ body.modal-open {
    450 px, no room round the card: it fills the frame edge to edge and the
    frame's own corners (the look's, set by embed1.js) clip the blur to it.
    Over a pure-white patch of photo every text keeps 4.5:1: the ink and its
-   softer line, the placeholders (the softer line), the alerts and the
-   warning (their own light tints), the disabled main button (the ink on a
-   12 % raise) — r15.glassCard.test.jsx. No navy hairline or hover is left
-   on the warm glass. Without .bb-glass nothing here applies. */
+   softer line, the placeholders (their own grey on the fields' darker well,
+   fix 1), the alerts and the warning (their own light tints), the disabled
+   main button (the ink on a 12 % raise) — r15.glassCard.test.jsx. No navy
+   hairline or hover is left on the warm glass. Without .bb-glass nothing
+   here applies. */
 :root.bb-look.dark.bb-glass:not(.bb-look-wait) { background-color: var(--bb-glass) !important; }
 :root.bb-look.dark.bb-glass body,
 :root.bb-look.dark.bb-glass .bb-ground,
@@ -1430,7 +1431,7 @@ body.modal-open {
    which no rule here can outrank: its colour variable is re-pointed on the
    element itself */
 :root.bb-look.dark.bb-glass .dark\:text-gray-400\! { --color-gray-400: var(--bb-ink-soft); }
-:root.bb-look.dark.bb-glass .dark\:placeholder-gray-500::placeholder { color: var(--bb-ink-soft); }
+:root.bb-look.dark.bb-glass .dark\:placeholder-gray-500::placeholder { color: var(--bb-ph); }
 :root.bb-look.dark.bb-glass .dark\:text-red-400,
 :root.bb-look.dark.bb-glass .dark\:text-rose-400 { color: var(--bb-alert); }
 :root.bb-look.dark.bb-glass .dark\:text-amber-200 { color: var(--bb-warn); }
@@ -1442,6 +1443,43 @@ body.modal-open {
   :root.bb-look.dark.bb-glass .dark\:hover\:bg-gray-800:hover,
   :root.bb-look.dark.bb-glass .dark\:hover\:bg-gray-700:hover { background-color: var(--bb-raise); }
 }
+/* Fix 1 (state audit + design judge, 28 Oct). The text fields are a darker
+   well (--bb-well, about 30 % black, src/lib/bookingLook.js) with their own
+   placeholder grey (--bb-ph, the placeholder rule above): on the 6 % white
+   tint the placeholders read as typed in. ui/Input's box (step 2, the
+   waitlist), the two step-2 textareas and the selects (the salon's, the
+   waitlist's time). The resting edge stays the hairline. */
+:root.bb-look.dark.bb-glass .focus-within\:outline-none.dark\:bg-gray-900,
+:root.bb-look.dark.bb-glass textarea.dark\:bg-gray-900,
+:root.bb-look.dark.bb-glass select.dark\:bg-white\/\[0\.04\] { background-color: var(--bb-well); }
+/* A focused field has an ink edge again. The hairline remap above (0,5,0)
+   beat the fields' own layered focus borders: a focused field kept only a
+   1 px gray-500 ring (1.58:1), the textareas nothing. These are (0,6,0); an
+   invalid field (ui/Input's INVALID_BORDER) has none of these classes and
+   keeps its red edge. */
+:root.bb-look.dark.bb-glass .dark\:focus-within\:border-gray-500:focus-within,
+:root.bb-look.dark.bb-glass .dark\:focus\:border-gray-300:focus { border-color: var(--bb-ink); }
+:root.bb-look.dark.bb-glass .dark\:focus-within\:ring-gray-500:focus-within { --tw-ring-color: var(--bb-ink); }
+/* The confirm dialog (useConfirm: "Aflys reservationen", "Træk
+   forespørgslen tilbage", "Meld mig af ventelisten") is opaque, the card's
+   own #171717: its panel's dark:bg-gray-800 took the 6 % white tint and the
+   receipt showed through it. */
+:root.bb-look.dark.bb-glass [aria-modal="true"] > .dark\:bg-gray-800 { background-color: var(--bb-card); }
+/* …and its scrim keeps its colour but loses its own 2 px blur: inside this
+   translucent frame Chromium painted that backdrop-filter as a block over
+   part of the frame (darker and blurred on one side only), as it did the
+   bar's — found by the fix-1 shot of the open dialog. */
+:root.bb-look.dark.bb-glass [aria-modal="true"] > .backdrop-blur-\[2px\] { -webkit-backdrop-filter: none; backdrop-filter: none; }
+/* A pick (party, day, time, the allergen / severity / occasion chips) has an
+   ink edge: on the glass its fill alone (the site's, the owner's or BonBox
+   green) stood 1.0–1.3:1 from its unpicked neighbours. Every pick already
+   has a 1 px border; only its colour changes (a box-shadow would drop the
+   focus ring and the contact shadow). */
+:root.bb-look.dark.bb-glass .bb-pick { border-color: var(--bb-ink); }
+/* The inline calendar's weekday row ("Anden dato", MonthCalendar's
+   dark:text-gray-500 at 11 px, 1.35:1 on the glass) reads in the softer
+   line. Spans only: the by-phone day's digit is a button. */
+:root.bb-look.dark.bb-glass .grid-cols-7 > span.dark\:text-gray-500 { color: var(--bb-ink-soft); }
 
 /* ── Reservations room shell ─────────────────────────────────────────────
    Walls, drafting grid and paper floor behind the owner's 2D floor plan —

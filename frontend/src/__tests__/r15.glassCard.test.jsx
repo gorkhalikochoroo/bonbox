@@ -46,6 +46,10 @@ const { EMBED_SCRIPT_PATH, LOOK_GLASS_BLUR, LOOK_SAMPLES, glassSupported, iframe
   await import("../utils/bookingEmbed");
 const { bookingBootSource } = await import("../../scripts/bookingBoot.mjs");
 const WebsiteBookingKit = (await import("../components/reservations/WebsiteBookingKit")).default;
+// fix 1: the frame's own pieces whose classes the glass rules hook into
+const Input = (await import("../components/ui/Input")).default;
+const MonthCalendar = (await import("../components/MonthCalendar")).default;
+const { TILE_PICKED } = await import("../components/booking/bookingTiles");
 
 const FRONTEND = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const HOSTED = fs.readFileSync(path.join(FRONTEND, "public", EMBED_SCRIPT_PATH), "utf8");
@@ -137,9 +141,10 @@ function host({ css = "", body = "<main>{SNIPPET}</main>", lookChoice = AUTO, sn
 }
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// a cover photo, as test host c and every hero section draws it (fix 1: glass only on a cover photo)
 const PHOTO = `
   body { color: #ffffff; font-family: system-ui, sans-serif; margin: 0; }
-  .hero { background-color: #2b2520; background-image: url(photo.jpg); }
+  .hero { background-color: #2b2520; background-image: url(photo.jpg); background-size: cover; }
   .btn { background-color: #ffffff; color: #1a1a1a; border-radius: 8px; }
   html.plain .hero { background-image: none; background-color: #101010; }`;
 const PHOTO_BODY = '<div class="hero"><a class="btn" href="#menu">Se menu</a><div class="col">{SNIPPET}</div></div>';
@@ -284,7 +289,7 @@ describe("host: a site that toggles between its photo and a colour", () => {
     const { ready, lastQ } = host({
       css: `
         body { font-family: "x;}</style><script>alert(1)</script>", serif; color: rgb(250 250 250 / 0.9); }
-        .hero { background-image: url(photo.jpg), linear-gradient(red, blue); }
+        .hero { background-image: url(photo.jpg), linear-gradient(red, blue); background-size: cover, auto; }
         .b { background-color: rgba(200, 30, 30, 0.95); color: currentColor; border-radius: 50%; }`,
       body: '<div class="hero"><button class="b">x</button>{SNIPPET}</div>',
     });
@@ -297,6 +302,100 @@ describe("host: a site that toggles between its photo and a colour", () => {
     expect(HOSTED).toContain(`"${LOOK_GLASS_BLUR}"`);
     expect(() => new Function(HOSTED)).not.toThrow();
     expect(HOSTED).not.toMatch(/=>|\blet\b|\bconst\b|`/);
+  });
+});
+
+// ── Fix 1 (J2): glass only on a real cover photo ──────────────────────
+// The computed style the browser gives, for the elements a test names (a Proxy over jsdom's real one).
+function stubStyle(match, values) {
+  const real = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) => {
+    const st = real(el, pseudo);
+    return match(el) ? new Proxy(st, { get: (t, k) => (k in values ? values[k] : Reflect.get(t, k)) }) : st;
+  });
+}
+const R14_PHOTO_Q = "look=1&surface=photo&ink=ffffff&accent=ffffff&accent_ink=1a1a1a&radius=soft&font=system";
+
+describe("host (fix 1): glass only on a real cover photo — gradients, textures, logos and stretched images keep today's card", () => {
+  it.each([
+    ["a gradient only", "linear-gradient(rgb(250, 247, 242), rgb(255, 255, 255))", "auto", false],
+    ["a tiled texture: url + auto", 'url("https://trattoria.example/paper.png")', "auto", false],
+    ["a cover photo: url + cover", 'url("https://trattoria.example/photo.jpg")', "cover", true],
+    ["a gradient over a cover photo: auto, cover", 'linear-gradient(rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.35)), url("https://trattoria.example/photo.jpg")', "auto, cover", true],
+    ["a stretched image: url + 100% 100%", 'url("https://trattoria.example/photo.jpg")', "100% 100%", false],
+    ["a small logo: url + contain", 'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27/%3E")', "contain", false],
+  ])("%s → glass: %s", (_name, backgroundImage, backgroundSize, glass) => {
+    stubStyle((el) => el.classList?.contains("hero"), { backgroundImage, backgroundSize });
+    const { ready, lastQ, blurOf, everBlurred } = host({ css: PHOTO, body: PHOTO_BODY });
+    ready();
+    if (glass) {
+      expect(lastQ()).toBe(R14_PHOTO_Q + "&glass=1");
+      expect(blurOf()).toBe(LOOK_GLASS_BLUR);
+      expect(look("?" + lastQ()).glass).toBe(LOOK_GLASS.card);
+    } else {
+      // still a "photo" (R13's surface, unchanged), and exactly today's opaque card: no glass=1, no blur
+      expect(lastQ()).toBe(R14_PHOTO_Q);
+      expect(everBlurred()).toBe(false);
+      expect(look("?" + lastQ())).toMatchObject({ dark: true, card: "#171717", glass: null, well: null, ph: null });
+    }
+  });
+
+  it("jsdom's own cascade agrees, without a stub: the shorthand-free longhands of a real stylesheet", () => {
+    const run = (css) => {
+      const { ready, lastQ } = host({ css, body: PHOTO_BODY });
+      ready();
+      const q = lastQ();
+      afterEachHost();
+      return q;
+    };
+    const base = "body { color: #ffffff; font-family: system-ui, sans-serif; } .btn { background-color: #ffffff; color: #1a1a1a; border-radius: 8px; }";
+    expect(run(base + ".hero { background-image: url(photo.jpg); background-size: cover; }")).toMatch(/&glass=1$/);
+    expect(run(base + ".hero { background-image: url(photo.jpg); }")).toBe(R14_PHOTO_Q);
+    expect(run(base + ".hero { background-image: linear-gradient(#faf7f2, #ffffff); background-size: cover; }")).toBe(R14_PHOTO_Q);
+  });
+});
+
+// ── Fix 1 (C1): the frame's color-scheme on glass ─────────────────────
+// A frame whose root's used color-scheme differs from its <iframe>'s gets an OPAQUE canvas from the browser
+// (CSS Color Adjust) — under a translucent card that would be a grey slab. On glass they still match.
+describe("C1 (fix 1): on glass the frame's color-scheme matches its <iframe>'s, so the canvas stays transparent", () => {
+  it("a dark-scheme site (CSS and <meta>): the snippet's own color-scheme:light holds on the <iframe>, nothing is sent, the frame declares nothing (normal = light)", () => {
+    const meta = document.createElement("meta");
+    meta.setAttribute("name", "color-scheme");
+    meta.setAttribute("content", "dark");
+    document.head.appendChild(meta);
+    try {
+      const { frame, ready, lastQ } = host({ css: PHOTO + " :root { color-scheme: dark; }", body: PHOTO_BODY });
+      ready();
+      expect(getComputedStyle(frame).colorScheme).toBe("light"); // the snippet's inline value
+      expect(lastQ()).toBe(R14_PHOTO_Q + "&glass=1"); // no &scheme=
+      const l = look("?" + lastQ());
+      expect(l.scheme).toBeNull();
+      applyLook(document, l, LOOK_RADII, LOOK_FONTS);
+      expect(html().classList.contains("bb-glass")).toBe(true);
+      expect(html().style.colorScheme).toBe("");
+    } finally {
+      meta.remove();
+    }
+  });
+
+  it.each([
+    ["dark", "dark", "dark"],
+    ["light dark", "ld", "light dark"],
+  ])("a site that forces the <iframe> to %j (an !important rule): mirrored together with the glass", (value, sent, declared) => {
+    stubStyle((el) => el.tagName === "IFRAME", { colorScheme: value });
+    const { ready, lastQ, blurOf } = host({ css: PHOTO, body: PHOTO_BODY });
+    ready();
+    expect(lastQ()).toBe(R14_PHOTO_Q.replace("look=1", "look=1&scheme=" + sent) + "&glass=1");
+    expect(blurOf()).toBe(LOOK_GLASS_BLUR);
+    applyLook(document, look("?" + lastQ()), LOOK_RADII, LOOK_FONTS);
+    expect(html().classList.contains("bb-glass")).toBe(true);
+    expect(html().style.colorScheme).toBe(declared);
+  });
+
+  it("the R4 snippet (no inline color-scheme, no look=1) never gets the hosted script, so never glass", () => {
+    const r4 = iframeSnippet({ ...base, compact: true });
+    expect(r4).not.toMatch(/color-scheme|look=1|embed1\.js/);
   });
 });
 
@@ -333,7 +432,21 @@ describe("frame: glass=1 on a photo is the glass card", () => {
     expect(l.glass).toBeNull();
     expect(l.alert).toBeNull();
     expect(l.warn).toBeNull();
+    expect(l.well).toBeNull(); // fix 1: the fields' well and placeholder are glass only
+    expect(l.ph).toBeNull();
     expect(l).toEqual(look(q.replace(/&(glass|GLASS)=[^&]*/, "")));
+  });
+
+  it("fix 1 (J1): the text fields are a darker well with their own dimmer placeholder — about 30 % black, #B7B7B7", () => {
+    const l = look(GLASS_Q);
+    expect(l.well).toBe("#0000004E"); // 78/255 = 30.6 % black
+    expect(l.ph).toBe("#B7B7B7");
+    // a dimmer site ink (kept: it holds 4.5:1 on the glass) gets a darker well, so its placeholder stays 2:1 dimmer
+    const dim = look("?embed=1&look=1&surface=photo&ink=f5f5f5&glass=1");
+    expect(dim.ink).toBe("#f5f5f5");
+    expect(dim.well).toBe("#0000005D");
+    expect(dim.ph).toBe("#AEAEAE");
+    expect(ratio(rgbOf(dim.ink), rgbOf(dim.ph))).toBeGreaterThanOrEqual(2);
   });
 
   it("the R13/R14 looks are unchanged: dark site, light site, photo without glass", () => {
@@ -343,7 +456,7 @@ describe("frame: glass=1 on a photo is the glass card", () => {
       photo: { dark: true, card: "#171717", tint: "#252525", tint2: "#414141", fill: "#171717", fill2: "#171718", line: "#171718", raise: "#333333", ink: "#ffffff", soft: "#AEAEAE", accent: { bg: "#ffffff", fg: "#1a1a1a", quiet: "#4C4C4C", hover: "#EBEBEB", edge: "#ffffff" }, radius: "soft", font: "system", scheme: null },
     };
     for (const id of Object.keys(pins)) {
-      expect(look("?" + sampleLookQuery(id, AUTO))).toEqual({ ...pins[id], glass: null, alert: null, warn: null });
+      expect(look("?" + sampleLookQuery(id, AUTO))).toEqual({ ...pins[id], glass: null, alert: null, warn: null, well: null, ph: null });
     }
   });
 });
@@ -378,6 +491,7 @@ function surfacesOver(backdrop, glass = LOOK_GLASS.card) {
     strip: white(0.05, card), // dark:bg-white/5 (the trust strip, the paused panel)
     tint, // fields, tracks, the step-2 summary (dark:bg-gray-900 / -800 / -900/60)
     tintInTint: over(LOOK_GLASS.tint, tint), // a field inside a panel
+    tintInTintInTint: over(LOOK_GLASS.tint, over(LOOK_GLASS.tint, tint)), // fix 1: an unpicked chip in the opened extras panel
     raise: over(LOOK_GLASS.raise, card), // a quiet button's hover, the disabled main button
     segment: over(LOOK_GLASS.raise, tint), // a selected segment on its track
     backButton: white(0.1, card), // dark:bg-white/10 (an icon only)
@@ -386,6 +500,11 @@ function surfacesOver(backdrop, glass = LOOK_GLASS.card) {
 // Which text sits on which surfaces (the soft line, the placeholders and the alerts never on a raised one).
 const INK_ON = ["card", "tile", "tileHover", "strip", "tint", "tintInTint", "raise", "segment", "backButton"];
 const SOFT_ON = ["card", "tile", "tileHover", "strip", "tint", "tintInTint", "backButton"];
+// Fix 1 (J1): a text field is the look's well (translucent black) over what it sits on — the card (step 2's
+// name, e-mail, phone; the salon's selects), a tint (the waitlist card) or two tints (the extras panel's
+// textareas: the lightest place a field sits). Typed text (the ink) and the placeholder sit on these.
+const fieldsOver = (S, well) => ({ well: over(well, S.card), wellInTint: over(well, S.tint), wellInTintInTint: over(well, S.tintInTint) });
+const FIELD_ON = ["well", "wellInTint", "wellInTintInTint"];
 
 describe("frame: every text token keeps 4.5:1 over a pure-white patch of photo (and over black)", () => {
   it.each([
@@ -397,10 +516,13 @@ describe("frame: every text token keeps 4.5:1 over a pure-white patch of photo (
   ])("%s", (_name, ink) => {
     const l = look("?embed=1&look=1&surface=photo" + ink + "&accent=ffffff&accent_ink=1a1a1a&glass=1");
     expect(l.glass).toBe(LOOK_GLASS.card);
-    const tokens = { ink: [l.ink, INK_ON], soft: [l.soft, SOFT_ON], placeholder: [l.soft, SOFT_ON], alert: [l.alert, SOFT_ON], warn: [l.warn, SOFT_ON] };
+    // fix 1 (J1): the placeholder is its own grey on the fields' well (it was the soft line on the 6 % tint);
+    // typed text is the ink, on the well too
+    const tokens = { ink: [l.ink, [...INK_ON, ...FIELD_ON]], soft: [l.soft, SOFT_ON], placeholder: [l.ph, FIELD_ON], alert: [l.alert, SOFT_ON], warn: [l.warn, SOFT_ON] };
     const worst = {};
     for (const backdrop of [WHITE, BLACK, [255, 214, 160], [200, 120, 40]]) {
-      const S = surfacesOver(backdrop);
+      const S = { ...surfacesOver(backdrop) };
+      Object.assign(S, fieldsOver(S, l.well));
       for (const [name, [hex, on]] of Object.entries(tokens)) {
         expect(hex, name).toMatch(/^#[0-9A-Fa-f]{6}$/);
         for (const s of on) {
@@ -409,7 +531,21 @@ describe("frame: every text token keeps 4.5:1 over a pure-white patch of photo (
           expect(r, `${name} ${hex} on ${s} over rgb(${backdrop})`).toBeGreaterThanOrEqual(4.5);
         }
       }
+      const where = `over rgb(${backdrop})`;
+      // fix 1 (M1): a focused field's edge is the ink — 3:1 against the field (its well) and against what it sits on
+      for (const s of ["card", "tint", "tintInTint", ...FIELD_ON]) expect(ratio(rgbOf(l.ink), S[s]), `focus edge on ${s} ${where}`).toBeGreaterThanOrEqual(3);
+      // fix 1 (M3): a pick's ink edge stands 3:1 from the glass and from its unpicked neighbours (an allergen
+      // chip in the opened extras panel sits on three tints)
+      for (const s of ["card", "tintInTint", "tintInTintInTint"]) expect(ratio(rgbOf(l.ink), S[s]), `pick edge on ${s} ${where}`).toBeGreaterThanOrEqual(3);
+      // fix 1 (J1): the well reads as a field — darker than whatever it sits on
+      expect(lum(S.well)).toBeLessThan(lum(S.card));
+      expect(lum(S.wellInTint)).toBeLessThan(lum(S.tint));
+      expect(lum(S.wellInTintInTint)).toBeLessThan(lum(S.tintInTint));
     }
+    // fix 1 (J1): the placeholder is clearly dimmer than what is typed — 2:1 or more from the ink
+    expect(ratio(rgbOf(l.ink), rgbOf(l.ph))).toBeGreaterThanOrEqual(2);
+    const [pr, pg, pb] = rgbOf(l.ph);
+    expect(pr === pg && pg === pb).toBe(true); // a grey
     // the main button and the picks: opaque, their own text at 4.5:1 (the R5 guard, unchanged)
     expect(ratio(rgbOf(l.accent.fg), rgbOf(l.accent.bg))).toBeGreaterThanOrEqual(4.5);
     // the softer line is softer than the ink (a step toward the glass), the alert reads as red, the warning as amber
@@ -437,6 +573,53 @@ describe("frame: every text token keeps 4.5:1 over a pure-white patch of photo (
     expect(first(1.02)).toBe(0xb8); // 0.72: 2 % over AA
     expect(LOOK_GLASS.card).toBe("#111111" + first(1.02).toString(16).toUpperCase());
   });
+
+  it("fix 1 (J1): why the well is #0000004E and the placeholder #B7B7B7 — computed, not picked by eye", () => {
+    // The worst place for a light placeholder: a field inside the opened extras panel (two tints on the glass),
+    // no blur, pure white behind. The placeholder is the dimmest grey reading 4.5:1 there (with the glass's
+    // own 2 % margin); the well is the lightest black (1/255 steps) where that grey is still 2:1 dimmer
+    // than white ink.
+    const hex2 = (n) => n.toString(16).toUpperCase().padStart(2, "0");
+    const worstField = (n) => over("#000000" + hex2(n), surfacesOver(WHITE).tintInTint);
+    const dimmest = (s, margin) => {
+      for (let v = 0; v <= 255; v += 1) if (ratio([v, v, v], s) >= 4.5 * margin) return v;
+      return -1;
+    };
+    const lightest = (margin) => {
+      for (let n = 0; n < 256; n += 1) if (ratio(WHITE, [0, 1, 2].map(() => dimmest(worstField(n), margin))) >= 2) return n;
+      return -1;
+    };
+    expect(lightest(1)).toBe(0x4b); // the bare floor: 29.4 %
+    expect(lightest(1.02)).toBe(0x4e); // with the margin: 30.6 % — "about 30 %"
+    const l = look(GLASS_Q);
+    expect(l.well).toBe("#000000" + hex2(lightest(1.02)));
+    const g = dimmest(worstField(0x4e), 1.02);
+    expect(l.ph).toBe("#" + hex2(g).repeat(3));
+    expect(ratio(rgbOf(l.ph), worstField(0x4e))).toBeGreaterThanOrEqual(4.6); // 4.60:1
+    expect(ratio([g - 1, g - 1, g - 1], worstField(0x4e))).toBeLessThan(4.5 * 1.02); // one step dimmer: inside the margin
+    expect(ratio(WHITE, rgbOf(l.ph))).toBeGreaterThanOrEqual(2); // 2.01:1 from typed white
+  });
+
+  it("fix 1 (J1): every ink the glass keeps (near-white site inks) gets a well where its placeholder holds — 4.5:1, and 2:1 from the ink", () => {
+    const inks = ["ffffff", "fdfdfd", "fafafa", "f7f7f7", "f5f5f5", "f4f4f4", "fffaf0", "f8fbff"];
+    const seen = new Set();
+    for (const ink of inks) {
+      const l = look("?embed=1&look=1&surface=photo&ink=" + ink + "&glass=1");
+      if (l.ink !== "#" + ink) continue; // not kept: white ink, covered above
+      seen.add(ink);
+      expect(l.well).toMatch(/^#000000[0-9A-F]{2}$/);
+      expect(ratio(rgbOf(l.ink), rgbOf(l.ph)), ink).toBeGreaterThanOrEqual(2);
+      for (const backdrop of [WHITE, BLACK, [255, 214, 160], [200, 120, 40]]) {
+        const S = surfacesOver(backdrop);
+        const F = fieldsOver(S, l.well);
+        for (const s of FIELD_ON) {
+          expect(ratio(rgbOf(l.ph), F[s]), `${ink} placeholder on ${s}`).toBeGreaterThanOrEqual(4.5);
+          expect(ratio(rgbOf(l.ink), F[s]), `${ink} typed on ${s}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+    expect(seen.size).toBeGreaterThan(4); // the near-white inks really are kept, so this tests something
+  });
 });
 
 describe("frame: applyLook sets the glass and takes it all back", () => {
@@ -450,10 +633,12 @@ describe("frame: applyLook sets the glass and takes it all back", () => {
     expect(html().style.getPropertyValue("--bb-tint")).toBe("#FFFFFF0F");
     expect(html().style.getPropertyValue("--bb-alert")).toMatch(/^#[0-9A-F]{6}$/);
     expect(html().style.getPropertyValue("--bb-warn")).toMatch(/^#[0-9A-F]{6}$/);
+    expect(html().style.getPropertyValue("--bb-well")).toBe("#0000004E"); // fix 1
+    expect(html().style.getPropertyValue("--bb-ph")).toBe("#B7B7B7");
     applyLook(document, look("?look=1&surface=101010&ink=eeeeee"), LOOK_RADII, LOOK_FONTS);
     expect(cl.contains("bb-glass")).toBe(false);
     expect(cl.contains("dark")).toBe(true);
-    for (const k of ["--bb-glass", "--bb-alert", "--bb-warn"]) expect(html().style.getPropertyValue(k)).toBe("");
+    for (const k of ["--bb-glass", "--bb-alert", "--bb-warn", "--bb-well", "--bb-ph"]) expect(html().style.getPropertyValue(k)).toBe("");
     expect(html().style.getPropertyValue("--bb-tint")).toMatch(/^#[0-9A-F]{6}$/); // opaque again
     applyLook(document, look("?look=1&surface=ffffff"), LOOK_RADII, LOOK_FONTS);
     expect([...cl].sort()).toEqual(["bb-look"]);
@@ -499,6 +684,17 @@ describe("the parse-time script: glass by message, and back", () => {
     expect(html().classList.contains("bb-look")).toBe(false);
     expect(html().classList.contains("bb-glass")).toBe(false);
   });
+
+  it("C2 (fix 1): the kit's flat option (&flat=1) with glass — no card, a plain ground, the same one glass layer on <html>", () => {
+    const { send } = boot("?embed=1&compact=1&flat=1&look=1");
+    expect(html().classList.contains("bb-embed-card")).toBe(false);
+    send({ type: "bonbox:look", q: GLASS_Q.slice("?embed=1&compact=1&".length) });
+    expect(html().classList.contains("bb-glass")).toBe(true);
+    expect(html().classList.contains("bb-look-wait")).toBe(false);
+    expect(html().style.getPropertyValue("--bb-glass")).toBe(LOOK_GLASS.card);
+    // every glass rule paints without the card mode, except the card's room (none from 450 px)
+    expect(rulesOf(GLASS_CSS).filter((x) => x.sel.includes("bb-embed-card")).map((x) => x.body)).toEqual(["padding: 0;"]);
+  });
 });
 
 // ── index.css ─────────────────────────────────────────────────────────
@@ -540,7 +736,8 @@ describe("CSS: the glass is one layer that fills the frame", () => {
     const r = (sel) => rulesOf(GLASS_CSS).find((x) => x.sel.split(",").map((s) => s.trim()).includes(sel));
     expect(r(":root.bb-look.dark.bb-glass .dark\\:border-gray-700").body).toBe("border-color: var(--bb-line);");
     expect(r(":root.bb-look.dark.bb-glass .dark\\:border-gray-800").body).toBe("border-color: var(--bb-line);");
-    expect(r(":root.bb-look.dark.bb-glass .dark\\:placeholder-gray-500::placeholder").body).toBe("color: var(--bb-ink-soft);");
+    // fix 1 (J1): the placeholders' own grey on the fields' well (was the soft line, which read as typed in)
+    expect(r(":root.bb-look.dark.bb-glass .dark\\:placeholder-gray-500::placeholder").body).toBe("color: var(--bb-ph);");
     expect(r(":root.bb-look.dark.bb-glass .dark\\:text-red-400").body).toBe("color: var(--bb-alert);");
     expect(r(":root.bb-look.dark.bb-glass .dark\\:text-rose-400").body).toBe("color: var(--bb-alert);");
     expect(r(":root.bb-look.dark.bb-glass .dark\\:text-amber-200").body).toBe("color: var(--bb-warn);");
@@ -568,7 +765,171 @@ describe("CSS: the glass is one layer that fills the frame", () => {
     expect(GLASS_RULES).not.toMatch(/gradient|text-shadow|transform|perspective|blur\(|drop-shadow/);
     expect([...GLASS_RULES.matchAll(/(?:^|[\s;{])box-shadow:\s*([^;]+);/g)].map((m) => m[1])).toEqual(["none"]);
     for (const m of GLASS_RULES.matchAll(/--tw-shadow:\s*([^;]+);/g)) expect(m[1]).toBe("inset 0 0 0 1px var(--bb-line)"); // a hairline
-    expect([...GLASS_RULES.matchAll(/filter:\s*([^;]+);/g)].map((m) => m[1])).toEqual(["none", "none"]);
+    // the bar's own frosting off (R15) and, fix 1, the confirm dialog's scrim blur off: only "none" on the frame's side
+    expect([...GLASS_RULES.matchAll(/filter:\s*([^;]+);/g)].map((m) => m[1])).toEqual(["none", "none", "none", "none"]);
+  });
+});
+
+// ── Fix 1: the state audit's must-fixes (M1–M4) and the judge's fields (J1), in index.css ──
+const srcOf = (rel) => fs.readFileSync(path.join(FRONTEND, "src", rel), "utf8");
+const ruleOf = (sel) => rulesOf(GLASS_CSS).find((x) => x.sel.split(",").map((s) => s.trim()).includes(sel));
+const anyRule = (sel) => rulesOf(CSS_TEXT).find((x) => x.sel.split(",").map((s) => s.trim()).includes(sel));
+// CSS specificity [ids, classes + attributes + pseudo-classes, types + pseudo-elements] — enough for these
+// selectors (an escaped character is part of its class name; :not(x) counts as x, a single class here).
+const specOf = (sel) => {
+  const e = sel.replace(/\\./g, "x");
+  const s = e.replace(/::[\w-]+/g, "");
+  const cls = (s.match(/\.[\w-]+|\[[^\]]*\]|:[\w-]+/g) || []).length - (s.match(/:not\(/g) || []).length;
+  const types = (s.replace(/\[[^\]]*\]|\([^)]*\)/g, "").match(/(^|[\s>+~])[a-z]+/g) || []).length + (e.match(/::[\w-]+/g) || []).length;
+  return [(s.match(/#[\w-]+/g) || []).length, cls, types];
+};
+const beats = (a, b) => {
+  const x = specOf(a), y = specOf(b);
+  return x[0] !== y[0] ? x[0] > y[0] : x[1] !== y[1] ? x[1] > y[1] : x[2] > y[2];
+};
+const FRAME_FILES = ["pages/ReservationPublicPage.jsx", "components/booking/FullNightOffer.jsx", "components/PublicFloorMap.jsx", "components/booking/bookingTiles.js", "components/booking/bookingWait.js"];
+
+describe("CSS fix 1: the fields, the focus edge, the dialog, the picks and the calendar on glass", () => {
+  it("specificity, measured the same way for every rule below", () => {
+    expect(specOf(":root.bb-look.dark.bb-glass .dark\\:border-gray-700")).toEqual([0, 5, 0]);
+    expect(specOf(":root.bb-look.dark.bb-glass .grid-cols-7 > span.dark\\:text-gray-500")).toEqual([0, 6, 1]);
+    expect(specOf(":root.bb-look.dark.bb-glass:not(.bb-look-wait)")).toEqual([0, 5, 0]);
+    expect(specOf(":root.bb-look.dark.bb-glass .dark\\:placeholder-gray-500::placeholder")).toEqual([0, 5, 1]);
+    expect(specOf("[data-bb-accent] .bb-pick")).toEqual([0, 2, 0]);
+  });
+
+  it("J1: the text fields are the look's well — ui/Input's box, the two step-2 textareas and the selects", () => {
+    const well = ruleOf(":root.bb-look.dark.bb-glass .focus-within\\:outline-none.dark\\:bg-gray-900");
+    expect(well.body).toBe("background-color: var(--bb-well);");
+    expect(well.sel.split(",").map((s) => s.trim())).toEqual([
+      ":root.bb-look.dark.bb-glass .focus-within\\:outline-none.dark\\:bg-gray-900",
+      ":root.bb-look.dark.bb-glass textarea.dark\\:bg-gray-900",
+      ":root.bb-look.dark.bb-glass select.dark\\:bg-white\\/\\[0\\.04\\]",
+    ]);
+    // each beats R13's tint on the same element (an unlayered (0,4,0)); the select's own fill is a layered utility
+    const r13Tint = ":root.bb-look.dark .dark\\:bg-gray-900";
+    expect(anyRule(r13Tint).body).toBe("background-color: var(--bb-tint);");
+    for (const s of well.sel.split(",").map((x) => x.trim()).slice(0, 2)) expect(beats(s, r13Tint), s).toBe(true);
+    // the hooks are live: ui/Input's box is the only focus-within:outline-none in the frame and carries dark:bg-gray-900…
+    render(<Input aria-label="x" />);
+    const box = screen.getByRole("textbox", { name: "x" }).parentElement;
+    for (const c of ["focus-within:outline-none", "dark:bg-gray-900"]) expect(box.className.split(" ")).toContain(c);
+    for (const f of FRAME_FILES) expect(srcOf(f), f).not.toContain("focus-within:outline-none");
+    // …the two textareas carry dark:bg-gray-900, the selects (the salon's two, the waitlist's time) dark:bg-white/[0.04]
+    const page = srcOf("pages/ReservationPublicPage.jsx");
+    const areas = [...page.matchAll(/<textarea[\s\S]*?className="([^"]+)"/g)].map((m) => m[1]);
+    expect(areas).toHaveLength(2);
+    for (const c of areas) expect(c.split(" ")).toEqual(expect.arrayContaining(["dark:bg-gray-900", "dark:placeholder-gray-500", "dark:focus:border-gray-300"]));
+    expect(page).toMatch(/const SELECT_TILE =\s*"[^"]*" \+\s*"dark:bg-white\/\[0\.04\] /);
+    expect(page.match(/className=\{SELECT_TILE \+ FOCUS\}/g)).toHaveLength(2);
+    expect(srcOf("components/booking/FullNightOffer.jsx")).toMatch(/<select[\s\S]*?"dark:bg-white\/\[0\.04\] /);
+    // the placeholders' own grey (J1) on every field that has one: ui/Input's <input> and the textareas
+    expect(srcOf("components/ui/Input.jsx")).toContain('"placeholder-gray-400 dark:placeholder-gray-500 "');
+  });
+
+  it("M1: a focused field shows an ink edge again — it beats the hairline remap; an invalid field keeps its red edge", () => {
+    expect(ruleOf(":root.bb-look.dark.bb-glass .dark\\:focus-within\\:border-gray-500:focus-within").body).toBe("border-color: var(--bb-ink);");
+    expect(ruleOf(":root.bb-look.dark.bb-glass .dark\\:focus\\:border-gray-300:focus").body).toBe("border-color: var(--bb-ink);");
+    expect(ruleOf(":root.bb-look.dark.bb-glass .dark\\:focus-within\\:ring-gray-500:focus-within").body).toBe("--tw-ring-color: var(--bb-ink);");
+    const remap = ":root.bb-look.dark.bb-glass .dark\\:border-gray-700";
+    expect(ruleOf(remap).body).toBe("border-color: var(--bb-line);");
+    for (const s of [
+      ":root.bb-look.dark.bb-glass .dark\\:focus-within\\:border-gray-500:focus-within",
+      ":root.bb-look.dark.bb-glass .dark\\:focus\\:border-gray-300:focus",
+    ]) {
+      expect(specOf(s)).toEqual([0, 6, 0]);
+      expect(beats(s, remap)).toBe(true);
+    }
+    // the selectors are live: ui/Input's box (step 2's name / e-mail / phone, the waitlist's name / phone) …
+    render(<Input aria-label="x" />);
+    const box = screen.getByRole("textbox", { name: "x" }).parentElement.className.split(" ");
+    for (const c of ["dark:border-gray-700", "dark:focus-within:border-gray-500", "dark:focus-within:ring-gray-500"]) expect(box).toContain(c);
+    // … and an invalid one has none of them: its red edge (INVALID_BORDER) is untouched
+    render(<Input aria-label="y" invalid />);
+    const bad = screen.getByRole("textbox", { name: "y" }).parentElement.className.split(" ");
+    for (const c of ["dark:border-gray-700", "dark:focus-within:border-gray-500", "dark:focus-within:ring-gray-500"]) expect(bad).not.toContain(c);
+    // … the two step-2 textareas (allergies, a note)
+    expect(srcOf("pages/ReservationPublicPage.jsx").match(/dark:focus:border-gray-300/g)).toHaveLength(2);
+  });
+
+  it("M2: the confirm dialog is opaque — its panel is the card's own #171717, not the 6 % white film", async () => {
+    const sel = ':root.bb-look.dark.bb-glass [aria-modal="true"] > .dark\\:bg-gray-800';
+    expect(ruleOf(sel).body).toBe("background-color: var(--bb-card);");
+    const r13Tint = ":root.bb-look.dark .dark\\:bg-gray-800";
+    expect(anyRule(r13Tint).body).toBe("background-color: var(--bb-tint);");
+    expect(specOf(sel)).toEqual([0, 6, 0]);
+    expect(beats(sel, r13Tint)).toBe(true);
+    // the real dialog (this file mocks useConfirm for the page; here it is the real one)
+    const { ConfirmProvider, useConfirm } = await vi.importActual("../hooks/useConfirm");
+    function Asker() {
+      const confirm = useConfirm();
+      return <button type="button" onClick={() => confirm({ destructive: true, title: "x", message: "y" })}>ask</button>;
+    }
+    render(<ConfirmProvider><Asker /></ConfirmProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "ask" }));
+    const panels = document.querySelectorAll('[aria-modal="true"] > .dark\\:bg-gray-800');
+    expect(panels).toHaveLength(1); // only the panel: "Annuller"'s own dark:bg-gray-800 sits deeper
+    expect(panels[0].querySelector("#bb-confirm-title")).not.toBeNull();
+    // the card stays opaque in glass, and the dialog's words read on it
+    const l = look(GLASS_Q);
+    expect(l.card).toBe("#171717");
+    expect(ratio(rgbOf(l.ink), rgbOf(l.card))).toBeGreaterThanOrEqual(4.5); // title 17.9:1
+    expect(ratio(rgbOf(l.soft), rgbOf(l.card))).toBeGreaterThanOrEqual(4.5); // message 14.5:1
+  });
+
+  it("M2, found by the open-dialog shot: the dialog's scrim keeps its colour but has no blur of its own on glass", async () => {
+    // inside the translucent frame Chromium painted the scrim's backdrop-filter as a block over part of the
+    // frame (darker and blurred on one side), as it did the bar's own frosting (R15)
+    const sel = ':root.bb-look.dark.bb-glass [aria-modal="true"] > .backdrop-blur-\\[2px\\]';
+    expect(ruleOf(sel).body).toBe("-webkit-backdrop-filter: none; backdrop-filter: none;");
+    const { ConfirmProvider, useConfirm } = await vi.importActual("../hooks/useConfirm");
+    function Asker() {
+      const confirm = useConfirm();
+      return <button type="button" onClick={() => confirm({ destructive: true, title: "x", message: "y" })}>ask</button>;
+    }
+    render(<ConfirmProvider><Asker /></ConfirmProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "ask" }));
+    const scrims = document.querySelectorAll('[aria-modal="true"] > .backdrop-blur-\\[2px\\]');
+    expect(scrims).toHaveLength(1);
+    expect(scrims[0].className.split(" ")).toContain("bg-gray-900/50"); // the scrim's colour: unchanged
+    // no other backdrop-filter is left inside the frame: the bar's is off since R15, this one now
+    for (const f of [...FRAME_FILES, "hooks/useConfirm.jsx"]) {
+      const n = (srcOf(f).match(/backdrop-blur|backdrop-filter|glass-static/g) || []).length;
+      expect(n, f).toBe({ "pages/ReservationPublicPage.jsx": 1, "hooks/useConfirm.jsx": 1 }[f] || 0);
+    }
+  });
+
+  it("M3: a pick has an ink edge on glass — every pick has a 1 px border, and only its colour changes", () => {
+    const sel = ":root.bb-look.dark.bb-glass .bb-pick";
+    expect(ruleOf(sel).body).toBe("border-color: var(--bb-ink);");
+    // it beats the site's colour ((0,4,0)) and the owner's ((0,2,0) / (0,3,0)) on the same edge
+    for (const other of [":root.bb-look.bb-hacc .bb-pick", "[data-bb-accent] .bb-pick", ".dark [data-bb-accent] .bb-pick"]) {
+      expect(anyRule(other).body, other).toMatch(/border-color: var\(--bb-/);
+      expect(beats(sel, other), other).toBe(true);
+    }
+    expect(TILE_PICKED).toMatch(/(^| )border( |$)/);
+    const page = srcOf("pages/ReservationPublicPage.jsx");
+    for (const base of [
+      '"h-9 px-3.5 rounded-xl border text-[13px] ', // allergens
+      '"h-10 rounded-xl border text-[13px] ', // how serious
+      '"h-9 px-3.5 rounded-xl border text-[13.5px] ', // occasion
+    ]) {
+      expect(page).toContain(base);
+      expect(base).toContain(" border ");
+    }
+    expect(page.match(/"bb-pick /g)).toHaveLength(3); // those three are the page's own picks; the tiles are TILE_PICKED
+  });
+
+  it("M4: the inline calendar's weekday row reads in the softer line — its seven spans, never a day's button", () => {
+    const sel = ":root.bb-look.dark.bb-glass .grid-cols-7 > span.dark\\:text-gray-500";
+    expect(ruleOf(sel).body).toBe("color: var(--bb-ink-soft);");
+    render(<MonthCalendar value="2026-11-01" min="2026-11-01" max="2026-12-31" locale="da-DK" onPick={() => {}} labels={{ prev: "Forrige måned", next: "Næste måned", closed: "lukket" }} />);
+    const spans = document.querySelectorAll(".grid-cols-7 > span.dark\\:text-gray-500");
+    expect(spans).toHaveLength(7);
+    for (const s of spans) expect(s.tagName).toBe("SPAN");
+    expect(document.querySelectorAll(".grid-cols-7 > button.dark\\:text-gray-500").length).toBe(0); // no by-phone day here, and it is a button
+    // in the frame, only the calendar has a seven-column grid
+    for (const f of FRAME_FILES) expect(srcOf(f), f).not.toMatch(/\bgrid-cols-7\b/);
   });
 });
 
@@ -620,6 +981,28 @@ describe("kit: the photo sample shows the glass where the owner's browser can", 
     pick("website-look-mode", da.rsvpWebColoursLight);
     expect(frame().getAttribute("src")).not.toContain("glass");
     expect(frame().style.backdropFilter || "").toBe("");
+  });
+
+  it("fix 1 (J2): the photo sample is a cover photo, so the hosted script gives that same site the glass the preview shows", () => {
+    window.CSS = { supports: () => true };
+    renderKit();
+    pick("website-look-sample", da.rsvpWebSamplePhoto);
+    const ground = screen.getByTestId("website-preview-phone");
+    expect(ground.style.backgroundImage).toMatch(/^url\("data:image\/svg\+xml,/);
+    expect(ground.style.backgroundSize).toBe("cover");
+    expect(frame().getAttribute("src")).toMatch(/&glass=1$/);
+    // that ground on a real page, read by the hosted script (no stub): glass, and the blur
+    const style = ground.getAttribute("style");
+    expect(style).not.toContain("'");
+    cleanup();
+    const { ready, lastQ, blurOf } = host({
+      css: "body { color: #ffffff; font-family: system-ui, sans-serif; } .btn { background-color: #ffffff; color: #1a1a1a; border-radius: 8px; }",
+      body: `<div style='${style}'><a class="btn" href="#menu">Se menu</a><div>{SNIPPET}</div></div>`,
+    });
+    ready();
+    expect(lastQ()).toBe(R14_PHOTO_Q + "&glass=1");
+    expect(lastQ()).toBe(sampleLookQuery("photo", AUTO, { glass: true }));
+    expect(blurOf()).toBe(LOOK_GLASS_BLUR);
   });
 
   it("where the owner's browser cannot blur: the photo sample shows today's opaque card", () => {

@@ -84,6 +84,17 @@
 //           accent goes through the guard against the opaque card, unchanged.
 //           LOOK_GLASS.card's alpha is the lightest (1/255 steps) where all of
 //           that holds with a 2 % margin (r15.glassCard.test.jsx): 0.72.
+//   well    (R15 fix 1, judge: on the glass the placeholders read as typed
+//           in) glass only: the text fields (inputs, textareas, selects) are
+//           a darker well — a translucent black layer, `well` — and their
+//           placeholder is `ph`, a grey. Both computed over the lightest
+//           place a field sits (inside the step-2 extras panel: two tints on
+//           the glass) over a PURE WHITE patch: ph is the dimmest grey that
+//           reads 4.5:1 on the well (4.59 in this file's 1/255 arithmetic:
+//           the glass's own 2 % margin, so exact compositing keeps 4.5), and
+//           the well is the lightest black (1/255 steps) where that grey is
+//           still 2:1 dimmer than the ink — about 30 % for white ink
+//           (#0000004E, ph #B7B7B7); a dimmer site ink gets a darker well.
 
 /** The corner ladder ids (the site's button corners): sharp / soft / round.
  *  Their px live in index.css (.bb-r-sharp …: card, tile, button), so the
@@ -125,7 +136,7 @@ export function lookFrom(q, R, F) {
   var th = p.theme == "dark" || p.theme == "light" ? p.theme : null, sf = p.surface == "photo" ? "photo" : hx("surface"), pl = sf == "photo" ? null : sf;
   var ink = hx("ink"), ac = hx("accent"), ai = hx("accent_ink"), A = null, so = null, i = 0, cd, f, c, e;
   var dk = th ? th == "dark" : sf == "photo" || (pl ? L(pl) < 0.18 : !!ink && L(ink) > 0.5);
-  var gl = p.glass == "1" && sf == "photo" && dk, G = "#111111", al = null, wn = null, gw, ws, wi;
+  var gl = p.glass == "1" && sf == "photo" && dk, G = "#111111", al = null, wn = null, we = null, ph = null, gw, ws, wi, v;
   if (!dk) { cd = pl && L(pl) >= 0.18 ? M(W, pl, 0.3) : W; while (L(cd) < 0.93 && i++ < 40) cd = M(cd, W, 0.1); }
   else if (pl && L(pl) < 0.18) { cd = M(pl, W, 0.07); while (L(cd) > 0.035 && i++ < 40) cd = M(cd, K, 0.1); }
   else cd = "#171717";
@@ -150,8 +161,10 @@ export function lookFrom(q, R, F) {
     so = ink; for (i = 0; i < 5; i++) { c = M(ink, G, [0.45, 0.35, 0.25, 0.15, 0.1][i]); if (C(c, ws) >= 4.5) { so = c; break; } }
     for (al = "#F87171", i = 1; C(al, ws) < 4.5 && i <= 10; i++) al = M("#F87171", W, i / 10);
     for (wn = "#FDE68A", i = 1; C(wn, ws) < 4.5 && i <= 10; i++) wn = M("#FDE68A", W, i / 10);
+    for (i = 0, v = 255; i < 128; i++) { c = M(ws, K, i / 255); while (C(M(K, W, (v - 1) / 255), c) >= 4.59) v--; if (C(ink, M(K, W, v / 255)) >= 2) break; }
+    we = K + M(K, W, i / 255).slice(1, 3); ph = M(K, W, v / 255);
   }
-  return { dark: dk, card: cd, tint: tn, tint2: t2, fill: f1, fill2: f2, line: ln, raise: rs, ink: ink, soft: so, accent: A, radius: en(R, "radius"), font: en(F, "font"), scheme: en(["light", "dark", "ld"], "scheme"), glass: gl ? G + "B8" : null, alert: al, warn: wn };
+  return { dark: dk, card: cd, tint: tn, tint2: t2, fill: f1, fill2: f2, line: ln, raise: rs, ink: ink, soft: so, accent: A, radius: en(R, "radius"), font: en(F, "font"), scheme: en(["light", "dark", "ld"], "scheme"), glass: gl ? G + "B8" : null, alert: al, warn: wn, well: we, ph: ph };
 }
 
 /** Paint a look (lookFrom's result) on the document: classes and custom
@@ -164,7 +177,7 @@ export function applyLook(d, L, R, F) {
     "--bb-card": L.card, "--bb-card-bar": L.card + "EB", "--bb-tint": L.tint, "--bb-tint-2": L.tint2,
     "--bb-fill": L.fill, "--bb-fill-2": L.fill2, "--bb-line": L.line, "--bb-raise": L.raise, "--bb-ink": L.ink, "--bb-ink-soft": L.soft,
     "--bb-h-accent": A.bg, "--bb-h-fg": A.fg, "--bb-h-fg-quiet": A.quiet, "--bb-h-hover": A.hover, "--bb-h-edge": A.edge,
-    "--bb-glass": L.glass, "--bb-alert": L.alert, "--bb-warn": L.warn
+    "--bb-glass": L.glass, "--bb-alert": L.alert, "--bb-warn": L.warn, "--bb-well": L.well, "--bb-ph": L.ph
   };
   for (k in v) if (v[k]) s.setProperty(k, v[k]); else s.removeProperty(k);
   s.colorScheme = L.scheme == "ld" ? "light dark" : L.scheme || "";
