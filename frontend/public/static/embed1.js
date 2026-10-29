@@ -164,7 +164,9 @@
       if (g && g !== "none") {
         if (/url\(/.test(g)) {
           pc.cover = /cover/.test(s.backgroundSize);
-          return (!pc.cover && b && b[3] >= 1 && !/gradient\(/.test(g) && hs(b)) || "photo";
+          /* a tiled texture shows its base colour; a photo, logo or stretched
+             image that is not tiled stays "photo" (its base may not match it) */
+          return (!pc.cover && b && b[3] >= 1 && !/gradient\(/.test(g) && !/^(no-repeat[ ,]*)+$/.test(s.backgroundRepeat || "repeat") && hs(b)) || "photo";
         }
         /* stops come as rgb()/rgba()/transparent; a #hex or other function is unread */
         m = g.match(/rgba?\([^)]*\)|transparent/g);

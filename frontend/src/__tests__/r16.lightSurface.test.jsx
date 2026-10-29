@@ -111,8 +111,8 @@ const SITE = `
   .btn { background-color: #3b2a1a; color: #ffffff; border-radius: 999px; }`;
 const BODY = '<div class="hero"><a class="btn" href="#menu">Se menu</a><div class="col">{SNIPPET}</div></div>';
 const CLEAR = "rgba(0, 0, 0, 0)";
-function run(backgroundImage, { backgroundColor = CLEAR, backgroundSize = "auto" } = {}) {
-  stubHero({ backgroundImage, backgroundColor, backgroundSize });
+function run(backgroundImage, { backgroundColor = CLEAR, backgroundSize = "auto", backgroundRepeat = "repeat" } = {}) {
+  stubHero({ backgroundImage, backgroundColor, backgroundSize, backgroundRepeat });
   return host({ css: SITE, body: BODY });
 }
 
@@ -251,10 +251,22 @@ describe("an image that is not a cover photo: the opaque colour under it", () =>
     expect(look("?" + q)).toMatchObject({ dark: false, glass: null });
   });
 
-  it("a logo (contain) or a stretched image (100% 100%) on an opaque base → that colour too", () => {
+  it("a tiled logo (contain) or a tiled stretched image (100% 100%) on an opaque base → that colour too", () => {
     expect(surfaceOf(run('url("logo.svg")', { backgroundColor: "rgb(244, 236, 220)", backgroundSize: "contain" }).q)).toBe("f4ecdc");
     fresh();
     expect(surfaceOf(run('url("photo.jpg")', { backgroundColor: "rgb(43, 37, 32)", backgroundSize: "100% 100%" }).q)).toBe("2b2520");
+  });
+
+  it("an image that is not tiled (no-repeat: a photo at 100% auto, a logo) stays \"photo\" — its base colour may not match it", () => {
+    const { q, blurs } = run('url("hero.jpg")', { backgroundColor: "rgb(255, 255, 255)", backgroundSize: "100% auto", backgroundRepeat: "no-repeat" });
+    expect(surfaceOf(q)).toBe("photo");
+    expect(q).not.toContain("glass");
+    expect(blurs.every((v) => v === "")).toBe(true);
+    expect(look("?" + q)).toMatchObject({ dark: true, card: "#171717", glass: null });
+    fresh();
+    expect(surfaceOf(run('url("logo.svg")', { backgroundColor: "rgb(244, 236, 220)", backgroundSize: "contain", backgroundRepeat: "no-repeat, no-repeat" }).q)).toBe("photo");
+    fresh();
+    expect(surfaceOf(run('url("paper.png")', { backgroundColor: "rgb(244, 236, 220)", backgroundRepeat: "repeat-x" }).q)).toBe("f4ecdc");
   });
 
   it("a texture with no base colour (or a translucent one) → \"photo\", unchanged", () => {
