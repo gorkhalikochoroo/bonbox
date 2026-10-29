@@ -487,6 +487,11 @@ describe("Polish", () => {
   });
 
   it("a punch without location says how to fix it", async () => {
+    // The shift runs from an hour ago to two hours ahead. Between 00:00 and
+    // 01:00 that starts yesterday and there is no shift to punch now, so the
+    // clock is pinned to midday (only Date; timers stay real for findBy).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 28, 12, 0, 0));
     const now = new Date();
     const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
     const start = new Date(now.getTime() - 60 * 60000);
@@ -509,6 +514,7 @@ describe("Polish", () => {
       expect(document.body.textContent).toContain("tillad lokalitet for denne side i din browser");
     } finally {
       Object.defineProperty(navigator, "geolocation", { configurable: true, value: origGeo });
+      vi.useRealTimers();
     }
   });
 });
