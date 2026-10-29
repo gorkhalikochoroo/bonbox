@@ -6,13 +6,16 @@
  *
  *   host   /static/embed1.js, surface():
  *          - a gradient only (no url()): every stop, laid on the element's own
- *            background-color (or white when that is clear too), is light or
- *            dark against the frame's own line (luminance 0.18, bookingLook.js
- *            `L(pl) < 0.18`). All one side → their average as a hex, and the
- *            frame paints it as a plain colour site (R13's tinted card).
+ *            background-color, is light or dark against the frame's own line
+ *            (luminance 0.18, bookingLook.js `L(pl) < 0.18`). When that colour
+ *            is clear or translucent it is itself laid on what lies under it
+ *            (the ancestors' surface; white when none; a photo there → "photo")
+ *            — fix 1. All one side → their average as a hex, and the frame
+ *            paints it as a plain colour site (R13's tinted card).
  *            Mixed, or a value it cannot read → "photo", as before.
- *          - an image not drawn at "cover" (texture, logo, stretched): the
- *            element's opaque background-color, else "photo".
+ *          - an image not drawn at "cover" (texture, logo, stretched) with no
+ *            gradient layer: the element's opaque background-color, else
+ *            "photo" (fix 2).
  *          - a cover photo: "photo" + glass (R15), unchanged.
  *   frame  unchanged: it already handles a colour surface.
  */
@@ -92,6 +95,15 @@ function stubHero(values) {
   });
 }
 const surfaceOf = (q) => (/&surface=([0-9a-f]{6}|photo)/.exec(q) || [])[1] ?? null;
+// R16 fix 1: the .hero and the <body> under it, both stubbed (stubHero leaves the body clear, as jsdom does)
+function stubHeroOnBody(hero, body) {
+  const real = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) => {
+    const st = real(el, pseudo);
+    const values = el.classList?.contains("hero") ? hero : el === document.body ? body : null;
+    return values ? new Proxy(st, { get: (t, k) => (k in values ? values[k] : Reflect.get(t, k)) }) : st;
+  });
+}
 
 // A cream site: dark ink, a dark pill button; the .hero's background comes from the stub.
 const SITE = `
@@ -253,6 +265,91 @@ describe("an image that is not a cover photo: the opaque colour under it", () =>
     expect(look("?" + q)).toMatchObject({ dark: true, card: "#171717", glass: null });
     fresh();
     expect(surfaceOf(run('url("paper.png")', { backgroundColor: "rgba(244, 236, 220, 0.9)" }).q)).toBe("photo");
+  });
+});
+
+// R16 fix 1 (review, 29 Oct): a clear or translucent gradient element was laid on white, so a soft sheen
+// on a dark page read light and got a near-white card on a black page. Its ground is what lies under it.
+describe("fix 1: a gradient on a clear (or translucent) element lies on what is under it, not on white", () => {
+  const DARK_BODY = { backgroundImage: "none", backgroundColor: "rgb(17, 17, 17)" };
+  const onDark = (backgroundImage, backgroundColor = CLEAR) => {
+    stubHeroOnBody({ backgroundImage, backgroundColor, backgroundSize: "auto" }, DARK_BODY);
+    return host({ css: SITE, body: BODY });
+  };
+
+  it.each([
+    // each stop over #111 (17): white@0.04 → 26.52, transparent → 17: mean 21.76 → 0x16
+    ["a 4 % white sheen", "linear-gradient(rgba(255, 255, 255, 0.04), transparent)", "161616"],
+    // gold@0.15 over 17 → (44.6, 39.05, 28.25), clear → 17: mean (30.8, 28.03, 22.63)
+    ["a 15 % gold glow", "radial-gradient(rgba(201, 164, 92, 0.15), rgba(0, 0, 0, 0) 60%)", "1f1c17"],
+    // black@0.1 → 15.3, black@0.3 → 11.9: mean 13.6 → 0x0e
+    ["a 10 → 30 % black wash", "linear-gradient(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.3))", "0e0e0e"],
+  ])("a dark body (#111) with %s on a clear .hero → a dark hex, never a light surface", (_, g, hex) => {
+    const { q, blurs } = onDark(g);
+    expect(q).toMatch(SAFE_Q);
+    expect(surfaceOf(q)).toBe(hex);
+    expect(lum(hex)).toBeLessThan(0.18);
+    expect(q).not.toContain("glass");
+    expect(blurs.every((v) => v === "")).toBe(true);
+    const l = look("?" + q);
+    expect(l).toMatchObject({ dark: true, glass: null });
+    expect(lum(l.card.slice(1))).toBeLessThan(0.18);
+  });
+
+  it("a translucent own colour is laid on the dark body first, then the stops on that", () => {
+    // white@0.1 over 17 → 40.8; white@0.04 over 40.8 → 49.37, transparent → 40.8: mean 45.08 → 0x2d
+    const { q } = onDark("linear-gradient(rgba(255, 255, 255, 0.04), transparent)", "rgba(255, 255, 255, 0.1)");
+    expect(surfaceOf(q)).toBe("2d2d2d");
+    expect(look("?" + q).dark).toBe(true);
+  });
+
+  it("a light body lends its colour too: black@4 % on cream is a cream tint, not a grey", () => {
+    // (250, 246, 238) and black@0.04 on it (240, 236.16, 228.48): mean (245, 241.08, 233.24)
+    stubHeroOnBody(
+      { backgroundImage: "linear-gradient(rgba(0, 0, 0, 0.04), transparent)", backgroundColor: CLEAR, backgroundSize: "auto" },
+      { backgroundImage: "none", backgroundColor: "rgb(250, 246, 238)" },
+    );
+    const { q } = host({ css: SITE, body: BODY });
+    expect(surfaceOf(q)).toBe("f5f1e9");
+    expect(look("?" + q).dark).toBe(false);
+  });
+
+  it("a cover-photo parent under a 45 % black overlay gradient → \"photo\" (as before R16: no glass, the opaque dark card)", () => {
+    stubHeroOnBody(
+      { backgroundImage: "linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.45))", backgroundColor: CLEAR, backgroundSize: "auto" },
+      { backgroundImage: 'url("https://trattoria.example/photo.jpg")', backgroundColor: CLEAR, backgroundSize: "cover" },
+    );
+    const { q, blurs } = host({ css: SITE, body: BODY });
+    expect(q).toMatch(SAFE_Q);
+    expect(surfaceOf(q)).toBe("photo");
+    expect(q).not.toContain("glass");
+    expect(blurs.every((v) => v === "")).toBe(true);
+    expect(look("?" + q)).toMatchObject({ dark: true, card: "#171717", glass: null });
+  });
+
+  it("an opaque own colour hides what is under it: the photo below does not matter", () => {
+    // black@0.5 over (240, 230, 210) = (120, 115, 105), as on a page with nothing under it
+    stubHeroOnBody(
+      { backgroundImage: "linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5))", backgroundColor: "rgb(240, 230, 210)", backgroundSize: "auto" },
+      { backgroundImage: 'url("photo.jpg")', backgroundColor: CLEAR, backgroundSize: "cover" },
+    );
+    expect(surfaceOf(host({ css: SITE, body: BODY }).q)).toBe("787369");
+  });
+});
+
+// R16 fix 2 (review, 29 Oct): a gradient painted with an image not at cover changes what shows; the base
+// colour alone is not the surface. `rgba(0,0,0,.6)` over a texture on #f4ecdc really reads about #625f58.
+describe("fix 2: an image not at cover with a gradient layer → \"photo\", not the base colour", () => {
+  it.each([
+    ["a dark wash over a texture", 'linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)), url("https://trattoria.example/tex.png")'],
+    ["a texture over a gradient", 'url("https://trattoria.example/tex.png"), linear-gradient(rgb(20, 20, 20), rgb(30, 30, 30))'],
+  ])("%s at `auto, auto` on an opaque cream base → \"photo\", no glass (as before R16)", (_, g) => {
+    const { q, blurs } = run(g, { backgroundColor: "rgb(244, 236, 220)", backgroundSize: "auto, auto" });
+    expect(q).toMatch(SAFE_Q);
+    expect(surfaceOf(q)).toBe("photo");
+    expect(q).not.toContain("glass");
+    expect(blurs.every((v) => v === "")).toBe(true);
+    expect(look("?" + q)).toMatchObject({ dark: true, card: "#171717", glass: null });
   });
 });
 

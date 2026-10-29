@@ -150,12 +150,13 @@
   }
   /* The first ancestor with a background: its colour, or "photo" — and
      pc.cover when it is an image drawn at "cover", any layer (glass only
-     then, R15 fix 1). R16: any other image (a texture, a logo) is the opaque
-     colour under it; a gradient whose stops, laid on that colour or white,
-     are all light or all dark (the frame's line, luminance 0.18) is their
-     average. Mixed, or unreadable: "photo". */
+     then, R15 fix 1). R16: any other image (a texture, a logo) with no
+     gradient on it is the opaque colour under it; a gradient whose stops,
+     laid on its ground (its own colour over what shows through it, else
+     white), are all light or all dark (the frame's line, luminance 0.18) is
+     their average. Mixed, or unreadable: "photo". */
   function surface(e, pc) {
-    var s, g, h, b, m, t, n, i, c;
+    var s, g, h, b, m, t, n, i, c, u;
     for (; e && e.nodeType === 1; e = e.parentElement) {
       s = cs(e);
       g = s.backgroundImage;
@@ -163,12 +164,16 @@
       if (g && g !== "none") {
         if (/url\(/.test(g)) {
           pc.cover = /cover/.test(s.backgroundSize);
-          return (!pc.cover && b && b[3] >= 1 && hs(b)) || "photo";
+          return (!pc.cover && b && b[3] >= 1 && !/gradient\(/.test(g) && hs(b)) || "photo";
         }
         /* stops come as rgb()/rgba()/transparent; a #hex or other function is unread */
         m = g.match(/rgba?\([^)]*\)|transparent/g);
         if (!m || /[#(]/.test(g.replace(/rgba?\([^)]*\)|[\w-]*gradient\(/g, ""))) return "photo";
-        b = ov(b, [255, 255, 255]);
+        /* a clear or translucent colour shows what lies under it (a dark
+           page, a photo); nothing there: white */
+        u = b && b[3] >= 1 ? null : surface(e.parentElement, {});
+        if (u === "photo") return u;
+        b = ov(b, u ? [16, 8, 0].map(function (k) { return (parseInt(u, 16) >> k) & 255; }) : [255, 255, 255]);
         for (t = [0, 0, 0], n = i = 0; i < m.length; i++) {
           c = ov(rgb(m[i]), b);
           if (lu(hs(c)) >= 0.18) n++;
