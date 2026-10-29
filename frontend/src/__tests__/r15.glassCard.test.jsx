@@ -317,14 +317,19 @@ function stubStyle(match, values) {
 const R14_PHOTO_Q = "look=1&surface=photo&ink=ffffff&accent=ffffff&accent_ink=1a1a1a&radius=soft&font=system";
 
 describe("host (fix 1): glass only on a real cover photo — gradients, textures, logos and stretched images keep today's card", () => {
+  // R16 (29 Oct): those four no longer say "photo". The light gradient sends its stops' average (it is a
+  // light site: the white button on it is dropped by R13's own 1.3:1 rule); the url layers not at "cover"
+  // send the hero's opaque base colour (#2b2520). Glass and blur stay off for all four, as fix 1 decided.
+  const R16_GRADIENT_Q = "look=1&surface=fdfbf9&ink=ffffff&font=system";
+  const R16_BASE_Q = R14_PHOTO_Q.replace("surface=photo", "surface=2b2520");
   it.each([
-    ["a gradient only", "linear-gradient(rgb(250, 247, 242), rgb(255, 255, 255))", "auto", false],
-    ["a tiled texture: url + auto", 'url("https://trattoria.example/paper.png")', "auto", false],
+    ["a gradient only", "linear-gradient(rgb(250, 247, 242), rgb(255, 255, 255))", "auto", false, R16_GRADIENT_Q],
+    ["a tiled texture: url + auto", 'url("https://trattoria.example/paper.png")', "auto", false, R16_BASE_Q],
     ["a cover photo: url + cover", 'url("https://trattoria.example/photo.jpg")', "cover", true],
     ["a gradient over a cover photo: auto, cover", 'linear-gradient(rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.35)), url("https://trattoria.example/photo.jpg")', "auto, cover", true],
-    ["a stretched image: url + 100% 100%", 'url("https://trattoria.example/photo.jpg")', "100% 100%", false],
-    ["a small logo: url + contain", 'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27/%3E")', "contain", false],
-  ])("%s → glass: %s", (_name, backgroundImage, backgroundSize, glass) => {
+    ["a stretched image: url + 100% 100%", 'url("https://trattoria.example/photo.jpg")', "100% 100%", false, R16_BASE_Q],
+    ["a small logo: url + contain", 'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27/%3E")', "contain", false, R16_BASE_Q],
+  ])("%s → glass: %s", (_name, backgroundImage, backgroundSize, glass, r16Q) => {
     stubStyle((el) => el.classList?.contains("hero"), { backgroundImage, backgroundSize });
     const { ready, lastQ, blurOf, everBlurred } = host({ css: PHOTO, body: PHOTO_BODY });
     ready();
@@ -333,10 +338,11 @@ describe("host (fix 1): glass only on a real cover photo — gradients, textures
       expect(blurOf()).toBe(LOOK_GLASS_BLUR);
       expect(look("?" + lastQ()).glass).toBe(LOOK_GLASS.card);
     } else {
-      // still a "photo" (R13's surface, unchanged), and exactly today's opaque card: no glass=1, no blur
-      expect(lastQ()).toBe(R14_PHOTO_Q);
+      // no glass=1, no blur, and the frame's plain colour card (R16: the surface is a colour now, not "photo")
+      expect(lastQ()).toBe(r16Q);
       expect(everBlurred()).toBe(false);
-      expect(look("?" + lastQ())).toMatchObject({ dark: true, card: "#171717", glass: null, well: null, ph: null });
+      expect(look("?" + lastQ())).toMatchObject({ glass: null, well: null, ph: null });
+      expect(look("?" + lastQ()).card).not.toBe("#171717");
     }
   });
 

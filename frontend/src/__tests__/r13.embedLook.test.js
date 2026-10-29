@@ -183,12 +183,22 @@ describe("a black site with square gold buttons", () => {
 
 describe("a photo behind the booking", () => {
   it("a background image on an ancestor is 'photo' (and so is a gradient)", () => {
+    // R16 (29 Oct): an image not drawn at "cover" over an opaque colour now sends that colour (a texture);
+    // this photo with no colour under it is still "photo"
     const { q } = host({
-      css: `body { color: #ffffff; } .hero { background-color: #333; background-image: url(photo.jpg); }`,
+      css: `body { color: #ffffff; } .hero { background-image: url(photo.jpg); }`,
       body: '<div class="hero"><div>{SNIPPET}</div></div>',
     });
     expect(q()).toMatch(/^look=1&surface=photo&ink=ffffff/);
     expect(lookFrom("?" + q(), LOOK_RADII, LOOK_FONTS)).toMatchObject({ dark: true, card: "#171717" });
+    document.body.innerHTML = "";
+    // R13's own fixture (#333 under the image, no size) is R16's texture case: that colour, a dark card
+    const t = host({
+      css: `body { color: #ffffff; } .hero { background-color: #333; background-image: url(photo.jpg); }`,
+      body: '<div class="hero"><div>{SNIPPET}</div></div>',
+    });
+    expect(t.q()).toMatch(/^look=1&surface=333333&ink=ffffff/);
+    expect(lookFrom("?" + t.q(), LOOK_RADII, LOOK_FONTS)).toMatchObject({ dark: true });
     document.body.innerHTML = "";
     const g = host({
       css: `.band { background-image: linear-gradient(#fff, #000); }`,
