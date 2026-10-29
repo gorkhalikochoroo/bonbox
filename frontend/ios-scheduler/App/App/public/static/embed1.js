@@ -123,8 +123,15 @@
   /* "rrggbb" for an (almost) opaque colour, else null. */
   function hx(c) {
     var v = rgb(c);
-    if (!v || v[3] < 0.5) return null;
+    return !v || v[3] < 0.5 ? null : hs(v);
+  }
+  function hs(v) {
     return ((1 << 24) + (Math.round(v[0]) << 16) + (Math.round(v[1]) << 8) + Math.round(v[2])).toString(16).slice(1);
+  }
+  /* colour v ([r, g, b, alpha]; none = clear) laid on the opaque u */
+  function ov(v, u) {
+    var a = v ? v[3] : 0;
+    return u.slice(0, 3).map(function (x, i) { return a ? v[i] * a + x * (1 - a) : x; });
   }
   function lu(h) {
     var n = parseInt(h, 16), r = 0, i, s;
@@ -143,15 +150,40 @@
   }
   /* The first ancestor with a background: its colour, or "photo" — and
      pc.cover when it is an image drawn at "cover", any layer (glass only
-     then, R15 fix 1: not a gradient, texture, logo or stretched image). */
+     then, R15 fix 1). R16: any other image (a texture, a logo) with no
+     gradient on it is the opaque colour under it; a gradient whose stops,
+     laid on its ground (its own colour over what shows through it, else
+     white), are all light or all dark (the frame's line, luminance 0.18) is
+     their average. Mixed, or unreadable: "photo". */
   function surface(e, pc) {
-    var s, g, h;
+    var s, g, h, b, m, t, n, i, c, u;
     for (; e && e.nodeType === 1; e = e.parentElement) {
       s = cs(e);
       g = s.backgroundImage;
+      b = rgb(s.backgroundColor);
       if (g && g !== "none") {
-        pc.cover = /url\(/.test(g) && /cover/.test(s.backgroundSize);
-        return "photo";
+        if (/url\(/.test(g)) {
+          pc.cover = /cover/.test(s.backgroundSize);
+          /* a tiled texture shows its base colour; a photo, logo or stretched
+             image that is not tiled stays "photo" (its base may not match it) */
+          return (!pc.cover && b && b[3] >= 1 && !/gradient\(/.test(g) && !/^(no-repeat[ ,]*)+$/.test(s.backgroundRepeat || "repeat") && hs(b)) || "photo";
+        }
+        /* stops come as rgb()/rgba()/transparent; a #hex or other function is unread */
+        m = g.match(/rgba?\([^)]*\)|transparent/g);
+        if (!m || /[#(]/.test(g.replace(/rgba?\([^)]*\)|[\w-]*gradient\(/g, ""))) return "photo";
+        /* a clear or translucent colour shows what lies under it (a dark
+           page, a photo); nothing there: white */
+        u = b && b[3] >= 1 ? null : surface(e.parentElement, {});
+        if (u === "photo") return u;
+        b = ov(b, u ? [16, 8, 0].map(function (k) { return (parseInt(u, 16) >> k) & 255; }) : [255, 255, 255]);
+        for (t = [0, 0, 0], n = i = 0; i < m.length; i++) {
+          c = ov(rgb(m[i]), b);
+          if (lu(hs(c)) >= 0.18) n++;
+          t = t.map(function (x, j) { return x + c[j] / m.length; });
+        }
+        h = hs(t);
+        /* the average stays on its stops' side (light ones can average dark) */
+        return n % m.length || (lu(h) >= 0.18) !== !!n ? "photo" : h;
       }
       h = hx(s.backgroundColor);
       if (h) return h;
