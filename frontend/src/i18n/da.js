@@ -11135,7 +11135,7 @@ export const da = {
     "landingV6.trust.noCut": "Ingen andel af din omsætning",
     "landingV6.trust.db": "<nw>Database i EU (Frankfurt, Tyskland) ·</nw> <nw>underleverandører i <a>privatlivspolitikken</a></nw>",
     // 3. nov. 2026: det, vi ved, først (gemt i Frankfurt, en kopi sendes til aflæsning), så det åbne punkt; kun billeder af bilag
-    "landingV6.trust.data": "Dine bilag gemmes i Frankfurt. For at aflæse et billede sender BonBox en kopi til vores AI-leverandør, Anthropic, eller en anden udbyder på listen i privatlivspolitikken. Hvor Anthropic behandler det, er endnu ikke bekræftet. Vi sælger ikke dine data og træner ikke modeller på dit regnskab.",
+    "landingV6.trust.data": "Dine bilag gemmes i Frankfurt. For at aflæse et billede sender BonBox en kopi til vores AI-leverandør, Anthropic, eller en anden udbyder på listen i privatlivspolitikken. Hvor de behandler det, er endnu ikke bekræftet. Vi sælger ikke dine data og træner ikke modeller på dit regnskab.",
     "landingV6.trust.staffRole": "Medarbejder",
     "landingV6.trust.staffDetail": "Ser vagtplanen og egne timer. Ingen adgang til regnskab, MOMS, bank eller andres løn.",
     "landingV6.faq.label": "Spørgsmål",

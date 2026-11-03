@@ -128,10 +128,11 @@ function PrivacyEn() {
             Location at clock-in: the BonBox Vagtplan app (and the staff page in a browser) reads the phone&rsquo;s location only when a staff member clocks in at a workplace that has turned on the location check; BonBox uses the coordinates only to check the distance to the workplace and does not save them, and the business sees only a &ldquo;Location not verified&rdquo; mark on a clock-in made without a usable location.
           </p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
-            {/* Orvexlo (3 Nov 2026): the register's name, word for word. A personally owned business has
-                its owner as the person responsible, so the owner is named here (landing-audit-2026-11-03 spec). */}
+            {/* Orvexlo (3 Nov 2026): the register's name, word for word. No owner line yet: the only register
+                text in the repo spells the owner differently from the spec, so a personal name goes here only once
+                it is copied from the CVR register's own entry (landing-audit-2026-11-03 NOTES). Orvexlo and the
+                CVR link identify the controller meanwhile. Keep in step with the Danish. */}
             <li><strong>Registered name:</strong> Orvexlo</li>
-            <li data-testid="privacy-owner"><strong>Owner:</strong> Manoj Kumar Chaudhary</li>
             <li><strong>CVR:</strong> <a href="https://datacvr.virk.dk/enhed/virksomhed/46417321" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">46417321</a> — you can check us in the public register</li>
             <li><strong>Website:</strong> bonbox.dk</li>
             <li><strong>Contact email:</strong> <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a></li>
@@ -416,7 +417,6 @@ function PrivacyDa() {
           </p>
           <ul className="list-disc pl-6 space-y-1 mt-2">
             <li><strong>Registreret navn:</strong> Orvexlo</li>
-            <li data-testid="privacy-owner"><strong>Ejer:</strong> Manoj Kumar Chaudhary</li>
             <li><strong>CVR:</strong> <a href="https://datacvr.virk.dk/enhed/virksomhed/46417321" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">46417321</a> — du kan slå os op i det offentlige register</li>
             <li><strong>Hjemmeside:</strong> bonbox.dk</li>
             <li><strong>Kontakt-e-mail:</strong> <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a></li>

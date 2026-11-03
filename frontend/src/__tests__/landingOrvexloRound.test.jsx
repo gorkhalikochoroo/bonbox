@@ -3,8 +3,8 @@
  *
  *   1. Orvexlo everywhere: the CVR register's text ("Orvexlo", "CVR 46417321") on the landing footer, /terms, /privacy,
  *      /cookies and /contact, in every dictionary and in the code (history comments aside). The footer names the product
- *      once: "BonBox – et produkt fra Orvexlo" / "BonBox – a product of Orvexlo". /privacy names the owner as the person
- *      responsible (a personally owned business). PRIVACY_UPDATED and the Terms' "Sidst opdateret" are the push day; the
+ *      once: "BonBox – et produkt fra Orvexlo" / "BonBox – a product of Orvexlo". /privacy prints no owner name until
+ *      one is copied from the CVR register's entry (review, 3 Nov). PRIVACY_UPDATED and the Terms' "Sidst opdateret" are the push day; the
  *      Terms version is NOT bumped (a bump re-runs the in-app notice to every owner: a name change is not a material change).
  *   2. Tryghed's data line says what is known first (stored in Frankfurt, a copy sent to be read), then the open point;
  *      receipt photos only, no new claim.
@@ -115,15 +115,25 @@ describe("1 · Orvexlo, as the CVR register has it", () => {
     }
   });
 
-  it("/privacy: the registered name is the register's, and the owner (the person responsible) is named", () => {
-    let text = legal(PrivacyPolicyPage, "da").container.textContent;
+  it("/privacy: the registered name is the register's, the CVR links to the register, and no owner name the register does not show", () => {
+    // The only register text in the repo (July: the old company name) spells the owner differently from the spec,
+    // and nothing here proves either spelling. The controller's identity (GDPR art. 13(1)(a)) is Orvexlo + CVR, with
+    // the register one click away. When the owner line comes back, its text is the register entry's, pinned here.
+    const cvr = "https://datacvr.virk.dk/enhed/virksomhed/46417321";
+    let r = legal(PrivacyPolicyPage, "da");
+    let text = r.container.textContent;
     expect(text).toContain("Registreret navn: Orvexlo");
-    expect(screen.getByTestId("privacy-owner").textContent).toBe("Ejer: Manoj Kumar Chaudhary");
+    expect([...r.container.querySelectorAll(`a[href="${cvr}"]`)].map((a) => a.textContent)).toEqual(["46417321"]);
+    expect(screen.queryByTestId("privacy-owner")).toBeNull();
+    expect(text).not.toMatch(/Ejer:|Owner:|Manoj|Chaudhary/);
     expect(text).toContain("BonBox er et produkt fra Orvexlo, der er registreret i Danmark som Personligt ejet Mindre Virksomhed.");
     cleanup();
-    text = legal(PrivacyPolicyPage, "en").container.textContent;
+    r = legal(PrivacyPolicyPage, "en");
+    text = r.container.textContent;
     expect(text).toContain("Registered name: Orvexlo");
-    expect(screen.getByTestId("privacy-owner").textContent).toBe("Owner: Manoj Kumar Chaudhary");
+    expect([...r.container.querySelectorAll(`a[href="${cvr}"]`)].map((a) => a.textContent)).toEqual(["46417321"]);
+    expect(screen.queryByTestId("privacy-owner")).toBeNull();
+    expect(text).not.toMatch(/Ejer:|Owner:|Manoj|Chaudhary/);
     expect(text).toContain("BonBox is a product of Orvexlo, registered in Denmark as a Personligt ejet Mindre Virksomhed.");
   });
 
@@ -148,10 +158,10 @@ describe("1 · Orvexlo, as the CVR register has it", () => {
 });
 
 describe("2 · Tryghed: what is known first, then the open point (receipt photos only, no new claim)", () => {
-  it("the line's order: stored in Frankfurt → a copy goes to the AI provider to be read → where Anthropic processes it is not yet confirmed → nothing sold, no training", () => {
+  it("the line's order: stored in Frankfurt → a copy goes to the AI provider to be read → where they process it is not yet confirmed → nothing sold, no training", () => {
     for (const [d, steps] of [
-      [da, ["Dine bilag gemmes i Frankfurt.", "sender BonBox en kopi til vores AI-leverandør, Anthropic", "Hvor Anthropic behandler det, er endnu ikke bekræftet.", "Vi sælger ikke dine data"]],
-      [en, ["Your receipt photos are stored in Frankfurt.", "BonBox sends a copy to our AI provider, Anthropic", "Where Anthropic processes it is not yet confirmed.", "We don't sell your data"]],
+      [da, ["Dine bilag gemmes i Frankfurt.", "sender BonBox en kopi til vores AI-leverandør, Anthropic", "Hvor de behandler det, er endnu ikke bekræftet.", "Vi sælger ikke dine data"]],
+      [en, ["Your receipt photos are stored in Frankfurt.", "BonBox sends a copy to our AI provider, Anthropic", "Where they process it is not yet confirmed.", "We don't sell your data"]],
     ]) {
       const v = d["landingV6.trust.data"];
       const at = steps.map((s) => v.indexOf(s));
@@ -159,8 +169,24 @@ describe("2 · Tryghed: what is known first, then the open point (receipt photos
       expect([...at].sort((a, b) => a - b)).toEqual(at);
       expect(v.startsWith(steps[0])).toBe(true);
     }
-    expect(en["landingV6.trust.data"]).toBe("Your receipt photos are stored in Frankfurt. To read one, BonBox sends a copy to our AI provider, Anthropic, or another provider listed in the privacy policy. Where Anthropic processes it is not yet confirmed. We don't sell your data and we don't train models on your books.");
-    expect(da["landingV6.trust.data"]).toBe("Dine bilag gemmes i Frankfurt. For at aflæse et billede sender BonBox en kopi til vores AI-leverandør, Anthropic, eller en anden udbyder på listen i privatlivspolitikken. Hvor Anthropic behandler det, er endnu ikke bekræftet. Vi sælger ikke dine data og træner ikke modeller på dit regnskab.");
+    expect(en["landingV6.trust.data"]).toBe("Your receipt photos are stored in Frankfurt. To read one, BonBox sends a copy to our AI provider, Anthropic, or another provider listed in the privacy policy. Where they process it is not yet confirmed. We don't sell your data and we don't train models on your books.");
+    expect(da["landingV6.trust.data"]).toBe("Dine bilag gemmes i Frankfurt. For at aflæse et billede sender BonBox en kopi til vores AI-leverandør, Anthropic, eller en anden udbyder på listen i privatlivspolitikken. Hvor de behandler det, er endnu ikke bekræftet. Vi sælger ikke dine data og træner ikke modeller på dit regnskab.");
+  });
+
+  it("the open point covers every reader the line names: no provider is singled out, because /privacy has none of them confirmed", () => {
+    // Expense receipts go to Mindee first when its key is set, then Claude, OCR.space and Google Vision
+    // (verified-claims C1b). /privacy lists all four with no confirmed place. A sentence naming one of them
+    // ("Where Anthropic processes it…") reads as if the others' places were known (review, 3 Nov).
+    const privacy = read("pages/PrivacyPolicyPage.jsx");
+    for (const reader of ["Anthropic \\(Claude API\\)", "Mindee", "Google Cloud Vision", "OCR\\.space"]) {
+      expect([reader, new RegExp(`\\["${reader}", "[^"]*", "Not confirmed"`).test(privacy)]).toEqual([reader, true]);
+      expect([reader, new RegExp(`\\["${reader}", "[^"]*", "Ikke bekræftet"`).test(privacy)]).toEqual([reader, true]);
+    }
+    for (const [d, notYet] of [[da, "endnu ikke bekræftet"], [en, "not yet confirmed"]]) {
+      const open = d["landingV6.trust.data"].split(/(?<=\.) /).find((x) => x.includes(notYet));
+      expect(open).toBeTruthy();
+      expect(open).not.toMatch(/Anthropic|Mindee|Google|OCR|Claude/);
+    }
   });
 
   it("no new claim: no EU endpoint or region for the AI, no retention promise, nothing beyond receipt photos", () => {

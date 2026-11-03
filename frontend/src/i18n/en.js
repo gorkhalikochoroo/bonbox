@@ -11457,7 +11457,7 @@ export const en = {
     "landingV6.trust.noCut": "No cut of your revenue",
     "landingV6.trust.db": "<nw>Database in the EU (Frankfurt, Germany) ·</nw> <nw>providers listed in the <a>privacy policy</a></nw>",
     // 3 Nov 2026: what is known first (stored in Frankfurt, a copy is sent to be read), then the open point; receipt photos only
-    "landingV6.trust.data": "Your receipt photos are stored in Frankfurt. To read one, BonBox sends a copy to our AI provider, Anthropic, or another provider listed in the privacy policy. Where Anthropic processes it is not yet confirmed. We don't sell your data and we don't train models on your books.",
+    "landingV6.trust.data": "Your receipt photos are stored in Frankfurt. To read one, BonBox sends a copy to our AI provider, Anthropic, or another provider listed in the privacy policy. Where they process it is not yet confirmed. We don't sell your data and we don't train models on your books.",
     "landingV6.trust.staffRole": "Staff",
     "landingV6.trust.staffDetail": "Sees the rota and their own hours. No access to the books, MOMS, bank or anyone else's pay.",
     "landingV6.faq.label": "Questions",
