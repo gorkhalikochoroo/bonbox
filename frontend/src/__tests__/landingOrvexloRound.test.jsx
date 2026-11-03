@@ -77,12 +77,13 @@ describe("1 · Orvexlo, as the CVR register has it", () => {
     expect(LEGAL_LINES).toEqual(["Orvexlo", "CVR 46417321"]);
   });
 
-  it("the footer names the product once — 'BonBox – et produkt fra Orvexlo' / 'BonBox – a product of Orvexlo' — then the CVR; the name is on the page once", () => {
+  it("the footer names the product once — 'BonBox – et produkt fra Orvexlo' / 'BonBox – a product of Orvexlo' — then the CVR; the copyright line is Orvexlo's (3 Nov: Manoj, BonBox is not a company)", () => {
     for (const [lang, line] of [["da", "BonBox – et produkt fra Orvexlo"], ["en", "BonBox – a product of Orvexlo"]]) {
       const { root, $ } = show(lang);
       const parts = $(".foot .legal p").innerHTML.split("<br>");
       expect([lang, parts[0], parts[1]]).toEqual([lang, line, "CVR 46417321"]);
-      expect([lang, root.textContent.split("Orvexlo").length - 1]).toEqual([lang, 1]);
+      expect([lang, root.textContent.split("Orvexlo").length - 1]).toEqual([lang, 2]);
+      expect([lang, $(".copy-r").textContent.startsWith("© 2026 Orvexlo · ")]).toEqual([lang, true]);
       expect([lang, OLD.test(root.textContent)]).toEqual([lang, false]);
       cleanup();
     }

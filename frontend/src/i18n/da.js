@@ -7311,7 +7311,7 @@ export const da = {
     "landingV2.footer.dpa": "Databehandleraftale",
     "landingV2.footer.sections": "Sektioner",
     "landingV2.footer.legal": "Juridisk",
-    "landingV2.footer.copyright": "© 2026 BonBox · Lavet i København",
+    "landingV2.footer.copyright": "© 2026 Orvexlo · Lavet i København",
     "landingV2.gavekort.eyebrow": "Gavekort",
     "landingV2.gavekort.title": "Print det, eller send bare koden.",
     "landingV2.gavekort.body": "Sælg et gavekort på tre tryk — 100 til 1.000 kr., betalt med kort, MobilePay eller kontant. Gæsten får en QR-kode på mobilen; du kan printe det fysiske kort over disken. Samme saldo bag begge.",
@@ -11159,5 +11159,5 @@ export const da = {
     "landingV6.foot.contact": "Kontakt",
     "landingV6.foot.cookies": "Cookieindstillinger",
     "landingV6.foot.instagram": "@bonbox.dk på Instagram",
-    "landingV6.foot.copyright": "© 2026 BonBox · Lavet i København",
+    "landingV6.foot.copyright": "© 2026 Orvexlo · Lavet i København",
 };

@@ -5256,7 +5256,7 @@ export const tr = {
   "landingV2.footer.dpa": "Databehandleraftale",
   "landingV2.footer.sections": "Bölümler",
   "landingV2.footer.legal": "Yasal",
-  "landingV2.footer.copyright": "© 2026 BonBox · Kopenhag'da yapıldı",
+  "landingV2.footer.copyright": "© 2026 Orvexlo · Kopenhag'da yapıldı",
   "landingV2.gavekort.eyebrow": "Gavekort",
   "landingV2.gavekort.title": "Yazdır ya da sadece kodu gönder.",
   "landingV2.gavekort.body": "Üç dokunuşla gavekort sat — 100 ile 1.000 kr. arası; kart, MobilePay veya nakit. Misafir telefonuna QR alır; fiziksel kartı tezgahta yazdırabilirsin. Bakiye ikisinde de aynı.",

@@ -160,7 +160,7 @@ export default function FooterV2() {
 
       <div className="border-t border-slate-200">
         <div className={`mx-auto w-full max-w-[1180px] px-[clamp(24px,4vw,64px)] py-4 text-[12.5px] text-slate-400 ${WIDE} min-[1441px]:py-[calc(16px*var(--lc))] min-[1441px]:text-[calc(12.5px*var(--lc))]`}>
-          {t("landingV2.footer.copyright", "© 2026 BonBox · Made in Copenhagen")}
+          {t("landingV2.footer.copyright", "© 2026 Orvexlo · Made in Copenhagen")}
         </div>
       </div>
     </footer>

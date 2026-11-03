@@ -7522,7 +7522,7 @@ export const en = {
     "landingV2.footer.dpa": "Databehandleraftale",
     "landingV2.footer.sections": "Sections",
     "landingV2.footer.legal": "Legal",
-    "landingV2.footer.copyright": "© 2026 BonBox · Made in Copenhagen",
+    "landingV2.footer.copyright": "© 2026 Orvexlo · Made in Copenhagen",
     "landingV2.gavekort.eyebrow": "Gavekort",
     "landingV2.gavekort.title": "Print it, or just send the code.",
     "landingV2.gavekort.body": "Sell a gavekort in three taps — 100 to 1.000 kr., paid by card, MobilePay or cash. The guest gets a QR on their phone; you can print the physical card across the counter. Same balance behind both.",
@@ -11481,5 +11481,5 @@ export const en = {
     "landingV6.foot.contact": "Contact",
     "landingV6.foot.cookies": "Cookie settings",
     "landingV6.foot.instagram": "@bonbox.dk on Instagram",
-    "landingV6.foot.copyright": "© 2026 BonBox · Made in Copenhagen",
+    "landingV6.foot.copyright": "© 2026 Orvexlo · Made in Copenhagen",
 };

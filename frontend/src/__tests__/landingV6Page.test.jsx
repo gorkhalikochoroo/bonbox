@@ -175,7 +175,7 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
     expect($(".foot .links .lang button[lang='da']").getAttribute("aria-pressed")).toBe("true");
     expect($(".foot .links .lang button[lang='en']").getAttribute("aria-label")).toBe("English");
     expect($(".foot .links button").getAttribute("data-cookie-settings")).toBe("open");
-    expect(text(".copy-r")).toBe("© 2026 BonBox · Lavet i København");
+    expect(text(".copy-r")).toBe("© 2026 Orvexlo · Lavet i København");
   });
 });
 
