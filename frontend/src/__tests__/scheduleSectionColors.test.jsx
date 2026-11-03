@@ -25,6 +25,8 @@ import { SECTION, SECTION_META } from "../config/roleSections";
 import {
   SECTION_BAR,
   SECTION_BAR_NEUTRAL,
+  SECTION_CARD,
+  SECTION_CARD_NEUTRAL,
   SECTION_COLORS,
   SECTION_HEADER,
   SECTION_LABEL_FALLBACK,
@@ -123,7 +125,7 @@ describe("owner grid section palette", () => {
     // `other` is in here too — it is not a section roleSections can return,
     // but the grid renders a header for it whenever a role resolves to null.
     for (const s of [...ALL_SECTIONS, OTHER_SECTION]) {
-      for (const slot of ["bg", "bar", "text", "dot"]) {
+      for (const slot of ["bg", "bar", "text", "dot", "pill"]) {
         expect(SECTION_HEADER[s]?.[slot], `SECTION_HEADER["${s}"].${slot}`).toBeTruthy();
       }
     }
@@ -149,5 +151,35 @@ describe("owner grid section palette", () => {
         SECTION_LABEL_KEY[OTHER_SECTION],
       );
     }
+  });
+
+  it("gives every section a card tone with every slot the card reads", () => {
+    // Same failure mode as SECTION_COLORS: cardTone() is dereferenced on every
+    // shift card, in all four views.
+    for (const s of ALL_SECTIONS) {
+      for (const slot of ["fill", "ring", "hover", "tag", "dot"]) {
+        expect(SECTION_CARD[s]?.[slot], `SECTION_CARD["${s}"].${slot}`).toBeTruthy();
+      }
+    }
+  });
+
+  it("paints each card in its own section's hue, matching the bar and the row dot", () => {
+    for (const s of ALL_SECTIONS) {
+      const hue = SECTION_BAR[s].match(/border-(\w+)-500/)[1];
+      expect(SECTION_CARD[s].fill, s).toContain(`bg-${hue}-50`);
+      expect(SECTION_CARD[s].ring, s).toContain(`ring-${hue}-200`);
+      expect(SECTION_CARD[s].tag, s).toContain(`text-${hue}-700`);
+      expect(SECTION_CARD[s].dot, s).toBe(SECTION_COLORS[s].dot);
+      // Dark: the /10 tint over the card, never a -50 slab.
+      expect(SECTION_CARD[s].fill, s).toContain(`dark:bg-${hue}-500/10`);
+      expect(SECTION_CARD[s].fill, s).not.toContain("emerald");
+    }
+  });
+
+  it("keeps the no-sections card colourless", () => {
+    expect(SECTION_CARD_NEUTRAL.fill).toContain("bg-white");
+    expect(SECTION_CARD_NEUTRAL.ring).toContain("ring-gray-200");
+    expect(SECTION_CARD_NEUTRAL.dot).toBe("");
+    expect(Object.values(SECTION_CARD_NEUTRAL).join(" ")).not.toMatch(/emerald|violet|red-|blue-|amber/);
   });
 });

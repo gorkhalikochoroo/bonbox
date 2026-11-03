@@ -67,12 +67,17 @@ export const SECTION_COLORS = {
   },
 };
 
-// Section as a 3px LEFT-BAR signal only on the shift card (LOCKED design — no
-// flood tint on the CARD; the Option-B section HEADER row is the one place a
-// tint is allowed, see SECTION_HEADER). Keyed by the SAME section as
-// SECTION_COLORS so the bar always agrees with the row dot (red-500 / blue-500 /
-// violet-500). border-* = the bar hue. `floor` carries a dark-mode step because
-// violet-500 on a gray-900 card is the one bar that loses contrast at 3px.
+// Section as a 3px LEFT BAR on a PUBLISHED shift card. Keyed by the SAME
+// section as SECTION_COLORS so the bar always agrees with the row dot (red-500
+// / blue-500 / violet-500). border-* = the bar hue. `floor` carries a dark-mode
+// step because violet-500 on a gray-900 card is the one bar that loses
+// contrast at 3px.
+//
+// The card used to be white with the bar as its only colour ("no flood tint on
+// the CARD"). That lock is lifted as of 3 Nov 2026: the owner asked for the
+// boxes to be coloured by who works them (his mockup), so a published card now
+// also wears its section's soft fill — SECTION_CARD below. A DRAFT no longer
+// carries the bar at all (see CARD_DRAFT in StaffSchedulePage.jsx).
 export const SECTION_BAR = {
   kitchen: "border-red-500",
   bar: "border-blue-500",
@@ -95,20 +100,53 @@ export const SECTION_BAR = {
 // is true, instead of "this is a role", which is not.
 export const SECTION_BAR_NEUTRAL = "border-gray-200 dark:border-gray-700";
 
+// A PUBLISHED shift card, by section: the soft fill, the hairline ring that
+// edges it, the hover step (the phone chip is a button), the job-title tag's
+// ink and the dot a DRAFT shows in front of that tag (a draft has no bar, so
+// the dot is where its section stays readable).
+//
+// Same hue family as SECTION_BAR and the row dot, one step softer than the
+// section HEADER band's pill so a card never reads as a header. Dark mode uses
+// the /10 tints over the gray-800 card, like SECTION_HEADER: a -50 flood on a
+// dark table is a light slab. Contrast, measured in Chromium from the compiled
+// CSS for all five sections + the draft cream (3 Nov 2026, lab NOTES.md):
+// light — time 16.2:1, hours (gray-600) 6.9:1, tag (-700) 5.9:1, ✓ 3.3:1;
+// dark — time 11.3:1, hours (gray-400) 4.8:1, tag (-300) 6.5:1, ✓ 6.4:1
+// (each the lowest over every fill). gray-500 hours would be 4.4:1 on red-50.
+export const SECTION_CARD = {
+  kitchen: { fill: "bg-red-50 dark:bg-red-500/10", ring: "ring-red-200 dark:ring-red-500/30", hover: "hover:bg-red-100 dark:hover:bg-red-500/20", tag: "text-red-700 dark:text-red-300", dot: "bg-red-500" },
+  bar: { fill: "bg-blue-50 dark:bg-blue-500/10", ring: "ring-blue-200 dark:ring-blue-500/30", hover: "hover:bg-blue-100 dark:hover:bg-blue-500/20", tag: "text-blue-700 dark:text-blue-300", dot: "bg-blue-500" },
+  floor: { fill: "bg-violet-50 dark:bg-violet-500/10", ring: "ring-violet-200 dark:ring-violet-500/30", hover: "hover:bg-violet-100 dark:hover:bg-violet-500/20", tag: "text-violet-700 dark:text-violet-300", dot: "bg-violet-500" },
+  treatment: { fill: "bg-violet-50 dark:bg-violet-500/10", ring: "ring-violet-200 dark:ring-violet-500/30", hover: "hover:bg-violet-100 dark:hover:bg-violet-500/20", tag: "text-violet-700 dark:text-violet-300", dot: "bg-violet-500" },
+  front: { fill: "bg-blue-50 dark:bg-blue-500/10", ring: "ring-blue-200 dark:ring-blue-500/30", hover: "hover:bg-blue-100 dark:hover:bg-blue-500/20", tag: "text-blue-700 dark:text-blue-300", dot: "bg-blue-500" },
+};
+
+// The card on a vertical with NO sections (retail / services / personal): the
+// same reason as SECTION_BAR_NEUTRAL — no "Roller:" legend, so no hue. White
+// card, gray ring, gray ink, and no dot at all.
+export const SECTION_CARD_NEUTRAL = {
+  fill: "bg-white dark:bg-[rgb(var(--surface-card))]",
+  ring: "ring-gray-200 dark:ring-gray-700",
+  hover: "hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))]",
+  tag: "text-gray-600 dark:text-gray-300",
+  dot: "",
+};
+
 // Section HEADER row (Option B — one tinted band per section above its people).
-// This is the only tinted surface in the grid: the shift cards stay white with a
-// 3px bar, so the tint reads as "new group starts here" and never competes with
-// a card. `other` is NOT a section roleSections can return — it is the grid's
-// own bucket for a role this vertical has no section for (a café "DJ"), so it
-// stays deliberately colourless rather than borrowing a real section's hue.
-// Dark mode uses the /10 tints: a -50 flood on a gray-900 table is a light bar.
+// The band reads as "new group starts here". Its per-day number is a PILL in
+// the section's tint (`pill`), one step stronger than the band and the cards
+// so it stays a shape on its own band. `other` is NOT a section roleSections
+// can return — it is the grid's own bucket for a role this vertical has no
+// section for (a café "DJ"), so it stays deliberately colourless rather than
+// borrowing a real section's hue. Dark mode uses the /10 tints: a -50 flood on
+// a gray-900 table is a light bar.
 export const SECTION_HEADER = {
-  kitchen: { bg: "bg-red-50 dark:bg-red-500/10", bar: "border-red-500", text: "text-red-700 dark:text-red-300", dot: "bg-red-500" },
-  bar: { bg: "bg-blue-50 dark:bg-blue-500/10", bar: "border-blue-500", text: "text-blue-700 dark:text-blue-300", dot: "bg-blue-500" },
-  floor: { bg: "bg-violet-50 dark:bg-violet-500/10", bar: "border-violet-500", text: "text-violet-700 dark:text-violet-300", dot: "bg-violet-500" },
-  treatment: { bg: "bg-violet-50 dark:bg-violet-500/10", bar: "border-violet-500", text: "text-violet-700 dark:text-violet-300", dot: "bg-violet-500" },
-  front: { bg: "bg-blue-50 dark:bg-blue-500/10", bar: "border-blue-500", text: "text-blue-700 dark:text-blue-300", dot: "bg-blue-500" },
-  other: { bg: "bg-gray-50 dark:bg-gray-500/10", bar: "border-gray-300", text: "text-gray-700 dark:text-gray-300", dot: "bg-gray-300 dark:bg-gray-600" },
+  kitchen: { bg: "bg-red-50 dark:bg-red-500/10", bar: "border-red-500", text: "text-red-700 dark:text-red-300", dot: "bg-red-500", pill: "bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-200" },
+  bar: { bg: "bg-blue-50 dark:bg-blue-500/10", bar: "border-blue-500", text: "text-blue-700 dark:text-blue-300", dot: "bg-blue-500", pill: "bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-200" },
+  floor: { bg: "bg-violet-50 dark:bg-violet-500/10", bar: "border-violet-500", text: "text-violet-700 dark:text-violet-300", dot: "bg-violet-500", pill: "bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-200" },
+  treatment: { bg: "bg-violet-50 dark:bg-violet-500/10", bar: "border-violet-500", text: "text-violet-700 dark:text-violet-300", dot: "bg-violet-500", pill: "bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-200" },
+  front: { bg: "bg-blue-50 dark:bg-blue-500/10", bar: "border-blue-500", text: "text-blue-700 dark:text-blue-300", dot: "bg-blue-500", pill: "bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-200" },
+  other: { bg: "bg-gray-50 dark:bg-gray-500/10", bar: "border-gray-300", text: "text-gray-700 dark:text-gray-300", dot: "bg-gray-300 dark:bg-gray-600", pill: "bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-200" },
 };
 
 // Section → its localized label (Køkken / Bar / Gulv / Behandling / Reception).

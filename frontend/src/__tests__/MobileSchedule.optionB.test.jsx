@@ -99,6 +99,9 @@ function Harness(props) {
   );
 }
 
+/** Class TOKENS, not a substring: "dark:bg-amber-500/15" contains "bg-amber-50". */
+const tokens = (el) => String(el?.className || "").split(/\s+/).filter(Boolean);
+
 const mount = (props) => {
   localStorage.setItem("lang", "da");
   return render(
@@ -192,26 +195,64 @@ describe("MobileSchedule — a draft is not an error", () => {
     return container;
   };
 
-  it("wears a dashed amber outline instead of the published gray ring", () => {
+  it("wears a dashed amber outline on a cream card, instead of the published ring", () => {
     openDraftDay();
     const chip = screen.getByRole("button", { name: /09:00–15:00/ });
-    expect(chip.className).toContain("outline-dashed");
-    expect(chip.className).toContain("outline-amber-400");
+    expect(tokens(chip)).toContain("outline-dashed");
+    expect(tokens(chip)).toContain("outline-amber-400");
+    expect(tokens(chip)).toContain("bg-[#FFFBF4]");
     expect(chip.className).not.toContain("ring-1");
-    // …and the 3px role bar stays SOLID. It says which SECTION the shift is,
-    // not which state — and `border-dashed` used to dissolve it on exactly the
-    // shifts the owner was still writing.
     expect(chip.className).not.toContain("border-dashed");
-    expect(chip.className).toContain("border-l-[3px]");
+    // 3 Nov: NO left bar on a draft any more — the red stripe against the
+    // amber dash was the clash. The 3px comes back as padding, and the
+    // section rides on a dot in its colour (Jonas = Køkken, red).
+    expect(tokens(chip)).not.toContain("border-l-[3px]");
+    expect(tokens(chip)).toContain("pl-[13px]");
+    const dot = chip.querySelector("[data-role-dot]");
+    expect(dot).toBeTruthy();
+    expect(tokens(dot)).toContain("bg-red-500");
   });
 
   it("labels it with a sentence-case Kladde pill, not a 9px uppercase shout", () => {
     openDraftDay();
     const chip = screen.getByRole("button", { name: /09:00–15:00/ });
     const pill = within(chip).getByText("Kladde");
-    expect(pill.className).toContain("text-[11px]");
-    expect(pill.className).toContain("bg-amber-50");
+    expect(tokens(pill)).toContain("text-[11px]");
+    // -100, not -50: an amber-50 pill on the cream card has no edge left.
+    expect(tokens(pill)).toContain("bg-amber-100");
+    expect(tokens(pill)).toContain("text-amber-800");
     expect(pill.className).not.toContain("uppercase");
+  });
+});
+
+describe("MobileSchedule — the published chip and the names", () => {
+  it("fills a published chip in its section's tint and keeps the solid bar", () => {
+    mount();
+    const chip = screen.getByRole("button", { name: /10:00–18:00/ }); // Mette, Server → Gulv
+    for (const c of ["bg-violet-50", "ring-1", "ring-violet-200", "border-l-[3px]", "border-violet-500", "hover:bg-violet-100"]) {
+      expect(tokens(chip)).toContain(c);
+    }
+    expect(tokens(chip)).not.toContain("outline-dashed");
+  });
+
+  it("does not repeat the job title the row prints one line to the left", () => {
+    // The phone chip is `compact`: the name next to it keeps the width.
+    mount();
+    const chip = screen.getByRole("button", { name: /10:00–18:00/ });
+    expect(chip.textContent).not.toContain("Tjener");
+    expect(chip.querySelector("[data-shift-tag]")).toBeNull();
+    expect(screen.getAllByText("Tjener").length).toBeGreaterThan(0); // the row says it
+  });
+
+  it("shows the whole name, two lines at most, with the name in title", () => {
+    mount({
+      staff: [{ id: "st-a", name: "Oscar Christensen", role: "Server", active: true, contract_type: "part" }],
+    });
+    const name = screen.getByText("Oscar Christensen");
+    expect(name.getAttribute("title")).toBe("Oscar Christensen");
+    expect(tokens(name)).toContain("line-clamp-2");
+    expect(tokens(name)).toContain("break-words");
+    expect(tokens(name)).not.toContain("truncate");
   });
 });
 

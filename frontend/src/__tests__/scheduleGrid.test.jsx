@@ -32,6 +32,7 @@ import {
   dayTallyText,
   groupStaffBySection,
   isSeenByStaff,
+  sectionDayCell,
   tallyDay,
 } from "../config/scheduleGrid";
 import { LanguageProvider, useLanguage } from "../hooks/useLanguage";
@@ -259,5 +260,34 @@ describe("contractLabel", () => {
           .not.toBe(ct.labelKey);
       }
     }
+  });
+});
+
+/* ── sectionDayCell — the section header's day cell ───────────────────── */
+
+describe("sectionDayCell", () => {
+  it("is closed on a day nobody in the house works — never an amber 0", () => {
+    expect(sectionDayCell(0, 0)).toEqual({ kind: "closed" });
+  });
+
+  it("is the amber gap only when the house is open and this section is empty", () => {
+    expect(sectionDayCell(0, 3)).toEqual({ kind: "gap" });
+  });
+
+  it("counts this section's shifts", () => {
+    expect(sectionDayCell(2, 5)).toEqual({ kind: "count", n: 2 });
+    expect(sectionDayCell(1, 1)).toEqual({ kind: "count", n: 1 });
+  });
+
+  it("lets known opening hours decide over the roster", () => {
+    // Open per the hours with nobody rostered at all is a real gap…
+    expect(sectionDayCell(0, 0, true)).toEqual({ kind: "gap" });
+    // …and a day the hours say is shut stays shut whatever the roster says.
+    expect(sectionDayCell(2, 4, false)).toEqual({ kind: "closed" });
+  });
+
+  it("never throws on junk", () => {
+    expect(sectionDayCell(undefined, undefined)).toEqual({ kind: "closed" });
+    expect(sectionDayCell(-1, 2)).toEqual({ kind: "gap" });
   });
 });

@@ -6133,6 +6133,11 @@ export const en = {
     // Section header row (Option B) — the amber 0 on a day with a roster but
     // nobody from THIS section on it.
     schedSectionNobodyOn: "Nobody from {section} is on shift",
+    // Section header pill (3 Nov 2026): that section's shifts on the day. The
+    // xl: pill and its label/title; below xl the pill shows the number alone.
+    schedSectionShiftsOne: "{n} shift",
+    schedSectionShiftsMany: "{n} shifts",
+    schedSectionShiftsTitle: "{section}: {shifts}",
     // Week pill + the escape hatch beside the arrows.
     schedGoToThisWeek: "Go to this week",
     schedThisWeek: "This week",

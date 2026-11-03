@@ -135,6 +135,30 @@ export function dayTallyText(tally, t) {
     .replace("{p}", String(tally.pub));
 }
 
+/**
+ * What one section-header day cell says.
+ *   { kind: "closed" }       — the venue is not open that day → "—"
+ *   { kind: "gap" }          — open, and nobody from this section is on → amber 0
+ *   { kind: "count", n }     — n shifts from this section that day
+ *
+ * "Open" comes from `venueOpen` when the caller knows the opening hours. The
+ * Vagtplan page does NOT load them today (they live in the business profile's
+ * operating hours and the booking settings, neither of which this page
+ * fetches), so it passes nothing and the rule falls back to the roster itself:
+ * a day with at least one shift anywhere in the house is open. A day nobody at
+ * all works is closed, never a hole in one section — an amber 0 under every
+ * section on a Sunday the venue is shut would cry wolf every week.
+ *
+ * Never "understaffed": the only targets in the code (staff_role_targets) are
+ * per ROLE, not per section per day, so there is no number to fall short of.
+ */
+export function sectionDayCell(sectionShifts, dayTotal, venueOpen) {
+  const open = typeof venueOpen === "boolean" ? venueOpen : (dayTotal || 0) > 0;
+  if (!open) return { kind: "closed" };
+  const n = Math.max(0, sectionShifts || 0);
+  return n === 0 ? { kind: "gap" } : { kind: "count", n };
+}
+
 function sectionOrder(id) {
   if (id === OTHER_SECTION) return 99;
   return SECTION_META[id]?.order ?? 98;
