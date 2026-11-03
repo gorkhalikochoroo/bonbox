@@ -14,6 +14,15 @@
  * 2. The one-column tablet stage (768–1199 px wide, not the two-column page). "whats with those gap on right" at 820 × 1180: the
  *    headline words flow inline (inline-block: each still its own link with the stacked word's box) and the two lines run to
  *    48ch / 52ch.
+ * 3. Hero-gaps round (3 Nov; Manoj on the live page at ~1800 × 985: "dont you think this is way too much gaps"). The plate is the
+ *    stage's one frame, the right column's full height (100svh less the frame's padding and the caption), and layout() centred the
+ *    roster card in it: at 1920 × 1080 the card (640 × 383) sat 260 px under the top crop marks, and the block went down to the card's
+ *    bottom edge, 96 px of box (119 px to the eye) under the headline; at 2560 × 1440, 233 px. Now on the two-column page the card
+ *    sits at the plate's top with the same clearance on every side ((W − card) / 2, at least the 24 px corner clearance: at 1280 the
+ *    card used to fill the column, its corners under the crop marks), and in the hero (beat h) the bottom crop marks and the caption
+ *    rise by --plate-hug to hug it; they open to the full column with the hand-over (--lp6-hin), so 10.00's screen arrives in the
+ *    whole plate. heroFit() is unchanged: the card's bottom edge is now above the block's own bottom, so the block keeps its own
+ *    margins under the headline (the 40 px floor where they are less). translate only, no scale, no zoom.
  * Phones (< 768) are untouched: their hero rules and tokens are pinned below exactly as at 86472ec8.
  *
  * The geometry below is RECORDED, not made up: the built branch in headless Chromium (the lab's port-build/hero-group/ probe,
@@ -22,7 +31,9 @@
  * bottom edge, the roster card's bottom edge (the roster's box, scaled about its centre, + the card inside it) and 2 × --sec —
  * and the --hero-top / --hero-a1 the engine then set. DA and EN laid out the same at every size. In the same run the trial line's
  * last baseline sat within 0.6 px of the card's bottom edge (the air is rounded to whole px), except 2560 × 1440 (the 2 × section
- * gap clamp: 42 px above it).
+ * gap clamp: 42 px above it). Those 23 Oct records (the card centred in the full plate) stay below as heroFit()'s own maths; the
+ * hero-gaps records (REC_HUG: the fixed branch in headless Chromium, the lab's landing-hero-gaps-2026-11-03/tools/record-hero.mjs,
+ * DA and EN the same at every size) are what layout() writes now.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -80,7 +91,7 @@ describe("heroFit.js — the two-column hero hangs from the plate's top edge; th
   });
 
   for (const [size, r] of Object.entries(REC)) {
-    it(`${size}: the cap top on the crop marks' line; the block ${r.edge === "card" ? "ends on the card's bottom edge" : "stops at 2 × the section gap"}, as the engine set it`, () => {
+    it(`${size} (23 Oct record, the card centred in the full plate): the cap top on the crop marks' line; the block ${r.edge === "card" ? "ends on the card's bottom edge" : "stops at 2 × the section gap"}, as the engine set it then`, () => {
       const f = heroFit(input(r.g));
       const [plateTop, plateBottom, cardBottom, maxGap, h1, sub, trial] = r.g;
       // the headline's first cap top = the plate's top edge
@@ -161,6 +172,96 @@ describe("heroFit.js — the two-column hero hangs from the plate's top edge; th
     expect(engine.slice(branch, at)).not.toContain("} else {");
     expect(engine.slice(els, engine.indexOf("}", els + 8))).toContain("--hero-pull");
     expect(engine).not.toMatch(/\(avail - hh\) \/ 2/); // the old centring is gone
+  });
+});
+
+// hero-gaps round (3 Nov): what the fixed branch's layout() read and wrote in headless Chromium (record-hero.mjs; DA = EN at every
+// size). g as in REC; set = [--hero-top, --hero-a1]; hug = --plate-hug; W the stage column, P the full plate, the card as laid out
+// (rosterTop: its top under the plate's top edge); vh the viewport height; before = --hero-a1 on the release tip (4b2453f7) at the
+// same size, from this round's before shots (shots/before_measurements.json)
+const REC_HUG = {
+  "1024x768": { g: [92, 710, 446, 192, [0, 193, 65.536, 64.2253], [213, 52, 18, 26.1], [361, 44, 15, 21.75]], set: [84, 5], hug: 240, f: { W: 523, P: 618, cardW: 475, cardH: 330, rosterTop: 24 }, vh: 768, before: 83 },
+  "1180x820": { g: [92, 762, 446, 192, [0, 222, 75.52, 74.0096], [242, 52, 18, 26.1], [390, 44, 15, 21.75]], set: [82, 4], hug: 292, f: { W: 614, P: 670, cardW: 566, cardH: 330, rosterTop: 24 }, vh: 820, before: 81 },
+  "1280x720": { g: [100, 662, 507, 256, [0, 282, 96, 94.08], [310, 58, 20, 29], [468, 46, 16, 23.2]], set: [88, 0], hug: 131, f: { W: 630, P: 562, cardW: 582, cardH: 383, rosterTop: 24 }, vh: 720, before: 0 },
+  "1366x768": { g: [100, 710, 507, 256, [0, 282, 96, 94.08], [310, 58, 20, 29], [468, 46, 16, 23.2]], set: [88, 0], hug: 179, f: { W: 680, P: 610, cardW: 632, cardH: 383, rosterTop: 24 }, vh: 768, before: 1 },
+  "1440x790": { g: [100, 732, 525, 256, [0, 282, 96, 94.08], [310, 58, 20, 29], [468, 46, 16, 23.2]], set: [88, 0], hug: 166, f: { W: 723, P: 632, cardW: 640, cardH: 383, rosterTop: 42 }, vh: 790, before: 12 },
+  "1440x900": { g: [112, 834, 537, 256, [0, 317, 108, 105.84], [345, 58, 20, 29], [503, 46, 16, 23.2]], set: [98, 0], hug: 256, f: { W: 723, P: 722, cardW: 640, cardH: 383, rosterTop: 42 }, vh: 900, before: 23 },
+  "1920x1080": { g: [112, 1014, 537, 256, [0, 359, 122, 119.56], [387, 64, 22, 31.9], [550, 46, 16, 23.2]], set: [97, 0], hug: 436, f: { W: 723, P: 902, cardW: 640, cardH: 383, rosterTop: 42 }, vh: 1080, before: 68 },
+  "2560x1440": { g: [112, 1374, 537, 256, [0, 359, 122, 119.56], [387, 64, 22, 31.9], [550, 46, 16, 23.2]], set: [97, 0], hug: 796, f: { W: 723, P: 1262, cardW: 640, cardH: 383, rosterTop: 42 }, vh: 1440, before: 205 },
+};
+const CLR = 24, CAP_LINE = 12 + 18; // the corner clearance; the caption under the frame (top: 100% + 12 px, one 18 px line)
+
+describe("hero-gaps round (3 Nov): the card at the plate's top, the crop marks hugging it, the block at its own margins under the headline", () => {
+  for (const [size, r] of Object.entries(REC_HUG)) {
+    it(`${size}: the subline a type-rhythm gap under the headline, the frame hugging the card, the whole hero on one screen`, () => {
+      const f = heroFit(input(r.g));
+      const [plateTop, , cardBottom, , h1, sub, trial] = r.g;
+      // what layout() wrote: the headline's cap top still on the top crop marks' line, and no air above the subline beyond the 40 px floor
+      expect([Math.round(f.top), Math.round(f.a1)]).toEqual(r.set);
+      expect(f.top + h1[0] + capTop(h1[2], h1[3])).toBeCloseTo(plateTop, 6);
+      expect(f.block.edge).toBe("min");
+      // why: the card now ends above the block's own bottom (the old rule would have asked for negative air)
+      expect(cardBottom).toBeLessThan(f.top + lastBase(trial));
+      // the gap as a reader sees it (last baseline → first cap top): at least 40 px, at most 1.75 × the subline's line height;
+      // as boxes (the headline's box bottom → the subline's box top): the subline's own margin (+ the floor), at most one line height
+      const g0 = f.top + sub[0] + capTop(sub[2], sub[3]) - (f.top + lastBase(h1));
+      expect(f.block.gap).toBeGreaterThanOrEqual(MIN_GAP);
+      expect(f.block.gap).toBeLessThanOrEqual(1.75 * sub[3]);
+      expect(f.a1).toBeCloseTo(Math.max(0, MIN_GAP - g0), 6);
+      expect(sub[0] - (h1[0] + h1[1]) + f.a1).toBeLessThanOrEqual(sub[3]);
+      // closer than on the release tip at the same size (equal where the tip's own air was already 0)
+      if (r.before > 0) expect(Math.round(f.a1)).toBeLessThan(r.before); else expect(Math.round(f.a1)).toBe(0);
+      // the frame: the card is at most 640 px and keeps the corner clearance; the same pad on every side; the bottom marks rise by --plate-hug
+      const { W, P, cardW, cardH, rosterTop } = r.f, pad = (W - cardW) / 2;
+      expect(cardW).toBe(Math.min(W - 2 * CLR, 640));
+      expect(pad).toBeGreaterThanOrEqual(CLR);
+      expect(rosterTop).toBe(Math.round(plateTop + pad) - plateTop);
+      expect(cardBottom).toBe(plateTop + rosterTop + cardH);
+      expect(r.hug).toBe(Math.round(P - (cardH + 2 * pad)));
+      const frameBottom = plateTop + P - r.hug;
+      expect(Math.abs(frameBottom - (plateTop + rosterTop + cardH) - pad)).toBeLessThanOrEqual(1);
+      expect(r.hug).toBeGreaterThan(0);
+      // the two columns meet: the frame ends beside the block (under the subline's top, above the trial line's box bottom)
+      const subTop = f.top + sub[0] + f.a1, trialBox = f.top + trial[0] + trial[1] + f.a1;
+      expect(frameBottom).toBeGreaterThan(subTop);
+      expect(frameBottom).toBeLessThan(trialBox);
+      // one screen: the caption under the hugged frame and the trial line's box both above the viewport's bottom edge
+      expect(frameBottom + CAP_LINE).toBeLessThanOrEqual(r.vh);
+      expect(trialBox).toBeLessThanOrEqual(r.vh);
+    });
+  }
+
+  it("landingV6.css: one rule moves the bottom crop marks and the caption, in the hero on the two-column page only, by translate, with no transition", () => {
+    const hug = rules.filter((r) => Object.values(decls(r)).some((v) => /--plate-hug/.test(v)));
+    expect(hug.map((r) => [r.selector, chain(r), decls(r)])).toEqual([
+      [".lp6.story .frame[data-beat=h] .plate :is(.c3,.c4,.pcap)", [DESK], { translate: "0 calc((var(--lp6-hin) - 1) * var(--plate-hug,0px))" }],
+    ]);
+    // nothing on the plate animates a move (it follows the scroll; nothing moves at load), scales or zooms; nothing in the page zooms
+    const onPlate = rules.filter((r) => /\.plate\b/.test(r.selector));
+    for (const r of onPlate) {
+      const d = decls(r);
+      expect([r.selector, /translate|transform|all/.test(d.transition || "")]).toEqual([r.selector, false]);
+      expect([r.selector, d.transform, d.scale, d.zoom]).toEqual([r.selector, undefined, undefined, undefined]);
+    }
+    root.walkDecls((d) => { expect(d.prop).not.toBe("zoom"); });
+  });
+
+  it("engine.js: on the two-column page the roster keeps the corner clearance, sits at the plate's top and writes --plate-hug; the one-column plate keeps it centred", () => {
+    expect(engine).toContain("const rw0 = wide ? Math.min(desk ? Math.max(0, W - 2 * CLR) : W, 640) : W;");
+    const at = engine.indexOf("const pad = (W - rw0) / 2");
+    expect(at).toBeGreaterThan(0);
+    const desk = engine.slice(engine.lastIndexOf("if (desk) {", at), engine.indexOf("} else {", at));
+    expect(desk).toContain("const pad = (W - rw0) / 2, rk = shrink(roster, roH, P - 2 * pad);");
+    expect(desk).toContain("place(roster, cx(rw0), pad - (roH * (1 - rk)) / 2, rw0);");
+    expect(desk).toContain("plate.style.setProperty(\"--plate-hug\", Math.max(0, Math.round(P - (roH * rk + 2 * pad))) + \"px\");");
+    expect(desk).not.toContain("mid2(");
+    const els = engine.indexOf("} else {", at), tab = engine.slice(els, engine.indexOf("}", els + 8));
+    expect(tab).toContain("place(roster, cx(rw0), mid2(roH * rk) - (roH * (1 - rk)) / 2, rw0);");
+    expect(tab).toContain("plate.style.removeProperty(\"--plate-hug\");");
+    // the plate itself is still the full column (the story's screens use it whole; setT() measures its marks at rest)
+    expect(engine).toContain("place(plate, 0, 0, W, P);");
+    // the marks open with the hand-over: --lp6-hin is written on them as on the left column
+    expect(engine).toMatch(/HIN = \[\$\("aften-h"\), \$\("ix"\), \$\("date"\), clock, snav, c1, c2, c3,[\s\S]{0,200}\.\.\.plate\.querySelectorAll\("\.c3,\.c4,\.pcap"\)\];/);
   });
 });
 

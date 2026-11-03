@@ -431,7 +431,9 @@ export function mountLanding(root, opts) {
       booking = $("booking"), bookw = $("bookw"), stand = $("stand"), tal = $("tal"), standw = $("standw"), foto = $("foto"), fotow = $("fotow"), zb = $("zb"), kasse = $("kasse"),
       c1 = $("c1"), c2 = $("c2"), c3 = $("c3"), snav = $("snav"), snev = $("snev"), snend = $("snend"), prev = $("prev"), eprev = $("eprev"), nextB = $("next"), ixa = [...root.querySelectorAll(".ix a")],
       /* polish round: the left column's parts that rise in with the hero's hand-over (desktop); --lp6-hin is written on these, not the frame */
-      HIN = [$("aften-h"), $("ix"), $("date"), clock, snav, c1, c2, c3];
+      HIN = [$("aften-h"), $("ix"), $("date"), clock, snav, c1, c2, c3,
+        /* hero-gaps round (3 Nov): and the plate's bottom crop marks + caption, which open from the hero's card to the full column with it */
+        ...plate.querySelectorAll(".c3,.c4,.pcap")];
     const counts = [$("count"), $("dcount")], progs = [$("prog"), $("dprog")], digs = [...clock.querySelectorAll(".dg")], asides = [...root.querySelectorAll(".copy.sc .aside")],
       scLinks = [...root.querySelectorAll(".copy.sc a")], v2l = $("v2l"), TALLQ = "(max-width:767px) and (min-height:780px)";
     let TRACK, SEG, ACC, TOT, AI, svh, pin, trackH, desk, wide, fsClk = 64, LW = 0, LH = 0;
@@ -582,7 +584,8 @@ export function mountLanding(root, opts) {
       fsClk = parseFloat(getComputedStyle(clock).fontSize);
       /* 16. the phone clock's size before the stage pins (a token that changes only with a breakpoint, which re-lays out) */
       G.c0 = parseFloat(getComputedStyle(R).getPropertyValue("--fs-clock0")) || 56;
-      const rw0 = wide ? Math.min(W, 640) : W; roster.style.width = rw0 + "px"; const roH = roster.offsetHeight;
+      /* hero-gaps round (3 Nov): on the two-column page the roster keeps CLR clear of the plate's corner marks (at 1280 it filled the column, marks on its corners) */
+      const rw0 = wide ? Math.min(desk ? Math.max(0, W - 2 * CLR) : W, 640) : W; roster.style.width = rw0 + "px"; const roH = roster.offsetHeight;
       room.classList.add("has-late"); room.style.width = W + "px"; let fh = rfoot.offsetHeight + 8;
       /* the widest room that fits h = 28 + w·690/1101 + foot (the foot wraps when narrow, so measure again) */
       /* v6.2 fix: the .6 W floor (keeps the foot from wrapping) only where that room still fits the plate; a short plate gets the room that fits */
@@ -659,7 +662,20 @@ export function mountLanding(root, opts) {
         place(plate, 0, 0, W, P);
         const mid2 = (h) => Math.round((P - h) / 2), cx = (w) => Math.round((W - w) / 2);
         /* v6.2 fix: a short one-column plate scales the roster to the plate (it never reaches past the corner marks into the clock or the statement) */
-        const rk = shrink(roster, roH, rw0 <= W - 2 * CLR ? P : P - 2 * CLR); place(roster, cx(rw0), mid2(roH * rk) - (roH * (1 - rk)) / 2, rw0);
+        if (desk) {
+          /* hero-gaps round (3 Nov; Manoj on the live page: "way too much gaps"): the plate is the stage's one frame, the right column's full
+             height, and the roster sat small in its middle, the hero's block dropped to the card's bottom edge (heroFit.js). The roster
+             now sits at the plate's top with the same clearance on every side (pad: (W − card) / 2, at least CLR), and in the hero
+             (beat h) the bottom crop marks and the caption rise to hug it (--plate-hug, landingV6.css) and open to the full column
+             with the hand-over (--lp6-hin, HIN), so 10.00's screen arrives in the whole plate. The card's bottom edge is then above
+             the block's own bottom, so heroFit.js leaves the block at its own margins under the headline */
+          const pad = (W - rw0) / 2, rk = shrink(roster, roH, P - 2 * pad);
+          place(roster, cx(rw0), pad - (roH * (1 - rk)) / 2, rw0);
+          plate.style.setProperty("--plate-hug", Math.max(0, Math.round(P - (roH * rk + 2 * pad))) + "px");
+        } else {
+          const rk = shrink(roster, roH, rw0 <= W - 2 * CLR ? P : P - 2 * CLR); place(roster, cx(rw0), mid2(roH * rk) - (roH * (1 - rk)) / 2, rw0);
+          plate.style.removeProperty("--plate-hug");
+        }
         const u1 = fit(962 / 1572, W, P, CLR); place(uge, cx(u1.w), mid2(u1.h), u1.w); win(uge, u1.h);
         const va = fit(1170 / 1100, W, P, CLR, 560); place(vapp, cx(va.w), mid2(va.h), va.w); win(vapp, va.h);
         rbox.style.width = ""; rfoot.style.removeProperty("--ind");

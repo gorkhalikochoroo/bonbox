@@ -588,6 +588,13 @@
      card's bottom edge, 40 px – 2 × the section gap under the headline */
   .lp6.story .hero{grid-template-rows:auto var(--hero-a1,0px) auto auto auto}
   .lp6.story .hero > .h1{grid-row:1}.lp6.story .hero > .sub{grid-row:3}.lp6.story .hero > .cta-row{grid-row:4}.lp6.story .hero > .trial{grid-row:5}
+  /* hero-gaps round (3 Nov; Manoj, live: "way too much gaps"): the plate is the stage's one frame, the column's full height, so in the
+     hero the roster card sat small in a tall square and the block dropped to its bottom edge. layout() now puts the card at the plate's
+     top with the same clearance on every side; in the hero (beat h) the bottom crop marks and the caption rise by --plate-hug to hug
+     it, and open to the full column with the hand-over (--lp6-hin 0 → 1, engine.js writes it on these three as on the left column),
+     so the plate is whole before 10.00's screen comes in. Tied to the scroll, no transition (nothing moves at load or on a language
+     switch). translate only, never a scale: the marks keep their resting boxes, which setT() measures for the night edge */
+  .lp6.story .frame[data-beat=h] .plate :is(.c3,.c4,.pcap){translate:0 calc((var(--lp6-hin) - 1) * var(--plate-hug,0px))}
 }
 @media (min-width:1024px) and (min-aspect-ratio:5/4) and (max-height:860px){.lp6.story .ix a{padding:7px 0}.lp6.story .copy.sc{margin-top:28px}.lp6.story .copy .aside{margin-top:16px}.lp6.story .story-nav{margin-top:14px}.lp6.story .frame{padding-top:calc(var(--hh) + 28px);padding-bottom:28px}}
 @media (min-width:1024px) and (min-aspect-ratio:5/4) and (max-height:800px){.lp6.story .copy .aside{font-size:16px}}

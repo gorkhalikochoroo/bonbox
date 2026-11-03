@@ -550,8 +550,50 @@ describe("first-screen + hero-group rounds (23 Oct): layout() hangs the two-colu
       vi.advanceTimersByTime(FRAME);
       expect(["--hero-top", "--hero-a1", "--hero-a2"].map((k) => hero.style.getPropertyValue(k))).toEqual(["", "", ""]);
       expect(hero.style.getPropertyValue("--hero-pull")).not.toBe("");
+      // hero-gaps round: the plate hugs the card only on the two-column page
+      expect(e.root.querySelector("#plate").style.getPropertyValue("--plate-hug")).toBe("");
       destroy();
     }
+  });
+
+  it("hero-gaps round (3 Nov), 1440 × 900: the roster at the plate's top, the same 41.5 px clear on every side, --plate-hug on the plate, the block at its own margins", () => {
+    const e = setup({ w: 1440, h: 900 });
+    const hero = laidOut(e);
+    const $ = (s) => e.root.querySelector(s);
+    $("#plate").insertAdjacentHTML("afterbegin", '<i class="cm c3"></i><i class="cm c4"></i>'); // the fixture's plate has c1 and the caption
+    // the stage column as the built page lays it out (723 px wide); the roster is absolute in the frame, so its offsetTop is the top the engine wrote
+    Object.defineProperty($("#scene"), "offsetWidth", { configurable: true, get: () => 723 });
+    const roster = $("#roster");
+    Object.defineProperty(roster, "offsetTop", { configurable: true, get: () => parseFloat(roster.style.top) || 0 });
+    const destroy = mountLanding(e.root);
+    vi.advanceTimersByTime(FRAME);
+    expect($("#frame").dataset.beat).toBe("h");
+    // the card 640 px (the column less 2 × 41.5), at the plate's top edge (112) + 41.5; the plate itself still the whole column (900 − 112 − 36 − the 30 px caption)
+    expect([roster.style.width, roster.style.left, roster.style.top]).toEqual(["640px", "42px", "154px"]);
+    expect([$("#plate").style.width, $("#plate").style.height]).toEqual(["723px", "722px"]);
+    // the bottom marks rise by the plate less the hugged frame: 722 − (383 + 2 × 41.5) (the same 256 px the built page wrote, REC_HUG)
+    expect($("#plate").style.getPropertyValue("--plate-hug")).toBe("256px");
+    // the card's bottom edge (537) is above the block's own bottom (641): no air above the subline; the headline still on the crop marks' line
+    expect(["--hero-top", "--hero-a1"].map((k) => hero.style.getPropertyValue(k))).toEqual(["98px", "0px"]);
+    // the marks and the caption open with the hand-over: --lp6-hin on them as on the left column (0 at the top)
+    const hin = () => ["#plate .c3", "#plate .c4", "#plate .pcap", "#ix"].map((s) => $(s).style.getPropertyValue("--lp6-hin"));
+    expect(hin()).toEqual(["0.00", "0.00", "0.00", "0.00"]);
+    expect([$("#plate").style.getPropertyValue("--lp6-hin"), $("#plate .c1").style.getPropertyValue("--lp6-hin")]).toEqual(["", ""]);
+    destroy();
+  });
+
+  it("hero-gaps round: at 1280 × 720 the card no longer fills the column (its corners were under the crop marks): 24 px clear on every side", () => {
+    const e = setup({ w: 1280, h: 720 });
+    laidOut(e);
+    const $ = (s) => e.root.querySelector(s);
+    Object.defineProperty($("#scene"), "offsetWidth", { configurable: true, get: () => 630 });
+    const roster = $("#roster");
+    Object.defineProperty(roster, "offsetTop", { configurable: true, get: () => parseFloat(roster.style.top) || 0 });
+    const destroy = mountLanding(e.root);
+    vi.advanceTimersByTime(FRAME);
+    // the frame's padding in this fixture is 112 / 36 (laidOut), so the plate is 720 − 148 − 30 = 542 tall: 542 − (383 + 48) = 111
+    expect([roster.style.width, roster.style.left, roster.style.top, $("#plate").style.getPropertyValue("--plate-hug")]).toEqual(["582px", "24px", "136px", "111px"]);
+    destroy();
   });
 });
 
@@ -774,7 +816,7 @@ describe("polish round, item 3: no per-frame work the scroll does not need", () 
     d();
   });
 
-  it("the desktop hand-over writes --lp6-hin on the left column's eight parts, never on the frame; the drawing's --lp6-draw goes on its drawn groups, never on the svg", () => {
+  it("the desktop hand-over writes --lp6-hin on the left column's eight parts (and, hero-gaps round, the plate's bottom marks and caption), never on the frame; the drawing's --lp6-draw goes on its drawn groups, never on the svg", () => {
     const e = setup({ w: 1440, h: 900 });
     tallTrack(e, 900, 564);
     const d = mountLanding(e.root);
@@ -784,6 +826,9 @@ describe("polish round, item 3: no per-frame work the scroll does not need", () 
     const parts = ["#aften-h", "#ix", "#date", "#clock", "#snav", "#c1", "#c2", "#c3"].map((s) => e.root.querySelector(s).style.getPropertyValue("--lp6-hin"));
     expect(new Set(parts).size).toBe(1);
     expect(+parts[0]).toBeGreaterThan(0);
+    // hero-gaps round: the caption under the plate (the fixture's plate part that moves) follows the same value; the plate itself does not carry it
+    expect(e.root.querySelector("#plate .pcap").style.getPropertyValue("--lp6-hin")).toBe(parts[0]);
+    expect(e.root.querySelector("#plate").style.getPropertyValue("--lp6-hin")).toBe("");
     for (const f of [0.1, 0.2, 0.3, 0.4]) {
       scrollAt(e, at(e, "A", f));
       expect(svg.style.getPropertyValue("--lp6-draw")).toBe("");
