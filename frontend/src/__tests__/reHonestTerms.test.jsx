@@ -1,12 +1,15 @@
 /**
  * Release R-e — honest Terms and checkout (P0-1, LEG-11/PQ-03, LEG-12, PQ-14).
  *
- *   • /terms (da + en): the provider is "DukaanAI v/Manoz Chaudhary, CVR
- *     46417321"; no "free of charge" service claim, no "90 seconds"; §8 is
+ *   • /terms (da + en): the provider is "Orvexlo, CVR 46417321" (the CVR
+ *     register's name since 3 Nov 2026); no "free of charge" service claim,
+ *     no "90 seconds"; §8 is
  *     "Abonnement og betaling" / "Subscription and payment" with Manoj's four
  *     decisions (B2B only; cancel at period end, no part refunds; founding
  *     price kept while the subscription stays active; 30 days' price notice);
- *     the date is TERMS_VERSION from src/legal/terms.js.
+ *     the effective dates are TERMS_VERSION / TERMS_EXISTING_FROM from
+ *     src/legal/terms.js, and "Sidst opdateret" is TERMS_TEXT_UPDATED (the
+ *     rename changed the text, not the version: no new notice, 3 Nov 2026).
  *   • /register shows "Ved at oprette en konto accepterer du vores
  *     Handelsbetingelser. Læs om, hvordan vi behandler dine data, i vores
  *     Privatlivspolitik." ONCE, linked, and the register request carries
@@ -80,7 +83,7 @@ vi.mock("../hooks/useFounderRateStatus", () => ({
 }));
 vi.mock("../hooks/useEventLog", () => ({ trackEvent: () => {} }));
 
-const { TERMS_VERSION, termsDate, withTermsAcceptance } = await import("../legal/terms");
+const { TERMS_TEXT_UPDATED, TERMS_VERSION, termsDate, withTermsAcceptance } = await import("../legal/terms");
 const TermsPage = (await import("../pages/TermsPage")).default;
 const RegisterPage = (await import("../pages/RegisterPage")).default;
 const SubscriptionPage = (await import("../pages/SubscriptionPage")).default;
@@ -108,12 +111,16 @@ describe("Terms page (P0-1)", () => {
     return render(<MemoryRouter><TermsPage /></MemoryRouter>);
   };
 
-  it("da: Handelsbetingelser, dated by TERMS_VERSION, CVR name, §8 Abonnement og betaling", () => {
+  it("da: Handelsbetingelser, effective from TERMS_VERSION, last updated TERMS_TEXT_UPDATED, CVR name, §8 Abonnement og betaling", () => {
     const { container } = renderTerms("da");
     const text = container.textContent;
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Handelsbetingelser");
-    expect(text).toContain(`Sidst opdateret: ${termsDate(TERMS_VERSION, "da")}`);
-    expect(text).toContain("BonBox leveres af DukaanAI v/Manoz Chaudhary, CVR 46417321");
+    expect(screen.getByTestId("terms-updated").textContent).toBe(`Sidst opdateret: ${termsDate(TERMS_TEXT_UPDATED, "da")}`);
+    expect(text).toContain(`Gælder for nye konti fra ${termsDate(TERMS_VERSION, "da")}`);
+    expect(TERMS_TEXT_UPDATED >= TERMS_VERSION).toBe(true);
+    expect(text).toContain("BonBox leveres af Orvexlo, CVR 46417321");
+    expect(text).toContain("»BonBox« og BonBox-logoet er varemærker tilhørende Orvexlo (CVR 46417321).");
+    expect(text).not.toMatch(/DukaanAI|Manoz/);
     expect(screen.getByRole("heading", { level: 2, name: "8. Abonnement og betaling" })).toBeTruthy();
     expect(text).toContain("Betalte abonnementer er kun for virksomheder.");
     expect(text).toContain("Opsigelsen får virkning ved udgangen af den periode, du har betalt for.");
@@ -134,8 +141,11 @@ describe("Terms page (P0-1)", () => {
     const { container } = renderTerms("en");
     const text = container.textContent;
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Terms of Service");
-    expect(text).toContain(`Last updated: ${termsDate(TERMS_VERSION, "en")}`);
-    expect(text).toContain("BonBox is provided by DukaanAI v/Manoz Chaudhary, CVR 46417321");
+    expect(screen.getByTestId("terms-updated").textContent).toBe(`Last updated: ${termsDate(TERMS_TEXT_UPDATED, "en")}`);
+    expect(text).toContain(`Applies to new accounts from ${termsDate(TERMS_VERSION, "en")}`);
+    expect(text).toContain("BonBox is provided by Orvexlo, CVR 46417321");
+    expect(text).toContain("\"BonBox\" and the BonBox logo are trademarks of Orvexlo (CVR 46417321).");
+    expect(text).not.toMatch(/DukaanAI|Manoz/);
     expect(screen.getByRole("heading", { level: 2, name: "8. Subscription and payment" })).toBeTruthy();
     expect(text).toContain("Paid subscriptions are for businesses only.");
     expect(text).toContain("We do not refund part of a period.");

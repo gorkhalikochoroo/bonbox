@@ -206,10 +206,25 @@ describe("landingV6.css — the app's global rules the page does not want are un
     expect(declsOf(ruleFor(".lp6 .foot .links .lang"))["margin-left"]).toBe("-10px"); // the first flag on the links' left edge
   });
 
-  it("flags round (23 Oct): two flags, each a 44 x 44 button; the page's language full colour over a 2 px line, the other at .45, full under hover and focus", () => {
+  it("flags round (23 Oct): two flags, each a 44 x 44 button; the page's language full colour over a 2 px line, the other at .7 (3 Nov; was .45), full under hover and focus", () => {
     expect(declsOf(ruleFor(".lp6 .lang button"))).toMatchObject({ all: "unset", "box-sizing": "border-box", position: "relative", width: "44px", height: "44px", cursor: "pointer" });
     expect(declsOf(ruleFor(".lp6 .lang .flag"))).toMatchObject({ width: "24px", height: "18px", flex: "none" });
-    expect(declsOf(ruleFor(".lp6 .lang button[aria-pressed=false] .flag"))).toEqual({ opacity: ".45" });
+    expect(declsOf(ruleFor(".lp6 .lang button[aria-pressed=false] .flag"))).toEqual({ opacity: ".7" });
+    // 3 Nov 2026 (WCAG 1.4.11, 3:1 for a control): the dimmed flag's field colour, blended at that opacity over the paper,
+    // holds 3:1 against the paper (.45 gave 2.3:1 for the Danish red)
+    {
+      const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+      const lum = (rgb) => { const [r, g, b] = rgb.map((c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+      const ratio = (a, b) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
+      const paper = hex(declsOf(ruleFor(".lp6"))["--paper"]);
+      const op = Number(declsOf(ruleFor(".lp6 .lang button[aria-pressed=false] .flag")).opacity);
+      const flagSrc = readFileSync(join(V6, "Flag.jsx"), "utf8");
+      for (const field of ["#C8102E", "#012169"]) {
+        expect(flagSrc).toContain(`fill="${field}" d="M0 0h24v18H0z"`); // the flag's field colour, read from the drawing
+        const seen = hex(field).map((c, i) => Math.round(c * op + paper[i] * (1 - op)));
+        expect([field, ratio(seen, paper) >= 3]).toEqual([field, true]);
+      }
+    }
     expect(declsOf(ruleFor(".lp6 .lang button[aria-pressed=false]:focus-visible .flag"))).toEqual({ opacity: "1" });
     const hover = ruleFor(".lp6 .lang button[aria-pressed=false]:hover .flag");
     expect([mediaOfRule(hover), declsOf(hover)]).toEqual(["(hover:hover)", { opacity: "1" }]);
@@ -325,16 +340,22 @@ describe("the landing's CSS plumbing outside the stylesheet", () => {
 });
 
 describe("landingV6.css — polish round (23 Oct; Manoj's iPhone)", () => {
-  it("item 2: \"← NÆSTE → 3 / 7\" is one group — the ← box 44 px from the bar's edge with its arrow at its right, NÆSTE right after it, the count 10 px (≈ 12 px of ink) after →", () => {
+  it("item 2: \"← NÆSTE → 3 / 7\" is one group — the ← box 44 px from the bar's edge with its arrow at its right, NÆSTE right after it, the count 10 px (≈ 12 px of ink) after →; since 3 Nov the ← stands 12 px clear of NÆSTE", () => {
     expect(declsOf(ruleFor(".lp6 .dk-nav"))).toEqual({ display: "flex", "align-items": "center", "margin-left": "calc(-1 * min(var(--gut), 20px))" }); // no gap
-    expect(declsOf(ruleFor(".lp6 .dk-nav .prev"))).toEqual({ width: "44px", "justify-content": "flex-end", "padding-right": "5px" }); // no margin
+    // audit round (3 Nov 2026): from 2 / 7 "←" pressed against NÆSTE read as one "← NÆSTE →" button; the arrow now sits 12 px before
+    // its box's right edge (was 5 px), so the glyphs stand 12–16 px apart while both boxes keep 44 px and still touch (NÆSTE does not move)
+    expect(declsOf(ruleFor(".lp6 .dk-nav .prev"))).toEqual({ width: "44px", "justify-content": "flex-end", "padding-right": "12px" }); // no margin
+    const pad = parseFloat(declsOf(ruleFor(".lp6 .dk-nav .prev"))["padding-right"]);
+    expect(pad >= 12 && pad <= 16).toBe(true);
+    // the arrow (15 px, about its own width) still fits inside the 44 px box with the padding
+    expect(44 - pad - 15 >= 0).toBe(true);
     expect(declsOf(ruleFor(".lp6 .dk-nav .prev.off"))).toEqual({ visibility: "hidden" }); // hidden in place: NÆSTE never moves between 1 / 7 and 2 / 7
     expect(declsOf(ruleFor(".lp6 .dk-nav .count"))).toEqual({ "margin-left": "10px" });
     expect(declsOf(ruleFor(".lp6 .dk-nav .next"))).toEqual({ gap: "3px" });
     expect(ruleFor(".lp6 .dk-nav .next")).toBe(ruleFor(".lp6 .sn-ev .next")); // the two-column row hugs its arrows the same way
     expect(declsOf(ruleFor(".lp6 .next")).height).toBe("44px");
     // the boxes this gives on every one-column width (gutter 16 under 381 px, 20 on phones, 40 from 768): the ← box starts on screen,
-    // both targets are 44 px or more and touch without overlapping, and the visible gap ← · NÆSTE is the 5 px padding (+ the glyphs' sides)
+    // both targets are 44 px or more and touch without overlapping, and the visible gap ← · NÆSTE is the 12 px padding (+ the glyphs' sides)
     for (const gut of [16, 20, 40]) {
       const prevL = gut - Math.min(gut, 20), prevR = prevL + 44, nextL = prevR, nextW = 65; // NEXT, the narrower label, is 65 px wide
       expect([gut, prevL >= 0, prevR - Math.max(0, prevL) >= 44, nextL - prevR, nextW >= 44]).toEqual([gut, true, true, 0, true]);

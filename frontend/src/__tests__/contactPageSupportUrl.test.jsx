@@ -2,8 +2,9 @@
  * /contact is the App Store Support URL for both iPhone apps (Manoj, 11 Oct
  * 2026). Opened signed out it must show:
  *   • contact@bonbox.dk (the address the Terms and /privacy give), not Gmail;
- *   • the registered name from the Terms: DukaanAI v/Manoz Chaudhary, CVR
- *     46417321 (read from TermsPage here, so the two cannot drift apart);
+ *   • the registered name from the Terms: Orvexlo, CVR 46417321 (the CVR
+ *     register's name since 3 Nov 2026; read from TermsPage here, so the two
+ *     cannot drift apart);
  *   • no SDU / thesis framing, no "tøjbutikker", no "prisvenlig"/"affordable";
  *   • no link to /feedback (it needs a login) — only a signed-in visitor gets
  *     it; everyone else writes to the e-mail address.
@@ -80,8 +81,8 @@ describe("/contact signed out (the App Store Support URL)", () => {
 
       const provider = screen.getByTestId("contact-provider").textContent;
       expect(provider).toBe(lang === "da"
-        ? "BonBox leveres af DukaanAI v/Manoz Chaudhary, CVR 46417321."
-        : "BonBox is provided by DukaanAI v/Manoz Chaudhary, CVR 46417321.");
+        ? "BonBox leveres af Orvexlo, CVR 46417321."
+        : "BonBox is provided by Orvexlo, CVR 46417321.");
       expect(screen.getByRole("link", { name: "46417321" }).getAttribute("href"))
         .toBe("https://datacvr.virk.dk/enhed/virksomhed/46417321");
 
@@ -95,7 +96,8 @@ describe("/contact signed out (the App Store Support URL)", () => {
   }
 
   it("the name and CVR are the ones the Terms give (§ 1 and § 15)", () => {
-    expect(TERMS).toContain("<strong>DukaanAI v/Manoz Chaudhary</strong>, CVR 46417321");
+    expect(TERMS).toContain("<strong>Orvexlo</strong>, CVR 46417321");
+    expect(TERMS).not.toMatch(/DukaanAI|Manoz/);
     expect(TERMS).toContain("mailto:contact@bonbox.dk");
   });
 

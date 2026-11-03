@@ -1,11 +1,14 @@
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
-// The date shown is the TERMS_VERSION the server stamps on an account that
-// accepts these terms (src/legal/terms.js ↔ backend/app/services/terms.py).
-// TERMS_EXISTING_FROM is the date they apply to existing accounts (every
-// account without an acceptance of TERMS_VERSION) — the deploy day + 15 days;
-// the in-app notice runs until then. Both are release-time constants.
-import { TERMS_EXISTING_FROM, TERMS_VERSION, termsDate } from "../legal/terms";
+// The effective-dates line prints the TERMS_VERSION the server stamps on an
+// account that accepts these terms (src/legal/terms.js ↔
+// backend/app/services/terms.py) and TERMS_EXISTING_FROM, the date they apply
+// to existing accounts (every account without an acceptance of TERMS_VERSION)
+// — the deploy day + 15 days; the in-app notice runs until then. "Last
+// updated" is TERMS_TEXT_UPDATED: the day the text last changed, which since
+// the Orvexlo rename (3 Nov 2026, not a significant change, no new version)
+// is later than TERMS_VERSION. All three are release-time constants.
+import { TERMS_EXISTING_FROM, TERMS_TEXT_UPDATED, TERMS_VERSION, termsDate } from "../legal/terms";
 import { isNativeApp } from "../utils/platform";
 import BonBoxMark from "../components/BonBoxMark";
 import BonBoxWordmark from "../components/BonBoxWordmark";
@@ -42,7 +45,7 @@ function TermsEn({ native = false }) {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Terms of Service</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm">Last updated: {termsDate(TERMS_VERSION, "en")}</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm" data-testid="terms-updated">Last updated: {termsDate(TERMS_TEXT_UPDATED, "en")}</p>
       <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="terms-effective-dates">Applies to new accounts from {termsDate(TERMS_VERSION, "en")} and to existing accounts from {termsDate(TERMS_EXISTING_FROM, "en")}.</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
@@ -52,7 +55,7 @@ function TermsEn({ native = false }) {
             BonBox is a multi-terminal close consolidation tool for small hospitality businesses (restaurants, bars, cafés, takeaways). It helps front-of-house staff complete the end-of-shift cash reconciliation and delivers the consolidated daily-close PDF to owners and revisors.
           </p>
           <p className="mt-2">
-            BonBox is provided by <strong>DukaanAI v/Manoz Chaudhary</strong>, CVR 46417321 (&ldquo;we&rdquo;, &ldquo;us&rdquo;). You can reach us at <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a>.
+            BonBox is provided by <strong>Orvexlo</strong>, CVR 46417321 (&ldquo;we&rdquo;, &ldquo;us&rdquo;). You can reach us at <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a>.
           </p>
           <p className="mt-2">BonBox is a service for businesses. These terms apply between us and the business that creates the account.</p>
           <p className="mt-2">By creating an account or using BonBox, you agree to these terms.</p>
@@ -205,7 +208,7 @@ function TermsEn({ native = false }) {
 
         <Section num={13} title="Trademarks and third-party names">
           <p>
-            "BonBox" and the BonBox logo are trademarks of DukaanAI v/Manoz Chaudhary (CVR 46417321).
+            "BonBox" and the BonBox logo are trademarks of Orvexlo (CVR 46417321).
           </p>
           <p className="mt-3">
             All other product, service, and company names referenced in BonBox or in
@@ -245,7 +248,7 @@ function TermsEn({ native = false }) {
         <Section num={15} title="Contact and language">
           <p>For questions about these terms:</p>
           <p className="mt-2">
-            <strong>DukaanAI v/Manoz Chaudhary</strong>, CVR 46417321<br />
+            <strong>Orvexlo</strong>, CVR 46417321<br />
             <strong>Email:</strong> <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a><br />
             <strong>Website:</strong> <a href="https://bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk</a>
           </p>
@@ -260,7 +263,7 @@ function TermsDa({ native = false }) {
   return (
     <>
       <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Handelsbetingelser</h1>
-      <p className="text-gray-500 dark:text-gray-400 text-sm">Sidst opdateret: {termsDate(TERMS_VERSION, "da")}</p>
+      <p className="text-gray-500 dark:text-gray-400 text-sm" data-testid="terms-updated">Sidst opdateret: {termsDate(TERMS_TEXT_UPDATED, "da")}</p>
       <p className="text-gray-500 dark:text-gray-400 text-sm mb-8" data-testid="terms-effective-dates">Gælder for nye konti fra {termsDate(TERMS_VERSION, "da")} og for eksisterende konti fra {termsDate(TERMS_EXISTING_FROM, "da")}.</p>
 
       <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
@@ -270,7 +273,7 @@ function TermsDa({ native = false }) {
             BonBox er et værktøj til små virksomheder i restaurationsbranchen (restauranter, barer, caféer, takeaway-steder), som samler kasserapporter fra flere terminaler. Det hjælper front-of-house-personalet med at gennemføre kasseafstemningen ved vagtens afslutning og leverer den samlede kasserapport som PDF til ejere og revisorer.
           </p>
           <p className="mt-2">
-            BonBox leveres af <strong>DukaanAI v/Manoz Chaudhary</strong>, CVR 46417321 (»vi«, »os«). Du kan kontakte os på <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a>.
+            BonBox leveres af <strong>Orvexlo</strong>, CVR 46417321 (»vi«, »os«). Du kan kontakte os på <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a>.
           </p>
           <p className="mt-2">BonBox er en tjeneste til virksomheder. Disse vilkår gælder mellem os og den virksomhed, der opretter kontoen.</p>
           <p className="mt-2">Ved at oprette en konto eller bruge BonBox accepterer du disse vilkår.</p>
@@ -421,7 +424,7 @@ function TermsDa({ native = false }) {
 
         <Section num={13} title="Varemærker og tredjeparters navne">
           <p>
-            »BonBox« og BonBox-logoet er varemærker tilhørende DukaanAI v/Manoz Chaudhary (CVR 46417321).
+            »BonBox« og BonBox-logoet er varemærker tilhørende Orvexlo (CVR 46417321).
           </p>
           <p className="mt-3">
             Alle andre produkt-, tjeneste- og virksomhedsnavne, der nævnes i BonBox eller i
@@ -461,7 +464,7 @@ function TermsDa({ native = false }) {
         <Section num={15} title="Kontakt og sprog">
           <p>Hvis du har spørgsmål til disse vilkår:</p>
           <p className="mt-2">
-            <strong>DukaanAI v/Manoz Chaudhary</strong>, CVR 46417321<br />
+            <strong>Orvexlo</strong>, CVR 46417321<br />
             <strong>E-mail:</strong> <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a><br />
             <strong>Hjemmeside:</strong> <a href="https://bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk</a>
           </p>

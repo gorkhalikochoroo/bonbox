@@ -39,8 +39,8 @@ const ODD = vi.hoisted(() => ({
   limit: 77,
   limits: {
     free: { team_users: 2, branches: 2, staff_members: 7, reservations_per_month: 33, z_report_scans_per_day: 5, kasse_extracts_per_day: 5, daily_close_export_days: 9, bookable_resources_max: 11 },
-    starter: { team_users: 6, branches: 1, staff_members: 61, reservations_per_month: -1, z_report_scans_per_day: 20, kasse_extracts_per_day: 40, daily_close_export_days: 31, bookable_resources_max: -1 },
-    pro: { team_users: 9, branches: 4, staff_members: 222, reservations_per_month: -1, z_report_scans_per_day: 100, kasse_extracts_per_day: 200, daily_close_export_days: 366, bookable_resources_max: -1 },
+    starter: { team_users: 6, branches: 1, staff_members: 61, reservations_per_month: -1, z_report_scans_per_day: 23, kasse_extracts_per_day: 40, daily_close_export_days: 31, bookable_resources_max: -1 },
+    pro: { team_users: 9, branches: 4, staff_members: 222, reservations_per_month: -1, z_report_scans_per_day: 113, kasse_extracts_per_day: 200, daily_close_export_days: 366, bookable_resources_max: -1 },
   },
 }));
 vi.mock("../lib/planPrices", async (importOriginal) => {
@@ -209,10 +209,12 @@ describe("plan limits: the cards carry billing.py PLAN_CAPS", () => {
         `Reservationer, ${free.reservations_per_month} om måneden, op til ${free.bookable_resources_max} borde — bookingside, bordplan, venteliste`,
         `Z-bon-aflæsning fra foto: ${free.z_report_scans_per_day} om dagen — hver dags kasserapport som PDF uden grænse`,
       ]],
-      ["Starter", [`Dig + ${starter.team_users - 1} teammedlemmer med rollerettigheder, op til ${starter.staff_members} medarbejdere på vagtplanen`, "Reservationer, ubegrænset"]],
-      ["Pro", [`${pro.branches} afdelinger, dig + ${pro.team_users - 1} teammedlemmer, op til ${pro.staff_members} medarbejdere på vagtplanen`, "Reservationer, ubegrænset"]],
+      ["Starter", [`Dig + ${starter.team_users - 1} teammedlemmer med rollerettigheder, op til ${starter.staff_members} medarbejdere på vagtplanen`, "Reservationer, ubegrænset", `Z-bon-aflæsning fra foto: ${starter.z_report_scans_per_day} om dagen`]],
+      ["Pro", [`${pro.branches} afdelinger, dig + ${pro.team_users - 1} teammedlemmer, op til ${pro.staff_members} medarbejdere på vagtplanen`, "Reservationer, ubegrænset", `Z-bon-aflæsning fra foto: ${pro.z_report_scans_per_day} om dagen`]],
     ]);
     expect([starter.reservations_per_month, pro.reservations_per_month]).toEqual([-1, -1]); // "ubegrænset" is true
+    // the paid cards' scan lines (3 Nov 2026): a real daily number, never unlimited
+    expect([starter.z_report_scans_per_day, pro.z_report_scans_per_day]).toEqual([20, 100]);
     // the numbers Manoj approved for the Gratis card (21 Oct); the table cap (fix round, forslag) is the one create_resource enforces
     expect([free.staff_members, free.reservations_per_month, free.z_report_scans_per_day, free.bookable_resources_max]).toEqual([3, 20, 3, 3]);
     expect(backend("app/routers/reservations.py")).toMatch(/enforce_cap\(user, "bookable_resources_max"/);
@@ -223,8 +225,8 @@ describe("plan limits: the cards carry billing.py PLAN_CAPS", () => {
     let p = show("da");
     expect(cards(p.$$).map((c) => c.lines)).toEqual([
       ["2 bruger, 2 afdeling, op til 7 medarbejdere på vagtplanen", "Reservationer, 33 om måneden, op til 11 borde — bookingside, bordplan, venteliste", "Z-bon-aflæsning fra foto: 5 om dagen — hver dags kasserapport som PDF uden grænse"],
-      ["Dig + 5 teammedlemmer med rollerettigheder, op til 61 medarbejdere på vagtplanen", "Reservationer, ubegrænset"],
-      ["4 afdelinger, dig + 8 teammedlemmer, op til 222 medarbejdere på vagtplanen", "Reservationer, ubegrænset"],
+      ["Dig + 5 teammedlemmer med rollerettigheder, op til 61 medarbejdere på vagtplanen", "Reservationer, ubegrænset", "Z-bon-aflæsning fra foto: 23 om dagen"],
+      ["4 afdelinger, dig + 8 teammedlemmer, op til 222 medarbejdere på vagtplanen", "Reservationer, ubegrænset", "Z-bon-aflæsning fra foto: 113 om dagen"],
     ]);
     cleanup();
     p = show("en");
@@ -234,6 +236,7 @@ describe("plan limits: the cards carry billing.py PLAN_CAPS", () => {
       "4 locations, you + 8 team members, up to 222 staff on the schedule",
     ]);
     expect(cards(p.$$)[0].lines[1]).toBe("Reservations, 33 a month, up to 11 tables — booking page, floor plan, waitlist");
+    expect(cards(p.$$).slice(1).map((c) => c.lines[2])).toEqual(["Z-report reading from a photo: 23 a day", "Z-report reading from a photo: 113 a day"]);
   });
 });
 
@@ -437,11 +440,12 @@ describe("the footer reaches a person and the legal texts", () => {
     expect([en["landingV6.foot.terms"], en["landingV6.foot.privacy"]]).toEqual(["Handelsbetingelser", "Privatlivspolitik"]);
   });
 
-  it("the registry lines are the old footer's, word for word (the CVR register)", () => {
+  it("the registry lines are the old footer's, word for word (the CVR register): the name in the product line, then the CVR", () => {
+    // Orvexlo (3 Nov 2026): the register shows "Orvexlo", CVR 46417321; the footer names it once, in "BonBox – et produkt fra Orvexlo"
     const { $ } = show("da");
     const old = read("components/landing/v2/FooterV2.jsx");
-    const lines = $(".foot .legal p").innerHTML.split("<br>").slice(1, 3);
-    expect(lines).toEqual(["DukaanAI v/Manoz Chaudhary", "CVR 46417321"]);
-    for (const l of lines) expect(old).toContain(`"${l}"`);
+    const lines = $(".foot .legal p").innerHTML.split("<br>").slice(0, 2);
+    expect(lines).toEqual(["BonBox – et produkt fra Orvexlo", "CVR 46417321"]);
+    for (const l of ["Orvexlo", "CVR 46417321"]) expect(old).toContain(`"${l}"`);
   });
 });

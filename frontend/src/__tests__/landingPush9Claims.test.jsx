@@ -266,7 +266,7 @@ describe("A5 — only what the product does", () => {
 describe("A6 — the demo gift card is the demo venue's", () => {
   it("no BonBox company name or CVR on it", () => {
     const { container } = renderIn("da", <GavekortV2 />);
-    expect(container.textContent).not.toMatch(/46417321|DukaanAI|Manoz/);
+    expect(container.textContent).not.toMatch(/46417321|DukaanAI|Manoz|Orvexlo/);
     expect(container.textContent).toContain("Bistro Nørrebro");
     // The MOMS row is with the owner's revisor — unchanged on purpose.
     expect(da["landingV2.gavekort.spec.moms.value"]).toBe("Afregnes ved indløsning (MPV)");

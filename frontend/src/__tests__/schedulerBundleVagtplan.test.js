@@ -88,6 +88,15 @@ describe("committed staff web bundle (ios-scheduler/App/App/public)", () => {
     if (IRELAND_COPY_ROW) expect(bundle).toMatch(literal(IRELAND_COPY_DELETE_BY));
   });
 
+  // Orvexlo (3 Nov 2026): the staff app's /terms, /privacy, /cookies and /contact name the CVR register's new name, and
+  // the old one is gone from the bundle (rebuild after the rename: npm run build:scheduler, then
+  // BONBOX_TARGET=scheduler npx cap copy ios).
+  it("names Orvexlo (CVR 46417321) and no longer the old company name", () => {
+    expect(bundle).toContain("Orvexlo");
+    expect(bundle).toContain("46417321");
+    expect(bundle).not.toMatch(/DukaanAI|Manoz/);
+  });
+
   it("the committed capacitor.config.json is the staff app's", () => {
     const cfg = JSON.parse(fs.readFileSync(path.join(FRONTEND, "ios-scheduler/App/App/capacitor.config.json"), "utf8"));
     expect(cfg.appId).toBe("dk.bonbox.scheduler");

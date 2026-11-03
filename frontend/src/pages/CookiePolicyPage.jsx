@@ -184,7 +184,7 @@ function CookiesEn() {
               Values are the CVR register's, not the ones printed on the
               app's own gavekort template. */}
           <p className="mt-3">
-            BonBox is a product of <strong>DukaanAI v/Manoz Chaudhary</strong>, registered in Denmark
+            BonBox is a product of <strong>Orvexlo</strong>, registered in Denmark
             as a Personligt ejet Mindre Virksomhed.<br />
             Registered in Copenhagen, Denmark · CVR{" "}
             <a href="https://datacvr.virk.dk/enhed/virksomhed/46417321" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">46417321</a>
@@ -333,7 +333,7 @@ function CookiesDa() {
           {/* Same trader identification as the English version (e-handelsloven
               §7): name, company form, place of registration and CVR. */}
           <p className="mt-3">
-            BonBox er et produkt fra <strong>DukaanAI v/Manoz Chaudhary</strong>, der er registreret i
+            BonBox er et produkt fra <strong>Orvexlo</strong>, der er registreret i
             Danmark som Personligt ejet Mindre Virksomhed.<br />
             Registreret i København, Danmark · CVR{" "}
             <a href="https://datacvr.virk.dk/enhed/virksomhed/46417321" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">46417321</a>

@@ -72,7 +72,7 @@ def test_founders_lines_are_verbatim():
         "Det er gratis at prøve i 14 dage uden betalingskort, og der bliver aldrig "
         "trukket penge, medmindre I selv vælger at betale."
     )
-    assert COMPANY_LINE == "DukaanAI v/Manoz Chaudhary · CVR 46417321 · bonbox.dk"
+    assert COMPANY_LINE == "Orvexlo · CVR 46417321 · bonbox.dk"
 
 
 @pytest.mark.parametrize("code", ["r1-a-01", "r2-b-07"])

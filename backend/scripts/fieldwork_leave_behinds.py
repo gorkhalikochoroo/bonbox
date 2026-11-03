@@ -61,7 +61,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.services.signup_ref import clean_signup_ref  # noqa: E402
 
 REGISTER_URL = "https://www.bonbox.dk/register?ref={code}"
-COMPANY_LINE = "DukaanAI v/Manoz Chaudhary · CVR 46417321 · bonbox.dk"
+# The CVR register's name since 3 Nov 2026 (same CVR).
+COMPANY_LINE = "Orvexlo · CVR 46417321 · bonbox.dk"
 CLOSE_LINE = (
     "Det er gratis at prøve i 14 dage uden betalingskort, og der bliver aldrig "
     "trukket penge, medmindre I selv vælger at betale."
@@ -191,7 +192,7 @@ def _page_size(size: str):
 def _new_canvas(buf, size: str, title: str):
     c = canvas.Canvas(buf, pagesize=_page_size(size))
     c.setTitle(title)
-    c.setAuthor("DukaanAI v/Manoz Chaudhary")
+    c.setAuthor("Orvexlo")
     c.setSubject("BonBox – prøv gratis i 14 dage")
     c.setCreator("BonBox fieldwork leave-behind")
     return c

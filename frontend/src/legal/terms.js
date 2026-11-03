@@ -44,6 +44,22 @@ export const TERMS_VERSION = "2026-10-11";
    until 00:00 Copenhagen on this one. */
 export const TERMS_EXISTING_FROM = "2026-10-26";
 
+/* The Terms page's "Sidst opdateret" / "Last updated" day when the TEXT changed
+   without a new version (3 Nov 2026, the Orvexlo rename): the company's
+   register name changed, the CVR, the terms and every right and duty stayed
+   the same, so it is not a significant change under §14. A TERMS_VERSION bump
+   would send every owner without an acceptance of the new version the in-app
+   "Vi har opdateret vores Handelsbetingelser" notice for 15 days
+   (components/TermsUpdateNotice, backend services/terms.py
+   terms_notice_due), restamp terms_version at the next checkout
+   (apply_checkout_terms_acceptance) and need backend/app/services/terms.py
+   to move in the same push. So TERMS_VERSION stays; only this date moves.
+   The "Gælder for nye konti fra … / eksisterende konti fra …" line still
+   prints TERMS_VERSION and TERMS_EXISTING_FROM. Never earlier than
+   TERMS_VERSION (reHonestTerms.test.jsx). Release-time like PRIVACY_UPDATED:
+   the Copenhagen push day; if the push slips, move it with PRIVACY_UPDATED. */
+export const TERMS_TEXT_UPDATED = "2026-11-03";
+
 /* Push-day placeholder for PRIVACY_UPDATED (Landing v6 + Frankfurt release,
    22 Oct 2026). A valid ISO day so the pages and the date rules keep working
    before the push, and one nobody would take for a real date ("31. december
@@ -78,8 +94,11 @@ export const PRIVACY_PUSH_DAY_PLACEHOLDER = "2099-12-31";
    Landing v6 + Frankfurt (22 Oct 2026): /privacy changes again — the main
    Supabase row moves to Frankfurt and, while it exists, the old project's
    fallback copy gets its own row (IRELAND_COPY_ROW below). The value is the
-   placeholder until the packet step on push day; it was "2026-10-12". */
-export const PRIVACY_UPDATED = "2026-10-28";
+   placeholder until the packet step on push day; it was "2026-10-12".
+
+   3 Nov 2026 (Orvexlo): the controller's registered name on /privacy and
+   /cookies is Orvexlo now; this push day dates both pages. */
+export const PRIVACY_UPDATED = "2026-11-03";
 
 /* The fallback copy in the old Supabase project (database and files moved to
    Frankfurt on 20 Oct 2026; the old project is kept unchanged as a fallback

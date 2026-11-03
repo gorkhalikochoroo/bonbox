@@ -8,7 +8,16 @@
  *   - "Vælg Starter" / "Vælg Pro" under the paid cards (→ /register?plan=…) — item 3;
  *   - the price note's two sentences from the live footnote (the amount at checkout, the end of the paid month) — 17;
  *   - the data-handling row in Tryghed (who reads receipt images, not yet confirmed where) — 18.
- * The price section is #pricing (Terms § 8 links to /#pricing). */
+ * The price section is #pricing (Terms § 8 links to /#pricing).
+ * Orvexlo / audit round (3 Nov 2026):
+ *   - Timer · Lager · Økonomi: each title is an h3 (styled as the old <b>) under a hidden h2 that carries the section's
+ *     name (landingV6.more.label), so heading navigation reaches the three rows; nothing visible changes;
+ *   - the Starter and Pro cards print their Z-bon photo reads a day too (PLAN_LIMITS z_report_scans_per_day: 20 / 100,
+ *     never "unlimited"), and one line under the cards says what every plan has and what starts at Starter
+ *     (landingV6.price.allPlans; billing.py: PLAN_CAPS invoices_per_month 0 on Free, PLAN_FEATURES bank_auto_reconcile
+ *     and time_registration False on Free; clock-in, approved hours, the payroll export and stock are not gated);
+ *   - one salon question (landingV6.faq.salonQ / salonA): a service, a stylist or the first free one, and a time on the
+ *     booking page; each stylist is bookable in the opening hours or only on their published shifts (R7). */
 import { Link } from "react-router-dom";
 import { FOUNDING_LIMIT, PLAN_PRICES } from "../../../lib/planPrices";
 import { PLAN_LIMITS, teamBesidesOwner } from "../../../lib/planLimits";
@@ -22,11 +31,12 @@ export default function Sheet({ t, isAndroid }) {
   const momsNote = PRICE_MOMS_BASIS === "excl" ? t("landingV6.price.momsExcl") : PRICE_MOMS_BASIS === "incl" ? t("landingV6.price.momsIncl") : null;
   return (
     <div className="sheet" id="sheet">
-      <section className="sec wrap" id="mere" aria-label={t("landingV6.more.label")}>
+      <section className="sec wrap" id="mere" aria-labelledby="mere-h">
+        <h2 className="sr" id="mere-h">{t("landingV6.more.label")}</h2>
         <ul className="rows">
-          <li data-r="" style={{ "--dl": "0s" }}><span className="mn" aria-hidden="true">04</span><b>{t("landingV6.more.hours")}</b><p>{t("landingV6.more.hoursBody")}</p></li>
-          <li data-r="" style={{ "--dl": ".06s" }}><span className="mn" aria-hidden="true">05</span><b>{t("landingV6.more.stock")}</b><p>{t("landingV6.more.stockBody")}</p></li>
-          <li data-r="" style={{ "--dl": ".12s" }}><span className="mn" aria-hidden="true">06</span><b>{t("landingV6.more.money")}</b><p>{t("landingV6.more.moneyBody")}</p></li>
+          <li data-r="" style={{ "--dl": "0s" }}><span className="mn" aria-hidden="true">04</span><h3>{t("landingV6.more.hours")}</h3><p>{t("landingV6.more.hoursBody")}</p></li>
+          <li data-r="" style={{ "--dl": ".06s" }}><span className="mn" aria-hidden="true">05</span><h3>{t("landingV6.more.stock")}</h3><p>{t("landingV6.more.stockBody")}</p></li>
+          <li data-r="" style={{ "--dl": ".12s" }}><span className="mn" aria-hidden="true">06</span><h3>{t("landingV6.more.money")}</h3><p>{t("landingV6.more.moneyBody")}</p></li>
         </ul>
       </section>
 
@@ -40,9 +50,10 @@ export default function Sheet({ t, isAndroid }) {
           <div className="body">
             <ul className="prices">
               <li className="price free" data-r="" style={{ "--dl": "0s" }}><span className="pn"></span><span className="pp">{t("landingV6.price.freeName")}</span><span className="then">{t("landingV6.price.noCard")}</span><span className="pd"><span className="pos">{t("landingV6.price.freePos")}</span><span className="inc"><span>{t("landingV6.price.freeTeam", { users: free.team_users, branches: free.branches, staff: free.staff_members })}</span><span>{t("landingV6.price.freeResv", { resv: free.reservations_per_month, tables: free.bookable_resources_max })}</span><span>{t("landingV6.price.freeScans", { scans: free.z_report_scans_per_day })}</span></span></span></li>
-              <li className="price" data-r="" style={{ "--dl": ".06s" }}><span className="pn">{t("landingV6.price.starterName")}</span><span className="pp">{t("landingV6.price.perMonth", { price: PLAN_PRICES.starter.founding })}</span><span className="then">{t("landingV6.price.then", { n: FOUNDING_LIMIT, price: PLAN_PRICES.starter.regular })}</span><span className="pd"><span className="pos">{t("landingV6.price.starterPos")}</span><span className="inc"><span>{t("landingV6.price.starterTeam", { team: teamBesidesOwner("starter"), staff: starter.staff_members })}</span><span>{t("landingV6.price.unlimited")}</span></span><span className="pick"><Link className="tlink" to="/register?plan=starter">{t("landingV6.price.pickStarter")}</Link></span></span></li>
-              <li className="price" data-r="" style={{ "--dl": ".12s" }}><span className="pn">{t("landingV6.price.proName")}</span><span className="pp">{t("landingV6.price.perMonth", { price: PLAN_PRICES.pro.founding })}</span><span className="then">{t("landingV6.price.then", { n: FOUNDING_LIMIT, price: PLAN_PRICES.pro.regular })}</span><span className="pd"><span className="pos">{t("landingV6.price.proPos")}</span><span className="inc"><span>{t("landingV6.price.proTeam", { branches: pro.branches, team: teamBesidesOwner("pro"), staff: pro.staff_members })}</span><span>{t("landingV6.price.unlimited")}</span></span><span className="pick"><Link className="tlink" to="/register?plan=pro">{t("landingV6.price.pickPro")}</Link></span></span></li>
+              <li className="price" data-r="" style={{ "--dl": ".06s" }}><span className="pn">{t("landingV6.price.starterName")}</span><span className="pp">{t("landingV6.price.perMonth", { price: PLAN_PRICES.starter.founding })}</span><span className="then">{t("landingV6.price.then", { n: FOUNDING_LIMIT, price: PLAN_PRICES.starter.regular })}</span><span className="pd"><span className="pos">{t("landingV6.price.starterPos")}</span><span className="inc"><span>{t("landingV6.price.starterTeam", { team: teamBesidesOwner("starter"), staff: starter.staff_members })}</span><span>{t("landingV6.price.unlimited")}</span><span>{t("landingV6.price.paidScans", { scans: starter.z_report_scans_per_day })}</span></span><span className="pick"><Link className="tlink" to="/register?plan=starter">{t("landingV6.price.pickStarter")}</Link></span></span></li>
+              <li className="price" data-r="" style={{ "--dl": ".12s" }}><span className="pn">{t("landingV6.price.proName")}</span><span className="pp">{t("landingV6.price.perMonth", { price: PLAN_PRICES.pro.founding })}</span><span className="then">{t("landingV6.price.then", { n: FOUNDING_LIMIT, price: PLAN_PRICES.pro.regular })}</span><span className="pd"><span className="pos">{t("landingV6.price.proPos")}</span><span className="inc"><span>{t("landingV6.price.proTeam", { branches: pro.branches, team: teamBesidesOwner("pro"), staff: pro.staff_members })}</span><span>{t("landingV6.price.unlimited")}</span><span>{t("landingV6.price.paidScans", { scans: pro.z_report_scans_per_day })}</span></span><span className="pick"><Link className="tlink" to="/register?plan=pro">{t("landingV6.price.pickPro")}</Link></span></span></li>
             </ul>
+            <p className="pall" data-r="" style={{ "--dl": ".13s" }}>{t("landingV6.price.allPlans")}</p>
             <p className="pnote" data-r="" style={{ "--dl": ".14s" }}>{rich(t("landingV6.price.note"))} {t("landingV6.price.noteCheckout")}</p>
             {momsNote ? <p className="pnote">{momsNote}</p> : null}
             <div className="prices-cta" id="pcta" data-r=""><Link className="btn btn-lg" to="/register">{t("landingV6.cta")}</Link></div>
@@ -74,6 +85,7 @@ export default function Sheet({ t, isAndroid }) {
             <details className="qa" data-r="" style={{ "--dl": "0s" }}><summary><span>{t("landingV6.faq.posQ")}</span><i aria-hidden="true"></i></summary><p>{t("landingV6.faq.posA")}</p></details>
             <details className="qa" data-r="" style={{ "--dl": ".05s" }}><summary><span>{t("landingV6.faq.trialQ")}</span><i aria-hidden="true"></i></summary><p>{t("landingV6.faq.trialA")}</p></details>
             <details className="qa" data-r="" style={{ "--dl": ".1s" }}><summary><span>{t("landingV6.faq.staffQ")}</span><i aria-hidden="true"></i></summary><p>{t("landingV6.faq.staffA")} <StoreLink app="scheduler" t={t} isAndroid={isAndroid} className="tlink" /></p></details>
+            <details className="qa" data-r="" style={{ "--dl": ".15s" }}><summary><span>{t("landingV6.faq.salonQ")}</span><i aria-hidden="true"></i></summary><p>{t("landingV6.faq.salonA")}</p></details>
           </div>
           <div className="human" data-r="" style={{ "--dl": ".06s" }}>
             <h3 className="label">{t("landingV6.founder.label")}</h3>

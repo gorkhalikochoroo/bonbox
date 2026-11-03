@@ -354,7 +354,7 @@ describe("(e) DK → EN through the page's own switch", () => {
     // the focus is on the new page's switch, on the flag that was pressed (now the page's language), not on <body> (WCAG 2.4.3)
     expect(document.activeElement).toBe(enRoot.querySelector(".top .lang button[lang='en']"));
     expect(document.activeElement.getAttribute("aria-pressed")).toBe("true");
-    expect([...enRoot.querySelectorAll("details")].map((d) => d.open)).toEqual([false, true, false]);
+    expect([...enRoot.querySelectorAll("details")].map((d) => d.open)).toEqual([false, true, false, false]); // + the salon question (3 Nov 2026)
     // #faq was 70 px from the top; the English sheet puts it at 145: the page moves by 75 so it is at 70 again
     expect(e.getY()).toBe(6265 + 75);
   });

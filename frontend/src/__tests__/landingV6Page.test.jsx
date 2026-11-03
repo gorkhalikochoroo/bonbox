@@ -115,9 +115,15 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
     expect($(".trial .nw").textContent).toBe(`derefter gratisplanen eller fra ${PLAN_PRICES.starter.founding} kr./md.`);
     expect(text("#aften-h")).toBe("En dag på Bistro Nørrebro");
     expect(text("#date")).toBe("Tir. 20. okt.");
-    expect(text("#c1 .line")).toBe(`Læg ugens vagter, og${NB}udgiv planen. Personalet ser den på telefonen.`);
-    expect(text("#c2 .line")).toBe(`Gæsterne booker selv bord eller${NB}tid, uden${NB}konto. Bookingen lander i din reservationsbog.`);
-    expect(text("#c3 .line")).toBe("Tag et billede af Z-bonen. BonBox fylder tallene ud og regner MOMS ud. Du tjekker og låser dagen.");
+    // what is on screen (the screen-reader times aside) is the prototype's text
+    const seen = (s) => { const c = $(s).cloneNode(true); c.querySelectorAll(".sr").forEach((e) => e.remove()); return c.textContent; };
+    expect(seen("#c1 .line")).toBe(`Læg ugens vagter, og${NB}udgiv planen. Personalet ser den på telefonen.`);
+    expect(seen("#c2 .line")).toBe(`Gæsterne booker selv bord eller${NB}tid, uden${NB}konto. Bookingen lander i din reservationsbog.`);
+    expect(seen("#c3 .line")).toBe("Tag et billede af Z-bonen. BonBox fylder tallene ud og regner MOMS ud. Du tjekker og låser dagen.");
+    // 3 Nov 2026: a screen reader hears each sentence's time first (the clock is aria-hidden in the story layout)
+    expect(text("#c1 .line")).toBe(`10.00 Læg ugens vagter, og${NB}udgiv planen. 16.40 Personalet ser den på telefonen.`);
+    expect(text("#c2 .line")).toBe(`12.30 Gæsterne booker selv bord eller${NB}tid, uden${NB}konto. 19.45 Bookingen lander i din reservationsbog.`);
+    expect(text("#c3 .line")).toBe("00.10 Tag et billede af Z-bonen. BonBox fylder tallene ud og regner MOMS ud. Du tjekker og låser dagen.");
     expect($$("#c2 .aside").map((p) => p.innerHTML)).toEqual([
       'Bookingsiden er ét link: sæt det i din <span class="nw">Instagram-bio</span> og på din <span class="nw">Google-profil.</span>',
       "Gæsten fra kl. 12.30 sidder ved Vindue 2.",
@@ -142,9 +148,11 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
     const cards = $$(".price").map((li) => [li.querySelector(".pn").textContent, li.querySelector(".pp").textContent, li.querySelector(".then").textContent, [...li.querySelectorAll(".inc > span")].map((s) => s.textContent)]);
     expect(cards).toEqual([
       ["", "Gratis", "uden kort", ["1 bruger, 1 afdeling, op til 3 medarbejdere på vagtplanen", "Reservationer, 20 om måneden, op til 3 borde — bookingside, bordplan, venteliste", `Z-bon-aflæsning fra foto: 3${NB}om${NB}dagen — hver dags kasserapport som PDF uden grænse`]],
-      ["Starter", `${starter.founding} kr./md.`, `Efter de første ${FOUNDING_LIMIT}: ${starter.regular}${NB}kr./md.`, ["Dig + 2 teammedlemmer med rollerettigheder, op til 50 medarbejdere på vagtplanen", "Reservationer, ubegrænset"]],
-      ["Pro", `${pro.founding} kr./md.`, `Efter de første ${FOUNDING_LIMIT}: ${pro.regular}${NB}kr./md.`, ["3 afdelinger, dig + 4 teammedlemmer, op til 200 medarbejdere på vagtplanen", "Reservationer, ubegrænset"]],
+      ["Starter", `${starter.founding} kr./md.`, `Efter de første ${FOUNDING_LIMIT}: ${starter.regular}${NB}kr./md.`, ["Dig + 2 teammedlemmer med rollerettigheder, op til 50 medarbejdere på vagtplanen", "Reservationer, ubegrænset", `Z-bon-aflæsning fra foto: 20${NB}om${NB}dagen`]],
+      ["Pro", `${pro.founding} kr./md.`, `Efter de første ${FOUNDING_LIMIT}: ${pro.regular}${NB}kr./md.`, ["3 afdelinger, dig + 4 teammedlemmer, op til 200 medarbejdere på vagtplanen", "Reservationer, ubegrænset", `Z-bon-aflæsning fra foto: 100${NB}om${NB}dagen`]],
     ]);
+    // 3 Nov 2026: one line under the cards, what every plan has and what starts at Starter
+    expect($$(".pall").map((p) => p.textContent)).toEqual(["Timer, Lager og Økonomi er med på alle planer — fakturaer, bankafstemning og tidsregistrering fra Starter."]);
     expect($(".pnote").innerHTML.replace(/&nbsp;/g, NB)).toBe(`<b>Opsig når som helst.</b> Ingen binding, intet opstartsgebyr. Priserne er pr.${NB}virksomhed. Du ser det præcise beløb ved betalingen, før du bekræfter. Opsigelsen gælder fra udgangen af den måned, du har betalt for.`);
     expect($$(".pnote")).toHaveLength(1); // no MOMS note while PRICE_MOMS_BASIS is null
   });
@@ -156,10 +164,11 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
     expect(trust[1]).toMatch(/Anthropic.*endnu ikke bekræftet.*Vi sælger ikke dine data/);
     // security fix round (23 Oct): the staff line says what the code enforces (landingV6Claims.test.jsx pins why)
     expect(trust.slice(2)).toEqual(["Ingen andel af din omsætning", "MedarbejderSer vagtplanen og egne timer. Ingen adgang til regnskab, MOMS, bank eller andres løn."]);
-    expect($$(".qa summary").map((s) => s.textContent)).toEqual(["Virker det med min POS?", "Hvad sker der efter de 14 dages prøveperiode?", "Skal personalet have en app?"]);
+    expect($$(".qa summary").map((s) => s.textContent)).toEqual(["Virker det med min POS?", "Hvad sker der efter de 14 dages prøveperiode?", "Skal personalet have en app?", "Passer BonBox til saloner?"]);
     expect(text(".hm-1")).toBe("Jeg hedder Manoj.");
     expect($(".hm-m a").getAttribute("href")).toBe("mailto:contact@bonbox.dk");
-    expect($(".foot .legal p").innerHTML).toBe('BonBox er et produkt fra<br>DukaanAI v/Manoz Chaudhary<br>CVR 46417321<br><a href="mailto:contact@bonbox.dk">contact@bonbox.dk</a>');
+    // Orvexlo (3 Nov 2026): the product line names the register's name once, then the CVR
+    expect($(".foot .legal p").innerHTML).toBe('BonBox – et produkt fra Orvexlo<br>CVR 46417321<br><a href="mailto:contact@bonbox.dk">contact@bonbox.dk</a>');
     // fix round: the language switch in the footer too (the top bar's steps aside on narrow phones once the header's button is up);
     // flags round (23 Oct): two flags, no letters
     expect($$(".foot .links li").map((li) => li.textContent)).toEqual(["Handelsbetingelser", "Privatlivspolitik", "Kontakt", "Cookieindstillinger", ""]);

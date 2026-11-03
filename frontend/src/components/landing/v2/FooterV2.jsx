@@ -9,8 +9,9 @@
  *
  *  1. LEGAL IDENTITY. The design prints "BonBox v/Manoz Chaudhary" and drops
  *     the floor from the address. Both are wrong against the CVR registry.
- *     BonBox is the product; the registered business is DukaanAI, at
- *     CVR 46417321, linked to the public register. The street address
+ *     BonBox is the product; the registered business is Orvexlo (the
+ *     register's name since 3 Nov 2026), at CVR 46417321, linked to the
+ *     public register. The street address
  *     is deliberately NOT printed: it is a private home, and the CVR
  *     link resolves to the register, which carries it. A footer
  *     identity line is the one place on a marketing site that is legally
@@ -47,13 +48,13 @@ import { CHROME_CHILDREN, WIDE } from "./fluid";
 // Registry values, not copy. Deliberately outside t().
 //
 // The RELATIONSHIP line above them is copy and does translate. Without it a
-// reader sees "DukaanAI" in the footer of a site called BonBox and has to guess
+// reader sees "Orvexlo" in the footer of a site called BonBox and has to guess
 // how the two connect — and anyone checking the CVR finds no BonBox in the
 // register, because BonBox is the product, not the registered entity. Saying so
 // plainly costs nothing, claims no rights in the name, and is the first thing
 // anyone reviewing the site for impersonation would look for.
 const LEGAL_LINES = [
-  "DukaanAI v/Manoz Chaudhary",
+  "Orvexlo",
   "CVR 46417321",
 ];
 

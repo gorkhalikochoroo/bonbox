@@ -6,12 +6,13 @@ import { useAuth } from "../hooks/useAuth";
 // or a stranger opens it signed out, often as the first page of the visit.
 // Brand release (Manoj, 11 Oct 2026): it shows the address the Terms and
 // /privacy give (contact@bonbox.dk) and the registered name from the Terms
-// (DukaanAI v/Manoz Chaudhary, CVR 46417321 — keep the three pages in step).
+// (Orvexlo, CVR 46417321 — the register's name since 3 Nov 2026; keep the three
+// pages in step).
 // No thesis framing and no claim we cannot back.
 //
 // The Feedback page sits behind the login, so its link is shown only to a
 // signed-in visitor; everyone else writes to the e-mail address.
-const PROVIDER_NAME = "DukaanAI v/Manoz Chaudhary";
+const PROVIDER_NAME = "Orvexlo";
 const CVR = "46417321";
 const SUPPORT_EMAIL = "contact@bonbox.dk";
 

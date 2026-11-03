@@ -13,7 +13,12 @@
  * The pictures are the app in the page's language (23 Oct 2026, "eng should be eng and danish should be danish"):
  * images.js imagesFor(lang) gives the Danish screens on the Danish page and the English screens on the English one
  * (a Turkish reader's too), one file per <img> / <source>. A language switch re-keys the page, so the new set comes in
- * with the new text; each pair has the same pixel box, so the engine's layout does not move. */
+ * with the new text; each pair has the same pixel box, so the engine's layout does not move.
+ *
+ * Accessibility (3 Nov 2026, nothing visible changes): in the story layout the clock is aria-hidden and every <time> sits in
+ * the stacked articles (display:none there), so each statement's sentence starts with its time for screen readers, in a .sr
+ * span inside the sentence's .s (10:00, 16:40 · 12:30, 19:45 · 00:10; inside, so ".s + .s" still spaces the two sentences). The counters (#count here, #dcount in the bar) are polite live regions,
+ * so a step with Næste / Forrige is announced; only the counter of the layout on screen is in the accessibility tree. */
 import { Link } from "react-router-dom";
 import { imagesFor } from "./images";
 import RoomSvg from "./RoomSvg";
@@ -76,17 +81,17 @@ export default function Stage({ t, lang, isAndroid }) {
         {/* the stage's three statements (story only): the beat decides which sentence is ink and which aside shows */}
         <div className="copy sc" id="c1">
           <h3 className="label sx f3">{schedule}</h3>
-          <p className="line"><span className="s s1 sx">{s1}</span> <span className="s s2 sx">{s3}</span></p>
+          <p className="line"><span className="s s1 sx"><span className="sr">{t("landingV6.time.s1")} </span>{s1}</span> <span className="s s2 sx"><span className="sr">{t("landingV6.time.s3")} </span>{s3}</span></p>
           <div className="asides"><p className="aside" data-b="h 1a 1b A"><StoreLink app="scheduler" t={t} isAndroid={isAndroid} className="tlink sx f1" /></p></div>
         </div>
         <div className="copy sc" id="c2">
           <h3 className="label sx f3">{reservations}</h3>
-          <p className="line"><span className="s s1 sx">{s2}</span> <span className="s s2 sx">{s4}</span></p>
+          <p className="line"><span className="s s1 sx"><span className="sr">{t("landingV6.time.s2")} </span>{s2}</span> <span className="s s2 sx"><span className="sr">{t("landingV6.time.s4")} </span>{s4}</span></p>
           <div className="asides"><p className="aside note sx f2" data-b="2a">{s2aside}</p><p className="aside note sx f2" data-b="S">{s4aside}</p><p className="aside note sx f2" data-b="B2">{stand}</p><p className="aside note sx f2" data-b="2b C">{guests}</p></div>
         </div>
         <div className="copy sc" id="c3">
           <h3 className="label sx f3">{close}</h3>
-          <p className="line"><span className="s s1 sx">{photo}</span> <span className="s s2 sx">{fill}</span></p>
+          <p className="line"><span className="s s1 sx"><span className="sr">{t("landingV6.time.s6")} </span>{photo}</span> <span className="s s2 sx">{fill}</span></p>
           <div className="asides"><p className="aside note sx f2" data-b="3a">{cutoff}</p><p className="aside note sx f2" data-b="3b end">{archive}</p></div>
         </div>
 
@@ -237,7 +242,7 @@ export default function Stage({ t, lang, isAndroid }) {
 
         <div className="story-nav" id="snav">
           <div className="sn-ev" id="snev">
-            <span className="count sx f3" id="count">1 / 7</span>
+            <span className="count sx f3" id="count" aria-live="polite" aria-atomic="true">1 / 7</span>
             <span className="prog sbg h" aria-hidden="true"><i className="sbg k" id="prog"></i></span>
             <button className="next prev" id="prev" type="button" aria-controls="aften" hidden><span className="ar sx f1" aria-hidden="true">←</span><span className="sx f1">{prev}</span></button>
             <button className="next" id="next" type="button" aria-controls="aften"><span className="sx f1">{next}</span><span className="ar sx f1" aria-hidden="true">→</span></button>
