@@ -111,8 +111,13 @@ export const SECTION_BAR_NEUTRAL = "border-gray-200 dark:border-gray-700";
 // dark table is a light slab. Contrast, measured in Chromium from the compiled
 // CSS for all five sections + the draft cream (3 Nov 2026, lab NOTES.md):
 // light — time 16.2:1, hours (gray-600) 6.9:1, tag (-700) 5.9:1, ✓ 3.3:1;
-// dark — time 11.3:1, hours (gray-400) 4.8:1, tag (-300) 6.5:1, ✓ 6.4:1
+// dark — time 11.3:1, hours (gray-300) 8.5:1, tag (-300) 6.5:1, ✓ 6.4:1
 // (each the lowest over every fill). gray-500 hours would be 4.4:1 on red-50.
+// The dark fills are TRANSLUCENT, so the row hover (gray-700/40) and the cell
+// hover (gray-700/50) show through the card. With the pointer on a draft the
+// worst case is hours 6.7:1 (gray-300; gray-400 was 3.8:1), tag 5.2:1, the
+// conflict label (red-300) 5.2:1, ✓ 5.1:1. Text ON these fills is chosen for
+// that worst case, not for the card at rest.
 export const SECTION_CARD = {
   kitchen: { fill: "bg-red-50 dark:bg-red-500/10", ring: "ring-red-200 dark:ring-red-500/30", hover: "hover:bg-red-100 dark:hover:bg-red-500/20", tag: "text-red-700 dark:text-red-300", dot: "bg-red-500" },
   bar: { fill: "bg-blue-50 dark:bg-blue-500/10", ring: "ring-blue-200 dark:ring-blue-500/30", hover: "hover:bg-blue-100 dark:hover:bg-blue-500/20", tag: "text-blue-700 dark:text-blue-300", dot: "bg-blue-500" },

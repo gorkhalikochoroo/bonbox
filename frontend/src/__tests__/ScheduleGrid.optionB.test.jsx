@@ -329,6 +329,31 @@ describe("ScheduleGrid — the shift cards", () => {
     expect(within(kitchen).getByTitle("Set af medarbejderen")).toBeInTheDocument();
     // …and line 2 is gray-600, which clears 4.5:1 on the tints (gray-500 does not).
     expect(tokens(within(kitchen).getByText("8 t").parentElement)).toContain("text-gray-600");
+    // Dark gray-300, not -400: the -500/10 fill lets the row + cell hover
+    // through, and gray-400 hours were 3.8:1 on a hovered draft.
+    expect(tokens(within(kitchen).getByText("8 t").parentElement)).toContain("dark:text-gray-300");
+    expect(tokens(within(kitchen).getByText("8 t").parentElement)).not.toContain("dark:text-gray-400");
+  });
+
+  it("names a fravær / kan ikke on the tinted card in red-700 / dark red-300", () => {
+    // A conflict keeps the section fill and swaps only the ring. red-600 was
+    // 4.35:1 on violet-50 (3.9:1 on the phone chip's -100 hover); red-400 was
+    // 3.4:1 on a hovered dark draft.
+    mount({
+      absenceFor: (id, d) => (id === "k1" && iso(d) === MON ? { kind: "ferie" } : null),
+      unavailFor: (id, d) => (id === "f1" && iso(d) === MON ? { kind: "unavailable" } : null),
+    });
+    for (const [name, word, fill] of [["Jonas", "Ferie", "bg-red-50"], ["Mette", "Kan ikke", "bg-violet-50"]]) {
+      const card = cardIn(name, 0);
+      expect(tokens(card)).toContain(fill); // the fill stays…
+      expect(tokens(card)).toContain("ring-red-400"); // …only the ring changes
+      const label = card.querySelector("[data-conflict-label]");
+      expect(label.textContent).toBe(word);
+      expect(tokens(label)).toContain("text-red-700");
+      expect(tokens(label)).toContain("dark:text-red-300");
+      expect(tokens(label)).not.toContain("text-red-600");
+      expect(tokens(label)).not.toContain("dark:text-red-400");
+    }
   });
 
   it("keeps a published card white with the gray ring where there are no sections", () => {
@@ -413,6 +438,16 @@ describe("ScheduleGrid — department pills", () => {
     expect(within(mon).getByText("1").className).toContain("xl:hidden");
     const bar = headerRow(container, 1);
     expect(tokens(bar.querySelectorAll("td")[2].querySelector('[role="img"]'))).toContain("bg-blue-100");
+  });
+
+  it("prints the band's head count in gray-600, which clears 4.5:1 on the -50 band", () => {
+    // gray-500 measured 4.41:1 on violet-50 (12px text); gray-600 is 6.89:1.
+    const { container } = mount();
+    const count = headerRow(container, 0).querySelector("td [data-section-headcount]");
+    expect(count.textContent).toBe("2"); // Jonas + Sara under Køkken
+    expect(tokens(count)).toContain("text-gray-600");
+    expect(tokens(count)).toContain("dark:text-gray-400");
+    expect(tokens(count)).not.toContain("text-gray-500");
   });
 
   it("uses the amber 0 ONLY on a day the house is open, and never says understaffed", () => {

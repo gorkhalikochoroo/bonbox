@@ -135,6 +135,11 @@ describe("phone — the week in one line", () => {
     const chip = screen.getByRole("button", { name: /Anna.*17\.00–23\.30.*Syg/ });
     expect(within(chip).getByText("Syg")).toBeInTheDocument();
     expect(chip.className).toContain("ring-red-400");
+    // red-700 / dark red-300 on the tinted chip (red-600 was 3.9:1 on its -100 hover).
+    const label = within(chip).getByText("Syg").className.split(/\s+/);
+    expect(label).toContain("text-red-700");
+    expect(label).toContain("dark:text-red-300");
+    expect(label).not.toContain("text-red-600");
   });
 
   it("gives each person a 40px fravær action that reports the day on screen", () => {

@@ -737,8 +737,15 @@ function ShiftCardBody({ shift, member, cat, hasSecs, catFor, conflictLabel = nu
   ) : null;
   return (
     <>
+      {/* red-700 / dark red-300, not -600 / -400. A conflict keeps the
+          section fill (cardChrome swaps only the ring), and red-600 that was
+          4.8:1 on the old white card is 4.35:1 on violet-50 and 3.9:1 on the
+          phone chip's -100 hover. In dark the -500/10 fill lets the row and
+          cell hover through: red-400 fell to 3.4:1 on a hovered draft.
+          red-700 is >= 5.26:1 and red-300 >= 5.16:1 in every hover state
+          (lab NOTES.md, 3 Nov 2026, review round). */}
       {conflictLabel && (
-        <div className={`${compact ? "text-[11px]" : "text-[10px]"} font-semibold uppercase tracking-wide text-red-600 dark:text-red-400`}>
+        <div data-conflict-label className={`${compact ? "text-[11px]" : "text-[10px]"} font-semibold uppercase tracking-wide text-red-700 dark:text-red-300`}>
           {conflictLabel}
         </div>
       )}
@@ -749,8 +756,12 @@ function ShiftCardBody({ shift, member, cat, hasSecs, catFor, conflictLabel = nu
         </span>
         {!compact && isDraft && <DraftPill t={t} />}
       </div>
-      {/* gray-600, not -500: gray-500 is 4.4:1 on the red-50 fill. */}
-      <div className={`mt-0.5 flex items-center gap-1 min-w-0 text-[11px] text-gray-600 dark:text-gray-400 ${compact ? "justify-end" : ""}`}>
+      {/* gray-600, not -500: gray-500 is 4.4:1 on the red-50 fill. Dark is
+          gray-300, not -400: the dark fills are translucent, so the row hover
+          (gray-700/40) and the cell hover (gray-700/50) show through the card,
+          and gray-400 hours fell to 3.8:1 on a hovered draft. gray-300 is
+          >= 6.7:1 in every hover state. */}
+      <div className={`mt-0.5 flex items-center gap-1 min-w-0 text-[11px] text-gray-600 dark:text-gray-300 ${compact ? "justify-end" : ""}`}>
         <span className="shrink-0 whitespace-nowrap tabular-nums">{formatShiftHours(hrs, lang)}</span>
         {seen && <SeenMark t={t} />}
         {/* The tag's text may break ANYWHERE and is clamped to one line with
@@ -7539,7 +7550,8 @@ export function ScheduleGrid({
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${hdr.dot} flex-shrink-0`} aria-hidden="true" />
             <span className={`text-xs font-semibold ${hdr.text}`}>{label}</span>
-            <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+            {/* gray-600: gray-500 is 4.41:1 on the violet-50 band (6.89 now). */}
+            <span data-section-headcount className="text-xs text-gray-600 dark:text-gray-400 tabular-nums">
               {sec.members.length}
             </span>
           </div>
