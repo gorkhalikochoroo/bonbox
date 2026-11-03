@@ -892,14 +892,19 @@ def public_api_base() -> str:
     back to FRONTEND_URL, where /api/email/unsubscribe is the SPA's own shell:
     every opt-out link and one-click POST would have gone dead the day an
     unrelated variable was removed, while the footer still promised
-    "afmelde dem her". Never the SPA host."""
+    "afmelde dem her". Never the SPA host — not even when PUBLIC_API_URL
+    itself names it (bonbox.dk, www.bonbox.dk or FRONTEND_URL's host): that
+    value is ignored, as if unset."""
+    from urllib.parse import urlparse
     try:
         from app.config import settings
         configured = (os.environ.get("PUBLIC_API_URL") or settings.PUBLIC_API_URL or "").strip()
         env = (settings.ENVIRONMENT or "").lower()
+        spa = (urlparse(settings.FRONTEND_URL or "").hostname or "").lower()
     except Exception:  # noqa: BLE001
-        configured, env = (os.environ.get("PUBLIC_API_URL") or "").strip(), ""
-    if configured:
+        configured, env, spa = (os.environ.get("PUBLIC_API_URL") or "").strip(), "", ""
+    host = (urlparse(configured).hostname or "").lower() if configured else ""
+    if configured and host not in {"bonbox.dk", "www.bonbox.dk", spa}:
         return configured.rstrip("/")
     return PROD_API_BASE if env == "production" else DEV_API_BASE
 

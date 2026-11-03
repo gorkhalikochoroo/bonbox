@@ -728,3 +728,21 @@ def test_unsubscribe_link_goes_to_the_api_host_never_the_spa(monkeypatch):
     monkeypatch.setattr(settings, "PUBLIC_API_URL", "https://api.staging.bonbox.dk/")
     assert _build_unsubscribe_url(user).startswith(
         "https://api.staging.bonbox.dk/api/email/unsubscribe?token=")
+
+
+@pytest.mark.parametrize("spa", ["https://bonbox.dk", "https://www.bonbox.dk/", "https://app.example.test"])
+def test_public_api_url_naming_the_spa_is_ignored(monkeypatch, spa):
+    """A PUBLIC_API_URL that names the website itself would rebuild the
+    3 Nov bug; it is ignored as if unset (api.bonbox.dk in production)."""
+    import uuid
+    from types import SimpleNamespace
+    from app.config import settings
+    from app.services.daily_brief_email import _build_unsubscribe_url
+
+    monkeypatch.setenv("APP_SECRET_KEY", "test-brief-opt-out-host-key-32-bytes")
+    monkeypatch.delenv("PUBLIC_API_URL", raising=False)
+    monkeypatch.setattr(settings, "FRONTEND_URL", "https://app.example.test")
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(settings, "PUBLIC_API_URL", spa)
+    assert _build_unsubscribe_url(SimpleNamespace(id=uuid.uuid4())).startswith(
+        "https://api.bonbox.dk/api/email/unsubscribe?token=")
