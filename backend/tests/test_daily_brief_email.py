@@ -699,3 +699,32 @@ def test_sample_data_is_not_a_sign_of_life(db_session, monkeypatch):
     assert "real@example.com" in emails
     assert "sampled@example.com" not in emails, "sample data alone must not trigger a daily email"
 
+
+
+def test_unsubscribe_link_goes_to_the_api_host_never_the_spa(monkeypatch):
+    """3 Nov 2026 (Manoj): the brief's footer "Unsubscribe" and its
+    List-Unsubscribe header pointed at https://bonbox.dk/api/email/unsubscribe —
+    the SPA's own shell, which does nothing. The builder fell back to
+    FRONTEND_URL once AIIA_REDIRECT_URI was gone. It now uses the same host
+    rule as the revisor mail (revisor_mail.public_api_base)."""
+    import uuid
+    from types import SimpleNamespace
+    from app.config import settings
+    from app.services.daily_brief_email import _build_unsubscribe_url
+
+    monkeypatch.setenv("APP_SECRET_KEY", "test-brief-opt-out-host-key-32-bytes")
+    monkeypatch.delenv("PUBLIC_API_URL", raising=False)
+    monkeypatch.delenv("AIIA_REDIRECT_URI", raising=False)
+    monkeypatch.setattr(settings, "FRONTEND_URL", "https://bonbox.dk")
+    monkeypatch.setattr(settings, "PUBLIC_API_URL", "")
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    user = SimpleNamespace(id=uuid.uuid4())
+    url = _build_unsubscribe_url(user)
+    assert url.startswith("https://api.bonbox.dk/api/email/unsubscribe?token=")
+    # an unrelated variable no longer moves it
+    monkeypatch.setenv("AIIA_REDIRECT_URI", "https://bank.example/cb")
+    assert _build_unsubscribe_url(user).startswith("https://api.bonbox.dk/")
+    # the deliberate setting does
+    monkeypatch.setattr(settings, "PUBLIC_API_URL", "https://api.staging.bonbox.dk/")
+    assert _build_unsubscribe_url(user).startswith(
+        "https://api.staging.bonbox.dk/api/email/unsubscribe?token=")

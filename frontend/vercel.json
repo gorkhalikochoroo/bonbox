@@ -1,4 +1,11 @@
 {
+  "redirects": [
+    {
+      "source": "/api/email/unsubscribe",
+      "destination": "https://api.bonbox.dk/api/email/unsubscribe",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     {
       "source": "/portal/:token/app.webmanifest",
@@ -39,7 +46,10 @@
     {
       "source": "/static/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=3600, stale-while-revalidate=86400" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, stale-while-revalidate=86400"
+        }
       ]
     },
     {

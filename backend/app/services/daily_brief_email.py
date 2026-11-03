@@ -192,39 +192,17 @@ def _build_unsubscribe_url(user: User) -> str:
     Routes to the BACKEND host (api.bonbox.dk) so the public endpoint
     handles it without a frontend hop — Gmail's one-click POST goes
     straight to the same URL.  Token has a 30-day TTL.
+
+    The host comes from revisor_mail.public_api_base (PUBLIC_API_URL, else
+    the API host for the environment), never FRONTEND_URL: the brief used
+    to fall back to FRONTEND_URL once AIIA_REDIRECT_URI was gone, so every
+    footer link and one-click POST landed on the SPA's own shell at
+    bonbox.dk/api/email/unsubscribe and did nothing (Manoj, 3 Nov 2026).
     """
-    import os
-    from app.config import settings
+    from app.services.revisor_mail import public_api_base
     from app.utils.email_unsubscribe_token import make_unsubscribe_token
-    # Prefer an explicit API base URL when set; otherwise reuse the
-    # AIIA_REDIRECT_URI host (which we know points at the API), and
-    # finally fall back to FRONTEND_URL (dev/local).  This keeps
-    # operators from needing yet another env var in prod when the
-    # rest of the API URL config is already correct.
-    api_base = (
-        os.environ.get("PUBLIC_API_URL")
-        or _api_base_from_redirect()
-        or settings.FRONTEND_URL
-    ).rstrip("/")
     token = make_unsubscribe_token(str(user.id), "daily_brief")
-    return f"{api_base}/api/email/unsubscribe?token={token}"
-
-
-def _api_base_from_redirect() -> str | None:
-    """Derive the API host from AIIA_REDIRECT_URI if it's set — saves
-    one env var in production.  Returns None when no helpful hint."""
-    import os
-    from urllib.parse import urlparse
-    redirect = os.environ.get("AIIA_REDIRECT_URI") or ""
-    if not redirect:
-        return None
-    try:
-        parsed = urlparse(redirect)
-        if parsed.scheme and parsed.netloc:
-            return f"{parsed.scheme}://{parsed.netloc}"
-    except Exception:  # noqa: BLE001
-        pass
-    return None
+    return f"{public_api_base()}/api/email/unsubscribe?token={token}"
 
 
 def build_brief_html(brief_payload: dict, user: User) -> str:
