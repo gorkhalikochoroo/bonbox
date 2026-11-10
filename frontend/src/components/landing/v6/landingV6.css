@@ -190,23 +190,43 @@
 .lp6 .card .scr > img,.lp6 .card .win{border-radius:inherit}
 .lp6 .card .win{display:block;overflow:hidden}
 .lp6[data-g=night] .card .scr,.lp6:not(.story) .nb .card .scr{box-shadow:0 0 0 1px rgba(246,244,236,.12),var(--shadow)}
-/* the Vagtplan card: the capture's own corners (top-left ≈ 27, top-right ≈ 48 source px) — clip to them, no white sliver.
-   On tall phones the same figure serves the whole app screen instead (one <picture>, one download): the normal frame */
-.lp6 .vagt .scr{background:none;border-radius:4% 7% 4% 4% / 5.5% 9.6% 5.5% 5.5%}
-@media (max-width:767px) and (min-height:780px){.lp6 .vagt .scr{background:#fff;border-radius:var(--rad)}}
+/* the Vagtplan next-shift card (fix round 2, review fix 5): the picture IS the app's card, cut at the card's own rounded edge, so the
+   frame takes the card's corners (24 px of its 358: 6.8 %, a hair over, so no light corner pixel shows) and no white ground.
+   Tall phones and wide screens show the whole card (358 × 341); phones under 780 px tall its upper section, down to the card's own
+   divider (358 × 255: the whole card would be half its size in that slot) — one <picture>, one download either way */
+.lp6 .vagt .scr,.lp6 .vapp .scr{background:none;border-radius:6.8% / 9.5%}
+.lp6 .vagt picture,.lp6 .vagt img{border-radius:inherit}
+.lp6 .vapp .scr{border-radius:6.8% / 7.1%}
+@media (max-width:767px) and (min-height:780px){.lp6 .vagt .scr{border-radius:6.8% / 7.1%}}
 /* the guest booking page stops above its date strip; the guest chips fade out at the cut instead of being sliced */
 .lp6 .bookw .win{aspect-ratio:1179 / 860}
 .lp6 .bookw .win img{-webkit-mask:linear-gradient(#000,#000) top / 100% 78% no-repeat,linear-gradient(90deg,#000 calc(100% - 72px),transparent) bottom / 100% 22% no-repeat;mask:linear-gradient(#000,#000) top / 100% 78% no-repeat,linear-gradient(90deg,#000 calc(100% - 72px),transparent) bottom / 100% 22% no-repeat}
 .lp6 .booking .scr > img{-webkit-mask:linear-gradient(#000,#000) top / 100% 79% no-repeat,linear-gradient(90deg,#000 calc(100% - 56px),transparent) bottom / 100% 21% no-repeat;mask:linear-gradient(#000,#000) top / 100% 79% no-repeat,linear-gradient(90deg,#000 calc(100% - 56px),transparent) bottom / 100% 21% no-repeat}
-/* 00.10 phone: the scan card stops under "Upload billede"; its box fades out at the cut */
+/* 00.10, the stacked phone page: the scan card; "Tag billede" / "Take Photo" is whole in both languages (fix round 2: the English
+   button was inside the fade), what follows it fades out at the cut. The pinned phone story shows the Z-bon instead (engine.js), so
+   there the figure takes no box and its picture is never fetched */
 .lp6 .foto .scr > img{-webkit-mask:linear-gradient(#000 84%,transparent);mask:linear-gradient(#000 84%,transparent)}
-/* the week plan: Personale + MAN + I DAG, header to the end of Sofie M.'s row (product-captures desktop/06 x 494–1456, crop only):
-   today's three shifts match the roster card; no later-week sick call or alarm days in the 10.00 frame */
-.lp6 .uge .win{aspect-ratio:962 / 1572}
+.lp6.story .foto{display:none}
+/* the week plan (fix round 2, review fix 5: the 3 Nov schedule, every shift seen): Personale + MAN + I DAG, header to the end of the
+   Bar section, so the smallest type in it (10 px in the app) is 13.6 px on a 1440 × 900 screen (it was 9 px with all three sections);
+   today's column carries the roster card's Mads K. and Freja N.; no later-week sick call in the 10.00 frame */
+.lp6 .uge .win{aspect-ratio:1440 / 1572}
 /* 22.50 on phone: the stand's "Sidder nu" tile at 1:1 (source x 253–505, complete), then the floor plan's window corner (x 84–668, y 14–376) */
 .lp6 .tal{width:fit-content}
 .lp6 .tal .win{width:calc(252px * var(--tk,1));height:calc(107px * var(--tk,1))}
-.lp6 .tal .win img{width:100%;max-width:none}
+/* fix round 2 (review fix 5): the tile is text, not a 252 px picture — the stand's own tile (12 px label and helper, 21 px number,
+   13 / 12 px icons, 12 px side padding, its emerald and greys) at the 1.356 the picture showed it (an iPad's 1180 px across 1600), so
+   17 / 28 px type on a phone; --u is one of the tile's own px. The number is the page's 600 (the app's 700 is a font file the page
+   does not otherwise fetch) */
+.lp6 .tal .tile{--u:calc(1.356px * var(--tk,1));display:flex;flex-direction:column;justify-content:center;padding:0 calc(12 * var(--u));background:#fff;color:#6B7280;text-align:left;font-variant-numeric:tabular-nums;letter-spacing:0}
+.lp6 .tal .tile > span{display:block}
+.lp6 .tal .tile .tile-h{display:flex;align-items:center;gap:calc(6 * var(--u));font-size:calc(12 * var(--u));line-height:calc(16 * var(--u));font-weight:500}
+.lp6 .tal .tile svg{flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.lp6 .tal .tile .tile-i{width:calc(13 * var(--u));height:calc(13 * var(--u));color:#059669}
+.lp6 .tal .tile .tile-l{flex:1;min-width:0;white-space:nowrap}
+.lp6 .tal .tile .tile-c{width:calc(12 * var(--u));height:calc(12 * var(--u));color:#9CA3AF}
+.lp6 .tal .tile .tile-n{margin-top:calc(2 * var(--u));font-size:calc(21 * var(--u));line-height:calc(26.25 * var(--u));font-weight:600;color:#059669}
+.lp6 .tal .tile .tile-s{font-size:calc(12 * var(--u));line-height:calc(16.5 * var(--u));white-space:nowrap}
 .lp6 .stand .win{aspect-ratio:584 / var(--cy,362)}
 .lp6 .stand .win img{width:188.527%;max-width:none;margin:-2.3973% 0 0 -14.3836%}
 /* 22.50 from 768 px: the two complete number tiles (Gæster · Sidder nu) over the whole floor plan, one frame */
@@ -554,6 +574,18 @@
 @media (min-width:768px){.lp6.story .copy .label{margin-bottom:10px}}
 @media (max-width:767px) and (min-height:900px){.lp6.story .copy .label{margin-bottom:12px}.lp6.story .clock{margin-top:10px}}
 @media (max-width:767px){.lp6.story .copy .aside{margin-top:10px}.lp6.story .copy .aside.note{font-size:15px;line-height:21px}}
+/* fix round 2 (10 Nov, review fix 4), the phone story only: the sentence is the headline. It was 19 px medium under an 87 px clock, so the
+   time of day outranked the message; it is 22 px semi-bold, and the clock steps back to 56–72 px (7.7 svh). A line is 26 px (22 × 1.18;
+   it was 25.5: 19 × 1.34) and the note sits 8 px under it (it was 10), so a four-line statement block is as tall as before and the
+   pictures keep their size; on a 844 px screen the smaller clock gives the stage 15 px. On phones up to 380 px wide the sentence is
+   20 px on the same 26 px line: at 22 px the English 12.30 sentence took a fifth line there, which cost every picture 28 px.
+   The stacked page (short phones, reduced motion) keeps its own sizes: it has no clock to weigh against */
+@media (max-width:767px){
+  .lp6.story{--fs-clock:clamp(56px,7.7svh,72px)}
+  .lp6.story .copy.sc .line{font-size:22px;line-height:1.18;font-weight:600;letter-spacing:-.02em}
+  .lp6.story .copy.sc .aside{margin-top:8px}
+}
+@media (max-width:380px){.lp6.story .copy.sc .line{font-size:20px;line-height:1.298}}
 
 /* ─── landscape from 1024 px: the editorial composition on the same engine ───
    left: the day's index, the statement, the date and the clock; right: ONE real screen inside the crop-mark plate */

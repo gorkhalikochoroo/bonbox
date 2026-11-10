@@ -6,7 +6,7 @@
  * page does not have (Turkish today) reads the English page, pictures included. Rendered here as the app renders it
  * (the real components, the real da.js / en.js values; useLanguage and the engine stubbed as in landingV6Page.test.jsx):
  *   - every <img src> and <picture><source srcset> on the page is one of the page language's files, never the other's,
- *     and each of the eleven pictures is there (one <img> per place: no hidden twin, so no second download);
+ *     and each of the ten pictures is there (one <img> per place: no hidden twin, so no second download);
  *   - a language switch (the page re-keys) swaps every picture with the text, and back; the boxes (width / height)
  *     are the same in both languages, so the engine lays out the same page;
  *   - every picture keeps its demo caption in the page's language, and its alt text is the page language's.
@@ -57,18 +57,18 @@ afterEach(cleanup);
 
 describe("each page shows the app in its own language", () => {
   for (const [code, pageLang] of [["da", "da"], ["en", "en"], ["tr", "en"]]) {
-    it(`${code}: every picture is ${pageLang === "da" ? "a Danish" : "an English"} file, none of the other language's; all eleven are there, once per place`, () => {
+    it(`${code}: every picture is ${pageLang === "da" ? "a Danish" : "an English"} file, none of the other language's; all ten are there, once per place`, () => {
       const { root } = show(code);
       const r = refs(root());
       expect(root().getAttribute("lang")).toBe(pageLang);
-      expect(r.length).toBe(13); // 12 <img> + the one <source> (16.40 tall phones)
-      expect(r.filter((x) => x.tag === "img")).toHaveLength(12);
+      expect(r.length).toBe(12); // 11 <img> + the one <source> (16.40 tall phones); fix round 2: the phone's 22.50 tile is text, not an <img>
+      expect(r.filter((x) => x.tag === "img")).toHaveLength(11);
       expect(r.map((x) => [x.tag, x.src, SET[pageLang].has(x.src)])).toEqual(r.map((x) => [x.tag, x.src, true]));
       expect(r.filter((x) => SET[OTHER[pageLang]].has(x.src))).toEqual([]);
       // by file name too: the English twin is "<name>.en.webp"
       const files = r.map((x) => FILE[x.src]);
       expect(files.map((f) => [f, /\.webp$/.test(f) && /\.en\.webp$/.test(f) === (pageLang === "en")])).toEqual(files.map((f) => [f, true]));
-      // each of the eleven pictures is shown (standFloor twice: phone crop and wide pair; the 16.40 app screen as <source> and <img>)
+      // each of the ten pictures is shown (standFloor twice: phone crop and wide pair; the 16.40 card as <source> and <img>)
       expect(new Set(r.map((x) => x.src))).toEqual(SET[pageLang]);
     });
   }
@@ -116,6 +116,11 @@ describe("caption and alt text follow the language", () => {
         expect([fig.id, own(fig) || (fig.id === "tal" && own(root().querySelector("#stand")))]).toEqual([fig.id, true]);
         expect([fig.id, alts.has(img.getAttribute("alt"))]).toEqual([fig.id, true]);
       }
+      // fix round 2: the 22.50 phone tile is text; it keeps the picture's one description (role="img") and shares #stand's caption as before
+      const tile = root().querySelector("#tal [role=img]");
+      expect(tile.getAttribute("aria-label")).toBe(d["landingV6.alt.standSeated"]);
+      expect(root().querySelector("#tal img")).toBeNull();
+      expect([...root().querySelectorAll("#stand .demo")].some((c) => c.textContent === d["landingV6.demo"])).toBe(true);
     });
   }
 });
@@ -127,7 +132,7 @@ describe("caption and alt text follow the language", () => {
 describe("the English page's picture descriptions are English, pinned", () => {
   const LOCKED = ["Bistro Nørrebro", "Vindue", "MOMS", "Kasserapport", "kasserapport"];
   const EN_DESCRIPTIONS = {
-    "landingV6.alt.week": "The team's schedule, split into kitchen, bar and floor: today Mads K., Freja N. and Sofie M. are on shift.",
+    "landingV6.alt.week": "The week's schedule, kitchen and bar: today Mads K. and Freja N. are on shift, and everyone has seen their shifts.",
     "landingV6.alt.booking": "The guest booking page for Bistro Nørrebro: choose the number of guests, no account needed.",
     "landingV6.alt.staffApp": "The Vagtplan app: the staff member's next shift today, 17:00–22:30, in 20 minutes.",
     "landingV6.alt.standSeated": "The host stand: 16 seated now at 5 tables.",
@@ -148,7 +153,7 @@ describe("the English page's picture descriptions are English, pinned", () => {
     }
   });
 
-  it("the nine English values, as they are on 23 Oct (the eight alt texts + the roster's name)", () => {
+  it("the nine English values (the eight alt texts + the roster's name; fix round 2, 10 Nov: the week plan's follows its new picture)", () => {
     expect(Object.fromEntries([...altKeys, "landingV6.roster.aria"].map((k) => [k, en[k]]))).toEqual(EN_DESCRIPTIONS);
     // each is a different sentence from its Danish twin (no Danish value left in en.js)
     for (const k of Object.keys(EN_DESCRIPTIONS)) expect([k, en[k] === da[k]]).toEqual([k, false]);
@@ -156,7 +161,8 @@ describe("the English page's picture descriptions are English, pinned", () => {
 
   it("the English page renders exactly these as its pictures' alt texts", () => {
     const { root } = show("en");
-    const alts = new Set([...root().querySelectorAll("img")].map((img) => img.getAttribute("alt")));
+    // an <img>'s alt, or the description of the one picture that is drawn as text (the 22.50 phone tile, role="img")
+    const alts = new Set([...[...root().querySelectorAll("img")].map((img) => img.getAttribute("alt")), ...[...root().querySelectorAll("#frame .fx [role=img]")].map((e) => e.getAttribute("aria-label"))]);
     expect(alts).toEqual(new Set(altKeys.map((k) => EN_DESCRIPTIONS[k])));
     expect(root().querySelector("#roster").getAttribute("aria-label")).toBe(EN_DESCRIPTIONS["landingV6.roster.aria"]);
   });

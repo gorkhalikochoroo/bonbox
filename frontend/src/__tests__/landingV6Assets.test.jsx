@@ -2,8 +2,9 @@
  * LANDING V6 — the generated parts and the assets (PORT_PLAN 1.2 / 1.8, port step 2).
  *
  * The room drawing, the table timeline and the logo lockup are cut from the
- * v6.3 prototype build once (lab: port-build/tools/gen_parts.mjs); the eleven
- * pictures (Danish, and since 23 Oct 2026 their English twins) and the social card
+ * v6.3 prototype build once (lab: port-build/tools/gen_parts.mjs); the ten
+ * pictures (Danish and their English twins; fix round 2, 10 Nov 2026: eight made again from the
+ * current app, two kept, the phone's "Sidder nu" tile now text) and the social card
  * are byte copies, pinned by sha256 (fixtures/landingV6Pictures.sha256.json). These checks read the real
  * files — the pictures' own pixel sizes, the drawing as React renders it, the
  * lockup against the brand kit file — so a later edit cannot drift silently.
@@ -41,35 +42,37 @@ function webpSize(buf) {
   throw new Error("unknown webp chunk " + kind);
 }
 
-describe("landing v6 — the eleven pictures, each in Danish and English", () => {
+describe("landing v6 — the ten pictures, each in Danish and English", () => {
   const entries = Object.entries(IMG);
   const LANGS = ["da", "en"];
   const NAMES = [
-    "vagt-uge-v8",
-    "1945_booking_gaest",
-    "bord-gaest",
-    "1640_vagtplan_naeste_vagt_c15",
-    "vagt-app-v8",
-    "stand-sidder",
+    "vagt-uge-v9",
+    "booking-gaest-v2",
+    "bord-gaest-v2",
+    "vagt-naeste-v9",
+    "vagt-kort-v9",
     "2250_stand_bordplan",
-    "stand-tal2",
-    "kasse-foto",
-    "kasse-foto-hel-v7",
+    "stand-tal3",
+    "kasse-foto-v2",
+    "kasse-foto-hel-v8",
     "kasse-moms",
   ];
 
-  it("images.js lists the eleven pictures the v6.3 page uses, each with a Danish and an English file, and the folder holds exactly those", () => {
-    expect(entries).toHaveLength(11);
+  it("images.js lists the ten pictures the page uses, each with a Danish and an English file, and the folder holds exactly those", () => {
+    expect(entries).toHaveLength(10);
     for (const [key, v] of entries) for (const l of LANGS) expect([key, l, typeof v[l]?.src, typeof v[l]?.file]).toEqual([key, l, "string", "string"]);
     expect(entries.map(([, v]) => v.da.file).sort()).toEqual(NAMES.map((n) => `${n}.webp`).sort());
     // the English twin is the Danish name + ".en" (23 Oct 2026: "eng should be eng and danish should be danish")
     for (const [, v] of entries) expect(v.en.file).toBe(v.da.file.replace(/\.webp$/, ".en.webp"));
     const files = entries.flatMap(([, v]) => [v.da.file, v.en.file]).sort();
-    expect(files).toHaveLength(22);
+    expect(files).toHaveLength(20);
     expect(readdirSync(IMG_DIR).sort()).toEqual(files);
     // the superseded captures were not copied (nor the capture's alternates under their own names)
     for (const old of ["1640_vagtplan_naeste_vagt_c14.webp", "vagt-app.webp", "vagt-app-v6.webp", "vagt-uge.webp", "vagt-uge-v6.webp", "vagt-uge-v7.webp", "kasse-foto-hel.webp", "vagt-uge-v8.en.alt.webp", "kasse-foto.en.alt.webp"])
       expect(existsSync(join(IMG_DIR, old)), old).toBe(false);
+    // fix round 2 (10 Nov 2026): the pictures the retakes replaced are gone with their last import (and the phone tile's picture: it is text now)
+    for (const old of ["vagt-uge-v8", "1945_booking_gaest", "bord-gaest", "1640_vagtplan_naeste_vagt_c15", "vagt-app-v8", "stand-sidder", "stand-tal2", "kasse-foto", "kasse-foto-hel-v7"])
+      for (const ext of [".webp", ".en.webp"]) expect(existsSync(join(IMG_DIR, old + ext)), old + ext).toBe(false);
   });
 
   it("every picture's Danish and English file have the same pixel size, and it is the width / height the page reserves", () => {
@@ -103,7 +106,7 @@ describe("landing v6 — the eleven pictures, each in Danish and English", () =>
     }
   });
 
-  it("phone set + desktop set stay inside the plan's picture budget in each language (eleven files ≤ 470 KB)", () => {
+  it("phone set + desktop set stay inside the plan's picture budget in each language (ten files ≤ 470 KB)", () => {
     for (const l of LANGS) {
       const total = entries.reduce((n, [, v]) => n + statSync(join(IMG_DIR, v[l].file)).size, 0);
       expect([l, total <= 470 * 1024]).toEqual([l, true]);
@@ -113,7 +116,7 @@ describe("landing v6 — the eleven pictures, each in Danish and English", () =>
   it("the landing chunk inlines no English picture: each English file is over Vite's 4 KB inline limit or imported ?no-inline", () => {
     const src = readFileSync(join(V6, "images.js"), "utf8");
     const imports = [...src.matchAll(/^import \w+ from "\.\/img\/([^"?]+)(\?no-inline)?";$/gm)].map((m) => ({ file: m[1], noInline: !!m[2] }));
-    expect(imports).toHaveLength(22);
+    expect(imports).toHaveLength(20);
     const LIMIT = 4096; // vite build.assetsInlineLimit default (vite.config.js does not set it)
     expect(readFileSync(join(FRONTEND, "vite.config.js"), "utf8")).not.toMatch(/assetsInlineLimit/);
     for (const { file, noInline } of imports) {
@@ -121,7 +124,9 @@ describe("landing v6 — the eleven pictures, each in Danish and English", () =>
       if (file.endsWith(".en.webp")) expect([file, !small || noInline]).toEqual([file, true]);
       else expect([file, noInline]).toEqual([file, false]); // the Danish files are imported exactly as before
     }
-    expect(imports.filter((i) => i.noInline).map((i) => i.file)).toEqual(["stand-sidder.en.webp"]);
+    // fix round 2: the one picture under the limit (the 2.6 KB phone tile) is text now, so no file is small enough to inline, in either language
+    expect(imports.filter((i) => i.noInline).map((i) => i.file)).toEqual([]);
+    for (const { file } of imports) expect([file, statSync(join(IMG_DIR, file)).size >= LIMIT]).toEqual([file, true]);
   });
 
   it("no picture goes into public/", () => {
@@ -134,9 +139,9 @@ describe("landing v6 — the pictures are the files they were checked as (sha256
   const LAB = join(REPO, "..", FIX.source_dir);
   const sha = (p) => createHash("sha256").update(readFileSync(p)).digest("hex");
 
-  it("the English files are byte for byte the English captures (the 10.00 week plan from the alternate box)", () => {
+  it("the English files are byte for byte the captures' crops (fix round 2: lab landing-review-2026-11-10/fix2/pictures)", () => {
     expect(Object.keys(FIX.en).sort()).toEqual(Object.values(IMG).map((v) => v.en.file).sort());
-    expect(FIX.en["vagt-uge-v8.en.webp"].source).toBe("img/alt/vagt-uge-v8.en.alt.webp");
+    expect(FIX.source_dir).toBe("bonbox-lab-state/landing-review-2026-11-10/fix2/pictures");
     for (const [file, f] of Object.entries(FIX.en)) {
       const p = join(IMG_DIR, file);
       expect([file, statSync(p).size, sha(p)]).toEqual([file, f.bytes, f.sha256]);
@@ -144,12 +149,23 @@ describe("landing v6 — the pictures are the files they were checked as (sha256
   });
 
   it.skipIf(!existsSync(LAB))("…and the lab's capture files hash to the same fixture (local check; CI has no lab folder)", () => {
-    for (const [file, f] of Object.entries(FIX.en)) expect([file, sha(join(LAB, f.source))]).toEqual([file, f.sha256]);
+    for (const [file, f] of [...Object.entries(FIX.en), ...Object.entries(FIX.da)]) expect([file, sha(join(LAB, f.source))]).toEqual([file, f.sha256]);
   });
 
-  it("the Danish files are unchanged by the English step", () => {
+  it("the Danish files are the files they were checked as", () => {
     expect(Object.keys(FIX.da).sort()).toEqual(Object.values(IMG).map((v) => v.da.file).sort());
-    for (const [file, f] of Object.entries(FIX.da)) expect([file, sha(join(IMG_DIR, file))]).toEqual([file, f.sha256]);
+    for (const [file, f] of Object.entries(FIX.da)) expect([file, statSync(join(IMG_DIR, file)).size, sha(join(IMG_DIR, file))]).toEqual([file, f.bytes, f.sha256]);
+  });
+
+  it("the two pictures fix round 2 kept (the app renders them the same today) are still the 23 Oct files, byte for byte", () => {
+    expect(FIX.kept_from_23_oct).toEqual(["2250_stand_bordplan", "kasse-moms"]);
+    const OCT23 = {
+      "2250_stand_bordplan.webp": "eabf727fa45efc25c6ea12f3fc53c6de6973f84fc3c5a001e1aba4c75fee6194",
+      "2250_stand_bordplan.en.webp": "d083c782a0a45a8028a787bda2b25160195b30b62aab903f1d3d90e912db5d81",
+      "kasse-moms.webp": "5ea0949841d445f26244390003976aeb13f39e96251fd54772f0323e90d8a57a",
+      "kasse-moms.en.webp": "650f9cdbe6e362101afb52e7a027de9688400f011b2f03a41839f8ecd2e5c0b1",
+    };
+    for (const [file, hash] of Object.entries(OCT23)) expect([file, sha(join(IMG_DIR, file))]).toEqual([file, hash]);
   });
 });
 

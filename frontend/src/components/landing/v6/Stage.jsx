@@ -27,7 +27,15 @@
  *   - 12.30 adds "Intet gebyr pr. booking." (the sentence before it was shortened so the note still takes two lines on a phone:
  *     a third line would shrink every stage picture, engine.js layout() copyH);
  *   - 22.50 at rest shows the tablet line; the 63-guests line moved to the moment before it (beat B, once Vindue 2 is free);
- *   - 00.10 (the photo) says the owner keeps the till; the 06.00 line moved to the day's last moment (beat "end", after the PDF line). */
+ *   - 00.10 (the photo) says the owner keeps the till; the 06.00 line moved to the day's last moment (beat "end", after the PDF line).
+ *
+ * Fix round 2, builder B (review fixes 4 and 5):
+ *   - the pinned phone story shows the Z-bon itself at "Tag et billede af Z-bonen." (the #zb figure, with its count-up; engine.js
+ *     show() / layout()), then the MOMS card: "I alt 8.240,00" on paper is followed by "Omsætning (med moms) 8.240,00 kr.". The
+ *     photo-step picture (#foto) is the stacked phone page's alone;
+ *   - 22.50 on a phone: the stand's "Sidder nu" tile is text (the app's own tile, same words, numbers, sizes and colours; it was
+ *     a 252 px picture, soft on every phone screen). One description for screen readers, as the picture had (role="img");
+ *   - every other picture is the current app (images.js). */
 import { Link } from "react-router-dom";
 import { imagesFor } from "./images";
 import RoomSvg from "./RoomSvg";
@@ -160,11 +168,11 @@ export default function Stage({ t, lang, isAndroid }) {
             <p className="aside note">{s3note} <StoreLink app="scheduler" newTab t={t} isAndroid={isAndroid} className="tlink" /></p>
           </div>
           <figure className="fig fx card vagt ph-only" id="vagt">
-            <span className="scr"><picture><source media="(max-width:767px) and (min-height:780px)" srcSet={IMG.staffApp.src} width={IMG.staffApp.width} height={IMG.staffApp.height} /><Img img={IMG.staffNextShift} alt={altStaffApp} /></picture></span>
+            <span className="scr"><picture><source media="(max-width:767px) and (min-height:780px)" srcSet={IMG.staffCard.src} width={IMG.staffCard.width} height={IMG.staffCard.height} /><Img img={IMG.staffNextShift} alt={altStaffApp} /></picture></span>
             {cap}
           </figure>
           <figure className="fig fx card vapp wd-only" id="vapp">
-            <span className="scr"><span className="win"><Img img={IMG.staffApp} alt={altStaffApp} /></span>{CM}</span>
+            <span className="scr"><span className="win"><Img img={IMG.staffCard} alt={altStaffApp} /></span>{CM}</span>
             {cap}
           </figure>
         </article>
@@ -202,7 +210,11 @@ export default function Stage({ t, lang, isAndroid }) {
               <p className="aside note">{guests}</p>
             </div>
             <figure className="fig fx card tal ph-only" id="tal">
-              <span className="scr"><span className="win"><Img img={IMG.standSeated} alt={t("landingV6.alt.standSeated")} /></span></span>
+              <span className="scr"><span className="win tile" role="img" aria-label={t("landingV6.alt.standSeated")}>
+                <span className="tile-h" aria-hidden="true"><svg className="tile-i" viewBox="0 0 24 24"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3" /><path d="M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v1.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V11a2 2 0 0 0-4 0z" /><path d="M5 18v2" /><path d="M19 18v2" /></svg><span className="tile-l">{t("landingV6.tile.seated")}</span><svg className="tile-c" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg></span>
+                <span className="tile-n" aria-hidden="true">16</span>
+                <span className="tile-s" aria-hidden="true">{t("landingV6.tile.tables")}</span>
+              </span></span>
             </figure>
             <figure className="fig fx card stand ph-only" id="stand">
               <span className="scr"><span className="win"><Img img={IMG.standFloor} alt={altStandFloor} /></span></span>

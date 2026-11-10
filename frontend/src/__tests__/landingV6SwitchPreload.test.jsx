@@ -114,7 +114,7 @@ describe("(a) the language changes when the pictures on screen have decoded, or 
 
   it("every picture on screen, not just the first: the change waits for the last one to decode", async () => {
     show("da");
-    lay({ on: ["tal", "stand"] });
+    lay({ on: ["standw"] }); // wide 22.50: two pictures in one figure (fix round 2: the phone's tile is text, so the phone has one)
     tap();
     expect(made).toHaveLength(2);
     made[0].ok();
@@ -149,7 +149,7 @@ describe("(a) the language changes when the pictures on screen have decoded, or 
   it("the place and focus rule are as before: the place is taken at the switch; the pressed flag gets the focus back on the new page", async () => {
     lang.setLang = vi.fn((c) => { lang.current = c; });
     const r = show("da");
-    lay({ on: ["foto"] });
+    lay({ on: ["kasse"] });
     const b = lp6().querySelector(".foot .lang button[lang='en']");
     b.focus();
     fireEvent.click(b); // the keyboard's Enter / Space on a button is its click
@@ -168,6 +168,7 @@ describe("(b) a scene without a picture switches at once", () => {
   const cases = [
     ["19.45, the room drawing (story)", { on: ["room"] }],
     ["10.00 on a phone, the drawn roster (story)", { on: ["roster"] }],
+    ["00.10 on a phone, the Z-bon (drawn; fix round 2: it took the photo step's place in the phone story)", { on: ["zb"] }],
     ["the morning sheet: the day's last screen is off screen above", { on: ["kasse"], view: { kasse: -900 } }],
     ["the stacked page, no figure in view", { story: false, view: { booking: 1200 } }],
     ["a cramped stage (its screens are hidden)", { on: ["booking"], cramp: true }],
@@ -191,8 +192,8 @@ describe("(c) only the pictures on screen start loading, this layout's variant, 
     ["the pinned frame: every phone card has its box in view, faded out; only the one the engine shows (.on) counts", { on: ["booking"], view: { booking: 120, vagt: 120, stand: 120, tal: 60, foto: 120, kasse: 120 } }, ["bookingGuest"]],
     ["desktop 10.00, the week plan", { on: ["uge"] }, ["vagtUge"]],
     ["phone 16.40, a phone under 780 px tall: the card crop", { on: ["vagt"] }, ["staffNextShift"]],
-    ["phone 16.40, a tall phone: the <picture>'s source, the whole app screen", { on: ["vagt"], tall: true }, ["staffApp"]],
-    ["phone 22.50: the tile and the floor plan", { on: ["tal", "stand"] }, ["standSeated", "standFloor"]],
+    ["phone 16.40, a tall phone: the <picture>'s source, the whole card", { on: ["vagt"], tall: true }, ["staffCard"]],
+    ["phone 22.50: the floor plan (the tile above it is text, no file)", { on: ["tal", "stand"] }, ["standFloor"]],
     ["wide 22.50: the two tiles and the floor plan, one figure", { on: ["standw"] }, ["standTiles", "standFloor"]],
     ["wide 00.10 (3a): the photo step; the Z-bon is drawn", { on: ["fotow", "zb"] }, ["closePhotoWhole"]],
     ["00.10 (3b): MOMS", { on: ["kasse"] }, ["closeMoms"]],
@@ -240,7 +241,7 @@ describe("(d) a second tap during the wait is the same switch", () => {
 
   it("taps up to the 600 ms mark: one change at 600 ms, not one per tap", async () => {
     show("da");
-    lay({ on: ["stand", "tal"] });
+    lay({ on: ["standw"] });
     for (let i = 0; i < 6; i++) { tap(i % 2 ? ".foot" : ".top"); wait(100); }
     await flush();
     expect(made).toHaveLength(2);

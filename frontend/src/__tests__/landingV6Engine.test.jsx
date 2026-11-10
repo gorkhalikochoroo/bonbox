@@ -914,3 +914,70 @@ describe("polish round: the frame meter (?lp6debug=fps), for measuring on a devi
     expect(document.querySelector("[data-lp6-fps]")).toBeNull();
   });
 });
+
+/* ───────────── fix round 2, builder B (10 Nov 2026; landing review fix 4) ─────────────
+   On a phone the 00.10 photo scene showed the app's upload dialog and the MOMS scene a card with small print: the Z-bon turning into
+   numbers (the page's best picture on a wide screen) was switched off on the device owners use. Now the phone story shows the Z-bon
+   itself at 6 / 7 (it prints and counts up) and the MOMS card at 7 / 7. Wide screens are as before. */
+describe("fix round 2 (B), review fix 4: the phone story shows the Z-bon becoming numbers", () => {
+  const cls = ($, ids) => Object.fromEntries(ids.map((id) => [id, $("#" + id).classList.contains("on")]));
+
+  it("390 × 844: 6 / 7 is the Z-bon (never the photo-step picture), 7 / 7 the MOMS card alone; stepping back shows the Z-bon again", () => {
+    const e = setup({ w: 390, h: 844 });
+    const d = mountLanding(e.root);
+    const $ = (s) => e.root.querySelector(s);
+    scrollAt(e, at(e, "3a", 0.5));
+    expect($("#frame").dataset.beat).toBe("3a");
+    expect($("#dcount").textContent).toBe("6 / 7");
+    expect(cls($, ["zb", "foto", "fotow", "kasse"])).toEqual({ zb: true, foto: false, fotow: false, kasse: false });
+    scrollAt(e, at(e, "3b", 0.6));
+    vi.advanceTimersByTime(700);
+    expect($("#dcount").textContent).toBe("7 / 7");
+    expect(cls($, ["zb", "foto", "fotow", "kasse"])).toEqual({ zb: false, foto: false, fotow: false, kasse: true });
+    expect($("#zb").classList.contains("out")).toBe(false); // it has left, not lingering under the card
+    scrollAt(e, at(e, "3a", 0.5));
+    expect(cls($, ["zb", "foto", "kasse"])).toEqual({ zb: true, foto: false, kasse: false });
+    // the photo-step picture is never shown at any beat of the phone story
+    for (const [id, f] of [["1a", 0.5], ["2a", 0.45], ["1b", 0.5], ["S", 0.74], ["2b", 0.6], ["3a", 0.1], ["3a", 0.9], ["3b", 0.2], ["end", 0.5]]) {
+      scrollAt(e, at(e, id, f));
+      expect([id, f, $("#foto").classList.contains("on")]).toEqual([id, f, false]);
+    }
+    d();
+  });
+
+  it("390 × 844: the Z-bon's amounts count up to the paper's figures when it comes on", () => {
+    const e = setup({ w: 390, h: 844 });
+    const d = mountLanding(e.root);
+    const $ = (s) => e.root.querySelector(s);
+    scrollAt(e, at(e, "2b", 0.6));
+    for (const dd of e.root.querySelectorAll("#zb dd")) dd.textContent = "0,00"; // as mid count
+    scrollAt(e, at(e, "3a", 0.5));
+    vi.advanceTimersByTime(1500);
+    expect([...e.root.querySelectorAll("#zb dd")].map((x) => x.textContent)).toEqual(["640,00", "6.610,00", "8.240,00"]);
+    expect($("#zb .tot dd").textContent).toBe("8.240,00");
+    d();
+  });
+
+  it("390 × 844: the layout gives the Z-bon its phone box (240 px paper, no offset, its own scale) and the MOMS card its short window", () => {
+    const e = setup({ w: 390, h: 844 });
+    const d = mountLanding(e.root);
+    const zb = e.root.querySelector("#zb"), kasse = e.root.querySelector("#kasse");
+    expect(["--zb-w", "--zx", "--zy", "--zs"].map((k) => zb.style.getPropertyValue(k))).toEqual(["240px", "0", "0", "1"]);
+    expect(zb.style.width).toBe("240px");
+    expect(kasse.classList.contains("cut")).toBe(true); // the window stops under "Omsætning (uden moms)": no small print on a phone
+    d();
+  });
+
+  for (const size of [{ w: 820, h: 1180 }, { w: 1440, h: 900 }]) {
+    it(`${size.w} × ${size.h} is as before: the photo step beside the Z-bon at 6 / 7, the Z-bon joined to the MOMS card at 7 / 7`, () => {
+      const e = setup(size);
+      const d = mountLanding(e.root);
+      const $ = (s) => e.root.querySelector(s);
+      scrollAt(e, at(e, "3a", 0.5));
+      expect(cls($, ["zb", "foto", "fotow", "kasse"])).toEqual({ zb: true, foto: false, fotow: true, kasse: false });
+      scrollAt(e, at(e, "3b", 0.6));
+      expect(cls($, ["zb", "foto", "kasse"])).toEqual({ zb: true, foto: false, kasse: true });
+      d();
+    });
+  }
+});

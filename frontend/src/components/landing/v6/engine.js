@@ -430,7 +430,7 @@ export function mountLanding(root, opts) {
     /* ───── the pinned day ───── */
     frameEl.setAttribute("data-bb-own-anchors", ""); /* 20 */
     const hero = $("hero"), track = $("track"), scene = $("scene"), clock = $("clock"), plate = $("plate"), zbl = $("zbline"), roster = $("roster"), uge = $("uge"), vagt = $("vagt"), vapp = $("vapp"), rbox = $("roombox"), rfoot = $("roomfoot"),
-      booking = $("booking"), bookw = $("bookw"), stand = $("stand"), tal = $("tal"), standw = $("standw"), foto = $("foto"), fotow = $("fotow"), zb = $("zb"), kasse = $("kasse"),
+      booking = $("booking"), bookw = $("bookw"), stand = $("stand"), tal = $("tal"), standw = $("standw"), fotow = $("fotow"), zb = $("zb"), kasse = $("kasse"),
       c1 = $("c1"), c2 = $("c2"), c3 = $("c3"), snav = $("snav"), snev = $("snev"), snend = $("snend"), prev = $("prev"), eprev = $("eprev"), nextB = $("next"), ixa = [...root.querySelectorAll(".ix a")],
       /* polish round: the left column's parts that rise in with the hero's hand-over (desktop); --lp6-hin is written on these, not the frame */
       HIN = [$("aften-h"), $("ix"), $("date"), clock, snav, c1, c2, c3,
@@ -510,9 +510,13 @@ export function mountLanding(root, opts) {
       vis(room, roomOn);
       vis(stand, !wide && id === "2b"); vis(tal, !wide && id === "2b"); vis(standw, wide && id === "2b");
       const close = /^(3a|3b|end)$/.test(id);
-      vis(foto, !wide && id === "3a"); vis(fotow, wide && id === "3a");
-      if (wide && close && !ON.get(zb)) frame(countUp);
-      vis(zb, wide && close); vis(kasse, id === "3b" || id === "end");
+      /* fix round 2 (10 Nov, review fix 4): on a phone "Tag et billede af Z-bonen." shows the Z-bon itself (it prints and counts up, as it
+         does beside the photo step on wide screens), then the Kassen card: the paper's "I alt" is followed by the same figure in the app.
+         The photo-step picture (#foto) is the stacked phone page's alone: the stage never shows it */
+      const zbOn = wide ? close : id === "3a";
+      vis(fotow, wide && id === "3a");
+      if (zbOn && !ON.get(zb)) frame(countUp);
+      vis(zb, zbOn); vis(kasse, id === "3b" || id === "end");
       if (wide) { const a3 = id === "3a"; if (a3 !== S.za) { S.za = a3; setV(zb, { "--zx": a3 ? GEO.zx0 : 0, "--zy": a3 ? GEO.zy0 : 0, "--zs": a3 ? GEO.zs0 : GEO.zs1 }); } zbl.classList.toggle("on", close && !a3); }
       const st = id === "2b" ? "cut" : "";
       if (st !== S.rst) {
@@ -604,8 +608,9 @@ export function mountLanding(root, opts) {
       if (!wide) {
         /* ── phone: [head · clock] [media slot] [copy] with bands ≤ one section gap; the slack goes to the media, never below the minimum gaps
               (clock → media ≥ 20, caption/legend → eyebrow ≥ 24, copy → bar ≥ 20) */
-        GEO.tallV = mm(TALLQ).matches; const VA = GEO.tallV ? 1170 / 1100 : 786 / 570;
-        let vw = Math.min(W, 400), vagH = vw / VA + TAG, bw = Math.min(W, 400), bookH = (bw * 578) / 800 + TAG, roomH = 28 + (W * 690) / 1101 + fh, fw = Math.min(W, 400), fotoH = fw / FA + TAG;
+        GEO.tallV = mm(TALLQ).matches; const VA = GEO.tallV ? 1074 / 1024 : 1074 / 766;
+        let vw = Math.min(W, 400), vagH = vw / VA + TAG, bw = Math.min(W, 400), bookH = (bw * 578) / 800 + TAG, roomH = 28 + (W * 690) / 1101 + fh;
+        const fotoH = Math.min(W, 400) / FA + TAG;
         /* equal visible bands at the smallest screen and the shortest copy: band = (air) / 4; taller screens reach into the bands, never past the minimums */
         const R0 = avail - (headH + clockH + copyH), slack = copyH - copyMin, hmin = Math.min(roH, vagH, bookH, roomH, fotoH), band = (R0 - hmin + slack) / 4;
         let t, c, m, d;
@@ -625,7 +630,8 @@ export function mountLanding(root, opts) {
            it is scaled to the band and sits at its top */
         const cb0 = clock.offsetTop + clock.offsetHeight - OY, rk = shrink(roster, roH, c1.offsetTop - OY - 24 - (cb0 + 20));
         place(roster, (W - rw0) / 2, rk < 1 ? cb0 + 21 - (roH * (1 - rk)) / 2 : midC(roH, 0), rw0);
-        /* 16.40: the card crop, or on tall phones (TALLQ, the <picture> source) the whole app screen — one image either way */
+        /* 16.40: the next-shift card. Tall phones (TALLQ, the <picture> source): the whole card; under 780 px its upper section, to the card's
+           own divider (the whole card would be half its size there) — one image either way */
         if (vagH > Hx) { vw = (Hx - TAG) * VA; vagH = Hx; } place(vagt, (W - vw) / 2, midC(vagH, 0), vw); GEO.vagW = Math.round(vw);
         /* the drawing narrows when the slot is short; its foot (caption, INDGANG, legend) keeps the full width, so it never wraps further */
         rw = Math.min(W, ((Hx - 28 - fh) * 1101) / 690); rbox.style.width = Math.round(rw) + "px"; rx = rbx = (W - rw) / 2; rfoot.style.setProperty("--ind", Math.round(rx + 0.055 * rw) + "px");
@@ -640,11 +646,14 @@ export function mountLanding(root, opts) {
         tal.style.setProperty("--tk", tk); stand.style.setProperty("--cy", cyv); place(tal, gx, gt); place(stand, gx, gt + top_, sw);
         /* the landing target and the plan's window, in the plan's own box (layout() maps them to the room after the guard) */
         const kb = pw / rw; GEO.tg = { el: stand, x: -84 * kk, y: -14 * kk - 28 * kb, k: kb }; GEO.wn = [0, 0, sw, sh];
-        /* 00.10 — the photo step (the real Kasserapport screen), then the Kassen card (a short window ends on a row line) */
-        if (fotoH > Hx) { fw = (Hx - TAG) * FA; fotoH = Hx; } place(foto, (W - fw) / 2, midC(fotoH, 2), fw);
-        const cw0 = Math.min(W, 400);
-        let cw = cw0, stop = 0;
-        for (let k = KS.length - 1; k >= 0; k--) { const cwk = Math.min(cw0, ((Hx - TAG) * 1095) / KS[k]); if (cwk >= 0.8 * cw0 || k === 0) { stop = KS[k]; cw = cwk; break; } }
+        /* 00.10 — the Z-bon (fix round 2, review fix 4), at its own size with its caption, centred; where the slot is shorter than it, scaled
+           about its top left as on wide screens (--zs). Then the Kassen card: its first block only, to the line under "Omsætning (uden
+           moms)" (KS[0]) — the Z-bon's total, MOMS and the net, without the small print that followed on tall phones.
+           (fotoH, the photo step's height, stays in the band maths above so the bands and the slot are exactly as measured before) */
+        zb.style.setProperty("--zb-w", "240px"); setV(zb, { "--zx": 0, "--zy": 0, "--zs": 1 }); place(zb, 0, 0, 240);
+        const zbh = zb.offsetHeight, zk = Hx > 0 && zbh > Hx ? Math.max(0.5, Math.floor((Hx / zbh) * 1000) / 1000) : 1;
+        place(zb, (W - 240 * zk) / 2, midC(zbh * zk, 2), 240); zb.style.setProperty("--zs", zk); GEO.zx0 = 0; GEO.zy0 = 0; GEO.zs0 = GEO.zs1 = zk;
+        const cw0 = Math.min(W, 400), stop = KS[0], cw = Math.min(cw0, ((Hx - TAG) * 1095) / stop);
         const wh = (cw * stop) / 1095, full = (cw * 1511) / 1095; place(kasse, (W - cw) / 2, midC(wh + TAG, 2), cw); win(kasse, wh); kasse.classList.toggle("cut", stop < 1511); kasse.style.setProperty("--k0", (wh - full).toFixed(1));
         pull = svh <= 720 ? 12 : 24;
       } else {
@@ -678,8 +687,8 @@ export function mountLanding(root, opts) {
           const rk = shrink(roster, roH, rw0 <= W - 2 * CLR ? P : P - 2 * CLR); place(roster, cx(rw0), mid2(roH * rk) - (roH * (1 - rk)) / 2, rw0);
           plate.style.removeProperty("--plate-hug");
         }
-        const u1 = fit(962 / 1572, W, P, CLR); place(uge, cx(u1.w), mid2(u1.h), u1.w); win(uge, u1.h);
-        const va = fit(1170 / 1100, W, P, CLR, 560); place(vapp, cx(va.w), mid2(va.h), va.w); win(vapp, va.h);
+        const u1 = fit(1440 / 1572, W, P, CLR); place(uge, cx(u1.w), mid2(u1.h), u1.w); win(uge, u1.h);
+        const va = fit(1074 / 1024, W, P, CLR, 560); place(vapp, cx(va.w), mid2(va.h), va.w); win(vapp, va.h);
         rbox.style.width = ""; rfoot.style.removeProperty("--ind");
         const rcap = desk ? 720 : W, rf = (f) => Math.max(Math.min(W, rcap, ((P - 2 * CLR - 28 - f) * 1101) / 690), Math.min(W - 2 * CLR, rcap, ((P - 28 - f) * 1101) / 690));
         let roomW;
@@ -764,7 +773,7 @@ export function mountLanding(root, opts) {
       if (desk) return false;
       const cb = clock.offsetTop + clock.offsetHeight, ct = [c1, c2, c3].map((c) => c.offsetTop), figs = [];
       (wide ? [[plate, -1, 30], [roster, 0], [vapp, 0], [bookw, 1], [room, 1], [standw, 1], [fotow, 2], [zb, 2, 0, "3b"], [zb, 2, 0, "3a"], [kasse, 2]]
-        : [[roster, 0], [vagt, 0], [booking, 1], [room, 1], [tal, 1], [stand, 1], [foto, 2], [kasse, 2]]).forEach((p) => {
+        : [[roster, 0], [vagt, 0], [booking, 1], [room, 1], [tal, 1], [stand, 1], [zb, 2, 0, "3a"], [kasse, 2]]).forEach((p) => {
         const el = p[0];
         if (!el || !el.offsetParent) return;
         figs.push({ id: el.id, box: p[3] || "", offsetTop: el.offsetTop, h: el.offsetHeight, scale: parseFloat(el.style.scale) || 1, cap: p[2] || 0, copy: p[1],
