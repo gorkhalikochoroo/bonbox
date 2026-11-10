@@ -39,6 +39,42 @@ export function mightBeSignedIn() {
   return false;
 }
 
+/**
+ * Landing speed, step 4 (10 Nov 2026): can this browser hold a session at
+ * all? On www.bonbox.dk (and every *.bonbox.dk page) talking to
+ * api.bonbox.dk, the page sees the bonbox_csrf cookie the backend sets beside
+ * the HttpOnly session cookie (same Domain=.bonbox.dk, same lifetime,
+ * re-issued together). No such cookie, no stored token and not the native
+ * shell = no session: GET /auth/me could only answer 401, which Chrome prints
+ * in red on every logged-out visit (and on a desktop the landing's first text
+ * waited for it). hooks/useAuth.jsx then does not ask. On any other host or
+ * API (a preview, a dev machine, another API host) the cookie says nothing,
+ * so the check stays exactly as before.
+ * VITE_BENCH_COOKIE_HOST: a build-time flag for the LOCAL speed bench only (it
+ * serves the build on localhost); production never sets it
+ * (landingSpeedAuthProbe.test.jsx reads .env.production).
+ */
+export function sessionCookieVisibleHere(hostname, apiBase) {
+  try {
+    const h = String(hostname || "");
+    const bench = import.meta.env.VITE_BENCH_COOKIE_HOST || "";
+    const pageOk = h === "bonbox.dk" || h.endsWith(".bonbox.dk") || (!!bench && h === bench);
+    if (!pageOk) return false;
+    return new URL(String(apiBase || ""), `https://${h}/`).hostname === "api.bonbox.dk";
+  } catch {
+    return false;
+  }
+}
+
+export function cannotHoldASession(apiBase) {
+  try {
+    if (window.Capacitor?.isNativePlatform?.()) return false;
+    return sessionCookieVisibleHere(window.location.hostname, apiBase) && !mightBeSignedIn();
+  } catch {
+    return false;
+  }
+}
+
 /** True on the landing, for a visitor with no session, in a plain browser. */
 export function landingFirstPaint() {
   try {

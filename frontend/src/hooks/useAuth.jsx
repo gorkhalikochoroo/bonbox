@@ -9,7 +9,7 @@ import { forgetSessionVerifySkip } from "../utils/verifySkip";
 import { setQueueAccount } from "../utils/dailyCloseQueue";
 import { accountKeyFor, setCacheAccount } from "../lib/swrCache";
 import { isQuietGuestPage } from "../lib/embedMode";
-import { mightBeSignedIn } from "../lib/landingBoot";
+import { cannotHoldASession } from "../lib/landingBoot";
 
 const AuthContext = createContext(null);
 
@@ -59,33 +59,11 @@ function bootProbe(native, legacyToken) {
   }
 }
 
-// ── No session question for a browser that cannot hold one (landing speed, step 4; 10 Nov 2026) ──
-// On www.bonbox.dk (and every *.bonbox.dk page) talking to api.bonbox.dk, the page can see the bonbox_csrf cookie
-// the backend sets beside the HttpOnly session cookie, with the same Domain=.bonbox.dk and lifetime
-// (lib/landingBoot.js mightBeSignedIn). No such cookie, no stored token and not the native shell = no session: GET
-// /auth/me could only answer 401, which Chrome prints in red on every logged-out visit, and on a desktop the
-// landing's first text waited for it. On any other host or API (a preview, a dev machine, another API host) the
-// cookie says nothing, so the check stays exactly as before.
-// VITE_BENCH_COOKIE_HOST: a build-time flag for the LOCAL speed bench only (it serves the build on localhost);
-// production never sets it (landingSpeedAuthProbe.test.jsx reads .env.production).
-export function sessionCookieVisibleHere(hostname, apiBase) {
-  try {
-    const h = String(hostname || "");
-    const bench = import.meta.env.VITE_BENCH_COOKIE_HOST || "";
-    const pageOk = h === "bonbox.dk" || h.endsWith(".bonbox.dk") || (!!bench && h === bench);
-    if (!pageOk) return false;
-    return new URL(String(apiBase || ""), `https://${h}/`).hostname === "api.bonbox.dk";
-  } catch {
-    return false;
-  }
-}
-export function cannotHoldASession() {
-  try {
-    return !isNativeShell() && sessionCookieVisibleHere(window.location.hostname, api.defaults?.baseURL) && !mightBeSignedIn();
-  } catch {
-    return false;
-  }
-}
+// Landing speed, step 4 (10 Nov 2026): no session question for a browser that cannot hold one (lib/landingBoot.js
+// cannotHoldASession: a bonbox.dk page talking to api.bonbox.dk, outside the native shell, with no bonbox_csrf cookie
+// and no stored token). Kept out of this module's exports: the door screen's build swaps this file for
+// stand/standSession.jsx, which must export everything this one does (r11.standBuild.test.jsx).
+const noSessionPossible = () => cannotHoldASession(api.defaults?.baseURL);
 
 // "This browser had a signed-in owner last time" — lets App.jsx fetch the
 // app shell and Home's code alongside the session check on the next start,
@@ -107,8 +85,8 @@ export function AuthProvider({ children }) {
   // Booking R4: the booking frame on a restaurant's own website makes no
   // session check (below), so it is never "loading" one. R5: nor the
   // guest's booking page on its own (lib/embedMode.isQuietGuestPage).
-  // Landing speed (step 4): nor a browser that cannot hold a session (cannotHoldASession above).
-  const [loading, setLoading] = useState(() => !isQuietGuestPage() && !cannotHoldASession());
+  // Landing speed (step 4): nor a browser that cannot hold a session (noSessionPossible above).
+  const [loading, setLoading] = useState(() => !isQuietGuestPage() && !noSessionPossible());
 
   // Home's in-memory copy of the figures belongs to ONE account
   // (lib/swrCache): a different signed-in user — or none — empties it first.
@@ -143,9 +121,9 @@ export function AuthProvider({ children }) {
     // started false for it.)
     // R5: the guest's booking page on its own (/r/<slug>, /<slug>) likewise.
     if (isQuietGuestPage()) return;
-    // Landing speed (step 4): no session possible here (cannotHoldASession above): no check, no 401. `loading`
+    // Landing speed (step 4): no session possible here (noSessionPossible above): no check, no 401. `loading`
     // started false; the start-up hint is cleared, as a failed check clears it.
-    if (cannotHoldASession()) { markHadSession(false); return; }
+    if (noSessionPossible()) { markHadSession(false); return; }
     // Bootstrap auth probe — must NOT block the landing page when the
     // backend is cold (Render free dyno spin-up).  Without `_noRetry`
     // the axios retry interceptor would backoff for 26s on 503, leaving

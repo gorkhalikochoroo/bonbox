@@ -26,7 +26,9 @@ vi.mock("../services/api", () => ({
   },
 }));
 
-const { AuthProvider, useAuth, sessionCookieVisibleHere, cannotHoldASession } = await import("../hooks/useAuth");
+const { AuthProvider, useAuth } = await import("../hooks/useAuth");
+const { sessionCookieVisibleHere, cannotHoldASession: cannotHold } = await import("../lib/landingBoot");
+const cannotHoldASession = () => cannotHold("https://api.bonbox.dk/api");
 
 function Probe({ out }) {
   const a = useAuth();
@@ -88,6 +90,7 @@ describe("cannotHoldASession: cookie x token x native, on a host where the cooki
     if (token) localStorage.setItem("token", "t");
     if (native) window.Capacitor = { isNativePlatform: () => true };
     expect(cannotHoldASession()).toBe(!cookie && !token && !native);
+    expect(cannotHold("/api")).toBe(false); // another API base: the cookie says nothing
   });
 
   it("on any other host (no flag: jsdom's localhost) never: the check stays", () => {
@@ -159,9 +162,10 @@ describe("the bench flag never reaches production", () => {
     expect(fs.readFileSync(path.join(FRONTEND, "vercel.json"), "utf8")).not.toMatch(/VITE_BENCH_COOKIE_HOST/);
   });
 
-  it("no host list in useAuth.jsx names localhost (the prototype's shortcut)", () => {
-    const src = fs.readFileSync(path.join(FRONTEND, "src/hooks/useAuth.jsx"), "utf8");
+  it("no host list names localhost (the prototype's shortcut); useAuth.jsx asks it with the API's own base", () => {
+    const src = fs.readFileSync(path.join(FRONTEND, "src/lib/landingBoot.js"), "utf8");
     const fn = src.slice(src.indexOf("export function sessionCookieVisibleHere"), src.indexOf("export function cannotHoldASession"));
+    expect(fs.readFileSync(path.join(FRONTEND, "src/hooks/useAuth.jsx"), "utf8")).toContain("const noSessionPossible = () => cannotHoldASession(api.defaults?.baseURL);");
     expect(fn).not.toMatch(/localhost|127\.0\.0\.1/);
     expect(fn).toContain('h === "bonbox.dk" || h.endsWith(".bonbox.dk")');
     expect(fn).toContain('=== "api.bonbox.dk"');
