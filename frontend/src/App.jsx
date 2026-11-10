@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useLayoutEffect } from "react";
+import { Component, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { reportClientError } from "./utils/reportClientError";
 import { jumpToTop } from "./utils/jumpToTop";
@@ -20,7 +20,7 @@ import { ConfirmProvider } from "./hooks/useConfirm";
 import { ToastProvider } from "./hooks/useToast";
 import { useThemeColorSync } from "./hooks/useThemeColorSync";
 import { settleOn } from "./utils/settleOn";
-import { isLandingPath, landingFirstPaint, mightBeSignedIn } from "./lib/landingBoot";
+import { isLandingPath, landingFirstPaint, mightBeSignedIn, takeFirstScreen } from "./lib/landingBoot";
 import { isQuietGuestPage } from "./lib/embedMode";
 import { isBookingPath } from "./lib/bookingPath";
 import { PAGE_WORDS_ON } from "./lib/pageDict";
@@ -378,7 +378,15 @@ const loadLanding = () => import("./pages/LandingV6Page");
 const LandingV6Page = import.meta.env.VITE_APP_MODE === "scheduler"
   ? function SchedulerLanding() { return <Navigate to="/" replace />; }
   : lazyRetry(loadLanding);
-if (import.meta.env.VITE_APP_MODE !== "scheduler" && landingFirstPaint()) loadLanding().catch(() => {});
+// Speed (10 Nov 2026): the early import's result is kept. main.jsx mounts React once `landingBoot` has settled (the
+// chunk is already on its way: modulepreload), and LandingRoute then renders the resolved page directly, so React's
+// first commit already holds the landing: no empty Suspense commit, no 300 ms hold before the page shows. A failed
+// import settles too (LandingNow stays null): the route then takes the lazy, retrying path (lazyRetry) as before.
+// null for everyone else (a session sign, the native shell, another path) and in the Vagtplan build: they mount at once.
+let LandingNow = null;
+export const landingBoot = import.meta.env.VITE_APP_MODE !== "scheduler" && landingFirstPaint()
+  ? loadLanding().then((m) => { LandingNow = m.default; }, () => {})
+  : null;
 const LoginPage = lazyRetry(() => import("./pages/LoginPage"));
 const LoginMagicPage = lazyRetry(() => import("./pages/LoginMagicPage"));
 const ClaimDecisionPage = lazyRetry(() => import("./pages/ClaimDecisionPage"));
@@ -747,11 +755,31 @@ export function PublicOrDashboard() {
  * both branches of PublicOrDashboard and on /v2.
  */
 function LandingRoute() {
+  // Speed (10 Nov 2026): the page the early import resolved (landingBoot above), chosen ONCE per mounted route and
+  // never switched afterwards: a changed element type would destroy the page and its scroll engine and mount them
+  // again. Not resolved yet (or failed): the lazy, retrying component, as before.
+  const [Now] = useState(() => LandingNow);
   return (
-    <Suspense fallback={null}>
-      <LandingV6Page />
+    <Suspense fallback={<KeepFirstScreen />}>
+      {Now ? <Now /> : <LandingV6Page />}
     </Suspense>
   );
+}
+
+/**
+ * Speed (10 Nov 2026): the fallback while the landing's chunk is still on its way (late, or retrying after a failed
+ * load). React's first commit empties #root; if the HTML drew the landing's first screen there (vite.config.js
+ * landingFirstScreen, #lp6-first), that node is put back here in the same commit (a layout effect runs before the
+ * browser paints), so the visitor keeps the first screen instead of a blank page until the page itself arrives.
+ * Nothing drawn by the HTML (any other visit): an empty, layout-neutral box, as the old `fallback={null}`.
+ */
+function KeepFirstScreen() {
+  const box = useRef(null);
+  useLayoutEffect(() => {
+    const node = takeFirstScreen();
+    if (node && box.current) box.current.appendChild(node);
+  }, []);
+  return <div ref={box} style={{ display: "contents" }} />;
 }
 
 /**

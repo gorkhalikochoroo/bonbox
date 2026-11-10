@@ -58,7 +58,8 @@ import '@fontsource/inter/latin-800.css'
 import './fonts-ext-subsets.css'
 
 import './index.css'
-import App from './App.jsx'
+import App, { landingBoot } from './App.jsx'
+import { holdFirstScreen, mountWhenReady } from './lib/landingBoot.js'
 import { applyThemeImmediately } from './hooks/useTheme.jsx'
 
 import { captureSignupRef, watchCookieConsentForSignupRef } from './utils/signupRef.js'
@@ -96,8 +97,16 @@ if (_SENTRY_DSN) {
   }).catch(() => { /* @sentry/react not installed — silent */ })
 }
 
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+const start = () => {
+  holdFirstScreen()
+  createRoot(document.getElementById('root')).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  )
+}
+// Speed (10 Nov 2026): a prospect on the landing (App.jsx landingBoot) mounts once the landing chunk's import has
+// settled — it is already downloading (modulepreload), and React's first commit then holds the page instead of an
+// empty Suspense fallback — or after 4 s, whatever happened to it (a failed or late chunk mounts and retries through
+// lazyRetry). Everyone else (a session sign, the native shell, any other route, the Vagtplan build): at once, as before.
+mountWhenReady(start, landingBoot ? [landingBoot] : null, 4000)

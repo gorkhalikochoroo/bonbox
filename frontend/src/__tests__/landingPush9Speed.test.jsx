@@ -289,8 +289,11 @@ describe("vite.config.js preloadLanding: the landing chunk downloads with the pa
     expect(app).not.toMatch(/import LandingV2Page/);
     expect(app).toMatch(/const loadLanding = \(\) => import\("\.\/pages\/LandingV6Page"\);/);
     expect(app).toMatch(/const LandingV6Page = import\.meta\.env\.VITE_APP_MODE === "scheduler"\s*\?/);
-    expect(app).toMatch(/if \(import\.meta\.env\.VITE_APP_MODE !== "scheduler" && landingFirstPaint\(\)\) loadLanding\(\)/);
-    expect(app).toMatch(/<Suspense fallback=\{null\}>\s*<LandingV6Page \/>\s*<\/Suspense>/);
+    // Speed step 1 (10 Nov 2026): the early import's result is kept (landingBoot) and the resolved page renders in
+    // React's first commit; the fallback, still no spinner, keeps the HTML's first screen (KeepFirstScreen) or is empty
+    expect(app).toMatch(/export const landingBoot = import\.meta\.env\.VITE_APP_MODE !== "scheduler" && landingFirstPaint\(\)\s*\? loadLanding\(\)/);
+    expect(app).toMatch(/<Suspense fallback=\{<KeepFirstScreen \/>\}>\s*\{Now \? <Now \/> : <LandingV6Page \/>\}\s*<\/Suspense>/);
+    expect(app).not.toMatch(/<Suspense fallback=\{<PageLoader \/>\}>\s*\{Now/);
     expect(app).toMatch(/<Route path="\/v2" element=\{<LandingRoute \/>\} \/>/);
     expect(app.match(/(?:: |return |element=\{)<LandingRoute \/>/g)).toHaveLength(3); // both PublicOrDashboard branches + /v2
   });

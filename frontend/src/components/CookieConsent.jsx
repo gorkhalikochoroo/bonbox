@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { CONSENT_CLEAR_SELECTOR, consentChangeMatters } from "../lib/consentClear";
 import { GUEST_SURFACE_EVENT, isGuestSurface } from "../lib/guestSurface";
+import { landingFirstPaint } from "../lib/landingBoot";
 
 /**
  * Cookie consent banner — GDPR + ePrivacy + Datatilsynet (DK) compliant.
@@ -279,11 +280,16 @@ export default function CookieConsent() {
     // Show banner if no valid consent saved — after a beat, so a guest
     // booking page still fetching its code can mark itself first instead of
     // the banner flashing over it. If it marks itself later, close again.
+    // Speed (10 Nov 2026): not on the landing for a visitor with no session.
+    // There React's first commit now comes WITH the landing (main.jsx waits
+    // for its chunk), where it used to be an empty commit about 0.6 s
+    // earlier; the beat would put the consent choice on screen 0.6 s later
+    // than before. No guest booking page can be fetching its code there.
     let openTimer = null;
     if (!getCookieConsent()) {
       openTimer = setTimeout(() => {
         if (!isGuestSurface()) setOpen(true);
-      }, 600);
+      }, landingFirstPaint() ? 0 : 600);
     }
     const onGuestSurface = () => {
       if (isGuestSurface()) {
