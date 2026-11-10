@@ -237,7 +237,7 @@ export default function Stage({ t, lang, isAndroid }) {
               <p className="aside note">{archive}</p>
             </div>
             <figure className="fig fx card foto hold ph-only" id="foto">
-              <span className="scr"><Img img={IMG.closePhoto} alt={altClosePhoto} /></span>
+              <span className="scr"><span className="win"><Img img={IMG.closePhoto} alt={altClosePhoto} /></span></span>
               {cap}
             </figure>
             <figure className="fig fx card fotow hold wd-only" id="fotow">

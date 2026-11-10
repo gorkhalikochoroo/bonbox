@@ -148,7 +148,7 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
   it("prices: frozen names and lines, every number from planPrices / planLimits", () => {
     const { $, $$ } = show("da");
     const { starter, pro } = PLAN_PRICES;
-    expect($("#pricing-h").textContent).toBe(`${starter.founding} kr./md. for de første ${FOUNDING_LIMIT} virksomheder med et betalt abonnement — derefter ${starter.regular}${NB}kr./md.`);
+    expect($("#pricing-h").textContent).toBe(`${starter.founding} kr./md. for de første ${FOUNDING_LIMIT} virksomheder med et betalt abonnement${NB}— derefter ${starter.regular}${NB}kr./md.`);
     const cards = $$(".price").map((li) => [li.querySelector(".pn").textContent, li.querySelector(".pp").textContent, li.querySelector(".then").textContent, [...li.querySelectorAll(".inc > span")].map((s) => s.textContent)]);
     expect(cards).toEqual([
       ["", "Gratis", "uden kort", ["1 bruger, 1 afdeling, op til 3 medarbejdere på vagtplanen", "Reservationer, 20 om måneden, op til 3 borde — bookingside, bordplan, venteliste", `Z-bon-aflæsning fra foto: 3${NB}om${NB}dagen — hver dags kasserapport som PDF uden grænse`]],

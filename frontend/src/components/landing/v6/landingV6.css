@@ -202,10 +202,14 @@
 .lp6 .bookw .win{aspect-ratio:1179 / 860}
 .lp6 .bookw .win img{-webkit-mask:linear-gradient(#000,#000) top / 100% 78% no-repeat,linear-gradient(90deg,#000 calc(100% - 72px),transparent) bottom / 100% 22% no-repeat;mask:linear-gradient(#000,#000) top / 100% 78% no-repeat,linear-gradient(90deg,#000 calc(100% - 72px),transparent) bottom / 100% 22% no-repeat}
 .lp6 .booking .scr > img{-webkit-mask:linear-gradient(#000,#000) top / 100% 79% no-repeat,linear-gradient(90deg,#000 calc(100% - 56px),transparent) bottom / 100% 21% no-repeat;mask:linear-gradient(#000,#000) top / 100% 79% no-repeat,linear-gradient(90deg,#000 calc(100% - 56px),transparent) bottom / 100% 21% no-repeat}
-/* 00.10, the stacked phone page: the scan card; "Tag billede" / "Take Photo" is whole in both languages (fix round 2: the English
-   button was inside the fade), what follows it fades out at the cut. The pinned phone story shows the Z-bon instead (engine.js), so
-   there the figure takes no box and its picture is never fetched */
-.lp6 .foto .scr > img{-webkit-mask:linear-gradient(#000 84%,transparent);mask:linear-gradient(#000 84%,transparent)}
+/* 00.10, the stacked phone page: the scan card, ending in blank card under a button. The two files are the same pixels (1083 × 1024)
+   but the app's wording is not the same height, so the window is cut per language (rows read from the files): Danish under "Upload
+   billede" (the button ends at row 889, the MOMS toggle starts at 938), English under "Take Photo" (ends at 865, "Upload Image"
+   starts at 890). Only the last 16 rows of blank card fade; no control is in the fade (fix-up, 10 Nov: the 84 % fade over the whole
+   file ran through the toggle and the second button). The pinned phone story shows the Z-bon instead (engine.js), so there the
+   figure takes no box and its picture is never fetched */
+.lp6 .foto .win{aspect-ratio:1083 / 936;-webkit-mask:linear-gradient(#000 98.2%,transparent);mask:linear-gradient(#000 98.2%,transparent)}
+.lp6[lang=en] .foto .win{aspect-ratio:1083 / 887}
 .lp6.story .foto{display:none}
 /* the week plan (fix round 2, review fix 5: the 3 Nov schedule, every shift seen): Personale + MAN + I DAG, header to the end of the
    Bar section, so the smallest type in it (10 px in the app) is 13.6 px on a 1440 × 900 screen (it was 9 px with all three sections);

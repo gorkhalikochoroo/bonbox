@@ -11113,7 +11113,7 @@ export const da = {
     "landingV6.more.money": "Økonomi",
     "landingV6.more.moneyBody": "MOMS-nedtælling, fakturaer, bilag og gavekort.",
     "landingV6.price.eyebrow": "Priser",
-    "landingV6.price.headline": "{founding} kr./md. for de første {n} virksomheder med et betalt abonnement — derefter {regular} kr./md.",
+    "landingV6.price.headline": "{founding} kr./md. for de første {n} virksomheder med et betalt abonnement — derefter {regular} kr./md.",
     // 10. nov. 2026: stripe_billing.py opretter ét abonnement pr. konto (quantity 1), intet gebyr eller omsætningsandel findes i billing
     "landingV6.price.flat": "Én fast pris pr. virksomhed – ikke pr. medarbejder. Intet gebyr pr. booking, ingen andel af din omsætning.",
     "landingV6.price.subhead": "Stifterprisen bliver, så længe dit abonnement er aktivt uden afbrydelse.",

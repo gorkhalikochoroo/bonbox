@@ -11437,7 +11437,7 @@ export const en = {
     "landingV6.more.money": "Money",
     "landingV6.more.moneyBody": "MOMS countdown, invoices, receipts and gavekort.",
     "landingV6.price.eyebrow": "Pricing",
-    "landingV6.price.headline": "{founding} kr./mo for the first {n} businesses with a paid subscription — then {regular} kr./mo.",
+    "landingV6.price.headline": "{founding} kr./mo for the first {n} businesses with a paid subscription — then {regular} kr./mo.",
     // 10 Nov 2026: stripe_billing.py creates one subscription per account (quantity 1); billing has no fee and no revenue share
     "landingV6.price.flat": "One flat price per business – not per employee. No fee per booking, no cut of your revenue.",
     "landingV6.price.subhead": "You keep the founding price as long as your subscription stays active without a break.",
