@@ -39,8 +39,8 @@
  *     trial line of its own (the bottom bar carries the page's one "Prøv gratis" again once the price button has scrolled away).
  *     From 1200 px nothing changed: the copy beside the questions keeps its button and trial line, the address stands beside the
  *     question link;
- *   - the App Store row names the apps by their listings' titles (read on the two listings, 10 Nov): "BonBox Daily Close" and
- *     "BonBox Vagtplan" on the Danish store, "BonBox Daily Close" and "BonBox Shifts" on the English one. The row's first name
+ *   - the App Store row names the apps by the brand lock (brandReleaseAppNames): "BonBox" and "BonBox Vagtplan" in every
+ *     language, not the listings' old titles. The row's first name
  *     is the owner app, its second the staff app (appLinks: by position, the names differ by language). */
 import { Link } from "react-router-dom";
 import { FOUNDING_LIMIT, PLAN_PRICES } from "../../../lib/planPrices";

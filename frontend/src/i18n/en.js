@@ -11481,11 +11481,11 @@ export const en = {
     "landingV6.trust.data": "Your receipt photos are stored in Frankfurt. To read one, BonBox sends a copy to our AI provider, Anthropic, or another provider listed in the privacy policy. Where they process it is not yet confirmed. We don't sell your data and we don't train models on your books.",
     "landingV6.trust.staffRole": "Staff",
     "landingV6.trust.staffDetail": "Sees the rota and their own hours. No access to the books, MOMS, bank or anyone else's pay.",
-    // 10 Nov 2026: the two apps the code links to (site.js APP_STORE). The names are the App Store listings' own titles (read on the two
-    // listings, 10 Nov: "BonBox Daily Close" and "BonBox Shifts" on the English store); the owner app first, then the staff app (Sheet.jsx links by position);
+    // 10 Nov 2026: the two apps the code links to (site.js APP_STORE). The listings still carry old titles (read
+    // listings, 10 Nov); the names follow the brand lock (brandReleaseAppNames: "BonBox" and "BonBox Vagtplan", never the old store titles); the owner app first, then the staff app (Sheet.jsx links by position);
     // each name stays whole on its line (<nw>) and "and" sits inside the second name's <nw>, so no line ends on "and" (a no-break
     // space does not hold before a link that is an inline block: measured on the built page at 390 px)
-    "landingV6.trust.apps": "On the App Store: <nw><a>BonBox Daily Close</a></nw> <nw>and <a>BonBox Shifts</a></nw>",
+    "landingV6.trust.apps": "On the App Store: <nw><a>BonBox</a></nw> <nw>and <a>BonBox Vagtplan</a></nw>",
     "landingV6.faq.label": "Questions",
     "landingV6.faq.posQ": "Does this work with my POS?",
     "landingV6.faq.posA": "BonBox doesn't replace your POS – it reads what your till prints. Take a photo of the Z-report with any phone and BonBox reads the figures. It works with any till, even one that only prints on paper.",

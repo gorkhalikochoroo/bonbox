@@ -397,15 +397,15 @@ describe("fix 1 · who is behind it: the company, a button, and no promise the o
 
 describe("fix 1 · Tryghed: the two apps on the App Store, by their own names", () => {
   // polish pass (10 Nov, the lead's item 7): the row uses the listings' own titles, which differ by store language
-  it("one row, after the staff row: 'Findes i App Store: BonBox Daily Close og BonBox Vagtplan' / 'On the App Store: BonBox Daily Close and BonBox Shifts', each name its App Store link (da + en)", () => {
-    for (const [lang, line, staffApp] of [["da", "Findes i App Store: BonBox Daily Close og BonBox Vagtplan", "BonBox Vagtplan"], ["en", "On the App Store: BonBox Daily Close and BonBox Shifts", "BonBox Shifts"]]) {
+  it("one row, after the staff row: 'Findes i App Store: BonBox og BonBox Vagtplan' / 'On the App Store: BonBox and BonBox Vagtplan', each name its App Store link (da + en)", () => {
+    for (const [lang, line, staffApp] of [["da", "Findes i App Store: BonBox og BonBox Vagtplan", "BonBox Vagtplan"], ["en", "On the App Store: BonBox and BonBox Vagtplan", "BonBox Vagtplan"]]) {
       const { $$ } = show(lang);
       const rows = $$(".trust li");
       const row = rows[rows.length - 1];
       expect([lang, norm(row.textContent)]).toEqual([lang, line]);
-      expect([...row.querySelectorAll("a")].map((a) => [norm(a.textContent), a.getAttribute("href")])).toEqual([["BonBox Daily Close", APP_STORE.owner], [staffApp, APP_STORE.scheduler]]);
+      expect([...row.querySelectorAll("a")].map((a) => [norm(a.textContent), a.getAttribute("href")])).toEqual([["BonBox", APP_STORE.owner], [staffApp, APP_STORE.scheduler]]);
       // each name stays whole on its line (a <nw> around its link), linked or not, and "og" / "and" goes down with the second name
-      expect([...row.querySelectorAll(".nw")].map((n) => norm(n.textContent))).toEqual(["BonBox Daily Close", `${lang === "da" ? "og" : "and"} ${staffApp}`]);
+      expect([...row.querySelectorAll(".nw")].map((n) => norm(n.textContent))).toEqual(["BonBox", `${lang === "da" ? "og" : "and"} ${staffApp}`]);
       cleanup();
     }
   });
@@ -415,8 +415,8 @@ describe("fix 1 · Tryghed: the two apps on the App Store, by their own names", 
     expect(read("../ios/App/App/Info.plist")).toMatch(/<key>CFBundleDisplayName<\/key>\s*<string>BonBox<\/string>/);
     expect(read("../ios-scheduler/App/App/Info.plist")).toMatch(/<key>CFBundleDisplayName<\/key>\s*<string>Vagtplan<\/string>/);
     expect(APP_STORE).toEqual({ scheduler: "https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793", owner: "https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960" });
-    expect(da["landingV6.trust.apps"]).toBe("Findes i App Store: <nw><a>BonBox Daily Close</a></nw> <nw>og <a>BonBox Vagtplan</a></nw>");
-    expect(en["landingV6.trust.apps"]).toBe("On the App Store: <nw><a>BonBox Daily Close</a></nw> <nw>and <a>BonBox Shifts</a></nw>"); // "og" / "and" is inside the second name's <nw>: no line ends on it
+    expect(da["landingV6.trust.apps"]).toBe("Findes i App Store: <nw><a>BonBox</a></nw> <nw>og <a>BonBox Vagtplan</a></nw>");
+    expect(en["landingV6.trust.apps"]).toBe("On the App Store: <nw><a>BonBox</a></nw> <nw>and <a>BonBox Vagtplan</a></nw>"); // "og" / "and" is inside the second name's <nw>: no line ends on it
     // the first name is the owner app, the second the staff app, in both languages (Sheet.jsx links by position)
     expect(read("components/landing/v6/Sheet.jsx")).toContain("const to = [APP_STORE.owner, APP_STORE.scheduler];");
   });
@@ -425,7 +425,7 @@ describe("fix 1 · Tryghed: the two apps on the App Store, by their own names", 
     const { $$ } = show("da", ANDROID);
     const rows = $$(".trust li");
     const row = rows[rows.length - 1];
-    expect(norm(row.textContent)).toBe("Findes i App Store: BonBox Daily Close og BonBox Vagtplan");
+    expect(norm(row.textContent)).toBe("Findes i App Store: BonBox og BonBox Vagtplan");
     expect(row.querySelectorAll("a")).toHaveLength(0);
     expect($$('a[href*="apps.apple.com"]')).toHaveLength(0);
   });

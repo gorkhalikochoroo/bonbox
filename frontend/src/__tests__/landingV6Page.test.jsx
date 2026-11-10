@@ -171,7 +171,7 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
     expect(trust[0]).toBe("Database i EU (Frankfurt, Tyskland) · underleverandører i privatlivspolitikken");
     expect(trust[1]).toMatch(/Anthropic.*endnu ikke bekræftet.*Vi sælger ikke dine data/);
     // security fix round (23 Oct): the staff line says what the code enforces (landingV6Claims.test.jsx pins why)
-    expect(trust.slice(2)).toEqual(["Ingen andel af din omsætning", "MedarbejderSer vagtplanen og egne timer. Ingen adgang til regnskab, MOMS, bank eller andres løn.", "Findes i App Store: BonBox Daily Close og BonBox Vagtplan"]);
+    expect(trust.slice(2)).toEqual(["Ingen andel af din omsætning", "MedarbejderSer vagtplanen og egne timer. Ingen adgang til regnskab, MOMS, bank eller andres løn.", "Findes i App Store: BonBox og BonBox Vagtplan"]);
     expect($$(".qa summary").map((s) => s.textContent)).toEqual(["Virker det med min POS?", "Hvad sker der efter de 14 dages prøveperiode?", "Skal personalet have en app?", "Passer BonBox til saloner?"]);
     expect(text(".hm-1")).toBe("Jeg hedder Manoj.");
     expect($(".hm-m a").getAttribute("href")).toBe("mailto:contact@bonbox.dk");
@@ -206,7 +206,7 @@ describe("links: router links in the app, #pricing, the right store", () => {
     const { $$ } = show("da");
     const store = $$('a[href^="https://apps.apple.com/"]').map((a) => [a.getAttribute("href").match(/id\d+$/)[0], a.textContent]);
     // 16.40 (stage + stacked), Tryghed's row naming the two apps (10 Nov), the staff question, the footer
-    expect(store).toEqual([["id6787010793", "Vagtplan i App Store"], ["id6787010793", "Vagtplan i App Store"], ["id6762066960", "BonBox Daily Close"], ["id6787010793", "BonBox Vagtplan"], ["id6787010793", "Vagtplan i App Store"], ["id6762066960", "BonBox i App Store"]]);
+    expect(store).toEqual([["id6787010793", "Vagtplan i App Store"], ["id6787010793", "Vagtplan i App Store"], ["id6762066960", "BonBox"], ["id6787010793", "BonBox Vagtplan"], ["id6787010793", "Vagtplan i App Store"], ["id6762066960", "BonBox i App Store"]]);
   });
 
   it("Android: no App Store link; the web app instead (/join for staff, /register for the owner)", () => {

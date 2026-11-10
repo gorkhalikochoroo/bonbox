@@ -11160,11 +11160,11 @@ export const da = {
     "landingV6.trust.data": "Dine bilag gemmes i Frankfurt. For at aflæse et billede sender BonBox en kopi til vores AI-leverandør, Anthropic, eller en anden udbyder på listen i privatlivspolitikken. Hvor de behandler det, er endnu ikke bekræftet. Vi sælger ikke dine data og træner ikke modeller på dit regnskab.",
     "landingV6.trust.staffRole": "Medarbejder",
     "landingV6.trust.staffDetail": "Ser vagtplanen og egne timer. Ingen adgang til regnskab, MOMS, bank eller andres løn.",
-    // 10. nov. 2026: de to apps, som koden linker til (site.js APP_STORE). Navnene er App Store-opslagenes egne titler (læst på de to
-    // opslag 10. nov.: "BonBox Daily Close" og "BonBox Vagtplan" i den danske butik); ejerens app først, så medarbejdernes (Sheet.jsx linker efter rækkefølge);
+    // 10. nov. 2026: de to apps, som koden linker til (site.js APP_STORE). Navnene følger brand-låsen (brandReleaseAppNames: "BonBox" og "BonBox Vagtplan"),
+    // ikke opslagenes gamle titler; ejerens app først, så medarbejdernes (Sheet.jsx linker efter rækkefølge);
     // hvert navn står helt på sin linje (<nw>), og "og" står i det andet navns <nw>, så en linje ikke ender på "og" (et hårdt
     // mellemrum holder ikke foran et link, der er en inline-blok: målt på den byggede side ved 390 px)
-    "landingV6.trust.apps": "Findes i App Store: <nw><a>BonBox Daily Close</a></nw> <nw>og <a>BonBox Vagtplan</a></nw>",
+    "landingV6.trust.apps": "Findes i App Store: <nw><a>BonBox</a></nw> <nw>og <a>BonBox Vagtplan</a></nw>",
     "landingV6.faq.label": "Spørgsmål",
     "landingV6.faq.posQ": "Virker det med min POS?",
     "landingV6.faq.posA": "BonBox erstatter ikke din POS – den læser det, der kommer ud af den. Tag et billede af Z-bonen med en hvilken som helst telefon, og BonBox henter tallene. Det virker med alle kasser, også dem der kun printer på papir.",
