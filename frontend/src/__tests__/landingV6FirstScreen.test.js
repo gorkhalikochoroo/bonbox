@@ -347,6 +347,8 @@ describe("landingV6.css — phones (< 768) keep every hero rule and token they h
       "(max-width:767px) and (max-height:720px) :: .lp6 .sub { margin-top:8px;font-size:16px }",
       "(max-width:767px) and (max-height:720px) :: .lp6 .cta-row { margin-top:14px }",
       "(max-width:767px) and (max-height:720px) :: .lp6 .trial { margin-top:8px }",
+      // landing speed, step 3 (10 Nov 2026): the top bar and the hero are drawn in the first screen's own Inter cuts
+      "- :: .lp6 .top,.lp6 .hero { font-family:\"Inter First\",Inter,ui-sans-serif,system-ui,-apple-system,\"Segoe UI\",sans-serif }",
       "not all and (min-width:1024px) and (min-aspect-ratio:5/4) :: .lp6.story .hero { margin-bottom:calc(var(--hero-pull,0) * 1px) }",
     ]);
   });

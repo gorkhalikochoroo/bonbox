@@ -187,6 +187,14 @@
    Phones (< 768) and the two-column page keep their own rules */
 @media not all and (min-width:1024px) and (min-aspect-ratio:5/4){@media (min-width:768px) and (max-width:1199px){.lp6 .h1 a{display:inline-block}.lp6 .sub{max-width:48ch}.lp6 .trial{max-width:52ch}}}
 /*</fs>*/
+/* landing speed (10 Nov, step 3): the top bar and the hero are drawn in "Inter First": three small cuts of Inter 400 / 500 / 600 that
+   hold exactly the first screen's characters in both languages (fonts/, scripts/landingFirstFonts.mjs), declared as data: faces in
+   the HTML's first-screen sheet (scripts/landingFirstScreen.mjs; not here: this file declares no font face). The first text is Inter
+   from its first frame and never changes face, before or after the app takes over; a character outside the cut falls to the full
+   Inter, the same design */
+/*<fs>*/
+.lp6 .top,.lp6 .hero{font-family:"Inter First",Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+/*</fs>*/
 
 /* ═════════════ the day — shared pieces ═════════════ */
 /* polish round (23 Oct, scroll smoothness): the desktop hand-over's rise-in, written per frame on the left column's eight parts; not

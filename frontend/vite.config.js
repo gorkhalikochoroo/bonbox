@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { bookingGraph, buildBookingDict } from './scripts/bookingDict.mjs'
 import { bookingBootScript } from './scripts/bookingBoot.mjs'
 import { appDictionaries, standHtml, standWords } from './scripts/standBuild.mjs'
-import { firstScreenCss, firstScreenScript } from './scripts/landingFirstScreen.mjs'
+import { firstScreenCss, firstScreenFaces, firstScreenScript } from './scripts/landingFirstScreen.mjs'
 import { LANG_RULE, pickInitialLanguage } from './src/lib/languageRule.js'
 
 // ── The landing's boot dictionary (push 9, E) ─────────────────────
@@ -192,7 +192,7 @@ function landingFirstScreen() {
           ['./src/i18n/da.js', './src/i18n/en.js', './src/lib/planPrices.js'].map((f) => import(file(f).href)))
         const head =
           `<link rel="preload" as="style" crossorigin href="${href}">` +
-          `<style id="lp6-css">${firstScreenCss()}</style>` +
+          `<style id="lp6-css">${firstScreenCss(firstScreenFaces())}</style>` +
           '<script>(function(){var d=document,h=' + JSON.stringify(href) + ';' +
           'if(window.__lp6First){var k=d.createElement("link");k.rel="stylesheet";k.crossOrigin="";k.href=h;k.setAttribute("data-bb-css","");' +
           'k.onload=k.onerror=function(){k.setAttribute("data-done","")};' +

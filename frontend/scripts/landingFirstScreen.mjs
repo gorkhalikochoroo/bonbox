@@ -55,6 +55,19 @@ export const STATE_CSS =
   ':root:has(#lp6-first) body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}' +
   '@media (min-width:1024px) and (min-aspect-ratio:5/4){#lp6-first .hero{visibility:hidden}}'
 
+// Landing speed, step 3: the three committed cuts (scripts/landingFirstFonts.mjs) as data: faces of their own family.
+// Never under the name Inter: the app sheet's later face of the same family and weight would replace them and draw the
+// text again with the full file (a swap). font-display:block: a data: face is ready within a frame, and the text must
+// never show in another face first. landingV6.css's one "Inter First" rule (.top, .hero) stays after the takeover;
+// these faces stay with it (the inline sheet is never removed), so the first screen's text never changes face.
+export const FIRST_FONT_WEIGHTS = [400, 500, 600]
+export function firstScreenFaces() {
+  return FIRST_FONT_WEIGHTS.map((w) => {
+    const b64 = fs.readFileSync(path.join(SRC, `components/landing/v6/fonts/inter-first-${w}.woff2`)).toString('base64')
+    return `@font-face{font-family:"Inter First";font-style:normal;font-weight:${w};font-display:block;src:url(data:font/woff2;base64,${b64}) format("woff2")}`
+  }).join('')
+}
+
 export function firstScreenCss(faces = '') {
   const { code } = transform({ filename: 'landing-first-screen.css', code: Buffer.from(firstScreenRanges().join('\n') + STATE_CSS), minify: true })
   return faces + code.toString()
