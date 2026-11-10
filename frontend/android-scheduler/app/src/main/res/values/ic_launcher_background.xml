@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Cream tile of the Vagtplan app icon (vagtplan-app-icon-1024.svg rect fill). -->
+    <color name="ic_launcher_background">#F6F4EC</color>
+</resources>

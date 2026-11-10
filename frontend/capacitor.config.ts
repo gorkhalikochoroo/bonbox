@@ -98,7 +98,32 @@ const config: CapacitorConfig = {
   },
 
   android: {
+    // Staff app gets its own Gradle project (applicationId dk.bonbox.scheduler,
+    // Play name "BonBox Vagtplan"); the owner app stays in android/.
+    path: isScheduler ? "android-scheduler" : "android",
     backgroundColor: shellBg,
+    // Staff Android ships WITHOUT @capacitor/push-notifications: there is no
+    // Firebase project / google-services.json and the backend only sends APNs
+    // (useNativePush registers platform "ios"). With the plugin present the
+    // app would show Android's notification prompt for alerts that can never
+    // arrive, and register() would hit an uninitialised FirebaseApp. Absent,
+    // Capacitor.isPluginAvailable("PushNotifications") is false and the hook
+    // no-ops. Add it back here once FCM is wired end to end.
+    ...(isScheduler
+      ? {
+          includePlugins: [
+            "@capacitor/app",
+            "@capacitor/browser",
+            "@capacitor/camera",
+            "@capacitor/haptics",
+            "@capacitor/keyboard",
+            "@capacitor/network",
+            "@capacitor/preferences",
+            "@capacitor/splash-screen",
+            "@capacitor/status-bar",
+          ],
+        }
+      : {}),
   },
 
   plugins: {

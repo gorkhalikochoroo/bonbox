@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Vagtplan icon greens (mark #093A26, accent bar #059669). -->
+    <color name="colorPrimary">#093A26</color>
+    <color name="colorPrimaryDark">#093A26</color>
+    <color name="colorAccent">#059669</color>
+    <!-- Staff portal canvas (bg-gray-50) = capacitor.config.ts shellBg for the scheduler. -->
+    <color name="shellBackground">#f9fafb</color>
+</resources>
