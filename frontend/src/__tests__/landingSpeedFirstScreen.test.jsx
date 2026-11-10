@@ -194,17 +194,17 @@ describe("the head guard: the first screen exactly where the app paints the land
     expect(runGuard(guard, { nav: "back_forward" }).first).toBeUndefined();
     expect(runGuard(guard, { nav: null, oldNav: 1 }).first).toBeUndefined();
     expect(runGuard(guard, { nav: null, oldNav: 2 }).first).toBeUndefined();
-    expect(runGuard(guard, { nav: null, oldNav: 0 }).first).toEqual({ lang: "da", app: "da" });
-    expect(runGuard(guard, { nav: "navigate" }).first).toEqual({ lang: "da", app: "da" });
-    expect(runGuard(guard, { nav: "prerender" }).first).toEqual({ lang: "da", app: "da" });
+    expect(runGuard(guard, { nav: null, oldNav: 0 }).first).toMatchObject({ lang: "da", app: "da" });
+    expect(runGuard(guard, { nav: "navigate" }).first).toMatchObject({ lang: "da", app: "da" });
+    expect(runGuard(guard, { nav: "prerender" }).first).toMatchObject({ lang: "da", app: "da" });
   });
 
   it("the page language: Danish for da, English for every other app language; <html lang> gets the app's language; storage is only read", async () => {
     const guard = guardOf(await transformed());
-    expect(runGuard(guard, { langs: ["en-GB"] })).toEqual({ first: { lang: "en", app: "en" }, htmlLang: "en" });
-    expect(runGuard(guard, { langs: ["tr-TR"] })).toEqual({ first: { lang: "en", app: "tr" }, htmlLang: "tr" });
-    expect(runGuard(guard, { langs: ["en-US", "da"] })).toEqual({ first: { lang: "da", app: "da" }, htmlLang: "da" });
-    expect(runGuard(guard, { langs: ["en-GB"], storage: false }).first).toEqual({ lang: "en", app: "en" });
+    expect(runGuard(guard, { langs: ["en-GB"] })).toMatchObject({ first: { lang: "en", app: "en" }, htmlLang: "en" });
+    expect(runGuard(guard, { langs: ["tr-TR"] })).toMatchObject({ first: { lang: "en", app: "tr" }, htmlLang: "tr" });
+    expect(runGuard(guard, { langs: ["en-US", "da"] })).toMatchObject({ first: { lang: "da", app: "da" }, htmlLang: "da" });
+    expect(runGuard(guard, { langs: ["en-GB"], storage: false }).first).toMatchObject({ lang: "en", app: "en" });
     expect(guard).not.toMatch(/setItem|removeItem|localStorage\.clear/);
   });
 });
@@ -319,7 +319,14 @@ describe("the first-screen script inside #root", () => {
 
   it("a tap on a flag, Priser, Se priser, a headline word or the logo is remembered (anchors do not jump); the real links stay links", () => {
     const screen = runScreen();
-    const click = (el, init = {}) => { const e = new MouseEvent("click", { bubbles: true, cancelable: true, ...init }); el.dispatchEvent(e); return e; };
+    // what the page's own listener left: read at the document, which then stops jsdom's (unimplemented) navigation
+    const click = (el, init = {}) => {
+      let prevented = null;
+      const at = (e) => { prevented = e.defaultPrevented; e.preventDefault(); };
+      document.addEventListener("click", at, { once: true });
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...init }));
+      return { defaultPrevented: prevented };
+    };
     click(screen.querySelector('.top button[lang="en"] svg'));
     expect(window.__lp6First.tap).toEqual({ r: "top", s: 'button[lang="en"]', i: 0 });
     expect(click(screen.querySelector(".hero .tlink")).defaultPrevented).toBe(true);

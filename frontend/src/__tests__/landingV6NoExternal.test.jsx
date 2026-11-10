@@ -86,22 +86,24 @@ describe("the source asks no other host", () => {
     }
   });
 
-  it("every import is relative, or react / react-router-dom / @fontsource/inter's latin-300 stylesheet", () => {
+  // landing speed, step 6 (10 Nov 2026): Inter 300 is the page's own relative digits cut (fonts/inter-300-digits.css)
+  it("every import is relative, or react / react-router-dom", () => {
     const specs = new Set();
     for (const f of CODE) for (const m of read(f).matchAll(/^\s*import\s+(?:[^"';]+\s+from\s+)?["']([^"']+)["']/gm)) specs.add(m[1]);
     expect(specs.size).toBeGreaterThan(20);
-    expect([...specs].filter((s) => !s.startsWith(".") && !["react", "react-router-dom", "@fontsource/inter/latin-300.css"].includes(s))).toEqual([]);
+    expect([...specs].filter((s) => !s.startsWith(".") && !["react", "react-router-dom"].includes(s))).toEqual([]);
+    expect(specs.has("./fonts/inter-300-digits.css")).toBe(true);
     // the pictures are files in the tree, imported (hashed under /assets/ by Vite)
     for (const m of read(`${V6}/images.js`).matchAll(/from\s+["'](\.\/img\/[^"'?]+)(\?no-inline)?["']/g)) expect(fs.existsSync(path.join(SRC, V6, m[1]))).toBe(true);
   });
 
-  it("the stylesheets: no remote url(), no @import; Inter 300 is two relative font files from @fontsource (font-src 'self')", () => {
+  it("the stylesheets: no remote url(), no @import; Inter 300 is one relative font file of the page's own (font-src 'self')", () => {
     const css = read(`${V6}/landingV6.css`);
     expect(css).not.toMatch(/@import/);
     expect([...css.matchAll(/url\(\s*["']?([^"')]+)/g)].map((m) => m[1]).filter((u) => /^(https?:)?\/\//.test(u))).toEqual([]);
-    const inter = fs.readFileSync(path.join(SRC, "../node_modules/@fontsource/inter/latin-300.css"), "utf8");
+    const inter = read(`${V6}/fonts/inter-300-digits.css`);
     const urls = [...inter.matchAll(/url\(([^)]+)\)/g)].map((m) => m[1]);
-    expect(urls).toEqual(["./files/inter-latin-300-normal.woff2", "./files/inter-latin-300-normal.woff"]);
+    expect(urls).toEqual(["./inter-300-digits.woff2"]);
     expect(inter).not.toMatch(/@import|https?:/);
   });
 });

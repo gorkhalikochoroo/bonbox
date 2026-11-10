@@ -27,6 +27,13 @@ export const WEIGHTS = {
   600: { keys: ['h1.shifts', 'h1.tables', 'h1.till', 'cta'], more: '' },
 }
 export const FIRST_FONT_FILE = (w) => `src/components/landing/v6/fonts/inter-first-${w}.woff2`
+// Landing speed, step 6: Inter 300 is drawn by the stage clock and the stacked page's times only (landingV6.css
+// .lp6.story .clock, .clock .dg b, .lp6:not(.story) .copy time): digits, "." (Danish) and ":" (English). Its own cut
+// (fonts/inter-300-digits.woff2, inlined into the landing's stylesheet) replaces @fontsource/inter/latin-300.css
+// (24 KB, a request of its own). The space is in the cut and in its unicode-range on purpose: a line's metrics come
+// from the first font that covers U+0020; without it the system font's did, and the clock's digits sat 1 px lower.
+export const DIGITS_300 = '0123456789.: '
+export const DIGITS_300_FILE = 'src/components/landing/v6/fonts/inter-300-digits.woff2'
 
 /** The characters a weight must hold: its strings in every given dictionary (markers and {price} out), plus extras. */
 export function firstScreenChars(weight, dicts) {
@@ -45,5 +52,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const r = spawnSync('pyftsubset', [src, `--text=${chars}`, '--layout-features=*', '--flavor=woff2', `--output-file=${out}`], { encoding: 'utf8' })
     if (r.status !== 0) { console.error(r.stderr || r.error); process.exit(1) }
     console.log(weight, JSON.stringify(chars), chars.length, 'chars ->', fs.statSync(out).size, 'bytes')
+  }
+  {
+    const src = at('node_modules/@fontsource/inter/files/inter-latin-300-normal.woff2')
+    const out = at(DIGITS_300_FILE)
+    const r = spawnSync('pyftsubset', [src, `--text=${DIGITS_300}`, '--layout-features=*', '--flavor=woff2', `--output-file=${out}`], { encoding: 'utf8' })
+    if (r.status !== 0) { console.error(r.stderr || r.error); process.exit(1) }
+    console.log('300 digits ->', fs.statSync(out).size, 'bytes')
   }
 }

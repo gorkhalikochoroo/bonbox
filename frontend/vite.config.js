@@ -123,6 +123,13 @@ function preloadLanding() {
           .filter((f, i, all) => all.indexOf(f) === i && !html.includes('/' + f))
           .map((f) => '/' + f)
         const css = [...(page.viteMetadata?.importedCss || [])].map((f) => '/' + f)
+        // Landing speed, step 6: the three Inter files the stage and the cookie banner draw with ride on __lp6First,
+        // and the first screen's script preloads them right after its first frame (scripts/landingFirstScreen.mjs),
+        // so the app's first commit is already in Inter (no swap, no second layout). Not as <link rel=preload as=font>
+        // here: Chromium holds the first paint for a font preload it knows of before that paint.
+        const fonts = chunks
+          .filter((a) => a.type === 'asset' && /(^|\/)inter-latin-(400|500|600)-normal-[^/]*\.woff2$/.test(a.fileName))
+          .map((a) => '/' + a.fileName).sort()
         const script =
           '<script>(function(){try{' +
           'if(window.Capacitor||location.protocol==="capacitor:")return;' +
@@ -145,7 +152,8 @@ function preloadLanding() {
           'L=[].concat(Array.isArray(nv.languages)?nv.languages:[]).concat(nv.language?[nv.language]:[]),' +
           'a=pick(rd,L,M).lang;' +
           'window.__lp6First={lang:a==="da"?"da":"en",app:a};' +
-          'try{document.documentElement.lang=a}catch(e){}}' +
+          'try{document.documentElement.lang=a}catch(e){}' +
+          `window.__lp6First.fonts=${JSON.stringify(fonts)}}` +
           `var j=${JSON.stringify(js)},c=${JSON.stringify(css)},d=document.head,i,k;` +
           'for(i=0;i<j.length;i++){k=document.createElement("link");k.rel="modulepreload";k.crossOrigin="";k.href=j[i];d.appendChild(k)}' +
           'for(i=0;i<c.length;i++){k=document.createElement("link");k.rel="preload";k.as="style";k.crossOrigin="";k.href=c[i];d.appendChild(k)}' +

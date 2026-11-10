@@ -333,11 +333,14 @@ describe("the landing's CSS plumbing outside the stylesheet", () => {
     expect(app).toMatch(/^@source not "\.\/components\/landing\/v6";$/m);
   });
 
-  it("styles.js brings Inter 300 (the clock) from @fontsource/inter beside the page's stylesheet, and nothing else", () => {
+  // landing speed, step 6 (10 Nov 2026; owner Q4): Inter 300 is our own 3 KB digits cut beside the page (fonts/), no longer
+  // @fontsource/inter/latin-300.css (24 KB, its own request); landingSpeedStageFonts.test.js holds the cut's characters
+  it("styles.js brings Inter 300 (the clock) from its own digits cut beside the page's stylesheet, and nothing else", () => {
     const s = read(join(V6, "styles.js"));
     const imports = [...s.matchAll(/^import\s+["']([^"']+)["'];?$/gm)].map((m) => m[1]);
-    expect(imports).toEqual(["@fontsource/inter/latin-300.css", "./landingV6.css"]);
-    expect(existsSync(join(FRONTEND, "node_modules", "@fontsource", "inter", "latin-300.css"))).toBe(true);
+    expect(imports).toEqual(["./fonts/inter-300-digits.css", "./landingV6.css"]);
+    expect(existsSync(join(V6, "fonts", "inter-300-digits.css"))).toBe(true);
+    expect(existsSync(join(V6, "fonts", "inter-300-digits.woff2"))).toBe(true);
     // the app already loads 400/500/600 in main.jsx; the page adds no other weight
     const main = read(join(SRC, "main.jsx"));
     for (const w of [400, 500, 600]) expect(main).toContain(`@fontsource/inter/latin-${w}.css`);

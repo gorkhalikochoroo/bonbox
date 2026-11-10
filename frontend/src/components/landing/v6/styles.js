@@ -10,5 +10,7 @@
  * landingV6.css carries no @import of its own: a CSS @import would make
  * @tailwindcss/postcss treat the file as a Tailwind root.
  */
-import "@fontsource/inter/latin-300.css";
+// Landing speed, step 6 (10 Nov 2026): our own 3 KB cut of Inter 300 for the clock's digits (fonts/inter-300-digits.css),
+// inlined into this stylesheet, instead of @fontsource/inter/latin-300.css (24 KB, a request of its own).
+import "./fonts/inter-300-digits.css";
 import "./landingV6.css";

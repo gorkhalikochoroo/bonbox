@@ -155,5 +155,12 @@ export function firstScreenScript({ da, en, price }) {
     `var k=${KEY_FN};` +
     'r.addEventListener("click",function(e){if(e.defaultPrevented||e.button||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;var c=k(e.target);if(c){e.preventDefault();f.tap=c}});' +
     'r.addEventListener("focusin",function(e){f.focus=k(e.target)});' +
+    // landing speed, step 6: the stage's three Inter files (window.__lp6First.fonts, vite.config.js preloadLanding) start
+    // right after this screen's first frame (a font preload known before the first paint delays that paint in Chromium),
+    // at 1.5 s at the latest (a hidden tab draws no frame), and no later than DOMContentLoaded: on a fast line the
+    // window's load event can come before that frame, and a preload added after it is not matched by the stylesheet's own
+    // request (a "preloaded but not used" warning, the file read twice). crossorigin, or each file loads twice.
+    'var w=f.fonts||[],o=0,P=function(){if(o)return;o=1;for(var i=0;i<w.length;i++){var n=d.createElement("link");n.rel="preload";n.setAttribute("as","font");n.type="font/woff2";n.setAttribute("crossorigin","");n.href=w[i];d.head.appendChild(n)}};' +
+    'if(w.length){if(window.requestAnimationFrame)requestAnimationFrame(function(){setTimeout(P,0)});setTimeout(P,1500);d.addEventListener("DOMContentLoaded",P)}' +
     '}catch(e){}})()</script>'
 }

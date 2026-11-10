@@ -1,0 +1,8 @@
+/* Landing speed, step 6 (10 Nov 2026). Inter 300 is drawn by the stage clock and the stacked page's times only: digits, "." and ":".
+   This cut (scripts/landingFirstFonts.mjs, 3,220 B, inlined into the landing's stylesheet by Vite: under its 4 KB limit) replaces
+   @fontsource/inter/latin-300.css (24 KB, its own request). unicode-range: any other character at weight 300 would be drawn by Inter 400
+   (landingSpeedStageFonts.test.js holds that every character drawn at 300 is in the cut).
+   font-display:block: a data: face is ready within a frame, and the clock must not show in another face first.
+   U+20 (space) is in the range on purpose: a line's metrics come from the first font that covers the space; without it they came
+   from the system font and the digits sat 1 px lower. */
+@font-face{font-family:Inter;font-style:normal;font-display:block;font-weight:300;src:url(./inter-300-digits.woff2) format("woff2");unicode-range:U+20,U+2E,U+30-3A}
