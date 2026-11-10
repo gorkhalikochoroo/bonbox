@@ -18,14 +18,27 @@ export { FOUNDING_LIMIT, FROM_PRICE, PLAN_PRICES } from "../../../lib/planPrices
  * kr. is "ekskl. moms" or "inkl. moms" therefore cannot be proven here, and
  * the owner has the VAT status marked [TIL AFKLARING: momsstatus].
  *
- * null  -> the page says nothing about MOMS on the price (today).
+ * null  -> the page says nothing about MOMS on the price.
  * "excl" -> every price on the landing gets "ekskl. moms" / "excl. VAT".
  * "incl" -> every price on the landing gets "inkl. moms" / "incl. VAT".
- * Flip it here once the owner confirms; the copy for both is already keyed.
+ * "none" -> the seller is not registered for moms: the customer pays the listed
+ *           price, and the landing says "Der kommer ikke moms oven i prisen."
+ *           (landingV6.price.momsNone). Neither prepared sentence is true then.
+ *
+ * "none" since 10 Nov 2026 (landing fix round 2). Not provable from this repo;
+ * it rests on the lead's read-only look at the Stripe dashboard that day: no
+ * tax registration is collecting, "Set up Tax" is not done, the default
+ * "Include tax in prices" is Automatic (included for DKK), and Orvexlo (a PMV)
+ * is not registered for moms. The code agrees as far as it can: checkout
+ * passes automatic_tax = STRIPE_AUTOMATIC_TAX, off by default (config.py), and
+ * Stripe refuses a checkout with it on and no registration.
+ * The day the company registers for moms, this value and the sentence change
+ * in the same release as the Stripe setting.
  */
-export const PRICE_MOMS_BASIS = null;
+export const PRICE_MOMS_BASIS = "none";
 
-/** The i18n key for the MOMS note, or null while the basis is unknown. */
+/** The i18n key for the old (unrouted) v2 landing's MOMS note, or null: it has
+ *  the two prepared sentences only, so "none" says nothing there. */
 export function momsNoteKey(basis = PRICE_MOMS_BASIS) {
   if (basis === "excl") return "landingV2.pricing.momsExcl";
   if (basis === "incl") return "landingV2.pricing.momsIncl";

@@ -381,8 +381,10 @@ export function mountLanding(root, opts) {
       if (liveThemeColor() !== want) { setThemeColor(want); barWrote = want; }
     }
     function measure() {
-      const c = $("hero-cta"), p = $("pcta");
+      const c = $("hero-cta"), p = $("pcta"), b = $("bcta");
       G.cta = docTop(c) + c.offsetHeight; G.p0 = docTop(p); G.p1 = G.p0 + p.offsetHeight; G.foot = docTop($("foot")); G.hh = top.offsetHeight; G.vh = window.innerHeight;
+      /* fix round 2 (10 Nov): the one-column page's "who is behind it" block ends with its own "Prøv gratis" (#bcta); not laid out from 1200 px */
+      if (b && b.offsetHeight) { G.b0 = docTop(b); G.b1 = G.b0 + b.offsetHeight; } else G.b0 = G.b1 = -1;
       if (!story) { const nb = $("nb"); G.nb0 = docTop(nb); G.nb1 = G.nb0 + nb.offsetHeight; }
     }
     /* polish round (Manoj's iPhone in Brave, 23 Oct): the bar sits on the viewport's real bottom edge at every moment. It used to ride
@@ -390,12 +392,12 @@ export function mountLanding(root, opts) {
        ground under it, and below that the page's paper. The stage is laid out in the small viewport, so its statement keeps its 20 px
        over the bar when the bars are out, and more when they collapse */
     /* "Prøv gratis" once the hero button has gone: under the header (or, on desktop, once the hero has lifted away).
-       The bottom bar is then up, except over the price button and the footer. */
+       The bottom bar is then up, except over the price button, the founder block's button (10 Nov) and the footer. */
     function chrome(y, ev, past) {
       const vh = G.vh;
       if (past == null) past = y > G.cta - G.hh;
       if (past !== G.past) { G.past = past; R.classList.toggle("cta-past", past); }
-      const onB = past && !(G.p0 < y + vh - 64 && G.p1 > y) && y + vh < G.foot + 40;
+      const onB = past && !(G.p0 < y + vh - 64 && G.p1 > y) && !(G.b1 > 0 && G.b0 < y + vh - 64 && G.b1 > y) && y + vh < G.foot + 40;
       if (onB !== G.on) { G.on = onB; dock.classList.toggle("on", onB); R.classList.toggle("dock-on", onB); }
       if (ev !== G.ev) { G.ev = ev; dock.classList.toggle("ev", ev); }
       top.classList.toggle("scrolled", y > 8);
@@ -807,13 +809,14 @@ export function mountLanding(root, opts) {
     /* v6.2 fix: a keyboard focus on the stage nav or the index after the frame has scrolled away under the prices (Shift+Tab back from #pricing)
        brings the 7 / 7 scene back, so the focused control ("Prøv gratis", "← Forrige") is never hidden */
     on(frameEl, "focusin", (e) => { if (e.target.closest && e.target.closest("#snav,.ix") && window.scrollY > pin + trackH - svh + 1) jumpTo(Math.round(beatY("3b", NAVF["3b"]))); });
-    /* a link in a stage statement (Vagtplan i App Store) that the browser scrolled to while its statement was not showing: bring its scene back */
+    /* a link in a stage statement (Vagtplan i App Store) that the browser scrolled to while its statement was not showing: bring its scene back
+       (fix round 2, 10 Nov: the link is 16.40's alone now, beat 1b; it was shared with 10.00) */
     on(frameEl, "focusin", (e) => {
       const c = e.target.closest && e.target.closest(".copy.sc");
       if (!c) return;
       frame(() => frame(() => {
         const as = e.target.closest(".aside");
-        if (document.activeElement === e.target && !(c.classList.contains("on") && (!as || as.classList.contains("on")))) jumpTo(Math.round(beatY(c === c1 ? "1a" : c === c2 ? "2a" : "3a", 0.5)));
+        if (document.activeElement === e.target && !(c.classList.contains("on") && (!as || as.classList.contains("on")))) jumpTo(Math.round(beatY(c === c1 ? "1b" : c === c2 ? "2a" : "3a", 0.5)));
       }));
     });
 

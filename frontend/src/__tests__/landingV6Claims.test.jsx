@@ -9,8 +9,9 @@
  *   - prices: lib/planPrices.js = backend/app/config.py PLAN_PRICES_DKK / FOUNDING_MEMBER_LIMIT, and nothing on the
  *     page is typed (swapped numbers render swapped; the real ones never appear typed in the tree or the values);
  *   - plan limits: the card lines carry billing.py PLAN_CAPS (read from the file), and follow lib/planLimits.js;
- *   - no MOMS claim on the price while PRICE_MOMS_BASIS is null (and the note shows once it is set);
- *   - the price note's two sentences say what Terms § 8 says (amount at checkout; end of the paid month);
+ *   - the MOMS line follows PRICE_MOMS_BASIS: "none" today (10 Nov 2026: the seller is not registered for moms), nothing while it
+ *     is null, the two prepared sentences for "excl" / "incl";
+ *   - the price note says what Terms § 8 says (per business; end of the paid month);
  *   - the founding price: as long as the subscription is active, never "for life"; the first-N = the Terms' N;
  *   - "14 dage gratis" = billing.py TRIAL_DAYS;
  *   - CTAs: router links, in order, to /register, /register?plan=…, /login, #pricing; no absolute bonbox.dk link;
@@ -118,7 +119,7 @@ function billingCaps(tier) {
   return caps;
 }
 
-beforeEach(() => { S.swap = false; S.moms = null; });
+beforeEach(() => { S.swap = false; S.moms = REAL.moms; });
 afterEach(() => { cleanup(); setUA(ORIGINAL_UA); localStorage.clear(); });
 
 describe("prices: one source (config.py), nothing typed", () => {
@@ -132,7 +133,7 @@ describe("prices: one source (config.py), nothing typed", () => {
   it("the page prints config.py's numbers (da and en)", () => {
     const cfg = configPrices();
     let p = show("da");
-    expect(p.text("#pricing-h")).toBe(`${cfg.starter.founding} kr./md. for de første ${cfg.limit} virksomheder — derefter ${cfg.starter.regular} kr./md.`);
+    expect(p.text("#pricing-h")).toBe(`${cfg.starter.founding} kr./md. for de første ${cfg.limit} virksomheder med et betalt abonnement — derefter ${cfg.starter.regular} kr./md.`);
     expect(cards(p.$$).map((c) => [c.price, c.then])).toEqual([
       ["Gratis", "uden kort"],
       [`${cfg.starter.founding} kr./md.`, `Efter de første ${cfg.limit}: ${cfg.starter.regular} kr./md.`],
@@ -141,14 +142,14 @@ describe("prices: one source (config.py), nothing typed", () => {
     expect(p.text(".trial")).toContain(`fra ${cfg.starter.founding} kr./md.`);
     cleanup();
     p = show("en");
-    expect(p.text("#pricing-h")).toBe(`${cfg.starter.founding} kr./mo for the first ${cfg.limit} businesses — then ${cfg.starter.regular} kr./mo.`);
+    expect(p.text("#pricing-h")).toBe(`${cfg.starter.founding} kr./mo for the first ${cfg.limit} businesses with a paid subscription — then ${cfg.starter.regular} kr./mo.`);
     expect(cards(p.$$).slice(1).map((c) => c.price)).toEqual([`${cfg.starter.founding} kr./mo`, `${cfg.pro.founding} kr./mo`]);
   });
 
   it("swapped numbers render swapped: every price and the first-N on the page come from lib/planPrices.js", () => {
     S.swap = true;
     const p = show("da");
-    expect(p.text("#pricing-h")).toBe("137 kr./md. for de første 77 virksomheder — derefter 211 kr./md.");
+    expect(p.text("#pricing-h")).toBe("137 kr./md. for de første 77 virksomheder med et betalt abonnement — derefter 211 kr./md.");
     expect(cards(p.$$).map((c) => [c.price, c.then])).toEqual([
       ["Gratis", "uden kort"], ["137 kr./md.", "Efter de første 77: 211 kr./md."], ["263 kr./md.", "Efter de første 77: 367 kr./md."],
     ]);
@@ -209,10 +210,11 @@ describe("plan limits: the cards carry billing.py PLAN_CAPS", () => {
         `Reservationer, ${free.reservations_per_month} om måneden, op til ${free.bookable_resources_max} borde — bookingside, bordplan, venteliste`,
         `Z-bon-aflæsning fra foto: ${free.z_report_scans_per_day} om dagen — hver dags kasserapport som PDF uden grænse`,
       ]],
-      ["Starter", [`Dig + ${starter.team_users - 1} teammedlemmer med rollerettigheder, op til ${starter.staff_members} medarbejdere på vagtplanen`, "Reservationer, ubegrænset", `Z-bon-aflæsning fra foto: ${starter.z_report_scans_per_day} om dagen`]],
-      ["Pro", [`${pro.branches} afdelinger, dig + ${pro.team_users - 1} teammedlemmer, op til ${pro.staff_members} medarbejdere på vagtplanen`, "Reservationer, ubegrænset", `Z-bon-aflæsning fra foto: ${pro.z_report_scans_per_day} om dagen`]],
+      ["Starter", [`Dig + ${starter.team_users - 1} teammedlemmer med rollerettigheder, op til ${starter.staff_members} medarbejdere på vagtplanen`, "Reservationer og borde, ubegrænset", `Z-bon-aflæsning fra foto: ${starter.z_report_scans_per_day} om dagen`]],
+      ["Pro", [`${pro.branches} afdelinger, dig + ${pro.team_users - 1} teammedlemmer, op til ${pro.staff_members} medarbejdere på vagtplanen`, "Reservationer og borde, ubegrænset", `Z-bon-aflæsning fra foto: ${pro.z_report_scans_per_day} om dagen`]],
     ]);
     expect([starter.reservations_per_month, pro.reservations_per_month]).toEqual([-1, -1]); // "ubegrænset" is true
+    expect([starter.bookable_resources_max, pro.bookable_resources_max]).toEqual([-1, -1]); // "og borde" too (10 Nov)
     // the paid cards' scan lines (3 Nov 2026): a real daily number, never unlimited
     expect([starter.z_report_scans_per_day, pro.z_report_scans_per_day]).toEqual([20, 100]);
     // the numbers Manoj approved for the Gratis card (21 Oct); the table cap (fix round, forslag) is the one create_resource enforces
@@ -225,8 +227,8 @@ describe("plan limits: the cards carry billing.py PLAN_CAPS", () => {
     let p = show("da");
     expect(cards(p.$$).map((c) => c.lines)).toEqual([
       ["2 bruger, 2 afdeling, op til 7 medarbejdere på vagtplanen", "Reservationer, 33 om måneden, op til 11 borde — bookingside, bordplan, venteliste", "Z-bon-aflæsning fra foto: 5 om dagen — hver dags kasserapport som PDF uden grænse"],
-      ["Dig + 5 teammedlemmer med rollerettigheder, op til 61 medarbejdere på vagtplanen", "Reservationer, ubegrænset", "Z-bon-aflæsning fra foto: 23 om dagen"],
-      ["4 afdelinger, dig + 8 teammedlemmer, op til 222 medarbejdere på vagtplanen", "Reservationer, ubegrænset", "Z-bon-aflæsning fra foto: 113 om dagen"],
+      ["Dig + 5 teammedlemmer med rollerettigheder, op til 61 medarbejdere på vagtplanen", "Reservationer og borde, ubegrænset", "Z-bon-aflæsning fra foto: 23 om dagen"],
+      ["4 afdelinger, dig + 8 teammedlemmer, op til 222 medarbejdere på vagtplanen", "Reservationer og borde, ubegrænset", "Z-bon-aflæsning fra foto: 113 om dagen"],
     ]);
     cleanup();
     p = show("en");
@@ -240,9 +242,27 @@ describe("plan limits: the cards carry billing.py PLAN_CAPS", () => {
   });
 });
 
-describe("MOMS on our own price: not claimed while unknown", () => {
-  it("PRICE_MOMS_BASIS is null today: the price section says nothing about moms / VAT (da + en)", () => {
-    expect(REAL.moms).toBeNull();
+describe("MOMS on our own price: said as the basis is known", () => {
+  // 10 Nov 2026 (fix round 2; the owner's answer 3 in the lab's landing-review-2026-11-10/SPEC.md): the seller is not registered for
+  // moms, so neither prepared sentence is true and the third basis says the customer pays the listed price
+  it("PRICE_MOMS_BASIS is \"none\" today: one line under the price note says no moms comes on top (da + en; MOMS stays the word on the English page)", () => {
+    expect(REAL.moms).toBe("none");
+    for (const [lang, line] of [["da", "Der kommer ikke moms oven i prisen."], ["en", "No MOMS is added on top of the price."]]) {
+      const p = show(lang);
+      expect([lang, p.$$(".pnote").map((n) => norm(n.textContent)).slice(1)]).toEqual([lang, [line]]);
+      // and no price on the page carries an "ekskl." / "inkl." of its own
+      expect([lang, p.text("#pricing")]).toEqual([lang, expect.not.stringMatching(/ekskl|inkl|excl|incl|\bvat\b/i)]);
+      cleanup();
+    }
+  });
+
+  it("what the line rests on in the code: checkout asks Stripe for automatic tax only when STRIPE_AUTOMATIC_TAX is on, and it is off by default", () => {
+    expect(backend("app/services/stripe_billing.py")).toMatch(/automatic_tax=\{"enabled": settings\.STRIPE_AUTOMATIC_TAX\}/);
+    expect(backend("app/config.py")).toMatch(/^\s+STRIPE_AUTOMATIC_TAX: bool = False$/m);
+  });
+
+  it("while the basis is null the price section says nothing about moms / VAT (da + en)", () => {
+    S.moms = null;
     for (const lang of ["da", "en"]) {
       const p = show(lang);
       expect([lang, p.text("#pricing")]).toEqual([lang, expect.not.stringMatching(/moms|\bvat\b/i)]);
@@ -264,12 +284,14 @@ describe("MOMS on our own price: not claimed while unknown", () => {
 });
 
 describe("the price note says what Terms § 8 says", () => {
-  it("the amount is shown at checkout before you confirm; cancelling ends with the month you paid for (da + en, = the live footnote)", () => {
+  // fix round 2 (10 Nov): the "exact amount at checkout" sentence left the page's price note (with the MOMS line beside it, it read as
+  // a surcharge waiting); the Terms still say it, and the note keeps "per business" and the end of the paid month
+  it("per business; cancelling ends with the month you paid for; the 'exact amount at checkout' sentence is the Terms', no longer the note's (da + en)", () => {
     const terms = read("pages/TermsPage.jsx");
     let p = show("da");
     const daNote = p.text(".pnote");
     expect(daNote).toContain("Opsig når som helst. Ingen binding, intet opstartsgebyr. Priserne er pr. virksomhed.");
-    expect(daNote).toContain("Du ser det præcise beløb ved betalingen, før du bekræfter.");
+    expect(daNote).not.toMatch(/præcise beløb/);
     expect(daNote).toContain("Opsigelsen gælder fra udgangen af den måned, du har betalt for.");
     // the live footnote these were cut from, and the Terms they stand on
     expect(da["landingV2.pricing.footnote"]).toContain("du ser det præcise beløb ved betalingen, før du bekræfter");
@@ -280,7 +302,7 @@ describe("the price note says what Terms § 8 says", () => {
     cleanup();
     p = show("en");
     const enNote = p.text(".pnote");
-    expect(enNote).toContain("You see the exact amount at checkout before you confirm.");
+    expect(enNote).not.toMatch(/exact amount/);
     expect(enNote).toContain("Cancelling takes effect at the end of the month you have paid for.");
     expect(en["landingV2.pricing.footnote"]).toContain("you see the exact amount at checkout before you confirm");
     expect(terms).toContain("The amount you pay is shown at checkout before you confirm the purchase.");
@@ -289,9 +311,11 @@ describe("the price note says what Terms § 8 says", () => {
 });
 
 describe("CTAs: router links, in order", () => {
-  it("every way in goes to /register (top bar, hero, end of the day, bottom bar, prices) or /login; Vælg Starter / Vælg Pro carry the plan; Free has none", () => {
+  // fix round 2 (10 Nov): Gratis has its own "Start gratis" (no plan in the address: /register is the free start), and the founder
+  // block ends with the main button (in the markup twice: under the prices on the one-column page, beside the questions from 1200 px)
+  it("every way in goes to /register (top bar, hero, end of the day, bottom bar, the three plans, prices, the founder block) or /login; Vælg Starter / Vælg Pro carry the plan; Start gratis carries none", () => {
     const { $$ } = show("da");
-    const where = (a) => (a.closest("#top-bar") ? "top" : a.closest("#hero") ? "hero" : a.closest("#snend") ? "end" : a.closest("#dock") ? "dock" : a.closest(".price") ? "card" : a.closest("#pcta") ? "prices" : "other");
+    const where = (a) => (a.closest("#top-bar") ? "top" : a.closest("#hero") ? "hero" : a.closest("#snend") ? "end" : a.closest("#dock") ? "dock" : a.closest(".price") ? "card" : a.closest("#pcta") ? "prices" : a.closest(".human") ? "founder" : "other");
     const ins = $$("a").filter((a) => /^\/(register|login)/.test(a.getAttribute("href"))).map((a) => [where(a), a.getAttribute("href"), norm(a.textContent)]);
     expect(ins).toEqual([
       ["top", "/login", "Log ind"],
@@ -299,11 +323,14 @@ describe("CTAs: router links, in order", () => {
       ["hero", "/register", "Prøv gratis"],
       ["end", "/register", "Prøv gratis"],
       ["dock", "/register", "Prøv gratis"],
+      ["card", "/register", "Start gratis"],
       ["card", "/register?plan=starter", "Vælg Starter"],
       ["card", "/register?plan=pro", "Vælg Pro"],
       ["prices", "/register", "Prøv gratis"],
+      ["founder", "/register", "Prøv gratis"],
+      ["founder", "/register", "Prøv gratis"],
     ]);
-    expect(cards($$).map((c) => [c.price.split(" ")[0], c.pick])).toEqual([["Gratis", []], [String(REAL.prices.PLAN_PRICES.starter.founding), ["/register?plan=starter"]], [String(REAL.prices.PLAN_PRICES.pro.founding), ["/register?plan=pro"]]]);
+    expect(cards($$).map((c) => [c.price.split(" ")[0], c.pick])).toEqual([["Gratis", ["/register"]], [String(REAL.prices.PLAN_PRICES.starter.founding), ["/register?plan=starter"]], [String(REAL.prices.PLAN_PRICES.pro.founding), ["/register?plan=pro"]]]);
   });
 
   it("Priser and Se priser go to #pricing, the price section is #pricing with its heading; no absolute bonbox.dk link anywhere", () => {
@@ -342,7 +369,8 @@ describe("the two iPhone apps, or the web app on Android", () => {
   it("iPhone (and desktop): App Store links to the two live apps; the Vagtplan link is the app's own staff-invite link", () => {
     const { $$ } = show("da", { ua: IPHONE });
     const store = $$('a[href^="https://apps.apple.com/"]').map((a) => a.getAttribute("href"));
-    expect(store.map((h) => h.match(/id\d+$/)[0])).toEqual(["id6787010793", "id6787010793", "id6787010793", "id6762066960"]);
+    // 16.40 (stage + stacked), Tryghed's two apps (owner, then staff; 10 Nov), the staff question, the footer
+    expect(store.map((h) => h.match(/id\d+$/)[0])).toEqual(["id6787010793", "id6787010793", "id6762066960", "id6787010793", "id6787010793", "id6762066960"]);
     expect(store[0]).toBe(VAGTPLAN_APP_URL);
     expect($$('a[href="/join"]')).toHaveLength(0);
   });
@@ -432,7 +460,9 @@ describe("the footer reaches a person and the legal texts", () => {
       ]);
       const cookies = $(".foot .links button");
       expect([norm(cookies.textContent), cookies.getAttribute("data-cookie-settings")]).toEqual([d["landingV6.foot.cookies"], "open"]);
-      expect($$('a[href^="mailto:"]').map((a) => a.getAttribute("href"))).toEqual([`mailto:${contact}`, `mailto:${contact}`]);
+      // fix round 2 (10 Nov): the question link beside the price button (the same address with the page's own subject), the founder
+      // block (twice in the markup, one shown per layout), the footer
+      expect($$('a[href^="mailto:"]').map((a) => a.getAttribute("href"))).toEqual([`mailto:${contact}?subject=${encodeURIComponent(d["landingV6.ask.subject"])}`, `mailto:${contact}`, `mailto:${contact}`, `mailto:${contact}`]);
       expect(root.textContent).not.toMatch(/databehandler|data processing agreement/i);
       cleanup();
     }

@@ -82,7 +82,11 @@ describe("1 · Orvexlo, as the CVR register has it", () => {
       const { root, $ } = show(lang);
       const parts = $(".foot .legal p").innerHTML.split("<br>");
       expect([lang, parts[0], parts[1]]).toEqual([lang, line, "CVR 46417321"]);
-      expect([lang, root.textContent.split("Orvexlo").length - 1]).toEqual([lang, 2]);
+      // the footer: the product line and the copyright. Fix round 2 (10 Nov; the owner: present the company, no photo, no surname):
+      // the founder block names it once more, with the CVR linked to the register (the block is in the markup twice, one shown per layout)
+      expect([lang, $(".foot").textContent.split("Orvexlo").length - 1]).toEqual([lang, 2]);
+      expect([lang, [...root.querySelectorAll(".human")].map((h) => h.textContent.split("Orvexlo").length - 1)]).toEqual([lang, [1, 1]]);
+      expect([lang, root.textContent.split("Orvexlo").length - 1]).toEqual([lang, 4]);
       expect([lang, $(".copy-r").textContent.startsWith("© 2026 Orvexlo · ")]).toEqual([lang, true]);
       expect([lang, OLD.test(root.textContent)]).toEqual([lang, false]);
       cleanup();
@@ -239,7 +243,8 @@ describe("4 · the price cards: photo reads a day on every card, and what every 
     expect(da["landingV6.price.allPlans"]).toBe("Timer, Lager og Økonomi er med på alle planer — fakturaer, bankafstemning og tidsregistrering fra Starter.");
     for (const [lang, d] of [["da", da], ["en", en]]) {
       const { $, $$ } = show(lang);
-      expect($$(".pall").map((p) => norm(p.textContent))).toEqual([norm(d["landingV6.price.allPlans"])]);
+      // fix round 2 (10 Nov): the door-tablet line follows it (landingV6ReviewFixesA.test.jsx holds what it rests on)
+      expect($$(".pall").map((p) => norm(p.textContent))).toEqual([norm(d["landingV6.price.allPlans"]), norm(d["landingV6.price.standNoLogin"])]);
       const body = $("#pricing .body");
       const order = [...body.children].map((c) => c.className.split(" ")[0]);
       expect(order.indexOf("prices") < order.indexOf("pall") && order.indexOf("pall") < order.indexOf("pnote")).toBe(true);

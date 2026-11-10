@@ -7810,7 +7810,7 @@ export const en = {
     trialDescription: "No card required. Full Pro access for 14 days, then it'll switch to a basic free plan unless you decide to upgrade.",
     trialBenefit1: "Built in Copenhagen · database in the EU (Frankfurt, Germany)",
     trialBenefit2: "Cancel anytime · Export your data",
-    trialBenefit3: "Founding price from 129 kr/mo for the first 100 paying customers \u2014 kept as long as your subscription stays active",
+    trialBenefit3: "Founding price from 129 kr/mo for the first 100 businesses with a paid subscription \u2014 kept as long as your subscription stays active",
     registerSubheading: "Get started today.",
     registerSubheadingWeb: "14 days free · no card · then a free plan",
     passwordRequirements: "8+ characters with letters and numbers",
@@ -11379,15 +11379,19 @@ export const en = {
     "landingV6.time.s5": "22:50",
     "landingV6.time.s6": "00:10",
     "landingV6.s1.line": "Build the week's shifts and publish the plan.",
+    // fix round 2 (10 Nov 2026): one line per scene on what the owner stops doing; scenes 1 and 3 each have their own note (they shared the App Store link)
+    "landingV6.s1.instead": "Instead of the spreadsheet and the group chat.",
     "landingV6.s3.line": "Staff see it on their phone.",
+    "landingV6.s3.where": "On iPhone in the Vagtplan app, on Android in the browser.",
     "landingV6.s2.line": "Guests book a table or a time themselves, no account needed.",
     "landingV6.s4.line": "The booking lands in your reservation book.",
-    "landingV6.s2.aside": "Your booking page is one link: add it to your <nw>Instagram bio</nw> and your <nw>Google profile.</nw>",
+    "landingV6.s2.aside": "One booking link for your <nw>Instagram bio</nw> and <nw>Google profile.</nw> No fee per booking.",
     "landingV6.s4.aside": "The guest from 12:30 is seated at Vindue 2.",
     "landingV6.s5.stand": "The tablet at the door shows reservations only — never accounts or wages.",
     "landingV6.s5.guests": "63 guests: 61 with a booking, <nw>2 drop-ins.</nw>",
     "landingV6.s6.photo": "Take a photo of the Z-report.",
     "landingV6.s6.fill": "BonBox fills in the figures and works out MOMS. You check and lock the day.",
+    "landingV6.s6.keep": "You keep your till. BonBox reads the Z-report from a photo.",
     "landingV6.s6.cutoff": "The day turns over at 06:00, so sales after midnight count toward Tuesday.",
     "landingV6.s6.archive": "Each kasserapport as a PDF – you keep them for 5 years",
     "landingV6.app.scheduler": "Vagtplan on the App Store",
@@ -11431,7 +11435,9 @@ export const en = {
     "landingV6.more.money": "Money",
     "landingV6.more.moneyBody": "MOMS countdown, invoices, receipts and gavekort.",
     "landingV6.price.eyebrow": "Pricing",
-    "landingV6.price.headline": "{founding} kr./mo for the first {n} businesses — then {regular} kr./mo.",
+    "landingV6.price.headline": "{founding} kr./mo for the first {n} businesses with a paid subscription — then {regular} kr./mo.",
+    // 10 Nov 2026: stripe_billing.py creates one subscription per account (quantity 1); billing has no fee and no revenue share
+    "landingV6.price.flat": "One flat price per business – not per employee. No fee per booking, no cut of your revenue.",
     "landingV6.price.subhead": "You keep the founding price as long as your subscription stays active without a break.",
     "landingV6.price.freeName": "Free",
     "landingV6.price.noCard": "no card",
@@ -11445,19 +11451,27 @@ export const en = {
     "landingV6.price.then": "After the first {n}: {price} kr./mo",
     "landingV6.price.starterPos": "For running the whole week: unlimited bookings, the whole team on the rota, and invoices.",
     "landingV6.price.starterTeam": "You + {team} team members with role permissions, up to {staff} staff on the schedule",
-    "landingV6.price.unlimited": "Reservations, unlimited",
+    "landingV6.price.unlimited": "Reservations and tables, unlimited",
     // the Starter and Pro cards' photo reads a day (3 Nov 2026; PLAN_LIMITS z_report_scans_per_day 20 / 100, never "unlimited")
     "landingV6.price.paidScans": "Z-report reading from a photo: {scans} a day",
     "landingV6.price.proPos": "For running several places from one login, under your own brand.",
     "landingV6.price.proTeam": "{branches} locations, you + {team} team members, up to {staff} staff on the schedule",
     "landingV6.price.pickStarter": "Choose Starter",
     "landingV6.price.pickPro": "Choose Pro",
+    "landingV6.price.pickFree": "Start free",
     "landingV6.price.note": "<b>Cancel anytime.</b> No lock-in, no setup fee. Prices are per business.",
-    "landingV6.price.noteCheckout": "You see the exact amount at checkout before you confirm. Cancelling takes effect at the end of the month you have paid for.",
+    "landingV6.price.noteCancel": "Cancelling takes effect at the end of the month you have paid for.",
     // under the cards (3 Nov 2026): billing.py gates invoices (0 on Free), bank matching and time registration (False on Free); Hours, Stock and Money's core are on every plan
     "landingV6.price.allPlans": "Hours, Stock and Money come with every plan; invoices, bank matching and time registration start at Starter.",
+    // 10 Nov 2026: stand_link.py pairs a device with a code; the team_users cap is enforced only in team.py (invites)
+    "landingV6.price.standNoLogin": "The tablet at the door does not use a login.",
     "landingV6.price.momsExcl": "Prices are excl. MOMS.",
     "landingV6.price.momsIncl": "Prices are incl. MOMS.",
+    // 10 Nov 2026: Orvexlo is not registered for moms, Stripe charges the listed price (PRICE_MOMS_BASIS = "none"); MOMS stays the locked term on the English page
+    "landingV6.price.momsNone": "No MOMS is added on top of the price.",
+    // 10 Nov 2026: a quiet link beside the price button (mailto with a subject); the address stands next to it as text
+    "landingV6.ask.line": "Questions before you start? <a>Write to us</a>",
+    "landingV6.ask.subject": "Question about BonBox",
     "landingV6.trust.label": "Trust",
     "landingV6.trust.noCut": "No cut of your revenue",
     "landingV6.trust.db": "<nw>Database in the EU (Frankfurt, Germany) ·</nw> <nw>providers listed in the <a>privacy policy</a></nw>",
@@ -11465,6 +11479,8 @@ export const en = {
     "landingV6.trust.data": "Your receipt photos are stored in Frankfurt. To read one, BonBox sends a copy to our AI provider, Anthropic, or another provider listed in the privacy policy. Where they process it is not yet confirmed. We don't sell your data and we don't train models on your books.",
     "landingV6.trust.staffRole": "Staff",
     "landingV6.trust.staffDetail": "Sees the rota and their own hours. No access to the books, MOMS, bank or anyone else's pay.",
+    // 10 Nov 2026: the two apps the code links to (site.js APP_STORE; the names are the apps' CFBundleDisplayName)
+    "landingV6.trust.apps": "On the App Store: <a>BonBox</a> and <a>Vagtplan</a>",
     "landingV6.faq.label": "Questions",
     "landingV6.faq.posQ": "Does this work with my POS?",
     "landingV6.faq.posA": "BonBox doesn't replace your POS — it reads what your till prints. Take a photo of the Z-report with any phone and BonBox reads the figures. It works with any till, even one that only prints on paper.",
@@ -11479,6 +11495,8 @@ export const en = {
     "landingV6.founder.name": "My name is Manoj.",
     // 3 Nov 2026: the benefit first, "just me" kept; no reply-time promise (nothing in the code or the support setup backs one)
     "landingV6.founder.reply": "You talk to the person who builds BonBox. It's just me for now, so when you email, you get me.",
+    // 10 Nov 2026: the company under the founder's text; {company} and {cvr} = site.js LEGAL_LINES, the link is the CVR register
+    "landingV6.founder.company": "BonBox is run by {company} <nw>(<a>{cvr}</a>),</nw> Copenhagen.",
     // {company} = the CVR register's name (site.js LEGAL_LINES[0], "Orvexlo" since 3 Nov 2026); named once, here
     "landingV6.foot.operatedBy": "BonBox – a product of {company}",
     "landingV6.foot.terms": "Handelsbetingelser",

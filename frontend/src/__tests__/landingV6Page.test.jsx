@@ -69,7 +69,7 @@ describe("the root and what the engine reads (engine.js hand-over, step 4)", () 
 
   it("every id the engine queries exists exactly once inside the root", () => {
     const { root } = show("da");
-    const ids = "night top-bar hero hero-cta track frame aften-h date ix clock scene plate zbline c1 c2 c3 roster uge booking bookw vagt vapp nb room roombox v2l roomfoot tal stand standw foto fotow zb kasse snav snev count prog prev next snend eprev dock dprev dnext dcount dprog sheet pcta foot probe".split(" ");
+    const ids = "night top-bar hero hero-cta track frame aften-h date ix clock scene plate zbline c1 c2 c3 roster uge booking bookw vagt vapp nb room roombox v2l roomfoot tal stand standw foto fotow zb kasse snav snev count prog prev next snend eprev dock dprev dnext dcount dprog sheet pcta bcta foot probe".split(" ");
     for (const id of ids) expect([id, root.querySelectorAll(`#${id}`).length]).toEqual([id, 1]);
     for (const id of ["t-v1", "t-v2"]) expect(root.querySelector(`#${id}`)).not.toBeNull();
     const all = [...root.querySelectorAll("[id]")].map((e) => e.id);
@@ -85,7 +85,9 @@ describe("the root and what the engine reads (engine.js hand-over, step 4)", () 
     expect($$(".copy.sc .line")).toHaveLength(3);
     // polish round (23 Oct): 19.45 no longer opens on the 12.30 card ("S0"), so the booking-page aside belongs to 12.30 and the
     // room's rise only; 19.45 says "Gæsten fra kl. 12.30 sidder ved Vindue 2." from its first moment
-    expect($$(".copy.sc .aside[data-b]").map((a) => a.getAttribute("data-b"))).toEqual(["h 1a 1b A", "2a", "S", "B2", "2b C", "3a", "3b end"]);
+    // fix round 2 (10 Nov, review fix 3): 10.00 and 16.40 each have their own note (they shared the App Store link); 00.10's PDF line
+    // (3b) and the 06.00 line (the day's last moment, end) are two notes
+    expect($$(".copy.sc .aside[data-b]").map((a) => a.getAttribute("data-b"))).toEqual(["h 1a", "1b A", "2a", "S", "B2", "2b C", "3a", "3b", "end"]);
     expect($$("[data-go]").map((a) => a.getAttribute("data-go"))).toEqual(["1a", "2a", "3a", "1a", "2a", "3a"]);
     expect($$("dd[data-v]").map((d) => [d.dataset.v, d.textContent])).toEqual([["640", "640,00"], ["6610", "6.610,00"], ["990", "990,00"], ["8240", "8.240,00"]]);
     expect($(".tot dd").textContent).toBe("8.240,00");
@@ -124,11 +126,13 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
     expect(text("#c1 .line")).toBe(`10.00 Læg ugens vagter, og${NB}udgiv planen. 16.40 Personalet ser den på telefonen.`);
     expect(text("#c2 .line")).toBe(`12.30 Gæsterne booker selv bord eller${NB}tid, uden${NB}konto. 19.45 Bookingen lander i din reservationsbog.`);
     expect(text("#c3 .line")).toBe("00.10 Tag et billede af Z-bonen. BonBox fylder tallene ud og regner MOMS ud. Du tjekker og låser dagen.");
+    // fix round 2 (10 Nov): 12.30 adds "Intet gebyr pr. booking." (the sentence before it shortened, so the note is still two lines on
+    // a phone); the 63-guests line shows before 22.50 (B2) and the tablet line at rest in it (2b C): the two swapped beats
     expect($$("#c2 .aside").map((p) => p.innerHTML)).toEqual([
-      'Bookingsiden er ét link: sæt det i din <span class="nw">Instagram-bio</span> og på din <span class="nw">Google-profil.</span>',
+      'Bookingsiden er ét link til din <span class="nw">Instagram-bio</span> og <span class="nw">Google-profil.</span> Intet gebyr pr. booking.',
       "Gæsten fra kl. 12.30 sidder ved Vindue 2.",
-      "Tabletten ved døren viser kun reservationer — aldrig regnskab eller løn.",
       '63 gæster: 61 med booking, <span class="nw">2 som drop-in.</span>',
+      "Tabletten ved døren viser kun reservationer — aldrig regnskab eller løn.",
     ]);
     expect($$(".copy.st time").map((e) => e.textContent)).toEqual(["10.00", "12.30", "16.40", "19.45", "22.50", "00.10"]);
     expect(text(".clock .dot")).toBe(".");
@@ -144,17 +148,19 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
   it("prices: frozen names and lines, every number from planPrices / planLimits", () => {
     const { $, $$ } = show("da");
     const { starter, pro } = PLAN_PRICES;
-    expect($("#pricing-h").textContent).toBe(`${starter.founding} kr./md. for de første ${FOUNDING_LIMIT} virksomheder — derefter ${starter.regular}${NB}kr./md.`);
+    expect($("#pricing-h").textContent).toBe(`${starter.founding} kr./md. for de første ${FOUNDING_LIMIT} virksomheder med et betalt abonnement — derefter ${starter.regular}${NB}kr./md.`);
     const cards = $$(".price").map((li) => [li.querySelector(".pn").textContent, li.querySelector(".pp").textContent, li.querySelector(".then").textContent, [...li.querySelectorAll(".inc > span")].map((s) => s.textContent)]);
     expect(cards).toEqual([
       ["", "Gratis", "uden kort", ["1 bruger, 1 afdeling, op til 3 medarbejdere på vagtplanen", "Reservationer, 20 om måneden, op til 3 borde — bookingside, bordplan, venteliste", `Z-bon-aflæsning fra foto: 3${NB}om${NB}dagen — hver dags kasserapport som PDF uden grænse`]],
-      ["Starter", `${starter.founding} kr./md.`, `Efter de første ${FOUNDING_LIMIT}: ${starter.regular}${NB}kr./md.`, ["Dig + 2 teammedlemmer med rollerettigheder, op til 50 medarbejdere på vagtplanen", "Reservationer, ubegrænset", `Z-bon-aflæsning fra foto: 20${NB}om${NB}dagen`]],
-      ["Pro", `${pro.founding} kr./md.`, `Efter de første ${FOUNDING_LIMIT}: ${pro.regular}${NB}kr./md.`, ["3 afdelinger, dig + 4 teammedlemmer, op til 200 medarbejdere på vagtplanen", "Reservationer, ubegrænset", `Z-bon-aflæsning fra foto: 100${NB}om${NB}dagen`]],
+      ["Starter", `${starter.founding} kr./md.`, `Efter de første ${FOUNDING_LIMIT}: ${starter.regular}${NB}kr./md.`, ["Dig + 2 teammedlemmer med rollerettigheder, op til 50 medarbejdere på vagtplanen", "Reservationer og borde, ubegrænset", `Z-bon-aflæsning fra foto: 20${NB}om${NB}dagen`]],
+      ["Pro", `${pro.founding} kr./md.`, `Efter de første ${FOUNDING_LIMIT}: ${pro.regular}${NB}kr./md.`, ["3 afdelinger, dig + 4 teammedlemmer, op til 200 medarbejdere på vagtplanen", "Reservationer og borde, ubegrænset", `Z-bon-aflæsning fra foto: 100${NB}om${NB}dagen`]],
     ]);
     // 3 Nov 2026: one line under the cards, what every plan has and what starts at Starter
-    expect($$(".pall").map((p) => p.textContent)).toEqual(["Timer, Lager og Økonomi er med på alle planer — fakturaer, bankafstemning og tidsregistrering fra Starter."]);
-    expect($(".pnote").innerHTML.replace(/&nbsp;/g, NB)).toBe(`<b>Opsig når som helst.</b> Ingen binding, intet opstartsgebyr. Priserne er pr.${NB}virksomhed. Du ser det præcise beløb ved betalingen, før du bekræfter. Opsigelsen gælder fra udgangen af den måned, du har betalt for.`);
-    expect($$(".pnote")).toHaveLength(1); // no MOMS note while PRICE_MOMS_BASIS is null
+    // fix round 2 (10 Nov): and, right under it, that the door tablet takes no login
+    expect($$(".pall").map((p) => p.textContent)).toEqual(["Timer, Lager og Økonomi er med på alle planer — fakturaer, bankafstemning og tidsregistrering fra Starter.", "Tabletten ved døren bruger ikke et login."]);
+    expect($(".pnote").innerHTML.replace(/&nbsp;/g, NB)).toBe(`<b>Opsig når som helst.</b> Ingen binding, intet opstartsgebyr. Priserne er pr.${NB}virksomhed. Opsigelsen gælder fra udgangen af den måned, du har betalt for.`);
+    // fix round 2 (10 Nov): PRICE_MOMS_BASIS is "none" (the seller is not registered for moms), so the MOMS line follows the price note
+    expect($$(".pnote").map((p) => p.textContent).slice(1)).toEqual(["Der kommer ikke moms oven i prisen."]);
   });
 
   it("Tryghed, Spørgsmål, who is behind it, footer", () => {
@@ -163,7 +169,7 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
     expect(trust[0]).toBe("Database i EU (Frankfurt, Tyskland) · underleverandører i privatlivspolitikken");
     expect(trust[1]).toMatch(/Anthropic.*endnu ikke bekræftet.*Vi sælger ikke dine data/);
     // security fix round (23 Oct): the staff line says what the code enforces (landingV6Claims.test.jsx pins why)
-    expect(trust.slice(2)).toEqual(["Ingen andel af din omsætning", "MedarbejderSer vagtplanen og egne timer. Ingen adgang til regnskab, MOMS, bank eller andres løn."]);
+    expect(trust.slice(2)).toEqual(["Ingen andel af din omsætning", "MedarbejderSer vagtplanen og egne timer. Ingen adgang til regnskab, MOMS, bank eller andres løn.", "Findes i App Store: BonBox og Vagtplan"]);
     expect($$(".qa summary").map((s) => s.textContent)).toEqual(["Virker det med min POS?", "Hvad sker der efter de 14 dages prøveperiode?", "Skal personalet have en app?", "Passer BonBox til saloner?"]);
     expect(text(".hm-1")).toBe("Jeg hedder Manoj.");
     expect($(".hm-m a").getAttribute("href")).toBe("mailto:contact@bonbox.dk");
@@ -184,7 +190,8 @@ describe("links: router links in the app, #pricing, the right store", () => {
     const { $$ } = show("da");
     const hrefs = $$("a").map((a) => a.getAttribute("href"));
     expect(hrefs.filter((h) => /^https?:\/\/(www\.)?bonbox\.dk/.test(h))).toEqual([]);
-    expect(hrefs.filter((h) => h === "/register")).toHaveLength(5); // top bar, hero, end of the day, bottom bar, prices
+    // fix round 2 (10 Nov): + "Start gratis" under Gratis and the founder block's button (in the markup twice, one shown per layout)
+    expect(hrefs.filter((h) => h === "/register")).toHaveLength(8); // top bar, hero, end of the day, bottom bar, Gratis, prices, founder × 2
     expect(hrefs.filter((h) => h === "/register?plan=starter" || h === "/register?plan=pro")).toEqual(["/register?plan=starter", "/register?plan=pro"]);
     expect(hrefs.filter((h) => h === "/login")).toHaveLength(1);
     expect(hrefs.filter((h) => h === "#pricing")).toHaveLength(2); // Priser, Se priser
@@ -195,7 +202,8 @@ describe("links: router links in the app, #pricing, the right store", () => {
   it("iPhone / desktop: App Store links to the two live apps", () => {
     const { $$ } = show("da");
     const store = $$('a[href^="https://apps.apple.com/"]').map((a) => [a.getAttribute("href").match(/id\d+$/)[0], a.textContent]);
-    expect(store).toEqual([["id6787010793", "Vagtplan i App Store"], ["id6787010793", "Vagtplan i App Store"], ["id6787010793", "Vagtplan i App Store"], ["id6762066960", "BonBox i App Store"]]);
+    // 16.40 (stage + stacked), Tryghed's row naming the two apps (10 Nov), the staff question, the footer
+    expect(store).toEqual([["id6787010793", "Vagtplan i App Store"], ["id6787010793", "Vagtplan i App Store"], ["id6762066960", "BonBox"], ["id6787010793", "Vagtplan"], ["id6787010793", "Vagtplan i App Store"], ["id6762066960", "BonBox i App Store"]]);
   });
 
   it("Android: no App Store link; the web app instead (/join for staff, /register for the owner)", () => {

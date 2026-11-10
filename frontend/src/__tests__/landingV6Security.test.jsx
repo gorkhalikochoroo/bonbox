@@ -234,14 +234,18 @@ describe("(b) target=_blank always with rel=noopener noreferrer", () => {
 });
 
 /* ───────────────────────────── (c) ───────────────────────────── */
-const ALLOWED_HOSTS = ["apps.apple.com", "www.instagram.com", "www.bonbox.dk"];
+// fix round 2 (10 Nov 2026): + the CVR register (the founder block links the company's CVR to its public page, as /contact does)
+const ALLOWED_HOSTS = ["apps.apple.com", "www.instagram.com", "www.bonbox.dk", "datacvr.virk.dk"];
 const ALLOWED_MAIL = "mailto:contact@bonbox.dk";
+// fix round 2: the question link beside the price button is the contact address with a subject: the page's own words (the
+// dictionary's landingV6.ask.subject, da or en), encoded; no other query, no other recipient
+const ALLOWED_MAIL_SUBJECTS = [da, en].map((d) => `${ALLOWED_MAIL}?subject=${encodeURIComponent(d["landingV6.ask.subject"])}`);
 /** Why a URL value is not allowed, or null when it is: relative, on the page's origin, an allowed https host, the
  *  contact address; for a picture also an inlined data:image (Vite inlines files under 4 KB). */
 function urlProblem(raw, { image = false } = {}) {
   const v = String(raw).trim();
   if (v === "") return null;
-  if (v === ALLOWED_MAIL) return null;
+  if (v === ALLOWED_MAIL || ALLOWED_MAIL_SUBJECTS.includes(v)) return null;
   if (image && /^data:image\/(?:webp|png|jpeg|gif|avif);base64,[A-Za-z0-9+/=]+$/.test(v)) return null;
   if (/^[\w+.-]+:/.test(v)) {
     let u;
@@ -272,8 +276,8 @@ function renderedUrlProblems(scope) {
 
 describe("(c) every link and picture: relative, this origin, or the allow-list", () => {
   it("the URL rule itself (both ways)", () => {
-    for (const ok of ["/register?plan=pro", "#pricing", "/privacy", "https://apps.apple.com/dk/app/x/id1", "https://www.instagram.com/bonbox.dk/", "https://www.bonbox.dk/", "mailto:contact@bonbox.dk", `${window.location.origin}/terms`]) expect([ok, urlProblem(ok)]).toEqual([ok, null]);
-    for (const bad of ["javascript:alert(1)", " JavaScript:alert(1)", "//evil.example", "https://evil.example/", "http://www.bonbox.dk/", "https://apps.apple.com.evil.example/", "https://x@www.bonbox.dk/", "mailto:someone@evil.example", "data:text/html,<script>alert(1)</script>", "vbscript:x"]) expect([bad, urlProblem(bad)]).not.toEqual([bad, null]);
+    for (const ok of ["/register?plan=pro", "#pricing", "/privacy", "https://apps.apple.com/dk/app/x/id1", "https://www.instagram.com/bonbox.dk/", "https://www.bonbox.dk/", "mailto:contact@bonbox.dk", "mailto:contact@bonbox.dk?subject=Sp%C3%B8rgsm%C3%A5l%20om%20BonBox", "mailto:contact@bonbox.dk?subject=Question%20about%20BonBox", "https://datacvr.virk.dk/enhed/virksomhed/46417321", `${window.location.origin}/terms`]) expect([ok, urlProblem(ok)]).toEqual([ok, null]);
+    for (const bad of ["javascript:alert(1)", " JavaScript:alert(1)", "//evil.example", "https://evil.example/", "http://www.bonbox.dk/", "https://apps.apple.com.evil.example/", "https://x@www.bonbox.dk/", "mailto:someone@evil.example", "mailto:contact@bonbox.dk?subject=x", "mailto:contact@bonbox.dk?cc=someone@evil.example", "mailto:contact@bonbox.dk?subject=Question%20about%20BonBox&bcc=someone@evil.example", "https://datacvr.virk.dk.evil.example/", "data:text/html,<script>alert(1)</script>", "vbscript:x"]) expect([bad, urlProblem(bad)]).not.toEqual([bad, null]);
     expect(urlProblem("data:image/webp;base64,UklGRg==", { image: true })).toBeNull();
     expect(urlProblem("data:image/webp;base64,UklGRg==")).not.toBeNull();
   });
@@ -285,9 +289,13 @@ describe("(c) every link and picture: relative, this origin, or the allow-list",
       for (const m of src.matchAll(/\bhttps?:\/\/[^\s"'`)<>\\]+/gi)) { const why = urlProblem(m[0]); if (why) bad.push(`${f}: ${why}`); }
       for (const m of src.matchAll(/["'`](\/\/[^\s"'`]*)/g)) bad.push(`${f}: protocol-relative ${m[1]}`);
       for (const m of src.matchAll(/\b(?:javascript|vbscript|blob|file|ftp|tel|sms):[^\s"'`)<>,;}.][^\s"'`)<>,;}]*|\bdata:[a-z]+\/[\w.+-]+/gi)) bad.push(`${f}: scheme ${m[0]}`);
-      for (const m of src.matchAll(/\bmailto:([^\s"'`)<>]*)/gi)) if (m[1] !== "${CONTACT_EMAIL}" && m[0] !== ALLOWED_MAIL) bad.push(`${f}: ${m[0]}`);
+      // the one address builder with a query: site.js askHref (the subject is its argument, encoded; fix round 2)
+      for (const m of src.matchAll(/\bmailto:([^\s"'`)<>]*)/gi)) if (m[1] !== "${CONTACT_EMAIL}" && m[0] !== ALLOWED_MAIL && !(f === `${V6}/site.js` && m[1] === "${CONTACT_EMAIL}?subject=${encodeURIComponent(subject")) bad.push(`${f}: ${m[0]}`);
     }
     expect(bad).toEqual([]);
+    expect(read(`${V6}/site.js`)).toContain("export const askHref = (subject) => `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}`;");
+    // and it is called with the dictionary's subject only
+    expect(TREE.flatMap((f) => [...read(f).matchAll(/\baskHref\(([^;\n]*?)\)\}/g)].map((m) => m[1]))).toEqual(['t("landingV6.ask.subject")']);
     expect(read(`${V6}/site.js`)).toMatch(/export const CONTACT_EMAIL = "contact@bonbox\.dk";/);
   });
 
@@ -319,7 +327,7 @@ describe("(c) every link and picture: relative, this origin, or the allow-list",
       expect(root.querySelectorAll("img[src]").length).toBeGreaterThan(8);
       expect(renderedUrlProblems(document)).toEqual([]);
       const abs = [...root.querySelectorAll("a[href]")].map((a) => a.getAttribute("href")).filter((h) => /^[\w+.-]+:/.test(h));
-      expect(abs.length).toBeGreaterThanOrEqual(ua === ANDROID ? 3 : 5); // mail ×2, Instagram (+ the two App Store links off Android)
+      expect(abs.length).toBeGreaterThanOrEqual(ua === ANDROID ? 7 : 13); // mail ×4, the register ×2, Instagram (+ six App Store links off Android)
     });
   }
 });

@@ -138,8 +138,10 @@ describe("A2 — no struck-through prices; the founding offer said as it is", ()
 });
 
 describe("A3 — MOMS on our own price is not claimed until it is known", () => {
-  it("the basis is unset, so no price says ekskl./inkl. moms", () => {
-    expect(PRICE_MOMS_BASIS).toBeNull();
+  // 10 Nov 2026 (landing fix round 2): the basis is known now, "none" (the seller is not registered for moms); the live v6 page says
+  // so (landingV6Claims.test.jsx). This old, unrouted v2 page has only the two prepared sentences, so it still says nothing
+  it("the basis is \"none\": no price says ekskl./inkl. moms", () => {
+    expect(PRICE_MOMS_BASIS).toBe("none");
     expect(momsNoteKey()).toBeNull();
     const { container } = renderIn("da", <><HeroV2 /><PricingV2 /></>);
     const text = container.textContent;

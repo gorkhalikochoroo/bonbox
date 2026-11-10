@@ -12,8 +12,9 @@
  *   - the FAQ answers that were open are open again;
  *   - in the morning sheet, the first section still on screen sits where it sat (the two languages' texts differ in
  *     height). In the day itself the engine's layout keeps the place (same track in both languages), so nothing moves. */
-/* the morning sheet's sections, top to bottom: the first one still on screen is the reader's place there */
-const SHEET_PLACES = ["mere", "pricing", "tryghed", "faq", "foot"];
+/* the morning sheet's sections, top to bottom: the first one still on screen is the reader's place there
+   ("bag", fix round 2, 10 Nov: who is behind it, under the prices on the one-column page; not laid out from 1200 px, where its box is empty and it is passed over) */
+const SHEET_PLACES = ["mere", "pricing", "bag", "tryghed", "faq", "foot"];
 /* the switch that was used: the top bar's or the footer's two flags */
 const switchSel = (from) => (from === "foot" ? ".foot" : ".top") + " .lang";
 

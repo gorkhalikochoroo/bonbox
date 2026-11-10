@@ -18,7 +18,16 @@
  * Accessibility (3 Nov 2026, nothing visible changes): in the story layout the clock is aria-hidden and every <time> sits in
  * the stacked articles (display:none there), so each statement's sentence starts with its time for screen readers, in a .sr
  * span inside the sentence's .s (10:00, 16:40 · 12:30, 19:45 · 00:10; inside, so ".s + .s" still spaces the two sentences). The counters (#count here, #dcount in the bar) are polite live regions,
- * so a step with Næste / Forrige is announced; only the counter of the layout on screen is in the accessibility tree. */
+ * so a step with Næste / Forrige is announced; only the counter of the layout on screen is in the accessibility tree.
+ *
+ * Fix round 2 (10 Nov 2026, landing review fix 3): each scene's small note says what the owner stops doing, and the notes that
+ * mattered only showed between scenes now show at rest:
+ *   - 10.00 and 16.40 each have their own note (they shared the App Store link): 10.00 "I stedet for regnearket og gruppechatten.",
+ *     16.40 where the staff see the plan (iPhone app or browser) with the App Store link, which opens in a new tab (StoreLink newTab);
+ *   - 12.30 adds "Intet gebyr pr. booking." (the sentence before it was shortened so the note still takes two lines on a phone:
+ *     a third line would shrink every stage picture, engine.js layout() copyH);
+ *   - 22.50 at rest shows the tablet line; the 63-guests line moved to the moment before it (beat B, once Vindue 2 is free);
+ *   - 00.10 (the photo) says the owner keeps the till; the 06.00 line moved to the day's last moment (beat "end", after the PDF line). */
 import { Link } from "react-router-dom";
 import { imagesFor } from "./images";
 import RoomSvg from "./RoomSvg";
@@ -46,6 +55,8 @@ export default function Stage({ t, lang, isAndroid }) {
   const close = t("landingV6.label.close");
   const s1 = t("landingV6.s1.line");
   const s3 = t("landingV6.s3.line");
+  const s1note = t("landingV6.s1.instead");
+  const s3note = t("landingV6.s3.where");
   const s2 = t("landingV6.s2.line");
   const s4 = t("landingV6.s4.line");
   const s2aside = rich(t("landingV6.s2.aside"));
@@ -54,6 +65,7 @@ export default function Stage({ t, lang, isAndroid }) {
   const guests = rich(t("landingV6.s5.guests"));
   const photo = t("landingV6.s6.photo");
   const fill = t("landingV6.s6.fill");
+  const keep = t("landingV6.s6.keep");
   const cutoff = t("landingV6.s6.cutoff");
   const archive = t("landingV6.s6.archive");
   const altBooking = t("landingV6.alt.booking");
@@ -82,17 +94,17 @@ export default function Stage({ t, lang, isAndroid }) {
         <div className="copy sc" id="c1">
           <h3 className="label sx f3">{schedule}</h3>
           <p className="line"><span className="s s1 sx"><span className="sr">{t("landingV6.time.s1")} </span>{s1}</span> <span className="s s2 sx"><span className="sr">{t("landingV6.time.s3")} </span>{s3}</span></p>
-          <div className="asides"><p className="aside" data-b="h 1a 1b A"><StoreLink app="scheduler" t={t} isAndroid={isAndroid} className="tlink sx f1" /></p></div>
+          <div className="asides"><p className="aside note sx f2" data-b="h 1a">{s1note}</p><p className="aside note sx f2" data-b="1b A">{s3note} <StoreLink app="scheduler" newTab t={t} isAndroid={isAndroid} className="tlink sx f1" /></p></div>
         </div>
         <div className="copy sc" id="c2">
           <h3 className="label sx f3">{reservations}</h3>
           <p className="line"><span className="s s1 sx"><span className="sr">{t("landingV6.time.s2")} </span>{s2}</span> <span className="s s2 sx"><span className="sr">{t("landingV6.time.s4")} </span>{s4}</span></p>
-          <div className="asides"><p className="aside note sx f2" data-b="2a">{s2aside}</p><p className="aside note sx f2" data-b="S">{s4aside}</p><p className="aside note sx f2" data-b="B2">{stand}</p><p className="aside note sx f2" data-b="2b C">{guests}</p></div>
+          <div className="asides"><p className="aside note sx f2" data-b="2a">{s2aside}</p><p className="aside note sx f2" data-b="S">{s4aside}</p><p className="aside note sx f2" data-b="B2">{guests}</p><p className="aside note sx f2" data-b="2b C">{stand}</p></div>
         </div>
         <div className="copy sc" id="c3">
           <h3 className="label sx f3">{close}</h3>
           <p className="line"><span className="s s1 sx"><span className="sr">{t("landingV6.time.s6")} </span>{photo}</span> <span className="s s2 sx">{fill}</span></p>
-          <div className="asides"><p className="aside note sx f2" data-b="3a">{cutoff}</p><p className="aside note sx f2" data-b="3b end">{archive}</p></div>
+          <div className="asides"><p className="aside note sx f2" data-b="3a">{keep}</p><p className="aside note sx f2" data-b="3b">{archive}</p><p className="aside note sx f2" data-b="end">{cutoff}</p></div>
         </div>
 
         {/* 10.00 · the plan is ready before the day */}
@@ -101,6 +113,7 @@ export default function Stage({ t, lang, isAndroid }) {
             <time dateTime="2026-10-20T10:00">{t("landingV6.time.s1")}</time>
             <h3 className="label" id="s1-t">{schedule}</h3>
             <p className="line">{s1}</p>
+            <p className="aside note">{s1note}</p>
           </div>
           <figure className="fig fx roster on" id="roster" aria-label={t("landingV6.roster.aria")}>
             <div className="ro" aria-hidden="true">
@@ -144,7 +157,7 @@ export default function Stage({ t, lang, isAndroid }) {
             <time dateTime="2026-10-20T16:40">{t("landingV6.time.s3")}</time>
             <h3 className="label" id="s3-t">{schedule}</h3>
             <p className="line">{s3}</p>
-            <p className="aside"><StoreLink app="scheduler" t={t} isAndroid={isAndroid} className="tlink" /></p>
+            <p className="aside note">{s3note} <StoreLink app="scheduler" newTab t={t} isAndroid={isAndroid} className="tlink" /></p>
           </div>
           <figure className="fig fx card vagt ph-only" id="vagt">
             <span className="scr"><picture><source media="(max-width:767px) and (min-height:780px)" srcSet={IMG.staffApp.src} width={IMG.staffApp.width} height={IMG.staffApp.height} /><Img img={IMG.staffNextShift} alt={altStaffApp} /></picture></span>
@@ -207,6 +220,7 @@ export default function Stage({ t, lang, isAndroid }) {
               <time dateTime="2026-10-21T00:10">{t("landingV6.time.s6")}</time>
               <h3 className="label" id="s6-t">{close}</h3>
               <p className="line">{photo} {fill}</p>
+              <p className="aside note">{keep}</p>
               <p className="aside note">{cutoff}</p>
               <p className="aside note">{archive}</p>
             </div>

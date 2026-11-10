@@ -198,9 +198,15 @@ describe("landingV6.css — the app's global rules the page does not want are un
     expect(mediaOfRule(ruleFor(".lp6.lp6-boot"))).toBeNull();
   });
 
-  it("fix round: the language switch in the footer always shows; only the top bar's steps aside, under 500 px, while the header's \"Prøv gratis\" is up", () => {
+  it("fix round: the language switch in the footer always shows; only the top bar's steps aside: under 500 px while the header's \"Prøv gratis\" is up, and (fix round 2, 10 Nov) under 400 px once the hero is past, where \"Priser\" takes its place", () => {
     const hiding = styleRules.filter((r) => /\.lang/.test(r.selector) && /display/.test(r.toString()) && declsOf(r).display === "none");
-    expect(hiding.map((r) => [mediaOfRule(r), r.selector])).toEqual([["(max-width:499px)", ".lp6.js.cta-past:not(.dock-on) .top .lang"]]);
+    expect(hiding.map((r) => [mediaOfRule(r), r.selector])).toEqual([
+      ["(max-width:399px)", ".lp6.js.cta-past.dock-on .top .lang"],
+      ["(max-width:499px)", ".lp6.js.cta-past:not(.dock-on) .top .lang"],
+    ]);
+    // the same state shows "Priser" (hidden under 400 px otherwise): the bar reads logo · Priser · Log ind while the bottom bar has the button
+    expect(rulesFor(".lp6 .navl.prices-l").map((r) => [mediaOfRule(r), declsOf(r).display])).toEqual([["(max-width:399px)", "none"]]);
+    expect(rulesFor(".lp6.js.cta-past.dock-on .top .navl.prices-l").map((r) => [mediaOfRule(r), declsOf(r).display])).toEqual([["(max-width:399px)", "block"]]);
     // the footer's link list unsets every button (all:unset, padding 10px 0): the switch's own rule after it gives the 44 px box back
     expect(declsOf(ruleFor(".lp6 .foot .links .lang button"))).toMatchObject({ display: "inline-flex", position: "relative", padding: "0", width: "44px", height: "44px" });
     expect(declsOf(ruleFor(".lp6 .foot .links .lang"))["margin-left"]).toBe("-10px"); // the first flag on the links' left edge

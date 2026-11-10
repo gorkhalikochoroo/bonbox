@@ -375,11 +375,15 @@ const valueOf = (src, key) => {
 
 describe("VAT status is not confirmed: no price copy says moms is or is not added (decision d)", () => {
   // + the v6 landing's price lines (port step 10, PORT_PLAN 5.2): "/" renders them now. Not landingV6.price.momsExcl /
-  // momsIncl: those two ARE the basis notes, rendered only once PRICE_MOMS_BASIS is set (landingV6Claims holds that).
+  // momsIncl / momsNone: those three ARE the basis notes, rendered as PRICE_MOMS_BASIS says (landingV6Claims holds that).
+  // 10 Nov 2026 (landing fix round 2): the owner answered the VAT question (not registered; Stripe charges the listed price), so
+  // the landing's one basis note now says "Der kommer ikke moms oven i prisen." Every line swept here still says nothing about moms,
+  // and so do the Terms; landingV6.price.noteCheckout became noteCancel (its checkout sentence left the note), and the new flat-price
+  // subhead is swept too.
   const PRICE_KEYS = ["faqA6", "landingV2.pricing.footnote", "landingCalcOurs", "landingPricingLede",
     "landingPricingHonesty", "landingPricingFinePrint", "landingFaq6A",
     "landingV6.trial", "landingV6.price.headline", "landingV6.price.subhead", "landingV6.price.perMonth", "landingV6.price.then",
-    "landingV6.price.note", "landingV6.price.noteCheckout", "landingV6.faq.trialA"];
+    "landingV6.price.note", "landingV6.price.noteCancel", "landingV6.price.flat", "landingV6.price.standNoLogin", "landingV6.faq.trialA"];
   const VAT_CLAIM = /moms oven|no moms|no vat|moms hariç|ex\.? moms|ekskl\.? moms|excl\.? (moms|vat)|inkl\.? moms|incl\.? (moms|vat)|momsregistr|vat-registered|reverse.charge|omvendt betalingspligt|25 ?%|%25|chưa MOMS|ยังไม่รวม|थपिँदैन|VAT-दर्ता/i;
 
   it.each(PACKS)("%s", (f) => {
@@ -411,9 +415,16 @@ describe("VAT status is not confirmed: no price copy says moms is or is not adde
     expect(en.faqA6).toContain("you see the exact amount at checkout before you confirm the purchase");
     expect(da["landingV2.pricing.footnote"]).toContain("du ser det præcise beløb ved betalingen");
     expect(en["landingV2.pricing.footnote"]).toContain("you see the exact amount at checkout");
-    // the v6 page's price note carries the same neutral sentence (port step 10)
-    expect(da["landingV6.price.noteCheckout"]).toContain("Du ser det præcise beløb ved betalingen, før du bekræfter.");
-    expect(en["landingV6.price.noteCheckout"]).toContain("You see the exact amount at checkout before you confirm.");
+    // the v6 page's price note carried the same neutral sentence (port step 10) until the basis was known: since 10 Nov 2026 the
+    // page states the basis itself (the one note, landingV6.price.momsNone), and "the exact amount at checkout" left the note, where
+    // it read as a surcharge waiting. The Terms (§ 8) and the in-app FAQ above still say it
+    expect(da["landingV6.price.noteCheckout"]).toBeUndefined();
+    expect(en["landingV6.price.noteCheckout"]).toBeUndefined();
+    expect(da["landingV6.price.noteCancel"]).toBe("Opsigelsen gælder fra udgangen af den måned, du har betalt for.");
+    expect(en["landingV6.price.noteCancel"]).toBe("Cancelling takes effect at the end of the month you have paid for.");
+    expect(da["landingV6.price.momsNone"]).toBe("Der kommer ikke moms oven i prisen.");
+    expect(en["landingV6.price.momsNone"]).toBe("No MOMS is added on top of the price.");
+    expect(read("pages/TermsPage.jsx")).toContain("Beløbet, du skal betale, vises ved betalingen, før du bekræfter købet.");
     for (const f of ["np.js", "th.js", "vi.js"]) {
       expect(read(`i18n/${f}`)).not.toMatch(/^\s+faqA6:/m); // falls back to English
     }

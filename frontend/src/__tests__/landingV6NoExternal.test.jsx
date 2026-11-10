@@ -5,7 +5,8 @@
  * the only requests are to the page's own origin (the chunk, its CSS, Inter 300, the pictures under /assets/) and the
  * app's own API. This is the static half and the jsdom half; the real-browser half (every request of a full load,
  * scroll, all steps and a language switch goes to the page origin or the API) is the lab's 5.3 "Requests" check.
- *   - source: the only absolute URLs in the tree are the two App Store links and the Instagram link, all plain <a>
+ *   - source: the only absolute URLs in the tree are the two App Store links, the Instagram link and (fix round 2, 10 Nov
+ *     2026) the CVR register's page for the company, the link /contact, /privacy and /cookies already give; all plain <a>
  *     hrefs (a click, never a fetch, a preload or an embed); nothing in the tree fetches, beacons, opens a socket,
  *     builds a <script>/<link>/<img> or imports a URL; every import is relative or one of three packages;
  *   - styles: no remote url(), no @import; Inter 300 comes from @fontsource as relative files (CSP font-src 'self');
@@ -23,7 +24,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup, act, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { LanguageProvider } from "../hooks/useLanguage";
-import { APP_STORE } from "../components/landing/v6/site";
+import { APP_STORE, CVR_REGISTER } from "../components/landing/v6/site";
 
 const beacon = vi.hoisted(() => vi.fn());
 vi.mock("../utils/reportClientError", () => ({ reportClientError: (o) => beacon(o) }));
@@ -36,7 +37,7 @@ const TREE = ["pages/LandingV6Page.jsx", ...fs.readdirSync(path.join(SRC, V6)).f
 const CODE = TREE.filter((f) => /\.jsx?$/.test(f));
 const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'])\/\/.*$/gm, "$1").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 const INSTAGRAM = "https://www.instagram.com/bonbox.dk/";
-const ALLOWED = [APP_STORE.scheduler, APP_STORE.owner, INSTAGRAM];
+const ALLOWED = [APP_STORE.scheduler, APP_STORE.owner, INSTAGRAM, CVR_REGISTER];
 
 const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
 const ANDROID = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36";
@@ -52,7 +53,7 @@ describe("the source asks no other host", () => {
     expect(TREE).toContain(`${V6}/engine.js`);
   });
 
-  it("the only absolute URLs are the two App Store apps (the live ids) and Instagram", () => {
+  it("the only absolute URLs are the two App Store apps (the live ids), Instagram and the CVR register's page for CVR 46417321", () => {
     const found = new Set();
     for (const f of TREE) for (const m of stripComments(read(f)).matchAll(/(?:https?:)?\/\/[a-z0-9.-]+\.[a-z]{2,}[^\s"'`)<>]*/gi)) found.add(m[0]);
     expect([...found].sort()).toEqual([...ALLOWED].sort());
@@ -60,6 +61,9 @@ describe("the source asks no other host", () => {
       scheduler: "https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793",
       owner: "https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960",
     });
+    // the register's own address for the company in the footer's CVR line (the same link as /contact's)
+    expect(CVR_REGISTER).toBe("https://datacvr.virk.dk/enhed/virksomhed/46417321");
+    expect(read("pages/ContactPage.jsx")).toContain("https://datacvr.virk.dk/enhed/virksomhed/${CVR}");
   });
 
   it("nothing in the tree fetches, beacons, opens a socket, builds a <script> / <link> / <img>, or imports a URL", () => {
@@ -126,8 +130,14 @@ describe("the rendered page points nowhere else", () => {
       expect(root.querySelectorAll("iframe, script, link, object, embed, form, video, audio")).toHaveLength(0);
       // the one <picture> (the 16.40 staff-app screen, a taller file on tall phones) offers a second file of the tree, never a remote one
       for (const s of root.querySelectorAll("picture source")) expect(s.getAttribute("srcset")).toMatch(/^[^:]+\.webp$/);
-      // the external links are plain links in this tab (no target, nothing that opens a window by script)
-      for (const a of root.querySelectorAll("a[href^='http']")) expect([a.getAttribute("href"), a.getAttribute("target")]).toEqual([a.getAttribute("href"), null]);
+      // the external links are plain links (nothing that opens a window by script). In this tab, except two that open a new one
+      // with rel noopener noreferrer (fix round 2, 10 Nov): the App Store link inside the day at 16.40 (a reader on a computer keeps
+      // their place in the story) and the CVR register link in the founder block (it sits right above the sign-up button)
+      for (const a of root.querySelectorAll("a[href^='http']")) {
+        const newTab = a.getAttribute("href") === CVR_REGISTER || (a.getAttribute("href") === APP_STORE.scheduler && !!a.closest("#frame"));
+        expect([a.getAttribute("href"), a.getAttribute("target"), a.getAttribute("rel")]).toEqual([a.getAttribute("href"), newTab ? "_blank" : null, newTab ? "noopener noreferrer" : null]);
+      }
+      expect([...root.querySelectorAll("a[target]")].length).toBe(ua === ANDROID ? 2 : 4); // the register link in both founder blocks (+ 16.40's App Store link, stage and stacked, off Android)
     });
   }
 });
@@ -173,7 +183,7 @@ describe("the real engine on the real page makes no request", () => {
       expect(xhrOpen).not.toHaveBeenCalled();
       expect(sendBeacon).not.toHaveBeenCalled();
       expect(beacon).not.toHaveBeenCalled(); // the engine mounted cleanly both times
-      expect(added.join("\n")).not.toMatch(/(src|href)="(https?:)?\/\/(?!apps\.apple\.com\/dk\/app\/bonbox-|www\.instagram\.com\/bonbox\.dk\/)/);
+      expect(added.join("\n")).not.toMatch(/(src|href)="(https?:)?\/\/(?!apps\.apple\.com\/dk\/app\/bonbox-|www\.instagram\.com\/bonbox\.dk\/|datacvr\.virk\.dk\/enhed\/virksomhed\/46417321")/);
     } finally {
       mo.disconnect();
       delete navigator.sendBeacon;

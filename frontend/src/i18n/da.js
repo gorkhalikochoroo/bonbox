@@ -7605,7 +7605,7 @@ export const da = {
     trialDescription: "Intet kort påkrævet. Fuld Pro-adgang i 14 dage, derefter skifter den til en basis gratis plan, medmindre du vælger at opgradere.",
     trialBenefit1: "Lavet i København · database i EU (Frankfurt, Tyskland)",
     trialBenefit2: "Opsig når som helst · Eksporter dine data",
-    trialBenefit3: "Stifterpris fra 129 kr./md for de første 100 betalende kunder – den gælder, så længe abonnementet er aktivt",
+    trialBenefit3: "Stifterpris fra 129 kr./md for de første 100 virksomheder med et betalt abonnement – den gælder, så længe abonnementet er aktivt",
     registerSubheading: "Kom i gang i dag.",
     registerSubheadingWeb: "14 dage gratis · intet betalingskort · derefter en gratis plan",
     passwordRequirements: "8+ tegn med bogstaver og tal",
@@ -11055,15 +11055,19 @@ export const da = {
     "landingV6.time.s5": "22.50",
     "landingV6.time.s6": "00.10",
     "landingV6.s1.line": "Læg ugens vagter, og udgiv planen.",
+    // rettelsesrunde 2 (10. nov. 2026): én linje pr. scene om, hvad ejeren holder op med; scene 1 og 3 har hver sin note (før delte de App Store-linket)
+    "landingV6.s1.instead": "I stedet for regnearket og gruppechatten.",
     "landingV6.s3.line": "Personalet ser den på telefonen.",
+    "landingV6.s3.where": "På iPhone i Vagtplan-appen, på Android i browseren.",
     "landingV6.s2.line": "Gæsterne booker selv bord eller tid, uden konto.",
     "landingV6.s4.line": "Bookingen lander i din reservationsbog.",
-    "landingV6.s2.aside": "Bookingsiden er ét link: sæt det i din <nw>Instagram-bio</nw> og på din <nw>Google-profil.</nw>",
+    "landingV6.s2.aside": "Bookingsiden er ét link til din <nw>Instagram-bio</nw> og <nw>Google-profil.</nw> Intet gebyr pr. booking.",
     "landingV6.s4.aside": "Gæsten fra kl. 12.30 sidder ved Vindue 2.",
     "landingV6.s5.stand": "Tabletten ved døren viser kun reservationer — aldrig regnskab eller løn.",
     "landingV6.s5.guests": "63 gæster: 61 med booking, <nw>2 som drop-in.</nw>",
     "landingV6.s6.photo": "Tag et billede af Z-bonen.",
     "landingV6.s6.fill": "BonBox fylder tallene ud og regner MOMS ud. Du tjekker og låser dagen.",
+    "landingV6.s6.keep": "Du beholder din kasse. BonBox læser Z-bonen fra et foto.",
     "landingV6.s6.cutoff": "Dagen skifter kl. 06.00, så salget efter midnat hører til tirsdag.",
     "landingV6.s6.archive": "Kasserapporter som PDF – du gemmer dem selv i 5 år",
     "landingV6.app.scheduler": "Vagtplan i App Store",
@@ -11107,7 +11111,9 @@ export const da = {
     "landingV6.more.money": "Økonomi",
     "landingV6.more.moneyBody": "MOMS-nedtælling, fakturaer, bilag og gavekort.",
     "landingV6.price.eyebrow": "Priser",
-    "landingV6.price.headline": "{founding} kr./md. for de første {n} virksomheder — derefter {regular} kr./md.",
+    "landingV6.price.headline": "{founding} kr./md. for de første {n} virksomheder med et betalt abonnement — derefter {regular} kr./md.",
+    // 10. nov. 2026: stripe_billing.py opretter ét abonnement pr. konto (quantity 1), intet gebyr eller omsætningsandel findes i billing
+    "landingV6.price.flat": "Én fast pris pr. virksomhed – ikke pr. medarbejder. Intet gebyr pr. booking, ingen andel af din omsætning.",
     "landingV6.price.subhead": "Stifterprisen bliver, så længe dit abonnement er aktivt uden afbrydelse.",
     "landingV6.price.freeName": "Gratis",
     "landingV6.price.noCard": "uden kort",
@@ -11121,19 +11127,27 @@ export const da = {
     "landingV6.price.then": "Efter de første {n}: {price} kr./md.",
     "landingV6.price.starterPos": "Til at drive hele ugen: ubegrænsede bookinger, hele holdet på vagtplanen og fakturaer.",
     "landingV6.price.starterTeam": "Dig + {team} teammedlemmer med rollerettigheder, op til {staff} medarbejdere på vagtplanen",
-    "landingV6.price.unlimited": "Reservationer, ubegrænset",
+    "landingV6.price.unlimited": "Reservationer og borde, ubegrænset",
     // Starter- og Pro-kortenes fotoaflæsninger om dagen (3. nov. 2026; PLAN_LIMITS z_report_scans_per_day 20 / 100, aldrig "ubegrænset")
     "landingV6.price.paidScans": "Z-bon-aflæsning fra foto: {scans} om dagen",
     "landingV6.price.proPos": "Til at drive flere steder fra ét login, under dit eget brand.",
     "landingV6.price.proTeam": "{branches} afdelinger, dig + {team} teammedlemmer, op til {staff} medarbejdere på vagtplanen",
     "landingV6.price.pickStarter": "Vælg Starter",
     "landingV6.price.pickPro": "Vælg Pro",
+    "landingV6.price.pickFree": "Start gratis",
     "landingV6.price.note": "<b>Opsig når som helst.</b> Ingen binding, intet opstartsgebyr. Priserne er pr. virksomhed.",
-    "landingV6.price.noteCheckout": "Du ser det præcise beløb ved betalingen, før du bekræfter. Opsigelsen gælder fra udgangen af den måned, du har betalt for.",
+    "landingV6.price.noteCancel": "Opsigelsen gælder fra udgangen af den måned, du har betalt for.",
     // under kortene (3. nov. 2026): billing.py låser fakturaer (0 på Gratis), bankafstemning og tidsregistrering (False på Gratis); kernen i Timer, Lager og Økonomi er på alle planer
     "landingV6.price.allPlans": "Timer, Lager og Økonomi er med på alle planer — fakturaer, bankafstemning og tidsregistrering fra Starter.",
+    // 10. nov. 2026: stand_link.py parrer en enhed med en kode; team_users-loftet håndhæves kun i team.py (invitationer)
+    "landingV6.price.standNoLogin": "Tabletten ved døren bruger ikke et login.",
     "landingV6.price.momsExcl": "Priserne er ekskl. moms.",
     "landingV6.price.momsIncl": "Priserne er inkl. moms.",
+    // 10. nov. 2026: Orvexlo er ikke momsregistreret, Stripe opkræver den viste pris (PRICE_MOMS_BASIS = "none")
+    "landingV6.price.momsNone": "Der kommer ikke moms oven i prisen.",
+    // 10. nov. 2026: et stille link ved prisknappen (mailto med emne); adressen står ved siden af som tekst
+    "landingV6.ask.line": "Spørgsmål, før du starter? <a>Skriv til os</a>",
+    "landingV6.ask.subject": "Spørgsmål om BonBox",
     "landingV6.trust.label": "Tryghed",
     "landingV6.trust.noCut": "Ingen andel af din omsætning",
     "landingV6.trust.db": "<nw>Database i EU (Frankfurt, Tyskland) ·</nw> <nw>underleverandører i <a>privatlivspolitikken</a></nw>",
@@ -11141,6 +11155,8 @@ export const da = {
     "landingV6.trust.data": "Dine bilag gemmes i Frankfurt. For at aflæse et billede sender BonBox en kopi til vores AI-leverandør, Anthropic, eller en anden udbyder på listen i privatlivspolitikken. Hvor de behandler det, er endnu ikke bekræftet. Vi sælger ikke dine data og træner ikke modeller på dit regnskab.",
     "landingV6.trust.staffRole": "Medarbejder",
     "landingV6.trust.staffDetail": "Ser vagtplanen og egne timer. Ingen adgang til regnskab, MOMS, bank eller andres løn.",
+    // 10. nov. 2026: de to apps, som koden linker til (site.js APP_STORE; navnene er appernes CFBundleDisplayName)
+    "landingV6.trust.apps": "Findes i App Store: <a>BonBox</a> og <a>Vagtplan</a>",
     "landingV6.faq.label": "Spørgsmål",
     "landingV6.faq.posQ": "Virker det med min POS?",
     "landingV6.faq.posA": "BonBox erstatter ikke din POS — den læser det, der kommer ud af den. Tag et billede af Z-bonen med en hvilken som helst telefon, og BonBox henter tallene. Det virker med alle kasser, også dem der kun printer på papir.",
@@ -11155,6 +11171,8 @@ export const da = {
     "landingV6.founder.name": "Jeg hedder Manoj.",
     // 3. nov. 2026: fordelen først, "kun mig" bliver; intet løfte om svartid (hverken koden eller supporten viser et)
     "landingV6.founder.reply": "Du taler med den, der bygger BonBox. Det er kun mig indtil videre, så når du skriver, får du fat i mig.",
+    // 10. nov. 2026: firmaet under grundlæggerens tekst; {company} og {cvr} = site.js LEGAL_LINES, linket er CVR-registret
+    "landingV6.founder.company": "BonBox drives af {company} <nw>(<a>{cvr}</a>),</nw> København.",
     // {company} = CVR-registrets navn (site.js LEGAL_LINES[0], "Orvexlo" siden 3. nov. 2026); nævnt én gang, her
     "landingV6.foot.operatedBy": "BonBox – et produkt fra {company}",
     "landingV6.foot.terms": "Handelsbetingelser",
