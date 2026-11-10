@@ -139,8 +139,8 @@
 @media (max-width:399px){.lp6 .navl.prices-l{display:none}}
 /* fix round 2 (10 Nov; landing review fix 2): on a narrow phone there was no way to the prices once the hero's "Se priser" had scrolled
    away. From then on, while the bottom bar carries "Prøv gratis", the top bar shows "Priser" where the flags were (logo · Priser · Log ind);
-   the flags stay in the top bar over the hero and in the footer. While the header's own button is up (over the price button, the founder
-   block's button and the footer) the bar is as before: logo · Log ind · Prøv gratis */
+   the flags stay in the top bar over the hero and in the footer. While the header's own button is up (over the price button and the
+   footer) the bar is as before: logo · Log ind · Prøv gratis */
 @media (max-width:399px){.lp6.js.cta-past.dock-on .top .lang{display:none}}
 @media (max-width:399px){.lp6.js.cta-past.dock-on .top .navl.prices-l{display:block}}
 @media (max-width:339px){.lp6 .top .in{gap:8px}.lp6 .nav{gap:12px}.lp6 .top .btn{padding:0 12px;font-size:14px}.lp6 .logo svg{height:19px}}
@@ -482,6 +482,14 @@
 }
 .lp6.story .zb .zb-in{margin-inline:auto}
 @media (min-width:768px){.lp6.story .zb .zb-in{margin-inline:0}}
+/* polish (10 Nov), the phone story's Z-bon: "Eksempel · demodata" sits 8 px under the slip, as under every other picture (the 14 px
+   of air the clip keeps under the paper put it 22 px down), and it keeps the page's caption size when the slip is scaled. engine.js
+   draws the figure at --zs (up to 1.15 where the slot has the room; under 1 on short phones, where the caption shrank to 11 px):
+   the caption's size, line and distance are divided by that scale, so on screen they are 13 / 18 / 8 px at every scale */
+@media (max-width:767px){
+  .lp6.story .zb .zb-clip{padding-bottom:0}
+  .lp6.story .zb figcaption.demo{margin-top:calc(8px / var(--zs,1));font-size:calc(var(--fs-cap) / var(--zs,1));line-height:calc(18px / var(--zs,1))}
+}
 
 /* enter / leave: exit first (220 ms, 12 px drop), then entry (600 ms from 16 px below) — never scaled */
 .lp6.story .fx{opacity:0;translate:0 16px;pointer-events:none;transition:opacity .22s ease,translate 0s linear .22s}
@@ -540,7 +548,8 @@
 .lp6.story .zb{--dl:.3s}
 .lp6.story .zb.on{transition:opacity .6s var(--m-out) var(--dl),translate .6s var(--m-out) var(--dl),transform .7s var(--m-io)}
 .lp6.story .zb{transform:translate(calc(var(--zx,0) * 1px),calc(var(--zy,0) * 1px)) scale(var(--zs,1));transform-origin:0 0}
-/* Kassen card window: Betalinger first (the numbers), then up to MOMS; a short window ends on a row line */
+/* Kassen card window: Betalinger first (the numbers), then up to MOMS; a short window ends in the blank card under a row (polish,
+   10 Nov: never on or just under a row's rule) */
 .lp6.story .kasse .win img{transform:translateY(calc(var(--k0,0) * 1px));transition:transform .2s ease .25s}
 .lp6.story .kasse.on .win img{transform:none;transition:transform .7s var(--m-io) .45s}
 .lp6.story .kasse .win::before{content:"";position:absolute;left:0;right:0;top:0;height:44px;pointer-events:none;opacity:0;transition:opacity .2s ease;z-index:1;background:linear-gradient(#fff,rgba(255,255,255,0))}
@@ -690,6 +699,9 @@
 .lp6 .ask{font-size:var(--fs-ui);line-height:1.45;color:var(--ink-2)}
 .lp6 .ask .tlink{color:var(--ink);font-weight:500}
 .lp6 .ask-at{display:block;margin-top:2px;font-size:var(--fs-cap);line-height:18px;color:var(--ink-3);-webkit-user-select:all;user-select:all}
+/* polish (10 Nov): on the one-column page the "who is behind it" block sits right under this row and carries the address as a link,
+   so one phone screen showed it twice; the text copy shows from 1200 px, where that block is beside the questions */
+@media (max-width:1199px){.lp6 .ask-at{display:none}}
 .lp6 .tst{display:none}
 .lp6 .mn{display:none}
 /* questions: native disclosure rows; the person behind BonBox under them (phone) or under the label (desktop) */
@@ -713,7 +725,8 @@
 .lp6 .hm-m .tlink{color:var(--ink);font-weight:500}
 /* fix round 2 (10 Nov): the company under the founder's text (the CVR is a link to the public register), then the main button and
    the trial line. On the one-column page the block is its own section directly under the prices (.bag); from 1200 px that section
-   steps aside and the copy beside the questions shows, as before */
+   steps aside and the copy beside the questions shows, as before. Polish (10 Nov): the one-column copy has no button and no trial
+   line (Sheet.jsx); it ends with the address link */
 .lp6 .hm-c{font-size:var(--fs-note);line-height:1.5;color:var(--ink-2);max-width:46ch;text-wrap:pretty}
 .lp6 .hm-c .tlink{color:var(--ink)}
 .lp6 .hm-go{margin-top:12px;display:flex;align-items:center;flex-wrap:wrap;gap:12px 16px}

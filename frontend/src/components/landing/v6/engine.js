@@ -96,7 +96,7 @@
  *      - ?lp6debug=fps (with the debug hooks, 9): a frame meter in a corner, for a device or the Simulator. */
 import { FLOOR } from "./floor.js";
 import { NSC, SCN, NAV, NAVF, SCENE_HASH, LP6_MARK, sceneOfHash, buildTrack, seg as segAt, beatU, scnOf as scnAt, curScn as curScnAt, createStepper, goNext as nextJump, goPrev as prevJump, jumpCheck } from "./nav.js";
-import { clearanceMisses, repairMiss, NOFIX } from "./guard.js";
+import { clearanceMisses, repairMiss, NOFIX, foldPush } from "./guard.js";
 import { heroFit } from "./heroFit.js";
 
 /** The two grounds' browser-bar colours (the app writes theme-color in lower case). */
@@ -381,10 +381,8 @@ export function mountLanding(root, opts) {
       if (liveThemeColor() !== want) { setThemeColor(want); barWrote = want; }
     }
     function measure() {
-      const c = $("hero-cta"), p = $("pcta"), b = $("bcta");
+      const c = $("hero-cta"), p = $("pcta");
       G.cta = docTop(c) + c.offsetHeight; G.p0 = docTop(p); G.p1 = G.p0 + p.offsetHeight; G.foot = docTop($("foot")); G.hh = top.offsetHeight; G.vh = window.innerHeight;
-      /* fix round 2 (10 Nov): the one-column page's "who is behind it" block ends with its own "Prøv gratis" (#bcta); not laid out from 1200 px */
-      if (b && b.offsetHeight) { G.b0 = docTop(b); G.b1 = G.b0 + b.offsetHeight; } else G.b0 = G.b1 = -1;
       if (!story) { const nb = $("nb"); G.nb0 = docTop(nb); G.nb1 = G.nb0 + nb.offsetHeight; }
     }
     /* polish round (Manoj's iPhone in Brave, 23 Oct): the bar sits on the viewport's real bottom edge at every moment. It used to ride
@@ -392,12 +390,14 @@ export function mountLanding(root, opts) {
        ground under it, and below that the page's paper. The stage is laid out in the small viewport, so its statement keeps its 20 px
        over the bar when the bars are out, and more when they collapse */
     /* "Prøv gratis" once the hero button has gone: under the header (or, on desktop, once the hero has lifted away).
-       The bottom bar is then up, except over the price button, the founder block's button (10 Nov) and the footer. */
+       The bottom bar is then up, except over the price button and the footer. (Polish, 10 Nov: the one-column page's "who is
+       behind it" block no longer ends with a button of its own, so the bar has only the price button to step aside for; it is up
+       again, with the page's one "Prøv gratis", while that block is read.) */
     function chrome(y, ev, past) {
       const vh = G.vh;
       if (past == null) past = y > G.cta - G.hh;
       if (past !== G.past) { G.past = past; R.classList.toggle("cta-past", past); }
-      const onB = past && !(G.p0 < y + vh - 64 && G.p1 > y) && !(G.b1 > 0 && G.b0 < y + vh - 64 && G.b1 > y) && y + vh < G.foot + 40;
+      const onB = past && !(G.p0 < y + vh - 64 && G.p1 > y) && y + vh < G.foot + 40;
       if (onB !== G.on) { G.on = onB; dock.classList.toggle("on", onB); R.classList.toggle("dock-on", onB); }
       if (ev !== G.ev) { G.ev = ev; dock.classList.toggle("ev", ev); }
       top.classList.toggle("scrolled", y > 8);
@@ -572,7 +572,7 @@ export function mountLanding(root, opts) {
     function win(el, h) { const w = el.querySelector(".win"); if (w) w.style.height = Math.round(h) + "px"; }
     /* the largest box of aspect a (w/h) inside Wb × Hb that keeps clear of the plate's corner marks (cl px on one axis) */
     function fit(a, Wb, Hb, cl, maxW) { maxW = maxW || 1e9; const w1 = Math.min(Wb, maxW, (Hb - 2 * cl) * a), w2 = Math.min(Wb - 2 * cl, maxW, Hb * a), w = Math.max(w1, w2); return { w, h: w / a }; }
-    const TAG = 26, CLR = 24, CAP = 30, KS = [676, 978, 1511], SG = 107 / 757 + 682 / 1101, I_ALT = 1408.5, FA = 1083 / 924, FW = 1179 / 1880;
+    const TAG = 26, CLR = 24, CAP = 30, KS = [660, 978, 1511], SG = 107 / 757 + 682 / 1101, I_ALT = 1408.5, FA = 1083 / 924, FW = 1179 / 2018;
     const WARN = [];
     let FIXING = false, KEEP = null;
     function layout() {
@@ -646,13 +646,22 @@ export function mountLanding(root, opts) {
         tal.style.setProperty("--tk", tk); stand.style.setProperty("--cy", cyv); place(tal, gx, gt); place(stand, gx, gt + top_, sw);
         /* the landing target and the plan's window, in the plan's own box (layout() maps them to the room after the guard) */
         const kb = pw / rw; GEO.tg = { el: stand, x: -84 * kk, y: -14 * kk - 28 * kb, k: kb }; GEO.wn = [0, 0, sw, sh];
-        /* 00.10 — the Z-bon (fix round 2, review fix 4), at its own size with its caption, centred; where the slot is shorter than it, scaled
-           about its top left as on wide screens (--zs). Then the Kassen card: its first block only, to the line under "Omsætning (uden
-           moms)" (KS[0]) — the Z-bon's total, MOMS and the net, without the small print that followed on tall phones.
-           (fotoH, the photo step's height, stays in the band maths above so the bands and the slot are exactly as measured before) */
+        /* 00.10 — the Z-bon (fix round 2, review fix 4) with its caption, centred, scaled about its top left as on wide screens (--zs).
+           Polish (10 Nov): the slip is one step larger where the slot has the room (up to 1.15, the wide screens' first step: 844 and
+           720 px screens), and smaller only where the slot is shorter than it. Its caption keeps the page's caption size and its 8 px
+           under the paper at any scale (landingV6.css divides them by --zs), so the paper (zph) scales and the caption block (zcap,
+           measured at scale 1) does not: zph × k + zcap is the figure's height on screen, and it fits the slot.
+           Then the Kassen card: its first block only — the Z-bon's total, MOMS and the net, without the small print that followed on
+           tall phones. Polish (10 Nov): the window ends in the blank card under "Omsætning (uden moms)" (KS[0] = row 660 of the
+           picture's 1511: the row's text ends at row 627, the rule under it starts at 670; the window ended at 676, with that rule
+           3 px above the frame's edge). 660, not closer: the window's height is rounded to a whole px, which can show up to 4 more
+           rows on a narrow card (measured: 667 of an intended 664 at 390 × 667), and the rule must stay out at every size.
+           (fotoH, the photo step's height, and the card's old 676 stay in the band maths above so the bands and the slot are exactly
+           as measured before) */
         zb.style.setProperty("--zb-w", "240px"); setV(zb, { "--zx": 0, "--zy": 0, "--zs": 1 }); place(zb, 0, 0, 240);
-        const zbh = zb.offsetHeight, zk = Hx > 0 && zbh > Hx ? Math.max(0.5, Math.floor((Hx / zbh) * 1000) / 1000) : 1;
-        place(zb, (W - 240 * zk) / 2, midC(zbh * zk, 2), 240); zb.style.setProperty("--zs", zk); GEO.zx0 = 0; GEO.zy0 = 0; GEO.zs0 = GEO.zs1 = zk;
+        const zbh = zb.offsetHeight, zin = zb.querySelector(".zb-in"), zph = zin ? zin.offsetHeight : 0, zcap = zbh - zph;
+        const zk = Hx > 0 && zph > 0 ? clamp(0.5, Math.floor(((Hx - zcap) / zph) * 1000) / 1000, 1.15) : 1;
+        place(zb, (W - 240 * zk) / 2, midC(zph * zk + zcap, 2), 240); zb.style.setProperty("--zs", zk); GEO.zx0 = 0; GEO.zy0 = 0; GEO.zs0 = GEO.zs1 = zk;
         const cw0 = Math.min(W, 400), stop = KS[0], cw = Math.min(cw0, ((Hx - TAG) * 1095) / stop);
         const wh = (cw * stop) / 1095, full = (cw * 1511) / 1095; place(kasse, (W - cw) / 2, midC(wh + TAG, 2), cw); win(kasse, wh); kasse.classList.toggle("cut", stop < 1511); kasse.style.setProperty("--k0", (wh - full).toFixed(1));
         pull = svh <= 720 ? 12 : 24;
@@ -742,7 +751,19 @@ export function mountLanding(root, opts) {
         setV(hero, hf ? { "--hero-top": Math.round(hf.top) + "px", "--hero-a1": Math.round(hf.a1) + "px" } : { "--hero-top": Math.round(OY) + "px" });
       } else {
         /* before it pins, the stage label starts just under the hero (phone 24 px, tablet one section gap) */
-        hero.style.setProperty("--hero-pull", Math.round(-(padT + tTop) + pull));
+        const hp = Math.round(-(padT + tTop) + pull);
+        hero.style.setProperty("--hero-pull", hp);
+        /* polish (10 Nov), phone: the first screen never ends through the first statement's label ("VAGTPLAN": a sliver of letter tops
+           on the bottom edge of the Danish page at 390 × 664 and five more common Safari sizes). Where the bottom edge of the small
+           viewport (the screen at load, bars showing) would cut the label, or leave less than 12 px on either side of it, the stage
+           starts that much lower under the hero (guard.js foldPush), so the screen ends in the air under "Eksempel · demodata" and the
+           label starts 12 px under the edge. Only the hero's own margin moves: the pinned stage, its bands and every picture are as
+           laid out above. Measured as the page is laid out with hp (the label is the frame's own child: its place is the track's top
+           + its offset in the frame, whatever the scroll) */
+        if (!wide) {
+          const lab = c1.querySelector(".label"), push = lab ? foldPush({ fold: svh, labelTop: docTop(track) + relTop(lab, frameEl), labelHeight: lab.offsetHeight }) : 0;
+          if (push) hero.style.setProperty("--hero-pull", hp + push);
+        }
       }
       /* v6.2: 7 / 7 in the frame's own row — "← Forrige" keeps its label where the row and the trial line both stay on one line, else it is "←" alone */
       if (snav.offsetHeight) {

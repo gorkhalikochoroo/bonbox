@@ -42,3 +42,18 @@ export function repairMiss(x, k) {
   else { k = Math.max(0.5, +((hi - lo) / x.h).toFixed(3)); scale = k; top = lo; }
   return { top: Math.round(top - (x.h * (1 - k)) / 2), scale };
 }
+
+/* Polish pass (10 Nov 2026): the phone's first screen never ends through the first statement's label.
+ * Before the stage pins, the hero and the top of the stage share the first screen, and the label over the first statement
+ * ("VAGTPLAN", 16 px) can land on the screen's bottom edge: at 390 × 664 (an iPhone 12–14 in Safari) and five more common sizes the
+ * Danish page showed a sliver of its letter tops there. The edge must not cut the label, and a clean edge has 12 px of air: either
+ * the whole label is on the first screen with FOLD_AIR under it, or it starts FOLD_AIR under the edge. */
+export const FOLD_AIR = 12;
+
+/** How far (whole px) the stage must start lower so the label starts FOLD_AIR under the first screen's bottom edge; 0 where the
+ *  label is already clear of the edge on either side. fold = the first screen's height, labelTop = the label's top in the page
+ *  at scroll 0, labelHeight = its box. Without measures (no layout) it is 0. */
+export function foldPush({ fold, labelTop, labelHeight }) {
+  const over = fold + FOLD_AIR - labelTop;
+  return over > 0 && over < labelHeight + 2 * FOLD_AIR ? Math.ceil(over) : 0;
+}

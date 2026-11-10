@@ -133,7 +133,7 @@ describe("prices: one source (config.py), nothing typed", () => {
   it("the page prints config.py's numbers (da and en)", () => {
     const cfg = configPrices();
     let p = show("da");
-    expect(p.text("#pricing-h")).toBe(`${cfg.starter.founding} kr./md. for de første ${cfg.limit} virksomheder med et betalt abonnement — derefter ${cfg.starter.regular} kr./md.`);
+    expect(p.text("#pricing-h")).toBe(`${cfg.starter.founding} kr./md. for de første ${cfg.limit} virksomheder med et betalt abonnement – derefter ${cfg.starter.regular} kr./md.`);
     expect(cards(p.$$).map((c) => [c.price, c.then])).toEqual([
       ["Gratis", "uden kort"],
       [`${cfg.starter.founding} kr./md.`, `Efter de første ${cfg.limit}: ${cfg.starter.regular} kr./md.`],
@@ -142,14 +142,14 @@ describe("prices: one source (config.py), nothing typed", () => {
     expect(p.text(".trial")).toContain(`fra ${cfg.starter.founding} kr./md.`);
     cleanup();
     p = show("en");
-    expect(p.text("#pricing-h")).toBe(`${cfg.starter.founding} kr./mo for the first ${cfg.limit} businesses with a paid subscription — then ${cfg.starter.regular} kr./mo.`);
+    expect(p.text("#pricing-h")).toBe(`${cfg.starter.founding} kr./mo for the first ${cfg.limit} businesses with a paid subscription – then ${cfg.starter.regular} kr./mo.`);
     expect(cards(p.$$).slice(1).map((c) => c.price)).toEqual([`${cfg.starter.founding} kr./mo`, `${cfg.pro.founding} kr./mo`]);
   });
 
   it("swapped numbers render swapped: every price and the first-N on the page come from lib/planPrices.js", () => {
     S.swap = true;
     const p = show("da");
-    expect(p.text("#pricing-h")).toBe("137 kr./md. for de første 77 virksomheder med et betalt abonnement — derefter 211 kr./md.");
+    expect(p.text("#pricing-h")).toBe("137 kr./md. for de første 77 virksomheder med et betalt abonnement – derefter 211 kr./md.");
     expect(cards(p.$$).map((c) => [c.price, c.then])).toEqual([
       ["Gratis", "uden kort"], ["137 kr./md.", "Efter de første 77: 211 kr./md."], ["263 kr./md.", "Efter de første 77: 367 kr./md."],
     ]);
@@ -182,8 +182,8 @@ describe("prices: one source (config.py), nothing typed", () => {
     // stripe_billing.py carries the remaining trial days into the Stripe subscription (trial_period_days = remaining):
     // the card is charged when the trial ends, so "no auto-charge" without the condition was not true for that owner
     expect(backend("app/services/stripe_billing.py")).toMatch(/sub_data\["trial_period_days"\] = int\(remaining\)/);
-    expect(da["landingV6.faq.trialA"]).toBe("Har du ikke valgt en betalt plan, falder du automatisk ned til gratisplanen — intet kort, intet træk. Vælger du Starter eller Pro i prøveperioden, betaler du først, når de 14 dage er gået.");
-    expect(en["landingV6.faq.trialA"]).toBe("If you haven't chosen a paid plan, you drop to the free plan automatically — no card, no charge. If you choose Starter or Pro during the trial, you pay only once the 14 days are up.");
+    expect(da["landingV6.faq.trialA"]).toBe("Har du ikke valgt en betalt plan, falder du automatisk ned til gratisplanen\u00a0– intet kort, intet træk. Vælger du Starter eller Pro i prøveperioden, betaler du først, når de 14 dage er gået.");
+    expect(en["landingV6.faq.trialA"]).toBe("If you haven't chosen a paid plan, you drop to the free plan automatically\u00a0– no card, no charge. If you choose Starter or Pro during the trial, you pay only once the 14 days are up.");
     for (const d of [da, en]) expect(d["landingV6.faq.trialA"]).not.toMatch(/auto-træk|auto-charge/i);
   });
 
@@ -207,8 +207,8 @@ describe("plan limits: the cards carry billing.py PLAN_CAPS", () => {
     expect(cards($$).map((c) => [c.name, c.lines])).toEqual([
       ["", [
         `${free.team_users} bruger, ${free.branches} afdeling, op til ${free.staff_members} medarbejdere på vagtplanen`,
-        `Reservationer, ${free.reservations_per_month} om måneden, op til ${free.bookable_resources_max} borde — bookingside, bordplan, venteliste`,
-        `Z-bon-aflæsning fra foto: ${free.z_report_scans_per_day} om dagen — hver dags kasserapport som PDF uden grænse`,
+        `Reservationer, ${free.reservations_per_month} om måneden, op til ${free.bookable_resources_max} borde – bookingside, bordplan, venteliste`,
+        `Z-bon-aflæsning fra foto: ${free.z_report_scans_per_day} om dagen – hver dags kasserapport som PDF uden grænse`,
       ]],
       ["Starter", [`Dig + ${starter.team_users - 1} teammedlemmer med rollerettigheder, op til ${starter.staff_members} medarbejdere på vagtplanen`, "Reservationer og borde, ubegrænset", `Z-bon-aflæsning fra foto: ${starter.z_report_scans_per_day} om dagen`]],
       ["Pro", [`${pro.branches} afdelinger, dig + ${pro.team_users - 1} teammedlemmer, op til ${pro.staff_members} medarbejdere på vagtplanen`, "Reservationer og borde, ubegrænset", `Z-bon-aflæsning fra foto: ${pro.z_report_scans_per_day} om dagen`]],
@@ -226,7 +226,7 @@ describe("plan limits: the cards carry billing.py PLAN_CAPS", () => {
     S.swap = true;
     let p = show("da");
     expect(cards(p.$$).map((c) => c.lines)).toEqual([
-      ["2 bruger, 2 afdeling, op til 7 medarbejdere på vagtplanen", "Reservationer, 33 om måneden, op til 11 borde — bookingside, bordplan, venteliste", "Z-bon-aflæsning fra foto: 5 om dagen — hver dags kasserapport som PDF uden grænse"],
+      ["2 bruger, 2 afdeling, op til 7 medarbejdere på vagtplanen", "Reservationer, 33 om måneden, op til 11 borde – bookingside, bordplan, venteliste", "Z-bon-aflæsning fra foto: 5 om dagen – hver dags kasserapport som PDF uden grænse"],
       ["Dig + 5 teammedlemmer med rollerettigheder, op til 61 medarbejdere på vagtplanen", "Reservationer og borde, ubegrænset", "Z-bon-aflæsning fra foto: 23 om dagen"],
       ["4 afdelinger, dig + 8 teammedlemmer, op til 222 medarbejdere på vagtplanen", "Reservationer og borde, ubegrænset", "Z-bon-aflæsning fra foto: 113 om dagen"],
     ]);
@@ -237,7 +237,7 @@ describe("plan limits: the cards carry billing.py PLAN_CAPS", () => {
       "You + 5 team members with role permissions, up to 61 staff on the schedule",
       "4 locations, you + 8 team members, up to 222 staff on the schedule",
     ]);
-    expect(cards(p.$$)[0].lines[1]).toBe("Reservations, 33 a month, up to 11 tables — booking page, floor plan, waitlist");
+    expect(cards(p.$$)[0].lines[1]).toBe("Reservations, 33 a month, up to 11 tables – booking page, floor plan, waitlist");
     expect(cards(p.$$).slice(1).map((c) => c.lines[2])).toEqual(["Z-report reading from a photo: 23 a day", "Z-report reading from a photo: 113 a day"]);
   });
 });
@@ -247,7 +247,8 @@ describe("MOMS on our own price: said as the basis is known", () => {
   // moms, so neither prepared sentence is true and the third basis says the customer pays the listed price
   it("PRICE_MOMS_BASIS is \"none\" today: one line under the price note says no moms comes on top (da + en; MOMS stays the word on the English page)", () => {
     expect(REAL.moms).toBe("none");
-    for (const [lang, line] of [["da", "Der kommer ikke moms oven i prisen."], ["en", "No MOMS is added on top of the price."]]) {
+    // polish pass (10 Nov): MOMS in capitals on the Danish page too
+    for (const [lang, line] of [["da", "Der kommer ikke MOMS oven i prisen."], ["en", "No MOMS is added on top of the price."]]) {
       const p = show(lang);
       expect([lang, p.$$(".pnote").map((n) => norm(n.textContent)).slice(1)]).toEqual([lang, [line]]);
       // and no price on the page carries an "ekskl." / "inkl." of its own
@@ -312,7 +313,8 @@ describe("the price note says what Terms § 8 says", () => {
 
 describe("CTAs: router links, in order", () => {
   // fix round 2 (10 Nov): Gratis has its own "Start gratis" (no plan in the address: /register is the free start), and the founder
-  // block ends with the main button (in the markup twice: under the prices on the one-column page, beside the questions from 1200 px)
+  // block beside the questions (from 1200 px) ends with the main button. Polish pass (10 Nov): its copy under the prices on the
+  // one-column page has no button, so the block's button is in the markup once
   it("every way in goes to /register (top bar, hero, end of the day, bottom bar, the three plans, prices, the founder block) or /login; Vælg Starter / Vælg Pro carry the plan; Start gratis carries none", () => {
     const { $$ } = show("da");
     const where = (a) => (a.closest("#top-bar") ? "top" : a.closest("#hero") ? "hero" : a.closest("#snend") ? "end" : a.closest("#dock") ? "dock" : a.closest(".price") ? "card" : a.closest("#pcta") ? "prices" : a.closest(".human") ? "founder" : "other");
@@ -327,7 +329,6 @@ describe("CTAs: router links, in order", () => {
       ["card", "/register?plan=starter", "Vælg Starter"],
       ["card", "/register?plan=pro", "Vælg Pro"],
       ["prices", "/register", "Prøv gratis"],
-      ["founder", "/register", "Prøv gratis"],
       ["founder", "/register", "Prøv gratis"],
     ]);
     expect(cards($$).map((c) => [c.price.split(" ")[0], c.pick])).toEqual([["Gratis", ["/register"]], [String(REAL.prices.PLAN_PRICES.starter.founding), ["/register?plan=starter"]], [String(REAL.prices.PLAN_PRICES.pro.founding), ["/register?plan=pro"]]]);
@@ -475,7 +476,7 @@ describe("the footer reaches a person and the legal texts", () => {
     const { $ } = show("da");
     const old = read("components/landing/v2/FooterV2.jsx");
     const lines = $(".foot .legal p").innerHTML.split("<br>").slice(0, 2);
-    expect(lines).toEqual(["BonBox – et produkt fra Orvexlo", "CVR 46417321"]);
+    expect(lines).toEqual(["BonBox&nbsp;– et produkt fra Orvexlo", "CVR 46417321"]);
     for (const l of ["Orvexlo", "CVR 46417321"]) expect(old).toContain(`"${l}"`);
   });
 });

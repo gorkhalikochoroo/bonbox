@@ -69,8 +69,10 @@ describe("the root and what the engine reads (engine.js hand-over, step 4)", () 
 
   it("every id the engine queries exists exactly once inside the root", () => {
     const { root } = show("da");
-    const ids = "night top-bar hero hero-cta track frame aften-h date ix clock scene plate zbline c1 c2 c3 roster uge booking bookw vagt vapp nb room roombox v2l roomfoot tal stand standw foto fotow zb kasse snav snev count prog prev next snend eprev dock dprev dnext dcount dprog sheet pcta bcta foot probe".split(" ");
+    const ids = "night top-bar hero hero-cta track frame aften-h date ix clock scene plate zbline c1 c2 c3 roster uge booking bookw vagt vapp nb room roombox v2l roomfoot tal stand standw foto fotow zb kasse snav snev count prog prev next snend eprev dock dprev dnext dcount dprog sheet pcta foot probe".split(" ");
     for (const id of ids) expect([id, root.querySelectorAll(`#${id}`).length]).toEqual([id, 1]);
+    // polish pass (10 Nov): the block under the prices has no button, so there is no #bcta for the engine to ask for
+    expect(root.querySelector("#bcta")).toBeNull();
     for (const id of ["t-v1", "t-v2"]) expect(root.querySelector(`#${id}`)).not.toBeNull();
     const all = [...root.querySelectorAll("[id]")].map((e) => e.id);
     expect(all.length).toBe(new Set(all).size); // no duplicate id in the page
@@ -132,7 +134,7 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
       'Bookingsiden er ét link til din <span class="nw">Instagram-bio</span> og <span class="nw">Google-profil.</span> Intet gebyr pr. booking.',
       "Gæsten fra kl. 12.30 sidder ved Vindue 2.",
       '63 gæster: 61 med booking, <span class="nw">2 som drop-in.</span>',
-      "Tabletten ved døren viser kun reservationer — aldrig regnskab eller løn.",
+      "Tabletten ved døren viser kun reservationer&nbsp;– aldrig regnskab eller løn.",
     ]);
     expect($$(".copy.st time").map((e) => e.textContent)).toEqual(["10.00", "12.30", "16.40", "19.45", "22.50", "00.10"]);
     expect(text(".clock .dot")).toBe(".");
@@ -148,19 +150,19 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
   it("prices: frozen names and lines, every number from planPrices / planLimits", () => {
     const { $, $$ } = show("da");
     const { starter, pro } = PLAN_PRICES;
-    expect($("#pricing-h").textContent).toBe(`${starter.founding} kr./md. for de første ${FOUNDING_LIMIT} virksomheder med et betalt abonnement${NB}— derefter ${starter.regular}${NB}kr./md.`);
+    expect($("#pricing-h").textContent).toBe(`${starter.founding} kr./md. for de første ${FOUNDING_LIMIT} virksomheder med et betalt abonnement${NB}– derefter ${starter.regular}${NB}kr./md.`);
     const cards = $$(".price").map((li) => [li.querySelector(".pn").textContent, li.querySelector(".pp").textContent, li.querySelector(".then").textContent, [...li.querySelectorAll(".inc > span")].map((s) => s.textContent)]);
     expect(cards).toEqual([
-      ["", "Gratis", "uden kort", ["1 bruger, 1 afdeling, op til 3 medarbejdere på vagtplanen", "Reservationer, 20 om måneden, op til 3 borde — bookingside, bordplan, venteliste", `Z-bon-aflæsning fra foto: 3${NB}om${NB}dagen — hver dags kasserapport som PDF uden grænse`]],
+      ["", "Gratis", "uden kort", ["1 bruger, 1 afdeling, op til 3 medarbejdere på vagtplanen", `Reservationer, 20 om måneden, op til 3 borde${NB}– bookingside, bordplan, venteliste`, `Z-bon-aflæsning fra foto: 3${NB}om${NB}dagen${NB}– hver dags kasserapport som PDF uden grænse`]],
       ["Starter", `${starter.founding} kr./md.`, `Efter de første ${FOUNDING_LIMIT}: ${starter.regular}${NB}kr./md.`, ["Dig + 2 teammedlemmer med rollerettigheder, op til 50 medarbejdere på vagtplanen", "Reservationer og borde, ubegrænset", `Z-bon-aflæsning fra foto: 20${NB}om${NB}dagen`]],
       ["Pro", `${pro.founding} kr./md.`, `Efter de første ${FOUNDING_LIMIT}: ${pro.regular}${NB}kr./md.`, ["3 afdelinger, dig + 4 teammedlemmer, op til 200 medarbejdere på vagtplanen", "Reservationer og borde, ubegrænset", `Z-bon-aflæsning fra foto: 100${NB}om${NB}dagen`]],
     ]);
     // 3 Nov 2026: one line under the cards, what every plan has and what starts at Starter
     // fix round 2 (10 Nov): and, right under it, that the door tablet takes no login
-    expect($$(".pall").map((p) => p.textContent)).toEqual(["Timer, Lager og Økonomi er med på alle planer — fakturaer, bankafstemning og tidsregistrering fra Starter.", "Tabletten ved døren bruger ikke et login."]);
+    expect($$(".pall").map((p) => p.textContent)).toEqual([`Timer, Lager og Økonomi er med på alle planer${NB}– fakturaer, bankafstemning og tidsregistrering fra Starter.`, "Tabletten ved døren bruger ikke et login."]);
     expect($(".pnote").innerHTML.replace(/&nbsp;/g, NB)).toBe(`<b>Opsig når som helst.</b> Ingen binding, intet opstartsgebyr. Priserne er pr.${NB}virksomhed. Opsigelsen gælder fra udgangen af den måned, du har betalt for.`);
     // fix round 2 (10 Nov): PRICE_MOMS_BASIS is "none" (the seller is not registered for moms), so the MOMS line follows the price note
-    expect($$(".pnote").map((p) => p.textContent).slice(1)).toEqual(["Der kommer ikke moms oven i prisen."]);
+    expect($$(".pnote").map((p) => p.textContent).slice(1)).toEqual(["Der kommer ikke MOMS oven i prisen."]); // MOMS in capitals since the polish pass (10 Nov)
   });
 
   it("Tryghed, Spørgsmål, who is behind it, footer", () => {
@@ -169,12 +171,12 @@ describe("the Danish page is the prototype's text (v6.3), numbers from one place
     expect(trust[0]).toBe("Database i EU (Frankfurt, Tyskland) · underleverandører i privatlivspolitikken");
     expect(trust[1]).toMatch(/Anthropic.*endnu ikke bekræftet.*Vi sælger ikke dine data/);
     // security fix round (23 Oct): the staff line says what the code enforces (landingV6Claims.test.jsx pins why)
-    expect(trust.slice(2)).toEqual(["Ingen andel af din omsætning", "MedarbejderSer vagtplanen og egne timer. Ingen adgang til regnskab, MOMS, bank eller andres løn.", "Findes i App Store: BonBox og Vagtplan"]);
+    expect(trust.slice(2)).toEqual(["Ingen andel af din omsætning", "MedarbejderSer vagtplanen og egne timer. Ingen adgang til regnskab, MOMS, bank eller andres løn.", "Findes i App Store: BonBox Daily Close og BonBox Vagtplan"]);
     expect($$(".qa summary").map((s) => s.textContent)).toEqual(["Virker det med min POS?", "Hvad sker der efter de 14 dages prøveperiode?", "Skal personalet have en app?", "Passer BonBox til saloner?"]);
     expect(text(".hm-1")).toBe("Jeg hedder Manoj.");
     expect($(".hm-m a").getAttribute("href")).toBe("mailto:contact@bonbox.dk");
     // Orvexlo (3 Nov 2026): the product line names the register's name once, then the CVR
-    expect($(".foot .legal p").innerHTML).toBe('BonBox – et produkt fra Orvexlo<br>CVR 46417321<br><a href="mailto:contact@bonbox.dk">contact@bonbox.dk</a>');
+    expect($(".foot .legal p").innerHTML).toBe('BonBox&nbsp;– et produkt fra Orvexlo<br>CVR 46417321<br><a href="mailto:contact@bonbox.dk">contact@bonbox.dk</a>');
     // fix round: the language switch in the footer too (the top bar's steps aside on narrow phones once the header's button is up);
     // flags round (23 Oct): two flags, no letters
     expect($$(".foot .links li").map((li) => li.textContent)).toEqual(["Handelsbetingelser", "Privatlivspolitik", "Kontakt", "Cookieindstillinger", ""]);
@@ -190,8 +192,9 @@ describe("links: router links in the app, #pricing, the right store", () => {
     const { $$ } = show("da");
     const hrefs = $$("a").map((a) => a.getAttribute("href"));
     expect(hrefs.filter((h) => /^https?:\/\/(www\.)?bonbox\.dk/.test(h))).toEqual([]);
-    // fix round 2 (10 Nov): + "Start gratis" under Gratis and the founder block's button (in the markup twice, one shown per layout)
-    expect(hrefs.filter((h) => h === "/register")).toHaveLength(8); // top bar, hero, end of the day, bottom bar, Gratis, prices, founder × 2
+    // fix round 2 (10 Nov): + "Start gratis" under Gratis and the founder block's button; polish pass (10 Nov): that button is beside
+    // the questions only (from 1200 px), the block under the prices has none
+    expect(hrefs.filter((h) => h === "/register")).toHaveLength(7); // top bar, hero, end of the day, bottom bar, Gratis, prices, founder
     expect(hrefs.filter((h) => h === "/register?plan=starter" || h === "/register?plan=pro")).toEqual(["/register?plan=starter", "/register?plan=pro"]);
     expect(hrefs.filter((h) => h === "/login")).toHaveLength(1);
     expect(hrefs.filter((h) => h === "#pricing")).toHaveLength(2); // Priser, Se priser
@@ -203,7 +206,7 @@ describe("links: router links in the app, #pricing, the right store", () => {
     const { $$ } = show("da");
     const store = $$('a[href^="https://apps.apple.com/"]').map((a) => [a.getAttribute("href").match(/id\d+$/)[0], a.textContent]);
     // 16.40 (stage + stacked), Tryghed's row naming the two apps (10 Nov), the staff question, the footer
-    expect(store).toEqual([["id6787010793", "Vagtplan i App Store"], ["id6787010793", "Vagtplan i App Store"], ["id6762066960", "BonBox"], ["id6787010793", "Vagtplan"], ["id6787010793", "Vagtplan i App Store"], ["id6762066960", "BonBox i App Store"]]);
+    expect(store).toEqual([["id6787010793", "Vagtplan i App Store"], ["id6787010793", "Vagtplan i App Store"], ["id6762066960", "BonBox Daily Close"], ["id6787010793", "BonBox Vagtplan"], ["id6787010793", "Vagtplan i App Store"], ["id6762066960", "BonBox i App Store"]]);
   });
 
   it("Android: no App Store link; the web app instead (/join for staff, /register for the owner)", () => {

@@ -45,12 +45,11 @@ describe("the price table carries the plan (PQ-17, B6)", () => {
     const { container } = render(<MemoryRouter><V6 /></MemoryRouter>);
     const links = [...container.querySelectorAll('a[href^="/register"]')].map((a) => [a.getAttribute("href"), a.textContent]);
     // landing fix round 2 (10 Nov 2026): Gratis has its own "Start gratis" (the free start carries no plan), and the founder block
-    // ends with the main button (in the markup twice: under the prices on the one-column page, beside the questions from 1200 px)
+    // beside the questions (from 1200 px) ends with the main button; polish pass (10 Nov): its copy under the prices has no button
     expect(links).toEqual([
       ["/register", da["landingV6.price.pickFree"]],
       ["/register?plan=starter", da["landingV6.price.pickStarter"]],
       ["/register?plan=pro", da["landingV6.price.pickPro"]],
-      ["/register", da["landingV6.cta"]],
       ["/register", da["landingV6.cta"]],
       ["/register", da["landingV6.cta"]],
     ]);

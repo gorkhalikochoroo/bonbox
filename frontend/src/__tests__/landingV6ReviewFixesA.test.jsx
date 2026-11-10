@@ -70,7 +70,7 @@ describe("fix 3 · the note under each scene says what the owner stops doing", (
         "c1 1b": "På iPhone i Vagtplan-appen, på Android i browseren. Vagtplan i App Store",
         "c2 2a": "Bookingsiden er ét link til din Instagram-bio og Google-profil. Intet gebyr pr. booking.",
         "c2 S": "Gæsten fra kl. 12.30 sidder ved Vindue 2.",
-        "c2 2b": "Tabletten ved døren viser kun reservationer — aldrig regnskab eller løn.",
+        "c2 2b": "Tabletten ved døren viser kun reservationer – aldrig regnskab eller løn.",
         "c3 3a": "Du beholder din kasse. BonBox læser Z-bonen fra et foto.",
         "c3 3b": "Kasserapporter som PDF – du gemmer dem selv i 5 år",
       },
@@ -79,7 +79,7 @@ describe("fix 3 · the note under each scene says what the owner stops doing", (
         "c1 1b": "On iPhone in the Vagtplan app, on Android in the browser. Vagtplan on the App Store",
         "c2 2a": "One booking link for your Instagram bio and Google profile. No fee per booking.",
         "c2 S": "The guest from 12:30 is seated at Vindue 2.",
-        "c2 2b": "The tablet at the door shows reservations only — never accounts or wages.",
+        "c2 2b": "The tablet at the door shows reservations only – never accounts or wages.",
         "c3 3a": "You keep your till. BonBox reads the Z-report from a photo.",
         "c3 3b": "Each kasserapport as a PDF – you keep them for 5 years",
       },
@@ -131,7 +131,7 @@ describe("fix 3 · the note under each scene says what the owner stops doing", (
     expect(notes("s1")).toEqual(["I stedet for regnearket og gruppechatten."]);
     expect(notes("s2")).toEqual(["Bookingsiden er ét link til din Instagram-bio og Google-profil. Intet gebyr pr. booking."]);
     expect(notes("s3")).toEqual(["På iPhone i Vagtplan-appen, på Android i browseren. Vagtplan i App Store"]);
-    expect(notes("s5")).toEqual(["Tabletten ved døren viser kun reservationer — aldrig regnskab eller løn.", "63 gæster: 61 med booking, 2 som drop-in."]);
+    expect(notes("s5")).toEqual(["Tabletten ved døren viser kun reservationer – aldrig regnskab eller løn.", "63 gæster: 61 med booking, 2 som drop-in."]);
     expect(notes("s6")).toEqual(["Du beholder din kasse. BonBox læser Z-bonen fra et foto.", "Dagen skifter kl. 06.00, så salget efter midnat hører til tirsdag.", "Kasserapporter som PDF – du gemmer dem selv i 5 år"]);
     expect($$("#s1 a[href^='http']")).toEqual([]);
     expect($$("#s3 .copy.st a").map((a) => [a.getAttribute("href"), a.getAttribute("target"), a.getAttribute("rel")])).toEqual([[APP_STORE.scheduler, "_blank", "noopener noreferrer"]]);
@@ -153,8 +153,8 @@ describe("fix 3 · 'no fee per booking, no cut of your revenue, one flat price p
       expect([lang, $$("#pricing .lead .psub").map((p) => [p.className, norm(p.textContent)])]).toEqual([lang, [["psub", norm(d["landingV6.price.flat"])], ["psub pkeep", norm(d["landingV6.price.subhead"])]]]);
       cleanup();
     }
-    expect(da["landingV6.price.flat"]).toBe("Én fast pris pr. virksomhed – ikke pr. medarbejder. Intet gebyr pr. booking, ingen andel af din omsætning.");
-    expect(en["landingV6.price.flat"]).toBe("One flat price per business – not per employee. No fee per booking, no cut of your revenue.");
+    expect(da["landingV6.price.flat"]).toBe("Én fast pris pr. virksomhed\u00a0– ikke pr. medarbejder. Intet gebyr pr. booking, ingen andel af din omsætning.");
+    expect(en["landingV6.price.flat"]).toBe("One flat price per business\u00a0– not per employee. No fee per booking, no cut of your revenue.");
     expect(CSS).toContain(".lp6 .psub:not(.pkeep){color:var(--ink)}");
   });
 
@@ -187,10 +187,10 @@ describe("fix 2 · prices: one rule for the first 100, on the landing and on the
     expect(terms).toContain(`Så længe færre end ${FOUNDING_LIMIT} virksomheder har et betalt abonnement`);
     expect(terms).toContain(`While fewer than ${FOUNDING_LIMIT} businesses have a paid subscription`);
     let p = show("da");
-    expect(p.text("#pricing-h")).toContain(`for de første ${FOUNDING_LIMIT} virksomheder med et betalt abonnement — derefter`);
+    expect(p.text("#pricing-h")).toContain(`for de første ${FOUNDING_LIMIT} virksomheder med et betalt abonnement – derefter`);
     cleanup();
     p = show("en");
-    expect(p.text("#pricing-h")).toContain(`for the first ${FOUNDING_LIMIT} businesses with a paid subscription — then`);
+    expect(p.text("#pricing-h")).toContain(`for the first ${FOUNDING_LIMIT} businesses with a paid subscription – then`);
   });
 
   it("the sign-up page's founding line says the same (it said 'betalende kunder' / 'paying customers')", () => {
@@ -256,7 +256,8 @@ describe("fix 2 · prices: what the plans give, and how to pick one", () => {
 
   it("the MOMS line: the basis is 'none', so the page says no moms comes on top, and the 'exact amount at checkout' sentence left the price note", () => {
     expect(PRICE_MOMS_BASIS).toBe("none");
-    for (const [lang, line] of [["da", "Der kommer ikke moms oven i prisen."], ["en", "No MOMS is added on top of the price."]]) {
+    // polish pass (10 Nov): the Danish line writes MOMS in capitals, as the rest of the Danish page does
+    for (const [lang, line] of [["da", "Der kommer ikke MOMS oven i prisen."], ["en", "No MOMS is added on top of the price."]]) {
       const { $$, text } = show(lang);
       expect([lang, $$(".pnote").map((p) => norm(p.textContent))[1]]).toEqual([lang, line]);
       expect([lang, text("#pricing")]).toEqual([lang, expect.not.stringMatching(/præcise beløb|exact amount/i)]);
@@ -309,12 +310,16 @@ describe("fix 1 · a professional way to ask, beside the price button", () => {
 describe("fix 1 · who is behind it: the company, a button, and no promise the owner did not make", () => {
   const blocks = ($$) => $$(".human");
 
-  it("the founder's text is as it was; then the company with the CVR linked to the public register, the address, the main button and the trial line (da + en)", () => {
+  // polish pass (10 Nov): the one-column copy (#bag, under the prices) ends with the address link; only the copy beside the
+  // questions (shown from 1200 px) ends with the main button and the trial line
+  it("the founder's text is as it was; then the company with the CVR linked to the public register and the address; beside the questions the main button and the trial line follow (da + en)", () => {
     for (const [lang, d, company] of [["da", da, "BonBox drives af Orvexlo (CVR 46417321), København."], ["en", en, "BonBox is run by Orvexlo (CVR 46417321), Copenhagen."]]) {
       const { $$ } = show(lang);
       expect(blocks($$)).toHaveLength(2);
+      expect(blocks($$).map((b) => !!b.closest("#bag"))).toEqual([true, false]);
       for (const b of blocks($$)) {
-        expect([lang, [...b.children].map((c) => c.className)]).toEqual([lang, ["label", "hm-1", "hm-2", "hm-c", "hm-m", "hm-go"]]);
+        const up = !!b.closest("#bag");
+        expect([lang, up, [...b.children].map((c) => c.className)]).toEqual([lang, up, up ? ["label", "hm-1", "hm-2", "hm-c", "hm-m"] : ["label", "hm-1", "hm-2", "hm-c", "hm-m", "hm-go"]]);
         expect([lang, norm(b.querySelector(".label").textContent), norm(b.querySelector(".hm-1").textContent), norm(b.querySelector(".hm-2").textContent)]).toEqual([lang, d["landingV6.founder.label"], d["landingV6.founder.name"], d["landingV6.founder.reply"]]);
         expect([lang, norm(b.querySelector(".hm-c").textContent)]).toEqual([lang, company]);
         const cvr = b.querySelector(".hm-c a");
@@ -322,8 +327,15 @@ describe("fix 1 · who is behind it: the company, a button, and no promise the o
         expect(cvr.getAttribute("href")).toBe(site.CVR_REGISTER);
         expect(b.querySelector(".hm-m a").getAttribute("href")).toBe(`mailto:${CONTACT_EMAIL}`);
         const go = b.querySelector(".hm-go");
-        expect([...go.children].map((c) => [c.tagName, c.className, c.getAttribute("href"), norm(c.textContent)])).toEqual([["A", "btn btn-lg", "/register", d["landingV6.cta"]], ["SPAN", "hm-t", null, norm(d["landingV6.trialEnd"])]]);
-        expect(b.lastElementChild).toBe(go);
+        if (up) {
+          // under the prices: no second "Prøv gratis", no trial line; the block ends with the address link
+          expect([lang, go, b.querySelectorAll('a[href="/register"], .btn, .hm-t').length]).toEqual([lang, null, 0]);
+          expect(b.lastElementChild).toBe(b.querySelector(".hm-m"));
+          expect([lang, norm(b.textContent)]).toEqual([lang, expect.not.stringContaining(norm(d["landingV6.trialEnd"]))]);
+        } else {
+          expect([...go.children].map((c) => [c.tagName, c.className, c.getAttribute("href"), norm(c.textContent)])).toEqual([["A", "btn btn-lg", "/register", d["landingV6.cta"]], ["SPAN", "hm-t", null, norm(d["landingV6.trialEnd"])]]);
+          expect(b.lastElementChild).toBe(go);
+        }
       }
       cleanup();
     }
@@ -359,13 +371,16 @@ describe("fix 1 · who is behind it: the company, a button, and no promise the o
     expect(CSS).toContain(".lp6 #faq .rail > .human{grid-column:1;grid-row:2;margin-top:20px}");
   });
 
-  it("the bottom bar steps aside over the block's own button (as over the price button), and a language switch keeps the reader's place in the block", () => {
+  // polish pass (10 Nov): the block under the prices has no button of its own any more (three identical "Prøv gratis" on one phone
+  // screen), so the bottom bar steps aside for the price button and the footer only, as before fix round 2, and the engine has no
+  // path left for a button that is not there
+  it("the block under the prices has no button for the bottom bar to step aside for (it steps aside over the price button only), and a language switch keeps the reader's place in the block", () => {
     const { $, root } = show("da");
-    expect($("#bag .hm-go").id).toBe("bcta");
+    expect([root.querySelector("#bcta"), $("#bag .hm-go"), $("#bag").querySelectorAll('a[href^="/register"]').length]).toEqual([null, null, 0]);
     const engine = read("components/landing/v6/engine.js");
-    expect(engine).toContain('const c = $("hero-cta"), p = $("pcta"), b = $("bcta");');
-    expect(engine).toContain("if (b && b.offsetHeight) { G.b0 = docTop(b); G.b1 = G.b0 + b.offsetHeight; } else G.b0 = G.b1 = -1;");
-    expect(engine).toContain("const onB = past && !(G.p0 < y + vh - 64 && G.p1 > y) && !(G.b1 > 0 && G.b0 < y + vh - 64 && G.b1 > y) && y + vh < G.foot + 40;");
+    expect(engine).toContain('const c = $("hero-cta"), p = $("pcta");');
+    expect(engine).not.toMatch(/bcta|G\.b0|G\.b1/);
+    expect(engine).toContain("const onB = past && !(G.p0 < y + vh - 64 && G.p1 > y) && y + vh < G.foot + 40;");
     // place.js: with the prices scrolled away and the block on screen, the block is the reader's place
     const box = (top, bottom) => () => ({ top, bottom, left: 0, right: 390, width: 390, height: bottom - top });
     const rects = { mere: box(-2400, -1700), pricing: box(-1700, -80), bag: box(-80, 290), tryghed: box(290, 900), faq: box(900, 1300), foot: box(1300, 1900) };
@@ -381,29 +396,36 @@ describe("fix 1 · who is behind it: the company, a button, and no promise the o
 });
 
 describe("fix 1 · Tryghed: the two apps on the App Store, by their own names", () => {
-  it("one row, after the staff row: 'Findes i App Store: BonBox og Vagtplan', each name its App Store link (da + en)", () => {
-    for (const [lang, line] of [["da", "Findes i App Store: BonBox og Vagtplan"], ["en", "On the App Store: BonBox and Vagtplan"]]) {
+  // polish pass (10 Nov, the lead's item 7): the row uses the listings' own titles, which differ by store language
+  it("one row, after the staff row: 'Findes i App Store: BonBox Daily Close og BonBox Vagtplan' / 'On the App Store: BonBox Daily Close and BonBox Shifts', each name its App Store link (da + en)", () => {
+    for (const [lang, line, staffApp] of [["da", "Findes i App Store: BonBox Daily Close og BonBox Vagtplan", "BonBox Vagtplan"], ["en", "On the App Store: BonBox Daily Close and BonBox Shifts", "BonBox Shifts"]]) {
       const { $$ } = show(lang);
       const rows = $$(".trust li");
       const row = rows[rows.length - 1];
       expect([lang, norm(row.textContent)]).toEqual([lang, line]);
-      expect([...row.querySelectorAll("a")].map((a) => [norm(a.textContent), a.getAttribute("href")])).toEqual([["BonBox", APP_STORE.owner], ["Vagtplan", APP_STORE.scheduler]]);
+      expect([...row.querySelectorAll("a")].map((a) => [norm(a.textContent), a.getAttribute("href")])).toEqual([["BonBox Daily Close", APP_STORE.owner], [staffApp, APP_STORE.scheduler]]);
+      // each name stays whole on its line (a <nw> around its link), linked or not, and "og" / "and" goes down with the second name
+      expect([...row.querySelectorAll(".nw")].map((n) => norm(n.textContent))).toEqual(["BonBox Daily Close", `${lang === "da" ? "og" : "and"} ${staffApp}`]);
       cleanup();
     }
   });
 
-  it("the names are the apps' own (their display names in the two iOS projects), and both links are the live apps", () => {
+  it("the names are the App Store listings' titles (read on the two listings, 10 Nov), not the Home-screen names the two iOS projects carry, and both links are the live apps", () => {
+    // the Home-screen names stay "BonBox" and "Vagtplan" (what the app is called once installed; 16.40's "Vagtplan-appen" is that name)
     expect(read("../ios/App/App/Info.plist")).toMatch(/<key>CFBundleDisplayName<\/key>\s*<string>BonBox<\/string>/);
     expect(read("../ios-scheduler/App/App/Info.plist")).toMatch(/<key>CFBundleDisplayName<\/key>\s*<string>Vagtplan<\/string>/);
     expect(APP_STORE).toEqual({ scheduler: "https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793", owner: "https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960" });
-    expect(da["landingV6.trust.apps"]).toBe("Findes i App Store: <a>BonBox</a> og <a>Vagtplan</a>");
+    expect(da["landingV6.trust.apps"]).toBe("Findes i App Store: <nw><a>BonBox Daily Close</a></nw> <nw>og <a>BonBox Vagtplan</a></nw>");
+    expect(en["landingV6.trust.apps"]).toBe("On the App Store: <nw><a>BonBox Daily Close</a></nw> <nw>and <a>BonBox Shifts</a></nw>"); // "og" / "and" is inside the second name's <nw>: no line ends on it
+    // the first name is the owner app, the second the staff app, in both languages (Sheet.jsx links by position)
+    expect(read("components/landing/v6/Sheet.jsx")).toContain("const to = [APP_STORE.owner, APP_STORE.scheduler];");
   });
 
   it("Android: the same row as plain text (no link to a store the visitor cannot use)", () => {
     const { $$ } = show("da", ANDROID);
     const rows = $$(".trust li");
     const row = rows[rows.length - 1];
-    expect(norm(row.textContent)).toBe("Findes i App Store: BonBox og Vagtplan");
+    expect(norm(row.textContent)).toBe("Findes i App Store: BonBox Daily Close og BonBox Vagtplan");
     expect(row.querySelectorAll("a")).toHaveLength(0);
     expect($$('a[href*="apps.apple.com"]')).toHaveLength(0);
   });

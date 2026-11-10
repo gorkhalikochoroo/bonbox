@@ -1,6 +1,8 @@
 /**
  * LANDING V6 — fix round 2, the fix-up after the three reviews (10 Nov 2026).
  *
+ * (Polish pass, 10 Nov: the page's one dash is the short tankestreg "–", so the pins below read "–" where they read "—"; the rule
+ *  they hold, a no-break space before the dash, is the same and now holds for every dash on the page: landingV6Polish.test.jsx.)
  * 1. The price headline never starts a line with its dash. With the longer first-100 phrase the headline wrapped as
  *    "… et betalt abonnement / — derefter 199 kr./md." at 390 and 1440 px, in both languages: a dash-led line in the pricing
  *    section's largest type reads as a stray bullet. A no-break space before the dash keeps it at the end of a line. Words and
@@ -55,16 +57,16 @@ const decl = (media, selector) => Object.assign({}, ...RULES.filter(([m, s]) => 
 describe("fix-up · the price headline never starts a line with its dash", () => {
   const { founding, regular } = PLAN_PRICES.starter;
   const WANT = {
-    da: `${founding} kr./md. for de første ${FOUNDING_LIMIT} virksomheder med et betalt abonnement${NB}— derefter ${regular}${NB}kr./md.`,
-    en: `${founding} kr./mo for the first ${FOUNDING_LIMIT} businesses with a paid subscription${NB}— then ${regular}${NB}kr./mo.`,
+    da: `${founding} kr./md. for de første ${FOUNDING_LIMIT} virksomheder med et betalt abonnement${NB}– derefter ${regular}${NB}kr./md.`,
+    en: `${founding} kr./mo for the first ${FOUNDING_LIMIT} businesses with a paid subscription${NB}– then ${regular}${NB}kr./mo.`,
   };
 
   it.each(["da", "en"])("%s: a no-break space holds the dash to the word before it; the words and the numbers are as they were", (code) => {
     const raw = (code === "da" ? da : en)["landingV6.price.headline"];
     // one dash, a no-break space before it, an ordinary space after it (the line may break after the dash, never before it)
-    expect(raw.split("—")).toHaveLength(2);
-    expect(raw).toMatch(new RegExp(`\\S${NB}— \\S`));
-    expect(raw).not.toMatch(/[ \t]—/);
+    expect(raw.split("–")).toHaveLength(2);
+    expect(raw).toMatch(new RegExp(`\\S${NB}– \\S`));
+    expect(raw).not.toMatch(/[ \t]–/);
     // the page prints it as written, the numbers from lib/planPrices
     const h = show(code).querySelector("#pricing-h");
     expect(h.textContent).toBe(WANT[code]);

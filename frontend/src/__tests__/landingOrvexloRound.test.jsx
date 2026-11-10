@@ -78,7 +78,7 @@ describe("1 · Orvexlo, as the CVR register has it", () => {
   });
 
   it("the footer names the product once — 'BonBox – et produkt fra Orvexlo' / 'BonBox – a product of Orvexlo' — then the CVR; the copyright line is Orvexlo's (3 Nov: Manoj, BonBox is not a company)", () => {
-    for (const [lang, line] of [["da", "BonBox – et produkt fra Orvexlo"], ["en", "BonBox – a product of Orvexlo"]]) {
+    for (const [lang, line] of [["da", "BonBox&nbsp;– et produkt fra Orvexlo"], ["en", "BonBox&nbsp;– a product of Orvexlo"]]) {
       const { root, $ } = show(lang);
       const parts = $(".foot .legal p").innerHTML.split("<br>");
       expect([lang, parts[0], parts[1]]).toEqual([lang, line, "CVR 46417321"]);
@@ -240,7 +240,7 @@ describe("4 · the price cards: photo reads a day on every card, and what every 
 
   it("one line under the cards, before the price note: Hours, Stock and Money on every plan; invoices, bank matching and time registration from Starter", () => {
     expect(en["landingV6.price.allPlans"]).toBe("Hours, Stock and Money come with every plan; invoices, bank matching and time registration start at Starter.");
-    expect(da["landingV6.price.allPlans"]).toBe("Timer, Lager og Økonomi er med på alle planer — fakturaer, bankafstemning og tidsregistrering fra Starter.");
+    expect(da["landingV6.price.allPlans"]).toBe("Timer, Lager og Økonomi er med på alle planer\u00a0– fakturaer, bankafstemning og tidsregistrering fra Starter.");
     for (const [lang, d] of [["da", da], ["en", en]]) {
       const { $, $$ } = show(lang);
       // fix round 2 (10 Nov): the door-tablet line follows it (landingV6ReviewFixesA.test.jsx holds what it rests on)
@@ -277,14 +277,14 @@ describe("4 · the price cards: photo reads a day on every card, and what every 
 describe("5 · one salon question, saying only what the salon booking does", () => {
   it("the question and answer (da + en), the fourth question; 'og saloner' stays in the sub-line", () => {
     expect(en["landingV6.faq.salonQ"]).toBe("Does BonBox work for salons?");
-    expect(en["landingV6.faq.salonA"]).toBe("Yes. On your booking page, customers choose a service, a stylist — or the first free one — and a time. For each stylist you decide whether they can be booked in your opening hours or only on their published shifts in the schedule.");
+    expect(en["landingV6.faq.salonA"]).toBe("Yes. On your booking page, customers choose a service, a stylist\u00a0– or the first free one\u00a0– and a time. For each stylist you decide whether they can be booked in your opening hours or only on their published shifts in the schedule.");
     expect(da["landingV6.faq.salonQ"]).toBe("Passer BonBox til saloner?");
-    expect(da["landingV6.faq.salonA"]).toBe("Ja. På din bookingside vælger kunden en behandling, en behandler — eller den første ledige — og en tid. For hver behandler bestemmer du, om der kan bookes i dine åbningstider eller kun i behandlerens udgivne vagter i vagtplanen.");
+    expect(da["landingV6.faq.salonA"]).toBe("Ja. På din bookingside vælger kunden en behandling, en behandler\u00a0– eller den første ledige\u00a0– og en tid. For hver behandler bestemmer du, om der kan bookes i dine åbningstider eller kun i behandlerens udgivne vagter i vagtplanen.");
     for (const [lang, d] of [["da", da], ["en", en]]) {
       const { $, $$ } = show(lang);
       const qa = $$("#faq details.qa");
       expect(qa).toHaveLength(4);
-      expect([norm(qa[3].querySelector("summary").textContent), norm(qa[3].querySelector("p").textContent)]).toEqual([d["landingV6.faq.salonQ"], d["landingV6.faq.salonA"]]);
+      expect([norm(qa[3].querySelector("summary").textContent), norm(qa[3].querySelector("p").textContent)]).toEqual([d["landingV6.faq.salonQ"], norm(d["landingV6.faq.salonA"])]); // norm: the answer's dashes carry a no-break space before them (polish pass, 10 Nov); its exact text is pinned above
       expect(norm($(".sub").textContent)).toMatch(lang === "da" ? /og saloner\.$/ : /and salons\.$/);
       cleanup();
     }

@@ -422,7 +422,7 @@ describe("VAT status is not confirmed: no price copy says moms is or is not adde
     expect(en["landingV6.price.noteCheckout"]).toBeUndefined();
     expect(da["landingV6.price.noteCancel"]).toBe("Opsigelsen gælder fra udgangen af den måned, du har betalt for.");
     expect(en["landingV6.price.noteCancel"]).toBe("Cancelling takes effect at the end of the month you have paid for.");
-    expect(da["landingV6.price.momsNone"]).toBe("Der kommer ikke moms oven i prisen.");
+    expect(da["landingV6.price.momsNone"]).toBe("Der kommer ikke MOMS oven i prisen."); // MOMS in capitals since the polish pass (10 Nov), as on the rest of the Danish page
     expect(en["landingV6.price.momsNone"]).toBe("No MOMS is added on top of the price.");
     expect(read("pages/TermsPage.jsx")).toContain("Beløbet, du skal betale, vises ved betalingen, før du bekræfter købet.");
     for (const f of ["np.js", "th.js", "vi.js"]) {

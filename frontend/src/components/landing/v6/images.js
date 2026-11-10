@@ -13,6 +13,11 @@
  *   - gone as a picture: the phone's "Sidder nu" tile is text on the page now (Stage.jsx), not a 252 px image.
  * How each was made, the measurements and the comparison with the live screens: bonbox-lab-state/landing-review-2026-11-10/fix2/
  * NOTES-B.md (tools-b/: the captures and the crops; crop only, no pixel resampled or drawn).
+ * Polish pass (10 Nov 2026): the wide 00.10 photo step was taken once more (kasse-foto-hel-v9). In v8 the app's tab bar covered half
+ * of the "med MOMS (brutto)" toggle in Danish and a red notification badge was cut by the frame's corner. It is now a 430 × 736
+ * screen (an iPhone Plus / Pro Max in Safari): from 412 px wide the Danish and the English app lay the scan card out the same, so
+ * in both languages the tab bar sits over the white card under the scan panel and both toggles are whole; the bell's own "Ryd alle"
+ * was pressed first, so there is no badge. Same method, nothing from production (fix2/polish/NOTES-POLISH.md, tools/cap_foto.cjs).
  *
  * Danish (<name>.webp) and English (<name>.en.webp; 23 Oct 2026, Manoj: "eng should be eng and danish should be danish") are the
  * same screen, moment, demo data, crop and WebP quality, the app in each language. Locked Danish terms the English app keeps
@@ -45,8 +50,8 @@ import standTilesDa from "./img/stand-tal3.webp";
 import standTilesEn from "./img/stand-tal3.en.webp";
 import closePhotoDa from "./img/kasse-foto-v2.webp";
 import closePhotoEn from "./img/kasse-foto-v2.en.webp";
-import closePhotoWholeDa from "./img/kasse-foto-hel-v8.webp";
-import closePhotoWholeEn from "./img/kasse-foto-hel-v8.en.webp";
+import closePhotoWholeDa from "./img/kasse-foto-hel-v9.webp";
+import closePhotoWholeEn from "./img/kasse-foto-hel-v9.en.webp";
 import closeMomsDa from "./img/kasse-moms.webp";
 import closeMomsEn from "./img/kasse-moms.en.webp";
 
@@ -71,8 +76,8 @@ export const IMG = Object.freeze({
   standTiles: pic("stand-tal3", 1010, 214, standTilesDa, standTilesEn),
   // 00.10, the stacked phone page: the Kasserapport photo step (the pinned phone story shows the Z-bon itself)
   closePhoto: pic("kasse-foto-v2", 1083, 1024, closePhotoDa, closePhotoEn),
-  // 00.10, from 768 px: the whole photo step screen
-  closePhotoWhole: pic("kasse-foto-hel-v8", 1179, 1880, closePhotoWholeDa, closePhotoWholeEn),
+  // 00.10, from 768 px: the whole photo step screen (an iPhone Plus-size screen, 430 × 736: the app's tab bar under the scan panel)
+  closePhotoWhole: pic("kasse-foto-hel-v9", 1179, 2018, closePhotoWholeDa, closePhotoWholeEn),
   // 00.10: MOMS worked out (the Kassen card)
   closeMoms: pic("kasse-moms", 1095, 1511, closeMomsDa, closeMomsEn),
 });

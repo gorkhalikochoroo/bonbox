@@ -105,7 +105,8 @@ describe("fix 4: on the phone the sentence is the headline, the clock steps back
     expect(engine).not.toMatch(/vis\(foto,/);
     expect(engine).toContain('[tal, 1], [stand, 1], [zb, 2, 0, "3a"], [kasse, 2]]');
     expect(engine).toContain("stop = KS[0]");
-    expect(engine).toContain("KS = [676, 978, 1511]");
+    // polish pass (10 Nov): the window ends in the blank card under "Omsætning (uden moms)" (row 660), above the rule at 670; it was 676
+    expect(engine).toContain("KS = [660, 978, 1511]");
   });
 
   it("the Z-bon's figure is in every layout's markup (no phone / wide class), with the paper's four rows and the total the MOMS card repeats", () => {
@@ -135,7 +136,7 @@ describe("fix 5: the pictures are the current app, sharp, the same pixels in Dan
       standFloor: "2250_stand_bordplan.webp 1101×690",
       standTiles: "stand-tal3.webp 1010×214",
       closePhoto: "kasse-foto-v2.webp 1083×1024",
-      closePhotoWhole: "kasse-foto-hel-v8.webp 1179×1880",
+      closePhotoWhole: "kasse-foto-hel-v9.webp 1179×2018", // polish pass (10 Nov): retaken, a 430 × 736 screen
       closeMoms: "kasse-moms.webp 1095×1511",
     });
     expect(readdirSync(join(V6, "img"))).toHaveLength(20);
@@ -162,7 +163,7 @@ describe("fix 5: the pictures are the current app, sharp, the same pixels in Dan
     const root = show("da");
     const box = (sel) => { const e = root.querySelector(sel); return `${e.getAttribute("width")}×${e.getAttribute("height")}`; };
     expect([box("#uge img"), box("#vapp img"), box("#vagt img"), box("#vagt source"), box("#standw .tw img"), box("#foto img"), box("#fotow img")])
-      .toEqual(["1440×1572", "1074×1024", "1074×766", "1074×1024", "1010×214", "1083×1024", "1179×1880"]);
+      .toEqual(["1440×1572", "1074×1024", "1074×766", "1074×1024", "1010×214", "1083×1024", "1179×2018"]);
     expect(decl("", ".lp6 .uge .win")).toEqual({ "aspect-ratio": "1440 / 1572" });
     expect(engine).toContain("fit(1440 / 1572, W, P, CLR)");
     expect(engine).toContain("fit(1074 / 1024, W, P, CLR, 560)");
@@ -171,8 +172,9 @@ describe("fix 5: the pictures are the current app, sharp, the same pixels in Dan
     // the tiles are the old picture at twice the pixels, so the 22.50 frame's proportions (66.71 % wide, SG) stand
     expect(IMG.standTiles.width / IMG.standTiles.height).toBeCloseTo(505 / 107, 3);
     expect(engine).toContain("SG = 107 / 757 + 682 / 1101");
-    // wide photo step: the whole phone screen, the same proportions as before (FW)
-    expect(engine).toContain("FW = 1179 / 1880");
+    // wide photo step: the whole phone screen, the stage's maths on the picture's own proportions (FW; polish pass, 10 Nov: 1179 × 2018)
+    expect(engine).toContain("FW = 1179 / 2018");
+    expect(IMG.closePhotoWhole.width / IMG.closePhotoWhole.height).toBeCloseTo(1179 / 2018, 6);
   });
 
   it("16.40: the frame has the card's own corners (24 px of its 358 px: 6.7 %, a hair over) and no white ground, on the phone and wide", () => {

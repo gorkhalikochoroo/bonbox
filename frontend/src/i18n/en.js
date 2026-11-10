@@ -11387,13 +11387,13 @@ export const en = {
     "landingV6.s4.line": "The booking lands in your reservation book.",
     "landingV6.s2.aside": "One booking link for your <nw>Instagram bio</nw> and <nw>Google profile.</nw> No fee per booking.",
     "landingV6.s4.aside": "The guest from 12:30 is seated at Vindue 2.",
-    "landingV6.s5.stand": "The tablet at the door shows reservations only — never accounts or wages.",
+    "landingV6.s5.stand": "The tablet at the door shows reservations only – never accounts or wages.",
     "landingV6.s5.guests": "63 guests: 61 with a booking, <nw>2 drop-ins.</nw>",
     "landingV6.s6.photo": "Take a photo of the Z-report.",
     "landingV6.s6.fill": "BonBox fills in the figures and works out MOMS. You check and lock the day.",
     "landingV6.s6.keep": "You keep your till. BonBox reads the Z-report from a photo.",
     "landingV6.s6.cutoff": "The day turns over at 06:00, so sales after midnight count toward Tuesday.",
-    "landingV6.s6.archive": "Each kasserapport as a PDF – you keep them for 5 years",
+    "landingV6.s6.archive": "Each kasserapport as a PDF – you keep them for 5 years",
     "landingV6.app.scheduler": "Vagtplan on the App Store",
     "landingV6.app.owner": "BonBox on the App Store",
     "landingV6.web.scheduler": "Vagtplan in your browser",
@@ -11437,16 +11437,16 @@ export const en = {
     "landingV6.more.money": "Money",
     "landingV6.more.moneyBody": "MOMS countdown, invoices, receipts and gavekort.",
     "landingV6.price.eyebrow": "Pricing",
-    "landingV6.price.headline": "{founding} kr./mo for the first {n} businesses with a paid subscription — then {regular} kr./mo.",
+    "landingV6.price.headline": "{founding} kr./mo for the first {n} businesses with a paid subscription – then {regular} kr./mo.",
     // 10 Nov 2026: stripe_billing.py creates one subscription per account (quantity 1); billing has no fee and no revenue share
-    "landingV6.price.flat": "One flat price per business – not per employee. No fee per booking, no cut of your revenue.",
+    "landingV6.price.flat": "One flat price per business – not per employee. No fee per booking, no cut of your revenue.",
     "landingV6.price.subhead": "You keep the founding price as long as your subscription stays active without a break.",
     "landingV6.price.freeName": "Free",
     "landingV6.price.noCard": "no card",
     "landingV6.price.freePos": "For closing the day and getting a kasserapport out.",
     "landingV6.price.freeTeam": "{users} user, {branches} location, up to {staff} staff on the schedule",
-    "landingV6.price.freeResv": "Reservations, {resv} a month, up to {tables} tables — booking page, floor plan, waitlist",
-    "landingV6.price.freeScans": "Z-report reading from a photo: {scans} a day — each day's kasserapport as a PDF, no limit",
+    "landingV6.price.freeResv": "Reservations, {resv} a month, up to {tables} tables – booking page, floor plan, waitlist",
+    "landingV6.price.freeScans": "Z-report reading from a photo: {scans} a day – each day's kasserapport as a PDF, no limit",
     "landingV6.price.starterName": "Starter",
     "landingV6.price.proName": "Pro",
     "landingV6.price.perMonth": "{price} kr./mo",
@@ -11481,18 +11481,21 @@ export const en = {
     "landingV6.trust.data": "Your receipt photos are stored in Frankfurt. To read one, BonBox sends a copy to our AI provider, Anthropic, or another provider listed in the privacy policy. Where they process it is not yet confirmed. We don't sell your data and we don't train models on your books.",
     "landingV6.trust.staffRole": "Staff",
     "landingV6.trust.staffDetail": "Sees the rota and their own hours. No access to the books, MOMS, bank or anyone else's pay.",
-    // 10 Nov 2026: the two apps the code links to (site.js APP_STORE; the names are the apps' CFBundleDisplayName)
-    "landingV6.trust.apps": "On the App Store: <a>BonBox</a> and <a>Vagtplan</a>",
+    // 10 Nov 2026: the two apps the code links to (site.js APP_STORE). The names are the App Store listings' own titles (read on the two
+    // listings, 10 Nov: "BonBox Daily Close" and "BonBox Shifts" on the English store); the owner app first, then the staff app (Sheet.jsx links by position);
+    // each name stays whole on its line (<nw>) and "and" sits inside the second name's <nw>, so no line ends on "and" (a no-break
+    // space does not hold before a link that is an inline block: measured on the built page at 390 px)
+    "landingV6.trust.apps": "On the App Store: <nw><a>BonBox Daily Close</a></nw> <nw>and <a>BonBox Shifts</a></nw>",
     "landingV6.faq.label": "Questions",
     "landingV6.faq.posQ": "Does this work with my POS?",
-    "landingV6.faq.posA": "BonBox doesn't replace your POS — it reads what your till prints. Take a photo of the Z-report with any phone and BonBox reads the figures. It works with any till, even one that only prints on paper.",
+    "landingV6.faq.posA": "BonBox doesn't replace your POS – it reads what your till prints. Take a photo of the Z-report with any phone and BonBox reads the figures. It works with any till, even one that only prints on paper.",
     "landingV6.faq.trialQ": "What happens after the 14-day trial?",
-    "landingV6.faq.trialA": "If you haven't chosen a paid plan, you drop to the free plan automatically — no card, no charge. If you choose Starter or Pro during the trial, you pay only once the 14 days are up.",
+    "landingV6.faq.trialA": "If you haven't chosen a paid plan, you drop to the free plan automatically – no card, no charge. If you choose Starter or Pro during the trial, you pay only once the 14 days are up.",
     "landingV6.faq.staffQ": "Do my staff need an app?",
     "landingV6.faq.staffA": "Staff see the schedule on their phone: in the Vagtplan app on iPhone or in the browser.",
     // 3 Nov 2026: what the salon booking does today (public_reservations provider flow, R7 stylist modes); no promises
     "landingV6.faq.salonQ": "Does BonBox work for salons?",
-    "landingV6.faq.salonA": "Yes. On your booking page, customers choose a service, a stylist — or the first free one — and a time. For each stylist you decide whether they can be booked in your opening hours or only on their published shifts in the schedule.",
+    "landingV6.faq.salonA": "Yes. On your booking page, customers choose a service, a stylist – or the first free one – and a time. For each stylist you decide whether they can be booked in your opening hours or only on their published shifts in the schedule.",
     "landingV6.founder.label": "Who's behind this",
     "landingV6.founder.name": "My name is Manoj.",
     // 3 Nov 2026: the benefit first, "just me" kept; no reply-time promise (nothing in the code or the support setup backs one)
@@ -11500,7 +11503,7 @@ export const en = {
     // 10 Nov 2026: the company under the founder's text; {company} and {cvr} = site.js LEGAL_LINES, the link is the CVR register
     "landingV6.founder.company": "BonBox is run by {company} <nw>(<a>{cvr}</a>),</nw> Copenhagen.",
     // {company} = the CVR register's name (site.js LEGAL_LINES[0], "Orvexlo" since 3 Nov 2026); named once, here
-    "landingV6.foot.operatedBy": "BonBox – a product of {company}",
+    "landingV6.foot.operatedBy": "BonBox – a product of {company}",
     "landingV6.foot.terms": "Handelsbetingelser",
     "landingV6.foot.privacy": "Privatlivspolitik",
     "landingV6.foot.contact": "Contact",

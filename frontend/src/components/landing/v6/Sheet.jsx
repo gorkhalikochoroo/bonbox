@@ -31,7 +31,17 @@
  *     the main button and the trial line. No photo, no surname, no set-up promise (the owner, 10 Nov). On the one-column page
  *     (under 1200 px) the block sits directly under the prices (#bag); from 1200 px it stays beside the questions. It is in
  *     the markup twice and the stylesheet shows one (the other is display:none: not rendered, not read out, not focusable);
- *   - Tryghed: one row naming the two apps on the App Store (linked off Android; the names are the apps' own). */
+ *   - Tryghed: one row naming the two apps on the App Store (linked off Android; the names are the apps' own).
+ * Polish pass (10 Nov 2026, after the reviews):
+ *   - the end of the prices on the one-column page (under 1200 px) showed three identical "Prøv gratis" buttons and the address
+ *     twice on one phone screen. There the address under the question link is not shown (the block right below carries it as a
+ *     link; landingV6.css), and the "who is behind it" block ends with the company line and the address link: no button and no
+ *     trial line of its own (the bottom bar carries the page's one "Prøv gratis" again once the price button has scrolled away).
+ *     From 1200 px nothing changed: the copy beside the questions keeps its button and trial line, the address stands beside the
+ *     question link;
+ *   - the App Store row names the apps by their listings' titles (read on the two listings, 10 Nov): "BonBox Daily Close" and
+ *     "BonBox Vagtplan" on the Danish store, "BonBox Daily Close" and "BonBox Shifts" on the English one. The row's first name
+ *     is the owner app, its second the staff app (appLinks: by position, the names differ by language). */
 import { Link } from "react-router-dom";
 import { FOUNDING_LIMIT, PLAN_PRICES } from "../../../lib/planPrices";
 import { PLAN_LIMITS, teamBesidesOwner } from "../../../lib/planLimits";
@@ -40,8 +50,9 @@ import StoreLink from "./StoreLink";
 import { rich } from "./rich";
 import { APP_STORE, CONTACT_EMAIL, CVR_REGISTER, LEGAL_LINES, askHref } from "./site";
 
-/* Who is behind BonBox. up: the one-column page's copy, its own section under the prices (an h2, and the button the engine
-   steps the bottom bar aside for, #bcta); otherwise the copy beside the questions (an h3 under their h2). */
+/* Who is behind BonBox. up: the one-column page's copy, its own section under the prices (an h2); it ends with the company line
+   and the address link (polish, 10 Nov: the price button is one screen above it, and the bottom bar is up again while it is
+   read). Otherwise the copy beside the questions (an h3 under their h2), which ends with the main button and the trial line. */
 function Founder({ t, up }) {
   const Label = up ? "h2" : "h3";
   return (
@@ -51,7 +62,7 @@ function Founder({ t, up }) {
       <p className="hm-2">{t("landingV6.founder.reply")}</p>
       <p className="hm-c">{rich(t("landingV6.founder.company", { company: LEGAL_LINES[0], cvr: LEGAL_LINES[1] }), (c) => <a className="tlink" href={CVR_REGISTER} target="_blank" rel="noopener noreferrer">{c}</a>)}</p>
       <p className="hm-m"><a className="tlink" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a></p>
-      <div className="hm-go" id={up ? "bcta" : undefined}><Link className="btn btn-lg" to="/register">{t("landingV6.cta")}</Link><span className="hm-t">{t("landingV6.trialEnd")}</span></div>
+      {up ? null : <div className="hm-go"><Link className="btn btn-lg" to="/register">{t("landingV6.cta")}</Link><span className="hm-t">{t("landingV6.trialEnd")}</span></div>}
     </div>
   );
 }
@@ -59,8 +70,9 @@ function Founder({ t, up }) {
 export default function Sheet({ t, isAndroid }) {
   const free = PLAN_LIMITS.free, starter = PLAN_LIMITS.starter, pro = PLAN_LIMITS.pro;
   const momsNote = PRICE_MOMS_BASIS === "excl" ? t("landingV6.price.momsExcl") : PRICE_MOMS_BASIS === "incl" ? t("landingV6.price.momsIncl") : PRICE_MOMS_BASIS === "none" ? t("landingV6.price.momsNone") : null;
-  /* the two apps by their own names; off Android each name is its App Store link (an Android visitor cannot use that store) */
-  const appLink = (name) => (isAndroid ? name : <a className="tlink" href={name === "Vagtplan" ? APP_STORE.scheduler : APP_STORE.owner}>{name}</a>);
+  /* the two apps by their App Store titles, the owner app first, then the staff app (the titles differ by language, so the link
+     goes by position); off Android each name is its App Store link (an Android visitor cannot use that store) */
+  const appLinks = () => { const to = [APP_STORE.owner, APP_STORE.scheduler]; let i = 0; return (name) => { const href = to[i++]; return isAndroid || !href ? name : <a className="tlink" href={href}>{name}</a>; }; };
   return (
     <div className="sheet" id="sheet">
       <section className="sec wrap" id="mere" aria-labelledby="mere-h">
@@ -113,7 +125,7 @@ export default function Sheet({ t, isAndroid }) {
             <li data-r="" style={{ "--dl": ".04s" }}><span className="t">{t("landingV6.trust.data")}</span></li>
             <li className="tdup" data-r="" style={{ "--dl": ".04s" }}>{t("landingV6.trust.noCut")}</li>
             <li data-r="" style={{ "--dl": ".08s" }}><b>{t("landingV6.trust.staffRole")}</b><span className="who">{t("landingV6.trust.staffDetail")}</span></li>
-            <li data-r="" style={{ "--dl": ".12s" }}><span className="t">{rich(t("landingV6.trust.apps"), appLink)}</span></li>
+            <li data-r="" style={{ "--dl": ".12s" }}><span className="t">{rich(t("landingV6.trust.apps"), appLinks())}</span></li>
           </ul>
         </div>
       </section>

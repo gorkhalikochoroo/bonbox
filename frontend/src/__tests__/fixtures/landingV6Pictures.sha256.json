@@ -1,5 +1,5 @@
 {
-  "_about": "The app screens of the v6 landing, Danish and English. Fix round 2 (10 Nov 2026, review fix 5; Manoj: \"this is bonbox inside so update accordingly landing page\"): eight of the ten pictures were made again from the app as it is on this branch (bonbox-lab-state/landing-review-2026-11-10/fix2/NOTES-B.md: how, and tools-b/ to make them again); the 22.50 floor plan and the 00.10 MOMS card are the 23 Oct files, kept because the app renders them the same today (their hashes are the 23 Oct fixture's, unchanged: kept_from_23_oct). landingV6Assets.test.jsx hashes the files in the repo against these and, where the lab folder is on disk, the lab's copies too. The share card is pinned as it was. Replace a hash only when a picture is deliberately re-captured, in the same commit, with the reason in the message.",
+  "_about": "The app screens of the v6 landing, Danish and English. Fix round 2 (10 Nov 2026, review fix 5; Manoj: \"this is bonbox inside so update accordingly landing page\"): eight of the ten pictures were made again from the app as it is on this branch (bonbox-lab-state/landing-review-2026-11-10/fix2/NOTES-B.md: how, and tools-b/ to make them again); the 22.50 floor plan and the 00.10 MOMS card are the 23 Oct files, kept because the app renders them the same today (their hashes are the 23 Oct fixture's, unchanged: kept_from_23_oct). landingV6Assets.test.jsx hashes the files in the repo against these and, where the lab folder is on disk, the lab's copies too. The share card is pinned as it was. Replace a hash only when a picture is deliberately re-captured, in the same commit, with the reason in the message. Polish pass (10 Nov 2026, item 5): the wide 00.10 photo step was taken again (kasse-foto-hel-v9, 1179 x 2018: the app's tab bar no longer cuts a toggle, no notification badge; an iPhone Plus-size screen, where the Danish and the English app lay the card out the same); its lab copies are in fix2/polish/pictures (the two sources that start with ../polish), how in fix2/polish/NOTES-POLISH.md and polish/tools/cap_foto.cjs.",
   "source_dir": "bonbox-lab-state/landing-review-2026-11-10/fix2/pictures",
   "kept_from_23_oct": [
     "2250_stand_bordplan",
@@ -21,10 +21,10 @@
       "bytes": 46796,
       "sha256": "fdc8f362b447c465574ffdb09ebd30a04e02a697f62529591c199230a43d2701"
     },
-    "kasse-foto-hel-v8.en.webp": {
-      "source": "kasse-foto-hel-v8.en.webp",
-      "bytes": 76800,
-      "sha256": "75c2587c7d5912afb15c121e6d6e916ece83a2db396d40145c9778e4341c2e17"
+    "kasse-foto-hel-v9.en.webp": {
+      "source": "../polish/pictures/kasse-foto-hel-v9.en.webp",
+      "bytes": 79378,
+      "sha256": "93ab8a31fbc13f3ad7c068bd32ad71792b1805218a2f1c8d499ae77a6ae376af"
     },
     "kasse-foto-v2.en.webp": {
       "source": "kasse-foto-v2.en.webp",
@@ -73,10 +73,10 @@
       "bytes": 48888,
       "sha256": "ded95cd55d05b403f1118c2b96c548c556d705c4177965a357a821af416aa3b7"
     },
-    "kasse-foto-hel-v8.webp": {
-      "source": "kasse-foto-hel-v8.webp",
-      "bytes": 77830,
-      "sha256": "29145593c66b181710ec0a05a96685040a5930853057c90159eb4835cb23439d"
+    "kasse-foto-hel-v9.webp": {
+      "source": "../polish/pictures/kasse-foto-hel-v9.webp",
+      "bytes": 74594,
+      "sha256": "37e150ad6a858a93b0508f98db6925c0efe043e8a7ecd559d2e9ab29b537b188"
     },
     "kasse-foto-v2.webp": {
       "source": "kasse-foto-v2.webp",

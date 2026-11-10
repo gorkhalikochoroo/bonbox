@@ -54,7 +54,7 @@ describe("landing v6 — the ten pictures, each in Danish and English", () => {
     "2250_stand_bordplan",
     "stand-tal3",
     "kasse-foto-v2",
-    "kasse-foto-hel-v8",
+    "kasse-foto-hel-v9",
     "kasse-moms",
   ];
 
@@ -73,6 +73,8 @@ describe("landing v6 — the ten pictures, each in Danish and English", () => {
     // fix round 2 (10 Nov 2026): the pictures the retakes replaced are gone with their last import (and the phone tile's picture: it is text now)
     for (const old of ["vagt-uge-v8", "1945_booking_gaest", "bord-gaest", "1640_vagtplan_naeste_vagt_c15", "vagt-app-v8", "stand-sidder", "stand-tal2", "kasse-foto", "kasse-foto-hel-v7"])
       for (const ext of [".webp", ".en.webp"]) expect(existsSync(join(IMG_DIR, old + ext)), old + ext).toBe(false);
+    // polish pass (10 Nov 2026): the wide photo step was taken once more (the tab bar cut a toggle, a badge was cut by the corner)
+    for (const ext of [".webp", ".en.webp"]) expect(existsSync(join(IMG_DIR, "kasse-foto-hel-v8" + ext)), "kasse-foto-hel-v8" + ext).toBe(false);
   });
 
   it("every picture's Danish and English file have the same pixel size, and it is the width / height the page reserves", () => {

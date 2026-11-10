@@ -981,3 +981,80 @@ describe("fix round 2 (B), review fix 4: the phone story shows the Z-bon becomin
     });
   }
 });
+
+/* ───────────── polish pass (10 Nov 2026), after the reviews ───────────── */
+/* jsdom has no layout, so these give the engine the few measures the hero's pull needs on a phone: the frame's padding (the top bar and
+   the bottom bar), the clock's margin, the track's top in the page and the first statement's label in the frame. The rule itself is
+   guard.js foldPush (landingV6Polish.test.jsx holds it on the sizes measured in a browser). */
+describe("polish pass, item 1: the phone's first screen never ends through the first statement's label", () => {
+  function pullAt(size, labelTopInPage, labelH = 16) {
+    const e = setup(size);
+    const $ = (s) => e.root.querySelector(s);
+    // the screen behind the viewport: a 664 px viewport is the pinned story only on a tall phone with Safari's bars showing (an 844 px screen)
+    const scr = Object.getOwnPropertyDescriptor(window, "screen");
+    Object.defineProperty(window, "screen", { configurable: true, value: { width: size.w, height: size.screen || size.h } });
+    const css = new Map([[$("#frame"), { paddingTop: "56px", paddingBottom: "64px" }], [$("#clock"), { marginTop: "6px" }]]);
+    const real = window.getComputedStyle;
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el, p) => { const c = real(el, p), o = css.get(el); return o ? new Proxy(c, { get: (t, k) => (k in o ? o[k] : typeof t[k] === "function" ? t[k].bind(t) : t[k]) }) : c; });
+    const TRACK = 300; // the track's top in the page: the label's own place is its offset in the frame
+    $("#track").getBoundingClientRect = () => ({ top: TRACK - window.scrollY, bottom: TRACK - window.scrollY, left: 0, right: size.w, width: size.w, height: 0 });
+    const lab = $("#c1 .label");
+    Object.defineProperty(lab, "offsetTop", { configurable: true, get: () => labelTopInPage - TRACK });
+    Object.defineProperty(lab, "offsetHeight", { configurable: true, get: () => labelH });
+    const destroy = mountLanding(e.root);
+    vi.advanceTimersByTime(FRAME);
+    const v = $("#hero").style.getPropertyValue("--hero-pull"), story = e.root.classList.contains("story");
+    destroy();
+    if (scr) Object.defineProperty(window, "screen", scr); else delete window.screen;
+    return story && v !== "" ? Number(v) : v === "" ? "" : NaN; // "" = no pull written (the two-column page); NaN = not the story
+  }
+
+  it("390 × 664 (an iPhone 12–14 in Safari): where the edge would cut the label, the stage starts lower by exactly what puts the label 12 px under the edge", () => {
+    const size = { w: 390, h: 664, screen: 844 };
+    const base = pullAt(size, 2000); // a label far under the screen: the stage's own pull, 12 px under the hero on a short phone
+    expect(Number.isFinite(base) && base < 0).toBe(true);
+    // Danish at the review's commit: the label's box started 4 px above the edge (660 of 664) → 16 px lower, 12 px under the edge
+    expect(pullAt(size, 660) - base).toBe(16);
+    // a label whose bottom is only 8 px above the edge is not "on the first screen with 12 px under it": it goes under too
+    expect(pullAt(size, 640) - base).toBe(36);
+    // one px short of 12 px under the edge → one px; 12 px under → nothing
+    expect(pullAt(size, 675) - base).toBe(1);
+    expect(pullAt(size, 676) - base).toBe(0);
+    // English at the same size: the whole label on the screen with 24 px under it → untouched; and with exactly 12 px under it
+    expect(pullAt(size, 624) - base).toBe(0);
+    expect(pullAt(size, 664 - 12 - 16) - base).toBe(0);
+  });
+
+  it("390 × 844 and 430 × 932: the label is far under the edge, nothing moves; a tablet and the two-column page are not asked", () => {
+    for (const [size, label] of [[{ w: 390, h: 844 }, 911], [{ w: 430, h: 932 }, 982]]) {
+      const far = pullAt(size, 5000);
+      expect([size.h, Number.isFinite(far) && far < 0, pullAt(size, label) - far]).toEqual([size.h, true, 0]);
+    }
+    // the one-column tablet stage: a label on the edge is left alone (its first screen is the hero and the top of the plate)
+    const tablet = pullAt({ w: 820, h: 1180 }, 5000);
+    expect([Number.isFinite(tablet), pullAt({ w: 820, h: 1180 }, 1176)]).toEqual([true, tablet]);
+    // the two-column page hangs the hero from the plate: no pull at all
+    expect(pullAt({ w: 1440, h: 900 }, 896)).toBe("");
+  });
+});
+
+describe("polish pass, item 2: the block under the prices has no button, so the bottom bar steps aside for the price button only", () => {
+  it("390 × 844: down over the price button, up again once it has scrolled away (also where the block's own button was), down at the footer", () => {
+    const e = setup({ w: 390, h: 844 });
+    const place = (el, top, h) => { el.getBoundingClientRect = () => ({ top: top - window.scrollY, bottom: top + h - window.scrollY, left: 0, right: 390, width: 390, height: h }); Object.defineProperty(el, "offsetHeight", { configurable: true, get: () => h }); };
+    const $ = (s) => e.root.querySelector(s);
+    place($("#hero-cta"), 400, 52); place($("#pcta"), 6000, 120); place($("#foot"), 9000, 600);
+    // an element with the id the block's button carried until this pass, where that button was: the engine no longer asks for it
+    $("#sheet").insertAdjacentHTML("beforeend", '<section id="bag"><div id="bcta">x</div></section>');
+    place($("#bcta"), 6500, 52);
+    const d = mountLanding(e.root);
+    const bar = (y) => { scrollAt(e, y); return [$("#dock").classList.contains("on"), e.root.classList.contains("dock-on"), e.root.classList.contains("cta-past")]; };
+    expect(bar(0)).toEqual([false, false, false]); // the hero's own button is on screen
+    expect(bar(3000)).toEqual([true, true, true]); // the day: the bar carries the button
+    expect(bar(5600)).toEqual([false, false, true]); // the price button is on screen: the header carries "Prøv gratis", the bar is down
+    expect(bar(6200)).toEqual([true, true, true]); // the price button has scrolled away; the block is being read: the bar is up again
+    expect(bar(6450)).toEqual([true, true, true]); // where the block's button was (6500–6552 is on screen): still up, nothing to step aside for
+    expect(bar(8300)).toEqual([false, false, true]); // the footer
+    d();
+  });
+});
