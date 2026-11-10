@@ -12,6 +12,7 @@
  * landingV6CssScope.test.js holds all of this. Inter 300 (the clock) is imported beside this file in styles.js; 400/500/600 come with main.jsx.
  */
 /* ═════════════ tokens ═════════════ */
+/*<fs>*/
 .lp6{
   --paper:#F6F4EC;--raised:#FCFBF7;
   --ink:#093A26;--ink-2:#3D5649;--ink-3:#56695E;--line:#71857A;--line-faint:#DAD9CE;
@@ -33,10 +34,12 @@
   --fs-row:20px;--fs-price:28px;--fs-ix:20px;--ls-label:.16em;
   --gut:20px;--sec:clamp(56px,8svh,72px);--pad1:40px;--hh:56px;--rad:14px;--dk:64px;--cg:72px;
 }
+/*</fs>*/
 .lp6[data-x=np]{--a-g:#12281E;--a-f1:#F6F4EC;--a-f2:#C9D4CD;--a-f3:#9DB0A5;--a-hr:#37493F;--a-bb:#F6F4EC;--a-bf:#093A26;
   --b-g:#F6F4EC;--b-f1:#093A26;--b-f2:#3D5649;--b-f3:#56695E;--b-hr:#DAD9CE;--b-bb:#093A26;--b-bf:#F6F4EC}
 .lp6[data-g=night]{--ground:#12281E;--fg:#F6F4EC;--fg2:#C9D4CD;--fg3:#9DB0A5;--stroke:#86A394;--hair:#37493F;--btn-bg:#F6F4EC;--btn-fg:#093A26;
   --c-sky:#7DD3FC;--c-em:#6EE7B7;--c-late:#FB923C;--shadow:0 30px 60px -24px rgba(0,0,0,.55),0 2px 8px -2px rgba(0,0,0,.3);--ring:0 0 0 1px rgba(246,244,236,.12)}
+/*<fs>*/
 @media (max-width:380px){.lp6{--fs-h1:40px;--gut:16px;--ls-label:.14em}}
 /* short phones (Safari with its bars, iPhone mini): a tighter first screen and stage */
 @media (max-width:767px) and (max-height:720px){.lp6{--fs-h1:36px;--fs-clock:56px;--fs-clock0:52px}}
@@ -57,8 +60,10 @@
    24 px (the stage's corner clearance) short of the plate's left edge: 4.454 em + 17 px ≤ the left column + the column gap − 24 px,
    i.e. 9.35vw − 12 px under 1440 px wide and 122 px from there (was 132 px; 12svh still rules wherever it is the smaller) */
 @media (min-width:1200px) and (min-aspect-ratio:5/4){.lp6{--fs-h1:clamp(96px,min(12svh,9.35vw - 12px),122px)}}
+/*</fs>*/
 
 /* ═════════════ base ═════════════ */
+/*<fs>*/
 .lp6,.lp6 *,.lp6::before,.lp6 *::before,.lp6::after,.lp6 *::after{box-sizing:border-box}
 :root:has(.lp6){-webkit-text-size-adjust:100%;text-size-adjust:100%;background:#F6F4EC}
 .lp6{margin:0;background:var(--paper);color:var(--fg);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;overflow-x:clip}
@@ -80,6 +85,7 @@
 @media (hover:hover){.lp6 .btn:hover{background:var(--forest-hover)}.lp6[data-g=night] .btn:hover{background:#fff}.lp6 .tlink:hover{text-decoration-color:currentColor}}
 /* inline links: a 44 px hit area without moving the line */
 .lp6 .tlink{display:inline-block;padding-block:12px;margin-block:-12px;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;text-decoration-color:var(--stroke);transition:text-decoration-color .25s ease}
+/*</fs>*/
 
 /* ═════════════ the edge — one hard line between the two grounds ═════════════
    Every text element that can meet the edge is painted from two colours split exactly at the edge
@@ -93,9 +99,11 @@
    faded back in from nothing over .3 s, and "Prøv gratis" from no background over .2 s (measured: the clock at 4 % at 16 ms). And on the
    frame where the ground or the crossing changes (engine.js gx: .lp6-gx, two frames), colours switch at once instead of fading from
    the old ground's (a stepper jump into the night faded the bars' text in from dark-on-dark) */
+/*<fs>*/
 .lp6 .sx{transition:color .3s ease}
 .lp6 .sx.f1{color:var(--fg)}.lp6 .sx.f2{color:var(--fg2)}.lp6 .sx.f3{color:var(--fg3)}
 .lp6 .sbg.h{background:var(--hair)}.lp6 .sbg.k{background:var(--fg)}
+/*</fs>*/
 .lp6.xing :is(.top,.dock) .sx,.lp6.story.xing[data-x=pn] .frame .sx{-webkit-text-fill-color:transparent;transition:none;
   background-image:linear-gradient(180deg,var(--sa) calc(var(--e) - var(--t,0px)),var(--sb) 0);-webkit-background-clip:text;background-clip:text}
 .lp6.xing :is(.top,.dock) .sx.f1,.lp6.story.xing[data-x=pn] .frame .sx.f1{--sa:var(--a-f1);--sb:var(--b-f1)}
@@ -108,22 +116,29 @@
 .lp6.story.xing[data-x=pn] .frame .cm{border-image:linear-gradient(180deg,var(--a-f1) calc(var(--e) - var(--t,0px)),var(--b-f1) 0) 1}
 .lp6.lp6-gx :is(.sx,.btn,.bt){transition:none}
 /* the logo is an SVG: two copies, each clipped to its side of the edge */
+/*<fs>*/
 .lp6 .logo{position:relative;display:block;color:var(--fg);flex:none;padding:6px 0}
 .lp6 .logo .lgA{display:block}.lp6 .logo .lgB{display:none}
+/*</fs>*/
 .lp6.xing .top .logo .lgA{color:var(--a-f1);clip-path:inset(0 0 max(0px,calc(100% - (var(--e) - var(--t,0px) - 6px))) 0)}
 .lp6.xing .top .logo .lgB{display:block;position:absolute;left:0;top:6px;color:var(--b-f1);clip-path:inset(max(0px,calc(var(--e) - var(--t,0px) - 6px)) 0 0 0)}
+/*<fs>*/
 .lp6 .sx::selection,.lp6 .sx *::selection{-webkit-text-fill-color:var(--ink);color:var(--ink);background:#CFE6D8}
+/*</fs>*/
 /* the night ground, driven by the scroll (story only). Polish round (23 Oct; Brave on Manoj's iPhone showed paper under the bar with the
    night up): it reaches the viewport's real bottom edge however tall the browser's collapsed bars leave it (top 0 · bottom 0), and at
    least the large viewport; its resting place below the screen is its own height down (100%), not 100lvh */
 .lp6 #night{position:fixed;left:0;right:0;top:0;bottom:0;min-height:100lvh;background:var(--night);z-index:1;pointer-events:none;visibility:hidden;will-change:transform}
 
 /* ═════════════ top bar ═════════════ */
+/*<fs>*/
 .lp6 .top{position:fixed;inset:0 0 auto 0;height:calc(var(--hh) + env(safe-area-inset-top,0px));padding-top:env(safe-area-inset-top,0px);z-index:60;background:var(--ground);--t:0px}
+/*</fs>*/
 /* 23 Oct: solid while the edge is below the bar, the split only while it runs through it (engine.js edge(): .ex), so Safari can take
    the bar's colour for its own chrome */
 .lp6.xing .top{background:var(--a-g)}
 .lp6.xing .top.ex{background:linear-gradient(180deg,var(--a-g) var(--e),var(--b-g) 0)}
+/*<fs>*/
 .lp6 .top .hl{position:absolute;left:0;right:0;bottom:0;height:1px;opacity:0;transition:opacity .25s ease}
 .lp6 .top.scrolled .hl{opacity:1}
 .lp6 .top .in{height:var(--hh);max-width:calc(1312px + 2*var(--gut));margin:0 auto;padding:0 var(--gut);display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -146,12 +161,17 @@
 @media (max-width:339px){.lp6 .top .in{gap:8px}.lp6 .nav{gap:12px}.lp6 .top .btn{padding:0 12px;font-size:14px}.lp6 .logo svg{height:19px}}
 @media (min-width:768px){.lp6 .logo svg{height:24px}.lp6 .top .btn{padding:0 18px}}
 @media (min-width:1200px){.lp6 .logo svg{height:26px}}
+/*</fs>*/
 
 /* ═════════════ hero ═════════════ */
+/*<fs>*/
 .lp6 .hero{position:relative;z-index:3;max-width:calc(1312px + 2*var(--gut));margin:0 auto;padding:calc(var(--hh) + 20px) var(--gut) 0}
 .lp6 .h1{font-size:var(--fs-h1);line-height:.98;font-weight:600;letter-spacing:-.04em;color:var(--ink)}
 .lp6 .h1 a{display:block;width:fit-content;text-decoration:none;color:inherit}
 .lp6 .h1 sup{display:none;font-size:13px;font-weight:500;letter-spacing:.02em;line-height:1;vertical-align:top;position:relative;top:calc(var(--fs-h1)*.13);margin-left:calc(var(--fs-h1)*.08);color:var(--ink-3);font-variant-numeric:tabular-nums}
+/* the headline's small numbers show on the two-column page only (moved here from the two-column block below, landing speed 10 Nov:
+   every rule that can match a first-screen element sits inside a first-screen marker; same media, same declaration, no rule between) */
+@media (min-width:1024px) and (min-aspect-ratio:5/4){.lp6 .h1 sup{display:inline}}
 @media (hover:hover){.lp6 .h1 a:hover > span{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:.12em;text-decoration-color:var(--line)}}
 .lp6 .sub{margin-top:14px;font-size:var(--fs-sub);line-height:1.45;color:var(--ink-2);max-width:34ch;text-wrap:pretty}
 .lp6 .cta-row{margin-top:20px;display:flex;align-items:center;gap:24px;flex-wrap:wrap}
@@ -166,12 +186,15 @@
    its own link with the stacked word's box (inline-block, fit-content × one line); the subline and the trial line run to ~50ch.
    Phones (< 768) and the two-column page keep their own rules */
 @media not all and (min-width:1024px) and (min-aspect-ratio:5/4){@media (min-width:768px) and (max-width:1199px){.lp6 .h1 a{display:inline-block}.lp6 .sub{max-width:48ch}.lp6 .trial{max-width:52ch}}}
+/*</fs>*/
 
 /* ═════════════ the day — shared pieces ═════════════ */
 /* polish round (23 Oct, scroll smoothness): the desktop hand-over's rise-in, written per frame on the left column's eight parts; not
    inherited, so a write restyles that part alone (it was --hin on the frame, which restyled the frame's ≈ 610 elements per frame) */
 @property --lp6-hin{syntax:'<number>';inherits:false;initial-value:0}
+/*<fs>*/
 .lp6 .aften{position:relative}
+/*</fs>*/
 .lp6 .clock,.lp6 .ix,.lp6 .plate,.lp6 .zbl{display:none}
 .lp6 .copy .label{margin-bottom:8px}
 .lp6 .copy .line{font-size:var(--fs-lead);line-height:1.34;font-weight:500;letter-spacing:-.011em;text-wrap:pretty}
@@ -603,7 +626,6 @@
 /* ─── landscape from 1024 px: the editorial composition on the same engine ───
    left: the day's index, the statement, the date and the clock; right: ONE real screen inside the crop-mark plate */
 @media (min-width:1024px) and (min-aspect-ratio:5/4){
-  .lp6 .h1 sup{display:inline}
   .lp6.story .frame{grid-template-columns:minmax(0,5fr) minmax(0,7fr);column-gap:var(--cg);align-content:center;
     grid-template-rows:repeat(6,auto);grid-template-areas:"head scene" "ix scene" "copy scene" "date scene" "clock scene" "nav scene";
     max-width:calc(1312px + 2*var(--gut));padding:calc(var(--hh) + 40px) var(--gut) 36px}
@@ -847,7 +869,9 @@
 @media (max-width:359px){.lp6 .dock{gap:10px}.lp6 .dock .btn{padding:0 18px;font-size:16px}}
 @media (min-width:1024px) and (min-aspect-ratio:5/4){.lp6 .dock{display:none}}
 /* v6.1 fix: a focused link or button never sits under the bottom bar (64 px + safe area, +12 px air) — the bar exists on every one-column stage */
+/*<fs>*/
 @media not all and (min-width:1024px) and (min-aspect-ratio:5/4){.lp6 main a,.lp6 main button,.lp6 main summary,.lp6 footer a{scroll-margin-bottom:calc(76px + env(safe-area-inset-bottom,0px))}}
+/*</fs>*/
 
 /* reveal-once below the day — only when motion is allowed; CSS default = visible */
 .lp6.motion [data-r]{opacity:0;transform:translateY(var(--m-rise))}
@@ -862,17 +886,23 @@
 @keyframes lp6-barGrow{from{transform:scaleX(0)}}
 .lp6.motion .shift{animation:lp6-rowFade .6s ease both,lp6-rowRise .9s var(--m-out) both;animation-delay:calc(.12s + var(--i) * .06s)}
 .lp6.motion .trk i{animation:lp6-barGrow 1s var(--m-out) both;animation-delay:calc(.3s + var(--i) * .06s)}
+/*<fs>*/
 @media (prefers-reduced-motion:reduce){.lp6,.lp6 *,.lp6::before,.lp6 *::before,.lp6::after,.lp6 *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+/*</fs>*/
 
 /* ═════════════ port: the page inside the app (PORT_PLAN 1.5–1.7) ═════════════ */
 /* the root is its own stacking context, so every landing layer (top bar z 60, bottom bar z 55) stays under the cookie banner (z 60)
    and its drawer's backdrop (z 55); no transform on it, so the fixed bars and the night still pin to the viewport */
+/*<fs>*/
 .lp6{position:relative;z-index:0;isolation:isolate}
+/*</fs>*/
 /* html and body while the page is mounted (the :has() stops matching when it unmounts): the paper ground, in light and dark,
    the prototype's body (no margin, no sideways scroll) and the scrolling it was measured with (all initial values). index.css sets html{scroll-behavior:smooth;overscroll-behavior:none} for the app
    (the stepper's jumps must be instant, and an anchor must not glide); scroll-padding stays at its initial value (index.css's 74 px rule for the old landing's bar left with the paper commit, port step 7) */
+/*<fs>*/
 :root:has(.lp6){scroll-behavior:auto;scroll-padding-top:auto;overscroll-behavior:auto}
 :root:has(.lp6) body{margin:0;padding-left:0;padding-right:0;background:#F6F4EC;overflow-x:clip}
+/*</fs>*/
 /* polish round (23 Oct; Brave on Manoj's iPhone): what a browser shows past the page (the band its bars leave while they move, a rubber
    band) is the ground at the viewport's bottom edge (engine.js data-gb on the root): night while the night is up, paper otherwise */
 :root:has(.lp6[data-gb=night]),:root:has(.lp6[data-gb=night]) body{background:#12281E}
@@ -880,17 +910,25 @@
    Inside that padding the root's overflow-x:clip cut the stacked night band's full bleed at the inset (paper strips beside
    19.45 → 00.10). The root carries the insets instead: content stays clear of the notch, the clip box spans the whole width.
    (body's padding-top / padding-bottom are untouched: index.css's padding-bottom carries the cookie banner's --bb-consent-h) */
+/*<fs>*/
 .lp6{padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+/*</fs>*/
 /* index.css (pointer: coarse) gives every a, button and [role=button] a min-height of 44 px. The page sets its own 44 px boxes
    (.btn, .next, the .tlink and footer link padding); the app's rule would make the headline words, the index rows and the inline links tall */
+/*<fs>*/
 .lp6 :is(a,button,[role=button]){min-height:auto}
+/*</fs>*/
 /* fix round: index.css (pointer: coarse) also shrinks every pressed a / button / [role=button] to .97. On iOS :active starts at touchstart,
    so a scroll that began on a headline word shrank it for a moment. The page's own press feedback stays (the stepper's and the bar's dim) */
+/*<fs>*/
 .lp6 :is(a,button,[role=button]):active{scale:none}
+/*</fs>*/
 /* fix round (gate flash): until the engine's first layout every transition is off. The root renders with .lp6-boot; the engine adds
    the mode classes (story hides every later stage picture) to a tree that is already laid out, and without this each hidden picture
    faded out from full opacity for .22 s at load and after a language switch. engine.js takes the class off before the first paint */
+/*<fs>*/
 .lp6.lp6-boot,.lp6.lp6-boot *,.lp6.lp6-boot::before,.lp6.lp6-boot::after,.lp6.lp6-boot *::before,.lp6.lp6-boot *::after{transition:none!important}
+/*</fs>*/
 
 /* ═════════════ port step 5: what the prototype did not render (PORT_PLAN 2.3, section 3) ═════════════ */
 /* The language switch: two drawn flags, Danish then English (Manoj 23 Oct: "instead of dk en just put flag"), each a 44 x 44
@@ -902,6 +940,7 @@
    (was 540 for "DK · EN"): logo · flags · (Priser) · Log ind · Prøv gratis fit from 484 px in Danish, 466 in English (measured
    in Chromium, port-build/flags/flags.json); 16 px kept spare for another browser's text widths. Everywhere else, phones
    included, both flags show (the footer always has them) */
+/*<fs>*/
 .lp6 .lang{display:flex;align-items:center}
 .lp6 .lang button{all:unset;box-sizing:border-box;position:relative;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .lp6 .lang .flag{width:24px;height:18px;flex:none;transition:opacity .2s ease}
@@ -912,6 +951,7 @@
 .lp6 .lang button[aria-pressed=true]::after{content:"";position:absolute;left:10px;right:10px;bottom:7px;height:2px;background:var(--line)}
 .lp6 .lang button:focus-visible{outline:2px solid var(--fg);outline-offset:2px;border-radius:6px}
 @media (max-width:499px){.lp6.js.cta-past:not(.dock-on) .top .lang{display:none}}
+/*</fs>*/
 /* fix round: the same switch in the footer's link list, always shown (the top bar's steps aside on narrow phones once the header's
    "Prøv gratis" is up): the 44 px row as the links beside it (the list's own button rule below unsets every button), the first
    flag on the links' left edge (its 10 px of padding hang into the gutter) */

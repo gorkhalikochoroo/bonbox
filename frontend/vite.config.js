@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url'
 import { bookingGraph, buildBookingDict } from './scripts/bookingDict.mjs'
 import { bookingBootScript } from './scripts/bookingBoot.mjs'
 import { appDictionaries, standHtml, standWords } from './scripts/standBuild.mjs'
+import { firstScreenCss, firstScreenScript } from './scripts/landingFirstScreen.mjs'
+import { LANG_RULE, pickInitialLanguage } from './src/lib/languageRule.js'
 
 // ── The landing's boot dictionary (push 9, E) ─────────────────────
 // `virtual:bonbox-boot-dict` = { da: {...}, en: {...} } holding only the keys
@@ -128,6 +130,22 @@ function preloadLanding() {
           'if(p!=="/"&&p!=="/v2")return;' +
           'if(/(?:^|;\\s*)bonbox_csrf=/.test(document.cookie))return;' +
           'try{if(localStorage.getItem("token"))return}catch(e){}' +
+          // Landing speed, step 2 (10 Nov 2026): this visitor gets the landing's first screen from the HTML
+          // (landingFirstScreen below), unless the address opens on a scene (/#s1, #s2, #s6, #pricing) or the visit
+          // is a reload or a back / forward step (the browser restores the scroll there): those keep the old path,
+          // with the blocking stylesheet. The language is the app's own rule (src/lib/languageRule.js, the same
+          // function and maps as hooks/useLanguage.jsx detectInitialLanguage; it reads storage, never writes): the
+          // first screen is Danish for "da" and English for every other language, as the landing is; <html lang>
+          // gets the app's language, as the app sets it.
+          'var nt="";try{nt=performance.getEntriesByType("navigation")[0].type||""}catch(e){}' +
+          'if(!nt){try{nt=["","reload","back_forward"][performance.navigation.type]||""}catch(e){}}' +
+          'if(!location.hash&&nt!=="reload"&&nt!=="back_forward"){' +
+          `var M=${JSON.stringify(LANG_RULE)},pick=${pickInitialLanguage.toString()},` +
+          'rd=function(x){try{return localStorage.getItem(x)}catch(e){return null}},nv=navigator,' +
+          'L=[].concat(Array.isArray(nv.languages)?nv.languages:[]).concat(nv.language?[nv.language]:[]),' +
+          'a=pick(rd,L,M).lang;' +
+          'window.__lp6First={lang:a==="da"?"da":"en",app:a};' +
+          'try{document.documentElement.lang=a}catch(e){}}' +
           `var j=${JSON.stringify(js)},c=${JSON.stringify(css)},d=document.head,i,k;` +
           'for(i=0;i<j.length;i++){k=document.createElement("link");k.rel="modulepreload";k.crossOrigin="";k.href=j[i];d.appendChild(k)}' +
           'for(i=0;i<c.length;i++){k=document.createElement("link");k.rel="preload";k.as="style";k.crossOrigin="";k.href=c[i];d.appendChild(k)}' +
@@ -139,6 +157,50 @@ function preloadLanding() {
         // the dictionary preload, when present, sits right after the charset: go after it
         if (html.startsWith('<script>', end)) end = html.indexOf('</script>', end) + '</script>'.length
         return html.slice(0, end) + script + html.slice(end)
+      },
+    },
+  }
+}
+
+// ── The landing's first screen in the HTML (landing speed, step 2; 10 Nov 2026) ──
+// For the visitor preloadLanding's guard marked (window.__lp6First: a prospect on "/" or "/v2", no scene in the
+// address, not a reload or back / forward step) the top bar and the hero are written into #root while the page is
+// parsed (scripts/landingFirstScreen.mjs), styled by an inline copy of landingV6.css's first-screen rules, and the
+// app's stylesheet stops holding the first paint: a preload, applied by a script-made <link data-bb-css> (main.jsx
+// mounts once it has loaded). Every other visit gets the same parser-made, render-blocking <link> as before
+// (document.write from the same script), and a browser without JavaScript gets it from <noscript>: one CSS request
+// per load either way. Build only; the source index.html is untouched. No landing chunk (the Vagtplan build): the
+// HTML comes back unchanged.
+function landingFirstScreen() {
+  const file = (f) => new URL(f, import.meta.url)
+  return {
+    name: 'bonbox-landing-first-screen',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      async handler(html, ctx) {
+        const chunks = Object.values(ctx.bundle || {})
+        const page = chunks.find((c) => c.type === 'chunk' && c.facadeModuleId &&
+          /[\\/]src[\\/]pages[\\/]LandingV6Page\.jsx$/.test(c.facadeModuleId))
+        if (!page) return html
+        const links = html.match(/<link rel="stylesheet" crossorigin href="\/assets\/index-[^"]+\.css">/g) || []
+        if (links.length !== 1) throw new Error('landingFirstScreen: expected one index stylesheet link in index.html, found ' + links.length)
+        const href = links[0].match(/href="([^"]+)"/)[1]
+        const root = '<div id="root">'
+        if (html.split(root).length !== 2) throw new Error('landingFirstScreen: expected one <div id="root"> in index.html')
+        const [{ da }, { en }, { FROM_PRICE }] = await Promise.all(
+          ['./src/i18n/da.js', './src/i18n/en.js', './src/lib/planPrices.js'].map((f) => import(file(f).href)))
+        const head =
+          `<link rel="preload" as="style" crossorigin href="${href}">` +
+          `<style id="lp6-css">${firstScreenCss()}</style>` +
+          '<script>(function(){var d=document,h=' + JSON.stringify(href) + ';' +
+          'if(window.__lp6First){var k=d.createElement("link");k.rel="stylesheet";k.crossOrigin="";k.href=h;k.setAttribute("data-bb-css","");' +
+          'k.onload=k.onerror=function(){k.setAttribute("data-done","")};' +
+          'var s=d.getElementById("lp6-css");s.parentNode.insertBefore(k,s)}' +
+          `else d.write('<link rel="stylesheet" crossorigin href="'+h+'">')})()</script>` +
+          `<noscript><link rel="stylesheet" crossorigin href="${href}"></noscript>`
+        return html.replace(links[0], () => head)
+          .replace(root, () => root + firstScreenScript({ da, en, price: FROM_PRICE }))
       },
     },
   }
@@ -232,7 +294,7 @@ export default defineConfig({
   // appDictionaries: the app build lists its dictionary files for the door
   // screen's build, which loads those instead of a second copy.
   plugins: [
-    react(), preloadDictionary(), preloadLanding(), bookingBoot(), bootDictionary(), bookingDictionary(),
+    react(), preloadDictionary(), preloadLanding(), bookingBoot(), landingFirstScreen(), bootDictionary(), bookingDictionary(),
     standHtml(), standWords(), appDictionaries(),
   ],
   // Force the automatic JSX runtime everywhere — production already

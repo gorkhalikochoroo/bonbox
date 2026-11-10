@@ -292,7 +292,7 @@ describe("vite.config.js preloadLanding: the landing chunk downloads with the pa
     // Speed step 1 (10 Nov 2026): the early import's result is kept (landingBoot) and the resolved page renders in
     // React's first commit; the fallback, still no spinner, keeps the HTML's first screen (KeepFirstScreen) or is empty
     expect(app).toMatch(/export const landingBoot = import\.meta\.env\.VITE_APP_MODE !== "scheduler" && landingFirstPaint\(\)\s*\? loadLanding\(\)/);
-    expect(app).toMatch(/<Suspense fallback=\{<KeepFirstScreen \/>\}>\s*\{Now \? <Now \/> : <LandingV6Page \/>\}\s*<\/Suspense>/);
+    expect(app).toMatch(/<Suspense fallback=\{<KeepFirstScreen \/>\}>\s*\{Now \? <Now \/> : <LandingV6Page \/>\}\s*<FirstScreenHandover \/>\s*<\/Suspense>/);
     expect(app).not.toMatch(/<Suspense fallback=\{<PageLoader \/>\}>\s*\{Now/);
     expect(app).toMatch(/<Route path="\/v2" element=\{<LandingRoute \/>\} \/>/);
     expect(app.match(/(?:: |return |element=\{)<LandingRoute \/>/g)).toHaveLength(3); // both PublicOrDashboard branches + /v2

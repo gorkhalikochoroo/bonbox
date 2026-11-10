@@ -3,7 +3,8 @@ import { LANGUAGES } from "../i18n/languageCatalog";
 import { loadLocale, loadedLocales, localesFor } from "../lib/localeStore";
 import { PAGE_WORDS_ON, pageDictFor, pageDictVersion, subscribePageDict } from "../lib/pageDict";
 import { isBookingPathNow } from "../lib/bookingPath";
-import { browserListsDanish, isReplaceableTitle, shellTitle } from "../lib/shellTitles";
+import { isReplaceableTitle, shellTitle } from "../lib/shellTitles";
+import { CURRENCY_LANG_MAP, LANG_RULE, pickInitialLanguage } from "../lib/languageRule";
 import { landingFirstPaint } from "../lib/landingBoot";
 // The landing page's and cookie banner's keys in Danish and English, built
 // from i18n/da.js + en.js at build time (vite.config.js, lib/bootKeys.js).
@@ -48,18 +49,8 @@ export { shellTitle };
 // i18n/languageCatalog.js — see the note there for why four locales were taken
 // out of the picker. LANGUAGES is imported at the top of this file.
 
-// Auto-detect language from currency. Currencies whose native language
-// is in stub-only state (SEK→sv, NOK→no, CHF→de, JPY→ja, BRL→pt, MXN→es)
-// fall through to "en" until we have full translation coverage for those
-// languages. THB→th and TRY→tr added since both are now fully translated.
-const CURRENCY_LANG_MAP = {
-  DKK: "da", NPR: "np", EUR: "en", USD: "en", GBP: "en",
-  THB: "th", VND: "vi", TRY: "tr",
-  SEK: "en", NOK: "en", CHF: "en", JPY: "en",
-  INR: "en", BRL: "en", MXN: "en", AUD: "en", CAD: "en",
-  NZD: "en", ZAR: "en", PHP: "en",
-};
-
+// Auto-detect language from currency: lib/languageRule.js CURRENCY_LANG_MAP
+// (the one source of the first-visit rule; landing speed, 10 Nov 2026).
 export function getLangForCurrency(currencyCode) {
   return CURRENCY_LANG_MAP[currencyCode] || "en";
 }
@@ -91,22 +82,10 @@ export function getLangForCurrency(currencyCode) {
 // stored "de" was overwritten with "en". Directly contradicts the promise four
 // lines up, that once "lang" is in localStorage we trust the user's choice.
 // i18nLanguageCatalog.test.js now fails if the two lists drift apart again.
-const SUPPORTED = new Set(["en", "da", "np", "vi", "th", "tr", "de"]);
-const BROWSER_LANG_MAP = {
-  // Danish & Faroese (Faroese owners often run DK ops)
-  "da": "da", "da-dk": "da", "fo": "da",
-  // English defaults
-  "en": "en", "en-us": "en", "en-gb": "en", "en-ie": "en", "en-au": "en", "en-nz": "en",
-  // Nepali
-  "ne": "np", "ne-np": "np", "np": "np",
-  // Vietnamese
-  "vi": "vi", "vi-vn": "vi",
-  // Thai
-  "th": "th", "th-th": "th",
-  // Turkish
-  "tr": "tr", "tr-tr": "tr",
-};
-
+// SUPPORTED_LANGS, BROWSER_LANG_MAP, CURRENCY_LANG_MAP and the rule itself
+// live in lib/languageRule.js (landing speed, 10 Nov 2026): the landing's head
+// script carries the same function to pick the first screen's language at
+// parse time, so the page and the app can never disagree.
 function browserCandidates() {
   if (typeof navigator === "undefined") return [];
   return []
@@ -114,62 +93,13 @@ function browserCandidates() {
     .concat(navigator.language ? [navigator.language] : []);
 }
 
-function detectLanguageFromBrowser() {
-  if (typeof navigator === "undefined") return null;
-  // navigator.languages is the prioritised list; navigator.language is
-  // the primary.
-  const candidates = browserCandidates();
-  // PQ-05 (push 6): Danish (or Faroese) ANYWHERE in the list wins. An
-  // English-first phone in Denmark (["en-US", "da"]) used to get English on
-  // the sign-up pages while the dictionary preload fetched Danish as well.
-  // Same rule as index.html and the preload (lib/shellTitles.js).
-  if (browserListsDanish(candidates)) return "da";
-  // Otherwise: try every entry until one maps to a supported lang.
-  for (const raw of candidates) {
-    if (!raw) continue;
-    const lower = String(raw).toLowerCase();
-    if (BROWSER_LANG_MAP[lower]) return BROWSER_LANG_MAP[lower];
-    // Fall back to the primary subtag — "da-FO" → "da"
-    const primary = lower.split("-")[0];
-    if (BROWSER_LANG_MAP[primary]) return BROWSER_LANG_MAP[primary];
-  }
-  return null;
-}
-
-function detectLanguageFromCurrencyHint() {
-  if (typeof localStorage === "undefined") return null;
-  const ccy = localStorage.getItem("bonbox_currency");
-  if (!ccy) return null;
-  const mapped = CURRENCY_LANG_MAP[ccy];
-  return mapped && SUPPORTED.has(mapped) ? mapped : null;
-}
-
 /** Public: resolves the best initial language. Used by LanguageProvider
  *  on first mount AND exported so onboarding/signup flows can pre-warm
- *  the chunk for the detected language before the user lands. */
+ *  the chunk for the detected language before the user lands.
+ *  Blocked storage throws here as it always did (callers catch). */
 export function detectInitialLanguage() {
-  if (typeof localStorage !== "undefined") {
-    const stored = localStorage.getItem("lang");
-    if (stored && SUPPORTED.has(stored)) {
-      // One-time move (push 6, PQ-05): a language the BROWSER picked under
-      // the old first-entry rule (English on an ["en-US", "da"] phone) moves
-      // to Danish once. Only an auto pick: choosing a language in the picker
-      // clears bonbox_lang_auto_picked (setLang below), so an owner who chose
-      // English keeps English. The stored value becomes "da", so this runs
-      // once; SmartLanguageToast then offers "Switch to English".
-      if (stored !== "da" && browserListsDanish(browserCandidates())) {
-        let auto = null;
-        try { auto = localStorage.getItem("bonbox_lang_auto_picked"); } catch { auto = null; }
-        if (auto === "browser") return { lang: "da", source: "migrated" };
-      }
-      return { lang: stored, source: "stored" };
-    }
-  }
-  const fromBrowser = detectLanguageFromBrowser();
-  if (fromBrowser) return { lang: fromBrowser, source: "browser" };
-  const fromCurrency = detectLanguageFromCurrencyHint();
-  if (fromCurrency) return { lang: fromCurrency, source: "currency" };
-  return { lang: "en", source: "fallback" };
+  const read = typeof localStorage !== "undefined" ? (k) => localStorage.getItem(k) : () => null;
+  return pickInitialLanguage(read, browserCandidates(), LANG_RULE);
 }
 
 

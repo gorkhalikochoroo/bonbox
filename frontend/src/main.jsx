@@ -60,6 +60,8 @@ import './fonts-ext-subsets.css'
 import './index.css'
 import App, { landingBoot } from './App.jsx'
 import { holdFirstScreen, mountWhenReady } from './lib/landingBoot.js'
+import { detectInitialLanguage } from './hooks/useLanguage.jsx'
+import { loadLocale, localesFor } from './lib/localeStore.js'
 import { applyThemeImmediately } from './hooks/useTheme.jsx'
 
 import { captureSignupRef, watchCookieConsentForSignupRef } from './utils/signupRef.js'
@@ -109,4 +111,28 @@ const start = () => {
 // settled — it is already downloading (modulepreload), and React's first commit then holds the page instead of an
 // empty Suspense fallback — or after 4 s, whatever happened to it (a failed or late chunk mounts and retries through
 // lazyRetry). Everyone else (a session sign, the native shell, any other route, the Vagtplan build): at once, as before.
-mountWhenReady(start, landingBoot ? [landingBoot] : null, 4000)
+//
+// Step 2: when the HTML drew the landing's first screen (window.__lp6First, vite.config.js landingFirstScreen),
+// React's first commit replaces it, so that commit must already be the finished page. It also waits for
+//  - the app stylesheet, which no longer holds the first paint on this path (a script-made link marked data-bb-css;
+//    loaded or failed), so nothing the app draws (the cookie banner) is ever unstyled;
+//  - for an app language other than Danish and English, its dictionary: the language provider renders nothing
+//    without it, which would wipe the first screen and leave the page blank (15 s cap instead of 4 s).
+const waits = landingBoot ? [landingBoot] : null
+let cap = 4000
+if (waits) {
+  const link = document.querySelector('link[data-bb-css]')
+  if (link && !link.sheet && !link.hasAttribute('data-done')) {
+    waits.push(new Promise((resolve) => {
+      link.addEventListener('load', resolve, { once: true })
+      link.addEventListener('error', resolve, { once: true })
+    }))
+  }
+  let code = 'da'
+  try { code = detectInitialLanguage().lang } catch { /* storage blocked: the provider decides */ }
+  if (code !== 'da' && code !== 'en') {
+    waits.push(Promise.all(localesFor(code).map((c) => loadLocale(c))))
+    cap = 15000
+  }
+}
+mountWhenReady(start, waits, cap)

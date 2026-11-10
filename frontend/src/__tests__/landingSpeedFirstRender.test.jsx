@@ -82,7 +82,8 @@ describe("mountWhenReady (lib/landingBoot)", () => {
   it("main.jsx mounts through it with landingBoot, and keeps the HTML's first screen right before the mount", () => {
     const main = read("main.jsx");
     expect(main).toContain("import App, { landingBoot } from './App.jsx'");
-    expect(main).toMatch(/mountWhenReady\(start, \[?landingBoot\b/);
+    expect(main).toContain("const waits = landingBoot ? [landingBoot] : null");
+    expect(main).toContain("mountWhenReady(start, waits, cap)");
     const start = main.slice(main.indexOf("const start = () => {"));
     expect(start.indexOf("holdFirstScreen()")).toBeGreaterThan(0);
     expect(start.indexOf("holdFirstScreen()")).toBeLessThan(start.indexOf("createRoot("));
@@ -125,7 +126,7 @@ describe("App.jsx landingBoot: only the prospect's landing waits", () => {
     const app = read("App.jsx");
     expect(app).toMatch(/export const landingBoot = import\.meta\.env\.VITE_APP_MODE !== "scheduler" && landingFirstPaint\(\)\s*\? loadLanding\(\)\.then\(\(m\) => \{ LandingNow = m\.default; \}, \(\) => \{\}\)\s*: null;/);
     expect(app).toContain("const [Now] = useState(() => LandingNow);");
-    expect(app).toMatch(/<Suspense fallback=\{<KeepFirstScreen \/>\}>\s*\{Now \? <Now \/> : <LandingV6Page \/>\}\s*<\/Suspense>/);
+    expect(app).toMatch(/<Suspense fallback=\{<KeepFirstScreen \/>\}>\s*\{Now \? <Now \/> : <LandingV6Page \/>\}\s*<FirstScreenHandover \/>\s*<\/Suspense>/);
   });
 });
 

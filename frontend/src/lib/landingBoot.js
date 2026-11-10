@@ -84,9 +84,14 @@ export function mountWhenReady(start, waits, capMs, timer = setTimeout) {
  * visitor never looks at a blank page meanwhile. Taken once.
  */
 let heldFirstScreen = null;
+let heldFocus = null;
 export function holdFirstScreen() {
+  heldFocus = null;
   try {
     heldFirstScreen = document.getElementById("lp6-first");
+    // keyboard focus on one of its controls right now: moved to the same control of the real page (replayFirstScreen)
+    const f = window.__lp6First;
+    if (heldFirstScreen && f && f.focus && heldFirstScreen.contains(document.activeElement)) heldFocus = f.focus;
   } catch {
     heldFirstScreen = null;
   }
@@ -96,4 +101,44 @@ export function takeFirstScreen() {
   const node = heldFirstScreen;
   heldFirstScreen = null;
   return node;
+}
+
+/**
+ * Speed (10 Nov 2026): between the first screen the HTML drew and the app's
+ * takeover, the flags, "Priser", "Se priser", the headline words and the logo
+ * are plain HTML and do nothing. The head script (scripts/landingFirstScreen.mjs)
+ * remembers the last tap or key on one of them (window.__lp6First.tap) and the
+ * control that had keyboard focus; once the real landing is mounted (App.jsx
+ * FirstScreenHandover) the same control there is clicked and focused.
+ * A control is { r: "top" | "hero", s: selector, i: index }; only the
+ * selectors the first screen can produce are accepted.
+ */
+const REPLAYABLE = /^(?:button\[lang="(?:da|en)"\]|a\[href="#(?:main|pricing|s1|s2|s6)"\])$/;
+export function controlIn(root, c) {
+  if (!root || !c || (c.r !== "top" && c.r !== "hero") || !REPLAYABLE.test(String(c.s)) || !(c.i >= 0)) return null;
+  const region = root.querySelector("." + c.r);
+  return (region && region.querySelectorAll(c.s)[c.i]) || null;
+}
+export function replayFirstScreen(root) {
+  let f = null;
+  try {
+    f = window.__lp6First;
+  } catch {
+    f = null;
+  }
+  const tap = f && f.tap;
+  const focus = heldFocus;
+  heldFocus = null;
+  if (f) {
+    f.tap = null;
+    f.focus = null;
+  }
+  try {
+    const t = controlIn(root, tap);
+    if (t) t.click();
+    const k = controlIn(root, focus);
+    if (k && typeof k.focus === "function") k.focus({ preventScroll: true });
+  } catch {
+    /* a replay is a courtesy: never let it break the page */
+  }
 }

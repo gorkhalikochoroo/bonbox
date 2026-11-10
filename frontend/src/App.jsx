@@ -20,7 +20,7 @@ import { ConfirmProvider } from "./hooks/useConfirm";
 import { ToastProvider } from "./hooks/useToast";
 import { useThemeColorSync } from "./hooks/useThemeColorSync";
 import { settleOn } from "./utils/settleOn";
-import { isLandingPath, landingFirstPaint, mightBeSignedIn, takeFirstScreen } from "./lib/landingBoot";
+import { isLandingPath, landingFirstPaint, mightBeSignedIn, replayFirstScreen, takeFirstScreen } from "./lib/landingBoot";
 import { isQuietGuestPage } from "./lib/embedMode";
 import { isBookingPath } from "./lib/bookingPath";
 import { PAGE_WORDS_ON } from "./lib/pageDict";
@@ -762,8 +762,26 @@ function LandingRoute() {
   return (
     <Suspense fallback={<KeepFirstScreen />}>
       {Now ? <Now /> : <LandingV6Page />}
+      <FirstScreenHandover />
     </Suspense>
   );
+}
+
+/**
+ * Speed (10 Nov 2026): once the real landing is committed (this sibling's effect runs after the page's own, the
+ * scroll engine's mount included), the last tap on a control of the HTML's first screen is replayed on the same
+ * control, and keyboard focus moves there (lib/landingBoot.js replayFirstScreen). Renders nothing.
+ */
+function FirstScreenHandover() {
+  useEffect(() => {
+    const root = document.querySelector('.lp6[data-page="landing"]');
+    if (!root) return undefined;
+    const go = () => replayFirstScreen(root);
+    if (typeof requestAnimationFrame !== "function") { go(); return undefined; }
+    const id = requestAnimationFrame(go);
+    return () => cancelAnimationFrame(id);
+  }, []);
+  return null;
 }
 
 /**

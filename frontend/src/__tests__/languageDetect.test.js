@@ -142,3 +142,47 @@ describe("parity with the dictionary preload (vite.config.js)", () => {
     expect(detectInitialLanguage().lang === "da").toBe(preload(langs) === "da");
   });
 });
+
+// Landing speed, step 2 (10 Nov 2026): the landing's head guard (vite.config.js preloadLanding) picks the language of
+// the first screen the HTML draws, at parse time, with the app's own rule (src/lib/languageRule.js: the same function
+// and maps detectInitialLanguage runs). The first screen is Danish for "da" and English for every other app language,
+// as the landing itself (components/landing/v6/site.js pageLangFor).
+describe("parity with the landing's first screen (vite.config.js preloadLanding guard)", () => {
+  async function guard() {
+    const { default: config } = await import("../../vite.config.js");
+    const p = config.plugins.flat().find((x) => x && x.name === "bonbox-preload-landing");
+    const bundle = {
+      "assets/L.js": { type: "chunk", fileName: "assets/L.js", facadeModuleId: "/r/frontend/src/pages/LandingV6Page.jsx", imports: [], viteMetadata: { importedCss: new Set() } },
+    };
+    const out = await p.transformIndexHtml.handler('<head><meta charset="UTF-8" /></head>', { bundle });
+    return out.match(/<script>([\s\S]*?)<\/script>/)[1];
+  }
+  function runGuard(code, langs, stored) {
+    const win = {};
+    const html = { lang: "da" };
+    const store = { getItem: (k) => (k in stored ? stored[k] : null) };
+    new Function("window", "location", "localStorage", "document", "navigator", "performance", code)(
+      win, { pathname: "/", hash: "", protocol: "https:" }, store,
+      { cookie: "", head: { appendChild: () => {} }, createElement: () => ({}), documentElement: html },
+      { languages: langs, language: langs[0] }, { getEntriesByType: () => [{ type: "navigate" }] });
+    return { ...win.__lp6First, html: html.lang };
+  }
+  const CASES = [
+    [["da-DK"], {}], [["en-GB"], {}], [["de-DE"], {}], [["sv-SE"], {}], [["fo"], {}], [["ne-NP"], {}], [["tr-TR"], {}],
+    [["vi-VN"], {}], [["th-TH"], {}], [["en-US", "da"], {}], [["ne-NP", "en"], {}],
+    [["en-GB"], { lang: "de" }], [["de-DE"], { lang: "de" }], [["da-DK"], { lang: "tr" }],
+    [["en-US", "da"], { lang: "en", bonbox_lang_auto_picked: "browser" }], [["en-US", "da"], { lang: "en" }],
+    [["de-DE"], { bonbox_currency: "DKK" }], [["sv-SE"], { bonbox_currency: "NPR" }], [["fr-FR"], { bonbox_currency: "SEK" }],
+    [["fr-FR"], {}], [["xx"], { lang: "xx-not-a-language" }],
+  ];
+  it.each(CASES)("%j with storage %j: the first screen's language and <html lang> follow the app", async (langs, stored) => {
+    const code = await guard();
+    setBrowser(langs);
+    for (const [key, value] of Object.entries(stored)) localStorage.setItem(key, value);
+    const app = detectInitialLanguage().lang;
+    const got = runGuard(code, langs, stored);
+    expect(got.app).toBe(app);
+    expect(got.lang).toBe(app === "da" ? "da" : "en");
+    expect(got.html).toBe(app);
+  });
+});
