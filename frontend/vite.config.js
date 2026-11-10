@@ -214,6 +214,44 @@ function landingFirstScreen() {
   }
 }
 
+// ── The built document without its comments (landing speed, step 7; 10 Nov 2026) ──
+// Vite does not minify index.html, and a third of the built file was comments (HTML comments and the comments inside
+// the inline scripts). With the landing's first screen in the HTML, the document's last byte is close to the first
+// paint, and every route's document carries steps 2 and 3. Build only, and only the web build (the one with a landing
+// chunk): HTML comments go (outside scripts and styles); each inline script loses its comments and blank space
+// through esbuild with minifyWhitespace only (a real parser: the scripts hold quoted https:// URLs and regular
+// expressions; no renaming, no rewriting); JSON-LD and scripts with a src are left byte-equal. The source index.html
+// keeps every comment. Last in the plugin list, so it sees what every other plugin wrote.
+function htmlDiet() {
+  return {
+    name: 'bonbox-html-diet',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      async handler(html, ctx) {
+        const chunks = Object.values(ctx.bundle || {})
+        if (!chunks.some((c) => c.type === 'chunk' && c.facadeModuleId &&
+          /[\\/]src[\\/]pages[\\/]LandingV6Page\.jsx$/.test(c.facadeModuleId))) return html
+        // loaded here, not at the top of this file: the tests import vite.config.js under jsdom, where esbuild's
+        // own start-up check throws
+        const { transform } = await import('esbuild')
+        const parts = html.split(/(<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>)/)
+        const out = []
+        for (const part of parts) {
+          const m = part.match(/^<script\b([^>]*)>([\s\S]*?)<\/script>$/)
+          if (m) {
+            if (/\bsrc=|application\/ld\+json/.test(m[1]) || !m[2].trim()) { out.push(part); continue }
+            const r = await transform(m[2], { minifyWhitespace: true, legalComments: 'none', charset: 'utf8' })
+            out.push(`<script${m[1]}>${r.code.trim()}</script>`)
+          } else if (part.startsWith('<style')) out.push(part)
+          else out.push(part.replace(/<!--[\s\S]*?-->/g, '').replace(/\n\s*\n/g, '\n'))
+        }
+        return out.join('')
+      },
+    },
+  }
+}
+
 // ── The booking page's own words (booking R5) ─────────────────────
 // `virtual:bonbox-booking-dict` = { da: {...}, en: {...} } holding exactly the
 // keys the public booking page and every file its code reaches can show
@@ -303,7 +341,7 @@ export default defineConfig({
   // screen's build, which loads those instead of a second copy.
   plugins: [
     react(), preloadDictionary(), preloadLanding(), bookingBoot(), landingFirstScreen(), bootDictionary(), bookingDictionary(),
-    standHtml(), standWords(), appDictionaries(),
+    standHtml(), standWords(), appDictionaries(), htmlDiet(),
   ],
   // Force the automatic JSX runtime everywhere — production already
   // uses it via @vitejs/plugin-react, but vitest's transform pipeline

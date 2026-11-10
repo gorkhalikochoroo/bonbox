@@ -147,7 +147,8 @@ const BUNDLE = {
 };
 async function transformed(html = BUILT, bundle = BUNDLE) {
   const { default: config } = await import("../../vite.config.js");
-  const plugins = config.plugins.flat().filter((p) => p && p.transformIndexHtml && p.transformIndexHtml.order === "post");
+  // the document diet (step 7) loads esbuild, which does not start under jsdom: landingSpeedHtmlDiet.test.js runs it
+  const plugins = config.plugins.flat().filter((p) => p && p.transformIndexHtml && p.transformIndexHtml.order === "post" && p.name !== "bonbox-html-diet");
   for (const p of plugins) html = await p.transformIndexHtml.handler(html, { bundle });
   return html;
 }
