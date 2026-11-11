@@ -53,8 +53,8 @@ import { formatClockDistance } from "../utils/clockDistance";
 import { roleName } from "../utils/roleNames";
 import { isNativeApp, platform } from "../utils/platform";
 import { applyVagtplanIcons } from "../lib/vagtplanIcons";
-import { capturePhoto, promptPhotoFile, isCameraDenied } from "../utils/camera";
-import { Camera as CameraIcon, Trash2, PencilLine, MinusCircle, Copy } from "lucide-react";
+import { capturePhoto, takePhotoFile, choosePhotoFiles, isCameraDenied } from "../utils/camera";
+import { Camera as CameraIcon, Images, Trash2, PencilLine, MinusCircle, Copy } from "lucide-react";
 import { haptic } from "../utils/haptics"; // no-op on web; physical feedback in the iOS shell
 import useNativePush, { unregisterNativePush } from "../hooks/useNativePush";
 import { useKeyboardState } from "../hooks/useKeyboardLift";
@@ -704,7 +704,7 @@ function DocumentsSection({ token }) {
                   ))}
                 </div>
                 <p data-testid="portal-docs-app-cant-save" style={{ margin: "10px 0 0", font: "400 12px/1.5 var(--font-text)", color: "#64748b" }}>
-                  {t("portalDocsAppCantSave", "The app can't save documents on your phone yet. Ask your manager for your personal link and open it in a browser to download them – or ask for the file itself.")}
+                  {t("portalDocsAppCantSave", "You can get the documents in a browser: ask your manager for your personal link and open it there. Or ask for the file itself. The app can't save files on your phone.")}
                 </p>
               </>
             ) : (
@@ -3712,6 +3712,9 @@ function VenueMapImage({ token, venueName, mapV }) {
   // (vagtplan.css .vp-map-in: once, when it is drawn for the first time).
   const [shownKey, setShownKey] = useState(() => (entry?.url ? key : null));
   const [fromMemory] = useState(() => !!entry?.url);
+  // `have` re-runs the load if this card's image ever leaves the memory while
+  // it is mounted, instead of leaving an empty pine box.
+  const have = !!entry;
   useEffect(() => {
     if (!token || getCachedMap(key)) return undefined;
     let gone = false;
@@ -3720,7 +3723,7 @@ function VenueMapImage({ token, venueName, mapV }) {
       .then(() => { if (!gone) rerender((n) => n + 1); })
       .catch(() => { if (!gone) setFailedKey(key); /* no map is the honest fallback */ });
     return () => { gone = true; };
-  }, [token, key, w, dpr, mapV]);
+  }, [token, key, w, dpr, mapV, have]);
   if (entry?.none || failedKey === key) return null;
   return (
     <div
@@ -6223,25 +6226,37 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const picker = usePhotoPicker();
-  // Android app: the photo button opens the camera plugin's own "choose or
-  // take" sheet (its WebView's file input can never take a photo — see
-  // utils/camera.js promptPhotoFile). A refused camera or a failed pick is
-  // said here, under the composer, never silently dropped.
+  // Android app: the photo button asks "take or choose" (ChatPhotoSourceSheet)
+  // — its WebView's file input can never take a photo (utils/camera.js) —
+  // and then takes ONE photo or chooses as many as still fit (up to 3, like
+  // the file input everywhere else). pickAndroidPhotos is the AttachButton's
+  // onPick: it resolves with what to stage once the staffer has answered, so
+  // the photos go through the same picker and upload. A refused camera or a
+  // failed pick is said here, under the composer, never silently dropped.
   const [photoNote, setPhotoNote] = useState("");
-  const pickAndroidPhoto = async () => {
+  const [photoAsk, setPhotoAsk] = useState(null); // { room } while the sheet is open
+  const photoAskShown = useLastValue(photoAsk);
+  const photoAskSheet = usePresence(!!photoAsk);
+  const photoAnswer = useRef(null);
+  const pickAndroidPhotos = (room) => new Promise((resolve) => {
     setPhotoNote("");
+    photoAnswer.current = resolve;
+    setPhotoAsk({ room });
+  });
+  const answerPhotoAsk = async (how) => {
+    const resolve = photoAnswer.current;
+    const room = photoAsk?.room || 1;
+    photoAnswer.current = null;
+    setPhotoAsk(null);
+    if (!resolve) return;
+    if (!how) { resolve(null); return; }
     try {
-      return await promptPhotoFile({
-        header: t("staffChatAddPhoto", "Add photo"),
-        photo: t("portalPhotoChoose", "Choose a photo"),
-        picture: t("portalPhotoTake", "Take a photo"),
-        cancel: t("cancel", "Cancel"),
-      });
+      resolve(how === "take" ? await takePhotoFile() : await choosePhotoFiles(room));
     } catch (err) {
       setPhotoNote(isCameraDenied(err)
         ? t("portalPhotoCameraDenied", "The app isn't allowed to use the camera. Allow it in Settings → Apps → BonBox Vagtplan → Permissions → Camera, or choose a photo instead.")
         : t("portalPhotoFailed", "Couldn't add the photo. Try again."));
-      return null;
+      resolve(null);
     }
   };
   const scrollRef = useRef(null);
@@ -6580,7 +6595,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
             <AttachButton
               picker={picker}
               label={t("staffChatAddPhoto", "Add photo")}
-              onPick={platform.isAndroid ? pickAndroidPhoto : undefined}
+              onPick={platform.isAndroid ? pickAndroidPhotos : undefined}
               className={`shrink-0 flex items-center justify-center vp-press ${picker.atMax ? "cursor-not-allowed" : "cursor-pointer"}`}
               style={{ width: 44, height: 44, borderRadius: 999, color: picker.atMax ? PLACEHOLDER : MUTED }}
             />
@@ -6622,7 +6637,107 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
           </div>
         </div>
       </div>
+      {photoAskSheet.mounted && (
+        <ChatPhotoSourceSheet
+          room={photoAskShown?.room || 1}
+          closing={photoAskSheet.closing}
+          onTake={() => answerPhotoAsk("take")}
+          onChoose={() => answerPhotoAsk("choose")}
+          onClose={() => answerPhotoAsk(null)}
+        />
+      )}
     </div>
+  );
+}
+
+
+/**
+ * ChatPhotoSourceSheet — the Android app's "Tilføj billede" choice: take a
+ * photo with the camera, or choose photos — as many as the message still has
+ * room for (the same 3 as everywhere else). Only the Android app shows it:
+ * its WebView's file input can choose but never take (utils/camera.js). iOS
+ * and browsers keep the plain file input. The ⋯ sheet's look (pine wells on
+ * an ivory group), portaled to <body>; the scrim, the ×, Escape and Android
+ * BACK all cancel.
+ */
+function ChatPhotoSourceSheet({ room, onTake, onChoose, onClose, closing = false }) {
+  const { t } = useLanguage();
+  const dialogRef = useRef(null);
+  useEffect(() => { dialogRef.current?.focus?.(); }, []);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const title = t("staffChatAddPhoto", "Add photo");
+  const many = room > 1;
+  const row = (Icon, label, hint, onClick, testId) => (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={testId}
+      className="w-full flex items-center text-left vp-press vp-row active:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0E3B2E]/40"
+      style={{ gap: 14, minHeight: 64, padding: "12px 14px", boxSizing: "border-box", color: INK }}
+    >
+      <span className="shrink-0 flex items-center justify-center" style={{ width: 38, height: 38, borderRadius: 12, background: SOFT, color: PINE }}>
+        <Icon size={18} strokeWidth={1.9} aria-hidden />
+      </span>
+      <span className="flex-1 min-w-0 flex flex-col" style={{ gap: 2 }}>
+        <span style={{ font: "600 15px/1.25 var(--font-text)", color: INK }}>{label}</span>
+        {hint && <span className="truncate" style={{ font: "400 12.5px/1.3 var(--font-text)", color: MUTED }}>{hint}</span>}
+      </span>
+    </button>
+  );
+  return createPortal(
+    <div className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" {...closingProps(closing)}>
+      <button
+        type="button"
+        aria-label={t("close", "Close")}
+        onClick={onClose}
+        className="absolute inset-0 m-0 vp-scrim"
+        style={{ background: SCRIM, backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)" }}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        data-testid="portal-chat-photo-sheet"
+        ref={dialogRef}
+        tabIndex={-1}
+        className="relative w-full max-w-lg mx-auto m-0 outline-none vp-sheet"
+        style={{
+          background: CARD, color: INK, borderRadius: "28px 28px 0 0",
+          padding: "8px 16px max(16px, env(safe-area-inset-bottom, 0px))",
+          boxShadow: "0 -20px 40px -20px rgba(8,24,18,0.5)",
+        }}
+      >
+        <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 12 }} />
+        <div className="flex items-center justify-between" style={{ gap: 12, padding: "0 4px" }}>
+          <div className="min-w-0 truncate" style={{ font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>{title}</div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("close", "Close")}
+            className="relative shrink-0 flex items-center justify-center rounded-full"
+            style={{ width: 44, height: 44, minHeight: 0, background: TILE, color: INK }}
+          >
+            <X size={18} strokeWidth={2} aria-hidden />
+          </button>
+        </div>
+        <div style={{ marginTop: 14, background: IVORY, borderRadius: 20, overflow: "hidden" }}>
+          {row(CameraIcon, t("portalPhotoTake", "Take a photo"), null, onTake, "portal-chat-photo-take")}
+          <div aria-hidden style={{ height: 1, background: LINE, marginLeft: 66 }} />
+          {row(
+            Images,
+            many ? t("portalPhotoChooseMany", "Choose photos") : t("portalPhotoChoose", "Choose a photo"),
+            many ? t("portalPhotoChooseUpTo", "Up to {n} photos", { n: room }) : null,
+            onChoose,
+            "portal-chat-photo-choose",
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

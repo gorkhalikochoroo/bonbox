@@ -182,10 +182,12 @@ export function PendingPhotos({ picker, thumbStyle, removeClassName, removeStyle
 /** The attach (image) button + its hidden file input.
 
     `onPick` (optional) replaces the file input with a plain button that awaits
-    onPick() and stages the File it returns (null = nothing). The Android staff
-    app passes it: its WebView's file input can choose a photo but never take
-    one (utils/camera.js promptPhotoFile). Without it — the owner drawer, iOS,
-    every browser — the button is the file input, exactly as before. */
+    onPick(room) — room = how many more photos fit — and stages what it
+    returns: a File, an array of Files, or null for nothing. The Android staff
+    app passes it: its WebView's file input can choose photos but never take
+    one (utils/camera.js takePhotoFile / choosePhotoFiles). Without it — the
+    owner drawer, iOS, every browser — the button is the file input, exactly
+    as before. Either way the photos go through the same picker and cap. */
 export function AttachButton({ picker, label: labelProp, className, style, onPick }) {
   const { t } = useLanguage();
   const label = labelProp || t("staffChatAddPhoto", "Add photo");
@@ -206,8 +208,8 @@ export function AttachButton({ picker, label: labelProp, className, style, onPic
         disabled={picker.atMax}
         onClick={async () => {
           if (picker.atMax) return;
-          const file = await onPick();
-          if (file) picker.addFiles([file]);
+          const got = await onPick(Math.max(0, picker.max - picker.files.length));
+          if (got) picker.addFiles(Array.isArray(got) ? got : [got]);
         }}
       >
         <ImagePlus className="w-5 h-5" strokeWidth={2} aria-hidden />

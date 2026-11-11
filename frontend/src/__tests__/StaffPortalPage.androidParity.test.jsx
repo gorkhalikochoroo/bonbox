@@ -15,8 +15,10 @@
  *     Android keeps it (Web Push).
  *   • The branch link: Google Maps on Android, Apple Maps elsewhere.
  *   • The no-location fix names Android's own path, app or Chrome.
- *   • Chat photo in the Android app: the camera plugin's "choose or take"
- *     prompt feeds the same picker; a refused camera is said.
+ *   • Chat photo in the Android app: a small "take or choose" sheet — the
+ *     camera for one photo, the photo picker for as many as still fit (up to
+ *     3, like the file input) — feeds the same picker; a refused camera is
+ *     said.
  *
  * Only the platform module, the API, and native plugins at their boundary
  * (Browser, Camera, App, Keyboard) are mocked; the rest is the real page.
@@ -48,12 +50,15 @@ const asIOSApp = () => Object.assign(plat, { isNative: true, isIOS: true, isAndr
 
 // Native plugins at their boundary. Plain stubs, not vi.fn, for the ones that
 // reject: a spy's own derived promise would go unhandled.
-const native = vi.hoisted(() => ({ browserCalls: [], browserImpl: null, photoCalls: [], photoImpl: null }));
+const native = vi.hoisted(() => ({ browserCalls: [], browserImpl: null, photoCalls: [], photoImpl: null, pickCalls: [], pickImpl: null }));
 vi.mock("@capacitor/browser", () => ({
   Browser: { open: (opts) => { native.browserCalls.push(opts); return native.browserImpl(opts); } },
 }));
 vi.mock("@capacitor/camera", () => ({
-  Camera: { getPhoto: (opts) => { native.photoCalls.push(opts); return native.photoImpl(opts); } },
+  Camera: {
+    getPhoto: (opts) => { native.photoCalls.push(opts); return native.photoImpl(opts); },
+    pickImages: (opts) => { native.pickCalls.push(opts); return native.pickImpl(opts); },
+  },
   CameraSource: { Prompt: "PROMPT", Camera: "CAMERA", Photos: "PHOTOS" },
   CameraResultType: { Base64: "base64", Uri: "uri" },
 }));
@@ -143,6 +148,8 @@ beforeEach(() => {
   native.browserImpl = () => Promise.resolve();
   native.photoCalls.length = 0;
   native.photoImpl = () => Promise.resolve({ base64String: btoa("\xff\xd8\xff\xe0"), format: "jpeg" });
+  native.pickCalls.length = 0;
+  native.pickImpl = () => Promise.resolve({ photos: [] });
   info = { has_pin: false, staff_name: "Freja Nielsen", role: "server", restaurant_name: "Café Solsikke", restaurant_address: "Nørrebrogade 52", restaurant_city: "København N" };
   shifts = [
     { id: "w1", date: WED, start_time: "10:00", end_time: "16:00", status: "published", net_hours: 5.5, break_minutes: 30, role_on_shift: "Tjener", branch_name: "Hovedafdeling", branch_address: "Vesterbrogade 1" },
@@ -325,7 +332,7 @@ describe("Kontrakt og dokumenter", () => {
     await mount();
     const sheet = await openDocs();
     expect(within(sheet).getByTestId("portal-docs-app-cant-save").textContent).toBe(
-      "Appen kan ikke gemme dokumenter på telefonen endnu. Bed din leder om dit personlige link, og åbn det i en browser for at hente dem – eller bed om selve filen.",
+      "Du kan hente dokumenterne i en browser: Bed din leder om dit personlige link, og åbn det dér. Eller bed om selve filen. Appen kan ikke gemme filer på telefonen.",
     );
     expect(within(sheet).getByText("Ansættelseskontrakt")).toBeInTheDocument();
     expect(within(sheet).queryByRole("button", { name: "Ansættelseskontrakt" })).toBeNull();
@@ -489,49 +496,148 @@ describe("Chat photo in the Android app", () => {
     fireEvent.click(await screen.findByText("Café Solsikke", { selector: "button *" }));
     return screen.findByTestId("portal-chat-composer");
   }
-  beforeEach(() => { URL.createObjectURL = vi.fn(() => "blob:photo"); });
+  const realFetch = globalThis.fetch;
+  beforeEach(() => {
+    URL.createObjectURL = vi.fn(() => "blob:photo");
+    // The photo picker's files, served from the app's own origin (webPath).
+    globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, blob: () => Promise.resolve(new Blob([new Uint8Array([0xff, 0xd8])], { type: "image/jpeg" })) }));
+  });
+  afterEach(() => { globalThis.fetch = realFetch; });
+  const picked = (n) => ({ photos: Array.from({ length: n }, (_, i) => ({ webPath: `http://localhost/_capacitor_file_/p${i}.jpg`, format: "jpeg" })) });
+  const tapAttach = async (composer) => { await act(async () => { fireEvent.click(within(composer).getByTestId("chat-photo-attach")); }); };
+  const sheet = () => screen.getByTestId("portal-chat-photo-sheet");
 
-  it("the photo button opens the camera plugin's choose-or-take prompt and stages the photo", async () => {
+  it("the photo button asks: take a photo, or choose photos (up to 3) — nothing native opens yet", async () => {
     asAndroidApp();
     const composer = await openThread();
     const btn = within(composer).getByTestId("chat-photo-attach");
     expect(btn.tagName).toBe("BUTTON");
-    await act(async () => { fireEvent.click(btn); });
+    await tapAttach(composer);
+    expect(sheet().getAttribute("aria-label")).toBe("Tilføj billede");
+    expect(within(sheet()).getByTestId("portal-chat-photo-take").textContent).toBe("Tag et billede");
+    expect(within(sheet()).getByTestId("portal-chat-photo-choose").textContent).toBe("Vælg billederOp til 3 billeder");
+    expect(native.photoCalls).toHaveLength(0);
+    expect(native.pickCalls).toHaveLength(0);
+  });
+
+  it("Vælg billeder: the photo picker, limited to 3; two chosen = two thumbnails at once", async () => {
+    asAndroidApp();
+    native.pickImpl = () => Promise.resolve(picked(2));
+    const composer = await openThread();
+    await tapAttach(composer);
+    await act(async () => { fireEvent.click(within(sheet()).getByTestId("portal-chat-photo-choose")); });
+    expect(native.pickCalls).toHaveLength(1);
+    expect(native.pickCalls[0]).toMatchObject({ limit: 3, width: 1600, height: 1600 });
+    expect(native.photoCalls).toHaveLength(0);
+    await waitFor(() => expect(composer.querySelectorAll("img")).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByTestId("portal-chat-photo-sheet")).toBeNull());
+    // One slot left: the sheet says "Vælg et billede", and that is the
+    // single-photo picker.
+    await tapAttach(composer);
+    expect(within(sheet()).getByTestId("portal-chat-photo-choose").textContent).toBe("Vælg et billede");
+    await act(async () => { fireEvent.click(within(sheet()).getByTestId("portal-chat-photo-choose")); });
+    expect(native.pickCalls).toHaveLength(1);
+    expect(native.photoCalls[0]).toMatchObject({ source: "PHOTOS" });
+    await waitFor(() => expect(composer.querySelectorAll("img")).toHaveLength(3));
+    // Full: the button is off; removing one opens a slot again.
+    expect(within(composer).getByTestId("chat-photo-attach").disabled).toBe(true);
+    fireEvent.click(within(composer).getAllByTestId("chat-photo-remove")[0]);
+    expect(composer.querySelectorAll("img")).toHaveLength(2);
+    expect(within(composer).getByTestId("chat-photo-attach").disabled).toBe(false);
+  });
+
+  it("Tag et billede: the camera, one photo, staged", async () => {
+    asAndroidApp();
+    const composer = await openThread();
+    await tapAttach(composer);
+    await act(async () => { fireEvent.click(within(sheet()).getByTestId("portal-chat-photo-take")); });
     expect(native.photoCalls).toHaveLength(1);
-    expect(native.photoCalls[0]).toMatchObject({
-      source: "PROMPT",
-      promptLabelHeader: "Tilføj billede", promptLabelPhoto: "Vælg et billede",
-      promptLabelPicture: "Tag et billede", promptLabelCancel: "Annuller",
-    });
+    expect(native.photoCalls[0]).toMatchObject({ source: "CAMERA", saveToGallery: false });
+    expect(native.pickCalls).toHaveLength(0);
     await waitFor(() => expect(composer.querySelectorAll("img")).toHaveLength(1));
     expect(within(composer).queryByTestId("portal-chat-photo-note")).toBeNull();
+  });
+
+  it("English: Take a photo / Choose photos · Up to 3 photos", async () => {
+    asAndroidApp();
+    localStorage.setItem("lang", "en");
+    render(
+      <LanguageProvider>
+        <ConfirmProvider>
+          <MemoryRouter initialEntries={[`/portal/${TOK}`]}>
+            <Routes>
+              <Route path="/portal/:token" element={<StaffPortalPage />} />
+            </Routes>
+          </MemoryRouter>
+        </ConfirmProvider>
+      </LanguageProvider>,
+    );
+    await waitFor(() => expect(screen.getByTitle("Edit profile")).toBeInTheDocument());
+    fireEvent.click(within(screen.getByTestId("portal-tabbar-v3")).getByText("Messages").closest("button"));
+    fireEvent.click(await screen.findByText("Café Solsikke", { selector: "button *" }));
+    const composer = await screen.findByTestId("portal-chat-composer");
+    await tapAttach(composer);
+    expect(sheet().getAttribute("aria-label")).toBe(en.staffChatAddPhoto);
+    expect(within(sheet()).getByTestId("portal-chat-photo-take").textContent).toBe(en.portalPhotoTake);
+    expect(within(sheet()).getByTestId("portal-chat-photo-choose").textContent).toBe(`${en.portalPhotoChooseMany}Up to 3 photos`);
   });
 
   it("a refused camera is said under the composer; nothing is staged", async () => {
     asAndroidApp();
     native.photoImpl = () => Promise.reject(new Error("User denied access to camera"));
     const composer = await openThread();
-    await act(async () => { fireEvent.click(within(composer).getByTestId("chat-photo-attach")); });
+    await tapAttach(composer);
+    await act(async () => { fireEvent.click(within(sheet()).getByTestId("portal-chat-photo-take")); });
     expect((await within(composer).findByTestId("portal-chat-photo-note")).textContent).toBe(
       "Appen må ikke bruge kameraet. Giv adgang i Indstillinger → Apps → BonBox Vagtplan → Tilladelser → Kamera, eller vælg et billede i stedet.",
     );
     expect(composer.querySelectorAll("img")).toHaveLength(0);
   });
 
-  it("cancelling the prompt adds nothing and says nothing", async () => {
+  it("a picked photo that cannot be read: 'Kunne ikke tilføje billedet', nothing staged", async () => {
+    asAndroidApp();
+    native.pickImpl = () => Promise.resolve(picked(2));
+    globalThis.fetch = vi.fn(() => Promise.resolve({ ok: false, status: 404, blob: () => Promise.resolve(new Blob([])) }));
+    const composer = await openThread();
+    await tapAttach(composer);
+    await act(async () => { fireEvent.click(within(sheet()).getByTestId("portal-chat-photo-choose")); });
+    expect((await within(composer).findByTestId("portal-chat-photo-note")).textContent).toBe("Kunne ikke tilføje billedet. Prøv igen.");
+    expect(composer.querySelectorAll("img")).toHaveLength(0);
+  });
+
+  it("closing the sheet, or cancelling the picker or the camera, adds nothing and says nothing", async () => {
     asAndroidApp();
     native.photoImpl = () => Promise.reject(new Error("User cancelled photos app"));
+    native.pickImpl = () => Promise.reject(new Error("User cancelled photos app"));
     const composer = await openThread();
-    await act(async () => { fireEvent.click(within(composer).getByTestId("chat-photo-attach")); });
+    // The × (the scrim and Android BACK do the same).
+    await tapAttach(composer);
+    await act(async () => { fireEvent.click(within(sheet()).getByRole("button", { name: "Luk" })); });
+    await waitFor(() => expect(screen.queryByTestId("portal-chat-photo-sheet")).toBeNull());
+    expect(native.photoCalls).toHaveLength(0);
+    expect(native.pickCalls).toHaveLength(0);
+    // The picker, then the camera, closed without a photo.
+    await tapAttach(composer);
+    await act(async () => { fireEvent.click(within(sheet()).getByTestId("portal-chat-photo-choose")); });
+    await waitFor(() => expect(screen.queryByTestId("portal-chat-photo-sheet")).toBeNull());
+    await tapAttach(composer);
+    await act(async () => { fireEvent.click(within(sheet()).getByTestId("portal-chat-photo-take")); });
+    expect(native.pickCalls).toHaveLength(1);
+    expect(native.photoCalls).toHaveLength(1);
     expect(composer.querySelectorAll("img")).toHaveLength(0);
     expect(within(composer).queryByTestId("portal-chat-photo-note")).toBeNull();
   });
 
-  it("browsers and the iPhone keep the file input", async () => {
+  it("browsers and the iPhone keep the multi-file input — no sheet", async () => {
     asIOSApp();
     const composer = await openThread();
-    expect(within(composer).getByTestId("chat-photo-attach").tagName).toBe("LABEL");
+    const attach = within(composer).getByTestId("chat-photo-attach");
+    expect(attach.tagName).toBe("LABEL");
+    expect(attach.querySelector('input[type="file"]').multiple).toBe(true);
+    fireEvent.click(attach);
+    expect(screen.queryByTestId("portal-chat-photo-sheet")).toBeNull();
     expect(native.photoCalls).toHaveLength(0);
+    expect(native.pickCalls).toHaveLength(0);
   });
 });
 

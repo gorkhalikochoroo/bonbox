@@ -2,7 +2,8 @@
  * The chat's photo button (Android walk, 11 Nov 2026). Without `onPick` it
  * is the file input it always was (the owner drawer, iOS, browsers). With
  * `onPick` (the Android staff app) it is a plain button that stages the File
- * onPick returns — through the same picker, the same 3-photo cap.
+ * — or the Files — onPick returns, through the same picker and the same
+ * 3-photo cap; onPick is told how many more fit.
  */
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -56,6 +57,25 @@ describe("AttachButton", () => {
 
   it("onPick returning null (cancelled) stages nothing", async () => {
     mount({ onPick: vi.fn(() => Promise.resolve(null)) });
+    await act(async () => { fireEvent.click(screen.getByTestId("chat-photo-attach")); });
+    expect(screen.getByTestId("count").textContent).toBe("0");
+  });
+
+  it("onPick is told how many more fit, and several Files it returns are staged together", async () => {
+    const onPick = vi.fn(() => Promise.resolve([jpeg(), jpeg()]));
+    mount({ onPick });
+    await act(async () => { fireEvent.click(screen.getByTestId("chat-photo-attach")); });
+    expect(onPick).toHaveBeenLastCalledWith(3);
+    expect(screen.getByTestId("count").textContent).toBe("2");
+    await act(async () => { fireEvent.click(screen.getByTestId("chat-photo-attach")); });
+    expect(onPick).toHaveBeenLastCalledWith(1);
+    // Still the same 3-photo cap: the third fits, the fourth does not.
+    expect(screen.getByTestId("count").textContent).toBe("3");
+    expect(screen.getByTestId("chat-photo-attach").disabled).toBe(true);
+  });
+
+  it("an empty list (cancelled picker) stages nothing", async () => {
+    mount({ onPick: vi.fn(() => Promise.resolve([])) });
     await act(async () => { fireEvent.click(screen.getByTestId("chat-photo-attach")); });
     expect(screen.getByTestId("count").textContent).toBe("0");
   });

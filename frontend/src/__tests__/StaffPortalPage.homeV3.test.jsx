@@ -77,7 +77,7 @@ vi.mock("../hooks/useNativePush", () => ({
   NATIVE_PUSH_TOKEN_KEY: "bonbox_apns_token",
 }));
 vi.mock("../utils/haptics", () => ({ haptic: Object.assign(vi.fn(), { light: vi.fn(), warning: vi.fn(), success: vi.fn(), error: vi.fn() }) }));
-vi.mock("../utils/camera", () => ({ capturePhoto: vi.fn(), promptPhotoFile: vi.fn(), isCameraDenied: vi.fn() }));
+vi.mock("../utils/camera", () => ({ capturePhoto: vi.fn(), takePhotoFile: vi.fn(), choosePhotoFiles: vi.fn(), isCameraDenied: vi.fn() }));
 
 const StaffPortalPage = (await import("../pages/StaffPortalPage")).default;
 const { LanguageProvider } = await import("../hooks/useLanguage");
@@ -519,6 +519,50 @@ describe("Venue map on the card (R2)", () => {
     expect(img.style.opacity).toBe("1");
     expect(mapCalls()).toHaveLength(1);
   });
+
+  // Android 14 walk (11 Nov 2026): at 412 px the viewport estimate (old side
+  // chrome 68 → 352) and the measured width (336) differed; each answer
+  // evicted the other size and the card went blank — an empty pine box — on
+  // every other remount. 390 px (iPhone 12–16) is checked too.
+  for (const vw of [412, 390]) {
+    it(`at ${vw} px: ONE request, and the map on the card after every remount`, async () => {
+      const realVW = window.innerWidth;
+      Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: vw });
+      // jsdom has no layout: the map block measures what the phone measured
+      // (the page's 20 px gutters + the card's 18 px padding, each side).
+      Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+        configurable: true,
+        get() { return this.getAttribute?.("data-testid") === "portal-venue-map" ? vw - 76 : 0; },
+      });
+      try {
+        info = { ...info, venue: VENUE };
+        await mount("da");
+        await waitFor(() => expect(screen.getByTestId("portal-venue-map").querySelector("img")).not.toBeNull());
+        for (let i = 0; i < 2; i += 1) {
+          fireEvent.click(screen.getByTestId("portal-tab-hours"));
+          expect(screen.queryByTestId("portal-venue-map")).toBeNull();
+          fireEvent.click(screen.getByTestId("portal-tab-schedule"));
+          // Painted from memory in the same frame…
+          const img = screen.getByTestId("portal-venue-map").querySelector("img");
+          expect(img).not.toBeNull();
+          expect(img.style.opacity).toBe("1");
+          // …and still there once every answer is in and the card re-renders.
+          await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+          // (Opening and closing the ⋯ sheet re-renders the card.)
+          fireEvent.click(screen.getByTestId("portal-shift-menu-btn"));
+          expect(screen.getByTestId("portal-venue-map").querySelector("img")).not.toBeNull();
+          fireEvent.keyDown(document, { key: "Escape" });
+          await waitFor(() => expect(screen.queryByTestId("portal-shift-menu")).toBeNull());
+          expect(screen.getByTestId("portal-venue-map").querySelector("img")).not.toBeNull();
+        }
+        expect(mapCalls()).toHaveLength(1);
+        expect(mapCalls()[0][0]).toContain(`?w=${vw === 412 ? 336 : 320}&`);
+      } finally {
+        delete HTMLElement.prototype.clientWidth;
+        Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: realVW });
+      }
+    });
+  }
 
   it("the map URL changes when the pin moves, so no cache can show the old place", async () => {
     info = { ...info, venue: VENUE };

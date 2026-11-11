@@ -17,17 +17,22 @@
  * URL here, keyed by who asks + size + version, so a tab switch that remounts
  * the card paints the map in the same frame instead of fetching it again (and
  * growing the card under the staffer's thumb). A newer version for the same
- * asker replaces — and frees — the older one.
+ * asker replaces — and frees — the older one. Other SIZES of the same version
+ * stay: a card that asked for two widths must not have one answer evict the
+ * other (that left an empty pine box on every other remount).
  */
 
 export const MAP_H = 96;
 const W_MIN = 256;
 const W_MAX = 448;
 const W_STEP = 16;
-// The card's side padding plus the page's: min(viewport, 512) - 68 is the
-// map's width on the staff app (max-w-lg page, 16 px gutters, 18 px card).
+// The card's side padding plus the page's: min(viewport, 512) - 76 is the
+// map's width on the staff app (max-w-lg page, 20 px gutters, 18 px card
+// padding). It has to match what the block measures: at 412 px (a common
+// Android phone) the old 68 asked for 352 first and then the measured 336 —
+// two requests for one card (Android 14 walk, 11 Nov 2026).
 const PAGE_MAX = 512;
-const CHROME = 68;
+const CHROME = 76;
 
 export function mapRequestWidth(measured) {
   let w = Number(measured) || 0;
@@ -63,10 +68,17 @@ export function getCachedMap(key) {
   return cache.get(key);
 }
 
+// The key's parts: [scope, w, dpr, v, style].
+const keyParts = (key) => String(key).split("\u0001");
+
 export function setCachedMap(key, entry) {
-  const scope = key.slice(0, key.indexOf("\u0001"));
+  const [scope, , , v] = keyParts(key);
   for (const [k, e] of cache) {
-    if (k !== key && k.startsWith(`${scope}\u0001`)) {
+    if (k === key) continue;
+    const [kScope, , , kV] = keyParts(k);
+    // Only ANOTHER version of the same asker's map goes (a moved pin); its
+    // other sizes stay.
+    if (kScope === scope && kV !== v) {
       if (e?.url) URL.revokeObjectURL?.(e.url);
       cache.delete(k);
     }

@@ -101,7 +101,7 @@ vi.mock("../hooks/useNativePush", () => ({
   NATIVE_PUSH_TOKEN_KEY: "bonbox_apns_token",
 }));
 vi.mock("../utils/haptics", () => ({ haptic: Object.assign(vi.fn(), { light: vi.fn(), warning: vi.fn(), success: vi.fn(), error: vi.fn() }) }));
-vi.mock("../utils/camera", () => ({ capturePhoto: vi.fn(), promptPhotoFile: vi.fn(), isCameraDenied: vi.fn() }));
+vi.mock("../utils/camera", () => ({ capturePhoto: vi.fn(), takePhotoFile: vi.fn(), choosePhotoFiles: vi.fn(), isCameraDenied: vi.fn() }));
 vi.mock("@capacitor/app", () => ({ App: { addListener: vi.fn(() => Promise.resolve({ remove: vi.fn() })) } }));
 // The native shell's Keyboard plugin has no web build; the keyboard is not
 // what these tests are about (StaffPortalPage.keyboardNative pins it).
