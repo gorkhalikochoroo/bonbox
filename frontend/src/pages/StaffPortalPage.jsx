@@ -83,6 +83,10 @@ const DIVIDER = "#EEEAE0";
 const INK = "#16211C";
 const MUTED = "#5E6A63";
 const LINK = "#1F5A45";
+// Terracotta: "kan ikke" — the home strip and both Fravær calendars (see the
+// colour note above the Fravær looks).
+const RED_INK = "#A4452F";
+const RED_WASH = "#F6E3DC";
 // Sora, the display face (vagtplan.css maps var(--font-display) to the same
 // stack on the portal). Literal, so an inline style names its face outright.
 const SORA = "'Sora', 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
@@ -1943,6 +1947,8 @@ function OpenShiftsClaimCard({ rows, claimer, ownShifts, businessType }) {
                 <div className="flex items-center" style={{ gap: 12, padding: "14px 12px 14px 14px" }}>
                   <DateTile iso={o.date} lang={lang} />
                   <div className="flex-1 min-w-0 flex flex-col" style={{ gap: 3 }}>
+                    {/* The tile is aria-hidden: the day, in words, for a screen reader. */}
+                    <span className="sr-only">{fmtSwapDay(o.date, lang)}</span>
                     <span className="tabular-nums whitespace-nowrap" style={{ font: `700 16px/1.2 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>
                       {o.start_time}–{o.end_time}
                     </span>
@@ -2875,13 +2881,16 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   style={{
                     font: `700 17px/1 ${SORA}`,
                     textDecoration: dayUnavail && !shift ? "line-through" : "none",
-                    textDecorationColor: dayUnavail && !shift ? "#B7791F" : undefined,
+                    // Terracotta = "kan ikke", as on Fravær (amber/brass
+                    // means "Afventer" there). On today's pine cell the
+                    // terracotta wash, so the strike stays legible.
+                    textDecorationColor: dayUnavail && !shift ? (isTodayCell ? RED_WASH : RED_INK) : undefined,
                   }}
                 >
                   {parseInt(d.slice(8), 10)}
                 </span>
                 {dayUnavail && !shift && !free ? (
-                  <CalendarOff className="w-3 h-3" style={{ color: "#B7791F" }} strokeWidth={2.5} aria-hidden />
+                  <CalendarOff data-testid="portal-strip-cant" className="w-3 h-3" style={{ color: isTodayCell ? RED_WASH : RED_INK }} strokeWidth={2.5} aria-hidden />
                 ) : (
                   <span
                     aria-hidden
@@ -3823,8 +3832,6 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
 //   pine       — settled: approved time off
 // Literal hex for the same reason as the palette at the top: index.css remaps
 // every green-* class to the owner's theme accent.
-const RED_INK = "#A4452F";
-const RED_WASH = "#F6E3DC";
 const RED_EDGE = "rgba(164, 69, 47, 0.38)";
 const ALERT_INK = "#B42318";     // an error line; the home's "Overlapper dig"
 const ALERT_WASH = "#FBEDE9";
@@ -3840,11 +3847,32 @@ const PLACEHOLDER = "#8A948E";
 const CARD_BOX = { background: CARD, border: `1px solid ${LINE}` };
 const EYEBROW = { font: "600 11px/1.2 var(--font-text)", letterSpacing: "0.14em", textTransform: "uppercase", color: MUTED };
 const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40";
-const BTN = { height: 48, padding: "0 18px", borderRadius: 16, font: "600 15px/1 var(--font-text)", boxSizing: "border-box" };
+// Chat photos (the shared chatPhotoKit) in the portal: 14 px corners beside
+// the 18 px bubbles, and a shimmer on the divider tone while one loads — the
+// kit's own look pulses a cool grey.
+const PORTAL_PHOTO_LOOK = {
+  imgStyle: { borderRadius: 14 },
+  loadingClassName: "w-28 h-28 vp-shimmer",
+  loadingStyle: { borderRadius: 14, background: DIVIDER },
+};
+// Every filled button has ONE shape: the home's (brassBtn, the live card's
+// buttons, the canvas) — radius 14, a label that never wraps. A wrapped label
+// in a line-height-1 button reads broken; where two would not fit side by
+// side they stack instead (VpQuestionSheet, the Fravær form).
+const BTN = { height: 48, padding: "0 18px", borderRadius: 14, font: "600 15px/1 var(--font-text)", boxSizing: "border-box", whiteSpace: "nowrap" };
 const BTN_PINE = { ...BTN, background: PINE, color: CREAM, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 22px -16px rgba(14,59,46,0.8)" };
 const BTN_QUIET = { ...BTN, background: CARD, color: INK, border: `1px solid ${LINE}` };
 const BTN_SAGE = { ...BTN, background: SOFT, color: PINE };
 const BTN_RED = { ...BTN, background: RED_INK, color: CREAM };
+// A form's full-width submit: 52 tall, the same radius.
+const BTN_FULL = { height: 52 };
+// One disabled look for a filled button: the tile, muted text, no shadow
+// (PeriodSheet's). Opacity faded pine and its shadow into a grey-sage slab.
+const BTN_OFF = { background: TILE, color: MUTED, boxShadow: "none", border: "none" };
+const pineBtn = (disabled, extra) => ({ ...BTN_PINE, ...extra, ...(disabled ? BTN_OFF : null) });
+// A quiet text action under a primary (PeriodSheet's "Tilbage til min
+// lønperiode"): 44 tall, no fill, no border.
+const BTN_TEXT = { minHeight: 44, padding: "0 12px", borderRadius: 14, font: "600 14px/1 var(--font-text)", color: MUTED, background: "transparent", whiteSpace: "nowrap" };
 // A field: ivory, the hairline, pine when it has focus. 16 px so iOS never
 // zooms the page on focus (an inline font beats index.css's coarse rule).
 const FIELD_CLS = "block w-full outline-none border border-[#E8E3D8] focus:border-[#0E3B2E]/50 placeholder:text-[#8A948E]";
@@ -3965,7 +3993,9 @@ function VpQuestionSheet({ closing = false, title, body, onDismiss, dismissLabel
         <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 14 }} />
         <div style={{ font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>{title}</div>
         {body && <p style={{ margin: "8px 0 0", font: "400 14px/1.45 var(--font-text)", color: MUTED }}>{body}</p>}
-        <div className="flex" style={{ gap: 8, marginTop: 18 }}>{children}</div>
+        {/* Side by side while both labels fit (they never wrap — BTN), one
+            above the other on a narrow phone; the first action stays on top. */}
+        <div className="grid" style={{ gap: 8, marginTop: 18, gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>{children}</div>
       </div>
     </div>
   );
@@ -4133,10 +4163,7 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
           disabled={!ready}
           onClick={() => onApply({ start: from, end: to })}
           className={`w-full vp-press ${FOCUS_RING}`}
-          style={{
-            ...BTN_PINE, marginTop: 16, height: 52, borderRadius: 18,
-            ...(ready ? null : { background: TILE, color: MUTED, boxShadow: "none" }),
-          }}
+          style={pineBtn(!ready, { ...BTN_FULL, marginTop: 16 })}
         >
           {t("portalHoursShowPeriod", "Show these hours")}
         </button>
@@ -4155,9 +4182,23 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
   );
 }
 
+/** Can this device hand a CSV FILE to the OS share sheet (Web Share level 2)?
+    Probe, never sniff; a thrown probe is a "no". */
+function canShareCsvFile() {
+  try {
+    if (typeof navigator === "undefined" || typeof navigator.share !== "function") return false;
+    return !!navigator.canShare?.({ files: [new File(["x"], "t.csv", { type: "text/csv" })] });
+  } catch {
+    return false;
+  }
+}
+
 function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hoursError, hoursLoading, onRetry }) {
   const { t, lang } = useLanguage();
   const [customOpen, setCustomOpen] = useState(false);
+  // An export that came back undelivered (exportToCsv → false): said, never
+  // silent. Cleared on the next try.
+  const [exportFailed, setExportFailed] = useState(false);
   const periodSheet = usePresence(customOpen);
   // The permit cap is monthly. Against a chosen window of any other length the
   // ratio is meaningless — and it drives an amber/red "permit nearly blown"
@@ -4311,15 +4352,25 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
     ? t("portalHoursNoShifts", "No shifts in this period yet")
     : t("portalHoursNoneLogged", "No hours logged yet this period");
 
-  // The CSV goes out through utils/download.js. In the native shell there is
-  // no download manager behind the WebView and no share/filesystem plugin is
-  // synced into either Vagtplan app (capacitor.config.ts includePlugins,
-  // ios-scheduler Package.swift, android-scheduler capacitor.settings.gradle),
-  // so saveFile answers "no_download_manager" and the button did nothing.
-  // A dead button is a lie: in the app it is not drawn, and one line says
-  // where the export does work.
+  // The CSV goes out through utils/download.js (exportToCsv → saveFile with
+  // preferShare). In the native shell saveFile tries the OS share sheet FIRST
+  // — navigator.share({files}), which the iOS Vagtplan app's WKWebView has
+  // (fb05b7d3) — and only then the anchor, which is a no-op there
+  // ("no_download_manager"). The file is built in JS on the tap, no network
+  // round-trip, so the tap's user activation is still alive for the sheet.
+  //
+  // So what decides is what THIS device can do, not which platform it is: no
+  // share/filesystem plugin is synced into either app, and Android's WebView
+  // has no Web Share — a button there would be dead. Probe file sharing; when
+  // it is missing, or an export comes back undelivered, one line says where
+  // the export does work instead of a button that silently does nothing.
   const nativeShell = isNativeApp();
-  const canExport = data.entries.length > 0 && !nativeShell;
+  // A plain probe, not a hook: HoursTab returns early above, and the check
+  // is two property reads and a File.
+  const canDeliver = !nativeShell || canShareCsvFile();
+  const hasRows = data.entries.length > 0;
+  const canExport = hasRows && canDeliver;
+  const showWebOnly = hasRows && nativeShell && (!canDeliver || exportFailed);
 
   // The two stat tiles on the pine card: cream figures, sage labels. "lit"
   // is the one that answers the question of the moment (permit, up on last
@@ -4515,7 +4566,8 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                 // never disagree — this is the staffer's own record if the hours
                 // are ever queried, so a mismatch would be worse than no export.
                 const total = data.entries.reduce((a, e) => a + (Number(e.total_hours) || 0), 0);
-                exportToCsv(
+                setExportFailed(false);
+                Promise.resolve(exportToCsv(
                   `bonbox-timer-${data.period_start}-${data.period_end}.csv`,
                   [
                     ...data.entries.map((e) => ({
@@ -4532,7 +4584,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                     { key: "end", label: t("portalHoursCsvEnd", "End") },
                     { key: "hours", label: t("portalHoursCsvHours", "Hours") },
                   ],
-                );
+                )).then((ok) => { if (!ok) setExportFailed(true); }, () => setExportFailed(true));
               }}
               // A quiet text button in pine: the export is a convenience, not
               // this screen's action. 44 tall, pulled back into the row.
@@ -4650,9 +4702,10 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             })}
           </div>
         )}
-        {/* In the app the export is not drawn (see nativeShell above); this
-            one line says where it does work. */}
-        {nativeShell && data.entries.length > 0 && (
+        {/* In an app that cannot share a file the export is not drawn, and
+            in any app an undelivered export lands here too (see canDeliver
+            above): one line says where it does work. */}
+        {showWebOnly && (
           <p
             data-testid="portal-hours-export-web-only"
             className="flex items-center"
@@ -4660,6 +4713,17 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           >
             <Download size={14} strokeWidth={2} aria-hidden className="shrink-0" />
             {t("portalHoursExportWebOnly", "Export your hours from bonbox.dk in a browser")}
+          </p>
+        )}
+        {/* On the web an undelivered file is rare (the anchor nearly always
+            lands) — but it is said, not swallowed. */}
+        {!nativeShell && exportFailed && (
+          <p
+            role="alert"
+            data-testid="portal-hours-export-failed"
+            style={{ margin: "10px 4px 0", font: "400 13px/1.4 var(--font-text)", color: ALERT_INK }}
+          >
+            {t("portalHoursExportFailed", "The file wasn't saved to this device. Try again.")}
           </p>
         )}
       </section>
@@ -4779,30 +4843,31 @@ function SwapTab({ token, ownShifts, onChanged }) {
 
   return (
     <div className="flex flex-col" style={{ gap: 16 }}>
-      {/* Actions — trade (targeted) or sell (open pool). Two buttons, not a
-          toggle: pine for the swap, the ivory card for the give-away. */}
+      {/* Actions — trade (targeted) or sell (open pool). The canvas's entry
+          tiles ("Byt en vagt"): two ivory cards, a 38 px sage well with the
+          mark in pine, the label in ink. Not filled buttons — the one filled
+          pine action on this tab is the answer to a request (Accepter), or
+          the submit inside an open form. */}
       {!showPropose && !showSell && (
-        <div className="grid grid-cols-2" style={{ gap: 8 }}>
-          <button
-            type="button"
-            onClick={() => setShowPropose(true)}
-            data-testid="swap-offer"
-            className={`min-w-0 flex items-center justify-center text-center vp-press ${FOCUS_RING}`}
-            style={{ ...BTN_PINE, height: "auto", minHeight: 52, padding: "8px 12px", borderRadius: 18, gap: 8, lineHeight: 1.2 }}
-          >
-            <ArrowLeftRight size={18} strokeWidth={1.9} aria-hidden className="shrink-0" />
-            {t("portalOfferSwapShort", "Swap")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowSell(true)}
-            data-testid="swap-give-away"
-            className={`min-w-0 flex items-center justify-center text-center vp-press ${FOCUS_RING}`}
-            style={{ ...BTN_QUIET, height: "auto", minHeight: 52, padding: "8px 12px", borderRadius: 18, gap: 8, lineHeight: 1.2 }}
-          >
-            <Send size={18} strokeWidth={1.9} aria-hidden className="shrink-0" style={{ color: MUTED }} />
-            {t("portalGaSellCta", "Give away a shift")}
-          </button>
+        <div className="grid grid-cols-2" style={{ gap: 10 }}>
+          {[
+            { testId: "swap-offer", Icon: ArrowLeftRight, label: t("portalOfferSwapShort", "Swap"), open: () => setShowPropose(true) },
+            { testId: "swap-give-away", Icon: Send, label: t("portalGaSellCta", "Give away a shift"), open: () => setShowSell(true) },
+          ].map((a) => (
+            <button
+              key={a.testId}
+              type="button"
+              onClick={a.open}
+              data-testid={a.testId}
+              className={`min-w-0 flex flex-col items-start text-left vp-press ${FOCUS_RING}`}
+              style={{ gap: 12, padding: 14, borderRadius: 20, ...CARD_BOX, color: INK }}
+            >
+              <span aria-hidden className="shrink-0 flex items-center justify-center" style={{ width: 38, height: 38, borderRadius: 12, background: SOFT, color: PINE }}>
+                <a.Icon size={18} strokeWidth={1.9} />
+              </span>
+              <span style={{ font: "600 15px/1.25 var(--font-text)" }}>{a.label}</span>
+            </button>
+          ))}
         </div>
       )}
       {showPropose && (
@@ -4847,6 +4912,9 @@ function SwapTab({ token, ownShifts, onChanged }) {
                   <div data-testid="swap-pool-row" className="flex items-center" style={{ gap: 12, padding: "14px 12px 14px 14px" }}>
                     {/^\d{4}-\d{2}-\d{2}$/.test(g.from_shift_date || "") && <DateTile iso={g.from_shift_date} lang={lang} />}
                     <div className="flex-1 min-w-0 flex flex-col" style={{ gap: 3 }}>
+                      {/* The tile is aria-hidden (and has no month): the day,
+                          in words, for a screen reader. */}
+                      {g.from_shift_date && <span className="sr-only">{fmtSwapDay(g.from_shift_date, lang)}</span>}
                       <span className="tabular-nums whitespace-nowrap" style={{ font: `700 16px/1.2 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>
                         {g.from_shift_time}
                       </span>
@@ -5010,7 +5078,9 @@ function SwapRow({ swap, token, onChanged }) {
         ? t("portalSwapStatusDeclined", "Declined")
         : swap.status === "withdrawn"
           ? t("portalSwapStatusWithdrawn", "Withdrawn")
-          : swap.status;
+          : swap.status === "accepted"
+            ? t("portalSwapStatusAccepted", "Agreed")
+            : swap.status;
 
   // One side of the trade: the day in words, the time in Sora (the home's
   // shift-row tile).
@@ -5054,8 +5124,9 @@ function SwapRow({ swap, token, onChanged }) {
         {side(isGiveaway ? t("portalGaShiftLabel", "Shift") : t("portalSwapGives", "Gives"), swap.from_shift_date, swap.from_shift_time)}
         {!isGiveaway && side(t("portalSwapGets", "Gets"), swap.to_shift_date, swap.to_shift_time)}
       </div>
+      {/* The pool's quote marks, upright — one way to quote a colleague. */}
       {swap.reason && (
-        <div style={{ font: "italic 400 13px/1.4 var(--font-text)", color: MUTED }}>"{swap.reason}"</div>
+        <div data-testid="swap-reason" style={{ font: "400 13px/1.4 var(--font-text)", color: MUTED }}>“{swap.reason}”</div>
       )}
       {swap.owner_note && (
         <div style={{ font: "400 13px/1.4 var(--font-text)", color: MUTED }}>
@@ -5075,8 +5146,9 @@ function SwapRow({ swap, token, onChanged }) {
             type="button"
             onClick={() => respond(true)}
             disabled={busy}
-            className={`flex-1 min-h-[44px] vp-press disabled:opacity-50 ${FOCUS_RING}`}
-            style={BTN_PINE}
+            data-testid="swap-accept"
+            className={`flex-1 min-h-[44px] vp-press ${FOCUS_RING}`}
+            style={pineBtn(busy)}
           >
             {t("portalSwapAccept", "Accept")}
           </button>
@@ -5084,6 +5156,7 @@ function SwapRow({ swap, token, onChanged }) {
             type="button"
             onClick={() => respond(false)}
             disabled={busy}
+            data-testid="swap-decline"
             className={`flex-1 min-h-[44px] vp-press disabled:opacity-50 ${FOCUS_RING}`}
             style={BTN_QUIET}
           >
@@ -5108,9 +5181,13 @@ function SwapRow({ swap, token, onChanged }) {
           reassigned (auto-execute). Honest, final copy — no "awaiting
           owner". The schedule tab now shows the new shift. */}
       {swap.status === "done" && (
-        <div className="flex items-center" style={{ gap: 6, font: "500 13px/1.35 var(--font-text)", color: PINE }}>
+        <div data-testid="swap-done-line" className="flex items-center" style={{ gap: 6, font: "500 13px/1.35 var(--font-text)", color: PINE }}>
           <Check size={15} strokeWidth={2.4} className="shrink-0" aria-hidden />
-          <span>{t("portalSwapDoneLine", "Done — shifts swapped. Your schedule is updated.")}</span>
+          {/* A give-away was TAKEN, not swapped — its pill says "Overtaget",
+              so the line under it must not say "Byttet". */}
+          <span>{isGiveaway
+            ? t("portalGaDoneLine", "Taken — the schedule is updated.")
+            : t("portalSwapDoneLine", "Done — shifts swapped. Your schedule is updated.")}</span>
         </div>
       )}
       {/* Legacy/edge: a swap left in `accepted` (e.g. a future owner-
@@ -5193,8 +5270,8 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
         type="button"
         onClick={submit}
         disabled={!shiftId || submitting}
-        className={`w-full vp-press disabled:opacity-50 ${FOCUS_RING}`}
-        style={{ ...BTN_PINE, height: 52, borderRadius: 18 }}
+        className={`w-full vp-press ${FOCUS_RING}`}
+        style={pineBtn(!shiftId || submitting, BTN_FULL)}
       >
         {submitting ? "…" : t("portalGaSellSubmit", "Put it up for grabs")}
       </button>
@@ -5352,8 +5429,8 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
         type="button"
         onClick={submit}
         disabled={submitting || !fromShiftId || !toShiftId}
-        className={`w-full vp-press disabled:opacity-50 ${FOCUS_RING}`}
-        style={{ ...BTN_PINE, height: 52, borderRadius: 18 }}
+        className={`w-full vp-press ${FOCUS_RING}`}
+        style={pineBtn(submitting || !fromShiftId || !toShiftId, BTN_FULL)}
       >
         {submitting ? t("portalSending", "Sending...") : t("portalSwapSubmit", "Send swap request")}
       </button>
@@ -5839,8 +5916,8 @@ function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
             type="button"
             onClick={create}
             disabled={!title.trim() || busy}
-            className={`w-full vp-press disabled:opacity-40 ${FOCUS_RING}`}
-            style={{ ...BTN_PINE, height: 52, borderRadius: 18 }}
+            className={`w-full vp-press ${FOCUS_RING}`}
+            style={pineBtn(!title.trim() || busy, BTN_FULL)}
           >
             {t("staffChatCreateGroup", "Create group")}
           </button>
@@ -6087,6 +6164,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
   };
 
   const memberCount = (meta?.member_ids || []).length;
+  const sendOff = (!text.trim() && picker.files.length === 0) || sending;
   const heading = isGroup
     ? meta?.title || t("staffChatGroup", "Group")
     : restaurantName || t("staffChatOwnerLabel", "Manager");
@@ -6159,8 +6237,8 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
               className={`flex ${m.mine ? "justify-end" : "justify-start"}`}
             >
               <div className={`max-w-[80%] ${m.mine ? "items-end" : "items-start"} flex flex-col`}>
-                {!m.mine && (
-                  <span style={{ font: "600 12px/1.2 var(--font-text)", color: MUTED, padding: "0 6px", marginBottom: 4 }}>
+                {!m.mine && isGroup && (
+                  <span data-testid="portal-chat-sender" style={{ font: "600 12px/1.2 var(--font-text)", color: MUTED, padding: "0 6px", marginBottom: 4 }}>
                     {/* In a group the sender is the point; in the owner thread
                         there is only one other party and naming them is noise. */}
                     {m.sender_type === "owner"
@@ -6174,6 +6252,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
                       client={portalApi}
                       photos={m.photos}
                       localPreviews={m._localPreviews}
+                      {...PORTAL_PHOTO_LOOK}
                     />
                   </div>
                 )}
@@ -6250,9 +6329,23 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
           : { bottom: kb > 0 ? `${kb}px` : "calc(3.5rem + env(safe-area-inset-bottom))" }}
       >
         <div className={BAR_V3 ? "" : "max-w-lg mx-auto px-3 pt-2"} style={BAR_V3 ? { padding: 5 } : undefined}>
-          <PendingPhotos picker={picker} />
+          {/* The shared photo kit in the portal's material: a 14 px thumb, a
+              pine "×" (24 px, 44 px to tap) instead of the kit's navy dot. */}
+          <PendingPhotos
+            picker={picker}
+            thumbStyle={{ borderRadius: 14, border: `1px solid ${LINE}` }}
+            removeClassName="absolute -top-2 -right-2 flex items-center justify-center before:absolute before:-inset-[10px] before:content-['']"
+            removeStyle={{ width: 24, height: 24, borderRadius: 999, background: PINE, color: CREAM }}
+          />
           <div className={`${BAR_V3 ? "" : "pb-2 "}flex items-end`} style={{ gap: 6 }}>
-            <AttachButton picker={picker} label={t("staffChatAddPhoto", "Add photo")} />
+            {/* 44 × 44 like send, muted ink, no hover fill (the kit's is a
+                cool grey that sits wrong next to the pine send). */}
+            <AttachButton
+              picker={picker}
+              label={t("staffChatAddPhoto", "Add photo")}
+              className={`shrink-0 flex items-center justify-center vp-press ${picker.atMax ? "cursor-not-allowed" : "cursor-pointer"}`}
+              style={{ width: 44, height: 44, borderRadius: 999, color: picker.atMax ? PLACEHOLDER : MUTED }}
+            />
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -6274,14 +6367,16 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
             />
             <button
               onClick={send}
-              disabled={(!text.trim() && picker.files.length === 0) || sending}
+              disabled={sendOff}
               aria-label={t("staffChatSend", "Send")}
               data-testid="portal-chat-send"
-              className={`shrink-0 flex items-center justify-center vp-press disabled:opacity-40 ${FOCUS_RING}`}
+              className={`shrink-0 flex items-center justify-center vp-press ${FOCUS_RING}`}
               style={{
                 width: 44, height: 44, borderRadius: 999,
                 background: PINE, color: CREAM,
                 boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 18px -12px rgba(14,59,46,0.8)",
+                // Nothing to send: the one disabled look (BTN_OFF).
+                ...(sendOff ? BTN_OFF : null),
               }}
             >
               <Send size={18} strokeWidth={1.9} aria-hidden />
@@ -6641,7 +6736,7 @@ function AbsenceSection({ token, onChanged }) {
           words directly above a row chipped "Registered". Each row carries its
           own truth now: brass Afventer for a request, a quiet Registreret for a
           sick day. The approval sentence moved to the button it describes. */}
-      <HomeH2 style={{ padding: "0 4px" }}>{t("fravaerHeadingNeutral", "Time off")}</HomeH2>
+      <HomeH2 style={{ padding: "0 4px" }}>{t("fravaerHeadingNeutral", "Holiday and time off")}</HomeH2>
 
       {loadFailed && rows === null ? (
         <p style={{ margin: "0 4px", font: "400 13px/1.4 var(--font-text)", color: MUTED }}>
@@ -6669,19 +6764,26 @@ function AbsenceSection({ token, onChanged }) {
                 <span className="shrink-0 flex items-center justify-center" style={{ width: 40, height: 40, borderRadius: 12, background: SOFT, color: PINE }}>
                   <CalendarPlus size={18} strokeWidth={1.9} aria-hidden />
                 </span>
-                <div className="min-w-0 flex-1 flex flex-col" style={{ gap: 2 }}>
-                  <span className="truncate" style={{ font: `600 15px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>
-                    {KIND_LABEL[g.kind] || g.kind} · {fmtRange(g.startDate, g.endDate)}
+                {/* Three short lines, so the DATES are never the part that
+                    gets cut: at 360 px "Ferie · 23. nov. –…" lost the very
+                    thing the row is about. The kind may truncate, the reason
+                    may truncate; the range does not wrap or clip. The chip
+                    sits under them, so only "Fortryd" shares the row. */}
+                <div className="min-w-0 flex-1 flex flex-col items-start" style={{ gap: 3 }}>
+                  <span className="truncate max-w-full" style={{ font: `600 15px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>
+                    {KIND_LABEL[g.kind] || g.kind}
                   </span>
-                  {g.reason && <span className="truncate" style={{ font: "400 13px/1.3 var(--font-text)", color: MUTED }}>{g.reason}</span>}
+                  <span data-testid="fravaer-row-dates" className="flex max-w-full" style={{ font: "400 13px/1.3 var(--font-text)", color: MUTED }}>
+                    <span className="tabular-nums" style={{ whiteSpace: "nowrap", color: INK }}>{fmtRange(g.startDate, g.endDate)}</span>
+                    {g.reason && <span className="truncate min-w-0">{"\u00a0· "}{g.reason}</span>}
+                  </span>
+                  <span
+                    data-testid="fravaer-status"
+                    style={{ marginTop: 3, padding: "5px 10px", borderRadius: 999, background: st.bg, color: st.fg, font: "600 12px/1 var(--font-text)" }}
+                  >
+                    {st.label}
+                  </span>
                 </div>
-                <span
-                  data-testid="fravaer-status"
-                  className="shrink-0"
-                  style={{ padding: "5px 10px", borderRadius: 999, background: st.bg, color: st.fg, font: "600 12px/1 var(--font-text)" }}
-                >
-                  {st.label}
-                </span>
                 {g.status === "pending" && (
                   <button
                     type="button"
@@ -6709,7 +6811,7 @@ function AbsenceSection({ token, onChanged }) {
             onClick={() => { reset(); setAdding(true); }}
             data-testid="fravaer-add"
             className={`w-full flex items-center justify-center vp-press ${FOCUS_RING}`}
-            style={{ ...BTN_SAGE, height: 52, borderRadius: 18, gap: 8 }}
+            style={{ ...BTN_SAGE, ...BTN_FULL, gap: 8 }}
           >
             <CalendarPlus size={18} strokeWidth={1.9} aria-hidden />
             {t("fravaerAdd", "Request time off")}
@@ -6752,23 +6854,29 @@ function AbsenceSection({ token, onChanged }) {
           />
           <VpNote>{t("fravaerNeedsApproval", "This is a request — your manager must approve it.")}</VpNote>
           {err && <VpAlert>{err}</VpAlert>}
-          <div className="flex" style={{ gap: 8 }}>
-            <button
-              type="button"
-              onClick={() => { setAdding(false); reset(); }}
-              className={`flex-1 vp-press ${FOCUS_RING}`}
-              style={BTN_QUIET}
-            >
-              {t("portalCancel", "Cancel")}
-            </button>
+          {/* Stacked, never side by side: "Send anmodning" wrapped to two
+              lines in half a row at 390 px. The send is the form's one pine
+              action, full width; cancel is the quiet text line under it
+              (PeriodSheet's "Tilbage til min lønperiode"). */}
+          <div className="flex flex-col" style={{ gap: 4 }}>
             <button
               type="button"
               onClick={submit}
               disabled={saving}
-              className={`flex-1 vp-press disabled:opacity-50 ${FOCUS_RING}`}
-              style={BTN_PINE}
+              data-testid="fravaer-submit"
+              className={`w-full vp-press ${FOCUS_RING}`}
+              style={pineBtn(saving, BTN_FULL)}
             >
               {saving ? t("portalSaving", "Saving…") : t("fravaerSubmit", "Send request")}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAdding(false); reset(); }}
+              data-testid="fravaer-cancel"
+              className={`w-full vp-press ${FOCUS_RING}`}
+              style={BTN_TEXT}
+            >
+              {t("portalCancel", "Cancel")}
             </button>
           </div>
         </div>
@@ -6806,6 +6914,9 @@ function MonthCalendar({
   onTapDay, lang, t,
 }) {
   const WD = useMemo(() => weekdayNames(lang), [lang]);
+  // Under 360 px the columns are ~36 px wide: the grid gives up its gaps and
+  // the card its side padding before any cell is allowed to overlap the next.
+  const narrow = useNarrowPhone();
   const todayIso = toLocalISO(new Date());
   const monthLabel = new Date(viewYear, viewMonth, 1)
     .toLocaleDateString(localeFor(lang), { month: "long", year: "numeric" });
@@ -6818,7 +6929,7 @@ function MonthCalendar({
   }, [viewYear, viewMonth]);
 
   return (
-    <section data-testid="kanikke-month" style={{ ...CARD_BOX, borderRadius: 24, padding: "14px 10px 12px" }}>
+    <section data-testid="kanikke-month" style={{ ...CARD_BOX, borderRadius: 24, padding: narrow ? "14px 6px 12px" : "14px 10px 12px" }}>
       {/* Month nav — mutates view only, never data */}
       <div className="flex items-center justify-between" style={{ gap: 8, padding: "0 4px" }}>
         <PageArrow dir="prev" onClick={onPrev} label={t("kanIkkePrevMonth", "Previous month")} />
@@ -6848,15 +6959,17 @@ function MonthCalendar({
         ))}
       </div>
 
-      {/* 6×7 day grid */}
-      <div className="grid grid-cols-7" style={{ gap: 4 }}>
+      {/* 6×7 day grid. The COLUMN decides a cell's width and the cell is
+          44 tall: aspect-square + min-h-44 forced 44×44 squares into 36 px
+          columns at 320, and neighbours ran into each other. */}
+      <div className="grid" style={{ gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: narrow ? 2 : 4 }}>
         {cells.map((iso) => {
           const cellDate = new Date(iso + "T00:00:00");
           const inMonth = cellDate.getMonth() === viewMonth;
           const dayNum = cellDate.getDate();
           if (!inMonth) {
             return (
-              <div key={iso} aria-hidden className="aspect-square min-h-[44px] flex items-center justify-center tabular-nums select-none" style={{ font: `600 15px/1 ${SORA}`, color: "#CBC5B8" }}>
+              <div key={iso} aria-hidden className="w-full flex items-center justify-center tabular-nums select-none" style={{ height: 44, minWidth: 0, font: `600 15px/1 ${SORA}`, color: "#CBC5B8" }}>
                 {dayNum}
               </div>
             );
@@ -6907,8 +7020,8 @@ function MonthCalendar({
               aria-label={iso}
               data-look={kind}
               onClick={() => tappable && onTapDay(iso, { oneOff, recurring, abs, wd })}
-              className={`relative aspect-square min-h-[44px] flex items-center justify-center tabular-nums ${tappable ? "vp-press" : ""} ${FOCUS_RING}`}
-              style={{ borderRadius: 12, ...cellStyle }}
+              className={`relative w-full flex items-center justify-center tabular-nums ${tappable ? "vp-press" : ""} ${FOCUS_RING}`}
+              style={{ height: 44, minWidth: 0, padding: 0, borderRadius: 12, ...cellStyle }}
             >
               <span style={strike ? { textDecoration: "line-through", textDecorationThickness: "1.5px" } : undefined}>
                 {dayNum}
@@ -6919,8 +7032,16 @@ function MonthCalendar({
               {oneOff?.timed && (
                 <Clock className="absolute" style={{ bottom: 3, left: 3, width: 10, height: 10, color: look.color }} strokeWidth={2.5} aria-hidden />
               )}
+              {/* Approved: solid pine reads as "selected" everywhere else on
+                  this screen, so it carries a mark colour alone cannot — a
+                  cream tick, in the spot the Repeat glyph uses. */}
+              {approved && (
+                <Check data-testid="kanikke-approved-mark" className="absolute" style={{ top: 3, right: 3, width: 10, height: 10, color: CREAM }} strokeWidth={2.5} aria-hidden />
+              )}
+              {/* The rostered dot: pine, or cream on an approved (pine) day —
+                  brass means "Afventer" on this screen. */}
               {hasShift && (
-                <span className="absolute left-1/2 -translate-x-1/2" style={{ bottom: 4, width: 4, height: 4, borderRadius: 99, background: approved ? BRASS : PINE }} aria-hidden />
+                <span className="absolute left-1/2 -translate-x-1/2" style={{ bottom: 4, width: 4, height: 4, borderRadius: 99, background: approved ? CREAM : PINE }} aria-hidden />
               )}
             </button>
           );
@@ -6960,7 +7081,8 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
         >
           <span className="truncate tabular-nums" style={{ font: `600 15px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>{label}</span>
           <span className="truncate" style={{ font: "400 13px/1.3 var(--font-text)", color: MUTED }}>
-            {timeText}{row.note ? ` · ${row.note}` : ` · ${t("kanIkkeAddTimeNote", "Add a time / note")}`}
+            {/* A day that already has hours only lacks the note. */}
+            {timeText}{row.note ? ` · ${row.note}` : row.timed ? ` · ${t("kanIkkeAddNote", "Add a note")}` : ` · ${t("kanIkkeAddTimeNote", "Add a time / note")}`}
           </span>
         </button>
         <button
@@ -7132,7 +7254,8 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
               <span aria-hidden className="flex items-center justify-center" style={{ height: 10, gap: 3 }}>
                 {recurring && !one && <Repeat style={{ width: 10, height: 10, color: RED_INK }} strokeWidth={2.5} />}
                 {one?.timed && <Clock style={{ width: 10, height: 10, color: look.color }} strokeWidth={2.5} />}
-                {rostered && <span data-testid="kanikke-rostered-dot" style={{ width: 6, height: 6, borderRadius: 99, background: kind === "approved" ? BRASS : PINE }} />}
+                {kind === "approved" && <Check data-testid="kanikke-approved-mark" style={{ width: 10, height: 10, color: CREAM }} strokeWidth={2.5} />}
+                {rostered && <span data-testid="kanikke-rostered-dot" style={{ width: 6, height: 6, borderRadius: 99, background: kind === "approved" ? CREAM : PINE }} />}
               </span>
             </button>
           );
@@ -7333,7 +7456,10 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
   // Legend swatches are the cells' own looks, so the key can never drift
   // from what the calendar draws.
   const swatch = (kind) => (
-    <span aria-hidden className="shrink-0" style={{ width: 14, height: 14, borderRadius: 4, boxSizing: "border-box", ...DAY_LOOK[kind] }} />
+    <span aria-hidden className="shrink-0 inline-flex items-center justify-center" style={{ width: 14, height: 14, borderRadius: 4, boxSizing: "border-box", ...DAY_LOOK[kind] }}>
+      {/* The approved cells' tick, so the key matches the mark. */}
+      {kind === "approved" && <Check style={{ width: 10, height: 10, color: CREAM }} strokeWidth={2.5} />}
+    </span>
   );
   const legendItem = (kind, label) => (
     <span key={kind} className="inline-flex items-center" style={{ gap: 6 }} data-legend={kind}>{swatch(kind)}{label}</span>
@@ -7432,7 +7558,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
             />
           ))}
           {/* Time-window discovery hint (no per-cell chrome) */}
-          <p style={{ margin: "0 4px", font: "400 12px/1.4 var(--font-text)", color: MUTED }}>{t("kanIkkeHoldHint", "Tap a marked day above to set hours.")}</p>
+          <p style={{ margin: "0 4px", font: "400 12px/1.4 var(--font-text)", color: MUTED }}>{t("kanIkkeHoldHint", "Tap a day in this list to set hours or a note.")}</p>
         </div>
       )}
 
@@ -9230,7 +9356,9 @@ export default function StaffPortalPage() {
             )}
             <h1 className="min-w-0" style={{ margin: 0, font: `700 20px/1.2 ${SORA}`, letterSpacing: "-0.02em", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {tab === "schedule" ? t("portalTitleSchedule", "My schedule")
-                : tab === "availability" ? t("portalTitleKanIkke", "Availability")
+                // The dock's own word for this tab (v3: "Fravær"); the old
+                // bars still say "Kan ikke" in the dock, so their title does.
+                : tab === "availability" ? (BAR_V3 ? t("portalTabTimeOff", "Time off") : t("portalTitleKanIkke", "Availability"))
                 : tab === "messages" ? t("portalTitleMessages", "Messages")
                 : tab === "swaps" ? t("portalTitleSwaps", "Swaps")
                 : tab === "hours" ? t("portalTitleHours", "My hours")

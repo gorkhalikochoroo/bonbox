@@ -15,8 +15,16 @@ import { useLanguage } from "../../hooks/useLanguage";
 
 const MAX_PHOTOS = 3;
 
+/**
+ * Look overrides. Every prop below is optional and defaults to the owner
+ * drawer's look (OwnerChatDrawer passes none, so its look is unchanged); the
+ * staff portal passes its own (pine, ivory, a shimmer instead of a pulse,
+ * 14 px corners next to its 18 px bubbles). A `className` REPLACES the default
+ * classes; a `style` is laid over them.
+ */
+
 /** Lazily blob-loads a proxy-served photo and renders it; tap to view full. */
-export function ChatPhoto({ client, url, alt = "" }) {
+export function ChatPhoto({ client, url, alt = "", imgStyle, loadingClassName, loadingStyle }) {
   const [src, setSrc] = useState(null);
   const [open, setOpen] = useState(false);
 
@@ -38,7 +46,13 @@ export function ChatPhoto({ client, url, alt = "" }) {
   }, [url, client]);
 
   if (!src) {
-    return <div className="w-28 h-28 rounded-lg bg-gray-100 dark:bg-gray-700 animate-pulse" />;
+    return (
+      <div
+        data-testid="chat-photo-loading"
+        className={loadingClassName ?? "w-28 h-28 rounded-lg bg-gray-100 dark:bg-gray-700 animate-pulse"}
+        style={loadingStyle}
+      />
+    );
   }
   return (
     <>
@@ -48,6 +62,7 @@ export function ChatPhoto({ client, url, alt = "" }) {
         decoding="async"
         onClick={() => setOpen(true)}
         className="w-28 h-28 object-cover rounded-lg cursor-pointer border border-black/5"
+        style={imgStyle}
       />
       {open && (
         <div
@@ -64,7 +79,7 @@ export function ChatPhoto({ client, url, alt = "" }) {
 }
 
 /** Render either local previews (optimistic) or proxy-served photos. */
-export function PhotoGrid({ client, photos, localPreviews }) {
+export function PhotoGrid({ client, photos, localPreviews, imgStyle, loadingClassName, loadingStyle }) {
   if (localPreviews?.length) {
     return (
       <div className="flex flex-wrap gap-1.5 mb-1">
@@ -75,6 +90,7 @@ export function PhotoGrid({ client, photos, localPreviews }) {
             alt=""
             decoding="async"
             className="w-28 h-28 object-cover rounded-lg border border-black/5"
+            style={imgStyle}
           />
         ))}
       </div>
@@ -84,7 +100,14 @@ export function PhotoGrid({ client, photos, localPreviews }) {
   return (
     <div className="flex flex-wrap gap-1.5 mb-1">
       {photos.map((p) => (
-        <ChatPhoto key={p.id} client={client} url={p.url} />
+        <ChatPhoto
+          key={p.id}
+          client={client}
+          url={p.url}
+          imgStyle={imgStyle}
+          loadingClassName={loadingClassName}
+          loadingStyle={loadingStyle}
+        />
       ))}
     </div>
   );
@@ -126,7 +149,7 @@ export function usePhotoPicker(max = MAX_PHOTOS) {
 }
 
 /** Thumbnail strip shown above the composer while photos are staged. */
-export function PendingPhotos({ picker }) {
+export function PendingPhotos({ picker, thumbStyle, removeClassName, removeStyle }) {
   const { t } = useLanguage();
   if (!picker.files.length) return null;
   return (
@@ -137,11 +160,14 @@ export function PendingPhotos({ picker }) {
             src={f.preview}
             alt=""
             className="w-16 h-16 object-cover rounded-lg border border-gray-200 dark:border-gray-600"
+            style={thumbStyle}
           />
           <button
             type="button"
             onClick={() => picker.removeAt(i)}
-            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gray-900 text-white flex items-center justify-center"
+            data-testid="chat-photo-remove"
+            className={removeClassName ?? "absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gray-900 text-white flex items-center justify-center"}
+            style={removeStyle}
             aria-label={t("portalPhotoRemove", "Remove photo")}
           >
             <X className="w-3 h-3" strokeWidth={2.5} aria-hidden />
@@ -153,16 +179,18 @@ export function PendingPhotos({ picker }) {
 }
 
 /** The attach (image) button + its hidden file input. */
-export function AttachButton({ picker, label: labelProp }) {
+export function AttachButton({ picker, label: labelProp, className, style }) {
   const { t } = useLanguage();
   const label = labelProp || t("staffChatAddPhoto", "Add photo");
   return (
     <label
-      className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition ${
+      data-testid="chat-photo-attach"
+      className={className ?? `shrink-0 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition ${
         picker.atMax
           ? "text-gray-300 cursor-not-allowed"
           : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
       }`}
+      style={style}
       title={label}
       aria-label={label}
     >

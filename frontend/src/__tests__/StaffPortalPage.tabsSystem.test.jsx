@@ -13,11 +13,16 @@
  *   • Byt: "Byt" pine (not navy), the give-aways as the home's open-shift
  *     rows with the home's sage "Tag den"; no swaps = one calm line.
  *   • Timer: pine card; this week's bar pine, the rest sage, figures in
- *     .vp-figures; "Eksportér CSV" a quiet pine text button on the web; in
- *     the native app the export is not drawn and one line says where it
- *     works (the shells sync no share/filesystem plugin).
+ *     .vp-figures; "Eksportér CSV" a quiet pine text button. Drawn by what
+ *     the device can DO: on the web, and in an app whose WebView can share a
+ *     file (iOS); not in one that cannot (Android's WebView), where one line
+ *     says where the export works — and an undelivered export says so too.
  *   • Over all four: no Tailwind green-* / emerald-* class and no navy or
- *     bright green in any inline style, on any element of the tab.
+ *     bright green in any inline style, on any element of the tab — swept
+ *     over the swap inbox (every status), a group thread, the new-group
+ *     sheet and a staged photo too, not only the empty screens.
+ *   • One button shape (radius 14, never wrapped) and one disabled look
+ *     (the tile, muted, no shadow).
  */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -35,6 +40,11 @@ const SAGE_BAR = "rgb(195, 209, 200)";
 const RED_WASH = "rgb(246, 227, 220)";
 const BRASS_WASH = "rgb(244, 235, 215)";
 const LINE = "rgb(232, 227, 216)";
+const TILE = "rgb(241, 238, 230)";
+const MUTED = "rgb(94, 106, 99)";
+const DIVIDER = "rgb(238, 234, 224)";
+const RED_INK = "rgb(164, 69, 47)";
+const RED_WASH_HEX = "rgb(246, 227, 220)";
 
 const native = vi.hoisted(() => ({ on: false }));
 vi.mock("../utils/platform", () => ({
@@ -43,9 +53,9 @@ vi.mock("../utils/platform", () => ({
   canPurchaseInApp: () => !native.on,
   isIPad: () => false,
 }));
-const csv = vi.hoisted(() => ({ calls: [] }));
+const csv = vi.hoisted(() => ({ calls: [], result: true }));
 vi.mock("../utils/exportCsv", () => ({
-  exportToCsv: (...args) => { csv.calls.push(args); return Promise.resolve(true); },
+  exportToCsv: (...args) => { csv.calls.push(args); return Promise.resolve(csv.result); },
 }));
 
 const iso = (d) => d.toLocaleDateString("sv-SE");
@@ -69,9 +79,11 @@ const get = vi.fn((url) => {
   if (sub.startsWith("/absence")) return ok({ absence: data.absence });
   if (sub.startsWith("/notifications")) return ok({ notifications: [] });
   if (sub === "/chat/unread") return ok({ unread: 0 });
+  // A chat photo that never arrives: the loading look stays on screen.
+  if (sub.startsWith("/chat/photo/")) return new Promise(() => {});
   if (sub.startsWith("/chat/threads/")) return ok(data.thread);
   if (sub.startsWith("/chat/threads")) return ok({ threads: data.threads });
-  if (sub.startsWith("/chat/colleagues")) return ok({ colleagues: [] });
+  if (sub.startsWith("/chat/colleagues")) return ok({ colleagues: data.colleagues });
   if (sub.startsWith("/swap-requests")) return ok(data.swaps);
   if (sub.startsWith("/give-aways")) return ok(data.pool);
   if (sub.startsWith("/hours")) return ok(data.hours);
@@ -120,11 +132,28 @@ async function mount(lang = "da") {
 const content = () => screen.getByTestId("portal-content");
 const go = (tab) => fireEvent.click(screen.getByTestId(`portal-tab-${tab}`));
 
+const realMatchMedia = window.matchMedia;
+const realCreateObjectURL = URL.createObjectURL;
+const realRevokeObjectURL = URL.revokeObjectURL;
+/** Pretend the viewport is under 360 px (NARROW_PHONE_Q). */
+function narrowViewport() {
+  window.matchMedia = (q) => ({
+    matches: q === "(max-width: 359px)", media: q,
+    addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
+  });
+}
+/** Give this jsdom a Web Share that can (or cannot) take a file. */
+function webShare(canFiles) {
+  Object.defineProperty(navigator, "share", { value: vi.fn(() => Promise.resolve()), configurable: true, writable: true });
+  Object.defineProperty(navigator, "canShare", { value: vi.fn((d) => !!(canFiles && d?.files?.length)), configurable: true, writable: true });
+}
+
 beforeEach(() => {
   localStorage.clear();
   get.mockClear();
   native.on = false;
   csv.calls = [];
+  csv.result = true;
   data = {
     info: { has_pin: false, staff_name: "Freja M.", role: "waiter", restaurant_name: "Café Solsikke" },
     shifts: [{ id: "sh-1", date: nextWeek(0), start_time: "16:00", end_time: "22:00", status: "published", net_hours: 5.5 }],
@@ -148,6 +177,7 @@ beforeEach(() => {
         { id: 2, sender_type: "staff", mine: true, body: "Ja, gerne", created_at: new Date().toISOString() },
       ],
     },
+    colleagues: [],
     swaps: [],
     pool: [
       { id: "ga-1", from_staff_name: "Ida H.", from_shift_date: nextWeek(5), from_shift_time: "16:00–22:00", reason: "Bryllup" },
@@ -164,7 +194,26 @@ beforeEach(() => {
 });
 afterEach(() => {
   document.body.classList.remove("portal-shell");
+  window.matchMedia = realMatchMedia;
+  URL.createObjectURL = realCreateObjectURL;
+  URL.revokeObjectURL = realRevokeObjectURL;
+  delete navigator.share;
+  delete navigator.canShare;
 });
+
+/** The one filled-button shape: radius 14, a label that never wraps. */
+function expectButtonShape(el) {
+  expect(el.style.borderRadius).toBe("14px");
+  expect(el.style.whiteSpace).toBe("nowrap");
+}
+/** The one disabled look: the tile, muted, no shadow. */
+function expectOff(el) {
+  expect(el.disabled).toBe(true);
+  expect(el.style.background).toBe(TILE);
+  expect(el.style.color).toBe(MUTED);
+  expect(el.style.boxShadow).toBe("none");
+  expect(el.className).not.toMatch(/disabled:opacity/);
+}
 
 /** Every element of the tab on screen: no Tailwind green / emerald class,
     no navy or bright green inline, and no navy primary (bg-gray-900). */
@@ -233,6 +282,10 @@ describe("Fravær", () => {
     expect(wed.getAttribute("aria-label")).toContain("Afventer");
     expect(wed.getAttribute("aria-label")).not.toContain("Godkendt fri");
     expect(thu.getAttribute("aria-label")).toContain("Godkendt fri");
+    // Approved is solid pine — "selected" elsewhere on this screen — so it
+    // carries a cream tick; nothing else does.
+    expect(within(thu).getByTestId("kanikke-approved-mark").style.color).toBe(CREAM);
+    for (const c of [mon, tue, wed, fri, sat]) expect(within(c).queryByTestId("kanikke-approved-mark")).toBeNull();
 
     const legend = screen.getByTestId("kanikke-legend");
     const swatch = (k) => legend.querySelector(`[data-legend="${k}"] > span`);
@@ -240,6 +293,7 @@ describe("Fravær", () => {
     expect(swatch("pref").style.background).toBe(SOFT);
     expect(swatch("pending").style.background).toBe(BRASS_WASH);
     expect(swatch("approved").style.background).toBe(PINE);
+    expect(swatch("approved").querySelector("svg")).not.toBeNull();
     expect(swatch("weekly").style.border).toContain("dashed");
     expect(legend.textContent).toContain("Kan ikke");
     expect(legend.textContent).toContain("Godkendt fri");
@@ -264,6 +318,7 @@ describe("Fravær", () => {
     const add = screen.getByTestId("fravaer-add");
     expect(add.style.background).toBe(SOFT);
     expect(add.style.color).toBe(PINE);
+    expectButtonShape(add);
     fireEvent.click(add);
     const form = await screen.findByTestId("fravaer-form");
     const send = within(form).getByRole("button", { name: "Send anmodning" });
@@ -272,6 +327,116 @@ describe("Fravær", () => {
     // The kind picker is the same segmented control.
     expect(within(form).getByTestId("fravaer-kind-ferie").style.background).toBe(PINE);
     expectNoGreenOrNavy(content());
+  });
+
+  it("the header says what the dock says ('Fravær'), and the list under it has its own name", async () => {
+    await mount("da");
+    go("availability");
+    await screen.findByTestId("fravaer-section");
+    expect(document.querySelector("h1").textContent).toBe("Fravær");
+    expect(screen.getByRole("heading", { level: 2, name: "Ferie og fri" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2, name: "Fravær" })).toBeNull();
+  });
+
+  it("en: 'Time off' in the header, as in the dock", async () => {
+    await mount("en");
+    go("availability");
+    await screen.findByTestId("fravaer-section");
+    expect(document.querySelector("h1").textContent).toBe("Time off");
+    expect(screen.getByRole("heading", { level: 2, name: "Holiday and time off" })).toBeInTheDocument();
+  });
+
+  it("an absence row never cuts its dates: kind, then the range (no wrap) and reason, the chip under them — only 'Fortryd' beside", async () => {
+    data.absence = [{ id: "ab-long", kind: "ferie", date: nextWeek(2), status: "pending", reason: "Familiebesøg i Aarhus hele ugen" }];
+    await mount("da");
+    go("availability");
+    const [row] = await screen.findAllByTestId("fravaer-row");
+    const dates = within(row).getByTestId("fravaer-row-dates");
+    const range = dates.firstChild;
+    expect(range.style.whiteSpace).toBe("nowrap");
+    expect(range.className).not.toContain("truncate");
+    expect(range.textContent).toMatch(/\d/);
+    // The reason is the part allowed to truncate.
+    expect(dates.lastChild.className).toContain("truncate");
+    expect(dates.lastChild.textContent).toContain("Familiebesøg");
+    // Kind on its own line; the chip in the same column, not a row sibling.
+    const column = dates.parentElement;
+    expect(column.firstChild.textContent).toBe("Ferie");
+    expect(column.contains(within(row).getByTestId("fravaer-status"))).toBe(true);
+    const rowChildren = [...row.children];
+    expect(rowChildren).toHaveLength(3);   // well, text column, Fortryd
+    expect(rowChildren[2].textContent).toBe("Fortryd");
+  });
+
+  it("the request form stacks: 'Send anmodning' full width, never wrapped; 'Annuller' a quiet text line under it", async () => {
+    await mount("da");
+    go("availability");
+    fireEvent.click(await screen.findByTestId("fravaer-add"));
+    const form = await screen.findByTestId("fravaer-form");
+    const send = within(form).getByTestId("fravaer-submit");
+    const cancel = within(form).getByTestId("fravaer-cancel");
+    expect(send.textContent).toBe("Send anmodning");
+    expect(send.className).toContain("w-full");
+    expect(send.style.height).toBe("52px");
+    expectButtonShape(send);
+    // Send above cancel, in one column.
+    expect(send.parentElement).toBe(cancel.parentElement);
+    expect(send.parentElement.className).toContain("flex-col");
+    expect(send.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(cancel.textContent).toBe("Annuller");
+    expect(cancel.style.background).toBe("transparent");
+    expect(cancel.style.color).toBe(MUTED);
+    expect(cancel.style.minHeight).toBe("44px");
+    fireEvent.click(cancel);
+    await waitFor(() => expect(screen.queryByTestId("fravaer-form")).toBeNull());
+  });
+
+  it("the month grid: the column sets a cell's width, 44 tall; under 360 px the gaps and side padding give way", async () => {
+    narrowViewport();
+    await mount("da");
+    go("availability");
+    fireEvent.click(await screen.findByTestId("kanikke-cal-toggle"));
+    const month = await screen.findByTestId("kanikke-month");
+    expect(month.style.padding).toBe("14px 6px 12px");
+    const cells = month.querySelectorAll("button[data-look]");
+    expect(cells.length).toBeGreaterThan(27);
+    for (const c of cells) {
+      expect(c.className).not.toContain("aspect-square");
+      expect(c.className).not.toContain("min-h-[44px]");
+      expect(c.className).toContain("w-full");
+      expect(c.style.height).toBe("44px");
+      expect(["0", "0px"]).toContain(c.style.minWidth);
+    }
+    const grid = cells[0].parentElement;
+    expect(grid.style.gap).toBe("2px");
+    expect(grid.style.gridTemplateColumns).toBe("repeat(7, minmax(0, 1fr))");
+    for (const d of grid.querySelectorAll("div[aria-hidden]")) expect(d.className).not.toContain("aspect-square");
+  });
+
+  it("the month grid keeps its air at 360 px and up", async () => {
+    await mount("da");
+    go("availability");
+    fireEvent.click(await screen.findByTestId("kanikke-cal-toggle"));
+    const month = await screen.findByTestId("kanikke-month");
+    expect(month.style.padding).toBe("14px 10px 12px");
+    expect(month.querySelector("button[data-look]").parentElement.style.gap).toBe("4px");
+  });
+
+  it("copy: the weekly hint has its verb; the hint points at the list, not the calendar; a timed day only asks for a note", async () => {
+    data.availability = [
+      { id: "av-t", date: nextWeek(0), kind: "unavailable", weekday: null, start_time: "08:00", end_time: "12:00", note: null },
+      { id: "av-a", date: nextWeek(1), kind: "unavailable", weekday: null, start_time: null, end_time: null, note: null },
+    ];
+    await mount("da");
+    go("availability");
+    const rows = await screen.findAllByTestId("kanikke-marked-row");
+    expect(rows[0].textContent).toContain("08:00–12:00 · Tilføj en note");
+    expect(rows[0].textContent).not.toContain("Tilføj tidsrum");
+    expect(rows[1].textContent).toContain("Hele dagen · Tilføj tidsrum / note");
+    expect(content().textContent).toContain("Tryk på en dag i listen for at vælge tidsrum eller note.");
+    expect(content().textContent).not.toContain("ovenfor");
+    fireEvent.click(screen.getByTestId("kanikke-weekly-toggle"));
+    expect(content().textContent).toContain("Vælg en ugedag, du aldrig kan arbejde.");
   });
 });
 
@@ -313,27 +478,183 @@ describe("Beskeder", () => {
     expect(mine.style.color).toBe(CREAM);
     expect(theirs.style.background).toBe(CARD);
     expect(theirs.style.border).toContain(LINE);
-    expect(screen.getByTestId("portal-chat-send").style.background).toBe(PINE);
+    // Nothing typed: the one disabled look. Something typed: pine.
+    const send = screen.getByTestId("portal-chat-send");
+    expectOff(send);
+    fireEvent.change(screen.getByPlaceholderText("Skriv en besked…"), { target: { value: "Hej" } });
+    expect(send.disabled).toBe(false);
+    expect(send.style.background).toBe(PINE);
+    expect(send.style.color).toBe(CREAM);
     expect(screen.getByTestId("portal-chat-back").textContent).toContain("Alle samtaler");
+    // The owner thread has one other party, named in the h2 — not over
+    // every bubble.
+    expect(screen.queryByTestId("portal-chat-sender")).toBeNull();
     expectNoGreenOrNavy(content());
+  });
+
+  it("the composer's photo controls: a 44 px muted attach; a staged photo gets a pine '×', not the kit's navy dot", async () => {
+    URL.createObjectURL = vi.fn(() => "blob:staged");
+    URL.revokeObjectURL = vi.fn();
+    await mount("da");
+    go("messages");
+    fireEvent.click((await screen.findAllByTestId("portal-thread-row"))[0]);
+    await screen.findAllByTestId("portal-chat-bubble");
+    const composer = screen.getByTestId("portal-chat-composer");
+    const attach = within(composer).getByTestId("chat-photo-attach");
+    expect(attach.style.width).toBe("44px");
+    expect(attach.style.height).toBe("44px");
+    expect(attach.style.color).toBe(MUTED);
+    expect(attach.className).not.toMatch(/hover:bg-|text-gray-/);
+    const input = attach.querySelector('input[type="file"]');
+    fireEvent.change(input, { target: { files: [new File(["x"], "a.png", { type: "image/png" })] } });
+    const remove = await within(composer).findByTestId("chat-photo-remove");
+    expect(remove.style.background).toBe(PINE);
+    expect(remove.style.color).toBe(CREAM);
+    expect(remove.style.width).toBe("24px");
+    expect(remove.className).toContain("before:-inset-[10px]");
+    expect(composer.querySelector("img").style.borderRadius).toBe("14px");
+    // A photo alone is something to send.
+    expect(screen.getByTestId("portal-chat-send").style.background).toBe(PINE);
+    expectNoGreenOrNavy(composer);
+  });
+
+  it("a photo that is still loading shimmers on the divider tone, 14 px corners — no grey pulse", async () => {
+    data.thread = {
+      ...data.thread,
+      messages: [{ id: 3, sender_type: "owner", mine: false, body: "", photo_count: 1, photos: [{ id: 9, url: `/portal/${TOK}/chat/photo/9` }], created_at: new Date().toISOString() }],
+    };
+    await mount("da");
+    go("messages");
+    fireEvent.click((await screen.findAllByTestId("portal-thread-row"))[0]);
+    const loading = await screen.findByTestId("chat-photo-loading");
+    expect(loading.className).toContain("vp-shimmer");
+    expect(loading.className).not.toContain("animate-pulse");
+    expect(loading.style.background).toBe(DIVIDER);
+    expect(loading.style.borderRadius).toBe("14px");
+    expectNoGreenOrNavy(content());
+  });
+
+  it("a group thread names who spoke, offers Leave, and keeps the system", async () => {
+    data.thread = {
+      thread_id: "g1", kind: "group", title: "Køkkenet", member_ids: [1, 2, 3],
+      messages: [
+        { id: 5, sender_type: "staff", mine: false, sender_name: "Sofie", body: "Tak!", created_at: new Date().toISOString() },
+        { id: 6, sender_type: "staff", mine: true, body: "Selv tak", created_at: new Date().toISOString() },
+      ],
+    };
+    await mount("da");
+    go("messages");
+    fireEvent.click((await screen.findAllByTestId("portal-thread-row"))[1]);
+    await screen.findAllByTestId("portal-chat-bubble");
+    const senders = screen.getAllByTestId("portal-chat-sender");
+    expect(senders.map((x) => x.textContent)).toEqual(["Sofie"]);
+    expect(within(content()).getByRole("button", { name: "Forlad" })).toBeInTheDocument();
+    expectNoGreenOrNavy(content());
+  });
+
+  it("the '+' sheet: a pine tick on who is picked; 'Opret gruppe' off until it has a name, then pine — no green or navy", async () => {
+    data.colleagues = [{ staff_id: 7, name: "Sofie K.", role: "chef" }];
+    await mount("da");
+    go("messages");
+    fireEvent.click(await screen.findByTestId("portal-chat-new-group"));
+    const sheet = await screen.findByTestId("portal-new-group");
+    const create = within(sheet).getByRole("button", { name: "Opret gruppe" });
+    expectOff(create);
+    expectButtonShape(create);
+    const person = await within(sheet).findByRole("button", { name: /Sofie K\./ });
+    fireEvent.click(person);
+    expect(person.getAttribute("aria-pressed")).toBe("true");
+    expect(person.querySelector("svg")).not.toBeNull();
+    fireEvent.change(within(sheet).getByPlaceholderText(/Køkken/), { target: { value: "Køkkenet" } });
+    expect(create.disabled).toBe(false);
+    expect(create.style.background).toBe(PINE);
+    expect(create.style.height).toBe("52px");
+    expectNoGreenOrNavy(sheet);
   });
 });
 
 describe("Byt", () => {
-  it("'Byt' is pine (not navy), the give-away the ivory card; give-aways read like the home's open shifts", async () => {
+  it("'Byt' and 'Giv en vagt væk' are the canvas's ivory tiles with a sage well (no navy, no filled button); give-aways read like the home's open shifts", async () => {
     await mount("da");
     go("swaps");
     const offer = await within(content()).findByRole("button", { name: /^Byt$/ });
-    expect(offer.style.background).toBe(PINE);
-    expect(offer.style.color).toBe(CREAM);
     const give = within(content()).getByRole("button", { name: "Giv en vagt væk" });
-    expect(give.style.background).toBe(CARD);
+    for (const tile of [offer, give]) {
+      expect(tile.style.background).toBe(CARD);
+      expect(tile.style.border).toContain(LINE);
+      expect(tile.style.color).toBe("rgb(22, 33, 28)");
+      expect(tile.style.borderRadius).toBe("20px");
+      const well = tile.firstChild;
+      expect(well.style.width).toBe("38px");
+      expect(well.style.borderRadius).toBe("12px");
+      expect(well.style.background).toBe(SOFT);
+      expect(well.style.color).toBe(PINE);
+    }
     const row = await screen.findByTestId("swap-pool-row");
     expect(row.textContent).toContain("16:00–22:00");
     expect(row.textContent).toContain("Ledig for dig");
+    // The date tile is aria-hidden; the day is said in words for a reader.
+    const sr = row.querySelector(".sr-only");
+    expect(sr).not.toBeNull();
+    expect(sr.textContent.length).toBeGreaterThan(4);
     const take = within(row).getByRole("button", { name: "Tag den" });
     expect(take.style.background).toBe(SOFT);
     expect(take.style.color).toBe(PINE);
+    expect(screen.getByRole("heading", { level: 2, name: "Vagter, der gives væk" })).toBeInTheDocument();
+    expect(content().textContent).not.toMatch(/til salg/i);
+    expectNoGreenOrNavy(content());
+  });
+
+  it("the inbox, every status: Accepter pine, Afvis the card; brass waiting, sage done, the tile for agreed; the give-away's done line says 'Overtaget'", async () => {
+    const shift = (d, tm) => ({ from_shift_date: nextWeek(d), from_shift_time: tm });
+    data.swaps = [
+      { id: "in", direction: "incoming", status: "proposed", from_staff_name: "Ida H.", to_staff_name: "Freja M.", ...shift(2, "10:00–16:00"), to_shift_id: "x", to_shift_date: nextWeek(3), to_shift_time: "16:00–22:00", reason: "Tandlæge" },
+      { id: "out", direction: "outgoing", status: "proposed", from_staff_name: "Freja M.", to_staff_name: "Sofie K.", ...shift(4, "16:00–22:00"), to_shift_id: "y", to_shift_date: nextWeek(5), to_shift_time: "10:00–16:00" },
+      { id: "ga", direction: "outgoing", status: "done", from_staff_name: "Freja M.", to_staff_name: "Sofie K.", ...shift(6, "12:00–18:00"), to_shift_id: null },
+      { id: "sw", direction: "incoming", status: "done", from_staff_name: "Ida H.", to_staff_name: "Freja M.", ...shift(1, "09:00–15:00"), to_shift_id: "z", to_shift_date: nextWeek(2), to_shift_time: "15:00–21:00" },
+      { id: "ag", direction: "incoming", status: "accepted", from_staff_name: "Ida H.", to_staff_name: "Freja M.", ...shift(1, "09:00–15:00"), to_shift_id: "w", to_shift_date: nextWeek(2), to_shift_time: "15:00–21:00" },
+    ];
+    data.pool = [];
+    await mount("da");
+    go("swaps");
+    const rows = await screen.findAllByTestId("swap-row");
+    expect(rows).toHaveLength(5);
+    const [inc, out, ga, sw, ag] = rows;
+
+    const accept = within(inc).getByTestId("swap-accept");
+    expect(accept.textContent).toBe("Accepter");
+    expect(accept.style.background).toBe(PINE);
+    expect(accept.style.color).toBe(CREAM);
+    expectButtonShape(accept);
+    const decline = within(inc).getByTestId("swap-decline");
+    expect(decline.style.background).toBe(CARD);
+    expect(decline.style.border).toContain(LINE);
+    expectButtonShape(decline);
+    // One way to quote a colleague: upright curly quotes, as in the pool.
+    const reason = within(inc).getByTestId("swap-reason");
+    expect(reason.textContent).toBe("“Tandlæge”");
+    expect(reason.style.font).not.toContain("italic");
+
+    const pill = (r) => within(r).getByTestId("swap-status");
+    expect(pill(inc).textContent).toBe("Afventer");
+    expect(pill(inc).style.background).toBe(BRASS_WASH);
+    expect(pill(out).style.background).toBe(BRASS_WASH);
+    expect(within(out).getByRole("button", { name: "Træk tilbage" })).toBeInTheDocument();
+
+    expect(pill(ga).textContent).toBe("Overtaget");
+    expect(pill(ga).style.background).toBe(SOFT);
+    expect(within(ga).getByTestId("swap-done-line").textContent).toBe("Overtaget — vagtplanen er opdateret.");
+    expect(ga.textContent).not.toContain("Byttet");
+
+    expect(pill(sw).textContent).toBe("Byttet");
+    expect(pill(sw).style.background).toBe(SOFT);
+    expect(within(sw).getByTestId("swap-done-line").textContent).toContain("Byttet");
+
+    // "accepted" had no word and showed the raw English status.
+    expect(pill(ag).textContent).toBe("Aftalt");
+    expect(pill(ag).style.background).toBe(TILE);
+    expect(content().textContent).not.toContain("accepted");
+
     expectNoGreenOrNavy(content());
   });
 
@@ -348,16 +669,23 @@ describe("Byt", () => {
     expectNoGreenOrNavy(content());
   });
 
-  it("both inline forms keep the system: pine submit, no green or navy anywhere", async () => {
+  it("both inline forms keep the system: the submit has the one shape and the one disabled look, no green or navy anywhere", async () => {
     await mount("da");
     go("swaps");
     fireEvent.click(await within(content()).findByRole("button", { name: /^Byt$/ }));
     const form = await screen.findByTestId("swap-propose");
-    expect(within(form).getByRole("button", { name: "Send bytteanmodning" }).style.background).toBe(PINE);
+    // Nothing picked yet: off — the tile, not a faded pine slab.
+    const submit = within(form).getByRole("button", { name: "Send bytteanmodning" });
+    expectOff(submit);
+    expectButtonShape(submit);
+    expect(submit.style.height).toBe("52px");
     expectNoGreenOrNavy(content());
     fireEvent.click(within(form).getByRole("button", { name: "Luk" }));
     fireEvent.click(within(content()).getByRole("button", { name: "Giv en vagt væk" }));
-    expect(await screen.findByTestId("swap-sell")).toBeInTheDocument();
+    const sell = await screen.findByTestId("swap-sell");
+    const give = within(sell).getByRole("button", { name: "Giv vagten væk" });
+    expectOff(give);
+    expectButtonShape(give);
     expectNoGreenOrNavy(content());
   });
 });
@@ -400,11 +728,36 @@ describe("Timer", () => {
     expect(columns.map((c) => c.key)).toEqual(["date", "start", "end", "hours"]);
   });
 
+  it("native app that CAN share a file (the iOS WebView): the button is drawn and exports — the share sheet is how the file leaves", async () => {
+    native.on = true;
+    webShare(true);
+    await mount("da");
+    go("hours");
+    const exp = await screen.findByTestId("portal-hours-export");
+    expect(exp.textContent).toBe("Eksportér CSV");
+    expect(screen.queryByTestId("portal-hours-export-web-only")).toBeNull();
+    fireEvent.click(exp);
+    expect(csv.calls).toHaveLength(1);
+    // It went out: no note follows.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTestId("portal-hours-export-web-only")).toBeNull();
+  });
+
+  it("native app: an export that comes back undelivered is said, not silent — the web-only line appears", async () => {
+    native.on = true;
+    webShare(true);
+    csv.result = false;
+    await mount("da");
+    go("hours");
+    fireEvent.click(await screen.findByTestId("portal-hours-export"));
+    expect((await screen.findByTestId("portal-hours-export-web-only")).textContent).toBe("Eksportér dine timer fra bonbox.dk i en browser");
+  });
+
   for (const [lang, line] of [
     ["da", "Eksportér dine timer fra bonbox.dk i en browser"],
     ["en", "Export your hours from bonbox.dk in a browser"],
   ]) {
-    it(`native app (${lang}): no dead export button — one line says where the export works`, async () => {
+    it(`native app that cannot share a file (Android's WebView, ${lang}): no dead export button — one line says where the export works`, async () => {
       native.on = true;
       await mount(lang);
       go("hours");
@@ -416,6 +769,24 @@ describe("Timer", () => {
     });
   }
 
+  it("native app with Web Share but no FILE sharing: still no button", async () => {
+    native.on = true;
+    webShare(false);
+    await mount("da");
+    go("hours");
+    expect(await screen.findByTestId("portal-hours-export-web-only")).toBeInTheDocument();
+    expect(screen.queryByTestId("portal-hours-export")).toBeNull();
+  });
+
+  it("web: an undelivered file is said too (never the 'use a browser' line in a browser)", async () => {
+    csv.result = false;
+    await mount("da");
+    go("hours");
+    fireEvent.click(await screen.findByTestId("portal-hours-export"));
+    expect((await screen.findByTestId("portal-hours-export-failed")).textContent).toBe("Filen blev ikke gemt på enheden. Prøv igen.");
+    expect(screen.queryByTestId("portal-hours-export-web-only")).toBeNull();
+  });
+
   it("native app with no shifts in the period: neither the button nor the note", async () => {
     native.on = true;
     data.hours = { ...data.hours, total_hours: 0, entries: [] };
@@ -424,5 +795,18 @@ describe("Timer", () => {
     expect(await screen.findByTestId("portal-hours-empty")).toBeInTheDocument();
     expect(screen.queryByTestId("portal-hours-export")).toBeNull();
     expect(screen.queryByTestId("portal-hours-export-web-only")).toBeNull();
+  });
+});
+
+describe("Across tabs: one colour per meaning", () => {
+  it("the home strip marks a 'kan ikke' day in Fravær's terracotta, never the brass/amber that means 'Afventer' there", async () => {
+    await mount("da");
+    // The every-Friday rule in the fixture lands on this week's strip.
+    const marks = await screen.findAllByTestId("portal-strip-cant");
+    expect(marks.length).toBeGreaterThan(0);
+    for (const m of marks) {
+      expect([RED_INK, RED_WASH_HEX]).toContain(m.style.color);
+      expect(m.getAttribute("style")).not.toMatch(/183,\s*121,\s*31|#B7791F/i);
+    }
   });
 });
