@@ -47,7 +47,7 @@ import { MAP_H, MAP_PINE_BG, mapRequestWidth, mapDpr, mapQuery, mapCacheKey, get
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
-import { preloadLocalesWhenIdle } from "../lib/localeStore";
+import { preloadLocalesWhenIdle } from "../lib/localePreload";
 import { formatHoursMinutes, formatHours, hoursUnit } from "../utils/hours";
 import { sectionFor } from "../config/roleSections";
 import { errText } from "../utils/errText";

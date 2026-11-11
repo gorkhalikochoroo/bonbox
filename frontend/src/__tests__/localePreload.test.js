@@ -12,7 +12,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadedLocales, preloadLocalesWhenIdle } from "../lib/localeStore";
+import { loadedLocales } from "../lib/localeStore";
+import { preloadLocalesWhenIdle } from "../lib/localePreload";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -41,6 +42,11 @@ describe("preloadLocalesWhenIdle", () => {
     cancel();
   });
 
+  it("lib/localeStore keeps its exports (the door screen's stand-in must match them; r11.standBuild)", async () => {
+    const store = await import("../lib/localeStore");
+    expect(store.preloadLocalesWhenIdle).toBeUndefined();
+  });
+
   it("an unknown code is ignored", () => {
     preloadLocalesWhenIdle(["xx"]);
     expect(window.requestIdleCallback).not.toHaveBeenCalled();
@@ -64,7 +70,8 @@ describe("cancel and fallback (fresh module: nothing of de loaded yet)", () => {
   it("cancelled before idle: nothing loads", async () => {
     vi.resetModules();
     const store = await import("../lib/localeStore");
-    const cancel = store.preloadLocalesWhenIdle(["de"]);
+    const { preloadLocalesWhenIdle: preload } = await import("../lib/localePreload");
+    const cancel = preload(["de"]);
     cancel();
     expect(window.cancelIdleCallback).toHaveBeenCalledWith(1);
     idle[0].cb();             // a late callback after cancel does nothing either
@@ -75,15 +82,16 @@ describe("cancel and fallback (fresh module: nothing of de loaded yet)", () => {
   it("no requestIdleCallback (Safari): a 1.5 s timer instead", async () => {
     vi.resetModules();
     const store = await import("../lib/localeStore");
+    const { preloadLocalesWhenIdle: preload } = await import("../lib/localePreload");
     delete window.requestIdleCallback;
     vi.useFakeTimers();
-    store.preloadLocalesWhenIdle(["de"]);
+    preload(["de"]);
     vi.advanceTimersByTime(1499);
     vi.useRealTimers();
     await new Promise((r) => setTimeout(r, 30));
     expect(store.loadedLocales().de).toBeUndefined();
     vi.useFakeTimers();
-    store.preloadLocalesWhenIdle(["de"]);
+    preload(["de"]);
     vi.advanceTimersByTime(1500);
     vi.useRealTimers();
     await vi.waitFor(() => expect(store.loadedLocales().de).toBeTruthy());
@@ -93,7 +101,7 @@ describe("cancel and fallback (fresh module: nothing of de loaded yet)", () => {
 describe("wired into the staff portal", () => {
   it("StaffPortalPage preloads its two offered languages in a mount effect", () => {
     const page = fs.readFileSync(path.join(SRC, "pages/StaffPortalPage.jsx"), "utf8");
-    expect(page).toContain('import { preloadLocalesWhenIdle } from "../lib/localeStore";');
+    expect(page).toContain('import { preloadLocalesWhenIdle } from "../lib/localePreload";');
     expect(page).toContain('useEffect(() => preloadLocalesWhenIdle(["da", "en"]), []);');
     // The toggle it serves offers exactly those two.
     expect(page).toContain('{["da", "en"].map((code) => (');
