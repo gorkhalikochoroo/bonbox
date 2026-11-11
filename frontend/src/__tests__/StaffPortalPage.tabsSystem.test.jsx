@@ -11,7 +11,7 @@
  *   • Beskeder: pine "+", ivory search, ivory rows with Sora names and a
  *     pine count; own bubbles pine with ivory text, others the card.
  *   • Byt: "Byt" pine (not navy), the give-aways as the home's open-shift
- *     rows with the sage "Tag vagten"; no swaps = one calm line.
+ *     rows with the home's sage "Tag den"; no swaps = one calm line.
  *   • Timer: pine card; this week's bar pine, the rest sage, figures in
  *     .vp-figures; "Eksportér CSV" a quiet pine text button on the web; in
  *     the native app the export is not drawn and one line says where it
@@ -331,7 +331,7 @@ describe("Byt", () => {
     const row = await screen.findByTestId("swap-pool-row");
     expect(row.textContent).toContain("16:00–22:00");
     expect(row.textContent).toContain("Ledig for dig");
-    const take = within(row).getByRole("button", { name: "Tag vagten" });
+    const take = within(row).getByRole("button", { name: "Tag den" });
     expect(take.style.background).toBe(SOFT);
     expect(take.style.color).toBe(PINE);
     expectNoGreenOrNavy(content());

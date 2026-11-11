@@ -4378,7 +4378,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       >
 
         <div className="relative flex items-end" style={{ gap: 8 }}>
-          <span className="vp-figures" data-testid="portal-hours-total" style={{ font: `700 44px/0.9 ${SORA}`, letterSpacing: "-0.04em", color: CREAM }}>
+          <span className="vp-figures" data-testid="portal-hours-total" style={{ font: "700 44px/0.9 var(--font-display)", letterSpacing: "-0.04em", color: CREAM }}>
             {/* A new period (or a refresh) rolls only the digits that moved. */}
             <RollingDigits value={fmtPortalHours(data.total_hours, lang)} />
           </span>
@@ -4824,7 +4824,8 @@ function SwapTab({ token, ownShifts, onChanged }) {
 
       {/* Colleagues' open give-aways — first qualified taker wins. The home's
           open-shift rows: a date tile, the time in Sora, who and why, the
-          verdict before the tap, and the sage "Tag vagten" pill. */}
+          verdict before the tap, and the same sage "Tag den" pill (the
+          home's words: the long "Tag vagten" cut the time off at 320 px). */}
       {pool.length > 0 && (
         <section data-testid="swap-pool">
           <div className="flex items-center" style={{ gap: 8, padding: "0 4px", minHeight: 24 }}>
@@ -4846,7 +4847,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
                   <div data-testid="swap-pool-row" className="flex items-center" style={{ gap: 12, padding: "14px 12px 14px 14px" }}>
                     {/^\d{4}-\d{2}-\d{2}$/.test(g.from_shift_date || "") && <DateTile iso={g.from_shift_date} lang={lang} />}
                     <div className="flex-1 min-w-0 flex flex-col" style={{ gap: 3 }}>
-                      <span className="tabular-nums whitespace-nowrap truncate" style={{ font: `700 16px/1.2 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>
+                      <span className="tabular-nums whitespace-nowrap" style={{ font: `700 16px/1.2 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>
                         {g.from_shift_time}
                       </span>
                       <span className="truncate" style={{ font: "400 13px/1.3 var(--font-text)", color: MUTED }}>
@@ -4873,7 +4874,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
                       <TakeItButton
                         onClick={() => claimGiveaway(g.id)}
                         busy={claimBusy === g.id}
-                        label={t("portalGaTake", "Take it")}
+                        label={t("portalOpenClaim", "Take it")}
                       />
                     )}
                   </div>
