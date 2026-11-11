@@ -3700,11 +3700,18 @@ function VenueMapImage({ token, venueName, mapV }) {
   const dpr = mapDpr();
   const [w, setW] = useState(() => mapRequestWidth(0));
   // Measured as the block mounts, before paint (an update from a ref callback
-  // is flushed with the commit): on a phone it equals the estimate above, so
-  // there is no second request.
+  // is flushed with the commit). On a touch phone it equals the estimate
+  // above. Where it does not (a screen with a scrollbar beside the page), the
+  // measured width is kept here and the load below skips the estimate's
+  // width: the ref callback runs in the commit, before effects, so every
+  // device sends exactly one request (Android 14 review, 12 Nov 2026).
+  const measuredPx = useRef(0);
   const boxRef = useCallback((el) => {
     const px = el?.clientWidth || 0;
-    if (px > 0) setW(mapRequestWidth(px));
+    if (px > 0) {
+      measuredPx.current = px;
+      setW(mapRequestWidth(px));
+    }
   }, []);
   const key = mapCacheKey(`staff:${token}`, w, dpr, mapV, "pine");
   const entry = getCachedMap(key);
@@ -3719,6 +3726,9 @@ function VenueMapImage({ token, venueName, mapV }) {
   const have = !!entry;
   useEffect(() => {
     if (!token || getCachedMap(key)) return undefined;
+    // The block measured another width than this render's guess: the render
+    // for the measured width is already on its way, and it loads.
+    if (measuredPx.current && mapRequestWidth(measuredPx.current) !== w) return undefined;
     let gone = false;
     // Kept even if the card unmounted meanwhile: the next mount paints it.
     loadMapOnce(key, () => portalApi.get(`/portal/${token}/venue-map?${mapQuery(w, dpr, mapV, "pine")}`, { responseType: "blob" }))

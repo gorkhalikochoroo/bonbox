@@ -520,19 +520,24 @@ describe("Venue map on the card (R2)", () => {
     expect(mapCalls()).toHaveLength(1);
   });
 
-  // Android 14 walk (11 Nov 2026): at 412 px the viewport estimate (old side
-  // chrome 68 → 352) and the measured width (336) differed; each answer
-  // evicted the other size and the card went blank — an empty pine box — on
-  // every other remount. 390 px (iPhone 12–16) is checked too.
-  for (const vw of [412, 390]) {
-    it(`at ${vw} px: ONE request, and the map on the card after every remount`, async () => {
+  // Android 14 walk (11 Nov 2026): at 412 px the viewport estimate and the
+  // measured width differed; each answer evicted the other size and the card
+  // went blank — an empty pine box — on every other remount.
+  // Edited 12 Nov 2026 (review of 4724866a): these cases mocked the
+  // emulator's pointer: fine layout (vw − 76: its shell shows an 8 px
+  // scrollbar) as if it were a phone's. A touch phone (iPhone, Android) shows
+  // no scrollbar: the block is vw − 68, or vw − 60 at 360 px and below (16 /
+  // 12 px page gutters + 18 px card padding, each side). The pointer: fine
+  // layout keeps its own case below.
+  const touchPhone = (vw) => Math.min(vw, 512) - (vw <= 360 ? 60 : 68);
+  for (const [vw, asked] of [[412, 352], [390, 336], [360, 304]]) {
+    it(`touch phone at ${vw} px: ONE request, and the map on the card after every remount`, async () => {
       const realVW = window.innerWidth;
       Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: vw });
-      // jsdom has no layout: the map block measures what the phone measured
-      // (the page's 20 px gutters + the card's 18 px padding, each side).
+      // jsdom has no layout: the map block measures what the phone measured.
       Object.defineProperty(HTMLElement.prototype, "clientWidth", {
         configurable: true,
-        get() { return this.getAttribute?.("data-testid") === "portal-venue-map" ? vw - 76 : 0; },
+        get() { return this.getAttribute?.("data-testid") === "portal-venue-map" ? touchPhone(vw) : 0; },
       });
       try {
         info = { ...info, venue: VENUE };
@@ -556,13 +561,54 @@ describe("Venue map on the card (R2)", () => {
           expect(screen.getByTestId("portal-venue-map").querySelector("img")).not.toBeNull();
         }
         expect(mapCalls()).toHaveLength(1);
-        expect(mapCalls()[0][0]).toContain(`?w=${vw === 412 ? 336 : 320}&`);
+        expect(mapCalls()[0][0]).toContain(`?w=${asked}&`);
       } finally {
         delete HTMLElement.prototype.clientWidth;
         Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: realVW });
       }
     });
   }
+
+  // A screen with a scrollbar beside the page (pointer: fine — a desktop
+  // browser at phone width, the Android 14 emulator): the block is vw − 76,
+  // 8 px narrower than the estimate. The card asks ONLY for the width it
+  // measured (one request, never the estimate's), and the map is on the card
+  // after every remount — never an empty pine box.
+  it("pointer: fine at 412 px (vw − 76): ONE request, for the measured width; never blank", async () => {
+    const realVW = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 412 });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get() { return this.getAttribute?.("data-testid") === "portal-venue-map" ? 412 - 76 : 0; },
+    });
+    try {
+      info = { ...info, venue: VENUE };
+      await mount("da");
+      await waitFor(() => expect(screen.getByTestId("portal-venue-map").querySelector("img")).not.toBeNull());
+      // Let any second request that would have gone out go out.
+      await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+      expect(mapCalls()).toHaveLength(1);
+      expect(mapCalls()[0][0]).toContain("?w=336&");
+      for (let i = 0; i < 2; i += 1) {
+        fireEvent.click(screen.getByTestId("portal-tab-hours"));
+        fireEvent.click(screen.getByTestId("portal-tab-schedule"));
+        // The kept image is on the card at once (it settles in again once
+        // decoded, since the first render guessed the other width)…
+        const img = screen.getByTestId("portal-venue-map").querySelector("img");
+        expect(img).not.toBeNull();
+        expect(img.getAttribute("src")).toBe("blob:venue-map");
+        fireEvent.load(img);
+        expect(img.style.opacity).toBe("1");
+        // …and stays there once every answer is in.
+        await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+        expect(screen.getByTestId("portal-venue-map").querySelector("img")).not.toBeNull();
+      }
+      expect(mapCalls()).toHaveLength(1);
+    } finally {
+      delete HTMLElement.prototype.clientWidth;
+      Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: realVW });
+    }
+  });
 
   it("the map URL changes when the pin moves, so no cache can show the old place", async () => {
     info = { ...info, venue: VENUE };

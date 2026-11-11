@@ -26,19 +26,25 @@ export const MAP_H = 96;
 const W_MIN = 256;
 const W_MAX = 448;
 const W_STEP = 16;
-// The card's side padding plus the page's: min(viewport, 512) - 76 is the
-// map's width on the staff app (max-w-lg page, 20 px gutters, 18 px card
-// padding). It has to match what the block measures: at 412 px (a common
-// Android phone) the old 68 asked for 352 first and then the measured 336 —
-// two requests for one card (Android 14 walk, 11 Nov 2026).
+// FIRST GUESS, before the block has measured itself: the map's width on a
+// touch phone. The staff page is max-w-lg (512 px) with px-3 gutters (12 px)
+// at 360 px and below and px-4 (16 px) above (StaffPortalPage portal-content),
+// and the card pads 18 px each side: min(viewport, 512) - 68, or - 60 at
+// 360 px and below. It is only a guess: VenueMapImage measures the block as it
+// mounts and sends a request only for the MEASURED width, so a screen whose
+// real width differs still asks once. (The Android 14 emulator reports
+// pointer: fine, so index.css gives the shell an 8 px scrollbar there and the
+// block is 76 px narrower than the viewport; touch phones show no scrollbar.)
 const PAGE_MAX = 512;
-const CHROME = 76;
+export function mapChrome(vw) {
+  return vw <= 360 ? 60 : 68;
+}
 
 export function mapRequestWidth(measured) {
   let w = Number(measured) || 0;
   if (w <= 0) {
     const vw = typeof window !== "undefined" ? Number(window.innerWidth) || 390 : 390;
-    w = Math.min(vw, PAGE_MAX) - CHROME;
+    w = Math.min(vw, PAGE_MAX) - mapChrome(vw);
   }
   return Math.min(W_MAX, Math.max(W_MIN, Math.ceil(w / W_STEP) * W_STEP));
 }

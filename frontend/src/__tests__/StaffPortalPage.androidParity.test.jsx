@@ -628,6 +628,38 @@ describe("Chat photo in the Android app", () => {
     expect(within(composer).queryByTestId("portal-chat-photo-note")).toBeNull();
   });
 
+  // Review of 4724866a (12 Nov 2026): BACK was only said to do what the ×
+  // does. It is run here: the sheet's scrim (a fixed z-60 layer, portaled
+  // after the thread) is the top-most way out, so BACK closes the sheet and
+  // not the thread under it.
+  it("Android BACK closes the sheet like its ×: the thread stays, nothing is staged, nothing native opens", async () => {
+    asAndroidApp();
+    const composer = await openThread();
+    await tapAttach(composer);
+    expect(sheet()).toBeTruthy();
+    const { App } = await import("@capacitor/app");
+    // This page's own BACK listener (the last one registered).
+    const back = App.addListener.mock.calls.filter(([name]) => name === "backButton").at(-1)[1];
+    // jsdom has no layout: every element counts as on screen for BACK.
+    const realRects = Element.prototype.getClientRects;
+    Element.prototype.getClientRects = function rects() { return [{ width: 1, height: 1 }]; };
+    try {
+      await act(async () => { back({ canGoBack: false }); });
+      await waitFor(() => expect(screen.queryByTestId("portal-chat-photo-sheet")).toBeNull());
+    } finally {
+      Element.prototype.getClientRects = realRects;
+    }
+    // The thread is still open, with the same composer, nothing in it.
+    expect(screen.getByTestId("portal-chat-composer")).toBe(composer);
+    expect(composer.querySelectorAll("img")).toHaveLength(0);
+    expect(within(composer).queryByTestId("portal-chat-photo-note")).toBeNull();
+    expect(native.photoCalls).toHaveLength(0);
+    expect(native.pickCalls).toHaveLength(0);
+    // And the photo button works again afterwards.
+    await tapAttach(composer);
+    expect(sheet()).toBeTruthy();
+  });
+
   it("browsers and the iPhone keep the multi-file input — no sheet", async () => {
     asIOSApp();
     const composer = await openThread();
