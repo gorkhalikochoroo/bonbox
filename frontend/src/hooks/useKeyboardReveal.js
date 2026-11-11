@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { platform } from "../utils/platform";
-import { useKeyboardLift } from "./useKeyboardLift";
+import { useKeyboardState } from "./useKeyboardLift";
 
 /**
  * Keep whatever text field has focus visible above the on-screen keyboard —
@@ -29,6 +29,14 @@ import { useKeyboardLift } from "./useKeyboardLift";
  *
  * A field that already handles the keyboard itself (the chat composer rides on
  * top of it) opts out with `data-kb-skip`.
+ *
+ * Android is different (see useKeyboardLift): the window itself shrinks to end
+ * at the keyboard, so there is no height to lift by (lift 0) and the WebView
+ * scrolls a focused field into view on its own. Old WebViews stop short: on
+ * Android 14 (WebView 113) the profile sheet's postcode field stayed 10 px
+ * under the keyboard (walk, 12 Nov 2026). So on Android, while the keyboard
+ * is up, the same reveal runs once the window has resized (and when focus
+ * moves), measured against the already-shortened window. iOS is unchanged.
  */
 export const KB_LIFT_STYLE = { paddingBottom: "var(--kb-h, 0px)" };
 
@@ -55,8 +63,10 @@ function scrollParent(el) {
  * Scroll `el` (or its `data-kb-block` form) above a keyboard `kb` px tall.
  * Returns true when it had to scroll. Exported for the tests.
  */
-export function revealAboveKeyboard(el, kb, win = window) {
-  if (!kb || !isKeyboardField(el)) return false;
+export function revealAboveKeyboard(el, kb, win = window, { resized = false } = {}) {
+  // `resized`: Android — the window already ends at the keyboard's top edge,
+  // so kb is 0 and the visible band is simply the (shorter) window.
+  if ((!kb && !resized) || !isKeyboardField(el)) return false;
   if (el.closest?.("[data-kb-skip]")) return false;
   const box = scrollParent(el);
   if (!box) return false;
@@ -90,7 +100,7 @@ export function revealAboveKeyboard(el, kb, win = window) {
 }
 
 export function useKeyboardReveal() {
-  const raw = useKeyboardLift();
+  const { lift: raw, open } = useKeyboardState();
   const lift = platform.isNative ? raw : 0;
 
   useEffect(() => {
@@ -114,6 +124,29 @@ export function useKeyboardReveal() {
       document.removeEventListener("focusin", onFocusIn);
     };
   }, [lift]);
+
+  // Android app, keyboard up (the window has shrunk; lift stays 0): reveal the
+  // focused field once the resize has settled, and again when focus moves. A
+  // fallback runs if no resize event comes (the window shrank before this ran).
+  const androidUp = platform.isNative && platform.isAndroid && !!open && !(lift > 0);
+  useEffect(() => {
+    if (!androidUp) return undefined;
+    let next = null;
+    const reveal = (el, ms) => {
+      clearTimeout(next);
+      next = setTimeout(() => revealAboveKeyboard(el || document.activeElement, 0, window, { resized: true }), ms);
+    };
+    const onResize = () => reveal(null, 60);
+    const onFocusIn = (e) => reveal(e.target, 40);
+    window.addEventListener("resize", onResize);
+    document.addEventListener("focusin", onFocusIn);
+    reveal(null, 300);
+    return () => {
+      clearTimeout(next);
+      window.removeEventListener("resize", onResize);
+      document.removeEventListener("focusin", onFocusIn);
+    };
+  }, [androidUp]);
 
   useEffect(() => () => document.documentElement.style.removeProperty("--kb-h"), []);
 

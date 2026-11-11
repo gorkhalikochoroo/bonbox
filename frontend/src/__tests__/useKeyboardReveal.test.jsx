@@ -10,12 +10,25 @@ import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let native = true;
+let android = false;
 let kb = 0;
+let kbOpen = false;
 vi.mock("../utils/platform", () => ({
-  platform: { get isNative() { return native; }, isIOS: true, isAndroid: false, isWeb: false },
+  platform: {
+    get isNative() { return native; },
+    get isIOS() { return native && !android; },
+    get isAndroid() { return android; },
+    get isWeb() { return !native; },
+  },
   isNativeApp: () => native,
 }));
-vi.mock("../hooks/useKeyboardLift", () => ({ useKeyboardLift: () => kb }));
+// Edited 12 Nov 2026: the hook now reads useKeyboardState (it needs `open`
+// for Android, where the lift is 0 while the keyboard is up); the lift is the
+// same number useKeyboardLift returned.
+vi.mock("../hooks/useKeyboardLift", () => ({
+  useKeyboardLift: () => kb,
+  useKeyboardState: () => ({ lift: kb, open: kb > 0 || kbOpen }),
+}));
 
 const { revealAboveKeyboard, useKeyboardReveal, KB_LIFT_STYLE } = await import("../hooks/useKeyboardReveal");
 
@@ -43,7 +56,9 @@ function buildShell({ fieldTop = 552, blockTop = 400, blockBottom = 700, boxBott
 
 beforeEach(() => {
   native = true;
+  android = false;
   kb = 0;
+  kbOpen = false;
   Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 });
 });
 afterEach(() => {
@@ -122,5 +137,105 @@ describe("useKeyboardReveal", () => {
 
   it("a fixed sheet rides on top of the keyboard via the shared style", () => {
     expect(KB_LIFT_STYLE).toEqual({ paddingBottom: "var(--kb-h, 0px)" });
+  });
+});
+
+/**
+ * Android 14 walk (12 Nov 2026), P4: in the profile sheet the postcode field
+ * (571-609) sat 10 px under the keyboard of a window that had already shrunk
+ * to 599 px; the old WebView's own scroll stopped short. On Android the
+ * window ends at the keyboard (lift 0), so the reveal runs against the window
+ * once it has resized. iOS is unchanged (the tests above).
+ */
+describe("Android app: the window already ends at the keyboard", () => {
+  // The profile sheet: a scroller filling the shrunk window, the postcode low in a long form.
+  function buildSheet({ fieldTop = 571 } = {}) {
+    const shell = buildShell({ fieldTop, blockTop: 0, blockBottom: 1400, boxBottom: 599 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 599 });
+    return shell;
+  }
+
+  it("revealAboveKeyboard with kb 0 does nothing, unless the window has resized for it", () => {
+    const shell = buildSheet();
+    expect(revealAboveKeyboard(document.getElementById("note"), 0)).toBe(false);
+    expect(revealAboveKeyboard(document.getElementById("note"), 0, window, { resized: true })).toBe(true);
+    // Band 8..587 (599 − 12), centre 297.5; the field's centre 591 → 293.5.
+    expect(shell.scrollBy).toHaveBeenCalledWith({ top: 293.5, behavior: "smooth" });
+  });
+
+  it("keyboard up: once the window's resize settles, the focused field is scrolled fully into view; no --kb-h", () => {
+    vi.useFakeTimers();
+    native = true;
+    android = true;
+    const shell = buildSheet();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { rerender } = render(<Harness />, { container: host });
+    document.getElementById("note").focus();
+    kbOpen = true;
+    rerender(<Harness />);
+    expect(document.documentElement.style.getPropertyValue("--kb-h")).toBe("");
+    act(() => { vi.advanceTimersByTime(100); });
+    window.dispatchEvent(new Event("resize"));
+    act(() => { vi.advanceTimersByTime(59); });
+    expect(shell.scrollBy).not.toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(shell.scrollBy).toHaveBeenCalledTimes(1);
+    expect(shell.scrollBy).toHaveBeenCalledWith({ top: 293.5, behavior: "smooth" });
+    // The fallback it replaced never scrolls a second time.
+    act(() => { vi.advanceTimersByTime(500); });
+    expect(shell.scrollBy).toHaveBeenCalledTimes(1);
+  });
+
+  it("no resize event at all: the 300 ms fallback reveals it", () => {
+    vi.useFakeTimers();
+    android = true;
+    const shell = buildSheet();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { rerender } = render(<Harness />, { container: host });
+    document.getElementById("note").focus();
+    kbOpen = true;
+    rerender(<Harness />);
+    act(() => { vi.advanceTimersByTime(299); });
+    expect(shell.scrollBy).not.toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(shell.scrollBy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a field already in view stays put; the keyboard down stops listening", () => {
+    vi.useFakeTimers();
+    android = true;
+    const shell = buildShell({ fieldTop: 200, blockTop: 150, blockBottom: 400, boxBottom: 599 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 599 });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { rerender } = render(<Harness />, { container: host });
+    document.getElementById("note").focus();
+    kbOpen = true;
+    rerender(<Harness />);
+    window.dispatchEvent(new Event("resize"));
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(shell.scrollBy).not.toHaveBeenCalled();
+    kbOpen = false;
+    rerender(<Harness />);
+    window.dispatchEvent(new Event("resize"));
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(shell.scrollBy).not.toHaveBeenCalled();
+  });
+
+  it("the iPhone never takes this path (its keyboard has a height: the tests above)", () => {
+    vi.useFakeTimers();
+    android = false;
+    const shell = buildSheet();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { rerender } = render(<Harness />, { container: host });
+    document.getElementById("note").focus();
+    kbOpen = true;            // open but no height: on iOS nothing moves
+    rerender(<Harness />);
+    window.dispatchEvent(new Event("resize"));
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(shell.scrollBy).not.toHaveBeenCalled();
   });
 });
