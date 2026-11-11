@@ -2757,6 +2757,35 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_venue_maps_user_id ON venue_maps (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_venue_maps_user_branch ON venue_maps (user_id, branch_id)",
+    # ── Migration 086 (2026-11-11): live pauses — "Start pause"/"Slut pause" ─
+    # hours_breaks backs app/models/staff.py:HoursBreak: a pause the staffer
+    # started and ended from the portal against an open clock punch. Owner
+    # opt-in (clock_settings_json "breaks_live", no column); with it off no
+    # row is ever written and no number changes. Net-new table: no existing
+    # table is altered, nothing is backfilled. create_all builds it on both
+    # engines from the model before this list runs; this is the
+    # create_all-bypassed net, typed as create_all types it (GUID →
+    # VARCHAR(36)). ON DELETE CASCADE: a discarded/deleted punch takes its
+    # pauses. The RLS sweep above gives it the anon deny on every boot.
+    """CREATE TABLE IF NOT EXISTS hours_breaks (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        staff_id VARCHAR(36) NOT NULL REFERENCES staff_members(id),
+        hours_id VARCHAR(36) NOT NULL REFERENCES hours_logged(id) ON DELETE CASCADE,
+        started_at TIMESTAMP NOT NULL,
+        ended_at TIMESTAMP,
+        start_time VARCHAR(5) NOT NULL,
+        end_time VARCHAR(5),
+        minutes INTEGER,
+        ended_by VARCHAR(16),
+        applied BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_hours_breaks_hours ON hours_breaks (hours_id)",
+    "CREATE INDEX IF NOT EXISTS ix_hours_breaks_user_staff ON hours_breaks (user_id, staff_id)",
+    # One running pause per punch — see HoursBreak.__table_args__.
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_hours_breaks_open ON hours_breaks (hours_id) "
+    "WHERE ended_at IS NULL",
     # ── Migration (2026-10-08): users.signup_ref — door-visit attribution ──
     # Mirrors app/models/user.py:User.signup_ref. The printed QR's code
     # ("r1-a-03"), kept by the frontend until the account exists and stored
@@ -3629,6 +3658,14 @@ def _run_migrations():
                 # Mirror of ux_hours_open_clock in the PG list above.
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_hours_open_clock ON hours_logged (staff_id) "
                 "WHERE end_time IS NULL AND entry_method = 'clock'",
+                # Mirror of Migration 086 — live pauses. The hours_breaks table
+                # itself comes from create_all on SQLite, as every new table
+                # does; these keep its indexes on a dev db where an older
+                # create_all built the table before an index was declared.
+                "CREATE INDEX IF NOT EXISTS ix_hours_breaks_hours ON hours_breaks (hours_id)",
+                "CREATE INDEX IF NOT EXISTS ix_hours_breaks_user_staff ON hours_breaks (user_id, staff_id)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_hours_breaks_open ON hours_breaks (hours_id) "
+                "WHERE ended_at IS NULL",
             ]
             ix_ok = 0
             for stmt in _index_stmts:

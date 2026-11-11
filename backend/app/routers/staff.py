@@ -4269,9 +4269,34 @@ def list_hours(
     # _MEMBER_WRITE_ALLOWED), but the CURTAINED owner can — the Stempelur is
     # deliberately still usable on the counter tablet — and a 200 body carrying
     # rate_applied is the same read through a different verb.
-    if not _wage_visible(user):
-        return [_wage_stripped_hours(h) for h in rows]
-    return rows
+    #
+    # Live pauses (Migration 086): each row carries the pauses the staffer
+    # recorded on it, so the owner sees the measured pause behind break_minutes.
+    # One batched query; a venue that never used live pauses gets [] / null on
+    # every row and nothing else changes. Not wage data — kept when curtained.
+    out = [
+        _wage_stripped_hours(h) if not _wage_visible(user) else HoursLogResponse.model_validate(h)
+        for h in rows
+    ]
+    return _with_recorded_breaks(db, rows, out)
+
+
+def _with_recorded_breaks(db: Session, rows, out):
+    """Fill the live-pause fields (Migration 086) on HoursLogResponse objects,
+    one batched query for all rows. Rows without recorded pauses keep the
+    schema defaults ([] / null) — every row of a venue that never used them."""
+    from app.services import live_breaks as _lb
+
+    by_row = _lb.breaks_for(db, [h.id for h in rows])
+    for h, r in zip(rows, out):
+        brs = by_row.get(str(h.id))
+        if not brs:
+            continue
+        r.breaks = [_lb.serialize(b) for b in brs]
+        ended = [int(b.minutes or 0) for b in brs if b.ended_at is not None]
+        r.recorded_break_minutes = sum(ended) if ended else None
+        r.break_source = _lb.break_source(h.break_minutes, brs)
+    return out
 
 
 # ─── Tidsregistrering — DK working-time compliance (Arbejdstidsloven) ───
@@ -4598,9 +4623,13 @@ def get_clocked_in_staff(
         .all()
     )
     now_dt = now_local(user)
+    # Live pauses (Migration 086): who is on a pause right now, one query.
+    from app.services import live_breaks as _lb
+    _brs = _lb.breaks_for(db, [r.id for r in rows])
     out = []
     for r in rows:
         m = db.query(StaffMember).filter(StaffMember.id == r.staff_id).first()
+        _running = next((b for b in reversed(_brs.get(str(r.id), [])) if b.ended_at is None), None)
         elapsed = None
         if r.start_time:
             try:
@@ -4640,6 +4669,10 @@ def get_clocked_in_staff(
             # lock is invisible theatre. (Written by portal clock-in when GPS is
             # off/denied or the fix was too imprecise to trust.)
             "unverified": bool(getattr(r, "notes", None) == "Location unverified"),
+            # On a live pause now (only ever true where the owner turned live
+            # pauses on), and since when — owner-local "HH:MM".
+            "on_break": _running is not None,
+            "break_since": _running.start_time if _running is not None else None,
         })
     out.sort(key=lambda x: x["since"] or "")
     return {"clocked_in": out, "count": len(out)}
@@ -4677,6 +4710,11 @@ def _load_clock_settings(profile):
         # 0 / disabled → no time lock (clock-in open any time, as before).
         "window_enabled": bool(d.get("window_enabled")) and win_minutes > 0,
         "window_minutes": win_minutes,
+        # Live pauses (Migration 086): staff may tap "Start pause" / "Slut
+        # pause" and, at clock-out, the recorded pause replaces the DK
+        # suggestion. A third axis beside the location lock and the time
+        # window. Absent = off — every venue that never set it.
+        "breaks_live": bool(d.get("breaks_live")),
     }
 
 
@@ -4689,6 +4727,7 @@ class ClockGeofenceUpdate(BaseModel):
     radius_m: int | None = None
     window_enabled: bool | None = None
     window_minutes: int | None = None
+    breaks_live: bool | None = None
     # Provenance of the coordinates being saved. The client sends whichever
     # path produced them; unknown values are normalised away server-side so a
     # crafted body cannot invent a provenance the UI would then display.
@@ -4779,6 +4818,9 @@ def set_clock_geofence(
     win_enabled = payload.window_enabled if payload.window_enabled is not None else cur["window_enabled"]
     win_minutes = payload.window_minutes if payload.window_minutes is not None else cur["window_minutes"]
     win_minutes = max(0, min(240, int(win_minutes or 0)))  # cap at 4h before start
+    # Live pauses. Falls back to the stored value like every field here: the
+    # existing panel never sends it, and its saves must not switch it off.
+    breaks_live = payload.breaks_live if payload.breaks_live is not None else cur["breaks_live"]
 
     # Provenance. Only three values may ever reach the UI, and the label is
     # length-capped — it is echoed back into the panel, so an unbounded
@@ -4805,7 +4847,17 @@ def set_clock_geofence(
         "window_minutes": win_minutes,
         "anchor_source": src,
         "anchor_label": label,
+        "breaks_live": bool(breaks_live),
     })
+    if bool(breaks_live) != bool(cur["breaks_live"]):
+        # It changes how clocked hours are paid from the next clock-out on, so
+        # the switch itself leaves a trail — atomic with the save (the
+        # audit_service contract: no trail, no change).
+        audit_service.record(
+            db, user, "staff.clock_settings.breaks_live", "business_profile", profile.id,
+            before={"breaks_live": bool(cur["breaks_live"])},
+            after={"breaks_live": bool(breaks_live)},
+        )
     db.commit()
     out = _load_clock_settings(profile)
     out["has_location"] = out["lat"] is not None and out["lng"] is not None
@@ -5126,10 +5178,22 @@ def resolve_hours(
                 raise HTTPException(status_code=400, detail={"code": "break_too_long"})
             open_row.break_minutes = brk
         elif not open_row.break_minutes:
-            # Same DK break as a real clock-out, so an owner-set end pays the
-            # same hours the punch clock would have.
-            from app.services.schedule_autopilot import suggested_break_minutes
-            open_row.break_minutes = suggested_break_minutes(gross_h)
+            # Live pauses (Migration 086): with the setting on and ENDED pauses
+            # recorded on this punch, pay against them — what the punch clock
+            # itself would have done. Not when a pause is still running (its
+            # end is unknown: the DK suggestion stands and the owner sees the
+            # open pause), and not when the recorded pauses would not fit
+            # inside the owner's start/end. Otherwise exactly as before.
+            from app.services import live_breaks as _lb
+            _rec = _lb.paid_break_minutes(db, user.id, open_row.id)
+            if _rec is not None and _rec < gross_h * 60:
+                open_row.break_minutes = int(_rec)
+                _lb.mark_applied(db, open_row.id)
+            else:
+                # Same DK break as a real clock-out, so an owner-set end pays the
+                # same hours the punch clock would have.
+                from app.services.schedule_autopilot import suggested_break_minutes
+                open_row.break_minutes = suggested_break_minutes(gross_h)
         open_row.start_time = start_str
         open_row.end_time = end_str
         open_row.total_hours = _calc_shift_hours(open_row.start_time, open_row.end_time, open_row.break_minutes or 0)
@@ -5353,8 +5417,10 @@ def update_hours(
     db.commit()
     db.refresh(entry)
     if not _wage_visible(user):  # same curtain as the GET — see list_hours
-        return _wage_stripped_hours(entry)
-    return entry
+        return _with_recorded_breaks(db, [entry], [_wage_stripped_hours(entry)])[0]
+    # The edited row keeps showing its recorded pauses (Migration 086) — a
+    # client that swaps the row in from this response must not lose them.
+    return _with_recorded_breaks(db, [entry], [HoursLogResponse.model_validate(entry)])[0]
 
 
 @router.delete("/hours/{hours_id}", status_code=204)
@@ -5373,6 +5439,10 @@ def delete_hours(
     # "Godkend" would change what the revisor was told without a trace.
     if getattr(entry, "resolution_note", None) == _PERIOD_APPROVAL_NOTE:
         raise HTTPException(status_code=409, detail={"code": "approved"})
+    # Its recorded pauses go with it (Migration 086) — explicitly, because
+    # SQLite does not enforce the FK's ON DELETE CASCADE that Postgres runs.
+    from app.models.staff import HoursBreak
+    db.query(HoursBreak).filter(HoursBreak.hours_id == entry.id).delete(synchronize_session=False)
     db.delete(entry)
     db.commit()
 

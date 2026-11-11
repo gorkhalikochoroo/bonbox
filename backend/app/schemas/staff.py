@@ -420,6 +420,18 @@ class HoursLogResponse(BaseModel):
     clock_hours: float | None = None
     resolution: str | None = None
     resolved_at: datetime.datetime | None = None
+    # Live pauses (Migration 086) — what the staffer recorded with Start/Slut
+    # pause on this punch. Filled by GET /staff/hours; empty everywhere else
+    # and for every row without recorded pauses.
+    #   breaks                  [{start, end, minutes, ended_by}] oldest first;
+    #                           end/minutes null = still running.
+    #   recorded_break_minutes  sum of the ENDED pauses, or null if none.
+    #   break_source            "recorded" when break_minutes (what is paid)
+    #                           is exactly that recorded sum; null when it is
+    #                           the DK suggestion or an owner's own number.
+    breaks: list[dict] = []
+    recorded_break_minutes: int | None = None
+    break_source: str | None = None
 
     model_config = {"from_attributes": True}
 

@@ -312,6 +312,69 @@ class HoursLogged(Base):
     staff_member: Mapped["StaffMember"] = relationship(back_populates="hours_logged")
 
 
+class HoursBreak(Base):
+    """A pause the staffer took LIVE from the portal — "Start pause" / "Slut
+    pause" — against their open clock punch. Migration 086.
+
+    Optional, per venue: only recorded while the owner has `breaks_live` on
+    (BusinessProfile.clock_settings_json). With it off — the default, and every
+    venue before this existed — no row is ever written and the punch keeps the
+    DK break suggestion exactly as before (routers/staff_portal.portal_clock_out).
+
+    How it reaches pay. At clock-out, if live breaks are on and the punch has
+    recorded breaks, their minutes REPLACE the suggestion on
+    HoursLogged.break_minutes, and total_hours = clock span − those minutes.
+    Every downstream reader (hours list, register, payroll CSV, lønseddel,
+    labour %) already reads break_minutes/total_hours, so they all agree
+    without a second code path. These rows stay as the evidence: what was
+    measured, when, and who closed it.
+
+    Time is SERVER time only. started_at/ended_at are naive UTC instants from
+    the owner's clock (never the phone's); start_time/end_time are the same
+    instants as owner-local "HH:MM", the way the punch itself is stamped.
+    `minutes` is the whole-minute difference of those stamps — the number an
+    owner can check by reading "12:00–12:30" — set only once the break ends.
+    A break that ends inside the minute it started (a misclick) is deleted,
+    exactly as a too-short punch is.
+
+    One open break per punch is a database rule (ux_hours_breaks_open), so two
+    taps of "Start pause" racing each other cannot open two.
+    """
+    __tablename__ = "hours_breaks"
+    __table_args__ = (
+        Index("ix_hours_breaks_hours", "hours_id"),
+        Index("ix_hours_breaks_user_staff", "user_id", "staff_id"),
+        Index(
+            "ux_hours_breaks_open", "hours_id", unique=True,
+            sqlite_where=text("ended_at IS NULL"),
+            postgresql_where=text("ended_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    staff_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("staff_members.id"))
+    # The punch this pause belongs to. ON DELETE CASCADE: a punch that is
+    # discarded (a misclick) or deleted by the owner takes its pauses with it.
+    hours_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("hours_logged.id", ondelete="CASCADE"),
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    start_time: Mapped[str] = mapped_column(String(5))
+    end_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
+    minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # "staff" (Slut pause) | "clock_out" (still on break at clock-out).
+    ended_by: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # True once this pause was COUNTED in the punch's paid break — stamped by
+    # the clock-out (or the owner's forgotten-clock-out fix) that used it.
+    # Recorded but not counted (the setting was off at clock-out) stays False,
+    # so a view can never call a DK suggestion "recorded" because the two
+    # numbers happen to match.
+    applied: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class Tip(Base):
     __tablename__ = "tips"
 

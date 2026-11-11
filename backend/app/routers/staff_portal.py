@@ -1547,18 +1547,22 @@ def _clock_geofence(db: Session, owner) -> dict:
     }
 
 
-def _open_punch(db: Session, member):
-    """The staff's current open clock-in (clocked in, not yet out), if any."""
-    return (
-        db.query(HoursLogged)
-        .filter(
-            HoursLogged.staff_id == member.id,
-            HoursLogged.entry_method == "clock",
-            HoursLogged.end_time.is_(None),
-        )
-        .order_by(HoursLogged.created_at.desc())
-        .first()
+def _open_punch(db: Session, member, for_update: bool = False):
+    """The staff's current open clock-in (clocked in, not yet out), if any.
+
+    for_update=True row-locks the punch (Postgres; a no-op on SQLite). Clock-out
+    and the two pause endpoints take it, in that one order — punch first, then
+    its pause — so "Start pause" racing "Stempl ud" serialises: whichever lands
+    second sees the other's committed result (a closed punch, or a pause to end)
+    instead of leaving a pause running on a punch that already closed."""
+    q = db.query(HoursLogged).filter(
+        HoursLogged.staff_id == member.id,
+        HoursLogged.entry_method == "clock",
+        HoursLogged.end_time.is_(None),
     )
+    if for_update:
+        q = q.with_for_update()
+    return q.order_by(HoursLogged.created_at.desc()).first()
 
 
 def _elapsed_min(start_hhmm, now_dt):
@@ -1699,12 +1703,14 @@ def _clock_status_dict(db: Session, member, owner) -> dict:
     )
     win = _clock_window_status(db, member, owner)
     punch = _open_punch(db, member)
+    breaks = _break_state(db, owner, punch, now_dt)
     if not punch:
         return {"clocked_in": False, "since": None, "elapsed_min": None,
                 "elapsed_sec": None, "today_hours": today_hours,
                 "geofence_on": geofence_on, "geofence": _fence_pub,
                 "locked": win["locked"], "opens_at": win["opens_at"],
-                "shift_start": win["shift_start"], "window_minutes": win["window_minutes"]}
+                "shift_start": win["shift_start"], "window_minutes": win["window_minutes"],
+                **breaks}
     return {
         "clocked_in": True,
         "since": punch.start_time,
@@ -1715,7 +1721,48 @@ def _clock_status_dict(db: Session, member, owner) -> dict:
         # Already clocked in → never "locked"; keep window context for the UI.
         "locked": False, "opens_at": None,
         "shift_start": win["shift_start"], "window_minutes": win["window_minutes"],
+        **breaks,
     }
+
+
+def _break_state(db: Session, owner, punch, now_dt) -> dict:
+    """The live-pause half of the clock state (Migration 086).
+
+    breaks_live          — the owner's setting; the UI shows "Start pause" only
+                           when this is true (and the staffer is clocked in).
+    on_break             — a pause is running on the CURRENT open punch. Read
+                           from the data, not the setting, so a pause still
+                           running when the owner switched the setting off can
+                           be seen — and ended.
+    break_started_at     — that pause's start, ISO UTC ("…Z"); break_since is
+                           the same instant as owner-local "HH:MM".
+    break_elapsed_sec    — server-computed seconds into the pause, the reload-
+                           safe seed for a live counter (same idea as
+                           elapsed_sec: the client never invents the baseline).
+    break_minutes_so_far — closed pauses + the running one on this punch, whole
+                           minutes. 0 when not clocked in.
+    """
+    from app.services import live_breaks as lb
+
+    live = lb.breaks_live_enabled(db, owner.id if owner else None)
+    state = {"breaks_live": live, "on_break": False, "break_started_at": None,
+             "break_since": None, "break_elapsed_sec": None, "break_minutes_so_far": 0}
+    if not punch:
+        return state
+    rows = lb.breaks_for(db, [punch.id]).get(str(punch.id), [])
+    if not rows:
+        return state
+    now_utc = lb.to_utc_naive(now_dt)
+    running = next((b for b in reversed(rows) if b.ended_at is None), None)
+    state["break_minutes_so_far"] = lb.minutes_so_far(rows, now_utc)
+    if running is not None:
+        state.update({
+            "on_break": True,
+            "break_started_at": lb.iso_utc(running.started_at),
+            "break_since": running.start_time,
+            "break_elapsed_sec": max(0, int((now_utc - running.started_at).total_seconds())),
+        })
+    return state
 
 
 @router.get("/{token}/clock")
@@ -1838,10 +1885,17 @@ def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)
     """Staff clocks OUT — close the open punch, compute hours + (premium-aware) pay."""
     link, member = _get_staff_from_token(token, db)
     owner = db.query(User).filter(User.id == member.user_id).first()
-    punch = _open_punch(db, member)
+    punch = _open_punch(db, member, for_update=True)
     if not punch:
         raise HTTPException(status_code=409, detail={"error": "not_clocked_in"})
-    end_str = now_local(owner).strftime("%H:%M")
+    _now_out = now_local(owner)
+    end_str = _now_out.strftime("%H:%M")
+    # LIVE PAUSES (Migration 086): a pause still running at clock-out ends AT
+    # the clock-out — always, setting on or off, so no pause is ever left
+    # running on a closed punch. Whether recorded pauses PAY is decided below.
+    from app.services import live_breaks as _lb
+    _lb.close_all_open(db, punch.id, _now_out, ended_by="clock_out")
+    db.flush()
     # _calc_shift_hours lives in routers/staff.py. Imported locally (like
     # _pick_rate just below) to avoid a module-level circular import — it
     # was previously referenced here but never imported, which 500'd every
@@ -1859,6 +1913,12 @@ def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)
     # owner's hours — which reads as the clock inventing random entries and
     # quietly erodes trust. So we DISCARD the open punch instead of saving it.
     if round(gross, 1) == 0.0:
+        # Its pauses go with it (explicitly: SQLite does not enforce the FK's
+        # ON DELETE CASCADE, Postgres would).
+        from app.models.staff import HoursBreak
+        db.query(HoursBreak).filter(HoursBreak.hours_id == punch.id).delete(
+            synchronize_session=False
+        )
         db.delete(punch)
         db.commit()
         out = _clock_status_dict(db, member, owner)
@@ -1866,6 +1926,19 @@ def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)
         out["worked_hours"] = 0.0
         out["discarded"] = True  # too short to log — nothing written
         return out
+    # RECORDED PAUSES (Migration 086). Only when the owner has live pauses ON
+    # and this punch actually has closed pauses: net worked = clock span −
+    # what was measured, and that number REPLACES the DK suggestion on
+    # break_minutes (visible and owner-editable on the hours page, like the
+    # suggestion). Bounded by the span — a pause can never make hours negative
+    # or pay less than zero. Setting off, or nothing recorded → None, and the
+    # line below runs exactly as it always has.
+    _recorded = _lb.paid_break_minutes(db, member.user_id, punch.id)
+    if _recorded is not None and not punch.break_minutes:
+        punch.break_minutes = min(int(_recorded), int(round(gross * 60)))
+        _lb.mark_applied(db, punch.id)
+    else:
+        _recorded = None
     # DK BREAK AUTO-DEDUCTION: a punch carries no break entry (the staffer just
     # taps in/out), so a 6h+ shift used to pay a full day with ZERO break — while
     # the SAME shift on the roster deducted 45 min. Apply the shared DK suggestion
@@ -1893,7 +1966,9 @@ def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)
         audit_service.record(
             db, member.user_id, "staff.portal.clock_out", "staff_member",
             entity_id=member.id,
-            after={"end_time": end_str, "total_hours": round(total, 2)},
+            after={"end_time": end_str, "total_hours": round(total, 2),
+                   **({"break_minutes": int(punch.break_minutes or 0),
+                       "break_source": "recorded"} if _recorded is not None else {})},
             actor_type="staff",
         )
     except Exception:  # noqa: BLE001 — audit is best-effort
@@ -1902,6 +1977,113 @@ def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)
     out = _clock_status_dict(db, member, owner)
     out["clocked_out"] = True
     out["worked_hours"] = round(total, 2)
+    # Which pause this shift was paid against: "recorded" = the staffer's own
+    # Start/Slut pause; None = the DK suggestion, as always.
+    _from_recorded = _recorded is not None
+    out["break_source"] = "recorded" if _from_recorded else None
+    out["recorded_break_minutes"] = int(punch.break_minutes or 0) if _from_recorded else None
+    return out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Live pauses — "Start pause" / "Slut pause" (Migration 086, optional).
+#  Owner opt-in (clock settings → breaks_live). Same token + PIN gate and the
+#  same per-IP limit as clock-in/out. Server time only. One running pause per
+#  punch, enforced by the database (ux_hours_breaks_open). Pay effect happens
+#  only at clock-out (portal_clock_out above) — these endpoints only record.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _audit_break(db: Session, member, action: str, after: dict) -> None:
+    """L7 best-effort trail, like the punch itself: a pause changes paid time."""
+    try:
+        from app.services import audit_service
+
+        audit_service.record(
+            db, member.user_id, action, "staff_member",
+            entity_id=member.id, after=after, actor_type="staff",
+        )
+    except Exception:  # noqa: BLE001 — audit is best-effort
+        pass
+
+
+@router.post("/{token}/clock/break/start")
+@limiter.limit("20/minute")
+def portal_break_start(token: str, request: Request, db: Session = Depends(get_db)):
+    """Start a pause on the open punch. Idempotent: already on a pause → the
+    current state, no second pause.
+
+    403 {"error": "breaks_off"}     — the owner has not turned live pauses on.
+    409 {"error": "not_clocked_in"} — no open punch to pause.
+    """
+    from app.services import live_breaks as lb
+
+    link, member = _get_staff_from_token(token, db)
+    owner = db.query(User).filter(User.id == member.user_id).first()
+    if not lb.breaks_live_enabled(db, member.user_id):
+        raise HTTPException(status_code=403, detail={"error": "breaks_off"})
+    punch = _open_punch(db, member, for_update=True)
+    if not punch:
+        raise HTTPException(status_code=409, detail={"error": "not_clocked_in"})
+    if lb.open_break(db, punch.id, for_update=True) is not None:
+        return _clock_status_dict(db, member, owner)  # already on a pause — no dupe
+    now_dt = now_local(owner)
+    lb.start(db, member, punch, now_dt)
+    try:
+        db.flush()
+    except IntegrityError:
+        # A second tap raced this one and its pause landed first
+        # (ux_hours_breaks_open). The staffer IS on a pause — say so.
+        db.rollback()
+        return _clock_status_dict(db, member, owner)
+    _audit_break(db, member, "staff.portal.break_start",
+                 {"start_time": now_dt.strftime("%H:%M"), "hours_id": str(punch.id)})
+    db.commit()
+    return _clock_status_dict(db, member, owner)
+
+
+@router.post("/{token}/clock/break/end")
+@limiter.limit("20/minute")
+def portal_break_end(token: str, request: Request, db: Session = Depends(get_db)):
+    """End the running pause. Returns the clock state plus break_ended=true and
+    break_minutes (that pause), or break_discarded=true when it lasted under a
+    minute (a misclick — deleted, nothing recorded).
+
+    A RUNNING pause can always be ended, even if the owner has since switched
+    live pauses off — nobody is left stuck "on pause" (and clock-out would end
+    it anyway). Otherwise:
+    403 {"error": "breaks_off"}     — live pauses are off.
+    409 {"error": "not_clocked_in"} — no open punch.
+    409 {"error": "not_on_break"}   — clocked in, but no pause is running
+                                      (also a second "Slut pause" tap).
+    """
+    from app.services import live_breaks as lb
+
+    link, member = _get_staff_from_token(token, db)
+    owner = db.query(User).filter(User.id == member.user_id).first()
+    punch = _open_punch(db, member, for_update=True)
+    brk = lb.open_break(db, punch.id, for_update=True) if punch else None
+    if brk is None:
+        if not lb.breaks_live_enabled(db, member.user_id):
+            raise HTTPException(status_code=403, detail={"error": "breaks_off"})
+        if not punch:
+            raise HTTPException(status_code=409, detail={"error": "not_clocked_in"})
+        raise HTTPException(status_code=409, detail={"error": "not_on_break"})
+    now_dt = now_local(owner)
+    started = brk.start_time
+    mins = lb.close(db, brk, now_dt, ended_by="staff")
+    db.flush()
+    _audit_break(db, member, "staff.portal.break_end", {
+        "start_time": started, "end_time": now_dt.strftime("%H:%M"),
+        "minutes": mins, "hours_id": str(punch.id),
+    })
+    db.commit()
+    out = _clock_status_dict(db, member, owner)
+    out["break_ended"] = True
+    if mins is None:
+        out["break_minutes"] = 0
+        out["break_discarded"] = True  # under a minute — nothing recorded
+    else:
+        out["break_minutes"] = mins
     return out
 
 

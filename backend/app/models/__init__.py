@@ -21,7 +21,7 @@ from app.models.competitor import Competitor, CompetitorPrice
 from app.models.daily_close import DailyClose
 from app.models.workshop import Vehicle, JobCard, JobCardPart, JobCardLabor
 from app.models.wine import Wine, WineSale
-from app.models.staff import StaffMember, PayPeriodConfig, Schedule, HoursLogged, Tip, TipDistribution, StaffLink, NotificationLog
+from app.models.staff import StaffMember, PayPeriodConfig, Schedule, HoursLogged, HoursBreak, Tip, TipDistribution, StaffLink, NotificationLog
 from app.models.security_event import SecurityEvent
 from app.models.owner_pattern import OwnerPattern
 from app.models.waitlist import WaitlistEntry
