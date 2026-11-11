@@ -15,6 +15,7 @@ import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
 import { RefreshCw, CloudOff, ServerCrash, Link2Off, KeyRound, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Search, Send, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple, MoreHorizontal, Navigation } from "lucide-react";
 import { routeUrl } from "../utils/routeUrl";
+import { MAP_H, mapRequestWidth, mapDpr, mapQuery, mapCacheKey, getCachedMap, setCachedMap, loadMapOnce } from "../utils/venueMapImage";
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
@@ -970,11 +971,14 @@ function PinGate({ onVerified, token, staffName }) {
  *   • staff_id is fixed by the magic-link token — the body only
  *     contains date + reason. UI doesn't even ask for staff_id.
  */
-function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, onDismiss }) {
+function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, onDismiss, initialDate }) {
   const { t, lang } = useLanguage();
   const [open, setOpen] = useState(autoOpen);
   const todayIso = useState(() => toLocalISO(new Date()))[0];
-  const [date, setDate] = useState(todayIso);
+  // initialDate: opened from ONE shift's ⋯ menu, the form is about that
+  // shift's day — defaulting to today there would report the wrong day on a
+  // straight "Send". The week section has no shift in hand and keeps today.
+  const [date, setDate] = useState(initialDate || todayIso);
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -1018,8 +1022,10 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
   if (!open) return null;
 
   // 14-day forward window matches the backend MAX_FUTURE_DAYS soft cap;
-  // backend allows up to 60 but most call-ins are same-day or near.
-  const maxIso = toLocalISO(addDaysToDate(new Date(), 14));
+  // backend allows up to 60 but most call-ins are same-day or near. A shift
+  // further out that the form was opened FOR stays pickable.
+  const max14 = toLocalISO(addDaysToDate(new Date(), 14));
+  const maxIso = initialDate && initialDate > max14 ? initialDate : max14;
 
   if (sent) {
     // "2026-09-03" is the value we POST, not a date a person reads — and for a
@@ -1574,7 +1580,7 @@ function WhosOnStrip({ teamShifts, nextShift }) {
   // production ARE solo, so the most common answer to "who am I on with?" was
   // silence, which reads as "not loaded yet" rather than "nobody". Say it.
   return (
-    <section id="portal-whos-on" data-testid="portal-whos-on" style={{ scrollMarginTop: 72 }}>
+    <section id="portal-whos-on" data-testid="portal-whos-on" style={{ scrollMarginTop: 8 }}>
       <h2 style={{ margin: "2px 2px 8px", font: "700 15px/1.2 var(--font-display)", letterSpacing: "-0.01em", color: "#0f172a" }}>
         {t("portalWhosOnTitle")}
         {myBranch && <span style={{ fontWeight: 500, color: "#64748b" }}> · {myBranch}</span>}
@@ -1783,8 +1789,14 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // week list). null = closed. Both mount the same SickCallButton form.
   const [sickFrom, setSickFrom] = useState(null);
   const sickMenuRef = useRef(null);
+  const sickWeekRef = useRef(null);
+  // Bring the WHOLE form into view, its Send button above the floating tab
+  // bar: block "end" against the scroller's scroll-padding-bottom (the bar's
+  // height). "nearest" left Send under the bar from the menu, and the week
+  // section did not scroll at all — Meld syg looked like it did nothing.
   useEffect(() => {
-    if (sickFrom === "menu") sickMenuRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    const el = sickFrom === "menu" ? sickMenuRef.current : sickFrom === "week" ? sickWeekRef.current : null;
+    el?.scrollIntoView?.({ block: "end", behavior: "smooth" });
   }, [sickFrom]);
   // The next-shift card's ⋯ sheet (Rute, Hvem er på, kalender, byt, Meld syg).
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1853,19 +1865,40 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // venue's map pin belongs to the venue, so it is never drawn for a shift
   // somewhere else. Otherwise: the venue, with the pin the owner confirmed
   // (`venue` on PortalInfo) — lat/lng arrive only once confirmed.
+  //
+  // `route` is what Rute searches when there is no pin. An address without a
+  // street names a TOWN, not a door ("2200 København N", or a location with
+  // no address at all): routing to it lands in the town centre, so Rute
+  // searches the place's name in that town instead — what the app did before
+  // the card carried the address. A location with no address of its own is
+  // searched as "<venue> <location>, <venue's town>" (a bare "Hovedafdeling"
+  // finds nothing).
+  const venueName = venue?.name || restaurantName || "";
   const place = (() => {
     if (nextShift?.branch_name) {
-      return { name: nextShift.branch_name, address: nextShift.branch_address || "", lat: null, lng: null, hasMap: false };
+      const bName = nextShift.branch_name;
+      const bAddr = nextShift.branch_address || "";
+      const withVenue = venueName && !bName.toLowerCase().includes(venueName.toLowerCase())
+        ? `${venueName} ${bName}` : bName;
+      return {
+        name: bName, address: bAddr, lat: null, lng: null, hasMap: false, mapV: null,
+        route: { name: bAddr ? bName : withVenue, address: bAddr, street: bAddr, town: restaurantCity || "" },
+      };
     }
+    const address = venue?.address_line || [restaurantAddress, restaurantCity].filter(Boolean).join(", ");
+    const lat = venue?.lat ?? null;
+    const lng = venue?.lng ?? null;
     return {
-      name: venue?.name || restaurantName || "",
-      address: venue?.address_line || [restaurantAddress, restaurantCity].filter(Boolean).join(", "),
-      lat: venue?.lat ?? null,
-      lng: venue?.lng ?? null,
+      name: venueName,
+      address,
+      lat,
+      lng,
       hasMap: !!venue?.has_map,
+      mapV: venue?.map_v || null,
+      route: { lat, lng, name: venueName, address, street: restaurantAddress || "" },
     };
   })();
-  const placeRouteUrl = routeUrl(place);
+  const placeRouteUrl = routeUrl(place.route);
 
   // Subscribe ALL shifts as an auto-updating calendar feed (webcal://). One
   // tap on iOS opens the native "Subscribe to Calendar" dialog; the phone then
@@ -1942,6 +1975,8 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
     const now = Date.now();
     return start.getTime() - now <= 2 * 3600 * 1000 && (!end || end.getTime() > now);
   })();
+  // The punch button sits on the card only while it is the thing to do.
+  const showPunch = shiftSoon || clockedIn;
   const clockInNow = async () => {
     if (!shiftSoon) {
       const ok = await confirmPunch({
@@ -2002,7 +2037,11 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
               aria-haspopup="dialog"
               data-testid="portal-shift-menu-btn"
               className="relative flex items-center justify-center active:scale-[0.98] transition before:absolute before:-inset-[5px] before:content-[''] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-              style={{ width: 34, height: 34, marginRight: -6, borderRadius: 999, background: "rgba(246,244,236,.10)", color: PAPER }}
+              // minHeight 0: index.css gives every touch-screen button a 44 px
+              // min-height, which drew this circle as a 34x44 oval and made
+              // the eyebrow row 44 tall. The ::before is the 44 px hit area;
+              // the -3 px margins keep the row at its 28.
+              style={{ width: 34, height: 34, minHeight: 0, margin: "-3px -6px -3px 0", borderRadius: 999, background: "rgba(246,244,236,.10)", color: PAPER }}
             >
               <MoreHorizontal size={20} strokeWidth={2.2} aria-hidden />
             </button>
@@ -2083,7 +2122,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 gave no address — never a fabricated one. */}
             {/* The map — only for the venue's own pin, only once the owner
                 confirmed it (PortalInfo.venue.has_map). */}
-            {token && place.hasMap && <VenueMapImage token={token} venueName={place.name} />}
+            {token && place.hasMap && <VenueMapImage token={token} venueName={place.name} mapV={place.mapV} />}
             {(place.name || place.address) && (
               <div className="flex items-center" style={{ marginTop: 12, gap: 12 }} data-testid="portal-hero-place">
                 <div className="min-w-0 flex-1 flex flex-col" style={{ gap: 4 }}>
@@ -2104,7 +2143,16 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                     data-testid="portal-route"
                     aria-label={t("portalRouteTo", "Directions to {venue}", { venue: place.name || place.address })}
                     className="shrink-0 inline-flex items-center active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-                    style={{ gap: 7, height: 40, padding: "0 16px 0 14px", borderRadius: 20, background: PAPER, color: FOREST, font: "700 14px/1 var(--font-text)" }}
+                    // 44 tall on purpose: the touch-screen min-height would
+                    // stretch a 40 px pill anyway. Paper when it is the card's
+                    // one button; a ghost beside a paper Stempl ind/ud, so the
+                    // card never has two competing primaries.
+                    style={{
+                      gap: 7, height: 44, padding: "0 16px 0 14px", borderRadius: 22, font: "700 14px/1 var(--font-text)",
+                      ...(showPunch
+                        ? { background: "rgba(246,244,236,.10)", color: PAPER, boxShadow: "inset 0 0 0 1px rgba(246,244,236,.18)" }
+                        : { background: PAPER, color: FOREST }),
+                    }}
                   >
                     <Navigation size={16} strokeWidth={2.2} aria-hidden />
                     {t("portalRoute", "Directions")}
@@ -2116,7 +2164,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             {/* Clock-in geofence: an honest "Stempl kun ind ved <venue>" lock
                 hint so the staffer knows clock-in is location-bound before
                 they try it (the server's too_far 403 is still the real gate). */}
-            {clock.st?.geofence_on && venueLabel && (
+            {showPunch && clock.st?.geofence_on && venueLabel && (
               <div className="mt-2.5 flex items-center gap-1.5 text-[12px]" style={{ color: "rgba(246,244,236,.66)" }}>
                 <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
                 <span className="truncate">{t("portalClockOnlyAt", "Clock in only at {venue}", { venue: venueLabel })}</span>
@@ -2139,9 +2187,13 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
 
             {/* ONE geofence-aware punch CTA. Honesty: the client can't verify
                 "at venue" — the server's too_far 403 is the real gate. Clocked
-                in → Stempl ud. Else → Stempl ind, the main button only when the
-                shift is close. "Tilføj til kalender" moved to the ⋯ menu. */}
-            {token && (
+                in → Stempl ud. Else → Stempl ind, on the card only when the
+                shift is close (starts within 2 h, or is running). Further out
+                it is the first row of the ⋯ menu — same clockInNow, same "no
+                shift right now" confirm, two taps away — instead of a 60 px
+                ghost button on a card for a shift a day off. "Tilføj til
+                kalender" moved to the ⋯ menu too. */}
+            {token && showPunch && (
               <div className="mt-4">
                 {clockedIn ? (
                   <button
@@ -2171,7 +2223,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             )}
             {/* Låst — clock-in is time-locked until the owner's window opens.
                 Honest, specific: shows the exact open time from the server. */}
-            {clockLocked && clock.st?.opens_at && (
+            {showPunch && clockLocked && clock.st?.opens_at && (
               <div className="mt-2.5 flex items-center gap-1.5 text-[12px]" style={{ color: "rgba(246,244,236,.66)" }}>
                 <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
                 <span>{t("portalClockOpensAt", "Clock-in opens at {t}", { t: clock.st.opens_at })}</span>
@@ -2280,10 +2332,12 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
       {/* Sick-call form, opened from the card's ⋯ menu — it renders right
           under the card it was asked from. */}
       {token && sickFrom === "menu" && (
-        <div ref={sickMenuRef} data-testid="portal-sick-from-menu" style={{ scrollMarginTop: 72 }}>
+        <div ref={sickMenuRef} data-testid="portal-sick-from-menu">
           <SickCallButton
             token={token}
             upcomingShifts={upcoming}
+            // The menu belongs to the next shift: the form opens on its day.
+            initialDate={nextShift?.date}
             onCalledIn={onShiftsChanged}
             // Dismissing unmounts it; the menu row stays the way back in.
             onDismiss={() => setSickFrom(null)}
@@ -2729,7 +2783,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           (the Play listing promises it). Both open the one SickCallButton
           form that posts /sick-call. */}
       {token && (
-        <section data-testid="portal-need-change" style={{ scrollMarginTop: 72 }}>
+        <section data-testid="portal-need-change">
           <h2 style={{ margin: "6px 2px 8px", font: "700 15px/1.2 var(--font-display)", letterSpacing: "-0.01em", color: "#0f172a" }}>
             {t("portalNeedChangeTitle", "Need a change?")}
           </h2>
@@ -2764,7 +2818,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             )}
           </div>
           {sickFrom === "week" && (
-            <div className="mt-3" data-testid="portal-sick-from-week">
+            <div className="mt-3" ref={sickWeekRef} data-testid="portal-sick-from-week">
               <SickCallButton
                 token={token}
                 upcomingShifts={upcoming}
@@ -2793,6 +2847,14 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           onCalendar={() => { setMenuOpen(false); subscribeCalendar(); }}
           onSwaps={onOpenSwaps ? () => { setMenuOpen(false); onOpenSwaps(); } : null}
           onSick={() => openSick("menu")}
+          // Stempl ind lives here while the shift is not close (see the card).
+          onClockIn={token && !showPunch ? () => { setMenuOpen(false); clockInNow(); } : null}
+          clockInDisabled={clock.busy || clockLocked}
+          clockInHint={clockLocked && clock.st?.opens_at
+            ? t("portalClockOpensAt", "Clock-in opens at {t}", { t: clock.st.opens_at })
+            : clock.st?.geofence_on && venueLabel
+              ? t("portalClockOnlyAt", "Clock in only at {venue}", { venue: venueLabel })
+              : null}
         />
       )}
     </div>
@@ -2805,46 +2867,60 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
  * Drawn by OUR server (backend services/venue_map.py) from OpenStreetMap
  * data and served from api.bonbox.dk, so no map company sees the staffer or
  * their phone. Fetched as a blob through portalApi so a PIN-protected link
- * sends its proof header (a bare <img src> cannot). Renders NOTHING until a
- * real PNG is in hand: a 204 (no confirmed pin, or the drawing failed), an
- * error, or an image that will not decode all mean no map — never a broken
- * image. The address and Rute below it work either way.
+ * sends its proof header (a bare <img src> cannot).
+ *
+ * The card never grows after it paints: `has_map` already means a confirmed
+ * pin that has not failed to draw, so the block takes its final 96 px at
+ * once, in the map's own ground colour, and the image fades in over it. Only
+ * a 204 or an error — rare — collapses it (never a broken image; the address
+ * and Rute below work either way). The image is kept for the page session
+ * (utils/venueMapImage), so a tab switch that remounts the card paints it in
+ * the same frame. Width: the card's own, rounded up to the server's 16 px
+ * grid, shown right-anchored so the "© OpenStreetMap" corner is never cut.
  */
-function VenueMapImage({ token, venueName }) {
+function VenueMapImage({ token, venueName, mapV }) {
   const { t } = useLanguage();
-  const [src, setSrc] = useState(null);
+  const dpr = mapDpr();
+  const [w, setW] = useState(() => mapRequestWidth(0));
+  // Measured as the block mounts, before paint (an update from a ref callback
+  // is flushed with the commit): on a phone it equals the estimate above, so
+  // there is no second request.
+  const boxRef = useCallback((el) => {
+    const px = el?.clientWidth || 0;
+    if (px > 0) setW(mapRequestWidth(px));
+  }, []);
+  const key = mapCacheKey(`staff:${token}`, w, dpr, mapV);
+  const entry = getCachedMap(key);
+  const [, rerender] = useState(0);
+  const [failedKey, setFailedKey] = useState(null);
+  // Painted from memory → visible at once; fetched now → fades in on load.
+  const [shownKey, setShownKey] = useState(() => (entry?.url ? key : null));
   useEffect(() => {
-    if (!token) return undefined;
+    if (!token || getCachedMap(key)) return undefined;
     let gone = false;
-    let url = null;
-    const dpr = typeof window !== "undefined" && window.devicePixelRatio >= 2.5 ? 3 : 2;
-    portalApi
-      .get(`/portal/${token}/venue-map?w=360&h=112&dpr=${dpr}`, { responseType: "blob" })
-      .then((r) => {
-        const blob = r?.data;
-        if (gone || r?.status === 204 || !blob || !blob.size || !String(blob.type || "").startsWith("image/")) return;
-        url = URL.createObjectURL(blob);
-        setSrc(url);
-      })
-      .catch(() => { /* no map is the honest fallback */ });
-    return () => {
-      gone = true;
-      if (url) URL.revokeObjectURL?.(url);
-    };
-  }, [token]);
-  if (!src) return null;
+    // Kept even if the card unmounted meanwhile: the next mount paints it.
+    loadMapOnce(key, () => portalApi.get(`/portal/${token}/venue-map?${mapQuery(w, dpr, mapV)}`, { responseType: "blob" }))
+      .then(() => { if (!gone) rerender((n) => n + 1); })
+      .catch(() => { if (!gone) setFailedKey(key); /* no map is the honest fallback */ });
+    return () => { gone = true; };
+  }, [token, key, w, dpr, mapV]);
+  if (entry?.none || failedKey === key) return null;
   return (
     <div
+      ref={boxRef}
       data-testid="portal-venue-map"
-      style={{ marginTop: 12, height: 112, borderRadius: 14, overflow: "hidden", boxShadow: "0 0 0 1px rgba(246,244,236,.14)", background: "#EFEDE4" }}
+      style={{ marginTop: 12, height: MAP_H, borderRadius: 14, overflow: "hidden", boxShadow: "0 0 0 1px rgba(246,244,236,.14)", background: "#EFEDE4" }}
     >
-      <img
-        src={src}
-        alt={t("portalMapAlt", "Map of {venue}", { venue: venueName || "" })}
-        onError={() => setSrc(null)}
-        className="block w-full h-full"
-        style={{ objectFit: "cover" }}
-      />
+      {entry?.url && (
+        <img
+          src={entry.url}
+          alt={t("portalMapAlt", "Map of {venue}", { venue: venueName || "" })}
+          onLoad={() => setShownKey(key)}
+          onError={() => { setCachedMap(key, { none: true }); setFailedKey(key); }}
+          className="block w-full h-full"
+          style={{ objectFit: "cover", objectPosition: "right center", opacity: shownKey === key ? 1 : 0, transition: "opacity 150ms ease" }}
+        />
+      )}
     </div>
   );
 }
@@ -2858,7 +2934,7 @@ function VenueMapImage({ token, venueName }) {
  * map credit OpenFreeMap asks for lives at the foot; the map image carries
  * the short one.
  */
-function ShiftMenuSheet({ shift, roleLabel, roleDotClass, place, routeHref, calTapped, onClose, onWhosOn, onCalendar, onSwaps, onSick }) {
+function ShiftMenuSheet({ shift, roleLabel, roleDotClass, place, routeHref, calTapped, onClose, onWhosOn, onCalendar, onSwaps, onSick, onClockIn, clockInDisabled, clockInHint }) {
   const { t, lang } = useLanguage();
   // Focus moves into the sheet on open (screen readers land on the dialog,
   // not behind the scrim); Escape closes it.
@@ -2870,7 +2946,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDotClass, place, routeHref, calT
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
   const title = `${isToday(shift.date) ? t("portalToday") : fmtDate(shift.date, lang)} · ${shift.start_time}–${shift.end_time}`;
-  const row = ({ icon, label, hint, onClick, href, quiet, testId }) => {
+  const row = ({ icon, label, hint, onClick, href, quiet, testId, disabled }) => {
     const Icon = icon;
     const inner = (
       <>
@@ -2887,7 +2963,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDotClass, place, routeHref, calT
     return href ? (
       <a key={testId} href={href} target="_blank" rel="noopener noreferrer" onClick={onClose} className={cls} style={style} data-testid={testId}>{inner}</a>
     ) : (
-      <button key={testId} type="button" onClick={onClick} className={cls} style={style} data-testid={testId}>{inner}</button>
+      <button key={testId} type="button" onClick={onClick} disabled={disabled} className={`${cls} disabled:opacity-50`} style={style} data-testid={testId}>{inner}</button>
     );
   };
   return createPortal(
@@ -2923,12 +2999,22 @@ function ShiftMenuSheet({ shift, roleLabel, roleDotClass, place, routeHref, calT
             onClick={onClose}
             aria-label={t("close", "Close")}
             className="relative shrink-0 flex items-center justify-center before:absolute before:-inset-[5px] before:content-['']"
-            style={{ width: 34, height: 34, borderRadius: 999, background: "#F1F0EB", color: "#334155" }}
+            // minHeight 0: a circle, not the 34x44 oval the touch-screen
+            // min-height drew; the ::before keeps the 44 px hit area.
+            style={{ width: 34, height: 34, minHeight: 0, borderRadius: 999, background: "#F1F0EB", color: "#334155" }}
           >
             <X className="w-[17px] h-[17px]" strokeWidth={2} aria-hidden />
           </button>
         </div>
         <div className="divide-y divide-[#eef2f7]" style={{ borderTop: "1px solid #eef2f7" }}>
+          {onClockIn && row({
+            icon: Clock,
+            label: t("portalClockInCta", "Clock in"),
+            hint: clockInHint,
+            onClick: onClockIn,
+            disabled: clockInDisabled,
+            testId: "portal-menu-clock-in",
+          })}
           {routeHref && row({
             icon: Navigation,
             label: t("portalRouteTo", "Directions to {venue}", { venue: place?.name || place?.address || "" }),
@@ -5632,8 +5718,9 @@ function AbsenceSection({ token, onChanged }) {
           data-kb-block=""
           data-testid="fravaer-form"
           className="rounded-xl bg-white border border-gray-200 p-4 space-y-4"
-          // Clear the sticky header and the fixed bottom nav when scrolled to.
-          style={{ scrollMarginTop: 96, scrollMarginBottom: "calc(6rem + env(safe-area-inset-bottom))" }}
+          // The scroller's scroll-padding already clears the sticky header and
+          // the tab bar (home v3); these are just a little air on top of it.
+          style={{ scrollMarginTop: 32, scrollMarginBottom: 8 }}
         >
           <div className="grid grid-cols-2 gap-1.5">
             {/* Sygdom deliberately absent: this form's banner promises manager
@@ -6456,6 +6543,29 @@ const BAR_V3 = BAR_MODE === "v3";
 // itself (data-bb-consent-clear).
 const V3_BAR_BOTTOM = "max(12px, calc(env(safe-area-inset-bottom, 0px) - 8px))";
 const V3_BAR_H = 62;
+// Below 360 CSS px (iPhone SE / mini with Display Zoom: 320) the active tab's
+// name does not fit beside four 44 px icons in the bar; there it is an
+// icon-only paper pill and the name is for screen readers only.
+const NARROW_PHONE_Q = "(max-width: 359px)";
+function useNarrowPhone() {
+  const read = () => {
+    try { return !!window.matchMedia?.(NARROW_PHONE_Q)?.matches; } catch { return false; }
+  };
+  const [narrow, setNarrow] = useState(read);
+  useEffect(() => {
+    let mql = null;
+    try { mql = window.matchMedia?.(NARROW_PHONE_Q) || null; } catch { mql = null; }
+    if (!mql) return undefined;
+    const on = () => setNarrow(!!mql.matches);
+    if (mql.addEventListener) mql.addEventListener("change", on);
+    else mql.addListener?.(on);
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener("change", on);
+      else mql.removeListener?.(on);
+    };
+  }, []);
+  return narrow;
+}
 
 const TABS = [
   { key: "schedule", Icon: Calendar, labelKey: "navSchedule", labelFallback: "Schedule" },
@@ -7127,6 +7237,7 @@ export default function StaffPortalPage() {
   const { token } = useParams();
   const { t, lang, setLang } = useLanguage();
   const confirmDisconnect = useConfirm();
+  const narrowPhone = useNarrowPhone();
 
   // The portal is a fixed full-viewport app-shell that owns its OWN safe-area
   // insets (the sticky header pads + caps the notch; the bottom nav pads for
@@ -7969,6 +8080,13 @@ export default function StaffPortalPage() {
         paddingBottom: BAR_V3
           ? "calc(90px + env(safe-area-inset-bottom, 0px) + var(--bb-consent-h, 0px))"
           : "calc(6rem + var(--bb-consent-h, 0px))",
+        // Where scrollIntoView may put things: below the sticky header (52 +
+        // the notch) and above the floating tab bar. Without it the sick-call
+        // form's Send button landed under the bar.
+        scrollPaddingTop: "calc(64px + env(safe-area-inset-top, 0px))",
+        scrollPaddingBottom: BAR_V3
+          ? "calc(90px + env(safe-area-inset-bottom, 0px))"
+          : "calc(6rem + env(safe-area-inset-bottom, 0px))",
         ...(kbShell > 0 ? { height: `calc(100dvh - ${kbShell}px)` } : {}),
       }}
     >
@@ -7999,8 +8117,10 @@ export default function StaffPortalPage() {
             // overflow-hidden lives on the INNER circle: on the button it
             // clipped the -inset-2 ::before, so the hit area was the circle.
             className="relative rounded-full flex items-center justify-center active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
+            // minHeight 0: the touch-screen 44 px min-height (index.css) drew
+            // this as a 32x44 capsule; the -inset-2 ::before is the hit area.
             style={{
-              width: 32, height: 32, flex: "none",
+              width: 32, height: 32, minHeight: 0, flex: "none",
               background: FOREST, color: PAPER,
               font: "700 13px/1 var(--font-text)", letterSpacing: "0.01em",
             }}
@@ -8057,7 +8177,9 @@ export default function StaffPortalPage() {
                 ? "border-transparent text-white"
                 : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
             }`}
-            style={tab === "alerts" ? { background: FOREST } : undefined}
+            // minHeight 0: a 36 px circle, not a 36x44 oval; the -inset-1
+            // ::before makes the hit area 44.
+            style={tab === "alerts" ? { background: FOREST, minHeight: 0 } : { minHeight: 0 }}
           >
             <Bell className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
             {alertsUnread > 0 && tab !== "alerts" && (
@@ -8088,8 +8210,11 @@ export default function StaffPortalPage() {
             <button
               type="button"
               onClick={() => { loadData(); loadHours(); }}
-              className="relative underline underline-offset-2 before:absolute before:-inset-x-3 before:-inset-y-3 before:content-['']"
-              style={{ font: "700 12px/1.3 var(--font-text)", color: "#92400E" }}
+              // minHeight 0 keeps the strip ~32 px (the touch-screen 44 px
+              // min-height made it 53 and doubled the header); the 14 px
+              // ::before gives the word a 44 px tall hit area.
+              className="relative underline underline-offset-2 before:absolute before:-inset-x-3 before:-inset-y-[14px] before:content-['']"
+              style={{ minHeight: 0, font: "700 12px/1.3 var(--font-text)", color: "#92400E" }}
             >
               {t("portalOfflineRefresh", "Refresh")}
             </button>
@@ -8572,28 +8697,37 @@ export default function StaffPortalPage() {
           boxShadow: "0 18px 32px -18px rgba(9,58,38,.75), 0 2px 6px rgba(9,58,38,.18)",
         }}
       >
-        <div className="h-full flex items-center justify-between" style={{ padding: "0 9px" }}>
+        {/* Widths that hold at 320-430 px in Danish and English: the four
+            icons share what the active pill leaves (flex 1, never under 44),
+            the pill's name stops at 96 px with an ellipsis, and under 360 px
+            the pill is icon-only. Measured overflow before: up to 21 px at
+            360 ("Availability"), and the Timer tab outside the bar at 320. */}
+        <div className="h-full flex items-center" style={{ padding: "0 9px" }}>
           {TABS.filter((item) => item.key !== "alerts").map((item) => {
             const active = tab === item.key;
             const label = t(item.labelKey, item.labelFallback);
+            const iconOnly = active && narrowPhone;
             return (
               <button
                 key={item.key}
                 type="button"
                 onClick={() => setTab(item.key)}
                 aria-current={active ? "page" : undefined}
+                data-testid={`portal-tab-${item.key}`}
                 className="relative flex items-center justify-center active:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
                 style={active
-                  ? { height: 44, gap: 8, padding: "0 17px 0 14px", borderRadius: 22, background: PAPER, color: FOREST, transition: "background 200ms ease" }
-                  : { height: 44, minWidth: 50, borderRadius: 22, color: "rgba(246,244,236,.70)" }}
+                  ? (iconOnly
+                    ? { flex: "none", width: 56, height: 44, borderRadius: 22, background: PAPER, color: FOREST, transition: "background 200ms ease" }
+                    : { flex: "0 1 auto", minWidth: 0, height: 44, gap: 8, padding: "0 14px 0 12px", borderRadius: 22, background: PAPER, color: FOREST, transition: "background 200ms ease" })
+                  : { flex: "1 1 0", minWidth: 44, height: 44, borderRadius: 22, color: "rgba(246,244,236,.70)" }}
               >
                 <item.Icon
                   aria-hidden
                   strokeWidth={active ? 2.4 : 2.3}
                   style={{ width: active ? 21 : 23, height: active ? 21 : 23, flex: "none" }}
                 />
-                {active ? (
-                  <span style={{ font: "700 14px/1 var(--font-text)", letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>{label}</span>
+                {active && !iconOnly ? (
+                  <span style={{ font: "700 14px/1 var(--font-text)", letterSpacing: "-0.01em", whiteSpace: "nowrap", minWidth: 0, maxWidth: 96, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
                 ) : (
                   <span className="sr-only">{label}</span>
                 )}

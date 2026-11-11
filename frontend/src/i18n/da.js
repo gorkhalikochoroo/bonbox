@@ -9960,6 +9960,7 @@ export const da = {
     venuePinYes: "Ja, det passer",
     venuePinFix: "Pin forkert? Indsæt et kortlink",
     venuePinUntilConfirmed: "Personalet ser kortet, når du har bekræftet.",
+    venuePinOwnerOnly: "Ejeren tjekker kortnålen her. Personalet ser kortet, når den er bekræftet.",
     venuePinConfirmed: "Personalet ser dette kort.",
     venuePinConfirmedNoMap: "Bekræftet. Kortet kunne ikke tegnes lige nu — personalet ser adressen og Rute, indtil det kan.",
     venuePinLinkPlaceholder: "Indsæt et link fra Google Maps eller Apple Kort",

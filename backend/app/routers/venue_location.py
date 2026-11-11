@@ -1,10 +1,11 @@
 """Owner side of the staff app's venue map (Vagtplan R2): the pin check.
 
-  GET /api/staff/venue-location  — the venue pin as it stands; on the FIRST
-                                   check with no pin, it is looked up once
-                                   from the address (DAWA, then Nominatim)
-                                   and stored unconfirmed. Never from a staff
-                                   request.
+  GET /api/staff/venue-location  — the venue pin as it stands; on the
+                                   OWNER's first check with no pin, it is
+                                   looked up once from the address (DAWA,
+                                   then Nominatim) and stored unconfirmed (a
+                                   miss is remembered too). Never from a staff
+                                   request, and never for a delegated seat.
   PUT /api/staff/venue-location  — {"confirm": true}  "Ja, det passer"
                                    {"map_link": url}  "Pin forkert? Indsæt et
                                    kortlink" (re-resolved server-side through
@@ -12,11 +13,18 @@
                                    hosts only); counts as confirmed.
   GET /api/staff/venue-map       — the same drawn image the staff card shows,
                                    for the check (confirmed or not), or 204.
+                                   A delegated seat gets only what is already
+                                   drawn (no fetch, no render, no write).
 
 Staff see a map only after the owner confirms the pin once; a geofence
 anchor or a pasted map link counts as confirmed. Writes are owner-only: the
 app-wide member write guard (main.py) already default-denies every invited
-seat, and this router adds no exception to it.
+seat, and this router adds no exception to it. The two GETs would otherwise
+write as a side effect (a looked-up pin, a drawn map row) — get_current_user
+hands a manager, viewer, cashier or accountant seat the OWNER's User, and the
+write guards only block non-GET methods — so they check the seat themselves
+(_delegated) and only read for one. `can_edit` tells the card to hide the
+buttons a seat cannot use.
 
 NO `from __future__ import annotations` here: with slowapi's @limit on a
 route that takes a body model it turns the body into a string annotation and
@@ -53,6 +61,11 @@ def _profile(db: Session, user: User):
     return db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
 
 
+def _delegated(user: User) -> bool:
+    """An invited seat or an accountant reading the owner's account."""
+    return bool(getattr(user, "_is_member_view", False) or getattr(user, "_is_accountant_view", False))
+
+
 def _status(db: Session, user: User, profile, pin) -> dict:
     return {
         "address_line": vm.address_line(profile) or None,
@@ -62,6 +75,9 @@ def _status(db: Session, user: User, profile, pin) -> dict:
         ),
         # What staff will see: a map only for a confirmed pin that drew.
         "staff_see_map": bool(pin and pin.confirmed and not vm.recently_failed(db, user.id, pin)),
+        # The map URL's version (as on the staff app): a moved pin is a new URL.
+        "map_v": vm.map_version(pin),
+        "can_edit": not _delegated(user),
     }
 
 
@@ -74,8 +90,11 @@ def get_venue_location(
 ):
     profile = _profile(db, user)
     if profile is None:
-        return {"address_line": None, "pin": None, "staff_see_map": False}
-    pin = vm.ensure_pin(db, profile)
+        return {"address_line": None, "pin": None, "staff_see_map": False, "map_v": None,
+                "can_edit": not _delegated(user)}
+    # Only the owner's own visit may look the address up (an outbound request
+    # and a write on their profile); a delegated seat reads the pin as it is.
+    pin = vm.current_pin(profile) if _delegated(user) else vm.ensure_pin(db, profile)
     return _status(db, user, profile, pin)
 
 
@@ -112,9 +131,10 @@ def put_venue_location(
 @_limiter.limit("30/minute")
 def get_owner_venue_map(
     request: Request,
-    w: int = 360,
-    h: int = 112,
+    w: int = 336,
+    h: int = 96,
     dpr: int = 2,
+    v: str | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -124,11 +144,13 @@ def get_owner_venue_map(
         return Response(status_code=204, headers={"Cache-Control": "no-store"})
     w, h, dpr = vm.clamp_size(w, h, dpr)
     owner_id = user.id
-    outcome, png = vm.get_map(db, owner_id, pin, w, h, dpr)
+    outcome, png = vm.get_map(db, owner_id, pin, w, h, dpr, cached_only=_delegated(user))
     if outcome != "ok" or not png:
         return Response(status_code=204, headers={"Cache-Control": "no-store"})
+    # Versioned like the staff map: cached only under the URL of THIS pin.
+    cache = "private, max-age=86400" if v and v == vm.map_version(pin) else "private, no-cache"
     return Response(
         content=png,
         media_type="image/png",
-        headers={"ETag": vm.etag_for(pin, w, h, dpr), "Cache-Control": "private, max-age=300"},
+        headers={"ETag": vm.etag_for(pin, w, h, dpr), "Cache-Control": cache},
     )

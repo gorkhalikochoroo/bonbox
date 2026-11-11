@@ -13,15 +13,26 @@
  *   • The amber strip speaks only when offline, or when the data is more than
  *     45 s old with no live stream.
  *   • The next-shift card and the PIN card are flat forest (no gradient).
- *   • Rute goes to Apple Maps / geo: / Google per platform.
+ *   • Rute goes to Apple Maps / geo: / Google per platform; with no street
+ *     (or no address) it searches the place's name in its town.
  *   • EN location switcher says "Location", not "Department".
+ *   • The ⋯ menu's Meld syg is about THAT shift's day; both sick paths
+ *     scroll the whole form (Send included) above the floating bar.
+ *   • The card holds its height: the map block is there before the image,
+ *     a remount paints the kept image without a second fetch, and the map
+ *     URL carries the pin's version (a moved pin is a new URL).
+ *   • Stempl ind sits on the card only when the shift is close; further out
+ *     it is the ⋯ menu's first row (same confirm).
+ *   • Small round controls opt out of the touch-screen 44 px min-height, and
+ *     the tab bar fits a 320 px phone (icon-only active tab there).
  */
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { en } from "../i18n/en";
 import { da } from "../i18n/da";
 import { routeUrl, routePlatform } from "../utils/routeUrl";
+import { clearVenueMapCache } from "../utils/venueMapImage";
 
 const TOK = "tokv3";
 const ok = (data) => Promise.resolve({ data });
@@ -98,6 +109,7 @@ const sickPosts = () => post.mock.calls.filter(([u]) => u === `/portal/${TOK}/si
 
 beforeEach(() => {
   localStorage.clear();
+  clearVenueMapCache();
   get.mockClear();
   post.mockClear();
   info = {
@@ -121,7 +133,16 @@ describe("Meld syg — two taps from home, two ways, one form", () => {
     expect(seen.parentElement.textContent).not.toContain("Meld syg");
   });
 
-  it("⋯ menu → Meld syg opens the sick-call form under the card and posts /sick-call", async () => {
+  // scrollIntoView is not in jsdom: record who asked to be shown, and how.
+  let scrolled;
+  const origScroll = Element.prototype.scrollIntoView;
+  beforeEach(() => {
+    scrolled = [];
+    Element.prototype.scrollIntoView = function scrollIntoView(opts) { scrolled.push({ el: this, opts }); };
+  });
+  afterEach(() => { Element.prototype.scrollIntoView = origScroll; });
+
+  it("⋯ menu → Meld syg opens the form ON THAT SHIFT'S DAY under the card and posts /sick-call", async () => {
     await mount("da");
     fireEvent.click(screen.getByRole("button", { name: "Flere valg for vagten" }));
     const sheet = await screen.findByTestId("portal-shift-menu");
@@ -131,8 +152,11 @@ describe("Meld syg — two taps from home, two ways, one form", () => {
     expect(screen.queryByTestId("portal-shift-menu")).toBeNull();
 
     const form = await screen.findByTestId("portal-sick-from-menu");
-    // Defaults to today; pick the shift day so the shift id rides along.
-    fireEvent.change(within(form).getByDisplayValue(inDays(0)), { target: { value: SHIFT_DAY } });
+    // The menu belongs to tomorrow's shift: the form says tomorrow, not today,
+    // so a straight "Send" reports the right day.
+    expect(within(form).getByDisplayValue(SHIFT_DAY)).toBeInTheDocument();
+    // The whole form is brought into view, its end above the tab bar.
+    await waitFor(() => expect(scrolled.some((c) => c.el === form && c.opts?.block === "end")).toBe(true));
     await act(async () => { fireEvent.click(within(form).getByRole("button", { name: "Send sygemelding" })); });
     await waitFor(() => expect(sickPosts()).toHaveLength(1));
     expect(sickPosts()[0][1]).toMatchObject({ date: SHIFT_DAY, schedule_id: "sh-1" });
@@ -147,9 +171,18 @@ describe("Meld syg — two taps from home, two ways, one form", () => {
 
     const form = await screen.findByTestId("portal-sick-from-week");
     expect(within(form).getByText("Meld dig syg")).toBeInTheDocument();
+    // It scrolls into view too (it used to open below the bar, unscrolled).
+    await waitFor(() => expect(scrolled.some((c) => c.el === form && c.opts?.block === "end")).toBe(true));
     await act(async () => { fireEvent.click(within(form).getByRole("button", { name: "Send sygemelding" })); });
     await waitFor(() => expect(sickPosts()).toHaveLength(1));
     expect(sickPosts()[0][1]).toMatchObject({ date: inDays(0) });
+  });
+
+  it("the scroller pads for the sticky header and the floating bar, so scrolled-to things land between them", async () => {
+    await mount("da");
+    const scroller = screen.getByTestId("portal-header-row").closest(".scrollable");
+    expect(scroller.style.scrollPaddingBottom).toContain("90px");
+    expect(scroller.style.scrollPaddingTop).toContain("64px");
   });
 
   it("'Byt en vagt' and the menu's 'Byt eller giv væk' both land on Bytte", async () => {
@@ -164,7 +197,69 @@ describe("Meld syg — two taps from home, two ways, one form", () => {
   });
 });
 
+describe("Stempl ind — on the card only when the shift is close", () => {
+  it("a shift tomorrow: no punch button on the card; it is the ⋯ menu's first row, with the 'no shift right now' confirm", async () => {
+    await mount("da");
+    const hero = screen.getByTestId("portal-hero");
+    expect(within(hero).queryByRole("button", { name: /Stempl ind/ })).toBeNull();
+    // Rute is the card's one paper button then.
+    expect(screen.getByTestId("portal-route").style.background).toBe("rgb(246, 244, 236)");
+
+    fireEvent.click(screen.getByRole("button", { name: "Flere valg for vagten" }));
+    const sheet = await screen.findByTestId("portal-shift-menu");
+    const rows = sheet.querySelectorAll("[data-testid^='portal-menu-']");
+    expect(rows[0].getAttribute("data-testid")).toBe("portal-menu-clock-in");
+    expect(rows[0].textContent).toContain("Stempl ind");
+    fireEvent.click(rows[0]);
+    expect(screen.queryByTestId("portal-shift-menu")).toBeNull();
+    expect(await screen.findByText(da.portalPunchNoShiftTitle)).toBeInTheDocument();
+  });
+
+  it("a shift starting now: Stempl ind on the card, and Rute steps back to a ghost", async () => {
+    // Midday, so "now + 3 h" never wraps past midnight (only Date is faked).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 12, 12, 0, 0));
+    try {
+      scheduleImpl = () => ok({
+        shifts: [{ id: "now", date: inDays(0), start_time: "12:00", end_time: "15:00", status: "published", net_hours: 3 }],
+      });
+      await mount("da");
+      expect(within(screen.getByTestId("portal-hero")).getByRole("button", { name: /Stempl ind/ })).toBeInTheDocument();
+      expect(screen.getByTestId("portal-route").style.background).toBe("rgba(246, 244, 236, 0.1)");
+      fireEvent.click(screen.getByRole("button", { name: "Flere valg for vagten" }));
+      expect(within(await screen.findByTestId("portal-shift-menu")).queryByTestId("portal-menu-clock-in")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("Floating tab bar", () => {
+  afterEach(() => { delete window.matchMedia; });
+
+  it("fits a narrow phone: icons share the room (never under 44 px), the active name stops at 96 px", async () => {
+    await mount("en");
+    const nav = screen.getByTestId("portal-tabbar-v3");
+    const active = within(nav).getAllByRole("button").find((b) => b.getAttribute("aria-current") === "page");
+    expect(active.style.flex).toBe("0 1 auto");
+    const label = [...active.querySelectorAll("span")].find((x) => x.textContent === "Schedule");
+    expect(label.style.maxWidth).toBe("96px");
+    expect(label.style.textOverflow).toBe("ellipsis");
+    for (const b of within(nav).getAllByRole("button").filter((x) => x !== active)) {
+      expect(b.style.flex).toBe("1 1 0px");
+      expect(b.style.minWidth).toBe("44px");
+    }
+  });
+
+  it("under 360 px the active tab is an icon-only pill, its name for screen readers", async () => {
+    window.matchMedia = (q) => ({ matches: q === "(max-width: 359px)", addEventListener: () => {}, removeEventListener: () => {} });
+    await mount("da");
+    const active = within(screen.getByTestId("portal-tabbar-v3")).getAllByRole("button")
+      .find((b) => b.getAttribute("aria-current") === "page");
+    expect(active.style.width).toBe("56px");
+    expect(active.querySelector(".sr-only").textContent).toBe("Vagtplan");
+  });
+
   it("has 5 tabs; the active one is marked and named, the rest are icons named for screen readers", async () => {
     await mount("da");
     const nav = screen.getByTestId("portal-tabbar-v3");
@@ -186,6 +281,19 @@ describe("Floating tab bar", () => {
 });
 
 describe("Header — one row", () => {
+  it("small round controls are circles on a touch screen (no 44 px min-height stretch)", async () => {
+    await mount("da");
+    const row = screen.getByTestId("portal-header-row");
+    expect(screen.getByTitle("Rediger profil").style.minHeight).toMatch(/^0(px)?$/);
+    expect(within(row).getByRole("button", { name: da.navAlerts }).style.minHeight).toMatch(/^0(px)?$/);
+    expect(screen.getByRole("button", { name: "Flere valg for vagten" }).style.minHeight).toMatch(/^0(px)?$/);
+    const rute = screen.getByTestId("portal-route");
+    expect([rute.style.height, rute.style.borderRadius]).toEqual(["44px", "22px"]);
+    fireEvent.click(screen.getByRole("button", { name: "Flere valg for vagten" }));
+    const sheet = await screen.findByTestId("portal-shift-menu");
+    expect(within(sheet).getAllByRole("button", { name: "Luk" }).some((b) => /^0(px)?$/.test(b.style.minHeight))).toBe(true);
+  });
+
   it("has no venue line and no always-on Live/Synket word; the venue moved into the card", async () => {
     await mount("da");
     const row = screen.getByTestId("portal-header-row");
@@ -221,6 +329,8 @@ describe("Offline / stale strip", () => {
     await act(async () => { vi.advanceTimersByTime(30000); });
     const strip = await screen.findByTestId("portal-offline-strip");
     expect(strip.textContent).toContain("Ikke opdateret – viser sidst hentede");
+    // A slim strip: its button does not stretch it to the 44 px touch height.
+    expect(within(strip).getByRole("button", { name: "Opdater" }).style.minHeight).toMatch(/^0(px)?$/);
 
     // It answers again: Opdater refetches and the strip goes.
     scheduleImpl = () => ok({ shifts: [] });
@@ -265,6 +375,34 @@ describe("Rute — the right map app per platform, only on a tap", () => {
     expect(routeUrl({ name: "", address: "" }, "google")).toBeNull();
   });
 
+  it("with no street the address names a town: Rute searches the place's name there", () => {
+    const townOnly = { name: "Café Solsikke", address: "2200 København N", street: "" };
+    expect(routeUrl(townOnly, "google")).toBe("https://www.google.com/maps/search/?api=1&query=Caf%C3%A9%20Solsikke%2C%202200%20K%C3%B8benhavn%20N");
+    expect(routeUrl(townOnly, "apple")).toBe("https://maps.apple.com/?daddr=Caf%C3%A9%20Solsikke%2C%202200%20K%C3%B8benhavn%20N");
+    // A location with no address: the venue + location name in the venue's town.
+    const branch = { name: "Café Solsikke Hovedafdeling", address: "", street: "", town: "København N" };
+    expect(routeUrl(branch, "google")).toBe("https://www.google.com/maps/search/?api=1&query=Caf%C3%A9%20Solsikke%20Hovedafdeling%2C%20K%C3%B8benhavn%20N");
+    // A pin still wins over all of it.
+    expect(routeUrl({ ...townOnly, lat: 55.6872, lng: 12.5532 }, "google")).toBe("https://www.google.com/maps/search/?api=1&query=55.6872,12.5532");
+    // With a street, the address as it is (callers that do not say keep that too).
+    expect(routeUrl({ name: "X", address: "Solsikkegade 7, 2200 København N", street: "Solsikkegade 7" }, "google"))
+      .toBe(routeUrl({ name: "X", address: "Solsikkegade 7, 2200 København N" }, "google"));
+  });
+
+  it("on the card: a venue with only a postcode and town, and a location with no address", async () => {
+    info = { ...info, restaurant_address: null, restaurant_city: "København N", venue: { name: "Café Solsikke", address_line: "2200 København N", has_map: false, lat: null, lng: null } };
+    await mount("da");
+    expect(screen.getByTestId("portal-route").getAttribute("href")).toContain("Solsikke%2C%202200%20K%C3%B8benhavn%20N");
+    cleanup();
+    scheduleImpl = () => ok({
+      shifts: [{ id: "b1", date: SHIFT_DAY, start_time: "16:00", end_time: "22:00", status: "published", net_hours: 6, branch_name: "Hovedafdeling" }],
+    });
+    await mount("da");
+    const href = screen.getByTestId("portal-route").getAttribute("href");
+    expect(href).toContain("Solsikke%20Hovedafdeling%2C%20K%C3%B8benhavn%20N");
+    expect(href).not.toMatch(/(daddr|query|q)=Hovedafdeling(&|$)/);
+  });
+
   it("detects the platform from the browser when not in the native shell", () => {
     expect(routePlatform("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)")).toBe("apple");
     expect(routePlatform("Mozilla/5.0 (Linux; Android 15; Pixel 9)")).toBe("geo");
@@ -282,7 +420,7 @@ describe("Rute — the right map app per platform, only on a tap", () => {
 });
 
 describe("Venue map on the card (R2)", () => {
-  const VENUE = { name: "Café Solsikke", address_line: "Solsikkegade 7, 2200 København N", has_map: true, lat: 55.6872, lng: 12.5532 };
+  const VENUE = { name: "Café Solsikke", address_line: "Solsikkegade 7, 2200 København N", has_map: true, lat: 55.6872, lng: 12.5532, map_v: "aaaa1111" };
   // jsdom has no object URLs; the stubs stay for the file (unmount revokes).
   beforeEach(() => {
     URL.createObjectURL = vi.fn(() => "blob:venue-map");
@@ -297,8 +435,15 @@ describe("Venue map on the card (R2)", () => {
     expect(map.querySelector("img").getAttribute("src")).toBe("blob:venue-map");
     expect(map.querySelector("img").getAttribute("alt")).toBe("Kort over Café Solsikke");
     expect(mapCalls()).toHaveLength(1);
-    expect(mapCalls()[0][0]).toMatch(/\?w=360&h=112&dpr=[23]$/);
+    // The card's width on the server's 16 px grid, 96 tall, and the pin's version.
+    expect(mapCalls()[0][0]).toMatch(/\?w=\d+&h=96&dpr=[23]&v=aaaa1111$/);
+    const w = Number(mapCalls()[0][0].match(/w=(\d+)/)[1]);
+    expect(w % 16).toBe(0);
+    expect(w >= 256 && w <= 448).toBe(true);
     expect(mapCalls()[0][1]).toEqual({ responseType: "blob" });
+    // Right-anchored: any extra width is cut from the left, never from the
+    // "© OpenStreetMap" corner.
+    expect(map.querySelector("img").style.objectPosition).toBe("right center");
     // The confirmed pin, not the address text.
     expect(screen.getByTestId("portal-route").getAttribute("href")).toContain("55.6872,12.5532");
     expect(screen.getByTestId("portal-hero-place").textContent).toContain("Solsikkegade 7, 2200 København N");
@@ -326,6 +471,52 @@ describe("Venue map on the card (R2)", () => {
     const img = (await screen.findByTestId("portal-venue-map")).querySelector("img");
     fireEvent.error(img);
     await waitFor(() => expect(screen.queryByTestId("portal-venue-map")).toBeNull());
+  });
+
+  it("the map's place is held from the first paint: no card growth when the image arrives", async () => {
+    info = { ...info, venue: VENUE };
+    let deliver;
+    mapImpl = () => new Promise((res) => { deliver = res; });
+    await mount("da");
+    const block = screen.getByTestId("portal-venue-map");
+    expect(block.style.height).toBe("96px");
+    expect(block.querySelector("img")).toBeNull();
+    await act(async () => { deliver({ status: 200, data: new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }) }); });
+    const img = screen.getByTestId("portal-venue-map").querySelector("img");
+    expect(img).not.toBeNull();
+    expect(screen.getByTestId("portal-venue-map").style.height).toBe("96px");
+    // It fades in over the ground colour once decoded.
+    expect(img.style.opacity).toBe("0");
+    fireEvent.load(img);
+    expect(img.style.opacity).toBe("1");
+  });
+
+  it("a tab switch paints the kept image at once — no second request, no growth", async () => {
+    info = { ...info, venue: VENUE };
+    await mount("da");
+    await screen.findByTestId("portal-venue-map");
+    await waitFor(() => expect(screen.getByTestId("portal-venue-map").querySelector("img")).not.toBeNull());
+    fireEvent.click(screen.getByTestId("portal-tab-hours"));
+    expect(screen.queryByTestId("portal-venue-map")).toBeNull();
+    fireEvent.click(screen.getByTestId("portal-tab-schedule"));
+    const img = screen.getByTestId("portal-venue-map").querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img.style.opacity).toBe("1");
+    expect(mapCalls()).toHaveLength(1);
+  });
+
+  it("the map URL changes when the pin moves, so no cache can show the old place", async () => {
+    info = { ...info, venue: VENUE };
+    await mount("da");
+    await waitFor(() => expect(mapCalls()).toHaveLength(1));
+    expect(mapCalls()[0][0]).toContain("v=aaaa1111");
+    cleanup();
+    info = { ...info, venue: { ...VENUE, lat: 55.69, lng: 12.56, map_v: "bbbb2222" } };
+    await mount("da");
+    await waitFor(() => expect(mapCalls()).toHaveLength(2));
+    expect(mapCalls()[1][0]).toContain("v=bbbb2222");
+    expect(mapCalls()[1][0]).not.toBe(mapCalls()[0][0]);
+    expect(screen.getByTestId("portal-route").getAttribute("href")).toContain("55.69,12.56");
   });
 
   it("a shift at another location never shows the venue's map", async () => {

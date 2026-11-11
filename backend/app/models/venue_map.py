@@ -67,6 +67,14 @@ class VenueMap(Base):
 # the columns are nulled on the target (part of this UPDATE) and the cached
 # images are deleted on the flush's own connection. The staff card then shows
 # no map until the owner checks the new pin; the address and Rute still work.
+#
+# The clock-in geofence anchor is not ours to clear (it is the clock-in
+# control), but it may still mark the OLD place — and it outranks a lookup. So
+# when one exists the reset leaves a marker, venue_geo_source="moved": the
+# anchor then counts as a pin the owner must confirm again, not as a confirmed
+# one (services/venue_map.current_pin). Without an anchor everything is NULL,
+# which also clears a remembered failed lookup ("none") so the new address is
+# looked up.
 
 _PROFILE_ADDRESS_FIELDS = ("address", "zipcode", "city")
 _PROFILE_GEO_FIELDS = ("venue_lat", "venue_lng", "venue_geo_source", "venue_geo_at", "venue_geo_confirmed_at")
@@ -92,6 +100,11 @@ def _profile_address_changed(mapper, connection, target):  # noqa: ARG001
         return
     for f in _PROFILE_GEO_FIELDS:
         setattr(target, f, None)
+    from app.services import venue_map as _vm
+
+    if _vm._geofence_point(target):
+        target.venue_geo_source = _vm.GEO_MOVED
+        target.venue_geo_at = utc_now()
     connection.execute(
         delete(VenueMap.__table__).where(
             VenueMap.__table__.c.user_id == str(target.user_id),

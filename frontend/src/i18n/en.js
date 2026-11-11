@@ -10292,6 +10292,7 @@ export const en = {
     venuePinYes: "Yes, that's us",
     venuePinFix: "Wrong pin? Paste a map link",
     venuePinUntilConfirmed: "Your staff see the map once you confirm.",
+    venuePinOwnerOnly: "The owner checks the map pin here. Staff see the map once it is confirmed.",
     venuePinConfirmed: "Your staff see this map.",
     venuePinConfirmedNoMap: "Confirmed. The map could not be drawn right now — staff see the address and Directions until it can.",
     venuePinLinkPlaceholder: "Paste a Google Maps or Apple Maps link",

@@ -269,6 +269,10 @@ class BusinessProfile(Base):
     # one), "dawa" / "nominatim" (looked up once from the address, on the
     # owner's pin check — never from a staff request). A clock-in geofence
     # anchor is read live from clock_settings_json and is not copied here.
+    # Two markers with no coordinates: "none" (the lookup found nothing, at
+    # venue_geo_at — not asked again for 14 days) and "moved" (the address
+    # changed while a geofence anchor existed: the anchor needs the owner's
+    # confirmation again before staff see it).
     # venue_geo_confirmed_at: the owner said "Ja, det passer"; staff see the
     # map only after that (a pasted map link counts as confirmed). All NULL
     # again when the address changes (models/venue_map.py listener).

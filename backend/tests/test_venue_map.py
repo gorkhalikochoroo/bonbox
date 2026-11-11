@@ -14,8 +14,16 @@ OpenFreeMap, a stub for DAWA/Nominatim):
   • the portal map's three outcomes: 200 image, 204 no confirmed pin, 204
     render failed (+ failed_at, not retried for 24 h);
   • PortalInfo.venue sends lat/lng only once the owner confirmed;
-  • the per-token rate limit, ETag/304, and private caching on a PIN link;
-  • the owner endpoints: look up once, confirm, map link, refusals;
+  • the map URL carries the pin (map_v): only the current pin's URL is cached
+    for a week, so a moved pin never shows the old place from a phone cache;
+  • the credit tab stays inside the image, clear of the card's corner;
+  • a query can mint at most 26 cache rows per pin, and the sizes of one pin
+    share their tiles;
+  • after an address change a geofence anchor needs the owner again, and a
+    lookup that finds nothing is not repeated on every visit;
+  • the per-token rate limit, ETag/304, and private caching on every link;
+  • the owner endpoints: look up once, confirm, map link, refusals, and a
+    delegated seat that only reads (no lookup, no render, no write);
   • Migration 085 in the Postgres list AND the SQLite mirror, idempotent;
   • erasure covers venue_maps and the export never carries the PNG bytes.
 
@@ -200,11 +208,62 @@ def test_a_bad_tile_is_a_failed_map_not_a_crash():
         vm.render_png(*VENUE, fetch=boom)
 
 
-def test_sizes_are_snapped_so_a_query_cannot_mint_cache_rows():
-    assert vm.clamp_size(360, 112, 3) == (360, 112, 3)
-    assert vm.clamp_size(99999, 5, 9) == (480, 80, 2)
-    assert vm.clamp_size("x", None, "y") == (360, 112, 2)
-    assert vm.clamp_size(363, 113, 1) == (360, 112, 1)
+def test_a_query_can_mint_at_most_26_cache_rows_per_pin():
+    # What the apps ask for: the card's width rounded up to 16, 96 tall, @2/@3.
+    assert vm.clamp_size(336, 96, 3) == (336, 96, 3)
+    assert vm.clamp_size(322, 96, 2) == (336, 96, 2)      # a 390 px phone
+    assert vm.clamp_size(252, 96, 2) == (256, 96, 2)      # a 320 px phone
+    assert vm.clamp_size(444, 96, 3) == (448, 96, 3)      # the widest card
+    # Anything else snaps onto those keys — never a row of its own.
+    assert vm.clamp_size(99999, 5, 9) == (448, 96, 3)
+    assert vm.clamp_size("x", None, "y") == (vm.DEFAULT_W, 96, 2)
+    assert vm.clamp_size(-50, 4000, 1) == (256, 96, 2)
+    keys = {vm.clamp_size(w, h, d) for w in range(-10, 2000, 3) for h in (0, 80, 96, 112, 9999) for d in (-1, 0, 1, 2, 3, 4, 9)}
+    assert len(keys) <= 26, len(keys)
+
+
+def test_the_credit_is_inside_the_image_clear_of_the_corner_at_a_narrow_phone_width():
+    # 304 CSS px is a 375 px phone's card. Read the corner's pixels.
+    png = vm.render_png(*VENUE, width=304, height=96, dpr=2, fetch=_synthetic_fetch(*VENUE))
+    rgb = Image.open(BytesIO(png)).convert("RGB")
+    W, H = rgb.size
+    assert (W, H) == (608, 192)
+
+    def ink(x0, y0, x1, y1):
+        return sum(1 for x in range(x0, x1) for y in range(y0, y1) if sum(rgb.getpixel((x, y))) < 450)
+
+    inset = 5 * 2
+    # The words are there, inside the tab, in the bottom-right corner…
+    assert ink(W - 100 * 2, H - 30 * 2, W - inset, H - inset) > 40
+    # …the whole credit within 100 CSS px of the right edge (the apps crop
+    # extra width from the LEFT, at most 15 px, so it is never cut)…
+    assert ink(0, H - 30 * 2, W - 100 * 2, H) == 0
+    # …and the 5 px margin outside the tab is map, not tab or text: the card's
+    # 14 px corner radius cannot reach the credit.
+    margin = [rgb.getpixel((x, y)) for x in range(W - inset + 1, W) for y in range(H - 30 * 2, H)]
+    margin += [rgb.getpixel((x, y)) for x in range(W - 100 * 2, W) for y in range(H - inset + 1, H)]
+    assert not any(_near(px, PAPER, 4) for px in margin)
+    assert all(sum(px) >= 450 for px in margin)
+    # The tab itself is paper (its right padding, clear of the rounded corner).
+    assert _near(rgb.getpixel((W - inset - 2, H - inset - 10)), PAPER)
+
+
+def test_the_sizes_of_one_pin_share_their_tiles(monkeypatch):
+    got = []
+    monkeypatch.setattr(vm, "_tile_cache", type(vm._tile_cache)())
+    monkeypatch.setattr(vm, "tile_template", lambda: "https://tiles.openfreemap.org/planet/x/{z}/{x}/{y}.pbf")
+    fetch = _synthetic_fetch(*VENUE)
+
+    def fake_get(url):
+        got.append(url)
+        z, x, y = (int(p) for p in url.rsplit(".", 1)[0].split("/")[-3:])
+        return fetch(z, x, y)
+    monkeypatch.setattr(vm, "_get", fake_get)
+    vm.render_png(*VENUE, width=336, height=96, dpr=2)
+    first = len(got)
+    vm.render_png(*VENUE, width=336, height=96, dpr=3)
+    vm.render_png(*VENUE, width=320, height=96, dpr=2)
+    assert 1 <= first <= 4 and len(got) <= 4, got
 
 
 # ── fixtures ────────────────────────────────────────────────────────────────
@@ -373,6 +432,72 @@ def test_an_address_change_drops_the_pin_and_the_cached_maps_in_the_same_write(d
     assert p.venue_lat is None
 
 
+def test_after_an_address_change_a_geofence_anchor_needs_the_owner_again(db):
+    # An old (even disabled) clock-in anchor at the København address…
+    _, p, _ = _seed(db, geofence=(55.6872, 12.5532))
+    assert vm.current_pin(p) == vm.Pin(55.6872, 12.5532, "geofence", True)
+    # …the venue moves to Aarhus. The anchor is not ours to clear, but it no
+    # longer counts as confirmed: staff get no map of the old place, and
+    # PortalInfo no lat/lng for Rute.
+    p.address, p.zipcode, p.city = "Åboulevarden 1", "8000", "Aarhus C"
+    db.commit(); db.refresh(p)
+    assert p.venue_geo_source == vm.GEO_MOVED
+    pin = vm.current_pin(p)
+    assert pin == vm.Pin(55.6872, 12.5532, "geofence", False)
+    # The owner's check shows it; "Ja, det passer" makes it count again…
+    assert vm.confirm_pin(db, p).confirmed is True
+    db.refresh(p)
+    assert vm.current_pin(p).confirmed is True
+    # …until the next move.
+    p.address = "Skolegade 3"
+    db.commit(); db.refresh(p)
+    assert vm.current_pin(p).confirmed is False
+    # A pasted map link settles it for good.
+    class Link:
+        @staticmethod
+        def from_map_link(url):
+            return {"lat": 56.157, "lng": 10.21}
+    assert vm.set_map_link(db, p, "https://maps.apple.com/?ll=56.157,10.21", locate=Link) == vm.Pin(56.157, 10.21, "maplink", True)
+
+
+def test_portal_hides_a_moved_geofence_pin(client, db, fake_render, no_geocoding):
+    _, p, tok = _seed(db, geofence=(55.6872, 12.5532))
+    assert client.get(f"/api/portal/{tok}").json()["venue"]["has_map"] is True
+    p.city = "Aarhus C"
+    db.commit()
+    v = client.get(f"/api/portal/{tok}").json()["venue"]
+    assert (v["has_map"], v["lat"], v["lng"], v["map_v"]) == (False, None, None, None)
+    assert client.get(f"/api/portal/{tok}/venue-map").status_code == 204
+
+
+def test_a_lookup_that_finds_nothing_is_not_repeated_on_every_visit(client, db, as_owner, monkeypatch):
+    from app.services import venue_locate
+
+    u, p, _ = _seed(db)
+    p.address, p.zipcode, p.city = "Rua Augusta 10", "1100-053", "Lisboa"
+    db.commit()
+    as_owner(u)
+    calls = {"dawa": 0, "nominatim": 0}
+    monkeypatch.setattr(venue_locate, "from_address", lambda q: calls.__setitem__("dawa", calls["dawa"] + 1))
+    monkeypatch.setattr(venue_locate, "from_place_name", lambda q: calls.__setitem__("nominatim", calls["nominatim"] + 1))
+    for _ in range(3):
+        assert client.get("/api/staff/venue-location").json()["pin"] is None
+    assert calls == {"dawa": 1, "nominatim": 1}
+    db.refresh(p)
+    assert p.venue_geo_source == vm.GEO_NONE and p.venue_geo_at is not None and p.venue_lat is None
+    # After the back-off it asks again…
+    p.venue_geo_at = utc_now() - vm.LOOKUP_RETRY - timedelta(minutes=1)
+    db.commit()
+    client.get("/api/staff/venue-location")
+    assert calls == {"dawa": 2, "nominatim": 2}
+    # …and an address change asks at once.
+    p.address = "Rua Augusta 12"
+    db.commit(); db.refresh(p)
+    assert p.venue_geo_source is None
+    client.get("/api/staff/venue-location")
+    assert calls == {"dawa": 3, "nominatim": 3}
+
+
 def test_a_branch_address_change_drops_only_that_branchs_pin(db):
     u, p, _ = _seed(db, pin=VENUE, confirmed=True)
     b = Branch(user_id=u.id, name="Vesterbro", address="Istedgade 1", geo_lat=55.66, geo_lng=12.55,
@@ -404,15 +529,16 @@ def test_portal_map_three_outcomes(client, db, fake_render, no_geocoding):
     # Confirmed → the image, drawn once and then served from the row.
     p.venue_geo_confirmed_at = utc_now()
     db.commit()
-    r = client.get(f"/api/portal/{tok}/venue-map?w=360&h=112&dpr=2")
+    r = client.get(f"/api/portal/{tok}/venue-map?w=304&h=96&dpr=2")
     assert r.status_code == 200 and r.headers["content-type"] == "image/png"
-    assert r.headers["cache-control"] == "public, max-age=604800"
+    # No `v`: the phone must ask again each time (the ETag makes that cheap).
+    assert r.headers["cache-control"] == "private, no-cache"
     etag = r.headers["etag"]
     img = Image.open(BytesIO(r.content))
-    assert img.size == (720, 224) and _near(_px(img, 369, 112), FOREST)
-    r2 = client.get(f"/api/portal/{tok}/venue-map?w=360&h=112&dpr=2")
+    assert img.size == (608, 192) and _near(_px(img, 313, 96), FOREST)
+    r2 = client.get(f"/api/portal/{tok}/venue-map?w=304&h=96&dpr=2")
     assert r2.status_code == 200 and r2.content == r.content and fake_render["n"] == 1
-    r3 = client.get(f"/api/portal/{tok}/venue-map?w=360&h=112&dpr=2", headers={"If-None-Match": etag})
+    r3 = client.get(f"/api/portal/{tok}/venue-map?w=304&h=96&dpr=2", headers={"If-None-Match": etag})
     assert r3.status_code == 304
 
     # Drawing fails (another size) → 204 + failed_at, and not retried for 24 h.
@@ -434,11 +560,12 @@ def test_portal_info_sends_the_pin_only_once_confirmed(client, db, no_geocoding)
     _, p, tok = _seed(db, pin=VENUE, confirmed=False)
     v = client.get(f"/api/portal/{tok}").json()["venue"]
     assert v == {"name": "Café Solsikke", "address_line": "Solsikkegade 7, 2200 København N",
-                 "has_map": False, "lat": None, "lng": None}
+                 "has_map": False, "lat": None, "lng": None, "map_v": None}
     p.venue_geo_confirmed_at = utc_now()
     db.commit()
     v = client.get(f"/api/portal/{tok}").json()["venue"]
     assert v["has_map"] is True and (v["lat"], v["lng"]) == VENUE
+    assert v["map_v"] == vm.coords_hash(*VENUE)[:16]
     # A recent failed drawing → the app is told there is no map.
     db.add(VenueMap(user_id=p.user_id, coords_hash=vm.coords_hash(*VENUE), width=360, height=112, dpr=2,
                     failed_at=utc_now()))
@@ -453,11 +580,38 @@ def test_portal_pin_link_needs_the_proof_and_is_cached_privately(client, db, fak
     assert client.get(f"/api/portal/{tok}/venue-map").status_code in (401, 403)
     # Before the PIN, PortalInfo withholds the coordinates.
     v = client.get(f"/api/portal/{tok}").json()["venue"]
-    assert v["lat"] is None and v["lng"] is None
+    assert v["lat"] is None and v["lng"] is None and v["map_v"] is None
     proof = client.post(f"/api/portal/{tok}/verify-pin", json={"pin": "1234"}).json()["pin_proof"]
-    r = client.get(f"/api/portal/{tok}/venue-map", headers={"X-BonBox-Pin": proof})
+    v = client.get(f"/api/portal/{tok}", headers={"X-BonBox-Pin": proof}).json()["venue"]
+    assert v["map_v"]
+    r = client.get(f"/api/portal/{tok}/venue-map?v={v['map_v']}", headers={"X-BonBox-Pin": proof})
     assert r.status_code == 200
     assert r.headers["cache-control"] == "private, max-age=604800"
+
+
+def test_the_map_url_carries_the_pin_so_a_moved_pin_is_a_new_url(client, db, as_owner, fake_render, monkeypatch):
+    from app.services import venue_locate
+
+    u, p, tok = _seed(db, pin=VENUE, confirmed=True)
+    v1 = client.get(f"/api/portal/{tok}").json()["venue"]["map_v"]
+    r = client.get(f"/api/portal/{tok}/venue-map?w=336&dpr=2&v={v1}")
+    assert r.status_code == 200 and r.headers["cache-control"] == "private, max-age=604800"
+    as_owner(u)
+    assert client.get("/api/staff/venue-location").json()["map_v"] == v1
+    owner = client.get(f"/api/staff/venue-map?w=336&dpr=2&v={v1}")
+    assert owner.status_code == 200 and owner.headers["cache-control"] == "private, max-age=86400"
+
+    # The owner fixes the pin with a map link: a new version everywhere…
+    monkeypatch.setattr(venue_locate, "from_map_link", lambda url: {"lat": 55.69, "lng": 12.56})
+    v2 = client.put("/api/staff/venue-location", json={"map_link": "https://maps.apple.com/?ll=55.69,12.56"}).json()["map_v"]
+    assert v2 and v2 != v1
+    assert client.get(f"/api/portal/{tok}").json()["venue"]["map_v"] == v2
+    assert vm.map_version(vm.Pin(55.69, 12.56, "maplink", True)) == v2
+    # …and the old URL is no longer cacheable: whatever a phone still asks
+    # under it is answered no-cache, with the NEW place drawn.
+    stale = client.get(f"/api/portal/{tok}/venue-map?w=336&dpr=2&v={v1}")
+    assert stale.status_code == 200 and stale.headers["cache-control"] == "private, no-cache"
+    assert stale.headers["etag"] != r.headers["etag"] and fake_render["n"] == 2   # drawn for 55.69,12.56
 
 
 def test_portal_map_is_rate_limited_per_link(client, db, fake_render, no_geocoding):
@@ -491,7 +645,7 @@ def test_owner_pin_check_looks_up_confirms_and_takes_a_map_link(client, db, as_o
     r = client.get("/api/staff/venue-location").json()
     assert r == {"address_line": "Solsikkegade 7, 2200 København N",
                  "pin": {"lat": VENUE[0], "lng": VENUE[1], "source": "dawa", "confirmed": False},
-                 "staff_see_map": False}
+                 "staff_see_map": False, "map_v": vm.coords_hash(*VENUE)[:16], "can_edit": True}
     client.get("/api/staff/venue-location")
     assert asked == ["Solsikkegade 7, 2200 København N"]          # once
     # The owner sees the image before confirming; staff do not.
@@ -524,6 +678,46 @@ def test_owner_confirm_without_a_pin_is_refused(client, db, as_owner, monkeypatc
     r = client.put("/api/staff/venue-location", json={"confirm": True})
     assert r.status_code == 409 and r.json()["detail"]["error"] == "no_pin"
     assert client.get("/api/staff/venue-map").status_code == 204
+
+
+def test_a_delegated_seat_only_reads_the_pin_check(client, db, as_owner, monkeypatch, fake_render):
+    """get_current_user hands a manager/viewer/accountant seat the OWNER's
+    User, and the write guards only block non-GET methods: the GETs must not
+    look up, draw or write for one."""
+    from app.services import venue_locate
+
+    u, p, _ = _seed(db)
+
+    def refuse(*a, **k):
+        raise AssertionError("geocoder called for a delegated seat")
+    monkeypatch.setattr(venue_locate, "from_address", refuse)
+    monkeypatch.setattr(venue_locate, "from_place_name", refuse)
+    for marker in ("_is_member_view", "_is_accountant_view"):
+        seat = db.get(User, u.id)
+        setattr(seat, marker, True)
+        as_owner(seat)
+        r = client.get("/api/staff/venue-location").json()
+        assert r["pin"] is None and r["can_edit"] is False
+        db.refresh(p)
+        assert (p.venue_lat, p.venue_geo_source) == (None, None)
+        delattr(seat, marker)
+
+    # The owner's own visit draws; a seat then reads that row, never a new one.
+    p.venue_lat, p.venue_lng, p.venue_geo_source = VENUE[0], VENUE[1], "dawa"
+    db.commit()
+    seat = db.get(User, u.id)
+    seat._is_member_view = True
+    as_owner(seat)
+    assert client.get("/api/staff/venue-map?w=336&dpr=2").status_code == 204
+    assert fake_render["n"] == 0 and db.query(VenueMap).count() == 0
+    del seat._is_member_view
+    as_owner(seat)
+    assert client.get("/api/staff/venue-map?w=336&dpr=2").status_code == 200
+    assert fake_render["n"] == 1
+    seat._is_member_view = True
+    as_owner(seat)
+    assert client.get("/api/staff/venue-map?w=336&dpr=2").status_code == 200
+    assert fake_render["n"] == 1 and db.query(VenueMap).count() == 1
 
 
 # ── 5. migration 085 ────────────────────────────────────────────────────────

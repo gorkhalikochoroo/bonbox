@@ -26,14 +26,25 @@ const hasPoint = (lat, lng) =>
   Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)) && lat !== null && lng !== null;
 
 /**
- * routeUrl({ lat, lng, name, address }, kind) → a URL, or null when there is
- * nothing to route to. A confirmed pin wins over the address text: it is the
- * point the owner checked, where an address can resolve to a street centroid.
+ * routeUrl({ lat, lng, name, address, street, town }, kind) → a URL, or null
+ * when there is nothing to route to. A confirmed pin wins over the address
+ * text: it is the point the owner checked, where an address can resolve to a
+ * street centroid.
+ *
+ * `street` (optional) says whether the address has a street in it. When it is
+ * given and blank, the address names a town at most ("2200 København N"), and
+ * routing to it lands in the town centre — so the search is the place's name
+ * in that town ("Café Solsikke, 2200 København N"), with `town` standing in
+ * when there is no address at all. Left out, the address is used as it is.
  */
-export function routeUrl({ lat, lng, name, address } = {}, kind = routePlatform()) {
+export function routeUrl({ lat, lng, name, address, street, town } = {}, kind = routePlatform()) {
   const point = hasPoint(lat, lng) ? `${Number(lat)},${Number(lng)}` : null;
   const label = (name || "").trim();
-  const text = (address || "").trim() || label;
+  const addr = (address || "").trim();
+  const noStreet = street !== undefined && !String(street || "").trim();
+  const text = noStreet
+    ? [label, addr || String(town || "").trim()].filter(Boolean).join(", ")
+    : addr || label;
   if (!point && !text) return null;
   if (kind === "apple") {
     return point

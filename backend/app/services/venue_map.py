@@ -30,9 +30,15 @@ THE PIN, IN ORDER (current_pin / ensure_pin)
   2. the clock-in geofence anchor        — the owner set it, counts as confirmed
   3. the address, looked up ONCE on the owner's pin check (DAWA, then
      Nominatim) — shown to staff only after the owner says "Ja, det passer"
-Geocoding never runs on a staff request. An address change drops 1 and 3
-(models/venue_map.py); the geofence anchor is the clock-in control and is
-never touched from here.
+Geocoding never runs on a staff request, nor for a delegated seat (manager,
+viewer, accountant) — only on the owner's own visit. A lookup that finds
+nothing is remembered too (source "none"), so it is not repeated on every
+visit; an address change clears that and asks again.
+
+An address change drops 1 and 3 (models/venue_map.py). The geofence anchor is
+the clock-in control and is never touched from here — but after a move it may
+still sit at the OLD place, so it stops counting as confirmed (source
+"moved") until the owner checks it again on the pin check.
 """
 
 from __future__ import annotations
@@ -42,7 +48,9 @@ import hashlib
 import json
 import logging
 import math
+import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import timedelta
 from io import BytesIO
@@ -60,13 +68,24 @@ DATA_Z = 14            # OpenFreeMap's maxzoom
 VIEW_Z = 16            # display zoom: ~1.35 m per CSS px at 55.7 N
 SUPERSAMPLE = 2        # Pillow lines are not anti-aliased: draw big, shrink
 PALETTE_COLOURS = 64
-RENDER_VERSION = 1     # bump to redraw every cached map (part of coords_hash)
+RENDER_VERSION = 2     # bump to redraw every cached map (part of coords_hash)
 RETRY_AFTER = timedelta(hours=24)
+LOOKUP_RETRY = timedelta(days=14)   # an address that found nothing is asked again after this
 
-# Sizes the cache accepts. The client asks 360x112 @2/@3; anything else is
-# snapped so a crafted query cannot mint unbounded cache rows.
-DEFAULT_W, DEFAULT_H = 360, 112
-_W_RANGE, _H_RANGE, _DPRS = (200, 480), (80, 200), (1, 2, 3)
+# Pin markers in business_profiles.venue_geo_source besides the real sources:
+GEO_NONE = "none"     # the address lookup found nothing (at venue_geo_at)
+GEO_MOVED = "moved"   # the address changed while a geofence anchor existed
+
+# Sizes the cache accepts — only what the two clients draw. The card is 96 px
+# tall; its width is the phone's (container 252-444 CSS px), asked for rounded
+# UP to a 16 px step, so a crafted query can mint at most
+# len(range(256, 449, 16)) x 2 = 26 rows per pin. The apps show the image with
+# object-position right: the extra (< 16 px) is cut from the LEFT, so the
+# credit in the bottom-right corner is never cropped.
+MAP_H = 96
+_W_MIN, _W_MAX, _W_STEP = 256, 448, 16
+DEFAULT_W = 336                     # a 390 px phone (322 px of card)
+_DPRS = (2, 3)
 
 # Light only: the staff portal has no dark mode. Forest & Paper tokens.
 STYLE = dict(
@@ -215,6 +234,13 @@ def decode_tile(raw: bytes) -> dict:
 # ── tiles ──────────────────────────────────────────────────────────────────
 _template_cache = {"tpl": None, "at": 0.0}
 _TEMPLATE_TTL_S = 6 * 3600
+# The raw tiles of recent renders, so the sizes of one pin (dpr 2 and 3, the
+# owner's check, a second phone width) cost one fetch per tile, not one each.
+# Bounded (~32 x <=200 KB) and in-process only: map squares, never people.
+_tile_cache: "OrderedDict[str, tuple[float, bytes]]" = OrderedDict()
+_tile_lock = threading.Lock()
+_TILE_CACHE_MAX = 32
+_TILE_TTL_S = 3600
 
 
 def _get(url: str) -> bytes:
@@ -242,7 +268,20 @@ def tile_template() -> str:
 
 
 def fetch_tile(z: int, x: int, y: int) -> bytes:
-    return _get(tile_template().format(z=z, x=x, y=y))
+    url = tile_template().format(z=z, x=x, y=y)
+    now = time.time()
+    with _tile_lock:
+        hit = _tile_cache.get(url)
+        if hit and now - hit[0] < _TILE_TTL_S:
+            _tile_cache.move_to_end(url)
+            return hit[1]
+    raw = _get(url)
+    with _tile_lock:
+        _tile_cache[url] = (now, raw)
+        _tile_cache.move_to_end(url)
+        while len(_tile_cache) > _TILE_CACHE_MAX:
+            _tile_cache.popitem(last=False)
+    return raw
 
 
 # ── projection + sizes ──────────────────────────────────────────────────────
@@ -264,23 +303,36 @@ def tiles_for(lat: float, lng: float, width: int, height: int) -> list[tuple[int
     return [(tx, ty) for tx in range(tx0, tx1 + 1) for ty in range(ty0, ty1 + 1)]
 
 
-def clamp_size(w, h, dpr) -> tuple[int, int, int]:
-    def snap(v, lo, hi, default):
-        try:
-            v = int(v)
-        except (TypeError, ValueError):
-            v = default
-        v = max(lo, min(hi, v))
-        return v - v % 8
+def snap_width(w) -> int:
+    """The phone's card width rounded UP to the 16 px grid, within 256-448."""
+    try:
+        w = int(w)
+    except (TypeError, ValueError):
+        w = DEFAULT_W
+    w = -(-max(_W_MIN, min(_W_MAX, w)) // _W_STEP) * _W_STEP
+    return min(_W_MAX, w)
+
+
+def clamp_size(w, h, dpr) -> tuple[int, int, int]:  # noqa: ARG001 — h is fixed
+    """(width, height, dpr) as the cache keys them: width on the 16 px grid,
+    the card's one height, dpr 2 or 3. Anything else is snapped, never a new
+    row of its own."""
     try:
         d = int(dpr)
     except (TypeError, ValueError):
         d = 2
-    return snap(w, *_W_RANGE, DEFAULT_W), snap(h, *_H_RANGE, DEFAULT_H), d if d in _DPRS else 2
+    return snap_width(w), MAP_H, 3 if d >= 3 else 2
 
 
 def coords_hash(lat: float, lng: float) -> str:
     return hashlib.sha256(f"v{RENDER_VERSION}|{float(lat):.6f},{float(lng):.6f}".encode()).hexdigest()[:40]
+
+
+def map_version(pin) -> str | None:
+    """The `v` the apps put in the map URL. It changes with the pin (and the
+    render version), so a moved pin is a NEW url: a phone's HTTP cache can keep
+    the old image as long as it likes and never show it for the new place."""
+    return coords_hash(pin.lat, pin.lng)[:16] if pin else None
 
 
 # ── drawing ─────────────────────────────────────────────────────────────────
@@ -293,7 +345,7 @@ def _credit_font(px: int):
         return ImageFont.load_default()
 
 
-def render_png(lat: float, lng: float, width: int = DEFAULT_W, height: int = DEFAULT_H,
+def render_png(lat: float, lng: float, width: int = DEFAULT_W, height: int = MAP_H,
                dpr: int = 2, fetch=None) -> bytes:
     """Draw the map and return PNG bytes. Raises VenueMapError on any failure.
 
@@ -383,7 +435,10 @@ def render_png(lat: float, lng: float, width: int = DEFAULT_W, height: int = DEF
     img = img.resize((width * dpr, height * dpr), resample)
 
     # Credit, drawn at final size so the text is crisp: bottom-right, on a
-    # paper tab. Required by the OpenStreetMap licence (ODbL produced work).
+    # paper tab. Required by the OpenStreetMap licence (ODbL produced work), so
+    # it must stay readable on the phone: the tab sits 5 px in from both edges
+    # (clear of the card's 14 px corner radius), and the apps crop any extra
+    # width from the LEFT (object-position right), never from this corner.
     d2 = ImageDraw.Draw(img)
     font = _credit_font(9 * dpr)
     try:
@@ -392,8 +447,13 @@ def render_png(lat: float, lng: float, width: int = DEFAULT_W, height: int = DEF
         bx0, by0, (bx1, by1) = 0, 0, d2.textsize(CREDIT, font=font)
     tw, th = bx1 - bx0, by1 - by0
     pad = 3 * dpr
-    x1, y1 = width * dpr, height * dpr
-    d2.rectangle([x1 - tw - 2 * pad, y1 - th - 2 * pad, x1, y1], fill=st["credit_bg"])
+    inset = 5 * dpr
+    x1, y1 = width * dpr - inset, height * dpr - inset
+    tab = [x1 - tw - 2 * pad, y1 - th - 2 * pad, x1, y1]
+    if hasattr(d2, "rounded_rectangle"):
+        d2.rounded_rectangle(tab, radius=3 * dpr, fill=st["credit_bg"])
+    else:  # Pillow < 8.2
+        d2.rectangle(tab, fill=st["credit_bg"])
     d2.text((x1 - tw - pad - bx0, y1 - th - pad - by0), CREDIT, font=font, fill=st["credit_ink"])
 
     # A 64-colour palette keeps the file ~10-25 KB. FASTOCTREE keeps the
@@ -448,14 +508,27 @@ def current_pin(profile) -> Pin | None:
         return None
     lat, lng = _num(profile.venue_lat), _num(profile.venue_lng)
     stored = _valid(lat, lng)
-    if stored and profile.venue_geo_source == "maplink":
+    source = profile.venue_geo_source
+    if stored and source == "maplink":
         return Pin(lat, lng, "maplink", True)
     g = _geofence_point(profile)
     if g:
+        # The address changed since this anchor was set: it may mark the OLD
+        # place, so it is a proposal the owner checks (and staff see no map,
+        # and Rute uses the new address) until they say "Ja, det passer".
+        if source == GEO_MOVED:
+            return Pin(g[0], g[1], "geofence", profile.venue_geo_confirmed_at is not None)
         return Pin(g[0], g[1], "geofence", True)
     if stored:
-        return Pin(lat, lng, profile.venue_geo_source or "dawa", profile.venue_geo_confirmed_at is not None)
+        return Pin(lat, lng, source or "dawa", profile.venue_geo_confirmed_at is not None)
     return None
+
+
+def lookup_failed_recently(profile) -> bool:
+    """The address was looked up and found nothing, less than LOOKUP_RETRY
+    ago (an address change clears the marker, so a new address asks again)."""
+    at = getattr(profile, "venue_geo_at", None)
+    return getattr(profile, "venue_geo_source", None) == GEO_NONE and at is not None and utc_now() - at < LOOKUP_RETRY
 
 
 def address_line(profile) -> str:
@@ -469,12 +542,20 @@ def address_line(profile) -> str:
 
 def ensure_pin(db, profile, locate=None) -> Pin | None:
     """OWNER PATH ONLY: the current pin, or — when there is none — one looked
-    up once from the address (DAWA, then Nominatim) and stored UNconfirmed."""
+    up once from the address (DAWA, then Nominatim) and stored UNconfirmed.
+
+    "Once" holds for a miss too: an address neither service can place (a
+    non-Danish one, say — Nominatim is asked with countrycodes=dk) is stored
+    as source "none" and not asked again for LOOKUP_RETRY, or until the
+    address changes. Nominatim's policy is light use; every Vagtplan visit
+    was two outbound calls."""
     pin = current_pin(profile)
     if pin or profile is None:
         return pin
     q = address_line(profile)
     if len(q) < 4:
+        return None
+    if lookup_failed_recently(profile):
         return None
     if locate is None:
         from app.services import venue_locate as locate
@@ -482,6 +563,11 @@ def ensure_pin(db, profile, locate=None) -> Pin | None:
     if not found:
         found, source = locate.from_place_name(q), "nominatim"
     if not found or not _valid(_num(found.get("lat")), _num(found.get("lng"))):
+        profile.venue_lat = profile.venue_lng = None
+        profile.venue_geo_source = GEO_NONE
+        profile.venue_geo_at = utc_now()
+        profile.venue_geo_confirmed_at = None
+        db.commit()
         return None
     profile.venue_lat = float(found["lat"])
     profile.venue_lng = float(found["lng"])
@@ -541,8 +627,12 @@ def recently_failed(db, user_id, pin: Pin) -> bool:
     ).first() is not None
 
 
-def get_map(db, user_id, pin: Pin, w: int, h: int, dpr: int, branch_id=None, render=None):
-    """('ok', png) or ('failed', None). Draws on a miss and keeps the result.
+def get_map(db, user_id, pin: Pin, w: int, h: int, dpr: int, branch_id=None, render=None,
+            cached_only: bool = False):
+    """('ok', png), ('failed', None) or — with cached_only — ('missing', None).
+    Draws on a miss and keeps the result, unless cached_only (a delegated
+    seat's view: it may read what the owner's visit drew, never cause a
+    fetch, a render or a write on the owner's account).
 
     The read transaction is ended BEFORE the network/drawing work, so a slow
     tile server never holds a pooled database connection (prod runs a small
@@ -564,6 +654,8 @@ def get_map(db, user_id, pin: Pin, w: int, h: int, dpr: int, branch_id=None, ren
         return "ok", row.png
     if row is not None and row.failed_at and utc_now() - row.failed_at < RETRY_AFTER:
         return "failed", None
+    if cached_only:
+        return "missing", None
     db.commit()  # release the connection while we fetch and draw
 
     png = None

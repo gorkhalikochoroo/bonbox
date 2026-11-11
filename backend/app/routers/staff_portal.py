@@ -742,6 +742,9 @@ def _portal_venue(db: Session, owner_id, profile, name, pii_ok: bool) -> dict | 
         "has_map": has_map,
         "lat": round(pin.lat, 6) if (confirmed and pii_ok) else None,
         "lng": round(pin.lng, 6) if (confirmed and pii_ok) else None,
+        # The map URL's version: a moved pin is a new URL, so no phone cache
+        # can show the old place's image (see get_portal_venue_map).
+        "map_v": vm.map_version(pin) if (confirmed and pii_ok) else None,
     }
 
 
@@ -755,8 +758,8 @@ def _portal_token_key(request: Request) -> str:
 
 @router.get("/{token}/venue-map")
 @limiter.limit("20/minute", key_func=_portal_token_key)
-def get_portal_venue_map(token: str, request: Request, w: int = 360, h: int = 112, dpr: int = 2,
-                         db: Session = Depends(get_db)):
+def get_portal_venue_map(token: str, request: Request, w: int = 336, h: int = 96, dpr: int = 2,
+                         v: str | None = None, db: Session = Depends(get_db)):
     """The venue map for the next-shift card: image/png, or 204.
 
     Three outcomes, never a broken image:
@@ -767,8 +770,16 @@ def get_portal_venue_map(token: str, request: Request, w: int = 360, h: int = 11
             24 h. The card then shows the address and Rute without a map.
 
     PIN-gated like every data endpoint (the app fetches it as a blob with the
-    proof header). Cache-Control is `public` on an open link and `private` on
-    a PIN link, so no shared cache can hand the image past the PIN layer."""
+    proof header), and `private` always: a shared cache gains nothing here
+    and must never hand the image past the PIN layer.
+
+    CACHING, AND WHY THE PIN IS IN THE URL. The app asks for
+    `...&v=<PortalInfo.venue.map_v>`, a hash of the pin. Only a request whose
+    `v` matches the pin as it stands is cached for a week — a moved pin is a
+    new URL, so a phone (or WKWebView) that keeps the old image keeps it under
+    the old URL and never shows it for the new place. Without `v`, or with a
+    stale one, the answer is `no-cache`: the phone must ask every time and the
+    ETag turns that into a cheap 304."""
     from app.services import venue_map as vm
 
     link, _member = _get_staff_from_token(token, db)
@@ -778,9 +789,9 @@ def get_portal_venue_map(token: str, request: Request, w: int = 360, h: int = 11
         return Response(status_code=204, headers={"Cache-Control": "no-store"})
     w, h, dpr = vm.clamp_size(w, h, dpr)
     etag = vm.etag_for(pin, w, h, dpr)
-    scope = "private" if link.pin_hash else "public"
+    cache = "private, max-age=604800" if v and v == vm.map_version(pin) else "private, no-cache"
     if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": f"{scope}, max-age=604800"})
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": cache})
     owner_id = link.user_id
     outcome, png = vm.get_map(db, owner_id, pin, w, h, dpr)
     if outcome != "ok" or not png:
@@ -788,7 +799,7 @@ def get_portal_venue_map(token: str, request: Request, w: int = 360, h: int = 11
     return Response(
         content=png,
         media_type="image/png",
-        headers={"ETag": etag, "Cache-Control": f"{scope}, max-age=604800"},
+        headers={"ETag": etag, "Cache-Control": cache},
     )
 
 

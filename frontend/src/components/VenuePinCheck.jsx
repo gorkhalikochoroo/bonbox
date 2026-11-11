@@ -13,35 +13,51 @@
  * Lives beside the clock-in geofence settings on the Vagtplan page, and like
  * them collapses to one line once settled: a one-time setting on a page built
  * for planning the week.
+ *
+ * A delegated seat (manager, viewer, accountant) sees the card read-only: the
+ * server neither looks the address up nor draws for one (`can_edit: false`),
+ * and the buttons it could not use are not offered.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { MapPin } from "lucide-react";
 import api from "../services/api";
 import useAsyncData from "../hooks/useAsyncData";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
+import { MAP_H, mapRequestWidth, mapQuery } from "../utils/venueMapImage";
 
-function useOwnerMapImage(pinKey) {
-  // Keyed by the pin it was drawn for, so a moved pin never shows the old map.
+function useOwnerMapImage(mapV) {
+  // The URL carries the pin's version (`v`, from the server), so a moved pin
+  // is a new URL: neither the browser's HTTP cache nor this hook can show the
+  // old place's map for it. Keyed by the same version here.
   const [img, setImg] = useState({ key: null, url: null });
+  // The box's width, measured as it mounts (before paint): the request is for
+  // the width shown, so the credit corner is not cropped. No request until
+  // the box is there (a settled one-line card asks for nothing).
+  const [w, setW] = useState(null);
+  const boxRef = useCallback((el) => {
+    if (!el) return;
+    const px = el.clientWidth || 0;
+    setW(mapRequestWidth(px > 0 ? Math.min(px, 360) : 360));
+  }, []);
   useEffect(() => {
-    if (!pinKey) return undefined;
+    if (!mapV || !w) return undefined;
     let gone = false;
     let url = null;
-    api.get("/staff/venue-map?w=360&h=112&dpr=2", { responseType: "blob" })
+    api.get(`/staff/venue-map?${mapQuery(w, 2, mapV)}`, { responseType: "blob" })
       .then((r) => {
         const blob = r?.data;
         if (gone || r?.status === 204 || !blob || !blob.size || !String(blob.type || "").startsWith("image/")) return;
         url = URL.createObjectURL(blob);
-        setImg({ key: pinKey, url });
+        setImg({ key: mapV, url });
       })
       .catch(() => { /* no image: the address line and the question still work */ });
     return () => {
       gone = true;
       if (url) URL.revokeObjectURL?.(url);
     };
-  }, [pinKey]);
-  return [img.key === pinKey ? img.url : null, () => setImg({ key: null, url: null })];
+  }, [mapV, w]);
+  return [img.key === mapV ? img.url : null, () => setImg({ key: null, url: null }), boxRef];
 }
 
 export default function VenuePinCheck({ className = "" }) {
@@ -56,8 +72,11 @@ export default function VenuePinCheck({ className = "" }) {
 
   const data = state || q.data;
   const pin = data?.pin || null;
-  const pinKey = pin ? `${pin.lat},${pin.lng}` : null;
-  const [img, clearImg] = useOwnerMapImage(pinKey);
+  // Older servers sent no map_v: fall back to the pin itself as the key.
+  const mapV = pin ? (data?.map_v || `${pin.lat},${pin.lng}`) : null;
+  const [img, clearImg, boxRef] = useOwnerMapImage(mapV);
+  // Read-only for a delegated seat (the server says so); the owner edits.
+  const canEdit = data?.can_edit !== false;
 
   if (q.loading && !data) return null;
   if (q.failed && !data) return null;   // a one-time setting: never a red banner on the rota page
@@ -89,13 +108,15 @@ export default function VenuePinCheck({ className = "" }) {
         {data?.address_line && (
           <span className="text-gray-400 dark:text-gray-500 truncate max-w-[16rem]">· {data.address_line}</span>
         )}
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="ml-auto text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 font-medium underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 rounded"
-        >
-          {t("change", "Change")}
-        </button>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="ml-auto text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 font-medium underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 rounded"
+          >
+            {t("change", "Change")}
+          </button>
+        )}
       </div>
     );
   }
@@ -136,19 +157,35 @@ export default function VenuePinCheck({ className = "" }) {
         </div>
       </div>
 
-      {pin && img && (
-        <img
-          src={img}
-          alt={t("venuePinMapAlt", "Map with the pin your staff will see")}
-          onError={() => clearImg()}
-          className="block w-full max-w-[360px] h-[112px] rounded-lg object-cover border border-gray-200 dark:border-gray-700"
-        />
+      {pin && (
+        // The measuring box is there before the image, so the request is for
+        // the width shown; the image is right-anchored like the staff card's,
+        // so its "© OpenStreetMap" corner is never cropped.
+        <div ref={boxRef} className="w-full max-w-[360px]" style={{ height: img ? MAP_H : 0 }}>
+          {img && (
+            <img
+              src={img}
+              alt={t("venuePinMapAlt", "Map with the pin your staff will see")}
+              onError={() => clearImg()}
+              className="block w-full rounded-lg object-cover border border-gray-200 dark:border-gray-700"
+              style={{ height: MAP_H, objectPosition: "right center" }}
+            />
+          )}
+        </div>
       )}
       {data?.address_line && (
         <div className="text-[12px] text-gray-600 dark:text-gray-300">{data.address_line}</div>
       )}
 
-      {!pin ? (
+      {!canEdit ? (
+        <p className="text-[12px] text-gray-600 dark:text-gray-300">
+          {pin?.confirmed
+            ? (data?.staff_see_map
+              ? t("venuePinConfirmed", "Your staff see this map.")
+              : t("venuePinConfirmedNoMap", "Confirmed. The map could not be drawn right now — staff see the address and Directions until it can."))
+            : t("venuePinOwnerOnly", "The owner checks the map pin here. Staff see the map once it is confirmed.")}
+        </p>
+      ) : !pin ? (
         <>
           <p className="text-[12px] text-gray-600 dark:text-gray-300">
             {data?.address_line
