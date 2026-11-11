@@ -69,6 +69,51 @@ describe("capacitor.config.ts", () => {
   });
 });
 
+describe("the bars on Android match the cream page; the iPhone is unchanged (12 Nov 2026)", () => {
+  // The CLI reads capacitor.config.ts once per command; `npx cap copy android`
+  // has "android" in its arguments.
+  const savedArgv = process.argv;
+  afterEach(() => { process.argv = savedArgv; });
+  async function configFor(target, platformArg) {
+    process.argv = ["node", "cap", "copy", ...(platformArg ? [platformArg] : [])];
+    return loadConfig(target);
+  }
+  // StaffPortalPage's page colour.
+  const IVORY = read("src/pages/StaffPortalPage.jsx").match(/const IVORY = "(#[0-9A-Fa-f]{6})";/)[1];
+
+  it("the scheduler's Android project: WebView, status bar and theme all take the canvas", async () => {
+    expect(IVORY).toBe("#F6F4EE");
+    const cfg = await configFor("scheduler", "android");
+    expect(cfg.android.backgroundColor).toBe(IVORY);
+    expect(cfg.plugins.StatusBar.backgroundColor).toBe(IVORY);
+    expect(read(`${RES}/values/colors.xml`)).toContain(`<color name="shellBackground">${IVORY}</color>`);
+  });
+
+  it("the scheduler's iOS project: exactly what the committed iOS config already says", async () => {
+    const cfg = await configFor("scheduler", "ios");
+    const committed = JSON.parse(read("ios-scheduler/App/App/capacitor.config.json"));
+    expect(cfg.ios.backgroundColor).toBe("#f9fafb");
+    expect(cfg.ios.backgroundColor).toBe(committed.ios.backgroundColor);
+    expect(cfg.plugins.StatusBar).toEqual(committed.plugins.StatusBar);
+    expect(cfg.plugins.StatusBar.backgroundColor).toBe("#f9fafb");
+  });
+
+  it("a bare `cap sync` (no platform): the iOS value for both, never the canvas on the iPhone", async () => {
+    const cfg = await configFor("scheduler", undefined);
+    expect(cfg.plugins.StatusBar.backgroundColor).toBe("#f9fafb");
+    expect(cfg.ios.backgroundColor).toBe("#f9fafb");
+  });
+
+  it("the owner app is untouched on both platforms", async () => {
+    for (const p of ["android", "ios", undefined]) {
+      const cfg = await configFor(undefined, p);
+      expect(cfg.android.backgroundColor).toBe("#f8fafc");
+      expect(cfg.ios.backgroundColor).toBe("#f8fafc");
+      expect(cfg.plugins.StatusBar.backgroundColor).toBe("#f8fafc");
+    }
+  });
+});
+
 describe("android-scheduler resources", () => {
   const styles = read(`${RES}/values/styles.xml`);
   const night = read(`${RES}/values-night/styles.xml`);
@@ -97,7 +142,10 @@ describe("android-scheduler resources", () => {
     // Newer frameworks (API 37 read on the emulator) moved it to the surface container.
     const v36 = read(`${RES}/values-v36/colors.xml`);
     expect(v36).toMatch(/<color name="splashBackground">@android:color\/system_surface_container_light<\/color>/);
-    expect(colors).toMatch(/<color name="shellBackground">#f9fafb<\/color>/);
+    // Edited 12 Nov 2026 (Android 14 walk, P3): was #f9fafb (bg-gray-50), a
+    // cooler band above the header and below the dock on Android 14. The
+    // window, the status bar and the nav bar now take the portal's cream.
+    expect(colors).toMatch(/<color name="shellBackground">#F6F4EE<\/color>/);
   });
 
   it("light mode's splash is unchanged; system dark mode keeps it light with dark bar icons", () => {

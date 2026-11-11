@@ -10,8 +10,9 @@
 
     <!-- Mirrors the owner app (android/): content sits below the system bars.
          The status bar takes the staff portal canvas with dark glyphs, the same
-         pairing as StatusBar {style: LIGHT, backgroundColor: #f9fafb} in
-         capacitor.config.ts, so there is no colour jump when the plugin loads.
+         pairing as StatusBar {style: LIGHT, backgroundColor: the canvas} in
+         capacitor.config.ts (for the Android project), so there is no colour
+         jump when the plugin loads.
          Light, not DayNight: the staff portal has no dark mode, so the native
          parts (the window behind the WebView, the date and select pickers)
          stay light in system dark mode too. Pine, not AppCompat's default

@@ -32,6 +32,25 @@ const isScheduler = process.env.BONBOX_TARGET === "scheduler";
    BEFORE that runs, which is exactly where the flash was. */
 const shellBg = isScheduler ? "#f9fafb" : "#f8fafc";
 
+/* Android, scheduler only (Android 14 walk, 12 Nov 2026): phones that are not
+   edge-to-edge (Android 14 and older) draw the status bar and the nav bar in
+   their own colour. At #f9fafb they left a cooler band above the header and
+   below the dock of the cream page, so on Android they take the portal's
+   canvas (StaffPortalPage IVORY), as android-scheduler's values/colors.xml
+   shellBackground does for the window and the launch.
+
+   The iPhone keeps shellBg: `ios.backgroundColor` paints its safe-area strips,
+   and iOS's StatusBar plugin draws its own bar view in StatusBar.backgroundColor
+   (overlaysWebView is false for the scheduler). That colour is a later, native
+   change (premium-feel spec D), so StatusBar takes the canvas only when this
+   file is read for the Android project: `npx cap copy|sync|run android` (the
+   Android project's capacitor.config.json is generated, git-ignored). A bare
+   `npx cap sync` writes the iOS value to both, which is today's Android look. */
+const canvas = "#F6F4EE";
+const forAndroid = process.argv.slice(2).includes("android");
+const androidShellBg = isScheduler ? canvas : shellBg;
+const statusBarBg = isScheduler && forAndroid ? canvas : shellBg;
+
 const config: CapacitorConfig = {
   appId: isScheduler ? "dk.bonbox.scheduler" : "dk.bonbox.app",
   appName: isScheduler ? "Vagtplan" : "BonBox",
@@ -101,7 +120,7 @@ const config: CapacitorConfig = {
     // Staff app gets its own Gradle project (applicationId dk.bonbox.scheduler,
     // Play name "BonBox Vagtplan"); the owner app stays in android/.
     path: isScheduler ? "android-scheduler" : "android",
-    backgroundColor: shellBg,
+    backgroundColor: androidShellBg,
     // Staff Android ships WITHOUT @capacitor/push-notifications: there is no
     // Firebase project / google-services.json and the backend only sends APNs
     // (useNativePush registers platform "ios"). With the plugin present the
@@ -147,7 +166,8 @@ const config: CapacitorConfig = {
       // Both apps launch light, so both want dark glyphs. Keep in step with
       // shellBg above — changing one without the other is the unreadable case.
       style: "LIGHT",
-      backgroundColor: shellBg,
+      // shellBg everywhere except the scheduler's Android project (above).
+      backgroundColor: statusBarBg,
       // Scheduler: draw the webview UNDER the status bar so CSS owns the safe
       // area (the portal header pads by env(safe-area-inset-top) + caps the
       // notch). Without this, iOS ALSO offsets the webview below the status bar

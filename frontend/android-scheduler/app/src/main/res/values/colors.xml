@@ -4,8 +4,13 @@
     <color name="colorPrimary">#093A26</color>
     <color name="colorPrimaryDark">#093A26</color>
     <color name="colorAccent">#059669</color>
-    <!-- Staff portal canvas (bg-gray-50) = capacitor.config.ts shellBg for the scheduler. -->
-    <color name="shellBackground">#f9fafb</color>
+    <!-- The staff portal's canvas, its cream page (StaffPortalPage IVORY), so
+         the status bar, the nav bar and the window behind the WebView blend
+         into the page on phones that are not edge-to-edge (Android 14 and
+         older: #f9fafb left a cooler band). Same value as capacitor.config.ts
+         android.backgroundColor and the Android StatusBar colour for the
+         scheduler. The iPhone app keeps its own shellBg. -->
+    <color name="shellBackground">#F6F4EE</color>
     <!-- The portal's pine (FOREST / PINE in StaffPortalPage.jsx): the accent of
          the native date and select pickers the WebView opens. -->
     <color name="pine">#0E3B2E</color>
