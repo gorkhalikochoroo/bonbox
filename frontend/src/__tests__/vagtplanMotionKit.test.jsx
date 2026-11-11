@@ -328,8 +328,14 @@ describe("vagtplan.css: the kit's tokens and the dock", () => {
     expect(frames.length).toBeGreaterThan(8);
     for (const k of frames) {
       const props = [...k.matchAll(/([a-z-]+):/g)].map((m) => m[1]);
-      for (const p of props) expect(["opacity", "transform"]).toContain(p);
+      // Edited for the clock beat (CLOCK-MOTION-SPEC.md 2.8, reviewed): the
+      // allow-list gains exactly one property, stroke-dashoffset — the clock
+      // ring's draw; paint, not layout. Everything else stays banned.
+      for (const p of props) expect(["opacity", "transform", "stroke-dashoffset"]).toContain(p);
     }
+    // And only the ring's own keyframe uses it.
+    const dash = frames.filter((k) => k.includes("stroke-dashoffset")).map((k) => k.match(/@keyframes ([\w-]+)/)[1]);
+    expect(dash).toEqual(["vp-ring-draw"]);
   });
 });
 
@@ -362,6 +368,42 @@ describe("Reduced motion: ONE block turns all of it off", () => {
     for (const m of CSS.slice(0, start).matchAll(/^(body\.portal-shell \[data-bb-confirm\][^{]*)\{ animation/gm)) {
       expect(body).toContain(m[1].trim());
     }
+    // The clock beat (CLOCK-MOTION-SPEC.md): every rule outside the block whose
+    // selector names data-beat or the arc ghost and sets an animation is in
+    // it with the SAME selector text. A media query adds no specificity, so a
+    // shorter selector there (e.g. `[data-beat-phase] > .vp-hero > *`) would
+    // lose to these attribute rules and turn nothing off.
+    const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
+    const plainBody = strip(body);
+    let beatRules = 0;
+    for (const m of strip(CSS.slice(0, start)).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!/\banimation\s*:/.test(m[2])) continue;
+      for (const sel of m[1].trim().split(",").map((x) => x.trim()).filter(Boolean)) {
+        if (!/data-beat|vp-arc-ghost/.test(sel)) continue;
+        beatRules += 1;
+        expect(plainBody).toContain(sel);
+      }
+    }
+    expect(beatRules).toBe(13);
+  });
+
+  it("the clock beat: no infinite, filter, will-change, height, width or top in an animated rule; its two keyframes; the header names the one paint exception", () => {
+    const from = CSS.indexOf("/* ── The clock beat");
+    expect(from).toBeGreaterThan(0);
+    const section = CSS.slice(from, start).replace(/\/\*[\s\S]*?\*\//g, "");
+    let animated = 0;
+    for (const m of section.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!/\banimation\s*:/.test(m[2])) continue;
+      animated += 1;
+      expect(m[2]).not.toMatch(/infinite|filter|will-change|(^|[\s;])(height|width|top)\s*:/);
+    }
+    expect(animated).toBeGreaterThanOrEqual(11);
+    expect(CSS).toContain("@keyframes vp-ring-draw { from { stroke-dashoffset: 553; } }");
+    expect(CSS).toContain("@keyframes vp-knob-lap { from { transform: rotate(-360deg); } }");
+    expect(CSS.slice(0, CSS.indexOf("*/"))).toContain("plus the\n * clock ring's one stroke-dashoffset draw (paint, not layout); no layout\n * property animates");
+    // Under reduce, the drawn track is a plain ring and the ghost is gone.
+    expect(body).toContain('[data-beat-phase="enter"][data-beat-lap] .vp-lc-track { stroke-dasharray: none; }');
+    expect(body).toMatch(/\.vp-arc-ghost \{ display: none; \}/);
   });
 
   it("the JS side reads the same query: no exit window under reduced motion, nor without matchMedia", () => {

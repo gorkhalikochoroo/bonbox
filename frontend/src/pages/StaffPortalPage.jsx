@@ -36,7 +36,8 @@ import "@fontsource/dm-sans/latin-700.css";
 import "../components/staff/vagtplan.css";
 import RollingDigits from "../components/staff/RollingDigits";
 import { fitDockLabels } from "../components/staff/dockLabelFit";
-import { usePresence, useLastValue, closingProps } from "../components/staff/sheetMotion";
+import { usePresence, useLastValue, closingProps, motionAllowed } from "../components/staff/sheetMotion";
+import { beatFor, useHeroBeat, useBeatWindow, BREAK_MS } from "../components/staff/clockBeat";
 import { installPressFeel } from "../components/staff/pressFeel";
 import { forgetAll } from "../components/staff/tabMemory";
 import { parseServerTime } from "../utils/serverTime";
@@ -87,6 +88,11 @@ const CREAM = PAPER;           // text on pine
 const SAGE = "#A9B8AE";        // quiet text on pine
 const BRASS = "#C8A464";       // the one accent: the card's main button, today's dot
 const BRASS_INK = "#7A5C24";   // brass as text on ivory ("Ledig vagt")
+// The pine card's shadow in its two parts: the top highlight (lift) and the
+// drop. Joined they are the card's one shadow; during a clock beat the drop
+// stays on the hero and the lift rides the surface's top cap (vagtplan.css).
+const PINE_LIFT = "inset 0 1px 0 rgba(255,255,255,0.07)";
+const PINE_DROP = "0 24px 48px -28px rgba(14,59,46,0.7)";
 const IVORY = "#F6F4EE";       // the page
 const CARD = "#FFFEFB";        // cards and sheets
 const TILE = "#F1EEE6";        // date tiles, the sheet's close button
@@ -1404,12 +1410,25 @@ function useClock(token) {
   // Seconds into the running pause — the server's break_elapsed_sec, anchored
   // on every answer exactly like liveSec. null when not on a pause.
   const [breakSec, setBreakSec] = useState(null);
+  // The clock beat (components/staff/clockBeat.js). stRef is what this screen
+  // showed, written synchronously with every answer, so a punch's beat is
+  // decided against the screen at the ANSWER, not at the tap. punchSeq
+  // counts answered punches: a poll asked before one is dropped. shownRef is
+  // the live card as last committed (the clock-out's frozen exit). A beat is
+  // set ONLY in act / breakAct below, and only where motion is welcome.
+  const stRef = useRef(null);
+  const punchSeq = useRef(0);
+  const shownRef = useRef(null);
+  const [beat, setBeat] = useState(null);
+  const beatSeq = useRef(0);
+  const markBeat = (b) => { if (!b || !motionAllowed()) return; beatSeq.current += 1; setBeat({ ...b, n: beatSeq.current }); };
 
   // Snap server state AND the live-second baselines together, so the counters
   // re-anchor to the server's authoritative elapsed_sec / break_elapsed_sec on
   // every poll/punch and can never drift away — the +1/sec ticker only
   // smooths the gaps.
   const applySt = useCallback((data) => {
+    stRef.current = data || null;
     setSt(data || null);
     setLiveSec(data?.elapsed_sec ?? null);
     setBreakSec(data?.on_break ? (data?.break_elapsed_sec ?? 0) : null);
@@ -1417,7 +1436,9 @@ function useClock(token) {
 
   const load = useCallback(async () => {
     try {
+      const asked = punchSeq.current;
       const res = await portalApi.get(`/portal/${token}/clock`);
+      if (asked !== punchSeq.current) return; // a punch answered while this was out: its answer is newer
       applySt(res.data);
     } catch {
       /* soft — leave last-known state */
@@ -1442,6 +1463,9 @@ function useClock(token) {
     }, 1000);
     return () => clearInterval(id);
   }, [clockedInNow]);
+
+  // The live card as last committed: what a clock-out's leave fades out.
+  useEffect(() => { if (st?.clocked_in) shownRef.current = { st, liveSec, breakSec }; });
 
   // Resolve device location (only when the venue lock is on). Denied / no-fix
   // → resolves null; the server then allows the punch but flags it unverified.
@@ -1482,7 +1506,11 @@ function useClock(token) {
         }
       }
       const res = await portalApi.post(`/portal/${token}/clock-${dir}`, payload);
+      const b = beatFor(dir, stRef.current, res.data); // against what this screen showed
+      const snap = shownRef.current;
+      punchSeq.current += 1;
       applySt(res.data);
+      markBeat(b?.kind === "out" ? { ...b, snap } : b);
       // Native feel: a physical answer to the physical act. Success for a real
       // punch; warning when the punch was too short and discarded (honest).
       if (res.data?.discarded) haptic.warning();
@@ -1574,8 +1602,12 @@ function useClock(token) {
     setResult("");
     try {
       const res = await portalApi.post(`/portal/${token}/clock/break/${kind}`);
-      if (res?.data && typeof res.data === "object" && "clocked_in" in res.data) applySt(res.data);
-      else await load();
+      const before = stRef.current; // what this screen showed at the answer
+      if (res?.data && typeof res.data === "object" && "clocked_in" in res.data) {
+        punchSeq.current += 1;
+        applySt(res.data);
+      } else await load();
+      markBeat(beatFor("break", before, stRef.current));
       haptic.success();
       if (kind === "end" && res?.data?.break_discarded) {
         // Ended within a minute: the server deleted it (a misclick), so the
@@ -1623,7 +1655,7 @@ function useClock(token) {
     return `${ss}s`;
   };
 
-  return { st, busy, err, result, act, breakAct, fmtDur, liveLabel: fmtElapsed(liveSec), liveSec, breakSec, lastFix };
+  return { st, busy, err, result, act, breakAct, fmtDur, liveLabel: fmtElapsed(liveSec), liveSec, breakSec, lastFix, beat };
 }
 
 // ── Live countdown to the next shift's start. No timer of its own; the parent
@@ -2043,7 +2075,10 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   const weekStart = getWeekStart(today);
 
   const clock = useClock(token);
-  const clockedIn = !!clock.st?.clocked_in;
+  const heroRef = useRef(null);
+  const beatUi = useHeroBeat(!!clock.st?.clocked_in, clock.beat, heroRef);
+  // What the home shows: the server's state, except for the 180/240 ms a beat leaves.
+  const clockedIn = beatUi.shownIn;
   const confirmPunch = useConfirm();
 
   // Local UI state: which week is shown (0 = this week, 1 = next, …) + which
@@ -2290,7 +2325,8 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
 
   }, [weekDays]);
 
-  // The ONE ceremonial beat: hero settles in once per page load. useRef pins
+  // The hero settling once per page load (the ceremonial beat is clock-in,
+  // components/staff/clockBeat.js). useRef pins
   // the decision for this mount so mid-animation re-renders (clock fetch,
   // freshness tick) can't strip the class before the 500ms beat completes;
   // the module-scope latch — written in a mount effect so render stays pure —
@@ -2353,7 +2389,12 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
 
   // Clocked in: the shift being worked (planned start/end for the ring), or
   // null for a clock-in with no planned shift. Its ⋯ menu is about that shift.
-  const live = clockedIn ? liveShiftOf(shifts, clock.st?.since) : null;
+  // During a clock-out's leave the live card is drawn as it stood (the
+  // snapshot of its last committed values, its buttons dimmed as during the
+  // request); everywhere else it is the clock itself.
+  const cardClock = beatUi.phase === "leave" && beatUi.kind === "out" && beatUi.snap
+    ? { ...clock, ...beatUi.snap, busy: true } : clock;
+  const live = clockedIn ? liveShiftOf(shifts, cardClock.st?.since) : null;
   const liveShift = live?.shift || null;
   const menuShift = clockedIn ? (liveShift || nextShift) : nextShift;
   // The ⋯ sheet plays its exit after menuOpen goes false (sheetMotion.js),
@@ -2483,8 +2524,24 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
 
   const pineCard = {
     borderRadius: 24, padding: "16px 18px 18px", background: PINE, color: CREAM,
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.07), 0 24px 48px -28px rgba(14,59,46,0.7)",
+    boxShadow: `${PINE_LIFT}, ${PINE_DROP}`,
   };
+  // The clock beat: while one runs, the hero's own background goes
+  // transparent and a three-piece pine surface behind its content takes the
+  // height change (top cap still, middle scaled, bottom cap moved; the 24 px
+  // corners never stretch). The drop shadow stays on the section. At rest the
+  // card is exactly pineCard. The hero takes no taps (inert) until its new
+  // buttons are fully in.
+  const beating = beatUi.phase !== "idle";
+  const heroLocked = beating && !beatUi.armed;
+  const lap = beatUi.phase === "enter" && beatUi.kind === "in" && beatUi.fresh && !!live;
+  const heroStyle = beating
+    ? { ...pineCard, background: "transparent", boxShadow: PINE_DROP, isolation: "isolate" } : pineCard;
+  const heroSurface = beating ? (
+    <div aria-hidden className="vp-hero-surface" style={{ "--vp-pine": PINE }}>
+      <div className="vp-hs-top" /><div className="vp-hs-mid" /><div className="vp-hs-bot" />
+    </div>
+  ) : null;
 
   // The ⋯ button in the card's top row (44 px, the canvas's own size; the
   // negative margins keep the chip row at 28).
@@ -2512,19 +2569,27 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
       : t("portalWeekNoShiftsThat", "No shifts that week");
 
   return (
-    <div className="space-y-5">
+    <div
+      className="space-y-5"
+      data-beat-phase={beating ? beatUi.phase : undefined}
+      data-clock-beat={beating ? beatUi.kind : undefined}
+      data-beat-lap={lap ? "" : undefined}
+    >
       {clockedIn ? (
         /* LIVE — clocked in (canvas "Aktiv vagt"). The ring is the time on
            the clock against the planned shift; Start pause / Slut pause is
            there only when the owner turned live breaks on (breaks_live). */
         <section
-          className={`relative${playBeat ? " motion-safe:animate-heroSettle" : ""}`}
+          ref={heroRef}
+          className={`relative vp-hero${playBeat ? " motion-safe:animate-heroSettle" : ""}`}
           data-testid="portal-hero"
           data-state="live"
-          style={pineCard}
+          style={heroStyle}
+          inert={heroLocked || undefined}
         >
-          <LiveShiftCard clock={clock} live={live} menuBtn={menuBtn} />
-          {clockNotes}
+          {heroSurface}
+          <LiveShiftCard clock={cardClock} live={live} menuBtn={menuBtn} />
+          {beatUi.phase !== "leave" && clockNotes}
         </section>
       ) : (
       /* HERO — the next shift on one flat pine card (canvas "Pine, ivory &
@@ -2534,11 +2599,14 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
          "Jeg har set det", the dashed "Vagten er bekræftet" once it is, or
          "Stempl ind" when the shift is close — beside a ghost Rute. */
       <section
-        className={`relative${playBeat ? " motion-safe:animate-heroSettle" : ""}`}
+        ref={heroRef}
+        className={`relative vp-hero${playBeat ? " motion-safe:animate-heroSettle" : ""}`}
         data-testid="portal-hero"
         data-state="next"
-        style={pineCard}
+        style={heroStyle}
+        inert={heroLocked || undefined}
       >
+        {heroSurface}
         <div className="flex items-center justify-between" style={{ gap: 12, minHeight: 28 }}>
           {nextShift ? (
             <span
@@ -2653,7 +2721,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 {showPunch ? (
                   <button
                     type="button"
-                    disabled={clock.busy || clockLocked}
+                    disabled={clock.busy || clockLocked || beatUi.phase === "leave"}
                     onClick={clockInNow}
                     className="inline-flex items-center justify-center vp-press disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                     style={{ ...brassBtn, fontWeight: 700, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35), 0 0 0 4px rgba(200,164,100,0.18)" }}
@@ -2729,7 +2797,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 <span>{t("portalClockOpensAt", "Clock-in opens at {t}", { t: clock.st.opens_at })}</span>
               </div>
             )}
-            {clockNotes}
+            {beatUi.phase !== "leave" && clockNotes}
           </>
         ) : schedState === "loading" ? (
           /* Not answered yet — a placeholder, never "no shift". Saying
@@ -2819,7 +2887,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
 
       {/* Næste vagt — under the live card, the shift after this one. */}
       {clockedIn && afterLive && (
-        <section data-testid="portal-after-live">
+        <section data-testid="portal-after-live" className="vp-after-live">
           <HomeH2 style={{ padding: "0 4px" }}>{t("portalNextShiftRow", "Next shift")}</HomeH2>
           <button
             type="button"
@@ -3445,6 +3513,9 @@ function LiveShiftCard({ clock, live, menuBtn }) {
   const { t, lang } = useLanguage();
   const confirmOut = useConfirm();
   const shortPhone = useShortPhone();
+  // A pause's colour change (the clock beat): for BREAK_MS after a confirmed
+  // Start / Slut pause, a ghost arc in the OLD colour fades off the new one.
+  const breakFx = useBeatWindow(clock.beat, "break", BREAK_MS);
   const st = clock.st || {};
   const shift = live?.shift || null;
   const elapsed = clock.liveSec ?? st.elapsed_sec ?? 0;
@@ -3550,7 +3621,7 @@ function LiveShiftCard({ clock, live, menuBtn }) {
 
   return (
     <div data-testid="portal-live-shift">
-      <div className="flex items-center justify-between" style={{ gap: 12, minHeight: 28 }}>
+      <div className="flex items-center justify-between vp-lc-chip" style={{ gap: 12, minHeight: 28 }}>
         <span
           className="inline-flex items-center min-w-0"
           data-testid="portal-live-chip"
@@ -3563,7 +3634,7 @@ function LiveShiftCard({ clock, live, menuBtn }) {
         {menuBtn}
       </div>
 
-      <div className="flex justify-center" style={{ marginTop: 10 }}>
+      <div className="flex justify-center vp-lc-ring" style={{ marginTop: 10 }}>
         <div
           role="img"
           data-testid="portal-live-ring"
@@ -3572,7 +3643,10 @@ function LiveShiftCard({ clock, live, menuBtn }) {
           style={{ width: ring, height: ring }}
         >
           <svg viewBox="0 0 200 200" aria-hidden className="block w-full h-full">
-            <circle cx="100" cy="100" r="88" fill="none" stroke="rgba(243,239,228,0.1)" strokeWidth="12" />
+            {/* The faint track: rotated like the arc (a uniform circle, so it
+                looks the same at rest) so the clock-in lap draws it from 12
+                o'clock, clockwise, the way the arc grows. */}
+            <circle className="vp-lc-track" transform="rotate(-90 100 100)" cx="100" cy="100" r="88" fill="none" stroke="rgba(243,239,228,0.1)" strokeWidth="12" />
             <g stroke="rgba(243,239,228,0.28)" strokeWidth="2" strokeLinecap="round">
               <path d="M100 30 L100 25" />
               <path d="M160.6 65 L164.9 62.5" />
@@ -3590,14 +3664,21 @@ function LiveShiftCard({ clock, live, menuBtn }) {
                 transform="rotate(-90 100 100)"
               />
             )}
-            {totalSec && <circle cx={knob.x.toFixed(1)} cy={knob.y.toFixed(1)} r="6" fill={CREAM} stroke={PINE} strokeWidth="3" />}
+            {/* Gold melting into sage (or back): the arc already wears the new
+                colour; this ghost in the old one fades off it, under the knob. */}
+            {totalSec && p > 0 && breakFx ? (
+              <circle key={breakFx.n} className="vp-arc-ghost" aria-hidden cx="100" cy="100" r="88" fill="none"
+                stroke={breakFx.from === "sage" ? SAGE : BRASS} strokeWidth="12" strokeLinecap="round"
+                strokeDasharray={`${(p * C).toFixed(1)} ${C.toFixed(1)}`} transform="rotate(-90 100 100)" />
+            ) : null}
+            {totalSec && <circle className="vp-lc-knob" cx={knob.x.toFixed(1)} cy={knob.y.toFixed(1)} r="6" fill={CREAM} stroke={PINE} strokeWidth="3" />}
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center" style={{ gap: 4 }}>
-            <span style={{ font: "600 10.5px/1 var(--font-text)", letterSpacing: "0.14em", textTransform: "uppercase", color: SAGE }}>
+            <span className="vp-lc-label" style={{ font: "600 10.5px/1 var(--font-text)", letterSpacing: "0.14em", textTransform: "uppercase", color: SAGE }}>
               {onBreak ? t("portalLiveOnBreak", "On break") : t("portalLiveOnShift", "On shift")}
             </span>
             <span
-              className="tabular-nums"
+              className="tabular-nums vp-lc-digits"
               data-testid="portal-live-elapsed"
               style={{ fontFamily: SORA, fontWeight: 700, fontSize: `calc(${ring} * 0.24)`, lineHeight: 1, letterSpacing: "-0.03em", color: CREAM }}
             >
@@ -3606,13 +3687,13 @@ function LiveShiftCard({ clock, live, menuBtn }) {
             </span>
             {/* Held inside the ring: on a pause the line ran over the 8 and 4
                 o'clock ticks on a 402 pt iPhone (and the 150 px short ring). */}
-            <span className="whitespace-nowrap" data-testid="portal-live-sub" style={{ maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", font: "400 12px/1.2 var(--font-text)", color: SAGE }}>{ringSub}</span>
+            <span className="whitespace-nowrap vp-lc-label" data-testid="portal-live-sub" style={{ maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", font: "400 12px/1.2 var(--font-text)", color: SAGE }}>{ringSub}</span>
           </div>
         </div>
       </div>
 
       <div
-        className="grid"
+        className="grid vp-lc-foot"
         style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(243,239,228,0.12)", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}
       >
         <div className="flex flex-col" style={{ gap: 2 }}>
@@ -3632,7 +3713,7 @@ function LiveShiftCard({ clock, live, menuBtn }) {
         </div>
       </div>
 
-      <div className="flex" style={{ marginTop: 16, gap: 8 }}>
+      <div className="flex vp-lc-foot" style={{ marginTop: 16, gap: 8 }}>
         {breakLeads && (
           <button
             type="button"

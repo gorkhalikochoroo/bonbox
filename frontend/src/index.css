@@ -273,8 +273,9 @@ body.portal-shell {
   .sheet-enter-right { animation: slideIn 0.3s ease-out; }
   .sheet-enter-center { animation: scaleIn 0.2s ease-out; }
 }
-/* heroSettle — the staff portal's ONE ceremonial beat: the dark hero card
-   settles into place once per page load (~500ms), then stillness. Covered by
+/* heroSettle — the staff portal's hero settling once per page load: the dark
+   hero card settles into place (~500ms), then stillness. (The portal's one
+   ceremonial beat is clock-in: components/staff/clockBeat.js.) Covered by
    the global prefers-reduced-motion rule below (collapses to ~0.01ms). */
 @keyframes heroSettle {
   from { opacity: 0; transform: translateY(12px); }

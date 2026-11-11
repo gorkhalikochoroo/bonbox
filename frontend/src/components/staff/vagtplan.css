@@ -12,9 +12,10 @@
  *
  * Values: the Orvexlo motion + dock kit (BeloBag's own production values),
  * bonbox-lab-state/design-departments-2026-11-11/ORVEXLO-MOTION-KIT.md.
- * Motion is feedback, never decoration: transform + opacity only (no layout
- * properties animate), and ONE prefers-reduced-motion block at the end turns
- * all of it off.
+ * Motion is feedback, never decoration: transform + opacity only, plus the
+ * clock ring's one stroke-dashoffset draw (paint, not layout); no layout
+ * property animates. ONE prefers-reduced-motion block at the end turns all of
+ * it off.
  */
 
 /* ── Extended Latin, on demand ───────────────────────────────────────────
@@ -401,6 +402,48 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
 .vp-busy[data-state="done"] > .vp-busy-check { opacity: 1; animation: vp-pop var(--dur-spring) var(--spring) backwards; }
 @keyframes vp-spin { to { transform: rotate(360deg); } }
 
+/* ── The clock beat (components/staff/clockBeat.js) ──────────────────────
+ * The ONE ceremonial beat: clock-in. Clock-out is its quiet reverse; a
+ * pause only fades the arc. It plays only after the server said yes, never
+ * on load, a poll, resume, a tab switch or a refusal. The data-beat-*
+ * attributes live on the home for at most 1.24 s; at rest the card is
+ * exactly as before. The measured moves (the pine middle and bottom cap,
+ * the blocks below) are Web Animations in clockBeat.js; the rest is here. */
+[data-beat-phase] { overflow-anchor: none; }   /* no scroll-anchor nudge under the FLIP */
+.vp-hero-surface { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.vp-hero-surface > * { position: absolute; left: 0; right: 0; background: var(--vp-pine); }
+.vp-hs-top { top: 0; height: 25px; border-radius: 24px 24px 0 0; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07); }
+.vp-hs-mid { top: 24px; bottom: 24px; transform-origin: 50% 0; }
+.vp-hs-bot { bottom: 0; height: 25px; border-radius: 0 0 24px 24px; }
+[data-beat-phase="leave"] > .vp-hero > :not(.vp-hero-surface) {
+  animation: vp-fade-out var(--dur-fast) var(--ease-in) forwards;
+}
+[data-beat-phase="leave"][data-clock-beat="out"] > .vp-hero > :not(.vp-hero-surface),
+[data-beat-phase="leave"][data-clock-beat="out"] > .vp-after-live {
+  animation: vp-fade-out var(--dur-exit) var(--ease-in) forwards;
+}
+[data-beat-phase="enter"][data-clock-beat="in"] .vp-lc-chip { animation: vp-screen-in var(--dur-base) var(--ease-out) backwards; }
+[data-beat-phase="enter"][data-clock-beat="in"] .vp-lc-ring { animation: vp-fade-in var(--dur-base) var(--ease-out) 40ms backwards; }
+[data-beat-phase="enter"][data-clock-beat="in"] .vp-lc-foot { animation: vp-screen-in var(--dur-base) var(--ease-out) 160ms backwards; }
+[data-beat-phase="enter"][data-clock-beat="in"] .vp-lc-label { animation: vp-fade-in var(--dur-base) var(--ease-out) 480ms backwards; }
+[data-beat-phase="enter"][data-clock-beat="in"] .vp-lc-digits { animation: vp-roll-in-up 460ms var(--spring-soft) 560ms backwards; }
+[data-beat-phase="enter"][data-clock-beat="in"] > .vp-after-live { animation: vp-fade-in var(--dur-base) var(--ease-out) 120ms backwards; }
+[data-beat-phase="enter"][data-beat-lap] .vp-lc-track {
+  stroke-dasharray: 553;
+  animation: vp-ring-draw var(--dur-slow) var(--ease-drift) 80ms backwards;
+}
+[data-beat-phase="enter"][data-beat-lap] .vp-lc-knob {
+  transform-box: view-box;
+  transform-origin: 100px 100px;
+  animation: vp-knob-lap var(--dur-slow) var(--ease-drift) 80ms backwards;
+}
+[data-beat-phase="enter"][data-clock-beat="out"] > .vp-hero > :not(.vp-hero-surface) {
+  animation: vp-screen-in var(--dur-base) var(--ease-out) 120ms backwards;
+}
+.vp-arc-ghost { animation: vp-fade-out var(--dur-slow) var(--ease-in-out) forwards; }
+@keyframes vp-ring-draw { from { stroke-dashoffset: 553; } }
+@keyframes vp-knob-lap { from { transform: rotate(-360deg); } }
+
 /* ── Reduced motion: ALL of the above, off ─────────────────────────────── */
 /* The one switch. Things simply are where they end up: the indicator jumps,
    sheets appear and vanish, digits change in place, nothing breathes or
@@ -433,9 +476,23 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
   .vp-breathe,
   .vp-pop,
   .vp-map-in,
-  .vp-shimmer::after {
+  .vp-shimmer::after,
+  [data-beat-phase="leave"] > .vp-hero > :not(.vp-hero-surface),
+  [data-beat-phase="leave"][data-clock-beat="out"] > .vp-hero > :not(.vp-hero-surface),
+  [data-beat-phase="leave"][data-clock-beat="out"] > .vp-after-live,
+  [data-beat-phase="enter"][data-clock-beat="in"] .vp-lc-chip,
+  [data-beat-phase="enter"][data-clock-beat="in"] .vp-lc-ring,
+  [data-beat-phase="enter"][data-clock-beat="in"] .vp-lc-foot,
+  [data-beat-phase="enter"][data-clock-beat="in"] .vp-lc-label,
+  [data-beat-phase="enter"][data-clock-beat="in"] .vp-lc-digits,
+  [data-beat-phase="enter"][data-clock-beat="in"] > .vp-after-live,
+  [data-beat-phase="enter"][data-beat-lap] .vp-lc-track,
+  [data-beat-phase="enter"][data-beat-lap] .vp-lc-knob,
+  [data-beat-phase="enter"][data-clock-beat="out"] > .vp-hero > :not(.vp-hero-surface),
+  .vp-arc-ghost {
     animation: none;
   }
+  [data-beat-phase="enter"][data-beat-lap] .vp-lc-track { stroke-dasharray: none; }
   .vp-ring,
   .vp-busy > .vp-busy-spin,
   .vp-busy[data-state="busy"] > .vp-busy-spin,
@@ -445,5 +502,6 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
   /* RollingDigits draws no roll here at all; if one is ever on screen, only
      the new digit shows. */
   .vp-roll-out,
-  .vp-shimmer::after { display: none; }
+  .vp-shimmer::after,
+  .vp-arc-ghost { display: none; }
 }
