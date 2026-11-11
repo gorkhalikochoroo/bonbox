@@ -70,7 +70,17 @@ _PATHS = {
     "break_end": "/portal/{token}/clock/break/end",
     "verify_pin": "/portal/{token}/verify-pin",
     "owner_clock_settings": "/staff/clock-geofence",
+    # The owner's two reads of the pauses (StaffSchedulePage ClockedInStrip,
+    # StaffHoursPage rows). /staff/hours is read with ?from=&to= the day.
+    "owner_clocked_in": "/staff/clocked-in",
+    "owner_hours": "/staff/hours",
 }
+
+# Owner-read bodies carry ids and wall-clock stamps that differ every run; the
+# file keeps exactly the fields the owner's screens read.
+_OWNER_HOURS_FIELDS = ("date", "start_time", "end_time", "break_minutes", "total_hours",
+                       "entry_method", "breaks", "recorded_break_minutes", "break_source")
+_OWNER_STRIP_FIELDS = ("name", "since", "elapsed_min", "stale", "on_break", "break_since")
 
 # The scenario: (name, "HH:MM:SS", method, path key, owner JSON body or None).
 # Portal calls send NO body, as the app does. Owner saves send exactly what
@@ -95,14 +105,19 @@ _STEPS = [
     ("clock_live_off", "15:00:30", "GET", "clock", None),
     ("owner_breaks_on", "15:59:00", "POST", "owner_clock_settings", {"enabled": False, "breaks_live": True}),
     ("pause_running", "16:00:00", "POST", "break_start", None),
+    ("owner_clocked_in_on_break", "16:02:00", "GET", "owner_clocked_in", None),
     ("owner_breaks_off_mid_pause", "16:05:00", "POST", "owner_clock_settings", {"enabled": False, "breaks_live": False}),
     ("clock_on_break_off", "16:10:00", "GET", "clock", None),
     ("break_end_after_off", "16:20:00", "POST", "break_end", None),
     ("owner_breaks_on_again", "16:30:00", "POST", "owner_clock_settings", {"enabled": False, "breaks_live": True}),
+    # A pause never ended: clock-out ends it, and it is NOT paid against.
+    ("pause_forgotten", "16:45:00", "POST", "break_start", None),
+    ("clock_on_forgotten_pause", "16:50:00", "GET", "clock", None),
     ("clock_out", "17:00:00", "POST", "clock_out", None),
     ("break_start_after_out", "17:01:00", "POST", "break_start", None),
     ("clock_after_out", "17:02:00", "GET", "clock", None),
     ("owner_get", "17:03:00", "GET", "owner_clock_settings", None),
+    ("owner_hours_after_out", "17:04:00", "GET", "owner_hours", None),
 ]
 
 
@@ -175,6 +190,8 @@ def _seed(db, *, pin=None, token=_TOKEN):
 
 def _call(client, method, key, body=None, headers=None, token=_TOKEN):
     url = "/api" + _PATHS[key].format(token=token)
+    if key == "owner_hours":
+        return client.get(url, params={"from": _DATE, "to": _DATE}, headers=headers or {})
     if method == "GET":
         return client.get(url, headers=headers or {})
     return client.post(url, json=body, headers=headers or {}) if body is not None \
@@ -194,6 +211,11 @@ def _run_scenario(client):
         # is written as the PINNED scenario's seconds; compared by type only.
         if isinstance(data, dict) and data.get("elapsed_sec") is not None and clock_in_at:
             data["elapsed_sec"] = int((_NOW["dt"] - clock_in_at).total_seconds())
+        if key == "owner_hours" and isinstance(data, list):
+            data = [{k: row.get(k) for k in _OWNER_HOURS_FIELDS} for row in data]
+        if key == "owner_clocked_in" and isinstance(data, dict):
+            data = {**data, "clocked_in": [{k: row.get(k) for k in _OWNER_STRIP_FIELDS}
+                                           for row in data.get("clocked_in") or []]}
         out.append({
             "name": name, "at": f"{_DATE}T{hms}", "method": method, "path_key": key,
             "path": _PATHS[key], "request": body, "status": r.status_code, "body": data,
@@ -235,8 +257,9 @@ def test_the_shared_file_is_what_the_real_endpoints_answer(client_db):
         ctx = want["name"]
         assert got["status"] == want["status"], (ctx, got["status"], got["body"])
         assert got["request"] == want["request"], ctx
-        w, g = dict(want["body"]), dict(got["body"])
+        w, g = want["body"], got["body"]
         if isinstance(w, dict) and isinstance(g, dict):
+            w, g = dict(w), dict(g)
             for k in fx["volatile"]:
                 if k in w or k in g:
                     assert (w.get(k) is None) == (g.get(k) is None), (ctx, k)
@@ -284,7 +307,19 @@ def test_the_file_says_what_the_app_relies_on(client_db):
     assert s["break_end_after_off"]["status"] == 200
     co = s["clock_out"]["body"]
     assert co["clocked_in"] is False and co["break_source"] == "recorded"
+    # 30 + 20 ended by the staffer; the 16:45 pause clock-out ended is not paid.
     assert co["recorded_break_minutes"] == 50 and co["worked_hours"] == round(8 - 50 / 60, 2)
+    f = s["clock_on_forgotten_pause"]["body"]
+    assert f["on_break"] is True and f["break_since"] == "16:45" and f["break_elapsed_sec"] == 5 * 60
+    # The owner's reads.
+    (strip,) = s["owner_clocked_in_on_break"]["body"]["clocked_in"]
+    assert strip["on_break"] is True and strip["break_since"] == "16:00"
+    (row,) = s["owner_hours_after_out"]["body"]
+    assert row["break_minutes"] == 50 and row["break_source"] == "recorded"
+    assert row["recorded_break_minutes"] == 50
+    assert [(b["start"], b["end"], b["ended_by"], b["counted"]) for b in row["breaks"]] == [
+        ("12:00", "12:30", "staff", True), ("16:00", "16:20", "staff", True),
+        ("16:45", "17:00", "clock_out", False)]
     assert s["owner_get"]["body"]["breaks_live"] is True
     assert fx["pin_header"] == "X-BonBox-Pin"
 

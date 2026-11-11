@@ -102,11 +102,34 @@ function GuestPage({ children }) {
 // shows the html/body the pre-paint chose — paper on an app route, white on
 // every other page — so a cold load never flashes a third colour between the
 // first paint and the page (it was slate-50 on both). Dark unchanged.
+// The staff app (/s/<token>, and every route of the Vagtplan app build) draws
+// on ivory with pine (canvas "Pine, ivory & brass"). Its wait matches, so a
+// cold launch never shows a white page with the blue owner spinner first.
+function isStaffSurface() {
+  try {
+    return import.meta.env.VITE_APP_MODE === "scheduler"
+      || /^\/s\//.test(window.location.pathname || "");
+  } catch {
+    return false;
+  }
+}
+
 function PageLoader() {
   // A restaurant guest's page (/r/<slug>, or one that is mounted) gets the
   // guest wait instead: grey, and only after 600 ms. The blue app spinner
   // showed at ~210 ms on every cold booking load (booking R3, judge A7).
   if (isGuestSurface()) return <GuestSpinner testId="page-loader" />;
+  if (isStaffSurface()) {
+    return (
+      <div data-testid="page-loader" data-surface="staff" className="min-h-screen flex items-center justify-center" style={{ background: "#F6F4EE" }}>
+        <svg className="animate-spin h-7 w-7" viewBox="0 0 24 24" aria-hidden style={{ color: "#0E3B2E" }}>
+          <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none"/>
+          <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+        </svg>
+        <span className="sr-only">…</span>
+      </div>
+    );
+  }
   return (
     <div data-testid="page-loader" className="min-h-screen flex items-center justify-center dark:bg-gray-900">
       <div className="text-center">

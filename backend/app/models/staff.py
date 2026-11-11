@@ -321,9 +321,12 @@ class HoursBreak(Base):
     venue before this existed — no row is ever written and the punch keeps the
     DK break suggestion exactly as before (routers/staff_portal.portal_clock_out).
 
-    How it reaches pay. At clock-out, if live breaks are on and the punch has
-    recorded breaks, their minutes REPLACE the suggestion on
-    HoursLogged.break_minutes, and total_hours = clock span − those minutes.
+    How it reaches pay. At clock-out, if live breaks are on and the staffer
+    ENDED breaks on the punch themselves (Slut pause, ended_by "staff"), their
+    minutes REPLACE the suggestion on HoursLogged.break_minutes, and
+    total_hours = clock span − those minutes. A break that clock-out (or the
+    owner's fix of a forgotten clock-out) had to end has a guessed end: it is
+    kept as evidence, never paid against.
     Every downstream reader (hours list, register, payroll CSV, lønseddel,
     labour %) already reads break_minutes/total_hours, so they all agree
     without a second code path. These rows stay as the evidence: what was
@@ -334,8 +337,8 @@ class HoursBreak(Base):
     instants as owner-local "HH:MM", the way the punch itself is stamped.
     `minutes` is the whole-minute difference of those stamps — the number an
     owner can check by reading "12:00–12:30" — set only once the break ends.
-    A break that ends inside the minute it started (a misclick) is deleted,
-    exactly as a too-short punch is.
+    A break shorter than 60 REAL seconds (a misclick, even one that crosses a
+    minute boundary) is deleted, exactly as a too-short punch is.
 
     One open break per punch is a database rule (ux_hours_breaks_open), so two
     taps of "Start pause" racing each other cannot open two.
@@ -364,7 +367,9 @@ class HoursBreak(Base):
     start_time: Mapped[str] = mapped_column(String(5))
     end_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
     minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    # "staff" (Slut pause) | "clock_out" (still on break at clock-out).
+    # "staff" (Slut pause) | "clock_out" (still on break at clock-out) |
+    # "owner_resolved" (still on break when the owner set a forgotten
+    # clock-out). Only "staff" breaks are ever paid against.
     ended_by: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     # True once this pause was COUNTED in the punch's paid break — stamped by
     # the clock-out (or the owner's forgotten-clock-out fix) that used it.

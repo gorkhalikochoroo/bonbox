@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 import { useConfirm } from "../hooks/useConfirm";
 import GeofenceDial from "../components/GeofenceDial";
-import { nextShiftCountdown } from "../utils/nextShiftCountdown";
+import { nextShiftChip } from "../utils/nextShiftCountdown";
 import { overlapsOwnShift } from "../utils/overlapsOwnShift";
 import { swapDoubleBooks } from "../utils/swapClash";
 import { saveFile } from "../utils/download";
@@ -26,7 +26,7 @@ import "@fontsource/manrope/latin-700.css";
 import "@fontsource/manrope/latin-800.css";
 import { parseServerTime } from "../utils/serverTime";
 import { routeUrl } from "../utils/routeUrl";
-import { MAP_H, mapRequestWidth, mapDpr, mapQuery, mapCacheKey, getCachedMap, setCachedMap, loadMapOnce } from "../utils/venueMapImage";
+import { MAP_H, MAP_PINE_BG, mapRequestWidth, mapDpr, mapQuery, mapCacheKey, getCachedMap, setCachedMap, loadMapOnce } from "../utils/venueMapImage";
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
@@ -1359,13 +1359,18 @@ function useClock(token) {
   // Never sent anywhere, never persisted — it dies with the component.
   const [lastFix, setLastFix] = useState(null);
   const [liveSec, setLiveSec] = useState(null); // live elapsed seconds (ticks 1/s)
+  // Seconds into the running pause — the server's break_elapsed_sec, anchored
+  // on every answer exactly like liveSec. null when not on a pause.
+  const [breakSec, setBreakSec] = useState(null);
 
-  // Snap server state AND the live-second baseline together, so the counter
-  // re-anchors to the server's authoritative elapsed_sec on every poll/punch
-  // and can never drift away — the +1/sec ticker only smooths the gaps.
+  // Snap server state AND the live-second baselines together, so the counters
+  // re-anchor to the server's authoritative elapsed_sec / break_elapsed_sec on
+  // every poll/punch and can never drift away — the +1/sec ticker only
+  // smooths the gaps.
   const applySt = useCallback((data) => {
     setSt(data || null);
     setLiveSec(data?.elapsed_sec ?? null);
+    setBreakSec(data?.on_break ? (data?.break_elapsed_sec ?? 0) : null);
   }, []);
 
   const load = useCallback(async () => {
@@ -1389,7 +1394,10 @@ function useClock(token) {
   const clockedInNow = !!st?.clocked_in;
   useEffect(() => {
     if (!clockedInNow) return;
-    const id = setInterval(() => setLiveSec((s) => (s == null ? s : s + 1)), 1000);
+    const id = setInterval(() => {
+      setLiveSec((s) => (s == null ? s : s + 1));
+      setBreakSec((s) => (s == null ? s : s + 1));
+    }, 1000);
     return () => clearInterval(id);
   }, [clockedInNow]);
 
@@ -1563,7 +1571,7 @@ function useClock(token) {
     return `${ss}s`;
   };
 
-  return { st, busy, err, result, act, breakAct, fmtDur, liveLabel: fmtElapsed(liveSec), liveSec, lastFix };
+  return { st, busy, err, result, act, breakAct, fmtDur, liveLabel: fmtElapsed(liveSec), liveSec, breakSec, lastFix };
 }
 
 // ── Live countdown to the next shift's start. No timer of its own; the parent
@@ -2097,9 +2105,9 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
     ? roleName(nextShiftRoleKey, t)
     : t("portalRoleStaff", "Staff");
 
-  // Countdown chip. The Date.now() read lives inside the pure helper,
-  // recomputed each 15s render — minutes tick, days do not need to.
-  const countdownLabel = nextShiftCountdown(nextShift, t);
+  // Countdown chip: nextShiftChip (utils/nextShiftCountdown) at the chip
+  // itself. Its Date.now() read is recomputed each 15s render — minutes tick,
+  // days do not need to.
 
   // Venue location — the owner sets this on their business profile. The
   // label ("Name, City") names the venue in the geofence hint.
@@ -2454,10 +2462,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             >
               <span aria-hidden className="shrink-0" style={{ width: 6, height: 6, borderRadius: 99, background: BRASS, boxShadow: "0 0 0 3px rgba(200,164,100,0.3)" }} />
               <span className="truncate">
-                {(isToday(nextShift.date)
-                  ? [t("portalToday"), countdownLabel]
-                  : [countdownLabel, fmtDate(nextShift.date, lang)]
-                ).filter(Boolean).join(" · ")}
+                {nextShiftChip(nextShift, t, { today: isToday(nextShift.date), dateLabel: fmtDate(nextShift.date, lang) })}
               </span>
             </span>
           ) : (
@@ -2852,7 +2857,8 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 aria-current={isTodayCell ? "date" : undefined}
                 aria-expanded={cellTappable ? isExpanded : undefined}
               >
-                <span style={{ font: "500 11px/1 var(--font-text)", color: isTodayCell ? SAGE : MUTED }}>{WD[i]}</span>
+                {/* Canvas strip: "man", "tir", "ons" — no full stop. */}
+                <span style={{ font: "500 11px/1 var(--font-text)", color: isTodayCell ? SAGE : MUTED }}>{String(WD[i]).replace(/\.$/, "")}</span>
                 <span
                   className="tabular-nums"
                   style={{
@@ -3038,64 +3044,74 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                                   </span>
                                 );
                               }
-                              // Names are TAPPABLE: the one fact not on screen —
-                              // when else that colleague is on — from data
-                              // already here (teamShifts). This fetches nothing.
+                              // The line is ONE button (canvas Week board: one
+                              // line, "Med Sofie, Oliver, Magnus, Emil +1", cut
+                              // with an ellipsis — never wrapping). A 44 px tap
+                              // target that draws 22 px tall: the padding is
+                              // taken back by negative margins. It opens the one
+                              // fact not on screen — when else each colleague is
+                              // on — from data already here (teamShifts). This
+                              // fetches nothing.
                               const rowKey = fs.id || `${fs.date}-${fs.start_time}`;
-                              const midOf = (m, i) => m.staff_id ?? m.staff_name ?? i;
-                              const openIdx = mates.findIndex((m, i) => openMate === `${rowKey}|${midOf(m, i)}`);
-                              const open = openIdx >= 0 ? mates[openIdx] : null;
+                              const isOpen = openMate === rowKey;
+                              const names = mates.map((m) => firstName(m.staff_name) || m.staff_name).filter(Boolean);
+                              const more = names.length - 4;
+                              const line = `${t("portalWithLabel", "With")} ${names.slice(0, 4).join(", ")}${more > 0 ? ` +${more}` : ""}`;
+                              const panelId = `portal-mates-${rowKey}`;
                               return (
                                 <div style={{ marginTop: 4 }}>
-                                  <div className="flex items-center min-w-0" style={{ gap: 8 }}>
+                                  <button
+                                    type="button"
+                                    data-testid="portal-week-mates"
+                                    onClick={(e) => { e.stopPropagation(); setOpenMate(isOpen ? null : rowKey); }}
+                                    aria-expanded={isOpen}
+                                    aria-controls={panelId}
+                                    className="flex items-center w-full min-w-0 text-left active:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
+                                    style={{ gap: 8, minHeight: 44, padding: "11px 0", margin: "-11px 0", background: "transparent", border: 0, color: ink2 }}
+                                  >
                                     <MateDiscs mates={mates} size={22} overlap={6} cap={4} showOverflow={false} ring={isTodayCell ? "#EAF0EC" : ROW} />
-                                    <span className="min-w-0 flex flex-wrap items-baseline" style={{ columnGap: 4, font: "400 12px/1.4 var(--font-text)", color: ink2 }}>
-                                      <span>{t("portalWithLabel", "With")}</span>
-                                      {mates.slice(0, 3).map((m, mi) => {
-                                        const key = `${rowKey}|${midOf(m, mi)}`;
-                                        const isOpen = openMate === key;
+                                    <span
+                                      className="min-w-0"
+                                      style={{ font: "400 12px/1.4 var(--font-text)", color: isOpen ? INK : ink2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}
+                                    >
+                                      {line}
+                                    </span>
+                                  </button>
+                                  {isOpen && (
+                                    <div id={panelId} data-testid="portal-week-mates-panel" style={{ marginTop: 6, paddingLeft: 8, borderLeft: `2px solid ${LINE}`, font: "400 12px/1.5 var(--font-text)", color: ink2 }}>
+                                      {mates.map((mt, mi) => {
+                                        // Their OTHER shifts, from data already on
+                                        // the client. teamShifts starts at today
+                                        // and runs 21 days, so this is "what the
+                                        // rota shows" — never a claim about
+                                        // anything outside that window.
+                                        const nm = firstName(mt.staff_name) || mt.staff_name;
+                                        const others = (teamShifts || [])
+                                          .filter((x) => (x.staff_id ?? x.staff_name) === (mt.staff_id ?? mt.staff_name))
+                                          .filter((x) => x.date !== fs.date)
+                                          .sort((a, b) => a.date.localeCompare(b.date))
+                                          .slice(0, 3);
                                         return (
-                                          <button
-                                            key={key}
-                                            type="button"
-                                            onClick={(e) => { e.stopPropagation(); setOpenMate(isOpen ? null : key); }}
-                                            aria-expanded={isOpen}
-                                            className="underline underline-offset-2 decoration-dotted active:opacity-60"
-                                            style={{ minHeight: 0, color: isOpen ? INK : ink2 }}
-                                          >
-                                            {firstName(m.staff_name) || m.staff_name}
-                                            {mi < Math.min(mates.length, 3) - 1 ? "," : ""}
-                                          </button>
+                                          <div key={`${mt.staff_id ?? mt.staff_name ?? mi}`} style={{ marginTop: mi ? 6 : 0 }}>
+                                            {others.length === 0 ? (
+                                              <div>{t("portalMateNoOther", "{name} has no other shift on the rota.", { name: nm })}</div>
+                                            ) : (
+                                              <>
+                                                <div style={{ fontWeight: 600, color: INK }}>{nm}</div>
+                                                {others.map((x, xi) => (
+                                                  <div key={`${x.date}-${xi}`} className="tabular-nums">
+                                                    {fmtWeekdayDay(x.date, lang)}
+                                                    {" · "}{x.start_time}–{x.end_time}
+                                                    {x.role ? ` · ${roleName(x.role, t)}` : ""}
+                                                  </div>
+                                                ))}
+                                              </>
+                                            )}
+                                          </div>
                                         );
                                       })}
-                                      {mates.length > 3 && <span>+{mates.length - 3}</span>}
-                                    </span>
-                                  </div>
-                                  {open && (() => {
-                                    // Their OTHER shifts, from data already on
-                                    // the client. teamShifts starts at today and
-                                    // runs 21 days, so this is "what the rota
-                                    // shows" — never a claim about anything
-                                    // outside that window.
-                                    const others = (teamShifts || [])
-                                      .filter((x) => (x.staff_id ?? x.staff_name) === (open.staff_id ?? open.staff_name))
-                                      .filter((x) => x.date !== fs.date)
-                                      .sort((a, b) => a.date.localeCompare(b.date))
-                                      .slice(0, 3);
-                                    return (
-                                      <div style={{ marginTop: 6, paddingLeft: 8, borderLeft: `2px solid ${LINE}`, font: "400 12px/1.5 var(--font-text)", color: ink2 }}>
-                                        {others.length === 0 ? (
-                                          <div>{t("portalMateNoOther", "{name} has no other shift on the rota.", { name: firstName(open.staff_name) || open.staff_name })}</div>
-                                        ) : others.map((x, xi) => (
-                                          <div key={`${x.date}-${xi}`} className="tabular-nums">
-                                            {fmtWeekdayDay(x.date, lang)}
-                                            {" · "}{x.start_time}–{x.end_time}
-                                            {x.role ? ` · ${roleName(x.role, t)}` : ""}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    );
-                                  })()}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })()}
@@ -3316,6 +3332,8 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
  */
 function LiveShiftCard({ clock, live, menuBtn }) {
   const { t, lang } = useLanguage();
+  const confirmOut = useConfirm();
+  const shortPhone = useShortPhone();
   const st = clock.st || {};
   const shift = live?.shift || null;
   const elapsed = clock.liveSec ?? st.elapsed_sec ?? 0;
@@ -3357,11 +3375,52 @@ function LiveShiftCard({ clock, live, menuBtn }) {
       : taken > 0 && planned > 0 ? t("portalBreakSuffixTaken", "{m} taken", { m: dur(taken) })
         : planned > 0 && taken === 0 ? t("portalBreakSuffixDue", "due") : null;
 
-  // Ring geometry (viewBox 200, r 88): the arc and its end knob.
+  // The pause is OPTIONAL. "Start pause" leads (brass, first) only while a
+  // planned pause is still to be taken with more than a quarter of an hour of
+  // the shift left — or while one is running ("Slut pause"). Otherwise Stempl
+  // ud is the card's brass action, first in the row, and Start pause stays
+  // available as a quiet ghost button.
+  const pausePending = onBreak
+    || (planned > 0 && taken < planned && remainMin != null && remainMin > 15);
+  const breakLeads = showBreakBtn && pausePending;
+
+  // On a pause the ring PAUSES: the big number is the pause's own time (the
+  // server's break_elapsed_sec, ticking), the line under it the whole shift,
+  // and the arc turns sage. Off a pause it is the shift, as always.
+  const breakSec = onBreak ? (clock.breakSec ?? st.break_elapsed_sec ?? 0) : null;
+  const ringSub = onBreak
+    ? t("portalLiveBreakSub", "Total on shift {d}", { d: dur(Math.floor(elapsed / 60)) })
+    : sub;
+  const ringAria = onBreak
+    ? t("portalLiveRingBreakAria", "On break for {b}. On shift for {e} in total.", {
+      b: dur(Math.floor((breakSec || 0) / 60)), e: dur(Math.floor(elapsed / 60)),
+    })
+    : t("portalLiveRingAria", "On shift for {e}. {r}.", { e: dur(Math.floor(elapsed / 60)), r: sub });
+
+  // Ring geometry (viewBox 200, r 88): the arc and its end knob. Size as the
+  // canvas: 184, 168 on a narrow phone (< 350 px: 51vw lands between), 150
+  // when the screen is short (under 700 px tall).
   const C = 2 * Math.PI * 88;
   const angle = (-90 + 360 * p) * (Math.PI / 180);
   const knob = { x: 100 + 88 * Math.cos(angle), y: 100 + 88 * Math.sin(angle) };
-  const ring = "min(184px, 48vw, 22.5vh)";
+  const ring = shortPhone ? "150px" : "min(184px, max(168px, 51vw))";
+
+  // Stempl ud during a pause asks first: clock-out ends the pause, and a
+  // pause that clock-out ends is not counted as a measured one (its end is a
+  // guess) — the manager sees it. Never a silent tap.
+  const clockOut = async () => {
+    if (onBreak) {
+      const ok = await confirmOut({
+        title: breakAt
+          ? t("portalClockOutOnBreakTitle", "On a break since {t} — end it and clock out?", { t: breakAt })
+          : t("portalClockOutOnBreakTitleNoTime", "You're on a break — end it and clock out?"),
+        message: t("portalClockOutOnBreakBody", "The break ends when you clock out. Your manager sees it with your hours."),
+        confirmLabel: t("portalClockOutCta"),
+      });
+      if (ok !== true) return;
+    }
+    clock.act("out");
+  };
 
   const chip = onBreak
     ? (breakAt ? t("portalLiveOnBreakSince", "On break since {t}", { t: breakAt }) : t("portalLiveOnBreak", "On break"))
@@ -3396,7 +3455,7 @@ function LiveShiftCard({ clock, live, menuBtn }) {
         <div
           role="img"
           data-testid="portal-live-ring"
-          aria-label={t("portalLiveRingAria", "On shift for {e}. {r}.", { e: dur(Math.floor(elapsed / 60)), r: sub })}
+          aria-label={ringAria}
           className="relative"
           style={{ width: ring, height: ring }}
         >
@@ -3413,7 +3472,8 @@ function LiveShiftCard({ clock, live, menuBtn }) {
             {totalSec && p > 0 && (
               <circle
                 data-testid="portal-live-arc"
-                cx="100" cy="100" r="88" fill="none" stroke={BRASS} strokeWidth="12" strokeLinecap="round"
+                data-paused={onBreak ? "true" : undefined}
+                cx="100" cy="100" r="88" fill="none" stroke={onBreak ? SAGE : BRASS} strokeWidth="12" strokeLinecap="round"
                 strokeDasharray={`${(p * C).toFixed(1)} ${C.toFixed(1)}`}
                 transform="rotate(-90 100 100)"
               />
@@ -3429,9 +3489,9 @@ function LiveShiftCard({ clock, live, menuBtn }) {
               data-testid="portal-live-elapsed"
               style={{ fontFamily: MANROPE, fontWeight: 700, fontSize: `calc(${ring} * 0.24)`, lineHeight: 1, letterSpacing: "-0.03em", color: CREAM }}
             >
-              {fmtClockHM(elapsed)}
+              {fmtClockHM(onBreak ? breakSec : elapsed)}
             </span>
-            <span className="whitespace-nowrap" style={{ font: "400 12px/1.2 var(--font-text)", color: SAGE }}>{sub}</span>
+            <span className="whitespace-nowrap" data-testid="portal-live-sub" style={{ font: "400 12px/1.2 var(--font-text)", color: SAGE }}>{ringSub}</span>
           </div>
         </div>
       </div>
@@ -3458,10 +3518,11 @@ function LiveShiftCard({ clock, live, menuBtn }) {
       </div>
 
       <div className="flex" style={{ marginTop: 16, gap: 8 }}>
-        {showBreakBtn && (
+        {breakLeads && (
           <button
             type="button"
             data-testid="portal-break-btn"
+            data-primary="true"
             disabled={clock.busy}
             onClick={() => clock.breakAct(onBreak ? "end" : "start")}
             className="inline-flex items-center justify-center active:scale-[0.98] transition disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
@@ -3474,15 +3535,30 @@ function LiveShiftCard({ clock, live, menuBtn }) {
         <button
           type="button"
           data-testid="portal-clock-out"
+          data-primary={breakLeads ? undefined : "true"}
           disabled={clock.busy}
-          onClick={() => clock.act("out")}
+          onClick={clockOut}
           className="inline-flex items-center justify-center active:scale-[0.98] transition disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-          // With no pause button, Stempl ud is the card's one action: brass.
-          style={showBreakBtn ? ghost : brass}
+          // Unless a pause is due (or running), Stempl ud is the card's
+          // brass action — the pause is optional, never in the way.
+          style={breakLeads ? ghost : brass}
         >
           <LogOut size={16} strokeWidth={2} aria-hidden className="shrink-0" />
           {t("portalClockOutCta")}
         </button>
+        {showBreakBtn && !breakLeads && (
+          <button
+            type="button"
+            data-testid="portal-break-btn"
+            disabled={clock.busy}
+            onClick={() => clock.breakAct("start")}
+            className="inline-flex items-center justify-center active:scale-[0.98] transition disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={ghost}
+          >
+            <Coffee size={16} strokeWidth={2} aria-hidden className="shrink-0" />
+            <span className="truncate">{t("portalBreakStart", "Start break")}</span>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -3516,7 +3592,7 @@ function VenueMapImage({ token, venueName, mapV }) {
     const px = el?.clientWidth || 0;
     if (px > 0) setW(mapRequestWidth(px));
   }, []);
-  const key = mapCacheKey(`staff:${token}`, w, dpr, mapV);
+  const key = mapCacheKey(`staff:${token}`, w, dpr, mapV, "pine");
   const entry = getCachedMap(key);
   const [, rerender] = useState(0);
   const [failedKey, setFailedKey] = useState(null);
@@ -3526,7 +3602,7 @@ function VenueMapImage({ token, venueName, mapV }) {
     if (!token || getCachedMap(key)) return undefined;
     let gone = false;
     // Kept even if the card unmounted meanwhile: the next mount paints it.
-    loadMapOnce(key, () => portalApi.get(`/portal/${token}/venue-map?${mapQuery(w, dpr, mapV)}`, { responseType: "blob" }))
+    loadMapOnce(key, () => portalApi.get(`/portal/${token}/venue-map?${mapQuery(w, dpr, mapV, "pine")}`, { responseType: "blob" }))
       .then(() => { if (!gone) rerender((n) => n + 1); })
       .catch(() => { if (!gone) setFailedKey(key); /* no map is the honest fallback */ });
     return () => { gone = true; };
@@ -3537,8 +3613,9 @@ function VenueMapImage({ token, venueName, mapV }) {
       ref={boxRef}
       data-testid="portal-venue-map"
       // Canvas: 14 below the meta line, radius 16. The server draws it 96
-      // tall (MAP_H) — the block keeps that height from the first paint.
-      style={{ marginTop: 14, height: MAP_H, borderRadius: 16, overflow: "hidden", boxShadow: "0 0 0 1px rgba(243,239,228,.14)", background: "#EFEDE4" }}
+      // tall (MAP_H) — the block keeps that height from the first paint, in
+      // the pine map's own ground, so nothing light flashes before it loads.
+      style={{ marginTop: 14, height: MAP_H, borderRadius: 16, overflow: "hidden", boxShadow: "0 0 0 1px rgba(243,239,228,.14)", background: MAP_PINE_BG }}
     >
       {entry?.url && (
         <img
@@ -3609,7 +3686,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
     row({
       icon: CalendarPlus,
       label: t("portalAddToCalendar", "Add to calendar"),
-      hint: calTapped ? t("portalCalendarTappedHint", "If you subscribed, your calendar already updates itself") : t("portalSyncCalendarHint"),
+      hint: calTapped ? t("portalCalendarTappedHint", "If you subscribed, your calendar already updates itself") : t("portalCalendarRowHint", "Syncs automatically"),
       onClick: onCalendar,
       testId: "portal-menu-calendar",
     }),
@@ -7211,24 +7288,33 @@ const V3_BAR_H = 68;
 // screen: 323) the home tightens: the date strip drops its gaps and the
 // card's confirmed state says "Bekræftet" instead of "Vagten er bekræftet".
 const NARROW_PHONE_Q = "(max-width: 359px)";
-function useNarrowPhone() {
+// Under 700 CSS px of height (canvas: usable height < 700) the live ring
+// drops to 150 px so the card's actions stay above the tab bar.
+const SHORT_PHONE_Q = "(max-height: 700px)";
+function useMediaMatch(query) {
   const read = () => {
-    try { return !!window.matchMedia?.(NARROW_PHONE_Q)?.matches; } catch { return false; }
+    try { return !!window.matchMedia?.(query)?.matches; } catch { return false; }
   };
-  const [narrow, setNarrow] = useState(read);
+  const [match, setMatch] = useState(read);
   useEffect(() => {
     let mql = null;
-    try { mql = window.matchMedia?.(NARROW_PHONE_Q) || null; } catch { mql = null; }
+    try { mql = window.matchMedia?.(query) || null; } catch { mql = null; }
     if (!mql) return undefined;
-    const on = () => setNarrow(!!mql.matches);
+    const on = () => setMatch(!!mql.matches);
     if (mql.addEventListener) mql.addEventListener("change", on);
     else mql.addListener?.(on);
     return () => {
       if (mql.removeEventListener) mql.removeEventListener("change", on);
       else mql.removeListener?.(on);
     };
-  }, []);
-  return narrow;
+  }, [query]);
+  return match;
+}
+function useNarrowPhone() {
+  return useMediaMatch(NARROW_PHONE_Q);
+}
+function useShortPhone() {
+  return useMediaMatch(SHORT_PHONE_Q);
 }
 
 // v3Label / V3Icon: the canvas bar's own words and icons ("Fravær", "Byt",

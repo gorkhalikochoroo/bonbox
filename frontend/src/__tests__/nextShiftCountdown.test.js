@@ -11,7 +11,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { nextShiftCountdown } from "../utils/nextShiftCountdown";
+import { nextShiftChip, nextShiftCountdown } from "../utils/nextShiftCountdown";
+import { da } from "../i18n/da.js";
+import { en } from "../i18n/en.js";
 
 // Mirrors the real t(): returns the template with {vars} substituted, so the
 // assertions read the shipped copy rather than a key.
@@ -91,5 +93,51 @@ describe("nextShiftCountdown", () => {
 
   it("defaults a missing start time to midnight rather than failing", () => {
     expect(nextShiftCountdown({ date: "2026-08-05" }, t)).toBe("Tomorrow");
+  });
+});
+
+// The home card's chip, in the owner's canvas words — read from the REAL
+// da/en dictionaries, so a reworded key is caught here.
+const dict = (table) => (key, vars) => {
+  let out = table[key] ?? key;
+  for (const [k, v] of Object.entries(vars || {})) out = out.replaceAll(`{${k}}`, v);
+  return out;
+};
+const tda = dict(da);
+const ten = dict(en);
+
+describe("nextShiftChip (canvas copy)", () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("today, later: 'I dag · om 6 t 27 min' — lower-case 'om' mid-chip", () => {
+    expect(nextShiftChip(shiftAt("2026-08-03T15:27"), tda, { today: true })).toBe("I dag · om 6 t 27 min");
+    expect(nextShiftChip(shiftAt("2026-08-03T15:27"), ten, { today: true })).toBe("Today · in 6 h 27 min");
+  });
+
+  it("under an hour away: 'Starter om 12 min' (the Stempl ind state), today or not", () => {
+    expect(nextShiftChip(shiftAt("2026-08-03T09:12"), tda, { today: true })).toBe("Starter om 12 min");
+    expect(nextShiftChip(shiftAt("2026-08-03T09:12"), ten, { today: true })).toBe("Starts in 12 min");
+    expect(nextShiftChip(shiftAt("2026-08-03T09:59"), tda, { today: true })).toBe("Starter om 59 min");
+  });
+
+  it("never says 'om 0 min': the last minute rounds up", () => {
+    vi.setSystemTime(new Date("2026-08-03T08:59:30"));
+    expect(nextShiftChip(shiftAt("2026-08-03T09:00"), tda, { today: true })).toBe("Starter om 1 min");
+  });
+
+  it("today, started: 'I dag · i gang'", () => {
+    expect(nextShiftChip(shiftAt("2026-08-03T08:00"), tda, { today: true })).toBe("I dag · i gang");
+    expect(nextShiftChip(shiftAt("2026-08-03T08:00"), ten, { today: true })).toBe("Today · on now");
+  });
+
+  it("another day keeps the countdown first, then the date", () => {
+    expect(nextShiftChip(shiftAt("2026-08-06T16:00"), tda, { today: false, dateLabel: "tor. 6. aug." }))
+      .toBe("Om 3 dage · tor. 6. aug.");
+  });
+
+  it("no shift / an unreadable date: nothing", () => {
+    expect(nextShiftChip(null, tda)).toBeNull();
+    expect(nextShiftChip({ date: "x", start_time: "10:00" }, tda)).toBeNull();
   });
 });

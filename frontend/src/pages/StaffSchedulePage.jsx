@@ -893,7 +893,7 @@ function GridSkeleton({ t }) {
 // Live "clocked in now" strip — who's currently on the clock (open punches),
 // auto-updating ~30s. Staff self-clock from their portal → they appear here in
 // near-real-time. Dark gray-900 chips = "in use", same language as the floor.
-function ClockedInStrip() {
+export function ClockedInStrip() {
   const { t, lang } = useLanguage();
   // Polled, so the third state shows up in a particular way here: a failed
   // poll used to be swallowed whole, and the strip went on pulsing its live
@@ -979,6 +979,15 @@ function ClockedInStrip() {
             {r.elapsed_min != null && (
               <span className="text-[11px] font-semibold tabular-nums opacity-90">
                 {fmtDur(r.elapsed_min)}
+              </span>
+            )}
+            {/* Live pauses (Migration 086): on a pause right now, since when
+                (owner-local "HH:MM" from the server). */}
+            {r.on_break && (
+              <span className="text-[11px] font-medium opacity-90 whitespace-nowrap" data-testid="clocked-in-on-break">
+                · {r.break_since
+                  ? t("schedOnBreakSince", "on break since {t}", { t: fmtClock(r.break_since, lang) })
+                  : t("schedOnBreak", "on break")}
               </span>
             )}
             {r.unverified && (
@@ -1297,7 +1306,7 @@ export function ClockGeofenceSettings({ className = "" }) {
           </span>
         </label>
         <span className="pl-6 text-[12px] text-gray-500 dark:text-gray-400 leading-snug">
-          {t("schedBreaksLiveNote", "Staff tap Start break and End break in the app, so breaks are logged as they happen.")}
+          {t("schedBreaksLiveNote", "Staff tap Start break and End break in the app, so breaks are logged as they happen. A break they record replaces the automatic 45-minute deduction in their pay.")}
         </span>
       </div>
       {msg && <span className="w-full text-[12px] text-red-500 dark:text-red-400">{msg}</span>}

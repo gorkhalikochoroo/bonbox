@@ -8,7 +8,10 @@ Owner opt-in (clock settings → breaks_live). What this pins, payroll first:
      recorded, or OFF (even with pauses recorded earlier): the DK suggestion,
      exactly as before. (The no-change proof for venues that never turn it on
      is tests/test_breaks_live_off_parity.py, against a pre-feature golden.)
-  2. Clocking out mid-pause ends the pause AT the clock-out.
+  2. Clocking out mid-pause ends the pause AT the clock-out — as evidence,
+     never paid against (its end is a guess): only pauses the staffer ended
+     pay; with none, the DK rule. A forgotten pause can never make a shift
+     0.0 h. Under 60 real seconds is a misclick, even across a minute line.
   3. The endpoints: off → 403, not clocked in → 409, double start is
      idempotent, end without start → 409, a racing second start cannot open a
      second pause (database index), PIN-protected links need the proof.
@@ -239,13 +242,46 @@ def test_minutes_are_the_stamps_the_owner_reads(client, db):
 # ── 2. clock-out during a pause ───────────────────────────────────────────
 
 def test_clock_out_mid_pause_ends_the_pause_at_clock_out(client, db):
+    """The pause ends AT the clock-out and is kept as evidence — but its end
+    is a guess, so it is NOT paid against: DK rule, applied False."""
     _u, m = _seed(db)
     out = _shift(client, _at(9, 0), [(_at(16, 0), None)], _at(17, 0))
     (b,) = _breaks(db, m)
-    assert (b.end_time, b.minutes, b.ended_by) == ("17:00", 60, "clock_out")
+    assert (b.end_time, b.minutes, b.ended_by, b.applied) == ("17:00", 60, "clock_out", False)
     row = _row(db, m)
-    assert (row.break_minutes, float(row.total_hours)) == (60, 7.0)
+    assert (row.break_minutes, float(row.total_hours)) == (45, 7.25)   # DK, not 60
+    assert float(row.earned) == 1087.5
     assert out["on_break"] is False and out["clocked_in"] is False
+    assert out["break_source"] is None and out["recorded_break_minutes"] is None
+    # The owner sees it, marked as ended by the clock-out, not counted.
+    h = client.get("/api/staff/hours?from=2026-06-30&to=2026-06-30").json()[0]
+    assert h["breaks"] == [{"start": "16:00", "end": "17:00", "minutes": 60,
+                            "ended_by": "clock_out", "counted": False}]
+    assert h["recorded_break_minutes"] is None and h["break_source"] is None
+
+
+def test_clock_out_on_a_forgotten_pause_never_saves_a_zero_hour_row(client, db):
+    """Start pause at 09:00:40, never ended, clock-out at 17:00. Paying the
+    pause would make 8 h of work 0.0 h and 0 kr — it pays the DK rule."""
+    _u, m = _seed(db)
+    out = _shift(client, _at(9, 0), [(_at(9, 0, 40), None)], _at(17, 0))
+    row = _row(db, m)
+    assert float(row.total_hours) > 0
+    assert (row.break_minutes, float(row.total_hours), float(row.earned)) == (45, 7.25, 1087.5)
+    assert out["worked_hours"] == 7.25
+    (b,) = _breaks(db, m)
+    assert (b.ended_by, b.applied, b.minutes) == ("clock_out", False, 480)
+
+
+def test_clock_out_mid_pause_pays_only_the_pauses_the_staffer_ended(client, db):
+    _u, m = _seed(db)
+    out = _shift(client, _at(9, 0), [(_at(12, 0), _at(12, 20)), (_at(16, 30), None)], _at(17, 0))
+    row = _row(db, m)
+    assert (row.break_minutes, float(row.total_hours)) == (20, round(8 - 20 / 60, 2))
+    assert out["break_source"] == "recorded" and out["recorded_break_minutes"] == 20
+    a, b = _breaks(db, m)
+    assert (a.ended_by, a.applied) == ("staff", True)
+    assert (b.ended_by, b.applied) == ("clock_out", False)
 
 
 def test_clock_out_mid_pause_with_setting_off_still_ends_it_but_pays_dk(client, db):
@@ -346,6 +382,30 @@ def test_a_running_pause_can_be_ended_after_the_owner_switched_off(client, db):
     # …but a new one cannot start.
     r = _post(client, "clock/break/start", _at(13, 0))
     assert r.status_code == 403
+
+
+def test_two_quick_taps_across_a_minute_boundary_are_a_misclick(client, db):
+    """12:00:59 → 12:01:01 is two seconds, not a 1-minute pause that would
+    replace the 45-minute DK deduction (~44 minutes of pay)."""
+    _u, m = _seed(db)
+    _post(client, "clock-in", _at(9, 0))
+    _post(client, "clock/break/start", _at(12, 0, 59))
+    r = _post(client, "clock/break/end", _at(12, 1, 1)).json()
+    assert r["break_discarded"] is True and r["break_minutes"] == 0
+    assert _breaks(db, m) == []
+    _post(client, "clock-out", _at(17, 0))
+    row = _row(db, m)
+    assert (row.break_minutes, float(row.total_hours), float(row.earned)) == (45, 7.25, 1087.5)
+
+
+def test_a_real_minute_across_the_boundary_counts_the_stamps(client, db):
+    """61 real seconds (12:00:59 → 12:02:00) is a pause; it counts the
+    stamps the owner reads, 12:00–12:02 = 2 minutes."""
+    _u, m = _seed(db)
+    _post(client, "clock-in", _at(9, 0))
+    _post(client, "clock/break/start", _at(12, 0, 59))
+    r = _post(client, "clock/break/end", _at(12, 2, 0)).json()
+    assert r.get("break_discarded") is None and r["break_minutes"] == 2
 
 
 def test_misclick_pause_is_discarded(client, db):
@@ -451,7 +511,9 @@ def test_owner_views_and_exports_show_the_recorded_pause(client, db):
     assert h[0]["break_minutes"] == 30 and h[0]["total_hours"] == 7.5
     assert h[0]["breaks"] == [{"start": "12:00", "end": "12:30", "minutes": 30,
                                "ended_by": "staff", "counted": True}]
-    assert h[0]["recorded_break_minutes"] == 30 and h[0]["break_source"] == "recorded"
+    # Counted — and on an 8 h shift 30 is below the DK 45, so it is flagged
+    # for the owner to look at ("recorded_short"), not hidden.
+    assert h[0]["recorded_break_minutes"] == 30 and h[0]["break_source"] == "recorded_short"
 
     csv = client.get("/api/staff/time-registration/export.csv?from=2026-06-30&to=2026-06-30")
     assert csv.status_code == 200
@@ -502,10 +564,91 @@ def test_owner_forgotten_clock_out_with_a_pause_still_running_keeps_dk(client, d
         "staff_id": str(m.id), "date": str(TUE), "action": "clock_out", "end_time": "17:00"})
     assert r.status_code == 200, r.text
     assert r.json()["break_minutes"] == 45                 # end unknown → no guess
+    # The running pause is closed at the owner's end — evidence, not counted —
+    # so it is not left open forever on a closed punch.
     (b,) = _breaks(db, m)
-    assert b.ended_at is None                               # shown to the owner as open
+    assert (b.end_time, b.minutes, b.ended_by, b.applied) == ("17:00", 300, "owner_resolved", False)
+    assert b.ended_at is not None
     h = client.get("/api/staff/hours?from=2026-06-30&to=2026-06-30").json()[0]
-    assert h["breaks"][0]["end"] is None and h["recorded_break_minutes"] is None
+    assert h["breaks"] == [{"start": "12:00", "end": "17:00", "minutes": 300,
+                            "ended_by": "owner_resolved", "counted": False}]
+    assert h["recorded_break_minutes"] is None and h["break_source"] is None
+    # Nothing is running any more: the staffer's next punch starts clean.
+    assert client.get("/api/portal/tok/clock").json()["on_break"] is False
+
+
+def test_owner_forgotten_clock_out_pause_after_the_owners_end_is_kept_at_zero(client, db):
+    _u, m = _seed(db)
+    _post(client, "clock-in", _at(9, 0))
+    _post(client, "clock/break/start", _at(18, 0))
+    _NOW["dt"] = _at(20, 0)
+    r = client.post("/api/staff/hours/resolve", json={
+        "staff_id": str(m.id), "date": str(TUE), "action": "clock_out", "end_time": "17:00"})
+    assert r.status_code == 200, r.text
+    (b,) = _breaks(db, m)
+    assert (b.end_time, b.minutes, b.ended_by, b.applied) == ("18:00", 0, "owner_resolved", False)
+
+
+def test_owner_moved_start_past_a_recorded_pause_does_not_cut_it_twice(client, db):
+    """Punch 09:00, pause 09:10–09:50; the owner fixes the forgotten clock-out
+    as 10:00–17:00. That pause is inside the hour the owner already removed:
+    deducting it again would cut the same 40 minutes twice → DK rule."""
+    _u, m = _seed(db)
+    _post(client, "clock-in", _at(9, 0))
+    _post(client, "clock/break/start", _at(9, 10))
+    _post(client, "clock/break/end", _at(9, 50))
+    _NOW["dt"] = _at(20, 0)
+    r = client.post("/api/staff/hours/resolve", json={
+        "staff_id": str(m.id), "date": str(TUE), "action": "clock_out",
+        "start_time": "10:00", "end_time": "17:00"})
+    assert r.status_code == 200, r.text
+    assert (r.json()["break_minutes"], r.json()["total_hours"]) == (45, 6.25)
+    assert _breaks(db, m)[0].applied is False
+
+
+def test_owner_moved_start_short_shift_loses_no_pay_to_a_removed_pause(client, db):
+    _u, m = _seed(db)
+    _post(client, "clock-in", _at(9, 0))
+    _post(client, "clock/break/start", _at(9, 10))
+    _post(client, "clock/break/end", _at(9, 50))
+    _NOW["dt"] = _at(20, 0)
+    r = client.post("/api/staff/hours/resolve", json={
+        "staff_id": str(m.id), "date": str(TUE), "action": "clock_out",
+        "start_time": "10:00", "end_time": "15:00"})
+    assert r.status_code == 200, r.text
+    assert (r.json()["break_minutes"], r.json()["total_hours"]) == (0, 5.0)
+
+
+def test_owner_moved_start_before_the_pause_still_pays_it(client, db):
+    """A start moved only a little (08:58 → 09:00) keeps the pause inside."""
+    _u, m = _seed(db)
+    _post(client, "clock-in", _at(8, 58))
+    _post(client, "clock/break/start", _at(12, 0))
+    _post(client, "clock/break/end", _at(12, 30))
+    _NOW["dt"] = _at(20, 0)
+    r = client.post("/api/staff/hours/resolve", json={
+        "staff_id": str(m.id), "date": str(TUE), "action": "clock_out",
+        "start_time": "09:00", "end_time": "17:00"})
+    assert r.status_code == 200, r.text
+    assert (r.json()["break_minutes"], r.json()["total_hours"]) == (30, 7.5)
+    assert _breaks(db, m)[0].applied is True
+
+
+def test_owner_hours_flag_a_recorded_pause_shorter_than_the_dk_rule(client, db):
+    """A 10-minute pause on an 8-hour shift pays 35 minutes more than the DK
+    rule: the row says "recorded_short" so the owner can look."""
+    _u, m = _seed(db)
+    _shift(client, _at(9, 0), [(_at(12, 0), _at(12, 10))], _at(17, 0))
+    h = client.get("/api/staff/hours?from=2026-06-30&to=2026-06-30").json()[0]
+    assert h["break_minutes"] == 10 and h["break_source"] == "recorded_short"
+    assert h["recorded_break_minutes"] == 10
+
+
+def test_short_shift_recorded_pause_is_not_flagged(client, db):
+    _u, m = _seed(db)
+    _shift(client, _at(9, 0), [(_at(11, 0), _at(11, 10))], _at(13, 0))
+    h = client.get("/api/staff/hours?from=2026-06-30&to=2026-06-30").json()[0]
+    assert h["break_source"] == "recorded"
 
 
 def test_owner_forgotten_clock_out_owner_break_wins(client, db):
@@ -571,6 +714,46 @@ def test_garbage_settings_blob_fails_closed(client, db):
         assert _post(client, "clock/break/start", _at(12, 0)).status_code == 403
         _post(client, "clock-out", _at(17, 0))
         db.query(HoursLogged).delete(); db.commit()
+
+
+# ── 5b. the lock order is real on Postgres ────────────────────────────────
+
+def test_the_three_locking_reads_compile_to_for_update_on_postgres(db, monkeypatch):
+    """"Start pause" racing "Stempl ud" serialises on Postgres row locks
+    (punch first, then its pause). SQLite ignores FOR UPDATE, so no race test
+    above can see a refactor that drops it — compile the three reads for the
+    Postgres dialect and look."""
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.orm import Query
+
+    from app.routers.staff_portal import _open_punch
+    from app.services import live_breaks as lb
+
+    seen = []
+
+    def _capture(self, *a, **kw):
+        seen.append(str(self.statement.compile(dialect=postgresql.dialect())))
+        return [] if _capture.many else None
+
+    _u, m = _seed(db)
+    hid = uuid.uuid4()
+    monkeypatch.setattr(Query, "first", lambda self: (_capture.__setattr__("many", False), _capture(self))[1])
+    _open_punch(db, m, for_update=True)
+    lb.open_break(db, hid, for_update=True)
+    monkeypatch.setattr(Query, "all", lambda self: (_capture.__setattr__("many", True), _capture(self))[1])
+    lb.close_all_open(db, hid, _at(17, 0), "clock_out")
+    monkeypatch.undo()
+
+    assert len(seen) == 3, seen
+    for sql in seen:
+        assert "FOR UPDATE" in sql, sql
+    # …and the plain reads do not lock.
+    seen.clear()
+    monkeypatch.setattr(Query, "first", lambda self: (_capture.__setattr__("many", False), _capture(self))[1])
+    _open_punch(db, m)
+    lb.open_break(db, hid)
+    monkeypatch.undo()
+    assert len(seen) == 2 and all("FOR UPDATE" not in q for q in seen), seen
 
 
 # ── 6. migration 086 ──────────────────────────────────────────────────────

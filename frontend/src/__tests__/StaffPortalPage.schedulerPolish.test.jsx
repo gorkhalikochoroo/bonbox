@@ -220,9 +220,12 @@ describe("One Danish weekday style", () => {
     mount("da");
     await waitFor(() => expect(document.body.textContent).toContain("11:00–20:00"));
     const text = document.body.textContent;
-    expect(text).toContain("tir.");
+    // The strip prints the canvas's bare "man", "tir", "ons" (no full stop);
+    // its accessible names and the dated lines keep the "tir."-style form.
+    expect(document.querySelector('[aria-label^="tir. "]')).not.toBeNull();
     expect(text).toContain("tor.");
     expect(text).not.toMatch(/tirs\.|tors\.|\bden \d/);
+    expect(document.body.innerHTML).not.toMatch(/aria-label="(tirs|tors)\./);
   });
 });
 

@@ -3837,7 +3837,50 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                     {entry.break_minutes > 0 && (
                       <>
                         <span aria-hidden="true" className="hidden sm:inline text-gray-300 dark:text-gray-600">|</span>
-                        <span>{t("shpMinBreak", "{count}min break").replace("{count}", entry.break_minutes)}</span>
+                        <span>
+                          {t("shpMinBreak", "{count}min break").replace("{count}", entry.break_minutes)}
+                          {/* Live pauses (Migration 086): only on a row that HAS
+                              recorded pauses — say whether the paid break is
+                              what was measured or the DK suggestion. */}
+                          {Array.isArray(entry.breaks) && entry.breaks.length > 0 && (
+                            entry.break_source === "recorded" || entry.break_source === "recorded_short"
+                              ? <span data-testid="hours-break-source"> · {t("shpBreakMeasured", "measured")}</span>
+                              : <span data-testid="hours-break-source"> · {t("shpBreakSuggested", "suggested")}</span>
+                          )}
+                          {entry.break_source === "recorded_short" && (
+                            <span className="text-amber-600 dark:text-amber-400" data-testid="hours-break-short"> · {t("shpBreakShort", "below the suggestion")}</span>
+                          )}
+                        </span>
+                      </>
+                    )}
+                    {/* The pauses themselves, as the staffer recorded them:
+                        "12:00–12:30 · målt". One that the clock-out (or your
+                        fix of a forgotten clock-out) had to end is not a
+                        measurement — it is marked for a look, never paid. */}
+                    {Array.isArray(entry.breaks) && entry.breaks.length > 0 && (
+                      <>
+                        <span aria-hidden="true" className="hidden sm:inline text-gray-300 dark:text-gray-600">|</span>
+                        <span className="inline-flex flex-wrap gap-x-2" data-testid="hours-recorded-breaks">
+                          {entry.breaks.map((b, bi) => {
+                            const range = `${b.start || ""}\u2013${b.end || ""}`;
+                            const note = !b.end
+                              ? t("shpBreakRunning", "running")
+                              : b.ended_by === "clock_out"
+                                ? t("shpBreakEndedByClockOut", "ended by clock-out — check")
+                                : b.ended_by === "owner_resolved"
+                                  ? t("shpBreakEndedByOwner", "ended at your fix")
+                                  : t("shpBreakMeasured", "measured");
+                            const review = !b.end || b.ended_by === "clock_out";
+                            return (
+                              <span
+                                key={`${b.start}-${bi}`}
+                                className={`whitespace-nowrap tabular-nums${review ? " text-amber-600 dark:text-amber-400" : ""}`}
+                              >
+                                {range} · {note}
+                              </span>
+                            );
+                          })}
+                        </span>
                       </>
                     )}
                     {entry.entry_method === "clock" && entry.notes === "Location unverified" && (

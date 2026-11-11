@@ -42,15 +42,21 @@ export function mapDpr() {
   return typeof window !== "undefined" && window.devicePixelRatio >= 2.5 ? 3 : 2;
 }
 
-export function mapQuery(w, dpr, v) {
-  return `w=${w}&h=${MAP_H}&dpr=${dpr}${v ? `&v=${encodeURIComponent(v)}` : ""}`;
+// STYLE. "pine" is the staff card's dark pine map (canvas "Pine, ivory &
+// brass": pine ground, brass pin); "paper" — the default, sent as no param —
+// is the owner's pin check. The server allow-lists it and keys its cache on it.
+export const MAP_PINE_BG = "#123F31";
+
+export function mapQuery(w, dpr, v, style) {
+  return `w=${w}&h=${MAP_H}&dpr=${dpr}${v ? `&v=${encodeURIComponent(v)}` : ""}${
+    style === "pine" ? "&style=pine" : ""}`;
 }
 
 // key -> { url } (an image in hand) | { none: true } (204 / would not decode)
 const cache = new Map();
 
-export function mapCacheKey(scope, w, dpr, v) {
-  return `${scope}\u0001${w}\u0001${dpr}\u0001${v || ""}`;
+export function mapCacheKey(scope, w, dpr, v, style) {
+  return `${scope}\u0001${w}\u0001${dpr}\u0001${v || ""}\u0001${style === "pine" ? "pine" : "paper"}`;
 }
 
 export function getCachedMap(key) {

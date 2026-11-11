@@ -161,7 +161,7 @@ describe("Home per canvas", () => {
     await mount("da");
     const hero = screen.getByTestId("portal-hero");
     expect(hero.dataset.state).toBe("next");
-    expect(screen.getByTestId("portal-hero-chip").textContent).toBe("I dag · Om 6 t 30 min");
+    expect(screen.getByTestId("portal-hero-chip").textContent).toBe("I dag · om 6 t 30 min");
     const time = screen.getByTestId("portal-hero-time");
     expect(time.textContent).toBe("10:00–16:00");
     expect(time.style.fontFamily).toContain("Manrope");
@@ -286,7 +286,8 @@ describe("Card states", () => {
     const punch = within(hero).getByRole("button", { name: /Stempl ind/ });
     expect(punch.style.background).toBe("rgb(200, 164, 100)");
     expect(within(hero).queryByRole("button", { name: /Jeg har set det/ })).toBeNull();
-    expect(screen.getByTestId("portal-hero-chip").textContent).toBe("I dag · Om 12 min");
+    // Canvas Stempl ind state: under an hour away, "Starter om …".
+    expect(screen.getByTestId("portal-hero-chip").textContent).toBe("Starter om 12 min");
     expect(screen.getByTestId("portal-route").style.background).toBe("rgba(243, 239, 228, 0.06)");
   });
 });
@@ -436,6 +437,71 @@ describe("Active shift (clocked in)", () => {
   });
 });
 
+describe("Canvas review: the week row's colleagues line", () => {
+  it("is ONE line, 'Med' + four first names + '+N', one 44 px button that opens everyone's other shifts", async () => {
+    teamImpl = () => [
+      { staff_id: "s-sofie", staff_name: "Sofie Hansen", date: WED, start_time: "09:00", end_time: "15:00" },
+      { staff_id: "s-oliver", staff_name: "Oliver Berg", date: WED, start_time: "11:00", end_time: "17:00" },
+      { staff_id: "s-magnus", staff_name: "Magnus Lund", date: WED, start_time: "10:00", end_time: "14:00" },
+      { staff_id: "s-emil", staff_name: "Emil Holm", date: WED, start_time: "12:00", end_time: "16:00" },
+      { staff_id: "s-ida", staff_name: "Ida Ravn", date: WED, start_time: "13:00", end_time: "18:00" },
+      { staff_id: "s-oliver", staff_name: "Oliver Berg", date: THU, start_time: "16:00", end_time: "22:00" },
+    ];
+    await mount("da");
+    const lines = await screen.findAllByTestId("portal-week-mates");
+    const btn = lines[0];
+    expect(btn.tagName).toBe("BUTTON");
+    // Discs (initials) then the one line of text.
+    expect(btn.lastElementChild.textContent).toBe("Med Sofie, Oliver, Magnus, Emil +1");
+    // No per-name buttons: the whole line is the one tap target.
+    expect(btn.querySelectorAll("button")).toHaveLength(0);
+    expect(btn.style.minHeight).toBe("44px");
+    const text = btn.lastElementChild;
+    expect(text.style.whiteSpace).toBe("nowrap");
+    expect(text.style.textOverflow).toBe("ellipsis");
+    expect(text.style.overflow).toBe("hidden");
+    expect(btn.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(btn);
+    expect(btn.getAttribute("aria-expanded")).toBe("true");
+    const panel = screen.getByTestId("portal-week-mates-panel");
+    expect(btn.getAttribute("aria-controls")).toBe(panel.id);
+    // Everyone on the shift, the fifth included, with their other shifts.
+    expect(panel.textContent).toContain("Ida har ingen anden vagt på planen.");
+    expect(panel.textContent).toContain("Oliver");
+    expect(panel.textContent).toContain("16:00–22:00");
+    fireEvent.click(btn);
+    expect(screen.queryByTestId("portal-week-mates-panel")).toBeNull();
+  });
+
+  it("three colleagues: no '+N'", async () => {
+    teamImpl = () => [
+      { staff_id: "s-sofie", staff_name: "Sofie Hansen", date: WED, start_time: "09:00", end_time: "15:00" },
+      { staff_id: "s-oliver", staff_name: "Oliver Berg", date: WED, start_time: "11:00", end_time: "17:00" },
+      { staff_id: "s-magnus", staff_name: "Magnus Lund", date: WED, start_time: "10:00", end_time: "14:00" },
+    ];
+    await mount("da");
+    expect((await screen.findAllByTestId("portal-week-mates"))[0].lastElementChild.textContent)
+      .toBe("Med Sofie, Oliver, Magnus");
+  });
+});
+
+describe("Canvas review: strip and ⋯ sheet words", () => {
+  it("the date strip prints 'man', 'tir', 'ons' with no full stop", async () => {
+    await mount("da");
+    const strip = await screen.findByRole("button", { name: /^ons\. 11\./ });
+    expect(strip.querySelector("span").textContent).toBe("ons");
+    expect(screen.getByRole("button", { name: /^man\. 9\./ }).querySelector("span").textContent).toBe("man");
+  });
+
+  it("Tilføj til kalender says 'Synkroniseres automatisk' (never cut mid-word)", async () => {
+    await mount("da");
+    fireEvent.click(screen.getByRole("button", { name: "Flere valg for vagten" }));
+    const sheet = await screen.findByTestId("portal-shift-menu");
+    expect(within(sheet).getByTestId("portal-menu-calendar").textContent).toContain("Synkroniseres automatisk");
+  });
+});
+
 describe("Meld syg — reachable two ways, one form", () => {
   it("from the ⋯ sheet (its own group, last) and from the tile; both open the form that posts /sick-call", async () => {
     postImpl = () => ok({ id: "sc1" });
@@ -506,7 +572,7 @@ describe("Owner: Pauser stemples live", () => {
     const toggle = await screen.findByTestId("breaks-live-toggle");
     expect(toggle.checked).toBe(false);
     expect(screen.getByText("Pauser stemples live")).toBeInTheDocument();
-    expect(screen.getByText("Personalet trykker Start pause og Slut pause i appen, så pauserne registreres, mens de holdes.")).toBeInTheDocument();
+    expect(screen.getByText("Personalet trykker Start pause og Slut pause i appen, så pauserne registreres, mens de holdes. En pause, de selv registrerer, erstatter det automatiske fradrag på 45 minutter i lønnen.")).toBeInTheDocument();
     await act(async () => { fireEvent.click(toggle); });
     expect(api.post).toHaveBeenCalledWith("/staff/clock-geofence", { enabled: false, breaks_live: true });
     await waitFor(() => expect(screen.getByTestId("breaks-live-toggle").checked).toBe(true));

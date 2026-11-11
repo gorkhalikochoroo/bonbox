@@ -193,6 +193,41 @@ def test_renderer_draws_the_pin_the_road_the_building_and_the_credit():
     assert len(png) < 60_000
 
 
+def test_pine_style_is_the_canvas_dark_map_with_a_brass_pin():
+    """The staff card's map (canvas "Pine, ivory & brass", Main board): pine
+    ground, brass pin with a pine eye, sage credit and no paper tab."""
+    png = vm.render_png(*VENUE, width=360, height=112, dpr=2,
+                        fetch=_synthetic_fetch(*VENUE), style="pine")
+    img = Image.open(BytesIO(png))
+    assert img.size == (720, 224) and len(img.getcolors(256)) <= vm.PALETTE_COLOURS
+    cx, cy = 360, 112
+    assert _near(_px(img, cx + 9, cy), (0xC8, 0xA4, 0x64)), _px(img, cx + 9, cy)   # brass disc
+    assert _near(_px(img, cx, cy), (0x0E, 0x3B, 0x2E)), _px(img, cx, cy)           # pine eye
+    assert _near(_px(img, 4, 4), (0x12, 0x3F, 0x31)) or _near(_px(img, 4, 4), (0x16, 0x48, 0x38)) \
+        or _near(_px(img, 4, 4), (0x1A, 0x52, 0x40)), _px(img, 4, 4)                # a pine map
+    rgb = img.convert("RGB")
+    # No light paper tab anywhere in the credit corner; sage glyphs are there.
+    corner = [rgb.getpixel((x, y)) for x in range(720 - 200, 720) for y in range(224 - 40, 224)]
+    assert not any(sum(p) > 600 for p in corner)
+    assert sum(1 for p in corner if _near(p, (0x9F, 0xB0, 0xA6), 40)) > 10
+    # The paper map is unchanged by the option.
+    paper = vm.render_png(*VENUE, width=360, height=112, dpr=2, fetch=_synthetic_fetch(*VENUE))
+    assert paper == vm.render_png(*VENUE, width=360, height=112, dpr=2,
+                                  fetch=_synthetic_fetch(*VENUE), style="paper")
+    assert vm.render_png(*VENUE, width=360, height=112, dpr=2,
+                         fetch=_synthetic_fetch(*VENUE), style="bogus") == paper
+
+
+def test_style_is_part_of_the_cache_key_and_paper_keeps_the_old_key():
+    import hashlib
+
+    old = hashlib.sha256(f"v{vm.RENDER_VERSION}|{VENUE[0]:.6f},{VENUE[1]:.6f}".encode()).hexdigest()[:40]
+    assert vm.coords_hash(*VENUE) == old == vm.coords_hash(*VENUE, "paper") == vm.coords_hash(*VENUE, "x")
+    assert vm.coords_hash(*VENUE, "pine") != old
+    assert [vm.norm_style(v) for v in ("pine", "paper", None, "", "PINE", "<x>")] == \
+        ["pine", "paper", "paper", "paper", "paper", "paper"]
+
+
 def test_one_to_four_tiles_per_card():
     for lat, lng in (VENUE, (55.676, 12.568), (56.15, 10.20), (55.0, 12.0)):
         n = len(vm.tiles_for(lat, lng, 360, 112))
@@ -331,11 +366,12 @@ def fake_render(monkeypatch):
     calls = {"n": 0, "fail": False}
     real = vm.render_png
 
-    def render(lat, lng, w, h, dpr):
+    def render(lat, lng, w, h, dpr, **kw):
         calls["n"] += 1
+        calls.setdefault("styles", []).append(kw.get("style", "paper"))
         if calls["fail"]:
             raise vm.VenueMapError("provider down")
-        return real(lat, lng, w, h, dpr, fetch=_synthetic_fetch(lat, lng))
+        return real(lat, lng, w, h, dpr, fetch=_synthetic_fetch(lat, lng), **kw)
     monkeypatch.setattr(vm, "render_png", render)
     return calls
 
@@ -556,6 +592,22 @@ def test_portal_map_three_outcomes(client, db, fake_render, no_geocoding):
     assert fake_render["n"] == 3
 
 
+def test_portal_map_pine_style_is_its_own_cached_image(client, db, fake_render, no_geocoding):
+    _, p, tok = _seed(db, pin=VENUE, confirmed=True)
+    paper = client.get(f"/api/portal/{tok}/venue-map?w=304&h=96&dpr=2")
+    pine = client.get(f"/api/portal/{tok}/venue-map?w=304&h=96&dpr=2&style=pine")
+    assert paper.status_code == 200 and pine.status_code == 200
+    assert paper.content != pine.content and paper.headers["etag"] != pine.headers["etag"]
+    assert fake_render["styles"] == ["paper", "pine"]
+    img = Image.open(BytesIO(pine.content))
+    assert _near(_px(img, 304 + 9, 96), (0xC8, 0xA4, 0x64))            # brass pin
+    # Each is served from its own row afterwards; an unknown style is paper.
+    assert client.get(f"/api/portal/{tok}/venue-map?w=304&h=96&dpr=2&style=pine").content == pine.content
+    assert client.get(f"/api/portal/{tok}/venue-map?w=304&h=96&dpr=2&style=<b>").content == paper.content
+    assert fake_render["n"] == 2
+    assert db.query(VenueMap).count() == 2
+
+
 def test_portal_info_sends_the_pin_only_once_confirmed(client, db, no_geocoding):
     _, p, tok = _seed(db, pin=VENUE, confirmed=False)
     v = client.get(f"/api/portal/{tok}").json()["venue"]
@@ -566,9 +618,10 @@ def test_portal_info_sends_the_pin_only_once_confirmed(client, db, no_geocoding)
     v = client.get(f"/api/portal/{tok}").json()["venue"]
     assert v["has_map"] is True and (v["lat"], v["lng"]) == VENUE
     assert v["map_v"] == vm.coords_hash(*VENUE)[:16]
-    # A recent failed drawing → the app is told there is no map.
-    db.add(VenueMap(user_id=p.user_id, coords_hash=vm.coords_hash(*VENUE), width=360, height=112, dpr=2,
-                    failed_at=utc_now()))
+    # A recent failed drawing of the map the staff card shows (the "pine"
+    # style) → the app is told there is no map.
+    db.add(VenueMap(user_id=p.user_id, coords_hash=vm.coords_hash(*VENUE, "pine"), width=360, height=112,
+                    dpr=2, failed_at=utc_now()))
     db.commit()
     assert client.get(f"/api/portal/{tok}").json()["venue"]["has_map"] is False
 

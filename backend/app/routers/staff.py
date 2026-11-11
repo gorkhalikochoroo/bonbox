@@ -4293,9 +4293,17 @@ def _with_recorded_breaks(db: Session, rows, out):
         if not brs:
             continue
         r.breaks = [_lb.serialize(b) for b in brs]
-        ended = [int(b.minutes or 0) for b in brs if b.ended_at is not None]
-        r.recorded_break_minutes = sum(ended) if ended else None
-        r.break_source = _lb.break_source(h.break_minutes, brs)
+        # What the STAFFER measured (Slut pause). A pause clock-out or the
+        # owner's fix had to end is in `breaks` (ended_by says so, for review)
+        # but not in this sum: its end is a guess.
+        r.recorded_break_minutes = _lb.staff_recorded_minutes(brs)
+        gross = None
+        if h.start_time and h.end_time:
+            try:
+                gross = _calc_shift_hours(h.start_time, h.end_time, 0)
+            except Exception:  # noqa: BLE001 — a malformed stamp: no short flag
+                gross = None
+        r.break_source = _lb.break_source(h.break_minutes, brs, gross)
     return out
 
 
@@ -5171,22 +5179,38 @@ def resolve_hours(
                 "code": "long_shift", "hours": round(gross_h, 2),
                 "message": f"{round(gross_h, 1)} hours — confirm or correct the end time.",
             })
+        # The owner's pause. Bounded: it cannot eat the whole shift. Checked
+        # before anything below is written.
+        if data.break_minutes is not None and int(data.break_minutes) >= gross_h * 60:
+            raise HTTPException(status_code=400, detail={"code": "break_too_long"})
+        # Live pauses (Migration 086). A pause still RUNNING on the punch the
+        # owner is closing ends at the owner's end time — as evidence only
+        # (ended_by "owner_resolved", applied False; its end is the owner's,
+        # not a measurement), so no pause stays open forever on a closed
+        # punch. Exactly what clock-out does with one, so the pay rule below
+        # is the punch clock's.
+        from app.services import live_breaks as _lb
+        _brs = _lb.breaks_for(db, [open_row.id]).get(str(open_row.id), [])
+        _window = _lb.owner_window(measured_start, start_str, int(round(gross_h * 60)))
+        for _b in _brs:
+            if _b.ended_at is None:
+                _lb.close_at_owner_end(_b, measured_start, _window)
+        db.flush()
         if data.break_minutes is not None:
-            # The owner's pause. Bounded: it cannot eat the whole shift.
-            brk = int(data.break_minutes)
-            if brk >= gross_h * 60:
-                raise HTTPException(status_code=400, detail={"code": "break_too_long"})
-            open_row.break_minutes = brk
+            open_row.break_minutes = int(data.break_minutes)   # the owner's pause
         elif not open_row.break_minutes:
-            # Live pauses (Migration 086): with the setting on and ENDED pauses
-            # recorded on this punch, pay against them — what the punch clock
-            # itself would have done. Not when a pause is still running (its
-            # end is unknown: the DK suggestion stands and the owner sees the
-            # open pause), and not when the recorded pauses would not fit
-            # inside the owner's start/end. Otherwise exactly as before.
-            from app.services import live_breaks as _lb
+            # With the setting on and pauses the STAFFER ended on this punch
+            # (Slut pause), pay against them — what the punch clock itself
+            # would have done. A pause that was still running is not among
+            # them (its end is unknown; with nothing else recorded the DK
+            # suggestion stands and the owner sees that pause). Nor when a
+            # recorded pause falls outside the owner's start/end: a pause
+            # before a moved start is time the owner already removed, and
+            # deducting it again would cut the same minutes twice. Otherwise
+            # exactly as before.
             _rec = _lb.paid_break_minutes(db, user.id, open_row.id)
-            if _rec is not None and _rec < gross_h * 60:
+            if (_rec is not None and _rec < gross_h * 60
+                    and _lb.staff_pauses_fit(_brs, measured_start, _window)):
                 open_row.break_minutes = int(_rec)
                 _lb.mark_applied(db, open_row.id)
             else:

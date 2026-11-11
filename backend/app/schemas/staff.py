@@ -423,12 +423,20 @@ class HoursLogResponse(BaseModel):
     # Live pauses (Migration 086) — what the staffer recorded with Start/Slut
     # pause on this punch. Filled by GET /staff/hours; empty everywhere else
     # and for every row without recorded pauses.
-    #   breaks                  [{start, end, minutes, ended_by}] oldest first;
-    #                           end/minutes null = still running.
-    #   recorded_break_minutes  sum of the ENDED pauses, or null if none.
+    #   breaks                  [{start, end, minutes, ended_by, counted}]
+    #                           oldest first; end/minutes null = still running.
+    #                           ended_by "staff" (Slut pause) | "clock_out"
+    #                           (still running at clock-out) | "owner_resolved"
+    #                           (still running when the owner set a forgotten
+    #                           clock-out) — the last two are evidence for
+    #                           review, never paid against.
+    #   recorded_break_minutes  sum of the pauses the STAFFER ended, or null.
     #   break_source            "recorded" when break_minutes (what is paid)
-    #                           is exactly that recorded sum; null when it is
-    #                           the DK suggestion or an owner's own number.
+    #                           is exactly the counted recorded sum;
+    #                           "recorded_short" the same, on a 6 h+ shift
+    #                           where that sum is below the DK suggestion;
+    #                           null when it is the DK suggestion or an
+    #                           owner's own number.
     breaks: list[dict] = []
     recorded_break_minutes: int | None = None
     break_source: str | None = None

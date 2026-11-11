@@ -432,9 +432,15 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // disabled, +1 testid) and its collapsed-summary line (+1 testid); 3 t()
     // keys (schedBreaksLiveTitle/Note/On). Was { onChange: 49, testid: 13,
     // disabled: 29, tKeys: 457 }.
-    "pages/StaffSchedulePage.jsx": { onClick: 96, onChange: 50, onSubmit: 3, ariaLabel: 42, ariaExpanded: 3, ariaPressed: 4, role: 14, title: 56, id: 15, testid: 15, Button: 20, button: 66, disabled: 30, to: 5, tKeys: 460 },
+    // Home v3 review (Nov 2026): the live strip's "på pause siden …" chip
+    // (+1 testid, 2 t() keys schedOnBreak/schedOnBreakSince). Nothing removed.
+    // Was { testid: 15, tKeys: 460 }.
+    "pages/StaffSchedulePage.jsx": { onClick: 96, onChange: 50, onSubmit: 3, ariaLabel: 42, ariaExpanded: 3, ariaPressed: 4, role: 14, title: 56, id: 15, testid: 16, Button: 20, button: 66, disabled: 30, to: 5, tKeys: 462 },
     "components/ScheduleConfirmationCard.jsx": { role: 1, tKeys: 3 },
-    "pages/StaffHoursPage.jsx": { onClick: 36, onChange: 21, onSubmit: 6, ariaLabel: 4, ariaExpanded: 1, ariaPressed: 4, role: 13, title: 14, id: 8, testid: 1, Button: 18, button: 22, Link: 4, disabled: 20, to: 6, tKeys: 230 },
+    // Home v3 review (Nov 2026): the hours row shows the recorded live pauses
+    // — measured / suggested / below the suggestion, and the pause list (+4
+    // testids, 6 t() keys shpBreak*). Nothing removed. Was { testid: 1, tKeys: 230 }.
+    "pages/StaffHoursPage.jsx": { onClick: 36, onChange: 21, onSubmit: 6, ariaLabel: 4, ariaExpanded: 1, ariaPressed: 4, role: 13, title: 14, id: 8, testid: 5, Button: 18, button: 22, Link: 4, disabled: 20, to: 6, tKeys: 236 },
     // R1 (24 Oct 2026) ADDED to ReservationsPage, nothing removed: the owner
     // e-mail switch (+1 onClick, ariaLabel, role, button, disabled), the salon
     // no-service CTA (+1 Link, to), status/test hooks (+1 role, +7 testid) and

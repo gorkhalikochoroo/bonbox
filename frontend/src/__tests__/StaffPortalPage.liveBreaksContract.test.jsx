@@ -19,7 +19,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -124,7 +124,8 @@ describe("the shared file is the real producer's", () => {
     for (const n of ["clock_live", "break_start", "clock_on_break", "break_end", "break_end_again",
       "clock_after_break", "misclick_start", "break_end_discarded", "break_start_off", "clock_live_off",
       "clock_on_break_off", "break_end_after_off", "clock_out", "break_start_after_out", "clock_after_out",
-      "owner_breaks_off", "owner_breaks_on"]) {
+      "owner_breaks_off", "owner_breaks_on", "clock_on_forgotten_pause", "owner_clocked_in_on_break",
+      "owner_hours_after_out"]) {
       expect(STEP[n], n).toBeTruthy();
     }
   });
@@ -260,6 +261,111 @@ describe("clock-out with recorded pauses", () => {
     expect(STEP.clock_out.body.break_source).toBe("recorded");
     const hours = String(STEP.clock_out.body.worked_hours).replace(".", ",");
     expect(await screen.findByText(new RegExp(`Registreret · ${hours}`))).toBeInTheDocument();
+  });
+});
+
+describe("the ring pauses during a pause (canvas review)", () => {
+  it("on a pause the big number is the PAUSE's time, the line under it the whole shift, the arc sage", async () => {
+    at(12, 7, 30);
+    clockImpl = () => reply("clock_on_break");
+    await mount();
+    const ring = await screen.findByTestId("portal-live-ring");
+    expect(STEP.clock_on_break.body.break_elapsed_sec).toBe(430);
+    expect(screen.getByTestId("portal-live-elapsed").textContent).toBe("0:07");
+    expect(screen.getByTestId("portal-live-sub").textContent).toMatch(/^3 t 7 min på vagt i alt$/);
+    expect(ring.textContent).toContain("På pause");
+    const arc = screen.getByTestId("portal-live-arc");
+    expect(arc.getAttribute("stroke")).toBe("#A9B8AE");
+    expect(arc.getAttribute("data-paused")).toBe("true");
+    expect(ring.getAttribute("aria-label")).toContain("På pause i 7 min");
+  });
+
+  it("off a pause it is the shift as always: elapsed, time left, brass arc", async () => {
+    at(12, 0);
+    clockImpl = () => reply("clock_live");
+    await mount();
+    await screen.findByTestId("portal-live-ring");
+    expect(screen.getByTestId("portal-live-elapsed").textContent).toBe("3:00");
+    expect(screen.getByTestId("portal-live-sub").textContent).toBe("5 t tilbage");
+    const arc = screen.getByTestId("portal-live-arc");
+    expect(arc.getAttribute("stroke")).toBe("#C8A464");
+    expect(arc.getAttribute("data-paused")).toBeNull();
+  });
+});
+
+describe("Stempl ud during a pause asks first", () => {
+  it("cancel keeps you clocked in; confirm clocks out (the server ends the pause, uncounted)", async () => {
+    at(16, 50);
+    let out = false;
+    clockImpl = () => (out ? reply("clock_after_out") : reply("clock_on_forgotten_pause"));
+    postImpl = (url) => {
+      if (url !== path("clock_out")) return Promise.resolve({ data: {} });
+      out = true;
+      return reply("clock_out");
+    };
+    await mount();
+    await act(async () => { fireEvent.click(await screen.findByTestId("portal-clock-out")); });
+    const dlg = await screen.findByRole("dialog");
+    expect(dlg.textContent).toContain(`Du er på pause siden kl. ${STEP.clock_on_forgotten_pause.body.break_since} — slut pausen og stempl ud?`);
+    await act(async () => { fireEvent.click(within(dlg).getByRole("button", { name: "Annuller" })); });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(postsTo("clock_out")).toHaveLength(0);
+
+    await act(async () => { fireEvent.click(screen.getByTestId("portal-clock-out")); });
+    const again = await screen.findByRole("dialog");
+    await act(async () => { fireEvent.click(within(again).getByRole("button", { name: "Stempl ud" })); });
+    await waitFor(() => expect(postsTo("clock_out")).toHaveLength(1));
+    // No "Slut pause" first: ending it as the staffer would PAY it as measured.
+    expect(postsTo("break_end")).toHaveLength(0);
+  });
+
+  it("not on a pause, Stempl ud goes straight through — no question", async () => {
+    at(12, 32);
+    clockImpl = () => reply("clock_after_break");
+    postImpl = (url) => (url === path("clock_out") ? reply("clock_out") : Promise.resolve({ data: {} }));
+    await mount();
+    await act(async () => { fireEvent.click(await screen.findByTestId("portal-clock-out")); });
+    expect(postsTo("clock_out")).toHaveLength(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("the pause is optional (user ask: 'start pause can be optional')", () => {
+  const actions = () => [...screen.getByTestId("portal-clock-out").parentElement.children].map((b) => b.dataset.testid);
+
+  it("a planned pause still to take: Start pause leads (brass, first), Stempl ud is the ghost", async () => {
+    at(12, 0);
+    clockImpl = () => reply("clock_live");
+    await mount();
+    await screen.findByTestId("portal-break-btn");
+    expect(actions()).toEqual(["portal-break-btn", "portal-clock-out"]);
+    expect(screen.getByTestId("portal-break-btn").dataset.primary).toBe("true");
+    expect(screen.getByTestId("portal-clock-out").dataset.primary).toBeUndefined();
+  });
+
+  it("the planned pause is taken: Stempl ud leads; Start pause stays, quietly", async () => {
+    at(12, 32);
+    clockImpl = () => reply("clock_after_break");
+    await mount();
+    await screen.findByTestId("portal-break-btn");
+    expect(actions()).toEqual(["portal-clock-out", "portal-break-btn"]);
+    expect(screen.getByTestId("portal-clock-out").dataset.primary).toBe("true");
+    expect(screen.getByTestId("portal-clock-out").style.background).toBe("rgb(200, 164, 100)");
+    expect(screen.getByTestId("portal-break-btn").textContent).toBe("Start pause");
+    expect(screen.getByTestId("portal-break-btn").dataset.primary).toBeUndefined();
+    // The Pause cell is left as it was.
+    expect(screen.getByTestId("portal-live-pause").textContent).toBe("Pause30 min · 30 min holdt");
+  });
+
+  it("15 minutes or less of the shift left, pause not taken: Stempl ud leads", async () => {
+    at(16, 50);
+    const near = body("clock_live");
+    near.elapsed_sec = 7 * 3600 + 50 * 60; // 16:50 on a 09:00 clock-in
+    clockImpl = () => Promise.resolve({ data: near });
+    await mount();
+    await screen.findByTestId("portal-break-btn");
+    expect(actions()).toEqual(["portal-clock-out", "portal-break-btn"]);
+    expect(screen.getByTestId("portal-live-pause").textContent).toBe("Pause30 min · mangler");
   });
 });
 

@@ -2,8 +2,12 @@
 
 WHAT IT IS
 A small, label-free map of the block around the venue, in BonBox colours, with
-a forest pin in the middle and "© OpenStreetMap" on it. It sits on the staff
-app's next-shift card above the venue name and the Rute button.
+a pin in the middle and "© OpenStreetMap" on it. It sits on the staff app's
+next-shift card above the venue name and the Rute button. Two styles, one
+allow-list (STYLES): "pine" — the staff card's dark pine map with a brass pin
+(canvas "Pine, ivory & brass") — and "paper", the owner's pin check and the
+default. The style is part of the cache key (coords_hash), so each is drawn
+once per pin and size.
 
 PRIVACY, WHICH IS WHY IT IS DRAWN HERE
 Staff phones only ever load the PNG from api.bonbox.dk. No map company sees a
@@ -87,13 +91,46 @@ _W_MIN, _W_MAX, _W_STEP = 256, 448, 16
 DEFAULT_W = 336                     # a 390 px phone (322 px of card)
 _DPRS = (2, 3)
 
-# Light only: the staff portal has no dark mode. Forest & Paper tokens.
+# Light only: the staff portal has no dark mode. Forest & Paper tokens — the
+# owner's pin check (VenuePinCheck) and the default for any caller.
 STYLE = dict(
     ground="#EFEDE4", park="#E2E7DA", water="#CFDAD4", building="#E7E4D9",
     building_edge="#DCD9CD", road_case="#D3D1C5", road="#FFFFFF", major="#FFFFFF",
     path="#E4E2D8", rail="#CFCDC2", pin="#093A26", pin_ring="#F6F4EC",
-    credit_ink="#475569", credit_bg="#F6F4EC",
+    pin_eye="#F6F4EC", pin_halo=(),
+    credit_ink="#475569", credit_bg="#F6F4EC", credit_px=9, credit_inset=(5, 5),
 )
+
+
+def _blend(fg: str, bg: str, a: float) -> str:
+    """`fg` at opacity `a` over `bg`, as an opaque hex (the PNG is RGB)."""
+    f = [int(fg[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(bg[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(a * x + (1 - a) * y):02X}" for x, y in zip(f, b))
+
+
+# The staff card's map: the canvas "Pine, ivory & brass" (Main board) — a
+# dark pine map ON the pine card, in the light theme too. Brass pin with a
+# pine eye and two soft brass halos (canvas r 22 @ .16, r 12 @ .3), roads in
+# pine greens, the credit as quiet sage text with no tab.
+_PINE_BASE = "#123F31"
+_BRASS = "#C8A464"
+_HALO_OUT = _blend(_BRASS, _PINE_BASE, 0.16)
+STYLE_PINE = dict(
+    ground=_PINE_BASE, park="#1A5240", water="#1C4A52", building="#164838",
+    building_edge="#164838", road_case="#1F5444", road="#1F5444", major="#2C6654",
+    path="#1A4C3C", rail="#1F5444", pin=_BRASS, pin_ring=None,
+    pin_eye="#0E3B2E", pin_halo=((22, _HALO_OUT), (12, _blend(_BRASS, _HALO_OUT, 0.3))),
+    credit_ink="#9FB0A6", credit_bg=None, credit_px=10, credit_inset=(10, 6),
+)
+STYLES = {"paper": STYLE, "pine": STYLE_PINE}
+
+
+def norm_style(v) -> str:
+    """Allow-listed map style; anything else is the default "paper"."""
+    return v if v in STYLES else "paper"
+
+
 CREDIT = "© OpenStreetMap"
 
 ROAD_W = {  # CSS px at z16 (the casing adds 1.6 px)
@@ -324,8 +361,14 @@ def clamp_size(w, h, dpr) -> tuple[int, int, int]:  # noqa: ARG001 — h is fixe
     return snap_width(w), MAP_H, 3 if d >= 3 else 2
 
 
-def coords_hash(lat: float, lng: float) -> str:
-    return hashlib.sha256(f"v{RENDER_VERSION}|{float(lat):.6f},{float(lng):.6f}".encode()).hexdigest()[:40]
+def coords_hash(lat: float, lng: float, style: str = "paper") -> str:
+    """The cache key of one pin's drawings. The style is part of it (no new
+    column): "paper" keeps the key every map was cached under before styles
+    existed, so no row is redrawn; "pine" is a separate set of rows."""
+    tail = "" if norm_style(style) == "paper" else f"|{norm_style(style)}"
+    return hashlib.sha256(
+        f"v{RENDER_VERSION}|{float(lat):.6f},{float(lng):.6f}{tail}".encode()
+    ).hexdigest()[:40]
 
 
 def map_version(pin) -> str | None:
@@ -346,15 +389,16 @@ def _credit_font(px: int):
 
 
 def render_png(lat: float, lng: float, width: int = DEFAULT_W, height: int = MAP_H,
-               dpr: int = 2, fetch=None) -> bytes:
+               dpr: int = 2, fetch=None, style: str = "paper") -> bytes:
     """Draw the map and return PNG bytes. Raises VenueMapError on any failure.
 
     `fetch(z, x, y) -> bytes` is the tile source (tests pass a synthetic one;
-    the default asks OpenFreeMap)."""
+    the default asks OpenFreeMap). `style` is "paper" (owner's pin check) or
+    "pine" (the staff card)."""
     from PIL import Image, ImageDraw
 
     fetch = fetch or fetch_tile
-    st = STYLE
+    st = STYLES[norm_style(style)]
     k = dpr * SUPERSAMPLE
     W, H = width * k, height * k
     cx, cy = world_px(lat, lng, VIEW_Z)
@@ -424,12 +468,17 @@ def render_png(lat: float, lng: float, width: int = DEFAULT_W, height: int = MAP
     draw_lines({"minor", "service"}, st["road"], 0)
     draw_lines({"tertiary", "secondary", "primary", "trunk", "motorway"}, st["major"], 0)
 
-    # The pin: a forest disc with a paper ring and a paper eye. Flat, no glow.
+    # The pin. Paper: a forest disc with a paper ring and a paper eye. Pine:
+    # a brass disc with a pine eye inside two flat brass halos. No glow.
     px, py, r = W / 2, H / 2, 7 * k
-    ring = 2.5 * k
-    d.ellipse([px - r - ring, py - r - ring, px + r + ring, py + r + ring], fill=st["pin_ring"])
+    for hr, hc in st["pin_halo"]:
+        d.ellipse([px - hr * k, py - hr * k, px + hr * k, py + hr * k], fill=hc)
+    if st["pin_ring"]:
+        ring = 2.5 * k
+        d.ellipse([px - r - ring, py - r - ring, px + r + ring, py + r + ring], fill=st["pin_ring"])
     d.ellipse([px - r, py - r, px + r, py + r], fill=st["pin"])
-    d.ellipse([px - 2.4 * k, py - 2.4 * k, px + 2.4 * k, py + 2.4 * k], fill=st["pin_ring"])
+    e = (2.4 if st["pin_ring"] else 2.6) * k
+    d.ellipse([px - e, py - e, px + e, py + e], fill=st["pin_eye"])
 
     resample = getattr(Image, "Resampling", Image).LANCZOS
     img = img.resize((width * dpr, height * dpr), resample)
@@ -439,21 +488,23 @@ def render_png(lat: float, lng: float, width: int = DEFAULT_W, height: int = MAP
     # it must stay readable on the phone: the tab sits 5 px in from both edges
     # (clear of the card's 14 px corner radius), and the apps crop any extra
     # width from the LEFT (object-position right), never from this corner.
+    # Pine has no tab: sage text 10 px in from the right, 6 px up (canvas).
     d2 = ImageDraw.Draw(img)
-    font = _credit_font(9 * dpr)
+    font = _credit_font(st["credit_px"] * dpr)
     try:
         bx0, by0, bx1, by1 = d2.textbbox((0, 0), CREDIT, font=font)
     except AttributeError:  # very old Pillow
         bx0, by0, (bx1, by1) = 0, 0, d2.textsize(CREDIT, font=font)
     tw, th = bx1 - bx0, by1 - by0
-    pad = 3 * dpr
-    inset = 5 * dpr
-    x1, y1 = width * dpr - inset, height * dpr - inset
-    tab = [x1 - tw - 2 * pad, y1 - th - 2 * pad, x1, y1]
-    if hasattr(d2, "rounded_rectangle"):
-        d2.rounded_rectangle(tab, radius=3 * dpr, fill=st["credit_bg"])
-    else:  # Pillow < 8.2
-        d2.rectangle(tab, fill=st["credit_bg"])
+    pad = 3 * dpr if st["credit_bg"] else 0
+    ix, iy = st["credit_inset"]
+    x1, y1 = width * dpr - ix * dpr, height * dpr - iy * dpr
+    if st["credit_bg"]:
+        tab = [x1 - tw - 2 * pad, y1 - th - 2 * pad, x1, y1]
+        if hasattr(d2, "rounded_rectangle"):
+            d2.rounded_rectangle(tab, radius=3 * dpr, fill=st["credit_bg"])
+        else:  # Pillow < 8.2
+            d2.rectangle(tab, fill=st["credit_bg"])
     d2.text((x1 - tw - pad - bx0, y1 - th - pad - by0), CREDIT, font=font, fill=st["credit_ink"])
 
     # A 64-colour palette keeps the file ~10-25 KB. FASTOCTREE keeps the
@@ -608,11 +659,11 @@ def set_map_link(db, profile, url: str, locate=None) -> Pin | None:
 
 
 # ── the cache ───────────────────────────────────────────────────────────────
-def etag_for(pin: Pin, w: int, h: int, dpr: int) -> str:
-    return f'"vm-{coords_hash(pin.lat, pin.lng)[:16]}-{w}x{h}@{dpr}"'
+def etag_for(pin: Pin, w: int, h: int, dpr: int, style: str = "paper") -> str:
+    return f'"vm-{coords_hash(pin.lat, pin.lng, style)[:16]}-{w}x{h}@{dpr}"'
 
 
-def recently_failed(db, user_id, pin: Pin) -> bool:
+def recently_failed(db, user_id, pin: Pin, style: str = "paper") -> bool:
     """Did drawing this pin fail within the last 24 h (any size)? Then the
     staff app is told there is no map rather than asking for one."""
     from app.models.venue_map import VenueMap
@@ -620,7 +671,7 @@ def recently_failed(db, user_id, pin: Pin) -> bool:
     since = utc_now() - RETRY_AFTER
     return db.query(VenueMap.id).filter(
         VenueMap.user_id == user_id,
-        VenueMap.coords_hash == coords_hash(pin.lat, pin.lng),
+        VenueMap.coords_hash == coords_hash(pin.lat, pin.lng, style),
         VenueMap.png.is_(None),
         VenueMap.failed_at.isnot(None),
         VenueMap.failed_at > since,
@@ -628,7 +679,7 @@ def recently_failed(db, user_id, pin: Pin) -> bool:
 
 
 def get_map(db, user_id, pin: Pin, w: int, h: int, dpr: int, branch_id=None, render=None,
-            cached_only: bool = False):
+            cached_only: bool = False, style: str = "paper"):
     """('ok', png), ('failed', None) or — with cached_only — ('missing', None).
     Draws on a miss and keeps the result, unless cached_only (a delegated
     seat's view: it may read what the owner's visit drew, never cause a
@@ -641,7 +692,8 @@ def get_map(db, user_id, pin: Pin, w: int, h: int, dpr: int, branch_id=None, ren
 
     from app.models.venue_map import VenueMap
 
-    key = coords_hash(pin.lat, pin.lng)
+    style = norm_style(style)
+    key = coords_hash(pin.lat, pin.lng, style)
 
     def _row():
         return db.query(VenueMap).filter(
@@ -660,7 +712,9 @@ def get_map(db, user_id, pin: Pin, w: int, h: int, dpr: int, branch_id=None, ren
 
     png = None
     try:
-        png = (render or render_png)(pin.lat, pin.lng, w, h, dpr)
+        # "paper" calls the renderer exactly as before styles existed.
+        extra = {} if style == "paper" else {"style": style}
+        png = (render or render_png)(pin.lat, pin.lng, w, h, dpr, **extra)
     except Exception as e:  # noqa: BLE001 — any failure is "no map", logged
         logger.warning("venue map render failed for user=%s: %s", user_id, e)
 

@@ -444,7 +444,8 @@ describe("Venue map on the card (R2)", () => {
     expect(map.querySelector("img").getAttribute("alt")).toBe("Kort over Café Solsikke");
     expect(mapCalls()).toHaveLength(1);
     // The card's width on the server's 16 px grid, 96 tall, and the pin's version.
-    expect(mapCalls()[0][0]).toMatch(/\?w=\d+&h=96&dpr=[23]&v=aaaa1111$/);
+    // The staff card asks for the canvas's dark pine map.
+    expect(mapCalls()[0][0]).toMatch(/\?w=\d+&h=96&dpr=[23]&v=aaaa1111&style=pine$/);
     const w = Number(mapCalls()[0][0].match(/w=(\d+)/)[1]);
     expect(w % 16).toBe(0);
     expect(w >= 256 && w <= 448).toBe(true);

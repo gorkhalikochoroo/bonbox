@@ -735,7 +735,8 @@ def _portal_venue(db: Session, owner_id, profile, name, pii_ok: bool) -> dict | 
 
     pin = vm.current_pin(profile)
     confirmed = bool(pin and pin.confirmed)
-    has_map = confirmed and not vm.recently_failed(db, owner_id, pin)
+    # The staff card asks for the "pine" map (canvas Main board).
+    has_map = confirmed and not vm.recently_failed(db, owner_id, pin, "pine")
     return {
         "name": name,
         "address_line": vm.address_line(profile) or None,
@@ -759,7 +760,8 @@ def _portal_token_key(request: Request) -> str:
 @router.get("/{token}/venue-map")
 @limiter.limit("20/minute", key_func=_portal_token_key)
 def get_portal_venue_map(token: str, request: Request, w: int = 336, h: int = 96, dpr: int = 2,
-                         v: str | None = None, db: Session = Depends(get_db)):
+                         v: str | None = None, style: str | None = None,
+                         db: Session = Depends(get_db)):
     """The venue map for the next-shift card: image/png, or 204.
 
     Three outcomes, never a broken image:
@@ -779,21 +781,26 @@ def get_portal_venue_map(token: str, request: Request, w: int = 336, h: int = 96
     new URL, so a phone (or WKWebView) that keeps the old image keeps it under
     the old URL and never shows it for the new place. Without `v`, or with a
     stale one, the answer is `no-cache`: the phone must ask every time and the
-    ETag turns that into a cheap 304."""
+    ETag turns that into a cheap 304.
+
+    `style` — "pine" (the staff card's dark pine map, canvas "Pine, ivory &
+    brass") or "paper" (the default; anything else is read as paper). It is
+    part of the cache key and the ETag."""
     from app.services import venue_map as vm
 
+    style = vm.norm_style(style)
     link, _member = _get_staff_from_token(token, db)
     profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == link.user_id).first()
     pin = vm.current_pin(profile)
     if pin is None or not pin.confirmed:
         return Response(status_code=204, headers={"Cache-Control": "no-store"})
     w, h, dpr = vm.clamp_size(w, h, dpr)
-    etag = vm.etag_for(pin, w, h, dpr)
+    etag = vm.etag_for(pin, w, h, dpr, style)
     cache = "private, max-age=604800" if v and v == vm.map_version(pin) else "private, no-cache"
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": cache})
     owner_id = link.user_id
-    outcome, png = vm.get_map(db, owner_id, pin, w, h, dpr)
+    outcome, png = vm.get_map(db, owner_id, pin, w, h, dpr, style=style)
     if outcome != "ok" or not png:
         return Response(status_code=204, headers={"Cache-Control": "no-store"})
     return Response(
@@ -1892,9 +1899,12 @@ def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)
     end_str = _now_out.strftime("%H:%M")
     # LIVE PAUSES (Migration 086): a pause still running at clock-out ends AT
     # the clock-out — always, setting on or off, so no pause is ever left
-    # running on a closed punch. Whether recorded pauses PAY is decided below.
+    # running on a closed punch. It is kept as EVIDENCE only (ended_by
+    # "clock_out", applied False): its end is the clock-out, a guess — a
+    # forgotten "Slut pause" at 09:00 would otherwise pay an 8-hour shift as
+    # zero. Only pauses the staffer ended themselves pay (decided below).
     from app.services import live_breaks as _lb
-    _lb.close_all_open(db, punch.id, _now_out, ended_by="clock_out")
+    _lb.close_all_open(db, punch.id, _now_out, ended_by=_lb.ENDED_BY_CLOCK_OUT)
     db.flush()
     # _calc_shift_hours lives in routers/staff.py. Imported locally (like
     # _pick_rate just below) to avoid a module-level circular import — it
@@ -1927,12 +1937,13 @@ def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)
         out["discarded"] = True  # too short to log — nothing written
         return out
     # RECORDED PAUSES (Migration 086). Only when the owner has live pauses ON
-    # and this punch actually has closed pauses: net worked = clock span −
-    # what was measured, and that number REPLACES the DK suggestion on
-    # break_minutes (visible and owner-editable on the hours page, like the
-    # suggestion). Bounded by the span — a pause can never make hours negative
-    # or pay less than zero. Setting off, or nothing recorded → None, and the
-    # line below runs exactly as it always has.
+    # and the staffer ENDED at least one pause on this punch (Slut pause):
+    # net worked = clock span − what was measured, and that number REPLACES
+    # the DK suggestion on break_minutes (visible and owner-editable on the
+    # hours page, like the suggestion). Bounded by the span — a pause can never
+    # make hours negative or pay less than zero. Setting off, nothing the
+    # staffer ended (a pause only clock-out closed included) → None, and the
+    # DK line below runs exactly as it always has.
     _recorded = _lb.paid_break_minutes(db, member.user_id, punch.id)
     if _recorded is not None and not punch.break_minutes:
         punch.break_minutes = min(int(_recorded), int(round(gross * 60)))
@@ -2070,7 +2081,7 @@ def portal_break_end(token: str, request: Request, db: Session = Depends(get_db)
         raise HTTPException(status_code=409, detail={"error": "not_on_break"})
     now_dt = now_local(owner)
     started = brk.start_time
-    mins = lb.close(db, brk, now_dt, ended_by="staff")
+    mins = lb.close(db, brk, now_dt, ended_by=lb.ENDED_BY_STAFF)
     db.flush()
     _audit_break(db, member, "staff.portal.break_end", {
         "start_time": started, "end_time": now_dt.strftime("%H:%M"),

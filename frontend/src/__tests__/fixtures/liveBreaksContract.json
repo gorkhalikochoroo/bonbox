@@ -13,7 +13,9 @@
     "break_start": "/portal/{token}/clock/break/start",
     "break_end": "/portal/{token}/clock/break/end",
     "verify_pin": "/portal/{token}/verify-pin",
-    "owner_clock_settings": "/staff/clock-geofence"
+    "owner_clock_settings": "/staff/clock-geofence",
+    "owner_clocked_in": "/staff/clocked-in",
+    "owner_hours": "/staff/hours"
   },
   "steps": [
     {
@@ -476,6 +478,28 @@
       }
     },
     {
+      "name": "owner_clocked_in_on_break",
+      "at": "2026-06-30T16:02:00",
+      "method": "GET",
+      "path_key": "owner_clocked_in",
+      "path": "/staff/clocked-in",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": [
+          {
+            "name": "Agnes",
+            "since": "09:00",
+            "elapsed_min": 422,
+            "stale": false,
+            "on_break": true,
+            "break_since": "16:00"
+          }
+        ],
+        "count": 1
+      }
+    },
+    {
       "name": "owner_breaks_off_mid_pause",
       "at": "2026-06-30T16:05:00",
       "method": "POST",
@@ -582,6 +606,62 @@
       }
     },
     {
+      "name": "pause_forgotten",
+      "at": "2026-06-30T16:45:00",
+      "method": "POST",
+      "path_key": "break_start",
+      "path": "/portal/{token}/clock/break/start",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 465,
+        "elapsed_sec": 27900,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": true,
+        "break_started_at": "2026-06-30T14:45:00Z",
+        "break_since": "16:45",
+        "break_elapsed_sec": 0,
+        "break_minutes_so_far": 50
+      }
+    },
+    {
+      "name": "clock_on_forgotten_pause",
+      "at": "2026-06-30T16:50:00",
+      "method": "GET",
+      "path_key": "clock",
+      "path": "/portal/{token}/clock",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 470,
+        "elapsed_sec": 28200,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": true,
+        "break_started_at": "2026-06-30T14:45:00Z",
+        "break_since": "16:45",
+        "break_elapsed_sec": 300,
+        "break_minutes_so_far": 55
+      }
+    },
+    {
       "name": "clock_out",
       "at": "2026-06-30T17:00:00",
       "method": "POST",
@@ -675,6 +755,50 @@
         "breaks_live": true,
         "has_location": false
       }
+    },
+    {
+      "name": "owner_hours_after_out",
+      "at": "2026-06-30T17:04:00",
+      "method": "GET",
+      "path_key": "owner_hours",
+      "path": "/staff/hours",
+      "request": null,
+      "status": 200,
+      "body": [
+        {
+          "date": "2026-06-30",
+          "start_time": "09:00",
+          "end_time": "17:00",
+          "break_minutes": 50,
+          "total_hours": 7.17,
+          "entry_method": "clock",
+          "breaks": [
+            {
+              "start": "12:00",
+              "end": "12:30",
+              "minutes": 30,
+              "ended_by": "staff",
+              "counted": true
+            },
+            {
+              "start": "16:00",
+              "end": "16:20",
+              "minutes": 20,
+              "ended_by": "staff",
+              "counted": true
+            },
+            {
+              "start": "16:45",
+              "end": "17:00",
+              "minutes": 15,
+              "ended_by": "clock_out",
+              "counted": false
+            }
+          ],
+          "recorded_break_minutes": 50,
+          "break_source": "recorded"
+        }
+      ]
     }
   ]
 }

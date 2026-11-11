@@ -35,3 +35,32 @@ export function nextShiftCountdown(shift, t) {
   const d = Math.floor(h / 24);
   return d === 1 ? t("portalCountdownTomorrow") : t("portalCountdownDays", { d });
 }
+
+/**
+ * The words on the home card's chip (canvas "Pine, ivory & brass").
+ *
+ *   under an hour away  → "Starter om 12 min"       (also the Stempl ind state)
+ *   today, started      → "I dag · i gang"
+ *   today, later        → "I dag · om 6 t 27 min"   (lower-case "om": mid-chip)
+ *   another day         → the countdown first, then the date ("Om 3 dage · tor 14. nov.")
+ *
+ * `today` says whether the shift is on today's date; `dateLabel` is the date
+ * as the card prints it (used for another day only).
+ */
+export function nextShiftChip(shift, t, { today = false, dateLabel = "" } = {}) {
+  if (!shift) return null;
+  const target = new Date(`${shift.date}T${shift.start_time || "00:00"}`);
+  if (Number.isNaN(target.getTime())) return null;
+  const ms = target.getTime() - Date.now();
+  if (ms > 0 && ms < 3600000) {
+    // Rounded UP: 30 s before the start still reads "om 1 min", never "0".
+    return t("portalChipStartsIn", { m: Math.max(1, Math.ceil(ms / 60000)) });
+  }
+  if (today) {
+    if (ms <= 0) return t("portalChipTodayNow");
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    return t("portalChipTodayIn", { h, m });
+  }
+  return [nextShiftCountdown(shift, t), dateLabel].filter(Boolean).join(" · ");
+}
