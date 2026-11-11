@@ -19,6 +19,10 @@ export const ROLE_NAME_KEYS = {
   bartender: ["stfRoleBartender", "Bartender"],
   barista: ["stfRoleBarista", "Barista"],
   runner: ["stfRoleRunner", "Runner"],
+  // Built-in role codes the payroll page already named (StaffPayrollPage);
+  // the staff portal printed them raw ("host", "cleaner").
+  host: ["stfRoleHost", "Host"],
+  cleaner: ["stfRoleCleaner", "Cleaner"],
   "full-time": ["contractFull", "Full-time"],
   full_time: ["contractFull", "Full-time"],
   "part-time": ["contractPart", "Part-time"],

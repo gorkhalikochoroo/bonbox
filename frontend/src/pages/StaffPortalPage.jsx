@@ -10,6 +10,7 @@ import GeofenceDial from "../components/GeofenceDial";
 import { nextShiftChip } from "../utils/nextShiftCountdown";
 import { overlapsOwnShift } from "../utils/overlapsOwnShift";
 import { swapDoubleBooks } from "../utils/swapClash";
+import { orderSwapInbox, swapSides, countNeedsMyAnswer } from "../utils/swapInbox";
 import { saveFile } from "../utils/download";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
@@ -43,6 +44,9 @@ import { useLanguage } from "../hooks/useLanguage";
 import { formatHoursMinutes, formatHours, hoursUnit } from "../utils/hours";
 import { sectionFor } from "../config/roleSections";
 import { errText } from "../utils/errText";
+import { portalErrText } from "../utils/portalErrText";
+import { formatClockDistance } from "../utils/clockDistance";
+import { roleName } from "../utils/roleNames";
 import { isNativeApp } from "../utils/platform";
 import { applyVagtplanIcons } from "../lib/vagtplanIcons";
 import { capturePhoto } from "../utils/camera";
@@ -253,6 +257,13 @@ function weekdayNames(lang) {
   return Array.from({ length: 7 }, (_, i) => wdShort(new Date(2024, 0, 1 + i), lang));
 }
 
+/** The weekday in full, Monday = 0 ("Sunday" / "søndag"), for a sentence:
+    "every Sun." read as an abbreviation, and Danish "hver søn." also reads
+    "every son". */
+function weekdayLong(i, lang) {
+  return new Date(2024, 0, 1 + i).toLocaleDateString(localeFor(lang), { weekday: "long" });
+}
+
 function toLocalISO(dt) {
   const yyyy = dt.getFullYear();
   const mm = String(dt.getMonth() + 1).padStart(2, "0");
@@ -370,28 +381,13 @@ function roleBarColor(role, businessType) {
   }
 }
 
-// Role names as the staffer reads them. role / role_on_shift is free text the
-// owner picked (the schedule maker's restaurant roles are English words), so
-// the stored value is never rewritten — only what is shown. Same map as the
-// twins in StaffSchedulePage, StaffPayrollPage and StaffTipsPage; unknown roles
-// (and the salon vocabulary, Danish in both languages) show exactly as typed.
-const ROLE_NAME_KEYS = {
-  chef: ["stfRoleChef", "Chef"],
-  server: ["stfRoleServer", "Server"],
-  dishwasher: ["stfRoleDishwasher", "Dishwasher"],
-  manager: ["teamRoleManager", "Manager"],
-  kitchen: ["roleKitchen", "Kitchen"],
-  floor: ["roleFloor", "Floor"],
-  "full-time": ["contractFull", "Full-time"],
-  full_time: ["contractFull", "Full-time"],
-  "part-time": ["contractPart", "Part-time"],
-  part_time: ["contractPart", "Part-time"],
-  student: ["contractStudent", "Student"],
-};
-function roleName(role, t) {
-  const hit = ROLE_NAME_KEYS[String(role || "").trim().toLowerCase()];
-  return hit ? t(hit[0], hit[1]) : role;
-}
+// Role names as the staffer reads them: utils/roleNames.js (imported above),
+// the one map the Vagtplan and the sick-call card read too. role /
+// role_on_shift is free text the owner picked, so the stored value is never
+// rewritten — only what is shown; unknown roles (and the salon vocabulary,
+// Danish in both languages) show exactly as typed. The portal kept its own
+// older copy without barista/bartender/runner/host/cleaner, so those built-in
+// roles printed raw and lowercase ("barista" beside "Tjener").
 
 // ─── Client-side .ics (calendar) export for a single shift ─────────────────
 //
@@ -568,7 +564,7 @@ function HolidaySection({ token }) {
         <>
           {noBalanceToShow ? (
             <div data-testid="holiday-no-balance" className="text-[15px] font-bold text-gray-900 leading-snug">
-              {t("portalHolidayBalanceOnPayslip", "Your balance is on your payslip")}
+              {t("portalHolidayBalanceOnPayslip", "Your balance is on your lønseddel")}
             </div>
           ) : (
             <div className="flex items-baseline gap-2">
@@ -589,7 +585,7 @@ function HolidaySection({ token }) {
       )}
       {/* The honesty line. Without it the number reads as a legal balance. */}
       <div className="mt-1 text-[10px] text-gray-400">
-        {t("portalHolidaySince", "Counted from {date} — what BonBox has recorded, not your full entitlement. Your payslip is the authority.", {
+        {t("portalHolidaySince", "Counted from {date} — what BonBox has recorded, not your full entitlement. Your lønseddel is the authority.", {
           date: new Date(h.since).toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", { day: "numeric", month: "short", year: "numeric" }),
         })}
       </div>
@@ -679,7 +675,7 @@ function DocumentsSection({ token }) {
 
             {docs.length === 0 ? (
               <div style={{ marginTop: 10, font: "400 12px/1.5 var(--font-text)", color: "#64748b" }}>
-                {t("portalDocsEmpty", "Nothing here yet. Your contract and payslips appear here when your manager shares them.")}
+                {t("portalDocsEmpty", "Nothing here yet. Your contract and lønsedler appear here when your manager shares them.")}
               </div>
             ) : (
               <div className="space-y-1.5" style={{ marginTop: 14 }}>
@@ -780,12 +776,12 @@ export function BankSection({ token }) {
     }
     const code = e?.response?.data?.detail?.code;
     const map = {
-      empty: t("portalBankErrEmpty", "Enter both your registreringsnummer and kontonummer."),
-      reg_nr_length: t("portalBankErrRegLength", "Registreringsnummer must be exactly 4 digits."),
-      account_missing: t("portalBankErrAcctMissing", "Enter your kontonummer."),
-      account_length: t("portalBankErrAcctLong", "Kontonummer can be at most 10 digits."),
-      account_too_short: t("portalBankErrAcctShort", "That kontonummer looks too short — check it against your bank."),
-      account_zero: t("portalBankErrAcctZero", "That isn't a valid kontonummer."),
+      empty: t("portalBankErrEmpty", "Enter both your reg. number and account number."),
+      reg_nr_length: t("portalBankErrRegLength", "The reg. number must be exactly 4 digits."),
+      account_missing: t("portalBankErrAcctMissing", "Enter your account number."),
+      account_length: t("portalBankErrAcctLong", "The account number can be at most 10 digits."),
+      account_too_short: t("portalBankErrAcctShort", "That account number looks too short — check it against your bank."),
+      account_zero: t("portalBankErrAcctZero", "That isn't a valid account number."),
     };
     return map[code] || t("portalBankErrGeneric", "Couldn't save your account. Check the numbers and try again.");
   };
@@ -1058,7 +1054,7 @@ function PinGate({ onVerified, token, staffName }) {
           {error && <p className="text-[13px] mb-3" style={{ color: "#fca5a5" }}>{error}</p>}
           {loading && (
             <p className="text-[13px]" style={{ color: "rgba(246,244,236,.66)" }}>
-              {t("portalPinVerifying", "Verifying...")}
+              {t("portalPinVerifying", "Verifying…")}
             </p>
           )}
           {/* The way out. A forgotten PIN used to end in a 15-minute lockout
@@ -1133,7 +1129,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
       onCalledIn?.();
       setTimeout(() => { setSent(false); setOpen(false); onDismiss?.(); }, 2600);
     } catch (err) {
-      setError(errText(err, t("portalSickSendFailed", "Couldn't send. Try again.")));
+      setError(portalErrText(err, t, t("portalSickSendFailed", "Couldn't send. Try again."), lang));
     } finally {
       setSubmitting(false);
     }
@@ -1162,7 +1158,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
       <div className="rounded-[20px] bg-white border border-[#e8edf3] p-5 text-center space-y-1.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
         <Check className="w-6 h-6 mx-auto text-emerald-600" strokeWidth={2.5} aria-hidden />
         <div className="font-display text-[15px] font-bold text-gray-900">
-          {t("portalSickSentTitle", "Sick call registered")}
+          {t("portalSickSentTitle", "Sick report sent")}
         </div>
         {/* States what is TRUE. The row is written and the manager sees it in
             BonBox the moment they look. A push is attempted but may reach
@@ -1179,7 +1175,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
   return (
     <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between">
-        <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><Thermometer className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalCallInSick", "Call in sick")}</div>
+        <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><Thermometer className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalCallInSick", "Report sick")}</div>
         <button
           onClick={() => { setOpen(false); setError(""); setReason(""); onDismiss?.(); }}
           className="text-gray-500 hover:text-gray-700 text-lg leading-none w-6 h-6 flex items-center justify-center"
@@ -1201,7 +1197,11 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
           min={toLocalISO(addDaysToDate(new Date(), -14))}
           max={maxIso}
           onChange={(e) => setDate(e.target.value)}
-          className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-amber-500/40"
+          data-testid="portal-sick-date"
+          // iOS draws a date input wider than its column (it ran past the
+          // reason box below): hold it to the card, as Fravær's DateField does.
+          className="block w-full min-w-0 max-w-full text-left px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-amber-500/40"
+          style={{ boxSizing: "border-box", WebkitAppearance: "none", appearance: "none" }}
         />
         {matchingShift && (
           <div className="mt-1 text-[11px] text-gray-500">
@@ -1229,7 +1229,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
         disabled={submitting || !date}
         className="w-full py-2.5 rounded-[14px] bg-gray-900 text-white font-text text-[13px] font-bold hover:bg-gray-700 transition disabled:opacity-50"
       >
-        {submitting ? t("portalSending", "Sending...") : t("portalSickSubmit", "Send sick call")}
+        {submitting ? t("portalSending", "Sending…") : t("portalSickSubmit", "Send")}
       </button>
       <div className="text-[10px] text-gray-400 text-center leading-snug">
         {/* Was "Your owner will be notified". Measured 2026-09-03: this
@@ -1314,7 +1314,7 @@ function useScheduleConfirm({ token, shifts, onConfirmed, allShifts }) {
       haptic.light(); // a quiet physical ack — confirm is routine, not ceremonial
       const n = res?.data?.confirmed_count ?? 0;
       setFeedback(n > 0
-        ? `✓ ${t("portalConfirmCount", "{n} shifts confirmed", { n })}`
+        ? `✓ ${n === 1 ? t("portalConfirmCountOne", "{n} shift confirmed", { n }) : t("portalConfirmCount", "{n} shifts confirmed", { n })}`
         : `✓ ${t("portalConfirmAlready", "Already confirmed")}`);
       onConfirmed?.();
       setTimeout(() => setFeedback(""), 4000);
@@ -1356,15 +1356,6 @@ function useScheduleConfirm({ token, shifts, onConfirmed, allShifts }) {
 // Tilføj til kalender from the same state. act()/getPos()/the geolocation-
 // only-when-geofence_on guard / the too_far 403 → portalClockTooFar mapping /
 // the 30s poll are MOVED VERBATIM — ownership changed, behaviour did not.
-// Approximate distance for the "too far" hint — GPS jitters, so always "~" and
-// rounded: metres under 1 km, da-DK comma km above (matches the formatKr style).
-function fmtDist(m) {
-  if (m == null) return "";
-  return m < 1000
-    ? `~${Math.round(m)} m`
-    : `~${(m / 1000).toLocaleString("da-DK", { maximumFractionDigits: 1 })} km`;
-}
-
 function useClock(token) {
   const { t, lang } = useLanguage();
   const [st, setSt] = useState(null);
@@ -1547,7 +1538,9 @@ function useClock(token) {
       if (kind === "end" && res?.data?.break_discarded) {
         // Ended within a minute: the server deleted it (a misclick), so the
         // Pause cell does not move. Say so, rather than leave a silent tap.
-        setResult(t("portalClockTooShort", "Too short — nothing logged."));
+        // Its own words: "Too short — nothing logged" is the clock-out line
+        // and read as if the shift itself was thrown away.
+        setResult(t("portalBreakTooShort", "Break under a minute — not counted."));
         setTimeout(() => setResult(""), 6000);
       }
     } catch (e) {
@@ -1817,7 +1810,7 @@ function WhosOnStrip({ teamShifts, nextShift, live = false, onOpen }) {
 // and both must share one in-flight state and one answer. `where` says which
 // list the tap came from, so the answer prints there and not twice.
 function useOpenShiftClaim(token, onClaimed) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [claiming, setClaiming] = useState(null);
   const [msg, setMsg] = useState("");
   const [where, setWhere] = useState(null);
@@ -1837,7 +1830,7 @@ function useOpenShiftClaim(token, onClaimed) {
       haptic.warning();
       if (code === "already_taken") setMsg(t("portalOpenTaken", "That shift was just taken."));
       else if (code === "shift_overlap") setMsg(t("portalOpenOverlap", "You already work then."));
-      else setMsg(errText(err, t("portalOpenClaimFailed", "Couldn't take the shift.")));
+      else setMsg(portalErrText(err, t, t("portalOpenClaimFailed", "Couldn't take the shift."), lang));
       onClaimed?.();
     } finally {
       setClaiming(null);
@@ -2370,8 +2363,8 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             <MapPinOff className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
             <span>
               {restaurantName
-                ? t("portalClockTooFarDist", "About {dist} from {venue}", { dist: fmtDist(clock.err.distance_m), venue: restaurantName })
-                : t("portalClockTooFarDistNoVenue", "About {dist} from the venue", { dist: fmtDist(clock.err.distance_m) })}
+                ? t("portalClockTooFarDist", "About {dist} from {venue}", { dist: formatClockDistance(clock.err.distance_m, lang), venue: restaurantName })
+                : t("portalClockTooFarDistNoVenue", "About {dist} from the venue", { dist: formatClockDistance(clock.err.distance_m, lang) })}
             </span>
           </div>
           <div className="mt-1 text-[12px]" style={{ color: SAGE }}>
@@ -3202,8 +3195,9 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
         {weekOffset >= 1 && laterShifts.length > 0 && (
           <div style={{ marginTop: 14, paddingTop: 8, borderTop: `1px solid ${DIVIDER}` }} data-testid="portal-later-shifts">
             <div style={{ padding: "0 4px", font: "500 12px/1.3 var(--font-text)", color: MUTED }}>
-              {(t("portalSecComingUpCount", "Coming up · {n} more shifts") || "")
-                .replace("{n}", String(laterShifts.length))}
+              {laterShifts.length === 1
+                ? t("portalSecComingUpCountOne", "Coming up · {n} more shift", { n: 1 })
+                : t("portalSecComingUpCount", "Coming up · {n} more shifts", { n: laterShifts.length })}
             </div>
             <ul className="mt-0.5">
               {laterShifts.slice(0, 4).map((s) => (
@@ -3410,7 +3404,7 @@ function LiveShiftCard({ clock, live, menuBtn }) {
   // and the arc turns sage. Off a pause it is the shift, as always.
   const breakSec = onBreak ? (clock.breakSec ?? st.break_elapsed_sec ?? 0) : null;
   const ringSub = onBreak
-    ? t("portalLiveBreakSub", "Total on shift {d}", { d: dur(Math.floor(elapsed / 60)) })
+    ? t("portalLiveBreakSub", "{d} on shift", { d: dur(Math.floor(elapsed / 60)) })
     : sub;
   const ringAria = onBreak
     ? t("portalLiveRingBreakAria", "On break for {b}. On shift for {e} in total.", {
@@ -3514,7 +3508,9 @@ function LiveShiftCard({ clock, live, menuBtn }) {
               {/* Only the digits that change roll (a minute, then its tens). */}
               <RollingDigits value={fmtClockHM(onBreak ? breakSec : elapsed)} />
             </span>
-            <span className="whitespace-nowrap" data-testid="portal-live-sub" style={{ font: "400 12px/1.2 var(--font-text)", color: SAGE }}>{ringSub}</span>
+            {/* Held inside the ring: on a pause the line ran over the 8 and 4
+                o'clock ticks on a 402 pt iPhone (and the 150 px short ring). */}
+            <span className="whitespace-nowrap" data-testid="portal-live-sub" style={{ maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", font: "400 12px/1.2 var(--font-text)", color: SAGE }}>{ringSub}</span>
           </div>
         </div>
       </div>
@@ -4050,24 +4046,26 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
 
   // The three cycle shapes DK owners actually run. Each is expressed against
   // the anchor month so the label shows real dates, not an abstract rule.
+  // The ordinal dot ("1.–30.") is Danish notation; English writes "1–30".
+  const dot = lang === "da" ? "." : "";
   const cycles = [
     {
       key: "calendar",
-      label: `1.–${new Date(Y, M + 1, 0).getDate()}.`,
+      label: `1${dot}–${new Date(Y, M + 1, 0).getDate()}${dot}`,
       hint: monthName(0),
       start: iso(new Date(Y, M, 1)),
       end: iso(new Date(Y, M + 1, 0)),
     },
     {
       key: "15-14",
-      label: "15.–14.",
+      label: `15${dot}–14${dot}`,
       hint: `${monthName(0)} – ${monthName(1)}`,
       start: iso(new Date(Y, M, 15)),
       end: iso(new Date(Y, M + 1, 14)),
     },
     {
       key: "16-15",
-      label: "16.–15.",
+      label: `16${dot}–15${dot}`,
       hint: `${monthName(0)} – ${monthName(1)}`,
       start: iso(new Date(Y, M, 16)),
       end: iso(new Date(Y, M + 1, 15)),
@@ -4093,9 +4091,8 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
   })();
   const ready = from && to && !problem;
 
-  // 16 px: under it iOS zooms the page on focus, and an inline font beats
-  // index.css's coarse-pointer rule (this was 14).
-  const field = { ...FIELD, width: "100%", marginTop: 6, font: "600 16px/1.2 var(--font-text)" };
+  // The date fields are DateField (16 px FIELD: under it iOS zooms the page
+  // on focus).
   const cap = EYEBROW;
 
   return (
@@ -4144,15 +4141,12 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
         </div>
 
         <div style={{ marginTop: 18, padding: "0 4px", ...cap }}>{t("portalHoursCustomRange", "Or pick your own dates")}</div>
-        <div className="flex" style={{ gap: 10, marginTop: 8 }}>
-          <label style={{ flex: 1, minWidth: 0 }}>
-            <span style={FIELD_LABEL}>{t("portalHoursFrom", "From")}</span>
-            <input type="date" value={from} min={floorISO} max={todayISO} onChange={(e) => setFrom(e.target.value)} className={FIELD_CLS} style={field} />
-          </label>
-          <label style={{ flex: 1, minWidth: 0 }}>
-            <span style={FIELD_LABEL}>{t("portalHoursTo", "To")}</span>
-            <input type="date" value={to} min={from || floorISO} onChange={(e) => setTo(e.target.value)} className={FIELD_CLS} style={field} />
-          </label>
+        {/* Fravær's DateField: an empty iOS date input is wider than half the
+            sheet (From ran over To, To off the edge, no placeholder); the
+            field holds its column and says "Pick a date" while empty. */}
+        <div className="grid" style={{ gap: 10, marginTop: 8, gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+          <DateField label={t("portalHoursFrom", "From")} value={from} min={floorISO} max={todayISO} onChange={setFrom} testId="portal-period-from" />
+          <DateField label={t("portalHoursTo", "To")} value={to} min={from || floorISO} onChange={setTo} testId="portal-period-to" />
         </div>
         {problem && (
           <div role="alert" style={{ marginTop: 10, padding: "0 4px", font: "600 13px/1.4 var(--font-text)", color: ALERT_INK }}>{problem}</div>
@@ -4549,7 +4543,9 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       {maxHours && remaining !== null && remaining <= 10 && (
         <VpNote icon={AlertTriangle} testId="portal-hours-permit-note">
           <strong style={{ fontWeight: 700 }}>{t("portalWorkPermitLimit", "Work permit limit")}</strong>
-          <span style={{ display: "block", marginTop: 2 }}>{t("portalHoursRemainingLong", "You have {n} hours remaining this period.", { n: remaining })}</span>
+          {/* The repo's hours formatter: a raw float printed 7.410000000000011,
+              "1 hours", and a decimal point beside Danish "timer". */}
+          <span style={{ display: "block", marginTop: 2 }}>{t("portalHoursRemainingLong", "You have {h} left this period.", { h: formatHours(remaining, { lang, decimals: 2 }) })}</span>
         </VpNote>
       )}
 
@@ -4627,7 +4623,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                     <div style={{ marginTop: 2, font: "600 13px/1.35 var(--font-text)", color: forgotten ? BRASS_INK : PINE }}>
                       {forgotten
                         ? t("portalHoursOpenForgotten", "Clock-out missing — your manager will fix it")
-                        : t("portalHoursOpenLive", "Clocked in since {t}", { t: op.start_time || "—" })}
+                        : t("portalHoursOpenLive", "Clocked in at {t}", { t: op.start_time || "—" })}
                     </div>
                   </div>
                 </div>
@@ -4800,7 +4796,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
  *     and to_shift, lifecycle states on respond
  *   • Server scrubs reason text + caps to 500 chars
  */
-function SwapTab({ token, ownShifts, onChanged }) {
+function SwapTab({ token, ownShifts, onChanged, onInbox }) {
   const { t, lang } = useLanguage();
   const [inbox, setInbox] = useState(null);
   const [pool, setPool] = useState([]); // colleagues' open give-aways
@@ -4816,6 +4812,9 @@ function SwapTab({ token, ownShifts, onChanged }) {
     ]);
     setInbox(inboxRes.status === "fulfilled" ? (inboxRes.value.data || []) : []);
     setPool(poolRes.status === "fulfilled" ? (poolRes.value.data || []) : []);
+    // The dock's Byt badge reads the same answer (a failed read leaves the
+    // badge as it was rather than zeroing it).
+    if (inboxRes.status === "fulfilled") onInbox?.(inboxRes.value.data || []);
   };
 
   useEffect(() => { fetchInbox(); }, [token]);
@@ -4834,7 +4833,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
       reload();
     } catch (err) {
       haptic.warning();
-      setClaimErr(errText(err, t("portalGaClaimFailed", "Couldn't take the shift. Try again.")));
+      setClaimErr(portalErrText(err, t, t("portalGaClaimFailed", "Couldn't take the shift. Try again."), lang));
       fetchInbox(); // it may have just been taken — refresh the pool
     } finally {
       setClaimBusy(null);
@@ -4894,7 +4893,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
       {pool.length > 0 && (
         <section data-testid="swap-pool">
           <div className="flex items-center" style={{ gap: 8, padding: "0 4px", minHeight: 24 }}>
-            <HomeH2>{t("portalGaPoolHeading", "Shifts up for grabs")}</HomeH2>
+            <HomeH2>{t("portalGaPoolHeading", "Shifts being given away")}</HomeH2>
             <span
               className="inline-flex items-center justify-center vp-figures"
               style={{ height: 20, minWidth: 20, padding: "0 6px", borderRadius: 10, background: PINE, color: CREAM, font: `700 11px/1 ${SORA}` }}
@@ -4925,7 +4924,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
                       </span>
                       {/* v2's eligibility tag — the answer before the tap. */}
                       <span data-testid="swap-pool-verdict" style={{ font: "600 12px/1.2 var(--font-text)", color: clash ? ALERT_INK : PINE }}>
-                        {clash ? t("portalGaOverlaps", "Overlaps you") : t("portalGaFree", "Free for you")}
+                        {clash ? t("portalGaOverlaps", "Overlaps you") : t("portalGaFree", "You're free then")}
                       </span>
                     </div>
                     {clash ? (
@@ -4960,9 +4959,11 @@ function SwapTab({ token, ownShifts, onChanged }) {
           {t("portalSwapNonePending", "No pending swap requests.")}
         </CalmEmpty>
       )}
+      {/* The request that needs the viewer's answer leads; then what waits
+          on someone else; then what is done. */}
       {inbox && inbox.length > 0 && (
         <div className="flex flex-col" style={{ gap: 8 }}>
-          {inbox.map((s) => (
+          {orderSwapInbox(inbox).map((s) => (
             <SwapRow key={s.id} swap={s} token={token} onChanged={reload} />
           ))}
         </div>
@@ -4980,15 +4981,16 @@ function SwapTab({ token, ownShifts, onChanged }) {
 /** The swap endpoints answer a trade that would double-book someone with
     409 {code: "swap_overlap", who: "self" | "colleague"} — `who` relative to
     the person asking. Say it in their language; anything else goes through
-    errText as before. */
-function swapErrText(err, t, fallback) {
+    portalErrText (the server's known sentences in the staffer's language,
+    an unknown one as errText always showed it). */
+function swapErrText(err, t, fallback, lang) {
   const d = err?.response?.data?.detail;
   if (err?.response?.status === 409 && d && d.code === "swap_overlap") {
     return d.who === "colleague"
       ? t("portalSwapClashColleague", "Your colleague already works at that time — this swap would put them on two shifts at once.")
       : t("portalSwapClashSelf", "You already work at that time — this swap would put you on two shifts at once.");
   }
-  return errText(err, fallback);
+  return portalErrText(err, t, fallback, lang);
 }
 
 function fmtSwapDay(iso, lang) {
@@ -5026,7 +5028,7 @@ function SwapRow({ swap, token, onChanged }) {
       const stale = d?.code === "swap_stale";
       setRowErr({
         text: overlap
-          ? swapErrText(err, t, "")
+          ? swapErrText(err, t, "", lang)
           : stale
             ? t("portalSwapStale", "The shifts have changed since this swap was offered — ask your colleague to offer it again.")
             : t("portalSwapRespondFailed", "Couldn't answer the swap. Try again."),
@@ -5071,7 +5073,7 @@ function SwapRow({ swap, token, onChanged }) {
   // Localized status word for the pill. "Byttet" (swapped/done) stays
   // Danish across all UI languages per the DK terminology lock.
   const statusLabel = swap.status === "proposed"
-    ? (isGiveaway ? t("portalGaStatusOpen", "Up for grabs") : t("portalSwapStatusProposed", "Pending"))
+    ? (isGiveaway ? t("portalGaStatusOpen", "Being given away") : t("portalSwapStatusProposed", "Pending"))
     : swap.status === "done"
       ? (isGiveaway ? t("portalGaStatusTaken", "Taken") : t("portalSwapStatusDone", "Swapped"))
       : swap.status === "declined"
@@ -5083,9 +5085,11 @@ function SwapRow({ swap, token, onChanged }) {
             : swap.status;
 
   // One side of the trade: the day in words, the time in Sora (the home's
-  // shift-row tile).
-  const side = (label, date, time) => (
-    <div style={{ minWidth: 0, padding: "10px 12px", borderRadius: 14, background: ROW }}>
+  // shift-row tile). Labelled from the VIEWER's side ("Du giver / Du får"):
+  // the proposer's "Giver" on an incoming card was the shift the viewer gets.
+  const sides = swapSides(swap);
+  const side = (label, date, time, testId) => (
+    <div data-testid={testId} style={{ minWidth: 0, padding: "10px 12px", borderRadius: 14, background: ROW }}>
       <div style={{ font: "600 11px/1.2 var(--font-text)", letterSpacing: "0.08em", textTransform: "uppercase", color: MUTED }}>{label}</div>
       <div className="truncate" style={{ marginTop: 4, font: "500 13px/1.3 var(--font-text)", color: INK }}>{fmtSwapDay(date, lang)}</div>
       <div className="tabular-nums truncate" style={{ marginTop: 2, font: `700 15px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>{time}</div>
@@ -5121,8 +5125,10 @@ function SwapRow({ swap, token, onChanged }) {
         )}
       </div>
       <div className="grid" style={{ gap: 8, gridTemplateColumns: isGiveaway ? "minmax(0, 1fr)" : "repeat(2, minmax(0, 1fr))" }}>
-        {side(isGiveaway ? t("portalGaShiftLabel", "Shift") : t("portalSwapGives", "Gives"), swap.from_shift_date, swap.from_shift_time)}
-        {!isGiveaway && side(t("portalSwapGets", "Gets"), swap.to_shift_date, swap.to_shift_time)}
+        {isGiveaway
+          ? side(t("portalGaShiftLabel", "Shift"), swap.from_shift_date, swap.from_shift_time, "swap-side-shift")
+          : side(t("portalSwapYouGive", "You give"), sides.give.date, sides.give.time, "swap-side-give")}
+        {!isGiveaway && sides.get && side(t("portalSwapYouGet", "You get"), sides.get.date, sides.get.time, "swap-side-get")}
       </div>
       {/* The pool's quote marks, upright — one way to quote a colleague. */}
       {swap.reason && (
@@ -5195,7 +5201,7 @@ function SwapRow({ swap, token, onChanged }) {
       {swap.status === "accepted" && (
         <div className="flex items-center" style={{ gap: 6, font: "500 13px/1.35 var(--font-text)", color: INK }}>
           <Check size={15} strokeWidth={2.4} className="shrink-0" style={{ color: PINE }} aria-hidden />
-          <span>{t("portalSwapAcceptedLine", "Both staff agreed.")}</span>
+          <span>{t("portalSwapAcceptedLine", "You both agreed.")}</span>
         </div>
       )}
     </div>
@@ -5231,7 +5237,7 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
       haptic.light();
       onOffered?.();
     } catch (err) {
-      setError(errText(err, t("portalGaOfferFailed", "Couldn't post the shift. Try again.")));
+      setError(portalErrText(err, t, t("portalGaOfferFailed", "Couldn't post the shift. Try again."), lang));
     } finally {
       setSubmitting(false);
     }
@@ -5273,7 +5279,7 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
         className={`w-full vp-press ${FOCUS_RING}`}
         style={pineBtn(!shiftId || submitting, BTN_FULL)}
       >
-        {submitting ? "…" : t("portalGaSellSubmit", "Put it up for grabs")}
+        {submitting ? "…" : t("portalGaSellSubmit", "Give it away")}
       </button>
     </div>
   );
@@ -5357,7 +5363,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
       });
       onProposed?.();
     } catch (err) {
-      setError(swapErrText(err, t, t("portalSwapProposeFailed", "Couldn't propose. Try again.")));
+      setError(swapErrText(err, t, t("portalSwapProposeFailed", "Couldn't propose. Try again."), lang));
     } finally {
       setSubmitting(false);
     }
@@ -5386,14 +5392,14 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
 
       {fromShiftId && (
         <label className="block min-w-0">
-          <span style={FIELD_LABEL}>{t("portalSwapTakeInExchange", "Teammate's shift you'd take in exchange")}</span>
+          <span style={FIELD_LABEL}>{t("portalSwapTakeInExchange", "Your colleague's shift you'd take instead")}</span>
           <select
             value={toShiftId}
             onChange={(e) => setToShiftId(e.target.value)}
             className={FIELD_CLS}
             style={FIELD}
           >
-            <option value="">{t("portalSwapPickTeammate", "Pick a teammate's shift…")}</option>
+            <option value="">{t("portalSwapPickTeammate", "Pick a colleague's shift…")}</option>
             {candidateTeamShifts.map((s) => (
               <option key={s.shift_id} value={s.shift_id}>
                 {s.staff_name} — {fmtSwapDay(s.date, lang)} · {s.start_time}–{s.end_time}
@@ -5417,7 +5423,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
           value={reason}
           onChange={(e) => setReason(e.target.value.slice(0, 500))}
           rows={2}
-          placeholder={t("portalSwapReasonPlaceholder", "e.g. family wedding, doctor appt")}
+          placeholder={t("portalSwapReasonPlaceholder", "e.g. family wedding, doctor's appointment")}
           className={`${FIELD_CLS} resize-none`}
           style={FIELD}
         />
@@ -5432,10 +5438,10 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
         className={`w-full vp-press ${FOCUS_RING}`}
         style={pineBtn(submitting || !fromShiftId || !toShiftId, BTN_FULL)}
       >
-        {submitting ? t("portalSending", "Sending...") : t("portalSwapSubmit", "Send swap request")}
+        {submitting ? t("portalSending", "Sending…") : t("portalSwapSubmit", "Send swap request")}
       </button>
       <p className="text-center" style={{ margin: 0, font: "400 12px/1.4 var(--font-text)", color: MUTED }}>
-        {t("portalSwapProposeHint", "Your teammate will see this in their inbox. If they accept, the two shifts swap automatically.")}
+        {t("portalSwapProposeHint", "Your colleague will see this in their inbox. If they accept, the two shifts swap automatically.")}
       </p>
     </div>
   );
@@ -7188,7 +7194,9 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
 
   const iso = (d) => d.toLocaleDateString("sv-SE");
   const todayISO = new Date().toLocaleDateString("sv-SE");
-  const range = `${days[0].toLocaleDateString(localeFor(lang), { day: "numeric", month: "short" })} – ${days[6].toLocaleDateString(localeFor(lang), { day: "numeric", month: "short" })}`;
+  // The home week card's words for the same week ("9–15 November" /
+  // "9.–15. november"), not a second spelling ("9 Nov – 15 Nov").
+  const range = fmtWeekRange(iso(days[0]), lang);
   const markedThisWeek = days.filter((d) => oneOffByDate[iso(d)]).length;
 
   return (
@@ -7229,8 +7237,8 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
               aria-current={isTodayCell ? "date" : undefined}
               aria-label={[
                 d.toLocaleDateString(localeFor(lang), { weekday: "long", day: "numeric", month: "long" }),
-                abs ? (ok ? t("legendApproved", "Approved off") : t("legendPending", "Pending"))
-                  : one?.kind === "preferred" ? t("legendPreferred", "Prefers")
+                abs ? (ok ? t("legendApproved", "Approved time off") : t("legendPending", "Pending"))
+                  : one?.kind === "preferred" ? t("legendPreferred", "Preferred")
                   : one ? t("legendCantWork", "Can't work")
                   : recurring ? t("legendRepeats", "Every week")
                   : null,
@@ -7542,9 +7550,9 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
       >
         {legendItem("cant", t("legendCantWork", "Can't work"))}
         {legendItem("weekly", t("legendRepeats", "Every week"))}
-        {legendItem("pref", t("legendPreferred", "Prefers"))}
+        {legendItem("pref", t("legendPreferred", "Preferred"))}
         {hasAbsence && legendItem("pending", t("legendPending", "Pending"))}
-        {hasAbsence && legendItem("approved", t("legendApproved", "Approved off"))}
+        {hasAbsence && legendItem("approved", t("legendApproved", "Approved time off"))}
         {/* Only claim the scheduled dot when there is a shift to carry one. */}
         {shiftSet.size > 0 && (
           <span className="inline-flex items-center" style={{ gap: 6 }} data-legend="scheduled">
@@ -7661,7 +7669,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
           closing={weekdaySheet.closing}
           testId="kanikke-weekly-sheet"
           title={t("kanIkkeRemoveWeeklyTitle", "Remove this weekly rule?")}
-          body={t("kanIkkeRemoveWeeklyBody", "This clears every {day}.").split("{day}").join(WD[weekdayShown.wd])}
+          body={t("kanIkkeRemoveWeeklyBody", "This clears every {day}.", { day: weekdayLong(weekdayShown.wd, lang) })}
           onDismiss={() => setConfirmWeekday(null)}
           dismissLabel={t("portalCancel", "Cancel")}
         >
@@ -7995,7 +8003,7 @@ function fmtLead(minutes, t) {
   const m = Number(minutes) || 0;
   if (m < 60) return t("staffRemindMin", "{n} min").split("{n}").join(String(m));
   const h = m / 60;
-  return (h === 1 ? t("staffRemindHrOne", "{n} hour") : t("staffRemindHr", "{n} h"))
+  return (h === 1 ? t("staffRemindHrOne", "{n} hour") : t("staffRemindHr", "{n} hours"))
     .split("{n}").join(String(h));
 }
 
@@ -8530,6 +8538,8 @@ export default function StaffPortalPage() {
   const [hoursRange, setHoursRange] = useState(null);
   // Unread owner→staff chat messages — drives the "Beskeder" nav badge.
   const [chatUnread, setChatUnread] = useState(0);
+  // Swap requests waiting on THIS staffer's answer — the "Byt" nav badge.
+  const [swapAsks, setSwapAsks] = useState(0);
 
   // ─── Live-sync (Phase 1: dependency-free freshness) ──────────────────────
   // lastSynced — stamped when the SCHEDULE GET resolves. Drives the header
@@ -8739,7 +8749,11 @@ export default function StaffPortalPage() {
   // A failed open retries by itself the moment the phone is back online —
   // the staffer should not have to know that "Prøv igen" exists.
   const transientOpen = !!error?.transient;
-  useEffect(() => {
+  // A layout effect, so the listener is armed in the same commit that draws
+  // the "no connection" screen: a passive effect could run after an 'online'
+  // that arrived right after the screen appeared, and that retry was lost
+  // (StaffPortalPage.deadLink failed once under a loaded full run).
+  useLayoutEffect(() => {
     if (!transientOpen) return;
     const onOnline = () => { setRetrying(true); setValidateKey((k) => k + 1); };
     window.addEventListener("online", onOnline);
@@ -9038,6 +9052,36 @@ export default function StaffPortalPage() {
     };
   }, [pinVerified, info, tab, token]);
 
+  // 2d. Byt badge — the requests that wait on this staffer's answer, read
+  // from the inbox endpoint the Byt tab already uses (no endpoint of its
+  // own). Once a minute while the app is in view, and again when it comes
+  // back into view; on the Byt tab the tab's own read updates it too
+  // (onInbox). Bounded so the route's 30/min per-address limit stays far off
+  // for a whole team on one wifi. A failed read keeps the last count.
+  const portalReady = Boolean(pinVerified && info);
+  useEffect(() => {
+    if (!portalReady) return;
+    let cancelled = false;
+    const poll = () => {
+      if (document.visibilityState !== "visible") return;
+      portalApi
+        .get(`/portal/${token}/swap-requests`)
+        .then((res) => {
+          if (!cancelled) setSwapAsks(countNeedsMyAnswer(res?.data));
+        })
+        .catch(() => {});
+    };
+    poll();
+    const id = setInterval(poll, 60000);
+    const onVis = () => { if (document.visibilityState === "visible") poll(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [portalReady, token]);
+
   // 2e. Realtime stream (Phase 2) — instant push the moment the owner
   // publishes: on a "schedule_published" nudge we refetch immediately
   // (loadData diffs + toasts as usual). The 20s/60s poll below is the
@@ -9256,7 +9300,7 @@ export default function StaffPortalPage() {
       setTimeout(() => { setEmailMsg(""); setEmailStatus(null); setShowEmailEdit(false); }, 1500);
     } catch (err) {
       setEmailStatus("err");
-      setEmailMsg(errText(err, t("portalSaveFailed", "Couldn't save")));
+      setEmailMsg(portalErrText(err, t, t("portalSaveFailed", "Couldn't save"), lang));
     } finally {
       setEmailSaving(false);
     }
@@ -9445,7 +9489,7 @@ export default function StaffPortalPage() {
             style={{ gap: 6, minHeight: 32, padding: "4px 16px", background: "#FEF3C7", borderTop: "1px solid #FDE68A", font: "600 12px/1.3 var(--font-text)", color: "#92400E" }}
           >
             <CloudOff size={13} strokeWidth={2.5} aria-hidden className="shrink-0" />
-            <span>{!isOnline ? t("portalOfflineStrip", "Offline – showing last update") : t("portalStaleStrip", "Not updated – showing last update")}</span>
+            <span>{!isOnline ? t("portalOfflineStrip", "Offline – showing last update") : t("portalStaleStrip", "Couldn't refresh – showing the last update")}</span>
             <span aria-hidden>·</span>
             <button
               type="button"
@@ -9544,7 +9588,9 @@ export default function StaffPortalPage() {
                       <span style={{ font: "600 13px/1.2 var(--font-text)", color: on ? "#fff" : "#0f172a" }}>{d.label}</span>
                       {/* The count is the honest reason to pick one. */}
                       <span style={{ font: "500 11px/1 var(--font-text)", color: on ? "rgba(255,255,255,.55)" : "#94a3b8" }}>
-                        {t("portalDeptShiftCount", "{n} shifts").split("{n}").join(String(d.n))}
+                        {d.n === 1
+                          ? t("portalDeptShiftCountOne", "{n} shift", { n: 1 })
+                          : t("portalDeptShiftCount", "{n} shifts", { n: d.n })}
                       </span>
                     </button>
                   );
@@ -9909,7 +9955,7 @@ export default function StaffPortalPage() {
           />
         )}
         {tab === "swaps" && (
-          <SwapTab token={token} ownShifts={shifts} onChanged={loadData} />
+          <SwapTab token={token} ownShifts={shifts} onChanged={loadData} onInbox={(list) => setSwapAsks(countNeedsMyAnswer(list))} />
         )}
         {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} range={hoursRange} setRange={setHoursRange} prevTotal={prevTotal} hoursError={hoursError} hoursLoading={hoursLoading} onRetry={loadHours} />}
         {tab === "alerts" && (
@@ -9987,6 +10033,22 @@ export default function StaffPortalPage() {
                     {chatUnread > 9 ? "9+" : chatUnread}
                   </span>
                 )}
+                {/* The same pine count on Byt: requests only this staffer
+                    can answer. */}
+                {item.key === "swaps" && swapAsks > 0 && (
+                  <span
+                    key={`s${swapAsks > 9 ? "9+" : swapAsks}`}
+                    data-testid="portal-swaps-badge"
+                    className="absolute inline-flex items-center justify-center vp-pop"
+                    style={{
+                      top: -4, right: -9, minWidth: 16, height: 16, padding: "0 4px", boxSizing: "border-box", borderRadius: 8,
+                      background: PINE, color: CREAM, font: "700 10px/1 var(--font-text)", boxShadow: "0 0 0 2px #FFFDF9",
+                    }}
+                    aria-label={t("portalSwapAsksBadge", "Swap requests waiting for your answer")}
+                  >
+                    {swapAsks > 9 ? "9+" : swapAsks}
+                  </span>
+                )}
               </span>
               <span
                 // Re-mounts when the tab becomes active, so the name pops in
@@ -10061,6 +10123,15 @@ export default function StaffPortalPage() {
                       aria-label={t("staffChatUnreadBadge", "Unread messages")}
                     >
                       {chatUnread > 9 ? "9+" : chatUnread}
+                    </span>
+                  )}
+                  {item.key === "swaps" && swapAsks > 0 && (
+                    <span
+                      data-testid="portal-swaps-badge"
+                      className="absolute z-10 -top-1 -right-1.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-600 text-white text-[9px] font-bold leading-[14px] text-center"
+                      aria-label={t("portalSwapAsksBadge", "Swap requests waiting for your answer")}
+                    >
+                      {swapAsks > 9 ? "9+" : swapAsks}
                     </span>
                   )}
                 </span>

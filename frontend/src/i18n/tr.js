@@ -4004,7 +4004,7 @@ export const tr = {
   portalHoursPeriod: "Dönem",
   portalHoursShiftsCount: "Vardiya",
   portalHoursThisPeriod: "bu dönem",
-  portalHoursRemainingLong: "Bu dönemde {n} saatin kaldı.",
+  portalHoursRemainingLong: "Bu dönemde {h} kaldı.",
   portalSwapStatusProposed: "Beklemede",
   portalOfferSwapShort: "Takas",
   portalGaSellCta: "Vardiyayı devret",

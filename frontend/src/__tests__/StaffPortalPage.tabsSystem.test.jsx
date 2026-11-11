@@ -625,7 +625,9 @@ describe("Byt", () => {
     go("swaps");
     const rows = await screen.findAllByTestId("swap-row");
     expect(rows).toHaveLength(5);
-    const [inc, out, ga, sw, ag] = rows;
+    // Needs-your-answer first, then waiting on others (your proposal; the
+    // agreed swap), then done — the server's order kept inside each group.
+    const [inc, out, ag, ga, sw] = rows;
 
     const accept = within(inc).getByTestId("swap-accept");
     expect(accept.textContent).toBe("Accepter");

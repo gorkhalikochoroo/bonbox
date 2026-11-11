@@ -172,7 +172,10 @@ describe("Start pause / Slut pause on the real answers", () => {
     postImpl = (url) => (url === path("break_end") ? reply("break_end_discarded") : Promise.resolve({ data: {} }));
     await mount();
     await act(async () => { fireEvent.click(await screen.findByTestId("portal-break-btn")); });
-    expect(await screen.findByText("For kort — intet registreret.")).toBeInTheDocument();
+    // The pause's own words — not the clock-out line ("For kort — intet
+    // registreret."), which read as if the shift was thrown away.
+    expect(await screen.findByText("Pausen var under et minut — den tæller ikke med.")).toBeInTheDocument();
+    expect(screen.queryByText("For kort — intet registreret.")).toBeNull();
     expect(breakBtn().textContent).toBe("Start pause");
   });
 });
@@ -272,7 +275,11 @@ describe("the ring pauses during a pause (canvas review)", () => {
     const ring = await screen.findByTestId("portal-live-ring");
     expect(STEP.clock_on_break.body.break_elapsed_sec).toBe(430);
     expect(screen.getByTestId("portal-live-elapsed").textContent).toBe("0:07");
-    expect(screen.getByTestId("portal-live-sub").textContent).toMatch(/^3 t 7 min på vagt i alt$/);
+    // Short enough to stay inside the ring (the "i alt" lives in the ring's
+    // aria-label); held to 70 % of the ring with an ellipsis besides.
+    expect(screen.getByTestId("portal-live-sub").textContent).toMatch(/^3 t 7 min på vagt$/);
+    expect(screen.getByTestId("portal-live-sub").style.maxWidth).toBe("70%");
+    expect(screen.getByTestId("portal-live-sub").style.textOverflow).toBe("ellipsis");
     expect(ring.textContent).toContain("På pause");
     const arc = screen.getByTestId("portal-live-arc");
     expect(arc.getAttribute("stroke")).toBe("#A9B8AE");

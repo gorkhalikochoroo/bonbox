@@ -112,7 +112,8 @@ describe("nextShiftChip (canvas copy)", () => {
 
   it("today, later: 'I dag · om 6 t 27 min' — lower-case 'om' mid-chip", () => {
     expect(nextShiftChip(shiftAt("2026-08-03T15:27"), tda, { today: true })).toBe("I dag · om 6 t 27 min");
-    expect(nextShiftChip(shiftAt("2026-08-03T15:27"), ten, { today: true })).toBe("Today · in 6 h 27 min");
+    // English in the home's one chip style, as "In 6h 27m" beside it.
+    expect(nextShiftChip(shiftAt("2026-08-03T15:27"), ten, { today: true })).toBe("Today · in 6h 27m");
   });
 
   it("under an hour away: 'Starter om 12 min' (the Stempl ind state), today or not", () => {
