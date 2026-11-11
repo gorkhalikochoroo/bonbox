@@ -489,6 +489,12 @@ describe("Beskeder", () => {
     // The owner thread has one other party, named in the h2 — not over
     // every bubble.
     expect(screen.queryByTestId("portal-chat-sender")).toBeNull();
+    // The stream stops above the floating composer on a notched phone too:
+    // its height gives back both safe-area insets (iPhone sim, 11 Nov: the
+    // newest group message sat ~80 px under the composer without them).
+    const stream = screen.getByTestId("portal-chat-stream");
+    expect(stream.style.maxHeight).toContain("env(safe-area-inset-top");
+    expect(stream.style.maxHeight).toContain("env(safe-area-inset-bottom");
     expectNoGreenOrNavy(content());
   });
 

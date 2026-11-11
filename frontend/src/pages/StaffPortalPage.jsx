@@ -6205,11 +6205,24 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
         </p>
       </div>
 
-      {/* Message stream */}
+      {/* Message stream. Its bottom must stay above the floating composer:
+          20rem is the chrome a browser has (header and title above, composer
+          and dock below), and the app adds the notch and home-indicator
+          insets to that. Without them, on an iPhone the stream ran ~80 px
+          under the composer — the newest message of a longer group thread
+          sat behind it with no scroll left to free it, and the page itself
+          overflowed. Insets are 0 in a browser, so the web is unchanged.
+          With the keyboard up the composer rides on the keyboard instead. */}
       <div
         ref={scrollRef}
+        data-testid="portal-chat-stream"
         className="flex flex-col overflow-y-auto"
-        style={{ maxHeight: kb > 0 ? `calc(100vh - 20rem - ${kb}px)` : "calc(100vh - 20rem)", gap: 10 }}
+        style={{
+          maxHeight: kb > 0
+            ? `calc(100vh - 20rem - ${kb}px)`
+            : "calc(100vh - 20rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
+          gap: 10,
+        }}
       >
         {messages === null ? (
           <div className="flex flex-col" style={{ gap: 8 }} data-testid="portal-skeleton">
