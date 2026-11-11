@@ -10,7 +10,7 @@
  *   • styles.xml — the activity theme is Light (the portal has no dark mode)
  *     with pine as the accent, so native date/select pickers are not teal; the
  *     light-mode splash is unchanged, and a values-night copy keeps the splash
- *     white with dark bar icons in system dark mode.
+ *     in light mode's colour with dark bar icons in system dark mode.
  *   • MainActivity — the WebView's text zoom follows the system size up to
  *     one step (115 %), so large text cannot break the dock and the ring.
  *   • The dock label's size is the fit variable, 11 px by default.
@@ -86,13 +86,18 @@ describe("android-scheduler resources", () => {
     expect(app).toMatch(/<item name="android:windowLightStatusBar">true<\/item>/);
   });
 
-  it("colours: pine is the portal's #0E3B2E; the dark-mode splash is the splash art's white", () => {
+  it("colours: pine is the portal's #0E3B2E; the dark-mode splash is light mode's own splash colour", () => {
     expect(colors).toMatch(/<color name="pine">#0E3B2E<\/color>/);
-    expect(colors).toMatch(/<color name="splashBackground">#FFFFFF<\/color>/);
+    // Light mode = ?android:colorBackground of DeviceDefault.Light: #FAFAFA
+    // before Android 12, system_neutral1_50 from 12 on (walk round 2, P4:
+    // the dark splash was #FFFFFF, light mode's lavender-grey).
+    expect(colors).toMatch(/<color name="splashBackground">#FAFAFA<\/color>/);
+    const v31 = read(`${RES}/values-v31/colors.xml`);
+    expect(v31).toMatch(/<color name="splashBackground">@android:color\/system_neutral1_50<\/color>/);
     expect(colors).toMatch(/<color name="shellBackground">#f9fafb<\/color>/);
   });
 
-  it("light mode's splash is unchanged; system dark mode keeps it white with dark bar icons", () => {
+  it("light mode's splash is unchanged; system dark mode keeps it light with dark bar icons", () => {
     const light = style(styles, "AppTheme.NoActionBarLaunch");
     expect(light).toMatch(/parent="Theme\.SplashScreen"/);
     expect(light).not.toMatch(/windowSplashScreenBackground/);

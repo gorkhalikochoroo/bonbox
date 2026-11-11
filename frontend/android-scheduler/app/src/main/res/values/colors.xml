@@ -9,7 +9,9 @@
     <!-- The portal's pine (FOREST / PINE in StaffPortalPage.jsx): the accent of
          the native date and select pickers the WebView opens. -->
     <color name="pine">#0E3B2E</color>
-    <!-- The launch splash in system dark mode = SplashScreen.backgroundColor
-         (capacitor.config.ts), the white the splash art is drawn on. -->
-    <color name="splashBackground">#FFFFFF</color>
+    <!-- The launch splash in system dark mode = light mode's own splash
+         colour, so both modes open the same. Light mode's Theme.SplashScreen
+         paints ?android:colorBackground of DeviceDefault.Light: #FAFAFA before
+         Android 12; values-v31/colors.xml has the Android 12+ one. -->
+    <color name="splashBackground">#FAFAFA</color>
 </resources>

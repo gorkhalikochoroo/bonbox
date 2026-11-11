@@ -2,9 +2,9 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
 
     <!-- The launch splash in system DARK mode. Theme.SplashScreen's night
-         parent paints the splash dark grey with white bar icons; the splash
-         art is drawn on white and the app opens light (the portal has no dark
-         mode), so the splash stays white and the bar icons dark, as in light
+         parent paints the splash dark grey with white bar icons; the app opens
+         light (the portal has no dark mode), so the splash takes light mode's
+         own colour (@color/splashBackground) and dark bar icons, as in light
          mode. Keep in step with AppTheme.NoActionBarLaunch in
          values/styles.xml (light mode is unchanged and defined there). -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">

@@ -438,17 +438,36 @@ describe("A punch without location says how to fix it — on each phone", () => 
     return document.body.textContent;
   }
 
-  it("the Android app: Settings → Apps → BonBox Vagtplan → Tilladelser → Placering", async () => {
+  // Stock Android's own Danish words (Settings, PermissionController, framework
+  // on the API 37 image): "Lokation", "Tillad kun, mens appen er i brug".
+  it("the Android app: Settings → Apps → BonBox Vagtplan → Tilladelser → Lokation", async () => {
     asAndroidApp();
     const text = await punchWithoutFix();
-    expect(text).toContain("Indstillinger → Apps → BonBox Vagtplan → Tilladelser → Placering → Tillad kun, når appen er i brug.");
+    expect(text).toContain("Indstillinger → Apps → BonBox Vagtplan → Tilladelser → Lokation → Tillad kun, mens appen er i brug.");
     expect(text).not.toContain("Indstillinger → Vagtplan → Lokalitet");
   });
 
+  // Chrome's own Danish words: "Tilladelser", "Placering".
   it("Chrome on Android: the icon by the address bar", async () => {
     setUA(PIXEL);
     const text = await punchWithoutFix();
     expect(text).toContain("tryk på ikonet ved adressefeltet → Tilladelser → slå Placering til");
+  });
+
+  it("the staff link installed to an Android home screen: no address bar, so the web line", async () => {
+    setUA(PIXEL);
+    const mm = window.matchMedia;
+    window.matchMedia = (q) => ({
+      matches: q === "(display-mode: standalone)",
+      media: q, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {},
+    });
+    try {
+      const text = await punchWithoutFix();
+      expect(text).not.toContain("adressefeltet");
+      expect(text).toContain("tillad lokalitet for denne side i din browser");
+    } finally {
+      window.matchMedia = mm;
+    }
   });
 
   it("a desktop browser: the web line, as before", async () => {

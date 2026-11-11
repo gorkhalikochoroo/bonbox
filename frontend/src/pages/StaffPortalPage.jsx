@@ -1510,12 +1510,14 @@ function useClock(token) {
         // all, location is almost always switched off for the app / site.
         // Android names its own path: the app's Settings → Apps entry, or
         // Chrome's site settings by the address bar (native app or browser).
+        // A staff link installed to the home screen (standalone) has no
+        // address bar, so it gets the general browser line.
         const fix = noFix
           ? (platform.isAndroid
             ? t("portalClockNoLocationFixAndroid", "To fix it: Settings → Apps → BonBox Vagtplan → Permissions → Location → Allow only while using the app. Check that Location is on too.")
             : isNativeApp()
               ? t("portalClockNoLocationFixNative", "To fix it: Settings → Vagtplan → Location → While Using the App.")
-              : isAndroidDevice()
+              : isAndroidDevice() && !_isStandalone()
                 ? t("portalClockNoLocationFixAndroidWeb", "To fix it: tap the icon next to the address bar → Permissions → turn on Location, and check that Location is on for your phone. Your next punch is then verified.")
                 : t("portalClockNoLocationFixWeb", "To fix it, allow location for this site in your browser. Your next punch is then verified."))
           : "";
