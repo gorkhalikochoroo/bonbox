@@ -193,7 +193,7 @@ describe("Fravær — a declined request says Afvist", () => {
       { id: "a2", kind: "ferie", date: wk(4, 0), status: "cancelled", declined: false, reason: null },
     ];
     await mount("da");
-    fireEvent.click(within(document.querySelector("nav")).getByText("Kan ikke").closest("button"));
+    fireEvent.click(within(document.querySelector("nav")).getByText("Fravær").closest("button"));
     // Exact text = the status chips (the help line also mentions "Afvist").
     expect(await screen.findByText("Afvist", { exact: true })).toBeInTheDocument();
     expect(await screen.findByText("Annulleret", { exact: true })).toBeInTheDocument();

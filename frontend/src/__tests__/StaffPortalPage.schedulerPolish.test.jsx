@@ -106,7 +106,11 @@ describe("Vagtplan hours read like the owner app", () => {
     mount("da");
     await waitFor(() => expect(document.body.textContent).toContain("11:00–20:00"));
     const meta = screen.getByTestId("portal-hero-meta").textContent;
-    expect(meta).toContain("9 t vagt");
+    // Canvas "Pine, ivory & brass" (Nov 2026): role · pause · effektiv. The
+    // span is the time right above (11:00–20:00), so the card no longer says
+    // "9 t vagt" as well.
+    expect(screen.getByTestId("portal-hero-time").textContent).toBe("11:00–20:00");
+    expect(meta).not.toContain("9 t vagt");
     expect(meta).toContain("30 min pause");
     expect(meta).toContain("8,5 t effektiv");
     expect(document.body.textContent).not.toContain("8 t 30 min");

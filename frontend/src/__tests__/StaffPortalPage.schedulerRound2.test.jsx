@@ -132,8 +132,10 @@ beforeEach(() => {
 
 async function openSwapPicker() {
   await mount("da");
-  navTo("Bytte");
-  fireEvent.click(await screen.findByRole("button", { name: /^Byt$/ }));
+  navTo("Byt");
+  // The canvas tab bar is named "Byt" too: the tab's own Byt button is the
+  // one in the page content.
+  fireEvent.click(await within(screen.getByTestId("portal-content")).findByRole("button", { name: /^Byt$/ }));
   await waitFor(() => expect(get).toHaveBeenCalledWith(`/portal/${TOK}/team-schedule`));
   const own = await screen.findByDisplayValue("Vælg en af dine vagter…");
   fireEvent.change(own, { target: { value: "ali-fri" } });
@@ -169,7 +171,7 @@ describe("Accepting a swap that would double-book you", () => {
     }]);
     postImpl = () => reject(409, { detail: { code: "swap_overlap", who: "self", message: "x" } });
     await mount("da");
-    navTo("Bytte");
+    navTo("Byt");
     const accept = await screen.findByRole("button", { name: "Accepter" });
     await act(async () => { fireEvent.click(accept); });
     const alert = await screen.findByRole("alert");
@@ -194,7 +196,7 @@ describe("Answering a swap the server already settled", () => {
       return reject(422, { detail: { code: "swap_stale", message: "One of the shifts has changed since this swap was proposed; ask the other person to re-offer." } });
     };
     await mount("da");
-    navTo("Bytte");
+    navTo("Byt");
     const accept = await screen.findByRole("button", { name: "Accepter" });
     await act(async () => { fireEvent.click(accept); });
     const alert = await screen.findByRole("alert");
@@ -213,7 +215,7 @@ describe("Answering a swap the server already settled", () => {
       return reject(422, { detail: "This swap is already done; can't change it." });
     };
     await mount("da");
-    navTo("Bytte");
+    navTo("Byt");
     const accept = await screen.findByRole("button", { name: "Accepter" });
     await act(async () => { fireEvent.click(accept); });
     await waitFor(() => expect(screen.queryByRole("button", { name: "Accepter" })).toBeNull());
@@ -226,7 +228,7 @@ describe("Answering a swap the server already settled", () => {
     swapsImpl = () => ok([incoming("proposed")]);
     postImpl = () => reject(500, { detail: "Internal Server Error" });
     await mount("da");
-    navTo("Bytte");
+    navTo("Byt");
     const accept = await screen.findByRole("button", { name: "Accepter" });
     await act(async () => { fireEvent.click(accept); });
     expect((await screen.findByRole("alert")).textContent).toBe("Kunne ikke svare på byttet. Prøv igen.");
@@ -434,7 +436,7 @@ describe("Polish", () => {
     Element.prototype.scrollIntoView = scrolled;
     try {
       await mount("da");
-      navTo("Kan ikke");
+      navTo("Fravær");
       const withdraw = await screen.findByRole("button", { name: "Fortryd" });
       expect(withdraw.className).toContain("min-h-[44px]");
       expect(withdraw.className).not.toContain("underline");
@@ -462,7 +464,7 @@ describe("Polish", () => {
     Element.prototype.scrollIntoView = vi.fn();
     try {
       await mount("da");
-      navTo("Kan ikke");
+      navTo("Fravær");
       fireEvent.click(await screen.findByRole("button", { name: /Anmod om fri/ }));
       const form = await screen.findByTestId("fravaer-form");
       expect(within(form).getAllByText("Vælg dato")).toHaveLength(2);

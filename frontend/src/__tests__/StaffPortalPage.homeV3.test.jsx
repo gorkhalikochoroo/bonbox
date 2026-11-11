@@ -181,8 +181,9 @@ describe("Meld syg — two taps from home, two ways, one form", () => {
   it("the scroller pads for the sticky header and the floating bar, so scrolled-to things land between them", async () => {
     await mount("da");
     const scroller = screen.getByTestId("portal-header-row").closest(".scrollable");
-    expect(scroller.style.scrollPaddingBottom).toContain("90px");
-    expect(scroller.style.scrollPaddingTop).toContain("64px");
+    // Canvas bar: 68 tall + its 12 px lift + 16 of air; header 56 + 12.
+    expect(scroller.style.scrollPaddingBottom).toContain("96px");
+    expect(scroller.style.scrollPaddingTop).toContain("68px");
   });
 
   it("'Byt en vagt' and the menu's 'Byt eller giv væk' both land on Bytte", async () => {
@@ -202,8 +203,10 @@ describe("Stempl ind — on the card only when the shift is close", () => {
     await mount("da");
     const hero = screen.getByTestId("portal-hero");
     expect(within(hero).queryByRole("button", { name: /Stempl ind/ })).toBeNull();
-    // Rute is the card's one paper button then.
-    expect(screen.getByTestId("portal-route").style.background).toBe("rgb(246, 244, 236)");
+    // The card's one brass action is "Jeg har set det" then; Rute is the
+    // cream-hairline ghost beside it (canvas).
+    expect(within(hero).getByRole("button", { name: /Jeg har set det/ }).style.background).toBe("rgb(200, 164, 100)");
+    expect(screen.getByTestId("portal-route").style.background).toBe("rgba(243, 239, 228, 0.06)");
 
     fireEvent.click(screen.getByRole("button", { name: "Flere valg for vagten" }));
     const sheet = await screen.findByTestId("portal-shift-menu");
@@ -224,8 +227,11 @@ describe("Stempl ind — on the card only when the shift is close", () => {
         shifts: [{ id: "now", date: inDays(0), start_time: "12:00", end_time: "15:00", status: "published", net_hours: 3 }],
       });
       await mount("da");
-      expect(within(screen.getByTestId("portal-hero")).getByRole("button", { name: /Stempl ind/ })).toBeInTheDocument();
-      expect(screen.getByTestId("portal-route").style.background).toBe("rgba(246, 244, 236, 0.1)");
+      const hero = screen.getByTestId("portal-hero");
+      // Stempl ind IS the brass action now; Rute stays the ghost beside it.
+      expect(within(hero).getByRole("button", { name: /Stempl ind/ }).style.background).toBe("rgb(200, 164, 100)");
+      expect(within(hero).queryByRole("button", { name: /Jeg har set det/ })).toBeNull();
+      expect(screen.getByTestId("portal-route").style.background).toBe("rgba(243, 239, 228, 0.06)");
       fireEvent.click(screen.getByRole("button", { name: "Flere valg for vagten" }));
       expect(within(await screen.findByTestId("portal-shift-menu")).queryByTestId("portal-menu-clock-in")).toBeNull();
     } finally {
@@ -234,49 +240,50 @@ describe("Stempl ind — on the card only when the shift is close", () => {
   });
 });
 
-describe("Floating tab bar", () => {
+describe("Floating tab bar (canvas: ivory, five named tabs)", () => {
   afterEach(() => { delete window.matchMedia; });
 
-  it("fits a narrow phone: icons share the room (never under 44 px), the active name stops at 96 px", async () => {
+  it("five equal columns, every tab named; a label can only ellipsize, never push a tab out", async () => {
     await mount("en");
     const nav = screen.getByTestId("portal-tabbar-v3");
-    const active = within(nav).getAllByRole("button").find((b) => b.getAttribute("aria-current") === "page");
-    expect(active.style.flex).toBe("0 1 auto");
-    const label = [...active.querySelectorAll("span")].find((x) => x.textContent === "Schedule");
-    expect(label.style.maxWidth).toBe("96px");
-    expect(label.style.textOverflow).toBe("ellipsis");
-    for (const b of within(nav).getAllByRole("button").filter((x) => x !== active)) {
-      expect(b.style.flex).toBe("1 1 0px");
-      expect(b.style.minWidth).toBe("44px");
+    expect(nav.style.gridTemplateColumns).toMatch(/^repeat\(5, minmax\(0(px)?, 1fr\)\)$/);
+    const tabs = within(nav).getAllByRole("button");
+    // (digits stripped: Messages carries its unread count)
+    expect(tabs.map((b) => b.textContent.replace(/\d+/g, ""))).toEqual(["Schedule", "Time off", "Messages", "Swaps", "Hours"]);
+    for (const b of tabs) {
+      const label = [...b.querySelectorAll("span")].pop();
+      expect(label.style.textOverflow).toBe("ellipsis");
+      expect(label.style.whiteSpace).toBe("nowrap");
     }
   });
 
-  it("under 360 px the active tab is an icon-only pill, its name for screen readers", async () => {
+  it("under 360 px nothing is hidden: the active tab keeps its name (the bar fits 320)", async () => {
     window.matchMedia = (q) => ({ matches: q === "(max-width: 359px)", addEventListener: () => {}, removeEventListener: () => {} });
     await mount("da");
     const active = within(screen.getByTestId("portal-tabbar-v3")).getAllByRole("button")
       .find((b) => b.getAttribute("aria-current") === "page");
-    expect(active.style.width).toBe("56px");
-    expect(active.querySelector(".sr-only").textContent).toBe("Vagtplan");
+    expect(active.textContent).toBe("Vagtplan");
+    expect(active.querySelector(".sr-only")).toBeNull();
   });
 
-  it("has 5 tabs; the active one is marked and named, the rest are icons named for screen readers", async () => {
+  it("has 5 tabs in the canvas's words; the active one is marked, its icon in a pine pill", async () => {
     await mount("da");
     const nav = screen.getByTestId("portal-tabbar-v3");
     const tabs = within(nav).getAllByRole("button");
     expect(tabs).toHaveLength(5);
+    expect(tabs.map((b) => b.textContent.replace(/\d+/g, ""))).toEqual(["Vagtplan", "Fravær", "Beskeder", "Byt", "Timer"]);
     const active = tabs.filter((b) => b.getAttribute("aria-current") === "page");
     expect(active).toHaveLength(1);
     expect(active[0].textContent).toContain("Vagtplan");
-    expect(active[0].querySelector(".sr-only")).toBeNull();
+    expect(active[0].querySelector("span").style.background).toBe("rgb(14, 59, 46)");
     for (const b of tabs.filter((x) => x !== active[0])) {
-      expect(b.querySelector(".sr-only")).not.toBeNull();
+      expect(b.querySelector("span").style.background).toBe("");
     }
-    // A red count stays on Beskeder.
+    // A count stays on Beskeder.
     expect(within(nav).getByText("Beskeder").closest("button").textContent).toContain("2");
-    // Forest pill, not glass.
-    expect(nav.style.background).toBe("rgb(9, 58, 38)");
-    expect(nav.style.borderRadius).toBe("31px");
+    // Ivory glass, radius 24 — not the old forest pill.
+    expect(nav.style.background).toBe("rgba(255, 254, 251, 0.9)");
+    expect(nav.style.borderRadius).toBe("24px");
   });
 });
 
@@ -288,7 +295,7 @@ describe("Header — one row", () => {
     expect(within(row).getByRole("button", { name: da.navAlerts }).style.minHeight).toMatch(/^0(px)?$/);
     expect(screen.getByRole("button", { name: "Flere valg for vagten" }).style.minHeight).toMatch(/^0(px)?$/);
     const rute = screen.getByTestId("portal-route");
-    expect([rute.style.height, rute.style.borderRadius]).toEqual(["44px", "22px"]);
+    expect([rute.style.height, rute.style.borderRadius]).toEqual(["48px", "14px"]);
     fireEvent.click(screen.getByRole("button", { name: "Flere valg for vagten" }));
     const sheet = await screen.findByTestId("portal-shift-menu");
     expect(within(sheet).getAllByRole("button", { name: "Luk" }).some((b) => /^0(px)?$/.test(b.style.minHeight))).toBe(true);
@@ -343,7 +350,8 @@ describe("Flat forest", () => {
   it("the next-shift card is one flat colour — no gradient, no bloom, no sheen", async () => {
     await mount("da");
     const hero = screen.getByTestId("portal-hero");
-    expect(hero.style.background).toBe("rgb(9, 58, 38)");
+    // The canvas's pine.
+    expect(hero.style.background).toBe("rgb(14, 59, 46)");
     expect(hero.innerHTML).not.toMatch(/gradient|heroSheen|heroLiveDot/);
     // Role is a dot plus its name now, not a left bar.
     expect(screen.getByTestId("portal-hero-meta").textContent).toContain("Bar");
@@ -353,7 +361,7 @@ describe("Flat forest", () => {
     info = { has_pin: true, pin_ok: false, staff_name: "Freja M.", restaurant_name: "Café Solsikke" };
     renderPage("da");
     const card = await screen.findByTestId("portal-pin-card");
-    expect(card.style.background).toBe("rgb(9, 58, 38)");
+    expect(card.style.background).toBe("rgb(14, 59, 46)");
     expect(card.innerHTML).not.toMatch(/gradient/);
   });
 });
@@ -481,6 +489,9 @@ describe("Venue map on the card (R2)", () => {
     const block = screen.getByTestId("portal-venue-map");
     expect(block.style.height).toBe("96px");
     expect(block.querySelector("img")).toBeNull();
+    // The request goes out from the map block's effect; under a loaded suite
+    // that can land a tick after the card first paints. Wait for it.
+    await waitFor(() => expect(typeof deliver).toBe("function"));
     await act(async () => { deliver({ status: 200, data: new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }) }); });
     const img = screen.getByTestId("portal-venue-map").querySelector("img");
     expect(img).not.toBeNull();

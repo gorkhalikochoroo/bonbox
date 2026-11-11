@@ -1001,7 +1001,7 @@ function ClockedInStrip() {
 // current location" while standing at the venue to set the anchor; staff
 // clock-in then verifies device distance. Staff location is checked only at
 // the punch, never stored (GDPR) — the staff card shows that notice.
-function ClockGeofenceSettings({ className = "" }) {
+export function ClockGeofenceSettings({ className = "" }) {
   const { t } = useLanguage();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -1135,6 +1135,11 @@ function ClockGeofenceSettings({ className = "" }) {
         {cfg.enabled && cfg.window_enabled && (
           <span className="text-gray-400 dark:text-gray-500">
             · {t("schedWindowNote", "Opens 15 min before the shift")}
+          </span>
+        )}
+        {cfg.breaks_live && (
+          <span className="text-gray-400 dark:text-gray-500" data-testid="breaks-live-summary">
+            · {t("schedBreaksLiveOn", "breaks clocked live")}
           </span>
         )}
         <button
@@ -1273,6 +1278,27 @@ function ClockGeofenceSettings({ className = "" }) {
             {t("schedWindowNote", "Opens 15 min before the shift")}
           </span>
         )}
+      </div>
+      {/* Live breaks (Nov 2026) — off by default. On: the staff app's
+          clocked-in card offers Start pause / Slut pause (the portal's clock
+          answer carries breaks_live). Off: no pause button, nothing changes. */}
+      <div className="w-full border-t border-gray-100 dark:border-gray-700/60 pt-2.5 mt-0.5 flex flex-col gap-0.5">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!cfg.breaks_live}
+            disabled={busy}
+            onChange={(e) => save({ breaks_live: e.target.checked })}
+            data-testid="breaks-live-toggle"
+            className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900 disabled:opacity-50"
+          />
+          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {t("schedBreaksLiveTitle", "Live breaks")}
+          </span>
+        </label>
+        <span className="pl-6 text-[12px] text-gray-500 dark:text-gray-400 leading-snug">
+          {t("schedBreaksLiveNote", "Staff tap Start break and End break in the app, so breaks are logged as they happen.")}
+        </span>
       </div>
       {msg && <span className="w-full text-[12px] text-red-500 dark:text-red-400">{msg}</span>}
       {savedMsg && !msg && (

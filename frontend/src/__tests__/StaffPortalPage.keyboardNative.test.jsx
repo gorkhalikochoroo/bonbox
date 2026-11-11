@@ -94,7 +94,7 @@ beforeEach(() => {
 describe("Native keyboard over the portal", () => {
   it("the Fravær form: shell ends at the keyboard, the form travels as one block", async () => {
     await mount();
-    fireEvent.click(within(document.querySelector("nav")).getByText("Kan ikke").closest("button"));
+    fireEvent.click(within(document.querySelector("nav")).getByText("Fravær").closest("button"));
     fireEvent.click(await screen.findByRole("button", { name: /Anmod om fri/ }));
     const form = await screen.findByTestId("fravaer-form");
     expect(form.hasAttribute("data-kb-block")).toBe(true);

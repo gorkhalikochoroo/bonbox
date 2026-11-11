@@ -147,7 +147,7 @@ describe("pull-to-refresh chip", () => {
     await mountPortal();
     // The rendered schedule column, captured before the doomed refresh. The
     // pull chip is a sibling of this node, so it cannot pollute the compare.
-    const content = () => document.querySelector(".max-w-lg.px-4.py-4").textContent;
+    const content = () => document.querySelector("[data-testid='portal-content']").textContent;
     const before = content();
     expect(before).toContain("17:00");        // the seeded shift is really drawn
     await pullToRefresh();
