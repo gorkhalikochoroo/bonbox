@@ -6,9 +6,8 @@
  *     reachable two ways — the next-shift card's ⋯ menu, and the "Brug for en
  *     ændring?" section at the end of the week list — and BOTH open the same
  *     SickCallButton form that posts /portal/{token}/sick-call.
- *   • The floating tab bar: 5 tabs, aria-current on the active one, whose
- *     name is visible; the others are icons with their names for screen
- *     readers.
+ *   • The floating tab bar (the Orvexlo dock since Nov 2026): 5 tabs, each
+ *     icon + name, aria-current on the active one, one sliding pill.
  *   • The header is one row: no venue line, no always-on Live/Synket word.
  *   • The amber strip speaks only when offline, or when the data is more than
  *     45 s old with no live stream.
@@ -181,8 +180,10 @@ describe("Meld syg — two taps from home, two ways, one form", () => {
   it("the scroller pads for the sticky header and the floating bar, so scrolled-to things land between them", async () => {
     await mount("da");
     const scroller = screen.getByTestId("portal-header-row").closest(".scrollable");
-    // Canvas bar: 68 tall + its 12 px lift + 16 of air; header 56 + 12.
-    expect(scroller.style.scrollPaddingBottom).toContain("96px");
+    // The dock: 52 tall + its 8 px lift over the safe area + 16 of air;
+    // header 56 + 12.
+    expect(scroller.style.scrollPaddingBottom).toContain("76px");
+    expect(scroller.style.scrollPaddingBottom).toContain("safe-area-inset-bottom");
     expect(scroller.style.scrollPaddingTop).toContain("68px");
   });
 
@@ -240,7 +241,7 @@ describe("Stempl ind — on the card only when the shift is close", () => {
   });
 });
 
-describe("Floating tab bar (canvas: ivory, five named tabs)", () => {
+describe("Floating tab bar (the dock: five named tabs, one sliding pill)", () => {
   afterEach(() => { delete window.matchMedia; });
 
   it("five equal columns, every tab named; a label can only ellipsize, never push a tab out", async () => {
@@ -266,7 +267,7 @@ describe("Floating tab bar (canvas: ivory, five named tabs)", () => {
     expect(active.querySelector(".sr-only")).toBeNull();
   });
 
-  it("has 5 tabs in the canvas's words; the active one is marked, its icon in a pine pill", async () => {
+  it("has 5 tabs in the canvas's words; the active one is marked and the ONE sliding pill sits on it", async () => {
     await mount("da");
     const nav = screen.getByTestId("portal-tabbar-v3");
     const tabs = within(nav).getAllByRole("button");
@@ -275,15 +276,17 @@ describe("Floating tab bar (canvas: ivory, five named tabs)", () => {
     const active = tabs.filter((b) => b.getAttribute("aria-current") === "page");
     expect(active).toHaveLength(1);
     expect(active[0].textContent).toContain("Vagtplan");
-    expect(active[0].querySelector("span").style.background).toBe("rgb(14, 59, 46)");
-    for (const b of tabs.filter((x) => x !== active[0])) {
-      expect(b.querySelector("span").style.background).toBe("");
-    }
+    // The Orvexlo dock (vagtplan.css): one indicator for the whole bar, at
+    // the active column — no per-tab pill.
+    expect(nav.className).toContain("vp-dock");
+    const pills = nav.querySelectorAll(".vp-dock-ind");
+    expect(pills).toHaveLength(1);
+    expect(pills[0].style.getPropertyValue("--i")).toBe("0");
     // A count stays on Beskeder.
     expect(within(nav).getByText("Beskeder").closest("button").textContent).toContain("2");
-    // Ivory glass, radius 24 — not the old forest pill.
-    expect(nav.style.background).toBe("rgba(255, 254, 251, 0.9)");
-    expect(nav.style.borderRadius).toBe("24px");
+    // The old ivory glass bar (inline 90 % + blur, radius 24) is gone.
+    expect(nav.style.background).toBe("");
+    expect(nav.style.borderRadius).toBe("");
   });
 });
 

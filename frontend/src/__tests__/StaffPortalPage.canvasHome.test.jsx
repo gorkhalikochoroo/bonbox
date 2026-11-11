@@ -4,7 +4,7 @@
  * clock pinned to Wednesday 11 November 2026 (only Date is faked).
  *
  *   • Home per canvas: the date line over "Min vagtplan", the pine card (chip,
- *     time in Manrope, role · pause · effektiv, the place, brass "Jeg har set
+ *     time in Sora, role · pause · effektiv, the place, brass "Jeg har set
  *     det" + ghost Rute), "På arbejde med dig" with a count and a sentence of
  *     names, "Åbne vagter" with a badge and "Tag den", the week (date strip,
  *     rows, dashed open-shift rows), "Brug for en ændring?" tiles.
@@ -157,14 +157,16 @@ describe("Home per canvas", () => {
     expect(screen.queryByTestId("portal-header-date")).toBeNull();
   });
 
-  it("next-shift card: chip, time in Manrope, role · pause · effektiv, the place, brass 'Jeg har set det' beside a ghost Rute", async () => {
+  it("next-shift card: chip, time in Sora, role · pause · effektiv, the place, brass 'Jeg har set det' beside a ghost Rute", async () => {
     await mount("da");
     const hero = screen.getByTestId("portal-hero");
     expect(hero.dataset.state).toBe("next");
     expect(screen.getByTestId("portal-hero-chip").textContent).toBe("I dag · om 6 t 30 min");
     const time = screen.getByTestId("portal-hero-time");
     expect(time.textContent).toBe("10:00–16:00");
-    expect(time.style.fontFamily).toContain("Manrope");
+    // The Vagtplan's display face since the Orvexlo type (Nov 2026).
+    expect(time.style.fontFamily).toContain("Sora");
+    expect(time.style.fontFamily).not.toContain("Manrope");
     const meta = screen.getByTestId("portal-hero-meta").textContent;
     expect(meta).toContain("Tjener");
     expect(meta).toContain("30 min pause");
@@ -421,6 +423,19 @@ describe("Active shift (clocked in)", () => {
     expect(screen.getByTestId("portal-live-ring").textContent).toContain("Ingen planlagt vagt");
     expect(live.textContent).toContain("Start09:58");
     expect(live.textContent).toContain("Slut—");
+  });
+
+  it("Stemplet ind and På vagt nu each carry a breathing dot (motion kit)", async () => {
+    at(12, 14);
+    clockImpl = () => ok({ ...CLOCKED, breaks_live: false });
+    await mount("da");
+    await screen.findByTestId("portal-live-shift");
+    expect(screen.getByTestId("portal-live-dot").className).toContain("vp-breathe");
+    expect(screen.getByTestId("portal-live-dot").getAttribute("aria-hidden")).toBe("true");
+    const whosOn = screen.getByTestId("portal-whos-on");
+    expect(within(whosOn).getByTestId("portal-whos-on-live-dot").className).toContain("vp-breathe");
+    // The dot adds no words: the heading still reads exactly "På vagt nu".
+    expect(within(whosOn).getByRole("heading").textContent).toBe("På vagt nu");
   });
 
   it("under the live card: På vagt nu, then Næste vagt, which opens its day", async () => {

@@ -3,7 +3,7 @@
  * Mobile-first, dark theme, no login required.
  * Route: /s/:token
  */
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 
 import { useConfirm } from "../hooks/useConfirm";
 import GeofenceDial from "../components/GeofenceDial";
@@ -14,16 +14,26 @@ import { saveFile } from "../utils/download";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
 import { RefreshCw, CloudOff, ServerCrash, Link2Off, KeyRound, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Search, Send, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, CalendarX, CalendarCheck, Plus, Users, Apple, MoreHorizontal, Navigation, Coffee, LogIn, LogOut, ArrowRight } from "lucide-react";
-// Manrope — the display face of the owner's "Pine, ivory & brass" canvas
-// (Nov 2026): the big times, day numbers and headings on the staff home.
+// The Vagtplan's two faces (Nov 2026, the Orvexlo type of BeloBag): Sora for
+// display — headings, the big numbers, the time on the card, the ring timer —
+// and DM Sans for all body text. They replace Manrope (display) and Inter
+// (text) on the portal only; the owner app keeps Inter + Hanken.
 // Self-hosted like Inter and Hanken (main.jsx): vercel.json allows fonts from
-// 'self' only, so a Google Fonts link would be blocked in production. Latin
-// files only (Danish æ ø å are in latin), and imported HERE, not in main.jsx,
-// so the faces ride the staff portal's own lazy chunk and no other page pays.
-import "@fontsource/manrope/latin-500.css";
-import "@fontsource/manrope/latin-600.css";
-import "@fontsource/manrope/latin-700.css";
-import "@fontsource/manrope/latin-800.css";
+// 'self' only, so a Google Fonts link would be blocked in production. The
+// latin file per weight (Danish æ ø å are in latin); extended Latin comes from
+// unicode-range rules in vagtplan.css, fetched only when a name needs it.
+// Imported HERE, not in main.jsx, so the faces ride the staff portal's own
+// lazy chunk and no other page pays. vagtplan.css must stay the LAST of these
+// imports (its latin-ext rules must follow the latin files).
+import "@fontsource/sora/latin-600.css";
+import "@fontsource/sora/latin-700.css";
+import "@fontsource/dm-sans/latin-400.css";
+import "@fontsource/dm-sans/latin-500.css";
+import "@fontsource/dm-sans/latin-600.css";
+import "@fontsource/dm-sans/latin-700.css";
+import "../components/staff/vagtplan.css";
+import RollingDigits from "../components/staff/RollingDigits";
+import { usePresence, useLastValue, closingProps } from "../components/staff/sheetMotion";
 import { parseServerTime } from "../utils/serverTime";
 import { routeUrl } from "../utils/routeUrl";
 import { MAP_H, MAP_PINE_BG, mapRequestWidth, mapDpr, mapQuery, mapCacheKey, getCachedMap, setCachedMap, loadMapOnce } from "../utils/venueMapImage";
@@ -73,7 +83,9 @@ const DIVIDER = "#EEEAE0";
 const INK = "#16211C";
 const MUTED = "#5E6A63";
 const LINK = "#1F5A45";
-const MANROPE = "'Manrope', 'Inter', system-ui, sans-serif";
+// Sora, the display face (vagtplan.css maps var(--font-display) to the same
+// stack on the portal). Literal, so an inline style names its face outright.
+const SORA = "'Sora', 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
 
 // One-per-PAGE-LOAD latch for the hero's ceremonial settle beat. Module scope
 // on purpose: switching tabs remounts ScheduleTab, and the beat must not
@@ -594,6 +606,7 @@ function HolidaySection({ token }) {
  */
 function DocumentsSection({ token }) {
   const [openSheet, setOpenSheet] = useState(false);
+  const docsSheet = usePresence(openSheet);
   const { t } = useLanguage();
   const [docs, setDocs] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -645,13 +658,13 @@ function DocumentsSection({ token }) {
         <ChevronRight className="w-4 h-4 shrink-0 text-gray-400" strokeWidth={2.5} aria-hidden />
       </button>
 
-      {openSheet && createPortal(
-        <div className="fixed inset-0 z-[60] flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setOpenSheet(false)}>
+      {docsSheet.mounted && createPortal(
+        <div className="fixed inset-0 z-[60] m-0 flex items-end vp-scrim" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setOpenSheet(false)} {...closingProps(docsSheet.closing)}>
           <div
             role="dialog"
             aria-modal="true"
             aria-label={t("portalDocsSection")}
-            className="w-full bg-white"
+            className="w-full bg-white vp-sheet"
             style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -856,7 +869,7 @@ export function BankSection({ token }) {
           <button
             type="button"
             onClick={() => { setEditing(true); setErr(""); }}
-            className="shrink-0 px-3 py-1.5 rounded-lg text-[13px] font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition active:scale-[0.98]"
+            className="shrink-0 px-3 py-1.5 rounded-lg text-[13px] font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 vp-press"
           >
             {state.has_bank ? t("portalBankChange", "Change") : t("portalBankAdd", "Add")}
           </button>
@@ -1685,10 +1698,10 @@ function matesForShift(teamShifts, shift) {
   return mates;
 }
 
-/** A shared "section title" for the home (canvas: Manrope 16/700). */
+/** A shared "section title" for the home (canvas: 16/700, in Sora). */
 function HomeH2({ children, id, style }) {
   return (
-    <h2 id={id} style={{ margin: 0, font: `700 16px/1.25 ${MANROPE}`, letterSpacing: "-0.01em", color: INK, ...style }}>
+    <h2 id={id} style={{ margin: 0, font: `700 16px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK, ...style }}>
       {children}
     </h2>
   );
@@ -1762,6 +1775,15 @@ function WhosOnStrip({ teamShifts, nextShift, live = false, onOpen }) {
     <section id="portal-whos-on" data-testid="portal-whos-on" style={{ scrollMarginTop: 8 }}>
       <div className="flex items-baseline justify-between" style={{ gap: 8, padding: "0 4px" }}>
         <HomeH2>
+          {/* "På vagt nu": a brass dot breathes beside it while the shift runs. */}
+          {live && (
+            <span
+              aria-hidden
+              className="vp-breathe"
+              data-testid="portal-whos-on-live-dot"
+              style={{ display: "inline-block", width: 7, height: 7, borderRadius: 99, background: BRASS, marginRight: 8, verticalAlign: "0.12em" }}
+            />
+          )}
           {title}
           {myBranch && <span style={{ fontWeight: 500, color: MUTED }}> · {myBranch}</span>}
         </HomeH2>
@@ -1782,7 +1804,7 @@ function WhosOnStrip({ teamShifts, nextShift, live = false, onOpen }) {
           type="button"
           onClick={onOpen}
           data-testid="portal-whos-on-row"
-          className="w-full flex items-center text-left active:opacity-80 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
+          className="w-full flex items-center text-left vp-press vp-row active:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
           style={{ marginTop: 8, gap: 12, padding: "12px 14px", minHeight: 56, borderRadius: 20, background: CARD, border: `1px solid ${LINE}`, color: INK }}
         >
           <MateDiscs mates={mates} />
@@ -1854,7 +1876,7 @@ function TakeItButton({ onClick, busy, label, testId }) {
       onClick={onClick}
       disabled={busy}
       data-testid={testId}
-      className="shrink-0 inline-flex items-center justify-center active:scale-[0.98] transition disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
+      className="shrink-0 inline-flex items-center justify-center vp-press disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
       style={{ height: 44, padding: "0 16px", borderRadius: 999, background: SOFT, color: PINE, font: "600 14px/1 var(--font-text)" }}
     >
       {busy ? "…" : label}
@@ -1874,7 +1896,7 @@ function DateTile({ iso, lang, w = 52, h = 56 }) {
       <span style={{ font: "600 10px/1.1 var(--font-text)", letterSpacing: "0.08em", textTransform: "uppercase", color: MUTED }}>
         {wdShort(dt, lang).replace(/\.$/, "")}
       </span>
-      <span style={{ font: `700 20px/1 ${MANROPE}`, color: INK }}>{dt.getDate()}</span>
+      <span style={{ font: `700 20px/1 ${SORA}`, color: INK }}>{dt.getDate()}</span>
     </span>
   );
 }
@@ -1937,7 +1959,7 @@ function OpenShiftsClaimCard({ rows, claimer, ownShifts, businessType }) {
                 <div className="flex items-center" style={{ gap: 12, padding: "14px 12px 14px 14px" }}>
                   <DateTile iso={o.date} lang={lang} />
                   <div className="flex-1 min-w-0 flex flex-col" style={{ gap: 3 }}>
-                    <span className="tabular-nums whitespace-nowrap" style={{ font: `700 16px/1.2 ${MANROPE}`, letterSpacing: "-0.01em", color: INK }}>
+                    <span className="tabular-nums whitespace-nowrap" style={{ font: `700 16px/1.2 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>
                       {o.start_time}–{o.end_time}
                     </span>
                     <span className="flex items-center min-w-0" style={{ gap: 6, font: "400 13px/1.3 var(--font-text)", color: MUTED }}>
@@ -2270,6 +2292,10 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   const live = clockedIn ? liveShiftOf(shifts, clock.st?.since) : null;
   const liveShift = live?.shift || null;
   const menuShift = clockedIn ? (liveShift || nextShift) : nextShift;
+  // The ⋯ sheet plays its exit after menuOpen goes false (sheetMotion.js),
+  // still showing the shift it opened on.
+  const menuSheet = usePresence(menuOpen && !!menuShift);
+  const menuSheetShift = useLastValue(menuOpen ? menuShift : null);
   // Canvas "Næste vagt" under the live card: the shift after the one on now.
   const afterLive = clockedIn
     ? [...upcoming]
@@ -2324,7 +2350,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
       rel="noopener noreferrer"
       data-testid="portal-route"
       aria-label={t("portalRouteTo", "Directions to {venue}", { venue: place.name || place.address })}
-      className="shrink-0 inline-flex items-center justify-center active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+      className="shrink-0 inline-flex items-center justify-center vp-press focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
       style={{
         gap: 8, height: 48, padding: "0 16px", borderRadius: 14, boxSizing: "border-box",
         border: "1px solid rgba(243,239,228,0.24)", background: "rgba(243,239,228,0.06)",
@@ -2405,7 +2431,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
       aria-label={t("portalShiftMenu", "More options for this shift")}
       aria-haspopup="dialog"
       data-testid="portal-shift-menu-btn"
-      className="shrink-0 flex items-center justify-center rounded-full active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+      className="shrink-0 flex items-center justify-center rounded-full vp-press focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
       style={{ width: 44, height: 44, minHeight: 0, margin: "-8px -10px -8px 0", color: CREAM }}
     >
       <MoreHorizontal size={20} strokeWidth={2.2} aria-hidden />
@@ -2439,7 +2465,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
       ) : (
       /* HERO — the next shift on one flat pine card (canvas "Pine, ivory &
          brass", Nov 2026; home v3 dropped the gradient, bloom and sheen).
-         Chip with the countdown, the time in Manrope, role · pause ·
+         Chip with the countdown, the time in Sora, role · pause ·
          effektiv, OUR server-drawn map, the place, then ONE brass action —
          "Jeg har set det", the dashed "Vagten er bekræftet" once it is, or
          "Stempl ind" when the shift is close — beside a ghost Rute. */
@@ -2478,7 +2504,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             <p
               className="tabular-nums whitespace-nowrap"
               data-testid="portal-hero-time"
-              style={{ margin: "12px 0 0", fontFamily: MANROPE, fontWeight: 700, fontSize: "clamp(36px, 10.5vw, 46px)", lineHeight: 1, letterSpacing: "-0.035em", color: CREAM }}
+              style={{ margin: "12px 0 0", fontFamily: SORA, fontWeight: 700, fontSize: "clamp(36px, 10.5vw, 46px)", lineHeight: 1, letterSpacing: "-0.035em", color: CREAM }}
             >
               {nextShift.start_time}<span style={{ color: "#7F9A8C", fontWeight: 500, padding: "0 0.1em" }}>–</span>{nextShift.end_time}
             </p>
@@ -2564,7 +2590,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                     type="button"
                     disabled={clock.busy || clockLocked}
                     onClick={clockInNow}
-                    className="inline-flex items-center justify-center active:scale-[0.98] transition disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    className="inline-flex items-center justify-center vp-press disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                     style={{ ...brassBtn, fontWeight: 700, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35), 0 0 0 4px rgba(200,164,100,0.18)" }}
                   >
                     {clockLocked
@@ -2578,7 +2604,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                     onClick={confirm.submit}
                     disabled={confirm.submitting}
                     data-testid="portal-seen-it"
-                    className="inline-flex items-center justify-center active:scale-[0.98] transition disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    className="inline-flex items-center justify-center vp-press disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                     style={brassBtn}
                   >
                     {confirm.submitting ? "…" : (
@@ -2644,15 +2670,15 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           /* Not answered yet — a placeholder, never "no shift". Saying
              "Ingen kommende vagt" before the first response lands tells
              someone who works tonight that they don't. */
-          <div className="relative mt-3 space-y-2.5 animate-pulse" data-testid="portal-hero-loading" aria-label={t("portalScheduleLoading", "Loading your schedule…")}>
-            <div className="h-9 w-3/4 rounded-lg" style={{ background: "rgba(243,239,228,.10)" }} />
-            <div className="h-3.5 w-1/2 rounded" style={{ background: "rgba(243,239,228,.10)" }} />
+          <div className="relative mt-3 space-y-2.5" data-testid="portal-hero-loading" aria-label={t("portalScheduleLoading", "Loading your schedule…")}>
+            <div className="h-9 w-3/4 rounded-lg vp-shimmer vp-shimmer-dark" style={{ background: "rgba(243,239,228,.10)" }} />
+            <div className="h-3.5 w-1/2 rounded vp-shimmer vp-shimmer-dark" style={{ background: "rgba(243,239,228,.10)" }} />
           </div>
         ) : schedState === "error" ? (
           /* The schedule call failed and there is nothing last-good to show:
              say so, and offer the retry right here. */
           <div className="relative mt-2" data-testid="portal-hero-failed">
-            <div className="flex items-center gap-2" style={{ font: `700 18px/1.25 ${MANROPE}`, color: CREAM }}>
+            <div className="flex items-center gap-2" style={{ font: `700 18px/1.25 ${SORA}`, color: CREAM }}>
               <CloudOff className="w-5 h-5 shrink-0" strokeWidth={2.2} aria-hidden style={{ color: BRASS }} />
               {t("portalScheduleLoadFailed", "Couldn't load your schedule")}
             </div>
@@ -2663,7 +2689,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
               <button
                 type="button"
                 onClick={onRetrySchedule}
-                className="mt-3.5 inline-flex items-center justify-center active:scale-[0.98] transition"
+                className="mt-3.5 inline-flex items-center justify-center vp-press"
                 style={{ ...brassBtn, flex: "none", padding: "0 20px" }}
               >
                 <RefreshCw className="w-4 h-4" strokeWidth={2.4} aria-hidden />
@@ -2673,7 +2699,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           </div>
         ) : (
           <>
-            <div style={{ marginTop: 10, font: `700 24px/1.2 ${MANROPE}`, letterSpacing: "-0.02em", color: CREAM }}>{t("portalNoUpcomingShift")}</div>
+            <div style={{ marginTop: 10, font: `700 24px/1.2 ${SORA}`, letterSpacing: "-0.02em", color: CREAM }}>{t("portalNoUpcomingShift")}</div>
             {/* TWO empty states, not one. "You'll get notified when the venue
                 publishes the schedule" is true only while nothing is published.
                 Once the rota IS out and this staffer simply isn't on it, that
@@ -2733,12 +2759,12 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           <button
             type="button"
             onClick={() => jumpToDay(afterLive.date)}
-            className="w-full flex items-center text-left active:opacity-80 transition"
+            className="w-full flex items-center text-left vp-press vp-row active:opacity-80"
             style={{ marginTop: 8, gap: 12, padding: "12px 14px", borderRadius: 20, background: CARD, border: `1px solid ${LINE}`, color: INK }}
           >
             <DateTile iso={afterLive.date} lang={lang} w={48} h={52} />
             <span className="flex-1 min-w-0 flex flex-col" style={{ gap: 3 }}>
-              <span className="tabular-nums whitespace-nowrap" style={{ font: `700 16px/1.2 ${MANROPE}` }}>{afterLive.start_time}–{afterLive.end_time}</span>
+              <span className="tabular-nums whitespace-nowrap" style={{ font: `700 16px/1.2 ${SORA}` }}>{afterLive.start_time}–{afterLive.end_time}</span>
               <span className="flex items-center min-w-0" style={{ gap: 6, font: "400 13px/1.3 var(--font-text)", color: MUTED }}>
                 {roleSquare(effRole(afterLive))}
                 <span className="truncate">
@@ -2794,7 +2820,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 </button>
               )}
             </span>
-            <h2 className="tabular-nums truncate" style={{ margin: 0, font: `700 18px/1.25 ${MANROPE}`, letterSpacing: "-0.015em", color: INK }}>
+            <h2 className="tabular-nums truncate" style={{ margin: 0, font: `700 18px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>
               {fmtWeekRange(visibleWeekStart, lang)}
             </h2>
           </div>
@@ -2806,7 +2832,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 disabled={!enabled}
                 onClick={() => goToWeek(weekOffset + (dir === "next" ? 1 : -1))}
                 aria-label={dir === "next" ? t("portalWeekNext", "Next week") : t("portalWeekPrev", "Previous week")}
-                className="flex items-center justify-center active:scale-[0.98] transition"
+                className="flex items-center justify-center vp-press"
                 style={{
                   width: 44, height: 44, borderRadius: 14, border: `1px solid ${LINE}`, background: CARD,
                   color: dir === "next" ? INK : MUTED, opacity: enabled ? 1 : 0.4, cursor: enabled ? "pointer" : "default",
@@ -2843,7 +2869,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   setExpandedDate(d);
                   if (shift || free) setDayJump({ date: d, n: Date.now() });
                 }}
-                className="min-w-0 flex flex-col items-center justify-center transition active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
+                className="min-w-0 flex flex-col items-center justify-center vp-press focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
                 style={{
                   height: 70, gap: 4, padding: 0, borderRadius: 14,
                   background: isTodayCell ? PINE : isExpanded ? SOFT : "transparent",
@@ -2862,7 +2888,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 <span
                   className="tabular-nums"
                   style={{
-                    font: `700 17px/1 ${MANROPE}`,
+                    font: `700 17px/1 ${SORA}`,
                     textDecoration: dayUnavail && !shift ? "line-through" : "none",
                     textDecorationColor: dayUnavail && !shift ? "#B7791F" : undefined,
                   }}
@@ -2938,7 +2964,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 <span className="flex items-center justify-center" style={{ width: 64, height: 64, borderRadius: 20, background: SOFT, color: PINE }}>
                   <CalendarCheck size={28} strokeWidth={1.6} aria-hidden />
                 </span>
-                <h3 style={{ margin: "6px 0 0", font: `700 18px/1.25 ${MANROPE}`, letterSpacing: "-0.01em", color: INK }}>{emptyWeekTitle}</h3>
+                <h3 style={{ margin: "6px 0 0", font: `700 18px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>{emptyWeekTitle}</h3>
                 <p style={{ margin: 0, maxWidth: 270, font: "400 14px/1.5 var(--font-text)", color: MUTED, textWrap: "pretty" }}>
                   {t("portalWeekEmptyBody", "You're free. New and open shifts show up here as soon as they're posted.")}
                 </p>
@@ -2948,7 +2974,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   <button
                     type="button"
                     onClick={() => document.getElementById("portal-open-shifts")?.scrollIntoView?.({ block: "start", behavior: "smooth" })}
-                    className="inline-flex items-center active:scale-[0.98] transition"
+                    className="inline-flex items-center vp-press"
                     style={{ marginTop: 8, height: 48, gap: 8, padding: "0 20px", borderRadius: 14, background: PINE, color: CREAM, font: "600 15px/1 var(--font-text)" }}
                   >
                     {t("portalSeeOpenShifts", "See open shifts")}
@@ -2981,7 +3007,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                       <span style={{ font: "600 10px/1.1 var(--font-text)", letterSpacing: "0.08em", textTransform: "uppercase", color: isTodayCell ? SAGE : MUTED }}>
                         {wdShort(dt, lang).replace(/\.$/, "")}
                       </span>
-                      <span style={{ font: `700 18px/1 ${MANROPE}` }}>{dt.getDate()}</span>
+                      <span style={{ font: `700 18px/1 ${SORA}` }}>{dt.getDate()}</span>
                     </div>
                     <div className="flex-1 min-w-0 flex flex-col" style={{ gap: 8 }}>
                       {all.map((fs) => {
@@ -2999,7 +3025,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                           >
                             <div className="flex items-baseline justify-between" style={{ gap: 8 }}>
                               <span className="flex items-center min-w-0" style={{ gap: 8 }}>
-                                <span className="tabular-nums whitespace-nowrap" style={{ font: `700 16px/1.2 ${MANROPE}`, color: INK }}>
+                                <span className="tabular-nums whitespace-nowrap" style={{ font: `700 16px/1.2 ${SORA}`, color: INK }}>
                                   {fs.start_time}–{fs.end_time}
                                 </span>
                                 {isTodayCell && (
@@ -3008,7 +3034,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                                   </span>
                                 )}
                               </span>
-                              <span className="tabular-nums whitespace-nowrap shrink-0" style={{ font: `600 14px/1.2 ${MANROPE}`, color: ink2 }}>
+                              <span className="tabular-nums whitespace-nowrap shrink-0" style={{ font: `600 14px/1.2 ${SORA}`, color: ink2 }}>
                                 {fmtHM(fs.net_hours)}
                               </span>
                             </div>
@@ -3147,7 +3173,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                               <span style={{ font: "600 11px/1.2 var(--font-text)", letterSpacing: "0.08em", textTransform: "uppercase", color: BRASS_INK }}>
                                 {t("portalFreeShift", "Open shift")}
                               </span>
-                              <span className="tabular-nums whitespace-nowrap" style={{ font: `700 16px/1.2 ${MANROPE}`, color: INK }}>
+                              <span className="tabular-nums whitespace-nowrap" style={{ font: `700 16px/1.2 ${SORA}`, color: INK }}>
                                 {o.start_time}–{o.end_time}
                               </span>
                               {(o.role || o.branch_name) && (
@@ -3250,7 +3276,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 type="button"
                 onClick={tile.onClick}
                 aria-expanded={tile.expanded}
-                className="flex flex-col items-start text-left active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
+                className="flex flex-col items-start text-left vp-press focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
                 style={{ gap: 12, padding: 14, borderRadius: 20, background: CARD, border: `1px solid ${LINE}`, color: INK }}
               >
                 <span className="flex items-center justify-center" style={{ width: 38, height: 38, borderRadius: 12, background: tile.well, color: tile.ink }}>
@@ -3277,16 +3303,17 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
         </section>
       )}
 
-      {menuOpen && menuShift && (
+      {menuSheet.mounted && menuSheetShift && (
         <ShiftMenuSheet
-          shift={menuShift}
-          roleLabel={effRole(menuShift) ? roleName(effRole(menuShift), t) : null}
-          roleDot={roleSquare(effRole(menuShift))}
+          closing={menuSheet.closing}
+          shift={menuSheetShift}
+          roleLabel={effRole(menuSheetShift) ? roleName(effRole(menuSheetShift), t) : null}
+          roleDot={roleSquare(effRole(menuSheetShift))}
           place={place}
           routeHref={placeRouteUrl}
           calTapped={calTapped}
           whosOnHint={(() => {
-            const mates = matesForShift(teamShifts, menuShift);
+            const mates = matesForShift(teamShifts, menuSheetShift);
             return mates.length
               ? listNames(mates.map((m) => firstName(m.staff_name)).filter(Boolean).slice(0, 6), lang)
               : t("portalWhosOnSoloShort", "On your own");
@@ -3445,7 +3472,8 @@ function LiveShiftCard({ clock, live, menuBtn }) {
           data-testid="portal-live-chip"
           style={{ gap: 8, height: 28, padding: "0 12px 0 10px", borderRadius: 999, background: "rgba(200,164,100,0.16)", font: "600 12.5px/1 var(--font-text)", color: CREAM, whiteSpace: "nowrap" }}
         >
-          <span aria-hidden className="shrink-0" style={{ width: 7, height: 7, borderRadius: 99, background: BRASS, boxShadow: "0 0 0 3px rgba(200,164,100,0.3), 0 0 0 6px rgba(200,164,100,0.12)" }} />
+          {/* Breathes while the clock runs ("Stemplet ind" / on a pause). */}
+          <span aria-hidden className="shrink-0 vp-breathe" data-testid="portal-live-dot" style={{ width: 7, height: 7, borderRadius: 99, background: BRASS, boxShadow: "0 0 0 3px rgba(200,164,100,0.3), 0 0 0 6px rgba(200,164,100,0.12)" }} />
           <span className="truncate tabular-nums">{chip}</span>
         </span>
         {menuBtn}
@@ -3487,9 +3515,10 @@ function LiveShiftCard({ clock, live, menuBtn }) {
             <span
               className="tabular-nums"
               data-testid="portal-live-elapsed"
-              style={{ fontFamily: MANROPE, fontWeight: 700, fontSize: `calc(${ring} * 0.24)`, lineHeight: 1, letterSpacing: "-0.03em", color: CREAM }}
+              style={{ fontFamily: SORA, fontWeight: 700, fontSize: `calc(${ring} * 0.24)`, lineHeight: 1, letterSpacing: "-0.03em", color: CREAM }}
             >
-              {fmtClockHM(onBreak ? breakSec : elapsed)}
+              {/* Only the digits that change roll (a minute, then its tens). */}
+              <RollingDigits value={fmtClockHM(onBreak ? breakSec : elapsed)} />
             </span>
             <span className="whitespace-nowrap" data-testid="portal-live-sub" style={{ font: "400 12px/1.2 var(--font-text)", color: SAGE }}>{ringSub}</span>
           </div>
@@ -3502,18 +3531,18 @@ function LiveShiftCard({ clock, live, menuBtn }) {
       >
         <div className="flex flex-col" style={{ gap: 2 }}>
           <span style={{ font: "400 11.5px/1.2 var(--font-text)", color: SAGE }}>{t("portalLiveStart", "Start")}</span>
-          <span className="tabular-nums" style={{ font: `700 15px/1.2 ${MANROPE}` }}>{shift?.start_time || st.since || "—"}</span>
+          <span className="tabular-nums" style={{ font: `700 15px/1.2 ${SORA}` }}>{shift?.start_time || st.since || "—"}</span>
         </div>
         <div className="flex flex-col items-center text-center" style={{ gap: 2 }} data-testid="portal-live-pause">
           <span style={{ font: "400 11.5px/1.2 var(--font-text)", color: SAGE }}>{t("portalLivePause", "Break")}</span>
-          <span className="whitespace-nowrap" style={{ font: `700 15px/1.2 ${MANROPE}` }}>
+          <span className="whitespace-nowrap" style={{ font: `700 15px/1.2 ${SORA}` }}>
             {pauseMain}
             {pauseSuffix && <span style={{ font: "500 11.5px/1 var(--font-text)", color: onBreak ? BRASS : SAGE }}> · {pauseSuffix}</span>}
           </span>
         </div>
         <div className="flex flex-col items-end text-right" style={{ gap: 2 }}>
           <span style={{ font: "400 11.5px/1.2 var(--font-text)", color: SAGE }}>{t("portalLiveEnd", "End")}</span>
-          <span className="tabular-nums" style={{ font: `700 15px/1.2 ${MANROPE}` }}>{shift?.end_time || "—"}</span>
+          <span className="tabular-nums" style={{ font: `700 15px/1.2 ${SORA}` }}>{shift?.end_time || "—"}</span>
         </div>
       </div>
 
@@ -3525,7 +3554,7 @@ function LiveShiftCard({ clock, live, menuBtn }) {
             data-primary="true"
             disabled={clock.busy}
             onClick={() => clock.breakAct(onBreak ? "end" : "start")}
-            className="inline-flex items-center justify-center active:scale-[0.98] transition disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            className="inline-flex items-center justify-center vp-press disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
             style={brass}
           >
             <Coffee size={18} strokeWidth={2} aria-hidden className="shrink-0" />
@@ -3538,7 +3567,7 @@ function LiveShiftCard({ clock, live, menuBtn }) {
           data-primary={breakLeads ? undefined : "true"}
           disabled={clock.busy}
           onClick={clockOut}
-          className="inline-flex items-center justify-center active:scale-[0.98] transition disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          className="inline-flex items-center justify-center vp-press disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
           // Unless a pause is due (or running), Stempl ud is the card's
           // brass action — the pause is optional, never in the way.
           style={breakLeads ? ghost : brass}
@@ -3552,7 +3581,7 @@ function LiveShiftCard({ clock, live, menuBtn }) {
             data-testid="portal-break-btn"
             disabled={clock.busy}
             onClick={() => clock.breakAct("start")}
-            className="inline-flex items-center justify-center active:scale-[0.98] transition disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            className="inline-flex items-center justify-center vp-press disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
             style={ghost}
           >
             <Coffee size={16} strokeWidth={2} aria-hidden className="shrink-0" />
@@ -3596,8 +3625,10 @@ function VenueMapImage({ token, venueName, mapV }) {
   const entry = getCachedMap(key);
   const [, rerender] = useState(0);
   const [failedKey, setFailedKey] = useState(null);
-  // Painted from memory → visible at once; fetched now → fades in on load.
+  // Painted from memory → visible at once; fetched now → settles in on load
+  // (vagtplan.css .vp-map-in: once, when it is drawn for the first time).
   const [shownKey, setShownKey] = useState(() => (entry?.url ? key : null));
+  const [fromMemory] = useState(() => !!entry?.url);
   useEffect(() => {
     if (!token || getCachedMap(key)) return undefined;
     let gone = false;
@@ -3623,7 +3654,7 @@ function VenueMapImage({ token, venueName, mapV }) {
           alt={t("portalMapAlt", "Map of {venue}", { venue: venueName || "" })}
           onLoad={() => setShownKey(key)}
           onError={() => { setCachedMap(key, { none: true }); setFailedKey(key); }}
-          className="block w-full h-full"
+          className={`block w-full h-full${shownKey === key && !fromMemory ? " vp-map-in" : ""}`}
           style={{ objectFit: "cover", objectPosition: "right center", opacity: shownKey === key ? 1 : 0, transition: "opacity 150ms ease" }}
         />
       )}
@@ -3640,7 +3671,7 @@ function VenueMapImage({ token, venueName, mapV }) {
  * tab content is a space-y stack, and a fixed overlay inside one picks up a
  * stray margin), m-0 on the overlay for the same reason.
  */
-function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped, whosOnHint, onClose, onWhosOn, onCalendar, onSwaps, onSick, onClockIn, clockInDisabled, clockInHint }) {
+function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped, whosOnHint, onClose, onWhosOn, onCalendar, onSwaps, onSick, onClockIn, clockInDisabled, clockInHint, closing = false }) {
   const { t, lang } = useLanguage();
   // Focus moves into the sheet on open (screen readers land on the dialog,
   // not behind the scrim); Escape closes it.
@@ -3666,7 +3697,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
         <ChevronRight size={18} strokeWidth={2} aria-hidden className="shrink-0" style={{ color: MUTED }} />
       </>
     );
-    const cls = "w-full flex items-center text-left active:opacity-70 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0E3B2E]/40";
+    const cls = "w-full flex items-center text-left vp-press vp-row active:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0E3B2E]/40";
     const style = { gap: 14, minHeight: 64, padding: "12px 14px", boxSizing: "border-box", color: INK };
     return href ? (
       <a key={testId} href={href} target="_blank" rel="noopener noreferrer" onClick={onClose} className={cls} style={style} data-testid={testId}>{inner}</a>
@@ -3699,12 +3730,12 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
     }),
   ].filter(Boolean);
   return createPortal(
-    <div className="fixed inset-0 z-[60] m-0 flex flex-col justify-end">
+    <div className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" {...closingProps(closing)}>
       <button
         type="button"
         aria-label={t("close", "Close")}
         onClick={onClose}
-        className="absolute inset-0 m-0"
+        className="absolute inset-0 m-0 vp-scrim"
         style={{ background: "rgba(8,24,18,0.52)", backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)" }}
       />
       <div
@@ -3714,7 +3745,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
         data-testid="portal-shift-menu"
         ref={dialogRef}
         tabIndex={-1}
-        className="relative w-full max-w-lg mx-auto m-0 outline-none overflow-y-auto overscroll-contain"
+        className="relative w-full max-w-lg mx-auto m-0 outline-none overflow-y-auto overscroll-contain vp-sheet"
         style={{
           maxHeight: "92dvh", background: CARD, color: INK, borderRadius: "28px 28px 0 0",
           padding: "8px 16px max(16px, env(safe-area-inset-bottom, 0px))",
@@ -3724,7 +3755,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
         <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: "#D9D3C5", marginBottom: 12 }} />
         <div className="flex items-start justify-between" style={{ gap: 12, padding: "0 4px" }}>
           <div className="min-w-0 flex flex-col" style={{ gap: 4 }}>
-            <div className="tabular-nums" style={{ font: `700 19px/1.25 ${MANROPE}`, letterSpacing: "-0.015em", color: INK }}>{title}</div>
+            <div className="tabular-nums" style={{ font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>{title}</div>
             <div className="flex items-center" style={{ gap: 6, font: "400 13px/1.3 var(--font-text)", color: MUTED }}>
               {roleLabel && roleDot}
               <span className="truncate">{[roleLabel, place?.name].filter(Boolean).join(" · ")}</span>
@@ -3747,7 +3778,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
               onClick={onClockIn}
               disabled={clockInDisabled}
               data-testid="portal-menu-clock-in"
-              className="w-full inline-flex items-center justify-center active:scale-[0.98] transition disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/50 focus-visible:ring-offset-2"
+              className="w-full inline-flex items-center justify-center vp-press disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/50 focus-visible:ring-offset-2"
               style={{ height: 56, gap: 10, borderRadius: 18, background: PINE, color: CREAM, font: "600 16px/1 var(--font-text)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 24px -14px rgba(14,59,46,0.8)" }}
             >
               <LogIn size={20} strokeWidth={1.9} aria-hidden />
@@ -3806,7 +3837,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
  * staffer gets a sentence instead of a 400 — but the SERVER is the gate. This
  * is a courtesy, never the check.
  */
-function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
+function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }) {
   const { t, lang } = useLanguage();
   const todayISO = new Date().toLocaleDateString("sv-SE");
   const [from, setFrom] = useState(initial?.start || "");
@@ -3876,12 +3907,12 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={onClose}>
+    <div className="fixed inset-0 z-50 m-0 flex items-end vp-scrim" style={{ background: "rgba(8,14,22,.45)" }} onClick={onClose} {...closingProps(closing)}>
       <div
         role="dialog"
             aria-modal="true"
             aria-label={t("portalHoursCustomTitle")}
-            className="w-full bg-white"
+            className="w-full bg-white vp-sheet"
         style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -3961,6 +3992,7 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
 function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hoursError, hoursLoading, onRetry }) {
   const { t, lang } = useLanguage();
   const [customOpen, setCustomOpen] = useState(false);
+  const periodSheet = usePresence(customOpen);
   // The permit cap is monthly. Against a chosen window of any other length the
   // ratio is meaningless — and it drives an amber/red "permit nearly blown"
   // alarm, so a wrong one is not a cosmetic slip. Suppress it unless we are
@@ -4109,8 +4141,9 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
   return (
     <div className="space-y-4">
 
-      {customOpen && (
+      {periodSheet.mounted && (
         <PeriodSheet
+          closing={periodSheet.closing}
           initial={range}
           anchorMonth={data.period_start}
           onClose={() => setCustomOpen(false)}
@@ -4193,8 +4226,9 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       >
 
         <div className="relative flex items-end gap-2">
-          <span className="tabular-nums" style={{ font: "700 44px/0.9 var(--font-display)", letterSpacing: "-0.04em", color: "#fff" }}>
-            {fmtPortalHours(data.total_hours, lang)}
+          <span className="tabular-nums" data-testid="portal-hours-total" style={{ font: "700 44px/0.9 var(--font-display)", letterSpacing: "-0.04em", color: "#fff" }}>
+            {/* A new period (or a refresh) rolls only the digits that moved. */}
+            <RollingDigits value={fmtPortalHours(data.total_hours, lang)} />
           </span>
           {/* hoursLabel already says "Rostered hours" or "Hours worked" from
               hours_source — the number must never claim to be the other one. */}
@@ -4208,7 +4242,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
               {t("portalHoursShiftsCount", "Shifts")}
             </div>
             <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#fff" }}>
-              {data.entries.length}
+              <RollingDigits value={data.entries.length} />
             </div>
           </div>
           {/* v2 puts "Est. pay before tax" here. We removed that by decision —
@@ -4221,7 +4255,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                 {t("portalWorkPermitLimit", "Work permit limit")}
               </div>
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#dcfce7" }}>
-                {fmtPortalHours(data.total_hours, lang)} / {formatHours(maxHours, { lang, decimals: 2 })}
+                <RollingDigits value={`${fmtPortalHours(data.total_hours, lang)} / ${formatHours(maxHours, { lang, decimals: 2 })}`} />
               </div>
             </div>
           ) : soFar > 0 && ahead > 0 ? (
@@ -4235,7 +4269,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                   against a cap. This is a SPLIT of the period, so it states the
                   one number the staffer does not already have. */}
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#fff" }}>
-                {formatHours(ahead, { lang, decimals: 2 })}
+                <RollingDigits value={formatHours(ahead, { lang, decimals: 2 })} />
               </div>
             </div>
           ) : delta !== null ? (
@@ -4947,7 +4981,7 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
   };
 
   return (
-    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
+    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)] vp-sheet">
       <div className="flex items-center justify-between">
         <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5">
           <Send className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />
@@ -5058,7 +5092,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
   };
 
   return (
-    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
+    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)] vp-sheet">
       <div className="flex items-center justify-between">
         <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><ArrowLeftRight className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalOfferSwap", "Offer to swap")}</div>
         <button
@@ -5472,7 +5506,7 @@ function ThreadRow({ thread, onOpen }) {
 /** Create a group. Deliberately two fields and nothing else — a name and who
     is in it. Colleagues come from an endpoint that returns names and roles
     only, so this picker cannot become a staff directory. */
-function NewGroupSheet({ token, onClose, onCreated }) {
+function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
   const { t } = useLanguage();
   const [colleagues, setColleagues] = useState(null);
   const [title, setTitle] = useState("");
@@ -5508,13 +5542,13 @@ function NewGroupSheet({ token, onClose, onCreated }) {
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end sm:items-center sm:justify-center" style={KB_LIFT_STYLE}>
-      <div className="absolute inset-0 bg-gray-900/40" onClick={onClose} aria-hidden />
+    <div className="fixed inset-0 z-40 m-0 flex items-end sm:items-center sm:justify-center" style={KB_LIFT_STYLE} {...closingProps(closing)}>
+      <div className="absolute inset-0 bg-gray-900/40 vp-scrim" onClick={onClose} aria-hidden />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={t("staffChatNewGroup", "New group")}
-        className="relative w-full sm:max-w-sm bg-white"
+        className="relative w-full sm:max-w-sm bg-white vp-sheet"
         style={{
           borderRadius: "22px 22px 0 0",
           paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
@@ -5561,8 +5595,8 @@ function NewGroupSheet({ token, onClose, onCreated }) {
 
         <div className="px-4 overflow-y-auto" style={{ maxHeight: "42vh" }}>
           {colleagues === null ? (
-            <div className="space-y-2 animate-pulse py-2">
-              {[1, 2, 3].map((i) => <div key={i} className="h-11 rounded-xl bg-gray-100" />)}
+            <div className="space-y-2 py-2" data-testid="portal-skeleton">
+              {[1, 2, 3].map((i) => <div key={i} className="h-11 rounded-xl bg-gray-100 vp-shimmer" />)}
             </div>
           ) : colleagues.length === 0 ? (
             <p className="text-sm text-gray-500 py-3">
@@ -5644,6 +5678,7 @@ function ThreadListView({ token, onOpen, onRead }) {
   const [threads, setThreads] = useState(null);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
+  const groupSheet = usePresence(creating);
 
   const load = useCallback(() => {
     portalApi
@@ -5706,7 +5741,7 @@ function ThreadListView({ token, onOpen, onRead }) {
       <div style={{ marginTop: 14 }} className="flex flex-col gap-2">
         {threads === null ? (
           [1, 2, 3].map((i) => (
-            <div key={i} className="h-[62px] rounded-2xl bg-gray-100 animate-pulse" />
+            <div key={i} className="h-[62px] rounded-2xl bg-gray-100 vp-shimmer" data-testid="portal-skeleton" />
           ))
         ) : shown.length === 0 ? (
           <div className="text-center py-12">
@@ -5724,8 +5759,9 @@ function ThreadListView({ token, onOpen, onRead }) {
         )}
       </div>
 
-      {creating && (
+      {groupSheet.mounted && (
         <NewGroupSheet
+          closing={groupSheet.closing}
           token={token}
           onClose={() => setCreating(false)}
           onCreated={(threadId) => {
@@ -5915,11 +5951,11 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
         style={{ maxHeight: kb > 0 ? `calc(100vh - 20rem - ${kb}px)` : "calc(100vh - 20rem)", gap: 9 }}
       >
         {messages === null ? (
-          <div className="space-y-2 animate-pulse">
+          <div className="space-y-2" data-testid="portal-skeleton">
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className={`h-9 rounded-2xl bg-gray-100 ${i % 2 ? "w-2/3" : "w-1/2 ml-auto"}`}
+                className={`h-9 rounded-2xl bg-gray-100 vp-shimmer ${i % 2 ? "w-2/3" : "w-1/2 ml-auto"}`}
               />
             ))}
           </div>
@@ -6021,8 +6057,8 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
         style={{
           bottom: kb > 0
             ? `${kb}px`
-            // v3: 8 px above the floating bar's top edge.
-            : BAR_V3 ? `calc(${V3_BAR_BOTTOM} + ${V3_BAR_H + 8}px)` : "calc(3.5rem + env(safe-area-inset-bottom))",
+            // v3: 8 px above the dock's top edge.
+            : BAR_V3 ? aboveDock(8) : "calc(3.5rem + env(safe-area-inset-bottom))",
         }}
       >
         <div className="max-w-lg mx-auto px-3 pt-2">
@@ -6088,15 +6124,16 @@ function MessagesTab({ token, restaurantName, onRead }) {
 
 // ─── Loading skeleton ──────────────────────────────────────────────────────
 
+// Shimmer blocks (vagtplan.css .vp-shimmer): a sweep, no spinner, no pulse.
 function LoadingSkeleton() {
   return (
-    <div className="space-y-3 animate-pulse">
+    <div className="space-y-3" data-testid="portal-skeleton">
       <div className="grid grid-cols-2 gap-3">
-        <div className="h-20 bg-[#eef2f7] rounded-2xl" />
-        <div className="h-20 bg-[#eef2f7] rounded-2xl" />
+        <div className="h-20 bg-[#eef2f7] rounded-2xl vp-shimmer" />
+        <div className="h-20 bg-[#eef2f7] rounded-2xl vp-shimmer" />
       </div>
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="h-14 bg-gray-100 rounded-xl" />
+        <div key={i} className="h-14 bg-gray-100 rounded-xl vp-shimmer" />
       ))}
     </div>
   );
@@ -6133,7 +6170,7 @@ function PortalError({ message, expected = false }) {
             into /join. Styled as the real button it is, with /join's verb. */}
         <a
           href="/join"
-          className="mt-5 inline-flex items-center justify-center gap-2 min-h-[44px] px-6 rounded-xl bg-gray-900 text-white text-sm font-semibold active:scale-[0.98] transition"
+          className="mt-5 inline-flex items-center justify-center gap-2 min-h-[44px] px-6 rounded-xl bg-gray-900 text-white text-sm font-semibold vp-press"
         >
           <KeyRound className="w-4 h-4" strokeWidth={2.2} aria-hidden />
           {t("portalErrorJoinCta", "Connect with a code")}
@@ -6167,10 +6204,20 @@ function PortalOpening() {
     const id = setTimeout(() => setSlow(true), 4000);
     return () => clearTimeout(id);
   }, []);
+  // The home's own shape in shimmer (vagtplan.css), not a spinner: the
+  // header row, the pine next-shift card, a row under it — so the real page
+  // lands where the eye already is.
   return (
-    <div className="min-h-screen bg-[#f5f7fb] flex flex-col items-center justify-center p-6">
-      <div className="animate-spin w-8 h-8 border-2 border-gray-300 border-t-transparent rounded-full" aria-hidden />
-      <p role="status" className="mt-4 text-center text-[13px] text-gray-600 max-w-xs min-h-[1.25rem]">
+    <div className="min-h-screen flex flex-col items-center" style={{ background: IVORY }} data-testid="portal-opening">
+      <div className="w-full max-w-lg px-3 min-[361px]:px-4" aria-hidden>
+        <div className="flex items-center" style={{ height: 56, gap: 12, padding: "0 4px", marginTop: "env(safe-area-inset-top, 0px)" }}>
+          <div className="vp-shimmer" style={{ width: 40, height: 40, borderRadius: 999, background: "#E7E3D8" }} />
+          <div className="vp-shimmer" style={{ width: 150, height: 18, borderRadius: 8, background: "#E7E3D8" }} />
+        </div>
+        <div className="vp-shimmer vp-shimmer-dark" style={{ marginTop: 8, height: 212, borderRadius: 24, background: PINE }} />
+        <div className="vp-shimmer" style={{ marginTop: 16, height: 56, borderRadius: 20, background: "#EEEAE0" }} />
+      </div>
+      <p role="status" className="mt-6 text-center text-[13px] max-w-xs min-h-[1.25rem] px-6" style={{ color: MUTED }}>
         {slow ? t("portalOpeningSlow", "Connecting to BonBox… this can take up to 20 seconds.") : ""}
       </p>
     </div>
@@ -6205,7 +6252,7 @@ function PortalOffline({ onRetry, busy = false, kind = "offline" }) {
           type="button"
           onClick={onRetry}
           disabled={busy}
-          className="mt-5 inline-flex items-center justify-center gap-2 min-h-[44px] px-6 rounded-xl bg-gray-900 text-white text-sm font-semibold active:scale-[0.98] transition disabled:opacity-60"
+          className="mt-5 inline-flex items-center justify-center gap-2 min-h-[44px] px-6 rounded-xl bg-gray-900 text-white text-sm font-semibold vp-press disabled:opacity-60"
         >
           {busy && <RefreshCw className="w-4 h-4 animate-spin" strokeWidth={2.4} aria-hidden />}
           {busy ? t("portalOfflineRetrying", "Trying again…") : t("tryAgain", "Try again")}
@@ -6425,7 +6472,7 @@ function AbsenceSection({ token, onChanged }) {
                   <button
                     type="button"
                     onClick={() => withdraw(g)}
-                    className="shrink-0 min-h-[44px] px-3 rounded-[12px] border border-[#e2e8f0] bg-white text-[12px] font-semibold text-gray-700 hover:bg-gray-50 active:scale-[0.98] transition inline-flex items-center"
+                    className="shrink-0 min-h-[44px] px-3 rounded-[12px] border border-[#e2e8f0] bg-white text-[12px] font-semibold text-gray-700 hover:bg-gray-50 vp-press inline-flex items-center"
                   >
                     {isNotifyKind(g.kind)
                       ? t("fravaerUndo", "Undo")
@@ -6900,6 +6947,12 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
   const [expandedDate, setExpandedDate] = useState(null);
   const [confirmWeekday, setConfirmWeekday] = useState(null); // { wd }
   const [confirmRostered, setConfirmRostered] = useState(null); // { iso }
+  // Both confirms play their exit (sheetMotion.js) with the day they were
+  // about: the state is already null by then.
+  const rosteredSheet = usePresence(!!confirmRostered);
+  const rosteredShown = useLastValue(confirmRostered);
+  const weekdaySheet = usePresence(!!confirmWeekday);
+  const weekdayShown = useLastValue(confirmWeekday);
   // Which kind a tap writes. "unavailable" is the default because it is the one
   // that actually constrains the roster; "preferred" is a soft signal.
   const [mode, setMode] = useState("unavailable");
@@ -7196,10 +7249,10 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
       <AbsenceSection token={token} onChanged={loadAbsence} />
 
       {/* Rostered-day confirm: the mark is a planning signal, not a cancellation. */}
-      {confirmRostered && (
-        <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true">
-          <button type="button" className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px]" onClick={() => setConfirmRostered(null)} aria-label={t("portalCancel", "Cancel")} />
-          <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3">
+      {rosteredSheet.mounted && rosteredShown && (
+        <div className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" role="dialog" aria-modal="true" {...closingProps(rosteredSheet.closing)}>
+          <button type="button" className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px] vp-scrim" onClick={() => setConfirmRostered(null)} aria-label={t("portalCancel", "Cancel")} />
+          <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3 vp-sheet">
             <div className="text-base font-bold text-gray-900">{t("kanIkkeRosteredTitle", "You already have a shift that day")}</div>
             <p className="text-[13px] text-gray-600">
               {t("kanIkkeRosteredBody", "Marking this only tells the manager how to plan future weeks. It does not cancel the shift and nobody is notified — message them if you can't work it.")}
@@ -7214,7 +7267,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
               </button>
               <button
                 type="button"
-                onClick={() => markAnyway(confirmRostered.iso)}
+                onClick={() => markAnyway(rosteredShown.iso)}
                 className="flex-1 py-2.5 rounded-[14px] bg-[#f1f5f9] text-gray-700 font-text text-[13px] font-bold hover:bg-[#e2e8f0] transition"
               >
                 {t("kanIkkeRosteredAnyway", "Mark anyway")}
@@ -7225,15 +7278,15 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
       )}
 
       {/* Remove-weekly-rule scoped confirm (blast-radius honesty) */}
-      {confirmWeekday && (
-        <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true">
-          <button type="button" className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px]" onClick={() => setConfirmWeekday(null)} aria-label={t("portalCancel", "Cancel")} />
-          <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3">
+      {weekdaySheet.mounted && weekdayShown && (
+        <div className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" role="dialog" aria-modal="true" {...closingProps(weekdaySheet.closing)}>
+          <button type="button" className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px] vp-scrim" onClick={() => setConfirmWeekday(null)} aria-label={t("portalCancel", "Cancel")} />
+          <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3 vp-sheet">
             <div className="text-base font-bold text-gray-900">{t("kanIkkeRemoveWeeklyTitle", "Remove this weekly rule?")}</div>
-            <p className="text-[13px] text-gray-600">{t("kanIkkeRemoveWeeklyBody", "This clears every {day}.").split("{day}").join(WD[confirmWeekday.wd])}</p>
+            <p className="text-[13px] text-gray-600">{t("kanIkkeRemoveWeeklyBody", "This clears every {day}.").split("{day}").join(WD[weekdayShown.wd])}</p>
             <div className="flex gap-2 pt-1">
               <button type="button" onClick={() => setConfirmWeekday(null)} className="flex-1 py-2.5 rounded-[14px] bg-[#f1f5f9] text-gray-700 font-text text-[13px] font-bold hover:bg-[#e2e8f0] transition">{t("portalCancel", "Cancel")}</button>
-              <button type="button" onClick={() => removeWeekly(confirmWeekday.wd)} className="flex-1 py-2.5 rounded-[14px] bg-red-600 text-white font-text text-[13px] font-bold hover:bg-red-700 transition">{t("kanIkkeRemove", "Remove")}</button>
+              <button type="button" onClick={() => removeWeekly(weekdayShown.wd)} className="flex-1 py-2.5 rounded-[14px] bg-red-600 text-white font-text text-[13px] font-bold hover:bg-red-700 transition">{t("kanIkkeRemove", "Remove")}</button>
             </div>
           </div>
         </div>
@@ -7261,10 +7314,13 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
         lever so one binary can be A/B'd on a phone with Web Inspector
         attached. It is NOT a field kill switch: staff cannot set it.
 
-   "v3" (home v3, Nov 2026) is the default: the tab bar becomes a floating
-   forest pill (left/right 14, 62 tall, radius 31) whose active tab is a paper
-   pill carrying its name; inactive tabs are icons with the name for screen
-   readers. "v2" keeps the glass bar edge to edge; "v1" is the pre-v2 bar. */
+   "v3" is the default: since Nov 2026 the Orvexlo floating DOCK (BeloBag's
+   bar — vagtplan.css .vp-dock): a light warm bar 12 px in from the sides and
+   8 px above the home indicator, 52 tall (48 under 360 px), every tab icon +
+   name, ONE sage pill that slides to the active tab. (Before it, "v3" was
+   the canvas's ivory bar with a pine icon pill, and before that a dark forest
+   pill; both are gone, the levers below are the rollback.) "v2" keeps the
+   glass bar edge to edge; "v1" is the pre-v2 bar. */
 const BAR_MODE = (() => {
   if (import.meta.env.VITE_PORTAL_BARS === "off") return "v1";
   try {
@@ -7275,15 +7331,17 @@ const BAR_MODE = (() => {
 })();
 const BAR_V2 = BAR_MODE !== "v1";
 const BAR_V3 = BAR_MODE === "v3";
-// Where the floating bar sits: 12 px off the bottom edge, or tucked 8 px into
-// the home-indicator inset where there is one. Everything fixed to the bottom
-// (chat composer, toasts) and the scroller's own padding derive from these,
-// so moving the bar moves them with it. The cookie banner measures the bar
-// itself (data-bb-consent-clear).
-// Canvas "Pine, ivory & brass": 12 px off the bottom edge, or sitting on the
-// home-indicator inset where there is one; 68 tall.
-const V3_BAR_BOTTOM = "max(12px, env(safe-area-inset-bottom, 0px))";
-const V3_BAR_H = 68;
+// Where the dock sits (the kit: safe area + an 8 px lift) and how tall it is
+// (52; vagtplan.css draws it 48 under 360 px, which only adds 4 px of air to
+// what derives from it). Everything fixed to the bottom (chat composer,
+// toasts) and the scroller's own padding derive from these, so moving the
+// dock moves them with it. The cookie banner measures the dock itself
+// (data-bb-consent-clear). The dock's own geometry lives in vagtplan.css.
+const DOCK_LIFT = 8;
+const DOCK_H = 52;
+const DOCK_BOTTOM = `calc(env(safe-area-inset-bottom, 0px) + ${DOCK_LIFT}px)`;
+// "safe area + N px": N px above the bottom edge of the screen's usable area.
+const aboveDock = (gap) => `calc(env(safe-area-inset-bottom, 0px) + ${DOCK_LIFT + DOCK_H + gap}px)`;
 // Below 360 CSS px (iPhone SE / mini with Display Zoom: 320, a Fold cover
 // screen: 323) the home tightens: the date strip drops its gaps and the
 // card's confirmed state says "Bekræftet" instead of "Vagten er bekræftet".
@@ -7327,6 +7385,8 @@ const TABS = [
   { key: "hours", Icon: Clock, labelKey: "navHours", labelFallback: "Hours" },
   { key: "alerts", Icon: Bell, labelKey: "navAlerts", labelFallback: "Alerts" },
 ];
+// The dock's five: Alerts lives on the header bell.
+const DOCK_TABS = TABS.filter((item) => item.key !== "alerts");
 
 /**
  * InstallNotifyCard — the prominent "make this an app + get notified" card
@@ -7994,7 +8054,10 @@ export default function StaffPortalPage() {
   // native Scheduler app; a normal browser has env()=0 so it never showed).
   // Drop the body padding while the portal is mounted so the header's inset is
   // the single source. Owner-app pages (body scroll) keep the body padding.
-  useEffect(() => {
+  // A LAYOUT effect (before the first paint): the class also carries the
+  // portal's type and motion tokens (vagtplan.css), so a plain effect let one
+  // frame paint in the owner app's faces.
+  useLayoutEffect(() => {
     document.body.classList.add("portal-shell");
     return () => document.body.classList.remove("portal-shell");
   }, []);
@@ -8013,6 +8076,13 @@ export default function StaffPortalPage() {
       return "schedule";
     }
   });
+  // The dock's indicator keeps the last DOCK tab (on Alerts it fades out in
+  // place and slides on from there). `moved`: has the staffer switched tabs
+  // since the page opened — the first paint plays no name pop and no screen
+  // rise, only a real switch does.
+  const dockIdx = DOCK_TABS.findIndex((x) => x.key === tab);
+  const [nav, setNav] = useState(() => ({ tab, idx: Math.max(0, dockIdx), moved: false }));
+  if (nav.tab !== tab) setNav({ tab, idx: dockIdx >= 0 ? dockIdx : nav.idx, moved: true });
   const [info, setInfo] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -8040,6 +8110,9 @@ export default function StaffPortalPage() {
   const [dept, setDept] = useState(null);
   const [deptOpen, setDeptOpen] = useState(false);
   const [photoMenu, setPhotoMenu] = useState(false);
+  // Sheets play their exit before they unmount (sheetMotion.js).
+  const deptSheet = usePresence(deptOpen);
+  const photoSheet = usePresence(photoMenu);
 
 
   const departments = useMemo(() => {
@@ -8136,6 +8209,7 @@ export default function StaffPortalPage() {
 
   // Email & phone editing
   const [showEmailEdit, setShowEmailEdit] = useState(false);
+  const profileSheet = usePresence(showEmailEdit);
   // The header gets its hairline and loses the date line once the page has
   // scrolled (canvas "Hjem – rullet"). The row keeps its height, so nothing
   // under the sticky header moves.
@@ -8833,16 +8907,17 @@ export default function StaffPortalPage() {
       style={{
         // The canvas's ivory ground, on every tab.
         background: IVORY,
-        // v3: bar (68) + its lift (12, or the home-indicator inset) + 16 of air.
+        // v3: the dock (52) + its lift (8 over the home-indicator inset) + 16
+        // of air.
         paddingBottom: BAR_V3
-          ? "calc(96px + env(safe-area-inset-bottom, 0px) + var(--bb-consent-h, 0px))"
+          ? "calc(76px + env(safe-area-inset-bottom, 0px) + var(--bb-consent-h, 0px))"
           : "calc(6rem + var(--bb-consent-h, 0px))",
         // Where scrollIntoView may put things: below the sticky header (56 +
         // the notch) and above the floating tab bar. Without it the sick-call
         // form's Send button landed under the bar.
         scrollPaddingTop: "calc(68px + env(safe-area-inset-top, 0px))",
         scrollPaddingBottom: BAR_V3
-          ? "calc(96px + env(safe-area-inset-bottom, 0px))"
+          ? "calc(76px + env(safe-area-inset-bottom, 0px))"
           : "calc(6rem + env(safe-area-inset-bottom, 0px))",
         ...(kbShell > 0 ? { height: `calc(100dvh - ${kbShell}px)` } : {}),
       }}
@@ -8886,13 +8961,13 @@ export default function StaffPortalPage() {
             onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setAddressInput(info?.address || ""); setPostalInput(info?.postal_code || ""); setCityInput(info?.city || ""); setEmailMsg(""); setEmailStatus(null); }}
             // overflow-hidden lives on the INNER circle: on the button it
             // clipped the -inset-1 ::before, so the hit area was the circle.
-            className="relative rounded-full flex items-center justify-center active:scale-[0.98] transition before:absolute before:-inset-1 before:content-['']"
+            className="relative rounded-full flex items-center justify-center vp-press before:absolute before:-inset-1 before:content-['']"
             // minHeight 0: the touch-screen 44 px min-height (index.css) drew
             // this as an oval; the ::before is the 48 px hit area.
             style={{
               width: 40, height: 40, minHeight: 0, flex: "none",
               background: PINE, color: CREAM,
-              font: `700 14px/1 ${MANROPE}`, letterSpacing: "0.02em",
+              font: `700 14px/1 ${SORA}`, letterSpacing: "0.02em",
               boxShadow: `0 0 0 2px ${IVORY}, 0 0 0 3.5px ${BRASS}`,
             }}
             title={t("portalEditContact", "Edit profile")}
@@ -8911,7 +8986,7 @@ export default function StaffPortalPage() {
                 {fmtHeaderDate(lang)}
               </p>
             )}
-            <h1 className="min-w-0" style={{ margin: 0, font: `700 20px/1.2 ${MANROPE}`, letterSpacing: "-0.02em", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <h1 className="min-w-0" style={{ margin: 0, font: `700 20px/1.2 ${SORA}`, letterSpacing: "-0.02em", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {tab === "schedule" ? t("portalTitleSchedule", "My schedule")
                 : tab === "availability" ? t("portalTitleKanIkke", "Availability")
                 : tab === "messages" ? t("portalTitleMessages", "Messages")
@@ -8951,7 +9026,7 @@ export default function StaffPortalPage() {
             onClick={() => setTab("alerts")}
             aria-label={t("navAlerts", "Alerts")}
             aria-current={tab === "alerts" ? "page" : undefined}
-            className="relative flex-none flex items-center justify-center transition active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
+            className="relative flex-none flex items-center justify-center vp-press focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
             style={{
               width: 44, height: 44, minHeight: 0, borderRadius: 14, boxSizing: "border-box",
               border: `1px solid ${tab === "alerts" ? PINE : LINE}`,
@@ -9002,13 +9077,13 @@ export default function StaffPortalPage() {
             </button>
           </div>
         )}
-        {photoMenu && createPortal(
-          <div className="fixed inset-0 z-[60] flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setPhotoMenu(false)}>
+        {photoSheet.mounted && createPortal(
+          <div className="fixed inset-0 z-[60] m-0 flex items-end vp-scrim" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setPhotoMenu(false)} {...closingProps(photoSheet.closing)}>
             <div
               role="dialog"
             aria-modal="true"
             aria-label={t("portalPhotoLabel")}
-            className="w-full bg-white"
+            className="w-full bg-white vp-sheet"
               style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -9054,13 +9129,13 @@ export default function StaffPortalPage() {
           document.body,
         )}
 
-        {deptOpen && createPortal(
-          <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setDeptOpen(false)}>
+        {deptSheet.mounted && createPortal(
+          <div className="fixed inset-0 z-50 m-0 flex items-end vp-scrim" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setDeptOpen(false)} {...closingProps(deptSheet.closing)}>
             <div
               role="dialog"
             aria-modal="true"
             aria-label={t("portalDepartment")}
-            className="w-full bg-white"
+            className="w-full bg-white vp-sheet"
               style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -9102,22 +9177,22 @@ export default function StaffPortalPage() {
             header taller than the viewport and made the schedule scroll oddly
             behind it. As an overlay it has its own scroll + a tap-out backdrop
             and never disturbs the main scroll. */}
-        {showEmailEdit && createPortal((
-          <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true" style={KB_LIFT_STYLE}>
+        {profileSheet.mounted && createPortal((
+          <div className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" role="dialog" aria-modal="true" style={KB_LIFT_STYLE} {...closingProps(profileSheet.closing)}>
             <button
               type="button"
               aria-label={t("close", "Close")}
               onClick={() => setShowEmailEdit(false)}
-              className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px]"
+              className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px] vp-scrim"
             />
-            <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl shadow-soft-lg max-h-[90dvh] overflow-y-auto overscroll-contain">
+            <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl shadow-soft-lg max-h-[90dvh] overflow-y-auto overscroll-contain vp-sheet">
               <div className="sticky top-0 bg-white/95 flex items-center justify-between px-4 pt-4 pb-2 border-b border-[#f1f5f9]">
                 <h2 className="text-base font-bold text-gray-900">{t("portalEditContact", "Edit profile")}</h2>
                 <button
                   type="button"
                   onClick={() => setShowEmailEdit(false)}
                   aria-label={t("close", "Close")}
-                  className="w-11 h-11 -mr-2.5 rounded-full inline-flex items-center justify-center text-gray-500 hover:bg-gray-100 active:scale-[0.98] transition"
+                  className="w-11 h-11 -mr-2.5 rounded-full inline-flex items-center justify-center text-gray-500 hover:bg-gray-100 vp-press"
                 >
                   <X className="w-5 h-5" strokeWidth={2} aria-hidden />
                 </button>
@@ -9296,7 +9371,7 @@ export default function StaffPortalPage() {
                         type="button"
                         onClick={() => setLang(code)}
                         aria-pressed={lang === code}
-                        className={`px-3 py-1.5 rounded-md text-[12px] font-bold uppercase transition active:scale-[0.98] ${
+                        className={`px-3 py-1.5 rounded-md text-[12px] font-bold uppercase vp-press ${
                           lang === code ? "bg-gray-900 text-white" : "bg-white text-gray-500 hover:bg-gray-50"
                         }`}
                       >
@@ -9406,7 +9481,9 @@ export default function StaffPortalPage() {
 
       {/* Content — the canvas's 16 px gutters (12 on a 360 px phone and
           under); the home starts 8 under the header. */}
-      <div data-testid="portal-content" className={`max-w-lg mx-auto px-3 min-[361px]:px-4 ${tab === "schedule" ? "pt-2 pb-4" : "py-4"}`}>
+      {/* Keyed by tab: a switch mounts the new screen with a short rise +
+          fade (vagtplan.css .vp-screen-in; transform + opacity, no layout). */}
+      <div key={tab} data-testid="portal-content" className={`max-w-lg mx-auto px-3 min-[361px]:px-4 ${tab === "schedule" ? "pt-2 pb-4" : "py-4"}${nav.moved ? " vp-screen-in" : ""}`}>
         {tab === "schedule" && (
           <ScheduleTab
             shifts={visibleShifts}
@@ -9466,31 +9543,36 @@ export default function StaffPortalPage() {
       {/* Bottom Navigation */}
       {/* data-bb-consent-clear: the cookie banner sits on this bar, not over it (CookieConsent.jsx). */}
       {BAR_V3 ? (
-      /* v3, canvas "Pine, ivory & brass": a floating ivory bar (90% + blur,
-         a hairline, a soft shadow), five equal columns, every tab named.
-         The active tab's icon sits in a pine pill and its name turns pine
-         and bold. A pine count on Beskeder. Fixed, not sticky — the blur is
-         safe here. Five columns hold at 320 px: ~57 px each, labels 11 px. */
+      /* v3: the Orvexlo floating dock (vagtplan.css .vp-dock — BeloBag's
+         bar). Five equal columns, every tab its icon AND its name; the
+         active one dark evergreen, the rest a muted green-grey. ONE sage
+         pill (the indicator) slides to the active column on a soft spring —
+         it is never re-drawn per tab. The active name pops in. A pine count
+         on Beskeder. Fixed, not sticky. Five columns hold at 320 px: ~57 px
+         each, names 11 px on one line (they can only ellipsize). */
       <>
       <div
         aria-hidden
         className="fixed inset-x-0 bottom-0 z-10 m-0 pointer-events-none"
-        // The canvas's fade: content dissolves into the ivory under the bar.
-        style={{ height: `calc(${V3_BAR_BOTTOM} + ${V3_BAR_H + 42}px)`, background: `linear-gradient(to bottom, rgba(246,244,238,0), ${IVORY} 70%)` }}
+        // The canvas's fade: content dissolves into the ivory under the dock.
+        style={{ height: aboveDock(42), background: `linear-gradient(to bottom, rgba(246,244,238,0), ${IVORY} 70%)` }}
       />
       <nav data-bb-consent-clear="" aria-label={t("portalTabsLabel", "Tabs")} data-testid="portal-tabbar-v3"
-        className="fixed z-20"
-        style={{
-          left: 12, right: 12, bottom: V3_BAR_BOTTOM, height: V3_BAR_H,
-          maxWidth: 480, margin: "0 auto", boxSizing: "border-box", padding: "0 4px",
-          borderRadius: 24, background: "rgba(255,254,251,0.9)",
-          backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
-          border: "1px solid #E6E1D5",
-          boxShadow: "0 16px 32px -16px rgba(22,33,28,0.28)",
-          display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", alignItems: "center",
-        }}
+        className="vp-dock"
+        style={{ gridTemplateColumns: `repeat(${DOCK_TABS.length}, minmax(0, 1fr))`, "--n": DOCK_TABS.length }}
       >
-        {TABS.filter((item) => item.key !== "alerts").map((item) => {
+        <span
+          aria-hidden
+          className="vp-dock-ind"
+          data-testid="portal-dock-indicator"
+          // On Alerts (the header bell, not a dock tab) the pill fades out
+          // where it was, and slides on from there when a tab is chosen.
+          {...(dockIdx < 0 ? { "data-hidden": "" } : {})}
+          style={{ "--i": nav.idx }}
+        >
+          <span className="vp-dock-pill" />
+        </span>
+        {DOCK_TABS.map((item) => {
           const active = tab === item.key;
           const label = item.v3LabelKey ? t(item.v3LabelKey, item.v3LabelFallback) : t(item.labelKey, item.labelFallback);
           const Icon = item.V3Icon || item.Icon;
@@ -9501,20 +9583,17 @@ export default function StaffPortalPage() {
               onClick={() => setTab(item.key)}
               aria-current={active ? "page" : undefined}
               data-testid={`portal-tab-${item.key}`}
-              className="relative min-w-0 flex flex-col items-center justify-center active:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40 rounded-2xl"
-              style={{ height: 60, gap: 4, color: active ? PINE : MUTED }}
+              className="vp-dock-item focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
             >
-              <span
-                className="relative flex items-center justify-center"
-                style={{ width: 52, height: 30, borderRadius: 999, ...(active ? { background: PINE, color: CREAM } : {}) }}
-              >
-                <Icon aria-hidden strokeWidth={active ? 1.9 : 1.75} style={{ width: active ? 19 : 21, height: active ? 19 : 21 }} />
+              <span className="vp-dock-icon">
+                <Icon aria-hidden strokeWidth={1.9} />
                 {item.key === "messages" && chatUnread > 0 && (
                   <span
-                    className="absolute inline-flex items-center justify-center"
+                    key={`n${chatUnread > 9 ? "9+" : chatUnread}`}
+                    className="absolute inline-flex items-center justify-center vp-pop"
                     style={{
-                      top: -3, right: 6, minWidth: 16, height: 16, padding: "0 4px", boxSizing: "border-box", borderRadius: 8,
-                      background: PINE, color: CREAM, font: "700 10px/1 var(--font-text)", boxShadow: "0 0 0 2px #FFFEFB",
+                      top: -4, right: -9, minWidth: 16, height: 16, padding: "0 4px", boxSizing: "border-box", borderRadius: 8,
+                      background: PINE, color: CREAM, font: "700 10px/1 var(--font-text)", boxShadow: "0 0 0 2px #FFFDF9",
                     }}
                     aria-label={t("staffChatUnreadBadge", "Unread messages")}
                   >
@@ -9523,8 +9602,11 @@ export default function StaffPortalPage() {
                 )}
               </span>
               <span
-                className="block max-w-full"
-                style={{ font: `${active ? 700 : 500} 11px/1.1 var(--font-text)`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", padding: "0 2px" }}
+                // Re-mounts when the tab becomes active, so the name pops in
+                // (not on the page's first paint).
+                key={active ? "on" : "off"}
+                className={`vp-dock-label${active && nav.moved ? " vp-label-in" : ""}`}
+                style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
               >
                 {label}
               </span>
@@ -9612,7 +9694,7 @@ export default function StaffPortalPage() {
       {scheduleUpdated && (
         <div
           className="fixed inset-x-0 z-30 flex justify-center px-4 pointer-events-none"
-          style={{ bottom: BAR_V3 ? `calc(${V3_BAR_BOTTOM} + ${V3_BAR_H + 12}px)` : "calc(5rem + env(safe-area-inset-bottom))" }}
+          style={{ bottom: BAR_V3 ? aboveDock(12) : "calc(5rem + env(safe-area-inset-bottom))" }}
           role="status"
           aria-live="polite"
         >

@@ -1,0 +1,347 @@
+/* Vagtplan (the staff portal, /s/:token and the Scheduler app) — type, the
+ * floating dock and motion. Nov 2026.
+ *
+ * Imported by pages/StaffPortalPage.jsx ONLY, after its @fontsource latin
+ * imports, so all of this rides the portal's own lazy chunk: the owner app,
+ * the landing and /join never download a byte of it.
+ *
+ * Scope: `body.portal-shell`, the class StaffPortalPage puts on <body> while
+ * it is mounted. Everything the portal draws is under <body> — sheets and the
+ * shared confirm dialog are portaled there — so one scope reaches them all,
+ * and nothing outside the portal ever matches.
+ *
+ * Values: the Orvexlo motion + dock kit (BeloBag's own production values),
+ * bonbox-lab-state/design-departments-2026-11-11/ORVEXLO-MOTION-KIT.md.
+ * Motion is feedback, never decoration: transform + opacity only (no layout
+ * properties animate), and ONE prefers-reduced-motion block at the end turns
+ * all of it off.
+ */
+
+/* ── Extended Latin, on demand ───────────────────────────────────────────
+ * The page imports the latin file per weight (Danish æ ø å é are in latin).
+ * These carry a unicode-range, so a latin-ext file is fetched only when the
+ * page draws such a letter (a colleague called Łukasz, Dušan, Ștefan). Same
+ * pattern and the same ranges as src/fonts-ext-subsets.css: fontsource's
+ * latin-ext range MINUS what the latin file already covers (U+0131,
+ * U+0152-0153, U+0304, U+0308, U+0329, U+2020). Must come after the latin
+ * imports — it does: the page imports this file last. */
+@font-face {
+  font-family: 'Sora';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('@fontsource/sora/files/sora-latin-ext-600-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Sora';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/sora/files/sora-latin-ext-700-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/dm-sans/files/dm-sans-latin-ext-400-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('@fontsource/dm-sans/files/dm-sans-latin-ext-500-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('@fontsource/dm-sans/files/dm-sans-latin-ext-600-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/dm-sans/files/dm-sans-latin-ext-700-normal.woff2') format('woff2');
+  unicode-range: U+0100-0130,U+0132-0151,U+0154-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* ── Type + tokens ─────────────────────────────────────────────────────── */
+/* Sora for display (headings, the big numbers, the time on the card, the
+   ring timer); DM Sans for every line of body text. The portal's existing
+   `var(--font-text)` / `font-text` (Inter elsewhere) and `var(--font-display)`
+   / `font-display` (Hanken Grotesk elsewhere) resolve to these two here, so
+   the portal is two faces, not four. Weights loaded: Sora 600/700, DM Sans
+   400/500/600/700 — an 800 request draws the 700. */
+body.portal-shell {
+  --font-display: 'Sora', 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-text: 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+
+  /* Timing */
+  --dur-press: 0.11s;
+  --dur-fast: 0.18s;
+  --dur-base: 0.32s;
+  --dur-exit: 0.24s;
+  --dur-slow: 0.64s;
+  --dur-nav: 0.42s;
+  --dur-nav-back: 0.36s;
+  --dur-spring: 0.5s;
+  /* Easing */
+  --ease-nav: cubic-bezier(.32, .72, 0, 1);
+  --ease-std: cubic-bezier(.4, 0, .2, 1);
+  --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-in: cubic-bezier(.4, 0, 1, 1);
+  --ease-drift: cubic-bezier(.45, .05, .3, 1);
+  /* Springs: cubic-bezier where linear() is not understood (iOS < 17.2) … */
+  --spring: cubic-bezier(.34, 1.4, .64, 1);
+  --spring-soft: cubic-bezier(.3, 1.15, .5, 1);
+}
+/* … and the real curve where it is. */
+@supports (transition-timing-function: linear(0, 1)) {
+  body.portal-shell {
+    --spring: linear(0, .014 1.8%, .061 3.8%, .151 6.3%, .327 10%, .65 16.5%, .808 20.3%, .926 23.8%, 1.012 27.3%, 1.071 31%, 1.103 35%, 1.109 40%, 1.076 48%, 1.011 61.3%, .989 72.5%, 1);
+    --spring-soft: linear(0, .017 2%, .067 4.3%, .169 7.2%, .583 17.3%, .73 21.5%, .84 25.5%, .925 29.8%, .986 34.5%, 1.024 40%, 1.038 47.5%, 1.001 81.3%, 1);
+  }
+}
+
+/* ── The floating dock (the tab bar) ───────────────────────────────────── */
+/* A light, warm bar floating over the page: 12 px in from each side (or the
+   safe area, whichever is more), 8 px above the home indicator, at most
+   560 wide, 52 tall (48 on a phone under 360 px), fully round. Fixed, never
+   sticky; no blur (97 % is all but opaque, and blur costs every frame). */
+.vp-dock {
+  position: fixed;
+  z-index: 20;
+  left: max(12px, env(safe-area-inset-left, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+  max-width: 560px;
+  height: 52px;
+  margin: 0 auto;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 26px;
+  background: rgba(255, 253, 249, 0.97);
+  box-shadow:
+    inset 0 1px 0 #ffffffb3,
+    inset 0 0 0 1px #ffffff47,
+    0 0 0 .5px #0c2a2014,
+    0 2px 5px #402e1814,
+    0 10px 22px -10px #402e1829,
+    0 24px 46px -20px #0c2a205c;
+  display: grid;
+  align-items: stretch;
+}
+@media (max-width: 359px) {
+  .vp-dock { height: 48px; border-radius: 24px; }
+}
+
+/* ONE indicator for the whole bar. It is a column wide and slides to the
+   active column (--i) on a soft spring; it never re-mounts per tab. */
+.vp-dock-ind {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: calc((100% - 10px) / var(--n, 5));
+  transform: translateX(calc(var(--i, 0) * 100%));
+  transition: transform var(--dur-spring) var(--spring-soft), opacity var(--dur-fast) var(--ease-out);
+  pointer-events: none;
+}
+.vp-dock-ind[data-hidden] { opacity: 0; }
+/* The pill: a soft pine-tinted sage with an inset highlight. */
+.vp-dock-pill {
+  position: absolute;
+  inset: 4px 3px;
+  border-radius: 999px;
+  background: rgba(208, 224, 213, 0.85);
+  box-shadow: inset 0 1px 0 #ffffff99;
+}
+
+.vp-dock-item {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: #5E6A63;               /* muted green-grey, 5.6:1 on the bar */
+  border-radius: 999px;
+  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-press) var(--ease-out);
+}
+.vp-dock-item[aria-current="page"] { color: #0E3B2E; }   /* dark evergreen */
+.vp-dock-item:active { transform: scale(.96); }
+.vp-dock-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+.vp-dock-icon > svg { width: 24px; height: 24px; }
+@media (max-width: 359px) {
+  .vp-dock-item { gap: 2px; }
+  .vp-dock-icon, .vp-dock-icon > svg { width: 22px; height: 22px; }
+}
+.vp-dock-label {
+  display: block;
+  max-width: 100%;
+  padding: 0 2px;
+  box-sizing: border-box;
+  font: 600 11px/1.1 var(--font-text);
+  letter-spacing: -0.005em;
+}
+/* The label pops in when its tab becomes active. */
+.vp-label-in { animation: vp-label-in var(--dur-spring) var(--spring) backwards; }
+@keyframes vp-label-in { from { opacity: .15; transform: scale(.55); } }
+
+/* ── Press feedback ────────────────────────────────────────────────────── */
+/* `scale`, not `transform`, so it composes with a Tailwind translate on the
+   same element instead of replacing it. */
+.vp-press {
+  transition:
+    scale var(--dur-press) var(--ease-out),
+    opacity var(--dur-press) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+.vp-press:active:not(:disabled) { scale: .97; }
+/* A full-width row presses less: a whole row shrinking 3 % reads as a lurch. */
+.vp-press.vp-row:active:not(:disabled) { scale: .985; }
+
+/* ── Screens (tab content) ─────────────────────────────────────────────── */
+/* A short rise + fade when the tab changes. `backwards`, never `both`: once
+   it ends no transform is left on the content, so nothing fixed inside it is
+   re-anchored and no sticky descendant sits under a transform. */
+.vp-screen-in { animation: vp-screen-in var(--dur-nav-back) var(--ease-nav) backwards; }
+@keyframes vp-screen-in { from { opacity: 0; transform: translateY(8px); } }
+
+/* ── Sheets and dialogs ────────────────────────────────────────────────── */
+/* In: a sheet rises 16 px, a dialog grows from .97, the scrim fades — 0.32s.
+   Out (data-closing on the overlay, set for 0.24s before it unmounts): the
+   same, reversed, a little faster. The overlay stops taking taps at once. */
+.vp-scrim { animation: vp-fade-in var(--dur-base) var(--ease-out) backwards; }
+.vp-sheet { animation: vp-sheet-in var(--dur-base) var(--ease-out) backwards; }
+.vp-dialog { animation: vp-dialog-in var(--dur-base) var(--ease-out) backwards; }
+[data-closing] { pointer-events: none; }
+.vp-scrim[data-closing],
+[data-closing] .vp-scrim { animation: vp-fade-out var(--dur-exit) var(--ease-in) forwards; }
+[data-closing] .vp-sheet { animation: vp-sheet-out var(--dur-exit) var(--ease-in) forwards; }
+[data-closing] .vp-dialog { animation: vp-dialog-out var(--dur-exit) var(--ease-in) forwards; }
+/* The ONE shared confirm (hooks/useConfirm.jsx) keeps its own look; on the
+   portal it moves like the portal's dialogs. */
+body.portal-shell [data-bb-confirm] > [data-bb-confirm-scrim] { animation: vp-fade-in var(--dur-base) var(--ease-out) backwards; }
+body.portal-shell [data-bb-confirm] > [data-bb-confirm-panel] { animation: vp-dialog-in var(--dur-base) var(--ease-out) backwards; }
+body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-scrim] { animation: vp-fade-out var(--dur-exit) var(--ease-in) forwards; }
+body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { animation: vp-dialog-out var(--dur-exit) var(--ease-in) forwards; }
+@keyframes vp-fade-in { from { opacity: 0; } }
+@keyframes vp-fade-out { to { opacity: 0; } }
+@keyframes vp-sheet-in { from { opacity: 0; transform: translateY(16px); } }
+@keyframes vp-sheet-out { to { opacity: 0; transform: translateY(16px); } }
+@keyframes vp-dialog-in { from { opacity: 0; transform: scale(.97); } }
+@keyframes vp-dialog-out { to { opacity: 0; transform: scale(.97); } }
+
+/* ── Small live things ─────────────────────────────────────────────────── */
+/* Rolling digits (components/staff/RollingDigits.jsx): only a digit that
+   changed re-mounts, and it rolls in from below (counting up) or above. */
+.vp-roll-digit { display: inline-block; }
+.vp-roll-up { animation: vp-roll-up var(--dur-base) var(--spring-soft) backwards; }
+.vp-roll-down { animation: vp-roll-down var(--dur-base) var(--spring-soft) backwards; }
+@keyframes vp-roll-up { from { opacity: 0; transform: translateY(.6em); } }
+@keyframes vp-roll-down { from { opacity: 0; transform: translateY(-.6em); } }
+
+/* The breathing dot: "Stemplet ind", "På vagt nu". Slow, so it reads as
+   alive, not as an alarm. */
+.vp-breathe { animation: vp-breathe 2.4s var(--ease-in-out) infinite; }
+@keyframes vp-breathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.16); opacity: .7; }
+}
+
+/* A count that appears (the Beskeder badge) pops in. */
+.vp-pop { animation: vp-pop var(--dur-spring) var(--spring) backwards; }
+@keyframes vp-pop { from { opacity: 0; transform: scale(.35); } }
+
+/* The map on the card settles in once, when it is drawn for the first time
+   on this page (a remount that paints it from memory does not replay). The
+   pin is in the server's image, so the image settles — no marker is drawn
+   over it, and nothing claims a position the server did not. */
+.vp-map-in { animation: vp-map-in var(--dur-slow) var(--spring-soft) backwards; }
+@keyframes vp-map-in { from { opacity: 0; transform: scale(1.06); } }
+
+/* Loading: a shimmer sweeps the skeleton blocks — no spinners, no pulse. */
+.vp-shimmer {
+  position: relative;
+  overflow: hidden;
+  --vp-shimmer: rgba(255, 255, 255, 0.6);
+}
+.vp-shimmer-dark { --vp-shimmer: rgba(243, 239, 228, 0.12); }
+.vp-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--vp-shimmer), transparent);
+  animation: vp-shimmer 1.4s var(--ease-in-out) infinite;
+  pointer-events: none;
+}
+@keyframes vp-shimmer { to { transform: translateX(100%); } }
+
+/* ── Reduced motion: ALL of the above, off ─────────────────────────────── */
+/* The one switch. Things simply are where they end up: the indicator jumps,
+   sheets appear and vanish, digits change in place, nothing breathes or
+   sweeps (the skeleton blocks stay as still shapes). The JS side reads the
+   same query (sheetMotion.js) and unmounts sheets at once. */
+@media (prefers-reduced-motion: reduce) {
+  .vp-dock-ind,
+  .vp-dock-item,
+  .vp-press {
+    transition: none;
+  }
+  .vp-dock-item:active { transform: none; }
+  .vp-press:active:not(:disabled),
+  .vp-press.vp-row:active:not(:disabled) { scale: none; }
+  .vp-label-in,
+  .vp-screen-in,
+  .vp-scrim,
+  .vp-sheet,
+  .vp-dialog,
+  [data-closing] .vp-scrim,
+  .vp-scrim[data-closing],
+  [data-closing] .vp-sheet,
+  [data-closing] .vp-dialog,
+  body.portal-shell [data-bb-confirm] > [data-bb-confirm-scrim],
+  body.portal-shell [data-bb-confirm] > [data-bb-confirm-panel],
+  .vp-roll-up,
+  .vp-roll-down,
+  .vp-breathe,
+  .vp-pop,
+  .vp-map-in,
+  .vp-shimmer::after {
+    animation: none;
+  }
+  .vp-shimmer::after { display: none; }
+}
