@@ -1505,16 +1505,26 @@ function useClock(token) {
   // Live breaks (Nov 2026) — Start pause / Slut pause, offered ONLY while the
   // clock answer says breaks_live (the owner's "Pauser stemples live"). The
   // server owns the state: its answer is applied when it carries one, else
-  // the clock is read again. A 409 means this phone was behind (the break was
-  // already started or ended elsewhere): re-read quietly, no error.
+  // the clock is read again. A 409 (not_on_break / not_clocked_in) means this
+  // phone was behind (the break was already ended, or the punch closed,
+  // elsewhere): re-read quietly, no error. Contract: no request body — the
+  // server stamps the time; the shapes are pinned in
+  // __tests__/fixtures/liveBreaksContract.json, written by the real endpoints.
   const breakAct = async (kind) => {
     setBusy(true);
     setErr("");
+    setResult("");
     try {
       const res = await portalApi.post(`/portal/${token}/clock/break/${kind}`);
       if (res?.data && typeof res.data === "object" && "clocked_in" in res.data) applySt(res.data);
       else await load();
       haptic.success();
+      if (kind === "end" && res?.data?.break_discarded) {
+        // Ended within a minute: the server deleted it (a misclick), so the
+        // Pause cell does not move. Say so, rather than leave a silent tap.
+        setResult(t("portalClockTooShort", "Too short — nothing logged."));
+        setTimeout(() => setResult(""), 6000);
+      }
     } catch (e) {
       if (e?.response?.data?.detail?.error === "breaks_off") {
         // The owner switched live breaks off since this screen last asked:

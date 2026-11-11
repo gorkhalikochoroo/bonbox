@@ -392,7 +392,7 @@ describe("Active shift (clocked in)", () => {
     await waitFor(() => expect(screen.queryByTestId("portal-break-btn")).toBeNull());
   });
 
-  it("a failed break says so politely; a 409 (another phone was first) just re-reads the clock", async () => {
+  it("a failed break says so politely; a 409 (the punch was closed elsewhere) just re-reads the clock", async () => {
     at(12, 14);
     clockImpl = () => ok({ ...CLOCKED, breaks_live: true, on_break: false });
     postImpl = () => fail(500);
@@ -400,7 +400,9 @@ describe("Active shift (clocked in)", () => {
     await act(async () => { fireEvent.click(await screen.findByTestId("portal-break-btn")); });
     expect(await screen.findByText("Kunne ikke starte pausen. Prøv igen.")).toBeInTheDocument();
 
-    postImpl = () => fail(409, { error: "already_on_break" });
+    // The server's real 409 for a start (a second start is a 200, never a
+    // 409): see fixtures/liveBreaksContract.json, written by the endpoints.
+    postImpl = () => fail(409, { error: "not_clocked_in" });
     const clockReads = () => get.mock.calls.filter(([u]) => u === `/portal/${TOK}/clock`).length;
     const before = clockReads();
     await act(async () => { fireEvent.click(screen.getByTestId("portal-break-btn")); });

@@ -1,0 +1,680 @@
+{
+  "about": "Live pauses (Start pause / Slut pause): real request/response pairs WRITTEN by backend/tests/test_live_breaks_contract.py from the real endpoints (pinned clock, Europe/Copenhagen, owner setting breaks_live on at the start). That test re-runs the scenario on every run and fails on any difference; src/__tests__/StaffPortalPage.liveBreaksContract.test.jsx feeds these bodies to the staff app. Do not edit by hand — regenerate with LIVE_BREAKS_CONTRACT_WRITE=1.",
+  "timezone": "Europe/Copenhagen",
+  "token": "tokcontract",
+  "pin_header": "X-BonBox-Pin",
+  "volatile": [
+    "elapsed_sec"
+  ],
+  "paths": {
+    "clock": "/portal/{token}/clock",
+    "clock_in": "/portal/{token}/clock-in",
+    "clock_out": "/portal/{token}/clock-out",
+    "break_start": "/portal/{token}/clock/break/start",
+    "break_end": "/portal/{token}/clock/break/end",
+    "verify_pin": "/portal/{token}/verify-pin",
+    "owner_clock_settings": "/staff/clock-geofence"
+  },
+  "steps": [
+    {
+      "name": "clock_before",
+      "at": "2026-06-30T08:55:00",
+      "method": "GET",
+      "path_key": "clock",
+      "path": "/portal/{token}/clock",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": false,
+        "since": null,
+        "elapsed_min": null,
+        "elapsed_sec": null,
+        "today_hours": 0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": false,
+        "break_started_at": null,
+        "break_since": null,
+        "break_elapsed_sec": null,
+        "break_minutes_so_far": 0
+      }
+    },
+    {
+      "name": "break_start_not_clocked_in",
+      "at": "2026-06-30T08:56:00",
+      "method": "POST",
+      "path_key": "break_start",
+      "path": "/portal/{token}/clock/break/start",
+      "request": null,
+      "status": 409,
+      "body": {
+        "detail": {
+          "error": "not_clocked_in"
+        }
+      }
+    },
+    {
+      "name": "clock_in",
+      "at": "2026-06-30T09:00:00",
+      "method": "POST",
+      "path_key": "clock_in",
+      "path": "/portal/{token}/clock-in",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 0,
+        "elapsed_sec": 0,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": false,
+        "break_started_at": null,
+        "break_since": null,
+        "break_elapsed_sec": null,
+        "break_minutes_so_far": 0
+      }
+    },
+    {
+      "name": "clock_live",
+      "at": "2026-06-30T12:00:00",
+      "method": "GET",
+      "path_key": "clock",
+      "path": "/portal/{token}/clock",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 180,
+        "elapsed_sec": 10800,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": false,
+        "break_started_at": null,
+        "break_since": null,
+        "break_elapsed_sec": null,
+        "break_minutes_so_far": 0
+      }
+    },
+    {
+      "name": "break_end_not_on_break",
+      "at": "2026-06-30T12:00:05",
+      "method": "POST",
+      "path_key": "break_end",
+      "path": "/portal/{token}/clock/break/end",
+      "request": null,
+      "status": 409,
+      "body": {
+        "detail": {
+          "error": "not_on_break"
+        }
+      }
+    },
+    {
+      "name": "break_start",
+      "at": "2026-06-30T12:00:20",
+      "method": "POST",
+      "path_key": "break_start",
+      "path": "/portal/{token}/clock/break/start",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 180,
+        "elapsed_sec": 10820,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": true,
+        "break_started_at": "2026-06-30T10:00:20Z",
+        "break_since": "12:00",
+        "break_elapsed_sec": 0,
+        "break_minutes_so_far": 0
+      }
+    },
+    {
+      "name": "break_start_again",
+      "at": "2026-06-30T12:03:00",
+      "method": "POST",
+      "path_key": "break_start",
+      "path": "/portal/{token}/clock/break/start",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 183,
+        "elapsed_sec": 10980,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": true,
+        "break_started_at": "2026-06-30T10:00:20Z",
+        "break_since": "12:00",
+        "break_elapsed_sec": 160,
+        "break_minutes_so_far": 3
+      }
+    },
+    {
+      "name": "clock_on_break",
+      "at": "2026-06-30T12:07:30",
+      "method": "GET",
+      "path_key": "clock",
+      "path": "/portal/{token}/clock",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 187,
+        "elapsed_sec": 11250,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": true,
+        "break_started_at": "2026-06-30T10:00:20Z",
+        "break_since": "12:00",
+        "break_elapsed_sec": 430,
+        "break_minutes_so_far": 7
+      }
+    },
+    {
+      "name": "break_end",
+      "at": "2026-06-30T12:30:05",
+      "method": "POST",
+      "path_key": "break_end",
+      "path": "/portal/{token}/clock/break/end",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 210,
+        "elapsed_sec": 12605,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": false,
+        "break_started_at": null,
+        "break_since": null,
+        "break_elapsed_sec": null,
+        "break_minutes_so_far": 30,
+        "break_ended": true,
+        "break_minutes": 30
+      }
+    },
+    {
+      "name": "break_end_again",
+      "at": "2026-06-30T12:31:00",
+      "method": "POST",
+      "path_key": "break_end",
+      "path": "/portal/{token}/clock/break/end",
+      "request": null,
+      "status": 409,
+      "body": {
+        "detail": {
+          "error": "not_on_break"
+        }
+      }
+    },
+    {
+      "name": "clock_after_break",
+      "at": "2026-06-30T12:32:00",
+      "method": "GET",
+      "path_key": "clock",
+      "path": "/portal/{token}/clock",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 212,
+        "elapsed_sec": 12720,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": false,
+        "break_started_at": null,
+        "break_since": null,
+        "break_elapsed_sec": null,
+        "break_minutes_so_far": 30
+      }
+    },
+    {
+      "name": "misclick_start",
+      "at": "2026-06-30T14:00:10",
+      "method": "POST",
+      "path_key": "break_start",
+      "path": "/portal/{token}/clock/break/start",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 300,
+        "elapsed_sec": 18010,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": true,
+        "break_started_at": "2026-06-30T12:00:10Z",
+        "break_since": "14:00",
+        "break_elapsed_sec": 0,
+        "break_minutes_so_far": 30
+      }
+    },
+    {
+      "name": "break_end_discarded",
+      "at": "2026-06-30T14:00:40",
+      "method": "POST",
+      "path_key": "break_end",
+      "path": "/portal/{token}/clock/break/end",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 300,
+        "elapsed_sec": 18040,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": false,
+        "break_started_at": null,
+        "break_since": null,
+        "break_elapsed_sec": null,
+        "break_minutes_so_far": 30,
+        "break_ended": true,
+        "break_minutes": 0,
+        "break_discarded": true
+      }
+    },
+    {
+      "name": "owner_breaks_off",
+      "at": "2026-06-30T15:00:00",
+      "method": "POST",
+      "path_key": "owner_clock_settings",
+      "path": "/staff/clock-geofence",
+      "request": {
+        "enabled": false,
+        "breaks_live": false
+      },
+      "status": 200,
+      "body": {
+        "enabled": false,
+        "lat": null,
+        "lng": null,
+        "radius_m": 150,
+        "anchor_source": null,
+        "anchor_label": null,
+        "window_enabled": false,
+        "window_minutes": 0,
+        "breaks_live": false,
+        "has_location": false
+      }
+    },
+    {
+      "name": "break_start_off",
+      "at": "2026-06-30T15:00:10",
+      "method": "POST",
+      "path_key": "break_start",
+      "path": "/portal/{token}/clock/break/start",
+      "request": null,
+      "status": 403,
+      "body": {
+        "detail": {
+          "error": "breaks_off"
+        }
+      }
+    },
+    {
+      "name": "break_end_off",
+      "at": "2026-06-30T15:00:20",
+      "method": "POST",
+      "path_key": "break_end",
+      "path": "/portal/{token}/clock/break/end",
+      "request": null,
+      "status": 403,
+      "body": {
+        "detail": {
+          "error": "breaks_off"
+        }
+      }
+    },
+    {
+      "name": "clock_live_off",
+      "at": "2026-06-30T15:00:30",
+      "method": "GET",
+      "path_key": "clock",
+      "path": "/portal/{token}/clock",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 360,
+        "elapsed_sec": 21630,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": false,
+        "on_break": false,
+        "break_started_at": null,
+        "break_since": null,
+        "break_elapsed_sec": null,
+        "break_minutes_so_far": 30
+      }
+    },
+    {
+      "name": "owner_breaks_on",
+      "at": "2026-06-30T15:59:00",
+      "method": "POST",
+      "path_key": "owner_clock_settings",
+      "path": "/staff/clock-geofence",
+      "request": {
+        "enabled": false,
+        "breaks_live": true
+      },
+      "status": 200,
+      "body": {
+        "enabled": false,
+        "lat": null,
+        "lng": null,
+        "radius_m": 150,
+        "anchor_source": null,
+        "anchor_label": null,
+        "window_enabled": false,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "has_location": false
+      }
+    },
+    {
+      "name": "pause_running",
+      "at": "2026-06-30T16:00:00",
+      "method": "POST",
+      "path_key": "break_start",
+      "path": "/portal/{token}/clock/break/start",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 420,
+        "elapsed_sec": 25200,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": true,
+        "break_started_at": "2026-06-30T14:00:00Z",
+        "break_since": "16:00",
+        "break_elapsed_sec": 0,
+        "break_minutes_so_far": 30
+      }
+    },
+    {
+      "name": "owner_breaks_off_mid_pause",
+      "at": "2026-06-30T16:05:00",
+      "method": "POST",
+      "path_key": "owner_clock_settings",
+      "path": "/staff/clock-geofence",
+      "request": {
+        "enabled": false,
+        "breaks_live": false
+      },
+      "status": 200,
+      "body": {
+        "enabled": false,
+        "lat": null,
+        "lng": null,
+        "radius_m": 150,
+        "anchor_source": null,
+        "anchor_label": null,
+        "window_enabled": false,
+        "window_minutes": 0,
+        "breaks_live": false,
+        "has_location": false
+      }
+    },
+    {
+      "name": "clock_on_break_off",
+      "at": "2026-06-30T16:10:00",
+      "method": "GET",
+      "path_key": "clock",
+      "path": "/portal/{token}/clock",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 430,
+        "elapsed_sec": 25800,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": false,
+        "on_break": true,
+        "break_started_at": "2026-06-30T14:00:00Z",
+        "break_since": "16:00",
+        "break_elapsed_sec": 600,
+        "break_minutes_so_far": 40
+      }
+    },
+    {
+      "name": "break_end_after_off",
+      "at": "2026-06-30T16:20:00",
+      "method": "POST",
+      "path_key": "break_end",
+      "path": "/portal/{token}/clock/break/end",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": true,
+        "since": "09:00",
+        "elapsed_min": 440,
+        "elapsed_sec": 26400,
+        "today_hours": 0.0,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": false,
+        "on_break": false,
+        "break_started_at": null,
+        "break_since": null,
+        "break_elapsed_sec": null,
+        "break_minutes_so_far": 50,
+        "break_ended": true,
+        "break_minutes": 20
+      }
+    },
+    {
+      "name": "owner_breaks_on_again",
+      "at": "2026-06-30T16:30:00",
+      "method": "POST",
+      "path_key": "owner_clock_settings",
+      "path": "/staff/clock-geofence",
+      "request": {
+        "enabled": false,
+        "breaks_live": true
+      },
+      "status": 200,
+      "body": {
+        "enabled": false,
+        "lat": null,
+        "lng": null,
+        "radius_m": 150,
+        "anchor_source": null,
+        "anchor_label": null,
+        "window_enabled": false,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "has_location": false
+      }
+    },
+    {
+      "name": "clock_out",
+      "at": "2026-06-30T17:00:00",
+      "method": "POST",
+      "path_key": "clock_out",
+      "path": "/portal/{token}/clock-out",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": false,
+        "since": null,
+        "elapsed_min": null,
+        "elapsed_sec": null,
+        "today_hours": 7.17,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": false,
+        "break_started_at": null,
+        "break_since": null,
+        "break_elapsed_sec": null,
+        "break_minutes_so_far": 0,
+        "clocked_out": true,
+        "worked_hours": 7.17,
+        "break_source": "recorded",
+        "recorded_break_minutes": 50
+      }
+    },
+    {
+      "name": "break_start_after_out",
+      "at": "2026-06-30T17:01:00",
+      "method": "POST",
+      "path_key": "break_start",
+      "path": "/portal/{token}/clock/break/start",
+      "request": null,
+      "status": 409,
+      "body": {
+        "detail": {
+          "error": "not_clocked_in"
+        }
+      }
+    },
+    {
+      "name": "clock_after_out",
+      "at": "2026-06-30T17:02:00",
+      "method": "GET",
+      "path_key": "clock",
+      "path": "/portal/{token}/clock",
+      "request": null,
+      "status": 200,
+      "body": {
+        "clocked_in": false,
+        "since": null,
+        "elapsed_min": null,
+        "elapsed_sec": null,
+        "today_hours": 7.17,
+        "geofence_on": false,
+        "geofence": null,
+        "locked": false,
+        "opens_at": null,
+        "shift_start": null,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "on_break": false,
+        "break_started_at": null,
+        "break_since": null,
+        "break_elapsed_sec": null,
+        "break_minutes_so_far": 0
+      }
+    },
+    {
+      "name": "owner_get",
+      "at": "2026-06-30T17:03:00",
+      "method": "GET",
+      "path_key": "owner_clock_settings",
+      "path": "/staff/clock-geofence",
+      "request": null,
+      "status": 200,
+      "body": {
+        "enabled": false,
+        "lat": null,
+        "lng": null,
+        "radius_m": 150,
+        "anchor_source": null,
+        "anchor_label": null,
+        "window_enabled": false,
+        "window_minutes": 0,
+        "breaks_live": true,
+        "has_location": false
+      }
+    }
+  ]
+}
