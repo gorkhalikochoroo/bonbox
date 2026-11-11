@@ -3824,6 +3824,189 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
 
 
 
+// ─── The system on the other tabs (Fravær, Beskeder, Byt, Timer) ─────────
+//
+// Nov 2026: the four tabs past the home speak the home's language. Ivory
+// ground, cards #FFFEFB with a hairline, pine for the chosen and the primary,
+// sage for the secondary pill, Sora for headings and figures, DM Sans for
+// every sentence. Brass stays the home card's one action and is not spent
+// here on buttons; on the calendars it is a MARKER with one meaning.
+//
+// Colour on the Fravær calendars means one thing each, and the legend says it
+// in words too (never colour alone):
+//   terracotta — "kan ikke" (the home's sick row uses the same ink)
+//   sage       — "helst", a soft yes
+//   brass      — waiting on your manager (a time-off request, Afventer)
+//   pine       — settled: approved time off
+// Literal hex for the same reason as the palette at the top: index.css remaps
+// every green-* class to the owner's theme accent.
+const RED_INK = "#A4452F";
+const RED_WASH = "#F6E3DC";
+const RED_EDGE = "rgba(164, 69, 47, 0.38)";
+const ALERT_INK = "#B42318";     // an error line; the home's "Overlapper dig"
+const ALERT_WASH = "#FBEDE9";
+const ALERT_EDGE = "#EFCFC6";
+const BRASS_WASH = "#F4EBD7";
+const BRASS_EDGE = "#E2CFA4";
+const SAGE_EDGE = "rgba(14, 59, 46, 0.22)";
+const SAGE_BAR = "#C3D1C8";      // Timer's weeks that are not this week
+const GRAB = "#D9D3C5";          // a sheet's grabber (the ⋯ sheet's)
+const SCRIM = "rgba(8, 24, 18, 0.52)";
+const PLACEHOLDER = "#8A948E";
+
+const CARD_BOX = { background: CARD, border: `1px solid ${LINE}` };
+const EYEBROW = { font: "600 11px/1.2 var(--font-text)", letterSpacing: "0.14em", textTransform: "uppercase", color: MUTED };
+const FOCUS_RING = "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40";
+const BTN = { height: 48, padding: "0 18px", borderRadius: 16, font: "600 15px/1 var(--font-text)", boxSizing: "border-box" };
+const BTN_PINE = { ...BTN, background: PINE, color: CREAM, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 22px -16px rgba(14,59,46,0.8)" };
+const BTN_QUIET = { ...BTN, background: CARD, color: INK, border: `1px solid ${LINE}` };
+const BTN_SAGE = { ...BTN, background: SOFT, color: PINE };
+const BTN_RED = { ...BTN, background: RED_INK, color: CREAM };
+// A field: ivory, the hairline, pine when it has focus. 16 px so iOS never
+// zooms the page on focus (an inline font beats index.css's coarse rule).
+const FIELD_CLS = "block w-full outline-none border border-[#E8E3D8] focus:border-[#0E3B2E]/50 placeholder:text-[#8A948E]";
+const FIELD = {
+  minHeight: 48, padding: "12px 14px", borderRadius: 14, background: IVORY,
+  font: "400 16px/1.25 var(--font-text)", color: INK, boxSizing: "border-box", minWidth: 0,
+};
+// A field's label: one small muted line above it.
+const FIELD_LABEL = { display: "block", marginBottom: 6, font: "600 12px/1.2 var(--font-text)", color: MUTED };
+
+/** A two-way choice — "Kan ikke / Helst", "Ferie / Andet". The canvas's
+    week chips: an ivory track with a hairline, the chosen one pine. 44 tall,
+    so each half is a full tap target. */
+function VpSegmented({ options, value, onChange, label, testId }) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      data-testid={testId}
+      className="flex"
+      style={{ padding: 3, gap: 3, borderRadius: 999, ...CARD_BOX }}
+    >
+      {options.map((o) => {
+        const on = value === o.key;
+        return (
+          <button
+            key={o.key}
+            type="button"
+            onClick={() => onChange(o.key)}
+            aria-pressed={on}
+            data-testid={testId ? `${testId}-${o.key}` : undefined}
+            className={`flex-1 min-w-0 inline-flex items-center justify-center vp-press ${FOCUS_RING}`}
+            style={{
+              height: 44, gap: 6, padding: "0 12px", borderRadius: 999,
+              background: on ? PINE : "transparent", color: on ? CREAM : MUTED,
+              font: "600 14px/1 var(--font-text)",
+              boxShadow: on ? "0 6px 14px -10px rgba(14,59,46,0.8)" : "none",
+            }}
+          >
+            <span className="truncate">{o.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A calm one-line empty state: a small line icon and one sentence on a card
+    (the home's "Du er alene på vagten" line). No illustration, no emoji. */
+function CalmEmpty({ icon: Icon, children, testId }) {
+  return (
+    <div
+      data-testid={testId}
+      className="flex items-center"
+      style={{ gap: 12, padding: "14px 16px", borderRadius: 20, ...CARD_BOX, font: "500 14px/1.35 var(--font-text)", color: MUTED }}
+    >
+      {Icon && <Icon size={18} strokeWidth={1.75} aria-hidden className="shrink-0" />}
+      <span className="min-w-0">{children}</span>
+    </div>
+  );
+}
+
+/** A short line that says something went wrong, in the house's red. */
+function VpAlert({ children, testId, role = "alert" }) {
+  return (
+    <div
+      role={role}
+      data-testid={testId}
+      style={{ padding: "10px 12px", borderRadius: 14, background: ALERT_WASH, border: `1px solid ${ALERT_EDGE}`, font: "500 13px/1.4 var(--font-text)", color: ALERT_INK }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** A note that is waiting on someone (the manager): brass, never an alarm. */
+function VpNote({ children, testId, icon: Icon }) {
+  return (
+    <div
+      data-testid={testId}
+      className="flex items-start"
+      style={{ gap: 8, padding: "10px 12px", borderRadius: 14, background: BRASS_WASH, border: `1px solid ${BRASS_EDGE}`, font: "500 13px/1.4 var(--font-text)", color: BRASS_INK }}
+    >
+      {Icon && <Icon size={15} strokeWidth={2} aria-hidden className="shrink-0" style={{ marginTop: 2 }} />}
+      <span className="min-w-0">{children}</span>
+    </div>
+  );
+}
+
+/** The house sheet for a short question (the ⋯ sheet's material): card,
+    28 px top corners, the grabber, a Sora title, one muted paragraph and the
+    answers side by side. The overlay keeps the shared sheet motion. */
+function VpQuestionSheet({ closing = false, title, body, onDismiss, dismissLabel, children, testId }) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] m-0 flex flex-col justify-end"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      data-testid={testId}
+      {...closingProps(closing)}
+    >
+      <button
+        type="button"
+        className="absolute inset-0 m-0 vp-scrim"
+        style={{ background: SCRIM, backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)" }}
+        onClick={onDismiss}
+        aria-label={dismissLabel}
+      />
+      <div
+        className="relative w-full max-w-lg mx-auto m-0 vp-sheet"
+        style={{
+          background: CARD, color: INK, borderRadius: "28px 28px 0 0",
+          padding: "8px 20px max(20px, env(safe-area-inset-bottom, 0px))",
+          boxShadow: "0 -20px 40px -20px rgba(8,24,18,0.5)",
+        }}
+      >
+        <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 14 }} />
+        <div style={{ font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>{title}</div>
+        {body && <p style={{ margin: "8px 0 0", font: "400 14px/1.45 var(--font-text)", color: MUTED }}>{body}</p>}
+        <div className="flex" style={{ gap: 8, marginTop: 18 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/** A 44 px square ‹ / › for paging a strip (the home's week card). */
+function PageArrow({ dir, onClick, label, disabled = false }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className={`shrink-0 flex items-center justify-center vp-press disabled:opacity-40 ${FOCUS_RING}`}
+      style={{ width: 44, height: 44, borderRadius: 14, ...CARD_BOX, color: dir === "next" ? INK : MUTED }}
+    >
+      {dir === "next"
+        ? <ChevronRight size={18} strokeWidth={2} aria-hidden />
+        : <ChevronLeft size={18} strokeWidth={2} aria-hidden />}
+    </button>
+  );
+}
+
+
 // ─── Hours Tab ────────────────────────────────────────────────────────────
 
 /**
@@ -6315,7 +6498,7 @@ function DateField({ label, value, onChange, min, max, testId }) {
   const showHint = !value && typeof window !== "undefined" && window.__BONBOX_IS_IOS === true;
   return (
     <label className="block min-w-0">
-      <span className="text-[10px] text-gray-500 mb-1 block">{label}</span>
+      <span style={FIELD_LABEL}>{label}</span>
       <span className="relative block min-w-0">
         <input
           type="date"
@@ -6324,11 +6507,11 @@ function DateField({ label, value, onChange, min, max, testId }) {
           max={max}
           onChange={(e) => onChange(e.target.value)}
           data-testid={testId}
-          className="block w-full min-h-[44px] px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 text-left outline-none focus:border-gray-900/30"
-          style={{ minWidth: 0, maxWidth: "100%", boxSizing: "border-box", WebkitAppearance: "none", appearance: "none" }}
+          className={`${FIELD_CLS} text-left`}
+          style={{ ...FIELD, minWidth: 0, maxWidth: "100%", boxSizing: "border-box", WebkitAppearance: "none", appearance: "none" }}
         />
         {showHint && (
-          <span aria-hidden className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-gray-400">
+          <span aria-hidden className="pointer-events-none absolute inset-y-0 flex items-center" style={{ left: 14, font: "400 16px/1 var(--font-text)", color: PLACEHOLDER }}>
             {t("portalPickDate", "Pick a date")}
           </span>
         )}
@@ -6394,16 +6577,19 @@ function AbsenceSection({ token, onChanged }) {
   // tab told the same staffer "Sygemelding registreret" about the same row.
   // One row, two opposite stories. Nobody applies for permission to be ill.
   const isNotifyKind = (k) => k === "sick" || k === "barns_syg";
-  const REGISTERED = { label: t("fravaerStatusRegistered", "Registered"), cls: "bg-gray-100 text-gray-600" };
+  // The chips speak the calendar's colours: brass = waiting on the manager,
+  // pine-on-sage = approved, terracotta = the manager said no, a quiet tile
+  // for a fact (registered) or a withdrawal.
+  const REGISTERED = { label: t("fravaerStatusRegistered", "Registered"), bg: TILE, fg: MUTED };
   const STATUS = {
-    pending: { label: t("fravaerStatusPending", "Pending"), cls: "bg-amber-100 text-amber-700" },
-    acknowledged: { label: t("fravaerStatusApproved", "Approved"), cls: "bg-emerald-100 text-emerald-700" },
-    covered: { label: t("fravaerStatusApproved", "Approved"), cls: "bg-emerald-100 text-emerald-700" },
-    cancelled: { label: t("fravaerStatusCancelled", "Cancelled"), cls: "bg-gray-100 text-gray-500" },
+    pending: { label: t("fravaerStatusPending", "Pending"), bg: BRASS_WASH, fg: BRASS_INK },
+    acknowledged: { label: t("fravaerStatusApproved", "Approved"), bg: SOFT, fg: PINE },
+    covered: { label: t("fravaerStatusApproved", "Approved"), bg: SOFT, fg: PINE },
+    cancelled: { label: t("fravaerStatusCancelled", "Cancelled"), bg: TILE, fg: MUTED },
     // The owner said no. Stored as 'cancelled' like a withdrawal; the portal
     // API flags it (`declined`, staff_portal._portal_absence_declined) and
     // load() folds that into this key.
-    declined: { label: t("fravaerStatusDeclined", "Declined"), cls: "bg-rose-50 text-rose-700" },
+    declined: { label: t("fravaerStatusDeclined", "Declined"), bg: RED_WASH, fg: RED_INK },
   };
 
   const fmtRange = (s, e) => {
@@ -6444,52 +6630,60 @@ function AbsenceSection({ token, onChanged }) {
   const groups = groupAbsence(rows);
 
   return (
-    <div className="space-y-3">
-      <div>
-        {/* Neutral heading. This list holds BOTH kinds — GET /absence has no kind
-            filter (staff_portal.py ~2382), so a Schedule-tab sygemelding lands
-            here too — and labelling the whole section "needs approval" put those
-            words directly above a row chipped "Registered". Each row carries its
-            own truth now: amber Afventer for a request, grey Registreret for a
-            sick day. The approval sentence moved to the button it describes. */}
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-          {t("fravaerHeadingNeutral", "Time off")}
-        </div>
-      </div>
+    <div className="flex flex-col" style={{ gap: 12 }} data-testid="fravaer-section">
+      {/* Neutral heading. This list holds BOTH kinds — GET /absence has no kind
+          filter (staff_portal.py ~2382), so a Schedule-tab sygemelding lands
+          here too — and labelling the whole section "needs approval" put those
+          words directly above a row chipped "Registered". Each row carries its
+          own truth now: brass Afventer for a request, a quiet Registreret for a
+          sick day. The approval sentence moved to the button it describes. */}
+      <HomeH2 style={{ padding: "0 4px" }}>{t("fravaerHeadingNeutral", "Time off")}</HomeH2>
 
       {loadFailed && rows === null ? (
-        <div className="text-xs text-gray-500">
+        <p style={{ margin: "0 4px", font: "400 13px/1.4 var(--font-text)", color: MUTED }}>
           {t("portalAbsenceLoadFailed", "Couldn't load your absence — pull to refresh or try again in a moment.")}
-        </div>
+        </p>
       ) : rows === null ? (
         <ListSkeleton label={t("portalLoading", "Loading…")} rows={2} height={60} />
       ) : groups.length > 0 ? (
-        <div className="space-y-2">
+        <div className="flex flex-col" style={{ gap: 8 }}>
           {groups.map((g) => {
             // A sygemelding is a fact, not an application, so it never wears
-            // the amber "Afventer". Cancelled / declined still show for both
+            // the brass "Afventer". Cancelled / declined still show for both
             // kinds — those ARE real state changes (the staffer's, or the
             // manager's).
             const st = isNotifyKind(g.kind) && g.status !== "cancelled" && g.status !== "declined"
               ? REGISTERED
               : (STATUS[g.status] || STATUS.pending);
             return (
-              <div key={g.ids[0]} className="rounded-[18px] bg-white border border-[#e8edf3] p-3 flex items-center gap-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
-                  <CalendarPlus className="w-[18px] h-[18px] text-gray-500" strokeWidth={2} aria-hidden />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-display text-[14px] font-bold tracking-[-0.025em] tabular-nums text-gray-900 truncate">
+              <div
+                key={g.ids[0]}
+                data-testid="fravaer-row"
+                className="flex items-center"
+                style={{ gap: 12, padding: "10px 10px 10px 12px", minHeight: 64, borderRadius: 20, ...CARD_BOX }}
+              >
+                <span className="shrink-0 flex items-center justify-center" style={{ width: 40, height: 40, borderRadius: 12, background: SOFT, color: PINE }}>
+                  <CalendarPlus size={18} strokeWidth={1.9} aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1 flex flex-col" style={{ gap: 2 }}>
+                  <span className="truncate" style={{ font: `600 15px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>
                     {KIND_LABEL[g.kind] || g.kind} · {fmtRange(g.startDate, g.endDate)}
-                  </div>
-                  {g.reason && <div className="text-[12px] text-gray-500 truncate">{g.reason}</div>}
+                  </span>
+                  {g.reason && <span className="truncate" style={{ font: "400 13px/1.3 var(--font-text)", color: MUTED }}>{g.reason}</span>}
                 </div>
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${st.cls}`}>{st.label}</span>
+                <span
+                  data-testid="fravaer-status"
+                  className="shrink-0"
+                  style={{ padding: "5px 10px", borderRadius: 999, background: st.bg, color: st.fg, font: "600 12px/1 var(--font-text)" }}
+                >
+                  {st.label}
+                </span>
                 {g.status === "pending" && (
                   <button
                     type="button"
                     onClick={() => withdraw(g)}
-                    className="shrink-0 min-h-[44px] px-3 rounded-[12px] border border-[#e2e8f0] bg-white text-[12px] font-semibold text-gray-700 hover:bg-gray-50 vp-press inline-flex items-center"
+                    className={`shrink-0 min-h-[44px] inline-flex items-center vp-press ${FOCUS_RING}`}
+                    style={{ padding: "0 14px", borderRadius: 999, ...CARD_BOX, color: INK, font: "600 13px/1 var(--font-text)" }}
                   >
                     {isNotifyKind(g.kind)
                       ? t("fravaerUndo", "Undo")
@@ -6504,64 +6698,72 @@ function AbsenceSection({ token, onChanged }) {
 
       {!adding ? (
         <div>
-        <button
-          onClick={() => { reset(); setAdding(true); }}
-          className="w-full px-4 py-2.5 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm font-semibold transition flex items-center justify-center gap-2"
-        >
-          <CalendarPlus className="w-4 h-4" strokeWidth={2.25} aria-hidden />
-          {t("fravaerAdd", "Request time off")}
-        </button>
-        <p className="text-[12px] text-gray-500 leading-snug mt-2">
-          {t("fravaerNeedsApprovalSub", "This is a request — your manager approves it. You'll see Pending, then Approved or Declined.")}
-        </p>
+          {/* Sage: a secondary action on this screen — the calendar above is
+              the everyday errand, a time-off request the rarer one. */}
+          <button
+            type="button"
+            onClick={() => { reset(); setAdding(true); }}
+            data-testid="fravaer-add"
+            className={`w-full flex items-center justify-center vp-press ${FOCUS_RING}`}
+            style={{ ...BTN_SAGE, height: 52, borderRadius: 18, gap: 8 }}
+          >
+            <CalendarPlus size={18} strokeWidth={1.9} aria-hidden />
+            {t("fravaerAdd", "Request time off")}
+          </button>
+          <p style={{ margin: "8px 4px 0", font: "400 13px/1.4 var(--font-text)", color: MUTED }}>
+            {t("fravaerNeedsApprovalSub", "This is a request — your manager approves it. You'll see Pending, then Approved or Declined.")}
+          </p>
         </div>
       ) : (
         <div
           ref={formRef}
           data-kb-block=""
           data-testid="fravaer-form"
-          className="rounded-xl bg-white border border-gray-200 p-4 space-y-4"
+          className="flex flex-col"
           // The scroller's scroll-padding already clears the sticky header and
           // the tab bar (home v3); these are just a little air on top of it.
-          style={{ scrollMarginTop: 32, scrollMarginBottom: 8 }}
+          style={{ gap: 14, padding: 16, borderRadius: 24, ...CARD_BOX, scrollMarginTop: 32, scrollMarginBottom: 8 }}
         >
-          <div className="grid grid-cols-2 gap-1.5">
-            {/* Sygdom deliberately absent: this form's banner promises manager
-                approval, and that is a lie for a sick day. Sick lives on the
-                Schedule tab, which notifies the owner and binds the shift —
-                register_absence does neither. VALID_ABSENCE_KINDS still accepts
-                "sick" server-side so an un-updated App Store bundle keeps
-                working; only this picker stops creating them. */}
-            {["ferie", "andet"].map((k) => (
-              <button
-                key={k}
-                onClick={() => setKind(k)}
-                className={`py-2 rounded-lg text-[12px] font-semibold transition ${kind === k ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-              >
-                {KIND_LABEL[k]}
-              </button>
-            ))}
-          </div>
-          <div className="grid grid-cols-2 gap-2">
+          {/* Sygdom deliberately absent: this form's banner promises manager
+              approval, and that is a lie for a sick day. Sick lives on the
+              Schedule tab, which notifies the owner and binds the shift —
+              register_absence does neither. VALID_ABSENCE_KINDS still accepts
+              "sick" server-side so an un-updated App Store bundle keeps
+              working; only this picker stops creating them. */}
+          <VpSegmented
+            testId="fravaer-kind"
+            options={["ferie", "andet"].map((k) => ({ key: k, label: KIND_LABEL[k] }))}
+            value={kind}
+            onChange={setKind}
+          />
+          <div className="grid grid-cols-2" style={{ gap: 10 }}>
             <DateField label={t("fravaerFrom", "From")} value={from} onChange={setFrom} testId="fravaer-from" />
             <DateField label={t("fravaerTo", "To (optional)")} value={to} min={from || undefined} onChange={setTo} testId="fravaer-to" />
           </div>
           <input
             type="text" value={reason} maxLength={80} onChange={(e) => setReason(e.target.value)}
             placeholder={t("fravaerNotePlaceholder", "Note (optional)")}
-            className="w-full px-3 py-2.5 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+            className={FIELD_CLS}
+            style={FIELD}
           />
-          <div className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-snug">
-            {t("fravaerNeedsApproval", "This is a request — your manager must approve it.")}
-          </div>
-          {err && <div className="text-xs text-red-600">{err}</div>}
-          <div className="flex gap-2">
-            <button onClick={() => { setAdding(false); reset(); }}
-              className="flex-1 py-2.5 rounded-[14px] bg-[#f1f5f9] text-gray-700 font-text text-[13px] font-bold hover:bg-[#e2e8f0] transition">
+          <VpNote>{t("fravaerNeedsApproval", "This is a request — your manager must approve it.")}</VpNote>
+          {err && <VpAlert>{err}</VpAlert>}
+          <div className="flex" style={{ gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => { setAdding(false); reset(); }}
+              className={`flex-1 vp-press ${FOCUS_RING}`}
+              style={BTN_QUIET}
+            >
               {t("portalCancel", "Cancel")}
             </button>
-            <button onClick={submit} disabled={saving}
-              className="flex-1 py-2.5 rounded-[14px] bg-gray-900 text-white font-text text-[13px] font-bold hover:bg-gray-700 transition disabled:opacity-50">
+            <button
+              type="button"
+              onClick={submit}
+              disabled={saving}
+              className={`flex-1 vp-press disabled:opacity-50 ${FOCUS_RING}`}
+              style={BTN_PINE}
+            >
               {saving ? t("portalSaving", "Saving…") : t("fravaerSubmit", "Send request")}
             </button>
           </div>
@@ -6570,6 +6772,23 @@ function AbsenceSection({ token, onChanged }) {
     </div>
   );
 }
+
+/* One vocabulary for both Fravær calendars and their legend (the system note
+   above the Hours tab): terracotta = kan ikke, a dashed terracotta edge = the
+   same every week, sage = helst, brass = a request waiting on the manager,
+   pine = approved time off. A free day is the home's shift-row tile. Every
+   look carries a 1 px border (dashed for weekly) so no state changes a
+   cell's size. Today wears the home's pine outline, on top of any look. */
+const DAY_LOOK = {
+  free: { background: ROW, border: `1px solid ${ROW}`, color: INK },
+  cant: { background: RED_WASH, border: `1px solid ${RED_EDGE}`, color: RED_INK },
+  weekly: { background: ROW, border: `1.5px dashed ${RED_EDGE}`, color: RED_INK },
+  pref: { background: SOFT, border: `1px solid ${SAGE_EDGE}`, color: PINE },
+  pending: { background: BRASS_WASH, border: `1px solid ${BRASS_EDGE}`, color: BRASS_INK },
+  approved: { background: PINE, border: `1px solid ${PINE}`, color: CREAM },
+};
+const TODAY_RING = `inset 0 0 0 1.5px ${PINE}`;
+const PAST_INK = "#B9B3A6";
 
 /* ═══════════════════════════════════════════════════════════════
    MonthCalendar — tappable "when I'm off" month grid. Pure presentation:
@@ -6595,50 +6814,45 @@ function MonthCalendar({
   }, [viewYear, viewMonth]);
 
   return (
-    <div
-      className="bg-white"
-      style={{
-        border: "1px solid #e8edf3", borderRadius: 20, padding: 8,
-        boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
-      }}
-    >
+    <section data-testid="kanikke-month" style={{ ...CARD_BOX, borderRadius: 24, padding: "14px 10px 12px" }}>
       {/* Month nav — mutates view only, never data */}
-      <div className="flex items-center justify-between px-1 pb-1">
-        <button type="button" onClick={onPrev} aria-label={t("kanIkkePrevMonth", "Previous month")}
-          className="w-9 h-9 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-[11px] flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-[#eef2f7] transition">
-          <ChevronLeft className="w-5 h-5" strokeWidth={2} aria-hidden />
-        </button>
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-semibold text-gray-900 capitalize truncate">{monthLabel}</span>
+      <div className="flex items-center justify-between" style={{ gap: 8, padding: "0 4px" }}>
+        <PageArrow dir="prev" onClick={onPrev} label={t("kanIkkePrevMonth", "Previous month")} />
+        <div className="flex items-center min-w-0" style={{ gap: 8 }}>
+          <span className="truncate capitalize" style={{ font: `700 16px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>{monthLabel}</span>
           {showToday && (
-            <button type="button" onClick={onToday}
-              className="text-[12px] text-gray-500 hover:text-gray-900 underline underline-offset-2">
+            // The home's "I dag" pill; the ::before makes its hit area 44 tall.
+            <button
+              type="button"
+              onClick={onToday}
+              className="relative shrink-0 before:absolute before:-inset-x-2 before:-inset-y-[13px] before:content-['']"
+              style={{ minHeight: 0, padding: "3px 8px", borderRadius: 999, background: SOFT, color: PINE, font: "600 11px/1 var(--font-text)" }}
+            >
               {t("calToday", "Today")}
             </button>
           )}
         </div>
-        <button type="button" onClick={onNext} aria-label={t("kanIkkeNextMonth", "Next month")}
-          className="w-9 h-9 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-[11px] flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-[#eef2f7] transition">
-          <ChevronRight className="w-5 h-5" strokeWidth={2} aria-hidden />
-        </button>
+        <PageArrow dir="next" onClick={onNext} label={t("kanIkkeNextMonth", "Next month")} />
       </div>
 
       {/* Weekday header (Monday-first, localized) */}
-      <div className="grid grid-cols-7 mb-1">
+      <div className="grid grid-cols-7" style={{ marginTop: 10, marginBottom: 4 }}>
         {WD.map((w, i) => (
-          <div key={i} className="text-[11px] font-medium text-gray-400 uppercase text-center py-1">{w}</div>
+          <div key={i} className="text-center" style={{ padding: "4px 0", font: "600 11px/1 var(--font-text)", letterSpacing: "0.06em", textTransform: "uppercase", color: MUTED }}>
+            {String(w).replace(/\.$/, "")}
+          </div>
         ))}
       </div>
 
       {/* 6×7 day grid */}
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7" style={{ gap: 4 }}>
         {cells.map((iso) => {
           const cellDate = new Date(iso + "T00:00:00");
           const inMonth = cellDate.getMonth() === viewMonth;
           const dayNum = cellDate.getDate();
           if (!inMonth) {
             return (
-              <div key={iso} className="aspect-square min-h-[44px] flex items-center justify-center text-[15px] text-gray-300 tabular-nums select-none">
+              <div key={iso} aria-hidden className="aspect-square min-h-[44px] flex items-center justify-center tabular-nums select-none" style={{ font: `600 15px/1 ${SORA}`, color: "#CBC5B8" }}>
                 {dayNum}
               </div>
             );
@@ -6654,55 +6868,30 @@ function MonthCalendar({
           const approved = abs && (abs.status === "acknowledged" || abs.status === "covered");
           const pending = abs && abs.status === "pending";
 
-          // Exactly ONE background — precedence: approved > pending > one-off > recurring > free.
-          //
-          // "Can't work" takes v2's treatment: a red wash with the date STRUCK
-          // THROUGH. The old solid gray-900 square read as "selected", which is
-          // the opposite of what it means — a struck-out date is unambiguous at
-          // a glance and needs no legend. The manager-answer states (approved /
-          // pending) stay as they are: v2 has no equivalent, and green/amber
-          // already say "this is their reply, not your note".
-          let fill = "", num = "text-gray-900", ring = "", style, strike = false;
-          let tappable = !past;
-          if (approved) { fill = "bg-emerald-50"; ring = "ring-1 ring-inset ring-emerald-200"; num = "text-emerald-700 font-semibold"; tappable = false; }
-          else if (pending) { fill = "bg-amber-50"; ring = "ring-1 ring-inset ring-amber-200"; num = "text-amber-700 font-semibold"; tappable = false; }
-          else if (oneOff && oneOff.kind === "preferred") {
-            // "Helst" — a soft yes. Green, and NOT struck through: this day is
-            // still workable, which is the whole difference from "kan ikke".
-            style = {
-              background: "linear-gradient(180deg,#dcfce7,#bbf7d0)",
-              border: "1px solid rgba(22,163,74,.35)",
-            };
-            num = "font-semibold";
-          } else if (oneOff) {
-            style = {
-              background: "linear-gradient(180deg,#fee2e2,#fecaca)",
-              border: "1px solid rgba(239,68,68,.32)",
-            };
-            num = "font-semibold";
-            strike = true;
-          } else if (recurring) {
-            // Same meaning as a one-off, every week — so the same red family,
-            // but outlined rather than filled so the two stay distinguishable.
-            style = { border: "1px solid rgba(239,68,68,.32)" };
-            num = "";
-          }
-          if (past) num = "text-gray-300 font-normal";
-
-          const cls =
-            "relative aspect-square min-h-[44px] rounded-xl flex items-center justify-center text-[15px] font-medium tabular-nums transition " +
-            fill + " " + ring + " " + num +
-            (tappable ? " active:scale-[0.97] cursor-pointer" : " cursor-default") +
-            (saving ? " opacity-60" : "") +
-            (today && !fill && !ring && !style ? " bg-gray-100" : "") +
-            (past && (oneOff || abs || recurring) ? " opacity-40" : "");
-
-          // v2's ink for the red states; `past` still wins so history stays quiet.
-          const cellStyle = past
-            ? style
-            : { ...style, ...(oneOff ? { color: oneOff.kind === "preferred" ? "#14532d" : "#7f1d1d" } : recurring ? { color: "#b91c1c" } : null) };
-
-          const shiftDot = oneOff ? (oneOff.kind === "preferred" ? "bg-green-700" : "bg-red-700") : approved ? "bg-emerald-600" : pending ? "bg-amber-500" : "bg-gray-900";
+          // Exactly ONE look — precedence: approved > pending > one-off >
+          // recurring > free. "Can't work" is terracotta with the date STRUCK
+          // THROUGH (unambiguous at a glance); "helst" is sage and NOT struck —
+          // the day is still workable, which is the whole difference. The
+          // manager-answer states (approved / pending) are not tappable here:
+          // that day belongs to the approval flow.
+          const kind = approved ? "approved"
+            : pending ? "pending"
+              : oneOff ? (oneOff.kind === "preferred" ? "pref" : "cant")
+                : recurring ? "weekly" : "free";
+          const look = DAY_LOOK[kind];
+          const tappable = !past && !approved && !pending;
+          const strike = kind === "cant" && !past;
+          const cellStyle = {
+            ...look,
+            // History stays quiet: a past free day is just a faded number, a
+            // past mark keeps its colour at 40 %.
+            ...(past && kind === "free" ? { background: "transparent", border: "1px solid transparent", color: PAST_INK } : null),
+            opacity: past && kind !== "free" ? 0.4 : saving ? 0.6 : 1,
+            boxShadow: today && kind !== "approved" ? TODAY_RING : "none",
+            font: `${today ? 700 : 600} 15px/1 ${SORA}`,
+            boxSizing: "border-box",
+            cursor: tappable ? "pointer" : "default",
+          };
 
           return (
             <button
@@ -6712,81 +6901,117 @@ function MonthCalendar({
               aria-disabled={!tappable}
               aria-current={today ? "date" : undefined}
               aria-label={iso}
+              data-look={kind}
               onClick={() => tappable && onTapDay(iso, { oneOff, recurring, abs, wd })}
-              className={cls}
-              style={cellStyle}
+              className={`relative aspect-square min-h-[44px] flex items-center justify-center tabular-nums ${tappable ? "vp-press" : ""} ${FOCUS_RING}`}
+              style={{ borderRadius: 12, ...cellStyle }}
             >
-              <span
-                className={today ? "font-bold" : ""}
-                style={strike && !past ? { textDecoration: "line-through", textDecorationThickness: "1.5px" } : undefined}
-              >
+              <span style={strike ? { textDecoration: "line-through", textDecorationThickness: "1.5px" } : undefined}>
                 {dayNum}
               </span>
               {recurring && !oneOff && !abs && (
-                <Repeat className="absolute top-0.5 right-0.5 w-2.5 h-2.5 text-red-500" strokeWidth={2.5} aria-hidden />
+                <Repeat className="absolute" style={{ top: 3, right: 3, width: 10, height: 10, color: RED_INK }} strokeWidth={2.5} aria-hidden />
               )}
               {oneOff?.timed && (
-                <Clock className="absolute bottom-0.5 left-0.5 w-2.5 h-2.5 text-red-800" strokeWidth={2.5} aria-hidden />
+                <Clock className="absolute" style={{ bottom: 3, left: 3, width: 10, height: 10, color: look.color }} strokeWidth={2.5} aria-hidden />
               )}
               {hasShift && (
-                <span className={`absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${shiftDot}`} aria-hidden />
+                <span className="absolute left-1/2 -translate-x-1/2" style={{ bottom: 4, width: 4, height: 4, borderRadius: 99, background: approved ? BRASS : PINE }} aria-hidden />
               )}
             </button>
           );
         })}
       </div>
-    </div>
+    </section>
   );
 }
 
-/* MarkedDayRow — one one-off "Kan ikke" date; expands to set a time-window /
-   note (DELETE+POST since the backend has no PATCH). */
+/* MarkedDayRow — one one-off "Kan ikke" / "Helst" date; expands to set a
+   time-window / note (DELETE+POST since the backend has no PATCH). An ivory
+   card; its well says which kind it is in the calendar's colour. */
 function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
   const [allDay, setAllDay] = useState(!row.timed);
   const [start, setStart] = useState(row.start || "08:00");
   const [end, setEnd] = useState(row.end || "12:00");
   const [note, setNote] = useState(row.note || "");
+  const pref = row.kind === "preferred";
   const timeText = row.timed ? `${row.start}–${row.end}` : t("kanIkkeAllDay", "All day");
   return (
-    <div className="rounded-xl bg-white border border-gray-200">
-      <div className="p-3 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-gray-900 flex items-center justify-center shrink-0">
-          <CalendarOff className="w-[18px] h-[18px] text-white" strokeWidth={2} aria-hidden />
-        </div>
-        <button type="button" onClick={onToggle} className="min-w-0 flex-1 text-left">
-          <div className="font-display text-[14px] font-bold tracking-[-0.025em] tabular-nums text-gray-900 truncate">{label}</div>
-          <div className="text-[12px] text-gray-500 truncate">
+    <div data-testid="kanikke-marked-row" style={{ borderRadius: 20, ...CARD_BOX }}>
+      <div className="flex items-center" style={{ gap: 12, padding: "10px 6px 10px 12px" }}>
+        <span
+          className="shrink-0 flex items-center justify-center"
+          style={{ width: 40, height: 40, borderRadius: 12, background: pref ? SOFT : RED_WASH, color: pref ? PINE : RED_INK }}
+        >
+          {pref
+            ? <CalendarCheck size={18} strokeWidth={1.9} aria-hidden />
+            : <CalendarOff size={18} strokeWidth={1.9} aria-hidden />}
+        </span>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          className={`min-w-0 flex-1 text-left flex flex-col ${FOCUS_RING}`}
+          style={{ gap: 2, borderRadius: 10 }}
+        >
+          <span className="truncate tabular-nums" style={{ font: `600 15px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>{label}</span>
+          <span className="truncate" style={{ font: "400 13px/1.3 var(--font-text)", color: MUTED }}>
             {timeText}{row.note ? ` · ${row.note}` : ` · ${t("kanIkkeAddTimeNote", "Add a time / note")}`}
-          </div>
+          </span>
         </button>
-        <button type="button" onClick={onRemove} aria-label={t("kanIkkeRemove", "Remove")}
-          className="w-8 h-8 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition shrink-0">
-          <X className="w-4 h-4" strokeWidth={2} aria-hidden />
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={t("kanIkkeRemove", "Remove")}
+          className={`shrink-0 flex items-center justify-center vp-press ${FOCUS_RING}`}
+          style={{ width: 44, height: 44, borderRadius: 999, color: MUTED }}
+        >
+          <X size={18} strokeWidth={2} aria-hidden />
         </button>
       </div>
       {expanded && (
-        <div className="px-3 pb-3 pt-3 space-y-3 border-t border-[#f1f5f9]">
-          <label className="flex items-center justify-between cursor-pointer">
-            <span className="text-[13px] font-medium text-gray-700">{t("kanIkkeAllDay", "All day")}</span>
-            <button type="button" role="switch" aria-checked={allDay} onClick={() => setAllDay(!allDay)}
-              className={`relative w-11 h-6 rounded-full transition ${allDay ? "bg-gray-900" : "bg-gray-300"}`}>
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${allDay ? "translate-x-5" : ""}`} />
+        <div className="flex flex-col" style={{ gap: 12, padding: "12px 14px 14px", borderTop: `1px solid ${DIVIDER}` }}>
+          <label className="flex items-center justify-between cursor-pointer" style={{ gap: 12 }}>
+            <span style={{ font: "500 14px/1.3 var(--font-text)", color: INK }}>{t("kanIkkeAllDay", "All day")}</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={allDay}
+              onClick={() => setAllDay(!allDay)}
+              className={`relative shrink-0 ${FOCUS_RING}`}
+              style={{ width: 46, height: 28, borderRadius: 999, background: allDay ? PINE : GRAB, transition: "background-color var(--dur-fast) var(--ease-out)" }}
+            >
+              <span
+                aria-hidden
+                className="absolute"
+                style={{
+                  top: 3, left: 3, width: 22, height: 22, borderRadius: 999, background: "#FFFFFF",
+                  boxShadow: "0 1px 3px rgba(8,24,18,0.3)",
+                  transform: allDay ? "translateX(18px)" : "none",
+                  transition: "transform var(--dur-base) var(--spring-soft)",
+                }}
+              />
             </button>
           </label>
           {!allDay && (
-            <div className="flex items-center gap-2">
-              <input type="time" value={start} onChange={(e) => setStart(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm outline-none focus:border-gray-900/30" />
-              <span className="text-gray-400" aria-hidden>–</span>
-              <input type="time" value={end} onChange={(e) => setEnd(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm outline-none focus:border-gray-900/30" />
+            <div className="flex items-center" style={{ gap: 8 }}>
+              <input type="time" value={start} onChange={(e) => setStart(e.target.value)} className={`${FIELD_CLS} flex-1`} style={FIELD} />
+              <span aria-hidden style={{ color: MUTED }}>–</span>
+              <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} className={`${FIELD_CLS} flex-1`} style={FIELD} />
             </div>
           )}
-          <input type="text" value={note} maxLength={80} onChange={(e) => setNote(e.target.value)}
+          <input
+            type="text" value={note} maxLength={80} onChange={(e) => setNote(e.target.value)}
             placeholder={t("kanIkkeNotePlaceholder", "Note (optional) — e.g. exam")}
-            className="w-full px-3 py-2.5 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30" />
-          <button type="button" onClick={() => onSave(allDay, start, end, note)}
-            className="w-full py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 transition">
+            className={FIELD_CLS}
+            style={FIELD}
+          />
+          <button
+            type="button"
+            onClick={() => onSave(allDay, start, end, note)}
+            className={`w-full vp-press ${FOCUS_RING}`}
+            style={BTN_PINE}
+          >
             {t("kanIkkeSave", "Save")}
           </button>
         </div>
@@ -6803,13 +7028,11 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
  * availability + absence endpoints; nothing here is cosmetic.
  */
 /**
- * The fast surface: seven cells, one tap each.
- *
- * Cell treatment is the prototype's — red gradient + strike-through for "kan
- * ikke", green gradient for "helst", flat #f5f8fb when free. A day already
- * governed by an absence request is NOT tappable here, exactly as in the month
- * view: that day belongs to the approval flow, and a soft tap must not look
- * like it can override it.
+ * The fast surface: seven cells, one tap each — the home week strip's shape
+ * (weekday over a Sora date, a marker row under it) in the calendar's
+ * vocabulary (DAY_LOOK). A day already governed by an absence request is NOT
+ * tappable here, exactly as in the month view: that day belongs to the
+ * approval flow, and a soft tap must not look like it can override it.
  */
 function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenceByDate, shiftSet, savingSet, onTapDay, lang, t }) {
   const days = useMemo(() => {
@@ -6830,38 +7053,16 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
   const markedThisWeek = days.filter((d) => oneOffByDate[iso(d)]).length;
 
   return (
-    <div
-      className="bg-white"
-      style={{
-        border: "1px solid #e8edf3", borderRadius: 20, padding: 15,
-        boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
-      }}
-    >
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => onShiftWeek(weekOffset - 1)}
-          aria-label={t("portalPrevWeek", "Previous week")}
-          className="flex items-center justify-center -m-2"
-          style={{ color: "#94a3b8", minWidth: 44, minHeight: 44 }}
-        >
-          <ChevronLeft size={16} strokeWidth={2.5} />
-        </button>
-        <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+    <section data-testid="kanikke-week" style={{ ...CARD_BOX, borderRadius: 24, padding: "14px 12px" }}>
+      <div className="flex items-center justify-between" style={{ gap: 8 }}>
+        <PageArrow dir="prev" onClick={() => onShiftWeek(weekOffset - 1)} label={t("portalPrevWeek", "Previous week")} />
+        <span className="min-w-0 truncate text-center tabular-nums" style={{ font: `700 16px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>
           {range}
         </span>
-        <button
-          type="button"
-          onClick={() => onShiftWeek(weekOffset + 1)}
-          aria-label={t("portalNextWeek", "Next week")}
-          className="flex items-center justify-center -m-2"
-          style={{ color: "#94a3b8", minWidth: 44, minHeight: 44 }}
-        >
-          <ChevronRight size={16} strokeWidth={2.5} />
-        </button>
+        <PageArrow dir="next" onClick={() => onShiftWeek(weekOffset + 1)} label={t("portalNextWeek", "Next week")} />
       </div>
 
-      <div className="flex" style={{ marginTop: 13, gap: 4 }}>
+      <div className="grid" style={{ marginTop: 12, gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4 }}>
         {days.map((d) => {
           const key = iso(d);
           const one = oneOffByDate[key];
@@ -6870,27 +7071,13 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
           const past = key < todayISO;
           const saving = savingSet.has(key);
           const pref = one?.kind === "preferred";
-          const on = !!one;
           const rostered = shiftSet?.has(key);
-
-          let cell = { background: "#f5f8fb", border: "1px solid #eef2f7" };
-          let dow = "#94a3b8";
-          let num = "#0f172a";
-          let dot = "transparent";
-          if (abs) {
-            const ok = abs.status === "acknowledged" || abs.status === "covered";
-            cell = { background: ok ? "#ecfdf5" : "#fffbeb", border: `1px solid ${ok ? "#a7f3d0" : "#fde68a"}` };
-            dow = ok ? "#15803d" : "#b45309"; num = ok ? "#14532d" : "#92400e";
-          } else if (on && pref) {
-            cell = { background: "linear-gradient(180deg,#dcfce7,#bbf7d0)", border: "1px solid rgba(22,163,74,.35)" };
-            dow = "#15803d"; num = "#14532d"; dot = "#16a34a";
-          } else if (on) {
-            cell = { background: "linear-gradient(180deg,#fee2e2,#fecaca)", border: "1px solid rgba(239,68,68,.32)" };
-            dow = "#b91c1c"; num = "#7f1d1d"; dot = "#ef4444";
-          } else if (recurring) {
-            cell = { background: "#f5f8fb", border: "1px solid rgba(239,68,68,.32)" };
-            dow = "#b91c1c";
-          }
+          const ok = abs && (abs.status === "acknowledged" || abs.status === "covered");
+          const kind = abs ? (ok ? "approved" : "pending")
+            : one ? (pref ? "pref" : "cant")
+              : recurring ? "weekly" : "free";
+          const look = DAY_LOOK[kind];
+          const isTodayCell = key === todayISO;
 
           const locked = !!abs || past;
           return (
@@ -6900,55 +7087,63 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
               disabled={locked || saving}
               onClick={() => onTapDay(key, { oneOff: one, abs, recurring, wd: (d.getDay() + 6) % 7 })}
               aria-pressed={!locked ? !!one : undefined}
+              aria-current={isTodayCell ? "date" : undefined}
               aria-label={[
                 d.toLocaleDateString(localeFor(lang), { weekday: "long", day: "numeric", month: "long" }),
-                abs ? t("legendApproved", "Approved off")
+                abs ? (ok ? t("legendApproved", "Approved off") : t("legendPending", "Pending"))
                   : one?.kind === "preferred" ? t("legendPreferred", "Prefers")
                   : one ? t("legendCantWork", "Can't work")
                   : recurring ? t("legendRepeats", "Every week")
                   : null,
                 rostered ? t("legendScheduled", "Scheduled") : null,
               ].filter(Boolean).join(" — ")}
-              className="flex flex-col items-center"
+              data-look={kind}
+              className={`min-w-0 flex flex-col items-center justify-center ${locked ? "" : "vp-press"} ${FOCUS_RING}`}
               style={{
-                flex: "1 1 0", minWidth: 0, gap: 5, padding: "9px 0 10px", borderRadius: 13,
-                transition: "all .2s", opacity: past ? 0.4 : saving ? 0.6 : 1,
-                cursor: locked ? "default" : "pointer", ...cell,
+                height: 68, gap: 4, padding: 0, borderRadius: 14, boxSizing: "border-box",
+                ...look,
+                boxShadow: isTodayCell && kind !== "approved" ? TODAY_RING : "none",
+                opacity: past ? 0.4 : saving ? 0.6 : 1,
+                cursor: locked ? "default" : "pointer",
               }}
             >
-              <span style={{ font: "600 9.5px/1 var(--font-text)", color: dow }}>
-                {wdShort(d, lang)}
+              <span style={{ font: "500 11px/1 var(--font-text)", color: kind === "free" ? MUTED : kind === "approved" ? SAGE : look.color }}>
+                {String(wdShort(d, lang)).replace(/\.$/, "")}
               </span>
               <span
                 className="tabular-nums"
                 style={{
-                  font: "700 13.5px/1 var(--font-display)", letterSpacing: "-0.02em", color: num,
-                  textDecoration: on && !pref ? "line-through" : "none",
+                  font: `700 17px/1 ${SORA}`,
+                  textDecoration: kind === "cant" ? "line-through" : "none",
+                  textDecorationThickness: kind === "cant" ? "1.5px" : undefined,
                 }}
               >
                 {d.getDate()}
               </span>
-              <span className="relative flex items-center justify-center" style={{ height: 5 }}>
-                {/* A rostered day carries a dot even when unmarked: marking
-                    "kan ikke" on a day you already work does NOT release it,
-                    and this strip is where that mistake gets made. */}
-                <span style={{ width: 5, height: 5, borderRadius: 99, background: dot !== "transparent" ? dot : (rostered ? "#0f172a" : "transparent") }} />
-                {/* Non-colour markers, matching the month view: a weekly rule
-                    and a timed window are states colour alone cannot carry. */}
-                {recurring && !one && <Repeat className="absolute w-2.5 h-2.5 text-red-500" strokeWidth={2.5} aria-hidden />}
-                {one?.timed && <Clock className="absolute w-2.5 h-2.5" strokeWidth={2.5} style={{ color: one.kind === "preferred" ? "#14532d" : "#7f1d1d" }} aria-hidden />}
+              {/* The marker row. A rostered day carries its dot whatever it is
+                  marked: marking "kan ikke" on a day you already work does NOT
+                  release it, and this strip is where that mistake gets made.
+                  A weekly rule and a timed window are states colour alone
+                  cannot carry, so they get their own small marks. */}
+              <span aria-hidden className="flex items-center justify-center" style={{ height: 10, gap: 3 }}>
+                {recurring && !one && <Repeat style={{ width: 10, height: 10, color: RED_INK }} strokeWidth={2.5} />}
+                {one?.timed && <Clock style={{ width: 10, height: 10, color: look.color }} strokeWidth={2.5} />}
+                {rostered && <span data-testid="kanikke-rostered-dot" style={{ width: 6, height: 6, borderRadius: 99, background: kind === "approved" ? BRASS : PINE }} />}
               </span>
             </button>
           );
         })}
       </div>
 
-      <div style={{ marginTop: 11, font: "600 11px/1 var(--font-text)", color: markedThisWeek ? "#16a34a" : "#94a3b8" }}>
+      <div
+        data-testid="kanikke-week-count"
+        style={{ marginTop: 12, padding: "12px 4px 0", borderTop: `1px solid ${DIVIDER}`, font: "500 13px/1.3 var(--font-text)", color: markedThisWeek ? INK : MUTED }}
+      >
         {markedThisWeek
           ? t("kanIkkeMarkedCount", "{n} marked this week").split("{n}").join(String(markedThisWeek))
           : t("kanIkkeNothingMarked", "Nothing marked this week")}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -7131,40 +7326,34 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
     return <ListSkeleton label={t("portalLoading", "Loading…")} rows={4} height={48} />;
   }
 
+  // Legend swatches are the cells' own looks, so the key can never drift
+  // from what the calendar draws.
+  const swatch = (kind) => (
+    <span aria-hidden className="shrink-0" style={{ width: 14, height: 14, borderRadius: 4, boxSizing: "border-box", ...DAY_LOOK[kind] }} />
+  );
+  const legendItem = (kind, label) => (
+    <span key={kind} className="inline-flex items-center" style={{ gap: 6 }} data-legend={kind}>{swatch(kind)}{label}</span>
+  );
+
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col" style={{ gap: 16 }}>
       {/* Which kind of day a tap marks. Both are real: "kan ikke" constrains
           the roster, "helst" is a soft preference the manager sees while
           planning. The copy for each says exactly that much and no more —
-          a preference does not reserve the shift. */}
-      <div className="flex" style={{ padding: 3, borderRadius: 14, background: "#e9eef4", gap: 3 }}>
-        {[
+          a preference does not reserve the shift. The canvas's week chips:
+          an ivory track, the chosen one pine. */}
+      <VpSegmented
+        testId="kanikke-mode"
+        options={[
           { key: "unavailable", label: t("kanIkkeModeCant", "Can't work") },
           { key: "preferred", label: t("kanIkkeModePreferred", "Preferred") },
-        ].map((m) => {
-          const on = mode === m.key;
-          return (
-            <button
-              key={m.key}
-              type="button"
-              onClick={() => setMode(m.key)}
-              style={{
-                flex: 1, height: 34, borderRadius: 11,
-                font: "700 12px/1 var(--font-text)",
-                background: on ? "#fff" : "transparent",
-                color: on ? "#0f172a" : "#64748b",
-                boxShadow: on ? "0 2px 6px -2px rgba(15,23,42,.22)" : "none",
-                transition: "all .22s",
-              }}
-            >
-              {m.label}
-            </button>
-          );
-        })}
-      </div>
+        ]}
+        value={mode}
+        onChange={setMode}
+      />
 
       {/* Intro — mental model + honesty boundary before the first tap */}
-      <p className="text-[13px] leading-relaxed text-gray-600">
+      <p style={{ margin: "0 4px", font: "400 14px/1.45 var(--font-text)", color: MUTED }}>
         {mode === "preferred"
           ? t("kanIkkeIntroPreferred", "Tap the days you'd like to work. A preference never books a shift — your manager just sees it while planning.")
           : t("kanIkkeCalIntro", "Tap the days you can't work. Your manager sees it while planning — a heads-up, not approved time off.")}
@@ -7186,34 +7375,46 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
         />
       )}
 
+      {/* A quiet pine text button: the month is one tap away, never a second
+          primary on this screen. */}
       <button
         type="button"
         onClick={() => setCalOpen((v) => !v)}
-        className="w-full flex items-center justify-center"
-        style={{ gap: 6, height: 38, borderRadius: 13, background: "#f5f8fb", border: "1px solid #eef2f7", font: "600 11.5px/1 var(--font-text)", color: "#64748b" }}
+        aria-expanded={calOpen}
+        data-testid="kanikke-cal-toggle"
+        className={`w-full flex items-center justify-center vp-press ${FOCUS_RING}`}
+        style={{ gap: 6, height: 44, borderRadius: 999, border: `1px solid ${LINE}`, background: "transparent", font: "600 14px/1 var(--font-text)", color: PINE }}
       >
         {calOpen ? t("kanIkkeShowWeek", "Show this week only") : t("kanIkkeShowMonth", "Pick another date")}
-        <ChevronDown size={13} strokeWidth={2.5} style={{ transform: calOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+        <ChevronDown size={16} strokeWidth={2} aria-hidden style={{ transform: calOpen ? "rotate(180deg)" : "none", transition: "transform var(--dur-fast) var(--ease-out)" }} />
       </button>
 
-      {err && <div className="text-xs text-red-600">{err}</div>}
+      {err && <VpAlert>{err}</VpAlert>}
 
       {/* Legend — text always present, never colour-only */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500">
-        <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded" style={{ background: "linear-gradient(180deg,#fee2e2,#fecaca)", border: "1px solid rgba(239,68,68,.32)" }} />{t("legendCantWork", "Can't work")}</span>
-        <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded" style={{ border: "1px solid rgba(239,68,68,.32)" }} />{t("legendRepeats", "Every week")}</span>
-        {hasAbsence && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-100 ring-1 ring-inset ring-amber-300" />{t("legendPending", "Pending")}</span>}
-        {hasAbsence && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-emerald-100 ring-1 ring-inset ring-emerald-300" />{t("legendApproved", "Approved off")}</span>}
-        <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded" style={{ background: "linear-gradient(180deg,#dcfce7,#bbf7d0)", border: "1px solid rgba(22,163,74,.35)" }} />{t("legendPreferred", "Prefers")}</span>
-        {/* Only claim the scheduled dot when the surface on screen actually
-            draws one — the week strip does not. */}
-        {shiftSet.size > 0 && <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gray-900" />{t("legendScheduled", "Scheduled")}</span>}
+      <div
+        data-testid="kanikke-legend"
+        className="flex flex-wrap items-center"
+        style={{ gap: "8px 14px", padding: "0 4px", font: "500 12px/1.2 var(--font-text)", color: MUTED }}
+      >
+        {legendItem("cant", t("legendCantWork", "Can't work"))}
+        {legendItem("weekly", t("legendRepeats", "Every week"))}
+        {legendItem("pref", t("legendPreferred", "Prefers"))}
+        {hasAbsence && legendItem("pending", t("legendPending", "Pending"))}
+        {hasAbsence && legendItem("approved", t("legendApproved", "Approved off"))}
+        {/* Only claim the scheduled dot when there is a shift to carry one. */}
+        {shiftSet.size > 0 && (
+          <span className="inline-flex items-center" style={{ gap: 6 }} data-legend="scheduled">
+            <span aria-hidden style={{ width: 6, height: 6, borderRadius: 99, background: PINE, margin: "0 4px" }} />
+            {t("legendScheduled", "Scheduled")}
+          </span>
+        )}
       </div>
 
 
       {/* Marked days — where time-window + note live (never on the grid cell) */}
       {markedList.length > 0 && (
-        <div className="space-y-2">
+        <div className="flex flex-col" style={{ gap: 8 }}>
           {markedList.map((row) => (
             <MarkedDayRow
               key={row.date}
@@ -7226,26 +7427,48 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
               t={t}
             />
           ))}
+          {/* Time-window discovery hint (no per-cell chrome) */}
+          <p style={{ margin: "0 4px", font: "400 12px/1.4 var(--font-text)", color: MUTED }}>{t("kanIkkeHoldHint", "Tap a marked day above to set hours.")}</p>
         </div>
       )}
 
-      {/* Recurring weekly — advanced, opt-in, low emphasis */}
-      <div>
-        <button type="button" onClick={() => setRecurOpen((o) => !o)}
-          className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 text-[13px] font-semibold transition">
-          <span className="inline-flex items-center gap-2"><Repeat className="w-4 h-4" strokeWidth={2} aria-hidden />{t("kanIkkeRepeatToggle", "Repeat weekly")}</span>
-          <ChevronDown className={`w-4 h-4 transition-transform ${recurOpen ? "rotate-180" : ""}`} aria-hidden />
+      {/* Recurring weekly ("Fast ugentlig") — advanced, opt-in, low emphasis:
+          an ivory row that opens to seven weekday chips. */}
+      <div style={{ borderRadius: 20, ...CARD_BOX }}>
+        <button
+          type="button"
+          onClick={() => setRecurOpen((o) => !o)}
+          aria-expanded={recurOpen}
+          data-testid="kanikke-weekly-toggle"
+          className={`w-full flex items-center text-left vp-press vp-row ${FOCUS_RING}`}
+          style={{ gap: 12, minHeight: 56, padding: "8px 14px 8px 12px", borderRadius: 20, color: INK }}
+        >
+          <span className="shrink-0 flex items-center justify-center" style={{ width: 40, height: 40, borderRadius: 12, background: SOFT, color: PINE }}>
+            <Repeat size={18} strokeWidth={1.9} aria-hidden />
+          </span>
+          <span className="flex-1 min-w-0 truncate" style={{ font: "600 15px/1.25 var(--font-text)" }}>{t("kanIkkeRepeatToggle", "Repeat weekly")}</span>
+          <ChevronDown size={18} strokeWidth={2} aria-hidden className="shrink-0" style={{ color: MUTED, transform: recurOpen ? "rotate(180deg)" : "none", transition: "transform var(--dur-fast) var(--ease-out)" }} />
         </button>
         {recurOpen && (
-          <div className="mt-2 space-y-2">
-            <p className="text-[12px] text-gray-500">{t("kanIkkeRepeatHint", "Pick a weekday you can never work.")}</p>
-            <div className="flex gap-1.5">
+          <div className="flex flex-col" style={{ gap: 10, padding: "4px 12px 14px" }}>
+            <p style={{ margin: "0 2px", font: "400 13px/1.4 var(--font-text)", color: MUTED }}>{t("kanIkkeRepeatHint", "Pick a weekday you can never work.")}</p>
+            <div className="grid" style={{ gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4 }}>
               {WD.map((w, i) => {
                 const on = recurringSet.has(i);
                 return (
-                  <button key={i} type="button" onClick={() => (on ? removeWeekly(i) : addWeekly(i))} aria-pressed={on}
-                    className={`flex-1 py-2 rounded-lg text-[12px] font-semibold capitalize transition ${on ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-                    {w}
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => (on ? removeWeekly(i) : addWeekly(i))}
+                    aria-pressed={on}
+                    className={`min-w-0 inline-flex items-center justify-center capitalize vp-press ${FOCUS_RING}`}
+                    style={{
+                      height: 44, padding: 0, borderRadius: 999,
+                      background: on ? PINE : ROW, color: on ? CREAM : MUTED,
+                      font: "600 12px/1 var(--font-text)",
+                    }}
+                  >
+                    <span className="truncate">{String(w).replace(/\.$/, "")}</span>
                   </button>
                 );
               })}
@@ -7254,59 +7477,58 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
         )}
       </div>
 
-      {/* Time-window discovery hint (no per-cell chrome) */}
-      {markedList.length > 0 && (
-        <p className="text-[11px] text-gray-400">{t("kanIkkeHoldHint", "Tap a marked day above to set hours.")}</p>
-      )}
-
       {/* Divider — a different kind of thing below */}
-      <div className="h-px bg-[#f1f5f9]" />
+      <div aria-hidden style={{ height: 1, background: DIVIDER, margin: "4px 4px 0" }} />
 
       {/* Fravær — a request the owner approves (distinct from the soft calendar taps) */}
       <AbsenceSection token={token} onChanged={loadAbsence} />
 
       {/* Rostered-day confirm: the mark is a planning signal, not a cancellation. */}
       {rosteredSheet.mounted && rosteredShown && (
-        <div className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" role="dialog" aria-modal="true" {...closingProps(rosteredSheet.closing)}>
-          <button type="button" className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px] vp-scrim" onClick={() => setConfirmRostered(null)} aria-label={t("portalCancel", "Cancel")} />
-          <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3 vp-sheet">
-            <div className="text-base font-bold text-gray-900">{t("kanIkkeRosteredTitle", "You already have a shift that day")}</div>
-            <p className="text-[13px] text-gray-600">
-              {t("kanIkkeRosteredBody", "Marking it only helps your manager plan future weeks. It doesn't cancel the shift, and nobody is told — message your manager if you can't work it.")}
-            </p>
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => { setConfirmRostered(null); onNavigate?.("messages"); }}
-                className="flex-1 py-2.5 rounded-[14px] bg-gray-900 text-white font-text text-[13px] font-bold hover:bg-gray-800 transition"
-              >
-                {t("kanIkkeRosteredMessage", "Message manager")}
-              </button>
-              <button
-                type="button"
-                onClick={() => markAnyway(rosteredShown.iso)}
-                className="flex-1 py-2.5 rounded-[14px] bg-[#f1f5f9] text-gray-700 font-text text-[13px] font-bold hover:bg-[#e2e8f0] transition"
-              >
-                {t("kanIkkeRosteredAnyway", "Mark anyway")}
-              </button>
-            </div>
-          </div>
-        </div>
+        <VpQuestionSheet
+          closing={rosteredSheet.closing}
+          testId="kanikke-rostered-sheet"
+          title={t("kanIkkeRosteredTitle", "You already have a shift that day")}
+          body={t("kanIkkeRosteredBody", "Marking it only helps your manager plan future weeks. It doesn't cancel the shift, and nobody is told — message your manager if you can't work it.")}
+          onDismiss={() => setConfirmRostered(null)}
+          dismissLabel={t("portalCancel", "Cancel")}
+        >
+          <button
+            type="button"
+            onClick={() => { setConfirmRostered(null); onNavigate?.("messages"); }}
+            className={`flex-1 vp-press ${FOCUS_RING}`}
+            style={BTN_PINE}
+          >
+            {t("kanIkkeRosteredMessage", "Message manager")}
+          </button>
+          <button
+            type="button"
+            onClick={() => markAnyway(rosteredShown.iso)}
+            className={`flex-1 vp-press ${FOCUS_RING}`}
+            style={BTN_QUIET}
+          >
+            {t("kanIkkeRosteredAnyway", "Mark anyway")}
+          </button>
+        </VpQuestionSheet>
       )}
 
       {/* Remove-weekly-rule scoped confirm (blast-radius honesty) */}
       {weekdaySheet.mounted && weekdayShown && (
-        <div className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" role="dialog" aria-modal="true" {...closingProps(weekdaySheet.closing)}>
-          <button type="button" className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px] vp-scrim" onClick={() => setConfirmWeekday(null)} aria-label={t("portalCancel", "Cancel")} />
-          <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3 vp-sheet">
-            <div className="text-base font-bold text-gray-900">{t("kanIkkeRemoveWeeklyTitle", "Remove this weekly rule?")}</div>
-            <p className="text-[13px] text-gray-600">{t("kanIkkeRemoveWeeklyBody", "This clears every {day}.").split("{day}").join(WD[weekdayShown.wd])}</p>
-            <div className="flex gap-2 pt-1">
-              <button type="button" onClick={() => setConfirmWeekday(null)} className="flex-1 py-2.5 rounded-[14px] bg-[#f1f5f9] text-gray-700 font-text text-[13px] font-bold hover:bg-[#e2e8f0] transition">{t("portalCancel", "Cancel")}</button>
-              <button type="button" onClick={() => removeWeekly(weekdayShown.wd)} className="flex-1 py-2.5 rounded-[14px] bg-red-600 text-white font-text text-[13px] font-bold hover:bg-red-700 transition">{t("kanIkkeRemove", "Remove")}</button>
-            </div>
-          </div>
-        </div>
+        <VpQuestionSheet
+          closing={weekdaySheet.closing}
+          testId="kanikke-weekly-sheet"
+          title={t("kanIkkeRemoveWeeklyTitle", "Remove this weekly rule?")}
+          body={t("kanIkkeRemoveWeeklyBody", "This clears every {day}.").split("{day}").join(WD[weekdayShown.wd])}
+          onDismiss={() => setConfirmWeekday(null)}
+          dismissLabel={t("portalCancel", "Cancel")}
+        >
+          <button type="button" onClick={() => setConfirmWeekday(null)} className={`flex-1 vp-press ${FOCUS_RING}`} style={BTN_QUIET}>
+            {t("portalCancel", "Cancel")}
+          </button>
+          <button type="button" onClick={() => removeWeekly(weekdayShown.wd)} className={`flex-1 vp-press ${FOCUS_RING}`} style={BTN_RED}>
+            {t("kanIkkeRemove", "Remove")}
+          </button>
+        </VpQuestionSheet>
       )}
     </div>
   );
