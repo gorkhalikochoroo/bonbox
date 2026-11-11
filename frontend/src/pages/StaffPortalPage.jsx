@@ -1923,7 +1923,12 @@ function OpenShiftsClaimCard({ rows, claimer, ownShifts, businessType }) {
                       {o.start_time}–{o.end_time}
                     </span>
                     <span className="flex items-center min-w-0" style={{ gap: 6, font: "400 13px/1.3 var(--font-text)", color: MUTED }}>
-                      {o.role && <span aria-hidden className={`shrink-0 ${roleBarColor(o.role, businessType)}`} style={{ width: 7, height: 7, borderRadius: 2 }} />}
+                      {o.role && (() => {
+                        // Same mark as the card: brass for a role with no section.
+                        const cls = roleBarColor(o.role, businessType);
+                        const plain = cls === "bg-gray-600";
+                        return <span aria-hidden className={`shrink-0${plain ? "" : ` ${cls}`}`} style={{ width: 7, height: 7, borderRadius: 2, ...(plain ? { background: BRASS } : {}) }} />;
+                      })()}
                       <span className="truncate">
                         {[
                           o.role ? roleName(o.role, t) : null,
