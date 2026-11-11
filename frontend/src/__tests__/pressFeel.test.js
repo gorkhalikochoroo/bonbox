@@ -236,7 +236,10 @@ describe("wired into the portal", () => {
     const page = fs.readFileSync(path.join(SRC, "pages/StaffPortalPage.jsx"), "utf8");
     expect(page).toContain('import { installPressFeel } from "../components/staff/pressFeel";');
     expect(page).toContain("useEffect(() => installPressFeel(), []);");
-    expect(page).toContain("useEffect(() => () => forgetAll(), []);");
+    // Edited in premium feel Step 3 (1.2a, spec P7): the same unmount effect
+    // now also clears the clock's memory (lastClock). The intent is unchanged:
+    // the tabs' memory is forgotten when the portal unmounts.
+    expect(page).toContain("useEffect(() => () => { forgetAll(); lastClock = null; }, []);");
     // Next to the portal-shell layout effect, so it lives exactly as long as the portal.
     const shell = page.indexOf('document.body.classList.add("portal-shell");');
     const install = page.indexOf("useEffect(() => installPressFeel(), []);");

@@ -40,6 +40,7 @@ import { usePresence, useLastValue, closingProps, motionAllowed } from "../compo
 import { beatFor, useHeroBeat, useBeatWindow, BREAK_MS } from "../components/staff/clockBeat";
 import { installPressFeel } from "../components/staff/pressFeel";
 import { forgetAll } from "../components/staff/tabMemory";
+import BusyLabel from "../components/staff/BusyLabel";
 import { parseServerTime } from "../utils/serverTime";
 import { routeUrl, placeSearchUrl, isAndroidDevice } from "../utils/routeUrl";
 import { scheduleFeedUrl, webcalUrl, googleSubscribeUrl } from "../utils/calendarFeed";
@@ -115,6 +116,14 @@ const SORA = "'Sora', 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe
 // on purpose: switching tabs remounts ScheduleTab, and the beat must not
 // replay on every return to the Schedule tab — only on a fresh load.
 let heroBeatPlayed = false;
+
+// The last clock answer this page load saw, so a return to Vagtplan (a remount of ScheduleTab)
+// paints the right card at once instead of the next-shift card for one round trip.
+// Memory only; cleared when the portal unmounts.
+let lastClock = null;   // { token, data, at }
+// A cold start (no memory) holds Stempl ind until the clock has answered, at most this long;
+// then it enables anyway (fail-open, as before).
+const CLOCK_ANSWER_WAIT_MS = 1500;
 
 
 // ─── Push subscription helpers (Staff v2, 2026-05-28) ───────────────────
@@ -1398,7 +1407,11 @@ function useScheduleConfirm({ token, shifts, onConfirmed, allShifts }) {
 // the 30s poll are MOVED VERBATIM — ownership changed, behaviour did not.
 function useClock(token) {
   const { t, lang } = useLanguage();
-  const [st, setSt] = useState(null);
+  // The last answer for this link, kept across a remount (premium feel 1.2a):
+  // it only fills the first frame; the mount load() and the poll still run,
+  // and the server stays the source of truth. A seed is never a beat.
+  const seed = lastClock && lastClock.token === token ? lastClock : null;
+  const [st, setSt] = useState(() => seed?.data ?? null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [result, setResult] = useState(""); // honest clock-out outcome
@@ -1406,17 +1419,26 @@ function useClock(token) {
   // can draw the direction dial without asking for location a second time.
   // Never sent anywhere, never persisted — it dies with the component.
   const [lastFix, setLastFix] = useState(null);
-  const [liveSec, setLiveSec] = useState(null); // live elapsed seconds (ticks 1/s)
+  // live elapsed seconds (ticks 1/s); from a seed, plus the seconds since it
+  // was stored (the 1 s ticker counted them while clocked in, so this is what
+  // the screen would have shown).
+  const [liveSec, setLiveSec] = useState(() => (seed?.data?.clocked_in
+    ? (seed.data.elapsed_sec ?? 0) + Math.floor((Date.now() - seed.at) / 1000) : null));
   // Seconds into the running pause — the server's break_elapsed_sec, anchored
   // on every answer exactly like liveSec. null when not on a pause.
-  const [breakSec, setBreakSec] = useState(null);
+  const [breakSec, setBreakSec] = useState(() => (seed?.data?.on_break
+    ? (seed.data.break_elapsed_sec ?? 0) + Math.floor((Date.now() - seed.at) / 1000) : null));
+  // Cold start (1.2c): true once the first load() settled (yes or no) or
+  // after CLOCK_ANSWER_WAIT_MS; at once with a seed. Until then Stempl ind
+  // waits (the card itself draws at once — nothing jumps).
+  const [answered, setAnswered] = useState(!!seed);
   // The clock beat (components/staff/clockBeat.js). stRef is what this screen
   // showed, written synchronously with every answer, so a punch's beat is
   // decided against the screen at the ANSWER, not at the tap. punchSeq
   // counts answered punches: a poll asked before one is dropped. shownRef is
   // the live card as last committed (the clock-out's frozen exit). A beat is
   // set ONLY in act / breakAct below, and only where motion is welcome.
-  const stRef = useRef(null);
+  const stRef = useRef(seed?.data ?? null);
   const punchSeq = useRef(0);
   const shownRef = useRef(null);
   const [beat, setBeat] = useState(null);
@@ -1430,9 +1452,10 @@ function useClock(token) {
   const applySt = useCallback((data) => {
     stRef.current = data || null;
     setSt(data || null);
+    lastClock = { token, data: data || null, at: Date.now() };
     setLiveSec(data?.elapsed_sec ?? null);
     setBreakSec(data?.on_break ? (data?.break_elapsed_sec ?? 0) : null);
-  }, []);
+  }, [token]);
 
   const load = useCallback(async () => {
     try {
@@ -1442,8 +1465,17 @@ function useClock(token) {
       applySt(res.data);
     } catch {
       /* soft — leave last-known state */
+    } finally {
+      setAnswered(true);
     }
   }, [token, applySt]);
+
+  // Fail-open: a clock that never answers frees Stempl ind after the wait.
+  useEffect(() => {
+    if (answered) return undefined;
+    const id = setTimeout(() => setAnswered(true), CLOCK_ANSWER_WAIT_MS);
+    return () => clearTimeout(id);
+  }, [answered]);
 
   useEffect(() => {
     load();
@@ -1655,7 +1687,7 @@ function useClock(token) {
     return `${ss}s`;
   };
 
-  return { st, busy, err, result, act, breakAct, fmtDur, liveLabel: fmtElapsed(liveSec), liveSec, breakSec, lastFix, beat };
+  return { st, busy, err, result, act, breakAct, fmtDur, liveLabel: fmtElapsed(liveSec), liveSec, breakSec, lastFix, beat, answered };
 }
 
 // ── Live countdown to the next shift's start. No timer of its own; the parent
@@ -2352,6 +2384,10 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   })();
   // The punch button sits on the card only while it is the thing to do.
   const showPunch = shiftSoon || clockedIn;
+  // Cold start (premium feel 1.2c): the card draws at once; only Stempl ind
+  // waits (disabled, the busy ring after 300 ms) until the clock has
+  // answered, at most CLOCK_ANSWER_WAIT_MS. No placeholder, nothing jumps.
+  const waiting = !clock.answered && shiftSoon && !clockedIn;
   const clockInNow = async () => {
     if (!shiftSoon) {
       const ok = await confirmPunch({
@@ -2392,8 +2428,10 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // During a clock-out's leave the live card is drawn as it stood (the
   // snapshot of its last committed values, its buttons dimmed as during the
   // request); everywhere else it is the clock itself.
+  // (`leaving` is premium feel 1.2b's one added field: the tapped button
+  // freezes what it showed when the answer came.)
   const cardClock = beatUi.phase === "leave" && beatUi.kind === "out" && beatUi.snap
-    ? { ...clock, ...beatUi.snap, busy: true } : clock;
+    ? { ...clock, ...beatUi.snap, busy: true, leaving: true } : clock;
   const live = clockedIn ? liveShiftOf(shifts, cardClock.st?.since) : null;
   const liveShift = live?.shift || null;
   const menuShift = clockedIn ? (liveShift || nextShift) : nextShift;
@@ -2719,17 +2757,25 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             {token && (
               <div className="flex" style={{ marginTop: 14, gap: 8 }}>
                 {showPunch ? (
+                  /* The wait has a look (premium feel 1.2b): while the punch
+                     (or, on a cold start, the clock's first answer) is out,
+                     the button keeps its size and colour and turns a small
+                     ring after 300 ms. It dims only when it truly can't
+                     (clockLocked). */
                   <button
                     type="button"
-                    disabled={clock.busy || clockLocked || beatUi.phase === "leave"}
+                    disabled={clock.busy || clockLocked || beatUi.phase === "leave" || waiting}
+                    aria-busy={clock.busy || waiting || undefined}
                     onClick={clockInNow}
-                    className="inline-flex items-center justify-center vp-press disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    className={`inline-flex items-center justify-center vp-press${clockLocked ? " disabled:opacity-50" : ""} disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-white`}
                     style={{ ...brassBtn, fontWeight: 700, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35), 0 0 0 4px rgba(200,164,100,0.18)" }}
                   >
-                    {clockLocked
-                      ? <Lock size={16} strokeWidth={2.2} aria-hidden className="shrink-0" />
-                      : <LogIn size={18} strokeWidth={2.25} aria-hidden className="shrink-0" />}
-                    {t("portalClockInCta")}
+                    <BusyLabel busy={clock.busy || waiting} hold={beatUi.phase === "leave"}>
+                      {clockLocked
+                        ? <Lock size={16} strokeWidth={2.2} aria-hidden className="shrink-0" />
+                        : <LogIn size={18} strokeWidth={2.25} aria-hidden className="shrink-0" />}
+                      {t("portalClockInCta")}
+                    </BusyLabel>
                   </button>
                 ) : confirm.show && !confirm.allConfirmed ? (
                   <button
@@ -3516,6 +3562,10 @@ function LiveShiftCard({ clock, live, menuBtn }) {
   // A pause's colour change (the clock beat): for BREAK_MS after a confirmed
   // Start / Slut pause, a ghost arc in the OLD colour fades off the new one.
   const breakFx = useBeatWindow(clock.beat, "break", BREAK_MS);
+  // Stempl ud and the pause button share clock.busy: the one tapped shows the
+  // wait (premium feel 1.2b), its siblings dim as a real "not now".
+  const [lastTap, setLastTap] = useState(null);
+  const dimUnlessTapped = (kind) => (clock.busy && lastTap !== kind ? 0.6 : 1);
   const st = clock.st || {};
   const shift = live?.shift || null;
   const elapsed = clock.liveSec ?? st.elapsed_sec ?? 0;
@@ -3720,12 +3770,15 @@ function LiveShiftCard({ clock, live, menuBtn }) {
             data-testid="portal-break-btn"
             data-primary="true"
             disabled={clock.busy}
-            onClick={() => clock.breakAct(onBreak ? "end" : "start")}
-            className="inline-flex items-center justify-center vp-press disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-            style={brass}
+            aria-busy={(clock.busy && lastTap === "break") || undefined}
+            onClick={() => { setLastTap("break"); clock.breakAct(onBreak ? "end" : "start"); }}
+            className="inline-flex items-center justify-center vp-press focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ ...brass, opacity: dimUnlessTapped("break") }}
           >
-            <Coffee size={18} strokeWidth={2} aria-hidden className="shrink-0" />
-            <span className="truncate">{onBreak ? t("portalBreakEnd", "End break") : t("portalBreakStart", "Start break")}</span>
+            <BusyLabel busy={clock.busy && lastTap === "break"} hold={!!clock.leaving}>
+              <Coffee size={18} strokeWidth={2} aria-hidden className="shrink-0" />
+              <span className="truncate">{onBreak ? t("portalBreakEnd", "End break") : t("portalBreakStart", "Start break")}</span>
+            </BusyLabel>
           </button>
         )}
         <button
@@ -3733,26 +3786,32 @@ function LiveShiftCard({ clock, live, menuBtn }) {
           data-testid="portal-clock-out"
           data-primary={breakLeads ? undefined : "true"}
           disabled={clock.busy}
-          onClick={clockOut}
-          className="inline-flex items-center justify-center vp-press disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          aria-busy={(clock.busy && lastTap === "out") || undefined}
+          onClick={() => { setLastTap("out"); clockOut(); }}
+          className="inline-flex items-center justify-center vp-press focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
           // Unless a pause is due (or running), Stempl ud is the card's
           // brass action — the pause is optional, never in the way.
-          style={breakLeads ? ghost : brass}
+          style={{ ...(breakLeads ? ghost : brass), opacity: dimUnlessTapped("out") }}
         >
-          <LogOut size={16} strokeWidth={2} aria-hidden className="shrink-0" />
-          {t("portalClockOutCta")}
+          <BusyLabel busy={clock.busy && lastTap === "out"} hold={!!clock.leaving}>
+            <LogOut size={16} strokeWidth={2} aria-hidden className="shrink-0" />
+            {t("portalClockOutCta")}
+          </BusyLabel>
         </button>
         {showBreakBtn && !breakLeads && (
           <button
             type="button"
             data-testid="portal-break-btn"
             disabled={clock.busy}
-            onClick={() => clock.breakAct("start")}
-            className="inline-flex items-center justify-center vp-press disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-            style={ghost}
+            aria-busy={(clock.busy && lastTap === "break") || undefined}
+            onClick={() => { setLastTap("break"); clock.breakAct("start"); }}
+            className="inline-flex items-center justify-center vp-press focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ ...ghost, opacity: dimUnlessTapped("break") }}
           >
-            <Coffee size={16} strokeWidth={2} aria-hidden className="shrink-0" />
-            <span className="truncate">{t("portalBreakStart", "Start break")}</span>
+            <BusyLabel busy={clock.busy && lastTap === "break"} hold={!!clock.leaving}>
+              <Coffee size={16} strokeWidth={2} aria-hidden className="shrink-0" />
+              <span className="truncate">{t("portalBreakStart", "Start break")}</span>
+            </BusyLabel>
           </button>
         )}
       </div>
@@ -8891,7 +8950,8 @@ export default function StaffPortalPage() {
   useEffect(() => installPressFeel(), []);
   // The tabs' memory (premium feel P7, components/staff/tabMemory.js) lives
   // only as long as this page: a disconnect or another token starts empty.
-  useEffect(() => () => forgetAll(), []);
+  // So does the clock's last answer (premium feel 1.2a, `lastClock`).
+  useEffect(() => () => { forgetAll(); lastClock = null; }, []);
   // The profile sheet offers DA and EN. On a slow phone a switch waited 2-3 s
   // for the other dictionary's chunk (Android 14 walk, 12 Nov 2026), so it is
   // fetched once the page is idle after its first paint. Nothing renders.
