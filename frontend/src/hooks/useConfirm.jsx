@@ -29,6 +29,14 @@
  *
  * One <ConfirmProvider> is mounted at the app root (App.jsx), so there is a
  * single dialog instance for the whole app — no per-page modal state.
+ *
+ * Exit motion (Vagtplan, Nov 2026): on the staff portal only (body has
+ * `portal-shell`) and only when motion is allowed, the dialog lingers for
+ * 240 ms after it is answered with `data-closing` on it, inert, so the
+ * portal's stylesheet can play its exit. The ANSWER is never delayed — the
+ * promise resolves at the tap, as everywhere else. Everywhere else the
+ * dialog unmounts at once, exactly as before; the data-bb-confirm* hooks are
+ * inert attributes.
  */
 import {
   createContext,
@@ -45,6 +53,21 @@ import { useLanguage } from "./useLanguage";
 import Button from "../components/ui/Button";
 
 const ConfirmContext = createContext(null);
+
+// How long an answered dialog stays mounted to play its exit: 240 ms on the
+// staff portal with motion allowed, else 0 (unmount at once). No matchMedia
+// (an old WebView, jsdom) counts as "don't animate".
+const EXIT_MS = 240;
+function confirmExitMs() {
+  try {
+    if (typeof document === "undefined" || !document.body?.classList.contains("portal-shell")) return 0;
+    if (typeof window.matchMedia !== "function") return 0;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)")?.matches) return 0;
+    return EXIT_MS;
+  } catch {
+    return 0;
+  }
+}
 
 /**
  * useConfirm() → async confirm(opts) : Promise<boolean>.
@@ -66,16 +89,26 @@ export function ConfirmProvider({ children }) {
   const { t } = useLanguage();
   // { opts, resolve } while open, else null.
   const [state, setState] = useState(null);
+  // The opts of an answered dialog while it plays its exit (portal only).
+  const [leaving, setLeaving] = useState(null);
+  // What is open right now — read by settle() to snapshot the exit, and so a
+  // second tap after the answer cannot start a ghost exit.
+  const openRef = useRef(null);
   const confirmBtnRef = useRef(null);
   const cancelBtnRef = useRef(null);
 
   const confirm = useCallback((opts) => {
     const o = typeof opts === "string" ? { message: opts } : { ...(opts || {}) };
+    openRef.current = o;
+    setLeaving(null);
     return new Promise((resolve) => setState({ opts: o, resolve }));
   }, []);
 
   const settle = useCallback(
     (result) => {
+      const was = openRef.current;
+      openRef.current = null;
+      if (was && confirmExitMs() > 0) setLeaving(was);
       setState((cur) => {
         cur?.resolve(result);
         return null;
@@ -83,6 +116,12 @@ export function ConfirmProvider({ children }) {
     },
     [],
   );
+
+  useEffect(() => {
+    if (!leaving) return undefined;
+    const id = setTimeout(() => setLeaving(null), EXIT_MS);
+    return () => clearTimeout(id);
+  }, [leaving]);
 
   // Keyboard: Esc always cancels. Enter confirms ONLY when the action is
   // reversible, and the initial focus follows the same rule.
@@ -130,26 +169,31 @@ export function ConfirmProvider({ children }) {
     };
   }, [state, settle]);
 
-  const o = state?.opts || {};
+  const o = state?.opts || leaving || {};
   const destructive = !!o.destructive;
+  const closing = !state && !!leaving;
 
   return (
     <ConfirmContext.Provider value={confirm}>
       {children}
-      {state &&
+      {(state || leaving) &&
         createPortal(
           <div
             className="fixed inset-0 z-[10000] flex items-center justify-center p-4"
             role="dialog"
             aria-modal="true"
             aria-labelledby="bb-confirm-title"
+            data-bb-confirm=""
+            {...(closing ? { "data-closing": "", "aria-hidden": true, inert: true } : {})}
           >
             <div
               className="absolute inset-0 bg-gray-900/50 backdrop-blur-[2px] animate-fadeIn"
+              data-bb-confirm-scrim=""
               onClick={() => settle(false)}
             />
             <div
               className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-sm p-5 sm:p-6 animate-fadeIn"
+              data-bb-confirm-panel=""
               style={{ paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }}
             >
               <div className="flex items-start gap-3.5">
