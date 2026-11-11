@@ -59,6 +59,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, event_log as event_log_router, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router, smart_pricing as smart_pricing_router, pillars as pillars_router, diagnostics as diagnostics_router
+from app.routers import venue_location as venue_location_router
 # Invoicing — Customer/Invoice/Mileage. Gated to Starter+ at the route level.
 from app.routers import staff_chat as staff_chat_router
 from app.routers import activation as activation_router
@@ -2719,6 +2720,43 @@ _migrations = [
     # demodata" restores it instead of deleting the profile (and the revisor
     # and bank details the owner typed). Nullable, no default, no backfill.
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS demo_snapshot_json TEXT",
+    # ── Migration 085 (2026-11-11): the staff app's venue map (Vagtplan R2) ─
+    # The venue's map pin (business_profiles.venue_*) and each location's own
+    # (branches.geo_*): where it came from, when, and when the owner confirmed
+    # it — staff see a map only after that. All nullable, no default, no
+    # backfill: metadata-only ADD COLUMNs on Postgres. Float in the model →
+    # DOUBLE PRECISION, as create_all builds it. models/venue_map.py nulls them
+    # in the same write when the address changes.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS venue_lat DOUBLE PRECISION",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS venue_lng DOUBLE PRECISION",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS venue_geo_source VARCHAR(16)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS venue_geo_at TIMESTAMP",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS venue_geo_confirmed_at TIMESTAMP",
+    "ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_lat DOUBLE PRECISION",
+    "ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_lng DOUBLE PRECISION",
+    "ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_source VARCHAR(16)",
+    "ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_at TIMESTAMP",
+    "ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_confirmed_at TIMESTAMP",
+    # venue_maps — the drawn image, cached as a row (models/venue_map.py).
+    # create_all builds it on both engines from the model; this is the
+    # create_all-bypassed safety net, typed as create_all types it (GUID →
+    # VARCHAR(36), LargeBinary → BYTEA). Net-new, nothing points at it.
+    """CREATE TABLE IF NOT EXISTS venue_maps (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        branch_id VARCHAR(36) REFERENCES branches(id) ON DELETE CASCADE,
+        coords_hash VARCHAR(64) NOT NULL,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        dpr INTEGER NOT NULL,
+        png BYTEA,
+        bytes INTEGER,
+        created_at TIMESTAMP,
+        failed_at TIMESTAMP,
+        CONSTRAINT uq_venue_maps_key UNIQUE (user_id, coords_hash, width, height, dpr)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_venue_maps_user_id ON venue_maps (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_venue_maps_user_branch ON venue_maps (user_id, branch_id)",
     # ── Migration (2026-10-08): users.signup_ref — door-visit attribution ──
     # Mirrors app/models/user.py:User.signup_ref. The printed QR's code
     # ("r1-a-03"), kept by the frontend until the account exists and stored
@@ -3538,6 +3576,18 @@ def _run_migrations():
             ok += _add("daily_closes", "source_meta", "TEXT")
             # Mirror of Migration 084 — the demo seeder's pre-seed snapshot.
             ok += _add("business_profiles", "demo_snapshot_json", "TEXT")
+            # Mirror of Migration 085 — the venue map pins (venue_maps itself
+            # comes from create_all on SQLite, as every new table does).
+            ok += _add("business_profiles", "venue_lat", "FLOAT")
+            ok += _add("business_profiles", "venue_lng", "FLOAT")
+            ok += _add("business_profiles", "venue_geo_source", "VARCHAR(16)")
+            ok += _add("business_profiles", "venue_geo_at", "TIMESTAMP")
+            ok += _add("business_profiles", "venue_geo_confirmed_at", "TIMESTAMP")
+            ok += _add("branches", "geo_lat", "FLOAT")
+            ok += _add("branches", "geo_lng", "FLOAT")
+            ok += _add("branches", "geo_source", "VARCHAR(16)")
+            ok += _add("branches", "geo_at", "TIMESTAMP")
+            ok += _add("branches", "geo_confirmed_at", "TIMESTAMP")
             # Mirror of users.signup_ref — the door-visit code.
             ok += _add("users", "signup_ref", "VARCHAR(24)")
             # Mirror of users.terms_version / terms_accepted_at (2026-10-10).
@@ -5892,6 +5942,8 @@ app.include_router(daily_close.router, prefix="/api/daily-close", tags=["Daily C
 app.include_router(workshop.router, prefix="/api/workshop", tags=["Automobile Workshop"])
 app.include_router(wine.router, prefix="/api/wines", tags=["Wine List"])
 app.include_router(staff.router, prefix="/api/staff", tags=["Staff Management"])
+# The owner's venue-pin check for the staff app's map (Vagtplan R2).
+app.include_router(venue_location_router.router, prefix="/api/staff", tags=["Staff Management"])
 app.include_router(staff_portal.router, prefix="/api/portal", tags=["Staff Portal (Public)"])
 # Owner ↔ staff 1:1 chat ("Beskeder") — two routers, two auth gates.
 app.include_router(staff_chat_router.owner_router, prefix="/api/staff", tags=["Staff Chat (Owner)"])

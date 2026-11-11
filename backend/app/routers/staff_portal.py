@@ -202,6 +202,12 @@ class PortalInfo(BaseModel):
     calendar_key: str | None = None
     max_hours_month: float | None = None
     max_hours_week: float | None = None
+    # The venue as the next-shift card shows it (Vagtplan R2): name, one
+    # address line, whether a map can be drawn, and the pin — lat/lng ONLY
+    # once the owner confirmed it (a wrong guess is never shown), and only to
+    # a PIN-proven caller on a PIN link. Names and coordinates of the venue,
+    # never anything about other staff. None on an account without a profile.
+    venue: dict | None = None
 
 
 class ContactUpdateRequest(BaseModel):
@@ -717,6 +723,72 @@ def get_portal_info(token: str, request: Request, db: Session = Depends(get_db))
         calendar_key=_calendar_key(link) if pin_ok else None,
         max_hours_month=float(member.max_hours_month) if (pii_ok and member.max_hours_month) else None,
         max_hours_week=float(member.max_hours_week) if (pii_ok and member.max_hours_week) else None,
+        venue=_portal_venue(db, link.user_id, profile, restaurant_name, pii_ok),
+    )
+
+
+def _portal_venue(db: Session, owner_id, profile, name, pii_ok: bool) -> dict | None:
+    """PortalInfo.venue. Reads only — the staff path never geocodes."""
+    if profile is None:
+        return None
+    from app.services import venue_map as vm
+
+    pin = vm.current_pin(profile)
+    confirmed = bool(pin and pin.confirmed)
+    has_map = confirmed and not vm.recently_failed(db, owner_id, pin)
+    return {
+        "name": name,
+        "address_line": vm.address_line(profile) or None,
+        "has_map": has_map,
+        "lat": round(pin.lat, 6) if (confirmed and pii_ok) else None,
+        "lng": round(pin.lng, 6) if (confirmed and pii_ok) else None,
+    }
+
+
+def _portal_token_key(request: Request) -> str:
+    """Rate-limit key for the map: the LINK, not the address — one phone on a
+    café's shared Wi-Fi must not spend its colleagues' allowance, and a
+    token that is being hammered is limited wherever it is used from."""
+    token = (request.path_params or {}).get("token") or ""
+    return "portal-map:" + hashlib.sha256(token.encode()).hexdigest()[:24]
+
+
+@router.get("/{token}/venue-map")
+@limiter.limit("20/minute", key_func=_portal_token_key)
+def get_portal_venue_map(token: str, request: Request, w: int = 360, h: int = 112, dpr: int = 2,
+                         db: Session = Depends(get_db)):
+    """The venue map for the next-shift card: image/png, or 204.
+
+    Three outcomes, never a broken image:
+      200 — the drawn map (cached as a row; drawn on first ask).
+      204 — no confirmed pin (the owner has not checked it yet, or the
+            address changed since), or no profile.
+      204 — the drawing failed (OpenFreeMap down, bad tile); retried after
+            24 h. The card then shows the address and Rute without a map.
+
+    PIN-gated like every data endpoint (the app fetches it as a blob with the
+    proof header). Cache-Control is `public` on an open link and `private` on
+    a PIN link, so no shared cache can hand the image past the PIN layer."""
+    from app.services import venue_map as vm
+
+    link, _member = _get_staff_from_token(token, db)
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == link.user_id).first()
+    pin = vm.current_pin(profile)
+    if pin is None or not pin.confirmed:
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
+    w, h, dpr = vm.clamp_size(w, h, dpr)
+    etag = vm.etag_for(pin, w, h, dpr)
+    scope = "private" if link.pin_hash else "public"
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": f"{scope}, max-age=604800"})
+    owner_id = link.user_id
+    outcome, png = vm.get_map(db, owner_id, pin, w, h, dpr)
+    if outcome != "ok" or not png:
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"ETag": etag, "Cache-Control": f"{scope}, max-age=604800"},
     )
 
 

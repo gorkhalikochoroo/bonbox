@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, Boolean, Numeric
+from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, Boolean, Numeric, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -264,6 +264,19 @@ class BusinessProfile(Base):
     # wiping the profile. NULL = never seeded (or seeded before this existed).
     # Never part of the API: not in the Create/Response schemas.
     demo_snapshot_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Migration 085 — the venue's map pin for the staff app's next-shift card
+    # (services/venue_map.py). Where it came from: "maplink" (the owner pasted
+    # one), "dawa" / "nominatim" (looked up once from the address, on the
+    # owner's pin check — never from a staff request). A clock-in geofence
+    # anchor is read live from clock_settings_json and is not copied here.
+    # venue_geo_confirmed_at: the owner said "Ja, det passer"; staff see the
+    # map only after that (a pasted map link counts as confirmed). All NULL
+    # again when the address changes (models/venue_map.py listener).
+    venue_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    venue_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
+    venue_geo_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    venue_geo_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    venue_geo_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
