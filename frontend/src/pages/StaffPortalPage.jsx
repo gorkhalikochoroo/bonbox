@@ -4781,22 +4781,29 @@ function SwapTab({ token, ownShifts, onChanged }) {
   };
 
   return (
-    <div className="space-y-4">
-      {/* Actions — trade (targeted) or sell (open pool) */}
+    <div className="flex flex-col" style={{ gap: 16 }}>
+      {/* Actions — trade (targeted) or sell (open pool). Two buttons, not a
+          toggle: pine for the swap, the ivory card for the give-away. */}
       {!showPropose && !showSell && (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2" style={{ gap: 8 }}>
           <button
+            type="button"
             onClick={() => setShowPropose(true)}
-            className="px-3 py-3 rounded-xl bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold transition flex items-center justify-center gap-1.5"
+            data-testid="swap-offer"
+            className={`min-w-0 flex items-center justify-center text-center vp-press ${FOCUS_RING}`}
+            style={{ ...BTN_PINE, height: "auto", minHeight: 52, padding: "8px 12px", borderRadius: 18, gap: 8, lineHeight: 1.2 }}
           >
-            <ArrowLeftRight className="w-4 h-4" strokeWidth={2} aria-hidden />
+            <ArrowLeftRight size={18} strokeWidth={1.9} aria-hidden className="shrink-0" />
             {t("portalOfferSwapShort", "Swap")}
           </button>
           <button
+            type="button"
             onClick={() => setShowSell(true)}
-            className="px-3 py-3 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 text-gray-900 text-sm font-semibold transition flex items-center justify-center gap-1.5"
+            data-testid="swap-give-away"
+            className={`min-w-0 flex items-center justify-center text-center vp-press ${FOCUS_RING}`}
+            style={{ ...BTN_QUIET, height: "auto", minHeight: 52, padding: "8px 12px", borderRadius: 18, gap: 8, lineHeight: 1.2 }}
           >
-            <Send className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />
+            <Send size={18} strokeWidth={1.9} aria-hidden className="shrink-0" style={{ color: MUTED }} />
             {t("portalGaSellCta", "Give away a shift")}
           </button>
         </div>
@@ -4818,74 +4825,77 @@ function SwapTab({ token, ownShifts, onChanged }) {
         />
       )}
 
-      {/* Colleagues' open give-aways — first qualified taker wins. */}
+      {/* Colleagues' open give-aways — first qualified taker wins. The home's
+          open-shift rows: a date tile, the time in Sora, who and why, the
+          verdict before the tap, and the sage "Tag vagten" pill. */}
       {pool.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-[10px] uppercase tracking-wide font-medium text-gray-500">
-            {t("portalGaPoolHeading", "Shifts up for grabs")}
-          </div>
-          {claimErr && (
-            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-[14px] px-2.5 py-1.5">{claimErr}</div>
-          )}
-          {pool.map((g) => {
-            const clash = overlapsOwnShift(g.from_shift_date, g.from_shift_time, ownShifts);
-            return (
-            <div
-              key={g.id}
-              className="rounded-[18px] bg-white p-3 flex items-center gap-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-              style={{ border: clash ? "1px solid rgba(239,68,68,.28)" : "1px solid #e8edf3" }}
+        <section data-testid="swap-pool">
+          <div className="flex items-center" style={{ gap: 8, padding: "0 4px", minHeight: 24 }}>
+            <HomeH2>{t("portalGaPoolHeading", "Shifts up for grabs")}</HomeH2>
+            <span
+              className="inline-flex items-center justify-center vp-figures"
+              style={{ height: 20, minWidth: 20, padding: "0 6px", borderRadius: 10, background: PINE, color: CREAM, font: `700 11px/1 ${SORA}` }}
             >
-              <div className="flex-1 min-w-0">
-                <div className="text-sm text-gray-900 flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold">{fmtSwapDay(g.from_shift_date, lang)}</span>
-                  <span className="text-gray-500">· {g.from_shift_time}</span>
-                  {/* v2's eligibility tag — the answer before the tap. */}
-                  <span
-                    className="shrink-0 rounded-full font-text text-[10px] font-bold uppercase tracking-[0.05em] px-2 py-0.5"
-                    style={clash
-                      ? { background: "#fee2e2", color: "#b91c1c" }
-                      : { background: "#dcfce7", color: "#15803d" }}
-                  >
-                    {clash ? t("portalGaOverlaps", "Overlaps you") : t("portalGaFree", "Free for you")}
-                  </span>
+              {pool.length}
+            </span>
+          </div>
+          {claimErr && <div style={{ marginTop: 8 }}><VpNote>{claimErr}</VpNote></div>}
+          <div style={{ marginTop: 8, ...CARD_BOX, borderRadius: 22, overflow: "hidden" }}>
+            {pool.map((g, i) => {
+              const clash = overlapsOwnShift(g.from_shift_date, g.from_shift_time, ownShifts);
+              return (
+                <div key={g.id}>
+                  {i > 0 && <div aria-hidden style={{ height: 1, background: DIVIDER, marginLeft: 80 }} />}
+                  <div data-testid="swap-pool-row" className="flex items-center" style={{ gap: 12, padding: "14px 12px 14px 14px" }}>
+                    {/^\d{4}-\d{2}-\d{2}$/.test(g.from_shift_date || "") && <DateTile iso={g.from_shift_date} lang={lang} />}
+                    <div className="flex-1 min-w-0 flex flex-col" style={{ gap: 3 }}>
+                      <span className="tabular-nums whitespace-nowrap truncate" style={{ font: `700 16px/1.2 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>
+                        {g.from_shift_time}
+                      </span>
+                      <span className="truncate" style={{ font: "400 13px/1.3 var(--font-text)", color: MUTED }}>
+                        {t("portalGaFrom", "From")} {g.from_staff_name}
+                        {g.from_branch_name ? ` · ${g.from_branch_name}` : ""}
+                        {g.reason ? ` — “${g.reason}”` : ""}
+                      </span>
+                      {/* v2's eligibility tag — the answer before the tap. */}
+                      <span data-testid="swap-pool-verdict" style={{ font: "600 12px/1.2 var(--font-text)", color: clash ? ALERT_INK : PINE }}>
+                        {clash ? t("portalGaOverlaps", "Overlaps you") : t("portalGaFree", "Free for you")}
+                      </span>
+                    </div>
+                    {clash ? (
+                      <button
+                        type="button"
+                        onClick={() => setClaimErr(t("portalGaBlockedWhy", "You already work then — that's why this one is blocked."))}
+                        aria-disabled
+                        className={`shrink-0 inline-flex items-center justify-center vp-press ${FOCUS_RING}`}
+                        style={{ height: 44, padding: "0 16px", borderRadius: 999, background: TILE, color: MUTED, font: "600 14px/1 var(--font-text)" }}
+                      >
+                        {t("portalGaBlocked", "Blocked")}
+                      </button>
+                    ) : (
+                      <TakeItButton
+                        onClick={() => claimGiveaway(g.id)}
+                        busy={claimBusy === g.id}
+                        label={t("portalGaTake", "Take it")}
+                      />
+                    )}
+                  </div>
                 </div>
-                <div className="text-[11px] text-gray-500 truncate">
-                  {t("portalGaFrom", "From")} {g.from_staff_name}
-                  {g.from_branch_name ? ` · ${g.from_branch_name}` : ""}
-                  {g.reason ? ` — “${g.reason}”` : ""}
-                </div>
-              </div>
-              <button
-                onClick={() => (clash
-                  ? setClaimErr(t("portalGaBlockedWhy", "You already work then — that's why this one is blocked."))
-                  : claimGiveaway(g.id))}
-                disabled={claimBusy === g.id}
-                aria-disabled={clash}
-                className={`shrink-0 font-text text-[12px] font-bold px-3 py-2 rounded-[12px] disabled:opacity-50 ${
-                  clash ? "bg-[#f1f5f9] text-gray-400" : "bg-gray-900 hover:bg-gray-700 text-white"
-                }`}
-              >
-                {claimBusy === g.id
-                  ? "…"
-                  : clash
-                    ? t("portalGaBlocked", "Blocked")
-                    : t("portalGaTake", "Take it")}
-              </button>
-            </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {/* Inbox */}
       {inbox === null && <ListSkeleton label={t("portalLoading", "Loading…")} rows={2} height={72} />}
       {inbox && inbox.length === 0 && !showPropose && (
-        <div className="text-center text-xs text-gray-500 py-6">
+        <CalmEmpty icon={ArrowLeftRight} testId="swap-empty">
           {t("portalSwapNonePending", "No pending swap requests.")}
-        </div>
+        </CalmEmpty>
       )}
       {inbox && inbox.length > 0 && (
-        <div className="space-y-2">
+        <div className="flex flex-col" style={{ gap: 8 }}>
           {inbox.map((s) => (
             <SwapRow key={s.id} swap={s} token={token} onChanged={reload} />
           ))}
@@ -4976,16 +4986,17 @@ function SwapRow({ swap, token, onChanged }) {
     }
   };
 
-  // Status pills use STATUS colors only (design system): amber for the
-  // pending "proposed" state, emerald for the completed "done"/byttet
-  // state, neutral gray for everything else (declined/withdrawn/etc.).
+  // Status pills carry meaning, as on Fravær: brass for the open "proposed"
+  // state (it waits on someone), sage-and-pine for the completed
+  // "done"/byttet state, a quiet tile for everything else
+  // (declined/withdrawn/etc.).
   const statusPill = swap.status === "proposed"
-    ? "bg-amber-50 border border-amber-200 text-amber-700"
+    ? { background: BRASS_WASH, color: BRASS_INK }
     : swap.status === "done"
-      ? "bg-emerald-50 border border-emerald-200 text-emerald-700"
+      ? { background: SOFT, color: PINE }
       : swap.status === "accepted"
-        ? "bg-gray-100 border border-gray-200 text-gray-700"
-        : "bg-gray-100 border border-gray-200 text-gray-500";
+        ? { background: TILE, color: INK }
+        : { background: TILE, color: MUTED };
 
   // Give-away = no counter-shift (to_shift_id null). Same state machine,
   // different words: the row reads "up for grabs / taken", never "swap".
@@ -5003,56 +5014,54 @@ function SwapRow({ swap, token, onChanged }) {
           ? t("portalSwapStatusWithdrawn", "Withdrawn")
           : swap.status;
 
+  // One side of the trade: the day in words, the time in Sora (the home's
+  // shift-row tile).
+  const side = (label, date, time) => (
+    <div style={{ minWidth: 0, padding: "10px 12px", borderRadius: 14, background: ROW }}>
+      <div style={{ font: "600 11px/1.2 var(--font-text)", letterSpacing: "0.08em", textTransform: "uppercase", color: MUTED }}>{label}</div>
+      <div className="truncate" style={{ marginTop: 4, font: "500 13px/1.3 var(--font-text)", color: INK }}>{fmtSwapDay(date, lang)}</div>
+      <div className="tabular-nums truncate" style={{ marginTop: 2, font: `700 15px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>{time}</div>
+    </div>
+  );
+
   return (
-    <div className="rounded-xl bg-white border border-gray-200 p-3 space-y-2">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] uppercase tracking-wide font-medium text-gray-500">
+    <div data-testid="swap-row" className="flex flex-col" style={{ gap: 10, padding: 14, borderRadius: 20, ...CARD_BOX }}>
+      <div className="flex items-center justify-between" style={{ gap: 8 }}>
+        <span style={EYEBROW}>
           {swap.direction === "outgoing" ? t("portalSwapOutgoing", "Outgoing") : t("portalSwapIncoming", "Incoming")}
         </span>
-        <span className={`text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded ${statusPill}`}>
+        <span data-testid="swap-status" style={{ padding: "5px 10px", borderRadius: 999, font: "600 12px/1 var(--font-text)", ...statusPill }}>
           {statusLabel}
         </span>
       </div>
-      <div className="text-sm text-gray-900">
-        <span className="font-semibold">{swap.from_staff_name}</span>
+      <div style={{ font: "400 15px/1.35 var(--font-text)", color: INK }}>
+        <span style={{ fontWeight: 600 }}>{swap.from_staff_name}</span>
         {isGiveaway ? (
           swap.status === "done" && swap.to_staff_name ? (
             <>
-              <span className="text-gray-500"> → </span>
-              <span className="font-semibold">{swap.to_staff_name}</span>
+              <span style={{ color: MUTED }}> → </span>
+              <span style={{ fontWeight: 600 }}>{swap.to_staff_name}</span>
             </>
           ) : (
-            <span className="text-gray-500"> · {t("portalGaOnBoard", "on the board")}</span>
+            <span style={{ color: MUTED }}> · {t("portalGaOnBoard", "on the board")}</span>
           )
         ) : (
           <>
-            <span className="text-gray-500"> → </span>
-            <span className="font-semibold">{swap.to_staff_name}</span>
+            <span style={{ color: MUTED }}> → </span>
+            <span style={{ fontWeight: 600 }}>{swap.to_staff_name}</span>
           </>
         )}
       </div>
-      <div className={`grid gap-2 text-[11px] ${isGiveaway ? "grid-cols-1" : "grid-cols-2"}`}>
-        <div className="bg-[#f5f8fb] rounded-[13px] p-1.5">
-          <div className="text-[10px] text-gray-500">
-            {isGiveaway ? t("portalGaShiftLabel", "Shift") : t("portalSwapGives", "Gives")}
-          </div>
-          <div className="text-gray-900">{fmtSwapDay(swap.from_shift_date, lang)}</div>
-          <div className="text-gray-500">{swap.from_shift_time}</div>
-        </div>
-        {!isGiveaway && (
-          <div className="bg-[#f5f8fb] rounded-[13px] p-1.5">
-            <div className="text-[10px] text-gray-500">{t("portalSwapGets", "Gets")}</div>
-            <div className="text-gray-900">{fmtSwapDay(swap.to_shift_date, lang)}</div>
-            <div className="text-gray-500">{swap.to_shift_time}</div>
-          </div>
-        )}
+      <div className="grid" style={{ gap: 8, gridTemplateColumns: isGiveaway ? "minmax(0, 1fr)" : "repeat(2, minmax(0, 1fr))" }}>
+        {side(isGiveaway ? t("portalGaShiftLabel", "Shift") : t("portalSwapGives", "Gives"), swap.from_shift_date, swap.from_shift_time)}
+        {!isGiveaway && side(t("portalSwapGets", "Gets"), swap.to_shift_date, swap.to_shift_time)}
       </div>
       {swap.reason && (
-        <div className="text-[11px] text-gray-500 italic">"{swap.reason}"</div>
+        <div style={{ font: "italic 400 13px/1.4 var(--font-text)", color: MUTED }}>"{swap.reason}"</div>
       )}
       {swap.owner_note && (
-        <div className="text-[11px] text-gray-500">
-          <span className="text-gray-500">{t("portalSwapOwnerLabel", "Owner")}:</span> {swap.owner_note}
+        <div style={{ font: "400 13px/1.4 var(--font-text)", color: MUTED }}>
+          <span style={{ fontWeight: 600 }}>{t("portalSwapOwnerLabel", "Owner")}:</span> {swap.owner_note}
         </div>
       )}
 
@@ -5060,34 +5069,38 @@ function SwapRow({ swap, token, onChanged }) {
       {/* Once the re-read shows the swap settled (done, declined, withdrawn),
           a generic "couldn't answer" is no longer true — the pill says it. */}
       {rowErr && (rowErr.sticky || swap.status === "proposed") && (
-        <div role="alert" className="text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-[12px] px-2.5 py-1.5 leading-snug">
-          {rowErr.text}
-        </div>
+        <VpAlert>{rowErr.text}</VpAlert>
       )}
       {swap.status === "proposed" && swap.direction === "incoming" && (
-        <div className="flex items-center gap-2 pt-1">
+        <div className="flex" style={{ gap: 8 }}>
           <button
+            type="button"
             onClick={() => respond(true)}
             disabled={busy}
-            className="min-h-[44px] text-[13px] font-semibold px-4 rounded-[12px] bg-gray-900 hover:bg-gray-700 text-white disabled:opacity-50"
+            className={`flex-1 min-h-[44px] vp-press disabled:opacity-50 ${FOCUS_RING}`}
+            style={BTN_PINE}
           >
             {t("portalSwapAccept", "Accept")}
           </button>
           <button
+            type="button"
             onClick={() => respond(false)}
             disabled={busy}
-            className="min-h-[44px] text-[13px] font-semibold px-4 rounded-[12px] bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
+            className={`flex-1 min-h-[44px] vp-press disabled:opacity-50 ${FOCUS_RING}`}
+            style={BTN_QUIET}
           >
             {t("portalSwapDecline", "Decline")}
           </button>
         </div>
       )}
       {swap.status === "proposed" && swap.direction === "outgoing" && (
-        <div className="pt-1">
+        <div>
           <button
+            type="button"
             onClick={withdraw}
             disabled={busy}
-            className="text-xs font-medium px-2.5 py-1 rounded bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
+            className={`min-h-[44px] inline-flex items-center vp-press disabled:opacity-50 ${FOCUS_RING}`}
+            style={{ padding: "0 16px", borderRadius: 999, ...CARD_BOX, color: INK, font: "600 13px/1 var(--font-text)" }}
           >
             {t("portalSwapWithdraw", "Withdraw")}
           </button>
@@ -5097,16 +5110,16 @@ function SwapRow({ swap, token, onChanged }) {
           reassigned (auto-execute). Honest, final copy — no "awaiting
           owner". The schedule tab now shows the new shift. */}
       {swap.status === "done" && (
-        <div className="flex items-center gap-1.5 text-[12px] text-emerald-700 pt-1">
-          <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.5} aria-hidden />
+        <div className="flex items-center" style={{ gap: 6, font: "500 13px/1.35 var(--font-text)", color: PINE }}>
+          <Check size={15} strokeWidth={2.4} className="shrink-0" aria-hidden />
           <span>{t("portalSwapDoneLine", "Done — shifts swapped. Your schedule is updated.")}</span>
         </div>
       )}
       {/* Legacy/edge: a swap left in `accepted` (e.g. a future owner-
           approval flow). Calm, non-promising copy. */}
       {swap.status === "accepted" && (
-        <div className="flex items-center gap-1.5 text-[12px] text-gray-700 pt-1">
-          <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600" strokeWidth={2.5} aria-hidden />
+        <div className="flex items-center" style={{ gap: 6, font: "500 13px/1.35 var(--font-text)", color: INK }}>
+          <Check size={15} strokeWidth={2.4} className="shrink-0" style={{ color: PINE }} aria-hidden />
           <span>{t("portalSwapAcceptedLine", "Both staff agreed.")}</span>
         </div>
       )}
@@ -5150,27 +5163,16 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
   };
 
   return (
-    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)] vp-sheet">
-      <div className="flex items-center justify-between">
-        <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5">
-          <Send className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />
-          {t("portalGaSellCta", "Give away a shift")}
-        </div>
-        <button
-          onClick={onClose}
-          className="text-gray-500 hover:text-gray-700 text-lg w-6 h-6 flex items-center justify-center"
-          aria-label={t("close", "Close")}
-        >
-          ×
-        </button>
-      </div>
-      <p className="text-[11px] text-gray-500 leading-snug">
+    <div data-kb-block="" data-testid="swap-sell" className="flex flex-col vp-sheet" style={{ gap: 14, padding: 16, borderRadius: 24, ...CARD_BOX }}>
+      <SwapFormHead icon={Send} title={t("portalGaSellCta", "Give away a shift")} onClose={onClose} closeLabel={t("close", "Close")} />
+      <p style={{ margin: 0, font: "400 13px/1.45 var(--font-text)", color: MUTED }}>
         {t("portalGaSellHint", "Your shift goes on the board for colleagues. It stays yours until someone takes it — first come, first served.")}
       </p>
       <select
         value={shiftId}
         onChange={(e) => setShiftId(e.target.value)}
-        className="w-full px-3 py-2 rounded-[14px] border border-[#e2e8f0] bg-[#fbfdff] text-sm text-gray-800"
+        className={FIELD_CLS}
+        style={FIELD}
       >
         <option value="">{t("portalGaPickShift", "Pick your shift…")}</option>
         {upcomingOwn.map((s) => (
@@ -5185,17 +5187,43 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
         onChange={(e) => setReason(e.target.value)}
         maxLength={200}
         placeholder={t("portalGaReasonPh", "Reason (optional — colleagues see it)")}
-        className="w-full px-3 py-2 rounded-[14px] border border-[#e2e8f0] bg-[#fbfdff] text-sm text-gray-800"
+        className={FIELD_CLS}
+        style={FIELD}
       />
-      {error && (
-        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-[14px] px-2.5 py-1.5">{error}</div>
-      )}
+      {error && <VpAlert>{error}</VpAlert>}
       <button
+        type="button"
         onClick={submit}
         disabled={!shiftId || submitting}
-        className="w-full px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold transition disabled:opacity-50"
+        className={`w-full vp-press disabled:opacity-50 ${FOCUS_RING}`}
+        style={{ ...BTN_PINE, height: 52, borderRadius: 18 }}
       >
         {submitting ? "…" : t("portalGaSellSubmit", "Put it up for grabs")}
+      </button>
+    </div>
+  );
+}
+
+/** The head of Byt's two inline forms: a sage well with the form's mark, the
+    title in Sora, and a 44 px close (the ⋯ sheet's). */
+function SwapFormHead({ icon, title, onClose, closeLabel }) {
+  const Icon = icon;
+  return (
+    <div className="flex items-center justify-between" style={{ gap: 12 }}>
+      <div className="flex items-center min-w-0" style={{ gap: 10 }}>
+        <span className="shrink-0 flex items-center justify-center" style={{ width: 38, height: 38, borderRadius: 12, background: SOFT, color: PINE }}>
+          <Icon size={18} strokeWidth={1.9} aria-hidden />
+        </span>
+        <span className="truncate" style={{ font: `700 17px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>{title}</span>
+      </div>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label={closeLabel}
+        className={`shrink-0 flex items-center justify-center rounded-full vp-press ${FOCUS_RING}`}
+        style={{ width: 44, height: 44, background: TILE, color: INK }}
+      >
+        <X size={18} strokeWidth={2} aria-hidden />
       </button>
     </div>
   );
@@ -5261,26 +5289,16 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
   };
 
   return (
-    <div data-kb-block="" className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)] vp-sheet">
-      <div className="flex items-center justify-between">
-        <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><ArrowLeftRight className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalOfferSwap", "Offer to swap")}</div>
-        <button
-          onClick={onClose}
-          className="text-gray-500 hover:text-gray-700 text-lg w-6 h-6 flex items-center justify-center"
-          aria-label={t("close", "Close")}
-        >
-          ×
-        </button>
-      </div>
+    <div data-kb-block="" data-testid="swap-propose" className="flex flex-col vp-sheet" style={{ gap: 14, padding: 16, borderRadius: 24, ...CARD_BOX }}>
+      <SwapFormHead icon={ArrowLeftRight} title={t("portalOfferSwap", "Offer to swap")} onClose={onClose} closeLabel={t("close", "Close")} />
 
-      <div>
-        <label className="text-[11px] text-gray-500 mb-1 block">
-          {t("portalSwapGiveUp", "Your shift to give up")}
-        </label>
+      <label className="block min-w-0">
+        <span style={FIELD_LABEL}>{t("portalSwapGiveUp", "Your shift to give up")}</span>
         <select
           value={fromShiftId}
           onChange={(e) => { setFromShiftId(e.target.value); setToShiftId(""); }}
-          className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-gray-900"
+          className={FIELD_CLS}
+          style={FIELD}
         >
           <option value="">{t("portalSwapPickOwn", "Pick one of your shifts…")}</option>
           {upcomingOwn.map((s) => (
@@ -5289,17 +5307,16 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
             </option>
           ))}
         </select>
-      </div>
+      </label>
 
       {fromShiftId && (
-        <div>
-          <label className="text-[11px] text-gray-500 mb-1 block">
-            {t("portalSwapTakeInExchange", "Teammate's shift you'd take in exchange")}
-          </label>
+        <label className="block min-w-0">
+          <span style={FIELD_LABEL}>{t("portalSwapTakeInExchange", "Teammate's shift you'd take in exchange")}</span>
           <select
             value={toShiftId}
             onChange={(e) => setToShiftId(e.target.value)}
-            className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-gray-900"
+            className={FIELD_CLS}
+            style={FIELD}
           >
             <option value="">{t("portalSwapPickTeammate", "Pick a teammate's shift…")}</option>
             {candidateTeamShifts.map((s) => (
@@ -5309,39 +5326,42 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
             ))}
           </select>
           {hiddenForOverlap > 0 && (
-            <p data-testid="swap-hidden-overlap" className="mt-1.5 text-[11px] text-gray-500 leading-snug">
+            <p data-testid="swap-hidden-overlap" style={{ margin: "8px 2px 0", font: "400 13px/1.4 var(--font-text)", color: MUTED }}>
               {t("portalSwapHiddenOverlap", "{n} hidden — they would put you or your colleague on two shifts at once.")
                 .split("{n}").join(String(hiddenForOverlap))}
             </p>
           )}
-        </div>
+        </label>
       )}
 
-      <div>
-        <label className="text-[11px] text-gray-500 mb-1 block">
-          {t("portalSwapReason", "Reason")} <span className="text-gray-400">{t("portalSwapReasonOptional", "(optional)")}</span>
-        </label>
+      <label className="block min-w-0">
+        <span style={FIELD_LABEL}>
+          {t("portalSwapReason", "Reason")} <span style={{ fontWeight: 400 }}>{t("portalSwapReasonOptional", "(optional)")}</span>
+        </span>
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value.slice(0, 500))}
           rows={2}
           placeholder={t("portalSwapReasonPlaceholder", "e.g. family wedding, doctor appt")}
-          className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900 resize-none"
+          className={`${FIELD_CLS} resize-none`}
+          style={FIELD}
         />
-      </div>
+      </label>
 
-      {error && <div className="text-xs text-red-400">{error}</div>}
+      {error && <VpAlert>{error}</VpAlert>}
 
       <button
+        type="button"
         onClick={submit}
         disabled={submitting || !fromShiftId || !toShiftId}
-        className="w-full px-4 py-2.5 rounded-lg bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold transition disabled:opacity-50"
+        className={`w-full vp-press disabled:opacity-50 ${FOCUS_RING}`}
+        style={{ ...BTN_PINE, height: 52, borderRadius: 18 }}
       >
         {submitting ? t("portalSending", "Sending...") : t("portalSwapSubmit", "Send swap request")}
       </button>
-      <div className="text-[10px] text-gray-400 text-center leading-snug">
+      <p className="text-center" style={{ margin: 0, font: "400 12px/1.4 var(--font-text)", color: MUTED }}>
         {t("portalSwapProposeHint", "Your teammate will see this in their inbox. If they accept, the two shifts swap automatically.")}
-      </div>
+      </p>
     </div>
   );
 }
