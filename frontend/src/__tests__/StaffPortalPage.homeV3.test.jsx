@@ -51,8 +51,10 @@ const get = vi.fn((url) => {
   }
   if (url.includes("/notifications")) return ok({ notifications: [] });
   if (url.endsWith("/chat/unread")) return ok({ unread: 2 });
+  if (url.startsWith(`/portal/${TOK}/venue-map`)) return mapImpl(url);
   return ok([]);
 });
+let mapImpl;
 
 vi.mock("../services/portalApi", () => ({
   default: { get: (...a) => get(...a), post: (...a) => post(...a), put: vi.fn(), delete: vi.fn(), defaults: { baseURL: "" } },
@@ -102,6 +104,7 @@ beforeEach(() => {
     has_pin: false, staff_name: "Freja M.", role: "bartender",
     restaurant_name: "Café Solsikke", restaurant_address: "Solsikkegade 7", restaurant_city: "2200 København N",
   };
+  mapImpl = () => Promise.resolve({ status: 200, data: new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }) });
   scheduleImpl = () => ok({
     shifts: [
       { id: "sh-1", date: SHIFT_DAY, start_time: "16:00", end_time: "22:30", status: "published", net_hours: 6.5, role_on_shift: "Bar" },
@@ -275,6 +278,66 @@ describe("Rute — the right map app per platform, only on a tap", () => {
     expect(rute.getAttribute("aria-label")).toBe("Rute til Café Solsikke");
     expect(rute.getAttribute("href")).toContain("Solsikkegade%207");
     expect(rute.getAttribute("target")).toBe("_blank");
+  });
+});
+
+describe("Venue map on the card (R2)", () => {
+  const VENUE = { name: "Café Solsikke", address_line: "Solsikkegade 7, 2200 København N", has_map: true, lat: 55.6872, lng: 12.5532 };
+  // jsdom has no object URLs; the stubs stay for the file (unmount revokes).
+  beforeEach(() => {
+    URL.createObjectURL = vi.fn(() => "blob:venue-map");
+    URL.revokeObjectURL = vi.fn();
+  });
+  const mapCalls = () => get.mock.calls.filter(([u]) => u.startsWith(`/portal/${TOK}/venue-map`));
+
+  it("shows the server-drawn map for a confirmed pin, fetched as a blob, and Rute uses the pin", async () => {
+    info = { ...info, venue: VENUE };
+    await mount("da");
+    const map = await screen.findByTestId("portal-venue-map");
+    expect(map.querySelector("img").getAttribute("src")).toBe("blob:venue-map");
+    expect(map.querySelector("img").getAttribute("alt")).toBe("Kort over Café Solsikke");
+    expect(mapCalls()).toHaveLength(1);
+    expect(mapCalls()[0][0]).toMatch(/\?w=360&h=112&dpr=[23]$/);
+    expect(mapCalls()[0][1]).toEqual({ responseType: "blob" });
+    // The confirmed pin, not the address text.
+    expect(screen.getByTestId("portal-route").getAttribute("href")).toContain("55.6872,12.5532");
+    expect(screen.getByTestId("portal-hero-place").textContent).toContain("Solsikkegade 7, 2200 København N");
+  });
+
+  it("no confirmed pin: no request, no map — the address and Rute still work", async () => {
+    info = { ...info, venue: { ...VENUE, has_map: false, lat: null, lng: null } };
+    await mount("da");
+    expect(mapCalls()).toHaveLength(0);
+    expect(screen.queryByTestId("portal-venue-map")).toBeNull();
+    expect(screen.getByTestId("portal-route").getAttribute("href")).toContain("Solsikkegade%207");
+  });
+
+  it("a 204 or a failed request leaves no map — never a broken image", async () => {
+    info = { ...info, venue: VENUE };
+    mapImpl = () => Promise.resolve({ status: 204, data: new Blob([]) });
+    await mount("da");
+    await waitFor(() => expect(mapCalls()).toHaveLength(1));
+    expect(screen.queryByTestId("portal-venue-map")).toBeNull();
+  });
+
+  it("an image that will not decode is removed", async () => {
+    info = { ...info, venue: VENUE };
+    await mount("da");
+    const img = (await screen.findByTestId("portal-venue-map")).querySelector("img");
+    fireEvent.error(img);
+    await waitFor(() => expect(screen.queryByTestId("portal-venue-map")).toBeNull());
+  });
+
+  it("a shift at another location never shows the venue's map", async () => {
+    info = { ...info, venue: VENUE };
+    scheduleImpl = () => ok({
+      shifts: [{ id: "b1", date: SHIFT_DAY, start_time: "16:00", end_time: "22:00", status: "published", net_hours: 6, branch_name: "Vesterbro", branch_address: "Istedgade 1" }],
+    });
+    await mount("da");
+    expect(screen.queryByTestId("portal-venue-map")).toBeNull();
+    expect(mapCalls()).toHaveLength(0);
+    expect(screen.getByTestId("portal-hero-place").textContent).toContain("Vesterbro");
+    expect(screen.getByTestId("portal-route").getAttribute("href")).toContain("Istedgade");
   });
 });
 

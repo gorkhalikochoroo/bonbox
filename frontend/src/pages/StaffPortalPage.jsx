@@ -2081,6 +2081,9 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 a tap (utils/routeUrl: Apple Maps on iPhone, the phone's own map
                 app on Android, Google Maps elsewhere). Name ONLY when the owner
                 gave no address — never a fabricated one. */}
+            {/* The map — only for the venue's own pin, only once the owner
+                confirmed it (PortalInfo.venue.has_map). */}
+            {token && place.hasMap && <VenueMapImage token={token} venueName={place.name} />}
             {(place.name || place.address) && (
               <div className="flex items-center" style={{ marginTop: 12, gap: 12 }} data-testid="portal-hero-place">
                 <div className="min-w-0 flex-1 flex flex-col" style={{ gap: 4 }}>
@@ -2797,6 +2800,56 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
 }
 
 /**
+ * VenueMapImage — the small map on the next-shift card (Vagtplan R2).
+ *
+ * Drawn by OUR server (backend services/venue_map.py) from OpenStreetMap
+ * data and served from api.bonbox.dk, so no map company sees the staffer or
+ * their phone. Fetched as a blob through portalApi so a PIN-protected link
+ * sends its proof header (a bare <img src> cannot). Renders NOTHING until a
+ * real PNG is in hand: a 204 (no confirmed pin, or the drawing failed), an
+ * error, or an image that will not decode all mean no map — never a broken
+ * image. The address and Rute below it work either way.
+ */
+function VenueMapImage({ token, venueName }) {
+  const { t } = useLanguage();
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    if (!token) return undefined;
+    let gone = false;
+    let url = null;
+    const dpr = typeof window !== "undefined" && window.devicePixelRatio >= 2.5 ? 3 : 2;
+    portalApi
+      .get(`/portal/${token}/venue-map?w=360&h=112&dpr=${dpr}`, { responseType: "blob" })
+      .then((r) => {
+        const blob = r?.data;
+        if (gone || r?.status === 204 || !blob || !blob.size || !String(blob.type || "").startsWith("image/")) return;
+        url = URL.createObjectURL(blob);
+        setSrc(url);
+      })
+      .catch(() => { /* no map is the honest fallback */ });
+    return () => {
+      gone = true;
+      if (url) URL.revokeObjectURL?.(url);
+    };
+  }, [token]);
+  if (!src) return null;
+  return (
+    <div
+      data-testid="portal-venue-map"
+      style={{ marginTop: 12, height: 112, borderRadius: 14, overflow: "hidden", boxShadow: "0 0 0 1px rgba(246,244,236,.14)", background: "#EFEDE4" }}
+    >
+      <img
+        src={src}
+        alt={t("portalMapAlt", "Map of {venue}", { venue: venueName || "" })}
+        onError={() => setSrc(null)}
+        className="block w-full h-full"
+        style={{ objectFit: "cover" }}
+      />
+    </div>
+  );
+}
+
+/**
  * ShiftMenuSheet — everything for the next shift in one bottom sheet (home
  * v3, mockup screen 2): Rute, Hvem er på, Tilføj til kalender, Byt eller giv
  * væk, then — after a divider, quieter — Meld syg. 54 px rows. Portaled to
@@ -2807,6 +2860,10 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
  */
 function ShiftMenuSheet({ shift, roleLabel, roleDotClass, place, routeHref, calTapped, onClose, onWhosOn, onCalendar, onSwaps, onSick }) {
   const { t, lang } = useLanguage();
+  // Focus moves into the sheet on open (screen readers land on the dialog,
+  // not behind the scrim); Escape closes it.
+  const dialogRef = useRef(null);
+  useEffect(() => { dialogRef.current?.focus?.(); }, []);
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
@@ -2847,7 +2904,9 @@ function ShiftMenuSheet({ shift, roleLabel, roleDotClass, place, routeHref, calT
         aria-modal="true"
         aria-label={title}
         data-testid="portal-shift-menu"
-        className="relative w-full max-w-lg mx-auto bg-white m-0"
+        ref={dialogRef}
+        tabIndex={-1}
+        className="relative w-full max-w-lg mx-auto bg-white m-0 outline-none"
         style={{ borderRadius: "26px 26px 0 0", padding: "8px 16px calc(20px + env(safe-area-inset-bottom, 0px))" }}
       >
         <span aria-hidden className="block mx-auto" style={{ width: 38, height: 5, borderRadius: 3, background: "#D6D3CB", marginBottom: 10 }} />

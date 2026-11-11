@@ -45,6 +45,7 @@ import { useLanguage } from "../hooks/useLanguage";
 // the last true rows through a failed reload); LoadFailed is what we render
 // INSTEAD of an empty state that would otherwise be lying.
 import useAsyncData from "../hooks/useAsyncData";
+import VenuePinCheck from "../components/VenuePinCheck";
 import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
@@ -4124,6 +4125,9 @@ export default function StaffSchedulePage() {
       {/* order-2: after Prognose / Administrér too — a one-time setting is
           the last thing on a page built for planning the week. */}
       <ClockGeofenceSettings className="order-2" />
+      {/* The map pin staff see on their next-shift card (Vagtplan R2) —
+          checked once, then one line, like the geofence above. */}
+      <VenuePinCheck className="order-2" />
 
       {/* Click-to-bloom undo — a calm one-tap Fortryd for the just-added draft.
           Auto-dismisses after ~6s. Drafts never notify, so this is purely a
