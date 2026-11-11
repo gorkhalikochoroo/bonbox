@@ -112,6 +112,9 @@ describe("Native keyboard over the portal", () => {
     setKeyboard(336);
     await waitFor(() => expect(shell.style.height).toBe("calc(100dvh - 336px)"));
     expect(document.documentElement.style.getPropertyValue("--kb-h")).toBe("336px");
+    // iOS keeps the dock's room under the content while typing (only the
+    // Android app hides the dock and gives it back).
+    expect(shell.style.paddingBottom).toContain("76px");
 
     setKeyboard(0);
     await waitFor(() => expect(shell.style.height).toBe(""));

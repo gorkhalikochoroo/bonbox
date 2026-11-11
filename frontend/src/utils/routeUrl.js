@@ -58,3 +58,24 @@ export function routeUrl({ lat, lng, name, address, street, town } = {}, kind = 
   }
   return `https://www.google.com/maps/search/?api=1&query=${point || encodeURIComponent(text)}`;
 }
+
+/** Android: the native shell or a browser on an Android device (routePlatform
+    "geo"). The staff app's Android-only answers (calendar, location help) key
+    on this, so the Chrome staff link gets them as well as the app. */
+export function isAndroidDevice(ua) {
+  return routePlatform(ua) === "geo";
+}
+
+/**
+ * A place SEARCH (not directions) for a named place — the week list's branch
+ * link. Google Maps on Android (native shell or browser): Apple's web map is
+ * what an Android phone opened before. Apple Maps everywhere else, exactly as
+ * before. null when there is nothing to search for.
+ */
+export function placeSearchUrl({ name, address } = {}, kind = routePlatform()) {
+  const text = [name, address].filter(Boolean).join(", ");
+  if (!text) return null;
+  return kind === "geo"
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(text)}`
+    : `https://maps.apple.com/?q=${encodeURIComponent(text)}`;
+}

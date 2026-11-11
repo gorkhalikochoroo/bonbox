@@ -110,7 +110,7 @@ vi.mock("../hooks/useNativePush", () => ({
   NATIVE_PUSH_TOKEN_KEY: "bonbox_apns_token",
 }));
 vi.mock("../utils/haptics", () => ({ haptic: Object.assign(vi.fn(), { warning: vi.fn(), success: vi.fn(), error: vi.fn() }) }));
-vi.mock("../utils/camera", () => ({ capturePhoto: vi.fn() }));
+vi.mock("../utils/camera", () => ({ capturePhoto: vi.fn(), promptPhotoFile: vi.fn(), isCameraDenied: vi.fn() }));
 
 const StaffPortalPage = (await import("../pages/StaffPortalPage")).default;
 const { LanguageProvider } = await import("../hooks/useLanguage");
@@ -200,6 +200,8 @@ describe("Chat thread with the Android keyboard up", () => {
     const composer = await openThread();
     expect(composer.style.bottom).toContain("68px");          // above the dock at rest
     expect(dock().style.display).toBe("");
+    const shell = document.querySelector(".full-height.scrollable");
+    expect(shell.style.paddingBottom).toContain("76px");      // the dock's room
 
     setKeyboardOpen(true);
     await waitFor(() => expect(screen.getByTestId("portal-chat-composer").style.bottom).toBe("0px"));
@@ -207,10 +209,17 @@ describe("Chat thread with the Android keyboard up", () => {
     const stream = screen.getByTestId("portal-chat-stream");
     expect(stream.style.maxHeight).toContain("safe-area-inset-top");
     expect(stream.style.maxHeight).not.toMatch(/- [1-9]\d*px\)$/);  // no keyboard height subtracted again
+    // The dock stepped aside, so its room (lift 8 + 52 + the 8 px gap) goes
+    // back to the thread — it left ~84 px of empty stream over the composer —
+    // and the page stops reserving the dock's 76 px.
+    expect(stream.style.maxHeight).toContain("+ 68px");
+    expect(shell.style.paddingBottom).toBe("calc(16px + var(--bb-consent-h, 0px))");
 
     setKeyboardOpen(false);
     await waitFor(() => expect(screen.getByTestId("portal-chat-composer").style.bottom).toContain("68px"));
     expect(dock().style.display).toBe("");
+    expect(screen.getByTestId("portal-chat-stream").style.maxHeight).not.toContain("+ 68px");
+    expect(shell.style.paddingBottom).toContain("76px");
   });
 
   it("BACK leaves the thread for the list, and stays on Beskeder", async () => {

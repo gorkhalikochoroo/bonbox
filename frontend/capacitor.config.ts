@@ -160,6 +160,31 @@ const config: CapacitorConfig = {
       // false for the scheduler — see the contentInset note above.
       overlaysWebView: !isScheduler,
     },
+    // Capacitor 8's core SystemBars, scheduler only (the owner apps keep the
+    // defaults):
+    //   • style "LIGHT" (dark icons, the StatusBar pairing above). Its default
+    //     resolves to DARK in system dark mode, is applied AFTER StatusBar's
+    //     LIGHT (it posts to the main thread) and is re-applied on every
+    //     configuration change — white icons on the light portal.
+    //   • initialViewportFitValueHint "cover": index.html's viewport is
+    //     viewport-fit=cover; saying so up front avoids a status-bar-height
+    //     jump when the page commits.
+    //   • insetsHandling "native": the same inset handling as "css" without
+    //     injecting --safe-area-inset-* variables (nothing reads them — the
+    //     portal uses env()), whose first injection ran before the page had a
+    //     document: "Error injecting safe area CSS" in the console.
+    // iOS reads only `style` at load (→ dark glyphs); StatusBar's LIGHT, the
+    // same dark glyphs, is re-applied when the view appears, so the iPhone's
+    // status bar ends as today. The other keys are Android-only.
+    ...(isScheduler
+      ? {
+          SystemBars: {
+            style: "LIGHT",
+            initialViewportFitValueHint: "cover",
+            insetsHandling: "native",
+          },
+        }
+      : {}),
     Keyboard: {
       resize: "body",
       resizeOnFullScreen: true,

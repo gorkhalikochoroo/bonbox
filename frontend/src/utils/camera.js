@@ -59,3 +59,60 @@ export const captureMultiplePhotos = async (maxPhotos = 3) => {
   }
   return photos;
 };
+
+/**
+ * Chat photo in the Android staff app: "Choose a photo" OR "Take a photo".
+ *
+ * The chat's <input type="file"> cannot take a photo in the Android WebView:
+ * Capacitor's file chooser (BridgeWebChromeClient) opens the camera only for
+ * an input with `capture` that accepts "image/*", and then ONLY the camera —
+ * the chat's input has no `capture` and accepts png/jpeg, so it got the photo
+ * picker and no camera at all. The camera plugin's own
+ * prompt offers both (choosing needs no permission; taking asks for the
+ * CAMERA permission the app already declares). The result becomes a File for
+ * the SAME picker and upload as a chosen file; the long edge ≤ 1600 px matches
+ * what the server keeps (chat_image MAX_OUTPUT_DIM), and the plugin writes
+ * JPEG, which the server accepts.
+ *
+ * @param {{header?: string, photo?: string, picture?: string, cancel?: string}} labels
+ * @returns {Promise<File|null>} null when the staffer cancels. Throws on any
+ *   other failure; isCameraDenied(err) tells a refused camera permission.
+ */
+export async function promptPhotoFile(labels = {}) {
+  let photo;
+  try {
+    photo = await Camera.getPhoto({
+      source: CameraSource.Prompt,
+      resultType: CameraResultType.Base64,
+      quality: 85,
+      width: 1600,
+      height: 1600,
+      correctOrientation: true,
+      allowEditing: false,
+      saveToGallery: false,
+      promptLabelHeader: labels.header,
+      promptLabelPhoto: labels.photo,
+      promptLabelPicture: labels.picture,
+      promptLabelCancel: labels.cancel,
+    });
+  } catch (error) {
+    // "User cancelled photos app": the sheet, the picker or the camera was
+    // closed without a photo. Not an error to show.
+    if (/cancel/i.test(String(error?.message || ""))) return null;
+    throw error;
+  }
+  if (!photo?.base64String) return null;
+  const type = photo.format === "png" ? "image/png" : "image/jpeg";
+  return base64ToFile(photo.base64String, `photo-${Date.now()}.${type === "image/png" ? "png" : "jpg"}`, type);
+}
+
+/** The camera plugin refused because the CAMERA permission was denied. */
+export const isCameraDenied = (error) => /denied/i.test(String(error?.message || ""));
+
+/** A base64 string (no data: prefix) as a File. */
+export function base64ToFile(b64, name, type) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], name, { type });
+}

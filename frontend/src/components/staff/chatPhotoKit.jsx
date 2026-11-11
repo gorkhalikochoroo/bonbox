@@ -179,18 +179,45 @@ export function PendingPhotos({ picker, thumbStyle, removeClassName, removeStyle
   );
 }
 
-/** The attach (image) button + its hidden file input. */
-export function AttachButton({ picker, label: labelProp, className, style }) {
+/** The attach (image) button + its hidden file input.
+
+    `onPick` (optional) replaces the file input with a plain button that awaits
+    onPick() and stages the File it returns (null = nothing). The Android staff
+    app passes it: its WebView's file input can choose a photo but never take
+    one (utils/camera.js promptPhotoFile). Without it — the owner drawer, iOS,
+    every browser — the button is the file input, exactly as before. */
+export function AttachButton({ picker, label: labelProp, className, style, onPick }) {
   const { t } = useLanguage();
   const label = labelProp || t("staffChatAddPhoto", "Add photo");
+  const cls = className ?? `shrink-0 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition ${
+    picker.atMax
+      ? "text-gray-300 cursor-not-allowed"
+      : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+  }`;
+  if (onPick) {
+    return (
+      <button
+        type="button"
+        data-testid="chat-photo-attach"
+        className={cls}
+        style={style}
+        title={label}
+        aria-label={label}
+        disabled={picker.atMax}
+        onClick={async () => {
+          if (picker.atMax) return;
+          const file = await onPick();
+          if (file) picker.addFiles([file]);
+        }}
+      >
+        <ImagePlus className="w-5 h-5" strokeWidth={2} aria-hidden />
+      </button>
+    );
+  }
   return (
     <label
       data-testid="chat-photo-attach"
-      className={className ?? `shrink-0 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition ${
-        picker.atMax
-          ? "text-gray-300 cursor-not-allowed"
-          : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
-      }`}
+      className={cls}
       style={style}
       title={label}
       aria-label={label}

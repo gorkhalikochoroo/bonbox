@@ -6,4 +6,10 @@
     <color name="colorAccent">#059669</color>
     <!-- Staff portal canvas (bg-gray-50) = capacitor.config.ts shellBg for the scheduler. -->
     <color name="shellBackground">#f9fafb</color>
+    <!-- The portal's pine (FOREST / PINE in StaffPortalPage.jsx): the accent of
+         the native date and select pickers the WebView opens. -->
+    <color name="pine">#0E3B2E</color>
+    <!-- The launch splash in system dark mode = SplashScreen.backgroundColor
+         (capacitor.config.ts), the white the splash art is drawn on. -->
+    <color name="splashBackground">#FFFFFF</color>
 </resources>

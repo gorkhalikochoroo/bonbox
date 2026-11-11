@@ -101,7 +101,7 @@ vi.mock("../hooks/useNativePush", () => ({
   NATIVE_PUSH_TOKEN_KEY: "bonbox_apns_token",
 }));
 vi.mock("../utils/haptics", () => ({ haptic: Object.assign(vi.fn(), { light: vi.fn(), warning: vi.fn(), success: vi.fn(), error: vi.fn() }) }));
-vi.mock("../utils/camera", () => ({ capturePhoto: vi.fn() }));
+vi.mock("../utils/camera", () => ({ capturePhoto: vi.fn(), promptPhotoFile: vi.fn(), isCameraDenied: vi.fn() }));
 vi.mock("@capacitor/app", () => ({ App: { addListener: vi.fn(() => Promise.resolve({ remove: vi.fn() })) } }));
 // The native shell's Keyboard plugin has no web build; the keyboard is not
 // what these tests are about (StaffPortalPage.keyboardNative pins it).
@@ -611,6 +611,18 @@ describe("Byt", () => {
     expectNoGreenOrNavy(content());
   });
 
+  it("a give-away's who-and-why runs to two lines (it was cut to '“Fami…' at 360 dp), whole in the text", async () => {
+    data.pool = [{ id: "ga-2", from_staff_name: "Ida Hansen", from_shift_date: nextWeek(5), from_shift_time: "16:00–22:00", reason: "Familiefest" }];
+    await mount("da");
+    go("swaps");
+    const row = await screen.findByTestId("swap-pool-row");
+    const line = [...row.querySelectorAll("span")].find((el) => el.textContent.startsWith("Fra "));
+    expect(line.textContent).toBe("Fra Ida Hansen — “Familiefest”");
+    expect(line.className.split(" ")).toContain("line-clamp-2");
+    expect(line.className).not.toMatch(/\btruncate\b/);
+    expect(line.style.overflowWrap).toBe("anywhere");
+  });
+
   it("the inbox, every status: Accepter pine, Afvis the card; brass waiting, sage done, the tile for agreed; the give-away's done line says 'Overtaget'", async () => {
     const shift = (d, tm) => ({ from_shift_date: nextWeek(d), from_shift_time: tm });
     data.swaps = [
@@ -663,7 +675,40 @@ describe("Byt", () => {
     expect(pill(ag).style.background).toBe(TILE);
     expect(content().textContent).not.toContain("accepted");
 
+    // The names' arrow is Lucide's line arrow ("→" is not in DM Sans, and
+    // Android drew a small fallback glyph); a reader still hears "→".
+    for (const r of [inc, ga]) {
+      const arrow = within(r).getByTestId("swap-arrow");
+      expect(arrow.tagName.toLowerCase()).toBe("svg");
+      expect(arrow.getAttribute("aria-hidden")).toBe("true");
+      expect(arrow.style.color).toBe(MUTED);
+    }
+    expect(inc.textContent).toContain("Ida H. → Freja M.");
+    expect(ga.textContent).toContain("Freja M. → Sofie K.");
+    expect(inc.querySelector(".sr-only").textContent).toBe(" → ");
+
     expectNoGreenOrNavy(content());
+  });
+
+  it("an open give-away (on the board) has no arrow", async () => {
+    data.swaps = [{ id: "open", direction: "outgoing", status: "proposed", from_staff_name: "Freja M.", from_shift_date: nextWeek(4), from_shift_time: "16:00–22:00", to_shift_id: null }];
+    data.pool = [];
+    await mount("da");
+    go("swaps");
+    const [row] = await screen.findAllByTestId("swap-row");
+    expect(row.textContent).toContain("på opslagstavlen");
+    expect(within(row).queryByTestId("swap-arrow")).toBeNull();
+  });
+
+  it("the profile sheet's header is opaque and above the sheet's content (scrolled text showed through)", async () => {
+    await mount("da");
+    fireEvent.click(screen.getByTitle("Rediger profil"));
+    const head = (await screen.findByRole("heading", { name: "Rediger profil" })).parentElement;
+    const cls = head.className.split(" ");
+    expect(cls).toContain("sticky");
+    expect(cls).toContain("bg-white");
+    expect(cls).toContain("z-10");
+    expect(head.className).not.toContain("bg-white/95");
   });
 
   it("no swaps: one calm line on a card, with a line icon", async () => {

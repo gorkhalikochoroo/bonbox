@@ -13,7 +13,7 @@
  */
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const TOK = "tokr2";
 const ok = (data) => Promise.resolve({ data });
@@ -159,6 +159,90 @@ describe("Swap picker — never offers a trade that double-books someone", () =>
     // Calm one-line voice (Nov 2026): the same reason, without "den dag".
     expect(await screen.findByText(/Din kollega har allerede en vagt på det tidspunkt — byttet ville give dem to vagter på samme tid/)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("This swap would put");
+  });
+});
+
+describe("Byt pickers never offer a shift that has started", () => {
+  // Wednesday 11 Nov 2026 (only Date is faked; timers stay real for findBy).
+  const TODAY = "2026-11-11";
+  const own = [
+    { id: "o-live", date: TODAY, start_time: "13:00", end_time: "19:00", status: "published", net_hours: 6 },
+    { id: "o-night", date: "2026-11-10", start_time: "22:00", end_time: "06:00", status: "published", net_hours: 8 },
+    { id: "o-eve", date: TODAY, start_time: "19:30", end_time: "23:00", status: "published", net_hours: 3.5 },
+    { id: "o-tmrw", date: "2026-11-12", start_time: "10:00", end_time: "16:00", status: "published", net_hours: 6 },
+  ];
+  const setNow = (h, m) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 11, h, m, 0));
+  };
+  beforeEach(() => {
+    scheduleImpl = () => ok({ shifts: own });
+    teamImpl = () => ok([
+      ...own.map((o) => ({ shift_id: o.id, staff_id: ALI, staff_name: "Ali R.", date: o.date, start_time: o.start_time, end_time: o.end_time })),
+      { shift_id: "jonas-now", staff_id: JONAS, staff_name: "Jonas B.", date: TODAY, start_time: "09:00", end_time: "15:00" },
+      { shift_id: "jonas-tmrw", staff_id: JONAS, staff_name: "Jonas B.", date: "2026-11-13", start_time: "16:00", end_time: "22:00" },
+    ]);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const offered = (select) => within(select).getAllByRole("option").map((o) => o.value).filter(Boolean);
+  async function openSwap() {
+    await mount("da");
+    navTo("Byt");
+    await waitFor(() => expect(get).toHaveBeenCalledWith(`/portal/${TOK}/clock`));
+    fireEvent.click(await within(screen.getByTestId("portal-content")).findByRole("button", { name: /^Byt$/ }));
+    await waitFor(() => expect(get).toHaveBeenCalledWith(`/portal/${TOK}/team-schedule`));
+    return screen.findByDisplayValue("Vælg en af dine vagter…");
+  }
+  async function openGiveAway() {
+    await mount("da");
+    navTo("Byt");
+    await waitFor(() => expect(get).toHaveBeenCalledWith(`/portal/${TOK}/clock`));
+    fireEvent.click(await within(screen.getByTestId("portal-content")).findByRole("button", { name: "Giv en vagt væk" }));
+    return screen.findByDisplayValue("Vælg din vagt…");
+  }
+
+  it("swap: your started shifts (today's, last night's overnight) are left out; so is a colleague's that has started", async () => {
+    setNow(14, 0);
+    const ownSelect = await openSwap();
+    expect(offered(ownSelect)).toEqual(["o-eve", "o-tmrw"]);
+    fireEvent.change(ownSelect, { target: { value: "o-tmrw" } });
+    const theirs = await screen.findByDisplayValue("Vælg en kollegas vagt…");
+    expect(offered(theirs)).toEqual(["jonas-tmrw"]);
+    // Started is not "would double-book": the overlap count does not claim it.
+    expect(screen.queryByTestId("swap-hidden-overlap")).toBeNull();
+  });
+
+  it("give-away: the same rule", async () => {
+    setNow(14, 0);
+    expect(offered(await openGiveAway())).toEqual(["o-eve", "o-tmrw"]);
+  });
+
+  it("clocked in early: the shift being worked is left out before its planned start", async () => {
+    setNow(12, 58);
+    extraGet["/clock"] = () => ok({ clocked_in: true, since: "12:57", elapsed_sec: 60, geofence_on: false, locked: false });
+    const ownSelect = await openSwap();
+    await waitFor(() => expect(offered(ownSelect)).not.toContain("o-live"));
+    expect(offered(ownSelect)).toEqual(["o-eve", "o-tmrw"]);
+  });
+
+  it("clocked in early, give-away: the same", async () => {
+    setNow(12, 58);
+    extraGet["/clock"] = () => ok({ clocked_in: true, since: "12:57", elapsed_sec: 60, geofence_on: false, locked: false });
+    const select = await openGiveAway();
+    await waitFor(() => expect(offered(select)).toEqual(["o-eve", "o-tmrw"]));
+  });
+
+  it("not clocked in at 12:58: the 13:00 shift has not started and is offered", async () => {
+    setNow(12, 58);
+    extraGet["/clock"] = () => ok({ clocked_in: false, geofence_on: false, locked: false });
+    expect(offered(await openSwap())).toEqual(["o-live", "o-eve", "o-tmrw"]);
+  });
+
+  it("a failed clock read leaves the start-time rule only (the forms still work)", async () => {
+    setNow(12, 58);
+    extraGet["/clock"] = () => reject(503);
+    expect(offered(await openGiveAway())).toEqual(["o-live", "o-eve", "o-tmrw"]);
   });
 });
 

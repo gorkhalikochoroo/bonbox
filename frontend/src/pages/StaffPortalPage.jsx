@@ -11,6 +11,7 @@ import { nextShiftChip } from "../utils/nextShiftCountdown";
 import { overlapsOwnShift } from "../utils/overlapsOwnShift";
 import { swapDoubleBooks } from "../utils/swapClash";
 import { orderSwapInbox, swapSides, countNeedsMyAnswer } from "../utils/swapInbox";
+import { shiftHasStarted, pickableOwnShifts } from "../utils/shiftStarted";
 import { saveFile } from "../utils/download";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
@@ -34,9 +35,12 @@ import "@fontsource/dm-sans/latin-600.css";
 import "@fontsource/dm-sans/latin-700.css";
 import "../components/staff/vagtplan.css";
 import RollingDigits from "../components/staff/RollingDigits";
+import { fitDockLabels } from "../components/staff/dockLabelFit";
 import { usePresence, useLastValue, closingProps } from "../components/staff/sheetMotion";
 import { parseServerTime } from "../utils/serverTime";
-import { routeUrl } from "../utils/routeUrl";
+import { routeUrl, placeSearchUrl, isAndroidDevice } from "../utils/routeUrl";
+import { scheduleFeedUrl, webcalUrl, googleSubscribeUrl } from "../utils/calendarFeed";
+import { copyText } from "../utils/clipboard";
 import { MAP_H, MAP_PINE_BG, mapRequestWidth, mapDpr, mapQuery, mapCacheKey, getCachedMap, setCachedMap, loadMapOnce } from "../utils/venueMapImage";
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
@@ -49,8 +53,8 @@ import { formatClockDistance } from "../utils/clockDistance";
 import { roleName } from "../utils/roleNames";
 import { isNativeApp, platform } from "../utils/platform";
 import { applyVagtplanIcons } from "../lib/vagtplanIcons";
-import { capturePhoto } from "../utils/camera";
-import { Camera as CameraIcon, Trash2, PencilLine, MinusCircle } from "lucide-react";
+import { capturePhoto, promptPhotoFile, isCameraDenied } from "../utils/camera";
+import { Camera as CameraIcon, Trash2, PencilLine, MinusCircle, Copy } from "lucide-react";
 import { haptic } from "../utils/haptics"; // no-op on web; physical feedback in the iOS shell
 import useNativePush, { unregisterNativePush } from "../hooks/useNativePush";
 import { useKeyboardState } from "../hooks/useKeyboardLift";
@@ -59,6 +63,7 @@ import { runAndroidBack } from "../utils/androidBack";
 import { useKeyboardReveal, KB_LIFT_STYLE } from "../hooks/useKeyboardReveal";
 import { usePortalStream } from "../hooks/usePortalStream";
 import { App as CapApp } from "@capacitor/app";
+import { Browser } from "@capacitor/browser";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
 
 // BonBox forest + paper (index.css --color-bb-forest / --color-bb-paper). Home
@@ -613,6 +618,13 @@ function DocumentsSection({ token }) {
   const [docs, setDocs] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [err, setErr] = useState("");
+  // The Android app has no download manager and its WebView no Web Share, so
+  // saveFile can only answer "no_download_manager" there, and "Try again"
+  // could never work. Same probe the Timer export uses: a phone that cannot
+  // take a file still gets the list (the staffer sees what was shared) and one
+  // honest line about where to get it. Chrome on Android is not the native
+  // shell and keeps its normal download; the iOS app can share the file.
+  const cantSave = isNativeApp() && !canShareCsvFile();
 
   useEffect(() => {
     let alive = true;
@@ -623,6 +635,7 @@ function DocumentsSection({ token }) {
   }, [token]);
 
   const open = async (doc) => {
+    if (cantSave) return;
     setBusyId(doc.id); setErr("");
     try {
       const r = await portalApi.get(`/portal/${token}/documents/${doc.id}`, { responseType: "blob" });
@@ -679,6 +692,21 @@ function DocumentsSection({ token }) {
               <div style={{ marginTop: 10, font: "400 12px/1.5 var(--font-text)", color: "#64748b" }}>
                 {t("portalDocsEmpty", "Nothing here yet. Your contract and lønsedler appear here when your manager shares them.")}
               </div>
+            ) : cantSave ? (
+              // No download here: the names (not buttons) and where to get them.
+              <>
+                <div className="space-y-1.5" style={{ marginTop: 14 }}>
+                  {docs.map((d) => (
+                    <div key={d.id} className="w-full flex items-center gap-2 px-3 py-3 rounded-2xl bg-[#f5f8fb] border border-[#e8edf3]">
+                      <FileText className="w-4 h-4 shrink-0 text-gray-400" aria-hidden />
+                      <span className="flex-1 min-w-0 text-[13px] font-semibold text-gray-900 truncate">{d.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <p data-testid="portal-docs-app-cant-save" style={{ margin: "10px 0 0", font: "400 12px/1.5 var(--font-text)", color: "#64748b" }}>
+                  {t("portalDocsAppCantSave", "The app can't save documents on your phone yet. Ask your manager for your personal link and open it in a browser to download them – or ask for the file itself.")}
+                </p>
+              </>
             ) : (
               <div className="space-y-1.5" style={{ marginTop: 14 }}>
                 {docs.map((d) => (
@@ -1480,10 +1508,16 @@ function useClock(token) {
       } else if (unverified) {
         // Say how to fix it, not only that it happened: with no position at
         // all, location is almost always switched off for the app / site.
+        // Android names its own path: the app's Settings → Apps entry, or
+        // Chrome's site settings by the address bar (native app or browser).
         const fix = noFix
-          ? (isNativeApp()
-            ? t("portalClockNoLocationFixNative", "To fix it: Settings → Vagtplan → Location → While Using the App.")
-            : t("portalClockNoLocationFixWeb", "To fix it, allow location for this site in your browser. Your next punch is then verified."))
+          ? (platform.isAndroid
+            ? t("portalClockNoLocationFixAndroid", "To fix it: Settings → Apps → BonBox Vagtplan → Permissions → Location → Allow only while using the app. Check that Location is on too.")
+            : isNativeApp()
+              ? t("portalClockNoLocationFixNative", "To fix it: Settings → Vagtplan → Location → While Using the App.")
+              : isAndroidDevice()
+                ? t("portalClockNoLocationFixAndroidWeb", "To fix it: tap the icon next to the address bar → Permissions → turn on Location, and check that Location is on for your phone. Your next punch is then verified.")
+                : t("portalClockNoLocationFixWeb", "To fix it, allow location for this site in your browser. Your next punch is then verified."))
           : "";
         setResult([
           t("portalClockNoLocation", "Clocked in without your location — your manager sees this punch as unverified."),
@@ -1694,8 +1728,10 @@ function HomeH2({ children, id, style }) {
 function MateDiscs({ mates, size = 32, ring = CARD, overlap = 8, cap = 5, showOverflow = true }) {
   const shown = mates.slice(0, cap);
   const overflow = mates.length - shown.length;
+  // `isolate`: the letters below are lifted above every disc, and isolation
+  // keeps that lift inside this row — never above a sticky header or the dock.
   return (
-    <span className="flex shrink-0" aria-hidden>
+    <span className="flex shrink-0 isolate" aria-hidden>
       {shown.map((s, i) => (
         <span
           key={`${s.staff_id ?? s.staff_name}-${i}`}
@@ -1708,8 +1744,11 @@ function MateDiscs({ mates, size = 32, ring = CARD, overlap = 8, cap = 5, showOv
           }}
         >
           {/* One letter, as on the canvas: two-letter initials crowd an
-              overlapping row. The names sit right beside the discs. */}
-          {staffInitials(s.staff_name).slice(0, 1)}
+              overlapping row. The names sit right beside the discs.
+              Drawn above the next disc: a larger phone text grows the letter
+              but not the disc, and the next disc covered it ('O' read as 'C'
+              at 130 %). */}
+          <span className="relative z-10">{staffInitials(s.staff_name).slice(0, 1)}</span>
         </span>
       ))}
       {showOverflow && overflow > 0 && (
@@ -1722,7 +1761,7 @@ function MateDiscs({ mates, size = 32, ring = CARD, overlap = 8, cap = 5, showOv
             boxShadow: `0 0 0 ${size >= 30 ? 2 : 1.5}px ${ring}`,
           }}
         >
-          +{overflow}
+          <span className="relative z-10">+{overflow}</span>
         </span>
       )}
     </span>
@@ -2177,20 +2216,54 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // cancelled. This flag therefore records that the button was TAPPED on this
   // device, and the copy it drives is conditional ("if you subscribed") rather
   // than a claim of success. Per token, so a shared phone doesn't inherit it.
-  const calKey = token ? `bb_cal_${token.slice(0, 8)}` : null;
+  //
+  // Android (the app AND Chrome): nothing there handles webcal:, so the tap
+  // opened nothing — and the hint then read as if it had worked. There we open
+  // Google Calendar's add-by-URL page for the same feed (the app: a Custom Tab,
+  // outside the WebView; Chrome: a new tab) and offer the https feed to copy
+  // for any other calendar. The flag is set only once something opened, under
+  // its own key: the old webcal: tap there flagged a tap that opened nothing.
+  const onAndroid = isAndroidDevice();
+  // A PIN-protected link's feed needs its own key (the calendar app can't
+  // send the PIN header); the server hands it over only once the PIN is proven.
+  const feedUrl = token ? scheduleFeedUrl(portalApi.defaults?.baseURL, token, calendarKey) : null;
+  const calKey = token ? `bb_cal_${onAndroid ? "g_" : ""}${token.slice(0, 8)}` : null;
   const [calTapped, setCalTapped] = useState(() => {
     try { return !!(calKey && localStorage.getItem(calKey)); } catch { return false; }
   });
-  const subscribeCalendar = () => {
-    if (!token) return;
-    const base = (portalApi.defaults.baseURL || "https://api.bonbox.dk/api").replace(/\/+$/, "");
-    // A PIN-protected link's feed needs its own key (the calendar app can't
-    // send the PIN header); the server hands it over only once the PIN is proven.
-    const url = `${base}/portal/${token}/schedule.ics${calendarKey ? `?k=${encodeURIComponent(calendarKey)}` : ""}`;
-    window.open(url.replace(/^https?:/, "webcal:"), "_blank", "noopener");
+  const markCalTapped = () => {
     try { if (calKey) localStorage.setItem(calKey, "1"); } catch { /* private mode */ }
     setCalTapped(true);
   };
+  // Resolves true when something opened. iPhone / desktop: the webcal: open,
+  // synchronously inside the tap, exactly as before.
+  const subscribeCalendar = async () => {
+    if (!feedUrl) return false;
+    if (!onAndroid) {
+      window.open(webcalUrl(feedUrl), "_blank", "noopener");
+      markCalTapped();
+      return true;
+    }
+    const gUrl = googleSubscribeUrl(feedUrl);
+    let opened = false;
+    if (platform.isAndroid) {
+      // A Custom Tab: BACK returns to the app. Rejects when nothing can show it.
+      try { await Browser.open({ url: gUrl }); opened = true; } catch { opened = false; }
+    } else {
+      // Still inside the tap. No "noopener" feature: with it window.open
+      // returns null even when the tab opened, so the opener is cut by hand.
+      try {
+        const w = window.open(gUrl, "_blank");
+        if (w) {
+          try { w.opener = null; } catch { /* already cut */ }
+          opened = true;
+        }
+      } catch { opened = false; }
+    }
+    if (opened) markCalTapped();
+    return opened;
+  };
+  const copyCalendarLink = () => (feedUrl ? copyText(feedUrl) : Promise.resolve(false));
 
 
 
@@ -3134,9 +3207,13 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                             {/* Venue on the day it belongs to — a staffer
                                 working two places needs it here, not on
                                 whatever the hero happens to be showing. */}
+                            {/* Google Maps on Android (the app and Chrome),
+                                Apple Maps elsewhere. target=_blank leaves the
+                                app (an outside intent), so BACK returns. */}
                             {fs.branch_name && (
                               <a
-                                href={`https://maps.apple.com/?q=${encodeURIComponent([fs.branch_name, fs.branch_address].filter(Boolean).join(", "))}`}
+                                href={placeSearchUrl({ name: fs.branch_name, address: fs.branch_address })}
+                                data-testid="portal-week-branch-map"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 onClick={(e) => e.stopPropagation()}
@@ -3314,8 +3391,19 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             setMenuOpen(false);
             document.getElementById("portal-whos-on")?.scrollIntoView?.({ block: "start", behavior: "smooth" });
           }}
-          onCalendar={() => { setMenuOpen(false); subscribeCalendar(); }}
-          onSwaps={onOpenSwaps ? () => { setMenuOpen(false); onOpenSwaps(); } : null}
+          calAndroid={onAndroid}
+          onCalendar={async () => {
+            // iPhone / desktop: unchanged order, nothing awaited before window.open.
+            if (!onAndroid) { setMenuOpen(false); subscribeCalendar(); return true; }
+            const opened = await subscribeCalendar();
+            if (opened) setMenuOpen(false);
+            return opened;
+          }}
+          onCopyCalendar={onAndroid && feedUrl ? copyCalendarLink : null}
+          // A started shift (or the one being worked) can't be offered: the Byt
+          // pickers leave it out, so its menu doesn't offer it either.
+          onSwaps={onOpenSwaps && !shiftHasStarted(menuSheetShift) && !(clockedIn && liveShift && menuSheetShift?.id === liveShift.id)
+            ? () => { setMenuOpen(false); onOpenSwaps(); } : null}
           onSick={() => openSick("menu")}
           // Stempl ind lives here while the shift is not close (see the card).
           onClockIn={token && !showPunch ? () => { setMenuOpen(false); clockInNow(); } : null}
@@ -3664,8 +3752,12 @@ function VenueMapImage({ token, venueName, mapV }) {
  * tab content is a space-y stack, and a fixed overlay inside one picks up a
  * stray margin), m-0 on the overlay for the same reason.
  */
-function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped, whosOnHint, onClose, onWhosOn, onCalendar, onSwaps, onSick, onClockIn, clockInDisabled, clockInHint, closing = false }) {
+function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped, calAndroid = false, whosOnHint, onClose, onWhosOn, onCalendar, onCopyCalendar = null, onSwaps, onSick, onClockIn, clockInDisabled, clockInHint, closing = false }) {
   const { t, lang } = useLanguage();
+  // Android's calendar rows (see subscribeCalendar): whether Google Calendar
+  // failed to open, and how the last copy went. Fresh each time the sheet opens.
+  const [calFailed, setCalFailed] = useState(false);
+  const [copyState, setCopyState] = useState("");
   // Focus moves into the sheet on open (screen readers land on the dialog,
   // not behind the scrim); Escape closes it.
   const dialogRef = useRef(null);
@@ -3676,7 +3768,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
   const title = `${isToday(shift.date) ? t("portalToday") : fmtDate(shift.date, lang)} · ${shift.start_time}–${shift.end_time}`;
-  const row = ({ icon, label, hint, onClick, href, testId, disabled, well = SOFT, ink = PINE }) => {
+  const row = ({ icon, label, hint, onClick, href, testId, disabled, well = SOFT, ink = PINE, wrapHint = false }) => {
     const Icon = icon;
     const inner = (
       <>
@@ -3685,7 +3777,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
         </span>
         <span className="flex-1 min-w-0 flex flex-col" style={{ gap: 2 }}>
           <span style={{ font: "600 15px/1.25 var(--font-text)", color: INK }}>{label}</span>
-          {hint && <span className="truncate" style={{ font: "400 12.5px/1.3 var(--font-text)", color: MUTED }}>{hint}</span>}
+          {hint && <span className={wrapHint ? "line-clamp-2" : "truncate"} style={{ font: "400 12.5px/1.3 var(--font-text)", color: MUTED }}>{hint}</span>}
         </span>
         <ChevronRight size={18} strokeWidth={2} aria-hidden className="shrink-0" style={{ color: MUTED }} />
       </>
@@ -3710,9 +3802,34 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
     row({
       icon: CalendarPlus,
       label: t("portalAddToCalendar", "Add to calendar"),
-      hint: calTapped ? t("portalCalendarTappedHint", "If you subscribed, your calendar already updates itself") : t("portalCalendarRowHint", "Syncs automatically"),
-      onClick: onCalendar,
+      hint: calFailed
+        ? t("portalCalendarOpenFailedHint", "Google Calendar didn't open. Copy the link instead.")
+        : calTapped
+          ? t("portalCalendarTappedHint", "If you subscribed, your calendar already updates itself")
+          : calAndroid
+            ? t("portalCalendarRowHintAndroid", "Opens Google Calendar")
+            : t("portalCalendarRowHint", "Syncs automatically"),
+      onClick: async () => {
+        setCalFailed(false);
+        const opened = await onCalendar();
+        if (opened === false) setCalFailed(true);
+      },
       testId: "portal-menu-calendar",
+      wrapHint: calAndroid,
+    }),
+    // Android: the feed itself, for any other calendar app (or Google
+    // Calendar on a computer). Copying keeps the sheet open to confirm it.
+    onCopyCalendar && row({
+      icon: Copy,
+      label: t("portalCalendarCopyLink", "Copy calendar link"),
+      hint: copyState === "ok"
+        ? t("portalCalendarCopiedHint", "Copied. It's personal – only for your calendar.")
+        : copyState === "fail"
+          ? t("portalCalendarCopyFailedHint", "Couldn't copy the link.")
+          : t("portalCalendarCopyHint", "For other calendars, or Google Calendar on a computer"),
+      onClick: async () => setCopyState((await onCopyCalendar()) ? "ok" : "fail"),
+      testId: "portal-menu-calendar-copy",
+      wrapHint: true,
     }),
     onSwaps && row({
       icon: ArrowLeftRight,
@@ -4812,6 +4929,22 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
   const [showSell, setShowSell] = useState(false);
   const [claimBusy, setClaimBusy] = useState(null);
   const [claimErr, setClaimErr] = useState("");
+  // The shift being worked is never offered, even in the minutes between an
+  // early clock-in and its planned start, when the start-time rule alone
+  // would still list it. Read the clock once per visit; a failed read leaves
+  // only the start-time rule.
+  const [clockSince, setClockSince] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await portalApi.get(`/portal/${token}/clock`);
+        if (alive) setClockSince(res?.data?.clocked_in ? (res.data.since || null) : null);
+      } catch { /* soft */ }
+    })();
+    return () => { alive = false; };
+  }, [token]);
+  const liveShiftId = clockSince ? (liveShiftOf(ownShifts, clockSince)?.shift?.id ?? null) : null;
 
   const fetchInbox = async () => {
     const [inboxRes, poolRes] = await Promise.allSettled([
@@ -4881,6 +5014,7 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
         <SwapProposeModal
           token={token}
           ownShifts={ownShifts}
+          liveShiftId={liveShiftId}
           onClose={() => setShowPropose(false)}
           onProposed={() => { setShowPropose(false); reload(); }}
         />
@@ -4889,6 +5023,7 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
         <GiveawaySellModal
           token={token}
           ownShifts={ownShifts}
+          liveShiftId={liveShiftId}
           onClose={() => setShowSell(false)}
           onOffered={() => { setShowSell(false); reload(); }}
         />
@@ -4925,7 +5060,9 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
                       <span className="tabular-nums whitespace-nowrap" style={{ font: `700 16px/1.2 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>
                         {g.from_shift_time}
                       </span>
-                      <span className="truncate" style={{ font: "400 13px/1.3 var(--font-text)", color: MUTED }}>
+                      {/* Up to two lines: the reason is the colleague's why,
+                          and one line cut it to '“Fami…' on a small phone. */}
+                      <span className="line-clamp-2" style={{ font: "400 13px/1.3 var(--font-text)", color: MUTED, overflowWrap: "anywhere" }}>
                         {t("portalGaFrom", "From")} {g.from_staff_name}
                         {g.from_branch_name ? ` · ${g.from_branch_name}` : ""}
                         {g.reason ? ` — “${g.reason}”` : ""}
@@ -5104,6 +5241,22 @@ function SwapRow({ swap, token, onChanged }) {
     </div>
   );
 
+  // "→" isn't in DM Sans's latin subset, so Android fell back to a system
+  // font and drew it small and low. Lucide's line arrow is the same on every
+  // phone; the hidden "→" keeps what a screen reader read before.
+  const toArrow = (
+    <>
+      <span className="sr-only"> → </span>
+      <ArrowRight
+        data-testid="swap-arrow"
+        aria-hidden
+        size="1em"
+        strokeWidth={2}
+        style={{ display: "inline-block", verticalAlign: "-0.15em", margin: "0 6px", color: MUTED }}
+      />
+    </>
+  );
+
   return (
     <div data-testid="swap-row" className="flex flex-col" style={{ gap: 10, padding: 14, borderRadius: 20, ...CARD_BOX }}>
       <div className="flex items-center justify-between" style={{ gap: 8 }}>
@@ -5119,7 +5272,7 @@ function SwapRow({ swap, token, onChanged }) {
         {isGiveaway ? (
           swap.status === "done" && swap.to_staff_name ? (
             <>
-              <span style={{ color: MUTED }}> → </span>
+              {toArrow}
               <span style={{ fontWeight: 600 }}>{swap.to_staff_name}</span>
             </>
           ) : (
@@ -5127,7 +5280,7 @@ function SwapRow({ swap, token, onChanged }) {
           )
         ) : (
           <>
-            <span style={{ color: MUTED }}> → </span>
+            {toArrow}
             <span style={{ fontWeight: 600 }}>{swap.to_staff_name}</span>
           </>
         )}
@@ -5223,23 +5376,28 @@ function SwapRow({ swap, token, onChanged }) {
  * shifts, optional reason, post it to the colleague pool. First qualified
  * taker gets it (auto-execute, same doctrine as swaps); withdraw anytime
  * before it's taken via the request row in the inbox below. */
-function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
+function GiveawaySellModal({ token, ownShifts, liveShiftId = null, onClose, onOffered }) {
   const { t, lang } = useLanguage();
   const [shiftId, setShiftId] = useState("");
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const upcomingOwn = (ownShifts || []).filter((s) => (s.date || "") >= todayIso);
+  // Not started, and not the shift being worked (shiftStarted.js). This also
+  // retires a UTC date that kept yesterday's shifts listed until 01:00/02:00
+  // Danish time.
+  const upcomingOwn = pickableOwnShifts(ownShifts, { liveShiftId });
+  // A pick that has since dropped out of the list (it started while the form
+  // was open) no longer counts.
+  const pickedId = upcomingOwn.some((s) => s.id === shiftId) ? shiftId : "";
 
   const submit = async () => {
-    if (!shiftId) return;
+    if (!pickedId) return;
     setSubmitting(true);
     setError("");
     try {
       await portalApi.post(`/portal/${token}/give-aways`, {
-        shift_id: shiftId,
+        shift_id: pickedId,
         reason: reason.trim() || null,
       });
       haptic.light();
@@ -5258,7 +5416,7 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
         {t("portalGaSellHint", "Your shift goes on the board for colleagues. It stays yours until someone takes it — first come, first served.")}
       </p>
       <select
-        value={shiftId}
+        value={pickedId}
         onChange={(e) => setShiftId(e.target.value)}
         className={FIELD_CLS}
         style={FIELD}
@@ -5283,9 +5441,9 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
       <button
         type="button"
         onClick={submit}
-        disabled={!shiftId || submitting}
+        disabled={!pickedId || submitting}
         className={`w-full vp-press ${FOCUS_RING}`}
-        style={pineBtn(!shiftId || submitting, BTN_FULL)}
+        style={pineBtn(!pickedId || submitting, BTN_FULL)}
       >
         {submitting ? "…" : t("portalGaSellSubmit", "Give it away")}
       </button>
@@ -5320,7 +5478,7 @@ function SwapFormHead({ icon, title, onClose, closeLabel }) {
 }
 
 
-function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
+function SwapProposeModal({ token, ownShifts, liveShiftId = null, onClose, onProposed }) {
   const { t, lang } = useLanguage();
   const [teamShifts, setTeamShifts] = useState([]);
   const [fromShiftId, setFromShiftId] = useState("");
@@ -5336,17 +5494,17 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
       .catch(() => setTeamShifts([]));
   }, [token]);
 
-  // The from_shift must be one of YOUR upcoming shifts.
-  const upcomingOwn = (ownShifts || []).filter(
-    (s) => s.date >= toLocalISO(new Date()),
-  );
+  // The from_shift must be one of YOUR shifts that has not started and is not
+  // the one being worked (shiftStarted.js).
+  const upcomingOwn = pickableOwnShifts(ownShifts, { liveShiftId });
 
   // Don't let staff pick THEIR OWN shift as the to_shift — that'd be a
   // self-swap. Server rejects but UI catches it earlier.
   const ownStaffId = teamShifts.find((s) => s.shift_id === fromShiftId)?.staff_id;
   const fromShift = upcomingOwn.find((s) => s.id === fromShiftId) || null;
+  // A colleague's shift that has started can't be taken over either.
   const teammateShifts = teamShifts.filter(
-    (s) => s.shift_id !== fromShiftId && s.staff_id !== ownStaffId,
+    (s) => s.shift_id !== fromShiftId && s.staff_id !== ownStaffId && !shiftHasStarted(s),
   );
   // Never offer a trade that would put either of you on two shifts at once —
   // an accept executes it immediately. The server refuses it too (409); this
@@ -5356,10 +5514,14 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
     (s) => !swapDoubleBooks({ fromShift, toShift: s, ownShifts, teamShifts }),
   );
   const hiddenForOverlap = fromShift ? teammateShifts.length - candidateTeamShifts.length : 0;
+  // The colleague's shift picked, while it is still on offer.
+  const toPicked = candidateTeamShifts.some((s) => s.shift_id === toShiftId) ? toShiftId : "";
 
   const submit = async () => {
-    if (!fromShiftId || !toShiftId) return;
-    const target = teamShifts.find((s) => s.shift_id === toShiftId);
+    // fromShift / candidateTeamShifts, not the raw ids: a pick that has since
+    // started (or now clashes) is no longer on offer.
+    if (!fromShift || !toPicked) return;
+    const target = candidateTeamShifts.find((s) => s.shift_id === toPicked);
     if (!target) return;
     setSubmitting(true);
     setError("");
@@ -5385,7 +5547,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
       <label className="block min-w-0">
         <span style={FIELD_LABEL}>{t("portalSwapGiveUp", "Your shift to give up")}</span>
         <select
-          value={fromShiftId}
+          value={fromShift ? fromShiftId : ""}
           onChange={(e) => { setFromShiftId(e.target.value); setToShiftId(""); }}
           className={FIELD_CLS}
           style={FIELD}
@@ -5399,11 +5561,11 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
         </select>
       </label>
 
-      {fromShiftId && (
+      {fromShift && (
         <label className="block min-w-0">
           <span style={FIELD_LABEL}>{t("portalSwapTakeInExchange", "Your colleague's shift you'd take instead")}</span>
           <select
-            value={toShiftId}
+            value={toPicked}
             onChange={(e) => setToShiftId(e.target.value)}
             className={FIELD_CLS}
             style={FIELD}
@@ -5443,9 +5605,9 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
       <button
         type="button"
         onClick={submit}
-        disabled={submitting || !fromShiftId || !toShiftId}
+        disabled={submitting || !fromShift || !toPicked}
         className={`w-full vp-press ${FOCUS_RING}`}
-        style={pineBtn(submitting || !fromShiftId || !toShiftId, BTN_FULL)}
+        style={pineBtn(submitting || !fromShift || !toPicked, BTN_FULL)}
       >
         {submitting ? t("portalSending", "Sending…") : t("portalSwapSubmit", "Send swap request")}
       </button>
@@ -6059,6 +6221,27 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const picker = usePhotoPicker();
+  // Android app: the photo button opens the camera plugin's own "choose or
+  // take" sheet (its WebView's file input can never take a photo — see
+  // utils/camera.js promptPhotoFile). A refused camera or a failed pick is
+  // said here, under the composer, never silently dropped.
+  const [photoNote, setPhotoNote] = useState("");
+  const pickAndroidPhoto = async () => {
+    setPhotoNote("");
+    try {
+      return await promptPhotoFile({
+        header: t("staffChatAddPhoto", "Add photo"),
+        photo: t("portalPhotoChoose", "Choose a photo"),
+        picture: t("portalPhotoTake", "Take a photo"),
+        cancel: t("cancel", "Cancel"),
+      });
+    } catch (err) {
+      setPhotoNote(isCameraDenied(err)
+        ? t("portalPhotoCameraDenied", "The app isn't allowed to use the camera. Allow it in Settings → Apps → BonBox Vagtplan → Permissions → Camera, or choose a photo instead.")
+        : t("portalPhotoFailed", "Couldn't add the photo. Try again."));
+      return null;
+    }
+  };
   const scrollRef = useRef(null);
   // px the on-screen keyboard covers (web: visual viewport; Scheduler app:
   // the Keyboard plugin). The composer is position:fixed, and the shell's
@@ -6132,6 +6315,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
     setMessages((prev) => [...(prev || []), optimistic]);
     setText("");
     picker.clear();
+    setPhotoNote("");
     try {
       let res;
       if (photoFiles.length > 0) {
@@ -6245,9 +6429,14 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
         className="flex flex-col overflow-y-auto"
         style={{
           maxHeight: kbOpen
-            // Android's edge-to-edge window keeps its status-bar inset while
-            // the keyboard is up; iOS's shell has none (env is 0 there).
-            ? `calc(100vh - 20rem${platform.isAndroid ? " - env(safe-area-inset-top, 0px)" : ""} - ${kb}px)`
+            ? (platform.isAndroid
+              // Android's edge-to-edge window keeps its status-bar inset while
+              // the keyboard is up, and the dock has stepped aside (dockAway),
+              // so its room goes back to the stream — without it ~84 px of
+              // empty stream sat above the composer.
+              ? `calc(100vh - 20rem - env(safe-area-inset-top, 0px) - ${kb}px + ${COMPOSER_OVER_DOCK}px)`
+              // iOS's shell has no top inset here (env is 0 there).
+              : `calc(100vh - 20rem - ${kb}px)`)
             : "calc(100vh - 20rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
           gap: 10,
         }}
@@ -6372,6 +6561,11 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
         <div className={BAR_V3 ? "" : "max-w-lg mx-auto px-3 pt-2"} style={BAR_V3 ? { padding: 5 } : undefined}>
           {/* The shared photo kit in the portal's material: a 14 px thumb, a
               pine "×" (24 px, 44 px to tap) instead of the kit's navy dot. */}
+          {photoNote && (
+            <p data-testid="portal-chat-photo-note" role="status" className="m-0" style={{ padding: "4px 12px 6px", font: "500 12.5px/1.35 var(--font-text)", color: MUTED }}>
+              {photoNote}
+            </p>
+          )}
           <PendingPhotos
             picker={picker}
             thumbStyle={{ borderRadius: 14, border: `1px solid ${LINE}` }}
@@ -6384,6 +6578,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
             <AttachButton
               picker={picker}
               label={t("staffChatAddPhoto", "Add photo")}
+              onPick={platform.isAndroid ? pickAndroidPhoto : undefined}
               className={`shrink-0 flex items-center justify-center vp-press ${picker.atMax ? "cursor-not-allowed" : "cursor-pointer"}`}
               style={{ width: 44, height: 44, borderRadius: 999, color: picker.atMax ? PLACEHOLDER : MUTED }}
             />
@@ -7755,6 +7950,10 @@ const DOCK_LIFT = 8;
 const DOCK_H = 52;
 // "safe area + N px": N px above the bottom edge of the screen's usable area.
 const aboveDock = (gap) => `calc(env(safe-area-inset-bottom, 0px) + ${DOCK_LIFT + DOCK_H + gap}px)`;
+// How far the chat composer drops when the dock steps aside for the Android
+// keyboard (dockAway): the dock's lift + height + the composer's 8 px gap
+// (v3), or the older bars' 3.5rem.
+const COMPOSER_OVER_DOCK = BAR_V3 ? DOCK_LIFT + DOCK_H + 8 : 56;
 // Below 360 CSS px (iPhone SE / mini with Display Zoom: 320, a Fold cover
 // screen: 323) the home tightens: the date strip drops its gaps and the
 // card's confirmed state says "Bekræftet" instead of "Vagten er bekræftet".
@@ -8484,6 +8683,21 @@ export default function StaffPortalPage() {
   // while typing there, as iOS effectively does.
   const kbState = useKeyboardState();
   const dockAway = platform.isAndroid && kbState.open;
+  // Large phone text: the dock's five names shrink together instead of
+  // ellipsizing ("Besked…"); at normal size nothing changes
+  // (components/staff/dockLabelFit.js). Re-measured when the dock's size
+  // changes, when the fonts arrive and when the language changes.
+  const [dockEl, setDockEl] = useState(null);
+  useLayoutEffect(() => {
+    if (!dockEl) return undefined;
+    const fit = () => fitDockLabels(dockEl);
+    fit();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(fit) : null;
+    ro?.observe(dockEl);
+    let live = true;
+    document.fonts?.ready?.then(() => { if (live) fit(); }, () => {});
+    return () => { live = false; ro?.disconnect(); };
+  }, [dockEl, lang]);
   const [tab, setTab] = useState(() => {
     // Honor ?tab= so the installed-app shortcuts (Schedule / Hours) and
     // any deep link open the right tab.
@@ -9368,10 +9582,14 @@ export default function StaffPortalPage() {
         // The canvas's ivory ground, on every tab.
         background: IVORY,
         // v3: the dock (52) + its lift (8 over the home-indicator inset) + 16
-        // of air.
-        paddingBottom: BAR_V3
-          ? "calc(76px + env(safe-area-inset-bottom, 0px) + var(--bb-consent-h, 0px))"
-          : "calc(6rem + var(--bb-consent-h, 0px))",
+        // of air. Android, typing: the dock has stepped aside (dockAway), so
+        // its room is not reserved — the chat thread would otherwise overflow
+        // the shortened window by ~18 px.
+        paddingBottom: dockAway
+          ? "calc(16px + var(--bb-consent-h, 0px))"
+          : BAR_V3
+            ? "calc(76px + env(safe-area-inset-bottom, 0px) + var(--bb-consent-h, 0px))"
+            : "calc(6rem + var(--bb-consent-h, 0px))",
         // Where scrollIntoView may put things: below the sticky header (56 +
         // the notch) and above the floating tab bar. Without it the sick-call
         // form's Send button landed under the bar.
@@ -9650,7 +9868,10 @@ export default function StaffPortalPage() {
               className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px] vp-scrim"
             />
             <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl shadow-soft-lg max-h-[90dvh] overflow-y-auto overscroll-contain vp-sheet">
-              <div className="sticky top-0 bg-white/95 flex items-center justify-between px-4 pt-4 pb-2 border-b border-[#f1f5f9]">
+              {/* Opaque and above the sheet's content: at 95 % white the
+                  scrolled text showed through, and the profile card (a
+                  positioned element) could paint over a header with no z. */}
+              <div className="sticky top-0 z-10 bg-white flex items-center justify-between px-4 pt-4 pb-2 border-b border-[#f1f5f9]">
                 <h2 className="text-base font-bold text-gray-900">{t("portalEditContact", "Edit profile")}</h2>
                 <button
                   type="button"
@@ -9815,10 +10036,14 @@ export default function StaffPortalPage() {
                   known them, never posed as a legal entitlement. */}
               <HolidaySection token={token} />
 
+              {/* The Android app has no push (no push plugin, no service
+                  worker), so a reminder switched on there could never arrive.
+                  Chrome on Android keeps it: Web Push delivers there once
+                  notifications are on. */}
+              {!platform.isAndroid && <ShiftReminderRow token={token} />}
               {/* Employment documents the owner has shared. Renders nothing
                   when there are none — the staffer cannot request one here, so
                   an empty section would be an empty promise. */}
-              <ShiftReminderRow token={token} />
               <DocumentsSection token={token} />
 
               {/* Language — moved here from the header (design). Staff pick DA / EN. */}
@@ -10020,7 +10245,8 @@ export default function StaffPortalPage() {
          pill (the indicator) slides to the active column on a soft spring —
          it is never re-drawn per tab. The active name pops in. A pine count
          on Beskeder. Fixed, not sticky. Five columns hold at 320 px: ~57 px
-         each, names 11 px on one line (they can only ellipsize). */
+         each, names 11 px on one line; at large text they shrink together
+         (dockLabelFit.js), ellipsis only below 8 px. */
       <>
       <div
         aria-hidden
@@ -10029,6 +10255,7 @@ export default function StaffPortalPage() {
         style={{ height: aboveDock(42), background: `linear-gradient(to bottom, rgba(246,244,238,0), ${IVORY} 70%)`, ...(dockAway ? { display: "none" } : {}) }}
       />
       <nav data-bb-consent-clear="" aria-label={t("portalTabsLabel", "Tabs")} data-testid="portal-tabbar-v3"
+        ref={setDockEl}
         className="vp-dock"
         data-kb-away={dockAway ? "" : undefined}
         style={{ gridTemplateColumns: `repeat(${DOCK_TABS.length}, minmax(0, 1fr))`, "--n": DOCK_TABS.length, ...(dockAway ? { display: "none" } : {}) }}

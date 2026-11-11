@@ -188,6 +188,17 @@ describe("Home per canvas", () => {
     expect(who.textContent).toContain("2 kolleger");
     const row = screen.getByTestId("portal-whos-on-row");
     expect(row.textContent).toContain("Sofie og Oliver");
+    // The initials are drawn above every disc (a larger phone text grows the
+    // letter, not the disc, and the next disc covered it), inside the row's
+    // own stacking context.
+    const discs = row.querySelector("span[aria-hidden]");
+    expect(discs.className.split(" ")).toContain("isolate");
+    const letters = [...discs.children].map((d) => d.firstElementChild);
+    expect(letters).toHaveLength(2);
+    for (const l of letters) {
+      expect(l.className.split(" ")).toEqual(expect.arrayContaining(["relative", "z-10"]));
+      expect(l.textContent).toMatch(/^[A-ZÆØÅ]$/);
+    }
     fireEvent.click(row);
     await waitFor(() => expect(scrolled.some((c) => c.el.id === `portal-day-${WED}`)).toBe(true));
   });
@@ -466,6 +477,11 @@ describe("Canvas review: the week row's colleagues line", () => {
     const lines = await screen.findAllByTestId("portal-week-mates");
     const btn = lines[0];
     expect(btn.tagName).toBe("BUTTON");
+    // The small discs lift their letters too ('+N' included).
+    expect(btn.firstElementChild.className.split(" ")).toContain("isolate");
+    for (const d of btn.firstElementChild.children) {
+      expect(d.firstElementChild.className.split(" ")).toEqual(expect.arrayContaining(["relative", "z-10"]));
+    }
     // Discs (initials) then the one line of text.
     expect(btn.lastElementChild.textContent).toBe("Med Sofie, Oliver, Magnus, Emil +1");
     // No per-name buttons: the whole line is the one tap target.
@@ -546,6 +562,26 @@ describe("The ⋯ sheet per canvas", () => {
     expect(punch.style.background).toBe("rgb(14, 59, 46)");
     expect(within(sheet).getByTestId("portal-menu-whos-on").textContent).toContain("Sofie og Oliver");
     expect(within(sheet).getByTestId("portal-menu-swaps").textContent).toContain("Tilbyd vagten til en kollega");
+  });
+
+  it("a shift that has started is not offered to swap or give away (the Byt pickers leave it out)", async () => {
+    at(10, 30);   // WED_SHIFT 10:00–16:00 has started
+    await mount("da");
+    fireEvent.click(screen.getByRole("button", { name: "Flere valg for vagten" }));
+    const sheet = await screen.findByTestId("portal-shift-menu");
+    expect(sheet.textContent).toContain("10:00–16:00");
+    expect(within(sheet).queryByTestId("portal-menu-swaps")).toBeNull();
+    expect(within(sheet).getByTestId("portal-menu-calendar")).toBeInTheDocument();
+  });
+
+  it("the live (clocked-in) shift is not offered either, even before its planned start", async () => {
+    at(9, 50);    // clocked in early for the 10:00 shift
+    clockImpl = () => ok({ clocked_in: true, since: "09:45", elapsed_sec: 300, geofence_on: false, locked: false });
+    await mount("da");
+    fireEvent.click(await screen.findByRole("button", { name: "Flere valg for vagten" }));
+    const sheet = await screen.findByTestId("portal-shift-menu");
+    expect(sheet.textContent).toContain("10:00–16:00");
+    expect(within(sheet).queryByTestId("portal-menu-swaps")).toBeNull();
   });
 });
 

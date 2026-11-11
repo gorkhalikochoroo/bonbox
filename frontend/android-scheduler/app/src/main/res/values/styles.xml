@@ -11,17 +11,29 @@
     <!-- Mirrors the owner app (android/): content sits below the system bars.
          The status bar takes the staff portal canvas with dark glyphs, the same
          pairing as StatusBar {style: LIGHT, backgroundColor: #f9fafb} in
-         capacitor.config.ts, so there is no colour jump when the plugin loads. -->
-    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+         capacitor.config.ts, so there is no colour jump when the plugin loads.
+         Light, not DayNight: the staff portal has no dark mode, so the native
+         parts (the window behind the WebView, the date and select pickers)
+         stay light in system dark mode too. Pine, not AppCompat's default
+         teal, for those pickers' header, selected day and buttons.
+         windowBackground is what Capacitor's SystemBars paints behind the
+         WebView (the portal canvas). -->
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
         <item name="android:fitsSystemWindows">true</item>
         <item name="android:statusBarColor">@color/shellBackground</item>
         <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowBackground">@color/shellBackground</item>
+        <item name="colorPrimary">@color/pine</item>
+        <item name="colorPrimaryDark">@color/pine</item>
+        <item name="colorAccent">@color/pine</item>
     </style>
 
 
+    <!-- The launch splash. System dark mode has its own copy in
+         values-night/styles.xml: keep the two in step. -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
     </style>

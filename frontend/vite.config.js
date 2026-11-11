@@ -252,6 +252,27 @@ function htmlDiet() {
   }
 }
 
+// ── The Vagtplan app shells' icon links (Android walk, 11 Nov 2026) ──
+// The native shells (dist-scheduler, npm run build:scheduler) start at "/", so the head script's /s/<token> swap to
+// the Vagtplan icons never ran before the WebView fetched /favicon.ico — and Capacitor's Android local server answers
+// that exact path with an empty response: a 404 in the console on every launch. In the scheduler build only, every
+// rel="icon" link points at its Vagtplan twin up front (the same rule as lib/vagtplanIcons.js and the head script;
+// public/ has each one). The web build (npm run build, Vercel) never runs this and keeps its links byte-equal.
+function schedulerIcons() {
+  return {
+    name: 'bonbox-scheduler-icons',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        if (process.env.VITE_APP_MODE !== 'scheduler') return html
+        if (ctx && ctx.path && ctx.path !== '/index.html') return html
+        return html.replace(/(<link\s+rel="icon"[^>]*?\shref=")\/(favicon|icon-192)/g, '$1/vagtplan-$2')
+      },
+    },
+  }
+}
+
 // ── The booking page's own words (booking R5) ─────────────────────
 // `virtual:bonbox-booking-dict` = { da: {...}, en: {...} } holding exactly the
 // keys the public booking page and every file its code reaches can show
@@ -341,7 +362,7 @@ export default defineConfig({
   // screen's build, which loads those instead of a second copy.
   plugins: [
     react(), preloadDictionary(), preloadLanding(), bookingBoot(), landingFirstScreen(), bootDictionary(), bookingDictionary(),
-    standHtml(), standWords(), appDictionaries(), htmlDiet(),
+    standHtml(), standWords(), appDictionaries(), schedulerIcons(), htmlDiet(),
   ],
   // Force the automatic JSX runtime everywhere — production already
   // uses it via @vitejs/plugin-react, but vitest's transform pipeline

@@ -77,7 +77,7 @@ vi.mock("../hooks/useNativePush", () => ({
   NATIVE_PUSH_TOKEN_KEY: "bonbox_apns_token",
 }));
 vi.mock("../utils/haptics", () => ({ haptic: Object.assign(vi.fn(), { light: vi.fn(), warning: vi.fn(), success: vi.fn(), error: vi.fn() }) }));
-vi.mock("../utils/camera", () => ({ capturePhoto: vi.fn() }));
+vi.mock("../utils/camera", () => ({ capturePhoto: vi.fn(), promptPhotoFile: vi.fn(), isCameraDenied: vi.fn() }));
 
 const StaffPortalPage = (await import("../pages/StaffPortalPage")).default;
 const { LanguageProvider } = await import("../hooks/useLanguage");

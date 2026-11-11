@@ -65,6 +65,7 @@ import { loadLocale, localesFor } from './lib/localeStore.js'
 import { applyThemeImmediately } from './hooks/useTheme.jsx'
 
 import { captureSignupRef, watchCookieConsentForSignupRef } from './utils/signupRef.js'
+import { dropNativeShellLeftovers } from './utils/nativeShellLeftovers.js'
 
 // Apply saved theme to <html> BEFORE React mounts so the user never sees
 // the wrong-color flash while React boots.
@@ -136,3 +137,6 @@ if (waits) {
   }
 }
 mountWhenReady(start, waits, cap)
+// Native app shells only: an old build's service worker and bonbox-* caches go
+// (utils/nativeShellLeftovers.js). A no-op in every browser.
+dropNativeShellLeftovers()
