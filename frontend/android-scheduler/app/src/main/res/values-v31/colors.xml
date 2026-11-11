@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Android 12+: light mode's splash is DeviceDefault.Light's colorBackground,
-         which the framework takes from system_neutral1_50 (the phone's own
-         light background). The dark-mode splash (values-night/styles.xml)
-         uses the same colour, so light and dark mode open alike. -->
+    <!-- Android 12+ (values-v36 takes over on newer Android): light mode's
+         splash is DeviceDefault.Light's colorBackground, which the framework
+         takes from system_neutral1_50 (the phone's own light background).
+         The dark-mode splash (values-night/styles.xml) uses the same colour,
+         so light and dark mode open alike. -->
     <color name="splashBackground">@android:color/system_neutral1_50</color>
 </resources>

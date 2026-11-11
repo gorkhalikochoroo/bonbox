@@ -94,6 +94,9 @@ describe("android-scheduler resources", () => {
     expect(colors).toMatch(/<color name="splashBackground">#FAFAFA<\/color>/);
     const v31 = read(`${RES}/values-v31/colors.xml`);
     expect(v31).toMatch(/<color name="splashBackground">@android:color\/system_neutral1_50<\/color>/);
+    // Newer frameworks (API 37 read on the emulator) moved it to the surface container.
+    const v36 = read(`${RES}/values-v36/colors.xml`);
+    expect(v36).toMatch(/<color name="splashBackground">@android:color\/system_surface_container_light<\/color>/);
     expect(colors).toMatch(/<color name="shellBackground">#f9fafb<\/color>/);
   });
 

@@ -12,6 +12,6 @@
     <!-- The launch splash in system dark mode = light mode's own splash
          colour, so both modes open the same. Light mode's Theme.SplashScreen
          paints ?android:colorBackground of DeviceDefault.Light: #FAFAFA before
-         Android 12; values-v31/colors.xml has the Android 12+ one. -->
+         Android 12; values-v31 and values-v36 have the newer ones. -->
     <color name="splashBackground">#FAFAFA</color>
 </resources>
