@@ -532,6 +532,7 @@ export const da = {
     portalHoursVsLast: "mod sidste periode",
     portalHoursSameAsLast: "Uændret",
     portalHoursExport: "Eksportér CSV",
+    portalHoursExportWebOnly: "Eksportér dine timer fra bonbox.dk i en browser",
     portalHoursCsvHours: "Timer",
     staffRemindHrOne: "{n} time",
     portalHoursCsvDate: "Dato",

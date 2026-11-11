@@ -477,7 +477,9 @@ describe("Polish", () => {
     }
   });
 
-  it("week chart: the biggest week is not painted status-green", async () => {
+  // Nov 2026: the chart speaks the Vagtplan system — the week we are in is
+  // pine, every other week sage. Still never status-green.
+  it("week chart: this week is pine, the rest sage — never status-green", async () => {
     get.mockImplementation(((base) => (url) => (url.startsWith(`/portal/${TOK}/hours`)
       ? ok({
         period_start: inDays(-20), period_end: inDays(0), total_hours: 14, hours_source: "logged",
@@ -492,8 +494,14 @@ describe("Polish", () => {
     const bars = await screen.findAllByTestId("portal-week-bar");
     expect(bars.length).toBeGreaterThan(1);
     const fills = bars.map((b) => b.querySelector("div").style.background);
-    expect(fills.some((f) => f.includes("#0f172a") || f.includes("rgb(15, 23, 42)"))).toBe(true);
-    expect(fills.join(" ")).not.toMatch(/#22c55e|rgb\(34, 197, 94\)/);
+    // The period runs to today, so exactly one bar is this week's: pine.
+    const now = bars.filter((b) => b.hasAttribute("data-current"));
+    expect(now).toHaveLength(1);
+    expect(now[0].querySelector("div").style.background).toBe("rgb(14, 59, 46)");
+    for (const b of bars.filter((x) => !x.hasAttribute("data-current"))) {
+      expect(b.querySelector("div").style.background).toBe("rgb(195, 209, 200)");
+    }
+    expect(fills.join(" ")).not.toMatch(/#22c55e|rgb\(34, 197, 94\)|#0f172a|rgb\(15, 23, 42\)/);
   });
 
   it("a punch without location says how to fix it", async () => {

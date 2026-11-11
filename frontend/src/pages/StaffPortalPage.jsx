@@ -4063,34 +4063,33 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
   })();
   const ready = from && to && !problem;
 
-  const field = {
-    width: "100%", minWidth: 0, boxSizing: "border-box",
-    marginTop: 6, padding: "11px 12px", borderRadius: 14,
-    border: "1px solid #e8edf3", background: "#fbfdff",
-    font: "600 14px/1 var(--font-text)", color: "#0f172a",
-  };
-  const cap = {
-    font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em",
-    textTransform: "uppercase", color: "#94a3b8",
-  };
+  // 16 px: under it iOS zooms the page on focus, and an inline font beats
+  // index.css's coarse-pointer rule (this was 14).
+  const field = { ...FIELD, width: "100%", marginTop: 6, font: "600 16px/1.2 var(--font-text)" };
+  const cap = EYEBROW;
 
   return (
-    <div className="fixed inset-0 z-50 m-0 flex items-end vp-scrim" style={{ background: "rgba(8,14,22,.45)" }} onClick={onClose} {...closingProps(closing)}>
+    <div className="fixed inset-0 z-50 m-0 flex items-end vp-scrim" style={{ background: SCRIM }} onClick={onClose} {...closingProps(closing)}>
       <div
         role="dialog"
-            aria-modal="true"
-            aria-label={t("portalHoursCustomTitle")}
-            className="w-full bg-white vp-sheet"
-        style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
+        aria-modal="true"
+        aria-label={t("portalHoursCustomTitle")}
+        data-testid="portal-period-sheet"
+        className="w-full max-w-lg mx-auto m-0 vp-sheet"
+        style={{
+          background: CARD, color: INK, borderRadius: "28px 28px 0 0",
+          padding: "8px 16px calc(18px + env(safe-area-inset-bottom))",
+          boxShadow: "0 -20px 40px -20px rgba(8,24,18,0.5)",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
-        <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
+        <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB }} />
+        <div style={{ marginTop: 14, padding: "0 4px", font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>
           {t("portalHoursCustomTitle", "Choose a period")}
         </div>
 
-        <div style={{ marginTop: 16, ...cap }}>{t("portalHoursCycle", "Pay cycle")}</div>
-        <div className="flex" style={{ gap: 7, marginTop: 8 }}>
+        <div style={{ marginTop: 16, padding: "0 4px", ...cap }}>{t("portalHoursCycle", "Pay cycle")}</div>
+        <div className="flex" style={{ gap: 8, marginTop: 8 }}>
           {cycles.map((c) => {
             const active = from === c.start && to === c.end;
             return (
@@ -4098,46 +4097,45 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
                 key={c.key}
                 type="button"
                 onClick={() => { setFrom(c.start); setTo(c.end); }}
+                aria-pressed={active}
+                className={`min-w-0 vp-press ${FOCUS_RING}`}
                 style={{
-                  flex: 1, padding: "11px 6px", borderRadius: 14, textAlign: "center",
-                  background: active ? "linear-gradient(180deg,#1e293b,#0f172a)" : "#f5f8fb",
-                  border: `1px solid ${active ? "transparent" : "#e8edf3"}`,
-                  boxShadow: active ? "0 8px 18px -10px rgba(15,23,42,.85)" : "none",
+                  flex: 1, padding: "12px 6px", borderRadius: 18, textAlign: "center",
+                  background: active ? PINE : IVORY,
+                  border: `1px solid ${active ? PINE : LINE}`,
+                  boxShadow: active ? "0 8px 18px -12px rgba(14,59,46,0.8)" : "none",
                 }}
               >
-                <div style={{ font: "700 13px/1 var(--font-text)", color: active ? "#fff" : "#0f172a" }}>{c.label}</div>
-                <div style={{ marginTop: 5, font: "600 10px/1 var(--font-text)", color: active ? "rgba(255,255,255,.55)" : "#94a3b8" }}>{c.hint}</div>
+                <div className="vp-figures" style={{ font: `700 15px/1 ${SORA}`, color: active ? CREAM : INK }}>{c.label}</div>
+                <div style={{ marginTop: 6, font: "500 11px/1 var(--font-text)", color: active ? SAGE : MUTED }}>{c.hint}</div>
               </button>
             );
           })}
         </div>
 
-        <div style={{ marginTop: 18, ...cap }}>{t("portalHoursCustomRange", "Or pick your own dates")}</div>
+        <div style={{ marginTop: 18, padding: "0 4px", ...cap }}>{t("portalHoursCustomRange", "Or pick your own dates")}</div>
         <div className="flex" style={{ gap: 10, marginTop: 8 }}>
           <label style={{ flex: 1, minWidth: 0 }}>
-            <span style={cap}>{t("portalHoursFrom", "From")}</span>
-            <input type="date" value={from} min={floorISO} max={todayISO} onChange={(e) => setFrom(e.target.value)} style={field} />
+            <span style={FIELD_LABEL}>{t("portalHoursFrom", "From")}</span>
+            <input type="date" value={from} min={floorISO} max={todayISO} onChange={(e) => setFrom(e.target.value)} className={FIELD_CLS} style={field} />
           </label>
           <label style={{ flex: 1, minWidth: 0 }}>
-            <span style={cap}>{t("portalHoursTo", "To")}</span>
-            <input type="date" value={to} min={from || floorISO} onChange={(e) => setTo(e.target.value)} style={field} />
+            <span style={FIELD_LABEL}>{t("portalHoursTo", "To")}</span>
+            <input type="date" value={to} min={from || floorISO} onChange={(e) => setTo(e.target.value)} className={FIELD_CLS} style={field} />
           </label>
         </div>
         {problem && (
-          <div style={{ marginTop: 10, font: "600 12px/1.4 var(--font-text)", color: "#dc2626" }}>{problem}</div>
+          <div role="alert" style={{ marginTop: 10, padding: "0 4px", font: "600 13px/1.4 var(--font-text)", color: ALERT_INK }}>{problem}</div>
         )}
 
         <button
           type="button"
           disabled={!ready}
           onClick={() => onApply({ start: from, end: to })}
-          className="w-full"
+          className={`w-full vp-press ${FOCUS_RING}`}
           style={{
-            marginTop: 16, padding: "14px 0", borderRadius: 16,
-            font: "700 14px/1 var(--font-text)",
-            color: ready ? "#fff" : "#94a3b8",
-            background: ready ? "linear-gradient(180deg,#1e293b,#0f172a)" : "#f1f5f9",
-            boxShadow: ready ? "0 10px 22px -12px rgba(15,23,42,.9)" : "none",
+            ...BTN_PINE, marginTop: 16, height: 52, borderRadius: 18,
+            ...(ready ? null : { background: TILE, color: MUTED, boxShadow: "none" }),
           }}
         >
           {t("portalHoursShowPeriod", "Show these hours")}
@@ -4146,8 +4144,8 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
           <button
             type="button"
             onClick={() => onApply(null)}
-            className="w-full"
-            style={{ marginTop: 10, padding: "12px 0", font: "600 13px/1 var(--font-text)", color: "#64748b" }}
+            className={`w-full vp-press ${FOCUS_RING}`}
+            style={{ marginTop: 8, minHeight: 44, borderRadius: 14, font: "600 14px/1 var(--font-text)", color: MUTED }}
           >
             {t("portalHoursBackToDefault", "Back to my pay period")}
           </button>
@@ -4221,46 +4219,54 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
     // Flagged, not hidden: with a long custom window these five bars are a tail,
     // not the whole period, so they cannot add up to the headline above them.
     rows.truncated = sorted.length > rows.length;
+    // The week we are in, so its bar can be the pine one (the rest sage).
+    // Not in the period (a past window) → no bar is pine: nothing is "now".
+    rows.current = isoWeek(toLocalISO(new Date()))?.key || null;
     return rows;
   }, [data?.entries, data?.period_start, data?.period_end, t]);
+
+  // A failed load, in the house red, with the way out beside the words.
+  const hoursAlert = (stale) => (
+    <div
+      role="alert"
+      className="flex items-start"
+      style={{ gap: 9, padding: "11px 13px", borderRadius: 16, background: ALERT_WASH, border: `1px solid ${ALERT_EDGE}`, font: "500 13px/1.45 var(--font-text)", color: ALERT_INK }}
+    >
+      <AlertTriangle size={16} strokeWidth={2} aria-hidden style={{ flex: "none", marginTop: 1 }} />
+      <span>
+        {typeof hoursError === "string" ? hoursError : t("portalHoursLoadFailed", "Could not load that period")}
+        {/* The numbers below are the LAST good fetch — say so. */}
+        {stale && <>{" "}{t("portalHoursStale", "Showing the last numbers we got.")}</>}
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={hoursLoading}
+            data-testid="portal-hours-retry"
+            className="min-h-[44px] disabled:opacity-50"
+            style={{ marginLeft: 8, textDecoration: "underline", textUnderlineOffset: 2, color: ALERT_INK, font: "700 13px/1 var(--font-text)" }}
+          >
+            {t("tryAgain", "Try again")}
+          </button>
+        )}
+        {range && (
+          <button
+            type="button"
+            onClick={() => setRange(null)}
+            className="min-h-[44px]"
+            style={{ marginLeft: 8, textDecoration: "underline", textUnderlineOffset: 2, color: ALERT_INK, font: "600 13px/1 var(--font-text)" }}
+          >
+            {t("portalHoursBackToDefault", "Back to my pay period")}
+          </button>
+        )}
+      </span>
+    </div>
+  );
 
   if (!data) {
     // A failed FIRST fetch also leaves data null. Showing the skeleton then is
     // an eternal spinner with no way out, so the error wins over the skeleton.
-    if (hoursError) {
-      return (
-        <div
-          className="flex items-start"
-          style={{
-            gap: 9, padding: "11px 13px", borderRadius: 14,
-            background: "#fef2f2", border: "1px solid #fecaca",
-            font: "600 12px/1.45 var(--font-text)", color: "#b91c1c",
-          }}
-        >
-          <AlertTriangle size={15} strokeWidth={2.4} style={{ flex: "none", marginTop: 1 }} />
-          <span>
-            {typeof hoursError === "string" ? hoursError : t("portalHoursLoadFailed", "Could not load that period")}
-            {onRetry && (
-              <button
-                type="button"
-                onClick={onRetry}
-                disabled={hoursLoading}
-                data-testid="portal-hours-retry"
-                className="min-h-[44px] disabled:opacity-50"
-                style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c", font: "700 12px/1 var(--font-text)" }}
-              >
-                {t("tryAgain", "Try again")}
-              </button>
-            )}
-            {range && (
-              <button type="button" onClick={() => setRange(null)} style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c" }}>
-                {t("portalHoursBackToDefault", "Back to my pay period")}
-              </button>
-            )}
-          </span>
-        </div>
-      );
-    }
+    if (hoursError) return hoursAlert(false);
     return <LoadingSkeleton />;
   }
 
@@ -4305,9 +4311,29 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
     ? t("portalHoursNoShifts", "No shifts in this period yet")
     : t("portalHoursNoneLogged", "No hours logged yet this period");
 
+  // The CSV goes out through utils/download.js. In the native shell there is
+  // no download manager behind the WebView and no share/filesystem plugin is
+  // synced into either Vagtplan app (capacitor.config.ts includePlugins,
+  // ios-scheduler Package.swift, android-scheduler capacitor.settings.gradle),
+  // so saveFile answers "no_download_manager" and the button did nothing.
+  // A dead button is a lie: in the app it is not drawn, and one line says
+  // where the export does work.
+  const nativeShell = isNativeApp();
+  const canExport = data.entries.length > 0 && !nativeShell;
+
+  // The two stat tiles on the pine card: cream figures, sage labels. "lit"
+  // is the one that answers the question of the moment (permit, up on last
+  // period, the first shift) — a lighter sage, never status-green.
+  const tile = (lit) => ({
+    padding: "11px 12px", borderRadius: 16,
+    background: lit ? "rgba(208, 224, 213, 0.13)" : "rgba(243, 239, 228, 0.07)",
+    border: `1px solid ${lit ? "rgba(208, 224, 213, 0.24)" : "rgba(243, 239, 228, 0.12)"}`,
+  });
+  const tileLabel = (lit) => ({ font: "600 11px/1.2 var(--font-text)", letterSpacing: "0.08em", textTransform: "uppercase", color: lit ? "#CFE0D4" : SAGE });
+  const tileValue = { marginTop: 7, font: `700 18px/1 ${SORA}`, color: CREAM };
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col" style={{ gap: 16 }}>
 
       {periodSheet.mounted && (
         <PeriodSheet
@@ -4319,97 +4345,55 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
         />
       )}
 
-      {/* The period IS the control. It sat inside the card as a 10px eyebrow,
-          which read as a caption rather than something you could tap — so it
-          moves out, goes up in size, and keeps the chevron as the affordance. */}
+      {/* The period IS the control: an ivory card row, the range in Sora, the
+          chevron as the affordance. While a new period loads the chevron
+          dims (no spinner — the kit's rule); the button says it is busy. */}
       <button
         type="button"
         onClick={() => setCustomOpen(true)}
-        className="w-full flex items-center justify-between bg-white"
+        aria-busy={hoursLoading ? "true" : undefined}
+        data-testid="portal-hours-period"
+        className={`w-full flex items-center justify-between vp-press vp-row ${FOCUS_RING}`}
         style={{
-          gap: 8, padding: "12px 14px", borderRadius: 16, marginBottom: 13,   // space-y does not reach the card (inline style wins), so state it
-          border: "1px solid #e8edf3",
-          boxShadow: "0 1px 2px rgba(15,23,42,.04)",
-          font: "700 15px/1 var(--font-display)", color: "#0f172a",
+          gap: 8, minHeight: 56, padding: "0 16px 0 18px", borderRadius: 20, ...CARD_BOX,
+          font: `700 16px/1.2 ${SORA}`, letterSpacing: "-0.01em", color: INK,
         }}
       >
-        <span>{fmtShort(data.period_start, lang)} – {fmtShort(data.period_end, lang)}</span>
-        {hoursLoading
-          ? <RefreshCw size={14} strokeWidth={2.5} className="animate-spin" style={{ color: "#94a3b8" }} />
-          : <ChevronDown size={16} strokeWidth={2.5} style={{ color: "#94a3b8" }} />}
+        <span className="tabular-nums truncate">{fmtShort(data.period_start, lang)} – {fmtShort(data.period_end, lang)}</span>
+        <ChevronDown size={18} strokeWidth={2} aria-hidden className="shrink-0" style={{ color: MUTED, opacity: hoursLoading ? 0.35 : 1, transition: "opacity var(--dur-fast) var(--ease-out)" }} />
       </button>
 
-      {hoursError && (
-        <div
-          className="flex items-start"
-          style={{
-            gap: 9, padding: "11px 13px", borderRadius: 14,
-            background: "#fef2f2", border: "1px solid #fecaca",
-            font: "600 12px/1.45 var(--font-text)", color: "#b91c1c",
-          }}
-        >
-          <AlertTriangle size={15} strokeWidth={2.4} style={{ flex: "none", marginTop: 1 }} />
-          <span>
-            {typeof hoursError === "string" ? hoursError : t("portalHoursLoadFailed", "Could not load that period")}
-            {/* The numbers below are the LAST good fetch — say so. */}
-            {" "}{t("portalHoursStale", "Showing the last numbers we got.")}
-            {onRetry && (
-              <button
-                type="button"
-                onClick={onRetry}
-                disabled={hoursLoading}
-                data-testid="portal-hours-retry"
-                className="min-h-[44px] disabled:opacity-50"
-                style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c", font: "700 12px/1 var(--font-text)" }}
-              >
-                {t("tryAgain", "Try again")}
-              </button>
-            )}
-            {range && (
-              <button
-                type="button"
-                onClick={() => setRange(null)}
-                style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c" }}
-              >
-                {t("portalHoursBackToDefault", "Back to my pay period")}
-              </button>
-            )}
-          </span>
-        </div>
-      )}
+      {hoursError && hoursAlert(true)}
 
-      {/* Period info */}
-      {/* The stat card is the next-shift card's sibling: flat BonBox forest,
-          radius 22 (home v3, Nov 2026 — the gradient and the green bloom
-          went from both cards in the same change). */}
+      {/* Period info — the next-shift card's sibling: flat pine, radius 24. */}
       <div
         className="relative overflow-hidden"
         data-testid="portal-hours-card"
         style={{
-          borderRadius: 22, padding: 19,
+          borderRadius: 24, padding: 20,
           // Last-good numbers under a failed refresh read as such.
           opacity: hoursError ? 0.6 : 1,
-          background: FOREST,
+          background: PINE, color: CREAM,
         }}
       >
 
-        <div className="relative flex items-end gap-2">
-          <span className="tabular-nums" data-testid="portal-hours-total" style={{ font: "700 44px/0.9 var(--font-display)", letterSpacing: "-0.04em", color: "#fff" }}>
+        <div className="relative flex items-end" style={{ gap: 8 }}>
+          <span className="vp-figures" data-testid="portal-hours-total" style={{ font: `700 44px/0.9 ${SORA}`, letterSpacing: "-0.04em", color: CREAM }}>
             {/* A new period (or a refresh) rolls only the digits that moved. */}
             <RollingDigits value={fmtPortalHours(data.total_hours, lang)} />
           </span>
           {/* hoursLabel already says "Rostered hours" or "Hours worked" from
               hours_source — the number must never claim to be the other one. */}
-          <span style={{ font: "600 12px/1 var(--font-text)", color: "rgba(255,255,255,.5)", paddingBottom: 5 }}>
+          <span style={{ font: "500 13px/1 var(--font-text)", color: SAGE, paddingBottom: 5 }}>
             {hoursLabel.toLowerCase()}
           </span>
         </div>
         <div className="relative flex" style={{ marginTop: 16, gap: 9 }}>
-          <div style={{ flex: maxHours ? 1 : "0 1 auto", minWidth: 96, padding: "11px 12px", borderRadius: 14, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.10)" }}>
-            <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
+          <div style={{ ...tile(false), flex: maxHours ? 1 : "0 1 auto", minWidth: 96 }}>
+            <div style={tileLabel(false)}>
               {t("portalHoursShiftsCount", "Shifts")}
             </div>
-            <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#fff" }}>
+            <div className="vp-figures" style={tileValue}>
               <RollingDigits value={data.entries.length} />
             </div>
           </div>
@@ -4418,25 +4402,25 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
               payslip. The permit cap is a real number in the same slot; with no
               cap the Shifts tile simply takes the full width. */}
           {maxHours ? (
-            <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: "rgba(34,197,94,.14)", border: "1px solid rgba(34,197,94,.26)" }}>
-              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(134,239,172,.85)" }}>
+            <div style={{ ...tile(true), flex: 1.5 }}>
+              <div style={tileLabel(true)}>
                 {t("portalWorkPermitLimit", "Work permit limit")}
               </div>
-              <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#dcfce7" }}>
+              <div className="vp-figures" style={tileValue}>
                 <RollingDigits value={`${fmtPortalHours(data.total_hours, lang)} / ${formatHours(maxHours, { lang, decimals: 2 })}`} />
               </div>
             </div>
           ) : soFar > 0 && ahead > 0 ? (
             /* Mid-period only: before the first shift or after the last, a
                split states nothing the headline has not. */
-            <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.10)" }}>
-              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
+            <div style={{ ...tile(false), flex: 1.5 }}>
+              <div style={tileLabel(false)}>
                 {t("portalHoursLeft", "Still to come")}
               </div>
               {/* Was "12 / 8" in the permit tile's exact shape — a ratio
                   against a cap. This is a SPLIT of the period, so it states the
                   one number the staffer does not already have. */}
-              <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#fff" }}>
+              <div className="vp-figures" style={tileValue}>
                 <RollingDigits value={formatHours(ahead, { lang, decimals: 2 })} />
               </div>
             </div>
@@ -4444,11 +4428,11 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             /* vs the previous window of the same length. Zero is stated as
                "same", never as "+0" — a signed zero reads like a measurement
                when it is really "no difference". */
-            <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: delta >= 0 ? "rgba(34,197,94,.14)" : "rgba(255,255,255,.07)", border: `1px solid ${delta >= 0 ? "rgba(34,197,94,.26)" : "rgba(255,255,255,.10)"}` }}>
-              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: delta >= 0 ? "rgba(134,239,172,.85)" : "rgba(255,255,255,.42)" }}>
+            <div style={{ ...tile(delta >= 0), flex: 1.5 }}>
+              <div style={tileLabel(delta >= 0)}>
                 {t("portalHoursVsLast", "vs last period")}
               </div>
-              <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: delta >= 0 ? "#dcfce7" : "#fff" }}>
+              <div className="vp-figures" style={tileValue}>
                 {delta === 0
                   ? t("portalHoursSameAsLast", "Same")
                   : formatHours(delta, { lang, decimals: 2, sign: true })}
@@ -4457,11 +4441,11 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           ) : nextUp ? (
             /* Nothing worked yet in this window — the useful fact is when it
                starts, not a split that would just restate the headline. */
-            <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: "rgba(34,197,94,.14)", border: "1px solid rgba(34,197,94,.26)" }}>
-              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(134,239,172,.85)" }}>
+            <div style={{ ...tile(true), flex: 1.5 }}>
+              <div style={tileLabel(true)}>
                 {t("portalHoursFirstShift", "First shift")}
               </div>
-              <div style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#dcfce7" }}>
+              <div style={tileValue}>
                 {fmtDate(nextUp.date, lang)}{nextUp.start_time ? ` · ${nextUp.start_time}` : ""}
               </div>
             </div>
@@ -4469,68 +4453,63 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
         </div>
       </div>
 
-      {/* v2 by-week chart. Bars are proportional to the period's own maximum,
-          and the tallest is in the portal's ink — so the shape answers "which
-          week was heaviest" before any number is read. Not green: green means
-          confirmed / done everywhere else in the app, and "most hours" is not
-          a status. Silent when a period has one week: a single full-height
-          bar compares nothing. */}
+      {/* v2 by-week chart. Bars are proportional to the period's own maximum.
+          The week we are in is pine, every other week sage — "where am I in
+          this period" before any number is read. Not green: green means
+          confirmed / done everywhere else in the app. Silent when a period
+          has one week: a single full-height bar compares nothing. Figures
+          and week labels are Sora's tabular digits (vp-figures). */}
       {weekBars.length > 1 && (
-        <div
-          className="bg-white"
-          style={{
-            border: "1px solid #e8edf3", borderRadius: 20, padding: "16px 15px 13px",
-            boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
-          }}
-        >
-          <div className="flex items-center justify-between">
-            <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+        <section data-testid="portal-hours-weeks" style={{ ...CARD_BOX, borderRadius: 24, padding: "16px 14px 12px" }}>
+          <div className="flex items-center justify-between" style={{ padding: "0 2px" }}>
+            <span style={EYEBROW}>
               {t("portalHoursByWeek", "By week")}
             </span>
-            <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>
+            <span style={{ font: "500 12px/1 var(--font-text)", color: MUTED }}>
               {weekBars.truncated
                 ? t("portalHoursLastNWeeks", "last {n} weeks").split("{n}").join(String(weekBars.length))
                 : hoursUnit(lang)}
             </span>
           </div>
-          <div className="flex items-end" style={{ marginTop: 16, gap: 9, height: 104 }}>
-            {weekBars.map((b) => (
-              <div key={b.k} className="flex-1 flex flex-col items-center justify-end h-full" style={{ gap: 7 }} data-testid="portal-week-bar">
-                <span className="tabular-nums" style={{ font: "700 10px/1 var(--font-text)", color: "#475569" }}>{fmtPortalHours(b.v, lang)}</span>
-                <div
-                  style={{
-                    width: "100%", borderRadius: 7,
-                    height: Math.max(3, Math.round((b.n / weekBars.max) * 74)),
-                    background: b.n === weekBars.max
-                      ? "linear-gradient(180deg,#334155,#0f172a)"
-                      : "linear-gradient(180deg,#cbd5e1,#94a3b8)",
-                    boxShadow: b.n === weekBars.max ? "0 8px 18px -10px rgba(15,23,42,.7)" : "none",
-                    transition: "height .5s cubic-bezier(.22,.9,.24,1)",
-                  }}
-                />
-                <span style={{ font: "600 9.5px/1 var(--font-text)", color: "#94a3b8" }}>{b.w}</span>
-              </div>
-            ))}
+          <div className="flex items-end" style={{ marginTop: 16, gap: 9, height: 108 }}>
+            {weekBars.map((b) => {
+              const now = b.k === weekBars.current;
+              return (
+                <div key={b.k} className="flex-1 min-w-0 flex flex-col items-center justify-end h-full" style={{ gap: 7 }} data-testid="portal-week-bar" data-current={now ? "" : undefined}>
+                  <span className="vp-figures" style={{ font: `600 11px/1 ${SORA}`, color: now ? INK : MUTED }}>{fmtPortalHours(b.v, lang)}</span>
+                  <div
+                    style={{
+                      width: "100%", borderRadius: 8,
+                      height: Math.max(3, Math.round((b.n / weekBars.max) * 74)),
+                      background: now ? PINE : SAGE_BAR,
+                      transition: "height .5s cubic-bezier(.22,.9,.24,1)",
+                    }}
+                  />
+                  <span className="vp-figures truncate" style={{ maxWidth: "100%", font: `600 11px/1 ${SORA}`, color: now ? PINE : MUTED }}>{b.w}</span>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        </section>
       )}
 
       {/* The permit warning stays SEPARATE from the tile above: the tile shows
           the position, this shows the alarm. Only when it is actually close. */}
       {maxHours && remaining !== null && remaining <= 10 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-[14px] p-3 text-[12px] text-amber-800">
-          <strong className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />{t("portalWorkPermitLimit", "Work permit limit")}</strong>
-          <p className="mt-0.5 text-amber-700">{t("portalHoursRemainingLong", "You have {n} hours remaining this period.", { n: remaining })}</p>
-        </div>
+        <VpNote icon={AlertTriangle} testId="portal-hours-permit-note">
+          <strong style={{ fontWeight: 700 }}>{t("portalWorkPermitLimit", "Work permit limit")}</strong>
+          <span style={{ display: "block", marginTop: 2 }}>{t("portalHoursRemainingLong", "You have {n} hours remaining this period.", { n: remaining })}</span>
+        </VpNote>
       )}
 
       {/* Recent / upcoming shifts */}
-      <div>
-        <div className="flex items-baseline justify-between mb-2">
-          <span className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8]">{recentLabel}</span>
-          {data.entries.length > 0 && (
+      <section>
+        <div className="flex items-center justify-between" style={{ gap: 8, minHeight: 24, padding: "0 4px", marginBottom: 8 }}>
+          <span style={EYEBROW}>{recentLabel}</span>
+          {canExport && (
             <button
               type="button"
+              data-testid="portal-hours-export"
               onClick={() => {
                 // Built from the rows on screen, so the file and the screen can
                 // never disagree — this is the staffer's own record if the hours
@@ -4555,8 +4534,12 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                   ],
                 );
               }}
-              style={{ font: "600 11px/1 var(--font-text)", color: "#16a34a" }}
+              // A quiet text button in pine: the export is a convenience, not
+              // this screen's action. 44 tall, pulled back into the row.
+              className={`shrink-0 inline-flex items-center vp-press ${FOCUS_RING}`}
+              style={{ gap: 6, minHeight: 44, margin: "-10px -8px -10px 0", padding: "0 8px", borderRadius: 12, font: "600 13px/1 var(--font-text)", color: PINE }}
             >
+              <Download size={15} strokeWidth={2} aria-hidden />
               {t("portalHoursExport", "Export CSV")}
             </button>
           )}
@@ -4565,25 +4548,31 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             as entries with total_hours 0 and render "0 timer" with no times,
             and one of them flipped the headline to "0 worked". The server now
             keeps them out of every total and every entry and sends them here
-            with the same live/forgotten rule the owner's Timer uses. */}
+            with the same live/forgotten rule the owner's Timer uses. Brass =
+            it waits on the manager; sage = it is running. */}
         {(data.open_punches || []).length > 0 && (
-          <div className="space-y-1.5 mb-2">
+          <div className="flex flex-col" style={{ gap: 6, marginBottom: 8 }}>
             {data.open_punches.map((op) => {
               const forgotten = op.state === "forgotten";
               return (
                 <div
                   key={`open-${op.date}-${op.start_time || ""}`}
                   data-testid="portal-open-punch"
-                  className={`flex items-start gap-2.5 rounded-[16px] px-3.5 py-3 border ${forgotten ? "bg-amber-50 border-amber-200" : "bg-emerald-50 border-emerald-200"}`}
+                  className="flex items-start"
+                  style={{
+                    gap: 10, padding: "12px 14px", borderRadius: 18,
+                    background: forgotten ? BRASS_WASH : SOFT,
+                    border: `1px solid ${forgotten ? BRASS_EDGE : SAGE_EDGE}`,
+                  }}
                 >
                   {forgotten
-                    ? <AlertTriangle size={15} strokeWidth={2.4} className="shrink-0 mt-0.5 text-amber-600" aria-hidden />
-                    : <Clock size={15} strokeWidth={2.4} className="shrink-0 mt-0.5 text-emerald-600" aria-hidden />}
+                    ? <AlertTriangle size={16} strokeWidth={2} className="shrink-0" style={{ marginTop: 2, color: BRASS_INK }} aria-hidden />
+                    : <Clock size={16} strokeWidth={2} className="shrink-0" style={{ marginTop: 2, color: PINE }} aria-hidden />}
                   <div className="min-w-0">
-                    <div className="text-sm text-gray-700 tabular-nums">
+                    <div className="tabular-nums" style={{ font: "400 14px/1.35 var(--font-text)", color: INK }}>
                       {fmtDate(op.date, lang)}{op.start_time ? ` · ${op.start_time}–` : ""}
                     </div>
-                    <div className={`text-[12.5px] font-semibold ${forgotten ? "text-amber-800" : "text-emerald-800"}`}>
+                    <div style={{ marginTop: 2, font: "600 13px/1.35 var(--font-text)", color: forgotten ? BRASS_INK : PINE }}>
                       {forgotten
                         ? t("portalHoursOpenForgotten", "Clock-out missing — your manager will fix it")
                         : t("portalHoursOpenLive", "Clocked in since {t}", { t: op.start_time || "—" })}
@@ -4595,15 +4584,9 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           </div>
         )}
         {data.entries.length === 0 ? (
-          <div className="text-sm text-gray-400 py-4 text-center">{emptyLabel}</div>
+          <CalmEmpty icon={Clock} testId="portal-hours-empty">{emptyLabel}</CalmEmpty>
         ) : (
-          <div
-            className="bg-white overflow-hidden"
-            style={{
-              border: "1px solid #e8edf3", borderRadius: 20,
-              boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
-            }}
-          >
+          <div className="overflow-hidden" style={{ ...CARD_BOX, borderRadius: 24 }}>
             {data.entries.map((h, i) => {
               // WHAT THE OWNER DECIDED ABOUT THIS SHIFT.
               //
@@ -4627,20 +4610,21 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                 <div
                   key={i}
                   style={{
-                    padding: "13px 15px",
-                    borderBottom: i === data.entries.length - 1 ? "none" : "1px solid #f1f5f9",
+                    padding: "14px 16px",
+                    borderBottom: i === data.entries.length - 1 ? "none" : `1px solid ${DIVIDER}`,
                   }}
                 >
-                  <div className="flex items-center" style={{ gap: 11 }}>
-                    <span className="text-sm text-gray-500 flex-1">
-                      {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}–${h.end_time}` : ""}
+                  <div className="flex items-center" style={{ gap: 12 }}>
+                    <span className="flex-1 min-w-0" style={{ font: "400 14px/1.35 var(--font-text)", color: INK }}>
+                      {fmtDate(h.date, lang)}{" "}
+                      {h.start_time && h.end_time ? <span style={{ color: MUTED }}>· {h.start_time}–{h.end_time}</span> : ""}
                     </span>
                     {/* Right-aligned down the list: Sora's tabular digits (vp-figures). */}
-                    <span className="text-sm font-semibold text-gray-900 vp-figures" data-testid="portal-hours-entry-total">{formatHours(h.total_hours, { lang, decimals: 2 })}</span>
+                    <span className="text-sm font-semibold vp-figures" style={{ color: INK }} data-testid="portal-hours-entry-total">{formatHours(h.total_hours, { lang, decimals: 2 })}</span>
                   </div>
                   {adjusted && (
-                    <p className="text-[12px] text-amber-700 mt-1 flex items-start gap-1.5">
-                      <PencilLine size={12} className="shrink-0 mt-0.5" />
+                    <p className="flex items-start" style={{ margin: "4px 0 0", gap: 6, font: "500 12px/1.4 var(--font-text)", color: BRASS_INK }}>
+                      <PencilLine size={12} className="shrink-0" style={{ marginTop: 2 }} aria-hidden />
                       <span className="tabular-nums">
                         {t("portalHoursAdjusted", "You clocked {clocked} · recorded {recorded}", {
                           clocked: formatHours(h.clock_hours, { lang, decimals: 2 }),
@@ -4650,14 +4634,14 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                     </p>
                   )}
                   {h.resolution === "absent" && (
-                    <p className="text-[12px] text-gray-500 mt-1 flex items-start gap-1.5">
-                      <MinusCircle size={12} className="shrink-0 mt-0.5" />
+                    <p className="flex items-start" style={{ margin: "4px 0 0", gap: 6, font: "400 12px/1.4 var(--font-text)", color: MUTED }}>
+                      <MinusCircle size={12} className="shrink-0" style={{ marginTop: 2 }} aria-hidden />
                       <span>{t("portalHoursAbsent", "Recorded as not worked")}</span>
                     </p>
                   )}
                   {h.resolution === "confirmed" && (
-                    <p className="text-[12px] text-gray-400 mt-1 flex items-start gap-1.5">
-                      <Check size={12} className="shrink-0 mt-0.5" />
+                    <p className="flex items-start" style={{ margin: "4px 0 0", gap: 6, font: "400 12px/1.4 var(--font-text)", color: MUTED }}>
+                      <Check size={12} className="shrink-0" style={{ marginTop: 2, color: PINE }} aria-hidden />
                       <span>{t("portalHoursConfirmed", "Checked by your manager")}</span>
                     </p>
                   )}
@@ -4666,7 +4650,19 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             })}
           </div>
         )}
-      </div>
+        {/* In the app the export is not drawn (see nativeShell above); this
+            one line says where it does work. */}
+        {nativeShell && data.entries.length > 0 && (
+          <p
+            data-testid="portal-hours-export-web-only"
+            className="flex items-center"
+            style={{ margin: "10px 4px 0", gap: 6, font: "400 13px/1.4 var(--font-text)", color: MUTED }}
+          >
+            <Download size={14} strokeWidth={2} aria-hidden className="shrink-0" />
+            {t("portalHoursExportWebOnly", "Export your hours from bonbox.dk in a browser")}
+          </p>
+        )}
+      </section>
 
       {/* Recently clocked — period-INDEPENDENT proof-of-punch. A shift clocked
           just after midnight is dated to the previous business day and can land
@@ -4688,24 +4684,25 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
         const extra = recent.filter((r) => !inPeriodKeys.has(`${r.date}|${r.start_time || ""}`));
         if (extra.length === 0) return null; // nothing new to surface
         return (
-          <div>
-            <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2">
+          <section>
+            <div style={{ ...EYEBROW, padding: "0 4px", marginBottom: 8 }}>
               {t("portalHoursRecentlyClocked", "Recently clocked")}
-              <span className="font-normal text-gray-400 normal-case tracking-normal">
+              <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
                 {" · "}{t("portalHoursRecentlyClockedWindow", "last {n} days", { n: winDays })}
               </span>
             </div>
-            <div className="space-y-1.5">
+            <div className="flex flex-col" style={{ gap: 6 }}>
               {extra.map((h, i) => (
-                <div key={`rc-${i}`} className="flex items-center justify-between px-3 py-2.5 rounded-[18px] bg-white border border-[#e8edf3] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                  <span className="text-sm text-gray-500">
-                    {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}–${h.end_time}` : ""}
+                <div key={`rc-${i}`} className="flex items-center justify-between" style={{ gap: 12, padding: "12px 16px", borderRadius: 18, ...CARD_BOX }}>
+                  <span className="min-w-0" style={{ font: "400 14px/1.35 var(--font-text)", color: INK }}>
+                    {fmtDate(h.date, lang)}{" "}
+                    {h.start_time && h.end_time ? <span style={{ color: MUTED }}>· {h.start_time}–{h.end_time}</span> : ""}
                   </span>
-                  <span className="text-sm font-semibold text-gray-900 vp-figures" data-testid="portal-hours-recent-total">{formatHours(h.total_hours, { lang, decimals: 2 })}</span>
+                  <span className="text-sm font-semibold vp-figures" style={{ color: INK }} data-testid="portal-hours-recent-total">{formatHours(h.total_hours, { lang, decimals: 2 })}</span>
                 </div>
               ))}
             </div>
-          </div>
+          </section>
         );
       })()}
     </div>
@@ -6323,22 +6320,23 @@ function ListSkeleton({ label, rows = 3, height = 56 }) {
     <div role="status" className="flex flex-col gap-2" data-testid="portal-list-loading">
       <span className="sr-only">{label}</span>
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} aria-hidden className="rounded-2xl bg-gray-100 vp-shimmer" style={{ height }} data-testid="portal-skeleton" />
+        <div key={i} aria-hidden className="vp-shimmer" style={{ height, borderRadius: 20, background: DIVIDER }} data-testid="portal-skeleton" />
       ))}
     </div>
   );
 }
 
-// Shimmer blocks (vagtplan.css .vp-shimmer): a sweep, no spinner, no pulse.
+// Shimmer blocks (vagtplan.css .vp-shimmer): a sweep, no spinner, no pulse —
+// warm ivory shapes, the ground's own tone.
 function LoadingSkeleton() {
   return (
-    <div className="space-y-3" data-testid="portal-skeleton">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="h-20 bg-[#eef2f7] rounded-2xl vp-shimmer" />
-        <div className="h-20 bg-[#eef2f7] rounded-2xl vp-shimmer" />
+    <div className="flex flex-col" style={{ gap: 12 }} data-testid="portal-skeleton">
+      <div className="grid grid-cols-2" style={{ gap: 12 }}>
+        <div className="vp-shimmer" style={{ height: 80, borderRadius: 20, background: DIVIDER }} />
+        <div className="vp-shimmer" style={{ height: 80, borderRadius: 20, background: DIVIDER }} />
       </div>
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="h-14 bg-gray-100 rounded-xl vp-shimmer" />
+        <div key={i} className="vp-shimmer" style={{ height: 56, borderRadius: 18, background: DIVIDER }} />
       ))}
     </div>
   );

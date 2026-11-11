@@ -541,6 +541,7 @@ export const en = {
     portalHoursVsLast: "vs last period",
     portalHoursSameAsLast: "Same",
     portalHoursExport: "Export CSV",
+    portalHoursExportWebOnly: "Export your hours from bonbox.dk in a browser",
     portalHoursCsvHours: "Hours",
     staffRemindHrOne: "{n} hour",
     portalHoursCsvDate: "Date",
