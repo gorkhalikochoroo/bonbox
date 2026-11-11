@@ -19,8 +19,11 @@ export const haptic = {
   error: () => {
     if (platform.isNative) Haptics.notification({ type: NotificationType.Error });
   },
-  /** Warning — cash variance, budget limit */
+  /** Warning — cash variance, budget limit. Android plays the two short taps
+   *  of ERROR (27 + 50 ms): Capacitor 8.0.2's Android WARNING is one 210 ms
+   *  full-strength buzz (every amplitude 255, so its "gaps" are not gaps).
+   *  iPhone unchanged. Manoj's call G, 11 Nov 2026 (premium-feel spec). */
   warning: () => {
-    if (platform.isNative) Haptics.notification({ type: NotificationType.Warning });
+    if (platform.isNative) Haptics.notification({ type: platform.isAndroid ? NotificationType.Error : NotificationType.Warning });
   },
 };

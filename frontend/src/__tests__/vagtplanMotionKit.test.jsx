@@ -375,6 +375,58 @@ describe("Reduced motion: ONE block turns all of it off", () => {
   });
 });
 
+// Premium feel, Release A Step 1 (Nov 2026): the shared primitives' CSS —
+// the press tint token and the busy → done look (BusyLabel.jsx, .vp-ring).
+describe("Premium feel primitives (P1, P6)", () => {
+  const start = CSS.indexOf("@media (prefers-reduced-motion: reduce)");
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
+  const outside = strip(CSS.slice(0, start));
+  const body = strip(CSS.slice(start));
+  // Every rule outside the block: [selectors[], declarations].
+  const rules = [...outside.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map((m) => [m[1].trim().split(",").map((s) => s.trim()).filter(Boolean), m[2]])
+    .filter(([sel]) => sel.length && !/^(@|from$|to$|\d+%)/.test(sel[0]));
+
+  it("the grouped-row tint is a token in the portal's token block", () => {
+    const block = CSS.match(/body\.portal-shell \{[^}]*\}/)[0];
+    expect(block).toContain("--press-tint: rgba(14, 59, 46, .06);");
+    expect(block.indexOf("--press-tint")).toBeGreaterThan(block.indexOf("--dur-spring"));
+  });
+
+  it("the busy look: one grid cell, the ring after the wait, the check pops on the spring", () => {
+    expect(CSS).toMatch(/\.vp-busy \{ display: inline-grid; place-items: center;/);
+    expect(CSS).toMatch(/\.vp-busy > \* \{ grid-area: 1 \/ 1;/);
+    expect(CSS).toMatch(/\.vp-ring \{[^}]*animation: vp-spin 800ms linear infinite;/);
+    expect(CSS).toMatch(/\.vp-busy\[data-state="busy"\] > \.vp-busy-spin \{ opacity: 1; animation: vp-spin 800ms linear infinite; \}/);
+    expect(CSS).toMatch(/\.vp-busy\[data-state="done"\] > \.vp-busy-check \{ opacity: 1; animation: vp-pop var\(--dur-spring\) var\(--spring\) backwards; \}/);
+    expect(CSS).toMatch(/@keyframes vp-spin \{ to \{ transform: rotate\(360deg\); \} \}/);
+  });
+
+  it(".vp-ring, .vp-busy, .vp-busy-label, .vp-busy-spin and .vp-busy-check are in the reduce block", () => {
+    for (const c of [".vp-ring", ".vp-busy", ".vp-busy-label", ".vp-busy-spin", ".vp-busy-check"]) expect(body).toContain(c);
+  });
+
+  it("every rule keyed on data-pressed / data-state / data-dragged-out / data-sheet-dialog / data-closing that animates or transitions is mirrored with the SAME selector text", () => {
+    // A media query adds no specificity: a shorter selector in the block would turn nothing off.
+    const keyed = /data-(pressed|state|dragged-out|sheet-dialog|closing)/;
+    let checked = 0;
+    for (const [sels, decl] of rules) {
+      if (!/\b(animation|transition)\s*:/.test(decl)) continue;
+      for (const s of sels) {
+        if (!keyed.test(s)) continue;
+        checked += 1;
+        expect(body).toContain(s);
+      }
+    }
+    expect(checked).toBeGreaterThanOrEqual(6);   // the busy rules + the sheets' and confirm's exits
+  });
+
+  it("the only infinite animations: the live dot, the shimmer and the ring (also inside a busy label)", () => {
+    const infinite = rules.filter(([, decl]) => /infinite/.test(decl)).flatMap(([sels]) => sels).sort();
+    expect(infinite).toEqual([".vp-breathe", ".vp-busy[data-state=\"busy\"] > .vp-busy-spin", ".vp-ring", ".vp-shimmer::after"].sort());
+  });
+});
+
 describe("RollingDigits", () => {
   // The digits that roll in, with their direction.
   const rolled = (el) => [...el.querySelectorAll(".vp-roll-up, .vp-roll-down")]

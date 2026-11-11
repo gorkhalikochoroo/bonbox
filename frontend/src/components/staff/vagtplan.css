@@ -98,6 +98,8 @@ body.portal-shell {
   --dur-nav: 0.42s;
   --dur-nav-back: 0.36s;
   --dur-spring: 0.5s;
+  /* Weight (premium feel, Nov 2026) */
+  --press-tint: rgba(14, 59, 46, .06);   /* grouped rows tint instead of shrinking */
   /* Easing */
   --ease-nav: cubic-bezier(.32, .72, 0, 1);
   --ease-std: cubic-bezier(.4, 0, .2, 1);
@@ -380,6 +382,25 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
 }
 @keyframes vp-shimmer { to { transform: translateX(100%); } }
 
+/* ── Busy → done (components/staff/BusyLabel.jsx) ─────────────────────────
+ * The button stays the same object: same size, same colour, full opacity.
+ * After 300 ms of waiting the label fades and a small ring turns; on a yes a
+ * check pops in with the action's one haptic and holds 900 ms. The ring is
+ * progress information, never a loading screen (content loading stays the
+ * shimmer). */
+.vp-ring { display: inline-block; width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: vp-spin 800ms linear infinite; }
+.vp-ring-sm { width: 13px; height: 13px; }
+.vp-busy { display: inline-grid; place-items: center; gap: inherit; min-width: 0; max-width: 100%; }
+.vp-busy > * { grid-area: 1 / 1; min-width: 0; }
+.vp-busy-label { display: inline-flex; align-items: center; justify-content: center; gap: inherit; min-width: 0; max-width: 100%; transition: opacity 120ms var(--ease-out); }
+.vp-busy > .vp-busy-spin { opacity: 0; animation: none; transition: opacity 120ms var(--ease-out); }
+.vp-busy-check { opacity: 0; }
+.vp-busy[data-state="busy"] > .vp-busy-label,
+.vp-busy[data-state="done"] > .vp-busy-label { opacity: 0; }
+.vp-busy[data-state="busy"] > .vp-busy-spin { opacity: 1; animation: vp-spin 800ms linear infinite; }
+.vp-busy[data-state="done"] > .vp-busy-check { opacity: 1; animation: vp-pop var(--dur-spring) var(--spring) backwards; }
+@keyframes vp-spin { to { transform: rotate(360deg); } }
+
 /* ── Reduced motion: ALL of the above, off ─────────────────────────────── */
 /* The one switch. Things simply are where they end up: the indicator jumps,
    sheets appear and vanish, digits change in place, nothing breathes or
@@ -415,6 +436,12 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
   .vp-shimmer::after {
     animation: none;
   }
+  .vp-ring,
+  .vp-busy > .vp-busy-spin,
+  .vp-busy[data-state="busy"] > .vp-busy-spin,
+  .vp-busy[data-state="done"] > .vp-busy-check { animation: none; }
+  .vp-busy-label,
+  .vp-busy > .vp-busy-spin { transition: none; }
   /* RollingDigits draws no roll here at all; if one is ever on screen, only
      the new digit shows. */
   .vp-roll-out,

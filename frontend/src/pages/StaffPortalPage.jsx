@@ -37,6 +37,8 @@ import "../components/staff/vagtplan.css";
 import RollingDigits from "../components/staff/RollingDigits";
 import { fitDockLabels } from "../components/staff/dockLabelFit";
 import { usePresence, useLastValue, closingProps } from "../components/staff/sheetMotion";
+import { installPressFeel } from "../components/staff/pressFeel";
+import { forgetAll } from "../components/staff/tabMemory";
 import { parseServerTime } from "../utils/serverTime";
 import { routeUrl, placeSearchUrl, isAndroidDevice } from "../utils/routeUrl";
 import { scheduleFeedUrl, webcalUrl, googleSubscribeUrl } from "../utils/calendarFeed";
@@ -8790,6 +8792,14 @@ export default function StaffPortalPage() {
     document.body.classList.add("portal-shell");
     return () => document.body.classList.remove("portal-shell");
   }, []);
+  // The finger-driven press (premium feel P3, components/staff/pressFeel.js):
+  // on touch, a control presses from data-pressed instead of :active, so a
+  // scroll that starts on a row never flashes it. One document listener set
+  // while the portal is mounted.
+  useEffect(() => installPressFeel(), []);
+  // The tabs' memory (premium feel P7, components/staff/tabMemory.js) lives
+  // only as long as this page: a disconnect or another token starts empty.
+  useEffect(() => () => forgetAll(), []);
   // Native keyboard height (0 on the web and while it is down). The shell ends
   // at the keyboard's top edge instead of behind it, the profile sheets ride
   // on top of it (KB_LIFT_STYLE), and the focused field — any field — is
