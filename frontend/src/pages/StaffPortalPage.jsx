@@ -568,7 +568,7 @@ function HolidaySection({ token }) {
             </div>
           ) : (
             <div className="flex items-baseline gap-2">
-              <span className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
+              <span className="text-[22px] font-bold text-gray-900 vp-figures leading-none" data-testid="holiday-remaining">
                 {fmt(h.remaining)}
               </span>
               <span className="text-[12px] text-gray-500">
@@ -1785,7 +1785,8 @@ function WhosOnStrip({ teamShifts, nextShift, live = false, onOpen }) {
             />
           )}
           {title}
-          {myBranch && <span style={{ fontWeight: 500, color: MUTED }}> · {myBranch}</span>}
+          {/* DM Sans 500: Sora is loaded at 600/700 only, so a Sora 500 drew 600. */}
+          {myBranch && <span style={{ fontFamily: "var(--font-text)", fontWeight: 500, color: MUTED }}> · {myBranch}</span>}
         </HomeH2>
         {mates.length > 0 && (
           <span className="shrink-0" style={{ font: "400 13px/1 var(--font-text)", color: MUTED }}>
@@ -2506,7 +2507,8 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
               data-testid="portal-hero-time"
               style={{ margin: "12px 0 0", fontFamily: SORA, fontWeight: 700, fontSize: "clamp(36px, 10.5vw, 46px)", lineHeight: 1, letterSpacing: "-0.035em", color: CREAM }}
             >
-              {nextShift.start_time}<span style={{ color: "#7F9A8C", fontWeight: 500, padding: "0 0.1em" }}>–</span>{nextShift.end_time}
+              {/* The dash in DM Sans 500 (Sora is loaded at 600/700 only). */}
+              {nextShift.start_time}<span style={{ color: "#7F9A8C", fontFamily: "var(--font-text)", fontWeight: 500, padding: "0 0.1em" }}>–</span>{nextShift.end_time}
             </p>
             {/* role · unpaid break · net (paid), from the owner's rostered
                 shift; with no break, the one figure. The span is the time
@@ -4467,7 +4469,8 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                     <span className="text-sm text-gray-500 flex-1">
                       {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}–${h.end_time}` : ""}
                     </span>
-                    <span className="text-sm font-semibold text-gray-900 tabular-nums">{formatHours(h.total_hours, { lang, decimals: 2 })}</span>
+                    {/* Right-aligned down the list: Sora's tabular digits (vp-figures). */}
+                    <span className="text-sm font-semibold text-gray-900 vp-figures" data-testid="portal-hours-entry-total">{formatHours(h.total_hours, { lang, decimals: 2 })}</span>
                   </div>
                   {adjusted && (
                     <p className="text-[12px] text-amber-700 mt-1 flex items-start gap-1.5">
@@ -4532,7 +4535,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                   <span className="text-sm text-gray-500">
                     {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}–${h.end_time}` : ""}
                   </span>
-                  <span className="text-sm font-semibold text-gray-900 tabular-nums">{formatHours(h.total_hours, { lang, decimals: 2 })}</span>
+                  <span className="text-sm font-semibold text-gray-900 vp-figures" data-testid="portal-hours-recent-total">{formatHours(h.total_hours, { lang, decimals: 2 })}</span>
                 </div>
               ))}
             </div>
@@ -4709,7 +4712,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
       )}
 
       {/* Inbox */}
-      {inbox === null && <div className="text-xs text-gray-500">{t("portalLoading", "Loading…")}</div>}
+      {inbox === null && <ListSkeleton label={t("portalLoading", "Loading…")} rows={2} height={72} />}
       {inbox && inbox.length === 0 && !showPropose && (
         <div className="text-center text-xs text-gray-500 py-6">
           {t("portalSwapNonePending", "No pending swap requests.")}
@@ -6124,6 +6127,20 @@ function MessagesTab({ token, restaurantName, onRead }) {
 
 // ─── Loading skeleton ──────────────────────────────────────────────────────
 
+// A list still loading (Byt's inbox, Fravær, the availability calendar):
+// a few shimmer rows where the rows will be. The words stay for a screen
+// reader (role=status), the blocks are only shapes.
+function ListSkeleton({ label, rows = 3, height = 56 }) {
+  return (
+    <div role="status" className="flex flex-col gap-2" data-testid="portal-list-loading">
+      <span className="sr-only">{label}</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} aria-hidden className="rounded-2xl bg-gray-100 vp-shimmer" style={{ height }} data-testid="portal-skeleton" />
+      ))}
+    </div>
+  );
+}
+
 // Shimmer blocks (vagtplan.css .vp-shimmer): a sweep, no spinner, no pulse.
 function LoadingSkeleton() {
   return (
@@ -6445,7 +6462,7 @@ function AbsenceSection({ token, onChanged }) {
           {t("portalAbsenceLoadFailed", "Couldn't load your absence — pull to refresh or try again in a moment.")}
         </div>
       ) : rows === null ? (
-        <div className="text-xs text-gray-500">{t("portalLoading", "Loading…")}</div>
+        <ListSkeleton label={t("portalLoading", "Loading…")} rows={2} height={60} />
       ) : groups.length > 0 ? (
         <div className="space-y-2">
           {groups.map((g) => {
@@ -7111,7 +7128,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
   const fmtWhen = (iso) => fmtDate(iso, lang);
 
   if (avail === null) {
-    return <div className="text-xs text-gray-500 py-6">{t("portalLoading", "Loading…")}</div>;
+    return <ListSkeleton label={t("portalLoading", "Loading…")} rows={4} height={48} />;
   }
 
   return (
@@ -7255,7 +7272,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
           <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3 vp-sheet">
             <div className="text-base font-bold text-gray-900">{t("kanIkkeRosteredTitle", "You already have a shift that day")}</div>
             <p className="text-[13px] text-gray-600">
-              {t("kanIkkeRosteredBody", "This only helps your manager plan future weeks. The shift stays, and nobody is told — message your manager if you can't work it.")}
+              {t("kanIkkeRosteredBody", "Marking it only helps your manager plan future weeks. It doesn't cancel the shift, and nobody is told — message your manager if you can't work it.")}
             </p>
             <div className="flex gap-2 pt-1">
               <button
@@ -7339,7 +7356,6 @@ const BAR_V3 = BAR_MODE === "v3";
 // (data-bb-consent-clear). The dock's own geometry lives in vagtplan.css.
 const DOCK_LIFT = 8;
 const DOCK_H = 52;
-const DOCK_BOTTOM = `calc(env(safe-area-inset-bottom, 0px) + ${DOCK_LIFT}px)`;
 // "safe area + N px": N px above the bottom edge of the screen's usable area.
 const aboveDock = (gap) => `calc(env(safe-area-inset-bottom, 0px) + ${DOCK_LIFT + DOCK_H + gap}px)`;
 // Below 360 CSS px (iPhone SE / mini with Display Zoom: 320, a Fold cover
@@ -7859,7 +7875,7 @@ function StaffPushOptIn({ token }) {
       // hint, not a crash. Anything else is an unknown error.
       const msg =
         err?.name === "NotAllowedError"
-          ? t("staffPushDeniedError", "Notifications are blocked. Turn them back on in Settings to get them.")
+          ? t("staffPushDeniedError", "Notifications are blocked. Turn them back on in Settings.")
           : errText(err, t("staffPushEnableFailed", "Couldn't enable push. Try again."));
       setError(msg);
       if (typeof Notification !== "undefined") {
@@ -9561,16 +9577,19 @@ export default function StaffPortalPage() {
         className="vp-dock"
         style={{ gridTemplateColumns: `repeat(${DOCK_TABS.length}, minmax(0, 1fr))`, "--n": DOCK_TABS.length }}
       >
-        <span
-          aria-hidden
-          className="vp-dock-ind"
-          data-testid="portal-dock-indicator"
-          // On Alerts (the header bell, not a dock tab) the pill fades out
-          // where it was, and slides on from there when a tab is chosen.
-          {...(dockIdx < 0 ? { "data-hidden": "" } : {})}
-          style={{ "--i": nav.idx }}
-        >
-          <span className="vp-dock-pill" />
+        {/* The track clips the pill to the dock's shape when the spring
+            overshoots; the dock itself never clips (focus ring, count). */}
+        <span aria-hidden className="vp-dock-track" data-testid="portal-dock-track">
+          <span
+            className="vp-dock-ind"
+            data-testid="portal-dock-indicator"
+            // On Alerts (the header bell, not a dock tab) the pill fades out
+            // where it was, and slides on from there when a tab is chosen.
+            {...(dockIdx < 0 ? { "data-hidden": "" } : {})}
+            style={{ "--i": nav.idx }}
+          >
+            <span className="vp-dock-pill" />
+          </span>
         </span>
         {DOCK_TABS.map((item) => {
           const active = tab === item.key;
@@ -9586,7 +9605,8 @@ export default function StaffPortalPage() {
               className="vp-dock-item focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
             >
               <span className="vp-dock-icon">
-                <Icon aria-hidden strokeWidth={1.9} />
+                {/* BeloBag: the active icon draws heavier (2.3), the rest 1.9. */}
+                <Icon aria-hidden strokeWidth={active ? 2.3 : 1.9} />
                 {item.key === "messages" && chatUnread > 0 && (
                   <span
                     key={`n${chatUnread > 9 ? "9+" : chatUnread}`}

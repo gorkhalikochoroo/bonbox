@@ -117,11 +117,32 @@ body.portal-shell {
   }
 }
 
+/* Figures that tick or stand in a column. DM Sans, as shipped, has no
+   tabular digits: its woff2 carries no `tnum` (its '1' is half as wide as its
+   '0'), so `tabular-nums` on DM Sans text does nothing. Sora has them. A
+   figure that must keep its width — a right-aligned hours column, a big count
+   — is drawn in Sora at the weight it already asks for (600/700 are loaded).
+   Plain numbers inside a sentence stay in DM Sans: proportional digits read
+   better there, and nothing lines up under them. */
+body.portal-shell .vp-figures {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── The floating dock (the tab bar) ───────────────────────────────────── */
 /* A light, warm bar floating over the page: 12 px in from each side (or the
    safe area, whichever is more), 8 px above the home indicator, at most
    560 wide, 52 tall (48 on a phone under 360 px), fully round. Fixed, never
-   sticky; no blur (97 % is all but opaque, and blur costs every frame). */
+   sticky; no blur (97 % is all but opaque, and blur costs every frame).
+
+   Three values differ from ORVEXLO-MOTION-KIT.md on purpose (for design to
+   sign off):
+   • z-index 20, not the kit's 40: the portal's sheets and dialogs sit at
+     z-40 to z-60 and must cover the dock.
+   • The pill is inset 4px 3px, not 10px 3px: a 10 px inset leaves a 32 px
+     pill behind the icon only; here the pill holds the icon AND its name.
+   • Names stay on one line and ellipsize, not up to 2 lines: five columns
+     at 320 px are ~57 px wide, and a two-line name would not fit 52 px. */
 .vp-dock {
   position: fixed;
   z-index: 20;
@@ -149,6 +170,19 @@ body.portal-shell {
   .vp-dock { height: 48px; border-radius: 24px; }
 }
 
+/* The indicator's track: the dock's own shape, clipping. The soft spring
+   overshoots (~4 %), which on a long jump (Timer → Vagtplan) carried the
+   pill a few px past the dock's rounded end for ~150 ms. The track clips it;
+   the dock itself does not clip, so the focus ring and the Beskeder count
+   are never cut. */
+.vp-dock-track {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  isolation: isolate;   /* older WebKit: round-clip a transformed child */
+  pointer-events: none;
+}
 /* ONE indicator for the whole bar. It is a column wide and slides to the
    active column (--i) on a soft spring; it never re-mounts per tab. */
 .vp-dock-ind {
@@ -159,6 +193,7 @@ body.portal-shell {
   width: calc((100% - 10px) / var(--n, 5));
   transform: translateX(calc(var(--i, 0) * 100%));
   transition: transform var(--dur-spring) var(--spring-soft), opacity var(--dur-fast) var(--ease-out);
+  will-change: transform;
   pointer-events: none;
 }
 .vp-dock-ind[data-hidden] { opacity: 0; }
@@ -187,10 +222,21 @@ body.portal-shell {
   gap: 3px;
   color: #5E6A63;               /* muted green-grey, 5.6:1 on the bar */
   border-radius: 999px;
-  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-press) var(--ease-out);
+  /* Released: springs back (BeloBag's .pressable). */
+  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-spring) var(--spring);
+  touch-action: manipulation;          /* no double-tap delay */
+  -webkit-touch-callout: none;         /* no long-press callout */
+  -webkit-user-select: none;
+  user-select: none;
 }
 .vp-dock-item[aria-current="page"] { color: #0E3B2E; }   /* dark evergreen */
-.vp-dock-item:active { transform: scale(.96); }
+/* Pressed: down in 0.11 s. (The :active transition runs going down, the
+   base one coming back up.) */
+.vp-dock-item:active {
+  transform: scale(.96);
+  transition-duration: var(--dur-fast), var(--dur-press);
+  transition-timing-function: var(--ease-out), var(--ease-out);
+}
 .vp-dock-icon {
   position: relative;
   display: flex;
@@ -213,22 +259,33 @@ body.portal-shell {
   letter-spacing: -0.005em;
 }
 /* The label pops in when its tab becomes active. */
-.vp-label-in { animation: vp-label-in var(--dur-spring) var(--spring) backwards; }
+.vp-label-in { animation: vp-label-in 560ms var(--spring) backwards; }   /* BeloBag's 560 */
 @keyframes vp-label-in { from { opacity: .15; transform: scale(.55); } }
 
 /* ── Press feedback ────────────────────────────────────────────────────── */
-/* `scale`, not `transform`, so it composes with a Tailwind translate on the
-   same element instead of replacing it. */
+/* BeloBag's .pressable: a quick damped press down (0.11 s), then a spring
+   back with a little overshoot on release. The :active transition runs going
+   down, the base one coming back up. `scale`, not `transform`, so it composes
+   with a Tailwind translate on the same element instead of replacing it. And
+   no web tells: no double-tap delay, no long-press callout or selection. */
 .vp-press {
   transition:
-    scale var(--dur-press) var(--ease-out),
+    scale var(--dur-spring) var(--spring),
     opacity var(--dur-press) var(--ease-out),
     background-color var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-fast) var(--ease-out);
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
-.vp-press:active:not(:disabled) { scale: .97; }
+.vp-press:active:not(:disabled) {
+  scale: .97;
+  transition-duration: var(--dur-press), var(--dur-press), var(--dur-fast), var(--dur-fast), var(--dur-fast), var(--dur-fast);
+  transition-timing-function: var(--ease-out);
+}
 /* A full-width row presses less: a whole row shrinking 3 % reads as a lurch. */
 .vp-press.vp-row:active:not(:disabled) { scale: .985; }
 
@@ -245,14 +302,12 @@ body.portal-shell {
    same, reversed, a little faster. The overlay stops taking taps at once. */
 .vp-scrim { animation: vp-fade-in var(--dur-base) var(--ease-out) backwards; }
 .vp-sheet { animation: vp-sheet-in var(--dur-base) var(--ease-out) backwards; }
-.vp-dialog { animation: vp-dialog-in var(--dur-base) var(--ease-out) backwards; }
 [data-closing] { pointer-events: none; }
 .vp-scrim[data-closing],
 [data-closing] .vp-scrim { animation: vp-fade-out var(--dur-exit) var(--ease-in) forwards; }
 [data-closing] .vp-sheet { animation: vp-sheet-out var(--dur-exit) var(--ease-in) forwards; }
-[data-closing] .vp-dialog { animation: vp-dialog-out var(--dur-exit) var(--ease-in) forwards; }
-/* The ONE shared confirm (hooks/useConfirm.jsx) keeps its own look; on the
-   portal it moves like the portal's dialogs. */
+/* The portal's dialogs: the ONE shared confirm (hooks/useConfirm.jsx) keeps
+   its own look; on the portal it grows in from .97 and back out. */
 body.portal-shell [data-bb-confirm] > [data-bb-confirm-scrim] { animation: vp-fade-in var(--dur-base) var(--ease-out) backwards; }
 body.portal-shell [data-bb-confirm] > [data-bb-confirm-panel] { animation: vp-dialog-in var(--dur-base) var(--ease-out) backwards; }
 body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-scrim] { animation: vp-fade-out var(--dur-exit) var(--ease-in) forwards; }
@@ -265,13 +320,26 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
 @keyframes vp-dialog-out { to { opacity: 0; transform: scale(.97); } }
 
 /* ── Small live things ─────────────────────────────────────────────────── */
-/* Rolling digits (components/staff/RollingDigits.jsx): only a digit that
-   changed re-mounts, and it rolls in from below (counting up) or above. */
-.vp-roll-digit { display: inline-block; }
-.vp-roll-up { animation: vp-roll-up var(--dur-base) var(--spring-soft) backwards; }
-.vp-roll-down { animation: vp-roll-down var(--dur-base) var(--spring-soft) backwards; }
-@keyframes vp-roll-up { from { opacity: 0; transform: translateY(.6em); } }
-@keyframes vp-roll-down { from { opacity: 0; transform: translateY(-.6em); } }
+/* Rolling digits (components/staff/RollingDigits.jsx, BeloBag's bb-roll):
+   only a digit that changed moves. The old one slides out and fades (0.3 s,
+   ease-in) while the new one rises into its place (0.46 s on the soft
+   spring, 80 ms behind): counting up, the old goes up and the new comes
+   from below; counting down, the reverse. Each changed column is a cell; the
+   old digit is laid over the new one. The live copy is aria-hidden (a plain
+   copy is read instead), and once the roll is over the number is plain
+   text again. */
+.vp-roll-live { white-space: nowrap; }
+.vp-roll-cell { position: relative; display: inline-block; }
+.vp-roll-in { display: inline-block; }
+.vp-roll-out { position: absolute; left: 0; top: 0; }
+.vp-roll-up > .vp-roll-out { animation: vp-roll-out-up 300ms var(--ease-in) forwards; }
+.vp-roll-up > .vp-roll-in { animation: vp-roll-in-up 460ms var(--spring-soft) 80ms backwards; }
+.vp-roll-down > .vp-roll-out { animation: vp-roll-out-down 300ms var(--ease-in) forwards; }
+.vp-roll-down > .vp-roll-in { animation: vp-roll-in-down 460ms var(--spring-soft) 80ms backwards; }
+@keyframes vp-roll-out-up { to { opacity: 0; transform: translateY(-.6em); } }
+@keyframes vp-roll-in-up { from { opacity: 0; transform: translateY(.6em); } }
+@keyframes vp-roll-out-down { to { opacity: 0; transform: translateY(.6em); } }
+@keyframes vp-roll-in-down { from { opacity: 0; transform: translateY(-.6em); } }
 
 /* The breathing dot: "Stemplet ind", "På vagt nu". Slow, so it reads as
    alive, not as an alarm. */
@@ -328,20 +396,25 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
   .vp-screen-in,
   .vp-scrim,
   .vp-sheet,
-  .vp-dialog,
   [data-closing] .vp-scrim,
   .vp-scrim[data-closing],
   [data-closing] .vp-sheet,
-  [data-closing] .vp-dialog,
   body.portal-shell [data-bb-confirm] > [data-bb-confirm-scrim],
   body.portal-shell [data-bb-confirm] > [data-bb-confirm-panel],
-  .vp-roll-up,
-  .vp-roll-down,
+  body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-scrim],
+  body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel],
+  .vp-roll-up > .vp-roll-out,
+  .vp-roll-up > .vp-roll-in,
+  .vp-roll-down > .vp-roll-out,
+  .vp-roll-down > .vp-roll-in,
   .vp-breathe,
   .vp-pop,
   .vp-map-in,
   .vp-shimmer::after {
     animation: none;
   }
+  /* RollingDigits draws no roll here at all; if one is ever on screen, only
+     the new digit shows. */
+  .vp-roll-out,
   .vp-shimmer::after { display: none; }
 }
