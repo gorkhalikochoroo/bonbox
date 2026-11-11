@@ -156,7 +156,8 @@ describe("Swap picker — never offers a trade that double-books someone", () =>
     const picker = await openSwapPicker();
     fireEvent.change(picker, { target: { value: "jonas-thu" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send bytteanmodning" })); });
-    expect(await screen.findByText(/Din kollega har allerede en vagt på det tidspunkt den dag/)).toBeInTheDocument();
+    // Calm one-line voice (Nov 2026): the same reason, without "den dag".
+    expect(await screen.findByText(/Din kollega har allerede en vagt på det tidspunkt — byttet ville give dem to vagter på samme tid/)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("This swap would put");
   });
 });
@@ -175,7 +176,7 @@ describe("Accepting a swap that would double-book you", () => {
     const accept = await screen.findByRole("button", { name: "Accepter" });
     await act(async () => { fireEvent.click(accept); });
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("Du har allerede en vagt på det tidspunkt den dag");
+    expect(alert.textContent).toContain("Du har allerede en vagt på det tidspunkt — byttet ville give dig to vagter på samme tid.");
     expect(screen.getByRole("button", { name: "Afvis" })).not.toBeDisabled();
   });
 });

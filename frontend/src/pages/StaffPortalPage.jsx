@@ -1485,7 +1485,7 @@ function useClock(token) {
         const fix = noFix
           ? (isNativeApp()
             ? t("portalClockNoLocationFixNative", "To fix it: Settings → Vagtplan → Location → While Using the App.")
-            : t("portalClockNoLocationFixWeb", "To fix it: allow location for this site in your browser — your next punch is then confirmed."))
+            : t("portalClockNoLocationFixWeb", "To fix it, allow location for this site in your browser. Your next punch is then verified."))
           : "";
         setResult([
           t("portalClockNoLocation", "Clocked in without your location — your manager sees this punch as unverified."),
@@ -4740,8 +4740,8 @@ function swapErrText(err, t, fallback) {
   const d = err?.response?.data?.detail;
   if (err?.response?.status === 409 && d && d.code === "swap_overlap") {
     return d.who === "colleague"
-      ? t("portalSwapClashColleague", "Your colleague already works at that time that day — this swap would put them on two shifts at once.")
-      : t("portalSwapClashSelf", "You already work at that time that day — this swap would put you on two shifts at once.");
+      ? t("portalSwapClashColleague", "Your colleague already works at that time — this swap would put them on two shifts at once.")
+      : t("portalSwapClashSelf", "You already work at that time — this swap would put you on two shifts at once.");
   }
   return errText(err, fallback);
 }
@@ -4996,7 +4996,7 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
         </button>
       </div>
       <p className="text-[11px] text-gray-500 leading-snug">
-        {t("portalGaSellHint", "Your shift goes on the board for colleagues. You keep it until someone takes it — first to take it, gets it.")}
+        {t("portalGaSellHint", "Your shift goes on the board for colleagues. It stays yours until someone takes it — first come, first served.")}
       </p>
       <select
         value={shiftId}
@@ -6245,7 +6245,7 @@ function PortalOffline({ onRetry, busy = false, kind = "offline" }) {
         </h1>
         <p className="text-sm text-gray-500">
           {server
-            ? t("portalServerDownBody", "It's not your phone — it's on our side. Your link is saved, and we'll try again by ourselves in a moment.")
+            ? t("portalServerDownBody", "It's on our side, not your phone. Your link is saved, and we'll try again on our own in a moment.")
             : t("portalOfflineBody", "We couldn't reach BonBox. Your link is saved — we'll try again as soon as you're online.")}
         </p>
         <button
@@ -7255,7 +7255,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
           <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3 vp-sheet">
             <div className="text-base font-bold text-gray-900">{t("kanIkkeRosteredTitle", "You already have a shift that day")}</div>
             <p className="text-[13px] text-gray-600">
-              {t("kanIkkeRosteredBody", "Marking this only tells the manager how to plan future weeks. It does not cancel the shift and nobody is notified — message them if you can't work it.")}
+              {t("kanIkkeRosteredBody", "This only helps your manager plan future weeks. The shift stays, and nobody is told — message your manager if you can't work it.")}
             </p>
             <div className="flex gap-2 pt-1">
               <button
@@ -7859,7 +7859,7 @@ function StaffPushOptIn({ token }) {
       // hint, not a crash. Anything else is an unknown error.
       const msg =
         err?.name === "NotAllowedError"
-          ? t("staffPushDeniedError", "Push permission was blocked. Re-enable in Settings to receive notifications.")
+          ? t("staffPushDeniedError", "Notifications are blocked. Turn them back on in Settings to get them.")
           : errText(err, t("staffPushEnableFailed", "Couldn't enable push. Try again."));
       setError(msg);
       if (typeof Notification !== "undefined") {
@@ -8007,7 +8007,7 @@ function StaffPushOptIn({ token }) {
     return (
       <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-[11px] text-amber-800 leading-relaxed">
         <div className="font-semibold mb-1 inline-flex items-center gap-1.5"><BellOff className="w-4 h-4" strokeWidth={2} aria-hidden />{t("staffPushBlockedTitle", "Push blocked")}</div>
-        {t("staffPushBlockedHint", "Notifications are blocked in your browser settings. Re-enable them in Settings → Notifications → your workplace's name (the light Vagtplan icon) to get a tap when your shifts change.")}
+        {t("staffPushBlockedHint", "Notifications are blocked in your browser. Turn them back on in Settings → Notifications → your workplace's name (the light Vagtplan icon) to get a tap when your shifts change.")}
       </div>
     );
   }
@@ -9420,7 +9420,7 @@ export default function StaffPortalPage() {
                   onClick={async () => {
                     const ok = await confirmDisconnect({
                       title: t("portalDisconnectTitle", "Disconnect this phone?"),
-                      message: t("portalDisconnectBody", "You will stop getting shift alerts, and to see your schedule again you need your link or a new code from your manager."),
+                      message: t("portalDisconnectBody", "You'll stop getting shift alerts. To see your schedule again, you'll need your link or a new code from your manager."),
                       confirmLabel: t("portalDisconnectConfirm", "Disconnect"),
                       destructive: true,
                     });
