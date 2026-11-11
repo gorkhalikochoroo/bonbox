@@ -70,6 +70,7 @@ export function ChatPhoto({ client, url, alt = "", imgStyle, loadingClassName, l
           onClick={() => setOpen(false)}
           role="dialog"
           aria-modal="true"
+          data-back-close=""
         >
           <img src={src} alt={alt} className="max-w-full max-h-full rounded-lg" />
         </div>

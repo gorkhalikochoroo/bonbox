@@ -18,8 +18,16 @@ import { useKeyboardInset } from "./useKeyboardInset";
  * Native: prefer the visual-viewport figure when WebKit reports one (it
  * already subtracts any scroll WebKit did to reveal the field), else the
  * plugin's keyboard height. Web: the visual viewport, as before.
+ *
+ * Android is different (walk 11 Nov 2026): Capacitor 8's SystemBars plugin
+ * pads the window by the keyboard's height, so the WebView itself gets
+ * shorter (914 → 578 css px) and every fixed bar already ends at the
+ * keyboard's top edge. Lifting by the plugin's height on top of that lifted
+ * everything twice — the chat composer jumped over the thread title and the
+ * messages vanished. On Android the lift is only what the visual viewport
+ * still reports as covered (0 there); `open` says the keyboard is up.
  */
-export function useKeyboardLift() {
+export function useKeyboardState() {
   const webInset = useKeyboardInset();
   const [nativeHeight, setNativeHeight] = useState(0);
 
@@ -41,7 +49,13 @@ export function useKeyboardLift() {
     };
   }, []);
 
-  if (!platform.isNative) return webInset;
-  if (!nativeHeight) return 0;
-  return webInset > 0 ? webInset : nativeHeight;
+  if (!platform.isNative) return { lift: webInset, open: webInset > 0 };
+  if (!nativeHeight) return { lift: 0, open: false };
+  if (platform.isAndroid) return { lift: webInset, open: true };
+  return { lift: webInset > 0 ? webInset : nativeHeight, open: true };
+}
+
+/** px a fixed bottom bar must rise to clear the keyboard (see useKeyboardState). */
+export function useKeyboardLift() {
+  return useKeyboardState().lift;
 }

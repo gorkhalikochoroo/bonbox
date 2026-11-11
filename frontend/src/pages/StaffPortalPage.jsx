@@ -47,13 +47,15 @@ import { errText } from "../utils/errText";
 import { portalErrText } from "../utils/portalErrText";
 import { formatClockDistance } from "../utils/clockDistance";
 import { roleName } from "../utils/roleNames";
-import { isNativeApp } from "../utils/platform";
+import { isNativeApp, platform } from "../utils/platform";
 import { applyVagtplanIcons } from "../lib/vagtplanIcons";
 import { capturePhoto } from "../utils/camera";
 import { Camera as CameraIcon, Trash2, PencilLine, MinusCircle } from "lucide-react";
 import { haptic } from "../utils/haptics"; // no-op on web; physical feedback in the iOS shell
 import useNativePush, { unregisterNativePush } from "../hooks/useNativePush";
-import { useKeyboardLift } from "../hooks/useKeyboardLift";
+import { useKeyboardState } from "../hooks/useKeyboardLift";
+import { useAndroidBack, minimizeApp } from "../hooks/useAndroidBack";
+import { runAndroidBack } from "../utils/androidBack";
 import { useKeyboardReveal, KB_LIFT_STYLE } from "../hooks/useKeyboardReveal";
 import { usePortalStream } from "../hooks/usePortalStream";
 import { App as CapApp } from "@capacitor/app";
@@ -1178,6 +1180,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
         <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><Thermometer className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalCallInSick", "Report sick")}</div>
         <button
           onClick={() => { setOpen(false); setError(""); setReason(""); onDismiss?.(); }}
+          data-back-close=""
           className="text-gray-500 hover:text-gray-700 text-lg leading-none w-6 h-6 flex items-center justify-center"
           aria-label={t("close", "Close")}
         >
@@ -4516,12 +4519,17 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                 : hoursUnit(lang)}
             </span>
           </div>
-          <div className="flex items-end" style={{ marginTop: 16, gap: 9, height: 108 }}>
+          {/* minHeight, not height: the tallest column needs 110 px at
+              normal text size and more when the phone's text is larger
+              (Android scales it); a fixed 108 squeezed its week label and
+              cut it off. Labels never shrink; the bottom one keeps 2 px of
+              room for the "g" in "Uge" without moving anything. */}
+          <div className="flex items-end" style={{ marginTop: 16, gap: 9, minHeight: 108 }} data-testid="portal-week-bars">
             {weekBars.map((b) => {
               const now = b.k === weekBars.current;
               return (
                 <div key={b.k} className="flex-1 min-w-0 flex flex-col items-center justify-end h-full" style={{ gap: 7 }} data-testid="portal-week-bar" data-current={now ? "" : undefined}>
-                  <span className="vp-figures" style={{ font: `600 11px/1 ${SORA}`, color: now ? INK : MUTED }}>{fmtPortalHours(b.v, lang)}</span>
+                  <span className="vp-figures" style={{ flexShrink: 0, font: `600 11px/1 ${SORA}`, color: now ? INK : MUTED }}>{fmtPortalHours(b.v, lang)}</span>
                   <div
                     style={{
                       width: "100%", borderRadius: 8,
@@ -4530,7 +4538,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                       transition: "height .5s cubic-bezier(.22,.9,.24,1)",
                     }}
                   />
-                  <span className="vp-figures truncate" style={{ maxWidth: "100%", font: `600 11px/1 ${SORA}`, color: now ? PINE : MUTED }}>{b.w}</span>
+                  <span className="vp-figures truncate" style={{ maxWidth: "100%", flexShrink: 0, paddingBottom: 2, marginBottom: -2, font: `600 11px/1 ${SORA}`, color: now ? PINE : MUTED }}>{b.w}</span>
                 </div>
               );
             })}
@@ -5301,6 +5309,7 @@ function SwapFormHead({ icon, title, onClose, closeLabel }) {
         type="button"
         onClick={onClose}
         aria-label={closeLabel}
+        data-back-close=""
         className={`shrink-0 flex items-center justify-center rounded-full vp-press ${FOCUS_RING}`}
         style={{ width: 44, height: 44, background: TILE, color: INK }}
       >
@@ -6055,11 +6064,21 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
   // the Keyboard plugin). The composer is position:fixed, and the shell's
   // Keyboard resize mode is "body", which never moves a fixed bar — so it sat
   // UNDER the keyboard and the staffer typed blind with Send out of reach.
-  const kb = useKeyboardLift();
+  // Android: the WebView itself shrinks for the keyboard, so `kb` is 0 there
+  // while `kbOpen` is true — the composer sits at the window's (= the
+  // keyboard's) edge and is not lifted a second time (hooks/useKeyboardLift).
+  const { lift: kb, open: kbOpen } = useKeyboardState();
   useEffect(() => {
     // Keyboard up → keep the newest message in sight above the composer.
-    if (kb > 0 && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [kb]);
+    if (!kbOpen) return undefined;
+    const pin = () => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; };
+    pin();
+    if (!platform.isAndroid) return undefined;
+    // Android: the window shrinks a moment after the plugin's event — pin
+    // again once the shorter stream is laid out.
+    window.addEventListener("resize", pin);
+    return () => window.removeEventListener("resize", pin);
+  }, [kb, kbOpen]);
   const threadId = thread.thread_id;
   const isGroup = (meta?.kind || thread.kind) === "group";
 
@@ -6181,6 +6200,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
         <button
           type="button"
           onClick={onBack}
+          data-back-close=""
           data-testid="portal-chat-back"
           className={`flex items-center vp-press ${FOCUS_RING}`}
           style={{ gap: 6, minHeight: 44, margin: "0 0 0 -6px", padding: "0 8px 0 4px", borderRadius: 12, font: "600 14px/1 var(--font-text)", color: LINK }}
@@ -6224,8 +6244,10 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
         data-testid="portal-chat-stream"
         className="flex flex-col overflow-y-auto"
         style={{
-          maxHeight: kb > 0
-            ? `calc(100vh - 20rem - ${kb}px)`
+          maxHeight: kbOpen
+            // Android's edge-to-edge window keeps its status-bar inset while
+            // the keyboard is up; iOS's shell has none (env is 0 there).
+            ? `calc(100vh - 20rem${platform.isAndroid ? " - env(safe-area-inset-top, 0px)" : ""} - ${kb}px)`
             : "calc(100vh - 20rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
           gap: 10,
         }}
@@ -6335,7 +6357,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
           : `fixed inset-x-0 z-20 glass border-t border-gray-200/70${BAR_V2 ? " bb-lg-composer" : ""}`}
         style={BAR_V3
           ? {
-            bottom: kb > 0 ? `${kb}px` : aboveDock(8),
+            bottom: kbOpen ? `${kb}px` : aboveDock(8),
             left: "max(12px, env(safe-area-inset-left, 0px))",
             right: "max(12px, env(safe-area-inset-right, 0px))",
             maxWidth: 560,
@@ -6345,7 +6367,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
             background: "rgba(255, 253, 249, 0.97)",
             boxShadow: "inset 0 1px 0 #ffffffb3, 0 0 0 .5px #0c2a2014, 0 2px 5px #402e1814, 0 10px 22px -10px #402e1829",
           }
-          : { bottom: kb > 0 ? `${kb}px` : "calc(3.5rem + env(safe-area-inset-bottom))" }}
+          : { bottom: kbOpen ? `${kb}px` : "calc(3.5rem + env(safe-area-inset-bottom))" }}
       >
         <div className={BAR_V3 ? "" : "max-w-lg mx-auto px-3 pt-2"} style={BAR_V3 ? { padding: 5 } : undefined}>
           {/* The shared photo kit in the portal's material: a 14 px thumb, a
@@ -6608,12 +6630,13 @@ function groupAbsence(rows) {
     an intrinsic minimum width, so two of them side by side ran into each other
     and past the card edge; min-width 0 + border-box + no native appearance
     lets the cell decide. An empty iOS date input shows nothing at all, so the
-    placeholder says what tapping it does — on iOS ONLY: Chrome (Android, the
-    SMS-link web portal) and Firefox always draw their own "dd.mm.åååå", and
+    placeholder says what tapping it does — on iOS, and in the Android app
+    (its WebView draws an empty box too: Android walk, 11 Nov 2026). Not in a
+    desktop browser: Chrome and Firefox draw their own "dd.mm.åååå" there, and
     the hint would be printed on top of it. */
 function DateField({ label, value, onChange, min, max, testId }) {
   const { t } = useLanguage();
-  const showHint = !value && typeof window !== "undefined" && window.__BONBOX_IS_IOS === true;
+  const showHint = !value && typeof window !== "undefined" && (window.__BONBOX_IS_IOS === true || platform.isAndroid);
   return (
     <label className="block min-w-0">
       <span style={FIELD_LABEL}>{label}</span>
@@ -6891,6 +6914,7 @@ function AbsenceSection({ token, onChanged }) {
             <button
               type="button"
               onClick={() => { setAdding(false); reset(); }}
+              data-back-close=""
               data-testid="fravaer-cancel"
               className={`w-full vp-press ${FOCUS_RING}`}
               style={BTN_TEXT}
@@ -8455,6 +8479,11 @@ export default function StaffPortalPage() {
   // on top of it (KB_LIFT_STYLE), and the focused field — any field — is
   // scrolled into what is left. See hooks/useKeyboardReveal.js.
   const kbShell = useKeyboardReveal();
+  // Android: the window shrinks for the keyboard, so the dock (and its fade)
+  // would ride on top of it — on iOS it stays behind the keyboard. Hide it
+  // while typing there, as iOS effectively does.
+  const kbState = useKeyboardState();
+  const dockAway = platform.isAndroid && kbState.open;
   const [tab, setTab] = useState(() => {
     // Honor ?tab= so the installed-app shortcuts (Schedule / Hours) and
     // any deep link open the right tab.
@@ -8472,6 +8501,12 @@ export default function StaffPortalPage() {
   const dockIdx = DOCK_TABS.findIndex((x) => x.key === tab);
   const [nav, setNav] = useState(() => ({ tab, idx: Math.max(0, dockIdx), moved: false }));
   if (nav.tab !== tab) setNav({ tab, idx: dockIdx >= 0 ? dockIdx : nav.idx, moved: true });
+  // Android BACK (key, edge swipe, 3-button bar): close the top layer, else
+  // back to Vagtplan, else the app goes to the background — never nothing.
+  // Android shell only; see utils/androidBack.js.
+  useAndroidBack(() => {
+    runAndroidBack({ tab, homeTab: "schedule", setTab, minimize: minimizeApp });
+  });
   const [info, setInfo] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -9861,7 +9896,11 @@ export default function StaffPortalPage() {
                       localStorage.removeItem("bonbox_portal_token");
                       localStorage.removeItem("bonbox_pin_proof");
                     } catch { /* private mode */ }
-                    window.location.href = "/join";
+                    // replace, not href: the portal URL must leave the
+                    // history. On Android BACK went back to /s/<token>, which
+                    // still loads — and saved the token again, undoing the
+                    // disconnect in one press.
+                    window.location.replace("/join");
                   }}
                   className="mt-2 min-h-[44px] text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
                 >
@@ -9882,7 +9921,10 @@ export default function StaffPortalPage() {
       {pullState && (
         <div
           className="fixed left-0 right-0 z-40 flex justify-center pointer-events-none"
-          style={{ top: 8 }}
+          // Below the status bar: Android draws the page under it (edge to
+          // edge, env top 48 px); the iOS shell insets the WebView (env 0).
+          style={{ top: "calc(env(safe-area-inset-top, 0px) + 8px)" }}
+          data-testid="portal-pull-status"
           role="status"
           aria-live="polite"
         >
@@ -9984,11 +10026,12 @@ export default function StaffPortalPage() {
         aria-hidden
         className="fixed inset-x-0 bottom-0 z-10 m-0 pointer-events-none"
         // The canvas's fade: content dissolves into the ivory under the dock.
-        style={{ height: aboveDock(42), background: `linear-gradient(to bottom, rgba(246,244,238,0), ${IVORY} 70%)` }}
+        style={{ height: aboveDock(42), background: `linear-gradient(to bottom, rgba(246,244,238,0), ${IVORY} 70%)`, ...(dockAway ? { display: "none" } : {}) }}
       />
       <nav data-bb-consent-clear="" aria-label={t("portalTabsLabel", "Tabs")} data-testid="portal-tabbar-v3"
         className="vp-dock"
-        style={{ gridTemplateColumns: `repeat(${DOCK_TABS.length}, minmax(0, 1fr))`, "--n": DOCK_TABS.length }}
+        data-kb-away={dockAway ? "" : undefined}
+        style={{ gridTemplateColumns: `repeat(${DOCK_TABS.length}, minmax(0, 1fr))`, "--n": DOCK_TABS.length, ...(dockAway ? { display: "none" } : {}) }}
       >
         {/* The track clips the pill to the dock's shape when the spring
             overshoots; the dock itself never clips (focus ring, count). */}
@@ -10065,7 +10108,7 @@ export default function StaffPortalPage() {
       </nav>
       </>
       ) : (
-      <nav data-bb-consent-clear="" className={`fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20${BAR_V2 ? " bb-lg-tabbar" : ""}`}>
+      <nav data-bb-consent-clear="" className={`fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20${BAR_V2 ? " bb-lg-tabbar" : ""}`} style={dockAway ? { display: "none" } : undefined}>
         <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {TABS.filter(
             // Alerts moved to the header bell (design).

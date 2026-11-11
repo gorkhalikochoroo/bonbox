@@ -58,7 +58,10 @@ vi.mock("../hooks/useNativePush", () => ({
   getStoredNativePushToken: () => null,
   NATIVE_PUSH_TOKEN_KEY: "bonbox_apns_token",
 }));
-vi.mock("../hooks/useKeyboardLift", () => ({ useKeyboardLift: () => kbLift }));
+vi.mock("../hooks/useKeyboardLift", () => ({
+  useKeyboardLift: () => kbLift,
+  useKeyboardState: () => ({ lift: kbLift, open: kbLift > 0 }),
+}));
 vi.mock("../utils/haptics", () => ({ haptic: vi.fn() }));
 vi.mock("../utils/camera", () => ({ capturePhoto: vi.fn() }));
 

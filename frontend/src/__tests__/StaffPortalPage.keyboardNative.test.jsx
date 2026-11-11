@@ -25,14 +25,19 @@ vi.mock("../utils/platform", () => ({
 const kbBus = vi.hoisted(() => ({ listeners: new Set() }));
 vi.mock("../hooks/useKeyboardLift", async () => {
   const React = await import("react");
+  const useKb = () => {
+    const [v, set] = React.useState(kb);
+    React.useEffect(() => {
+      kbBus.listeners.add(set);
+      return () => kbBus.listeners.delete(set);
+    }, []);
+    return v;
+  };
   return {
-    useKeyboardLift: () => {
-      const [v, set] = React.useState(kb);
-      React.useEffect(() => {
-        kbBus.listeners.add(set);
-        return () => kbBus.listeners.delete(set);
-      }, []);
-      return v;
+    useKeyboardLift: useKb,
+    useKeyboardState: () => {
+      const v = useKb();
+      return { lift: v, open: v > 0 };
     },
   };
 });

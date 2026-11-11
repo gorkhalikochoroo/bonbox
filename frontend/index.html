@@ -502,8 +502,18 @@
       // restaurant's own website — is not the owner app, and the worker's
       // install fetched ten more files (icons, two share images) on the
       // guest's phone. A worker an owner already has keeps working.
+      // Not inside the native app shells either: they serve the app from the
+      // phone itself, have no web push, and the Android WebView's install
+      // failed on every launch (its local server 404s /favicon.ico, which
+      // sw.js precaches) — an uncaught error each time. iOS's WKWebView has
+      // no service workers at all. Checked at load, after @capacitor/core
+      // has set window.Capacitor (it reports isNativePlatform() false on
+      // the web, so browsers register as before).
       if ("serviceWorker" in navigator && !window.__bbBooking) {
         window.addEventListener("load", () => {
+          try {
+            if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) return;
+          } catch (e) { /* not the native shell */ }
           navigator.serviceWorker.register("/sw.js").then(function(reg) {
             // Check for updates every page load
             reg.update();

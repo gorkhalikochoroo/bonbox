@@ -15,6 +15,8 @@ import { ArrowRight, KeyRound, AlertCircle, CloudOff, Clock } from "lucide-react
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { useKeyboardReveal } from "../hooks/useKeyboardReveal";
+import { useAndroidBack, minimizeApp } from "../hooks/useAndroidBack";
+import { runAndroidBack } from "../utils/androidBack";
 import { haptic } from "../utils/haptics"; // no-op on web; physical buzz in the iOS shell
 import { isNativeApp } from "../utils/platform";
 
@@ -65,6 +67,13 @@ export default function JoinPage() {
   // Native keyboard height (0 on the web): the centred card re-centres in
   // what the keyboard leaves, so Tilslut stays visible.
   const kb = useKeyboardReveal();
+  // Android BACK on the join screen (the staff app's root when no phone is
+  // connected): close an open layer, else background the app. Without a
+  // listener BACK did nothing here — or, before "Disconnect" used replace,
+  // walked back into the portal it had just left.
+  useAndroidBack(() => {
+    runAndroidBack({ minimize: minimizeApp });
+  });
 
   // The tab / app-switcher title is the staff app's, not the owner pitch.
   useEffect(() => {
