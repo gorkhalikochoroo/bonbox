@@ -47,6 +47,7 @@ import { MAP_H, MAP_PINE_BG, mapRequestWidth, mapDpr, mapQuery, mapCacheKey, get
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
+import { preloadLocalesWhenIdle } from "../lib/localeStore";
 import { formatHoursMinutes, formatHours, hoursUnit } from "../utils/hours";
 import { sectionFor } from "../config/roleSections";
 import { errText } from "../utils/errText";
@@ -8810,6 +8811,10 @@ export default function StaffPortalPage() {
   // The tabs' memory (premium feel P7, components/staff/tabMemory.js) lives
   // only as long as this page: a disconnect or another token starts empty.
   useEffect(() => () => forgetAll(), []);
+  // The profile sheet offers DA and EN. On a slow phone a switch waited 2-3 s
+  // for the other dictionary's chunk (Android 14 walk, 12 Nov 2026), so it is
+  // fetched once the page is idle after its first paint. Nothing renders.
+  useEffect(() => preloadLocalesWhenIdle(["da", "en"]), []);
   // Native keyboard height (0 on the web and while it is down). The shell ends
   // at the keyboard's top edge instead of behind it, the profile sheets ride
   // on top of it (KB_LIFT_STYLE), and the focused field — any field — is

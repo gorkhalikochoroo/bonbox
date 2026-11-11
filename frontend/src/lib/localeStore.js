@@ -80,6 +80,34 @@ export function loadLocale(code) {
   return inflight[code];
 }
 
+/**
+ * Fetch the dictionaries in `codes` that are not loaded yet, once the page is
+ * idle (requestIdleCallback, or 1.5 s where there is none, as in Safari), so
+ * a later switch to one of them shows at once. Nothing renders and nothing
+ * else changes: the provider still loads a language when it is picked; it
+ * just finds it in the cache. Returns a cancel function.
+ *
+ * Why (Android 14 walk, 12 Nov 2026): switching DA in the staff app's profile
+ * took 2-3 s to repaint on a slow WebView, while the other dictionary's chunk
+ * loaded. The staff portal asks for its two offered languages, DA and EN.
+ */
+export function preloadLocalesWhenIdle(codes, { timeout = 4000 } = {}) {
+  const want = (codes || []).filter((c) => LOADERS[c] && !cache[c]);
+  if (!want.length || typeof window === "undefined") return () => {};
+  let off = false;
+  const run = () => {
+    if (off) return;
+    off = true;
+    want.forEach((c) => { loadLocale(c).catch(() => { /* offline: the switch loads it as before */ }); });
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    const id = window.requestIdleCallback(run, { timeout });
+    return () => { off = true; window.cancelIdleCallback?.(id); };
+  }
+  const id = setTimeout(run, 1500);
+  return () => { off = true; clearTimeout(id); };
+}
+
 /** Put dictionaries in the cache directly — tests, and any caller that
  *  already holds them. */
 export function primeLocales(dicts) {
