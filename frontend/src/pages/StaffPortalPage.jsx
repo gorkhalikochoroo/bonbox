@@ -1597,27 +1597,10 @@ function useClock(token) {
 
 // ── Initials for a teammate avatar (≤2 letters, uppercased). Privacy: only
 // initials + a role-underline are ever shown for teammates.
-/** Per-teammate avatar tint (v2's AV_TONE). Deterministic on the name, so the
-    same colleague is the same colour every render and across sessions — the
-    strip is scannable by colour before it is readable by initial. Light tints
-    with dark ink: legible on the hero's near-black gradient. */
-const MATE_TONES = [
-  "linear-gradient(150deg,#4ade80,#16a34a)",
-  "linear-gradient(150deg,#93c5fd,#3b82f6)",
-  "linear-gradient(150deg,#fcd34d,#f59e0b)",
-  "linear-gradient(150deg,#f9a8d4,#ec4899)",
-  "linear-gradient(150deg,#c4b5fd,#8b5cf6)",
-  "linear-gradient(150deg,#7dd3fc,#0ea5e9)",
-];
-function mateTone(name) {
-  const key = (name || "?").trim().toLowerCase();
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  return MATE_TONES[h % MATE_TONES.length];
-}
-// The home's colleague discs (canvas "Pine, ivory & brass"): flat, earthy,
-// cream initials — same name→colour rule as mateTone, its own palette. The
-// chat keeps mateTone.
+// The colleague discs (canvas "Pine, ivory & brass"): flat, earthy, cream
+// initials. Deterministic on the name, so the same colleague is the same
+// colour every render and across sessions. The home and, since Nov 2026, the
+// chat's group picker use it (the chat's light gradient tints are gone).
 const PINE_TONES = ["#2F5D4E", "#8A6A2F", "#4F5F80", "#93573F", "#456E5F", "#6B5A7E"];
 function pineTone(name) {
   const key = (name || "?").trim().toLowerCase();
@@ -5609,8 +5592,9 @@ function formatTimeAgo(dateStr, lang, t) {
 // The owner channel is pinned to the top because it is the one that carries
 // schedule news; groups follow by most recent activity.
 
-/** One row in the conversation list. Unread is carried by weight and a solid
-    card, not just a badge — a badge alone is invisible in a hurried glance. */
+/** One row in the conversation list — an ivory card with the name in Sora.
+    Unread is carried by weight, the preview's ink and a pine count, not by
+    the badge alone: a badge alone is invisible in a hurried glance. */
 function ThreadRow({ thread, onOpen }) {
   const { t, lang } = useLanguage();
   const unread = thread.unread || 0;
@@ -5624,65 +5608,54 @@ function ThreadRow({ thread, onOpen }) {
     <button
       type="button"
       onClick={onOpen}
-      className="w-full text-left flex items-center"
-      style={{
-        gap: 11, padding: "12px 13px", borderRadius: 16,
-        background: unread ? "#fff" : "rgba(255,255,255,0.55)",
-        border: `1px solid ${unread ? "#e8edf3" : "#eef2f7"}`,
-        boxShadow: unread
-          ? "0 1px 2px rgba(15,23,42,0.04),0 14px 28px -26px rgba(15,23,42,0.4)"
-          : "none",
-      }}
+      data-testid="portal-thread-row"
+      data-unread={unread ? "" : undefined}
+      className={`w-full text-left flex items-center vp-press vp-row ${FOCUS_RING}`}
+      style={{ gap: 12, padding: "12px 14px 12px 12px", minHeight: 68, borderRadius: 20, ...CARD_BOX, color: INK }}
     >
       <span
         aria-hidden
         className="flex-none flex items-center justify-center"
         style={{
-          width: 38, height: 38, borderRadius: 13,
-          // The owner channel wears the venue's near-black so it never reads as
-          // just another colleague.
-          background: isGroup
-            ? mateTone(name)
-            : "linear-gradient(150deg,#1e293b,#0f172a)",
-          color: isGroup ? "#0f172a" : "#e2e8f0",
-          font: "700 12px/1 var(--font-text)",
+          width: 44, height: 44, borderRadius: 999,
+          // The owner channel is pine, so it never reads as just another
+          // colleague; a group is a sage well with the people mark.
+          background: isGroup ? SOFT : PINE,
+          color: isGroup ? PINE : CREAM,
+          font: "600 14px/1 var(--font-text)",
         }}
       >
-        {isGroup ? <Users className="w-4 h-4" strokeWidth={2.2} /> : staffInitials(name)}
+        {isGroup ? <Users size={18} strokeWidth={1.9} /> : staffInitials(name)}
       </span>
-      <span className="flex-1 min-w-0">
-        <span className="flex items-baseline justify-between gap-2">
+      <span className="flex-1 min-w-0 flex flex-col" style={{ gap: 4 }}>
+        <span className="flex items-baseline justify-between" style={{ gap: 8 }}>
           <span
             className="truncate"
-            style={{ font: `${unread ? 700 : 600} 12.5px/1 var(--font-text)`, color: "#0f172a" }}
+            style={{ font: `${unread ? 700 : 600} 15px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}
           >
             {name}
           </span>
-          <span className="flex-none" style={{ font: "500 10.5px/1 var(--font-text)", color: "#94a3b8" }}>
+          <span className="flex-none" style={{ font: `${unread ? 600 : 500} 12px/1 var(--font-text)`, color: unread ? PINE : MUTED }}>
             {thread.last_message_at ? formatTimeAgo(thread.last_message_at, lang, t) : ""}
           </span>
         </span>
-        <span
-          className="block truncate"
-          style={{
-            marginTop: 5,
-            font: `${unread ? 500 : 400} 11.5px/1.35 var(--font-text)`,
-            color: unread ? "#475569" : "#94a3b8",
-          }}
-        >
-          {preview}
+        <span className="flex items-center" style={{ gap: 8 }}>
+          <span
+            className="flex-1 min-w-0 truncate"
+            style={{ font: `${unread ? 500 : 400} 13px/1.35 var(--font-text)`, color: unread ? INK : MUTED }}
+          >
+            {preview}
+          </span>
+          {unread > 0 && (
+            <span
+              data-testid="portal-thread-unread"
+              className="flex-none inline-flex items-center justify-center vp-figures vp-pop"
+              style={{ minWidth: 20, height: 20, padding: "0 6px", borderRadius: 999, background: PINE, color: CREAM, font: `700 11px/1 ${SORA}` }}
+            >
+              {unread > 9 ? "9+" : unread}
+            </span>
+          )}
         </span>
-      </span>
-      <span
-        className="flex-none text-center"
-        style={{
-          minWidth: 19, height: 19, padding: "0 5px", borderRadius: 999,
-          background: "#16a34a", color: "#fff",
-          font: "700 10px/19px var(--font-text)",
-          opacity: unread ? 1 : 0,
-        }}
-      >
-        {unread > 9 ? "9+" : unread || ""}
       </span>
     </button>
   );
@@ -5729,67 +5702,65 @@ function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
 
   return (
     <div className="fixed inset-0 z-40 m-0 flex items-end sm:items-center sm:justify-center" style={KB_LIFT_STYLE} {...closingProps(closing)}>
-      <div className="absolute inset-0 bg-gray-900/40 vp-scrim" onClick={onClose} aria-hidden />
+      <div className="absolute inset-0 m-0 vp-scrim" style={{ background: SCRIM }} onClick={onClose} aria-hidden />
+      {/* The ⋯ sheet's material: card, 28 px top corners, the grabber. */}
       <div
         role="dialog"
         aria-modal="true"
         aria-label={t("staffChatNewGroup", "New group")}
-        className="relative w-full sm:max-w-sm bg-white vp-sheet"
+        data-testid="portal-new-group"
+        className="relative w-full sm:max-w-sm m-0 vp-sheet"
         style={{
-          borderRadius: "22px 22px 0 0",
+          background: CARD, color: INK,
+          borderRadius: "28px 28px 0 0",
+          paddingTop: 8,
           paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
+          boxShadow: "0 -20px 40px -20px rgba(8,24,18,0.5)",
         }}
       >
-        <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <h3 className="font-display text-[15px] font-bold tracking-[-0.02em] text-gray-900">
+        <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 10 }} />
+        <div className="flex items-center justify-between" style={{ gap: 12, padding: "0 16px 12px 20px" }}>
+          <h3 style={{ margin: 0, font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>
             {t("staffChatNewGroup", "New group")}
           </h3>
           <button
             type="button"
             onClick={onClose}
             aria-label={t("staffChatCancel", "Cancel")}
-            className="p-1.5 -mr-1.5 text-gray-400"
+            className={`shrink-0 flex items-center justify-center rounded-full vp-press ${FOCUS_RING}`}
+            style={{ width: 44, height: 44, minHeight: 0, background: TILE, color: INK }}
           >
-            <X className="w-[18px] h-[18px]" strokeWidth={2.2} aria-hidden />
+            <X size={18} strokeWidth={2} aria-hidden />
           </button>
         </div>
 
-        <div className="px-4">
+        <div style={{ padding: "0 16px" }}>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             maxLength={60}
             placeholder={t("staffChatGroupNamePlaceholder", "e.g. Kitchen")}
-            className="w-full bg-white outline-none placeholder:text-[#94a3b8]"
-            style={{
-              padding: "11px 14px", borderRadius: 14, border: "1px solid #e2e8f0",
-              // 16px: under it iOS zooms the page on focus (inline beats the
-              // index.css anti-zoom rule) — same fix as the chat composer.
-              font: "500 16px/1.35 var(--font-text)", color: "#0f172a",
-            }}
+            className={FIELD_CLS}
+            // 16px: under it iOS zooms the page on focus (inline beats the
+            // index.css anti-zoom rule) — same fix as the chat composer.
+            style={{ ...FIELD, font: "500 16px/1.35 var(--font-text)" }}
           />
-          <p
-            className="mt-3 mb-1.5"
-            style={{
-              font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.06em",
-              textTransform: "uppercase", color: "#94a3b8",
-            }}
-          >
+          <p style={{ ...EYEBROW, margin: "16px 4px 8px" }}>
             {t("staffChatChoosePeople", "Who's in it?")}
           </p>
         </div>
 
-        <div className="px-4 overflow-y-auto" style={{ maxHeight: "42vh" }}>
+        <div className="overflow-y-auto" style={{ maxHeight: "42vh", padding: "0 16px" }}>
           {colleagues === null ? (
-            <div className="space-y-2 py-2" data-testid="portal-skeleton">
-              {[1, 2, 3].map((i) => <div key={i} className="h-11 rounded-xl bg-gray-100 vp-shimmer" />)}
+            <div className="flex flex-col py-1" style={{ gap: 6 }} data-testid="portal-skeleton">
+              {[1, 2, 3].map((i) => <div key={i} className="vp-shimmer" style={{ height: 52, borderRadius: 16, background: DIVIDER }} />)}
             </div>
           ) : colleagues.length === 0 ? (
-            <p className="text-sm text-gray-500 py-3">
+            <p style={{ margin: "4px 4px 8px", font: "400 14px/1.4 var(--font-text)", color: MUTED }}>
               {t("staffChatNoColleagues", "No colleagues to add yet.")}
             </p>
           ) : (
-            <div className="flex flex-col gap-1.5 pb-2">
+            <div className="flex flex-col pb-2" style={{ gap: 6 }}>
               {colleagues.map((c) => {
                 const on = picked.includes(c.staff_id);
                 return (
@@ -5798,35 +5769,45 @@ function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
                     type="button"
                     onClick={() => toggle(c.staff_id)}
                     aria-pressed={on}
-                    className="w-full flex items-center text-left"
+                    className={`w-full flex items-center text-left vp-press vp-row ${FOCUS_RING}`}
                     style={{
-                      gap: 10, padding: "9px 11px", borderRadius: 13,
-                      border: `1px solid ${on ? "#bbf7d0" : "#eef2f7"}`,
-                      background: on ? "#f0fdf4" : "#fff",
+                      gap: 12, padding: "8px 12px", minHeight: 52, borderRadius: 16,
+                      border: `1px solid ${on ? SAGE_EDGE : LINE}`,
+                      background: on ? SOFT : CARD,
                     }}
                   >
                     <span
                       aria-hidden
-                      className="flex-none text-center"
+                      className="flex-none inline-flex items-center justify-center"
                       style={{
-                        width: 30, height: 30, borderRadius: 10,
-                        background: mateTone(c.name), color: "#0f172a",
-                        font: "700 10.5px/30px var(--font-text)",
+                        width: 34, height: 34, borderRadius: 999,
+                        background: pineTone(c.name), color: IVORY,
+                        font: "600 12px/1 var(--font-text)",
                       }}
                     >
                       {staffInitials(c.name)}
                     </span>
-                    <span className="flex-1 min-w-0">
-                      <span className="block truncate" style={{ font: "600 12.5px/1 var(--font-text)", color: "#0f172a" }}>
+                    <span className="flex-1 min-w-0 flex flex-col" style={{ gap: 2 }}>
+                      <span className="truncate" style={{ font: "600 14px/1.25 var(--font-text)", color: INK }}>
                         {c.name}
                       </span>
                       {c.role && (
-                        <span className="block truncate" style={{ marginTop: 3, font: "400 11px/1 var(--font-text)", color: "#94a3b8" }}>
+                        <span className="truncate" style={{ font: "400 12px/1.2 var(--font-text)", color: MUTED }}>
                           {roleName(c.role, t)}
                         </span>
                       )}
                     </span>
-                    {on && <Check className="w-4 h-4 text-green-600 flex-none" strokeWidth={2.6} aria-hidden />}
+                    <span
+                      aria-hidden
+                      className="flex-none inline-flex items-center justify-center"
+                      style={{
+                        width: 24, height: 24, borderRadius: 999, boxSizing: "border-box",
+                        background: on ? PINE : "transparent", color: CREAM,
+                        border: on ? "none" : `1.5px solid ${GRAB}`,
+                      }}
+                    >
+                      {on && <Check size={14} strokeWidth={2.6} />}
+                    </span>
                   </button>
                 );
               })}
@@ -5834,19 +5815,14 @@ function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
           )}
         </div>
 
-        <div className="px-4 pt-3">
-          {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+        <div style={{ padding: "12px 16px 0" }}>
+          {error && <div style={{ marginBottom: 8 }}><VpAlert>{error}</VpAlert></div>}
           <button
             type="button"
             onClick={create}
             disabled={!title.trim() || busy}
-            className="w-full text-white disabled:opacity-40 transition"
-            style={{
-              height: 46, borderRadius: 14,
-              background: "linear-gradient(180deg,#22c55e,#16a34a)",
-              font: "700 13px/1 var(--font-text)",
-              boxShadow: "0 10px 22px -14px rgba(22,163,74,.9)",
-            }}
+            className={`w-full vp-press disabled:opacity-40 ${FOCUS_RING}`}
+            style={{ ...BTN_PINE, height: 52, borderRadius: 18 }}
           >
             {t("staffChatCreateGroup", "Create group")}
           </button>
@@ -5894,50 +5870,51 @@ function ThreadListView({ token, onOpen, onRead }) {
 
   return (
     <div>
-      <div className="flex items-center gap-2">
-        <div
-          className="flex-1 flex items-center"
-          style={{ gap: 9, height: 42, padding: "0 13px", borderRadius: 13, background: "#eaeff5" }}
+      <div className="flex items-center" style={{ gap: 8 }}>
+        {/* An ivory field with the hairline (the canvas's header bell), and a
+            pine "+" beside it — the screen's one filled control. */}
+        <label
+          className="flex-1 min-w-0 flex items-center border border-[#E8E3D8] focus-within:border-[#0E3B2E]/50"
+          style={{ gap: 10, height: 44, padding: "0 16px", borderRadius: 999, background: CARD, color: MUTED, boxSizing: "border-box" }}
+          data-testid="portal-chat-search"
         >
-          <Search className="w-[15px] h-[15px] flex-none text-[#94a3b8]" strokeWidth={2.1} aria-hidden />
+          <Search size={16} strokeWidth={2} aria-hidden className="flex-none" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("staffChatSearch", "Search people and messages")}
             aria-label={t("staffChatSearch", "Search people and messages")}
-            className="flex-1 bg-transparent outline-none placeholder:text-[#94a3b8]"
-            style={{ font: "400 16px/1.2 var(--font-text)", color: "#0f172a" }}
+            className="flex-1 min-w-0 bg-transparent outline-none placeholder:text-[#8A948E]"
+            style={{ font: "400 16px/1.2 var(--font-text)", color: INK, minHeight: 0 }}
           />
-        </div>
+        </label>
         <button
           type="button"
           onClick={() => setCreating(true)}
           aria-label={t("staffChatNewGroup", "New group")}
-          className="flex-none flex items-center justify-center text-white"
+          data-testid="portal-chat-new-group"
+          className={`flex-none flex items-center justify-center vp-press ${FOCUS_RING}`}
           style={{
-            width: 42, height: 42, borderRadius: 13,
-            background: "linear-gradient(180deg,#22c55e,#16a34a)",
-            boxShadow: "0 8px 18px -12px rgba(22,163,74,.95)",
+            width: 44, height: 44, borderRadius: 999,
+            background: PINE, color: CREAM,
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 18px -12px rgba(14,59,46,0.8)",
           }}
         >
-          <Plus className="w-[18px] h-[18px]" strokeWidth={2.4} aria-hidden />
+          <Plus size={20} strokeWidth={2.2} aria-hidden />
         </button>
       </div>
 
-      <div style={{ marginTop: 14 }} className="flex flex-col gap-2">
+      <div style={{ marginTop: 14, gap: 8 }} className="flex flex-col">
         {threads === null ? (
           [1, 2, 3].map((i) => (
-            <div key={i} className="h-[62px] rounded-2xl bg-gray-100 vp-shimmer" data-testid="portal-skeleton" />
+            <div key={i} className="vp-shimmer" style={{ height: 68, borderRadius: 20, background: DIVIDER }} data-testid="portal-skeleton" />
           ))
         ) : shown.length === 0 ? (
-          <div className="text-center py-12">
-            <MessageSquare className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
-            <p className="text-sm text-gray-500">
-              {q
-                ? t("staffChatNoMatches", "Nothing matches that.")
-                : t("staffChatEmptyBody", "Send your manager a message — questions, running late, anything.")}
-            </p>
-          </div>
+          <CalmEmpty icon={q ? Search : MessageSquare} testId="portal-chat-empty">
+            {q
+              ? t("staffChatNoMatches", "Nothing matches that.")
+              : t("staffChatEmptyBody", "Send your manager a message — questions, running late, anything.")}
+          </CalmEmpty>
         ) : (
           shown.map((th) => (
             <ThreadRow key={th.thread_id} thread={th} onOpen={() => onOpen(th)} />
@@ -6098,32 +6075,34 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
 
   return (
     <div className="flex flex-col">
-      <div className="flex items-center justify-between" style={{ padding: "2px 0 12px" }}>
+      <div className="flex items-center justify-between" style={{ gap: 8, padding: "0 0 8px" }}>
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center"
-          style={{ gap: 7, font: "600 12px/1 var(--font-text)", color: "#16a34a" }}
+          data-testid="portal-chat-back"
+          className={`flex items-center vp-press ${FOCUS_RING}`}
+          style={{ gap: 6, minHeight: 44, margin: "0 0 0 -6px", padding: "0 8px 0 4px", borderRadius: 12, font: "600 14px/1 var(--font-text)", color: LINK }}
         >
-          <ChevronLeft className="w-[14px] h-[14px]" strokeWidth={2.4} aria-hidden />
+          <ChevronLeft size={18} strokeWidth={2} aria-hidden />
           {t("staffChatAllConversations", "All conversations")}
         </button>
         {isGroup && (
           <button
             type="button"
             onClick={leave}
-            style={{ font: "600 11.5px/1 var(--font-text)", color: "#94a3b8" }}
+            className={`vp-press ${FOCUS_RING}`}
+            style={{ minHeight: 44, padding: "0 6px", borderRadius: 12, font: "600 13px/1 var(--font-text)", color: MUTED }}
           >
             {t("staffChatLeave", "Leave")}
           </button>
         )}
       </div>
 
-      <div style={{ marginBottom: 10 }}>
-        <h2 className="font-display text-[15px] font-bold tracking-[-0.02em] leading-[1.2] text-gray-900">
+      <div style={{ marginBottom: 12, padding: "0 4px" }}>
+        <h2 style={{ margin: 0, font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>
           {heading}
         </h2>
-        <p style={{ marginTop: 3, font: "400 11px/1 var(--font-text)", color: "#94a3b8" }}>
+        <p style={{ margin: "4px 0 0", font: "400 13px/1.3 var(--font-text)", color: MUTED }}>
           {isGroup && memberCount
             ? t("staffChatMemberCount", "{n} people").replace("{n}", String(memberCount))
             : t("staffChatDirectSub", "Your manager")}
@@ -6134,45 +6113,36 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
       <div
         ref={scrollRef}
         className="flex flex-col overflow-y-auto"
-        style={{ maxHeight: kb > 0 ? `calc(100vh - 20rem - ${kb}px)` : "calc(100vh - 20rem)", gap: 9 }}
+        style={{ maxHeight: kb > 0 ? `calc(100vh - 20rem - ${kb}px)` : "calc(100vh - 20rem)", gap: 10 }}
       >
         {messages === null ? (
-          <div className="space-y-2" data-testid="portal-skeleton">
+          <div className="flex flex-col" style={{ gap: 8 }} data-testid="portal-skeleton">
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className={`h-9 rounded-2xl bg-gray-100 vp-shimmer ${i % 2 ? "w-2/3" : "w-1/2 ml-auto"}`}
+                className={`vp-shimmer ${i % 2 ? "w-2/3" : "w-1/2 ml-auto"}`}
+                style={{ height: 40, borderRadius: 18, background: DIVIDER }}
               />
             ))}
           </div>
         ) : messages.length === 0 ? (
-          <div className="text-center py-12">
-            <MessageSquare
-              className="w-8 h-8 text-gray-300 mb-3 mx-auto"
-              strokeWidth={2}
-              aria-hidden
-            />
-            <h3 className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.2] text-gray-900 mb-1">
-              {t("staffChatEmptyTitle", "No messages yet")}
-            </h3>
-            <p className="text-sm text-gray-500">
-              {isGroup
-                ? t("staffChatGroupEmptyBody", "Say hello — everyone here will see it.")
-                : t(
-                    "staffChatEmptyBody",
-                    "Send your manager a message — questions, running late, anything.",
-                  )}
-            </p>
-          </div>
+          <CalmEmpty icon={MessageSquare} testId="portal-chat-thread-empty">
+            {isGroup
+              ? t("staffChatGroupEmptyBody", "Say hello — everyone here will see it.")
+              : t(
+                  "staffChatEmptyBody",
+                  "Send your manager a message — questions, running late, anything.",
+                )}
+          </CalmEmpty>
         ) : (
           messages.map((m) => (
             <div
               key={m.id}
               className={`flex ${m.mine ? "justify-end" : "justify-start"}`}
             >
-              <div className={`max-w-[78%] ${m.mine ? "items-end" : "items-start"} flex flex-col`}>
+              <div className={`max-w-[80%] ${m.mine ? "items-end" : "items-start"} flex flex-col`}>
                 {!m.mine && (
-                  <span style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.06em", textTransform: "uppercase", color: "#94a3b8", padding: "0 4px", marginBottom: 4 }}>
+                  <span style={{ font: "600 12px/1.2 var(--font-text)", color: MUTED, padding: "0 6px", marginBottom: 4 }}>
                     {/* In a group the sender is the point; in the owner thread
                         there is only one other party and naming them is noise. */}
                     {m.sender_type === "owner"
@@ -6203,25 +6173,28 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
                           }
                         : undefined
                     }
-                    className={`whitespace-pre-wrap break-words ${m._pending ? "opacity-60" : ""} ${m._failed ? "cursor-pointer ring-1 ring-red-300" : ""}`}
+                    data-testid="portal-chat-bubble"
+                    data-mine={m.mine ? "" : undefined}
+                    className={`whitespace-pre-wrap break-words ${m._pending ? "opacity-60" : ""} ${m._failed ? "cursor-pointer" : ""}`}
                     style={{
-                      maxWidth: "80%",
-                      padding: "11px 13px",
-                      borderRadius: m.mine ? "16px 16px 5px 16px" : "16px 16px 16px 5px",
-                      font: "400 12.5px/1.45 var(--font-text)",
+                      padding: "10px 14px",
+                      // Own words are pine with ivory text; everyone else's
+                      // are the ivory card with its hairline.
+                      borderRadius: m.mine ? "18px 18px 6px 18px" : "18px 18px 18px 6px",
+                      font: "400 15px/1.45 var(--font-text)",
                       textWrap: "pretty",
-                      background: m.mine ? "linear-gradient(180deg,#22c55e,#16a34a)" : "#fff",
-                      color: m.mine ? "#fff" : "#0f172a",
-                      border: m.mine ? "none" : "1px solid #e8edf3",
-                      boxShadow: m.mine
-                        ? "0 10px 22px -14px rgba(22,163,74,.9)"
-                        : "0 1px 2px rgba(15,23,42,.04)",
+                      background: m.mine ? PINE : CARD,
+                      color: m.mine ? CREAM : INK,
+                      border: m.mine ? `1px solid ${PINE}` : `1px solid ${LINE}`,
+                      boxShadow: m._failed
+                        ? `0 0 0 1.5px ${ALERT_INK}`
+                        : m.mine ? "0 8px 18px -14px rgba(14,59,46,0.7)" : "none",
                     }}
                   >
                     {m.body}
                   </div>
                 )}
-                <span style={{ font: "500 9.5px/1 var(--font-text)", color: "#cbd5e1", padding: "0 4px", marginTop: 4 }}>
+                <span style={{ font: `${m._failed ? 600 : 500} 11px/1.2 var(--font-text)`, color: m._failed ? ALERT_INK : PLACEHOLDER, padding: "0 6px", marginTop: 4 }}>
                   {m._failed
                     ? t("staffChatFailed", "Not sent — tap to retry")
                     : m.created_at
@@ -6235,21 +6208,32 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
       </div>
 
       {/* Composer — fixed above the bottom nav, notch-aware; while the
-          keyboard is up it rides on top of the keyboard instead. */}
+          keyboard is up it rides on top of the keyboard instead. v3: it
+          floats like the dock (12 px in, the dock's warm bar and shadow),
+          8 px above it; the older bars keep the edge-to-edge glass bar. */}
       <div
         data-testid="portal-chat-composer"
         data-kb-skip=""
-        className={`fixed inset-x-0 z-20 glass border-t border-gray-200/70${BAR_V2 ? " bb-lg-composer" : ""}`}
-        style={{
-          bottom: kb > 0
-            ? `${kb}px`
-            // v3: 8 px above the dock's top edge.
-            : BAR_V3 ? aboveDock(8) : "calc(3.5rem + env(safe-area-inset-bottom))",
-        }}
+        className={BAR_V3
+          ? "fixed z-20 m-0"
+          : `fixed inset-x-0 z-20 glass border-t border-gray-200/70${BAR_V2 ? " bb-lg-composer" : ""}`}
+        style={BAR_V3
+          ? {
+            bottom: kb > 0 ? `${kb}px` : aboveDock(8),
+            left: "max(12px, env(safe-area-inset-left, 0px))",
+            right: "max(12px, env(safe-area-inset-right, 0px))",
+            maxWidth: 560,
+            marginLeft: "auto",
+            marginRight: "auto",
+            borderRadius: 26,
+            background: "rgba(255, 253, 249, 0.97)",
+            boxShadow: "inset 0 1px 0 #ffffffb3, 0 0 0 .5px #0c2a2014, 0 2px 5px #402e1814, 0 10px 22px -10px #402e1829",
+          }
+          : { bottom: kb > 0 ? `${kb}px` : "calc(3.5rem + env(safe-area-inset-bottom))" }}
       >
-        <div className="max-w-lg mx-auto px-3 pt-2">
+        <div className={BAR_V3 ? "" : "max-w-lg mx-auto px-3 pt-2"} style={BAR_V3 ? { padding: 5 } : undefined}>
           <PendingPhotos picker={picker} />
-          <div className="pb-2 flex items-end gap-1.5">
+          <div className={`${BAR_V3 ? "" : "pb-2 "}flex items-end`} style={{ gap: 6 }}>
             <AttachButton picker={picker} label={t("staffChatAddPhoto", "Add photo")} />
             <textarea
               value={text}
@@ -6257,31 +6241,32 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
               onKeyDown={onKeyDown}
               rows={1}
               placeholder={t("staffChatPlaceholder", "Write a message…")}
-              className="flex-1 resize-none max-h-28 bg-white outline-none placeholder:text-[#94a3b8]"
+              className="flex-1 min-w-0 resize-none max-h-28 outline-none border border-[#E8E3D8] focus:border-[#0E3B2E]/50 placeholder:text-[#8A948E]"
               style={{
                 // 16px, not 12.5: iOS zooms the page on focus of any field
                 // under 16px — and this inline font beat index.css's
                 // coarse-pointer 16px rule. In the Scheduler app the page then
                 // STAYED zoomed after the keyboard closed, clipping Send and
-                // the tab bar until a force-quit. Padding trimmed so the pill
-                // keeps its 42px height.
-                minHeight: 42, padding: "10px 15px", borderRadius: 999,
-                border: "1px solid #e2e8f0",
-                font: "400 16px/1.35 var(--font-text)", color: "#0f172a",
+                // the tab bar until a force-quit. 44 tall: the send button's
+                // height, so the row's two ends line up.
+                minHeight: 44, padding: "11px 16px", borderRadius: 22,
+                background: IVORY, boxSizing: "border-box",
+                font: "400 16px/1.35 var(--font-text)", color: INK,
               }}
             />
             <button
               onClick={send}
               disabled={(!text.trim() && picker.files.length === 0) || sending}
               aria-label={t("staffChatSend", "Send")}
-              className="shrink-0 flex items-center justify-center text-white disabled:opacity-40 transition"
+              data-testid="portal-chat-send"
+              className={`shrink-0 flex items-center justify-center vp-press disabled:opacity-40 ${FOCUS_RING}`}
               style={{
-                width: 42, height: 42, borderRadius: 999,
-                background: "linear-gradient(180deg,#22c55e,#16a34a)",
-                boxShadow: "0 8px 18px -10px rgba(22,163,74,.95), inset 0 1px 0 rgba(255,255,255,.35)",
+                width: 44, height: 44, borderRadius: 999,
+                background: PINE, color: CREAM,
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 18px -12px rgba(14,59,46,0.8)",
               }}
             >
-              <Send className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
+              <Send size={18} strokeWidth={1.9} aria-hidden />
             </button>
           </div>
         </div>
