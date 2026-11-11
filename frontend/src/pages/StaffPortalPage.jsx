@@ -13,7 +13,8 @@ import { swapDoubleBooks } from "../utils/swapClash";
 import { saveFile } from "../utils/download";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, ServerCrash, Link2Off, KeyRound, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Search, Send, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
+import { RefreshCw, CloudOff, ServerCrash, Link2Off, KeyRound, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Search, Send, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple, MoreHorizontal, Navigation } from "lucide-react";
+import { routeUrl } from "../utils/routeUrl";
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
@@ -31,6 +32,14 @@ import { useKeyboardReveal, KB_LIFT_STYLE } from "../hooks/useKeyboardReveal";
 import { usePortalStream } from "../hooks/usePortalStream";
 import { App as CapApp } from "@capacitor/app";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
+
+// BonBox forest + paper (index.css --color-bb-forest / --color-bb-paper). Home
+// v3 (Nov 2026): the next-shift card, the PIN gate, the Timer card, the profile
+// card and the floating tab bar are ONE flat forest material — no gradient, no
+// bloom, no sheen. Literal hex, not a Tailwind green-*: index.css remaps every
+// green-* class to the owner's theme accent, and this is the brand's own ink.
+const FOREST = "#093A26";
+const PAPER = "#F6F4EC";
 
 // One-per-PAGE-LOAD latch for the hero's ceremonial settle beat. Module scope
 // on purpose: switching tabs remounts ScheduleTab, and the beat must not
@@ -200,14 +209,6 @@ function publishedScheduleSignature(rawShifts) {
     .join("~");
 }
 
-// HH:MM in the staff's locale, used by the sync pill's "Synced HH:MM" state.
-function fmtClock(d) {
-  try {
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "";
-  }
-}
 
 // Roles are identity, not status — in dense rows they render as neutral gray
 // text. Color is reserved for status only (emerald=live, amber=warn, red=error)
@@ -869,48 +870,40 @@ function PinGate({ onVerified, token, staffName }) {
   };
 
   return (
-    /* v2 treatment. This is the FIRST screen a new staffer ever sees — the
-       moment they connect — and it looked like a system prompt while the rest
-       of the app looked like BonBox. It now wears the hero's own surface:
-       the same 152deg gradient, radius 22, green bloom off the top-right and
-       the 1px inset highlight. Nothing about the gate's behaviour changes;
-       the PIN is still verified server-side and still mints the proof. */
+    /* The FIRST screen a new staffer ever sees wears the next-shift card's
+       own surface: flat BonBox forest, radius 22. Home v3 (Nov 2026) dropped
+       the gradient, the green bloom and the inset highlight here and on the
+       hero together — they are the effects the brand rules out, and the two
+       surfaces must stay one material. Nothing about the gate's behaviour
+       changes; the PIN is still verified server-side and still mints the
+       proof. */
     <div className="min-h-[100dvh] flex items-center justify-center p-6" style={{ background: "#f5f7fb" }}>
       <div
-        className="relative overflow-hidden w-full max-w-xs text-center"
+        className="relative w-full max-w-xs text-center"
+        data-testid="portal-pin-card"
         style={{
           borderRadius: 22,
           padding: "28px 22px 24px",
-          background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 46%,#080e16 100%)",
-          boxShadow: "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
+          background: FOREST,
         }}
       >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute h-[230px] w-[230px] rounded-full"
-          style={{
-            top: -90, right: -80,
-            background: "radial-gradient(closest-side, rgba(34,197,94,.40), rgba(34,197,94,0))",
-          }}
-        />
         <div className="relative">
           <div
             className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
             style={{
-              background: "rgba(255,255,255,.08)",
-              border: "1px solid rgba(255,255,255,.14)",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,.18)",
+              background: "rgba(246,244,236,.10)",
+              border: "1px solid rgba(246,244,236,.16)",
             }}
           >
-            <Lock className="w-6 h-6" strokeWidth={2} aria-hidden style={{ color: "#4ade80" }} />
+            <Lock className="w-6 h-6" strokeWidth={2} aria-hidden style={{ color: PAPER }} />
           </div>
           <h1
-            className="text-white mb-1.5"
-            style={{ font: "700 22px/1.1 var(--font-display)", letterSpacing: "-0.03em" }}
+            className="mb-1.5"
+            style={{ font: "700 22px/1.1 var(--font-display)", letterSpacing: "-0.03em", color: PAPER }}
           >
             {t("portalPinTitle", "Enter PIN")}
           </h1>
-          <p className="mb-7" style={{ font: "400 12.5px/1.45 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
+          <p className="mb-7" style={{ font: "400 12.5px/1.45 var(--font-text)", color: "rgba(246,244,236,.66)" }}>
             {t("portalPinSubtitle", "Hi {name}, enter your 4-digit PIN", { name: staffName })}
           </p>
           <div className="flex gap-2.5 justify-center mb-5">
@@ -927,9 +920,9 @@ function PinGate({ onVerified, token, staffName }) {
                 className="w-[52px] h-[56px] text-center outline-none pin-cell"
                 style={{
                   font: "700 24px/1 var(--font-display)",
-                  color: "#fff",
-                  background: "rgba(255,255,255,.07)",
-                  border: "1px solid rgba(255,255,255,.16)",
+                  color: PAPER,
+                  background: "rgba(246,244,236,.08)",
+                  border: "1px solid rgba(246,244,236,.22)",
                   borderRadius: 14,
                 }}
                 autoFocus={i === 0}
@@ -938,14 +931,14 @@ function PinGate({ onVerified, token, staffName }) {
           </div>
           {error && <p className="text-[13px] mb-3" style={{ color: "#fca5a5" }}>{error}</p>}
           {loading && (
-            <p className="text-[13px]" style={{ color: "rgba(255,255,255,.55)" }}>
+            <p className="text-[13px]" style={{ color: "rgba(246,244,236,.66)" }}>
               {t("portalPinVerifying", "Verifying...")}
             </p>
           )}
           {/* The way out. A forgotten PIN used to end in a 15-minute lockout
               with no hint who can help; the owner can reset it (or send a
               fresh link) from the staff profile. */}
-          <p className="mt-6" style={{ font: "400 12px/1.45 var(--font-text)", color: "rgba(255,255,255,.45)" }}>
+          <p className="mt-6" style={{ font: "400 12px/1.45 var(--font-text)", color: "rgba(246,244,236,.6)" }}>
             {t("portalPinForgot", "Forgot your PIN? Ask your manager for a new link.")}
           </p>
         </div>
@@ -1153,7 +1146,7 @@ function addDaysToDate(d, days) {
  *   • One tap → server returns confirmed_count → small "✓ N shifts
  *     confirmed" inline confirmation that fades after 4s.
  */
-function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange, allShifts}) {
+function ConfirmScheduleButton({ token, shifts, onConfirmed, allShifts }) {
   const { t } = useLanguage();
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -1206,21 +1199,11 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange, allSh
   // is UNTOUCHED. Only the CTA copy + styling change to a calm full-width strip
   // labelled "Jeg har set det". The confirmed state still reads confirmed_at —
   // never an optimistic local flag.
-  const needChangeLink = onNeedChange && (
-    // Real "request a change" affordance — a tappable pill (not a low-contrast
-    // text link), matching the design. Same behavior: reveals sick-call + swaps.
-    <div className="mt-2.5 flex justify-center">
-      <button
-        type="button"
-        onClick={onNeedChange}
-        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-gray-200 bg-white text-[13px] font-semibold text-gray-700 shadow-[0_1px_2px_rgba(16,24,40,0.04)] hover:bg-gray-50 active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
-      >
-        {t("portalNeedChange")}
-        <svg className="w-3.5 h-3.5 text-gray-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
-      </button>
-    </div>
-  );
-
+  // "Meld syg" used to hang under this strip as a pill ("needChangeLink").
+  // Home v3 moved it — not deleted — to the next-shift card's ⋯ menu and to
+  // the "Brug for en ændring?" section at the end of the week list, both of
+  // which open the same SickCallButton form (pinned by
+  // StaffPortalPage.homeV3.test.jsx). The confirm strip now says one thing.
   if (allConfirmed) {
     return (
       <div>
@@ -1236,7 +1219,6 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange, allSh
               .split("{n}").join(String(unconfirmedElsewhere))}
           </div>
         )}
-        {needChangeLink}
       </div>
     );
   }
@@ -1264,7 +1246,6 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange, allSh
       {error && (
         <div className="mt-1.5 text-center text-[12px] text-red-500">{error}</div>
       )}
-      {needChangeLink}
     </div>
   );
 }
@@ -1585,87 +1566,70 @@ function WhosOnStrip({ teamShifts, nextShift }) {
   const shown = mates.slice(0, CAP);
   const overflow = mates.length - shown.length;
 
-  // Lives INSIDE the dark next-shift hero (its avatars ring gray-900 — built
-  // for that surface, which is why they looked orphaned on the gray page).
-  // Renders NOTHING on a solo shift, so stillness costs zero chrome. No
-  // per-avatar role bar — role colour lives only on the hero's left-bar.
+  // Home v3 (Nov 2026): its own light card UNDER the next-shift card, not
+  // folded inside it — the forest card now carries the place (map, venue,
+  // Rute) and "who am I on with?" reads better as its own short list, as in
+  // the mockup. The ⋯ menu's "Hvem er på" row scrolls here.
   // A solo shift used to render nothing at all — and 63% of venue-days in
   // production ARE solo, so the most common answer to "who am I on with?" was
   // silence, which reads as "not loaded yet" rather than "nobody". Say it.
-  if (mates.length === 0) {
-    return (
-      <div className="mt-4 pt-4 border-t border-white/10">
-        <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
-          {t("portalWhosOnTitle")}
-        </div>
-        <div className="text-[13px] text-gray-400">
-          {t("portalWhosOnSolo", "You're on your own this shift.")}
-        </div>
-      </div>
-    );
-  }
   return (
-    <div className="mt-4 pt-4 border-t border-white/10">
-      <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+    <section id="portal-whos-on" data-testid="portal-whos-on" style={{ scrollMarginTop: 72 }}>
+      <h2 style={{ margin: "2px 2px 8px", font: "700 15px/1.2 var(--font-display)", letterSpacing: "-0.01em", color: "#0f172a" }}>
         {t("portalWhosOnTitle")}
-        {myBranch && <span className="normal-case tracking-normal text-gray-500"> · {myBranch}</span>}
-      </div>
-      {/* Name under the avatar — an initial alone cannot answer the only
-          question this strip exists to answer ("who am I on with?"). "D" is
-          not an answer. First name only: it is what one colleague calls
-          another, and it keeps the row narrow enough to stay calm.
-          The avatar was aria-hidden with a title that repeated the initials,
-          so a screen-reader user got nothing at all and a hover told a
-          sighted user what they could already see. */}
-      {/* v2 layout: overlapping 26px avatars with a name LIST beside them,
-          rather than a row of avatars each captioned. Same answer to "who am I
-          on with?" — the names are still there, just read as a sentence — in
-          roughly half the vertical space, which is what lets the hero, the week
-          card and the day panel share one screen. The 2px ring is the card
-          colour (#14202f), so the discs punch out of the gradient. */}
-      <div className="flex items-center gap-[9px]">
-        <div className="flex shrink-0">
-          {shown.map((s, i) => (
-            <span
-              key={`${s.staff_id ?? s.staff_name}-${i}`}
-              aria-hidden
-              className="inline-block h-[26px] w-[26px] rounded-full text-center"
-              style={{
-                marginLeft: i === 0 ? 0 : -8,
-                background: mateTone(s.staff_name),
-                color: "#0b1220",
-                font: "700 9.5px/26px var(--font-text)",
-                boxShadow: "0 0 0 2px #14202f",
-              }}
-            >
-              {staffInitials(s.staff_name)}
+        {myBranch && <span style={{ fontWeight: 500, color: "#64748b" }}> · {myBranch}</span>}
+      </h2>
+      <div className="bg-white" style={{ borderRadius: 16, border: "1px solid #e8edf3", padding: "12px 14px" }}>
+        {mates.length === 0 ? (
+          <div className="text-[13px] text-gray-500">
+            {t("portalWhosOnSolo", "You're on your own this shift.")}
+          </div>
+        ) : (
+          /* Overlapping 26px avatars with a name LIST beside them — same
+             answer to "who am I on with?", first names only. The 2px ring is
+             the card colour, so the discs punch out of it. */
+          <div className="flex items-center gap-[9px]">
+            <div className="flex shrink-0">
+              {shown.map((s, i) => (
+                <span
+                  key={`${s.staff_id ?? s.staff_name}-${i}`}
+                  aria-hidden
+                  className="inline-block h-[26px] w-[26px] rounded-full text-center"
+                  style={{
+                    marginLeft: i === 0 ? 0 : -8,
+                    background: mateTone(s.staff_name),
+                    color: "#0b1220",
+                    font: "700 9.5px/26px var(--font-text)",
+                    boxShadow: "0 0 0 2px #fff",
+                  }}
+                >
+                  {staffInitials(s.staff_name)}
+                </span>
+              ))}
+              {overflow > 0 && (
+                <span
+                  aria-hidden
+                  className="inline-block h-[26px] w-[26px] rounded-full text-center"
+                  style={{
+                    marginLeft: -8,
+                    background: "#eef2f7",
+                    color: "#334155",
+                    font: "700 9.5px/26px var(--font-text)",
+                    boxShadow: "0 0 0 2px #fff",
+                  }}
+                >
+                  +{overflow}
+                </span>
+              )}
+            </div>
+            <span className="min-w-0 truncate" style={{ font: "500 13px/1.2 var(--font-text)", color: "#334155" }}>
+              {shown.map((s) => firstName(s.staff_name)).filter(Boolean).join(", ")}
+              {overflow > 0 ? ` +${overflow}` : ""}
             </span>
-          ))}
-          {overflow > 0 && (
-            <span
-              aria-hidden
-              className="inline-block h-[26px] w-[26px] rounded-full text-center"
-              style={{
-                marginLeft: -8,
-                background: "rgba(255,255,255,.14)",
-                color: "rgba(255,255,255,.85)",
-                font: "700 9.5px/26px var(--font-text)",
-                boxShadow: "0 0 0 2px #14202f",
-              }}
-            >
-              +{overflow}
-            </span>
-          )}
-        </div>
-        <span
-          className="min-w-0 truncate"
-          style={{ font: "500 11.5px/1 var(--font-text)", color: "rgba(255,255,255,.52)" }}
-        >
-          {shown.map((s) => firstName(s.staff_name)).filter(Boolean).join(", ")}
-          {overflow > 0 ? ` +${overflow}` : ""}
-        </span>
+          </div>
+        )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -1755,7 +1719,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts, businessType }
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, businessType, coversByShift, onShiftsChanged, allShifts, calendarKey, schedState = "ok", onRetrySchedule, staffRole, focusDate }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, venue, businessType, coversByShift, onShiftsChanged, allShifts, calendarKey, schedState = "ok", onRetrySchedule, staffRole, focusDate, onOpenSwaps }) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -1814,9 +1778,16 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // Monday-first weekday index (matches the Availability calendar convention).
   const weekdayOfIso = (iso) => (new Date(iso + "T00:00:00").getDay() + 6) % 7;
   const isUnavailDay = (iso) => !!unavailByDate[iso] || recurUnavailWeekdays.has(weekdayOfIso(iso));
-  // "Brug for en ændring?" reveals the sick-call form inline (and deep-links
-  // Swaps via onNeedChange from the confirm strip).
-  const [showSick, setShowSick] = useState(false);
+  // Where the sick-call form is open: "menu" (the card's ⋯ menu → under the
+  // card) or "week" (the "Brug for en ændring?" section at the end of the
+  // week list). null = closed. Both mount the same SickCallButton form.
+  const [sickFrom, setSickFrom] = useState(null);
+  const sickMenuRef = useRef(null);
+  useEffect(() => {
+    if (sickFrom === "menu") sickMenuRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [sickFrom]);
+  // The next-shift card's ⋯ sheet (Rute, Hvem er på, kalender, byt, Meld syg).
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // The week on screen, and how far forward paging may go: up to the last
   // week that has a published shift (never past the server's window).
@@ -1872,18 +1843,29 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // recomputed each 15s render — minutes tick, days do not need to.
   const countdownLabel = nextShiftCountdown(nextShift, t);
 
-  // Venue location — the owner sets this on their business profile. Label is
-  // "Name, City"; the tap opens Maps for directions (address if the owner
-  // filled one, else name+city). Makes "where do I go" one tap for staff.
+  // Venue location — the owner sets this on their business profile. The
+  // label ("Name, City") names the venue in the geofence hint.
   const venueLabel = restaurantName
     ? [restaurantName, restaurantCity].filter(Boolean).join(", ")
     : "";
-  const venueMapsQuery = restaurantAddress
-    ? [restaurantAddress, restaurantCity].filter(Boolean).join(", ")
-    : venueLabel;
-  const venueMapsUrl = venueMapsQuery
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(venueMapsQuery)}`
-    : null;
+  // The PLACE of the next shift, for the card and the Rute link. A shift at a
+  // named location (multi-location) shows that location and its address; the
+  // venue's map pin belongs to the venue, so it is never drawn for a shift
+  // somewhere else. Otherwise: the venue, with the pin the owner confirmed
+  // (`venue` on PortalInfo) — lat/lng arrive only once confirmed.
+  const place = (() => {
+    if (nextShift?.branch_name) {
+      return { name: nextShift.branch_name, address: nextShift.branch_address || "", lat: null, lng: null, hasMap: false };
+    }
+    return {
+      name: venue?.name || restaurantName || "",
+      address: venue?.address_line || [restaurantAddress, restaurantCity].filter(Boolean).join(", "),
+      lat: venue?.lat ?? null,
+      lng: venue?.lng ?? null,
+      hasMap: !!venue?.has_map,
+    };
+  })();
+  const placeRouteUrl = routeUrl(place);
 
   // Subscribe ALL shifts as an auto-updating calendar feed (webcal://). One
   // tap on iOS opens the native "Subscribe to Calendar" dialog; the phone then
@@ -1985,132 +1967,86 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // Gross span = net (paid) + unpaid break — both come from the owner's roster.
   const grossHrs = (s) => (Number(s?.net_hours) || 0) + (Number(s?.break_minutes) || 0) / 60;
 
+  // The sick-call form opens from two places — the card's ⋯ menu and the
+  // "Brug for en ændring?" section at the end of the week — and renders where
+  // it was asked for: under the card, or in that section. null = closed.
+  const openSick = (from) => { setMenuOpen(false); setSickFrom(from); };
+
   return (
     <div className="space-y-4">
-      {/* HERO — dark gray-900 next-shift card with a 4px role-colored left-bar.
-          Absorbs the punch-clock (elapsed timer + Stempl ind/ud) and a live
-          countdown. Role shows ONLY via the thin left-bar + a tiny label. */}
+      {/* HERO — the next shift, on one flat forest card (home v3, Nov 2026).
+          The gradient, the green bloom off the corner and the 7 s sheen are
+          gone: they are exactly the effects the brand rules out, and the PIN
+          gate, the Timer card and the profile card dropped them in the same
+          change so the four stay one material. The card now carries the
+          PLACE — venue, address, a map when the owner confirmed the pin, and
+          a Rute button — and the shift's own ⋯ menu. Role shows as a small
+          dot plus its name (it was a 6px left bar with no name). */}
       <div
-        className={`relative overflow-hidden text-white${playBeat ? " motion-safe:animate-heroSettle" : ""}`}
-        style={{
-          // v2 hero: a three-stop diagonal rather than a flat fill, so the card
-          // has a direction of light instead of sitting there. Radius 22 and the
-          // inset top highlight are the other two thirds of v2's "glossy" —
-          // which it defines as exactly three things and nothing more.
-          borderRadius: 22,
-          padding: "19px 19px 17px",
-          background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 46%,#080e16 100%)",
-          boxShadow:
-            "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
-        }}
+        className={`relative${playBeat ? " motion-safe:animate-heroSettle" : ""}`}
+        data-testid="portal-hero"
+        style={{ borderRadius: 22, padding: "16px 18px", background: FOREST, color: PAPER }}
       >
-        {/* Brand bloom bleeding off the TOP-RIGHT corner — v2 moves it there so
-            the light reads as coming from above, agreeing with the gradient.
-            Green, low-alpha, felt rather than seen; never neon. */}
-        {/* NO blur filter here, deliberately. A radial-gradient is already soft,
-            and adding `blur-3xl` gives this div its own compositing layer —
-            which WebKit then fails to clip against the parent's border-radius,
-            painting a hard pale-green rectangle over the rounded corner. Caught
-            on a real iPhone 17 Pro Max; invisible in a desktop browser. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute h-[230px] w-[230px] rounded-full"
-          style={{
-            top: -80, right: -70,
-            background: "radial-gradient(closest-side, rgba(34,197,94,.40), rgba(34,197,94,0))",
-          }}
-        />
-        {/* v2 sheen — a 70px blade crossing the card every 7s. Long gap, short
-            pass: seen once and then forgotten, which is the point. Purely
-            optical, so aria-hidden and pointer-events-none. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-0 w-[70px] motion-safe:animate-heroSheen"
-          style={{
-            background:
-              "linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent)",
-          }}
-        />
-        {/* Role-colored left-bar — a thin SIGNAL, the only role colour. Only
-            when there IS a shift: an empty hero has no role to signal. */}
-        {nextShift && (
+        <div className="relative flex items-center justify-between gap-2" style={{ minHeight: 28 }}>
           <span
-            className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl ${roleBarColor(effRole(nextShift), businessType)}`}
-            aria-hidden
-          />
-        )}
-        {/* v2 eyebrow: a slow pulsing dot + green label. The dot is the screen's
-            only moving element at rest — it says "this is live" without a
-            spinner. 2.4s is deliberately slower than a heartbeat: present, not
-            urgent. Respects prefers-reduced-motion via motion-safe. */}
-        <div className="relative flex items-start justify-between gap-2">
-          <div
-            className="flex items-center gap-1.5 uppercase"
-            style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.16em", color: "#4ade80" }}
+            className="uppercase"
+            style={{ font: "600 11px/1 var(--font-text)", letterSpacing: "0.14em", color: "rgba(246,244,236,.62)" }}
           >
-            <span
-              aria-hidden
-              className="inline-block h-1.5 w-1.5 rounded-full motion-safe:animate-heroLiveDot"
-              style={{ background: "#22c55e" }}
-            />
             {t("portalNextShiftHero")}
-          </div>
-          {countdownLabel && (
-            <span
-              className="shrink-0 rounded-full tabular-nums"
-              style={{
-                font: "600 10.5px/1 var(--font-text)",
-                color: "rgba(255,255,255,.86)",
-                background: "rgba(255,255,255,.10)",
-                border: "1px solid rgba(255,255,255,.14)",
-                padding: "5px 9px",
-              }}
+          </span>
+          {nextShift && (
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              aria-label={t("portalShiftMenu", "More options for this shift")}
+              aria-haspopup="dialog"
+              data-testid="portal-shift-menu-btn"
+              className="relative flex items-center justify-center active:scale-[0.98] transition before:absolute before:-inset-[5px] before:content-[''] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+              style={{ width: 34, height: 34, marginRight: -6, borderRadius: 999, background: "rgba(246,244,236,.10)", color: PAPER }}
             >
-              {countdownLabel}
-            </span>
+              <MoreHorizontal size={20} strokeWidth={2.2} aria-hidden />
+            </button>
           )}
         </div>
 
         {nextShift ? (
           <>
-            {/* v2 headline: date and time on ONE line at display weight, split by
-                a dimmed separator. Two stacked lines made the time read as a
-                subtitle of the date; they are one fact and now look like it. */}
-            <div
-              className="relative text-white"
-              style={{ marginTop: 13, font: "700 26px/1.06 var(--font-display)", letterSpacing: "-0.032em" }}
-            >
-              {isToday(nextShift.date) ? t("portalToday") : fmtDate(nextShift.date, lang)}
-              <span style={{ color: "rgba(255,255,255,.42)" }}> · </span>
-              <span className="tabular-nums">{nextShift.start_time}–{nextShift.end_time}</span>
+            {/* When — relative first ("I morgen", "Om 3 dage"), then the date.
+                On the day itself: "I dag · Om 2 t 10 min". */}
+            <div style={{ marginTop: 6, font: "500 14px/1.2 var(--font-text)", color: "rgba(246,244,236,.82)" }}>
+              {(isToday(nextShift.date)
+                ? [t("portalToday"), countdownLabel]
+                : [countdownLabel, fmtDate(nextShift.date, lang)]
+              ).filter(Boolean).join(" · ")}
             </div>
-            {/* Hours clarity — gross span · unpaid break · net (paid). All three
-                derive from the owner's rostered shift (net_hours + break_minutes),
-                replacing the old ambiguous single "6.25 hrs" that read like a bug. */}
-            {/* The prototype answers "what is this shift" in ONE quiet line —
-                role · span · break — with 3px dots between. Ours carried the
-                same facts as three coloured pills plus a separate role row:
-                two rows and four backgrounds on the calmest surface in the app.
-                Same facts, one line. NET keeps its emphasis because it is the
-                paid number and the one thing here we compute rather than
-                restate. */}
-            {/* Each separator dot travels WITH the fact after it, so a wrap on
-                a narrow phone starts the next line with "· 8,5 t effektiv"
-                instead of leaving a dangling dot after "30 min pause". */}
-            <div className="mt-2 flex flex-wrap items-center" style={{ gap: 7, font: "500 12.5px/1.35 var(--font-text)", color: "rgba(255,255,255,.60)" }} data-testid="portal-hero-meta">
+            <div className="tabular-nums" style={{ marginTop: 6, font: "700 36px/1 var(--font-display)", letterSpacing: "-0.03em" }}>
+              {nextShift.start_time}<span style={{ margin: "0 6px", fontWeight: 500, opacity: 0.55 }}>–</span>{nextShift.end_time}
+            </div>
+            {/* Hours clarity — role · gross span · unpaid break · net (paid),
+                all from the owner's rostered shift. Each separator dot travels
+                WITH the fact after it, so a wrap on a narrow phone starts the
+                next line with "· 8,5 t effektiv" instead of leaving a dangling
+                dot. NET keeps its emphasis: the paid number, the one we
+                compute rather than restate. */}
+            <div className="flex flex-wrap items-center" style={{ marginTop: 10, gap: 7, font: "600 13px/1.35 var(--font-text)", color: "rgba(246,244,236,.82)" }} data-testid="portal-hero-meta">
               {[
-                nextShiftRole ? <span key="r">{nextShiftRole}</span> : null,
+                nextShiftRole ? (
+                  <span key="r" className="inline-flex items-center" style={{ gap: 7 }}>
+                    {nextShift && <span aria-hidden className={`inline-block w-2 h-2 rounded-full shrink-0 ${roleBarColor(effRole(nextShift), businessType)}`} />}
+                    {nextShiftRole}
+                  </span>
+                ) : null,
                 ...(nextShift.break_minutes > 0
                   ? [
                       <span key="g" className="tabular-nums">{t("portalHoursGross", "{h} shift", { h: fmtHM(grossHrs(nextShift)) })}</span>,
                       <span key="b" className="tabular-nums">{t("portalHoursBreak", "{m} min break", { m: nextShift.break_minutes })}</span>,
-                      <span key="n" className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
+                      <span key="n" className="tabular-nums" style={{ color: PAPER, fontWeight: 700 }}>
                         {t("portalHoursNet", "{h} net", { h: fmtHM(nextShift.net_hours) })}
                       </span>,
                     ]
                   // No break → gross == net, so ONE figure, not a redundant pair.
                   : [
-                      <span key="g" className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
+                      <span key="g" className="tabular-nums">
                         {t("portalHoursGross", "{h} shift", { h: fmtHM(nextShift.net_hours) })}
                       </span>,
                     ]),
@@ -2124,31 +2060,15 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
               ))}
             </div>
 
-            {/* Booked covers for this shift's night — the reason to hold both the
-                book and the roster. Count ONLY: the server sends one integer per
-                business date and nothing about the guests. No allergy signal, not
-                even a count — that is Art.9 health data and the owner's own host
-                stand already refuses to show it beside a name; this surface
-                (token-in-URL, personal phone, PIN opt-in) can never get more.
-
-                NOT tappable, deliberately: a tap has nowhere honest to go — staff
-                must never reach the guest list — and a control that opens nothing
-                is a dead end.
-
-                Joined on the shift's own id, so the count belongs to THIS shift
-                and no date is re-derived here. The server scopes it to the
-                shift's hours: guests arriving while this staffer is on, not the
-                whole day's total.
-
-                "booket" is load-bearing — walk-ins never enter the book, so this
-                is guests BOOKED, never guests served. */}
-            {/* Covers and venue share ONE wrapping row with a real gap — as
-                two inline-flex siblings they ran together ("0 gæster booket◎
-                Testcafé"). And 0 is not shown: "0 gæster booket" reads as a
-                dead night when it usually means nobody has booked YET. */}
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            {/* Booked covers for this shift's night — the reason to hold both
+                the book and the roster. Count ONLY: the server sends one
+                integer per shift and nothing about the guests (no allergy
+                signal: Art.9 health data). NOT tappable — staff must never
+                reach the guest list. "booket" is load-bearing: walk-ins never
+                enter the book. 0 is not shown ("0 gæster booket" reads as a
+                dead night when it usually means nobody has booked YET). */}
             {typeof coversByShift?.[nextShift.id] === "number" && coversByShift[nextShift.id] > 0 && (
-              <div className="inline-flex items-center gap-1.5 text-[12px] text-gray-400" data-testid="portal-hero-covers">
+              <div className="mt-2 inline-flex items-center gap-1.5 text-[12px]" style={{ color: "rgba(246,244,236,.66)" }} data-testid="portal-hero-covers">
                 <Users className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
                 <span className="tabular-nums">
                   {t("portalCoversBooked", "{n} guests booked", { n: coversByShift[nextShift.id] })}
@@ -2156,49 +2076,51 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
               </div>
             )}
 
-            {/* Venue line — name ONLY (never a fabricated address). When the
-                owner has turned ON the clock-in geofence, this becomes an honest
-                "Stempl kun ind ved <venue>" lock hint so the staffer knows the
-                clock-in is location-bound before they try it (the server's
-                too_far 403 is still the real gate). */}
-            {restaurantName &&
-              (venueMapsUrl ? (
-                <a
-                  href={venueMapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex min-w-0 max-w-full items-center gap-1.5 text-[12px] text-gray-400 hover:text-gray-200 active:opacity-70 transition-colors"
-                  title={t("portalVenueDirections", "Get directions")}
-                >
-                  {clock.st?.geofence_on ? (
-                    <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
-                  ) : (
-                    <MapPin className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
+            {/* The place: venue (or the shift's own location) and its address,
+                with Rute — the only moment anything leaves BonBox, and only on
+                a tap (utils/routeUrl: Apple Maps on iPhone, the phone's own map
+                app on Android, Google Maps elsewhere). Name ONLY when the owner
+                gave no address — never a fabricated one. */}
+            {(place.name || place.address) && (
+              <div className="flex items-center" style={{ marginTop: 12, gap: 12 }} data-testid="portal-hero-place">
+                <div className="min-w-0 flex-1 flex flex-col" style={{ gap: 4 }}>
+                  {place.name && (
+                    <span className="truncate" style={{ font: "600 14px/1.15 var(--font-text)" }}>{place.name}</span>
                   )}
-                  <span className="truncate underline decoration-gray-600 underline-offset-2">
-                    {clock.st?.geofence_on
-                      ? t("portalClockOnlyAt", "Clock in only at {venue}", { venue: venueLabel })
-                      : venueLabel}
-                  </span>
-                </a>
-              ) : (
-                <div className="flex min-w-0 max-w-full items-center gap-1.5 text-[12px] text-gray-400">
-                  {clock.st?.geofence_on ? (
-                    <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
-                  ) : (
-                    <MapPin className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                  {place.address && place.address !== place.name && (
+                    <span className="truncate" style={{ font: "400 12px/1.2 var(--font-text)", color: "rgba(246,244,236,.66)" }}>
+                      {place.address}
+                    </span>
                   )}
-                  <span className="truncate">
-                    {clock.st?.geofence_on
-                      ? t("portalClockOnlyAt", "Clock in only at {venue}", { venue: venueLabel })
-                      : venueLabel}
-                  </span>
                 </div>
-              ))}
-            </div>
+                {placeRouteUrl && (
+                  <a
+                    href={placeRouteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid="portal-route"
+                    aria-label={t("portalRouteTo", "Directions to {venue}", { venue: place.name || place.address })}
+                    className="shrink-0 inline-flex items-center active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                    style={{ gap: 7, height: 40, padding: "0 16px 0 14px", borderRadius: 20, background: PAPER, color: FOREST, font: "700 14px/1 var(--font-text)" }}
+                  >
+                    <Navigation size={16} strokeWidth={2.2} aria-hidden />
+                    {t("portalRoute", "Directions")}
+                  </a>
+                )}
+              </div>
+            )}
 
-            {/* Live elapsed timer while clocked in (emerald ping, reused from
-                the old ClockCard). */}
+            {/* Clock-in geofence: an honest "Stempl kun ind ved <venue>" lock
+                hint so the staffer knows clock-in is location-bound before
+                they try it (the server's too_far 403 is still the real gate). */}
+            {clock.st?.geofence_on && venueLabel && (
+              <div className="mt-2.5 flex items-center gap-1.5 text-[12px]" style={{ color: "rgba(246,244,236,.66)" }}>
+                <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                <span className="truncate">{t("portalClockOnlyAt", "Clock in only at {venue}", { venue: venueLabel })}</span>
+              </div>
+            )}
+
+            {/* Live elapsed timer while clocked in (emerald ping = live). */}
             {clockedIn && (
               <div className="mt-3 flex items-center gap-2">
                 <span className="relative flex h-2.5 w-2.5">
@@ -2206,57 +2128,48 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
                 </span>
                 <span className="text-2xl font-bold tabular-nums tracking-[-0.01em]">{clock.liveLabel}</span>
-                <span className="text-[12px] text-gray-300 tabular-nums">
+                <span className="text-[12px] tabular-nums" style={{ color: "rgba(246,244,236,.72)" }}>
                   {t("portalClockedInSince", "Clocked in · since {t}", { t: clock.st?.since || "—" })}
                 </span>
               </div>
             )}
 
-            {/* ONE geofence-aware CTA. Honesty: the client can't verify "at
-                venue" (no coords) — the server's too_far 403 is the real gate.
-                Clocked in → Stempl ud. Else → Stempl ind (primary) + a quiet
-                ghost "Tilføj til kalender". Never claims presence. */}
-            <div className="mt-4">
-              {token && clockedIn ? (
-                <button
-                  type="button"
-                  disabled={clock.busy}
-                  onClick={() => clock.act("out")}
-                  className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-xl bg-white text-gray-900 text-sm font-semibold shadow-[0_2px_8px_-2px_rgb(0_0_0/0.4)] hover:bg-gray-100 active:scale-[0.98] transition disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
-                >
-                  {t("portalClockOutCta")}
-                </button>
-              ) : (
-                <div className="flex items-center gap-2">
-                  {token && (
-                    <button
-                      type="button"
-                      disabled={clock.busy || clockLocked}
-                      onClick={clockInNow}
-                      className={"flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-xl text-sm font-semibold active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900 " + (shiftSoon
-                        ? "bg-white text-gray-900 shadow-[0_2px_8px_-2px_rgb(0_0_0/0.4)] hover:bg-gray-100"
-                        : "bg-white/10 ring-1 ring-white/15 text-gray-100 hover:bg-white/20")}
-                    >
-                      {clockLocked && <Lock className="w-4 h-4 shrink-0" strokeWidth={2} aria-hidden />}
-                      {t("portalClockInCta")}
-                    </button>
-                  )}
+            {/* ONE geofence-aware punch CTA. Honesty: the client can't verify
+                "at venue" — the server's too_far 403 is the real gate. Clocked
+                in → Stempl ud. Else → Stempl ind, the main button only when the
+                shift is close. "Tilføj til kalender" moved to the ⋯ menu. */}
+            {token && (
+              <div className="mt-4">
+                {clockedIn ? (
                   <button
                     type="button"
-                    onClick={subscribeCalendar}
-                    title={t("portalSyncCalendarHint", "Subscribe once — your calendar updates itself when shifts change")}
-                    className={"shrink-0 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-xl bg-white/10 ring-1 ring-white/15 text-sm font-medium hover:bg-white/20 active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900 " + (calTapped ? "text-gray-400" : "text-gray-200")}
+                    disabled={clock.busy}
+                    onClick={() => clock.act("out")}
+                    className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-xl text-sm font-semibold active:scale-[0.98] transition disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-[#093A26]"
+                    style={{ background: PAPER, color: FOREST }}
                   >
-                    <CalendarPlus className="w-4 h-4 shrink-0" strokeWidth={2} aria-hidden />
-                    <span>{calTapped ? t("portalSyncCalendarAgain", "Calendar") : t("portalSyncCalendar", "Add to my calendar")}</span>
+                    {t("portalClockOutCta")}
                   </button>
-                </div>
-              )}
-            </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={clock.busy || clockLocked}
+                    onClick={clockInNow}
+                    className="w-full inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-xl text-sm font-semibold active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-[#093A26]"
+                    style={shiftSoon
+                      ? { background: PAPER, color: FOREST }
+                      : { background: "rgba(246,244,236,.10)", color: PAPER, boxShadow: "inset 0 0 0 1px rgba(246,244,236,.18)" }}
+                  >
+                    {clockLocked && <Lock className="w-4 h-4 shrink-0" strokeWidth={2} aria-hidden />}
+                    {t("portalClockInCta")}
+                  </button>
+                )}
+              </div>
+            )}
             {/* Låst — clock-in is time-locked until the owner's window opens.
                 Honest, specific: shows the exact open time from the server. */}
             {clockLocked && clock.st?.opens_at && (
-              <div className="mt-2.5 flex items-center gap-1.5 text-[12px] text-gray-400">
+              <div className="mt-2.5 flex items-center gap-1.5 text-[12px]" style={{ color: "rgba(246,244,236,.66)" }}>
                 <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
                 <span>{t("portalClockOpensAt", "Clock-in opens at {t}", { t: clock.st.opens_at })}</span>
               </div>
@@ -2264,8 +2177,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             {clock.err?.kind === "too_far" ? (
               /* Calm "almost there" — amber, not red. Being off-site isn't an
                  error the worker caused; show how far + what to do. Numbers are
-                 server-stamped (the 403 carries distance_m/radius_m). Honest: a
-                 distance estimate, never a claim about where the person is. */
+                 server-stamped (the 403 carries distance_m/radius_m). */
               <div className="mt-3 rounded-lg bg-amber-500/10 ring-1 ring-amber-400/20 px-3 py-2.5">
                 <div className="flex items-center gap-1.5 text-[13px] font-semibold text-amber-200">
                   <MapPinOff className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
@@ -2275,16 +2187,14 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                       : t("portalClockTooFarDistNoVenue", "About {dist} from the venue", { dist: fmtDist(clock.err.distance_m) })}
                   </span>
                 </div>
-                <div className="mt-1 text-[12px] text-gray-400">
+                <div className="mt-1 text-[12px]" style={{ color: "rgba(246,244,236,.66)" }}>
                   {t("portalClockTooFarRadius", "Clock-in opens within {radius} m of the venue.", { radius: clock.err.radius_m })}
                 </div>
-                <div className="mt-0.5 text-[12px] text-gray-300">
+                <div className="mt-0.5 text-[12px]" style={{ color: "rgba(246,244,236,.8)" }}>
                   {t("portalClockTooFarDo", "Head over and try again when you're there.")}
                 </div>
-                {/* Direction, not just distance. Drawn from the fix already used
-                    for this punch — no second permission prompt — against the
-                    venue centre the status endpoint sends when the fence is on.
-                    Schematic, so no tiles, no CSP change, no network call. */}
+                {/* Direction, not just distance. Drawn from the fix already
+                    used for this punch — no second permission prompt. */}
                 {clock.lastFix && clock.st?.geofence?.lat && (
                   <div className="mt-3">
                     <GeofenceDial
@@ -2297,7 +2207,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 )}
               </div>
             ) : clock.err?.kind === "too_early" ? (
-              <div className="mt-2 flex items-center gap-1.5 text-[12px] text-gray-400">
+              <div className="mt-2 flex items-center gap-1.5 text-[12px]" style={{ color: "rgba(246,244,236,.66)" }}>
                 <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
                 <span>{t("portalClockOpensAt", "Clock-in opens at {t}", { t: clock.err.opens_at || "—" })}</span>
               </div>
@@ -2305,14 +2215,8 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
               <div className="mt-2 text-[12px] text-red-300">{clock.err}</div>
             ) : null}
             {clock.result && !clock.err && (
-              <div className="mt-2 text-[12px] text-gray-200">{clock.result}</div>
+              <div className="mt-2 text-[12px]" style={{ color: "rgba(246,244,236,.86)" }}>{clock.result}</div>
             )}
-
-            {/* "På arbejde med dig" — folded INTO the hero (its avatars ring
-                gray-900, built for this surface). Who's-on is a property of this
-                next shift, so it belongs here, not floating on the gray page.
-                Renders nothing on a solo shift. */}
-            {token && <WhosOnStrip teamShifts={teamShifts || []} nextShift={nextShift} />}
           </>
         ) : schedState === "loading" ? (
           /* Not answered yet — a placeholder, never "no shift". Saying
@@ -2326,18 +2230,19 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           /* The schedule call failed and there is nothing last-good to show:
              say so, and offer the retry right here. */
           <div className="relative mt-2" data-testid="portal-hero-failed">
-            <div className="flex items-center gap-2 text-[17px] font-bold text-white">
+            <div className="flex items-center gap-2 text-[17px] font-bold" style={{ color: PAPER }}>
               <CloudOff className="w-5 h-5 shrink-0 text-amber-300" strokeWidth={2.2} aria-hidden />
               {t("portalScheduleLoadFailed", "Couldn't load your schedule")}
             </div>
-            <div className="mt-1.5 text-[13px] text-gray-400">
+            <div className="mt-1.5 text-[13px]" style={{ color: "rgba(246,244,236,.66)" }}>
               {t("portalScheduleLoadFailedHint", "Check your connection — your shifts are not gone.")}
             </div>
             {onRetrySchedule && (
               <button
                 type="button"
                 onClick={onRetrySchedule}
-                className="mt-3.5 inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-xl bg-white text-gray-900 text-sm font-semibold active:scale-[0.98] transition"
+                className="mt-3.5 inline-flex items-center justify-center gap-2 min-h-[44px] px-5 rounded-xl text-sm font-semibold active:scale-[0.98] transition"
+                style={{ background: PAPER, color: FOREST }}
               >
                 <RefreshCw className="w-4 h-4" strokeWidth={2.4} aria-hidden />
                 {t("tryAgain", "Try again")}
@@ -2346,18 +2251,14 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           </div>
         ) : (
           <>
-            <div className="mt-1 text-2xl font-bold text-gray-500">{t("portalNoUpcomingShift")}</div>
+            <div className="mt-1 text-2xl font-bold" style={{ color: "rgba(246,244,236,.82)" }}>{t("portalNoUpcomingShift")}</div>
             {/* TWO empty states, not one. "You'll get notified when the venue
                 publishes the schedule" is true only while nothing is published.
                 Once the rota IS out and this staffer simply isn't on it, that
                 sentence tells them to keep waiting for a message that will
-                never come — the app quietly lies about why they have no work.
-                `teamShifts` already tells us which case we're in (it's a prop
-                on this component, so no backend call): if teammates have
-                upcoming shifts, the plan exists and the honest line is that
-                they're not on it. */}
+                never come. `teamShifts` already tells us which case we're in. */}
             {(teamShifts || []).some((s) => s.date >= today) ? (
-              <div className="mt-2 text-[13px] text-gray-400">
+              <div className="mt-2 text-[13px]" style={{ color: "rgba(246,244,236,.66)" }}>
                 {t(
                   "portalNoShiftPublished",
                   "The schedule is out and you're not on it. Ask {venue} if that looks wrong.",
@@ -2365,7 +2266,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 )}
               </div>
             ) : (
-              <div className="mt-2 text-[13px] text-gray-400">
+              <div className="mt-2 text-[13px]" style={{ color: "rgba(246,244,236,.66)" }}>
                 {t("portalNoShiftHint", "You'll get notified here when {venue} publishes the schedule.", { venue: restaurantName || "" })}
               </div>
             )}
@@ -2373,41 +2274,38 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
         )}
       </div>
 
-      {/* Åbne vagter — open shifts this staffer can pick up one-tap. */}
-      {token && <OpenShiftsClaimCard token={token} rows={openShifts || []} onClaimed={onShiftsChanged} ownShifts={shifts} businessType={businessType} />}
+      {/* Sick-call form, opened from the card's ⋯ menu — it renders right
+          under the card it was asked from. */}
+      {token && sickFrom === "menu" && (
+        <div ref={sickMenuRef} data-testid="portal-sick-from-menu" style={{ scrollMarginTop: 72 }}>
+          <SickCallButton
+            token={token}
+            upcomingShifts={upcoming}
+            onCalledIn={onShiftsChanged}
+            // Dismissing unmounts it; the menu row stays the way back in.
+            onDismiss={() => setSickFrom(null)}
+            // Straight to the form: the row already stated the intent.
+            autoOpen
+          />
+        </div>
+      )}
 
       {/* Bidirectional confirmation — calm "Jeg har set det" strip. Truth logic
-          (allConfirmed gated on every confirmed_at) untouched; only the CTA
-          copy + style change. The "Brug for en ændring?" link reveals the
-          sick-call form inline AND deep-links the Swaps tab. */}
+          (allConfirmed gated on every confirmed_at) untouched. */}
       {token && (
         <ConfirmScheduleButton
           token={token}
           shifts={shifts}
           allShifts={allShifts}
           onConfirmed={onShiftsChanged}
-          // Reveal the form and STAY. This used to also fire onNeedChange(),
-          // which switches to Swaps — so the tap opened something and then
-          // navigated away from it before it could be read.
-          onNeedChange={() => setShowSick(true)}
         />
       )}
 
-      {/* Sick-call self-service — revealed by "Brug for en ændring?". */}
-      {token && showSick && (
-        <SickCallButton
-          token={token}
-          upcomingShifts={upcoming}
-          onCalledIn={onShiftsChanged}
-          // Dismissing the sheet unmounts it, so you land back on the single
-          // "Report sick" pill instead of a second identical CTA beneath it.
-          onDismiss={() => setShowSick(false)}
-          // Straight to the form. "Report sick" already stated the intent; an
-          // intermediate "Call in sick" button is a second stacked CTA that
-          // only repeats it.
-          autoOpen
-        />
-      )}
+      {/* Hvem er på — its own card now (was folded inside the hero). */}
+      {token && nextShift && <WhosOnStrip teamShifts={teamShifts || []} nextShift={nextShift} />}
+
+      {/* Åbne vagter — open shifts this staffer can pick up one-tap. */}
+      {token && <OpenShiftsClaimCard token={token} rows={openShifts || []} onClaimed={onShiftsChanged} ownShifts={shifts} businessType={businessType} />}
 
       {/* 7-dot week-at-a-glance — replaces the three long shift scrolls. One
           strip at a time (this/next week). Working day = thin role-colored bar;
@@ -2820,7 +2718,190 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           </div>
         )}
       </div>
+
+      {/* "Brug for en ændring?" — the quiet way to the same two actions the
+          ⋯ menu offers, at the end of the week list where someone looking at
+          a shift they cannot make ends up. Meld syg used to hang under the
+          confirm strip; it was MOVED here and into the ⋯ menu, never removed
+          (the Play listing promises it). Both open the one SickCallButton
+          form that posts /sick-call. */}
+      {token && (
+        <section data-testid="portal-need-change" style={{ scrollMarginTop: 72 }}>
+          <h2 style={{ margin: "6px 2px 8px", font: "700 15px/1.2 var(--font-display)", letterSpacing: "-0.01em", color: "#0f172a" }}>
+            {t("portalNeedChangeTitle", "Need a change?")}
+          </h2>
+          <div className="bg-white overflow-hidden" style={{ borderRadius: 16, border: "1px solid #e8edf3" }}>
+            <button
+              type="button"
+              onClick={() => setSickFrom((v) => (v === "week" ? null : "week"))}
+              aria-expanded={sickFrom === "week"}
+              className="w-full flex items-center text-left active:bg-gray-50 transition"
+              style={{ gap: 14, minHeight: 60, padding: "8px 14px" }}
+            >
+              <Thermometer className="w-5 h-5 shrink-0 text-gray-500" strokeWidth={2} aria-hidden />
+              <span className="flex-1 min-w-0 flex flex-col" style={{ gap: 3 }}>
+                <span style={{ font: "500 15px/1.2 var(--font-text)", color: "#334155" }}>{t("portalNeedChange")}</span>
+                <span style={{ font: "400 12px/1.25 var(--font-text)", color: "#64748b" }}>{t("portalSickRowHint", "Let your manager know about your shift")}</span>
+              </span>
+              <ChevronRight className="w-[18px] h-[18px] shrink-0 text-gray-300" strokeWidth={2} aria-hidden />
+            </button>
+            {onOpenSwaps && (
+              <button
+                type="button"
+                onClick={onOpenSwaps}
+                className="w-full flex items-center text-left active:bg-gray-50 transition"
+                style={{ gap: 14, minHeight: 56, padding: "8px 14px", borderTop: "1px solid #eef2f7" }}
+              >
+                <ArrowLeftRight className="w-5 h-5 shrink-0 text-gray-500" strokeWidth={2} aria-hidden />
+                <span className="flex-1 min-w-0" style={{ font: "500 15px/1.2 var(--font-text)", color: "#334155" }}>
+                  {t("portalSwapAShift", "Swap a shift")}
+                </span>
+                <ChevronRight className="w-[18px] h-[18px] shrink-0 text-gray-300" strokeWidth={2} aria-hidden />
+              </button>
+            )}
+          </div>
+          {sickFrom === "week" && (
+            <div className="mt-3" data-testid="portal-sick-from-week">
+              <SickCallButton
+                token={token}
+                upcomingShifts={upcoming}
+                onCalledIn={onShiftsChanged}
+                onDismiss={() => setSickFrom(null)}
+                autoOpen
+              />
+            </div>
+          )}
+        </section>
+      )}
+
+      {menuOpen && nextShift && (
+        <ShiftMenuSheet
+          shift={nextShift}
+          roleLabel={nextShiftRoleKey ? nextShiftRole : null}
+          roleDotClass={roleBarColor(effRole(nextShift), businessType)}
+          place={place}
+          routeHref={placeRouteUrl}
+          calTapped={calTapped}
+          onClose={() => setMenuOpen(false)}
+          onWhosOn={() => {
+            setMenuOpen(false);
+            document.getElementById("portal-whos-on")?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+          }}
+          onCalendar={() => { setMenuOpen(false); subscribeCalendar(); }}
+          onSwaps={onOpenSwaps ? () => { setMenuOpen(false); onOpenSwaps(); } : null}
+          onSick={() => openSick("menu")}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * ShiftMenuSheet — everything for the next shift in one bottom sheet (home
+ * v3, mockup screen 2): Rute, Hvem er på, Tilføj til kalender, Byt eller giv
+ * væk, then — after a divider, quieter — Meld syg. 54 px rows. Portaled to
+ * <body> (the tab content is a space-y stack, and a fixed overlay inside one
+ * picks up a stray margin), m-0 on the overlay for the same reason. The full
+ * map credit OpenFreeMap asks for lives at the foot; the map image carries
+ * the short one.
+ */
+function ShiftMenuSheet({ shift, roleLabel, roleDotClass, place, routeHref, calTapped, onClose, onWhosOn, onCalendar, onSwaps, onSick }) {
+  const { t, lang } = useLanguage();
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const title = `${isToday(shift.date) ? t("portalToday") : fmtDate(shift.date, lang)} · ${shift.start_time}–${shift.end_time}`;
+  const row = ({ icon, label, hint, onClick, href, quiet, testId }) => {
+    const Icon = icon;
+    const inner = (
+      <>
+        <Icon className="w-5 h-5 shrink-0" strokeWidth={2} aria-hidden style={{ color: quiet ? "#64748b" : "#334155" }} />
+        <span className="flex-1 min-w-0 flex flex-col" style={{ gap: 3 }}>
+          <span style={{ font: "500 15px/1.2 var(--font-text)", color: quiet ? "#475569" : "#0f172a" }}>{label}</span>
+          {hint && <span style={{ font: "400 12px/1.25 var(--font-text)", color: "#64748b" }}>{hint}</span>}
+        </span>
+        <ChevronRight className="w-[18px] h-[18px] shrink-0" strokeWidth={2} aria-hidden style={{ color: "#b8b5ac" }} />
+      </>
+    );
+    const cls = "w-full flex items-center text-left active:bg-gray-50 transition";
+    const style = { gap: 14, minHeight: quiet ? 64 : 54, padding: "6px 4px" };
+    return href ? (
+      <a key={testId} href={href} target="_blank" rel="noopener noreferrer" onClick={onClose} className={cls} style={style} data-testid={testId}>{inner}</a>
+    ) : (
+      <button key={testId} type="button" onClick={onClick} className={cls} style={style} data-testid={testId}>{inner}</button>
+    );
+  };
+  return createPortal(
+    <div className="fixed inset-0 z-[60] m-0 flex flex-col justify-end">
+      <button
+        type="button"
+        aria-label={t("close", "Close")}
+        onClick={onClose}
+        className="absolute inset-0 m-0"
+        style={{ background: "rgba(6,20,13,.46)" }}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        data-testid="portal-shift-menu"
+        className="relative w-full max-w-lg mx-auto bg-white m-0"
+        style={{ borderRadius: "26px 26px 0 0", padding: "8px 16px calc(20px + env(safe-area-inset-bottom, 0px))" }}
+      >
+        <span aria-hidden className="block mx-auto" style={{ width: 38, height: 5, borderRadius: 3, background: "#D6D3CB", marginBottom: 10 }} />
+        <div className="flex items-start justify-between" style={{ gap: 12, padding: "4px 4px 10px" }}>
+          <div className="min-w-0">
+            <div className="tabular-nums" style={{ font: "700 16px/1.25 var(--font-display)", letterSpacing: "-0.01em", color: "#0f172a" }}>{title}</div>
+            <div className="flex items-center" style={{ marginTop: 6, gap: 7, font: "500 13px/1.2 var(--font-text)", color: "#64748b" }}>
+              {roleLabel && <span aria-hidden className={`inline-block w-2 h-2 rounded-full shrink-0 ${roleDotClass}`} />}
+              <span className="truncate">{[roleLabel, place?.name].filter(Boolean).join(" · ")}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("close", "Close")}
+            className="relative shrink-0 flex items-center justify-center before:absolute before:-inset-[5px] before:content-['']"
+            style={{ width: 34, height: 34, borderRadius: 999, background: "#F1F0EB", color: "#334155" }}
+          >
+            <X className="w-[17px] h-[17px]" strokeWidth={2} aria-hidden />
+          </button>
+        </div>
+        <div className="divide-y divide-[#eef2f7]" style={{ borderTop: "1px solid #eef2f7" }}>
+          {routeHref && row({
+            icon: Navigation,
+            label: t("portalRouteTo", "Directions to {venue}", { venue: place?.name || place?.address || "" }),
+            hint: t("portalRouteHint", "Opens your maps app"),
+            href: routeHref,
+            testId: "portal-menu-route",
+          })}
+          {row({ icon: Users, label: t("portalWhosOnRow", "Who's on"), onClick: onWhosOn, testId: "portal-menu-whos-on" })}
+          {row({
+            icon: CalendarPlus,
+            label: t("portalAddToCalendar", "Add to calendar"),
+            hint: calTapped ? t("portalCalendarTappedHint", "If you subscribed, your calendar already updates itself") : t("portalSyncCalendarHint"),
+            onClick: onCalendar,
+            testId: "portal-menu-calendar",
+          })}
+          {onSwaps && row({ icon: ArrowLeftRight, label: t("portalSwapOrGive", "Swap or give away"), onClick: onSwaps, testId: "portal-menu-swaps" })}
+        </div>
+        <hr aria-hidden className="border-0" style={{ height: 8, margin: "0 -16px", background: "#F4F3EF", borderTop: "1px solid #eef2f7", borderBottom: "1px solid #eef2f7" }} />
+        {row({
+          icon: Thermometer,
+          label: t("portalNeedChange"),
+          hint: t("portalSickRowHint", "Let your manager know about your shift"),
+          onClick: onSick,
+          quiet: true,
+          testId: "portal-menu-sick",
+        })}
+        <p className="text-center" style={{ margin: "14px 0 0", font: "400 11px/1.4 var(--font-text)", color: "#94a3b8" }}>
+          {t("portalMapCredit", "Map: OpenFreeMap · OpenMapTiles · © OpenStreetMap contributors")}
+        </p>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -3213,25 +3294,19 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       )}
 
       {/* Period info */}
-      {/* v2 dark stat card. Note the bloom sits BOTTOM-LEFT here at .34, where
-          the Schedule hero's is top-right at .40 — the two dark cards are lit
-          from opposite corners on purpose, so they read as siblings rather than
-          copies. Gradient stop is 48% here (the hero's is 46%). */}
+      {/* The stat card is the next-shift card's sibling: flat BonBox forest,
+          radius 22 (home v3, Nov 2026 — the gradient and the green bloom
+          went from both cards in the same change). */}
       <div
         className="relative overflow-hidden"
+        data-testid="portal-hours-card"
         style={{
           borderRadius: 22, padding: 19,
           // Last-good numbers under a failed refresh read as such.
           opacity: hoursError ? 0.6 : 1,
-          background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 48%,#080e16 100%)",
-          boxShadow: "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
+          background: FOREST,
         }}
       >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute h-[230px] w-[230px] rounded-full"
-          style={{ left: -60, bottom: -90, background: "radial-gradient(closest-side, rgba(34,197,94,.34), rgba(34,197,94,0))" }}
-        />
 
         <div className="relative flex items-end gap-2">
           <span className="tabular-nums" style={{ font: "700 44px/0.9 var(--font-display)", letterSpacing: "-0.04em", color: "#fff" }}>
@@ -5059,7 +5134,12 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
         data-testid="portal-chat-composer"
         data-kb-skip=""
         className={`fixed inset-x-0 z-20 glass border-t border-gray-200/70${BAR_V2 ? " bb-lg-composer" : ""}`}
-        style={{ bottom: kb > 0 ? `${kb}px` : "calc(3.5rem + env(safe-area-inset-bottom))" }}
+        style={{
+          bottom: kb > 0
+            ? `${kb}px`
+            // v3: 8 px above the floating bar's top edge.
+            : BAR_V3 ? `calc(${V3_BAR_BOTTOM} + ${V3_BAR_H + 8}px)` : "calc(3.5rem + env(safe-area-inset-bottom))",
+        }}
       >
         <div className="max-w-lg mx-auto px-3 pt-2">
           <PendingPhotos picker={picker} />
@@ -6290,15 +6370,33 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
    The consequence is disclosed rather than hidden: this ships to the public
    web the moment the web bundle deploys, not only to dk.bonbox.scheduler.
 
-   OFF SWITCHES, both failing toward today's appearance:
+   OFF SWITCHES, both failing toward an older appearance:
      1. VITE_PORTAL_BARS=off in the build env — compile-time, Vite dead-strips.
-     2. localStorage bb_bars="v1" — per-device, no rebuild. A DEV/QA lever so
-        one binary can be A/B'd on a phone with Web Inspector attached. It is
-        NOT a field kill switch: staff cannot set it. */
-const BAR_V2 = (() => {
-  if (import.meta.env.VITE_PORTAL_BARS === "off") return false;
-  try { return localStorage.getItem("bb_bars") !== "v1"; } catch { return true; }
+     2. localStorage bb_bars="v1" | "v2" — per-device, no rebuild. A DEV/QA
+        lever so one binary can be A/B'd on a phone with Web Inspector
+        attached. It is NOT a field kill switch: staff cannot set it.
+
+   "v3" (home v3, Nov 2026) is the default: the tab bar becomes a floating
+   forest pill (left/right 14, 62 tall, radius 31) whose active tab is a paper
+   pill carrying its name; inactive tabs are icons with the name for screen
+   readers. "v2" keeps the glass bar edge to edge; "v1" is the pre-v2 bar. */
+const BAR_MODE = (() => {
+  if (import.meta.env.VITE_PORTAL_BARS === "off") return "v1";
+  try {
+    const v = localStorage.getItem("bb_bars");
+    if (v === "v1" || v === "v2") return v;
+  } catch { /* private mode — the default */ }
+  return "v3";
 })();
+const BAR_V2 = BAR_MODE !== "v1";
+const BAR_V3 = BAR_MODE === "v3";
+// Where the floating bar sits: 12 px off the bottom edge, or tucked 8 px into
+// the home-indicator inset where there is one. Everything fixed to the bottom
+// (chat composer, toasts) and the scroller's own padding derive from these,
+// so moving the bar moves them with it. The cookie banner measures the bar
+// itself (data-bb-consent-clear).
+const V3_BAR_BOTTOM = "max(12px, calc(env(safe-area-inset-bottom, 0px) - 8px))";
+const V3_BAR_H = 62;
 
 const TABS = [
   { key: "schedule", Icon: Calendar, labelKey: "navSchedule", labelFallback: "Schedule" },
@@ -7788,6 +7886,14 @@ export default function StaffPortalPage() {
     }
   };
 
+  // The amber strip's one rule (see the header): offline, or out of date —
+  // the last schedule answer is older than 45 s and no live stream covers it.
+  // The 15 s freshness tick re-renders this as the data ages.
+  const showStaleStrip = !isOnline || (
+    schedState === "ok" && !liveConnected && !!lastSynced
+    && Date.now() - lastSynced.getTime() > 45000
+  );
+
   return (
     // full-height + scrollable = one fixed app-shell with a single internal
     // momentum scroller (‑webkit-overflow-scrolling + overscroll containment).
@@ -7800,7 +7906,10 @@ export default function StaffPortalPage() {
       /* pb-24 clears the tab bar; while the cookie banner sits on it, the
          scroller pads by the banner too (--bb-consent-h, CookieConsent.jsx). */
       style={{
-        paddingBottom: "calc(6rem + var(--bb-consent-h, 0px))",
+        // v3: bar (62) + its lift (≈12) + safe area + 16 of air.
+        paddingBottom: BAR_V3
+          ? "calc(90px + env(safe-area-inset-bottom, 0px) + var(--bb-consent-h, 0px))"
+          : "calc(6rem + var(--bb-consent-h, 0px))",
         ...(kbShell > 0 ? { height: `calc(100dvh - ${kbShell}px)` } : {}),
       }}
     >
@@ -7817,125 +7926,116 @@ export default function StaffPortalPage() {
           className={`absolute inset-x-0 top-0 ${BAR_V2 ? "bb-lg-cap" : "bg-white/95 dark:bg-gray-900"}`}
           style={{ height: "env(safe-area-inset-top)" }}
         />
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-          <div>
-            <h1 style={{ font: "700 23px/1.08 var(--font-display)", letterSpacing: "-0.03em", color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {tab === "schedule" ? t("portalTitleSchedule", "My schedule")
-                : tab === "availability" ? t("portalTitleKanIkke", "Availability")
-                : tab === "messages" ? t("portalTitleMessages", "Messages")
-                : tab === "swaps" ? t("portalTitleSwaps", "Swaps")
-                : tab === "hours" ? t("portalTitleHours", "My hours")
-                : t("portalTitleAlerts", "Alerts")}
-            </h1>
-            {/* Venue name ink is #64748b, not #94a3b8: 12px at weight 500 is
-                body text, so WCAG AA wants 4.5:1 and #94a3b8 measured 2.56:1
-                here. Same hue family, same size, same weight — only the ink
-                darkens. (Comment lives OUTSIDE the && so the expression keeps
-                exactly one child; two adjacent JSX children there need a
-                fragment and fail the build.) */}
-            {info?.restaurant_name && (
-              <div style={{ marginTop: 5, font: "500 12px/1 var(--font-text)", letterSpacing: "0.005em", color: "#64748b" }}>
-                {info.restaurant_name}
-                {/* Live/offline moves here off the chip slot, which the
-                    department switcher now owns. Only ever states what is
-                    true: "Live" needs the stream actually open. */}
-                {pinVerified && info && (
-                  <>
-                    {" · "}
-                    <button
-                      type="button"
-                      onClick={() => { loadData(); loadHours(); }}
-                      // A word-sized target in a text line: the ::before
-                      // widens the hit area to 44px without moving the line.
-                      className="relative before:absolute before:-inset-x-3 before:-inset-y-3 before:content-['']"
-                      style={{ color: liveConnected && isOnline ? "#16a34a" : "#94a3b8" }}
-                    >
-                      {!isOnline
-                        ? t("portalOffline")
-                        : liveConnected
-                          ? t("portalLive")
-                          : lastSynced && Date.now() - lastSynced.getTime() < 45000
-                            ? t("portalSynced")
-                            : t("portalTapToRefresh", "Tap to refresh")}
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {/* Alerts bell — replaces the Alerts nav tab (moved to the header
-                per the design). Language moved into the profile sheet below. */}
+        {/* Home v3 (Nov 2026): ONE 52 px row — avatar (opens the profile),
+            title, bell. The venue name moved into the next-shift card, and
+            the always-on "Live" word is gone: it was colour on every screen
+            saying nothing actionable. What replaces it speaks only when it
+            matters — the amber strip below, shown while the app is offline
+            or its data is out of date. The location chip stays, but only
+            for someone who works in more than one place. */}
+        <div className="max-w-lg mx-auto px-4 flex items-center" style={{ height: 52, gap: 10 }} data-testid="portal-header-row">
+          <button
+            type="button"
+            onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setAddressInput(info?.address || ""); setPostalInput(info?.postal_code || ""); setCityInput(info?.city || ""); setEmailMsg(""); setEmailStatus(null); }}
+            // overflow-hidden lives on the INNER circle: on the button it
+            // clipped the -inset-2 ::before, so the hit area was the circle.
+            className="relative rounded-full flex items-center justify-center active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
+            style={{
+              width: 32, height: 32, flex: "none",
+              background: FOREST, color: PAPER,
+              font: "700 13px/1 var(--font-text)", letterSpacing: "0.01em",
+            }}
+            title={t("portalEditContact", "Edit profile")}
+          >
+            <span className="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
+              {photoUrl ? (
+                <img src={photoUrl} alt="" className="w-full h-full object-cover" />
+              ) : (
+                info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+              )}
+            </span>
+          </button>
+          <h1 className="flex-1 min-w-0" style={{ font: "700 19px/1.1 var(--font-display)", letterSpacing: "-0.02em", color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {tab === "schedule" ? t("portalTitleSchedule", "My schedule")
+              : tab === "availability" ? t("portalTitleKanIkke", "Availability")
+              : tab === "messages" ? t("portalTitleMessages", "Messages")
+              : tab === "swaps" ? t("portalTitleSwaps", "Swaps")
+              : tab === "hours" ? t("portalTitleHours", "My hours")
+              : t("portalTitleAlerts", "Alerts")}
+          </h1>
+          {/* Location switcher. Only for someone who actually works in more
+              than one place — a single location gets nothing rather than a
+              chip that cannot switch anywhere (the venue name is on the
+              card). */}
+          {departments.length > 1 && (
             <button
               type="button"
-              onClick={() => setTab("alerts")}
-              aria-label={t("navAlerts", "Alerts")}
-              aria-current={tab === "alerts" ? "page" : undefined}
-              className={`relative w-9 h-9 rounded-full border flex items-center justify-center transition active:scale-[0.98] before:absolute before:-inset-2 before:content-[''] ${
-                tab === "alerts"
-                  ? "bg-gray-900 border-gray-900 text-white"
-                  : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              <Bell className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
-              {alertsUnread > 0 && tab !== "alerts" && (
-                <span
-                  className="absolute z-10 -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[9px] font-bold leading-[16px] text-center ring-2 ring-white"
-                  aria-label={t("portalAlertsUnreadBadge", "Unread updates")}
-                >
-                  {alertsUnread > 9 ? "9+" : alertsUnread}
-                </span>
-              )}
-            </button>
-            {/* Department switcher. Only rendered when the staffer actually
-                has shifts at a named branch — a single-location business gets
-                nothing rather than a chip that cannot switch anywhere. The
-                chevron appears only when there is a second place to go, so it
-                never advertises a menu that would open onto one item. */}
-            {departments.length > 0 && (
-              <button
-                type="button"
-                onClick={() => departments.length > 1 && setDeptOpen(true)}
-                aria-label={t("portalDepartment", "Department")}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6, height: 32,
-                  padding: departments.length > 1 ? "0 10px 0 9px" : "0 11px 0 9px",
-                  borderRadius: 999,
-                  background: "linear-gradient(180deg,#ffffff,#f8fafc)",
-                  border: "1px solid #e2e8f0",
-                  boxShadow: "0 1px 2px rgba(15,23,42,.05), inset 0 1px 0 #fff",
-                  cursor: departments.length > 1 ? "pointer" : "default",
-                }}
-              >
-                <span style={{ font: "600 11.5px/1 var(--font-text)", color: "#334155", letterSpacing: "-0.005em", maxWidth: 96, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {dept || (departments.length > 1 ? t("portalAllDepartments", "All") : departments[0].name)}
-                </span>
-                {departments.length > 1 && <ChevronDown size={11} strokeWidth={2.4} style={{ color: "#94a3b8", flex: "none" }} />}
-              </button>
-            )}
-            <button
-              onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setAddressInput(info?.address || ""); setPostalInput(info?.postal_code || ""); setCityInput(info?.city || ""); setEmailMsg(""); setEmailStatus(null); }}
-              // overflow-hidden lives on the INNER circle: on the button it clipped
-              // the -inset-2 ::before, so the hit area was the 33px circle.
-              className="relative rounded-full flex items-center justify-center active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
+              onClick={() => setDeptOpen(true)}
+              aria-label={t("portalDepartment", "Location")}
               style={{
-                width: 33, height: 33, flex: "none",
-                background: "linear-gradient(150deg,#1e293b,#0f172a)", color: "#fff",
-                font: "700 12.5px/1 var(--font-text)", letterSpacing: "0.01em",
-                boxShadow: "0 4px 12px -6px rgba(15,23,42,.8), inset 0 1px 0 rgba(255,255,255,.18)",
+                display: "flex", alignItems: "center", gap: 6, height: 32,
+                padding: "0 10px 0 9px",
+                borderRadius: 999,
+                background: "#fff",
+                border: "1px solid #e2e8f0",
+                flex: "none",
               }}
-              title={t("portalEditContact", "Edit profile")}
             >
-              <span className="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
-                {photoUrl ? (
-                  <img src={photoUrl} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
-                )}
+              <span style={{ font: "600 11.5px/1 var(--font-text)", color: "#334155", letterSpacing: "-0.005em", maxWidth: 96, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {dept || t("portalAllDepartments", "All")}
               </span>
+              <ChevronDown size={11} strokeWidth={2.4} style={{ color: "#94a3b8", flex: "none" }} />
+            </button>
+          )}
+          {/* Alerts bell — replaces the Alerts nav tab. */}
+          <button
+            type="button"
+            onClick={() => setTab("alerts")}
+            aria-label={t("navAlerts", "Alerts")}
+            aria-current={tab === "alerts" ? "page" : undefined}
+            className={`relative w-9 h-9 flex-none rounded-full border flex items-center justify-center transition active:scale-[0.98] before:absolute before:-inset-1 before:content-[''] ${
+              tab === "alerts"
+                ? "border-transparent text-white"
+                : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+            }`}
+            style={tab === "alerts" ? { background: FOREST } : undefined}
+          >
+            <Bell className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
+            {alertsUnread > 0 && tab !== "alerts" && (
+              <span
+                className="absolute z-10 -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[9px] font-bold leading-[16px] text-center ring-2 ring-white"
+                aria-label={t("portalAlertsUnreadBadge", "Unread updates")}
+              >
+                {alertsUnread > 9 ? "9+" : alertsUnread}
+              </span>
+            )}
+          </button>
+        </div>
+        {/* Offline / out-of-date strip. Speaks ONLY when the screen may not
+            be current: the phone is offline, or the last schedule answer is
+            more than 45 s old with no live stream (the 20 s poll has failed
+            at least twice). Falls toward failure, never toward fake-live: a
+            schedule answer is what clears it (loadData sets isOnline). */}
+        {pinVerified && info && showStaleStrip && (
+          <div
+            role="status"
+            data-testid="portal-offline-strip"
+            className="flex items-center justify-center"
+            style={{ gap: 6, minHeight: 32, padding: "4px 16px", background: "#FEF3C7", borderTop: "1px solid #FDE68A", font: "600 12px/1.3 var(--font-text)", color: "#92400E" }}
+          >
+            <CloudOff size={13} strokeWidth={2.5} aria-hidden className="shrink-0" />
+            <span>{!isOnline ? t("portalOfflineStrip", "Offline – showing last update") : t("portalStaleStrip", "Not updated – showing last update")}</span>
+            <span aria-hidden>·</span>
+            <button
+              type="button"
+              onClick={() => { loadData(); loadHours(); }}
+              className="relative underline underline-offset-2 before:absolute before:-inset-x-3 before:-inset-y-3 before:content-['']"
+              style={{ font: "700 12px/1.3 var(--font-text)", color: "#92400E" }}
+            >
+              {t("portalOfflineRefresh", "Refresh")}
             </button>
           </div>
-        </div>
+        )}
         {photoMenu && createPortal(
           <div className="fixed inset-0 z-[60] flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setPhotoMenu(false)}>
             <div
@@ -8058,25 +8158,15 @@ export default function StaffPortalPage() {
               </div>
               <div className="px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3">
               {/* Profile photo — staff pick a photo; the owner sees it too. */}
+              {/* Flat forest, like the next-shift card (home v3, Nov 2026). */}
               <div
                 className="relative flex items-center overflow-hidden"
+                data-testid="portal-profile-card"
                 style={{
                   gap: 14, padding: 19, borderRadius: 22,
-                  background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 48%,#080e16 100%)",
-                  boxShadow: "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
+                  background: FOREST,
                 }}
               >
-                {/* Bloom as a radial-gradient background, never a blurred child:
-                    a blur gets its own compositing layer that WebKit fails to
-                    clip against border-radius, painting a hard corner. */}
-                <span
-                  className="absolute"
-                  style={{
-                    right: -70, top: -80, width: 230, height: 230, borderRadius: "50%",
-                    background: "radial-gradient(closest-side,rgba(34,197,94,.34),rgba(34,197,94,0))",
-                  }}
-                  aria-hidden
-                />
                 <button
                   type="button"
                   onClick={() => setPhotoMenu(true)}
@@ -8089,9 +8179,9 @@ export default function StaffPortalPage() {
                     className="w-full h-full overflow-hidden flex items-center justify-center"
                     style={{
                       borderRadius: 20,
-                      background: "linear-gradient(150deg,#334155,#0f172a)",
-                      border: "1px solid rgba(255,255,255,.14)",
-                      font: "700 21px/1 var(--font-display)", letterSpacing: "-0.02em", color: "#e2e8f0",
+                      background: "rgba(246,244,236,.12)",
+                      border: "1px solid rgba(246,244,236,.18)",
+                      font: "700 21px/1 var(--font-display)", letterSpacing: "-0.02em", color: PAPER,
                     }}
                   >
                     {photoUrl ? (
@@ -8106,8 +8196,8 @@ export default function StaffPortalPage() {
                     className="absolute flex items-center justify-center"
                     style={{
                       right: -4, bottom: -4, width: 22, height: 22, borderRadius: 99,
-                      background: "linear-gradient(180deg,#22c55e,#16a34a)",
-                      border: "2px solid #0f172a", color: "#fff",
+                      background: PAPER,
+                      border: `2px solid ${FOREST}`, color: FOREST,
                     }}
                   >
                     <Plus size={11} strokeWidth={2.6} aria-hidden />
@@ -8125,8 +8215,8 @@ export default function StaffPortalPage() {
                       <span
                         style={{
                           display: "inline-block", padding: "5px 9px", borderRadius: 999,
-                          background: "rgba(34,197,94,.16)", border: "1px solid rgba(34,197,94,.28)",
-                          font: "600 10px/1 var(--font-text)", color: "#86efac",
+                          background: "rgba(246,244,236,.10)", border: "1px solid rgba(246,244,236,.2)",
+                          font: "600 10px/1 var(--font-text)", color: PAPER,
                         }}
                       >
                         {t("portalSinceJoined", "Since {d}").split("{d}").join(
@@ -8362,6 +8452,10 @@ export default function StaffPortalPage() {
             restaurantName={info?.restaurant_name}
             restaurantCity={info?.restaurant_city}
             restaurantAddress={info?.restaurant_address}
+            // The venue's confirmed pin + map flag (R2). Absent on an older
+            // server: the card then falls back to name + address.
+            venue={info?.venue}
+            onOpenSwaps={() => setTab("swaps")}
             // The venue's vertical, so role→section resolves the same way the
             // owner's schedule maker does. New field on PortalInfo.
             businessType={info?.business_type}
@@ -8404,6 +8498,61 @@ export default function StaffPortalPage() {
 
       {/* Bottom Navigation */}
       {/* data-bb-consent-clear: the cookie banner sits on this bar, not over it (CookieConsent.jsx). */}
+      {BAR_V3 ? (
+      /* v3 — a solid forest pill floating above the bottom edge. The active
+         tab is a paper pill that SAYS where you are ("Vagtplan"); the others
+         are icons, their names kept for screen readers (and as the button's
+         accessible name). Five tabs, a red count on Beskeder. No transform,
+         no blur: it is not sticky, but it is fixed over a momentum scroller. */
+      <nav data-bb-consent-clear="" aria-label={t("portalTabsLabel", "Tabs")} data-testid="portal-tabbar-v3"
+        className="fixed z-20"
+        style={{
+          left: 14, right: 14, bottom: V3_BAR_BOTTOM, height: V3_BAR_H,
+          maxWidth: 480, margin: "0 auto",
+          borderRadius: 31, background: FOREST,
+          boxShadow: "0 18px 32px -18px rgba(9,58,38,.75), 0 2px 6px rgba(9,58,38,.18)",
+        }}
+      >
+        <div className="h-full flex items-center justify-between" style={{ padding: "0 9px" }}>
+          {TABS.filter((item) => item.key !== "alerts").map((item) => {
+            const active = tab === item.key;
+            const label = t(item.labelKey, item.labelFallback);
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setTab(item.key)}
+                aria-current={active ? "page" : undefined}
+                className="relative flex items-center justify-center active:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                style={active
+                  ? { height: 44, gap: 8, padding: "0 17px 0 14px", borderRadius: 22, background: PAPER, color: FOREST, transition: "background 200ms ease" }
+                  : { height: 44, minWidth: 50, borderRadius: 22, color: "rgba(246,244,236,.70)" }}
+              >
+                <item.Icon
+                  aria-hidden
+                  strokeWidth={active ? 2.4 : 2.3}
+                  style={{ width: active ? 21 : 23, height: active ? 21 : 23, flex: "none" }}
+                />
+                {active ? (
+                  <span style={{ font: "700 14px/1 var(--font-text)", letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>{label}</span>
+                ) : (
+                  <span className="sr-only">{label}</span>
+                )}
+                {item.key === "messages" && chatUnread > 0 && (
+                  <span
+                    className="absolute min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[9px] font-bold leading-[16px] text-center"
+                    style={{ top: 5, right: 6, boxShadow: `0 0 0 2px ${active ? PAPER : FOREST}` }}
+                    aria-label={t("staffChatUnreadBadge", "Unread messages")}
+                  >
+                    {chatUnread > 9 ? "9+" : chatUnread}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+      ) : (
       <nav data-bb-consent-clear="" className={`fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20${BAR_V2 ? " bb-lg-tabbar" : ""}`}>
         <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {TABS.filter(
@@ -8473,6 +8622,7 @@ export default function StaffPortalPage() {
           })}
         </div>
       </nav>
+      )}
 
       {/* "Schedule updated" toast — fires only on a REAL change to the
           published schedule after data already existed (never on first load).
@@ -8481,7 +8631,7 @@ export default function StaffPortalPage() {
       {scheduleUpdated && (
         <div
           className="fixed inset-x-0 z-30 flex justify-center px-4 pointer-events-none"
-          style={{ bottom: "calc(5rem + env(safe-area-inset-bottom))" }}
+          style={{ bottom: BAR_V3 ? `calc(${V3_BAR_BOTTOM} + ${V3_BAR_H + 12}px)` : "calc(5rem + env(safe-area-inset-bottom))" }}
           role="status"
           aria-live="polite"
         >

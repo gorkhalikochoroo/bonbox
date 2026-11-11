@@ -234,11 +234,17 @@ describe("Answering a swap the server already settled", () => {
   });
 });
 
-describe("Header pill — 'Offline' recovers without relaunching the app", () => {
+describe("Offline strip — 'Offline' recovers without relaunching the app", () => {
+  // Home v3 replaced the header's always-on Live/Synket pill with an amber
+  // strip that appears ONLY while the screen may not be current. The bug this
+  // pins is unchanged: an 'offline' that fired while the phone slept, with no
+  // 'online' after it, must be cleared by the next schedule answer.
   it("a stale 'offline' is cleared by the next schedule answer", async () => {
     await mount("da");
-    const pill = () => document.querySelector("h1").parentElement.querySelector("button");
-    await waitFor(() => expect(pill().textContent).toBe("Synket"));
+    const strip = () => screen.queryByTestId("portal-offline-strip");
+    await waitFor(() => expect(get.mock.calls.some(([u]) => u.startsWith(`/portal/${TOK}/schedule`))).toBe(true));
+    // Online and fresh: nothing to say.
+    expect(strip()).toBeNull();
 
     // The web view reported offline while the phone slept; on wake the
     // 'online' event never comes and navigator.onLine is still stale.
@@ -246,14 +252,15 @@ describe("Header pill — 'Offline' recovers without relaunching the app", () =>
     Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => false });
     try {
       await act(async () => { window.dispatchEvent(new Event("offline")); });
-      expect(pill().textContent).toBe("Offline");
+      expect(strip().textContent).toContain("Offline – viser sidst hentede");
+      expect(within(strip()).getByRole("button", { name: "Opdater" })).toBeInTheDocument();
 
       const before = get.mock.calls.filter(([u]) => u.startsWith(`/portal/${TOK}/schedule`)).length;
       await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
       await waitFor(() =>
         expect(get.mock.calls.filter(([u]) => u.startsWith(`/portal/${TOK}/schedule`)).length).toBeGreaterThan(before),
       );
-      await waitFor(() => expect(pill().textContent).not.toBe("Offline"));
+      await waitFor(() => expect(strip()).toBeNull());
     } finally {
       if (desc) Object.defineProperty(window.navigator, "onLine", desc);
       else delete window.navigator.onLine;

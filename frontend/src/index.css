@@ -306,10 +306,12 @@ body.portal-shell {
    the default ring is invisible on the dark gate — a staffer tabbing between
    the four boxes could not see which one they were in. */
 .pin-cell:focus {
-  outline: 2px solid rgba(34, 197, 94, 0.45);
+  /* Paper on the flat forest PIN card (home v3): the old green ring at .45
+     sat on a green-black card and read as no focus at all. */
+  outline: 2px solid rgba(246, 244, 236, 0.75);
   outline-offset: 1px;
-  border-color: rgba(34, 197, 94, 0.45) !important;
-  background: rgba(255, 255, 255, 0.11) !important;
+  border-color: rgba(246, 244, 236, 0.75) !important;
+  background: rgba(246, 244, 236, 0.14) !important;
 }
 /* Pure opacity fade for scrims/backdrops — no transform, so it doesn't fight
    a panel that's sliding in on another axis (e.g. the reservation drawer). */

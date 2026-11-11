@@ -10198,7 +10198,10 @@ export const en = {
     portalSyncedAt: 'Synced {time}',
     portalTapToRefresh: "Tap to refresh",
     portalPhotoWhoSees: "Your manager and the colleagues on your shifts can see this.",
-    portalDepartment: "Department",
+    // The staff app's location switcher. "Department" was wrong: in BonBox it
+    // switches between LOCATIONS (branches); "Department" is the planned
+    // Områder feature (Nov 2026 plan). Danish "Afdeling" is unchanged.
+    portalDepartment: "Location",
     portalAllDepartments: "All",
     portalDeptShiftCount: "{n} shifts",
     portalPullRelease: "Release to refresh",
@@ -10260,6 +10263,23 @@ export const en = {
     portalWhosOnAlone: "You're opening solo.",
     portalSeenIt: "I've seen it",
     portalNeedChange: 'Report sick',
+    // Vagtplan home v3 (Nov 2026): shift ⋯ menu, Rute, end-of-week change
+    // section, offline strip, floating tab bar.
+    portalShiftMenu: "More options for this shift",
+    portalRoute: "Directions",
+    portalRouteTo: "Directions to {venue}",
+    portalRouteHint: "Opens your maps app",
+    portalWhosOnRow: "Who's on",
+    portalSwapOrGive: "Swap or give away",
+    portalNeedChangeTitle: "Need a change?",
+    portalSickRowHint: "Let your manager know about your shift",
+    portalSwapAShift: "Swap a shift",
+    portalMapCredit: "Map: OpenFreeMap · OpenMapTiles · © OpenStreetMap contributors",
+    portalOfflineStrip: "Offline – showing last update",
+    portalStaleStrip: "Not updated – showing last update",
+    portalOfflineRefresh: "Refresh",
+    portalTabsLabel: "Tabs",
+    portalCalendarTappedHint: "If you subscribed, your calendar already updates itself",
     portalIcsSummary: 'Shift — {venue}',
     portalIcsSummaryNoVenue: 'Shift',
     portalWeekStripHrs: '{h} {hrs} · {n} {shifts}',

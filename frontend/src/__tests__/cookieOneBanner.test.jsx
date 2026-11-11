@@ -242,7 +242,10 @@ describe("the page pads for the banner (--bb-consent-h)", () => {
     expect(read("components/auth/AuthUI.jsx")).toContain('data-auth-shell=""');
   });
   it("the staff portal's own scroller pads by it", () => {
-    expect(read("pages/StaffPortalPage.jsx")).toContain('paddingBottom: "calc(6rem + var(--bb-consent-h, 0px))"');
+    // Both bar layouts: the floating v3 pill (default) and the legacy bar.
+    const page = read("pages/StaffPortalPage.jsx");
+    expect(page).toContain('"calc(90px + env(safe-area-inset-bottom, 0px) + var(--bb-consent-h, 0px))"');
+    expect(page).toContain('"calc(6rem + var(--bb-consent-h, 0px))"');
   });
   it("every route publishes it while the banner is up and clears it once answered", async () => {
     const banner = await openAt("/");

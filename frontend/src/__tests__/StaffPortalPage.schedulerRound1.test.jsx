@@ -168,7 +168,11 @@ describe("Chat composer — usable with the keyboard up", () => {
 
   it("sits above the bottom nav at rest and on top of the keyboard when it opens", async () => {
     const composer = await openThread();
-    expect(composer.style.bottom).toContain("3.5rem");
+    // Home v3: the tab bar floats (62 px tall, lifted off the bottom edge), so
+    // the composer rides 8 px above the bar's top: lift + 70px. (The legacy
+    // edge-to-edge bar, bb_bars="v2"/"v1", keeps "3.5rem + safe area".)
+    expect(composer.style.bottom).toContain("70px");
+    expect(composer.style.bottom).toContain("safe-area-inset-bottom");
     kbLift = 300;
     // Any re-render picks up the hook's new value (the real hook re-renders
     // on the keyboard event itself).
