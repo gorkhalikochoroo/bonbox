@@ -20,7 +20,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DRAG, releaseOf, releaseSpeed, rubber, scrimAt, stoppedAfter, useSheetDrag } from "../components/staff/sheetDrag";
+import { DRAG, releaseOf, releaseSpeed, rubber, scrimAt, useSheetDrag } from "../components/staff/sheetDrag";
 import { springKeyframes } from "../components/staff/spring";
 
 function motionPref({ reduce }) {
@@ -117,21 +117,10 @@ afterEach(() => {
 });
 
 describe("the numbers and the pure parts", () => {
-  it("slop 8, dismiss at 30 %, flick 0.5 px/ms after 16 px, rubber 64, 6 samples, a finger still for 40-100 ms has stopped, speed over the last 100 ms", () => {
+  it("slop 8, dismiss at 30 %, flick 0.5 px/ms after 16 px, rubber 64, 6 samples, a finger still for 100 ms has stopped, speed over the last 100 ms", () => {
     // Fix round (drag-stale-velocity / PLAT-1): STOPPED added, the others unchanged.
     // Device pass A (slow Android 14): STOPPED 40 → 100 and HORIZON added.
-    // Fix round 3: STOPPED back to 40 on a fast phone; a slow one up to STOPPED_MAX.
-    expect(DRAG).toEqual({ SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, SAMPLES: 6, STOPPED: 40, STOPPED_MAX: 100, HORIZON: 100 });
-  });
-
-  it("stoppedAfter: twice the last gap, never under 40 ms, never over 100 ms", () => {
-    expect(stoppedAfter([[0, 0], [8, 4]])).toBe(40);       // 120 Hz
-    expect(stoppedAfter([[0, 0], [16, 8]])).toBe(40);      // 60 Hz: 32 → 40
-    expect(stoppedAfter([[0, 0], [20, 8]])).toBe(40);
-    expect(stoppedAfter([[0, 0], [21, 8]])).toBe(42);
-    expect(stoppedAfter([[0, 0], [35, 8]])).toBe(70);      // a busy phone
-    expect(stoppedAfter([[0, 0], [50, 8]])).toBe(100);
-    expect(stoppedAfter([[0, 0], [300, 8]])).toBe(100);    // never more
+    expect(DRAG).toEqual({ SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, SAMPLES: 6, STOPPED: 100, HORIZON: 100 });
   });
 
   it("releaseSpeed: a fast phone reads all six samples, as before; a slow one only the last 100 ms; a rest is 0", () => {
@@ -145,13 +134,9 @@ describe("the numbers and the pure parts", () => {
     expect(releaseSpeed(slow, 370)).toBeCloseTo(90 / 60, 6);
     // Only one move inside the horizon: the two newest still give a speed.
     expect(releaseSpeed([[0, 0], [200, 40], [400, 160]], 410)).toBeCloseTo(120 / 200, 6);
-    // Moves 60 ms apart: still for more than 100 ms before the lift is resting.
+    // Still for more than 100 ms before the lift: resting.
     expect(releaseSpeed(slow, 401)).toBe(0);
     expect(releaseSpeed(slow, 400)).toBeCloseTo(90 / 60, 6);
-    // Moves 16 ms apart (a fast phone): 40 ms is enough (fix round 3, PLAT-1).
-    expect(releaseSpeed(fast, 120)).toBeCloseTo(50 / 80, 6);
-    expect(releaseSpeed(fast, 121)).toBe(0);
-    expect(releaseSpeed(fast, 160)).toBe(0);
     expect(releaseSpeed([[0, 0]], 10)).toBe(0);
   });
 
@@ -397,8 +382,7 @@ describe("release", () => {
 
   // Fix round (drag-stale-velocity / PLAT-1): a resting finger sends no
   // touchmove, so the last samples still read as a throw. The lift's own time
-  // now counts: still for longer than stoppedAfter (40 ms on a fast phone, up
-  // to 100 on a slow one) before it lifted = speed 0.
+  // now counts: still for more than 100 ms (it was 40) before it lifted = speed 0.
   it("a fast pull, then held still, then lifted (100 px in 100 ms, the lift 400 ms later): no dismiss, a spring back from rest", () => {
     const onDismiss = vi.fn();
     render(<Sheet onDismiss={onDismiss} />);
@@ -426,31 +410,12 @@ describe("release", () => {
     expect(anims.find((a) => a.el === sheet).frames.at(-1).transform).toBe("translateY(0px)");
   });
 
-  it("a fast phone (moves 10 ms apart): lifted 40 ms after the last move still throws; 41 ms is a stop (fix round 3)", () => {
+  it("lifted 100 ms after the last move still throws; 101 ms is a stop", () => {
     const first = vi.fn();
     const { unmount } = render(<Sheet onDismiss={first} />);
     let { sheet } = prime();
     grab(sheet);
     dragTo(sheet, 40, { step: 8, every: 10 });    // 0.8 px/ms
-    touch(sheet, "touchend", 0, 0, 40);
-    expect(first).toHaveBeenCalledTimes(1);
-    unmount();
-    anims = [];
-    const second = vi.fn();
-    render(<Sheet onDismiss={second} />);
-    ({ sheet } = prime());
-    grab(sheet);
-    dragTo(sheet, 40, { step: 8, every: 10 });
-    touch(sheet, "touchend", 0, 0, 41);
-    expect(second).not.toHaveBeenCalled();
-  });
-
-  it("a slow phone (moves 50 ms apart): lifted 100 ms after the last move still throws; 101 ms is a stop", () => {
-    const first = vi.fn();
-    const { unmount } = render(<Sheet onDismiss={first} />);
-    let { sheet } = prime();
-    grab(sheet);
-    dragTo(sheet, 90, { step: 30, every: 50 });   // 0.6 px/ms
     touch(sheet, "touchend", 0, 0, 100);
     expect(first).toHaveBeenCalledTimes(1);
     unmount();
@@ -459,7 +424,7 @@ describe("release", () => {
     render(<Sheet onDismiss={second} />);
     ({ sheet } = prime());
     grab(sheet);
-    dragTo(sheet, 90, { step: 30, every: 50 });
+    dragTo(sheet, 40, { step: 8, every: 10 });
     touch(sheet, "touchend", 0, 0, 101);
     expect(second).not.toHaveBeenCalled();
   });
@@ -473,6 +438,16 @@ describe("release", () => {
     touch(sheet, "touchend", 0, 0, 70);
     expect(onDismiss).toHaveBeenCalledTimes(1);
     expect(root.hasAttribute("data-dragged-out")).toBe(true);
+  });
+
+  it("a busy WebView drops the last moves: moves 20 ms apart, the lift 90 ms after the last one, still throws (fix round 3 device check: twice-the-gap sprang back 2 of 2)", () => {
+    const onDismiss = vi.fn();
+    render(<Sheet onDismiss={onDismiss} />);
+    const { sheet } = prime();
+    grab(sheet);
+    dragTo(sheet, 60, { step: 15, every: 20 });    // 0.75 px/ms, 60 px: short of 30 % (120)
+    touch(sheet, "touchend", 0, 0, 90);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
   it("touchcancel at 50 % (the system took the touch): never a dismiss, a spring back", () => {
