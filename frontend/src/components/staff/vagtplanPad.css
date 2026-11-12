@@ -1,0 +1,132 @@
+/* BonBox Vagtplan — the iPad layout (and the portal's keyboard focus ring).
+
+   Vagtplan 1.6 (live, branch vagtplan-1.6) shipped a real iPad layout on the
+   old portal, drawn with Tailwind `tablet:` / `pad:` / `pad-wide:` variants.
+   1.7 keeps its breakpoints and decisions on the home v3 redesign, here, in
+   plain CSS beside vagtplan.css. Imported by StaffPortalPage and JoinPage
+   (both lazy chunks); no owner page loads it.
+
+   The media queries MUST say exactly what src/lib/padLayout.js says
+   (TABLET_QUERY, PAD_QUERY, PAD_WIDE_QUERY); vagtplanPad.test.jsx reads both.
+   A height floor of 600 keeps a sideways phone (≤ 440 tall) on the phone
+   layout; range syntax on purpose (an old WebView fails CSS and JS closed
+   together — see padLayout.js).
+
+   What JS does (usePadLayout): the sidebar (PortalRail) instead of the dock,
+   the shell's left room, the header and content column (720 px, 1080 on a
+   wide iPad), Beskeder as a card and master-detail. What CSS does: below. */
+
+/* A sheet's iPad-only close (PadSheetClose). Hidden on a phone, where the
+   grabber, a pull and the scrim close the sheet. */
+.vp-pad-close { display: none; position: absolute; top: 12px; right: 12px; z-index: 1; }
+
+/* A visible KEYBOARD focus ring on every portal control that has none of its
+   own (Vagtplan 1.6). An iPad with a Magic Keyboard tabs through the portal
+   like a Mac. Controls with the page's FOCUS_RING (a focus-visible ring) keep
+   theirs. :focus-visible only, so a tap never draws it. Unlayered, so it beats
+   the layered focus:outline-none utilities. Pine on the ivory page; brass on
+   the pine cards (≈5:1 there). Sheets render outside the shell, hence
+   body.portal-shell. */
+body.portal-shell :is(button, a[href], summary, [role="button"], [role="switch"], [role="tab"]):not([class*="focus-visible:ring"]):focus-visible {
+  outline: 2px solid #0E3B2E;
+  outline-offset: 2px;
+}
+body.portal-shell :is([data-testid="portal-hero"], [data-testid="portal-live-shift"]) :is(button, a[href], [role="button"], [role="switch"]):not([class*="focus-visible:ring"]):focus-visible {
+  outline-color: #C8A464;
+}
+
+/* ── tablet: any iPad window from a 1/2 Split View up (pad ⊂ tablet) ──────
+   Split View 1/2 and 2/3 of a portrait iPad (≈507–694) keep the phone layout,
+   but a bottom sheet is as wide as the 512 px phone column it opens over, not
+   edge to edge, and the Join / PIN / error cards are 380 px. No phone is ever
+   this tall AND this wide. */
+@media (width >= 480px) and (height >= 600px) {
+  [data-vp-overlay] .vp-sheet { max-width: 512px; margin-left: auto; margin-right: auto; }
+  .vp-gate-card { max-width: 380px; }
+  /* Join: the DA / EN toggle sits above the card, not in the window corner
+     (≈200 px from the card in a 694 px Split View). */
+  .vp-join-lang { position: static; width: fit-content; margin-left: auto; margin-bottom: 12px; }
+  .vp-join-col { max-width: 380px; }
+}
+
+/* ── pad: an iPad held normally, and iPad-sized windows (744+ × 600+) ───── */
+@media (width >= 744px) and (height >= 600px) {
+  .vp-pad-close { display: inline-flex; }
+
+  /* Every sheet is a centred FORM sheet: rounded all round, no grabber, a
+     close, sitting where the eye already is instead of 1,100 px below what
+     opened it. The keyboard lift (--kb-h) still applies; the top stops at the
+     status bar / window controls. `!important` beats the phone's inline radius,
+     floor shadow and home-indicator padding. */
+  [data-vp-overlay] {
+    align-items: center !important;
+    justify-content: center !important;
+    padding: max(32px, env(safe-area-inset-top, 0px)) 32px calc(32px + var(--kb-h, 0px)) !important;
+  }
+  [data-vp-overlay] .vp-sheet {
+    width: 100%;
+    max-width: 520px;
+    margin-left: auto;
+    margin-right: auto;
+    border-radius: 24px !important;
+    padding-bottom: 20px !important;
+    box-shadow: 0 40px 90px -30px rgba(8, 24, 18, 0.55) !important;
+    max-height: calc(100dvh - 64px - var(--kb-h, 0px));
+    overflow-y: auto;
+    animation-name: vp-dialog-in;
+  }
+  [data-vp-overlay][data-closing] .vp-sheet { animation-name: vp-dialog-out; }
+  [data-vp-overlay] .vp-grab { display: none; }
+
+  /* Join / PIN / error / offline: a 420 px card — 320 px read as a phone
+     screen left on a table. */
+  .vp-gate-card { max-width: 420px; }
+  .vp-join-col { max-width: 420px; }
+
+  /* The sidebar's rows answer a trackpad or mouse. */
+  [data-portal-rail] button:hover:not([aria-current]) { background: rgba(14, 59, 46, 0.05) !important; }
+
+  /* In a browser: the cookie banner starts right of the sidebar instead of
+     straddling its edge (StaffPortalPage sets data-vp-rail on <html> while
+     the sidebar is on screen; CookieConsent.jsx is not touched). */
+  html[data-vp-rail] [data-cookie-consent="banner"] {
+    left: calc(14rem + env(safe-area-inset-left, 0px) + 1.5rem) !important;
+    right: auto !important;
+    max-width: calc(100vw - 14rem - 3rem) !important;
+  }
+}
+
+/* ── pad-wide: two columns (landscape iPads, ≥ 1100 px) ───────────────────
+   Schedule = today | the week; Timer = the period | the shift list; Fravær =
+   marking days | the request; Byt = what you can do | your requests. The same
+   elements, only placed (a rotation remounts nothing): the right block spans
+   every row and the last row is 1fr, so a tall right column never stretches
+   the gaps between the left cards. Not the 12.9"/13" iPad in portrait (1024):
+   two columns there were narrower than a phone. */
+@media (width >= 1100px) and (height >= 600px) {
+  .vp-split {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: repeat(14, auto) 1fr;
+    column-gap: 24px !important;
+    row-gap: 0 !important;
+    align-items: start;
+    --vp-split-gap: 16px;
+  }
+  .vp-split[data-testid="portal-schedule-grid"] {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+    --vp-split-gap: 20px;
+  }
+  .vp-split > * {
+    grid-column: 1;
+    min-width: 0;
+    margin-top: 0 !important;
+    margin-bottom: var(--vp-split-gap) !important;
+  }
+  .vp-split > .vp-split-r {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    margin-bottom: 0 !important;
+  }
+  .vp-split > .vp-split-hide { display: none; }
+}

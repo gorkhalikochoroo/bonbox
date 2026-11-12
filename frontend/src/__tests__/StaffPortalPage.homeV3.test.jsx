@@ -174,7 +174,10 @@ describe("Meld syg — two taps from home, two ways, one form", () => {
     await waitFor(() => expect(scrolled.some((c) => c.el === form && c.opts?.block === "end")).toBe(true));
     await act(async () => { fireEvent.click(within(form).getByRole("button", { name: "Send sygemelding" })); });
     await waitFor(() => expect(sickPosts()).toHaveLength(1));
-    expect(sickPosts()[0][1]).toMatchObject({ date: inDays(0) });
+    // Vagtplan 1.6 (ported for 1.7): with no shift today the form starts on
+    // the next shift's day (tomorrow here), the day the staffer would miss —
+    // not today, a day off (utils/sickCallDefaultDate.js).
+    expect(sickPosts()[0][1]).toMatchObject({ date: SHIFT_DAY });
   });
 
   it("the scroller pads for the sticky header and the floating bar, so scrolled-to things land between them", async () => {

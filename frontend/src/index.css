@@ -160,7 +160,8 @@ body {
    handles its own safe areas (sticky header caps the notch; bottom nav pads the
    home-indicator). The body inset above would DOUBLE it → a fat gap under the
    notch on the installed PWA / native app. Zero the top+bottom body inset while
-   the portal is mounted (toggled by StaffPortalPage); keep left/right. */
+   the portal is mounted (toggled by StaffPortalPage, and by JoinPage, which
+   pads its own top the same way); keep left/right. */
 body.portal-shell {
   padding-top: 0;
   padding-bottom: 0;

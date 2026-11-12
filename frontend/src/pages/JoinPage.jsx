@@ -17,6 +17,9 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useKeyboardReveal } from "../hooks/useKeyboardReveal";
 import { useAndroidBack, minimizeApp } from "../hooks/useAndroidBack";
 import { runAndroidBack } from "../utils/androidBack";
+// The iPad layout's Join card and language toggle (Vagtplan 1.6, on the
+// redesign): media rules only, inert on a phone; the staff portal's own sheet.
+import "../components/staff/vagtplanPad.css";
 import { haptic } from "../utils/haptics"; // no-op on web; physical buzz in the iOS shell
 import { isNativeApp } from "../utils/platform";
 
@@ -74,6 +77,23 @@ export default function JoinPage() {
   useAndroidBack(() => {
     runAndroidBack({ minimize: minimizeApp });
   });
+
+  // This screen owns its safe areas, like the staff portal: the wrapper pads
+  // its top by env(safe-area-inset-top) and centres the card in one screen
+  // height. The global body inset (index.css) would add the same inset again
+  // on top of a 100dvh wrapper, so the page was taller than the screen — a
+  // second top gap, and in the edge-to-edge Vagtplan app (contentInset
+  // "never" since 1.6 (23)) a page that could be dragged up and stay there.
+  // Drop the body inset while it is mounted, the same switch StaffPortalPage
+  // uses. In a browser tab env() is 0: no change. The switch also drops
+  // index.css's cookie-banner bottom pad (body:not(.portal-shell)), so the
+  // wrapper pads its own bottom by --bb-consent-h, like AuthShell: on a small
+  // phone the card re-centres above the banner, or the page scrolls Tilslut
+  // clear of it. Unset (the app never shows the banner) → 1.5rem, as before.
+  useEffect(() => {
+    document.body.classList.add("portal-shell");
+    return () => document.body.classList.remove("portal-shell");
+  }, []);
 
   // The tab / app-switcher title is the staff app's, not the owner pitch.
   useEffect(() => {
@@ -135,32 +155,39 @@ export default function JoinPage() {
        while everything behind it had gone dark-and-green. Same surface as the
        Schedule hero: 152deg gradient, radius 22, bloom off the top-right. */
     <div
-      className="relative min-h-[100dvh] text-gray-900 flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))]"
+      className="relative min-h-[100dvh] text-gray-900 flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[calc(1.5rem+var(--bb-consent-h,0px))]"
       style={{ background: "#f5f7fb", ...(kb > 0 ? { minHeight: `calc(100dvh - ${kb}px)` } : {}) }}
     >
-      {/* DA / EN before joining: a staffer who does not read Danish on a
-          Danish-locale phone can switch here. Only the language — the
-          first-run default is unchanged. */}
-      <div
-        className="absolute right-4 top-[max(0.75rem,env(safe-area-inset-top))] flex rounded-xl border border-gray-200 bg-white p-0.5 gap-0.5"
-        role="group"
-        aria-label={t("portalLangLabel", "Language")}
-      >
-        {["da", "en"].map((code) => (
-          <button
-            key={code}
-            type="button"
-            onClick={() => setLang(code)}
-            aria-pressed={lang === code}
-            className={`min-w-[44px] min-h-[40px] px-2.5 rounded-[10px] text-[12px] font-bold uppercase transition active:scale-[0.98] ${
-              lang === code ? "bg-gray-900 text-white" : "bg-white text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            {code === "da" ? "DA" : "EN"}
-          </button>
-        ))}
-      </div>
-      <div className="w-full max-w-xs">
+      <div className="w-full max-w-xs vp-join-col">
+        {/* DA / EN before joining: a staffer who does not read Danish on a
+            Danish-locale phone can switch here. Only the language — the
+            first-run default is unchanged.
+            It lives INSIDE the card column but is absolutely positioned
+            against the full-screen wrapper (the column is not positioned), so
+            on a phone it sits in the top-right corner exactly as before. In
+            any iPad window (vagtplanPad.css .vp-join-lang — Split View 1/2
+            and up) it turns static and sits just above the card's right edge
+            instead of ~200–500 px away in the window corner (Vagtplan 1.6). */}
+        <div
+          className="absolute right-4 top-[max(0.75rem,env(safe-area-inset-top))] flex rounded-xl border border-gray-200 bg-white p-0.5 gap-0.5 vp-join-lang"
+          role="group"
+          aria-label={t("portalLangLabel", "Language")}
+        >
+          {["da", "en"].map((code) => (
+            <button
+              key={code}
+              type="button"
+              onClick={() => setLang(code)}
+              aria-pressed={lang === code}
+              className={`min-w-[44px] min-h-[40px] px-2.5 rounded-[10px] text-[12px] font-bold uppercase transition active:scale-[0.98] ${
+                lang === code ? "bg-gray-900 text-white" : "bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {code === "da" ? "DA" : "EN"}
+            </button>
+          ))}
+        </div>
+
         <div
           className="relative overflow-hidden text-center"
           style={{

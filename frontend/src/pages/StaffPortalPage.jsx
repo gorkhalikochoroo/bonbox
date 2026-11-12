@@ -9,7 +9,8 @@ import { useConfirm } from "../hooks/useConfirm";
 import GeofenceDial from "../components/GeofenceDial";
 import { nextShiftChip } from "../utils/nextShiftCountdown";
 import { overlapsOwnShift } from "../utils/overlapsOwnShift";
-import { swapDoubleBooks } from "../utils/swapClash";
+import { swapDoubleBooks, sameShiftTimes } from "../utils/swapClash";
+import { sickCallDefaultDate } from "../utils/sickCallDefaultDate";
 import { orderSwapInbox, swapSides, countNeedsMyAnswer } from "../utils/swapInbox";
 import { shiftHasStarted, pickableOwnShifts } from "../utils/shiftStarted";
 import { saveFile } from "../utils/download";
@@ -34,6 +35,9 @@ import "@fontsource/dm-sans/latin-500.css";
 import "@fontsource/dm-sans/latin-600.css";
 import "@fontsource/dm-sans/latin-700.css";
 import "../components/staff/vagtplan.css";
+// The iPad layout (Vagtplan 1.6, on the redesign) — media rules only; inert
+// on a phone. After vagtplan.css, so its rules come later.
+import "../components/staff/vagtplanPad.css";
 import RollingDigits from "../components/staff/RollingDigits";
 import { fitDockLabels } from "../components/staff/dockLabelFit";
 import { usePresence, useLastValue, closingProps, motionAllowed } from "../components/staff/sheetMotion";
@@ -52,12 +56,14 @@ import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { preloadLocalesWhenIdle } from "../lib/localePreload";
-import { formatHoursMinutes, formatHours, hoursUnit } from "../utils/hours";
+import { formatHoursMinutes, formatHours } from "../utils/hours";
 import { sectionFor } from "../config/roleSections";
 import { errText } from "../utils/errText";
 import { portalErrText } from "../utils/portalErrText";
 import { formatClockDistance } from "../utils/clockDistance";
 import { roleName } from "../utils/roleNames";
+import { usePadLayout, matchesPad, PAD_WIDE_QUERY } from "../lib/padLayout";
+import { recordReading, restoreReading, quietReading } from "../lib/readingPlace";
 import { isNativeApp, platform } from "../utils/platform";
 import { applyVagtplanIcons } from "../lib/vagtplanIcons";
 import { capturePhoto, takePhotoFile, choosePhotoFiles, isCameraDenied } from "../utils/camera";
@@ -159,6 +165,72 @@ function _isIos() {
     typeof navigator.maxTouchPoints === "number" &&
     navigator.maxTouchPoints > 1;
   return isIosUa || isIpadOs;
+}
+
+/** An iPad, in Safari or in the Vagtplan app. iPadOS Safari and its
+    WKWebView present a desktop (Macintosh) user agent, so a Mac UA with a
+    touch screen is an iPad too. The DEVICE, not the window: in Slide Over an
+    iPad is still an iPad. Used for the copy that names the device ("this
+    phone" read wrong on an iPad; Vagtplan 1.6). */
+function _isIpad() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  return /iPad/.test(ua) ||
+    (/Macintosh/.test(ua) && typeof navigator.maxTouchPoints === "number" && navigator.maxTouchPoints > 1);
+}
+
+// ─── The staffer's place (Vagtplan 1.6's iPad layout, on the redesign) ────
+// What they are working with right now: the last thing they tapped or focused
+// in the content column. When the layout changes under them — an iPad
+// rotating across the pad / wide breakpoints, a Split View resize —
+// StaffPortalPage puts it back on screen: otherwise the form they had open in
+// the right column ends up below the left column's content. `chain` holds the
+// element and its ancestors up to (not including) the tab's root, so a tapped
+// button that has since been replaced still leaves the section it lived in.
+// A phone never changes layout mode, so for a phone this is bookkeeping only.
+const portalPlace = { chain: [], vw: 0, vh: 0 };
+function notePlace(el) {
+  const chain = [];
+  for (let n = el; n && n.parentElement && chain.length < 10; n = n.parentElement) {
+    if (n.parentElement.hasAttribute("data-portal-content")) break; // n is a tab root
+    chain.push(n);
+  }
+  portalPlace.chain = chain;
+  if (typeof window !== "undefined") {
+    portalPlace.vw = window.innerWidth;
+    portalPlace.vh = window.innerHeight;
+  }
+}
+function placeElement() {
+  return portalPlace.chain.find((n) => n.isConnected) || null;
+}
+/** After a layout change: put the staffer's place back on screen, if it left. */
+function keepPlaceInView(scroller, header, isPad) {
+  if (typeof window !== "undefined") {
+    portalPlace.vw = window.innerWidth;
+    portalPlace.vh = window.innerHeight;
+  }
+  const at = portalPlace.chain.findIndex((n) => n.isConnected);
+  if (!scroller || at < 0) return;
+  const top = (header ? header.getBoundingClientRect().bottom : 0) + 12;
+  // Phone layout: the dock covers the bottom ~76 px. iPad: a sidebar.
+  const bottom = window.innerHeight - (isPad ? 16 : 88);
+  const room = bottom - top;
+  // The largest block around the place that still fits on screen — the week
+  // card around a picked day, the Fravær section around its form — so the
+  // staffer sees it in context. Nothing fits: the place itself, top first.
+  let target = portalPlace.chain[at];
+  for (let i = at; i < portalPlace.chain.length; i += 1) {
+    const n = portalPlace.chain[i];
+    if (!n.isConnected) continue;
+    if (n.getBoundingClientRect().height <= room) target = n;
+    else break;
+  }
+  const r = target.getBoundingClientRect();
+  if (r.width === 0 && r.height === 0) return; // not rendered in this layout
+  if (r.top >= top && r.bottom <= bottom) return; // already on screen
+  const delta = r.top < top || r.height > room ? r.top - top : r.bottom - bottom;
+  scroller.scrollTop += delta;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -709,7 +781,7 @@ function DocumentsSection({ token }) {
             style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))", boxShadow: "0 64px 0 0 #fff" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB }} />
+            <span aria-hidden className="block mx-auto vp-grab" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB }} />
             <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
               {t("portalDocsSection", "Contract & documents")}
             </div>
@@ -809,6 +881,18 @@ export function BankSection({ token }) {
   }, [token]);
 
   useEffect(() => load(), [load]);
+
+  // iPad (Vagtplan 1.6): this section is the last thing in the profile form
+  // sheet, and on a landscape iPad "Tilføj" opened the fields half below the
+  // sheet's fold — "Gem konto" and "Annuller" cut off. Bring the whole form
+  // into view inside the sheet ("nearest": a form already on screen does not
+  // move). Phones keep what they had.
+  const editRef = useRef(null);
+  useEffect(() => {
+    if (!editing || !matchesPad()) return undefined;
+    const id = setTimeout(() => editRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" }), 30);
+    return () => clearTimeout(id);
+  }, [editing]);
 
   // Server error codes → real Danish copy. Anything unmapped falls back to a
   // generic line rather than showing the English developer message.
@@ -933,7 +1017,7 @@ export function BankSection({ token }) {
       )}
 
       {editing && !state.unavailable && (
-        <div className="space-y-3">
+        <div ref={editRef} className="space-y-3" data-testid="portal-bank-form">
           <div className="flex gap-2">
             <div className="w-24 shrink-0">
               <label className="text-[10px] text-gray-500 mb-1 block">{t("portalBankRegLabel", "Reg. no.")}</label>
@@ -1058,7 +1142,7 @@ function PinGate({ onVerified, token, staffName }) {
        proof. */
     <div className="min-h-[100dvh] flex items-center justify-center p-6" style={{ background: "#f5f7fb" }}>
       <div
-        className="relative w-full max-w-xs text-center"
+        className="relative w-full max-w-xs text-center vp-gate-card"
         data-testid="portal-pin-card"
         style={{
           borderRadius: 22,
@@ -1155,8 +1239,13 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
   const todayIso = useState(() => toLocalISO(new Date()))[0];
   // initialDate: opened from ONE shift's ⋯ menu, the form is about that
   // shift's day — defaulting to today there would report the wrong day on a
-  // straight "Send". The week section has no shift in hand and keeps today.
-  const [date, setDate] = useState(initialDate || todayIso);
+  // straight "Send". Opened from the week section, it starts on the day you
+  // would actually miss (Vagtplan 1.6, ported): today if you work today, else
+  // your next shift inside the form's 14-day window, else today. Always-today
+  // made someone off today calling in for tomorrow's shift change the date
+  // first — and a missed change filed the sygemelding on a day off.
+  const [date, setDate] = useState(() => initialDate
+    || sickCallDefaultDate(upcomingShifts, todayIso, toLocalISO(addDaysToDate(new Date(), 14))));
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -1772,24 +1861,41 @@ function firstName(name) {
  * every shift, not only the hero's next one. Previously "who am I on with?"
  * was answerable for exactly one day; a staffer looking at Friday got nothing.
  *
- * Rules preserved verbatim from the strip: same date only (defense-in-depth —
- * never widen past the one date the staffer is already trusted to see), own row
- * excluded structurally by matching start/end/role since the client has no
- * staff_id, dedupe by staff_id, and multi-location scoping where a shift with a
- * location only sees that location while a shift without one sees everyone.
+ * Rules preserved from the strip: same date only (defense-in-depth — never
+ * widen past the one date the staffer is already trusted to see), dedupe by
+ * staff_id, and multi-location scoping where a shift with a location only sees
+ * that location while a shift without one sees everyone.
+ *
+ * The staffer's OWN rows are left out by SHIFT ID (Vagtplan 1.6, ported for
+ * 1.7). The portal's own schedule rows carry the Schedule id as `id`, and
+ * /team-schedule carries the same id as `shift_id` (plus the staff_id), so
+ * "is this row me?" is exact: one of my shift ids, or the staff_id that owns
+ * one of them (my second shift on a split day is not a colleague either). The
+ * old structural match (start/end/role) dropped every colleague on exactly
+ * the same hours — "Med Sofie" when Oliver and Emma were on too, "Alene"
+ * beside an identical shift. Fallbacks, when no team row carries one of my
+ * shift ids: by name, then the old structural match.
  */
-function matesForShift(teamShifts, shift) {
+function matesForShift(teamShifts, shift, myName = "", myShiftIds = null) {
   if (!shift || !Array.isArray(teamShifts)) return [];
   const myBranch = shift.branch_name || null;
+  const me = (myName || "").trim();
+  const ids = myShiftIds && myShiftIds.size ? myShiftIds : null;
+  const own = ids ? teamShifts.find((s) => s.shift_id != null && ids.has(String(s.shift_id))) : null;
+  const byId = !!own;
+  const myStaffId = own?.staff_id ?? null;
   const seen = new Set();
   const mates = [];
   for (const s of teamShifts) {
     if (s.date !== shift.date) continue;
     if (myBranch && s.branch_name && s.branch_name !== myBranch) continue;
-    const isMine =
-      s.start_time === shift.start_time &&
-      s.end_time === shift.end_time &&
-      (s.role || "") === (shift.role_on_shift || "");
+    const isMine = byId
+      ? ids.has(String(s.shift_id)) || (myStaffId != null && s.staff_id === myStaffId)
+      : me
+        ? (s.staff_name || "").trim() === me
+        : s.start_time === shift.start_time &&
+          s.end_time === shift.end_time &&
+          (s.role || "") === (shift.role_on_shift || "");
     if (isMine) continue;
     const id = s.staff_id ?? `${s.staff_name}|${s.start_time}|${s.end_time}`;
     if (seen.has(id)) continue;
@@ -1852,7 +1958,7 @@ function MateDiscs({ mates, size = 32, ring = CARD, overlap = 8, cap = 5, showOv
   );
 }
 
-function WhosOnStrip({ teamShifts, nextShift, live = false, onOpen }) {
+function WhosOnStrip({ teamShifts, nextShift, live = false, onOpen, staffName = "", myShiftIds = null }) {
   const { t, lang } = useLanguage();
 
   if (!nextShift) return null;
@@ -1864,7 +1970,7 @@ function WhosOnStrip({ teamShifts, nextShift, live = false, onOpen }) {
   // location, which belongs everywhere). A shift with no location keeps the
   // whole-team view, so single-venue tenants see zero change.
   const myBranch = nextShift.branch_name || null;
-  const mates = matesForShift(teamShifts, nextShift);
+  const mates = matesForShift(teamShifts, nextShift, staffName, myShiftIds);
   const names = mates.map((s) => firstName(s.staff_name)).filter(Boolean);
 
   // Home v3 (Nov 2026): its own light card UNDER the next-shift card, not
@@ -2150,7 +2256,7 @@ function OpenShiftsClaimCard({ rows, claimer, ownShifts, businessType }) {
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, venue, businessType, coversByShift, onShiftsChanged, allShifts, calendarKey, schedState = "ok", onRetrySchedule, staffRole, focusDate, onOpenSwaps }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, venue, businessType, coversByShift, onShiftsChanged, allShifts, calendarKey, schedState = "ok", onRetrySchedule, staffRole, focusDate, onOpenSwaps }) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -2160,6 +2266,12 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   const shifts = (rawShifts || []).filter((s) => s && s.status === "published");
   const today = toLocalISO(new Date());
   const weekStart = getWeekStart(today);
+  // My own shifts' ids — how matesForShift tells me from a colleague (team
+  // rows carry the same id as shift_id), even one who shares my name.
+  const myShiftIds = useMemo(
+    () => new Set([...(allShifts || []), ...(rawShifts || [])].map((s) => s?.id).filter((id) => id != null).map(String)),
+    [allShifts, rawShifts],
+  );
 
   const clock = useClock(token);
   const heroRef = useRef(null);
@@ -2661,9 +2773,13 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
       ? t("portalWeekNoShiftsNext", "No shifts next week")
       : t("portalWeekNoShiftsThat", "No shifts that week");
 
+  // Wide iPad (vagtplanPad.css .vp-split): two columns — LEFT today (the
+  // card, who is on, open shifts, "Brug for en ændring?"), RIGHT the week.
+  // Same elements, only placed: a rotation remounts nothing. Phones: inert.
   return (
     <div
-      className="space-y-5"
+      className="space-y-5 vp-split"
+      data-testid="portal-schedule-grid"
       data-beat-phase={beating ? beatUi.phase : undefined}
       data-clock-beat={beating ? beatUi.kind : undefined}
       data-beat-lap={lap ? "" : undefined}
@@ -2985,6 +3101,8 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           nextShift={clockedIn ? (liveShift || nextShift) : nextShift}
           live={clockedIn}
           onOpen={() => jumpToDay((clockedIn ? (liveShift || nextShift) : nextShift)?.date)}
+          staffName={staffName}
+          myShiftIds={myShiftIds}
         />
       )}
 
@@ -3026,6 +3144,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           outlined in pine) and open shifts as dashed rows with "Tag den". */}
       <section
         data-testid="portal-week"
+        className="vp-split-r"
         style={{ background: CARD, border: `1px solid ${LINE}`, borderRadius: 24, padding: "16px 14px 14px" }}
       >
         {/* Pages week by week up to the last week with a published shift;
@@ -3301,7 +3420,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                                 future + none → say alone; past → nothing. */}
                             {(() => {
                               if (fs.date < today) return null;
-                              const mates = matesForShift(teamShifts, fs);
+                              const mates = matesForShift(teamShifts, fs, staffName, myShiftIds);
                               if (!mates.length) {
                                 return (
                                   <span className="truncate" style={{ marginTop: 2, font: "400 12px/1.3 var(--font-text)", color: ink2 }}>
@@ -3558,7 +3677,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           routeHref={placeRouteUrl}
           calTapped={calTapped}
           whosOnHint={(() => {
-            const mates = matesForShift(teamShifts, menuSheetShift);
+            const mates = matesForShift(teamShifts, menuSheetShift, staffName, myShiftIds);
             return mates.length
               ? listNames(mates.map((m) => firstName(m.staff_name)).filter(Boolean).slice(0, 6), lang)
               : t("portalWhosOnSoloShort", "On your own");
@@ -4115,7 +4234,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
           boxShadow: `0 64px 0 0 ${CARD}, 0 -20px 40px -20px rgba(8,24,18,0.5)`,
         }}
       >
-        <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 12 }} />
+        <span aria-hidden className="block mx-auto vp-grab" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 12 }} />
         <div className="flex items-start justify-between" style={{ gap: 12, padding: "0 4px" }}>
           <div className="min-w-0 flex flex-col" style={{ gap: 4 }}>
             <div className="tabular-nums" style={{ font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>{title}</div>
@@ -4211,6 +4330,14 @@ const SAGE_EDGE = "rgba(14, 59, 46, 0.22)";
 const SAGE_BAR = "#C3D1C8";      // Timer's weeks that are not this week
 const GRAB = "#D9D3C5";          // a sheet's grabber (the ⋯ sheet's)
 const SCRIM = "rgba(8, 24, 18, 0.52)";
+// The two overlays that ride the keyboard (KB_LIFT_STYLE: the profile sheet
+// and Ny gruppe) stop at the status bar. The keyboard lift leaves the sheet
+// 0..(screen − keyboard) to fit in; the profile panel is a scroller
+// (min-height 0), so it shrank to fill that from y = 0 and, in the
+// edge-to-edge app (contentInset "never", Vagtplan 1.6 (23)), its title and
+// close × went under the clock where the × could not be tapped. At rest it
+// changes nothing: a 90dvh sheet already ends below the inset.
+const SHEET_KB_TOP = "pt-[env(safe-area-inset-top)]";
 const PLACEHOLDER = "#8A948E";
 
 const CARD_BOX = { background: CARD, border: `1px solid ${LINE}` };
@@ -4291,6 +4418,26 @@ function VpSegmented({ options, value, onChange, label, testId }) {
 
 /** A calm one-line empty state: a small line icon and one sentence on a card
     (the home's "Du er alene på vagten" line). No illustration, no emoji. */
+/** iPad only (vagtplanPad.css .vp-pad-close): a visible 44 × 44 close on a
+    sheet that a phone closes by its grabber, a pull or the scrim. On an iPad
+    the sheet is a centred form sheet that cannot be pulled, and an invisible
+    tap beside it was the only way out (Vagtplan 1.6). display:none on a phone. */
+function PadSheetClose({ onClose }) {
+  const { t } = useLanguage();
+  return (
+    <button
+      type="button"
+      onClick={onClose}
+      aria-label={t("close", "Close")}
+      data-testid="portal-sheet-close"
+      className={`vp-pad-close items-center justify-center vp-press vp-s ${FOCUS_RING}`}
+      style={{ width: 44, height: 44, borderRadius: 999, background: TILE, color: INK }}
+    >
+      <X size={18} strokeWidth={2} aria-hidden />
+    </button>
+  );
+}
+
 function CalmEmpty({ icon: Icon, children, testId }) {
   return (
     <div
@@ -4364,7 +4511,8 @@ function VpQuestionSheet({ closing = false, title, body, onDismiss, dismissLabel
           boxShadow: `0 64px 0 0 ${CARD}, 0 -20px 40px -20px rgba(8,24,18,0.5)`,
         }}
       >
-        <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 14 }} />
+        <span aria-hidden className="block mx-auto vp-grab" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 14 }} />
+        <PadSheetClose onClose={onDismiss} />
         <div style={{ font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>{title}</div>
         {body && <p style={{ margin: "8px 0 0", font: "400 14px/1.45 var(--font-text)", color: MUTED }}>{body}</p>}
         {/* Side by side while both labels fit (they never wrap — BTN), one
@@ -4409,11 +4557,15 @@ function PageArrow({ dir, onClick, label, disabled = false }) {
  * staffer gets a sentence instead of a 400 — but the SERVER is the gate. This
  * is a courtesy, never the check.
  */
-function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }) {
+function PeriodSheet({ initial, current, anchorMonth, onClose, onApply, closing = false }) {
   const { t, lang } = useLanguage();
   const todayISO = new Date().toLocaleDateString("sv-SE");
-  const [from, setFrom] = useState(initial?.start || "");
-  const [to, setTo] = useState(initial?.end || "");
+  // Opens on the period on screen — the chosen window, else the pay period the
+  // hours above are for — so its cycle is the lit one and the two dates say
+  // where you are (Vagtplan 1.6). It opened blank: no cycle lit while
+  // "1. okt. – 31. okt." was the active range.
+  const [from, setFrom] = useState(initial?.start || current?.start || "");
+  const [to, setTo] = useState(initial?.end || current?.end || "");
 
   const iso = (d) => d.toLocaleDateString("sv-SE");
   const anchor = anchorMonth ? new Date(`${anchorMonth}T00:00:00`) : new Date();
@@ -4495,7 +4647,8 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB }} />
+        <span aria-hidden className="block mx-auto vp-grab" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB }} />
+        <PadSheetClose onClose={onClose} />
         <div style={{ marginTop: 14, padding: "0 4px", font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>
           {t("portalHoursCustomTitle", "Choose a period")}
         </div>
@@ -4540,7 +4693,9 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
         <button
           type="button"
           disabled={!ready}
-          onClick={() => onApply({ start: from, end: to })}
+          // Still the pay period it opened on: stay on it (no custom range, so
+          // the permit tile and the default stay as they were).
+          onClick={() => onApply(!initial && current && from === current.start && to === current.end ? null : { start: from, end: to })}
           className={`w-full vp-press vp-l ${FOCUS_RING}`}
           style={pineBtn(!ready, { ...BTN_FULL, marginTop: 16 })}
         >
@@ -4636,6 +4791,8 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       // "Uge 40" in Danish, "W40" in English — the label was English always.
       .map(([k, n]) => ({ k, w: t("portalWeekShort", "W{n}", { n: Number(k.split("-")[1]) }), n: Math.round(n * 100) / 100, v: String(Math.round(n * 100) / 100) }));
     rows.max = rows.reduce((m, r) => Math.max(m, r.n), 0) || 1;
+    // Any hours at all? A chart of nothing but 0 bars compares nothing.
+    rows.any = rows.some((r) => r.n > 0);
     // Flagged, not hidden: with a long custom window these five bars are a tail,
     // not the whole period, so they cannot add up to the headline above them.
     rows.truncated = sorted.length > rows.length;
@@ -4763,12 +4920,15 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
   const tileValue = { marginTop: 7, font: `700 18px/1 ${SORA}`, color: CREAM };
 
   return (
-    <div className="flex flex-col" style={{ gap: 16 }}>
+    /* Wide iPad: LEFT the period, its total and the weekly bars; RIGHT the
+       shift list (vagtplanPad.css .vp-split). Phones: inert. */
+    <div className="flex flex-col vp-split" style={{ gap: 16 }} data-testid="portal-hours-grid">
 
       {periodSheet.mounted && (
         <PeriodSheet
           closing={periodSheet.closing}
           initial={range}
+          current={data.period_start && data.period_end ? { start: data.period_start, end: data.period_end } : null}
           anchorMonth={data.period_start}
           onClose={() => setCustomOpen(false)}
           onApply={(r) => { setRange(r); setCustomOpen(false); }}
@@ -4887,9 +5047,11 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           The week we are in is pine, every other week sage — "where am I in
           this period" before any number is read. Not green: green means
           confirmed / done everywhere else in the app. Silent when a period
-          has one week: a single full-height bar compares nothing. Figures
-          and week labels are Sora's tabular digits (vp-figures). */}
-      {weekBars.length > 1 && (
+          has one week: a single full-height bar compares nothing — and when
+          every week is 0 (no hours yet: a card of "0" bars says only what the
+          total above says; Vagtplan 1.6). Figures and week labels are Sora's
+          tabular digits (vp-figures). */}
+      {weekBars.length > 1 && weekBars.any && (
         <section data-testid="portal-hours-weeks" style={{ ...CARD_BOX, borderRadius: 24, padding: "16px 14px 12px" }}>
           <div className="flex items-center justify-between" style={{ padding: "0 2px" }}>
             <span style={EYEBROW}>
@@ -4898,7 +5060,9 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             <span style={{ font: "500 12px/1 var(--font-text)", color: MUTED }}>
               {weekBars.truncated
                 ? t("portalHoursLastNWeeks", "last {n} weeks").split("{n}").join(String(weekBars.length))
-                : hoursUnit(lang)}
+                // The unit as a word: a lone "t" in the corner read as a stray
+                // character, not as "hours" (Vagtplan 1.6).
+                : t("portalHoursChartUnit", "hours")}
             </span>
           </div>
           {/* minHeight, not height: the tallest column needs 110 px at
@@ -4940,7 +5104,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       )}
 
       {/* Recent / upcoming shifts */}
-      <section>
+      <section className="vp-split-r" data-testid="portal-hours-list">
         <div className="flex items-center justify-between" style={{ gap: 8, minHeight: 24, padding: "0 4px", marginBottom: 8 }}>
           <span style={EYEBROW}>{recentLabel}</span>
           {canExport && (
@@ -5258,7 +5422,10 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
   };
 
   return (
-    <div className="flex flex-col" style={{ gap: 16 }}>
+    /* Wide iPad: LEFT what you can do (Byt / Giv væk, the form you opened,
+       colleagues' shifts up for grabs); RIGHT your swap requests
+       (vagtplanPad.css .vp-split). Phones: inert. */
+    <div className="flex flex-col vp-split" style={{ gap: 16 }} data-testid="portal-swap-grid">
       {/* Actions — trade (targeted) or sell (open pool). The canvas's entry
           tiles ("Byt en vagt"): two ivory cards, a 38 px sage well with the
           mark in pine, the label in ink. Not filled buttons — the one filled
@@ -5374,20 +5541,25 @@ function SwapTab({ token, ownShifts, onChanged, onInbox }) {
         </section>
       )}
 
-      {/* Inbox */}
-      {inbox === null && <ListSkeleton label={t("portalLoading", "Loading…")} rows={2} height={72} />}
-      {inbox && inbox.length === 0 && !showPropose && (
-        <CalmEmpty icon={ArrowLeftRight} testId="swap-empty">
-          {t("portalSwapNonePending", "No pending swap requests.")}
-        </CalmEmpty>
-      )}
-      {/* The request that needs the viewer's answer leads; then what waits
-          on someone else; then what is done. */}
-      {inbox && inbox.length > 0 && (
-        <div className="flex flex-col" style={{ gap: 8 }}>
-          {orderSwapInbox(inbox).map((s) => (
-            <SwapRow key={s.id} swap={s} token={token} onChanged={reload} />
-          ))}
+      {/* Inbox — one element or none, in one wrapper (the wide iPad's right
+          column), so the tab's spacing on a phone is exactly what it was. */}
+      {(inbox === null || inbox.length > 0 || !showPropose) && (
+        <div className="vp-split-r" data-testid="portal-swap-inbox">
+          {inbox === null && <ListSkeleton label={t("portalLoading", "Loading…")} rows={2} height={72} />}
+          {inbox && inbox.length === 0 && !showPropose && (
+            <CalmEmpty icon={ArrowLeftRight} testId="swap-empty">
+              {t("portalSwapNonePending", "No pending swap requests.")}
+            </CalmEmpty>
+          )}
+          {/* The request that needs the viewer's answer leads; then what waits
+              on someone else; then what is done. */}
+          {inbox && inbox.length > 0 && (
+            <div className="flex flex-col" style={{ gap: 8 }}>
+              {orderSwapInbox(inbox).map((s) => (
+                <SwapRow key={s.id} swap={s} token={token} onChanged={reload} />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -5811,9 +5983,12 @@ function SwapProposeModal({ token, ownShifts, liveShiftId = null, onClose, onPro
   // self-swap. Server rejects but UI catches it earlier.
   const ownStaffId = teamShifts.find((s) => s.shift_id === fromShiftId)?.staff_id;
   const fromShift = upcomingOwn.find((s) => s.id === fromShiftId) || null;
-  // A colleague's shift that has started can't be taken over either.
+  // A colleague's shift that has started can't be taken over either — nor
+  // one that IS yours in all but name: same day, same hours (sameShiftTimes).
+  // That trade would change nothing for either of you. Left out of the list
+  // and of the count below, which is about double bookings (Vagtplan 1.6).
   const teammateShifts = teamShifts.filter(
-    (s) => s.shift_id !== fromShiftId && s.staff_id !== ownStaffId && !shiftHasStarted(s),
+    (s) => s.shift_id !== fromShiftId && s.staff_id !== ownStaffId && !shiftHasStarted(s) && !sameShiftTimes(fromShift, s),
   );
   // Never offer a trade that would put either of you on two shifts at once —
   // an accept executes it immediately. The server refuses it too (409); this
@@ -5890,7 +6065,11 @@ function SwapProposeModal({ token, ownShifts, liveShiftId = null, onClose, onPro
           </select>
           {hiddenForOverlap > 0 && (
             <p data-testid="swap-hidden-overlap" style={{ margin: "8px 2px 0", font: "400 13px/1.4 var(--font-text)", color: MUTED }}>
-              {t("portalSwapHiddenOverlap", "{n} hidden — they would put you or your colleague on two shifts at once.")
+              {/* Plain words, not "N skjult — … to vagter på samme tid" (staff
+                  read it as jargon), with a real singular (Vagtplan 1.6). */}
+              {(hiddenForOverlap === 1
+                ? t("portalSwapHiddenOverlapOne", "1 shift isn't shown because one of you would then have two shifts at the same time.")
+                : t("portalSwapHiddenOverlap", "{n} shifts aren't shown because one of you would then have two shifts at the same time."))
                 .split("{n}").join(String(hiddenForOverlap))}
             </p>
           )}
@@ -5977,20 +6156,56 @@ function AlertsTab({ token, onNavigate }) {
   // while the staffer is still reading them.
   const [seenAt] = useState(() => readAlertsSeen(token));
   const [dismissed, setDismissed] = useState(false);
+  // A failed read is NOT an empty feed (Vagtplan 1.6). It used to land in the
+  // empty state — "Ingen notifikationer endnu" — with no way to try again.
+  // Now it says so and offers a retry, like Timer and the schedule. A list
+  // already on screen (memory) stays; only a first read that fails says it.
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    let alive = true;
     if (recall(token, "alerts") === undefined) setLoading(true);
+    setFailed(false);
     portalApi.get(`/portal/${token}/notifications`)
       .then((res) => {
+        if (!alive) return;
         const list = res.data.notifications || [];
         remember(token, "alerts", list);
         setNotifications(list);
       })
-      .catch(() => setNotifications([]))
-      .finally(() => setLoading(false));
-  }, [token]);
+      .catch(() => { if (alive) setFailed(true); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [token, attempt]);
 
   if (loading) return <LoadingSkeleton />;
+
+  if (failed && !notifications) {
+    return (
+      <div
+        role="alert"
+        data-testid="portal-alerts-failed"
+        className="flex items-start"
+        style={{ gap: 9, padding: "11px 13px", borderRadius: 16, background: ALERT_WASH, border: `1px solid ${ALERT_EDGE}`, font: "500 13px/1.45 var(--font-text)", color: ALERT_INK }}
+      >
+        <CloudOff size={16} strokeWidth={2} aria-hidden style={{ flex: "none", marginTop: 1 }} />
+        <span>
+          {t("portalAlertsLoadFailed", "Couldn't load your notifications")}.{" "}
+          {t("portalAlertsLoadFailedHint", "Check your connection and try again.")}
+          <button
+            type="button"
+            onClick={() => setAttempt((n) => n + 1)}
+            data-testid="portal-alerts-retry"
+            className="min-h-[44px] vp-press"
+            style={{ marginLeft: 8, textDecoration: "underline", textUnderlineOffset: 2, color: ALERT_INK, font: "700 13px/1 var(--font-text)" }}
+          >
+            {t("tryAgain", "Try again")}
+          </button>
+        </span>
+      </div>
+    );
+  }
 
   // Every schedule change also writes one push row per device whose subject is
   // the app name ("BonBox · Vagtplan"), carrying no information. Dropping the
@@ -6187,9 +6402,12 @@ function formatTimeAgo(dateStr, lang, t) {
 /** One row in the conversation list — an ivory card with the name in Sora.
     Unread is carried by weight, the preview's ink and a pine count, not by
     the badge alone: a badge alone is invisible in a hurried glance. */
-function ThreadRow({ thread, onOpen }) {
+function ThreadRow({ thread, onOpen, active = false, wide = false }) {
   const { t, lang } = useLanguage();
-  const unread = thread.unread || 0;
+  // The thread open beside the list (wide iPad master-detail) is being read on
+  // screen: a message that lands in it is read by the pane's next poll, so it
+  // never shows as unread here — and the Beskeder count leaves it out too.
+  const unread = active ? 0 : thread.unread || 0;
   const isGroup = thread.kind === "group";
   const name = thread.title || t("staffChatOwnerLabel", "Manager");
   const preview = thread.last_body
@@ -6202,8 +6420,11 @@ function ThreadRow({ thread, onOpen }) {
       onClick={onOpen}
       data-testid="portal-thread-row"
       data-unread={unread ? "" : undefined}
+      // active: the thread open in the pane beside the list (wide iPads
+      // only) — the sage of the active sidebar row, with a pine hairline.
+      aria-current={active ? "true" : undefined}
       className={`w-full text-left flex items-center vp-press vp-row ${FOCUS_RING}`}
-      style={{ gap: 12, padding: "12px 14px 12px 12px", minHeight: 68, borderRadius: 20, ...CARD_BOX, color: INK }}
+      style={{ gap: 12, padding: "12px 14px 12px 12px", minHeight: 68, borderRadius: 20, ...CARD_BOX, color: INK, ...(active ? { background: SOFT, border: `1px solid ${SAGE_EDGE}` } : null) }}
     >
       <span
         aria-hidden
@@ -6220,16 +6441,21 @@ function ThreadRow({ thread, onOpen }) {
         {isGroup ? <Users size={18} strokeWidth={1.9} /> : staffInitials(name)}
       </span>
       <span className="flex-1 min-w-0 flex flex-col" style={{ gap: 4 }}>
+        {/* Wide iPad: the list column is narrow, so the name gets the first
+            line to itself (two lines at most) and the time moves to the
+            preview line — "Restaurant Nord…" was cut after ~10 characters. */}
         <span className="flex items-baseline justify-between" style={{ gap: 8 }}>
           <span
-            className="truncate"
+            className={wide ? "line-clamp-2 break-words" : "truncate"}
             style={{ font: `${unread ? 700 : 600} 15px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}
           >
             {name}
           </span>
+          {!wide && (
           <span className="flex-none" style={{ font: `${unread ? 600 : 500} 12px/1 var(--font-text)`, color: unread ? PINE : MUTED }}>
             {thread.last_message_at ? formatTimeAgo(thread.last_message_at, lang, t) : ""}
           </span>
+          )}
         </span>
         <span className="flex items-center" style={{ gap: 8 }}>
           <span
@@ -6238,6 +6464,11 @@ function ThreadRow({ thread, onOpen }) {
           >
             {preview}
           </span>
+          {wide && (
+            <span className="flex-none" style={{ font: `${unread ? 600 : 500} 12px/1 var(--font-text)`, color: unread ? PINE : MUTED }}>
+              {thread.last_message_at ? formatTimeAgo(thread.last_message_at, lang, t) : ""}
+            </span>
+          )}
           {unread > 0 && (
             <span
               data-testid="portal-thread-unread"
@@ -6300,7 +6531,7 @@ function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
   useSheetDrag(sheetRef, onClose, { enabled: !closing && narrow });
 
   return (
-    <div data-vp-overlay="" className="fixed inset-0 z-40 m-0 flex items-end sm:items-center sm:justify-center" style={KB_LIFT_STYLE} {...closingProps(closing)}>
+    <div data-vp-overlay="" className={`fixed inset-0 z-40 m-0 flex items-end sm:items-center sm:justify-center ${SHEET_KB_TOP}`} style={KB_LIFT_STYLE} {...closingProps(closing)}>
       <div className="absolute inset-0 m-0 vp-scrim" style={{ background: SCRIM }} onClick={onClose} aria-hidden />
       {/* The ⋯ sheet's material: card, 28 px top corners, the grabber. On a
           phone it is a sheet you can pull down; from 640 px (sm:) it is a
@@ -6317,13 +6548,16 @@ function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
           background: CARD, color: INK,
           borderRadius: "28px 28px 0 0",
           paddingTop: 8,
-          paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
+          // The home-indicator inset only while the keyboard is down: with it
+          // up (--kb-h, native only) the keyboard covers the indicator, and
+          // the 34 pt stacked a white band between Opret and the keys.
+          paddingBottom: "max(16px, calc(16px + env(safe-area-inset-bottom) - var(--kb-h, 0px)))",
           boxShadow: narrow
             ? `0 64px 0 0 ${CARD}, 0 -20px 40px -20px rgba(8,24,18,0.5)`
             : "0 -20px 40px -20px rgba(8,24,18,0.5)",
         }}
       >
-        <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 10 }} />
+        <span aria-hidden className="block mx-auto vp-grab" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 10 }} />
         <div className="flex items-center justify-between" style={{ gap: 12, padding: "0 16px 12px 20px" }}>
           <h3 style={{ margin: 0, font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>
             {t("staffChatNewGroup", "New group")}
@@ -6440,35 +6674,63 @@ function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
 
 /** The conversation list. Search filters on name AND last message, which is
     what people actually remember — "the one about Friday", not a name. */
-function ThreadListView({ token, onOpen, onRead }) {
+function ThreadListView({ token, onOpen, takeCountTicket, activeId = null, refreshTick = 0, hidden = false, creating: creatingProp, onCreatingChange, wide = false }) {
   const { t } = useLanguage();
   // A return paints the last list at once; the load below still runs and
   // refreshes behind it. Only server answers are remembered (premium feel
   // 1.6d, components/staff/tabMemory.js).
   const [threads, setThreads] = useState(() => recall(token, "threads") ?? null);
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState(false);
+  // The New group sheet's open state is MessagesTab's when it passes one, so
+  // the list can stay mounted while the sheet is up (see MessagesTab).
+  const [creatingOwn, setCreatingOwn] = useState(false);
+  const creating = creatingProp ?? creatingOwn;
+  const setCreating = onCreatingChange ?? setCreatingOwn;
   const groupSheet = usePresence(creating);
+  // Read when the answer lands, not when the request left: the open thread
+  // may have changed in between.
+  const activeRef = useRef(activeId);
+  useEffect(() => { activeRef.current = activeId; }, [activeId]);
 
+  // While it is on screen the list IS the Beskeder count (Vagtplan 1.6): the
+  // server's own per-thread numbers, summed (what /chat/unread adds up too),
+  // less the thread open beside it on a wide iPad. Reading the list marks
+  // nothing read, so it never writes a 0 it did not count — it used to, and
+  // the badge blinked against the /chat/unread poll. The ticket is taken
+  // when the request leaves (see StaffPortalPage).
   const load = useCallback(() => {
+    const applyCount = takeCountTicket?.();
     portalApi
       .get(`/portal/${token}/chat/threads`)
       .then((res) => {
         const list = res.data.threads || [];
         remember(token, "threads", list);
         setThreads(list);
-        onRead?.();
+        applyCount?.(list.reduce((n, th) => n + (th.thread_id === activeRef.current ? 0 : th.unread || 0), 0));
       })
       .catch(() => setThreads((prev) => prev || []));
-  }, [token, onRead]);
+  }, [token, takeCountTicket]);
 
+  // `hidden`: an iPad keeps this list mounted behind a full-screen thread (so
+  // a rotation finds its search and sheet intact). Hidden, it does not poll;
+  // shown again, it re-reads at once. A phone never hides it.
   useEffect(() => {
+    if (hidden) return undefined;
     load();
     const id = setInterval(() => {
       if (document.visibilityState === "visible") load();
     }, 8000);
     return () => clearInterval(id);
-  }, [load]);
+  }, [load, hidden]);
+
+  // The wide iPad asks for a re-read (MessagesTab) when a thread is first
+  // read or left. Only a NEW ask re-reads — not the value it mounted with.
+  const seenTick = useRef(refreshTick);
+  useEffect(() => {
+    if (refreshTick === seenTick.current) return;
+    seenTick.current = refreshTick;
+    if (!hidden) load();
+  }, [refreshTick]); // eslint-disable-line react-hooks/exhaustive-deps -- only an ask re-reads
 
   const q = query.trim().toLowerCase();
   const shown = (threads || []).filter(
@@ -6480,7 +6742,10 @@ function ThreadListView({ token, onOpen, onRead }) {
 
   return (
     <div>
-      <div className="flex items-center" style={{ gap: 8 }}>
+      {/* Hidden = display:none on the two visible blocks only; the New group
+          sheet below is fixed and stays up if it is open. Same element
+          positions either way, so nothing here remounts. */}
+      <div className={hidden ? "hidden" : "flex items-center"} style={{ gap: 8 }}>
         {/* An ivory field with the hairline (the canvas's header bell), and a
             pine "+" beside it — the screen's one filled control. */}
         <label
@@ -6514,7 +6779,7 @@ function ThreadListView({ token, onOpen, onRead }) {
         </button>
       </div>
 
-      <div style={{ marginTop: 14, gap: 8 }} className="flex flex-col">
+      <div style={{ marginTop: 14, gap: 8 }} className={hidden ? "hidden" : "flex flex-col"}>
         {threads === null ? (
           [1, 2, 3].map((i) => (
             <div key={i} className="vp-shimmer" style={{ height: 68, borderRadius: 20, background: DIVIDER }} data-testid="portal-skeleton" />
@@ -6527,7 +6792,7 @@ function ThreadListView({ token, onOpen, onRead }) {
           </CalmEmpty>
         ) : (
           shown.map((th) => (
-            <ThreadRow key={th.thread_id} thread={th} onOpen={() => onOpen(th)} />
+            <ThreadRow key={th.thread_id} thread={th} onOpen={() => onOpen(th)} active={activeId != null && th.thread_id === activeId} wide={wide} />
           ))
         )}
       </div>
@@ -6607,14 +6872,24 @@ const lastServerId = (list) => {
 
 /** One open conversation. Same bubbles and composer for the owner thread and
     for a group — the only difference is that a group names who spoke. */
-function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft }) {
+function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft, pane = false, split = false, drafts = null }) {
   const { t, lang } = useLanguage();
   const confirm = useConfirm();
   const [meta, setMeta] = useState(thread);
   // From memory on a return (the server's last list, never a pending or
   // failed bubble); the load still runs (premium feel 1.6d).
   const [messages, setMessages] = useState(() => recall(token, `thread:${thread.thread_id}`) ?? null);
-  const [text, setText] = useState("");
+  // The unsent text is kept per conversation by MessagesTab (`drafts`,
+  // Vagtplan 1.6): going back to the list on a phone — or tapping the next
+  // thread in the iPad list — and returning finds it where it was. This view
+  // is remounted per thread (key), so one thread's text never shows in another.
+  const [text, setTextState] = useState(() => drafts?.get(thread.thread_id) || "");
+  const setText = useCallback((v) => {
+    setTextState(v);
+    if (!drafts) return;
+    if (v) drafts.set(thread.thread_id, v);
+    else drafts.delete(thread.thread_id);
+  }, [drafts, thread.thread_id]);
   const [sending, setSending] = useState(false);
   const picker = usePhotoPicker();
   // Android app: the photo button asks "take or choose" (ChatPhotoSourceSheet)
@@ -6666,7 +6941,12 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
   const { lift: kb, open: kbOpen } = useKeyboardState();
   useEffect(() => {
     // Keyboard up → keep the newest message in sight above the composer.
+    // Re-stick too (Vagtplan 1.6, dfd68c7f): the stream is re-measured shorter
+    // right after (fitStream below), and the pin that follows must land on the
+    // new bottom even if the staffer had scrolled up to read before tapping
+    // the field.
     if (!kbOpen) return undefined;
+    nearBottom.current = true;
     const pin = () => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; };
     pin();
     if (!platform.isAndroid) return undefined;
@@ -6677,6 +6957,101 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
   }, [kb, kbOpen]);
   const threadId = thread.thread_id;
   const isGroup = (meta?.kind || thread.kind) === "group";
+
+  // The composer grows with what is typed, up to its max-height (then it
+  // scrolls inside itself; Vagtplan 1.6): it was one 44 px line, so a second
+  // line was cut off at the pill's edge. `grow` = px above the one-line
+  // height; the measured stream gives that room back (fitStream).
+  const taRef = useRef(null);
+  const [grow, setGrow] = useState(0);
+  const fitComposer = useCallback(() => {
+    const el = taRef.current;
+    if (!el || typeof window === "undefined") return;
+    el.style.height = "auto";
+    const cs = window.getComputedStyle(el);
+    const px = (v) => parseFloat(v) || 0;
+    const padY = px(cs.paddingTop) + px(cs.paddingBottom);
+    const border = px(cs.borderTopWidth) + px(cs.borderBottomWidth);
+    const lineH = px(cs.lineHeight) || 21.6;
+    const maxH = px(cs.maxHeight) || Infinity;
+    // One line, exactly as rows={1} draws it (≥ the 44 px minimum).
+    const oneLine = Math.max(px(cs.minHeight), lineH + padY + border);
+    const content = (el.scrollHeight || 0) - padY;
+    const lines = Math.max(1, Math.round(content / lineH));
+    const want = lines > 1 ? Math.min(maxH, el.scrollHeight + border) : oneLine;
+    el.style.height = `${want}px`;
+    const g = lines > 1 ? Math.max(0, Math.round(want - oneLine)) : 0;
+    setGrow((prev) => (prev === g ? prev : g));
+  }, []);
+  useLayoutEffect(() => { fitComposer(); }, [text, pane, split, fitComposer]);
+  useEffect(() => {
+    // The stream just gave room to a taller composer: keep the newest in sight.
+    const el = scrollRef.current;
+    if (el && grow > 0) {
+      nearBottom.current = true;
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [grow]);
+  // A rotation or a Split View resize re-wraps the same text. Measured on
+  // the next frame: the resize event comes before the layout of the new size
+  // (and, across an iPad breakpoint, before React re-renders it), and a
+  // measure taken then read a mid-change width as four lines (seen on a
+  // landscape → portrait rotation of the iPad layout).
+  useEffect(() => {
+    let frame = 0;
+    const onResize = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => { frame = 0; fitComposer(); });
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [fitComposer]);
+
+  // The stream fills the room between the title and the floating composer —
+  // measured, not guessed (Vagtplan 1.6, 2a8c535d). The calc below is only
+  // the first frame's (and jsdom's) answer: it assumed the iOS shell had no
+  // top inset, which stopped being true when the app went edge to edge
+  // (contentInset "never", 1.6 (23)) — the newest message then sat under the
+  // composer. The top is taken with the page at rest (the shell's own scroll
+  // added back); the bottom is the composer's top edge less 2 px, which
+  // already follows the keyboard, a growing text and staged photos. The iPad
+  // pane is a flex card and needs none of this.
+  const composerRef = useRef(null);
+  const [streamMax, setStreamMax] = useState(null);
+  const fitStream = useCallback(() => {
+    if (pane || typeof window === "undefined") return;
+    const st = scrollRef.current;
+    const c = composerRef.current;
+    if (!st || !c) return;
+    const top = st.getBoundingClientRect().top + (st.closest("[data-page-shell]")?.scrollTop || 0);
+    const bottom = c.getBoundingClientRect().top;
+    if (!(bottom > top)) return; // nothing laid out (jsdom) — keep the fallback
+    const next = Math.max(120, Math.floor(bottom - top - 2));
+    setStreamMax((prev) => (prev === next ? prev : next));
+  }, [pane]);
+  useLayoutEffect(() => { fitStream(); }, [fitStream, kb, kbOpen, grow, messages]);
+  useEffect(() => {
+    if (pane) return undefined;
+    window.addEventListener("resize", fitStream);
+    let ro = null;
+    try {
+      ro = new ResizeObserver(() => fitStream());
+      if (composerRef.current) ro.observe(composerRef.current);
+    } catch { /* no ResizeObserver: resize + keyboard still refit */ }
+    return () => {
+      window.removeEventListener("resize", fitStream);
+      try { ro && ro.disconnect(); } catch { /* noop */ }
+    };
+  }, [pane, fitStream]);
+  // A re-measured (shorter) stream keeps the newest message in sight while
+  // the staffer is at the bottom.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && streamMax != null && nearBottom.current) el.scrollTop = el.scrollHeight;
+  }, [streamMax]);
 
   // The last answer's signature: an unchanged poll writes nothing (no render
   // of the stream, no scroll write, no layout read) — premium feel 1.8b.
@@ -6834,48 +7209,84 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
     }
   };
 
-  const memberCount = (meta?.member_ids || []).length;
+  // A group's size: the thread's own read (member_ids) once it is in, else
+  // the list row's member_count, which is on screen from the first frame.
+  // Unknown (a group just created, before its first read) says nothing —
+  // never "Din leder", which is the DIRECT thread's line (Vagtplan 1.6).
+  const memberCount = (meta?.member_ids || []).length || Number(meta?.member_count) || 0;
+  const subline = isGroup
+    ? (memberCount ? t("staffChatMemberCount", "{n} people").replace("{n}", String(memberCount)) : "")
+    : t("staffChatDirectSub", "Your manager");
   const sendOff = (!text.trim() && picker.files.length === 0) || sending;
   const heading = isGroup
     ? meta?.title || t("staffChatGroup", "Group")
     : restaurantName || t("staffChatOwnerLabel", "Manager");
 
+  // iPad (pane): the conversation is a bounded card — its title, a stream
+  // that scrolls inside it, and the composer as its last row — instead of a
+  // phone page with a composer floating over the bottom of the screen. With
+  // `split` (wide iPads) the thread list sits beside it, so "All
+  // conversations" has nothing to go back to and is not drawn. Phones never
+  // pass either flag (Vagtplan 1.6's iPad layout, on the redesign).
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center justify-between" style={{ gap: 8, padding: "0 0 8px" }}>
-        <button
-          type="button"
-          onClick={onBack}
-          data-back-close=""
-          data-testid="portal-chat-back"
-          className={`flex items-center vp-press ${FOCUS_RING}`}
-          style={{ gap: 6, minHeight: 44, margin: "0 0 0 -6px", padding: "0 8px 0 4px", borderRadius: 12, font: "600 14px/1 var(--font-text)", color: LINK }}
-        >
-          <ChevronLeft size={18} strokeWidth={2} aria-hidden />
-          {t("staffChatAllConversations", "All conversations")}
-        </button>
-        {isGroup && (
+    <div
+      className="flex flex-col"
+      data-testid={pane ? "portal-chat-pane" : undefined}
+      style={pane ? { height: paneHeight(kb), minHeight: 360, background: CARD, border: `1px solid ${LINE}`, borderRadius: 24, overflow: "hidden" } : undefined}
+    >
+      {(() => {
+        const leaveBtn = isGroup && (
           <button
             type="button"
             onClick={leave}
             className={`vp-press ${FOCUS_RING}`}
-            style={{ minHeight: 44, padding: "0 6px", borderRadius: 12, font: "600 13px/1 var(--font-text)", color: MUTED }}
+            style={{ minHeight: 44, padding: "0 6px", borderRadius: 12, font: "600 13px/1 var(--font-text)", color: MUTED, flex: "none" }}
           >
             {t("staffChatLeave", "Leave")}
           </button>
-        )}
-      </div>
-
-      <div style={{ marginBottom: 12, padding: "0 4px" }}>
-        <h2 style={{ margin: 0, font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>
-          {heading}
-        </h2>
-        <p style={{ margin: "4px 0 0", font: "400 13px/1.3 var(--font-text)", color: MUTED }}>
-          {isGroup && memberCount
-            ? t("staffChatMemberCount", "{n} people").replace("{n}", String(memberCount))
-            : t("staffChatDirectSub", "Your manager")}
-        </p>
-      </div>
+        );
+        const titleBlock = (
+          <div className="min-w-0" style={split ? { flex: 1 } : pane ? { padding: "2px 20px 14px" } : { marginBottom: 12, padding: "0 4px" }}>
+            <h2 className={split ? "truncate" : undefined} style={{ margin: 0, font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>
+              {heading}
+            </h2>
+            {/* An unknown group size keeps the line (a no-break space), so the
+                title block does not jump when the count arrives. */}
+            <p data-testid="portal-chat-subline" style={{ margin: "4px 0 0", font: "400 13px/1.3 var(--font-text)", color: MUTED }}>
+              {subline || "\u00a0"}
+            </p>
+          </div>
+        );
+        // Wide iPad, list beside: no way back to draw — the title and Leave
+        // share one row, with the pane's hairline under it.
+        if (split) {
+          return (
+            <div className="flex items-center justify-between" data-testid="portal-chat-pane-head" style={{ gap: 12, padding: "14px 16px 14px 20px", borderBottom: `1px solid ${DIVIDER}` }}>
+              {titleBlock}
+              {leaveBtn}
+            </div>
+          );
+        }
+        return (
+          <div style={pane ? { borderBottom: `1px solid ${DIVIDER}` } : undefined}>
+            <div className="flex items-center justify-between" style={pane ? { gap: 8, padding: "6px 14px 0 18px" } : { gap: 8, padding: "0 0 8px" }}>
+              <button
+                type="button"
+                onClick={onBack}
+                data-back-close=""
+                data-testid="portal-chat-back"
+                className={`flex items-center vp-press ${FOCUS_RING}`}
+                style={{ gap: 6, minHeight: 44, margin: "0 0 0 -6px", padding: "0 8px 0 4px", borderRadius: 12, font: "600 14px/1 var(--font-text)", color: LINK }}
+              >
+                <ChevronLeft size={18} strokeWidth={2} aria-hidden />
+                {t("staffChatAllConversations", "All conversations")}
+              </button>
+              {leaveBtn}
+            </div>
+            {titleBlock}
+          </div>
+        );
+      })()}
 
       {/* Message stream. Its bottom must stay above the floating composer:
           20rem is the chrome a browser has (header and title above, composer
@@ -6884,7 +7295,10 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
           under the composer — the newest message of a longer group thread
           sat behind it with no scroll left to free it, and the page itself
           overflowed. Insets are 0 in a browser, so the web is unchanged.
-          With the keyboard up the composer rides on the keyboard instead. */}
+          With the keyboard up the composer rides on the keyboard instead.
+          Once laid out, the measured height (streamMax, fitStream above)
+          replaces this first-frame calc on every platform. iPad pane: the
+          stream is the card's flexible middle row. */}
       <div
         ref={scrollRef}
         data-testid="portal-chat-stream"
@@ -6892,18 +7306,21 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
           const el = e.currentTarget;
           nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 72;
         }}
-        className="flex flex-col overflow-y-auto"
-        style={{
-          maxHeight: kbOpen
-            ? (platform.isAndroid
-              // Android's edge-to-edge window keeps its status-bar inset while
-              // the keyboard is up, and the dock has stepped aside (dockAway),
-              // so its room goes back to the stream — without it ~84 px of
-              // empty stream sat above the composer.
-              ? `calc(${VP_IH} - 20rem - env(safe-area-inset-top, 0px) - ${kb}px + ${COMPOSER_OVER_DOCK}px)`
-              // iOS's shell has no top inset here (env is 0 there).
-              : `calc(${VP_IH} - 20rem - ${kb}px)`)
-            : `calc(${VP_IH} - 20rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))`,
+        className={pane ? "flex flex-col overflow-y-auto overscroll-contain flex-1 min-h-0" : "flex flex-col overflow-y-auto"}
+        style={pane ? { gap: 10, padding: "16px 20px", background: IVORY } : {
+          maxHeight: streamMax != null
+            ? `${streamMax}px`
+            : kbOpen
+              ? (platform.isAndroid
+                // Android's edge-to-edge window keeps its status-bar inset while
+                // the keyboard is up, and the dock has stepped aside (dockAway),
+                // so its room goes back to the stream — without it ~84 px of
+                // empty stream sat above the composer.
+                ? `calc(${VP_IH} - 20rem - env(safe-area-inset-top, 0px) - ${kb}px + ${COMPOSER_OVER_DOCK}px)`
+                // iOS: edge to edge since 1.6 (23), so the top inset is real
+                // in the app too (0 in a browser).
+                : `calc(${VP_IH} - 20rem - env(safe-area-inset-top, 0px) - ${kb}px)`)
+              : `calc(${VP_IH} - 20rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))`,
           gap: 10,
         }}
       >
@@ -7005,12 +7422,17 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
           floats like the dock (12 px in, the dock's warm bar and shadow),
           8 px above it; the older bars keep the edge-to-edge glass bar. */}
       <div
+        ref={composerRef}
         data-testid="portal-chat-composer"
         data-kb-skip=""
-        className={BAR_V3
-          ? "fixed z-20 m-0"
-          : `fixed inset-x-0 z-20 glass border-t border-gray-200/70${BAR_V2 ? " bb-lg-composer" : ""}`}
-        style={BAR_V3
+        className={pane
+          ? "flex-none"
+          : BAR_V3
+            ? "fixed z-20 m-0"
+            : `fixed inset-x-0 z-20 glass border-t border-gray-200/70${BAR_V2 ? " bb-lg-composer" : ""}`}
+        style={pane
+          ? { padding: "8px 10px 10px", borderTop: `1px solid ${DIVIDER}`, background: CARD }
+          : BAR_V3
           ? {
             bottom: kbOpen ? `${kb}px` : aboveDock(8),
             left: "max(12px, env(safe-area-inset-left, 0px))",
@@ -7024,7 +7446,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
           }
           : { bottom: kbOpen ? `${kb}px` : "calc(3.5rem + env(safe-area-inset-bottom))" }}
       >
-        <div className={BAR_V3 ? "" : "max-w-lg mx-auto px-3 pt-2"} style={BAR_V3 ? { padding: 5 } : undefined}>
+        <div className={pane || BAR_V3 ? "" : "max-w-lg mx-auto px-3 pt-2"} style={BAR_V3 && !pane ? { padding: 5 } : undefined}>
           {/* The shared photo kit in the portal's material: a 14 px thumb, a
               pine "×" (24 px, 44 px to tap) instead of the kit's navy dot. */}
           {photoNote && (
@@ -7049,10 +7471,12 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
               style={{ width: 44, height: 44, borderRadius: 999, color: picker.atMax ? PLACEHOLDER : MUTED }}
             />
             <textarea
+              ref={taRef}
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={onKeyDown}
               rows={1}
+              data-testid="portal-chat-input"
               placeholder={t("staffChatPlaceholder", "Write a message…")}
               className="flex-1 min-w-0 resize-none max-h-28 outline-none border border-[#E8E3D8] focus:border-[#0E3B2E]/50 placeholder:text-[#8A948E]"
               style={{
@@ -7062,7 +7486,9 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
                 // STAYED zoomed after the keyboard closed, clipping Send and
                 // the tab bar until a force-quit. 44 tall: the send button's
                 // height, so the row's two ends line up.
-                minHeight: 44, padding: "11px 16px", borderRadius: 22,
+                // Past one line the pill's full round would clip the text at
+                // its corners, so a grown composer rounds like a card.
+                minHeight: 44, padding: "11px 16px", borderRadius: grow > 0 ? 18 : 22,
                 background: IVORY, boxSizing: "border-box",
                 font: "400 16px/1.35 var(--font-text)", color: INK,
               }}
@@ -7163,7 +7589,7 @@ function ChatPhotoSourceSheet({ room, onTake, onChoose, onClose, closing = false
           boxShadow: `0 64px 0 0 ${CARD}, 0 -20px 40px -20px rgba(8,24,18,0.5)`,
         }}
       >
-        <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 12 }} />
+        <span aria-hidden className="block mx-auto vp-grab" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB, marginBottom: 12 }} />
         <div className="flex items-center justify-between" style={{ gap: 12, padding: "0 4px" }}>
           <div className="min-w-0 truncate" style={{ font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>{title}</div>
           <button
@@ -7194,19 +7620,118 @@ function ChatPhotoSourceSheet({ room, onTake, onChoose, onClose, closing = false
 }
 
 
-function MessagesTab({ token, restaurantName, onRead }) {
+// iPad Messages fills the window: the layout viewport, less the header
+// (measured — StaffPortalPage writes --portal-head-h on the shell), the pad
+// content column's 24 px top and bottom padding and the shell's 32 px foot,
+// the cookie banner while it is up, and the keyboard.
+function paneHeight(kb = 0) {
+  return `calc(${VP_IH} - var(--portal-head-h, 6.5rem) - 80px - var(--bb-consent-h, 0px) - ${kb}px)`;
+}
+
+function MessagesTab({ token, restaurantName, takeCountTicket, refreshCount }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(null);
-  return open ? (
-    <Conversation
-      token={token}
-      thread={open}
-      restaurantName={restaurantName}
-      onBack={() => setOpen(null)}
-      onLeft={() => setOpen(null)}
-      onRead={onRead}
-    />
-  ) : (
-    <ThreadListView token={token} onOpen={setOpen} onRead={onRead} />
+  // Unsent text per conversation, for as long as Beskeder is open (see
+  // Conversation). One Map for the tab's life, written in place: typing must
+  // not re-render this tab.
+  const [drafts] = useState(() => new Map());
+  // iPad (Vagtplan 1.6's layout, on the redesign): `pad` puts the
+  // conversation in a bounded card with its composer inside; `split` (wide
+  // iPads) keeps the thread list beside it — master-detail, like Mail and
+  // Messages on iPad. A phone gets neither: list → conversation, as always.
+  const pad = usePadLayout();
+  const split = usePadLayout(PAD_WIDE_QUERY);
+  // New group sheet: lives in the list, but its open state lives here, so the
+  // list can stay mounted while it is up (below).
+  const [creating, setCreating] = useState(false);
+  // Master-detail keeps the list on screen beside the open thread, so it
+  // re-reads at the two moments it goes stale — the first read of a newly
+  // opened thread (its count clears) and leaving a group (the row goes) —
+  // instead of waiting for its 8 s poll. Once per thread, never per
+  // conversation poll (Conversation reads every 6 s).
+  const [listTick, setListTick] = useState(0);
+  const refreshList = useCallback(() => setListTick((n) => n + 1), []);
+  const firstReadRef = useRef(null);
+  const openId = open?.thread_id ?? null;
+  const onPaneRead = useCallback(() => {
+    if (openId && firstReadRef.current !== openId) {
+      firstReadRef.current = openId;
+      refreshList();
+    }
+  }, [openId, refreshList]);
+
+  // ONE tree for every layout. Rotating an iPad across the wide breakpoint,
+  // or resizing a Split View window, changes only props here: the list stays
+  // in the first slot and the conversation in the second, so React keeps
+  // both mounted — the unsent draft and its photos, the search text and an
+  // open New group sheet all survive. The list is SHOWN beside the thread on
+  // a wide iPad, and as the screen when no thread is open; on any iPad it
+  // stays MOUNTED (hidden, not polling) behind a full-screen thread. A phone
+  // unmounts it as it always has — unless its New group sheet is up.
+  const listShown = split || !open;
+  const keepList = listShown || pad || creating;
+  return (
+    <div
+      // The list takes 2/5 of the column; the thread the rest.
+      className={split ? "grid items-start" : undefined}
+      style={split ? { gridTemplateColumns: "minmax(320px, 2fr) minmax(0, 3fr)", gap: 20 } : undefined}
+      data-testid={split ? "portal-messages-split" : undefined}
+    >
+      {keepList && (
+        <div
+          className={split ? "min-w-0 overflow-y-auto overscroll-contain" : undefined}
+          style={split ? { maxHeight: paneHeight(), paddingRight: 2 } : undefined}
+        >
+          <ThreadListView
+            token={token}
+            onOpen={setOpen}
+            takeCountTicket={takeCountTicket}
+            activeId={split ? openId : null}
+            refreshTick={listTick}
+            wide={split}
+            hidden={!listShown}
+            creating={creating}
+            onCreatingChange={setCreating}
+          />
+        </div>
+      )}
+      {open ? (
+        <Conversation
+          key={open.thread_id}
+          token={token}
+          thread={open}
+          restaurantName={restaurantName}
+          onBack={() => setOpen(null)}
+          onLeft={() => { setOpen(null); if (split) refreshList(); }}
+          // One conversation full-screen on an iPad in portrait: the list is
+          // not reading, so the count the sidebar shows is read right after
+          // each conversation read — after, so it never counts what that
+          // read just cleared. A phone shows no count while Beskeder is open
+          // (the dock badge is hidden on the active tab) and reads it the
+          // moment the staffer leaves, so it asks for nothing here.
+          onRead={split ? onPaneRead : pad ? refreshCount : undefined}
+          pane={pad}
+          split={split}
+          drafts={drafts}
+        />
+      ) : split ? (
+        // Nothing opens on its own: opening a thread marks it read, and that
+        // must stay the staffer's tap, not a side effect of the layout.
+        <div
+          className="flex flex-col items-center justify-center text-center"
+          data-testid="portal-chat-pick"
+          style={{ height: paneHeight(), minHeight: 360, background: CARD, border: `1px solid ${LINE}`, borderRadius: 24, padding: 32 }}
+        >
+          <MessageSquare size={32} strokeWidth={1.6} aria-hidden style={{ color: SAGE_BAR, marginBottom: 12 }} />
+          <h3 style={{ margin: 0, font: `700 19px/1.25 ${SORA}`, letterSpacing: "-0.015em", color: INK }}>
+            {t("staffChatPickTitle", "Pick a conversation")}
+          </h3>
+          <p style={{ margin: "6px 0 0", maxWidth: 320, font: "400 14px/1.45 var(--font-text)", color: MUTED }}>
+            {t("staffChatPickBody", "Your conversations are on the left. Tap one to read and reply here.")}
+          </p>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -7254,7 +7779,7 @@ function PortalError({ message, expected = false }) {
   useStaffDocTitle(t("portalAppDocTitle", "BonBox Vagtplan"));
   return (
     <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center p-6">
-      <div className="text-center max-w-xs">
+      <div className="text-center max-w-xs vp-gate-card">
         <Link2Off className="w-8 h-8 text-gray-400 mb-3 mx-auto" strokeWidth={2} aria-hidden />
         <h1 className="text-xl font-bold text-gray-900 mb-2">{t("portalErrorTitle", "Link not working")}</h1>
         {/* Catalogue copy wins for the expected dead/expired link — it exists
@@ -7342,14 +7867,16 @@ function PortalOffline({ onRetry, busy = false, kind = "offline" }) {
   const Icon = server ? ServerCrash : CloudOff;
   return (
     <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center p-6">
-      <div className="text-center max-w-xs" data-kind={kind}>
+      <div className="text-center max-w-xs vp-gate-card" data-kind={kind}>
         <Icon className="w-8 h-8 text-gray-400 mb-3 mx-auto" strokeWidth={2} aria-hidden />
         <h1 className="text-xl font-bold text-gray-900 mb-2">
           {server ? t("portalServerDownTitle", "The server isn't answering") : t("portalOfflineTitle", "No connection")}
         </h1>
         <p className="text-sm text-gray-500">
           {server
-            ? t("portalServerDownBody", "It's on our side, not your phone. Your link is saved, and we'll try again on our own in a moment.")
+            ? (_isIpad()
+              ? t("portalServerDownBodyIpad", "It's on our side, not your iPad. Your link is saved, and we'll try again on our own in a moment.")
+              : t("portalServerDownBody", "It's on our side, not your phone. Your link is saved, and we'll try again on our own in a moment."))
             : t("portalOfflineBody", "We couldn't reach BonBox. Your link is saved — we'll try again as soon as you're online.")}
         </p>
         <button
@@ -7425,7 +7952,7 @@ function DateField({ label, value, onChange, min, max, testId }) {
   );
 }
 
-function AbsenceSection({ token, onChanged }) {
+function AbsenceSection({ token, onChanged, className }) {
   const { t, lang } = useLanguage();
   // From memory on a return (its load answer; premium feel 1.6d).
   const [rows, setRows] = useState(() => recall(token, "absenceList") ?? null);
@@ -7542,7 +8069,7 @@ function AbsenceSection({ token, onChanged }) {
   const groups = groupAbsence(rows);
 
   return (
-    <div className="flex flex-col" style={{ gap: 12 }} data-testid="fravaer-section">
+    <div className={`flex flex-col${className ? ` ${className}` : ""}`} style={{ gap: 12 }} data-testid="fravaer-section">
       {/* Neutral heading. This list holds BOTH kinds — GET /absence has no kind
           filter (staff_portal.py ~2382), so a Schedule-tab sygemelding lands
           here too — and labelling the whole section "needs approval" put those
@@ -7993,7 +8520,10 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
   // The home week card's words for the same week ("9–15 November" /
   // "9.–15. november"), not a second spelling ("9 Nov – 15 Nov").
   const range = fmtWeekRange(iso(days[0]), lang);
-  const markedThisWeek = days.filter((d) => oneOffByDate[iso(d)]).length;
+  // A day the weekly rule covers IS marked (the strip draws it as kan ikke),
+  // so it counts — "Intet markeret i denne uge" under a marked Monday
+  // contradicted the strip right above it (Vagtplan 1.6).
+  const markedThisWeek = days.filter((d) => oneOffByDate[iso(d)] || recurringSet?.has((d.getDay() + 6) % 7)).length;
 
   return (
     <section data-testid="kanikke-week" style={{ ...CARD_BOX, borderRadius: 24, padding: "14px 12px" }}>
@@ -8302,7 +8832,11 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
   );
 
   return (
-    <div className="flex flex-col" style={{ gap: 16 }}>
+    /* Wide iPad: LEFT marking days (kind, calendar, legend, marks, weekly);
+       RIGHT Fravær, the request the owner approves — a different kind of
+       thing, which on a phone the divider separates (vagtplanPad.css
+       .vp-split). Phones: inert. */
+    <div className="flex flex-col vp-split" style={{ gap: 16 }} data-testid="portal-availability-grid">
       {/* Which kind of day a tap marks. Both are real: "kan ikke" constrains
           the roster, "helst" is a soft preference the manager sees while
           planning. The copy for each says exactly that much and no more —
@@ -8444,10 +8978,10 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
       </div>
 
       {/* Divider — a different kind of thing below */}
-      <div aria-hidden style={{ height: 1, background: DIVIDER, margin: "4px 4px 0" }} />
+      <div aria-hidden className="vp-split-hide" style={{ height: 1, background: DIVIDER, margin: "4px 4px 0" }} />
 
       {/* Fravær — a request the owner approves (distinct from the soft calendar taps) */}
-      <AbsenceSection token={token} onChanged={loadAbsence} />
+      <AbsenceSection token={token} onChanged={loadAbsence} className="vp-split-r" />
 
       {/* Rostered-day confirm: the mark is a planning signal, not a cancellation. */}
       {rosteredSheet.mounted && rosteredShown && (
@@ -8608,6 +9142,98 @@ const TABS = [
 ];
 // The dock's five: Alerts lives on the header bell.
 const DOCK_TABS = TABS.filter((item) => item.key !== "alerts");
+// iPad: the sidebar's width from the screen's left edge (14rem + the side
+// inset). The shell sits inside the side inset already, so it pads 14rem.
+const PAD_RAIL_W = "calc(14rem + env(safe-area-inset-left, 0px))";
+
+/**
+ * PortalRail — the iPad sidebar (Vagtplan 1.6's iPad layout, drawn in the
+ * redesign's materials). On an iPad the dock's five sections and Nyt become
+ * rows down the left edge, the way iPad apps carry their sections: icon and
+ * name side by side at a readable size, the page you are on the sage row,
+ * counts at the row's end in the dock's pine. On top, which app this is and
+ * whose. Rendered only when usePadLayout() says iPad, and FIRST in the shell,
+ * so a hardware keyboard reaches the sections before the page. No sliding
+ * pill and no haptics: a sidebar row is a plain selection.
+ */
+function PortalRail({ tab, setTab, staffName, chatUnread, swapAsks, alertsUnread }) {
+  const { t } = useLanguage();
+  const count = (n, label) => (n > 0 ? (
+    <span
+      aria-label={label}
+      className="flex-none inline-flex items-center justify-center vp-figures"
+      style={{ minWidth: 22, height: 22, padding: "0 7px", boxSizing: "border-box", borderRadius: 11, background: PINE, color: CREAM, font: "700 12px/1 var(--font-text)" }}
+    >
+      {n > 9 ? "9+" : n}
+    </span>
+  ) : null);
+  const row = (key, Icon, label, badge, testId) => {
+    const active = tab === key;
+    return (
+      <button
+        key={key}
+        type="button"
+        onClick={() => setTab(key)}
+        aria-current={active ? "page" : undefined}
+        data-testid={testId}
+        className={`w-full flex items-center text-left vp-press vp-tint ${FOCUS_RING}`}
+        style={{
+          gap: 12, minHeight: 48, padding: "0 12px", borderRadius: 14,
+          background: active ? SOFT : "transparent",
+          color: active ? PINE : MUTED,
+          font: `${active ? 700 : 600} 15px/1.2 var(--font-text)`,
+        }}
+      >
+        <Icon size={20} strokeWidth={active ? 2.2 : 1.9} aria-hidden className="shrink-0" />
+        <span className="flex-1 min-w-0 truncate" style={{ color: active ? INK : undefined }}>{label}</span>
+        {badge}
+      </button>
+    );
+  };
+  return (
+    <nav
+      data-portal-rail=""
+      data-testid="portal-rail"
+      aria-label={t("portalTabsLabel", "Tabs")}
+      className="fixed top-0 bottom-0 left-0 z-20 flex flex-col overflow-y-auto"
+      style={{
+        width: PAD_RAIL_W, boxSizing: "border-box",
+        padding: "calc(env(safe-area-inset-top, 0px) + 20px) 12px 20px calc(env(safe-area-inset-left, 0px) + 12px)",
+        background: IVORY, borderRight: `1px solid ${LINE}`,
+      }}
+    >
+      <div className="flex items-center" style={{ gap: 12, padding: "0 8px 20px" }} data-testid="portal-rail-heading">
+        <img src="/vagtplan-icon-192.png" alt="" width={36} height={36} className="shrink-0" style={{ borderRadius: 10, boxShadow: `0 0 0 1px ${LINE}` }} />
+        <div className="min-w-0">
+          <div className="truncate" style={{ font: `700 15px/1.2 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>
+            {t("portalAppDocTitle", "BonBox Vagtplan")}
+          </div>
+          {staffName && (
+            <div className="truncate" style={{ marginTop: 3, font: "500 13px/1.2 var(--font-text)", color: MUTED }}>
+              {staffName}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-col" style={{ gap: 2 }}>
+        {DOCK_TABS.map((item) => {
+          const label = item.v3LabelKey ? t(item.v3LabelKey, item.v3LabelFallback) : t(item.labelKey, item.labelFallback);
+          const badge = item.key === "messages"
+            ? count(chatUnread, t("staffChatUnreadBadge", "Unread messages"))
+            : item.key === "swaps"
+              ? count(swapAsks, t("portalSwapAsksBadge", "Swap requests waiting for your answer"))
+              : null;
+          return row(item.key, item.V3Icon || item.Icon, label, badge, `portal-rail-${item.key}`);
+        })}
+      </div>
+      {/* Nyt — the header bell on a phone; here a row like the others, so the
+          page you are on is always the highlighted row. */}
+      <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${DIVIDER}` }}>
+        {row("alerts", Bell, t("navAlerts", "Alerts"), tab === "alerts" ? null : count(alertsUnread, t("portalAlertsUnreadBadge", "Unread updates")), "portal-rail-alerts")}
+      </div>
+    </nav>
+  );
+}
 
 /**
  * InstallNotifyCard — the prominent "make this an app + get notified" card
@@ -8678,9 +9304,11 @@ function InstallNotifyCard({ token }) {
 
   // iOS Safari has no install prompt — it installs via Share → Add to Home
   // Screen, so we show that as guided steps instead of an Install button.
-  const isIOS = /iphone|ipad|ipod/i.test(
-    typeof navigator !== "undefined" ? navigator.userAgent || "" : ""
-  );
+  // _isIos(), the page's one device check: iPadOS Safari presents a desktop
+  // (Macintosh) user agent by default, so a UA test alone sent every iPad to
+  // the "open this page in Chrome or Safari" hint — inside Safari — with no
+  // App Store button (Vagtplan 1.6).
+  const isIOS = _isIos();
 
   return (
     <div className="mt-4 rounded-xl border border-gray-200 bg-white">
@@ -9126,7 +9754,11 @@ function StaffPushOptIn({ token }) {
           <Smartphone className="w-4 h-4" strokeWidth={2} aria-hidden />
           {t("staffPushIosInstallTitle", "Get push notifications")}
         </div>
-        {t("staffPushIosInstallHint", "On iPhone, tap the share icon in Safari and choose Add to Home Screen. Then open your schedule from the new icon — the light Vagtplan icon with your workplace's name — to turn on push.")}
+        {/* iPad Safari has Share at the top of the window, not at the bottom
+            as on an iPhone — and the reader is not on an iPhone. */}
+        {_isIpad()
+          ? t("staffPushIpadInstallHint", "On iPad, tap the share icon at the top of Safari and choose Add to Home Screen. Then open your schedule from the new icon — the light Vagtplan icon with your workplace's name — to turn on push.")
+          : t("staffPushIosInstallHint", "On iPhone, tap the share icon in Safari and choose Add to Home Screen. Then open your schedule from the new icon — the light Vagtplan icon with your workplace's name — to turn on push.")}
       </div>
     );
   }
@@ -9333,7 +9965,10 @@ const PortalDock = memo(function PortalDock({ tab, navIdx, navMoved, setTab, onR
             <span className="vp-dock-icon">
               {/* BeloBag: the active icon draws heavier (2.3), the rest 1.9. */}
               <Icon aria-hidden strokeWidth={active ? 2.3 : 1.9} />
-              {item.key === "messages" && chatUnread > 0 && (
+              {/* No count on Beskeder while it is open — the list right under
+                  it carries each conversation's count, and the badge would
+                  blink as reads land (Vagtplan 1.6). It is back on leaving. */}
+              {item.key === "messages" && chatUnread > 0 && tab !== "messages" && (
                 <span
                   key={`n${chatUnread > 9 ? "9+" : chatUnread}`}
                   className="absolute inline-flex items-center justify-center vp-pop"
@@ -9474,6 +10109,94 @@ export default function StaffPortalPage() {
   // has no memory and starts at the top. Tab content that paints at once (the
   // page's own state, or tabMemory) is what makes the restore land.
   const shellRef = useRef(null);
+  // iPad layout (Vagtplan 1.6, on the redesign — lib/padLayout.js,
+  // components/staff/vagtplanPad.css): a sidebar instead of the dock, one
+  // wider column, form sheets, Beskeder as a card (master-detail on a wide
+  // iPad). JS decides only what CSS cannot. A phone is never isPad.
+  const isPad = usePadLayout();
+  const isPadWide = usePadLayout(PAD_WIDE_QUERY);
+  // The scroller and its sticky header, as elements (they mount after the
+  // first fetch, so the effects below need to see them arrive).
+  const [scrollerEl, setScrollerEl] = useState(null);
+  const [headerEl, setHeaderEl] = useState(null);
+  const setShellEl = useCallback((el) => { shellRef.current = el; setScrollerEl(el); }, []);
+  // iPad: the header's real height, for the Beskeder card that fills the
+  // window (paneHeight). Measured, not guessed. Phones never read it.
+  useLayoutEffect(() => {
+    if (!isPad || !headerEl || !scrollerEl) return undefined;
+    const write = () => {
+      scrollerEl.style.setProperty("--portal-head-h", `${Math.ceil(headerEl.getBoundingClientRect().height)}px`);
+    };
+    write();
+    let ro = null;
+    try {
+      ro = new ResizeObserver(write);
+      ro.observe(headerEl);
+    } catch { /* no ResizeObserver: the first measure stands */ }
+    return () => {
+      try { ro && ro.disconnect(); } catch { /* noop */ }
+      scrollerEl.style.removeProperty("--portal-head-h");
+    };
+  }, [isPad, headerEl, scrollerEl]);
+  // Keep the staffer's place when the layout changes under them: phone ↔
+  // iPad ↔ wide iPad, i.e. a rotation or a Split View resize. Before paint,
+  // after the new layout is in. A place they tapped wins; else what they had
+  // scrolled to (lib/readingPlace.js). A phone never changes mode.
+  const layoutMode = isPad ? (isPadWide ? "wide" : "pad") : "phone";
+  const modeRef = useRef(layoutMode);
+  useLayoutEffect(() => {
+    if (modeRef.current === layoutMode) return;
+    modeRef.current = layoutMode;
+    // The scrolls this layout change causes (the clamp of a page that got
+    // shorter, and the moves below) are not the staffer's.
+    quietReading();
+    if (placeElement()) keepPlaceInView(scrollerEl, headerEl, isPad);
+    else restoreReading(scrollerEl, headerEl);
+  }, [layoutMode, scrollerEl, headerEl, isPad]);
+  // A place the staffer has scrolled away from is no longer their place — a
+  // rotation must not yank them back to it. A scroll that comes with a window
+  // size change is the layout moving, not the staffer, and is ignored.
+  useEffect(() => {
+    if (!scrollerEl) return undefined;
+    let frame = 0;
+    const check = () => {
+      frame = 0;
+      const resized = portalPlace.vw > 0 &&
+        (window.innerWidth !== portalPlace.vw || window.innerHeight !== portalPlace.vh);
+      portalPlace.vw = window.innerWidth;
+      portalPlace.vh = window.innerHeight;
+      if (resized) {
+        quietReading();
+        return;
+      }
+      recordReading(scrollerEl, headerEl);
+      const el = placeElement();
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const top = headerEl ? headerEl.getBoundingClientRect().bottom : 0;
+      if (r.bottom < top || r.top > window.innerHeight) portalPlace.chain = [];
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(check);
+    };
+    scrollerEl.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      scrollerEl.removeEventListener("scroll", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [scrollerEl, headerEl]);
+  // iPad in a browser: the cookie banner must start right of the sidebar
+  // (vagtplanPad.css reads html[data-vp-rail]). Set only while the sidebar is
+  // on screen.
+  useEffect(() => {
+    if (!isPad || !scrollerEl) return undefined;
+    const root = document.documentElement;
+    root.setAttribute("data-vp-rail", "");
+    return () => root.removeAttribute("data-vp-rail");
+  }, [isPad, scrollerEl]);
+  // The iPad column: header row and content share it on every tab, so the
+  // title lines up with the cards under it and nothing slides between tabs.
+  const padColumn = isPad ? { maxWidth: isPadWide ? 1080 : 720, paddingLeft: 32, paddingRight: 32 } : null;
   const scrollMem = useRef({});
   useLayoutEffect(() => {
     if (shellRef.current) shellRef.current.scrollTop = scrollMem.current[tab] ?? 0;
@@ -9552,8 +10275,37 @@ export default function StaffPortalPage() {
   // null = whatever the owner's pay-period config says (the default the staffer
   // is paid on). Non-null = a window the staffer chose themselves.
   const [hoursRange, setHoursRange] = useState(null);
-  // Unread owner→staff chat messages — drives the "Beskeder" nav badge.
+  // Unread chat messages across every conversation — the "Beskeder" count
+  // (the dock badge, the iPad sidebar row).
+  //
+  // ONE source of truth, the server's count (Vagtplan 1.6). It had two
+  // writers with opposite answers — the /chat/unread poll wrote the server's
+  // number and every thread-list read wrote 0 although reading the list marks
+  // nothing read — so the badge blinked. Now every write is the server's
+  // number and the newest READ wins: each read takes a ticket when it is
+  // SENT, and its answer is dropped if a newer read went out after it.
+  //   • away from Beskeder — the cheap /chat/unread poll (25 s);
+  //   • on Beskeder — the screen itself: the thread list's own read (per-thread
+  //     numbers summed, the thread open beside it counted as read), or on an
+  //     iPad with one conversation full-screen a count read right after each
+  //     conversation read. A phone shows no badge on the open Beskeder tab.
+  // Both functions are stable for the page's life (the chat views list them
+  // as dependencies of their load()).
   const [chatUnread, setChatUnread] = useState(0);
+  const chatTicketRef = useRef(0);
+  const takeChatTicket = useCallback(() => {
+    const mine = ++chatTicketRef.current;
+    return (n) => {
+      if (mine === chatTicketRef.current) setChatUnread(Math.max(0, Number(n) || 0));
+    };
+  }, []);
+  const refreshChatUnread = useCallback(() => {
+    const apply = takeChatTicket();
+    portalApi
+      .get(`/portal/${token}/chat/unread`)
+      .then((res) => apply(res.data?.unread || 0))
+      .catch(() => {});
+  }, [token, takeChatTicket]);
   // Swap requests waiting on THIS staffer's answer — the "Byt" nav badge.
   const [swapAsks, setSwapAsks] = useState(0);
 
@@ -10070,28 +10822,19 @@ export default function StaffPortalPage() {
   // shortcut. "tips" is no longer in the deep-link allow-list above, so such a
   // link already resolves to "schedule" — no special handling needed.
 
-  // 2c. Chat unread badge — poll the cheap count endpoint so the "Beskeder"
-  // nav dot lights up when the owner writes. While the Messages tab is open
-  // the server marks read on each fetch, so we just hold the badge at 0.
+  // 2c. Chat unread count — away from Beskeder, poll the cheap count endpoint
+  // so the "Beskeder" badge lights up when someone writes (at once on leaving
+  // Beskeder: the effect re-runs on the tab change). On Beskeder the screen
+  // reads it itself (MessagesTab), at the moments it can change.
   useEffect(() => {
-    if (!(pinVerified && info)) return;
-    let cancelled = false;
+    if (!(pinVerified && info) || tab === "messages") return undefined;
     const poll = () => {
-      if (document.visibilityState !== "visible") return;
-      portalApi
-        .get(`/portal/${token}/chat/unread`)
-        .then((res) => {
-          if (!cancelled) setChatUnread(res.data?.unread || 0);
-        })
-        .catch(() => {});
+      if (document.visibilityState === "visible") refreshChatUnread();
     };
     poll();
-    const id = setInterval(poll, tab === "messages" ? 8000 : 25000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [pinVerified, info, tab, token]);
+    const id = setInterval(poll, 25000);
+    return () => clearInterval(id);
+  }, [pinVerified, info, tab, refreshChatUnread]);
 
   // 2d. Byt badge — the requests that wait on this staffer's answer, read
   // from the inbox endpoint the Byt tab already uses (no endpoint of its
@@ -10377,7 +11120,7 @@ export default function StaffPortalPage() {
     // root), the shell is always exactly the frame the fixed bars sit in, and
     // it is the containing block for anything absolute inside it.
     <div
-      ref={shellRef}
+      ref={setShellEl}
       data-page-shell=""
       className="full-height scrollable text-gray-900 pb-24"
       /* pb-24 clears the tab bar; while the cookie banner sits on it, the
@@ -10396,16 +11139,23 @@ export default function StaffPortalPage() {
         // of air. Android, typing: the dock has stepped aside (dockAway), so
         // its room is not reserved — the chat thread would otherwise overflow
         // the shortened window by ~18 px.
-        paddingBottom: dockAway
+        // iPad: the sections are a sidebar on the left (PortalRail), so the
+        // shell makes room on the LEFT and keeps a calm 2rem at the bottom.
+        paddingBottom: isPad
+          ? "calc(2rem + var(--bb-consent-h, 0px))"
+          : dockAway
           ? "calc(16px + var(--bb-consent-h, 0px))"
           : BAR_V3
             ? "calc(76px + env(safe-area-inset-bottom, 0px) + var(--bb-consent-h, 0px))"
             : "calc(6rem + var(--bb-consent-h, 0px))",
+        ...(isPad ? { paddingLeft: "14rem" } : null),
         // Where scrollIntoView may put things: below the sticky header (56 +
         // the notch) and above the floating tab bar. Without it the sick-call
         // form's Send button landed under the bar.
         scrollPaddingTop: "calc(68px + env(safe-area-inset-top, 0px))",
-        scrollPaddingBottom: BAR_V3
+        scrollPaddingBottom: isPad
+          ? "2rem"
+          : BAR_V3
           ? "calc(76px + env(safe-area-inset-bottom, 0px))"
           : "calc(6rem + env(safe-area-inset-bottom, 0px))",
         ...PORTAL_SHELL_FRAME,
@@ -10421,7 +11171,21 @@ export default function StaffPortalPage() {
           the page. The border box is always there (transparent at rest), so
           the hairline never shifts anything. Still no transform on the
           sticky header. */}
+      {/* iPad: the sidebar first in the DOM, so a hardware keyboard tabs
+          through the sections before the page and a screen reader meets it
+          where it is drawn. A phone keeps the dock after the content. */}
+      {isPad && (
+        <PortalRail
+          tab={tab}
+          setTab={setTab}
+          staffName={info?.staff_name}
+          chatUnread={chatUnread}
+          swapAsks={swapAsks}
+          alertsUnread={alertsUnread}
+        />
+      )}
       <div
+        ref={setHeaderEl}
         className="sticky top-0 z-10 glass-static pt-[env(safe-area-inset-top)]"
         data-testid="portal-header"
         style={{ background: "rgba(246,244,238,0.9)", borderBottom: `1px solid ${headerScrolled ? LINE : "transparent"}` }}
@@ -10446,7 +11210,7 @@ export default function StaffPortalPage() {
             a brass ring; opens the profile), the date over "Min vagtplan",
             the bell. The date line is the home's: other tabs, and the home
             once scrolled, show the title alone. */}
-        <div className="max-w-lg mx-auto flex items-center" style={{ height: 56, gap: 12, padding: "0 20px" }} data-testid="portal-header-row">
+        <div className="max-w-lg mx-auto flex items-center" style={{ height: 56, gap: 12, padding: "0 20px", ...(isPad ? { height: 64, ...padColumn } : null) }} data-testid="portal-header-row">
           <button
             type="button"
             onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setAddressInput(info?.address || ""); setPostalInput(info?.postal_code || ""); setCityInput(info?.city || ""); setEmailMsg(""); setEmailStatus(null); }}
@@ -10514,7 +11278,9 @@ export default function StaffPortalPage() {
             </button>
           )}
           {/* Alerts bell — replaces the Alerts nav tab. 44 px, radius 14, the
-              unread count a pine badge (canvas). */}
+              unread count a pine badge (canvas). iPad: Nyt is a sidebar row
+              (with its count), so the header has no bell there. */}
+          {!isPad && (
           <button
             type="button"
             onClick={() => setTab("alerts")}
@@ -10542,6 +11308,7 @@ export default function StaffPortalPage() {
               </span>
             )}
           </button>
+          )}
         </div>
         {/* Offline / out-of-date strip. Speaks ONLY when the screen may not
             be current: the phone is offline, or the last schedule answer is
@@ -10583,7 +11350,8 @@ export default function StaffPortalPage() {
               style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))", boxShadow: "0 64px 0 0 #fff" }}
               onClick={(e) => e.stopPropagation()}
             >
-              <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB }} />
+              <span aria-hidden className="block mx-auto vp-grab" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB }} />
+              <PadSheetClose onClose={() => setPhotoMenu(false)} />
               <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
                 {t("portalPhotoLabel", "Photo")}
               </div>
@@ -10637,7 +11405,8 @@ export default function StaffPortalPage() {
               style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))", boxShadow: "0 64px 0 0 #fff" }}
               onClick={(e) => e.stopPropagation()}
             >
-              <span aria-hidden className="block mx-auto" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB }} />
+              <span aria-hidden className="block mx-auto vp-grab" style={{ width: 36, height: 5, borderRadius: 3, background: GRAB }} />
+              <PadSheetClose onClose={() => setDeptOpen(false)} />
               <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
                 {t("portalDepartment", "Department")}
               </div>
@@ -10678,7 +11447,7 @@ export default function StaffPortalPage() {
             behind it. As an overlay it has its own scroll + a tap-out backdrop
             and never disturbs the main scroll. */}
         {profileSheet.mounted && createPortal((
-          <div data-vp-overlay="" className="fixed inset-0 z-[60] m-0 flex flex-col justify-end" role="dialog" aria-modal="true" style={KB_LIFT_STYLE} {...closingProps(profileSheet.closing)}>
+          <div data-vp-overlay="" className={`fixed inset-0 z-[60] m-0 flex flex-col justify-end ${SHEET_KB_TOP}`} role="dialog" aria-modal="true" style={KB_LIFT_STYLE} {...closingProps(profileSheet.closing)}>
             <button
               type="button"
               aria-label={t("close", "Close")}
@@ -10698,7 +11467,7 @@ export default function StaffPortalPage() {
                   sheet's handle: a pull down from here always moves the
                   sheet (premium feel 1.5). The grabber sits in its top edge. */}
               <div data-sheet-handle="" className="sticky top-0 z-10 bg-white flex items-center justify-between px-4 pt-6 pb-2 border-b border-[#f1f5f9]">
-                <span aria-hidden className="absolute" style={{ top: 8, left: 0, right: 0, margin: "0 auto", width: 36, height: 5, borderRadius: 3, background: GRAB }} />
+                <span aria-hidden className="absolute vp-grab" style={{ top: 8, left: 0, right: 0, margin: "0 auto", width: 36, height: 5, borderRadius: 3, background: GRAB }} />
                 <h2 className="text-base font-bold text-gray-900">{t("portalEditContact", "Edit profile")}</h2>
                 <button
                   type="button"
@@ -10709,7 +11478,7 @@ export default function StaffPortalPage() {
                   <X className="w-5 h-5" strokeWidth={2} aria-hidden />
                 </button>
               </div>
-              <div className="px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3">
+              <div className="px-4 py-4 pb-[max(1rem,calc(env(safe-area-inset-bottom)_-_var(--kb-h,0px)))] space-y-3">
               {/* Profile photo — staff pick a photo; the owner sees it too. */}
               {/* Flat forest, like the next-shift card (home v3, Nov 2026). */}
               <div
@@ -10938,7 +11707,11 @@ export default function StaffPortalPage() {
                   type="button"
                   onClick={async () => {
                     const ok = await confirmDisconnect({
-                      title: t("portalDisconnectTitle", "Disconnect this phone?"),
+                      // The device the staffer holds (Vagtplan 1.6): "this phone"
+                      // read wrong on an iPad.
+                      title: _isIpad()
+                        ? t("portalDisconnectTitleIpad", "Disconnect this iPad?")
+                        : t("portalDisconnectTitle", "Disconnect this phone?"),
                       message: t("portalDisconnectBody", "You'll stop getting shift alerts. To see your schedule again, you'll need your link or a new code from your manager."),
                       confirmLabel: t("portalDisconnectConfirm", "Disconnect"),
                       destructive: true,
@@ -10959,7 +11732,9 @@ export default function StaffPortalPage() {
                   }}
                   className="mt-2 min-h-[44px] text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2 vp-press"
                 >
-                  {t("portalDisconnect", "Disconnect this phone from the schedule")}
+                  {_isIpad()
+                    ? t("portalDisconnectIpad", "Disconnect this iPad from the schedule")
+                    : t("portalDisconnect", "Disconnect this phone from the schedule")}
                 </button>
               </div>
               </div>
@@ -10977,8 +11752,10 @@ export default function StaffPortalPage() {
         <div
           className="fixed left-0 right-0 z-40 flex justify-center pointer-events-none"
           // Below the status bar: Android draws the page under it (edge to
-          // edge, env top 48 px); the iOS shell insets the WebView (env 0).
-          style={{ top: "calc(env(safe-area-inset-top, 0px) + 8px)" }}
+          // edge, env top 48 px), and so does iOS since Vagtplan 1.6 (23)
+          // (contentInset "never"). iPad: centred on the content, right of
+          // the sidebar.
+          style={{ top: "calc(env(safe-area-inset-top, 0px) + 8px)", ...(isPad ? { left: PAD_RAIL_W } : null) }}
           data-testid="portal-pull-status"
           role="status"
           aria-live="polite"
@@ -11010,7 +11787,19 @@ export default function StaffPortalPage() {
       {/* Keyed by tab: a switch mounts the new screen, which only fades in
           under the pill (vagtplan.css .vp-tab-in, premium feel 1.6b). Tabs
           are siblings, not layers, and opacity re-anchors no fixed child. */}
-      <div key={tab} data-testid="portal-content" className={`max-w-lg mx-auto px-3 min-[361px]:px-4 ${tab === "schedule" ? "pt-2 pb-4" : "py-4"}${nav.moved ? " vp-tab-in" : ""}`}>
+      {/* iPad: the same wider column as the header row (padColumn); the tabs
+          that split into two columns on a wide iPad do that inside it.
+          data-portal-content + the capture handlers: bookkeeping for the
+          staffer's place (portalPlace, readingPlace) — no effect on a tap. */}
+      <div
+        key={tab}
+        data-testid="portal-content"
+        data-portal-content=""
+        className={`max-w-lg mx-auto px-3 min-[361px]:px-4 ${tab === "schedule" ? "pt-2 pb-4" : "py-4"}${nav.moved ? " vp-tab-in" : ""}`}
+        style={isPad ? { ...padColumn, paddingTop: 24, paddingBottom: 24 } : undefined}
+        onPointerDownCapture={(e) => notePlace(e.target)}
+        onFocusCapture={(e) => notePlace(e.target)}
+      >
         {tab === "schedule" && (
           <ScheduleTab
             shifts={visibleShifts}
@@ -11049,7 +11838,8 @@ export default function StaffPortalPage() {
           <MessagesTab
             token={token}
             restaurantName={info?.restaurant_name}
-            onRead={() => setChatUnread(0)}
+            takeCountTicket={takeChatTicket}
+            refreshCount={refreshChatUnread}
           />
         )}
         {tab === "swaps" && (
@@ -11057,19 +11847,24 @@ export default function StaffPortalPage() {
         )}
         {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} range={hoursRange} setRange={setHoursRange} prevTotal={prevTotal} hoursError={hoursError} hoursLoading={hoursLoading} onRetry={loadHours} />}
         {tab === "alerts" && (
-          <AlertsTab
-            token={token}
-            onNavigate={(next, refDate) => {
-              setScheduleFocus(next === "schedule" && refDate ? { date: refDate, n: Date.now() } : null);
-              setTab(next);
-            }}
-          />
+          // iPad: one reading column (720 px) under the title, even when the
+          // column is wider on a wide iPad.
+          <div style={isPad ? { maxWidth: 720 } : undefined}>
+            <AlertsTab
+              token={token}
+              onNavigate={(next, refDate) => {
+                setScheduleFocus(next === "schedule" && refDate ? { date: refDate, n: Date.now() } : null);
+                setTab(next);
+              }}
+            />
+          </div>
         )}
       </div>
 
       {/* Bottom Navigation */}
       {/* data-bb-consent-clear: the cookie banner sits on this bar, not over it (CookieConsent.jsx). */}
-      {BAR_V3 ? (
+      {/* iPad: no bottom bar — the sections are the sidebar (PortalRail, above). */}
+      {isPad ? null : BAR_V3 ? (
       /* v3: the Orvexlo floating dock (vagtplan.css .vp-dock — BeloBag's
          bar). Five equal columns, every tab its icon AND its name; the
          active one dark evergreen, the rest a muted green-grey. ONE sage
@@ -11177,7 +11972,11 @@ export default function StaffPortalPage() {
       {scheduleUpdated && (
         <div
           className="fixed inset-x-0 z-30 flex justify-center px-4 pointer-events-none"
-          style={{ bottom: BAR_V3 ? aboveDock(12) : "calc(5rem + env(safe-area-inset-bottom))" }}
+          // iPad: no dock under it — 2rem off the bottom, centred on the
+          // content beside the sidebar.
+          style={isPad
+            ? { bottom: "calc(2rem + env(safe-area-inset-bottom, 0px))", left: PAD_RAIL_W }
+            : { bottom: BAR_V3 ? aboveDock(12) : "calc(5rem + env(safe-area-inset-bottom))" }}
           role="status"
           aria-live="polite"
         >

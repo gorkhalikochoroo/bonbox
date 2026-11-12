@@ -141,4 +141,25 @@ describe("/join chrome", () => {
     expect(hint.className).toContain("text-gray-500");
     expect(hint.className).toContain("text-[12px]");
   });
+
+  it("owns its safe areas like the portal: the body inset is dropped while it is mounted, restored after", async () => {
+    // Vagtplan 1.6 (23) safe-area pair, web half (ported for 1.7): the wrapper
+    // pads its own top by env(safe-area-inset-top) inside one 100dvh; the
+    // body inset on top of that made the page taller than the screen in the
+    // edge-to-edge Vagtplan app (a second top gap, and a page that could be
+    // dragged up and stay there).
+    document.body.classList.remove("portal-shell");
+    const input = mount();
+    expect(document.body.classList.contains("portal-shell")).toBe(true);
+    const wrapper = input.closest("form").parentElement.parentElement;
+    expect(wrapper.className).toContain("pt-[max(1.5rem,env(safe-area-inset-top))]");
+    // portal-shell also switches off index.css's cookie-banner bottom pad, so
+    // the wrapper pads by the banner itself (unset in the app → 1.5rem).
+    expect(wrapper.className).toContain("pb-[calc(1.5rem+var(--bb-consent-h,0px))]");
+    // Joining navigates away (here to a stand-in route): the switch goes with it.
+    fireEvent.change(input, { target: { value: "K7P2QM" } });
+    await act(async () => { fireEvent.submit(input.closest("form")); });
+    await waitFor(() => expect(screen.getByText("portal")).toBeInTheDocument());
+    expect(document.body.classList.contains("portal-shell")).toBe(false);
+  });
 });

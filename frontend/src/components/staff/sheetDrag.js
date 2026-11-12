@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { motionAllowed } from "./sheetMotion";
 import { springKeyframes } from "./spring";
+import { matchesPad } from "../../lib/padLayout";
 
 // Drag a sheet down to close (premium feel P5; BeloBag's values, with four
 // review fixes: a handle instead of a fixed 76 px zone, no preventDefault
@@ -86,6 +87,10 @@ export function useSheetDrag(sheetRef, onDismiss, { enabled = true } = {}) {
     };
     const start = (e) => {
       if (e.touches.length !== 1 || root?.hasAttribute("data-closing") || e.target.closest?.(CONTROL)) return;
+      // iPad layout (lib/padLayout.js): the sheet is a centred form sheet with
+      // a close button — nothing to pull down. Read per gesture, so a Split
+      // View resize to phone size gets the pull back at once.
+      if (matchesPad()) return;
       // A sheet's sticky header always grabs; elsewhere only when nothing above the finger is
       // scrolled (else the content scrolls back first).
       if (!e.target.closest?.("[data-sheet-handle]") && scrolledBetween(e.target, sheet)) return;

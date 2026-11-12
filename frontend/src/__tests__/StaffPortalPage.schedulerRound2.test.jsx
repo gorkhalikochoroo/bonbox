@@ -147,8 +147,9 @@ describe("Swap picker — never offers a trade that double-books someone", () =>
     const picker = await openSwapPicker();
     const offered = within(picker).getAllByRole("option").map((o) => o.value).filter(Boolean);
     expect(offered.sort()).toEqual(["anna-fri", "jonas-thu"]);
+    // Vagtplan 1.6 (ported for 1.7): plain words, not "2 skjult — …" (read as jargon).
     expect(screen.getByTestId("swap-hidden-overlap").textContent)
-      .toBe("2 skjult — de ville give dig eller din kollega to vagter på samme tid.");
+      .toBe("2 vagter vises ikke, fordi en af jer så ville have to vagter på samme tid.");
   });
 
   it("a server refusal on propose reads as Danish, not English", async () => {
