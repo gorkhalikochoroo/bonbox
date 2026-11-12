@@ -479,9 +479,16 @@ describe("Premium feel primitives (P1, P6)", () => {
     expect(checked).toBeGreaterThanOrEqual(6);   // the busy rules + the sheets' and confirm's exits
   });
 
-  it("the only infinite animations: the live dot, the shimmer and the ring (also inside a busy label)", () => {
+  it("the only infinite animations: the live dot, the shimmer, the ring (also inside a busy label) and the seconds sweep", () => {
     const infinite = rules.filter(([, decl]) => /infinite/.test(decl)).flatMap(([sels]) => sels).sort();
-    expect(infinite).toEqual([".vp-breathe", ".vp-busy[data-state=\"busy\"] > .vp-busy-spin", ".vp-ring", ".vp-shimmer::after"].sort());
+    // .vp-lc-sweep (12 Nov 2026) is a DELIBERATE exception to "nothing
+    // loops", by Manoj's request ("like an analog watch would be really
+    // amazing"): the live card's seconds dot, one turn a minute, linear. It
+    // is information (the shown timer's seconds), shows only at rest, and is
+    // not drawn under reduced motion (the reduce block hides it).
+    expect(infinite).toEqual([".vp-breathe", ".vp-busy[data-state=\"busy\"] > .vp-busy-spin", ".vp-ring", ".vp-shimmer::after", ".vp-lc-sweep"].sort());
+    expect(CSS).toMatch(/\.vp-lc-sweep \{[^}]*animation: vp-spin 60s linear infinite;/);
+    expect(body).toMatch(/\.vp-lc-sweep \{ display: none; animation: none; \}/);
   });
 });
 
@@ -752,8 +759,11 @@ describe("Premium feel 1.6: tab change feel", () => {
     expect(useClock).not.toMatch(/setInterval\([^)]*\)\s*=>\s*\{\s*setLiveSec/);
     expect(useClock).not.toContain("s + 1");
     const card = PAGE.slice(PAGE.indexOf("function useLiveTicks("), PAGE.indexOf("function VenueMapImage("));
-    expect(card).toContain("setInterval(() => setTk((c) => ({ ...c, n: c.n + 1 })), 1000)");
-    expect(card).toContain("const ticks = useLiveTicks(clock.anchor, !!st.clocked_in && !clock.leaving);");
+    // Edited for the seconds sweep (12 Nov 2026): the interval also notes
+    // when it fired (beatAt, the sweep's sub-second phase); the count, its
+    // 1 s and its home in the card are unchanged.
+    expect(card).toContain("const id = setInterval(() => { beatAt.current = Date.now(); setTk((c) => ({ ...c, n: c.n + 1 })); }, 1000);");
+    expect(card).toContain("const [ticks, beatAt] = useLiveTicks(clock.anchor, !!st.clocked_in && !clock.leaving);");
   });
 });
 
