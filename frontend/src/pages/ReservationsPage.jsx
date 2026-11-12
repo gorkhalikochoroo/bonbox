@@ -82,7 +82,9 @@ import {
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
-import { haptic } from "../utils/haptics";
+// Vagtplan's haptic words (components/staff/feel.js): one per action, at the
+// server's answer, never at the tap (phone R1, PHONE-OWNER-PLAN 5.6).
+import { feel } from "../components/staff/feel";
 import { getSoundStatus, subscribeSound, testSound } from "../utils/sound";
 import { RESERVATIONS_CHANGED_EVENT } from "../lib/liveAlertKinds";
 import {
@@ -4311,11 +4313,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     }
     onProceed?.();
     setActioningId(r.id);
-    // Physical feedback at the moment of decision (no-op on web): success on
-    // the money moment (completed), a firm tick otherwise.
-    if (status === "completed") haptic.success();
-    else if (status === "cancelled" || status === "no_show") haptic.warning();
-    else haptic.medium();
+    // No haptic here: the tap is not the outcome. It plays at the server's
+    // answer below (5.6) — done when guests are seated, soft for the routine
+    // rest; warn when refused (409), fail when it could not be done.
     // Optimistic flip so the chip updates instantly.
     setData((prev) =>
       prev
@@ -4339,6 +4339,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         ...(confirmsNoTable ? { if_no_table: opts.ifNoTable === "confirm" ? "confirm" : "ask" } : {}),
         ...(opts.moveTo ? { starts_at: opts.moveTo } : {}),
       });
+      if (status === "seated") feel.done();
+      else feel.soft();
       // Where the confirmed group sits now — said, as every other change on
       // the book is (R11). Or that it sits nowhere yet, on purpose.
       const placed = resp?.data?.tables_assigned;
@@ -4509,6 +4511,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         await setStatus(r, status, null, { movedTo: opts.movedTo, legacyMove: true, retried: true });
         return;
       }
+      // The answer is a no: refused (409 — a table taken, changed meanwhile)
+      // or not done at all (network, server).
+      if (e?.response?.status === 409) feel.warn();
+      else feel.fail();
       // R11 (B7): no table fits the group — nothing changed on the server.
       // The book reloads (the optimistic "confirmed" goes back to a request)
       // and the sheet says so and offers what can be done.
@@ -4609,7 +4615,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         source: "walk_in",
         status: "seated",
       });
-      haptic.success();
+      feel.done();
       setSeatTarget(null);
       setSeatParty(null);
       // The walk-in is seated NOW (today) — jump to today if viewing another
@@ -4624,6 +4630,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     } catch (e) {
       const code = e?.response?.data?.detail?.error;
       const conflict = e?.response?.status === 409;
+      if (conflict) feel.warn();
+      else feel.fail();
       // One table, standing free, with a booking inside the party's sitting
       // in the book the host was looking at: that booking is the refusal.
       const bookedTable = !joined && resource_id
@@ -4884,6 +4892,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             ...(allowOverflow ? { allow_overflow: true } : {}),
           };
       const created = await api.post("/reservations/book", payload);
+      feel.soft();
       trackEvent("reservation_created", "reservations");  // product analytics
       // Say what was made — New booking closed in silence (the waitlist's Book
       // said "booket 19.30 · Bord 2"), and booking another day also jumped
@@ -4911,6 +4920,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       else await fetchBook(day);
     } catch (e) {
       const d = e?.response?.data?.detail || {};
+      if (e?.response?.status === 409) feel.warn();
+      else feel.fail();
       if (e?.response?.status === 409 && d.error === "stylist_unavailable") {
         // The pinned behandler was just taken — honest inline message, the
         // sheet stays open with the same selections so the host can pick a new
@@ -4959,17 +4970,24 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     setSeatTarget(SEAT_WALK_IN_PICK);
   };
 
-  // ── Deep-link: /reservations?new=1 | ?walkin=1 (the I dag page, Nov 2026) ─
-  // "Ny booking" and "Walk-in" on I dag open the SAME sheets the header's own
-  // buttons open, then drop the flag so a reload or Back never re-opens them.
-  // Owner book only — the host stand has its own controls.
-  const quickOpenDone = useRef(false);
+  // ── Deep-link: /reservations?new=1 | ?walkin=1 (I dag, the "+" sheet) ───
+  // "Ny reservation" and "Drop-in" on I dag and in the phone "+" sheet open
+  // the SAME sheets the header's own buttons open, then drop the flag so a
+  // reload or Back never re-opens them. Owner book only — the host stand has
+  // its own controls.
+  // Once per NAVIGATION, keyed on location.key (phone R1). The guard was a
+  // flag set once per mount and never reset, so a second "+ → Drop-in" while
+  // already on Reservationer did nothing — a dead button. Every tap is a new
+  // navigation with its own key; StrictMode's second run of the same effect
+  // shares the key, so it still opens once.
+  const quickOpenKey = useRef(null);
   useEffect(() => {
-    if (standalone || quickOpenDone.current) return;
+    if (standalone) return;
     const wantsNew = searchParams.get("new") === "1";
     const wantsWalkIn = searchParams.get("walkin") === "1";
     if (!wantsNew && !wantsWalkIn) return;
-    quickOpenDone.current = true;
+    if (quickOpenKey.current === location.key) return;
+    quickOpenKey.current = location.key;
     if (wantsNew) openNewBooking();
     else openSeatWalkIn();
     const next = new URLSearchParams(searchParams);
@@ -4977,7 +4995,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     next.delete("walkin");
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, standalone]);
+  }, [searchParams, standalone, location.key]);
 
   // Assign / move / clear the booking's table from the detail drawer.
   // PATCH then refetch (no in-place object patching — the memo-on-identity
@@ -5080,7 +5098,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
     setEditWarning(null);
     try {
       const res = await api.patch(`/reservations/reservations/${editRes.id}`, fields);
-      haptic.success();
+      feel.soft();
       // More guests than the table seats (or a taken table at the new time):
       // the server moved them to one that fits — say where, or the host
       // walks the party to the old table.
@@ -5138,7 +5156,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       setSelected(null);
       fetchBook(day);
     } catch (e) {
-      haptic.error();
+      if (e?.response?.status === 409) feel.warn();
+      else feel.fail();
       const d = e?.response?.data?.detail || {};
       if (e?.response?.status === 409 && d.error === "room_full") {
         setEditWarning(warningFrom(d, ctx.time || (fields.starts_at || "").slice(11, 16), totalCapacity));

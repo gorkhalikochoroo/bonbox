@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { ScanLine, ArrowRight, QrCode } from "lucide-react";
+import { ScanLine, ArrowRight, QrCode, UserPlus, CalendarPlus } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Modal from "./Modal";
 import api from "../services/api";
@@ -14,6 +14,8 @@ import Chip from "./ui/Chip";
 import { useStickyMethod } from "../hooks/useStickyMethod";
 import { parseMoneyInput, moneyLocale, moneyExample, formatOwnerMoney } from "../utils/currency";
 import { isFloatingChromeHidden } from "../config/floatingChrome";
+import { usePillars } from "../hooks/usePillars";
+import { NEW_BOOKING_TO, WALK_IN_TO, bookFactsFor, isFoodVenue, noteBookFacts, quickJobs } from "./today/quickJobs";
 // Lazy-load Smart Scan modal — only fetched when the owner taps the
 // "Smart skan" entry below. Keeps QuickAdd's bundle lean for owners
 // who use the keypad path 99% of the time.
@@ -83,6 +85,15 @@ export default function QuickAdd() {
   // owner's only money-entry path silently gone. One resolver, no drift.
   const { user } = useAuth();
   const mode = resolveMode(user);
+  // The jobs row on top (phone R1, decision 3): Drop-in · Ny reservation,
+  // the jobs I dag's quick row offers (components/today/quickJobs.js — one
+  // model, two ways in). Above the sale form, which stays first and
+  // selected: a sale costs no extra tap.
+  const { hiddenPillars } = usePillars();
+  const [, setFactsSeen] = useState(0);
+  const jobs = mode === "personal"
+    ? null
+    : quickJobs({ businessType: user?.business_type, hiddenPillars, facts: bookFactsFor(user?.id) });
   const [tab, setTab] = useState(mode === "personal" ? "personal_income" : "sale");
   const [categories, setCategories] = useState([]);
   const [success, setSuccess] = useState("");
@@ -193,6 +204,24 @@ export default function QuickAdd() {
         }
       }).catch(() => {});
     }
+  }, [open]);
+
+  // Drop-in needs the book's facts (a book, seats), which I dag notes as it
+  // reads them. Opened before I dag ever answered: ask /today once — the
+  // owner's own read (I dag is owner-only) — and show Drop-in only once it
+  // says the venue seats drop-ins. Unknown never shows it.
+  useEffect(() => {
+    if (!open || mode === "personal" || !user?.id) return undefined;
+    if (bookFactsFor(user.id)) return undefined;
+    if (String(user.role || "owner").toLowerCase() !== "owner") return undefined;
+    if (!isFoodVenue(user.business_type) || hiddenPillars.has("reservations")) return undefined;
+    let live = true;
+    api.get("/today").then((res) => {
+      noteBookFacts(user.id, res?.data?.reservations);
+      if (live) setFactsSeen((n) => n + 1);
+    }).catch(() => {});
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const showSuccess = (msg) => {
@@ -400,6 +429,24 @@ export default function QuickAdd() {
       )}
 
       <Modal open={open} onClose={() => setOpen(false)} title={mode === "personal" ? t("personalEntry") : t("quickEntry")}>
+        {jobs && (jobs.walkIn || jobs.newBooking) && (
+          <div className="ow-jobs" role="group" aria-label={t("tdQuickActions")} data-quick-jobs="">
+            {/* Both open Reservationer's own sheets (its ?walkin=1 / ?new=1
+                deep link); the "+" sheet closes first so the two never stack. */}
+            {jobs.walkIn && (
+              <button type="button" className="ow-job" data-quick-job="walkin"
+                onClick={() => { setOpen(false); navigate(WALK_IN_TO); }}>
+                <UserPlus size={16} aria-hidden="true" /><span>{t("tdWalkIn")}</span>
+              </button>
+            )}
+            {jobs.newBooking && (
+              <button type="button" className="ow-job" data-quick-job="new"
+                onClick={() => { setOpen(false); navigate(NEW_BOOKING_TO); }}>
+                <CalendarPlus size={16} aria-hidden="true" /><span>{t("tdNewBooking")}</span>
+              </button>
+            )}
+          </div>
+        )}
         {success && (
           <div className="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-4 py-2.5 rounded-lg mb-4 text-sm font-medium text-center">
             {success}

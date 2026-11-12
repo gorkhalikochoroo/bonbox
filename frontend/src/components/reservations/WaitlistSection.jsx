@@ -38,6 +38,8 @@ import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../../utils/dailyCloseDay";
 import { fmtTime } from "../../utils/floorState";
 import PartySizeChips from "./PartySizeChips";
 import { guestText } from "../../utils/guestText";
+// One haptic per action, at the server's answer (phone R1, 5.6).
+import { feel } from "../staff/feel";
 import { tablesName } from "../../utils/tableName";
 import { displayPhone } from "../../utils/phoneDisplay";
 import { seatLineup, quotedCue } from "../../utils/tonight";
@@ -505,6 +507,7 @@ export default function WaitlistSection({
     const name = whoOf(entry, t);
     try {
       const res = await api.post(`/reservations/waitlist/${entry.id}/seat`, { resource_ids: fit.tableIds });
+      feel.done();
       reread();
       window.dispatchEvent(new Event("bonbox-reservations-changed"));
       // Named from the server's answer — where the party actually sits.
@@ -521,6 +524,8 @@ export default function WaitlistSection({
       const code = err?.response?.status;
       const d = err?.response?.data?.detail;
       const why = code === 409 && d?.error;
+      if (code === 409) feel.warn();
+      else feel.fail();
       const table = nameTables(d?.table);
       // In words, never the code. A 404/405 whose detail is FastAPI's own
       // string ("Not Found") is a route this door device's API does not have

@@ -18,7 +18,8 @@
  * and business day — the hero stands still while its figures rise into place
  * (the beat), the cards settle, bars grow, the meter fills, the now-line
  * fades in — then nothing moves on a poll. Presses come from pressFeel (a
- * finger never flashes a press while scrolling). Haptics only on an outcome
+ * finger never flashes a press while scrolling), installed once for the whole
+ * owner app by Layout (phone R1), not here. Haptics only on an outcome
  * (PREMIUM-FEEL-SPEC A.5, 1.4): Skjul (feel.soft) and a real Frokost/Aften
  * change (feel.tick); navigation is silent.
  */
@@ -42,7 +43,7 @@ import {
 } from "./todayModel";
 import { introStamp, useTodayIntro } from "./todayMotion";
 import { feel } from "../staff/feel";
-import { installPressFeel } from "../staff/pressFeel";
+import { NEW_BOOKING_TO, WALK_IN_TO, canWalkInWith, noteBookFacts } from "./quickJobs";
 
 const REFRESH_MS = 5 * 60 * 1000;
 // TodayPage's own /today answer is this fresh or fresher → the first load
@@ -187,9 +188,11 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
   // a poll. The DOM's class, not state: its end re-renders nothing.
   const pageRef = useRef(null);
   useTodayIntro(data ? introStamp(user?.id, data.business_day) : null, pageRef);
-  // Vagtplan's press controller while the page is up: a finger presses from
-  // data-pressed (never :active), so starting a scroll on a card never flashes.
-  useEffect(() => installPressFeel(), []);
+  // The phone "+" sheet offers the same jobs as the quick row below (one
+  // model, two ways in — quickJobs.js): it reads the book's facts from here.
+  useEffect(() => {
+    if (data?.reservations) noteBookFacts(user?.id, data.reservations);
+  }, [data, user?.id]);
 
   if (!data) return null;
 
@@ -207,9 +210,9 @@ export default function TodayDashboard({ initial = null, initialAt = null, onFre
   const needs = buildNeeds(data, visibleFindings, { hiddenPillars });
 
   const closeTo = "/daily-close";
-  const newBookingTo = "/reservations?new=1";
-  const walkInTo = "/reservations?walkin=1";
-  const canWalkIn = showRsv && isFood && (rsv?.seats || 0) > 0;
+  const newBookingTo = NEW_BOOKING_TO;
+  const walkInTo = WALK_IN_TO;
+  const canWalkIn = canWalkInWith({ showRsv, isFood, seats: rsv?.seats });
 
   const greeting = t(greetingKey(nowMin));
   const summary = headerSummary({ t, before, dayState, rsv: showRsv ? rsv : null, isFood, cutoff });

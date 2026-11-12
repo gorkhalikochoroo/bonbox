@@ -1,4 +1,5 @@
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useLayoutEffect, useRef, useState } from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { clickHiddenTrigger } from "../utils/hiddenTrigger";
 import { useBranch } from "./BranchSelector";
 import { useLanguage } from "../hooks/useLanguage";
@@ -10,8 +11,12 @@ import { Plus } from "lucide-react";
 import { getTabsForType } from "../config/bottomNavTabs";
 import { usePillars } from "../hooks/usePillars";
 import { useActivation } from "../hooks/useActivation";
+import { fitDockLabels } from "./staff/dockLabelFit";
 
 /**
+ * The phone tab bar. A business owner gets the floating dock (OwnerDock
+ * below, phone R1); personal mode keeps the bar described here.
+ *
  * iOS-style 5-tab bottom bar. The slot LAYOUT is bottom-nav chrome (fixed:
  * Home · Sales · center "+" FAB · type-specific · More) but the icon + label
  * for each real destination is now resolved from the shared nav manifest
@@ -35,6 +40,123 @@ import { useActivation } from "../hooks/useActivation";
    costs taps, never the task. */
 const CENTER_FALLBACK = { business: "/sales", personal: "/personal" };
 
+/* Is this tab where the owner is? Exact, or a page under it. */
+const tabMatches = (pathname, tb) => pathname === tb.to || (tb.to !== "/" && pathname.startsWith(tb.to));
+/* Motion only when the browser can say, and says, it is welcome — the same
+   default-to-safety as the kit's sheetMotion.motionAllowed, inlined so the
+   dock does not pull that module into the owner shell's first load. */
+const motionOk = () => {
+  try { return typeof window.matchMedia === "function" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
+  catch { return false; }
+};
+
+/**
+ * The owner's floating dock (phone R1, PHONE-OWNER-PLAN §4, decision 2):
+ * Vagtplan's dock shape and its ONE sliding indicator, in I dag's colours
+ * (components/owner/ownerShell.css). The same five tabs as the bar it
+ * replaces (getTabsForType) and the same amber dots.
+ *
+ *   • The pill is one element for the whole dock; it slides to the active
+ *     column on the soft spring (transform only) and never re-mounts. It
+ *     follows the TAP at once: React Router commits a navigation in a
+ *     transition, so while a page's chunk loads the address still reads
+ *     the old page — the pill does not wait for it (Vagtplan's pillKey).
+ *   • Tabs are silent: no haptic on a tab, ever (5.6).
+ *   • Tapping the tab you are on scrolls the page to the top; on a page
+ *     under that tab it goes to the tab's own page, as a tap always did.
+ *   • Scroll is not remembered per tab (parked in the plan).
+ *   • The five names shrink together when one does not fit
+ *     (staff/dockLabelFit.js, as Vagtplan's do).
+ */
+function OwnerDock({ tabs, badges, t, lang }) {
+  const location = useLocation();
+  const navRef = useRef(null);
+  const path = location.pathname;
+  let here = tabs.findIndex((tb) => tabMatches(path, tb));
+  // A page with no tab of its own (/expenses, /inventory …) is reached
+  // through "Mere" — light that, so the dock never shows no position.
+  if (here < 0) here = tabs.findIndex((tb) => tb.to === "/more");
+  // The tab just tapped, until a navigation lands (any: that one, or BACK
+  // meanwhile) — then the address is the truth again. Adjusted while
+  // rendering, never in an effect.
+  const [tapped, setTapped] = useState(null);   // { to, key }
+  if (tapped && tapped.key !== location.key) setTapped(null);
+  const tappedIdx = tapped ? tabs.findIndex((tb) => tb.to === tapped.to) : -1;
+  const idx = tappedIdx >= 0 ? tappedIdx : here;
+  const labels = tabs.map((tab) => t(tab.labelKey) || tab.labelKey);
+  const labelKey = labels.join("|");
+
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return undefined;
+    const fit = () => fitDockLabels(nav);
+    fit();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(fit) : null;
+    ro?.observe(nav);
+    let live = true;
+    document.fonts?.ready?.then(() => { if (live) fit(); }, () => {});
+    return () => { live = false; ro?.disconnect(); };
+  }, [labelKey, lang]);
+
+  return (
+    <nav
+      ref={navRef}
+      aria-label={t("bottomNav") || "Primary"}
+      /* The cookie banner sits on this dock instead of over it (CookieConsent.jsx). */
+      data-bb-consent-clear=""
+      data-owner-dock=""
+      className="ow-dock z-50 md:hidden"
+      style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`, "--n": tabs.length }}
+    >
+      <span aria-hidden="true" className="ow-dock-track">
+        <span
+          className="ow-dock-ind"
+          data-dock-indicator=""
+          {...(idx < 0 ? { "data-hidden": "" } : {})}
+          style={{ "--i": Math.max(0, idx) }}
+        >
+          <span className="ow-dock-pill" />
+        </span>
+      </span>
+      {tabs.map((tab, i) => {
+        const active = i === idx;
+        const label = labels[i];
+        return (
+          <Link
+            key={tab.to}
+            to={tab.to}
+            aria-current={active ? "page" : undefined}
+            aria-label={label}
+            data-dock-tab={tab.to}
+            className="ow-dock-item focus:outline-none"
+            onClick={(e) => {
+              // The tab you are on: back to the top, no navigation.
+              if (active && path === tab.to) {
+                e.preventDefault();
+                try { window.scrollTo({ top: 0, behavior: motionOk() ? "smooth" : "auto" }); } catch { /* old WebView */ }
+                return;
+              }
+              // Any other: the pill goes now, the page follows.
+              if (!e.defaultPrevented && e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+                setTapped({ to: tab.to, key: location.key });
+              }
+            }}
+          >
+            <span className="ow-dock-icon">
+              <Icon name={tab.icon} size={22} strokeWidth={active ? 2.25 : 1.75} />
+              {/* An ACTIONABLE count only (useNavBadges, Layout): bookings
+                  waiting for an answer, draft shifts, a missing
+                  kasserapport — a dot, the number is on the rail and page. */}
+              {badges && badges[tab.to] && <span className="ow-dock-dot" data-dock-dot="" aria-hidden="true" />}
+            </span>
+            <span className="ow-dock-label vp-dock-label" aria-hidden="true">{label}</span>
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
 /**
  * @param {{enabledModules?: Set<string>|null}} props  the owner's switched-on
  *   vertical modules from Layout's /modules read — null until it has answered
@@ -49,7 +171,7 @@ export default function MobileBottomNav({ enabledModules = null, badges = null }
   // once it is used (bottomNavTabs) — known pillars and tools, never the
   // fail-open "everything" of a request still in flight.
   const { knownActivatedPillars, usedSurfaces } = useActivation();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   // Mode comes from the ACCOUNT (lib/appMode.js) — the same resolver the
   // sidebar and QuickAdd use. This bar used to ask useBranch() what vertical
   // it was and never ask who the user was, so a personal account got a
@@ -68,6 +190,10 @@ export default function MobileBottomNav({ enabledModules = null, badges = null }
       usedSurfaces: usedSurfaces instanceof Set ? usedSurfaces : new Set(),
       enabledModules: enabledModules instanceof Set ? enabledModules : null,
     });
+
+  // The business owner's bar is the floating dock (phone R1). Personal mode
+  // keeps its own bar below, with its centre "+", exactly as it was.
+  if (!isPersonal) return <OwnerDock tabs={tabs} badges={badges} t={t} lang={lang} />;
 
   return (
     <nav
