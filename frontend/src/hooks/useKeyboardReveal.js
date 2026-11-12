@@ -37,8 +37,21 @@ import { useKeyboardState } from "./useKeyboardLift";
  * under the keyboard (walk, 12 Nov 2026). So on Android, while the keyboard
  * is up, the same reveal runs once the window has resized (and when focus
  * moves), measured against the already-shortened window. iOS is unchanged.
+ *
+ * Device pass A (12 Nov 2026) found it still 10 px short on the first
+ * keyboard of a session: the WebView's own scroll (the 10 px) lands 30-100 ms
+ * after the resize, and when it landed after our smooth scroll had started it
+ * cut that scroll off where it was. So the Android reveal waits 150 ms after
+ * the last resize (past the WebView's own scroll), and one check 700 ms later
+ * finishes a reveal that was still cut short, at once (a no-op when the field
+ * is already in view).
  */
 export const KB_LIFT_STYLE = { paddingBottom: "var(--kb-h, 0px)" };
+
+// Android: wait this long after the last resize (the WebView's own scroll lands
+// 30-100 ms after it), and check a reveal that scrolled this long afterwards.
+const ANDROID_SETTLE_MS = 150;
+const ANDROID_RECHECK_MS = 700;
 
 const TEXT_INPUT_TYPES = new Set(["", "text", "search", "email", "tel", "url", "number", "password"]);
 
@@ -63,7 +76,7 @@ function scrollParent(el) {
  * Scroll `el` (or its `data-kb-block` form) above a keyboard `kb` px tall.
  * Returns true when it had to scroll. Exported for the tests.
  */
-export function revealAboveKeyboard(el, kb, win = window, { resized = false } = {}) {
+export function revealAboveKeyboard(el, kb, win = window, { resized = false, behavior = "smooth" } = {}) {
   // `resized`: Android — the window already ends at the keyboard's top edge,
   // so kb is 0 and the visible band is simply the (shorter) window.
   if ((!kb && !resized) || !isKeyboardField(el)) return false;
@@ -94,7 +107,7 @@ export function revealAboveKeyboard(el, kb, win = window, { resized = false } = 
     delta = (field.top + field.bottom) / 2 - (top + bottom) / 2;
   }
   if (Math.abs(delta) < 1) return false;
-  if (typeof box.scrollBy === "function") box.scrollBy({ top: delta, behavior: "smooth" });
+  if (typeof box.scrollBy === "function") box.scrollBy({ top: delta, behavior });
   else box.scrollTop += delta;
   return true;
 }
@@ -128,21 +141,33 @@ export function useKeyboardReveal() {
   // Android app, keyboard up (the window has shrunk; lift stays 0): reveal the
   // focused field once the resize has settled, and again when focus moves. A
   // fallback runs if no resize event comes (the window shrank before this ran).
+  // A reveal that scrolled is checked once more after its smooth scroll should
+  // have ended: if the WebView's own late scroll cut it short, it finishes at
+  // once (see the note at the top).
   const androidUp = platform.isNative && platform.isAndroid && !!open && !(lift > 0);
   useEffect(() => {
     if (!androidUp) return undefined;
     let next = null;
+    let check = null;
     const reveal = (el, ms) => {
       clearTimeout(next);
-      next = setTimeout(() => revealAboveKeyboard(el || document.activeElement, 0, window, { resized: true }), ms);
+      clearTimeout(check);
+      next = setTimeout(() => {
+        const field = el || document.activeElement;
+        if (!revealAboveKeyboard(field, 0, window, { resized: true })) return;
+        check = setTimeout(() => {
+          if (document.activeElement === field) revealAboveKeyboard(field, 0, window, { resized: true, behavior: "auto" });
+        }, ANDROID_RECHECK_MS);
+      }, ms);
     };
-    const onResize = () => reveal(null, 60);
+    const onResize = () => reveal(null, ANDROID_SETTLE_MS);
     const onFocusIn = (e) => reveal(e.target, 40);
     window.addEventListener("resize", onResize);
     document.addEventListener("focusin", onFocusIn);
     reveal(null, 300);
     return () => {
       clearTimeout(next);
+      clearTimeout(check);
       window.removeEventListener("resize", onResize);
       document.removeEventListener("focusin", onFocusIn);
     };

@@ -177,13 +177,71 @@ describe("Android app: the window already ends at the keyboard", () => {
     expect(document.documentElement.style.getPropertyValue("--kb-h")).toBe("");
     act(() => { vi.advanceTimersByTime(100); });
     window.dispatchEvent(new Event("resize"));
-    act(() => { vi.advanceTimersByTime(59); });
+    // Edited 12 Nov 2026 (device pass A): the settle is 150 ms, not 60, so the
+    // reveal starts after the WebView's own scroll (30-100 ms after the resize)
+    // instead of being cut short by it. Same intent: one reveal once it settles.
+    act(() => { vi.advanceTimersByTime(149); });
     expect(shell.scrollBy).not.toHaveBeenCalled();
     act(() => { vi.advanceTimersByTime(1); });
     expect(shell.scrollBy).toHaveBeenCalledTimes(1);
     expect(shell.scrollBy).toHaveBeenCalledWith({ top: 293.5, behavior: "smooth" });
     // The fallback it replaced never scrolls a second time.
     act(() => { vi.advanceTimersByTime(500); });
+    expect(shell.scrollBy).toHaveBeenCalledTimes(1);
+  });
+
+  // Device pass A (12 Nov 2026): on the first keyboard of a session the
+  // WebView's own 10 px scroll landed after our smooth scroll had started and
+  // stopped it there, so the postcode stayed 10 px under the keyboard.
+  function openKeyboard() {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { rerender } = render(<Harness />, { container: host });
+    document.getElementById("note").focus();
+    kbOpen = true;
+    rerender(<Harness />);
+    window.dispatchEvent(new Event("resize"));
+    act(() => { vi.advanceTimersByTime(150); });
+  }
+
+  it("a reveal the WebView cut short is finished at once, 700 ms later", () => {
+    vi.useFakeTimers();
+    android = true;
+    const shell = buildSheet();      // scrollBy moves nothing: the smooth scroll was stopped
+    openKeyboard();
+    expect(shell.scrollBy).toHaveBeenCalledTimes(1);
+    act(() => { vi.advanceTimersByTime(699); });
+    expect(shell.scrollBy).toHaveBeenCalledTimes(1);
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(shell.scrollBy).toHaveBeenCalledTimes(2);
+    expect(shell.scrollBy).toHaveBeenLastCalledWith({ top: 293.5, behavior: "auto" });
+    // One check only: it never keeps pulling at the sheet.
+    act(() => { vi.advanceTimersByTime(3000); });
+    expect(shell.scrollBy).toHaveBeenCalledTimes(2);
+  });
+
+  it("a reveal that arrived is left alone by the check", () => {
+    vi.useFakeTimers();
+    android = true;
+    const shell = buildSheet();
+    // This smooth scroll lands: the field ends up centred in the band.
+    shell.scrollBy = vi.fn(() => {
+      document.getElementById("note").getBoundingClientRect = () => rect(277.5, 317.5);
+    });
+    openKeyboard();
+    expect(shell.scrollBy).toHaveBeenCalledTimes(1);
+    act(() => { vi.advanceTimersByTime(2000); });
+    expect(shell.scrollBy).toHaveBeenCalledTimes(1);
+  });
+
+  it("focus that moved on before the check is not pulled back", () => {
+    vi.useFakeTimers();
+    android = true;
+    const shell = buildSheet();
+    openKeyboard();
+    expect(shell.scrollBy).toHaveBeenCalledTimes(1);
+    document.getElementById("note").blur();
+    act(() => { vi.advanceTimersByTime(2000); });
     expect(shell.scrollBy).toHaveBeenCalledTimes(1);
   });
 
