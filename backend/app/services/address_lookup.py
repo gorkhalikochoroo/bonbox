@@ -1251,10 +1251,16 @@ def osm_find(text: str, parsed: ParsedAddress | None = None,
 # match, the postcode must match in the country's format, street-only and
 # ambiguous hits are refused. Each hit's own country_code must be the
 # venue's too, so a foreign venue never matches in Denmark either. Denmark,
-# an unset country, or a value that is not a country code keeps exactly the
-# Danish chain above.
+# an unset country, a value that is not a country code, or a country not in
+# FOREIGN_LOOKUP_COUNTRIES keeps exactly the Danish chain above.
 
 DK = "DK"
+# The countries looked up abroad, for now. Portugal only: it is the country
+# whose address format and postcode guards were checked against real
+# recordings. Any other code (DE, GB, ES, ...) keeps the Danish chain until it
+# is added here on purpose. venue_country() is the one door, so the pin
+# check, /resolve, query_kind and the cache key all follow this list.
+FOREIGN_LOOKUP_COUNTRIES = frozenset({"PT"})
 _COUNTRY_ALIASES = {"UK": "GB", "DENMARK": DK, "DANMARK": DK, "PORTUGAL": "PT"}
 _ISO2 = re.compile(r"^[A-Z]{2}$")
 # A trailing ", Portugal" is the country, not the town.
@@ -1289,11 +1295,12 @@ _F_NR_PAIR = re.compile(r"(\d{1,4}[A-Za-z]?)\s*-\s*(\d{1,4}[A-Za-z]?)")
 
 def venue_country(raw: Any) -> str:
     """The venue's country for the pin lookup, as an ISO alpha-2 code.
-    "DK" for Denmark, unset, empty, or anything that is not a country code:
-    the Danish chain is the default, exactly as before."""
+    "DK" for Denmark, unset, empty, anything that is not a country code, or
+    a country not in FOREIGN_LOOKUP_COUNTRIES (Portugal only, for now): the
+    Danish chain is the default, exactly as before."""
     c = raw.strip().upper() if isinstance(raw, str) else ""
     c = _COUNTRY_ALIASES.get(c, c)
-    return c if _ISO2.match(c) else DK
+    return c if _ISO2.match(c) and c in FOREIGN_LOOKUP_COUNTRIES else DK
 
 
 def _hn(nr: Any) -> str:

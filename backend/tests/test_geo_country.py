@@ -51,13 +51,36 @@ def _osm_params(t) -> list[dict]:
 # ── the country rule ──────────────────────────────────────────────────────
 @pytest.mark.parametrize("raw,cc", [
     (None, "DK"), ("", "DK"), ("DK", "DK"), ("dk", "DK"), (" Denmark ", "DK"), ("Danmark", "DK"),
-    ("XYZ", "DK"), ("12", "DK"), ("PT", "PT"), ("pt", "PT"), ("Portugal", "PT"), ("UK", "GB"),
+    ("XYZ", "DK"), ("12", "DK"), ("PT", "PT"), ("pt", "PT"), ("Portugal", "PT"),
+    # Not on the allow-list (Portugal only, for now): the Danish chain.
+    ("UK", "DK"), ("GB", "DK"), ("DE", "DK"), ("es", "DK"), ("Germany", "DK"),
 ])
 def test_the_venue_country_defaults_to_denmark(raw, cc):
     assert venue_locate.venue_country(raw) == cc
 
 
-@pytest.mark.parametrize("country", [None, "", "DK", "dk", "Denmark", "XYZ"])
+def test_the_allow_list_is_portugal_only():
+    assert al.FOREIGN_LOOKUP_COUNTRIES == frozenset({"PT"})
+
+
+@pytest.fixture
+def widen(monkeypatch):
+    """Add countries to the foreign-lookup allow-list for one test (the
+    generic-country rule is written and tested, but not switched on)."""
+    def _widen(*codes):
+        monkeypatch.setattr(al, "FOREIGN_LOOKUP_COUNTRIES",
+                            al.FOREIGN_LOOKUP_COUNTRIES | set(codes))
+    return _widen
+
+
+def test_a_widened_allow_list_takes_the_code(widen):
+    widen("DE", "GB")
+    assert venue_locate.venue_country("DE") == "DE"
+    assert venue_locate.venue_country("UK") == "GB"
+    assert venue_locate.venue_country("ES") == "DK"
+
+
+@pytest.mark.parametrize("country", [None, "", "DK", "dk", "Denmark", "XYZ", "DE", "GB", "ES"])
 def test_unset_or_danish_country_is_exactly_the_danish_chain(geo_on, country):
     """Register first (a hit never reaches OpenStreetMap), and a venue name
     goes to Nominatim with countrycodes=dk — the same calls as before."""
@@ -153,9 +176,11 @@ def test_portuguese_postcode_format():
     ("Unter den Linden 77, 10115 Berlin", "postcode_mismatch"),
     ("Unter den Linden 77, Berlin", "need_postcode"),
 ])
-def test_a_country_with_an_unknown_format_needs_the_typed_postcode_in_the_hit(geo_on, query, reason):
-    """Generic rule (Germany here): the hit's postcode must appear in what the
-    owner typed. Nominatim returns the Adlon (10117) for all three."""
+def test_a_country_with_an_unknown_format_needs_the_typed_postcode_in_the_hit(geo_on, widen, query, reason):
+    """Generic rule (Germany here, allow-list widened for the test): the hit's
+    postcode must appear in what the owner typed. Nominatim returns the Adlon
+    (10117) for all three."""
+    widen("DE")
     t = geo_on()
     out, geo, why = al.geocode(query, country="DE")
     if reason is None:
@@ -295,6 +320,18 @@ def test_resolve_endpoint_for_a_danish_venue_says_dk(db, client, geo_on):
     r = client.post("/api/staff/clock-geofence/resolve", json={"query": "Rådhuspladsen 1, 1550 København V"})
     assert r.status_code == 200, r.text
     assert r.json()["provider"] == "dar" and r.json()["country"] == "DK"
+
+
+def test_resolve_endpoint_for_a_venue_off_the_allow_list_is_the_danish_chain(db, client, geo_on):
+    """A German venue (not on the allow-list yet) is looked up exactly as a
+    Danish one: the register first, and the answer says so."""
+    t = geo_on()
+    u, _ = _owner(db, country="DE")
+    app.dependency_overrides[get_current_user] = lambda: u
+    r = client.post("/api/staff/clock-geofence/resolve", json={"query": "Rådhuspladsen 1, 1550 København V"})
+    assert r.status_code == 200, r.text
+    assert r.json()["provider"] == "dar" and r.json()["country"] == "DK"
+    assert {h for h, _, _ in t.calls} == {REG}
 
 
 def test_pin_check_looks_a_portuguese_address_up_in_portugal_unconfirmed(db, geo_on):
