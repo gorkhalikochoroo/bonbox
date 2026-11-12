@@ -469,6 +469,140 @@ describe("Premium feel primitives (P1, P6)", () => {
   });
 });
 
+// Premium feel, Release A Step 4 (1.3): press feedback everywhere. On touch the
+// press comes from data-pressed (components/staff/pressFeel.js), never from
+// :active (which also fires as a scroll starts); index.css's own touch press is
+// routed through it on the portal; sizes press by kind; grouped rows tint.
+describe("Premium feel 1.3: press everywhere", () => {
+  const start = CSS.indexOf("@media (prefers-reduced-motion: reduce)");
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
+  const outside = strip(CSS.slice(0, start));
+  const body = strip(CSS.slice(start));
+  // Selectors are split on top-level commas only (:is() / :where() / :not() hold commas).
+  const splitSel = (s) => {
+    const out = []; let depth = 0; let cur = "";
+    for (const ch of s) {
+      if (ch === "(") depth += 1;
+      if (ch === ")") depth -= 1;
+      if (ch === "," && depth === 0) { out.push(cur.trim()); cur = ""; } else cur += ch;
+    }
+    out.push(cur.trim());
+    return out.filter(Boolean);
+  };
+  const rules = [...outside.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map((m) => [splitSel(m[1].trim()), m[2]])
+    .filter(([sel]) => sel.length && !/^(@|from$|to$|\d+%)/.test(sel[0]));
+  const declOf = (sel) => {
+    const hit = rules.filter(([sels]) => sels.includes(sel));
+    expect(hit, `no rule for ${sel}`).toHaveLength(1);
+    return hit[0][1];
+  };
+  const PAGE = read("pages/StaffPortalPage.jsx");
+  /** The opening tag of the element carrying data-testid="id". */
+  const tagOf = (id) => {
+    const at = PAGE.indexOf(`data-testid="${id}"`);
+    expect(at, id).toBeGreaterThan(0);
+    const open = Math.max(PAGE.lastIndexOf("<button", at), PAGE.lastIndexOf("<a\n", at), PAGE.lastIndexOf("<a ", at));
+    return PAGE.slice(open, PAGE.indexOf(">\n", at) + 1);
+  };
+
+  it("the two :where rules route index.css's touch press (button:active scale .97) through data-pressed", () => {
+    expect(outside).toContain('html[data-modality="touch"] :where(body.portal-shell :is(button, a, [role="button"])):active { scale: none; }');
+    expect(outside).toContain('html[data-modality="touch"] :where(body.portal-shell :is(button, a, [role="button"]):not(.vp-press, .vp-tint, .vp-dock-item))[data-pressed]:not(:disabled) { scale: .97; }');
+  });
+
+  it("each kind presses from data-pressed on touch, at its own depth", () => {
+    expect(declOf('html[data-modality="touch"] .vp-press:active:not([data-pressed]):not(:disabled)')).toContain("scale: none;");
+    const pressed = declOf('html[data-modality="touch"] .vp-press[data-pressed]:not(:disabled)');
+    expect(pressed).toContain("scale: .97;");
+    expect(pressed).toMatch(/transition-duration: var\(--dur-press\), var\(--dur-press\),/);
+    expect(declOf('html[data-modality="touch"] .vp-press.vp-row[data-pressed]:not(:disabled)')).toContain("scale: .985;");
+    // Small icon controls deeper, wide buttons less; mouse (:active) and touch alike.
+    expect(declOf(".vp-press.vp-s:active:not(:disabled)")).toContain("scale: .94;");
+    expect(declOf('html[data-modality="touch"] .vp-press.vp-s[data-pressed]:not(:disabled)')).toContain("scale: .94;");
+    expect(declOf(".vp-press.vp-l:active:not(:disabled)")).toContain("scale: .98;");
+    expect(declOf('html[data-modality="touch"] .vp-press.vp-l[data-pressed]:not(:disabled)')).toContain("scale: .98;");
+    // The dock presses once (.96), no longer .97 × .96 from two rules.
+    expect(declOf('html[data-modality="touch"] .vp-dock-item:active:not([data-pressed])')).toContain("transform: none;");
+    expect(declOf('html[data-modality="touch"] .vp-dock-item[data-pressed]')).toContain("transform: scale(.96);");
+  });
+
+  it("the old :active press rules are unchanged (mouse and keyboard keep them)", () => {
+    expect(CSS).toContain(".vp-press:active:not(:disabled) {\n  scale: .97;\n  transition-duration: var(--dur-press), var(--dur-press), var(--dur-fast), var(--dur-fast), var(--dur-fast), var(--dur-fast);\n  transition-timing-function: var(--ease-out);\n}");
+    expect(CSS).toContain(".vp-press.vp-row:active:not(:disabled) { scale: .985; }");
+    expect(declOf(".vp-dock-item:active")).toContain("transform: scale(.96);");
+  });
+
+  it("grouped rows tint (the token), never shrink; a 44 px hit area class; no double-tap delay on the portal", () => {
+    const tint = declOf(".vp-tint");
+    expect(tint).toContain("transition: background-color var(--dur-fast) var(--ease-out);");
+    expect(tint).toContain("touch-action: manipulation;");
+    expect(tint).not.toMatch(/scale|transform/);
+    const on = declOf('html[data-modality="touch"] .vp-tint[data-pressed]');
+    expect(on).toContain("background-color: var(--press-tint);");
+    expect(declOf('html:not([data-modality="touch"]) .vp-tint:active')).toBe(on);
+    expect(declOf(".tap-44::after")).toMatch(/width: max\(100%, 44px\); height: max\(100%, 44px\);/);
+    expect(outside).toContain("body.portal-shell { touch-action: manipulation; }");
+  });
+
+  it("every press rule that moves or eases is mirrored in the reduce block with the SAME selector text", () => {
+    // A media query adds no specificity: a shorter selector there would turn nothing off.
+    // Not mirrored on purpose: a rule that only sets scale/transform to none
+    // (already still) and the tint's instant (0s) colour change (not motion).
+    const pressSel = /data-pressed|data-modality|\.vp-press\.vp-[sl]:active/;
+    let checked = 0;
+    for (const [sels, decl] of rules) {
+      const moves = /\bscale:(?!\s*none)|\btransform:(?!\s*none)|\btransition(-duration)?:(?!\s*0s)/.test(decl);
+      if (!moves) continue;
+      for (const s of sels) {
+        if (!pressSel.test(s)) continue;
+        checked += 1;
+        expect(body, s).toContain(s);
+      }
+    }
+    expect(checked).toBe(8);
+  });
+
+  it("under reduce a press dims instead (.72, instant); the two earlier no-scale rules are folded in", () => {
+    expect(body).toMatch(/\.vp-tint \{ transition: none; \}/);
+    expect(body).toMatch(/\[data-pressed\]:not\(:disabled\) \{ scale: none; opacity: \.72; \}/);
+    expect(body).toContain('html[data-modality="touch"] .vp-press:active:not([data-pressed]):not(:disabled) { opacity: 1; }');
+    expect(body).toContain('.vp-dock-item:active,\n  html[data-modality="touch"] .vp-dock-item[data-pressed] { transform: none; opacity: .72; }');
+    expect(body).toContain('html[data-modality="touch"] .vp-dock-item:active:not([data-pressed]) { opacity: 1; }');
+    // Folded: neither old rule stands alone any more.
+    expect(body).not.toContain(".vp-dock-item:active { transform: none; }");
+    expect(body).not.toMatch(/\.vp-press\.vp-row:active:not\(:disabled\) \{ scale: none; \}/);
+    expect(CSS.match(/@media \(prefers-reduced-motion: reduce\)/g)).toHaveLength(1);
+  });
+
+  it("source pin: no active:opacity- class left on a vp-press, vp-row or vp-tint element in StaffPortalPage.jsx", () => {
+    const strings = PAGE.match(/"[^"\n]*"|`[^`]*`/g) || [];
+    const pressy = strings.filter((s) => /\bvp-(press|row|tint)\b/.test(s));
+    expect(pressy.length).toBeGreaterThan(60);
+    for (const s of pressy) expect(s).not.toMatch(/active:opacity-/);
+  });
+
+  it("grouped rows (the ⋯ sheet, the photo-source sheet) tint inside a card that clips the tint to its corners", () => {
+    expect(PAGE).toContain('const cls = "w-full flex items-center text-left vp-tint focus:outline-none');
+    const photo = PAGE.slice(PAGE.indexOf("function ChatPhotoSourceSheet("), PAGE.indexOf("function MessagesTab("));
+    expect(photo).toContain('className="w-full flex items-center text-left vp-tint focus:outline-none');
+    expect(photo).toMatch(/borderRadius: 20, overflow: "hidden"/);
+    expect(photo).not.toMatch(/vp-row/);
+  });
+
+  it("markup: small controls press deeper, full-width buttons less, stand-alone cards late", () => {
+    for (const id of ["portal-shift-menu-btn", "portal-chat-send", "portal-chat-new-group"]) expect(tagOf(id)).toMatch(/vp-press vp-s\b/);
+    for (const id of ["fravaer-submit", "fravaer-add", "portal-menu-clock-in"]) expect(tagOf(id)).toMatch(/vp-press vp-l\b/);
+    for (const id of ["portal-whos-on-row", "portal-week-mates", "portal-thread-row"]) expect(tagOf(id)).toMatch(/vp-press vp-row\b/);
+    // The bell, the avatar and PageArrow.
+    expect(PAGE).toMatch(/aria-label=\{t\("navAlerts", "Alerts"\)\}\n[^\n]*\n\s*className="relative flex-none flex items-center justify-center vp-press vp-s /);
+    expect(PAGE).toContain('className="relative rounded-full flex items-center justify-center vp-press vp-s before:absolute');
+    expect(PAGE).toContain("className={`shrink-0 flex items-center justify-center vp-press vp-s disabled:opacity-40 ${FOCUS_RING}`}");
+    // The 24 px sick-form ✕ gets a 44 px hit area.
+    expect(PAGE).toMatch(/w-6 h-6 flex items-center justify-center vp-press vp-s tap-44"/);
+  });
+});
+
 describe("RollingDigits", () => {
   // The digits that roll in, with their direction.
   const rolled = (el) => [...el.querySelectorAll(".vp-roll-up, .vp-roll-down")]

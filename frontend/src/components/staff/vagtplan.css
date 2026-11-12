@@ -293,6 +293,45 @@ body.portal-shell .vp-figures {
 }
 /* A full-width row presses less: a whole row shrinking 3 % reads as a lurch. */
 .vp-press.vp-row:active:not(:disabled) { scale: .985; }
+/* index.css gives every button and link a touch press (button:active
+   scale .97 under pointer: coarse), and :active also fires as a scroll
+   starts. On the portal a touch press comes only from data-pressed
+   (components/staff/pressFeel.js); :where() keeps these first two below the
+   per-kind rules that follow. Mouse and keyboard keep :active. */
+html[data-modality="touch"] :where(body.portal-shell :is(button, a, [role="button"])):active { scale: none; }
+html[data-modality="touch"] :where(body.portal-shell :is(button, a, [role="button"]):not(.vp-press, .vp-tint, .vp-dock-item))[data-pressed]:not(:disabled) { scale: .97; }
+html[data-modality="touch"] .vp-press:active:not([data-pressed]):not(:disabled) { scale: none; }
+html[data-modality="touch"] .vp-press[data-pressed]:not(:disabled) {
+  scale: .97;
+  transition-duration: var(--dur-press), var(--dur-press), var(--dur-fast), var(--dur-fast), var(--dur-fast), var(--dur-fast);
+  transition-timing-function: var(--ease-out);
+}
+html[data-modality="touch"] .vp-press.vp-row[data-pressed]:not(:disabled) { scale: .985; }
+/* Sizes: small icon controls (48 px or less) press deeper; wide buttons less. */
+.vp-press.vp-s:active:not(:disabled),
+html[data-modality="touch"] .vp-press.vp-s[data-pressed]:not(:disabled) { scale: .94; }
+.vp-press.vp-l:active:not(:disabled),
+html[data-modality="touch"] .vp-press.vp-l[data-pressed]:not(:disabled) { scale: .98; }
+html[data-modality="touch"] .vp-dock-item:active:not([data-pressed]) { transform: none; }
+html[data-modality="touch"] .vp-dock-item[data-pressed] {
+  transform: scale(.96);
+  transition-duration: var(--dur-fast), var(--dur-press);
+  transition-timing-function: var(--ease-out), var(--ease-out);
+}
+/* Grouped rows (one row among others in one card) tint; they never shrink. */
+.vp-tint {
+  transition: background-color var(--dur-fast) var(--ease-out);
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+html[data-modality="touch"] .vp-tint[data-pressed],
+html:not([data-modality="touch"]) .vp-tint:active { background-color: var(--press-tint); transition-duration: 0s; }
+/* Small controls get a 44 × 44 hit area without growing (BeloBag's tap-44). */
+.tap-44 { position: relative; }
+.tap-44::after { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
+body.portal-shell { touch-action: manipulation; }
 
 /* ── Screens (tab content) ─────────────────────────────────────────────── */
 /* A short rise + fade when the tab changes. `backwards`, never `both`: once
@@ -455,9 +494,22 @@ body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { an
   .vp-press {
     transition: none;
   }
-  .vp-dock-item:active { transform: none; }
+  /* A press under reduce: no scale, a dim while held (an effect, not
+     motion). The two earlier no-scale rules are folded in here. */
+  .vp-tint { transition: none; }
   .vp-press:active:not(:disabled),
-  .vp-press.vp-row:active:not(:disabled) { scale: none; }
+  .vp-press.vp-row:active:not(:disabled),
+  .vp-press.vp-s:active:not(:disabled),
+  .vp-press.vp-l:active:not(:disabled),
+  html[data-modality="touch"] .vp-press[data-pressed]:not(:disabled),
+  html[data-modality="touch"] .vp-press.vp-row[data-pressed]:not(:disabled),
+  html[data-modality="touch"] .vp-press.vp-s[data-pressed]:not(:disabled),
+  html[data-modality="touch"] .vp-press.vp-l[data-pressed]:not(:disabled),
+  html[data-modality="touch"] :where(body.portal-shell :is(button, a, [role="button"]):not(.vp-press, .vp-tint, .vp-dock-item))[data-pressed]:not(:disabled) { scale: none; opacity: .72; }
+  html[data-modality="touch"] .vp-press:active:not([data-pressed]):not(:disabled) { opacity: 1; }
+  .vp-dock-item:active,
+  html[data-modality="touch"] .vp-dock-item[data-pressed] { transform: none; opacity: .72; }
+  html[data-modality="touch"] .vp-dock-item:active:not([data-pressed]) { opacity: 1; }
   .vp-label-in,
   .vp-screen-in,
   .vp-scrim,

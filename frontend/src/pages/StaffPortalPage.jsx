@@ -676,7 +676,7 @@ function DocumentsSection({ token }) {
       <button
         type="button"
         onClick={() => setOpenSheet(true)}
-        className="w-full flex items-center justify-between gap-3"
+        className="w-full flex items-center justify-between gap-3 vp-press vp-row"
       >
         <div className="min-w-0 text-left">
           <div className="text-[13px] font-semibold text-gray-900">
@@ -733,7 +733,7 @@ function DocumentsSection({ token }) {
                     type="button"
                     onClick={() => open(d)}
                     disabled={busyId === d.id}
-                    className="w-full flex items-center gap-2 px-3 py-3 rounded-2xl bg-[#f5f8fb] border border-[#e8edf3] text-left hover:bg-gray-100 transition disabled:opacity-50"
+                    className="w-full flex items-center gap-2 px-3 py-3 rounded-2xl bg-[#f5f8fb] border border-[#e8edf3] text-left hover:bg-gray-100 transition disabled:opacity-50 vp-press vp-row"
                   >
                     <FileText className="w-4 h-4 shrink-0 text-gray-400" />
                     <span className="flex-1 min-w-0 text-[13px] font-semibold text-gray-900 truncate">{d.label}</span>
@@ -747,7 +747,7 @@ function DocumentsSection({ token }) {
             <button
               type="button"
               onClick={() => setOpenSheet(false)}
-              className="w-full"
+              className="w-full vp-press vp-l"
               style={{ marginTop: 16, padding: "12px 0", font: "600 13px/1 var(--font-text)", color: "#64748b" }}
             >
               {t("close", "Close")}
@@ -895,7 +895,7 @@ export function BankSection({ token }) {
           <button
             type="button"
             onClick={load}
-            className="shrink-0 px-3 py-1.5 rounded-lg text-[13px] font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition"
+            className="shrink-0 px-3 py-1.5 rounded-lg text-[13px] font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition vp-press"
           >
             {t("retry", "Try again")}
           </button>
@@ -955,14 +955,14 @@ export function BankSection({ token }) {
               type="button"
               onClick={save}
               disabled={busy}
-              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 transition disabled:opacity-50"
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 transition disabled:opacity-50 vp-press"
             >
               {busy ? t("portalSaving", "Saving…") : t("portalBankSave", "Save account")}
             </button>
             <button
               type="button"
               onClick={() => { setEditing(false); setErr(""); setReg(""); setAcct(""); }}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition"
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition vp-press"
             >
               {t("cancel", "Cancel")}
             </button>
@@ -972,7 +972,7 @@ export function BankSection({ token }) {
               type="button"
               onClick={remove}
               disabled={busy}
-              className="w-full text-[12px] font-semibold text-red-600 hover:text-red-700 py-1 disabled:opacity-50"
+              className="w-full text-[12px] font-semibold text-red-600 hover:text-red-700 py-1 disabled:opacity-50 vp-press vp-l"
             >
               {t("portalBankRemove", "Remove my account")}
             </button>
@@ -1227,7 +1227,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
         <button
           onClick={() => { setOpen(false); setError(""); setReason(""); onDismiss?.(); }}
           data-back-close=""
-          className="text-gray-500 hover:text-gray-700 text-lg leading-none w-6 h-6 flex items-center justify-center"
+          className="text-gray-500 hover:text-gray-700 text-lg leading-none w-6 h-6 flex items-center justify-center vp-press vp-s tap-44"
           aria-label={t("close", "Close")}
         >
           ×
@@ -1276,7 +1276,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, o
       <button
         onClick={submit}
         disabled={submitting || !date}
-        className="w-full py-2.5 rounded-[14px] bg-gray-900 text-white font-text text-[13px] font-bold hover:bg-gray-700 transition disabled:opacity-50"
+        className="w-full py-2.5 rounded-[14px] bg-gray-900 text-white font-text text-[13px] font-bold hover:bg-gray-700 transition disabled:opacity-50 vp-press vp-l"
       >
         {submitting ? t("portalSending", "Sending…") : t("portalSickSubmit", "Send")}
       </button>
@@ -1896,7 +1896,7 @@ function WhosOnStrip({ teamShifts, nextShift, live = false, onOpen }) {
           type="button"
           onClick={onOpen}
           data-testid="portal-whos-on-row"
-          className="w-full flex items-center text-left vp-press vp-row active:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
+          className="w-full flex items-center text-left vp-press vp-row focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
           style={{ marginTop: 8, gap: 12, padding: "12px 14px", minHeight: 56, borderRadius: 20, background: CARD, border: `1px solid ${LINE}`, color: INK }}
         >
           <MateDiscs mates={mates} />
@@ -2030,7 +2030,7 @@ function OpenShiftsClaimCard({ rows, claimer, ownShifts, businessType }) {
             type="button"
             onClick={() => setShowAll((v) => !v)}
             aria-expanded={showAll}
-            className="inline-flex items-center justify-center"
+            className="inline-flex items-center justify-center vp-press"
             style={{ minHeight: 44, minWidth: 44, margin: "-12px -10px -12px 0", padding: "0 10px", font: "600 13px/1 var(--font-text)", color: LINK }}
           >
             {showAll ? t("portalShowFewer", "Show fewer") : t("portalSeeAll", "See all")}
@@ -2590,7 +2590,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
       aria-label={t("portalShiftMenu", "More options for this shift")}
       aria-haspopup="dialog"
       data-testid="portal-shift-menu-btn"
-      className="shrink-0 flex items-center justify-center rounded-full vp-press focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+      className="shrink-0 flex items-center justify-center rounded-full vp-press vp-s focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
       style={{ width: 44, height: 44, minHeight: 0, margin: "-8px -10px -8px 0", color: CREAM }}
     >
       <MoreHorizontal size={20} strokeWidth={2.2} aria-hidden />
@@ -2938,7 +2938,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           <button
             type="button"
             onClick={() => jumpToDay(afterLive.date)}
-            className="w-full flex items-center text-left vp-press vp-row active:opacity-80"
+            className="w-full flex items-center text-left vp-press vp-row"
             style={{ marginTop: 8, gap: 12, padding: "12px 14px", borderRadius: 20, background: CARD, border: `1px solid ${LINE}`, color: INK }}
           >
             <DateTile iso={afterLive.date} lang={lang} w={48} h={52} />
@@ -2992,7 +2992,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   onClick={() => goToWeek(0)}
                   aria-label={t("portalBackToThisWeek", "Back to this week")}
                   // A small pill; the ::before makes its hit area 44 tall.
-                  className="relative before:absolute before:-inset-x-2 before:-inset-y-[13px] before:content-['']"
+                  className="relative vp-press vp-s before:absolute before:-inset-x-2 before:-inset-y-[13px] before:content-['']"
                   style={{ minHeight: 0, padding: "3px 8px", borderRadius: 999, background: SOFT, color: PINE, font: "600 11px/1 var(--font-text)" }}
                 >
                   {t("portalToday", "Today")}
@@ -3011,7 +3011,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 disabled={!enabled}
                 onClick={() => goToWeek(weekOffset + (dir === "next" ? 1 : -1))}
                 aria-label={dir === "next" ? t("portalWeekNext", "Next week") : t("portalWeekPrev", "Previous week")}
-                className="flex items-center justify-center vp-press"
+                className="flex items-center justify-center vp-press vp-s"
                 style={{
                   width: 44, height: 44, borderRadius: 14, border: `1px solid ${LINE}`, background: CARD,
                   color: dir === "next" ? INK : MUTED, opacity: enabled ? 1 : 0.4, cursor: enabled ? "pointer" : "default",
@@ -3274,7 +3274,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                                     onClick={(e) => { e.stopPropagation(); setOpenMate(isOpen ? null : rowKey); }}
                                     aria-expanded={isOpen}
                                     aria-controls={panelId}
-                                    className="flex items-center w-full min-w-0 text-left active:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
+                                    className="flex items-center w-full min-w-0 text-left vp-press vp-row focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
                                     style={{ gap: 8, minHeight: 44, padding: "11px 0", margin: "-11px 0", background: "transparent", border: 0, color: ink2 }}
                                   >
                                     <MateDiscs mates={mates} size={22} overlap={6} cap={4} showOverflow={false} ring={isTodayCell ? "#EAF0EC" : ROW} />
@@ -3336,7 +3336,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 onClick={(e) => e.stopPropagation()}
-                                className="inline-flex items-center gap-1 underline truncate"
+                                className="inline-flex items-center gap-1 underline truncate vp-press"
                                 style={{ marginTop: 2, font: "400 12px/1.3 var(--font-text)", color: ink2 }}
                               >
                                 <MapPin className="w-3 h-3 shrink-0" strokeWidth={2} aria-hidden />
@@ -3404,7 +3404,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                   <button
                     type="button"
                     onClick={() => goToWeek(weeksFrom(weekStart, s.date))}
-                    className="w-full flex items-center justify-between min-h-[44px] text-left tabular-nums active:opacity-60"
+                    className="w-full flex items-center justify-between min-h-[44px] text-left tabular-nums vp-press vp-row"
                     style={{ padding: "0 4px", font: "500 13px/1.3 var(--font-text)", color: INK }}
                   >
                     <span>{fmtDate(s.date, lang)} · {s.start_time}–{s.end_time}</span>
@@ -3417,7 +3417,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
               <button
                 type="button"
                 onClick={() => goToWeek(weeksFrom(weekStart, laterShifts[4].date))}
-                className="min-h-[44px] underline underline-offset-2 active:opacity-60"
+                className="min-h-[44px] underline underline-offset-2 vp-press vp-row"
                 style={{ padding: "0 4px", font: "600 13px/1 var(--font-text)", color: LINK }}
               >
                 {(t("portalSecComingUpMore", "+{n} more") || "")
@@ -3940,7 +3940,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
         <ChevronRight size={18} strokeWidth={2} aria-hidden className="shrink-0" style={{ color: MUTED }} />
       </>
     );
-    const cls = "w-full flex items-center text-left vp-press vp-row active:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0E3B2E]/40";
+    const cls = "w-full flex items-center text-left vp-tint focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0E3B2E]/40";
     const style = { gap: 14, minHeight: 64, padding: "12px 14px", boxSizing: "border-box", color: INK };
     return href ? (
       <a key={testId} href={href} target="_blank" rel="noopener noreferrer" onClick={onClose} className={cls} style={style} data-testid={testId}>{inner}</a>
@@ -4033,7 +4033,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
             type="button"
             onClick={onClose}
             aria-label={t("close", "Close")}
-            className="relative shrink-0 flex items-center justify-center rounded-full"
+            className="relative shrink-0 flex items-center justify-center rounded-full vp-press vp-s"
             style={{ width: 44, height: 44, minHeight: 0, background: TILE, color: INK }}
           >
             <X size={18} strokeWidth={2} aria-hidden />
@@ -4046,7 +4046,7 @@ function ShiftMenuSheet({ shift, roleLabel, roleDot, place, routeHref, calTapped
               onClick={onClockIn}
               disabled={clockInDisabled}
               data-testid="portal-menu-clock-in"
-              className="w-full inline-flex items-center justify-center vp-press disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/50 focus-visible:ring-offset-2"
+              className="w-full inline-flex items-center justify-center vp-press vp-l disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/50 focus-visible:ring-offset-2"
               style={{ height: 56, gap: 10, borderRadius: 18, background: PINE, color: CREAM, font: "600 16px/1 var(--font-text)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 24px -14px rgba(14,59,46,0.8)" }}
             >
               <LogIn size={20} strokeWidth={1.9} aria-hidden />
@@ -4283,7 +4283,7 @@ function PageArrow({ dir, onClick, label, disabled = false }) {
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className={`shrink-0 flex items-center justify-center vp-press disabled:opacity-40 ${FOCUS_RING}`}
+      className={`shrink-0 flex items-center justify-center vp-press vp-s disabled:opacity-40 ${FOCUS_RING}`}
       style={{ width: 44, height: 44, borderRadius: 14, ...CARD_BOX, color: dir === "next" ? INK : MUTED }}
     >
       {dir === "next"
@@ -4434,7 +4434,7 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
           type="button"
           disabled={!ready}
           onClick={() => onApply({ start: from, end: to })}
-          className={`w-full vp-press ${FOCUS_RING}`}
+          className={`w-full vp-press vp-l ${FOCUS_RING}`}
           style={pineBtn(!ready, { ...BTN_FULL, marginTop: 16 })}
         >
           {t("portalHoursShowPeriod", "Show these hours")}
@@ -4443,7 +4443,7 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply, closing = false }
           <button
             type="button"
             onClick={() => onApply(null)}
-            className={`w-full vp-press ${FOCUS_RING}`}
+            className={`w-full vp-press vp-l ${FOCUS_RING}`}
             style={{ marginTop: 8, minHeight: 44, borderRadius: 14, font: "600 14px/1 var(--font-text)", color: MUTED }}
           >
             {t("portalHoursBackToDefault", "Back to my pay period")}
@@ -4556,7 +4556,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             onClick={onRetry}
             disabled={hoursLoading}
             data-testid="portal-hours-retry"
-            className="min-h-[44px] disabled:opacity-50"
+            className="min-h-[44px] vp-press disabled:opacity-50"
             style={{ marginLeft: 8, textDecoration: "underline", textUnderlineOffset: 2, color: ALERT_INK, font: "700 13px/1 var(--font-text)" }}
           >
             {t("tryAgain", "Try again")}
@@ -4566,7 +4566,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
           <button
             type="button"
             onClick={() => setRange(null)}
-            className="min-h-[44px]"
+            className="min-h-[44px] vp-press"
             style={{ marginLeft: 8, textDecoration: "underline", textUnderlineOffset: 2, color: ALERT_INK, font: "600 13px/1 var(--font-text)" }}
           >
             {t("portalHoursBackToDefault", "Back to my pay period")}
@@ -5600,7 +5600,7 @@ function GiveawaySellModal({ token, ownShifts, liveShiftId = null, onClose, onOf
         type="button"
         onClick={submit}
         disabled={!pickedId || submitting}
-        className={`w-full vp-press ${FOCUS_RING}`}
+        className={`w-full vp-press vp-l ${FOCUS_RING}`}
         style={pineBtn(!pickedId || submitting, BTN_FULL)}
       >
         {submitting ? "…" : t("portalGaSellSubmit", "Give it away")}
@@ -5626,7 +5626,7 @@ function SwapFormHead({ icon, title, onClose, closeLabel }) {
         onClick={onClose}
         aria-label={closeLabel}
         data-back-close=""
-        className={`shrink-0 flex items-center justify-center rounded-full vp-press ${FOCUS_RING}`}
+        className={`shrink-0 flex items-center justify-center rounded-full vp-press vp-s ${FOCUS_RING}`}
         style={{ width: 44, height: 44, background: TILE, color: INK }}
       >
         <X size={18} strokeWidth={2} aria-hidden />
@@ -5764,7 +5764,7 @@ function SwapProposeModal({ token, ownShifts, liveShiftId = null, onClose, onPro
         type="button"
         onClick={submit}
         disabled={submitting || !fromShift || !toPicked}
-        className={`w-full vp-press ${FOCUS_RING}`}
+        className={`w-full vp-press vp-l ${FOCUS_RING}`}
         style={pineBtn(submitting || !fromShift || !toPicked, BTN_FULL)}
       >
         {submitting ? t("portalSending", "Sending…") : t("portalSwapSubmit", "Send swap request")}
@@ -5921,6 +5921,7 @@ function AlertsTab({ token, onNavigate }) {
           type="button"
           onClick={markAll}
           disabled={!unreadCount}
+          className="vp-press"
           style={{ font: "600 11px/1 var(--font-text)", color: unreadCount ? "#16a34a" : "#cbd5e1" }}
         >
           {t("portalAlertsMarkAllRead", "Mark all read")}
@@ -5939,6 +5940,7 @@ function AlertsTab({ token, onNavigate }) {
               type="button"
               // Opens the week the alert is ABOUT, not just the tab.
               onClick={target ? () => onNavigate(target, n.ref_date || null) : undefined}
+              className={target ? "vp-press vp-row" : undefined}
               // A row that goes nowhere must not pretend to be pressable.
               style={{
                 display: "flex", alignItems: "flex-start", gap: 11,
@@ -6157,7 +6159,7 @@ function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
             type="button"
             onClick={onClose}
             aria-label={t("staffChatCancel", "Cancel")}
-            className={`shrink-0 flex items-center justify-center rounded-full vp-press ${FOCUS_RING}`}
+            className={`shrink-0 flex items-center justify-center rounded-full vp-press vp-s ${FOCUS_RING}`}
             style={{ width: 44, height: 44, minHeight: 0, background: TILE, color: INK }}
           >
             <X size={18} strokeWidth={2} aria-hidden />
@@ -6251,7 +6253,7 @@ function NewGroupSheet({ token, onClose, onCreated, closing = false }) {
             type="button"
             onClick={create}
             disabled={!title.trim() || busy}
-            className={`w-full vp-press ${FOCUS_RING}`}
+            className={`w-full vp-press vp-l ${FOCUS_RING}`}
             style={pineBtn(!title.trim() || busy, BTN_FULL)}
           >
             {t("staffChatCreateGroup", "Create group")}
@@ -6323,7 +6325,7 @@ function ThreadListView({ token, onOpen, onRead }) {
           onClick={() => setCreating(true)}
           aria-label={t("staffChatNewGroup", "New group")}
           data-testid="portal-chat-new-group"
-          className={`flex-none flex items-center justify-center vp-press ${FOCUS_RING}`}
+          className={`flex-none flex items-center justify-center vp-press vp-s ${FOCUS_RING}`}
           style={{
             width: 44, height: 44, borderRadius: 999,
             background: PINE, color: CREAM,
@@ -6739,7 +6741,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
           <PendingPhotos
             picker={picker}
             thumbStyle={{ borderRadius: 14, border: `1px solid ${LINE}` }}
-            removeClassName="absolute -top-2 -right-2 flex items-center justify-center before:absolute before:-inset-[10px] before:content-['']"
+            removeClassName="absolute -top-2 -right-2 flex items-center justify-center vp-press vp-s before:absolute before:-inset-[10px] before:content-['']"
             removeStyle={{ width: 24, height: 24, borderRadius: 999, background: PINE, color: CREAM }}
           />
           <div className={`${BAR_V3 ? "" : "pb-2 "}flex items-end`} style={{ gap: 6 }}>
@@ -6749,7 +6751,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
               picker={picker}
               label={t("staffChatAddPhoto", "Add photo")}
               onPick={platform.isAndroid ? pickAndroidPhotos : undefined}
-              className={`shrink-0 flex items-center justify-center vp-press ${picker.atMax ? "cursor-not-allowed" : "cursor-pointer"}`}
+              className={`shrink-0 flex items-center justify-center vp-press vp-s ${picker.atMax ? "cursor-not-allowed" : "cursor-pointer"}`}
               style={{ width: 44, height: 44, borderRadius: 999, color: picker.atMax ? PLACEHOLDER : MUTED }}
             />
             <textarea
@@ -6776,7 +6778,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
               disabled={sendOff}
               aria-label={t("staffChatSend", "Send")}
               data-testid="portal-chat-send"
-              className={`shrink-0 flex items-center justify-center vp-press ${FOCUS_RING}`}
+              className={`shrink-0 flex items-center justify-center vp-press vp-s ${FOCUS_RING}`}
               style={{
                 width: 44, height: 44, borderRadius: 999,
                 background: PINE, color: CREAM,
@@ -6829,7 +6831,7 @@ function ChatPhotoSourceSheet({ room, onTake, onChoose, onClose, closing = false
       type="button"
       onClick={onClick}
       data-testid={testId}
-      className="w-full flex items-center text-left vp-press vp-row active:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0E3B2E]/40"
+      className="w-full flex items-center text-left vp-tint focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0E3B2E]/40"
       style={{ gap: 14, minHeight: 64, padding: "12px 14px", boxSizing: "border-box", color: INK }}
     >
       <span className="shrink-0 flex items-center justify-center" style={{ width: 38, height: 38, borderRadius: 12, background: SOFT, color: PINE }}>
@@ -6871,7 +6873,7 @@ function ChatPhotoSourceSheet({ room, onTake, onChoose, onClose, closing = false
             type="button"
             onClick={onClose}
             aria-label={t("close", "Close")}
-            className="relative shrink-0 flex items-center justify-center rounded-full"
+            className="relative shrink-0 flex items-center justify-center rounded-full vp-press vp-s"
             style={{ width: 44, height: 44, minHeight: 0, background: TILE, color: INK }}
           >
             <X size={18} strokeWidth={2} aria-hidden />
@@ -7317,7 +7319,7 @@ function AbsenceSection({ token, onChanged }) {
             type="button"
             onClick={() => { reset(); setAdding(true); }}
             data-testid="fravaer-add"
-            className={`w-full flex items-center justify-center vp-press ${FOCUS_RING}`}
+            className={`w-full flex items-center justify-center vp-press vp-l ${FOCUS_RING}`}
             style={{ ...BTN_SAGE, ...BTN_FULL, gap: 8 }}
           >
             <CalendarPlus size={18} strokeWidth={1.9} aria-hidden />
@@ -7371,7 +7373,7 @@ function AbsenceSection({ token, onChanged }) {
               onClick={submit}
               disabled={saving}
               data-testid="fravaer-submit"
-              className={`w-full vp-press ${FOCUS_RING}`}
+              className={`w-full vp-press vp-l ${FOCUS_RING}`}
               style={pineBtn(saving, BTN_FULL)}
             >
               {saving ? t("portalSaving", "Saving…") : t("fravaerSubmit", "Send request")}
@@ -7381,7 +7383,7 @@ function AbsenceSection({ token, onChanged }) {
               onClick={() => { setAdding(false); reset(); }}
               data-back-close=""
               data-testid="fravaer-cancel"
-              className={`w-full vp-press ${FOCUS_RING}`}
+              className={`w-full vp-press vp-l ${FOCUS_RING}`}
               style={BTN_TEXT}
             >
               {t("portalCancel", "Cancel")}
@@ -7448,7 +7450,7 @@ function MonthCalendar({
             <button
               type="button"
               onClick={onToday}
-              className="relative shrink-0 before:absolute before:-inset-x-2 before:-inset-y-[13px] before:content-['']"
+              className="relative shrink-0 vp-press vp-s before:absolute before:-inset-x-2 before:-inset-y-[13px] before:content-['']"
               style={{ minHeight: 0, padding: "3px 8px", borderRadius: 999, background: SOFT, color: PINE, font: "600 11px/1 var(--font-text)" }}
             >
               {t("calToday", "Today")}
@@ -7528,7 +7530,7 @@ function MonthCalendar({
               aria-label={iso}
               data-look={kind}
               onClick={() => tappable && onTapDay(iso, { oneOff, recurring, abs, wd })}
-              className={`relative w-full flex items-center justify-center tabular-nums ${tappable ? "vp-press" : ""} ${FOCUS_RING}`}
+              className={`relative w-full flex items-center justify-center tabular-nums ${tappable ? "vp-press vp-s" : ""} ${FOCUS_RING}`}
               style={{ height: 44, minWidth: 0, padding: 0, borderRadius: 12, ...cellStyle }}
             >
               <span style={strike ? { textDecoration: "line-through", textDecorationThickness: "1.5px" } : undefined}>
@@ -7584,7 +7586,7 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
           type="button"
           onClick={onToggle}
           aria-expanded={expanded}
-          className={`min-w-0 flex-1 text-left flex flex-col ${FOCUS_RING}`}
+          className={`min-w-0 flex-1 text-left flex flex-col vp-press vp-row ${FOCUS_RING}`}
           style={{ gap: 2, borderRadius: 10 }}
         >
           <span className="truncate tabular-nums" style={{ font: `600 15px/1.25 ${SORA}`, letterSpacing: "-0.01em", color: INK }}>{label}</span>
@@ -7597,7 +7599,7 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
           type="button"
           onClick={onRemove}
           aria-label={t("kanIkkeRemove", "Remove")}
-          className={`shrink-0 flex items-center justify-center vp-press ${FOCUS_RING}`}
+          className={`shrink-0 flex items-center justify-center vp-press vp-s ${FOCUS_RING}`}
           style={{ width: 44, height: 44, borderRadius: 999, color: MUTED }}
         >
           <X size={18} strokeWidth={2} aria-hidden />
@@ -7612,7 +7614,7 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
               role="switch"
               aria-checked={allDay}
               onClick={() => setAllDay(!allDay)}
-              className={`relative shrink-0 ${FOCUS_RING}`}
+              className={`relative shrink-0 vp-press vp-s ${FOCUS_RING}`}
               style={{ width: 46, height: 28, borderRadius: 999, background: allDay ? PINE : GRAB, transition: "background-color var(--dur-fast) var(--ease-out)" }}
             >
               <span
@@ -7643,7 +7645,7 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
           <button
             type="button"
             onClick={() => onSave(allDay, start, end, note)}
-            className={`w-full vp-press ${FOCUS_RING}`}
+            className={`w-full vp-press vp-l ${FOCUS_RING}`}
             style={BTN_PINE}
           >
             {t("kanIkkeSave", "Save")}
@@ -8022,7 +8024,7 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
         onClick={() => setCalOpen((v) => !v)}
         aria-expanded={calOpen}
         data-testid="kanikke-cal-toggle"
-        className={`w-full flex items-center justify-center vp-press ${FOCUS_RING}`}
+        className={`w-full flex items-center justify-center vp-press vp-l ${FOCUS_RING}`}
         style={{ gap: 6, height: 44, borderRadius: 999, border: `1px solid ${LINE}`, background: "transparent", font: "600 14px/1 var(--font-text)", color: PINE }}
       >
         {calOpen ? t("kanIkkeShowWeek", "Show this week only") : t("kanIkkeShowMonth", "Pick another date")}
@@ -8352,7 +8354,7 @@ function InstallNotifyCard({ token }) {
           type="button"
           onClick={() => setExpanded((e) => !e)}
           aria-expanded={expanded}
-          className="flex-1 min-w-0 text-left text-[13px] font-medium text-gray-700 truncate"
+          className="flex-1 min-w-0 text-left text-[13px] font-medium text-gray-700 truncate vp-press"
         >
           {t("staffInstallTitleSlim", "Add to home screen + alerts")}
         </button>
@@ -8363,7 +8365,7 @@ function InstallNotifyCard({ token }) {
           type="button"
           onClick={() => setExpanded((e) => !e)}
           aria-label={t("staffInstallToggle", "Show install options")}
-          className="p-3 -m-2 text-gray-400 hover:text-gray-600 active:opacity-60 shrink-0"
+          className="p-3 -m-2 text-gray-400 hover:text-gray-600 vp-press vp-s shrink-0"
         >
           <ChevronDown
             className={`w-4 h-4 transition-transform ${expanded ? "rotate-180" : ""}`}
@@ -8378,7 +8380,7 @@ function InstallNotifyCard({ token }) {
             type="button"
             onClick={onDismiss}
             aria-label={t("dismiss", "Dismiss")}
-            className="p-3 -m-2 text-gray-400 hover:text-gray-600 active:opacity-60 shrink-0"
+            className="p-3 -m-2 text-gray-400 hover:text-gray-600 vp-press vp-s shrink-0"
           >
             <X className="w-4 h-4" strokeWidth={2} aria-hidden />
           </button>
@@ -8400,7 +8402,7 @@ function InstallNotifyCard({ token }) {
             <button
               type="button"
               onClick={doInstall}
-              className="mt-2.5 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-[12px] font-text text-[12px] font-bold bg-gray-900 text-white hover:bg-gray-700 transition"
+              className="mt-2.5 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-[12px] font-text text-[12px] font-bold bg-gray-900 text-white hover:bg-gray-700 transition vp-press vp-l"
             >
               <Download className="w-4 h-4" strokeWidth={2} aria-hidden />
               {t("staffInstallBtn", "Install app")}
@@ -8416,7 +8418,7 @@ function InstallNotifyCard({ token }) {
                 href="https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-[12px] font-text text-[12px] font-bold bg-gray-900 text-white hover:bg-gray-700 transition"
+                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-[12px] font-text text-[12px] font-bold bg-gray-900 text-white hover:bg-gray-700 transition vp-press vp-l"
               >
                 <Apple className="w-4 h-4" strokeWidth={2} aria-hidden />
                 {t("staffGetSchedulerApp", "Get the BonBox Vagtplan app")}
@@ -8552,7 +8554,7 @@ function ShiftReminderRow({ token }) {
           aria-label={t("staffRemindTitle", "Remind me before a shift")}
           disabled={busy}
           onClick={() => save(minutes ? null : 60)}
-          className="flex-shrink-0 disabled:opacity-50"
+          className="flex-shrink-0 vp-press vp-s disabled:opacity-50"
           style={{
             width: 42, height: 25, borderRadius: 99, padding: 3, display: "flex",
             transition: "background .25s",
@@ -8578,6 +8580,7 @@ function ShiftReminderRow({ token }) {
               type="button"
               disabled={busy}
               onClick={() => save(m)}
+              className="vp-press"
               style={{
                 flex: 1, padding: "7px 0", borderRadius: 10,
                 font: `${minutes === m ? 700 : 600} 11px/1 var(--font-text)`,
@@ -8815,7 +8818,7 @@ function StaffPushOptIn({ token }) {
           type="button"
           onClick={handleDisable}
           disabled={busy}
-          className="text-[11px] px-2 py-1 rounded bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 flex-shrink-0"
+          className="text-[11px] px-2 py-1 rounded bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 flex-shrink-0 vp-press"
         >
           {busy ? "…" : t("staffPushOnTurnOff", "Turn off")}
         </button>
@@ -8840,7 +8843,7 @@ function StaffPushOptIn({ token }) {
               aria-checked={!!reminder}
               disabled={reminderBusy}
               onClick={() => setReminderMinutes(reminder ? null : 60)}
-              className="flex-shrink-0 disabled:opacity-50"
+              className="flex-shrink-0 vp-press vp-s disabled:opacity-50"
               style={{
                 width: 42, height: 25, borderRadius: 99, padding: 3, display: "flex",
                 transition: "background .25s",
@@ -8867,6 +8870,7 @@ function StaffPushOptIn({ token }) {
                   type="button"
                   disabled={reminderBusy}
                   onClick={() => setReminderMinutes(m)}
+                  className="vp-press"
                   style={{
                     flex: 1, padding: "7px 0", borderRadius: 10,
                     font: `${reminder === m ? 700 : 600} 11px/1 var(--font-text)`,
@@ -8909,7 +8913,7 @@ function StaffPushOptIn({ token }) {
         type="button"
         onClick={handleEnable}
         disabled={busy}
-        className="w-full px-3 py-2 rounded-lg text-[12px] font-medium bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-50 transition"
+        className="w-full px-3 py-2 rounded-lg text-[12px] font-medium bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-50 transition vp-press vp-l"
       >
         {busy ? t("staffPushEnabling", "Enabling…") : t("staffPushEnable", "Enable push")}
       </button>
@@ -9922,7 +9926,7 @@ export default function StaffPortalPage() {
             onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setAddressInput(info?.address || ""); setPostalInput(info?.postal_code || ""); setCityInput(info?.city || ""); setEmailMsg(""); setEmailStatus(null); }}
             // overflow-hidden lives on the INNER circle: on the button it
             // clipped the -inset-1 ::before, so the hit area was the circle.
-            className="relative rounded-full flex items-center justify-center vp-press before:absolute before:-inset-1 before:content-['']"
+            className="relative rounded-full flex items-center justify-center vp-press vp-s before:absolute before:-inset-1 before:content-['']"
             // minHeight 0: the touch-screen 44 px min-height (index.css) drew
             // this as an oval; the ::before is the 48 px hit area.
             style={{
@@ -9967,6 +9971,7 @@ export default function StaffPortalPage() {
               type="button"
               onClick={() => setDeptOpen(true)}
               aria-label={t("portalDepartment", "Location")}
+              className="vp-press"
               style={{
                 display: "flex", alignItems: "center", gap: 6, height: 32,
                 padding: "0 10px 0 9px",
@@ -9989,7 +9994,7 @@ export default function StaffPortalPage() {
             onClick={() => setTab("alerts")}
             aria-label={t("navAlerts", "Alerts")}
             aria-current={tab === "alerts" ? "page" : undefined}
-            className="relative flex-none flex items-center justify-center vp-press focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
+            className="relative flex-none flex items-center justify-center vp-press vp-s focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0E3B2E]/40"
             style={{
               width: 44, height: 44, minHeight: 0, borderRadius: 14, boxSizing: "border-box",
               border: `1px solid ${tab === "alerts" ? PINE : LINE}`,
@@ -10033,7 +10038,7 @@ export default function StaffPortalPage() {
               // minHeight 0 keeps the strip ~32 px (the touch-screen 44 px
               // min-height made it 53 and doubled the header); the 14 px
               // ::before gives the word a 44 px tall hit area.
-              className="relative underline underline-offset-2 before:absolute before:-inset-x-3 before:-inset-y-[14px] before:content-['']"
+              className="relative underline underline-offset-2 vp-press before:absolute before:-inset-x-3 before:-inset-y-[14px] before:content-['']"
               style={{ minHeight: 0, font: "700 12px/1.3 var(--font-text)", color: "#92400E" }}
             >
               {t("portalOfflineRefresh", "Refresh")}
@@ -10061,7 +10066,7 @@ export default function StaffPortalPage() {
                 <button
                   type="button"
                   onClick={() => { setPhotoMenu(false); handlePhotoChange(); }}
-                  className="w-full flex items-center"
+                  className="w-full flex items-center vp-press vp-row"
                   style={{ gap: 10, padding: "14px 15px", borderRadius: 16, background: "#f5f8fb", border: "1px solid #e8edf3", font: "600 13px/1 var(--font-text)", color: "#0f172a" }}
                 >
                   <CameraIcon size={16} strokeWidth={2} aria-hidden />
@@ -10071,7 +10076,7 @@ export default function StaffPortalPage() {
                   <button
                     type="button"
                     onClick={() => { setPhotoMenu(false); handlePhotoRemove(); }}
-                    className="w-full flex items-center"
+                    className="w-full flex items-center vp-press vp-row"
                     style={{ gap: 10, padding: "14px 15px", borderRadius: 16, background: "#fff", border: "1px solid #fecaca", font: "600 13px/1 var(--font-text)", color: "#b91c1c" }}
                   >
                     <Trash2 size={16} strokeWidth={2} aria-hidden />
@@ -10081,7 +10086,7 @@ export default function StaffPortalPage() {
                 <button
                   type="button"
                   onClick={() => setPhotoMenu(false)}
-                  className="w-full"
+                  className="w-full vp-press vp-l"
                   style={{ padding: "12px 0", font: "600 13px/1 var(--font-text)", color: "#64748b" }}
                 >
                   {t("cancel", "Cancel")}
@@ -10114,7 +10119,7 @@ export default function StaffPortalPage() {
                       key={d.name || "__all"}
                       type="button"
                       onClick={() => { setDept(d.name); setDeptOpen(false); }}
-                      className="flex items-center justify-between"
+                      className="flex items-center justify-between vp-press vp-row"
                       style={{
                         gap: 10, padding: "13px 14px", borderRadius: 16, textAlign: "left",
                         background: on ? "linear-gradient(180deg,#1e293b,#0f172a)" : "#f5f8fb",
@@ -10160,7 +10165,7 @@ export default function StaffPortalPage() {
                   type="button"
                   onClick={() => setShowEmailEdit(false)}
                   aria-label={t("close", "Close")}
-                  className="w-11 h-11 -mr-2.5 rounded-full inline-flex items-center justify-center text-gray-500 hover:bg-gray-100 vp-press"
+                  className="w-11 h-11 -mr-2.5 rounded-full inline-flex items-center justify-center text-gray-500 hover:bg-gray-100 vp-press vp-s"
                 >
                   <X className="w-5 h-5" strokeWidth={2} aria-hidden />
                 </button>
@@ -10181,7 +10186,7 @@ export default function StaffPortalPage() {
                   onClick={() => setPhotoMenu(true)}
                   disabled={photoBusy}
                   aria-label={photoUrl ? t("portalPhotoChange", "Change") : t("portalPhotoAdd", "Add photo")}
-                  className="relative shrink-0 overflow-visible"
+                  className="relative shrink-0 overflow-visible vp-press"
                   style={{ width: 62, height: 62 }}
                 >
                   <span
@@ -10356,7 +10361,7 @@ export default function StaffPortalPage() {
               <button
                 onClick={handleContactSave}
                 disabled={emailSaving}
-                className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 transition disabled:opacity-50"
+                className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 transition disabled:opacity-50 vp-press vp-l"
               >
                 {emailSaving ? t("portalSaving", "Saving…") : t("portalSave", "Save")}
               </button>
@@ -10410,7 +10415,7 @@ export default function StaffPortalPage() {
                     // disconnect in one press.
                     window.location.replace("/join");
                   }}
-                  className="mt-2 min-h-[44px] text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                  className="mt-2 min-h-[44px] text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2 vp-press"
                 >
                   {t("portalDisconnect", "Disconnect this phone from the schedule")}
                 </button>
