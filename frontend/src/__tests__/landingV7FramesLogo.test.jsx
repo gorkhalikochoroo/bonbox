@@ -16,6 +16,15 @@
  *     window shows less of the devices on load than live (2560 x 1440 shows all of them again), and the hero's picture
  *     sizes follow the window's height;
  *   - the solo iPad keeps the live bezel on the wider column; the duo is as tall as its (now true-shape) phones need.
+ * Short windows and the phone's phones (12 Nov 2026, on 0dff9d80). The founder: "make the headline adapt to the screen
+ * height on short laptop screens" (the devices on the first screen, the headline big and his) and, on the phone layout,
+ * "we can put slim bezel but looks really thick":
+ *   - from 1024 px the headline and the two spaces around it follow the window's height too, and from 1100 px the stage is
+ *     as wide as still fits under them, so at 1280 x 720, 1366 x 768, 1440 x 900, 1536 x 864 and 1920 x 1080 every device
+ *     is on the first screen; tall windows (2560 x 1440 and up, every iPad upright) keep exactly what they had, and no
+ *     window gets a bigger stage than before (the pictures' sizes stay true);
+ *   - under 720 px a phone's bezel is 3 % of the phone and its screen its picture's shape, as from 720 px; everything else
+ *     in the phone layout is 63276802's (the fingerprint, frames aside).
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
@@ -67,6 +76,7 @@ function valueOf(selector, prop, media = null) {
   return hits[hits.length - 1].decl[prop];
 }
 const TABLET_UP = "@media (min-width:720px)";
+const PHONE = "@media (max-width:719px)";
 const pct = (v) => { expect(v).toMatch(/^[\d.]+%$/); return parseFloat(v) / 100; };
 const ratio = (v) => { const m = String(v).match(/^(\d+)\/(\d+)$/); expect(m, v).toBeTruthy(); return [+m[1], +m[2]]; };
 
@@ -134,6 +144,11 @@ describe("from 720 px up the devices are drawn at their true shape", () => {
     expect(bezel(pct(valueOf(".lp7 .phone", "width")), pct(valueOf(".lp7 .stage .phone", "padding", TABLET_UP)))).toBeCloseTo(0.03, 5);
     expect(bezel(pct(valueOf(".lp7 .duo .phone", "width")), pct(valueOf(".lp7 .duo .phone", "padding", TABLET_UP)))).toBeCloseTo(0.03, 5);
     expect(bezel(pct(valueOf(".lp7 .trio .phone", "width")), pct(valueOf(".lp7 .trio .phone", "padding", TABLET_UP)))).toBeCloseTo(0.03, 5);
+    // the phone layout's phones the same (founder, 12 Nov 2026: "we can put slim bezel but looks really thick"): the hero's
+    // phone is 40 % of the stage there, the duo's 44 % of the duo, the trio's their column
+    expect(bezel(pct(valueOf(".lp7 .phone", "width", PHONE)), pct(valueOf(".lp7 .stage .phone", "padding", PHONE)))).toBeCloseTo(0.03, 5);
+    expect(bezel(pct(valueOf(".lp7 .duo .phone", "width")), pct(valueOf(".lp7 .duo .phone", "padding", PHONE)))).toBeCloseTo(0.03, 5);
+    expect(bezel(pct(valueOf(".lp7 .trio .phone", "width")), pct(valueOf(".lp7 .trio .phone", "padding", PHONE)))).toBeCloseTo(0.03, 5);
     // and the phone's screen, 94 % of the phone, is exactly its picture's shape: the frame is that plus the bezel
     const [w, h] = ratio(valueOf(".lp7 .phone .scr", "aspect-ratio", TABLET_UP));
     const frame = 1 / (0.94 * (h / w) + 0.06);
@@ -146,61 +161,164 @@ describe("from 720 px up the devices are drawn at their true shape", () => {
     expect(valueOf(".lp7 .stage", "aspect-ratio")).toBe("10/6.25"); // 1.6: the cap above is the stage's height ≤ 100vh - 116px
     expect(valueOf(".lp7 .wrap", "max-width", "@media (min-width:1280px)")).toBe("calc(clamp(1440px,62.5vw,1680px) + 2 * var(--gut))");
     expect(valueOf(".lp7 .wrap", "max-width")).toBe("1200px"); // below 1280 px, as it was
-    // both live in the first screen's part (they shape the top bar and the hero)
+    // they live in the first screen's part (they shape the top bar and the hero), the short-window rules too
     const part = firstScreenRangeV7(CSS);
-    expect(part).toContain("@media (min-width:720px){");
-    expect(part).toContain("@media (min-width:1280px){");
-    expect(part).toContain(".lp7 .stage-wrap{width:min(100%,max(480px,calc((100vh - 116px) * 1.6)),max(1152px,calc((100vh - 642px) * 1.6)))}");
+    for (const q of [720, 1024, 1100, 1280, 1366]) expect(part).toContain(`@media (min-width:${q}px){`);
+    expect(part).toContain(`.lp7 .stage-wrap{width:${valueOf(".lp7 .stage-wrap", "width", "@media (min-width:1100px)")}}`);
+    expect(part).toContain(`.lp7 .hero{--h1:${valueOf(".lp7 .hero", "--h1", "@media (min-width:1366px)")}}`);
+  });
+
+  it("the phone layout's phones too: the screen is its picture's shape and the frame follows (no stretch to the duo's foot)", () => {
+    expect(valueOf(".lp7 .phone", "aspect-ratio", PHONE)).toBe("auto");
+    expect(valueOf(".lp7 .phone .scr", "height", PHONE)).toBe("auto");
+    expect(ratio(valueOf(".lp7 .phone .scr", "aspect-ratio", PHONE))).toEqual([IMG.staff.width, IMG.staff.height]);
+    // the phone layout pins the hero's phone to the stage's foot (bottom:0); the duo's phones hang from their top, so with
+    // no shape of their own a bottom:0 would stretch them to the duo's foot (it did: screens cut 15 % and 6 %)
+    expect(valueOf(".lp7 .phone", "bottom", PHONE)).toBe("0");
+    expect(valueOf(".lp7 .duo .phone", "bottom", PHONE)).toBe("auto");
+    expect(valueOf(".lp7 .duo", "aspect-ratio", PHONE)).toBe(valueOf(".lp7 .duo", "aspect-ratio", TABLET_UP));
+    // the iPad's frame on a phone is untouched
+    expect(RULES.filter((r) => r.media.join(" ") === PHONE && /\.ipad\b/.test(r.selector)).map((r) => r.selector)).toEqual([".lp7 .ipad"]);
+    expect(valueOf(".lp7 .ipad", "width", PHONE)).toBe("100%");
   });
 });
 
 /* The hero on a wide window, as a model of the stylesheet (review of 52ef6489, 12 Nov 2026: the stage followed the wider
  * column, so on a tall screen it ran past the window's foot; 2560 x 1440 showed 82 % of it on load, the live page 100 %).
- * The stage's top on the page is a browser fact, measured in Chromium (da and en alike): 545 px at a 1280 px window, 600 at
- * 1440, 618 from ~1480 up (the headline's 124 px cap). The model takes 618 everywhere, the most it ever is. */
-describe("the hero on a wide window: never less of the devices on load than the live page, whole once scrolled to", () => {
-  const WIDE = "@media (min-width:1280px)";
-  const STAGE_TOP = 618;
-  const TOP_BAR = 68;
+ * Short windows (12 Nov 2026, on 0dff9d80; founder: "make the headline adapt to the screen height on short laptop
+ * screens"): from 1024 px the headline and the spaces above the eyebrow and the stage follow the window's height, and from
+ * 1100 px the stage is as wide as still fits under them. The model reads every size from the sheet; the stage's top is the
+ * top bar (68 px and its 1 px rule), the space above the eyebrow, the hero's text row and the space above the stage. The
+ * row is the headline's column (the eyebrow, 18.6 px, its 20 px and the headline's three lines at .92) unless the column
+ * beside it is taller: that one is a browser fact, measured in Chromium in Danish and English (12 Nov 2026), 263-272 px up to
+ * 1365 px wide (its two buttons wrap: in both languages under 1280 px, in English up to ~1310 px) and 212 px from 1366 px
+ * (182.6 px in Danish from ~2560 px). The sheet keeps the headline at least as tall, so the row is the headline's. */
+describe("the hero on a wide window: every device on the first screen of a short laptop, tall windows as they were", () => {
+  const WIDE = "@media (min-width:1100px)";
+  const SHORT = "@media (min-width:1024px)";
+  const TOP_BAR = 69;
+  const EYEBROW = 18.6 + 20;
+  const LINES = 3 * 0.92;
+  const SIDE = (vw) => (vw < 1366 ? 272 : 212);
+  // the iPad's foot under the stage's top: 3 % of the stage's height (0.625 of its width) and its frame, a 0.815-wide
+  // screen of the picture's shape and a 1.25 % bezel; the phone's foot is higher (0.587)
+  const DEVICES_FOOT = 0.03 * 0.625 + 0.815 * (1112 / 1600) + 2 * 0.0125;
   const LIVE_STAGE = 1200 - 2 * 24; // 63276802: the 1200 px column, 24 px gutters, the stage its full width
   const clamp = (lo, v, hi) => Math.max(lo, Math.min(v, hi));
-  /** a CSS width expression of this sheet, evaluated: 100% is the column, 100vh the window's height */
-  const evalWidth = (expr, col, vh) => Function("Math", `return ${expr.replace(/calc\(/g, "(").replace(/\bmin\(/g, "Math.min(").replace(/\bmax\(/g, "Math.max(")
-    .replace(/100%/g, String(col)).replace(/100vh/g, String(vh)).replace(/(\d)px/g, "$1")}`)(Math);
+  /** a length expression of this sheet as a function of { col, vw, vh, h1 } in px: 100% is the column, vw / vh the window,
+   *  var(--h1) the headline (compiled once per expression) */
+  const compiled = new Map();
+  const evalCss = (expr, { col = 0, vw = 0, vh = 0, h1 = 0 } = {}) => {
+    const key = String(expr);
+    if (!compiled.has(key)) {
+      compiled.set(key, Function("Math", "CL", "col", "vw", "vh", "h1", `return ${key
+        .replace(/var\(--h1\)/g, "h1")
+        .replace(/calc\(/g, "(").replace(/\bmin\(/g, "Math.min(").replace(/\bmax\(/g, "Math.max(").replace(/\bclamp\(/g, "CL(")
+        .replace(/100%/g, "col")
+        .replace(/([\d.]+)vh/g, "($1 * vh / 100)").replace(/([\d.]+)vw/g, "($1 * vw / 100)")
+        .replace(/([\d.])px/g, "$1")}`));
+    }
+    return compiled.get(key)(Math, clamp, col, vw, vh, h1);
+  };
+  /** the sheet's rules, read once */
+  const sheet = new Map();
+  const rule = (selector, prop, media) => {
+    const k = `${media}|${selector}|${prop}`;
+    if (!sheet.has(k)) sheet.set(k, valueOf(selector, prop, media));
+    return sheet.get(k);
+  };
   const column = (vw) => {
     if (vw < 1280) return Math.min(vw - 48, LIVE_STAGE);
     const gut = clamp(32, 0.025 * vw, 64);
     return Math.min(clamp(1440, 0.625 * vw, 1680), vw - 2 * gut);
   };
-  const stage = (vw, vh) => {
-    const rule = vw >= 1280 ? valueOf(".lp7 .stage-wrap", "width", WIDE) : valueOf(".lp7 .stage-wrap", "width", TABLET_UP);
-    return evalWidth(rule, column(vw), vh);
-  };
-  const shown = (s, vh) => Math.max(0, Math.min(1, (vh - STAGE_TOP) / (s / 1.6)));
-  const WINDOWS = [[1280, 720], [1366, 768], [1440, 900], [1536, 864], [1680, 1050], [1920, 900], [1920, 1080], [1920, 1200],
-    [2560, 1080], [2560, 1440], [2560, 1600], [2880, 1800], [3840, 2160], [1280, 1600], [1440, 2560]];
+  /** the hero's sizes on a window 1024 px wide or more: the space above the eyebrow, the headline, the space above the stage */
+  const hero = (vw, vh) => ({
+    pad: evalCss(rule(".lp7 .hero", "padding-top", SHORT), { vw, vh }),
+    h1: vw >= 1100 ? evalCss(rule(".lp7 .hero", "--h1", vw >= 1366 ? "@media (min-width:1366px)" : WIDE), { vw, vh })
+      : evalCss(rule(".lp7 .hero h1", "font-size", SHORT), { vw, vh }),
+    gap: evalCss(rule(".lp7 .stage-wrap", "margin-top", SHORT), { vw, vh }),
+  });
+  const stage = (vw, vh) => vw >= 1100
+    ? evalCss(rule(".lp7 .stage-wrap", "width", WIDE), { col: column(vw), vw, vh, h1: hero(vw, vh).h1 })
+    : evalCss(rule(".lp7 .stage-wrap", "width", TABLET_UP), { col: column(vw), vw, vh });
+  const stageTop = (vw, vh) => { const h = hero(vw, vh); return TOP_BAR + h.pad + Math.max(EYEBROW + LINES * h.h1, SIDE(vw)) + h.gap; };
+  // 0dff9d80, the sheet before this change, and 63276802, the live page (its 1200 px column; the same headline and spaces)
+  const before = (vw, vh) => Math.min(column(vw), Math.max(480, (vh - 116) * 1.6), ...(vw >= 1280 ? [Math.max(1152, (vh - 642) * 1.6)] : []));
+  const beforeHero = (vw) => ({ pad: clamp(36, 0.05 * vw, 80), h1: vw >= 1100 ? clamp(54, 0.084 * vw, 124) : clamp(54, 0.11 * vw, 104), gap: clamp(48, 0.06 * vw, 88) });
+  const liveTop = (vw) => { const h = beforeHero(vw); return TOP_BAR + h.pad + EYEBROW + LINES * h.h1 + h.gap; };
+  const shown = (top, s, vh) => Math.max(0, Math.min(1, (vh - top) / (DEVICES_FOOT * s)));
 
-  it("the live size is the floor, 642 px (the stage's top + 24 px) the room it keeps under the headline", () => {
-    expect(valueOf(".lp7 .stage-wrap", "width", WIDE)).toBe("min(100%,max(480px,calc((100vh - 116px) * 1.6)),max(1152px,calc((100vh - 642px) * 1.6)))");
+  const TARGETS = [[1280, 720], [1366, 768], [1440, 900], [1536, 864], [1920, 1080]];
+  const WINDOWS = [...TARGETS, [1680, 1050], [1920, 900], [1920, 1200], [2560, 1080], [2560, 1440], [2560, 1600], [2880, 1800],
+    [3840, 2160], [1280, 1600], [1440, 2560], [1100, 700], [1180, 820], [1366, 1024]];
+  const TALL = [[2560, 1440], [2560, 1600], [2880, 1800], [3840, 2160], [1280, 1600], [1440, 2560], [1024, 1366]];
+
+  it("the sheet: the headline and the two spaces follow the height from 1024 px; the stage's sum from 1100 px, its old caps last", () => {
+    expect(valueOf(".lp7 .hero", "padding-top", SHORT)).toBe("min(clamp(36px,5vw,80px),5.6vh)");
+    expect(valueOf(".lp7 .stage-wrap", "margin-top", SHORT)).toBe("min(clamp(48px,6vw,88px),6.2vh)");
+    expect(valueOf(".lp7 .hero h1", "font-size", SHORT)).toBe("clamp(54px,min(11vw,9.2vh),104px)");
+    expect(valueOf(".lp7 .hero h1", "font-size", WIDE)).toBe("var(--h1)");
+    expect(valueOf(".lp7 .hero", "--h1", WIDE)).toBe("clamp(85px,min(8.4vw,9.2vh),124px)");
+    expect(valueOf(".lp7 .hero", "--h1", "@media (min-width:1366px)")).toBe("clamp(63px,min(8.4vw,9.2vh),124px)");
+    expect(valueOf(".lp7 .stage-wrap", "width", WIDE)).toBe("min(100%,max(400px,calc((100vh - 69px - min(clamp(36px,5vw,80px),5.6vh) - 38.6px - "
+      + "2.76 * var(--h1) - min(clamp(48px,6vw,88px),6.2vh) - 24px) * 1.6)),max(1152px,calc((100vh - 642px) * 1.6)))");
+    // the sum's terms are the sheet's own: the hero's padding and the stage's margin above, the eyebrow and the headline's lines
+    expect(valueOf(".lp7 .stage-wrap", "width", WIDE)).toContain(`- ${valueOf(".lp7 .hero", "padding-top", SHORT).replace(/\s/g, "")} -`);
+    expect(valueOf(".lp7 .stage-wrap", "width", WIDE)).toContain(`- ${valueOf(".lp7 .stage-wrap", "margin-top", SHORT)} -`);
+    expect(valueOf(".lp7 .eyebrow", "font-size")).toBe("12px"); // x 1.55, the page's line height: 18.6 px
+    expect(valueOf(".lp7 .hero h1", "line-height")).toBe(".92");
+    expect(valueOf(".lp7 .hero h1", "margin-top")).toBe("20px");
+    expect(valueOf(".lp7 .top .wrap", "height")).toBe("68px");
+    expect(valueOf(".lp7 .stage", "aspect-ratio")).toBe("10/6.25");
     expect(LIVE_STAGE).toBe(1152);
   });
 
-  it.each(WINDOWS)("%i x %i: shows at least as much of the stage on load as live, and all of it once scrolled to", (vw, vh) => {
-    const s = stage(vw, vh);
-    const live = Math.min(vw - 48, LIVE_STAGE);
-    expect(s).toBeLessThanOrEqual(column(vw) + 1e-6);
-    expect(shown(s, vh)).toBeGreaterThanOrEqual(shown(live, vh) - 1e-9);
-    expect(s / 1.6).toBeLessThanOrEqual(vh - TOP_BAR); // whole under the top bar once scrolled to
-    // never smaller than live where the window is tall enough for the live stage to fit under the top bar
-    if (live / 1.6 <= vh - 116) expect(s).toBeGreaterThanOrEqual(live - 1e-6);
+  it("the headline is never shorter than the column beside it, so the hero's row is the headline's (the sum is exact)", () => {
+    for (let vw = 1100; vw <= 3840; vw += 2) for (let vh = 400; vh <= 2200; vh += 25) {
+      expect(EYEBROW + LINES * hero(vw, vh).h1, `${vw} x ${vh}`).toBeGreaterThanOrEqual(SIDE(vw));
+    }
   });
 
-  it("a window with room for the whole stage under the headline gets it whole on load (2560 x 1440: 798 px tall, foot at 1416)", () => {
-    for (const [vw, vh] of [[2560, 1440], [2560, 1600], [2880, 1800], [3840, 2160], [1280, 1600]]) {
+  it.each(TARGETS)("%i x %i (a short laptop): every device is on the first screen, with room to spare", (vw, vh) => {
+    const s = stage(vw, vh), top = stageTop(vw, vh);
+    expect(top + DEVICES_FOOT * s, "the devices' foot").toBeLessThanOrEqual(vh - 16);
+    expect(top + s / 1.6 + 24, "the stage and 24 px").toBeLessThanOrEqual(vh + 1e-6);
+    expect(s).toBeGreaterThanOrEqual(400);
+    expect(hero(vw, vh).h1, "the headline stays big").toBeGreaterThanOrEqual(63);
+    expect(shown(liveTop(vw), Math.min(vw - 48, LIVE_STAGE), vh), "the live page cut it").toBeLessThan(0.7);
+  });
+
+  it.each(WINDOWS)("%i x %i: at least as much of the devices on load as live and as before, and all of the stage once scrolled to", (vw, vh) => {
+    const s = stage(vw, vh), top = stageTop(vw, vh);
+    const live = Math.min(vw - 48, LIVE_STAGE);
+    expect(s).toBeLessThanOrEqual(column(vw) + 1e-6);
+    expect(shown(top, s, vh)).toBeGreaterThanOrEqual(shown(liveTop(vw), live, vh) - 1e-9);
+    expect(shown(top, s, vh)).toBeGreaterThanOrEqual(shown(liveTop(vw), before(vw, vh), vh) - 1e-9);
+    expect(s / 1.6).toBeLessThanOrEqual(vh - TOP_BAR); // whole under the top bar once scrolled to
+    // never smaller than live where the live stage was already whole on load, with the 24 px to spare
+    if (liveTop(vw) + live / 1.6 + 24 <= vh) expect(s).toBeGreaterThanOrEqual(live - 1e-6);
+  });
+
+  it("no window gets a bigger stage than before (so the pictures' sizes stay true), and with room it is whole on load", () => {
+    for (let vw = 1100; vw <= 3840; vw += 6) for (let vh = 500; vh <= 2200; vh += 10) {
       const s = stage(vw, vh);
-      expect(STAGE_TOP + s / 1.6, `${vw} x ${vh}`).toBeLessThanOrEqual(vh - 24 + 1e-6);
+      expect(s, `${vw} x ${vh}`).toBeLessThanOrEqual(before(vw, vh) + 1e-6);
+      if (s > 400 + 1e-6) expect(stageTop(vw, vh) + s / 1.6 + 24, `${vw} x ${vh}`).toBeLessThanOrEqual(vh + 1e-6);
     }
+  });
+
+  it.each(TALL)("%i x %i (tall): the headline, the spaces and the stage are exactly what they were", (vw, vh) => {
+    const h = hero(vw, vh), b = beforeHero(vw);
+    expect(h.pad).toBeCloseTo(b.pad, 9);
+    expect(h.h1).toBeCloseTo(b.h1, 9);
+    expect(h.gap).toBeCloseTo(b.gap, 9);
+    expect(stage(vw, vh)).toBeCloseTo(before(vw, vh), 9);
+  });
+
+  it("2560 x 1440 keeps its 1277 px stage, whole on load (798 px tall, its foot at 1416)", () => {
     expect(Math.round(stage(2560, 1440))).toBe(1277);
+    expect(stageTop(2560, 1440) + stage(2560, 1440) / 1.6).toBeCloseTo(1416, 0);
   });
 
   /* The pictures' sizes (assets.js, the first screen's preload): never less than the screen is drawn (the 1100 / 320 px
@@ -213,7 +331,7 @@ describe("the hero on a wide window: never less of the devices on load than the 
         const v = cond[2] === "width" ? vw : vh;
         if (cond[1] === "max" ? v > +cond[3] : v < +cond[3]) continue;
       }
-      return evalWidth(len.replace(/([\d.]+)vh/g, (_, n) => String((+n * vh) / 100)).replace(/([\d.]+)vw/g, (_, n) => String((+n * vw) / 100)), 0, vh);
+      return evalCss(len, { vw, vh });
     }
     throw new Error("no size");
   };
@@ -326,21 +444,45 @@ describe("the share card shows the official tile", () => {
 });
 
 describe("the phone layout (under 720 px) is the one the founder approved", () => {
-  /* The stylesheet a phone gets: every rule outside a min-width query, the logo's (.brand / .mark) aside. Its fingerprint
-   * is the one of 63276802's landingV7.css (the release that went live on 12 Nov 2026), taken the same way. A change to
-   * the phone layout fails here: make it on purpose, with the founder's yes, and put the new fingerprint in. */
-  const PHONE_SHEET_63276802 = "d2b6bad6cb12c83036e4d488d8793e106d43a5fe4249a48d66dcb6ad75d05818";
-  it("its stylesheet is unchanged, the logo aside", () => {
-    const lines = RULES
-      .filter((r) => !r.media.some((m) => /min-width/.test(m)) && !/\.(brand|mark)\b/.test(r.selector))
-      .map((r) => `${r.media.join(" ")}|${r.selector}|${Object.entries(r.decl).map(([k, v]) => `${k}:${v}`).join(";")}`);
-    expect(lines.length).toBe(316);
-    expect(crypto.createHash("sha256").update(lines.join("\n")).digest("hex")).toBe(PHONE_SHEET_63276802);
+  /* The stylesheet a phone gets: every rule outside a min-width query, the logo's (.brand / .mark) aside. A change to the
+   * phone layout fails here: make it on purpose, with the founder's yes, and put the new fingerprint in.
+   * 12 Nov 2026 (on 0dff9d80), changed on purpose: the founder asked for a slim phone bezel on the phone layout too ("we can
+   * put slim bezel but looks really thick"): the phones' frames (the hero's, the duo's and the trio's) take the true shape
+   * they have from 720 px, a 3 % bezel and the picture's own screen shape, and nothing else moves. So the full sheet has a
+   * new fingerprint (321 rules, was 316), and with the phones' frame rules of the phone layout set aside it is still,
+   * exactly, the one of 63276802's landingV7.css (the release that went live on 12 Nov 2026). */
+  const PHONE_SHEET = "dc700716ab48e1309fb23fc555e1af31867c6eddbc03c883a3500c4d0c1c1cfd";
+  const PHONE_SHEET_63276802_FRAMES_ASIDE = "09675989967d719429952498aee028aca6b7b06f4e2212763564e79c9ec8ac39";
+  const phoneLines = () => RULES
+    .filter((r) => !r.media.some((m) => /min-width/.test(m)) && !/\.(brand|mark)\b/.test(r.selector))
+    .map((r) => `${r.media.join(" ")}|${r.selector}|${Object.entries(r.decl).map(([k, v]) => `${k}:${v}`).join(";")}`);
+  const sha = (lines) => crypto.createHash("sha256").update(lines.join("\n")).digest("hex");
+  it("its stylesheet is the approved one, the logo aside (the slim bezel of 12 Nov 2026 in)", () => {
+    const lines = phoneLines();
+    expect(lines.length).toBe(321);
+    expect(sha(lines)).toBe(PHONE_SHEET);
   });
 
-  it("every new rule for the frames and the fit sits behind a min-width of 720 or 1280 px", () => {
+  it("with the phones' frames of the phone layout aside, it is 63276802's exactly: the bezel is the only change", () => {
+    const frames = (l) => l.startsWith(`${PHONE}|`) && /\.(phone|duo|trio)\b/.test(l.split("|")[1]);
+    const aside = phoneLines().filter((l) => !frames(l));
+    expect(aside.length).toBe(314);
+    expect(sha(aside)).toBe(PHONE_SHEET_63276802_FRAMES_ASIDE);
+    // and the frame rules set aside are these (the hero's phone keeps its place: 40 % wide, at the stage's foot, 3 % in)
+    expect(phoneLines().filter(frames)).toEqual([
+      `${PHONE}|.lp7 .phone|width:40%;top:auto;bottom:0;right:3%;aspect-ratio:auto`,
+      `${PHONE}|.lp7 .phone .scr|height:auto;aspect-ratio:640/1385`,
+      `${PHONE}|.lp7 .stage .phone|padding:1.2%`,
+      `${PHONE}|.lp7 .duo|aspect-ratio:10/10.26`,
+      `${PHONE}|.lp7 .duo .phone|padding:1.32%;bottom:auto`,
+      `${PHONE}|.lp7 .trio .phone|padding:3%`,
+      `${PHONE}|.lp7 .trio .phone:nth-child(2)|transform:translateY(-6%)`,
+    ]);
+  });
+
+  it("every new rule for the frames and the fit sits behind a min-width query (720, 1280; the short-window ones 1024, 1100, 1366)", () => {
     for (const r of RULES.filter((x) => x.media.some((m) => /min-width/.test(m)))) {
-      expect(r.media.join(" "), r.selector).toMatch(/^@media \(min-width:(720|1280)px\)$/);
+      expect(r.media.join(" "), r.selector).toMatch(/^@media \(min-width:(720|1024|1100|1280|1366)px\)$/);
     }
   });
 

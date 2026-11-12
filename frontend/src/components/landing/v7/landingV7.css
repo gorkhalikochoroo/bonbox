@@ -159,11 +159,17 @@ html:has(.lp7) body{margin:0;padding-top:env(safe-area-inset-top,0px);padding-bo
   .lp7 .stage-wrap{margin-top:36px}
   .lp7 .stage{aspect-ratio:1/1.04}
   .lp7 .ipad{width:100%;top:0}
-  .lp7 .phone{width:40%;top:auto;bottom:0;right:3%}
+  .lp7 .phone{width:40%;top:auto;bottom:0;right:3%;aspect-ratio:auto}
+  /* the phones on a phone (12 Nov 2026, founder: "we can put slim bezel but looks really thick"): as from 720 px, the
+     bezel is 3 % of the phone (it was 2 % of the stage, 5 % of the phone) and the screen takes its picture's own shape,
+     640 x 1385, so the whole screenshot shows (it was cut ~6 % at the sides); the frame's height follows. The section
+     phones (duo, trio) the same, further down. */
+  .lp7 .phone .scr{height:auto;aspect-ratio:640/1385}
+  .lp7 .stage .phone{padding:1.2%}
   .lp7 .caption{max-width:55%;margin-top:-26%;font-size:13.5px;flex-direction:column;align-items:flex-start;gap:0;min-height:26%}
 }
 /* Tablet and up (12 Nov 2026, founder on the live desktop: "why so big side bars?" and "fit the screen"). The phone layout
-   under 720 px keeps its frames exactly as they are.
+   under 720 px kept its frames then; its phones got the same true shape later that day (above).
    - Devices at their true shape: a phone's bezel is 3 % of the phone (it was 2 % of the stage, ~8 % of the phone), and
      every screen takes its picture's own shape (640 x 1385 for a phone, 1600 x 1112 for the iPad), so the whole
      screenshot shows: the phone's screen was ~10 % too narrow for its picture, which was cut at both sides. The frame's
@@ -171,7 +177,7 @@ html:has(.lp7) body{margin:0;padding-top:env(safe-area-inset-top,0px);padding-bo
      it was against the iPad's.
    - The composition fits the window: the stage is never taller than the window under the top bar (68 px) with 24 px to
      spare above and below, so no device is cut when it is in view; it narrows and centres on a short, wide window (never
-     under 480 px). */
+     under 480 px; from 1100 px the short-window rule below takes over). */
 @media (min-width:720px){
   .lp7 .ipad,.lp7 .phone{aspect-ratio:auto}
   .lp7 .ipad .scr{height:auto;aspect-ratio:1600/1112}
@@ -179,18 +185,43 @@ html:has(.lp7) body{margin:0;padding-top:env(safe-area-inset-top,0px);padding-bo
   .lp7 .stage .phone{padding:.72%;top:13.5%}
   .lp7 .stage-wrap{width:min(100%,max(480px,calc((100vh - 116px) * 1.6)));margin-inline:auto}
 }
+/* Short windows (12 Nov 2026, founder: "make the headline adapt to the screen height on short laptop screens"). From
+   1024 px wide the headline, the space above the eyebrow and the space above the stage follow the window's height as
+   well as its width: at most 9.2, 5.6 and 6.2 % of it, which are the design's 124 px headline and 80 and 88 px spaces
+   from a 1348, 1429 and 1419 px tall window up. So a short laptop gets the same composition, smaller, with every device on
+   the first screen, and a tall window gets exactly what it had (2560 x 1440 and taller, and every iPad upright).
+   From 1100 px (headline and lede side by side) the stage is as wide as still fits under them: the window's height less
+   the top bar (68 px and its 1 px rule), the space above the eyebrow, the eyebrow (18.6 px) and its 20 px, the headline's
+   three lines (2.76 x its size), the space above the stage and 24 px to spare, times 1.6 (the stage is 10 : 6.25). It never
+   grows past the stage of the rules above (the last term is the wide-screen one that was here), and never shrinks under
+   400 px. The words, weight, line breaks, colours and dots are the headline's own; only its size moves.
+   The headline is never shorter than the column beside it (the design: the lede's block ends on the headline's last line,
+   and the stage's sum counts the headline). That column, measured in Chromium in both languages, is 263-272 px up to
+   1365 px wide (its two buttons wrap: in both languages under 1280 px, in English up to ~1310 px) and 212 px from 1366 px,
+   so the headline's least size is 85 px there (38.6 + 2.76 x 85 = 273) and 63 px from 1366 px (213). */
+@media (min-width:1024px){
+  .lp7 .hero{padding-top:min(clamp(36px,5vw,80px),5.6vh)}
+  .lp7 .hero h1{font-size:clamp(54px,min(11vw,9.2vh),104px)}
+  .lp7 .stage-wrap{margin-top:min(clamp(48px,6vw,88px),6.2vh)}
+}
+@media (min-width:1100px){
+  .lp7 .hero{--h1:clamp(85px,min(8.4vw,9.2vh),124px)}
+  .lp7 .hero h1{font-size:var(--h1)}
+  .lp7 .stage-wrap{width:min(100%,max(400px,calc((100vh - 69px - min(clamp(36px,5vw,80px),5.6vh) - 38.6px - 2.76 * var(--h1) - min(clamp(48px,6vw,88px),6.2vh) - 24px) * 1.6)),max(1152px,calc((100vh - 642px) * 1.6)))}
+}
 /* Wide screens: the page uses the width it has (it was one 1200 px column with wide empty margins). The column grows with
    the window, 1440 px of content up to a 2300 px window and 1680 px at most; the gutters grow too. Text keeps its line
    length (em-based widths on the long paragraphs).
    The stage does not simply follow the column (review, 12 Nov 2026: it did, so on a tall screen it ran past the window's
    foot: 2560 x 1440 showed 82 % of it on load, the live page all of it). It keeps the live page's size, 1152 px (the old
    column), and grows past that only as far as the whole stage still fits under the headline: its top is at most 618 px
-   down the page (top bar, eyebrow, the three lines of the 124 px headline), 24 px to spare under it, hence 642. With the
-   rule above (never taller than the window under the top bar) no window shows less of the devices on load than the live
-   page did, and the stage is whole once scrolled to on every window; a window taller than ~1360 px shows all of it. */
+   down the page (top bar, eyebrow, the three lines of the 124 px headline), 24 px to spare under it, hence 642: the last
+   term of the short-window rule above, which also keeps it whole under the headline on a short window. */
 @media (min-width:1280px){
   .lp7 .wrap{--gut:clamp(32px,2.5vw,64px);max-width:calc(clamp(1440px,62.5vw,1680px) + 2 * var(--gut));padding-left:max(var(--gut),env(safe-area-inset-left,0px));padding-right:max(var(--gut),env(safe-area-inset-right,0px))}
-  .lp7 .stage-wrap{width:min(100%,max(480px,calc((100vh - 116px) * 1.6)),max(1152px,calc((100vh - 642px) * 1.6)))}
+}
+@media (min-width:1366px){
+  .lp7 .hero{--h1:clamp(63px,min(8.4vw,9.2vh),124px)}
 }
 @media (prefers-reduced-motion:reduce){.lp7 *,.lp7 *::before,.lp7 *::after{animation:none!important;transition:none!important}html:has(.lp7){scroll-behavior:auto}}
 /*</fs>*/
@@ -430,6 +461,13 @@ html:has(.lp7) body{margin:0;padding-top:env(safe-area-inset-top,0px);padding-bo
 /* ---------- phone ---------- */
 @media (max-width:719px){
   .lp7 .toast{left:0;top:auto;bottom:100%;margin-bottom:-16%;font-size:13px}
+  /* the section phones at their true shape (12 Nov 2026, the slim bezel above): 3 % of the phone as from 720 px. The duo's
+     phones are no longer stretched down to its foot (the phone layout's bottom:0 drew them taller than their shape, so their
+     screens were cut 15 % and 6 %); the duo is as tall as from 720 px, so the lower phone still ends at its foot (~1.2 %
+     of it to spare). */
+  .lp7 .duo{aspect-ratio:10/10.26}
+  .lp7 .duo .phone{padding:1.32%;bottom:auto}
+  .lp7 .trio .phone{padding:3%}
   .lp7 .trio .phone:nth-child(2){transform:translateY(-6%)}
   .lp7 .strip .wrap{grid-template-columns:minmax(0,1fr)}
   .lp7 .strip .item{padding:18px 0}
