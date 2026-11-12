@@ -20,7 +20,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DRAG, releaseOf, releaseSpeed, rubber, scrimAt, useSheetDrag } from "../components/staff/sheetDrag";
+import { DRAG, pushSample, releaseOf, releaseSpeed, rubber, scrimAt, useSheetDrag } from "../components/staff/sheetDrag";
 import { springKeyframes } from "../components/staff/spring";
 
 function motionPref({ reduce }) {
@@ -117,14 +117,15 @@ afterEach(() => {
 });
 
 describe("the numbers and the pure parts", () => {
-  it("slop 8, dismiss at 30 %, flick 0.5 px/ms after 16 px, rubber 64, 6 samples, a finger still for 100 ms has stopped, speed over the last 100 ms", () => {
+  it("slop 8, dismiss at 30 %, flick 0.5 px/ms after 16 px, rubber 64, speed over the last 83 ms, a finger still for 100 ms has stopped, sparse moves over the last 100 ms", () => {
     // Fix round (drag-stale-velocity / PLAT-1): STOPPED added, the others unchanged.
     // Device pass A (slow Android 14): STOPPED 40 → 100 and HORIZON added.
-    expect(DRAG).toEqual({ SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, SAMPLES: 6, STOPPED: 100, HORIZON: 100 });
+    // Phone R1 (120 Hz): SAMPLES 6 → WINDOW 83 ms (six samples were 83 ms at 60 Hz, 42 ms at 120 Hz).
+    expect(DRAG).toEqual({ SLOP: 8, DISMISS: 0.3, FLICK: 0.5, FLICK_MIN: 16, RUBBER: 64, WINDOW: 83, STOPPED: 100, HORIZON: 100 });
   });
 
   it("releaseSpeed: a fast phone reads all six samples, as before; a slow one only the last 100 ms; a rest is 0", () => {
-    // 60 Hz, 10 px a frame: all six (80 ms) → 0.625 px/ms, the old first-to-last.
+    // 60 Hz, 10 px a frame: all six (80 ms, shorter than the window) → 0.625 px/ms, the old first-to-last.
     const fast = [0, 16, 32, 48, 64, 80].map((t, k) => [t, k * 10]);
     expect(releaseSpeed(fast, 90)).toBeCloseTo(50 / 80, 6);
     // A busy phone: a slow start, then a flick's moves 60 ms apart. Six
@@ -537,5 +538,84 @@ describe("lifetime", () => {
     expect(ty(sheet)).toBe("");
     expect(sheet.style.willChange).toBe("");
     expect(scrim.style.opacity).toBe("");
+  });
+});
+
+/**
+ * Phone R1, 120 Hz: the release speed is read by the clock (the last 83 ms),
+ * never over a number of moves, so the same finger reads the same at 60, 90,
+ * 120 and 144 Hz. The flick speeds up to the lift (dy = c·t² from the engage
+ * point) and lasts 1/6 s, a whole number of frames at every one of the rates.
+ */
+describe("the same flick at 60, 90, 120 and 144 Hz", () => {
+  const RATES = [60, 90, 120, 144];
+  const T = 1000 / 6;
+  const samples = (hz, c) => {
+    const s = [];
+    for (let k = 0; k <= Math.round((T * hz) / 1000); k += 1) {
+      const t = (k * 1000) / hz;
+      pushSample(s, 1000 + t, c * t * t);
+    }
+    return s;
+  };
+  // The old rule on a fast phone: the last six moves, first to last.
+  const lastSix = (s) => { const a = s[s.length - 6]; const b = s.at(-1); return (b[1] - a[1]) / (b[0] - a[0]); };
+
+  it("reads the speed of the last 83 ms at every rate (the six-move rule read 0.465 at 60 Hz, 0.54 at 120)", () => {
+    const c = 0.00186;
+    const want = c * (2 * T - DRAG.WINDOW);                    // ≈ 0.466 px/ms
+    const v = RATES.map((hz) => { const s = samples(hz, c); return releaseSpeed(s, s.at(-1)[0] + 4); });
+    v.forEach((x) => expect(x).toBeCloseTo(want, 2));
+    expect(Math.max(...v) - Math.min(...v)).toBeLessThan(0.002);
+    const dy = c * T * T;                                       // ≈ 52 px: short of 30 %, past FLICK_MIN
+    expect(RATES.map((hz, i) => releaseOf(dy, v[i], 400).dismiss)).toEqual([false, false, false, false]);
+    // The old count: a spring back at 60 Hz, a throw at 90, 120 and 144 — the same finger.
+    expect(RATES.map((hz) => releaseOf(dy, lastSix(samples(hz, c)), 400).dismiss)).toEqual([false, true, true, true]);
+  });
+
+  it("a throw takes the same time at every rate (within 1 ms; the six-move rule: 156 ms at 60 Hz, 133 at 120)", () => {
+    const c = 0.006;                                            // ≈ 1.5 px/ms at the lift, 167 px
+    const dy = c * T * T;
+    const ms = RATES.map((hz) => { const s = samples(hz, c); return releaseOf(dy, releaseSpeed(s, s.at(-1)[0] + 4), 400).ms; });
+    expect(Math.max(...ms) - Math.min(...ms)).toBeLessThanOrEqual(1);
+    const old = RATES.map((hz) => releaseOf(dy, lastSix(samples(hz, c)), 400).ms);
+    expect(old[2] - old[0]).toBeLessThan(-15);
+  });
+
+  it("pushSample keeps the moves of the last 100 ms (25 at 240 Hz), never fewer than two", () => {
+    const s = [];
+    for (let k = 0; k <= 240; k += 1) pushSample(s, (k * 1000) / 240, k);
+    expect(s.length).toBe(25);
+    expect(s.at(-1)[0] - s[0][0]).toBeLessThanOrEqual(DRAG.HORIZON);
+    const sparse = [];
+    for (let k = 0; k < 5; k += 1) pushSample(sparse, k * 300, k * 50);
+    expect(sparse).toEqual([[900, 150], [1200, 200]]);
+    // A broken clock (every move at the same time) is capped, never unbounded.
+    const stuck = [];
+    for (let k = 0; k < 500; k += 1) pushSample(stuck, 0, k);
+    expect(stuck.length).toBeLessThanOrEqual(64);
+  });
+
+  it("through the real touch events: the same release at 60, 120 and 144 Hz (spring back, then the same throw)", () => {
+    const run = (hz, c) => {
+      anims = [];
+      const onDismiss = vi.fn();
+      const view = render(<Sheet onDismiss={onDismiss} />);
+      const { sheet } = prime();
+      grab(sheet);                                              // engaged at y 108: dy 0
+      const P = 1000 / hz;
+      for (let k = 1; k <= Math.round((T * hz) / 1000); k += 1) touch(sheet, "touchmove", 50, 108 + c * (k * P) ** 2, P);
+      flush();
+      touch(sheet, "touchend", 0, 0, 4);
+      const out = { dismissed: onDismiss.mock.calls.length, ms: anims.find((a) => a.el === sheet)?.opts?.duration };
+      view.unmount();
+      return out;
+    };
+    const slow = [60, 120, 144].map((hz) => run(hz, 0.00186));
+    slow.forEach((r) => expect(r.dismissed).toBe(0));
+    const hard = [60, 120, 144].map((hz) => run(hz, 0.006));
+    hard.forEach((r) => expect(r.dismissed).toBe(1));
+    const ms = hard.map((r) => r.ms);
+    expect(Math.max(...ms) - Math.min(...ms)).toBeLessThanOrEqual(1);
   });
 });

@@ -58,6 +58,7 @@ import { platform } from "../utils/platform";
 import { haptic } from "../utils/haptics";
 import { formatKr, parseMoneyInput } from "../utils/currency";
 import { parseServerTime } from "../utils/serverTime";
+import { scanPacer } from "../lib/scanPace";
 
 import PageShell from "../components/ui/PageShell";
 import PageHeader from "../components/ui/PageHeader";
@@ -82,10 +83,10 @@ const SCAN_DEBOUNCE_MS = 3000;
 const SCAN_POST_TIMEOUT_MS = 8000;
 // Last-N visible scan history — keeps the flash log readable at the door.
 const MAX_HISTORY = 5;
-// Camera scan frame interval — using rAF gives us ~60 FPS which is more
-// than enough for QR detection; we still throttle the heavy jsQR call to
-// every other frame to keep CPU under control on older phones.
-const SCAN_THROTTLE_EVERY_N_FRAMES = 2;
+// Camera scan pace: the loop ticks once per screen frame (rAF); the heavy
+// jsQR call runs at most every SCAN_GAP_MS by the frame clock (lib/scanPace:
+// ~30 reads a second at 60, 90, 120 or 144 Hz — it was every 2nd frame,
+// which doubled the work on a 120 Hz phone), to keep CPU under control.
 
 // ── Audio helpers ────────────────────────────────────────────────────
 // Soft Web Audio note for success / low hum for failure. No extra audio
@@ -586,7 +587,8 @@ export default function DoorScanPage() {
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const rafRef = useRef(null);
-  const frameCountRef = useRef(0);
+  const pacerRef = useRef(null);
+  if (!pacerRef.current) pacerRef.current = scanPacer();
   // Debounce: QR text → { until, slide }. Repeated reads of a QR are ignored
   // and (while slide) push its `until` out; see SCAN_DEBOUNCE_MS.
   const recentReadsRef = useRef(new Map());
@@ -848,19 +850,18 @@ export default function DoorScanPage() {
   // / etc.) without forcing a re-create of the stream-loop machinery.
   const tickRef = useRef(null);
   useEffect(() => {
-    tickRef.current = () => {
-      rafRef.current = requestAnimationFrame(() => {
-        if (tickRef.current) tickRef.current();
+    tickRef.current = (ts) => {
+      rafRef.current = requestAnimationFrame((next) => {
+        if (tickRef.current) tickRef.current(next);
       });
       const video = videoRef.current;
       const canvas = canvasRef.current;
       if (!video || !canvas) return;
       if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
 
-      // Throttle the actual jsQR call — runs every Nth frame so we
-      // budget CPU on older devices.
-      frameCountRef.current += 1;
-      if (frameCountRef.current % SCAN_THROTTLE_EVERY_N_FRAMES !== 0) return;
+      // Throttle the actual jsQR call by the frame clock (SCAN_GAP_MS), never
+      // by a frame count, so we budget CPU the same at any refresh rate.
+      if (!pacerRef.current.due(typeof ts === "number" ? ts : performance.now())) return;
 
       const w = video.videoWidth;
       const h = video.videoHeight;
@@ -992,8 +993,8 @@ export default function DoorScanPage() {
       // Safety net like the one above: no button reaches it today, and no
       // test covers it.
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(() => {
-        if (tickRef.current) tickRef.current();
+      rafRef.current = requestAnimationFrame((ts) => {
+        if (tickRef.current) tickRef.current(ts);
       });
     } catch (err) {
       if (gen !== startGenRef.current) return; // a cancelled start has nothing to report
@@ -1031,7 +1032,7 @@ export default function DoorScanPage() {
     setScanning(false);
     unlockPortrait();
     recentReadsRef.current.clear();
-    frameCountRef.current = 0;
+    pacerRef.current.reset();
   }, []);
 
   // ── Attach the stream AFTER the <video> exists ─────────────────────
