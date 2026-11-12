@@ -205,7 +205,9 @@ describe("Market comparison — setup_hint", () => {
       setup_hint: "address_unverified", min_samples: 5,
     }} /></MemoryRouter>);
     expect(screen.getByText(/Market comparison needs your address checked in Danmarks Adresseregister/)).toBeTruthy();
-    expect(screen.getByTestId("pricing-address-hint-link").getAttribute("href")).toBe("/profile");
+    // Review P3: straight to the company section, not the top of Profile
+    // (App.jsx scrolls to the #business SectionAnchor).
+    expect(screen.getByTestId("pricing-address-hint-link").getAttribute("href")).toBe("/profile#business");
   });
 
   it("without the hint the old setup copy stays", () => {

@@ -149,6 +149,14 @@ _TOKEN_ERROR_PREFIXES = (
     "Mangler nødvendig queryparameter: token",
     "Ugyldigt token (",
 )
+# A 400 about one of OUR parameters: "<parameter> <rule> (<echo>)", recorded
+# 11 Nov for adresse, tekst, vejnavn, postnummer and id ("husnummer" for the
+# day KDS enforces its limit). Only these are "not found". Every other 400 is
+# KDS refusing us (new token wording, a changed API: we never leave out a
+# required parameter), so it is "couldn't check", never cached (review R1).
+_INPUT_ERROR_PREFIXES = (
+    "adresse ", "tekst ", "vejnavn ", "husnummer ", "postnummer ", "id skal",
+)
 
 # Swapped-axis / garbage guards for EPSG:25832 and the result (plan 3.3).
 _X_RANGE = (400_000.0, 920_000.0)
@@ -318,12 +326,35 @@ def _endpoint_kind(host: str, path: str) -> str | None:
     return None
 
 
+def _kds_400_kind(text: str, sent: list[str]) -> str:
+    """"token", "input" or "unknown" for a KDS 400 body.
+
+    The two recorded token errors first; then the input errors (checked
+    before any token test, so an echoed address can never read as one); then
+    a token named in KDS's own words — before the "(" echo, with our own
+    values cut out — for new wording on the registration day ("Token er
+    udløbet"). Anything else is "unknown".
+    """
+    if text.startswith(_TOKEN_ERROR_PREFIXES):
+        return "token"
+    if text.casefold().startswith(_INPUT_ERROR_PREFIXES):
+        return "input"
+    own = text.split("(", 1)[0]
+    for v in sent:
+        if v:
+            own = own.replace(v, " ")
+    if "token" in own.casefold():
+        return "token"
+    return "unknown"
+
+
 def _get(host: str, path: str, params: dict[str, Any], deadline: Deadline) -> tuple[Outcome, Any]:
     """GET https://<host><path>?<params>[&token=…] and classify the reply.
 
     (FOUND, parsed JSON) when the service answered; (NOT_FOUND, None) for a
-    404 on an id lookup or a 400 that is about our input; (UNAVAILABLE, None)
-    for everything else. Never raises, never logs the address, URL or body.
+    404 on an id lookup or a 400 that names one of our parameters;
+    (UNAVAILABLE, None) for everything else, an unknown 400 included.
+    Never raises, never logs the address, URL or body.
     """
     if host not in _ALLOWED_HOSTS:
         logger.error("geo refused host outside the allowlist")
@@ -407,13 +438,18 @@ def _get(host: str, path: str, params: dict[str, Any], deadline: Deadline) -> tu
             outcome = Outcome.NOT_FOUND
         elif status == 400 and provider == "dar":
             text = body.decode("utf-8", errors="replace").lstrip()
-            if text.startswith(_TOKEN_ERROR_PREFIXES):
+            kind_400 = _kds_400_kind(text, [str(v) for _, v in query])
+            if kind_400 == "token":
                 if breaker.gone():
                     _alert_gone(provider, status)
                 outcome = Outcome.UNAVAILABLE
-            else:
+            elif kind_400 == "input":
                 breaker.success()       # bad input; never a breaker failure
                 outcome = Outcome.NOT_FOUND
+            else:
+                breaker.failure()       # KDS refused us: couldn't check
+                outcome = Outcome.UNAVAILABLE
+                logger.warning("geo provider=dar kind=%s unexpected 400", kind)
             recorded = True
             del text
         elif status in (401, 403, 410) or (status == 404 and kind not in _ID_LOOKUPS):
@@ -626,9 +662,14 @@ _POSTCODE_TAIL = re.compile(r"^(?P<rest>.*?\S)[\s,]+(?P<pc>\d{4})(?:\s+(?P<town>
 _INTERVAL = re.compile(r"^(?P<street>.*?\D)\s*(?P<a>\d{1,3}\s?[A-Za-zÆØÅæøå]?)\s*-\s*(?P<b>\d{1,3}\s?[A-Za-zÆØÅæøå]?)$")
 _STREET_NR = re.compile(r"^(?P<street>.+?)\s+(?P<nr>\d{1,3}(?:\s?[A-Za-zÆØÅæøå])?)$")
 # "Vestergade 1 st. tv" / "Vestergade 1 1. th": a floor after the number
-# without a comma (only tried when the line does not end in a number).
+# without a comma (only tried when the line does not end in a number). The
+# dot is optional ("Vestergade 1 st", "Vestergade 1 1 th"): without it the
+# number was lost and the pin skipped the register and the house-number
+# guard (review R2). An undotted floor takes only a real door after it.
 _STREET_NR_FLOOR = re.compile(
-    r"^(?P<street>.+?)\s+(?P<nr>\d{1,3}(?:\s?[A-Za-zÆØÅæøå])?)\s+(?:st|kl|kld|\d{1,2})\.(?:\s+\S+)?$",
+    r"^(?P<street>.+?)\s+(?P<nr>\d{1,3}(?:\s?[A-Za-zÆØÅæøå])?)\s+"
+    r"(?:(?:st|kl|kld|\d{1,2})\.(?:\s+\S+)?"
+    r"|(?:st|kl|kld|\d{1,2})(?:\s+(?:tv|th|mf|\d{1,3})\.?)?)$",
     re.IGNORECASE,
 )
 
@@ -1115,6 +1156,11 @@ def osm_find(text: str, parsed: ParsedAddress | None = None,
     if not isinstance(rows, list):
         return Outcome.UNAVAILABLE, None, None
 
+    # Fail closed (review R2): a digit before the postcode but no house
+    # number parsed ("Vestergade 1 baghus") may still be a street address.
+    # Then a hit without a house number (a street centre) is refused.
+    pre = _POSTCODE_TAIL.match(t)
+    unparsed_number = not number and bool(re.search(r"\d", pre.group("rest") if pre else t))
     accepted: list[tuple[dict, float, float]] = []
     wrong_postcode = street_only = False
     for row in rows:
@@ -1131,6 +1177,9 @@ def osm_find(text: str, parsed: ParsedAddress | None = None,
             wrong_postcode = True
             continue
         if number and _norm_nr(a.get("house_number")) != _norm_nr(number):
+            street_only = True
+            continue
+        if unparsed_number and not _clean(a.get("house_number")):
             street_only = True
             continue
         accepted.append((row, lat, lng))

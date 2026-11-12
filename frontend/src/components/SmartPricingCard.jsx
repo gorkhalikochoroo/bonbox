@@ -155,7 +155,7 @@ export default function SmartPricingCard({ comparison, currencyCode, onApplied }
       msg = (
         <>
           {t("pricingAddressUnverified", "Market comparison needs your address checked in Danmarks Adresseregister. Open Profile and pick your company again.")}{" "}
-          <Link to="/profile" className="font-semibold underline" data-testid="pricing-address-hint-link">
+          <Link to="/profile#business" className="font-semibold underline" data-testid="pricing-address-hint-link">
             {t("openProfile", "Open Profile →")}
           </Link>
         </>

@@ -278,6 +278,12 @@ def test_same_address_compares_the_house_number_exactly():
     ("Christian 10 Gade 2, 6000 Kolding", "Christian 10 Gade", "2", "6000", False),
     ("Islands Brygge 32 B, 2300", "Islands Brygge", "32B", "2300", False),
     ("Vestergade 1 st. tv, 1456 København K", "Vestergade", "1", "1456", False),
+    # review R2: a floor with no dot kept the number lost (no register call,
+    # no house-number guard on the OpenStreetMap backup)
+    ("Vestergade 1 st, 8000 Aarhus C", "Vestergade", "1", "8000", False),
+    ("Vestergade 1 st tv", "Vestergade", "1", None, False),
+    ("Vestergade 1 1 th, 8000 Aarhus C", "Vestergade", "1", "8000", False),
+    ("Vestergade 1 kld", "Vestergade", "1", None, False),
     ("Rentemestervej 8", "Rentemestervej", "8", None, False),
     ("Christiansborg Slot 1-5, 1218 København K", "Christiansborg Slot", None, "1218", True),
     ("Slotsholmsgade 1N-1K, 1216 København K", "Slotsholmsgade", None, "1216", True),
@@ -355,6 +361,66 @@ def test_an_echoed_address_that_says_token_does_not_open_the_breaker(geo):
                                                      headers={"content-type": "text/html"})})
     assert al.register_wash("Tokenvej 1, 1550 København V", al.Deadline(5))[0] == Outcome.NOT_FOUND
     assert not al._BREAKERS["dar"].is_open()
+
+
+@pytest.mark.parametrize("case", [
+    "err_vask_empty__vask", "err_vask_long__vask", "err_soeg_tekst_74__husnumre_soeg_tekst",
+    "err_soeg_vejnavn_41__husnumre_soeg_struct", "err_soeg_postnummer_5__husnumre_soeg_struct",
+    "err_adresser_not_uuid__adresser_id",
+])
+def test_every_recorded_input_error_reads_as_input(case):
+    """The real KDS input-error bodies: each names one of our parameters."""
+    assert al._kds_400_kind(kds(case)["body"], []) == "input"
+
+
+def test_an_unknown_400_is_couldnt_check_never_cached_never_not_found(geo, monkeypatch):
+    """Review R1. Synthetic (KDS has not sent it): an unknown 400 is KDS
+    refusing us, not "this address is not in the register". UNAVAILABLE, a
+    breaker failure, never cached, no 1-hour alarm."""
+    import app.services.ops_alert as ops_alert
+    alerts = []
+    monkeypatch.setattr(ops_alert, "send_ops_alert", lambda *a, **k: alerts.append(a))
+    body = "Adgang nægtet"
+    t = geo({(REG, "/vask/"): lambda req: httpx.Response(400, content=body.encode("utf-8"),
+                                                         headers={"content-type": "text/html"})})
+    assert al.wash("Rådhuspladsen 1", "1550", "København V") == (Outcome.UNAVAILABLE, None)
+    assert al.wash("Rådhuspladsen 1", "1550", "København V") == (Outcome.UNAVAILABLE, None)
+    assert len(t.calls) == 2                      # not cached
+    assert al._BREAKERS["dar"].fails == 2 and not al._BREAKERS["dar"].is_open()
+    al.wash("Rådhuspladsen 1", "1550", "København V")
+    assert al._BREAKERS["dar"].is_open()          # 3 in a row: the 5-minute breaker
+    assert alerts == []
+
+
+def test_a_missing_parameter_other_than_the_token_is_couldnt_check(geo):
+    """Real body "Mangler nødvendig queryparameter: vejnavn". We always send
+    every required parameter, so this means KDS changed: UNAVAILABLE.
+    (Before review R1 any 400 not naming the token was NOT_FOUND.)"""
+    geo({(REG, "/husnumre/soeg"): lambda req: reply(kds("err_soeg_only_husnummer__husnumre_soeg_struct"))})
+    out, _ = al.register_find_building("Rådhuspladsen", "1", "1550", al.Deadline(5))
+    assert out == Outcome.UNAVAILABLE
+
+
+@pytest.mark.parametrize("body", ["Token er udløbet", "Invalid token", "token mangler (…)"])
+def test_new_token_wording_opens_the_1_hour_breaker_and_alerts(geo, monkeypatch, body):
+    """Review R1. Synthetic: the registration day may bring new wording. A
+    400 that names the token in KDS's own words (before the "(" echo) is the
+    1-hour breaker + one ops alert, never "not found"."""
+    import app.services.ops_alert as ops_alert
+    alerts = []
+    monkeypatch.setattr(ops_alert, "send_ops_alert", lambda *a, **k: alerts.append(a))
+    t = geo({(REG, "/vask/"): lambda req: httpx.Response(400, content=body.encode("utf-8"),
+                                                         headers={"content-type": "text/html"})})
+    assert al.wash("Rådhuspladsen 1", "1550", "København V") == (Outcome.UNAVAILABLE, None)
+    assert al._BREAKERS["dar"].is_open()
+    assert al.wash("Rådhuspladsen 1", "1550", "København V") == (Outcome.UNAVAILABLE, None)
+    assert len(t.calls) == 1 and len(alerts) == 1
+
+
+def test_our_own_echoed_value_never_reads_as_a_token_error():
+    """An unknown 400 that echoes our street without a "(" is not a token
+    error just because the street says "Token"."""
+    assert al._kds_400_kind("Ukendt fejl Tokenvej 1", ["Tokenvej 1"]) == "unknown"
 
 
 @pytest.mark.parametrize("case", ["err_no_token__vask", "err_short_token__vask"])
@@ -641,6 +707,29 @@ def test_postcode_and_house_number_guards_on_the_real_broenderslev_reply(geo):
 def test_house_number_guard_refuses_a_street_centre_pin(geo):
     geo()
     assert al.osm_find("Algade 1, 9000 Aalborg") == (Outcome.NOT_FOUND, None, "street_only")
+
+
+def test_a_floor_without_a_dot_still_asks_the_register_and_never_pins_a_street_centre(geo):
+    """Review R2. "Algade 1 st" lost its number, skipped the register and
+    let OpenStreetMap's street centre through. Now the register is asked
+    (no recording for this line: 599 = couldn't check) and the real Algade
+    street-centre reply is refused by the house-number guard."""
+    t = geo()
+    out, g, _ = al.geocode("Algade 1 st, 9000 Aalborg")
+    assert out != Outcome.FOUND and g is None
+    assert REG in {h for h, _, _ in t.calls}
+    street = [p for h, _, p in t.calls if h == OSM][0]["street"]
+    assert street == "1 Algade"
+
+
+def test_a_digit_with_no_parsed_number_refuses_a_street_centre_hit(geo):
+    """Review R2, fail closed. "Algade 1 baghus" parses no number; the real
+    Algade street-centre rows (no house_number) are refused, street_only.
+    A venue name with no digit ("Tivoli") is unaffected (test above)."""
+    street_rows = osm("aalborg_algade_1__q")
+    geo({(OSM, "/search"): lambda req: reply(street_rows)})
+    assert al.parse_street_number("Algade 1 baghus, 9000 Aalborg").number is None
+    assert al.osm_find("Algade 1 baghus, 9000 Aalborg") == (Outcome.NOT_FOUND, None, "street_only")
 
 
 def test_osm_hit_with_number_and_postcode_is_accepted_and_labelled_without_osms_city(geo):

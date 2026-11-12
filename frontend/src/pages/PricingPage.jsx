@@ -405,7 +405,7 @@ function SmartPricingSection({ data, loading, currencyCode }) {
           ? t("pricingAddressUnverified", "Market comparison needs your address checked in Danmarks Adresseregister. Open Profile and pick your company again.")
           : t("smartPricingNeedsSetup", "Add your postal code and cuisine in Profile to see market comparisons.")}
         {addressHint && (
-          <Link to="/profile" className="ml-1 font-semibold underline" data-testid="pricing-address-hint-link">
+          <Link to="/profile#business" className="ml-1 font-semibold underline" data-testid="pricing-address-hint-link">
             {t("openProfile", "Open Profile →")}
           </Link>
         )}
