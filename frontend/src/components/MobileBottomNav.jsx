@@ -146,7 +146,8 @@ export default function MobileBottomNav({ enabledModules = null, badges = null }
               end={tab.to === "/dashboard"}
               aria-current={isActive ? "page" : undefined}
               aria-label={label}
-              className={`flex flex-col items-center justify-center w-16 h-14 transition
+              /* td-tab: the dock press (today.css) — .96 down, spring back. */
+              className={`td-tab flex flex-col items-center justify-center w-16 h-14 transition
                 focus-visible:outline-none focus-visible:ring-2
                 focus-visible:ring-gray-400 focus-visible:ring-inset
                 ${isActive
