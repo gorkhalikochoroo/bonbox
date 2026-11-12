@@ -67,7 +67,7 @@ import useFounderRateStatus from "../hooks/useFounderRateStatus";
 import { TableMark } from "../config/tableArchetypes";
 import {
   Clock, Check, ArrowRight, Menu, X, ChevronDown, Apple, Mail,
-  Receipt, Utensils, Landmark,
+  ReceiptText as Receipt, Utensils, Landmark,
   // Pillar/day glyphs — one Lucide outline icon per surface,
   // all at the single decorative stroke weight (1.5).
   CalendarClock, FileText, Calendar,

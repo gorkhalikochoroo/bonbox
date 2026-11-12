@@ -38,12 +38,11 @@ import {
   ChevronRight,
   ChevronDown,
   Wallet,
-  Receipt,
+  ReceiptText as Receipt,
   Moon,
   UserRound,
   Search,
   RefreshCw,
-  CircleDollarSign,
   CreditCard,
   Smartphone,
   Banknote,
@@ -1569,7 +1568,7 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
                   variant="primary"
                   size="lg"
                   onClick={openRedeem}
-                  iconLeft={<CircleDollarSign className="w-4 h-4" aria-hidden />}
+                  iconLeft={<Banknote className="w-4 h-4" aria-hidden />}
                   className="w-full justify-center"
                 >
                   {t("gkRedeemAction", "Indløs")}
