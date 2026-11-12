@@ -439,7 +439,7 @@ describe("Premium feel primitives (P1, P6)", () => {
     expect(CSS).toMatch(/\.vp-busy \{ display: inline-grid; place-items: center;/);
     expect(CSS).toMatch(/\.vp-busy > \* \{ grid-area: 1 \/ 1;/);
     expect(CSS).toMatch(/\.vp-ring \{[^}]*animation: vp-spin 800ms linear infinite;/);
-    expect(CSS).toMatch(/\.vp-busy\[data-state="busy"\] > \.vp-busy-spin \{ opacity: 1; animation: vp-spin 800ms linear infinite; \}/);
+    expect(CSS).toMatch(/\.vp-busy\[data-state="busy"\] > \.vp-busy-spin \{ opacity: 1; animation: vp-spin 800ms linear infinite; transition: opacity 120ms var\(--ease-out\); \}/);
     expect(CSS).toMatch(/\.vp-busy\[data-state="done"\] > \.vp-busy-check \{ opacity: 1; animation: vp-pop var\(--dur-spring\) var\(--spring\) backwards; \}/);
     expect(CSS).toMatch(/@keyframes vp-spin \{ to \{ transform: rotate\(360deg\); \} \}/);
   });
@@ -451,7 +451,13 @@ describe("Premium feel primitives (P1, P6)", () => {
     expect(label.length).toBeGreaterThan(0);
     for (const [, decl] of label) expect(decl).not.toMatch(/transition/);
     expect(CSS).toMatch(/\.vp-busy\[data-state="busy"\] > \.vp-busy-label,\s*\.vp-busy\[data-state="done"\] > \.vp-busy-label \{ opacity: 0; \}/);
-    expect(CSS).toMatch(/\.vp-busy > \.vp-busy-spin \{ opacity: 0; animation: none; transition: opacity 120ms var\(--ease-out\); \}/);
+    // Fix round 3: the ring fades IN only. A fade-out (a still ring over the
+    // label that is already back, "Slut p◯use" for 120 ms) was the same overlap.
+    expect(CSS).toMatch(/\.vp-busy > \.vp-busy-spin \{ opacity: 0; animation: none; \}/);
+    const spinBase = rules.filter(([sels]) => sels.some((x) => /\.vp-busy-spin$/.test(x)) && !sels.some((x) => /data-state/.test(x)));
+    expect(spinBase.length).toBeGreaterThan(0);
+    for (const [, decl] of spinBase) expect(decl).not.toMatch(/transition/);
+    expect(body).toMatch(/\.vp-busy\[data-state="busy"\] > \.vp-busy-spin \{ transition: none; \}/);
   });
 
   it(".vp-ring, .vp-busy, .vp-busy-label, .vp-busy-spin and .vp-busy-check are in the reduce block", () => {
@@ -716,8 +722,11 @@ describe("Premium feel 1.6: tab change feel", () => {
     // Device pass A: the page was 28 px taller than the screen (an upward
     // swipe shifted it 62 px), and after a keyboard 100dvh / 100vh no longer
     // matched the frame the fixed dock and composer use.
-    expect(CSS).toMatch(/html:has\(> body\.portal-shell\) \{ overflow: hidden; \}/);
-    expect(CSS).toMatch(/body\.portal-shell::before \{[^}]*position: fixed;[^}]*top: -120px;[^}]*bottom: -120px;[^}]*z-index: -1;[^}]*pointer-events: none;/);
+    // Fix round 3: only while the shell is there; the PIN gate, loading and
+    // error screens sit in the flow and must still scroll (landscape, big text).
+    expect(CSS).toMatch(/html:has\(> body\.portal-shell \[data-page-shell\]\) \{ overflow: hidden; \}/);
+    expect(CSS).not.toMatch(/html:has\(> body\.portal-shell\) \{/);
+    expect(CSS).toMatch(/body\.portal-shell:has\(\[data-page-shell\]\)::before \{[^}]*position: fixed;[^}]*top: -120px;[^}]*bottom: -120px;[^}]*z-index: -1;[^}]*pointer-events: none;/);
     expect(PAGE).toMatch(/const PORTAL_SHELL_FRAME = \{\s*position: "fixed", top: 0, height: "100%",/);
     expect(PAGE).toContain("...PORTAL_SHELL_FRAME,");
     expect(PAGE).toContain("height: `calc(100% - ${kbShell}px)`");
