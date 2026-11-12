@@ -71,7 +71,7 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime, time as time_cls, timedelta
+from datetime import datetime, time as time_cls, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -152,7 +152,8 @@ _MAX_EARLY_CLOCK_IN_MIN = 240
 
 def _venue_now(db: Session, owner_id: uuid.UUID) -> datetime:
     """Now in the venue's timezone (the owner's User.timezone), naive — the
-    same wall clock Schedule.date + start_time are written in."""
+    same wall clock Schedule.date + start_time are written in. `fold` is kept
+    (1 on the second pass of the hour the clocks go back)."""
     from app.models.user import User
     from app.services.tz_utils import now_local
     owner = db.query(User).filter(User.id == owner_id).first()
@@ -180,26 +181,93 @@ def _early_clock_in_minutes(db: Session, owner_id: uuid.UUID) -> int:
     return _MAX_EARLY_CLOCK_IN_MIN
 
 
+def _venue_zone(db: Session, owner_id: uuid.UUID):
+    from app.models.user import User
+    from app.services.tz_utils import _user_zone
+    return _user_zone(db.query(User).filter(User.id == owner_id).first())
+
+
+def _punch_began(db: Session, punch: HoursLogged, now: datetime) -> Optional[datetime]:
+    """When the open punch began, on the venue's wall clock. created_at is the
+    exact clock-in instant (naive UTC; the portal's live counter reads it the
+    same way). Without it, start_time on the latest day not after now."""
+    if punch.created_at is not None:
+        return (punch.created_at.replace(tzinfo=timezone.utc)
+                .astimezone(_venue_zone(db, punch.user_id)).replace(tzinfo=None))
+    try:
+        hh, mm = (int(x) for x in (punch.start_time or "").split(":")[:2])
+        began = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    except (ValueError, TypeError):
+        return None
+    return began - timedelta(days=1) if began > now else began
+
+
+def _clocked_in_on(db: Session, sched: Schedule, start: datetime, now: datetime,
+                   window: timedelta) -> bool:
+    """Is the staffer's open clock punch the one for THIS shift? Only when it
+    began inside this shift's clock-in window and no earlier shift of theirs
+    was still running when they clocked in. A split shift's lunch punch
+    (lunch 11–14, dinner 17–22) or a punch left open days ago is not the
+    dinner shift's: dinner can still be swapped until it starts."""
+    punch = (
+        db.query(HoursLogged)
+        .filter(
+            HoursLogged.user_id == sched.user_id,
+            HoursLogged.staff_id == sched.staff_id,
+            HoursLogged.end_time.is_(None),
+            HoursLogged.entry_method == "clock",
+        )
+        .order_by(HoursLogged.created_at.desc())
+        .first()
+    )
+    if punch is None:
+        return False
+    began = _punch_began(db, punch, now)
+    if began is None or began < start - window:
+        return False
+    # An earlier shift of theirs that had not ended when they clocked in owns
+    # the punch (shifts the staffer can see: published or confirmed).
+    began_min = began.date().toordinal() * 24 * 60 + began.hour * 60 + began.minute
+    start_min = _abs_span(sched)[0]
+    earlier = db.query(Schedule).filter(
+        Schedule.user_id == sched.user_id,
+        Schedule.staff_id == sched.staff_id,
+        Schedule.id != sched.id,
+        Schedule.status.in_(("published", "confirmed")),
+        Schedule.date >= began.date() - timedelta(days=1),
+        Schedule.date <= sched.date,
+    ).all()
+    for other in earlier:
+        o_start, o_end = _abs_span(other)
+        if o_start < start_min and o_end > began_min:
+            return False
+    return True
+
+
 def shift_has_started(db: Session, sched: Schedule, *, now: Optional[datetime] = None) -> bool:
     """True when the shift's start (its date + start_time, venue local time)
     is now or earlier — an overnight shift that began yesterday evening
-    counts, it began — or when its staffer is clocked in on it already (an
-    open clock punch while the shift is inside the clock-in window)."""
+    counts, it began — or when its staffer is clocked in on it already (their
+    open clock punch began inside this shift's clock-in window, and not
+    during an earlier shift of theirs)."""
     now = now or _venue_now(db, sched.user_id)
     start = _shift_start(sched)
     if start is None:                    # malformed time: fall back to the date
         return sched.date < now.date()
     if start <= now:
         return True
-    if start - now <= timedelta(minutes=_early_clock_in_minutes(db, sched.user_id)):
-        open_punch = db.query(HoursLogged.id).filter(
-            HoursLogged.user_id == sched.user_id,
-            HoursLogged.staff_id == sched.staff_id,
-            HoursLogged.end_time.is_(None),
-            HoursLogged.entry_method == "clock",
-        ).first()
-        if open_punch is not None:
+    if getattr(now, "fold", 0) == 1:
+        # The repeated hour when the clocks go back (02:00–03:00 runs twice).
+        # On its second pass the wall clock reads earlier than a start it
+        # already passed on the first: compare the instants. fold=0 = the
+        # start's first occurrence.
+        zone = _venue_zone(db, sched.user_id)
+        if (start.replace(tzinfo=zone, fold=0).astimezone(timezone.utc)
+                <= now.replace(tzinfo=zone).astimezone(timezone.utc)):
             return True
+    window = timedelta(minutes=_early_clock_in_minutes(db, sched.user_id))
+    if start - now <= window and _clocked_in_on(db, sched, start, now, window):
+        return True
     return False
 
 
@@ -902,8 +970,9 @@ def claim_giveaway(
             "The shift has changed since it was offered; ask them to re-offer."
         )
     # Not once it has started (venue local time, overnight included, or the
-    # offerer is clocked in on it): the offer ends as "expired" so it leaves
-    # the offerer's list too, and the claim is refused.
+    # offerer is clocked in on it): the claim is refused and the offer ends
+    # as "expired", so the offerer's own list says "Shift started" instead
+    # of "Up for grabs".
     try:
         _refuse_started(db, sched)
     except ShiftSwapStarted:

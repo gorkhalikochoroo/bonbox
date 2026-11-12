@@ -8,8 +8,10 @@ claimed at 15:00 the same day — reassigning a shift someone was working.
 
 Now every path asks shift_has_started(): start datetime (Schedule.date +
 start_time) <= now in the VENUE's local time (the owner's timezone),
-overnight shifts included, or the staffer is already clocked in on it (an
-open clock punch while the shift is inside the clock-in window). The refusal
+overnight shifts included, or the staffer is already clocked in on it (their
+open clock punch began inside this shift's clock-in window, and not during an
+earlier shift of theirs: a split shift's lunch punch does not start dinner).
+The refusal
 is ShiftSwapStarted -> 422 {"code": "shift_started", "message": …}; the
 message keeps the word "past" and is what an older bundle shows (errText).
 
@@ -41,7 +43,7 @@ from app.services.shift_swap_service import (
 
 _db_ready.set()
 
-# Wednesday 15:00 in the venue's own time (whatever day the suite runs).
+# 15:00 in the venue's own time, 30 days from whatever day the suite runs.
 TODAY = date.today() + timedelta(days=30)
 NOW = datetime.combine(TODAY, datetime.min.time()).replace(hour=15)
 YESTERDAY = TODAY - timedelta(days=1)
@@ -113,9 +115,20 @@ def _shift(db, owner, staff, on, start, end):
     return s
 
 
-def _clock_in(db, owner, staff, at="13:30"):
-    db.add(HoursLogged(user_id=owner.id, staff_id=staff.id, date=TODAY, start_time=at,
-                       end_time=None, total_hours=0, entry_method="clock"))
+def _clock_in(db, owner, staff, at="13:30", on=None):
+    # Edited on purpose (12 Nov review): created_at is now set to the punch
+    # instant. The guard reads WHEN the punch began from created_at (naive
+    # UTC, the exact clock-in moment, as the portal's live counter does), and
+    # the frozen venue clock sits 30 days ahead, so the default (real now)
+    # would put every punch a month before the shift.
+    from zoneinfo import ZoneInfo
+    from datetime import timezone as _tz
+    on = on or TODAY
+    hh, mm = (int(x) for x in at.split(":"))
+    local = datetime.combine(on, datetime.min.time()).replace(hour=hh, minute=mm)
+    utc = local.replace(tzinfo=ZoneInfo("Europe/Copenhagen")).astimezone(_tz.utc).replace(tzinfo=None)
+    db.add(HoursLogged(user_id=owner.id, staff_id=staff.id, date=on, start_time=at,
+                       end_time=None, total_hours=0, entry_method="clock", created_at=utc))
     db.commit()
 
 
@@ -150,6 +163,126 @@ def test_a_shift_the_staffer_is_clocked_in_on_has_started(db, cafe):
     # Someone ELSE being clocked in changes nothing.
     other = _shift(db, owner, lars, TODAY, "16:00", "22:00")
     assert not shift_has_started(db, other)
+
+
+def test_a_split_shift_lunch_punch_does_not_start_the_dinner_shift(db, cafe):
+    """Lunch 11–14, clocked in at 10:55 and still in at 13:30; dinner 17–22.
+    The open punch is the LUNCH shift's. Dinner has not started, so it can
+    still be given away (with no clock-in window set, the old check counted
+    any open punch within 4 h of a start)."""
+    owner, sara, _ = cafe
+    lunch = _shift(db, owner, sara, TODAY, "11:00", "14:00")
+    dinner = _shift(db, owner, sara, TODAY, "17:00", "22:00")
+    _clock_in(db, owner, sara, at="10:55")
+    at_1330 = NOW.replace(hour=13, minute=30)
+    assert shift_has_started(db, lunch, now=at_1330)
+    assert not shift_has_started(db, dinner, now=at_1330)
+    svc._venue_now = lambda db, owner_id: at_1330
+    ga = offer_giveaway(db, owner_id=owner.id, from_staff_id=sara.id, from_shift_id=dinner.id)
+    assert ga.status == "proposed"
+
+
+def test_a_lunch_punch_left_open_still_does_not_start_dinner(db, cafe):
+    """Forgot to clock out after lunch (11–14, in at 10:55): at 16:00 the
+    open punch is still the lunch one, not dinner's (17:00)."""
+    owner, sara, _ = cafe
+    _shift(db, owner, sara, TODAY, "11:00", "14:00")
+    dinner = _shift(db, owner, sara, TODAY, "17:00", "22:00")
+    _clock_in(db, owner, sara, at="10:55")
+    assert not shift_has_started(db, dinner, now=NOW.replace(hour=16))
+
+
+def test_a_punch_forgotten_days_ago_does_not_start_todays_shift(db, cafe):
+    owner, sara, _ = cafe
+    shift = _shift(db, owner, sara, TODAY, "16:00", "22:00")
+    _clock_in(db, owner, sara, at="16:02", on=TODAY - timedelta(days=2))
+    assert not shift_has_started(db, shift)          # 15:00, an hour before
+
+
+def test_clocked_in_early_after_an_earlier_shift_ended(db, cafe):
+    """Lunch 11–14 is over (that punch closed); back in at 16:40 for 17:00:
+    the new open punch is dinner's, so dinner has started."""
+    owner, sara, _ = cafe
+    _shift(db, owner, sara, TODAY, "11:00", "14:00")
+    dinner = _shift(db, owner, sara, TODAY, "17:00", "22:00")
+    _clock_in(db, owner, sara, at="16:40")
+    assert shift_has_started(db, dinner, now=NOW.replace(hour=16, minute=45))
+
+
+def test_the_clock_in_window_bounds_the_punch(db, cafe):
+    """With a 30-minute clock-in window, a punch from 2 h before the shift
+    is not this shift's punch."""
+    import json as _json
+    from app.models.business_profile import BusinessProfile
+    owner, sara, _ = cafe
+    db.add(BusinessProfile(user_id=owner.id, clock_settings_json=_json.dumps(
+        {"window_enabled": True, "window_minutes": 30})))
+    db.commit()
+    shift = _shift(db, owner, sara, TODAY, "17:00", "22:00")
+    _clock_in(db, owner, sara, at="15:00")
+    assert not shift_has_started(db, shift, now=NOW.replace(hour=16, minute=45))
+    db.query(HoursLogged).delete(); db.commit()
+    _clock_in(db, owner, sara, at="16:35")
+    assert shift_has_started(db, shift, now=NOW.replace(hour=16, minute=45))
+
+
+@pytest.mark.parametrize("utc_instant, start, started", [
+    # Spring forward, Sun 29 Mar 2026: 02:00 CET jumps to 03:00 CEST.
+    (datetime(2026, 3, 29, 0, 30), "03:00", False),   # 01:30 CET
+    (datetime(2026, 3, 29, 1, 30), "03:00", True),    # 03:30 CEST
+    (datetime(2026, 3, 29, 6, 30), "09:00", False),   # 08:30 CEST
+    (datetime(2026, 3, 29, 7, 30), "09:00", True),    # 09:30 CEST (a fixed +1 h would say 08:30)
+    # Fall back, Sun 25 Oct 2026: 03:00 CEST goes back to 02:00 CET.
+    (datetime(2026, 10, 25, 7, 30), "09:00", False),  # 08:30 CET (a stale +2 h would say 09:30)
+    (datetime(2026, 10, 25, 8, 30), "09:00", True),   # 09:30 CET
+    (datetime(2026, 10, 24, 7, 30), "09:00", True),   # Sat: 09:30 CEST
+    (datetime(2026, 10, 24, 6, 30), "09:00", False),  # Sat: 08:30 CEST
+    # The repeated hour: 02:30 came first at 00:30 UTC (CEST). At 01:15 UTC
+    # the wall clock reads 02:15 again (CET), yet the 02:30 shift began
+    # 45 minutes ago.
+    (datetime(2026, 10, 25, 0, 15), "02:30", False),  # 02:15 CEST, first pass
+    (datetime(2026, 10, 25, 0, 45), "02:30", True),   # 02:45 CEST, first pass
+    (datetime(2026, 10, 25, 1, 15), "02:30", True),   # 02:15 CET, second pass
+])
+def test_dst_days_use_the_venues_wall_clock(db, cafe, monkeypatch, utc_instant, start, started):
+    """The real _venue_now on a DST day: a frozen UTC instant is read on the
+    venue's wall clock (Europe/Copenhagen), the clock the roster is written in."""
+    from datetime import timezone as _tz
+    from app.services import tz_utils
+
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            moment = utc_instant.replace(tzinfo=_tz.utc)
+            return moment.astimezone(tz) if tz else moment.replace(tzinfo=None)
+
+    monkeypatch.undo()                                  # the real _venue_now
+    monkeypatch.setattr(tz_utils, "datetime", _Frozen)
+    from zoneinfo import ZoneInfo
+    owner, sara, _ = cafe
+    local_day = utc_instant.replace(tzinfo=_tz.utc).astimezone(ZoneInfo("Europe/Copenhagen")).date()
+    shift = _shift(db, owner, sara, local_day, start, "23:00")
+    assert shift_has_started(db, shift) is started
+
+
+def test_future_shifts_are_untouched(db, cafe):
+    """Tomorrow's shifts: proposing, accepting, offering, the pool and
+    claiming all work exactly as before."""
+    owner, sara, lars = cafe
+    a = _shift(db, owner, sara, TOMORROW, "09:00", "15:00")
+    b = _shift(db, owner, lars, TOMORROW + timedelta(days=1), "09:00", "15:00")
+    swap = propose_swap(db, owner_id=owner.id, from_staff_id=sara.id, from_shift_id=a.id,
+                        to_staff_id=lars.id, to_shift_id=b.id)
+    done = respond_to_swap(db, swap_id=swap.id, responder_staff_id=lars.id, accept=True)
+    assert done.status == "done"
+    db.refresh(a); db.refresh(b)
+    assert (a.staff_id, b.staff_id) == (lars.id, sara.id)
+    c = _shift(db, owner, sara, TOMORROW, "18:00", "22:00")
+    ga = offer_giveaway(db, owner_id=owner.id, from_staff_id=sara.id, from_shift_id=c.id)
+    assert [p.id for p in list_open_giveaways(db, owner_id=owner.id, exclude_staff_id=lars.id)] == [ga.id]
+    taken = claim_giveaway(db, owner_id=owner.id, swap_id=ga.id, claimer_staff_id=lars.id)
+    db.refresh(c)
+    assert taken.status == "done" and c.staff_id == lars.id
 
 
 def test_the_venue_clock_is_the_owners_timezone(db, cafe, monkeypatch):
