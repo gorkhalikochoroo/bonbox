@@ -12,13 +12,13 @@
  *     PRICE_MOMS_BASIS (components/landing/v2/pricing.js), the one place that fact is kept;
  *   - no competitor, no founder, no set-up promise.
  * Links are real links: Prøv gratis → /register, the plans → /register?plan=starter|pro, Log ind → /login, the two App
- * Store pages (not on Android), /privacy, /terms, /cookies. */
+ * Store pages (not on Android), /contact, /privacy, /terms, /cookies. */
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { FOUNDING_LIMIT, FROM_PRICE, PLAN_PRICES } from "../../../lib/planPrices";
 import { PLAN_LIMITS, teamBesidesOwner } from "../../../lib/planLimits";
 import { momsLine } from "./moms";
-import { APP_STORE, LEGAL_LINES } from "../v6/site";
+import { APP_STORE, CONTACT_EMAIL, LEGAL_LINES } from "../v6/site";
 import { FlowArrow } from "./icons";
 import { IMG, SECTION, SIZES } from "./assets";
 
@@ -376,11 +376,17 @@ function Start({ t, isAndroid, endRef }) {
   );
 }
 
+/* Who sells it (e-handelsloven § 7, as the v6 footer showed it): the company from the register's own lines (the name filled
+ * into the product line, then "CVR …" as LEGAL_LINES has it, never retyped), the contact address and the contact page. */
 export function Footer({ t }) {
   return (
     <footer className="wrap foot">
-      <span>{t("landingV7.foot.line", { company: LEGAL_LINES[0] })}</span>
+      <div className="foot-id">
+        <span>{t("landingV7.foot.line", { company: LEGAL_LINES[0] })}</span>
+        <span>{LEGAL_LINES.slice(1).join(" · ")} · <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a></span>
+      </div>
       <nav aria-label={t("landingV7.foot.legal")}>
+        <Link to="/contact">{t("landingV7.foot.contact")}</Link>
         <Link to="/privacy">{t("landingV7.foot.privacy")}</Link>
         <Link to="/terms">{t("landingV7.foot.terms")}</Link>
         <Link to="/cookies">{t("landingV7.foot.cookies")}</Link>

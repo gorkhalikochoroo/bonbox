@@ -9,7 +9,10 @@
  *   - honesty: every add-on says "Kommer snart" / "Coming soon"; no "rigtige skærme" / real screens, no notification
  *     claim, no payroll file, no "free until" time; no competitor, founder or set-up promise;
  *   - links: real <a href> to /register (plans ?plan=starter|pro), /login, the App Store pages (not on Android),
- *     /privacy, /terms, /cookies;
+ *     /contact, /privacy, /terms, /cookies;
+ *   - 12 Nov 2026 (approved): the rota line claims no time ("Ugens plan, lagt hurtigt"); the plans line says what starts
+ *     at Starter (invoices, bank matching, time registration); the footer carries the CVR line, the contact address and
+ *     Kontakt; the 3D rise keeps the screens lit from its first frame;
  *   - pictures: width and height on every one, lazy below the hero, the hero's draft at high priority;
  *   - the stylesheet is scoped to the page's root.
  */
@@ -22,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import postcss from "postcss";
 import { da } from "../i18n/da.js";
 import { en } from "../i18n/en.js";
-import { APP_STORE } from "../components/landing/v6/site";
+import { APP_STORE, CONTACT_EMAIL, LEGAL_LINES } from "../components/landing/v6/site";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) => fs.readFileSync(path.join(SRC, rel), "utf8");
@@ -226,6 +229,66 @@ describe("honesty (the facts Manoj approved, 12 Nov 2026)", () => {
     }
   });
 
+  it("the rota line claims no measured time (12 Nov 2026): 'Ugens plan, lagt hurtigt' / 'The week's rota, set up fast'", async () => {
+    expect(da["landingV7.shifts.h"]).toBe("Ugens plan, lagt hurtigt.");
+    expect(en["landingV7.shifts.h"]).toBe("The week’s rota, set up fast.");
+    const MINUTES = /minut|few minutes|\bminutes?\b/i;
+    for (const k of Object.keys(da).filter((x) => x.startsWith("landingV7."))) {
+      expect(da[k], k).not.toMatch(MINUTES);
+      expect(en[k], k).not.toMatch(MINUTES);
+    }
+    for (const code of ["da", "en"]) {
+      const { root, $ } = await show(code);
+      expect($("#lp7-shifts-h").textContent).toBe(code === "da" ? "Ugens plan, lagt hurtigt." : "The week’s rota, set up fast.");
+      const alts = [...root.querySelectorAll("[alt],[aria-label]")].map((e) => e.getAttribute("alt") || e.getAttribute("aria-label")).join(" ");
+      expect(root.textContent + " " + alts).not.toMatch(MINUTES);
+      cleanup();
+    }
+    // the shared head (description, og and share-card alt) makes no time claim either
+    expect(fs.readFileSync(path.join(SRC, "../index.html"), "utf8").replace(/<!--[\s\S]*?-->/g, "")).not.toMatch(/par minutter|few minutes/i);
+  });
+
+  it("the plans line says what starts at Starter (invoices, bank matching, time registration); the Free plan sells no staff app or punch clock", async () => {
+    expect(da["landingV7.price.allPlans"]).toBe("Timer, Lager og Økonomi er med på alle planer – fakturaer, bankafstemning og tidsregistrering fra Starter.");
+    expect(en["landingV7.price.allPlans"]).toBe("Hours, Stock and Finance are included on every plan; invoices, bank matching and time registration start at Starter.");
+    // backend/app/services/billing.py, the Free plan: no invoices, no bank auto-match, no time registration, no staff link
+    const billing = fs.readFileSync(path.join(SRC, "../../backend/app/services/billing.py"), "utf8");
+    const free = billing.slice(billing.indexOf('"staff_portal_link": False'), billing.indexOf('"starter": {', billing.indexOf('"staff_portal_link": False')));
+    expect(free).toContain('"time_registration": False');
+    expect(billing).toMatch(/"invoices_per_month": 0,/);
+    for (const code of ["da", "en"]) {
+      const { $ } = await show(code);
+      expect($(".price-note").textContent).toContain(code === "da" ? da["landingV7.price.allPlans"] : en["landingV7.price.allPlans"]);
+      const freeCard = $('[data-plan="free"]').textContent;
+      expect(freeCard).not.toMatch(/stempl|tidsregistrering|Vagtplan-app|faktura|bankafstemning|punch|clock|time registration|staff app|Vagtplan app|invoice|bank/i);
+      cleanup();
+    }
+    for (const k of ["landingV7.price.freeFor", "landingV7.price.free1", "landingV7.price.free2", "landingV7.price.scans", "landingV7.price.freeBtn",
+      "landingV7.hero.fine", "landingV7.end.p"]) {
+      for (const d of [da, en]) expect(d[k], k).not.toMatch(/stempl|tidsregistrering|Vagtplan-app|punch|clock|time registration|staff app|Vagtplan app/i);
+    }
+  });
+
+  it("the footer names who sells it: the company, its CVR line from LEGAL_LINES, the contact address and Kontakt (e-handelsloven § 7)", async () => {
+    expect(LEGAL_LINES[1]).toMatch(/^CVR \d{8}$/);
+    for (const code of ["da", "en"]) {
+      const { $ } = await show(code);
+      const foot = $("footer.foot");
+      expect(foot.textContent).toContain(code === "da" ? `BonBox er et produkt fra ${LEGAL_LINES[0]}` : `BonBox is a product by ${LEGAL_LINES[0]}`);
+      expect(foot.textContent).toContain(`${LEGAL_LINES[1]} · ${CONTACT_EMAIL}`);
+      expect(foot.querySelector(`a[href="mailto:${CONTACT_EMAIL}"]`).textContent).toBe(CONTACT_EMAIL);
+      const contact = [...foot.querySelectorAll("nav a")].find((a) => a.getAttribute("href") === "/contact");
+      expect(contact.textContent).toBe(code === "da" ? "Kontakt" : "Contact");
+      expect([...foot.querySelectorAll("nav a")].map((a) => a.getAttribute("href"))).toEqual(["/contact", "/privacy", "/terms", "/cookies"]);
+      cleanup();
+    }
+    // read from the constants, never retyped in the page's code
+    const sections = read("components/landing/v7/Sections.jsx");
+    expect(sections).not.toMatch(/46417321|contact@bonbox\.dk/);
+    expect(sections).toContain("LEGAL_LINES.slice(1)");
+    expect(sections).toContain("mailto:${CONTACT_EMAIL}");
+  });
+
   it("the walk-in line says what the host stand does; 'sidste bord' is the booking page's own label", async () => {
     expect(da["landingV7.day.r5s"]).toBe("Værtspulten viser et ledigt bord, der passer til to. Ét tryk, så sidder de.");
     expect(da["landingV7.guest.b"]).toContain(`“${da.rsvpSlotLastTable.toLowerCase()}”`);
@@ -250,6 +313,8 @@ describe("links are real links", () => {
     expect(hrefs(root, "Privatliv")).toEqual(["/privacy"]);
     expect(hrefs(root, "Vilkår")).toEqual(["/terms"]);
     expect(hrefs(root, "Cookies")).toEqual(["/cookies"]);
+    expect(hrefs(root, "Kontakt")).toEqual(["/contact"]);
+    expect(hrefs(root, CONTACT_EMAIL)).toEqual([`mailto:${CONTACT_EMAIL}`]);
     expect(hrefs(root, "Se en dag i restauranten")).toEqual(["#dag"]);
     expect($(".brand").getAttribute("href")).toBe("#top");
     // no dead link: every in-page link has its target, no "#" alone
@@ -324,6 +389,23 @@ describe("the stylesheet", () => {
     expect(bad).toEqual([]);
     expect(css).not.toMatch(/@import|@font-face/);
     expect(css).not.toMatch(/fonts\.googleapis|Geist/);
+  });
+
+  it("the 3D rise stays, the screens are lit from its first frame; reduced motion as before", () => {
+    // the rise: wide fine-pointer screens only, never with reduced motion
+    expect(css).toContain(".lp7 .stage.enter{animation:lp7-rise3d 1.7s");
+    expect(css).toMatch(/@keyframes lp7-rise3d\{from\{transform:rotateX\(26deg\) rotateY\(-9deg\) translateY\(70px\) scale\(\.93\)\}/);
+    expect(css).toContain("@media (prefers-reduced-motion:reduce){.lp7 *,.lp7 *::before,.lp7 *::after{animation:none!important;transition:none!important}");
+    // no rule turns a screen (or what is in it) off while the stage rises (12 Nov 2026: that held the largest paint ~2.4 s)
+    const off = [];
+    postcss.parse(css).walkRules((r) => {
+      if (!r.selectors.some((s) => /\.enter\b/.test(s))) return;
+      r.walkDecls((d) => { if (/^(opacity|visibility|display)$/.test(d.prop)) off.push(`${r.selector}{${d.prop}:${d.value}}`); });
+    });
+    expect(off).toEqual([]);
+    // the published week rests nearly invisible but drawn (not 0), so the demo's fade-in adds no late "largest paint"
+    expect(css).toContain(".lp7 .scr .over{position:absolute;inset:0;opacity:.002;transition:opacity .9s ease}");
+    expect(css).toContain(".lp7 .scr .over.on{opacity:1}");
   });
 
   it("the type is Sora (headings, numbers) and DM Sans (body), self-hosted", () => {

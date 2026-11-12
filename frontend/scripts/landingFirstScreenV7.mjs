@@ -147,6 +147,38 @@ const KEY_FN = 'function(t){' +
   'var b=a.closest("."+g),n=b.querySelectorAll(s),i=0;for(;i<n.length;i++)if(n[i]===a)break;' +
   'return{r:g,s:s,i:i}}'
 
+// ── The landing's own document (12 Nov 2026) ──────────────────────────────────────────────────────────────────────────
+// "/" and "/v2" get their own HTML (vite.config.js landingDocument writes dist/landing.html; vercel.json sends both
+// addresses there): today's index.html plus one small phone cut of the hero picture, so on a phone the week's draft paints
+// with the first screen instead of waiting for its download (~1.5 s on the bench's phone line). Every other route, and
+// the native apps, keep index.html as it was: no picture bytes there.
+//
+// The cut is drawn as the iPad screen's background, not as an <img>: the markup stays the first screen's (React's first
+// render, landingV7FirstScreen.test.jsx), and the network picture (srcset, preloaded) still draws over it once it is in.
+// Phone layout only (the same breakpoint as the hero's `sizes`): wider screens draw the iPad far larger than this cut.
+// 700 px wide (cwebp -q 30 -m 6 -resize 700 487, from public/static/landing-v7/sched-draft.webp): never narrower than the
+// screen draws it on a phone (at most 679 CSS px), so Chrome sizes it as the network picture and keeps it as the largest
+// paint. A more specific selector than the blur placeholder's (.lp7 .stage .ipad .scr), which the page's own stylesheet
+// repeats later in the document.
+export const HERO_PHONE_FILE_V7 = 'components/landing/v7/inline/sched-draft-phone.webp'
+export const HERO_PHONE_QUERY_V7 = '(max-width:719px)'
+export const LANDING_DOC_V7 = 'landing.html'
+export const APP_DOC_V7 = 'app.html'
+export function heroPhoneCssV7() {
+  const b64 = fs.readFileSync(path.join(SRC, HERO_PHONE_FILE_V7)).toString('base64')
+  return `@media ${HERO_PHONE_QUERY_V7}{.lp7 .stage-wrap .stage .ipad .scr{background:var(--paper) url(data:image/webp;base64,${b64}) center top/cover no-repeat}}`
+}
+/** The landing's document: the built index.html with the hero cut's rule, last in <body> (React never touches it, and the
+ *  first screen's text is not held back behind the picture's bytes). */
+export function landingDocumentV7(indexHtml, css = heroPhoneCssV7()) {
+  const html = String(indexHtml)
+  if (html.includes('id="lp7-hero"')) throw new Error('landingDocumentV7: the document already carries the hero cut')
+  if (!html.includes('<style id="lp6-css">')) throw new Error('landingDocumentV7: no landing first screen in index.html')
+  const at = html.lastIndexOf('</body>')
+  if (at < 0 || html.indexOf('</body>') !== at) throw new Error('landingDocumentV7: expected one </body> in index.html')
+  return html.slice(0, at) + `<style id="lp7-hero">${css}</style>` + html.slice(at)
+}
+
 export function firstScreenScriptV7({ da, en, price }) {
   const T = firstScreenTemplateV7()
   const S = { da: firstScreenStringsV7(da, 'da', price), en: firstScreenStringsV7(en, 'en', price) }

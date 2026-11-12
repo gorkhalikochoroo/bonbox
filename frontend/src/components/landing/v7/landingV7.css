@@ -118,10 +118,9 @@ html:has(.lp7) body{margin:0;padding-top:env(safe-area-inset-top,0px);padding-bo
 .lp7 .stage .ipad{transform:translateZ(0)}
 .lp7 .stage .phone{transform:translateZ(80px) translateY(var(--py,0px))}
 .lp7 .stage.enter{animation:lp7-rise3d 1.7s cubic-bezier(.16,.84,.24,1) both;animation-delay:calc(.2s - var(--lp7-elapsed,0s))}
-/* while the devices rise their screens are off, and light up once they have landed: a picture is first drawn at its final
-   size, never tilted and shrunk (the rise plays on a wide screen with a fine pointer only: RISE_QUERY_V7) */
-.lp7 .stage .scr{transition:opacity .45s ease}
-.lp7 .stage.enter .scr{opacity:0}
+/* the screens are lit from the first frame while the devices rise (12 Nov 2026: they were off until the rise had landed,
+   which held the page's largest paint back ~2.4 s on a desktop); the rise plays on a wide screen with a fine pointer
+   only (RISE_QUERY_V7), never with reduced motion */
 @keyframes lp7-rise3d{from{transform:rotateX(26deg) rotateY(-9deg) translateY(70px) scale(.93)}to{transform:rotateX(0deg) rotateY(0deg)}}
 .lp7 .caption{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:22px;font-size:14px;color:var(--muted)}
 .lp7 .replay{border:0;margin:0;background:transparent;color:var(--brass-ink);font:600 14px/1 var(--f-text);padding:12px 0;cursor:pointer;white-space:nowrap}
@@ -179,7 +178,11 @@ html:has(.lp7) body{margin:0;padding-top:env(safe-area-inset-top,0px);padding-bo
 .lp7 .lang-menu .code{font:400 12px/1 var(--f-head);letter-spacing:.04em;color:var(--muted)}
 
 /* the hero's moving parts (hidden at rest, so never in the first screen) */
-.lp7 .scr .over{position:absolute;inset:0;opacity:0;transition:opacity .9s ease}
+/* the published week rests at .002, not 0 (12 Nov 2026): at 0 Chrome first counts it when the demo fades it in, at full
+   size, and with the screens lit during the rise (where the draft is first drawn tilted, so smaller) that demo moment
+   became the page's "largest paint" at ~2.8 s on a desktop, though nothing was still loading. At .002 it is drawn, unseen
+   (half a colour step at most), as soon as it is in, so the fade adds no new paint. */
+.lp7 .scr .over{position:absolute;inset:0;opacity:.002;transition:opacity .9s ease}
 .lp7 .scr .over.on{opacity:1}
 .lp7 .tap{position:absolute;left:90.7%;top:3.3%;width:7%;aspect-ratio:1;border-radius:50%;border:2px solid var(--brass);transform:translate(-50%,-50%) scale(.4);opacity:0;pointer-events:none}
 .lp7 .tap.on{animation:lp7-tap .7s cubic-bezier(.2,.8,.2,1) both}
@@ -340,7 +343,8 @@ html:has(.lp7) body{margin:0;padding-top:env(safe-area-inset-top,0px);padding-bo
 .lp7 .end h2{font-size:clamp(34px,4.6vw,60px);line-height:1.02;letter-spacing:-.04em}
 .lp7 .end p{color:var(--inv-muted);margin-top:14px}
 .lp7 .foot{padding-block:40px 56px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:14px;color:var(--muted)}
-.lp7 .foot nav{display:flex;gap:20px}
+.lp7 .foot-id{display:flex;flex-direction:column;gap:4px}
+.lp7 .foot nav{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:flex-start}
 .lp7 .foot a{text-decoration:none}
 .lp7 .foot a:hover{color:var(--ink)}
 
