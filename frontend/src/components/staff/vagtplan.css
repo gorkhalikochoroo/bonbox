@@ -397,6 +397,15 @@ body.portal-shell [data-bb-confirm] > [data-bb-confirm-scrim] { animation: vp-fa
 body.portal-shell [data-bb-confirm] > [data-bb-confirm-panel] { animation: vp-dialog-in var(--dur-base) var(--ease-out) backwards; }
 body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-scrim] { animation: vp-fade-out var(--dur-exit) var(--ease-in) forwards; }
 body.portal-shell [data-bb-confirm][data-closing] > [data-bb-confirm-panel] { animation: vp-dialog-out var(--dur-exit) var(--ease-in) forwards; }
+/* In a browser, before the visitor has answered it, the cookie banner
+   (CookieConsent.jsx, z-60) sits on the dock — over the bottom of any sheet:
+   the sheets drawn inside the fixed shell are held in its stacking context,
+   and z-40/z-50 ones portaled to <body> are below 60 anyway. So while a sheet
+   is open the banner steps out (hidden: no paint, no taps; its height and
+   --bb-consent-h stay as they were) and is back the moment the sheet has
+   gone. Vagtplan 1.6 put every sheet at z-[70] for this (f303cf51). The app
+   never shows the banner. */
+body.portal-shell:has([data-vp-overlay]) [data-cookie-consent="banner"] { visibility: hidden; }
 @keyframes vp-fade-in { from { opacity: 0; } }
 @keyframes vp-fade-out { to { opacity: 0; } }
 /* A sheet is a solid object: it comes from the screen edge with no fade

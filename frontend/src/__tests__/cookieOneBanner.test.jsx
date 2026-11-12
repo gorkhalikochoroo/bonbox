@@ -247,10 +247,87 @@ describe("the page pads for the banner (--bb-consent-h)", () => {
     expect(page).toContain('"calc(76px + env(safe-area-inset-bottom, 0px) + var(--bb-consent-h, 0px))"');
     expect(page).toContain('"calc(6rem + var(--bb-consent-h, 0px))"');
   });
+  it("the footprint comes from the banner's height and the gap it was given — not from where it sits mid-move", async () => {
+    // A rect-based read taken before the banner moved up onto the bar counted
+    // the bar into the footprint: 200 px or 138 px for one banner, run to run
+    // (Vagtplan 1.6, 391f9905).
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get() { return this.getAttribute?.("data-cookie-consent") === "banner" ? 200 : 0; },
+    });
+    const realRect = Element.prototype.getBoundingClientRect;
+    // Wherever the rect claims the banner is, the answer must not move.
+    Element.prototype.getBoundingClientRect = function () {
+      return this.getAttribute?.("data-cookie-consent") === "banner"
+        ? { top: 10, bottom: 210, height: 200, left: 0, right: 390, width: 390, x: 0, y: 10, toJSON() {} }
+        : realRect.call(this);
+    };
+    try {
+      await openAt("/dashboard", { extra: <nav data-bb-consent-clear="" data-testid="bar" />, beforeOpen: () => {
+        document.querySelector('[data-testid="bar"]').getBoundingClientRect = rect(window.innerHeight - 64, 64);
+      } });
+      // Phone: the banner sits ON the bar, so its footprint is its height.
+      expect(document.documentElement.style.getPropertyValue("--bb-consent-h")).toBe("200px");
+      cleanup();
+      localStorage.clear();
+      // Desktop: + the 16 px it floats above a marked button…
+      window.matchMedia = vi.fn(() => ({ matches: true, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} }));
+      await openAt("/dashboard", { extra: <nav data-bb-consent-clear="" data-testid="bar" />, beforeOpen: () => {
+        document.querySelector('[data-testid="bar"]').getBoundingClientRect = rect(window.innerHeight - 64, 64);
+      } });
+      expect(document.documentElement.style.getPropertyValue("--bb-consent-h")).toBe("216px");
+      cleanup();
+      localStorage.clear();
+      // …or the 24 px it keeps off the corner.
+      await openAt("/");
+      expect(document.documentElement.style.getPropertyValue("--bb-consent-h")).toBe("224px");
+    } finally {
+      Element.prototype.getBoundingClientRect = realRect;
+      if (desc) Object.defineProperty(HTMLElement.prototype, "offsetHeight", desc);
+      else delete HTMLElement.prototype.offsetHeight;
+    }
+  });
   it("every route publishes it while the banner is up and clears it once answered", async () => {
     const banner = await openAt("/");
     expect(document.documentElement.style.getPropertyValue("--bb-consent-h")).toMatch(/^\d+px$/);
     fireEvent.click(within(banner).getByRole("button", { name: da.cookieAcceptAll }));
     expect(document.documentElement.style.getPropertyValue("--bb-consent-h")).toBe("");
+  });
+});
+
+describe("the staff portal's sheets are never under the banner", () => {
+  // Vagtplan 1.6 (f303cf51) put every portal sheet at z-[70], above the
+  // banner (z-60). The redesign's sheets are z-40/50/60, and the ones drawn
+  // inside the fixed shell are held in its stacking context, so no z-index
+  // on them can win. Instead the banner steps out while a sheet is open.
+  const RULE = 'body.portal-shell:has([data-vp-overlay]) [data-cookie-consent="banner"] { visibility: hidden; }';
+  it("the portal's stylesheet hides the banner while any sheet is open", () => {
+    expect(read("components/staff/vagtplan.css")).toContain(RULE);
+  });
+  it("every full-screen sheet in the portal carries the marker the rule looks for", () => {
+    const page = read("pages/StaffPortalPage.jsx");
+    const at = [...page.matchAll(/fixed inset-0/g)].map((m) => m.index);
+    expect(at.length).toBeGreaterThanOrEqual(9);
+    for (const i of at) {
+      const tag = page.slice(page.lastIndexOf("<div", i), i);
+      expect(tag).toContain('data-vp-overlay=""');
+    }
+  });
+  it("the selector matches only while a sheet is mounted", async () => {
+    const selector = RULE.slice(0, RULE.indexOf(" {"));
+    document.body.classList.add("portal-shell");
+    try {
+      const banner = await openAt("/s/abc");
+      expect(banner.matches(selector)).toBe(false);
+      const sheet = document.createElement("div");
+      sheet.setAttribute("data-vp-overlay", "");
+      document.body.appendChild(sheet);
+      expect(banner.matches(selector)).toBe(true);
+      sheet.remove();
+      expect(banner.matches(selector)).toBe(false);
+    } finally {
+      document.body.classList.remove("portal-shell");
+    }
   });
 });

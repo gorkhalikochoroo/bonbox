@@ -382,9 +382,15 @@ export default function CookieConsent() {
       return undefined;
     }
     const el = bannerRef.current;
+    // From the banner's own height and the gap this component gave it below
+    // (the same numbers as `bottom` further down) — never from where the
+    // banner happens to be on screen at that instant. Read from the rect, a
+    // write that ran before the banner had moved up onto the tab bar counted
+    // the bar into the footprint: 200 or 138 px for the same banner from one
+    // load to the next (Vagtplan 1.6, 391f9905).
+    const bottomGap = place.wide ? (place.clear > 0 ? 16 : 24) : 0;
     const write = () => {
-      const r = el.getBoundingClientRect();
-      const h = r.height > 0 ? Math.max(0, Math.ceil(window.innerHeight - r.top - place.clear)) : 0;
+      const h = el.offsetHeight > 0 ? Math.ceil(el.offsetHeight + bottomGap) : 0;
       root.style.setProperty("--bb-consent-h", `${h}px`);
     };
     write();
