@@ -1341,7 +1341,7 @@ export const tr = {
   profVerifyRegister: "sicil",
   profVerifyLastChecked: "Son kontrol",
   profVerifyReverifyHint: "değişiklikleri almak için yeniden doğrula",
-  profVerifyManualEntry: "Manuel giriş — hiçbir sicile karşı doğrulanmadı",
+  profVerifyManualEntry: "Elle girildi — şirket CVR sicilinde kontrol edilmedi",
   profVerifyDawaChecked: "Adres Danmarks Adresseregister'e göre kontrol edildi",
   profVerifyChecking: "Kontrol ediliyor…",
   profVerifyReverifyBtn: "Yeniden doğrula",

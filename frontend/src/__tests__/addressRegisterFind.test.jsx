@@ -185,8 +185,12 @@ describe("Geofence Find — the register, then OpenStreetMap", () => {
     [{ status: 424, data: { detail: { error: "lookup_unavailable" } } }, "The address lookup isn't answering right now. Try again in a few minutes, or paste a map link."],
     [{ status: 404, data: { detail: { error: "not_found", reason: "street_only" } } }, "We found the street, but not that house number. Paste a map link, or stand at the venue and use your location."],
     [{ status: 404, data: { detail: { error: "not_found", reason: "need_postcode" } } }, "That address exists in more than one town. Add the postcode."],
-    [{ status: 404, data: { detail: { error: "not_found", reason: "postcode_mismatch" } } }, "Couldn't find that. Not every venue is on the map — type your street address instead, or paste a map link."],
-    [{ status: 404, data: { detail: { error: "not_found" } } }, "Couldn't find that. Not every venue is on the map — type your street address instead, or paste a map link."],
+    // Review P4 (approved 12 Nov 2026): these two rows used to expect "Not
+    // every venue is on the map — type your street address instead", for a
+    // query that IS a street address. A typed address now gets address advice;
+    // the venue-NAME case is pinned in addressRegisterFollowUps.test.jsx.
+    [{ status: 404, data: { detail: { error: "not_found", reason: "postcode_mismatch" } } }, "We couldn't find that address in that postcode. Check the postcode, paste a map link, or stand at the venue and use your location."],
+    [{ status: 404, data: { detail: { error: "not_found" } } }, "We couldn't find that address. Check the street, number and postcode, paste a map link, or stand at the venue and use your location."],
   ])("refusal %#: the owner is told why, never 'Couldn't save'", async (response, text) => {
     api.post.mockRejectedValue({ response });
     renderFind();

@@ -2869,11 +2869,15 @@ function WhatsAppBlock({ t, waStatus, waPhone, setWaPhone, waCode, waMsg, waLink
  * Three visual states:
  *   1. cvr_verified_at set + recent  → green "Verified · 2 days ago"
  *   2. cvr_verified_at set + stale   → amber "Last checked 4 months ago"
- *   3. cvr_verified_at NULL          → grey "Manual entry · not verified"
+ *   3. cvr_verified_at NULL          → grey "Typed by hand — company not checked"
+ *
+ * Plus one address line, separate from the company line (review P2): a tick
+ * + "Address checked…" only when the server set dawa_address_id; for a DK
+ * address without one, "Address not confirmed…"; nothing outside DK.
  *
  * Stale threshold: 90 days.
  */
-function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify }) {
+export function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify }) {
   const { t } = useLanguage();
   if (!profile) return null;
 
@@ -2933,13 +2937,26 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
                 ? `${t("profVerifyVerified", "Verified")} · ${profile.cvr_verified_source || t("profVerifyRegister", "register")} · ${ageLabel}`
                 : isStale
                   ? `${t("profVerifyLastChecked", "Last checked")} ${ageLabel} — ${t("profVerifyReverifyHint", "re-verify to pick up any changes")}`
-                  : t("profVerifyManualEntry", "Manual entry — not verified against any register")}
+                  : t("profVerifyManualEntry", "Typed by hand — company not checked in the CVR register")}
             </p>
-            {profile.dawa_address_id && (
-              <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-0.5">
+            {/* The address is its own fact (review P2, 12 Nov 2026). The
+                server checks every address change against Danmarks
+                Adresseregister, so a company typed by hand can still have a
+                checked address: the line above speaks only about the
+                company (CVR), this one only about the address. The tick
+                shows only when the SERVER set the register id; a DK address
+                without one says so plainly (Pricing's "address not checked"
+                hint links here). Non-DK addresses are never sent, so no line. */}
+            {profile.dawa_address_id ? (
+              <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-0.5 flex items-center gap-1" data-testid="prof-address-checked">
+                <Icon name="CheckCircle2" size={11} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
                 {t("profVerifyDawaChecked", "Address checked against Danmarks Adresseregister")}
               </p>
-            )}
+            ) : (profile.country || "DK").toUpperCase() === "DK" && (profile.address || "").trim() ? (
+              <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-0.5" data-testid="prof-address-unchecked">
+                {t("profVerifyAddressNotConfirmed", "Address not confirmed in Danmarks Adresseregister")}
+              </p>
+            ) : null}
           </div>
         </div>
 

@@ -432,7 +432,12 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // geo-osm-credit) and 5 t() keys (schedGeoLookupDown, schedGeoStreetOnly,
     // schedGeoNeedPostcode, addrRegisterCredit, schedGeoOsmCredit). Was
     // { testid: 13, tKeys: 457 }.
-    "pages/StaffSchedulePage.jsx": { onClick: 96, onChange: 49, onSubmit: 3, ariaLabel: 42, ariaExpanded: 3, ariaPressed: 4, role: 14, title: 56, id: 15, testid: 15, Button: 20, button: 66, disabled: 29, to: 5, tKeys: 462 },
+    // Address-register follow-ups (12 Nov 2026) ADDED, nothing removed: 3 t()
+    // keys for advice that fits what was typed (schedGeoAddrNotFound,
+    // schedGeoPostcodeMismatch, schedGeoOsmAddrCaveat). Every older geofence
+    // key is still called, now from the GEO_MSG table (translated at render).
+    // Was { tKeys: 462 }.
+    "pages/StaffSchedulePage.jsx": { onClick: 96, onChange: 49, onSubmit: 3, ariaLabel: 42, ariaExpanded: 3, ariaPressed: 4, role: 14, title: 56, id: 15, testid: 15, Button: 20, button: 66, disabled: 29, to: 5, tKeys: 465 },
     "components/ScheduleConfirmationCard.jsx": { role: 1, tKeys: 3 },
     "pages/StaffHoursPage.jsx": { onClick: 36, onChange: 21, onSubmit: 6, ariaLabel: 4, ariaExpanded: 1, ariaPressed: 4, role: 13, title: 14, id: 8, testid: 1, Button: 18, button: 22, Link: 4, disabled: 20, to: 6, tKeys: 230 },
     // R1 (24 Oct 2026) ADDED to ReservationsPage, nothing removed: the owner

@@ -20,6 +20,7 @@ import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency } from "../utils/currency";
+import MarketSetupHint from "./MarketSetupHint";
 import api from "../services/api";
 
 // Snooze key — stored on localStorage keyed by canonical name so the
@@ -149,19 +150,16 @@ export default function SmartPricingCard({ comparison, currencyCode, onApplied }
     if (comparison.reason === "not_enough_data") {
       msg = (t("smartPricingNotEnoughData") || "Not enough data yet — we need {n} businesses.")
         .replace("{n}", comparison.min_samples || 5);
-    } else if (comparison.reason === "needs_setup" && comparison.setup_hint === "address_unverified") {
-      // The postcode and cuisine are set; the address is not checked in
-      // Danmarks Adresseregister (reason stays "needs_setup" for old builds).
-      msg = (
-        <>
-          {t("pricingAddressUnverified", "Market comparison needs your address checked in Danmarks Adresseregister. Open Profile and pick your company again.")}{" "}
-          <Link to="/profile#business" className="font-semibold underline" data-testid="pricing-address-hint-link">
-            {t("openProfile", "Open Profile →")}
-          </Link>
-        </>
-      );
     } else if (comparison.reason === "needs_setup") {
-      msg = t("smartPricingNeedsSetup", "Add your postal code and cuisine in Profile to see market comparisons.");
+      // setup_hint (reason stays "needs_setup" for old builds): the postcode
+      // and cuisine are set, and it says exactly what is still missing — the
+      // address check, the CVR check, or both (MarketSetupHint.jsx).
+      msg = (
+        <MarketSetupHint
+          hint={comparison.setup_hint}
+          fallback={t("smartPricingNeedsSetup", "Add your postal code and cuisine in Profile to see market comparisons.")}
+        />
+      );
     } else if (comparison.reason === "unknown_item") {
       msg = t("smartPricingUnknownItem") || "No market bucket for this item.";
     } else {
