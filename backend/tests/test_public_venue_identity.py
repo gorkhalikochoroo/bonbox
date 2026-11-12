@@ -612,7 +612,7 @@ def texts(db, monkeypatch) -> list:
     monkeypatch.setattr(billing, "at_cap", lambda *a, **k: False)
     box: list = []
 
-    def _send(*, to, text, sender=None):
+    def _send(*, to, text, sender=None, **_k):
         box.append(text)
         return {"ok": True}
 

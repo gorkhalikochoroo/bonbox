@@ -87,6 +87,13 @@ class ReservationWaitlistEntry(Base):
     # card — the count is bucketed on this, never created_at/updated_at.
     converted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # The time the host told the party to expect a table ("ca. 17.19"), as
+    # the door's estimate gave it when the party was written down. Naive UTC,
+    # like created_at. NULL = no estimate was known (or none was sent). Shown
+    # on the row ("lovet ca. 17.19") so the next host keeps the promise; it
+    # is never a hold and never reserves anything.
+    quoted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     expired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

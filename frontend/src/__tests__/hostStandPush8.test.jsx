@@ -156,8 +156,9 @@ describe("2 · a finished row on a phone", () => {
     await waitFor(() => expect(compactRowOf("Riis")).toBeTruthy());
     const meta = compactRowOf("Riis").querySelector("[data-row-meta]");
     expect(meta.className).toMatch(/(^|\s)flex-wrap(\s|$)/);
-    // The table is on the row.
-    expect([...meta.querySelectorAll("span")].some((s) => s.textContent === "22")).toBe(true);
+    // The table is on the row — named as a table, never a bare "22" beside
+    // the party size (fix round 12 Nov, utils/tableName).
+    expect([...meta.querySelectorAll("span")].some((s) => s.textContent === "Table 22")).toBe(true);
     const stay = meta.querySelector("[data-stay]");
     expect(stay.textContent.replace(/\s+/g, " ").trim()).toBe("17.20 → 18.10 · 50 min");
     expect(stay.className).toMatch(/(^|\s)truncate(\s|$)/);
@@ -194,7 +195,7 @@ describe("3 · a joined seat from the sheet says where", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
     expect(api.post.mock.calls[0][1]).toMatchObject({ resource_ids: ["51", "52"], party_size: 6 });
-    expect(await screen.findByText("6 guests seated at 52 + 51")).toBeInTheDocument();
+    expect(await screen.findByText("6 guests seated at Table 52 + Table 51")).toBeInTheDocument();
     expect(document.querySelector("[data-walkin-done]").dataset.walkinDone).toBe("seated");
     expect(screen.queryByRole("dialog", { name: "Seat guests" })).toBeNull();
   });
@@ -207,7 +208,7 @@ describe("3 · a joined seat from the sheet says where", () => {
     fireEvent.click(await sizeButton(6));
     const dialog = await screen.findByRole("dialog", { name: da.rsvpSeatNowTitle });
     fireEvent.click(within(dialog).getByRole("button", { name: da.rsvpSeatNowBtn }));
-    expect(await screen.findByText("6 gæster sat ved 51 + 52")).toBeInTheDocument();
+    expect(await screen.findByText("6 gæster sat ved Bord 51 + Bord 52")).toBeInTheDocument();
   });
 
   it("the header's 'Seat a drop-in' sheet gets the same line as a one-tap seat", async () => {
@@ -215,7 +216,7 @@ describe("3 · a joined seat from the sheet says where", () => {
     renderStand();
     await waitFor(async () => expect((await sizeButton(2)).textContent).toContain("Free now"));
     fireEvent.click(await sizeButton(2));
-    const oneTap = await screen.findByText("2 guests seated at 41");
+    const oneTap = await screen.findByText("2 guests seated at Table 41");
     const oneTapLine = oneTap.closest("[data-walkin-done]");
     expect(oneTapLine.dataset.walkinDone).toBe("seated");
     fireEvent.click(within(oneTapLine).getByRole("button", { name: "Close" }));
@@ -226,7 +227,7 @@ describe("3 · a joined seat from the sheet says where", () => {
     await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "Table" })).toHaveValue("41"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
-    const fromSheet = await screen.findByText("2 guests seated at 41");
+    const fromSheet = await screen.findByText("2 guests seated at Table 41");
     expect(fromSheet.closest("[data-walkin-done]").dataset.walkinDone).toBe("seated");
     expect(screen.queryByRole("dialog", { name: "Seat guests" })).toBeNull();
   });
@@ -361,8 +362,8 @@ describe("5 · a table booked inside the sitting is no choice (review 6)", () =>
     mockApi({}, { book: FULL, resources: ROOM });
     const dialog = await openHeaderSheet();
     const sel = within(dialog).getByRole("combobox", { name: "Table" });
-    const opt3 = within(dialog).getByRole("option", { name: /^3 · 2 seats — reserved 19\.20$/ });
-    const opt5 = within(dialog).getByRole("option", { name: /^5 · 4 seats — reserved 19\.10$/ });
+    const opt3 = within(dialog).getByRole("option", { name: /^Table 3 · 2 seats — reserved 19\.20$/ });
+    const opt5 = within(dialog).getByRole("option", { name: /^Table 5 · 4 seats — reserved 19\.10$/ });
     await waitFor(() => expect(opt3).toBeDisabled());
     expect(opt5).toBeDisabled();
     expect(within(dialog).getByText("No table free right now — put them on the waitlist")).toBeInTheDocument();
@@ -384,12 +385,12 @@ describe("5 · a table booked inside the sitting is no choice (review 6)", () =>
     const sel = within(dialog).getByRole("combobox", { name: "Table" });
     // The rule seats them there, and the sheet pre-picks it.
     await waitFor(() => expect(sel).toHaveValue("3"));
-    expect(within(dialog).getByRole("option", { name: /^3 · 2 seats — reserved 20\.40$/ })).not.toBeDisabled();
-    expect(within(dialog).getByRole("option", { name: /^5 · 4 seats — reserved 19\.10$/ })).toBeDisabled();
+    expect(within(dialog).getByRole("option", { name: /^Table 3 · 2 seats — reserved 20\.40$/ })).not.toBeDisabled();
+    expect(within(dialog).getByRole("option", { name: /^Table 5 · 4 seats — reserved 19\.10$/ })).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "Seat now" })).not.toBeDisabled();
     // Six guests sit 120 minutes — to 21.00, past 3's booking: 3 gives way.
     fireEvent.click(within(dialog).getByRole("button", { name: "6 guests" }));
-    await waitFor(() => expect(within(dialog).getByRole("option", { name: /^3 · 2 seats — reserved 20\.40$/ })).toBeDisabled());
+    await waitFor(() => expect(within(dialog).getByRole("option", { name: /^Table 3 · 2 seats — reserved 20\.40$/ })).toBeDisabled());
     await waitFor(() => expect(sel).toHaveValue(""));
   });
 
@@ -402,7 +403,7 @@ describe("5 · a table booked inside the sitting is no choice (review 6)", () =>
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
     const alert = await within(dialog).findByRole("alert");
     expect(alert.textContent).toBe(
-      "3 is reserved at 19.20 and isn't free for the whole sitting — pick another table, or put them on the waitlist.",
+      "Table 3 is reserved at 19.20 and isn't free for the whole sitting — pick another table, or put them on the waitlist.",
     );
     expect(alert.textContent).not.toContain("now taken");
   });
@@ -419,7 +420,7 @@ describe("5 · a table booked inside the sitting is no choice (review 6)", () =>
     fireEvent.click(within(dialog).getByRole("button", { name: da.rsvpSeatNowBtn }));
     const alert = await within(dialog).findByRole("alert");
     expect(alert.textContent).toBe(
-      "3 er reserveret kl. 19.20 og er ikke ledig hele siddetiden — vælg et andet bord, eller sæt dem på ventelisten.",
+      "Bord 3 er reserveret kl. 19.20 og er ikke ledig hele siddetiden — vælg et andet bord, eller sæt dem på ventelisten.",
     );
   });
 
@@ -462,8 +463,8 @@ describe("9 · one guest is one guest", () => {
   it("English: the 1 button reads '1 guest', the rest plural", async () => {
     renderStand();
     await waitFor(async () => expect((await sizeButton(1)).textContent).toContain("Free now"));
-    expect(names()[0]).toBe("1 guest: seat now at 41");
-    expect(names()[1]).toBe("2 guests: seat now at 41");
+    expect(names()[0]).toBe("1 guest: seat now at Table 41");
+    expect(names()[1]).toBe("2 guests: seat now at Table 41");
     expect(names().join(" ")).not.toMatch(/\b1 guests\b/);
   });
 
@@ -471,8 +472,8 @@ describe("9 · one guest is one guest", () => {
     lang.code = "da";
     renderStand();
     await waitFor(async () => expect((await sizeButton(1)).textContent).toContain(da.rsvpWalkInFreeNow));
-    expect(names()[0]).toBe("1 gæst: sæt til bords nu ved 41");
-    expect(names()[1]).toBe("2 gæster: sæt til bords nu ved 41");
+    expect(names()[0]).toBe("1 gæst: sæt til bords nu ved Bord 41");
+    expect(names()[1]).toBe("2 gæster: sæt til bords nu ved Bord 41");
   });
 
   it("Danish: '1 gæst' when the room is full and the button waits", async () => {
@@ -497,7 +498,7 @@ describe("9 · one guest is one guest", () => {
     renderStand();
     await waitFor(async () => expect((await sizeButton(1)).textContent).toContain("Free now"));
     fireEvent.click(await sizeButton(1));
-    expect(await screen.findByText("1 guest seated at 41")).toBeInTheDocument();
+    expect(await screen.findByText("1 guest seated at Table 41")).toBeInTheDocument();
     expect(da.rsvpWalkInSeatedOne.replace("{table}", "41")).toBe("1 gæst sat ved 41");
   });
 
@@ -561,7 +562,7 @@ describe("3 · the line names every table, on a phone too (review)", () => {
       expect(el).not.toBeNull();
       return el;
     });
-    expect(text.textContent).toBe("6 guests seated at 51 + 52");
+    expect(text.textContent).toBe("6 guests seated at Table 51 + Table 52");
     expect(classesOf(text)).not.toContain("truncate");
     expect(classesOf(text)).toEqual(expect.arrayContaining(["break-words", "flex-1", "min-w-0"]));
     // Below sm the sentence takes the first line beside its icon; the buttons wrap under it.
@@ -579,8 +580,8 @@ describe("3 · the line names every table, on a phone too (review)", () => {
     const meta = compactRowOf("Selskab Kragh").querySelector("[data-row-meta]");
     expect(classesOf(meta)).toContain("flex-wrap");
     const tables = meta.querySelector("[data-row-tables]");
-    expect(tables.textContent).toBe("31 + 32 + 33");
-    expect(tables.getAttribute("title")).toBe("31 + 32 + 33");
+    expect(tables.textContent).toBe("Table 31 + Table 32 + Table 33");
+    expect(tables.getAttribute("title")).toBe("Table 31 + Table 32 + Table 33");
     expect(classesOf(tables)).toContain("max-w-full");
     // A party at one table keeps its one line.
     expect(classesOf(compactRowOf("Birk").querySelector("[data-row-meta]"))).not.toContain("flex-wrap");
@@ -594,7 +595,7 @@ describe("3 · where the drop-in row is not on screen, the line floats (review)"
     await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "Table" })).toHaveValue("41"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
-    return screen.findByText("2 guests seated at 41");
+    return screen.findByText("2 guests seated at Table 41");
   };
 
   it("on the book page (/reservations)", async () => {
@@ -718,13 +719,13 @@ describe("5 · after a 409 the sheet reads the room again (review)", () => {
       const before = bookReads();
       fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
       const alert = await within(dialog).findByRole("alert");
-      expect(alert.textContent).toBe("41 is still taken — finish the party there first, or pick another table.");
+      expect(alert.textContent).toBe("Table 41 is still taken — finish the party there first, or pick another table.");
       expect(bookReads()).toBeGreaterThan(before);
-      await waitFor(() => expect(within(dialog).getByRole("option", { name: /^41 · 2 seats — occupied$/ })).toBeDisabled());
+      await waitFor(() => expect(within(dialog).getByRole("option", { name: /^Table 41 · 2 seats — occupied$/ })).toBeDisabled());
       await waitFor(() => expect(sel).toHaveValue(""));
       expect(within(dialog).getByRole("button", { name: "Seat now" })).toBeDisabled();
       // Still said in the sheet, and only there.
-      expect(screen.queryAllByText("41 is still taken — finish the party there first, or pick another table.")).toHaveLength(1);
+      expect(screen.queryAllByText("Table 41 is still taken — finish the party there first, or pick another table.")).toHaveLength(1);
       expect(api.post).toHaveBeenCalledTimes(1);
     },
   );
@@ -842,7 +843,7 @@ describe("3 · the floating line carries the doctrine's light shadow (review 3)"
     const dialog = await screen.findByRole("dialog", { name: "Seat guests" });
     await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "Table" })).toHaveValue("41"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Seat now" }));
-    const said = await screen.findByText("2 guests seated at 41");
+    const said = await screen.findByText("2 guests seated at Table 41");
     const float = said.closest("[data-walkin-done-float]");
     expect(classesOf(float)).toContain("shadow-sm");
     expect(classesOf(float).some((c) => /^shadow-(lg|xl|2xl)$/.test(c))).toBe(false);

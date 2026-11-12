@@ -23,7 +23,7 @@
  * say something true rather than guess at the cause.
  */
 import { useEffect, useRef, useState } from "react";
-import { Plus, Users, Clock, Bell, X, CalendarPlus, Loader2, Globe } from "lucide-react";
+import { Plus, Users, Clock, Bell, X, CalendarPlus, Loader2, Globe, Armchair } from "lucide-react";
 import api from "../../services/api";
 import { getStandToken } from "../../services/standAuth";
 import { useLanguage } from "../../hooks/useLanguage";
@@ -38,6 +38,9 @@ import { DEFAULT_CLOSE_CUTOFF_HOUR } from "../../utils/dailyCloseDay";
 import { fmtTime } from "../../utils/floorState";
 import PartySizeChips from "./PartySizeChips";
 import { guestText } from "../../utils/guestText";
+import { tablesName } from "../../utils/tableName";
+import { displayPhone } from "../../utils/phoneDisplay";
+import { seatLineup, quotedCue } from "../../utils/tonight";
 
 // A guest who joined online (booking R12) typed their own name: shown with
 // any link disarmed (utils/guestText.js — display only, the row keeps it).
@@ -117,6 +120,12 @@ export default function WaitlistSection({
   // seats a party NOW for their whole sitting: (entry) → { label } | null.
   onEntries = null,
   fitFor = null,
+  // Fix round 12 Nov: the time a party of n would be told now (ms), or
+  // null — the page's drop-in rule (walkInOptions). Saved on the entry as
+  // quoted_at when it is added, so the row keeps "lovet ca. 17.19".
+  quoteFor = null,
+  // The venue's country ("DK" | "PT" | null) — how a bare phone number reads.
+  phoneCountry = null,
 }) {
   const { t } = useLanguage();
   const confirm = useConfirm();
@@ -133,12 +142,18 @@ export default function WaitlistSection({
   const [form, setForm] = useState({ guest_name: "", guest_phone: "", party_size: 2, note: "" });
   const [addErr, setAddErr] = useState("");
   const [saving, setSaving] = useState(false);
+  // The time the drop-in chip showed when it opened this form ("ca. 17.19")
+  // — what the host just told the guest. Kept for that party size only; the
+  // Add button starts without one (quoteFor answers at submit).
+  const chipQuoteRef = useRef(null);
   useEffect(() => {
     if (!addRequest?.n) return;
-    setForm((f) => ({ ...f, party_size: Number(addRequest.party) || 2 }));
+    const party = Number(addRequest.party) || 2;
+    chipQuoteRef.current = Number.isFinite(addRequest.at) ? { party, at: addRequest.at } : null;
+    setForm((f) => ({ ...f, party_size: party }));
     setAddErr("");
     setAdding(true);
-  }, [addRequest?.n, addRequest?.party]);
+  }, [addRequest?.n, addRequest?.party, addRequest?.at]);
   // Inline "pick a time" for Book, per entry.
   const [bookFor, setBookFor] = useState(null);
   const [bookTime, setBookTime] = useState(defaultBookTime);
@@ -253,14 +268,22 @@ export default function WaitlistSection({
       return;
     }
     setSaving(true);
+    const partySize = Math.max(1, Math.min(100, parseInt(form.party_size, 10) || 2));
+    // The time they were told: the chip's, while the party is the one the
+    // chip was for; else what the drop-in rule says for this size now.
+    // Unknown → not sent (the row then shows only the minutes waited).
+    const chip = chipQuoteRef.current;
+    const quotedMs = chip && chip.party === partySize ? chip.at : quoteFor ? quoteFor(partySize) : null;
     try {
       await api.post("/reservations/waitlist", {
         guest_name: form.guest_name.trim() || null,
         guest_phone: form.guest_phone.trim(),
-        party_size: Math.max(1, Math.min(100, parseInt(form.party_size, 10) || 2)),
+        party_size: partySize,
         waitlist_date: day,
         note: form.note.trim() || null,
+        ...(Number.isFinite(quotedMs) ? { quoted_at: new Date(quotedMs).toISOString() } : {}),
       });
+      chipQuoteRef.current = null;
       setForm({ guest_name: "", guest_phone: "", party_size: 2, note: "" });
       setAdding(false);
       reloadWaitlist();
@@ -305,12 +328,18 @@ export default function WaitlistSection({
     setBusyId(entry.id);
     try {
       const res = await api.post(`/reservations/waitlist/${entry.id}/notify`);
-      const { channel, phone } = res.data || {};
+      const { channel, phone, sms_error: smsError } = res.data || {};
       const sentBySms = channel === "sms";
+      const dial = displayPhone(phone || entry.guest_phone, phoneCountry);
       flashToast(
         sentBySms
           ? t("rsvpWlSmsSent", "SMS sent")
-          : t("rsvpWlNotifyCall", "No SMS on this plan — call {name} on {phone}.", { name: who, phone: phone || entry.guest_phone }),
+          // The number could not be read for this venue's country (fix round
+          // 12 Nov, #10): it was never texted — "no SMS on this plan" would
+          // send the owner to the wrong cause.
+          : smsError === "bad_number"
+            ? t("rsvpWlNotifyBadNumber", "Couldn't text that number — call {name} on {phone}.", { name: who, phone: dial })
+            : t("rsvpWlNotifyCall", "No SMS on this plan — call {name} on {phone}.", { name: who, phone: dial }),
         // The call fallback hands over a number to dial; give the host time to
         // read and dial it. "SMS sent" is just an outcome and can go quickly.
         sentBySms ? TOAST_MS : TOAST_ACTIONABLE_MS,
@@ -443,10 +472,92 @@ export default function WaitlistSection({
     }
   };
 
+  // A table's name as the host reads it ("Bord 2", never a bare "2").
+  const nameTables = (labels) => tablesName(labels, t, { appt: isProvider });
+
+  // Fix round 12 Nov: "Free now and fits: Bord 2" with the guest standing at
+  // the bar — ONE tap seats them there now. One server call does it all or
+  // nothing (POST /waitlist/{id}/seat): it checks the table is still free
+  // for the whole sitting, makes the drop-in seated at it with the entry's
+  // name, phone and note as written, and takes the entry off the list.
+  const reread = () => {
+    reloadWaitlist();
+    if (onConverted) onConverted();
+  };
+  const unseat = async (entry, name) => {
+    let ok = true;
+    try {
+      await api.post(`/reservations/waitlist/${entry.id}/unseat`, {});
+    } catch {
+      // Too late (10 min), already finished, or no answer: the seat stands
+      // — said, with the way to take it back by hand.
+      ok = false;
+    }
+    reread();
+    if (ok) window.dispatchEvent(new Event("bonbox-reservations-changed"));
+    appToast(ok
+      ? { severity: "info", message: t("rsvpWlSeatUndone", "Undone — {name} is back on the waitlist.", { name }) }
+      : { severity: "notice", message: t("rsvpWlUndoErr", "Couldn't undo — open the booking and remove the drop-in.") });
+  };
+  const seatNow = async (entry, fit) => {
+    if (busyId) return;
+    setBusyId(entry.id);
+    const name = whoOf(entry, t);
+    try {
+      const res = await api.post(`/reservations/waitlist/${entry.id}/seat`, { resource_ids: fit.tableIds });
+      reread();
+      window.dispatchEvent(new Event("bonbox-reservations-changed"));
+      // Named from the server's answer — where the party actually sits.
+      const seated = res?.data?.reservation;
+      const table = (seated && tableLabelFor?.(seated)) || nameTables(fit.label);
+      appToast({
+        severity: "success",
+        message: isProvider
+          ? t("rsvpWlSeatedAtAppt", "{name} checked in at {table}", { name, table })
+          : t("rsvpWlSeatedAt", "{name} seated at {table}", { name, table }),
+        action: { label: t("rsvpWlSeatUndo", "Undo"), onClick: () => unseat(entry, name) },
+      });
+    } catch (err) {
+      const code = err?.response?.status;
+      const d = err?.response?.data?.detail;
+      const why = code === 409 && d?.error;
+      const table = nameTables(d?.table);
+      // In words, never the code. A 404/405 whose detail is FastAPI's own
+      // string ("Not Found") is a route this door device's API does not have
+      // yet (deploy skew) — never our {"error": "not_found"}.
+      flashToast(
+        why === "table_occupied"
+          ? t("rsvpWlSeatTaken", "{table} is still taken — {name} is sitting there.", { table: nameTables(d.occupant?.table || fit.label), name: guestText(d.occupant?.name) || t("rsvpGuest", "Guest") })
+          : why === "slot_unavailable"
+            ? !table
+              ? t("rsvpSeatTableTaken", "That table is now taken — pick another free table.")
+              : d.at
+                ? t("rsvpWlSeatBooked", "{table} is booked at {time} — pick another table, or Book a time.", { table, time: hm(d.at) })
+                : t("rsvpWlSeatBookedNow", "{table} is held for a booking that is due now.", { table })
+            : why === "not_seatable"
+              ? t("rsvpWlGuestLeft", "They've left the waitlist.")
+              : code === 402
+                ? t("upgradeRequired", "Upgrade required")
+                : onStand && (code === 404 || code === 405) && typeof d === "string"
+                  ? t("rsvpWlStandUnavailable", "This door device can't do that yet — add them in BonBox on your phone.")
+                  : t("rsvpWlSeatErr", "Couldn't seat them just now — try again."),
+      );
+      // The room moved under the list: read it again, so the fit is redone.
+      if (code === 409 || code === 404) reread();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const dismissSpot = () => {
     setSpotBanner(null);
     setHighlight(new Set());
   };
+
+  // Who gets the one-tap seat when two parties fit the same table: the one
+  // who has waited longest (the list's order) — the others keep a quiet Seat.
+  const lineup = seatLineup(entries, fitFor);
+  const nowMs = Date.now();
 
   return (
     <section className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
@@ -479,7 +590,7 @@ export default function WaitlistSection({
             variant="secondary"
             size="sm"
             iconLeft={<Plus className="w-4 h-4" />}
-            onClick={() => { setAdding(true); setAddErr(""); }}
+            onClick={() => { chipQuoteRef.current = null; setAdding(true); setAddErr(""); }}
           >
             {t("rsvpWlAddCta", "Add")}
           </Button>
@@ -623,6 +734,20 @@ export default function WaitlistSection({
                           {waitedLabel(e.created_at)}
                         </span>
                       )}
+                      {/* The time they were told at the door — amber once it
+                          has passed and they are still waiting. */}
+                      {(() => {
+                        const q = quotedCue(e.quoted_at, nowMs);
+                        if (!q) return null;
+                        return (
+                          <span
+                            data-wl-quoted={q.late ? "late" : ""}
+                            className={"text-[11px] tabular-nums shrink-0 " + (q.late ? "font-medium text-amber-700 dark:text-amber-300" : "text-gray-500 dark:text-gray-400")}
+                          >
+                            {t("rsvpWlQuoted", "quoted ~{time}", { time: fmtTime(new Date(q.ms).toISOString()) })}
+                          </span>
+                        );
+                      })()}
                       {e.status === "notified" && (
                         <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
                           {t("rsvpWlNotified", "Notified")}
@@ -663,7 +788,7 @@ export default function WaitlistSection({
                       return (
                         <p className="mt-0.5 flex items-center gap-1.5 text-[12px] font-medium text-emerald-700 dark:text-emerald-400" data-wl-fit="">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400 shrink-0" aria-hidden="true" />
-                          {t("rsvpWlFitNow", "Free now and fits: {table}", { table: fit.label })}
+                          {t("rsvpWlFitNow", "Free now and fits: {table}", { table: nameTables(fit.label) })}
                         </p>
                       );
                     })()}
@@ -673,7 +798,7 @@ export default function WaitlistSection({
                     {e.guest_phone && (
                       <a href={`tel:${String(e.guest_phone).replace(/\s+/g, "")}`}
                         className="text-xs text-gray-600 dark:text-gray-300 tabular-nums hover:text-gray-900 dark:hover:text-gray-100">
-                        {e.guest_phone}
+                        {displayPhone(e.guest_phone, phoneCountry)}
                       </a>
                     )}
                   </div>
@@ -705,6 +830,34 @@ export default function WaitlistSection({
                     </button>
                   </div>
                 </div>
+                {/* Seat them at the free table now — one tap (fix round
+                    12 Nov). The party who has waited longest for that table
+                    gets the dark button; another party it also fits keeps a
+                    quiet Seat. Notify / Book / × above stay as they were. */}
+                {bookFor !== e.id && (() => {
+                  const seat = lineup.get(e.id);
+                  if (!seat?.fit?.tableIds?.length) return null;
+                  const p = seat.primary;
+                  const table = nameTables(seat.fit.label);
+                  const words = isProvider
+                    ? t("rsvpWlSeatAtAppt", "Check in at {table}", { table })
+                    : t("rsvpWlSeatAt", "Seat at {table}", { table });
+                  return (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Button variant={p ? "primary" : "secondary"} size={p ? "md" : "sm"} className={p ? "h-10" : ""}
+                        disabled={busy} data-wl-seat={p ? "primary" : "secondary"} aria-label={words}
+                        iconLeft={p ? busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Armchair className="w-4 h-4" /> : undefined}
+                        onClick={() => seatNow(e, seat.fit)}>
+                        {p ? words : isProvider ? t("rsvpSeatActionAppt", "Check in") : t("rsvpSeatAction", "Seat")}
+                      </Button>
+                      {p && seat.nextInLine && (
+                        <span data-wl-next="" className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                          {t("rsvpWlNextInLine", "next in line")}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
                 {/* Inline time picker for Book */}
                 {bookFor === e.id && (() => {
                   // Only times the venue is open for the whole sitting (a

@@ -183,6 +183,54 @@ export function waitlistFits({ entries, reservations, resources, nowMs, sittingF
   return out;
 }
 
+/**
+ * Who gets the one-tap "Seat at Bord 2" (fix round 12 Nov): Map(entry id →
+ * { fit, primary, nextInLine }). waitlistFits answers each party on its own,
+ * so two parties can both be told Bord 2 fits. In list order (the server's:
+ * first come, first served), the first party whose tables no earlier party
+ * claimed gets the primary button; a later party whose tables overlap one
+ * already claimed keeps a quiet "Seat" (the host may still choose them).
+ * `nextInLine` marks a primary that another party is waiting on as well.
+ * `fitOf(entry)` → { tableIds, … } | null.
+ */
+export function seatLineup(entries, fitOf) {
+  const out = new Map();
+  if (typeof fitOf !== "function") return out;
+  const claimedBy = new Map(); // table id → entry id of the primary
+  for (const e of entries || []) {
+    if (!e) continue;
+    const fit = fitOf(e);
+    const ids = Array.isArray(fit?.tableIds) ? fit.tableIds.map(String) : [];
+    if (!ids.length) continue;
+    const owners = ids.map((id) => claimedBy.get(id)).filter((x) => x != null);
+    if (!owners.length) {
+      ids.forEach((id) => claimedBy.set(id, e.id));
+      out.set(e.id, { fit, primary: true, nextInLine: false });
+    } else {
+      out.set(e.id, { fit, primary: false, nextInLine: false });
+      for (const o of owners) {
+        const first = out.get(o);
+        if (first) first.nextInLine = true;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The time a waiting party was told ("lovet ca. 17.19"): { ms, late } — late
+ * once that time has passed while they still wait — or null when nothing
+ * was quoted. The server stamps UTC with a "Z"; one without a zone is read
+ * as UTC too, as the row's waited-minutes are.
+ */
+export function quotedCue(quotedAt, nowMs) {
+  if (!quotedAt) return null;
+  const s = String(quotedAt);
+  const ms = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : `${s}Z`);
+  if (!Number.isFinite(ms)) return null;
+  return { ms, late: Number.isFinite(nowMs) && nowMs > ms };
+}
+
 const isoOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
 /** `iso` moved by `n` days (calendar days, local). */

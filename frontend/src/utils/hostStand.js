@@ -123,6 +123,89 @@ export function bookedWithinSitting(table, reservations, nowMs, sittingMin) {
   return starts.length ? Math.min(...starts) : null;
 }
 
+/**
+ * "Bord 3 is still taken": did the party sitting there only just sit down?
+ * True when they were seated under 45 minutes ago, or when their booked end
+ * is still more than 15 minutes away — then finishing them is almost
+ * certainly the wrong tap, and the dialog leads with "Another table"
+ * (waiter test, 12 Nov: Kristensen, seated a minute before, was one dark
+ * button away from being finished). False when neither is known: the
+ * dialog keeps its old order for a party nobody can date.
+ *
+ * `seatedAt` is the server's UTC stamp (seated_at); `endsAt` the booking's
+ * own naive venue-local end (ends_at).
+ */
+export const SEATED_RECENTLY_MIN = 45;
+export const ENDING_SOON_MIN = 15;
+export function occupantSeatedRecently({ seatedAt = null, endsAt = null, nowMs }) {
+  const now = Number(nowMs);
+  if (!Number.isFinite(now)) return false;
+  const s = stampMs(seatedAt);
+  if (s != null && now - s < SEATED_RECENTLY_MIN * 60000) return true;
+  const e = msOf(endsAt);
+  return e != null && now < e - ENDING_SOON_MIN * 60000;
+}
+
+/**
+ * The tables another live booking holds against `booking` — the drawer's
+ * "taken" (a Set of table ids; the page's busyForSelected).
+ *
+ * A booking holds a table when its window [starts_at, ends_at) — 90 minutes
+ * when there is no end — overlaps this booking's own. While this party sits
+ * down now (seated, or due within half an hour, or late), a party SEATED at a
+ * table holds it until they are finished, whatever either window says: the
+ * picker called Bord 3 free for Petersen, due at 16.45, while Kristensen still
+ * sat there past her booked 16.20 end (fix round 12 Nov, #3).
+ */
+export function tablesTakenFor(booking, reservations, nowMs) {
+  const out = new Set();
+  const a0 = msOf(booking?.starts_at);
+  if (a0 == null) return out;
+  const a1 = msOf(booking.ends_at) ?? a0 + 90 * 60000;
+  const sitsNow = booking.status === "seated"
+    || (["requested", "confirmed"].includes(booking.status) && a0 - nowMs <= 30 * 60000);
+  for (const x of reservations || []) {
+    if (!x || x.id === booking.id || !HOLDING.includes(x.status)) continue;
+    const b0 = msOf(x.starts_at);
+    if (b0 == null) continue;
+    const b1 = msOf(x.ends_at) ?? b0 + 90 * 60000;
+    const sittingThereNow = x.status === "seated" && sitsNow;
+    if (sittingThereNow || (b0 < a1 && a0 < b1)) heldIds(x).forEach((id) => out.add(id));
+  }
+  return out;
+}
+
+/**
+ * What the booking drawer's table picker says beside each table:
+ * Map(table id → { taken, bookedAt }).
+ *
+ * taken — `busyIds` (the page's busyForSelected: another live booking holds
+ *   the table inside this one's window — a party SEATED there counts until
+ *   it is finished while this one sits down now), the booking's OWN table
+ *   included: the picker said nothing beside the Bord 3 Petersen was booked
+ *   on while Kristensen sat there (waiter test, 12 Nov).
+ * bookedAt — a table not taken, while this party sits down now (seated, or
+ *   due within half an hour, or late): the start (ms) of the first booking
+ *   there inside their sitting of `sittingMin` minutes (bookedWithinSitting,
+ *   the seat sheet's own rule) — table 8 stood "free" with Møller booked at
+ *   16.49 inside the sitting. null otherwise. The booking's own hold never
+ *   counts against itself.
+ */
+export function drawerTableNotes({ booking, tables, reservations, nowMs, sittingMin, busyIds = null }) {
+  const out = new Map();
+  if (!booking) return out;
+  const others = (reservations || []).filter((x) => x && x.id !== booking.id);
+  const a0 = msOf(booking.starts_at);
+  const sitsNow = booking.status === "seated"
+    || (["requested", "confirmed"].includes(booking.status) && a0 != null && a0 - nowMs <= 30 * 60000);
+  for (const tb of tables || []) {
+    const id = String(tb.id);
+    const taken = !!busyIds?.has(id);
+    out.set(id, { taken, bookedAt: !taken && sitsNow ? bookedWithinSitting(tb, others, nowMs, sittingMin) : null });
+  }
+  return out;
+}
+
 // ── Joining tables: the booking engine's own rule ───────────────────────
 // A port of availability_engine.find_combo, NOT a second opinion: the door
 // may only call a set of tables "free" when the engine would seat a party

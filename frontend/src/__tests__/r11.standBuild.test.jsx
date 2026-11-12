@@ -78,7 +78,9 @@ describe("what the door screen reaches", () => {
       if (["components/FloorPlan.jsx", "components/reservations/NoTableFitsSheet.jsx",
         "components/reservations/EditBookingSheet.jsx",
         // Reservations v2 (12 Nov 2026): the month rail, on first use.
-        "components/reservations/DayRail.jsx"].includes(f)) continue;
+        "components/reservations/DayRail.jsx",
+        // Fix round (12 Nov 2026): the Timeline lens, on first use.
+        "components/reservations/TimelineView.jsx"].includes(f)) continue;
       expect(files, f).not.toContain(f);
     }
     expect(files.some((f) => f.startsWith("i18n/"))).toBe(false);

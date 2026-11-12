@@ -220,7 +220,7 @@ describe("the waitlist's table suggestion", () => {
     renderOwner();
     await waitFor(() => expect(document.querySelector("[data-wl-fit]")).not.toBeNull());
     // Free now for 90 min: tables 3 and 5 (6 is Hansen's at 18.30); the smallest that fits a 2 is 3.
-    expect(document.querySelector("[data-wl-fit]").textContent).toBe("Free now and fits: 3");
+    expect(document.querySelector("[data-wl-fit]").textContent).toBe("Free now and fits: Table 3");
   });
 
   it("says nothing when no table is free for the sitting", async () => {

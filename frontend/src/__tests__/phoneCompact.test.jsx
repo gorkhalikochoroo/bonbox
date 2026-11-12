@@ -530,7 +530,19 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     // Udeblevet on a late party (+1 button, +1 onClick, +1 disabled) — the
     // phone, the iPad, the door screen and the list beside the room had the
     // no-show only in the drawer. Was { onClick: 75, button: 53, disabled: 27 }.
-    "pages/ReservationsPage.jsx": { onClick: 76, onChange: 53, onSubmit: 10, ariaLabel: 55, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 2, role: 35, title: 24, id: 23, testid: 23, Button: 24, button: 54, Link: 5, disabled: 28, to: 5, href: 3, tKeys: 689 },
+    // Fix round (12 Nov 2026, waiter test) MOVED, nothing removed: the
+    // Timeline lens (TimelineView with its helpers and ComingSoonView — 3
+    // onClick, 1 aria-label, 4 title, 3 button, its 16 t() keys) to
+    // components/reservations/TimelineView.jsx, so the door screen's build
+    // loads it on first use (its JS budget); ZoneDot, statusLabels and
+    // minOfDay, which the list and the timeline share (1 aria-label, 1 role,
+    // 1 title, 7 t() keys), to components/reservations/bookParts.jsx. No
+    // t() key left the three files (14 now only in the moved ones). Each
+    // moved file is pinned below. Was { onClick: 76, ariaLabel: 55, role: 35,
+    // title: 24, button: 54, tKeys: 689 }.
+    "pages/ReservationsPage.jsx": { onClick: 73, onChange: 53, onSubmit: 10, ariaLabel: 53, ariaExpanded: 3, ariaHaspopup: 2, ariaPressed: 2, role: 34, title: 19, id: 23, testid: 23, Button: 24, button: 51, Link: 5, disabled: 28, to: 5, href: 3, tKeys: 675 },
+    "components/reservations/TimelineView.jsx": { onClick: 3, ariaLabel: 1, title: 4, button: 3, tKeys: 16 },
+    "components/reservations/bookParts.jsx": { ariaLabel: 1, role: 1, title: 1, tKeys: 7 },
     "components/reservations/DayRail.jsx": { onClick: 4, ariaLabel: 4, role: 1, button: 4, tKeys: 26 },
     "utils/serviceDay.js": { tKeys: 3 },
     "components/reservations/EditBookingSheet.jsx": { onClick: 7, onChange: 7, onSubmit: 1, ariaLabel: 2, ariaPressed: 1, role: 3, id: 7, Button: 5, button: 2, disabled: 2, tKeys: 30 },
@@ -548,6 +560,10 @@ describe("2. nothing removed: controls, ids, aria, handlers and texts per touche
     "components/dashboard/TodayOnShiftCard.jsx": ["todayOnShiftNone"],
     "pages/StaffSchedulePage.jsx": ["schedEmptyWeekShort"],
     "pages/InventoryPage.jsx": ["invKpiItemsShort", "invKpiLowShort", "invKpiFreshShort"],
+    // Review round (12 Nov 2026) ADDED, nothing removed: removing a drop-in
+    // that "Sæt ved" seated from the waitlist (within the undo window) says
+    // the party is back on the waitlist — the waitlist's own undo words.
+    "pages/ReservationsPage.jsx": ["rsvpWlSeatUndone"],
   };
   const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
   const PATS = { onClick: /\bonClick=/g, onChange: /\bonChange=/g, onSubmit: /\bonSubmit=/g, ariaLabel: /\baria-label=/g, ariaExpanded: /\baria-expanded=/g, ariaControls: /\baria-controls=/g, ariaHaspopup: /\baria-haspopup=/g, ariaPressed: /\baria-pressed=/g, role: /\brole=/g, title: /\btitle=/g, id: /\sid=/g, testid: /\bdata-testid=/g, Button: /<Button\b/g, button: /<button\b/g, Link: /<Link\b/g, disabled: /\bdisabled=/g, to: /\sto=/g, href: /\shref=/g };

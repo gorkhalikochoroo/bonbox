@@ -202,6 +202,9 @@ def test_seating_onto_a_table_someone_still_sits_at_is_refused_and_named(client,
     assert d["occupant"]["name"] == "Test Overdue"
     assert d["occupant"]["table"] == "Bord 1"
     assert d["occupant"]["over_min"] >= 29
+    # When they sat down (UTC "Z") — the app keeps "Another table" first for
+    # a party seated only just now (Reservations v2 fix #2).
+    assert d["occupant"]["seated_at"] and d["occupant"]["seated_at"].endswith("Z")
     # Nothing on the refused booking changed.
     db.expire_all()
     row = db.query(Reservation).filter(Reservation.id == uuid.UUID(b["id"])).one()

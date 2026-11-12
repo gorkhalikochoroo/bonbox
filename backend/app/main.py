@@ -2029,6 +2029,14 @@ _migrations = [
     # app/models/reservation_waitlist.py; documented in alembic 025.
     "ALTER TABLE reservation_waitlist ADD COLUMN IF NOT EXISTS converted_at TIMESTAMP",
 
+    # ── Migration 087 (2026-11-12): reservation_waitlist.quoted_at ──────
+    # The time the door told a waiting party to expect a table ("ca. 17.19"),
+    # kept on the row so the next host keeps the promise. Naive UTC like
+    # created_at; nullable, no default, no backfill (catalog-only ALTER on
+    # Postgres). Mirrors app/models/reservation_waitlist.py; documented in
+    # alembic 030. SQLite mirror below (_add).
+    "ALTER TABLE reservation_waitlist ADD COLUMN IF NOT EXISTS quoted_at TIMESTAMP",
+
     # ── Migration 023 (2026-05-31): persistent 2D floor-plan layout ──────
     # bookable_resources gains position + shape so the owner's drag-arranged
     # room map persists to the venue. Mirrors app/models/bookable_resource.py
@@ -3632,6 +3640,8 @@ def _run_migrations():
             ok += _add("expenses", "linked_expense_id", "VARCHAR(36)")
             # Mirror of reservations.completed_at (2026-10-12).
             ok += _add("reservations", "completed_at", "TIMESTAMP")
+            # Mirror of Migration 087 — reservation_waitlist.quoted_at (2026-11-12).
+            ok += _add("reservation_waitlist", "quoted_at", "TIMESTAMP")
             # Mirror of the accountant_grants invite-mail columns (2026-10-08).
             ok += _add("accountant_grants", "invite_mailed_at", "TIMESTAMP")
             ok += _add("accountant_grants", "invite_mail_held", "VARCHAR(32)")

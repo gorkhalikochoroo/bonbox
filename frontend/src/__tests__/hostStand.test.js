@@ -37,6 +37,9 @@ import {
   tablesOf,
   sameTables,
   stampIso,
+  occupantSeatedRecently,
+  drawerTableNotes,
+  tablesTakenFor,
 } from "../utils/hostStand";
 
 const DAY = "2026-10-12";
@@ -413,5 +416,148 @@ describe("comboLinks", () => {
   it("draws one group per booking even when every table repeats it", () => {
     const r = { id: "e", status: "seated", combined_resource_ids: ["31", "32"] };
     expect(comboLinks([r, r, r], pos)).toHaveLength(1);
+  });
+});
+
+// ── Fix round 12 Nov ─────────────────────────────────────────────────────
+// TZ=UTC in the test run: a booking's naive times read as UTC here.
+
+describe("occupantSeatedRecently — the 'still taken' dialog's order (#2)", () => {
+  const NOW = Date.parse("2026-11-12T16:00:00Z");
+  it("a party seated a minute ago is recent", () => {
+    expect(occupantSeatedRecently({ seatedAt: "2026-11-12T15:59:00Z", endsAt: "2026-11-12T17:29:00", nowMs: NOW })).toBe(true);
+  });
+  it("reads a seated_at without a zone as UTC (the server's stamp)", () => {
+    expect(occupantSeatedRecently({ seatedAt: "2026-11-12T15:50:00", endsAt: null, nowMs: NOW })).toBe(true);
+  });
+  it("a party seated two hours ago and over time is not", () => {
+    expect(occupantSeatedRecently({ seatedAt: "2026-11-12T14:00:00Z", endsAt: "2026-11-12T15:30:00", nowMs: NOW })).toBe(false);
+  });
+  it("a party with more than 15 minutes of their sitting left is recent, whenever they sat", () => {
+    expect(occupantSeatedRecently({ seatedAt: null, endsAt: "2026-11-12T16:40:00", nowMs: NOW })).toBe(true);
+    expect(occupantSeatedRecently({ seatedAt: "2026-11-12T14:30:00Z", endsAt: "2026-11-12T16:40:00", nowMs: NOW })).toBe(true);
+  });
+  it("a party seated 50 minutes ago and ending in 10 is not", () => {
+    expect(occupantSeatedRecently({ seatedAt: "2026-11-12T15:10:00Z", endsAt: "2026-11-12T16:10:00", nowMs: NOW })).toBe(false);
+  });
+  it("exactly 45 minutes is no longer recent; exactly 15 left is not either", () => {
+    expect(occupantSeatedRecently({ seatedAt: "2026-11-12T15:15:00Z", nowMs: NOW })).toBe(false);
+    expect(occupantSeatedRecently({ endsAt: "2026-11-12T16:15:00", nowMs: NOW })).toBe(false);
+  });
+  it("nothing known keeps the old order (not recent)", () => {
+    expect(occupantSeatedRecently({ seatedAt: null, endsAt: null, nowMs: NOW })).toBe(false);
+    expect(occupantSeatedRecently({ nowMs: NOW })).toBe(false);
+  });
+});
+
+describe("drawerTableNotes — what the booking's table picker says (#3)", () => {
+  const NOW = Date.parse("2026-11-12T16:00:00Z");
+  const T = (id, seats = 4) => ({ id, label: id, capacity_seats: seats });
+  const tables = [T("3"), T("5"), T("8")];
+  // Petersen, booked on Bord 3 at 15.55, late; Kristensen seated there now.
+  const petersen = { id: "p", status: "confirmed", resource_id: "3", party_size: 2, starts_at: "2026-11-12T15:55:00", ends_at: "2026-11-12T17:25:00", duration_min: 90 };
+  const kristensen = { id: "k", status: "seated", resource_id: "3", party_size: 2, starts_at: "2026-11-12T15:59:00", ends_at: "2026-11-12T17:29:00" };
+  // Møller booked on Bord 8 at 16.49 — inside a 90-minute sitting from now.
+  const moller = { id: "m", status: "confirmed", resource_id: "8", party_size: 2, starts_at: "2026-11-12T16:49:00", ends_at: "2026-11-12T18:19:00" };
+  const notes = (booking, reservations, extra = {}) =>
+    drawerTableNotes({ booking, tables, reservations, nowMs: NOW, sittingMin: 90, busyIds: new Set(), ...extra });
+
+  it("says the booking's own table is taken when the page counts it busy — it is no longer left out", () => {
+    // busyForSelected's answer with Kristensen seated on Bord 3: { "3" }.
+    const n = notes(petersen, [petersen, kristensen, moller], { busyIds: new Set(["3"]) });
+    expect(n.get("3")).toEqual({ taken: true, bookedAt: null });
+  });
+
+  it("says a free table is booked when a booking starts inside the sitting", () => {
+    const n = notes(petersen, [petersen, kristensen, moller]);
+    expect(n.get("8")).toEqual({ taken: false, bookedAt: Date.parse("2026-11-12T16:49:00Z") });
+    expect(n.get("5")).toEqual({ taken: false, bookedAt: null });
+  });
+
+  it("says nothing of a booking after the sitting", () => {
+    const later = { ...moller, starts_at: "2026-11-12T17:40:00", ends_at: "2026-11-12T19:10:00" };
+    expect(notes(petersen, [petersen, later]).get("8")).toEqual({ taken: false, bookedAt: null });
+  });
+
+  it("never counts the booking's own hold against itself", () => {
+    const n = notes(petersen, [petersen]);
+    expect(n.get("3")).toEqual({ taken: false, bookedAt: null });
+  });
+
+  it("other tables keep the page's busy rule", () => {
+    const n = notes(petersen, [petersen], { busyIds: new Set(["5"]) });
+    expect(n.get("5").taken).toBe(true);
+    expect(n.get("5").bookedAt).toBeNull();
+  });
+
+  it("a booking hours away gets no 'booked' warnings", () => {
+    const evening = { ...petersen, starts_at: "2026-11-12T20:00:00", ends_at: "2026-11-12T21:30:00" };
+    const n = notes(evening, [evening, kristensen, moller]);
+    expect(n.get("3")).toEqual({ taken: false, bookedAt: null });
+    expect(n.get("8")).toEqual({ taken: false, bookedAt: null });
+  });
+
+  it("a taken table never also says booked; a seated party sits down now", () => {
+    const seated = { ...petersen, status: "seated" };
+    const n = notes(seated, [seated, kristensen, moller], { busyIds: new Set(["3", "8"]) });
+    expect(n.get("3")).toEqual({ taken: true, bookedAt: null });
+    expect(n.get("8")).toEqual({ taken: true, bookedAt: null });
+    expect(notes(seated, [seated, moller]).get("8").bookedAt).toBe(Date.parse("2026-11-12T16:49:00Z"));
+  });
+
+  it("no booking, no notes", () => {
+    expect(drawerTableNotes({ booking: null, tables, reservations: [], nowMs: NOW, sittingMin: 90 }).size).toBe(0);
+  });
+});
+
+describe("tablesTakenFor — the drawer's 'taken' (#3, the page's busyForSelected)", () => {
+  // Now 16.30. Petersen is booked on Bord 3 at 16.45 (due within half an
+  // hour: she sits down now). Kristensen has sat on Bord 3 since 15.00, booked
+  // to 16.20 — over time, still there.
+  const NOW = Date.parse("2026-11-12T16:30:00Z");
+  const T = (id, seats = 4) => ({ id, label: id, capacity_seats: seats });
+  const tables = [T("3"), T("5"), T("8")];
+  const petersen = { id: "p", status: "confirmed", resource_id: "3", party_size: 2, starts_at: "2026-11-12T16:45:00", ends_at: "2026-11-12T18:15:00", duration_min: 90 };
+  const overTime = { id: "k", status: "seated", resource_id: "3", party_size: 2, starts_at: "2026-11-12T15:00:00", ends_at: "2026-11-12T16:20:00" };
+
+  it("a party seated past its booked end still takes the table while this one sits down now", () => {
+    const busy = tablesTakenFor(petersen, [petersen, overTime], NOW);
+    expect(busy.has("3")).toBe(true);
+    const n = drawerTableNotes({ booking: petersen, tables, reservations: [petersen, overTime], nowMs: NOW, sittingMin: 90, busyIds: busy });
+    expect(n.get("3")).toEqual({ taken: true, bookedAt: null });
+    expect(n.get("5")).toEqual({ taken: false, bookedAt: null });
+  });
+
+  it("the 12 Nov case: Kristensen seated a minute ago on Petersen's table", () => {
+    const k = { ...overTime, starts_at: "2026-11-12T16:29:00", ends_at: "2026-11-12T17:59:00" };
+    expect([...tablesTakenFor(petersen, [petersen, k], NOW)]).toEqual(["3"]);
+  });
+
+  it("a party seated early for a later booking sits there now all the same", () => {
+    const early = { ...overTime, starts_at: "2026-11-12T19:00:00", ends_at: "2026-11-12T20:30:00" };
+    expect(tablesTakenFor(petersen, [petersen, early], NOW).has("3")).toBe(true);
+  });
+
+  it("a booking hours away keeps the window rule: an over-time party is not 'taken' against it", () => {
+    const evening = { ...petersen, starts_at: "2026-11-12T20:00:00", ends_at: "2026-11-12T21:30:00" };
+    expect(tablesTakenFor(evening, [evening, overTime], NOW).size).toBe(0);
+    const overlapping = { ...overTime, status: "confirmed", starts_at: "2026-11-12T19:30:00", ends_at: "2026-11-12T21:00:00" };
+    expect([...tablesTakenFor(evening, [evening, overlapping], NOW)]).toEqual(["3"]);
+  });
+
+  it("a booking that does not overlap, a finished party and its own hold take nothing", () => {
+    const later = { id: "l", status: "confirmed", resource_id: "8", starts_at: "2026-11-12T18:30:00", ends_at: "2026-11-12T20:00:00" };
+    const done = { ...overTime, status: "completed" };
+    expect(tablesTakenFor(petersen, [petersen, later, done], NOW).size).toBe(0);
+  });
+
+  it("a joined party takes every table it sits at", () => {
+    const joined = { ...overTime, resource_id: "5", combined_resource_ids: ["5", 8] };
+    expect([...tablesTakenFor(petersen, [petersen, joined], NOW)].sort()).toEqual(["5", "8"]);
+  });
+
+  it("no booking (or no start), nothing taken", () => {
+    expect(tablesTakenFor(null, [overTime], NOW).size).toBe(0);
+    expect(tablesTakenFor({ id: "x", status: "confirmed" }, [overTime], NOW).size).toBe(0);
   });
 });

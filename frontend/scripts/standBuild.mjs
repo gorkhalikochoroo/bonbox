@@ -63,6 +63,9 @@ export const STAND_SWAPS = {
   // Reservations v2 (12 Nov 2026): the month rail behind the date button —
   // a host rarely changes the day mid-service.
   "components/reservations/DayRail.jsx": "stand/standDayRail.jsx",
+  // Fix round (12 Nov 2026): the Timeline lens, like the Plan lens — the
+  // door screen opens on the list.
+  "components/reservations/TimelineView.jsx": "stand/standTimelineView.jsx",
 };
 
 // The app build lists its dictionary files here (in dist/, removed again by

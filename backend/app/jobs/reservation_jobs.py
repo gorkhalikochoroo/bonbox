@@ -173,9 +173,14 @@ def send_reservation_reminders() -> int:
                         text = reminder_sms_text(
                             r, owner, biz=biz, when=when, phone=venue_phone,
                         )
+                        # The venue's country reads a number typed without a
+                        # country code (+45 / +351); one it cannot read is
+                        # never sent, and the e-mail below takes over.
+                        from app.services.owner_language import venue_country
                         outcome = sms_service.send_sms(
                             to=r.guest_phone, text=text,
                             sender=settings.get("sms_sender"),
+                            country=venue_country(profile, owner),
                         )
                         channel = "sms"
                         if outcome.get("ok"):

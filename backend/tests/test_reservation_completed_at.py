@@ -12,6 +12,8 @@ Locks under test:
   • Finishing a seated party stamps completed_at; it is never before seated_at.
   • Reopening a finished table clears completed_at and keeps the real seat time.
   • A row finished before the column existed reads null — never a guess.
+  • Undoing a seating (seated → confirmed/requested) clears seated_at; a
+    re-seat stamps a fresh one (#7, 12 Nov).
   • The startup migration and its SQLite mirror both carry the column.
 
 Run: cd backend && python3 -m pytest tests/test_reservation_completed_at.py -x -q
@@ -170,6 +172,61 @@ def test_a_row_finished_before_the_column_reads_null(client, db):
     r.completed_at = None
     db.commit()
     assert _row_in_book(client, a["id"])["completed_at"] is None
+
+
+def _confirmed_now(client, u, t, name="Test Fortryd"):
+    now = now_local(u).replace(tzinfo=None, second=0, microsecond=0)
+    res = client.post("/api/reservations/book", json={
+        "guest_name": name, "party_size": 2, "source": "manual",
+        "starts_at": now.isoformat(), "resource_id": str(t.id),
+    })
+    assert res.status_code in (200, 201), res.text
+    return res.json()
+
+
+def test_undo_seating_clears_the_seat_time(client, db):
+    """#7 (12 Nov): "Fortryd placering" answered status=confirmed with the old
+    seated_at still set — a party that never sat down kept a seat time."""
+    u, t = _venue(db)
+    a = _confirmed_now(client, u, t)
+    assert _status(client, a["id"], "seated")["seated_at"] is not None
+    out = _status(client, a["id"], "confirmed")
+    assert out["status"] == "confirmed"
+    assert out["seated_at"] is None
+    db.expire_all()
+    r = db.query(Reservation).filter(Reservation.id == uuid.UUID(a["id"])).one()
+    assert r.seated_at is None
+    assert _row_in_book(client, a["id"])["seated_at"] is None
+
+
+def test_undo_of_a_walk_in_seating_clears_the_seat_time(client, db):
+    u, t = _venue(db)
+    a = _seated_now(client, u, t)
+    out = _status(client, a["id"], "confirmed")
+    assert out["seated_at"] is None
+
+
+def test_re_seating_after_an_undo_stamps_a_fresh_seat_time(client, db):
+    u, t = _venue(db)
+    a = _confirmed_now(client, u, t)
+    _status(client, a["id"], "seated")
+    _status(client, a["id"], "confirmed")
+    again = _status(client, a["id"], "seated")
+    assert again["seated_at"] is not None
+    _utc(again["seated_at"])
+
+
+def test_finished_without_re_seating_after_an_undo_reports_no_stay(client, db):
+    """The stale stamp's real harm: undo, then mark finished straight away —
+    the history showed a stay from a seating that was taken back."""
+    u, t = _venue(db)
+    a = _confirmed_now(client, u, t)
+    _status(client, a["id"], "seated")
+    _status(client, a["id"], "confirmed")
+    _status(client, a["id"], "completed")
+    row = _row_in_book(client, a["id"])
+    assert row["status"] == "completed"
+    assert row["seated_at"] is None
 
 
 def test_migration_and_sqlite_mirror_carry_completed_at():
